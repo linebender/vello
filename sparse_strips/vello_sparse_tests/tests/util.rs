@@ -138,7 +138,7 @@ pub(crate) fn get_ctx<T: Renderer>(
                 panic!("avx2 or fma feature not detected");
             }
         }
-        "baseline" => Level::baseline(),
+        "fallback" => Level::fallback(),
         _ => panic!("unknown level: {level}"),
     };
 

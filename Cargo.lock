@@ -4109,6 +4109,7 @@ name = "vello_sparse_tests"
 version = "0.0.0"
 dependencies = [
  "bytemuck",
+ "fearless_simd",
  "image",
  "oxipng",
  "pollster",
