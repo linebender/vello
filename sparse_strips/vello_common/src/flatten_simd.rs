@@ -340,14 +340,14 @@ fn approx_parabola_integral_simd<S: Simd, F: SimdFloat<S, Element = f32>>(x: F) 
 ///
 /// SIMD version of [`approx_parabola_inv_integral`].
 #[inline(always)]
-fn approx_parabola_inv_integral_simd<S: Simd, F: SimdFloat<S, Element = f32>>(x: F) -> F {
-    let simd = x.witness();
+fn approx_parabola_inv_integral_simd<S: Simd>(x: f32x8<S>) -> f32x8<S> {
+    let simd = x.simd;
 
     const B: f32 = 0.39;
     const ONE_MINUS_B: f32 = 1.0 - B;
 
-    let temp = F::splat(simd, 0.25).mul_add(x * x, B * B).sqrt();
-    let factor = F::splat(simd, ONE_MINUS_B) + temp;
+    let temp = f32x8::splat(simd, 0.25).mul_add(x * x, B * B).sqrt();
+    let factor = f32x8::splat(simd, ONE_MINUS_B) + temp;
     x * factor
 }
 
