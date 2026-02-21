@@ -316,49 +316,39 @@ fn is_finite_simd<S: Simd>(x: f32x4<S>) -> mask32x4<S> {
     simd.simd_lt_u32x4(reinterpreted, u32x4::splat(simd, 0x7f80_0000))
 }
 
+/// An approximation to $\int (1 + 4x^2) ^ -0.25 dx$
+///
+/// This is used for flattening curves.
+///
+/// SIMD version of [`approx_parabola_integral`].
 #[inline(always)]
-fn approx_parabola_integral_simd<S: Simd>(x: f32x8<S>) -> f32x8<S> {
-    let simd = x.simd;
+fn approx_parabola_integral_simd<S: Simd, F: SimdFloat<S, Element = f32>>(x: F) -> F {
+    let simd = x.witness();
 
     const D: f32 = 0.67;
     const D_POWI_4: f32 = 0.201_511_2;
 
-    let temp1 = f32x8::splat(simd, 0.25).mul_add(x * x, f32x8::splat(simd, D_POWI_4));
-    let temp2 = temp1.sqrt();
-    let temp3 = temp2.sqrt();
-    let temp4 = f32x8::splat(simd, 1.0) - f32x8::splat(simd, D);
-    let temp5 = temp4 + temp3;
-    x / temp5
+    let temp = F::splat(x.witness(), 0.25)
+        .mul_add(x * x, F::splat(simd, D_POWI_4))
+        .sqrt()
+        .sqrt();
+    let denom = temp + (1. - D);
+    x / denom
 }
 
+/// An approximation to the inverse parabola integral.
+///
+/// SIMD version of [`approx_parabola_inv_integral`].
 #[inline(always)]
-fn approx_parabola_integral_simd_x4<S: Simd>(x: f32x4<S>) -> f32x4<S> {
-    let simd = x.simd;
-
-    const D: f32 = 0.67;
-    const D_POWI_4: f32 = 0.201_511_2;
-
-    let temp1 = f32x4::splat(simd, 0.25).mul_add(x * x, f32x4::splat(simd, D_POWI_4));
-    let temp2 = temp1.sqrt();
-    let temp3 = temp2.sqrt();
-    let temp4 = f32x4::splat(simd, 1.0) - f32x4::splat(simd, D);
-    let temp5 = temp4 + temp3;
-    x / temp5
-}
-
-#[inline(always)]
-fn approx_parabola_inv_integral_simd<S: Simd>(x: f32x8<S>) -> f32x8<S> {
-    let simd = x.simd;
+fn approx_parabola_inv_integral_simd<S: Simd, F: SimdFloat<S, Element = f32>>(x: F) -> F {
+    let simd = x.witness();
 
     const B: f32 = 0.39;
     const ONE_MINUS_B: f32 = 1.0 - B;
 
-    let temp1 = f32x8::splat(simd, B * B);
-    let temp2 = f32x8::splat(simd, 0.25).mul_add(x * x, temp1);
-    let temp3 = temp2.sqrt();
-    let temp4 = f32x8::splat(simd, ONE_MINUS_B) + temp3;
-
-    x * temp4
+    let temp = F::splat(simd, 0.25).mul_add(x * x, B * B).sqrt();
+    let factor = F::splat(simd, ONE_MINUS_B) + temp;
+    x * factor
 }
 
 #[inline(always)]
@@ -495,7 +485,7 @@ fn estimate_subdiv_simd<S: Simd>(simd: S, sqrt_tol: f32, ctx: &mut FlattenCtx) {
         let noncusp = da_abs * sqrt_scale;
         // TODO: should we skip this if neither is a cusp? Maybe not worth branch prediction cost
         let xmin = sqrt_tol / sqrt_scale;
-        let approxint = approx_parabola_integral_simd_x4(xmin);
+        let approxint = approx_parabola_integral_simd(xmin);
         let cusp = (sqrt_tol * da_abs) / approxint;
         let val_raw = simd.select_f32x4(mask, noncusp, cusp);
         let finite_mask = is_finite_simd(val_raw);
