@@ -714,9 +714,7 @@ impl<const MODE: u8> Wide<MODE> {
     /// - Generating filter commands for each tile
     /// - Popping any associated clip
     /// - Applying mask, opacity, and blend mode operations if needed
-    ///
-    /// It returns the bounding box of the layer in wide tile coordinates.
-    pub fn pop_layer(&mut self, render_graph: &mut RenderGraph) -> WideTilesBbox {
+    pub fn pop_layer(&mut self, render_graph: &mut RenderGraph) {
         // This method basically unwinds everything we did in `push_layer`.
         let mut layer = self.layer_stack.pop().unwrap();
 
@@ -761,13 +759,11 @@ impl<const MODE: u8> Wide<MODE> {
             }
         }
 
-        let layer_bbox = layer.wtile_bbox;
-
         // Union this layer's bbox into the parent layer's bbox.
         // This ensures the parent knows about all tiles used by this child layer,
         // which is important for filter effects that may expand beyond the original content bounds.
         if let Some(parent_layer) = self.layer_stack.last_mut() {
-            parent_layer.wtile_bbox.union(layer_bbox);
+            parent_layer.wtile_bbox.union(layer.wtile_bbox);
         }
 
         if layer.clip {
@@ -805,8 +801,6 @@ impl<const MODE: u8> Wide<MODE> {
         if in_clipped_filter_layer {
             self.clipped_filter_layer_depth -= 1;
         }
-
-        layer_bbox
     }
 
     /// Adds a clipping region defined by the provided strips.

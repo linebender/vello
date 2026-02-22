@@ -602,8 +602,6 @@ impl Scene {
             return false;
         }
 
-        // All conditions are met! We are rendering this blit in the fast path!
-
         // Pre-transform rect dimensions in geometry space.
         let rect_wh = [
             pixel_snap(rect.x1 - rect.x0).max(0.0) as u16,
@@ -613,6 +611,8 @@ impl Scene {
         if rect_wh[0] == 0 || rect_wh[1] == 0 {
             return true; // Zero-size rect, nothing to draw.
         }
+
+        // All conditions are met! We are rendering this blit in the fast path!
 
         // Compute the screen-space quad via center + column vectors.
         //
@@ -782,13 +782,7 @@ impl Scene {
     /// Pop the last pushed layer.
     pub fn pop_layer(&mut self) {
         self.enter_strip_mode();
-        let layer_bbox = self.wide.pop_layer(&mut self.render_graph);
-        if self.render_hints.blit_rect_pipeline_enabled() && !layer_bbox.is_inverted() {
-            // Push the dirty rect for the layer to the dirty rects list.
-            let [x0, y0, x1, y1] = layer_bbox.pixel_bounds();
-            self.strips_dirty_rects
-                .push(x0 as u16, y0 as u16, x1 as u16, y1 as u16);
-        }
+        self.wide.pop_layer(&mut self.render_graph);
     }
 
     /// Set the blend mode for subsequent rendering operations.
