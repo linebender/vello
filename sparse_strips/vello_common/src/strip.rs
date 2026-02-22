@@ -403,8 +403,8 @@ fn render_impl<S: Simd>(
             // `if first > second { first } else { second }`. For AArch64, we do require the
             // `f32x4::max_precise` semantics (as `vmax_f32` returns NaN if either operand is NaN);
             // however, for AArch64 the precise version should be comparatively less expensive than
-            // on x86. For `min`, we then know both operands are finite, so we can unambigously use
-            // the relaxed version. If this ever breaks, tests should fail loudly, because NaNs
+            // on x86. For `min`, we then know both operands are finite, so we can unambiguously
+            // use the relaxed version. If this ever breaks, tests should fail loudly, because NaNs
             // happen a lot here!
             trait F32x4MaxExt {
                 fn max_if_first_nan_take_second(self, rhs: Self) -> Self;
