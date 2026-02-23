@@ -114,7 +114,9 @@ struct Config {
     // Pre-calculated on CPU since WebGL2 doesn't support `firstTrailingBit`.
     encoded_paints_tex_width_bits: u32,
     // Padding to satisfy WebGL's 16-byte alignment requirement for uniform buffers.
-    _padding: array<u32, 3>,
+    _padding0: u32,
+    _padding1: u32,
+    _padding2: u32,
 }
 
 // `paint` bit layout:
