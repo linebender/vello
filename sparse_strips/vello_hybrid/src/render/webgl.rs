@@ -1370,8 +1370,9 @@ fn create_texture_inner(gl: &WebGl2RenderingContext, target: u32) -> WebGlTextur
     let texture = gl.create_texture().unwrap();
     gl.active_texture(WebGl2RenderingContext::TEXTURE0);
     gl.bind_texture(target, Some(&texture));
-    // The actual sampling/wrapping behavior doesn't matter since we always
-    // sample in-bounds and apply the logic for that behavior ourselves.
+    // The filter and wrap modes are irrelevant because the shader
+    // (`render_strips.wgsl`) exclusively uses `textureLoad`, which bypasses
+    // the sampler entirely.
     gl.tex_parameteri(
         target,
         WebGl2RenderingContext::TEXTURE_MIN_FILTER,
