@@ -1189,7 +1189,7 @@ fn has_non_zero_alpha(rgba: u32) -> bool {
     rgba >= 0x1_00_00_00
 }
 
-pub(crate) fn genereate_gpu_strips_for_fast_path(
+pub(crate) fn generate_gpu_strips_for_fast_path(
     buffer: &FastStripsBuffer,
     scene: &Scene,
     paint_idxs: &[u32],

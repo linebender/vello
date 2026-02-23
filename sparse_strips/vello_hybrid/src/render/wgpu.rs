@@ -34,7 +34,7 @@ use crate::{
     scene::Scene,
     schedule::{
         LoadOp, RendererBackend, Scheduler, SchedulerState,
-        genereate_gpu_strips_for_fast_path,
+        generate_gpu_strips_for_fast_path,
     },
 };
 use alloc::vec::Vec;
@@ -161,12 +161,14 @@ impl Renderer {
         );
         let result = if scene.strips_fast_path_active {
             self.fast_path_gpu_strips.clear();
-            genereate_gpu_strips_for_fast_path(
+            
+            generate_gpu_strips_for_fast_path(
                 &scene.fast_strips_buffer,
                 scene,
                 &self.paint_idxs,
                 &mut self.fast_path_gpu_strips,
             );
+            
             if !self.fast_path_gpu_strips.is_empty() {
                 let mut ctx = RendererContext {
                     programs: &mut self.programs,
