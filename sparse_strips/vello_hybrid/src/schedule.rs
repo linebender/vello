@@ -1061,7 +1061,7 @@ impl Scheduler {
 
                 match scene.encoded_paints.get(paint_id) {
                     Some(EncodedPaint::Image(encoded_image)) => match &encoded_image.source {
-                        ImageSource::OpaqueId(_) => {
+                        ImageSource::OpaqueId { .. } => {
                             let paint_packed = (COLOR_SOURCE_PAYLOAD << 30)
                                 | (PAINT_TYPE_IMAGE << 27)
                                 | (paint_idx & 0x07FFFFFF);

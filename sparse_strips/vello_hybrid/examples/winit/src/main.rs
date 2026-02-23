@@ -39,12 +39,13 @@ struct App<'s> {
     frame_count: u32,
     fps_update_time: Instant,
     accumulated_frame_time: f64,
+    accumulated_render_time: f64,
 }
 
 fn main() {
     #[cfg(not(target_arch = "wasm32"))]
     let (scenes, start_scene_index) = {
-        let mut start_scene_index = 0;
+        let mut start_scene_index = 6; // MultiImageScene
         let args: Vec<String> = env::args().collect();
         let mut svg_paths: Vec<&str> = Vec::new();
 
@@ -60,8 +61,8 @@ fn main() {
             }
         }
         let img_sources = vec![
-            ImageSource::OpaqueId(ImageId::new(0)),
-            ImageSource::OpaqueId(ImageId::new(1)),
+            ImageSource::opaque_id_with_opacity_hint(ImageId::new(0), false),
+            ImageSource::opaque_id(ImageId::new(1)),
         ];
         let scenes = if svg_paths.is_empty() {
             get_example_scenes(None, img_sources)
@@ -75,8 +76,8 @@ fn main() {
     #[cfg(target_arch = "wasm32")]
     let (scenes, start_scene_index) = (
         get_example_scenes(vec![
-            ImageSource::OpaqueId(ImageId::new(0)),
-            ImageSource::OpaqueId(ImageId::new(1)),
+            ImageSource::opaque_id(ImageId::new(0)),
+            ImageSource::opaque_id(ImageId::new(1)),
         ]),
         0,
     );
@@ -96,6 +97,7 @@ fn main() {
         frame_count: 0,
         fps_update_time: now,
         accumulated_frame_time: 0.0,
+        accumulated_render_time: 0.0,
     };
 
     let event_loop = EventLoop::new().unwrap();
@@ -288,21 +290,32 @@ impl ApplicationHandler for App<'_> {
                     if now.duration_since(self.fps_update_time).as_secs_f64() >= 1.0 {
                         let avg_frame_time = self.accumulated_frame_time / self.frame_count as f64;
                         let avg_fps = 1000.0 / avg_frame_time;
-                        println!("Average FPS: {avg_fps:.1}");
+                        let avg_render_time =
+                            self.accumulated_render_time / self.frame_count as f64;
+                        let status = self.scenes[self.current_scene]
+                            .status()
+                            .map(|s| format!(" - {s}"))
+                            .unwrap_or_default();
+                        println!(
+                            "FPS: {avg_fps:.1} | render: {avg_render_time:.2}ms | frame: {avg_frame_time:.2}ms{status}"
+                        );
                         window.set_title(&format!(
-                            "Vello Hybrid - Scene {} - {:.1} FPS ({:.2}ms avg)",
-                            self.current_scene, avg_fps, avg_frame_time
+                            "Vello Hybrid - Scene {} - {:.1} FPS (render {:.2}ms){status}",
+                            self.current_scene, avg_fps, avg_render_time
                         ));
 
                         // Reset counters
                         self.frame_count = 0;
                         self.accumulated_frame_time = 0.0;
+                        self.accumulated_render_time = 0.0;
                         self.fps_update_time = now;
                     }
                 }
                 self.last_frame_time = Some(now);
 
                 self.scene.reset();
+
+                let render_start = Instant::now();
 
                 self.scene.set_transform(self.transform);
                 self.scenes[self.current_scene].render(&mut self.scene, self.transform);
@@ -345,6 +358,8 @@ impl ApplicationHandler for App<'_> {
                 surface_texture.present();
 
                 device_handle.device.poll(wgpu::PollType::Poll).unwrap();
+
+                self.accumulated_render_time += render_start.elapsed().as_secs_f64() * 1000.0;
 
                 // Request continuous redraw for FPS measurement
                 window.request_redraw();

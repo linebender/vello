@@ -604,7 +604,7 @@ const HELLO_WORLD: &[Sprite] = &[
 #[vello_test(width = 60, height = 30, skip_hybrid)]
 fn image_spritesheet(ctx: &mut impl Renderer) {
     let atlas_id = ctx.register_image(load_image!("glyph_atlas"));
-    let atlas_src = ImageSource::OpaqueId(atlas_id);
+    let atlas_src = ImageSource::opaque_id(atlas_id);
 
     let start_x = 10.0;
     let start_y = 8.0;

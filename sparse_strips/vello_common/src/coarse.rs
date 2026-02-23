@@ -1279,69 +1279,52 @@ impl<const MODE: u8> WideTile<MODE> {
         fill_hint: FillHint,
     ) {
         if !self.is_zero_clip() || self.in_clipped_filter_layer {
-            match MODE {
-                MODE_CPU => {
-                    // Check if we can apply overdraw elimination optimization.
-                    // This requires filling the entire tile width with no clip/buffer stack.
-                    //
-                    // Note that we could be more aggressive in optimizing a whole-tile opaque fill
-                    // even with a clip stack. It would be valid to elide all drawing commands from
-                    // the enclosing clip push up to the fill. Further, we could extend the clip
-                    // push command to include a background color, rather than always starting with
-                    // a transparent buffer. Lastly, a sequence of push(bg); strip/fill; pop could
-                    // be replaced with strip/fill with the color (the latter is true even with a
-                    // non-opaque color).
-                    //
-                    // However, the extra cost of tracking such optimizations may outweigh the
-                    // benefit, especially in hybrid mode with GPU painting.
-                    let can_override =
-                        x == 0 && width == WideTile::WIDTH && self.n_clip == 0 && self.n_bufs == 0;
+            // Check if we can apply overdraw elimination optimization.
+            // This requires filling the entire tile width with no clip/buffer stack.
+            //
+            // Note that we could be more aggressive in optimizing a whole-tile opaque fill
+            // even with a clip stack. It would be valid to elide all drawing commands from
+            // the enclosing clip push up to the fill. Further, we could extend the clip
+            // push command to include a background color, rather than always starting with
+            // a transparent buffer. Lastly, a sequence of push(bg); strip/fill; pop could
+            // be replaced with strip/fill with the color (the latter is true even with a
+            // non-opaque color).
+            //
+            // However, the extra cost of tracking such optimizations may outweigh the
+            // benefit, especially in hybrid mode with GPU painting.
+            let can_override =
+                x == 0 && width == WideTile::WIDTH && self.n_clip == 0 && self.n_bufs == 0;
 
-                    if can_override {
-                        match fill_hint {
-                            FillHint::OpaqueSolid(color) => {
-                                self.cmds.clear();
-                                self.bg = color;
-                                if let Some(ranges) =
-                                    self.layer_cmd_ranges.get_mut(&current_layer_id)
-                                {
-                                    ranges.clear();
-                                }
-                                return;
-                            }
-                            FillHint::OpaqueImage => {
-                                // Opaque image: clear previous commands but still emit the fill.
-                                self.cmds.clear();
-                                self.bg = PremulColor::from_alpha_color(TRANSPARENT);
-                                if let Some(ranges) =
-                                    self.layer_cmd_ranges.get_mut(&current_layer_id)
-                                {
-                                    ranges.clear();
-                                }
-                                // Fall through to emit the fill command below, as opposed to
-                                // solid paints where we have a return statement.
-                            }
-                            FillHint::None => {}
+            if can_override {
+                match fill_hint {
+                    FillHint::OpaqueSolid(color) => {
+                        self.cmds.clear();
+                        self.bg = color;
+                        if let Some(ranges) = self.layer_cmd_ranges.get_mut(&current_layer_id) {
+                            ranges.clear();
                         }
+                        return;
                     }
-
-                    self.record_fill_cmd(current_layer_id, self.cmds.len());
-                    self.cmds.push(Cmd::Fill(CmdFill {
-                        x,
-                        width,
-                        attrs_idx,
-                    }));
+                    FillHint::OpaqueImage => {
+                        // Opaque image: clear previous commands but still emit the fill.
+                        self.cmds.clear();
+                        self.bg = PremulColor::from_alpha_color(TRANSPARENT);
+                        if let Some(ranges) = self.layer_cmd_ranges.get_mut(&current_layer_id) {
+                            ranges.clear();
+                        }
+                        // Fall through to emit the fill command below, as opposed to
+                        // solid paints where we have a return statement.
+                    }
+                    FillHint::None => {}
                 }
-                MODE_HYBRID => {
-                    self.record_fill_cmd(current_layer_id, self.cmds.len());
-                    self.cmds.push(Cmd::Fill(CmdFill {
-                        x,
-                        width,
-                        attrs_idx,
-                    }));
-                }
-                _ => unreachable!(),
             }
+
+            self.record_fill_cmd(current_layer_id, self.cmds.len());
+            self.cmds.push(Cmd::Fill(CmdFill {
+                x,
+                width,
+                attrs_idx,
+            }));
         }
     }
 

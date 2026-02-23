@@ -285,8 +285,8 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
 
     let scenes = {
         let v = vello_example_scenes::get_example_scenes(vec![
-            ImageSource::OpaqueId(ImageId::new(0)),
-            ImageSource::OpaqueId(ImageId::new(1)),
+            ImageSource::opaque_id(ImageId::new(0)),
+            ImageSource::opaque_id(ImageId::new(1)),
         ])
         .into_vec();
         v.into_boxed_slice()

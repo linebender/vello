@@ -74,10 +74,45 @@ pub enum ImageSource {
     /// Pixmap pixels travel with the scene packet.
     Pixmap(Arc<Pixmap>),
     /// Pixmap pixels were registered earlier; this is just a handle.
-    OpaqueId(ImageId),
+    OpaqueId {
+        /// The image handle.
+        id: ImageId,
+        /// Whether the image may contain non-opaque pixels.
+        may_have_opacities: bool,
+    },
 }
 
 impl ImageSource {
+    /// Create an [`ImageSource`] from a pre-registered image handle.
+    ///
+    /// Conservatively assumes the image may have non-opaque pixels.
+    /// Use [`Self::opaque_id_with_opacity_hint`] when you know the image is fully opaque.
+    pub fn opaque_id(id: ImageId) -> Self {
+        Self::OpaqueId {
+            id,
+            may_have_opacities: true,
+        }
+    }
+
+    /// Create an [`ImageSource`] from a pre-registered image handle,
+    /// with an explicit hint about whether the image may have non-opaque pixels.
+    pub fn opaque_id_with_opacity_hint(id: ImageId, may_have_opacities: bool) -> Self {
+        Self::OpaqueId {
+            id,
+            may_have_opacities,
+        }
+    }
+
+    /// Returns whether this image source may contain non-opaque pixels.
+    pub fn may_have_opacities(&self) -> bool {
+        match self {
+            Self::Pixmap(p) => p.may_have_opacities(),
+            Self::OpaqueId {
+                may_have_opacities, ..
+            } => *may_have_opacities,
+        }
+    }
+
     /// Convert a [`peniko::ImageData`] to an [`ImageSource`].
     ///
     /// This is a somewhat lossy conversion, as the image data data is transformed to

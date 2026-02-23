@@ -498,25 +498,13 @@ impl EncodeExt for Image {
 
         let (x_advance, y_advance) = x_y_advances(&transform);
 
-        let encoded = match &self.image {
-            ImageSource::Pixmap(pixmap) => EncodedImage {
-                source: ImageSource::Pixmap(pixmap.clone()),
-                sampler,
-                may_have_opacities: pixmap.may_have_opacities(),
-                transform,
-                x_advance,
-                y_advance,
-            },
-            ImageSource::OpaqueId(image) => EncodedImage {
-                source: ImageSource::OpaqueId(*image),
-                sampler,
-                // Safe fallback: we don't have access to pixel data for externally
-                // registered images, so we conservatively assume they have opacities.
-                may_have_opacities: true,
-                transform,
-                x_advance,
-                y_advance,
-            },
+        let encoded = EncodedImage {
+            may_have_opacities: self.image.may_have_opacities(),
+            source: self.image.clone(),
+            sampler,
+            transform,
+            x_advance,
+            y_advance,
         };
 
         paints.push(EncodedPaint::Image(encoded));
