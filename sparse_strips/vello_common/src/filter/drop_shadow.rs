@@ -7,7 +7,7 @@ use crate::color::{AlphaColor, Srgb};
 use crate::filter::gaussian_blur::{MAX_KERNEL_SIZE, plan_decimated_blur, transform_blur_params};
 use crate::filter::transform_offset_params;
 use crate::filter_effects::EdgeMode;
-use crate::kurbo::{Affine, Vec2};
+use crate::kurbo::Affine;
 
 /// A drop shadow filter.
 #[derive(Debug)]
