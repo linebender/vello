@@ -35,8 +35,7 @@ use crate::{
     },
     scene::Scene,
     schedule::{
-        LoadOp, RendererBackend, Scheduler, SchedulerState,
-        generate_gpu_strips_for_fast_path,
+        LoadOp, RendererBackend, Scheduler, SchedulerState, generate_gpu_strips_for_fast_path,
     },
 };
 use alloc::sync::Arc;
@@ -195,14 +194,14 @@ impl WebGlRenderer {
         );
         if scene.strips_fast_path_active {
             self.fast_path_gpu_strips.clear();
-            
+
             generate_gpu_strips_for_fast_path(
                 &scene.fast_strips_buffer,
                 scene,
                 &self.paint_idxs,
                 &mut self.fast_path_gpu_strips,
             );
-            
+
             if !self.fast_path_gpu_strips.is_empty() {
                 let mut ctx = WebGlRendererContext {
                     programs: &mut self.programs,
