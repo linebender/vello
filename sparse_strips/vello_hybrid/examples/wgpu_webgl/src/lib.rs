@@ -90,6 +90,7 @@ impl RendererWrapper {
                     atlas_size: (max_texture_dimension_2d, max_texture_dimension_2d),
                     ..AtlasConfig::default()
                 },
+                ..Default::default()
             },
         );
 
