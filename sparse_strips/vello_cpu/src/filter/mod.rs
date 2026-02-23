@@ -15,7 +15,7 @@ mod offset;
 mod shift;
 
 use crate::layer_manager::LayerManager;
-use vello_common::filter::InstantiatedFilter;
+use vello_common::filter::PreparedFilter;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::Affine;
 use vello_common::pixmap::Pixmap;
@@ -63,19 +63,19 @@ pub(crate) fn filter_lowp(
     layer_manager: &mut LayerManager,
     transform: Affine,
 ) {
-    let instantiated_filter = InstantiatedFilter::new(filter, &transform);
+    let prepared_filter = PreparedFilter::new(filter, &transform);
 
-    match instantiated_filter {
-        InstantiatedFilter::Flood(flood) => {
+    match prepared_filter {
+        PreparedFilter::Flood(flood) => {
             flood.execute_lowp(pixmap, layer_manager);
         }
-        InstantiatedFilter::GaussianBlur(blur) => {
+        PreparedFilter::GaussianBlur(blur) => {
             blur.execute_lowp(pixmap, layer_manager);
         }
-        InstantiatedFilter::Offset(offset) => {
+        PreparedFilter::Offset(offset) => {
             offset.execute_lowp(pixmap, layer_manager);
         }
-        InstantiatedFilter::DropShadow(drop_shadow) => {
+        PreparedFilter::DropShadow(drop_shadow) => {
             drop_shadow.execute_lowp(pixmap, layer_manager);
         }
     }
@@ -101,19 +101,19 @@ pub(crate) fn filter_highp(
     layer_manager: &mut LayerManager,
     transform: Affine,
 ) {
-    let instantiated_filter = InstantiatedFilter::new(filter, &transform);
+    let prepared_filter = PreparedFilter::new(filter, &transform);
 
-    match instantiated_filter {
-        InstantiatedFilter::Flood(flood) => {
+    match prepared_filter {
+        PreparedFilter::Flood(flood) => {
             flood.execute_highp(pixmap, layer_manager);
         }
-        InstantiatedFilter::GaussianBlur(blur) => {
+        PreparedFilter::GaussianBlur(blur) => {
             blur.execute_highp(pixmap, layer_manager);
         }
-        InstantiatedFilter::Offset(offset) => {
+        PreparedFilter::Offset(offset) => {
             offset.execute_highp(pixmap, layer_manager);
         }
-        InstantiatedFilter::DropShadow(drop_shadow) => {
+        PreparedFilter::DropShadow(drop_shadow) => {
             drop_shadow.execute_highp(pixmap, layer_manager);
         }
     }

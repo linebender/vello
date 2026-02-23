@@ -19,9 +19,9 @@ pub mod flood;
 pub mod gaussian_blur;
 pub mod offset;
 
-/// A filter that has been instantiated for a specific affine transformation.
+/// A filter that has been prepared for rendering.
 #[derive(Debug)]
-pub enum InstantiatedFilter {
+pub enum PreparedFilter {
     /// A flood filter.
     Flood(Flood),
     /// A gaussian blur filter.
@@ -32,8 +32,8 @@ pub enum InstantiatedFilter {
     DropShadow(DropShadow),
 }
 
-impl InstantiatedFilter {
-    /// Build a new instantiated filter.
+impl PreparedFilter {
+    /// Build a new prepared filter for the given transform.
     pub fn new(filter: &Filter, transform: &Affine) -> Self {
         // Multi-primitive filter graphs are not yet implemented.
         if filter.graph.primitives.len() != 1 {
