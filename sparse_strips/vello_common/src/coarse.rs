@@ -63,6 +63,10 @@ pub const MODE_CPU: u8 = 0;
 /// generation specific for `vello_hybrid`.
 pub const MODE_HYBRID: u8 = 1;
 
+/// The index that in `push_buf_indices` is reserved for indicating the target is the final
+/// destination surface.
+const TARGET_SURFACE_PUSH_BUF_IDX: usize = usize::MAX;
+
 /// A container for wide tiles.
 #[derive(Debug)]
 pub struct Wide<const MODE: u8 = MODE_CPU> {
@@ -324,7 +328,6 @@ impl<const MODE: u8> Wide<MODE> {
         for tile in &mut self.tiles {
             tile.bg = PremulColor::from_alpha_color(TRANSPARENT);
             tile.cmds.clear();
-            tile.cmds.push(Cmd::Start(false));
             tile.n_zero_clip = 0;
             tile.n_clip = 0;
             tile.n_bufs = 0;
@@ -334,7 +337,10 @@ impl<const MODE: u8> Wide<MODE> {
             tile.layer_cmd_ranges
                 .insert(0, LayerCommandRanges::default());
             tile.push_buf_indices.clear();
-            tile.push_buf_indices.push(0);
+            // We can't use 0 here, because then we have no way of distinguishing it from a
+            // user-supplied `PushBuf` at position 0.
+            tile.push_buf_indices.push(TARGET_SURFACE_PUSH_BUF_IDX);
+            tile.surface_is_blend_target = false;
         }
         self.attrs.clear();
         self.layer_stack.clear();
@@ -1203,6 +1209,11 @@ pub struct WideTile<const MODE: u8 = MODE_CPU> {
     pub layer_ids: Vec<LayerKind>,
     /// Tracks the index into `cmds` of each `Start`/`PushBuf` command on the current stack.
     push_buf_indices: Vec<usize>,
+    /// Indicates whether the main target surface is used as a blend target for a non
+    /// src-over blending operation.
+    ///
+    /// This is mainly needed to inform scheduling purposes in vello_hybrid.
+    surface_is_blend_target: bool,
 }
 
 impl WideTile {
@@ -1235,14 +1246,15 @@ impl<const MODE: u8> WideTile<MODE> {
             x,
             y,
             bg: PremulColor::from_alpha_color(TRANSPARENT),
-            cmds: vec![Cmd::Start(false)],
+            cmds: vec![],
             n_zero_clip: 0,
             n_clip: 0,
             n_bufs: 0,
             in_clipped_filter_layer: false,
             layer_cmd_ranges,
             layer_ids: vec![LayerKind::Regular(0)],
-            push_buf_indices: vec![0],
+            push_buf_indices: vec![TARGET_SURFACE_PUSH_BUF_IDX],
+            surface_is_blend_target: false,
         }
     }
 
@@ -1425,6 +1437,12 @@ impl<const MODE: u8> WideTile<MODE> {
         });
     }
 
+    /// Whether the set of pushed commands so far indicates that the surface is used as
+    /// a blend target.
+    pub fn surface_is_blend_target(&self) -> bool {
+        self.surface_is_blend_target
+    }
+
     /// Push a buffer for a new layer.
     ///
     /// Different layer kinds are handled differently:
@@ -1514,10 +1532,15 @@ impl<const MODE: u8> WideTile<MODE> {
 
         if blends_into_dest && self.push_buf_indices.len() >= 2 {
             let nos_idx = self.push_buf_indices[self.push_buf_indices.len() - 2];
-            match &mut self.cmds[nos_idx] {
-                Cmd::PushBuf(_, is_blend_target) => *is_blend_target = true,
-                Cmd::Start(is_blend_target) => *is_blend_target = true,
-                _ => unreachable!(),
+
+            if nos_idx == TARGET_SURFACE_PUSH_BUF_IDX {
+                self.surface_is_blend_target = true;
+            } else {
+                match &mut self.cmds[nos_idx] {
+                    Cmd::PushBuf(_, is_blend_target) => *is_blend_target = true,
+                    // Anything else shouldn't be possible.
+                    _ => unreachable!(),
+                }
             }
         }
         self.cmds.push(Cmd::Blend(blend_mode));
@@ -1609,12 +1632,6 @@ impl LayerKind {
 /// (`Filter`, `Blend`, `Opacity`, `Mask`).
 #[derive(Debug, PartialEq)]
 pub enum Cmd {
-    /// Marks the start of a tile's command list.
-    ///
-    /// The first argument indicates whether the current layer (i.e. the final target surface)
-    /// is used as a destination for a blending operation with a non-default blend mode. This
-    /// information is only needed by `vello_hybrid` for scheduling purposes.
-    Start(bool),
     /// Fill a rectangular region with a solid color or paint.
     Fill(CmdFill),
     /// Fill a region with a paint, modulated by an alpha mask.
@@ -1679,8 +1696,6 @@ impl Cmd {
     /// **Note:** This method is only available in debug builds (`debug_assertions`).
     pub fn name(&self) -> &'static str {
         match self {
-            Self::Start(false) => "Start(false)",
-            Self::Start(true) => "Start(true)",
             Self::Fill(_) => "FillPath",
             Self::AlphaFill(_) => "AlphaFillPath",
             Self::PushBuf(layer_kind, needs_temp) => match (layer_kind, needs_temp) {
@@ -1967,8 +1982,7 @@ mod tests {
         wide.fill(10, 10, 0, 0, FillHint::None);
         wide.pop_buf();
 
-        assert_eq!(wide.cmds.len(), 5);
-        assert!(matches!(wide.cmds[0], Cmd::Start(_)));
+        assert_eq!(wide.cmds.len(), 4);
     }
 
     #[test]
@@ -1982,7 +1996,7 @@ mod tests {
         wide.blend(blend_mode);
         wide.pop_buf();
 
-        assert_eq!(wide.cmds.len(), 6);
+        assert_eq!(wide.cmds.len(), 5);
     }
 
     #[test]
@@ -1995,7 +2009,7 @@ mod tests {
         wide.blend(blend_mode);
         wide.pop_buf();
 
-        assert_eq!(wide.cmds.len(), 5);
+        assert_eq!(wide.cmds.len(), 4);
     }
 
     #[test]

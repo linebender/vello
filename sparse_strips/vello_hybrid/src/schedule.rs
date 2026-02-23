@@ -475,6 +475,7 @@ impl Scheduler {
                     wide_tile_x,
                     wide_tile_y,
                     &wide_tile.cmds,
+                    wide_tile.surface_is_blend_target(),
                     paint_idxs,
                     &scene.wide.attrs,
                 )?;
@@ -622,6 +623,7 @@ impl Scheduler {
         wide_tile_x: u16,
         wide_tile_y: u16,
         wide_tile_cmds: &[Cmd],
+        surface_is_blend_target: bool,
         paint_idxs: &[u32],
         attrs: &CommandAttrs,
     ) -> Result<(), RenderError> {
@@ -647,20 +649,15 @@ impl Scheduler {
         // by the user, there is no way we can read from it, which is required for blending. Therefore,
         // in this case we need to "wrap" _everything_ into a push/pop layer operation.
 
-        let mut surface_is_blend_target = false;
+        if surface_is_blend_target {
+            self.do_push_buf(state, renderer, true)?;
+        }
 
         for cmd in wide_tile_cmds {
             // Note: this starts at 1 (for the final target)
             let depth = state.tile_state.stack.len();
 
             match cmd {
-                Cmd::Start(is_blend_target) => {
-                    surface_is_blend_target = *is_blend_target;
-
-                    if *is_blend_target {
-                        self.do_push_buf(state, renderer, true)?;
-                    }
-                }
                 Cmd::Fill(fill) => {
                     let el = state.tile_state.stack.last_mut().unwrap();
                     let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
@@ -841,11 +838,13 @@ impl Scheduler {
                 _ => unreachable!(),
             }
         }
+
         if surface_is_blend_target {
             // Simple source-over compositing into the final render target.
             self.do_blend(state, wide_tile_x, wide_tile_y, &BlendMode::default());
             self.do_pop_buf(state);
         }
+
         Ok(())
     }
 
