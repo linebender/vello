@@ -1196,7 +1196,7 @@ pub(crate) fn generate_gpu_strips_for_fast_path(
     gpu_strips: &mut Vec<GpuStrip>,
 ) {
     for path in &buffer.paths {
-        let strips = &buffer.strips[path.strip_start..path.strip_end];
+        let strips = &buffer.strips[path.strips.clone()];
 
         if strips.is_empty() {
             continue;

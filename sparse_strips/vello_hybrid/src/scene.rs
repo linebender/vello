@@ -6,6 +6,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
+use core::ops::Range;
 use vello_common::clip::ClipContext;
 use vello_common::coarse::{MODE_HYBRID, Wide};
 use vello_common::encode::{EncodeExt, EncodedPaint};
@@ -33,10 +34,8 @@ pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 /// Metadata for a single path stored in the fast strips buffer.
 #[derive(Debug)]
 pub(crate) struct FastStripsPath {
-    /// The index of the first strip of the path in the `strips` buffer.
-    pub(crate) strip_start: usize,
-    /// The (exclusive) last index of the path in the `strips` buffer.
-    pub(crate) strip_end: usize,
+    /// The range of strips for this path in the `strips` buffer.
+    pub(crate) strips: Range<usize>,
     /// The paint of the path.
     pub(crate) paint: Paint,
 }
@@ -160,12 +159,11 @@ pub struct Scene {
 macro_rules! submit_strips {
     ($self:ident, $strips:expr, $paint:expr) => {
         if $self.strips_fast_path_active {
-            let strip_start = $self.fast_strips_buffer.strips.len();
+            let start = $self.fast_strips_buffer.strips.len();
             $self.fast_strips_buffer.strips.extend_from_slice($strips);
-            let strip_end = $self.fast_strips_buffer.strips.len();
+            let end = $self.fast_strips_buffer.strips.len();
             $self.fast_strips_buffer.paths.push(FastStripsPath {
-                strip_start,
-                strip_end,
+                strips: start..end,
                 paint: $paint,
             });
         } else {
@@ -435,14 +433,10 @@ impl Scene {
         if !self.strips_fast_path_active {
             return;
         }
-
-        for i in 0..self.fast_strips_buffer.paths.len() {
-            let start = self.fast_strips_buffer.paths[i].strip_start;
-            let end = self.fast_strips_buffer.paths[i].strip_end;
-            let paint = self.fast_strips_buffer.paths[i].paint.clone();
+        for path in &self.fast_strips_buffer.paths {
             self.wide.generate(
-                &self.fast_strips_buffer.strips[start..end],
-                paint,
+                &self.fast_strips_buffer.strips[path.strips.clone()],
+                path.paint.clone(),
                 BlendMode::default(),
                 0,
                 None,
