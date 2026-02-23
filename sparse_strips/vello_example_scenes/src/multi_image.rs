@@ -7,7 +7,7 @@
 use crate::{ExampleScene, RenderingContext};
 use std::fmt::{Debug, Formatter, Result};
 use vello_common::color::palette::css::WHITE;
-use vello_common::kurbo::{Affine, Rect};
+use vello_common::kurbo::{Affine, Rect, Vec2};
 use vello_common::paint::{Image, ImageSource};
 use vello_common::peniko::{Extend, ImageQuality, ImageSampler};
 
@@ -74,8 +74,8 @@ impl ExampleScene for MultiImageScene {
     fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
         let vw = ctx.width() as f64;
         let vh = ctx.height() as f64;
-        let [a, b, c, d, e, f] = root_transform.as_coeffs();
-        let snapped_root = Affine::new([a, b, c, d, e.round(), f.round()]);
+        let t = root_transform.translation();
+        let snapped_root = root_transform.with_translation(Vec2::new(t.x.round(), t.y.round()));
 
         for p in &self.placements {
             let x = (p.nx * vw).round();

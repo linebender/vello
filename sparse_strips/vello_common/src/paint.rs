@@ -75,7 +75,7 @@ pub enum ImageSource {
     Pixmap(Arc<Pixmap>),
     /// Pixmap pixels were registered earlier; this is just a handle.
     ///
-    /// The `bool` indicates whether the image may contain non-opaque pixels.
+    /// The `bool` indicates whether the image may contain non-opaque pixels. If unsure, set this to `true`.
     OpaqueId(ImageId, bool),
 }
 
