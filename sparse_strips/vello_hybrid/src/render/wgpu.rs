@@ -168,16 +168,15 @@ impl Renderer {
                 &mut self.fast_path_gpu_strips,
             );
 
-            if !self.fast_path_gpu_strips.is_empty() {
-                let mut ctx = RendererContext {
-                    programs: &mut self.programs,
-                    device,
-                    queue,
-                    encoder,
-                    view,
-                };
-                ctx.render_strips(&self.fast_path_gpu_strips, 2, LoadOp::Clear);
-            }
+            let mut ctx = RendererContext {
+                programs: &mut self.programs,
+                device,
+                queue,
+                encoder,
+                view,
+            };
+            ctx.render_strips(&self.fast_path_gpu_strips, 2, LoadOp::Clear);
+
             Ok(())
         } else {
             let mut ctx = RendererContext {
