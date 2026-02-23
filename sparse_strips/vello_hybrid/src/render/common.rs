@@ -40,6 +40,9 @@ pub struct Config {
     /// Number of trailing zeros in `alphas_tex_width` (log2 of width).
     /// Pre-calculated on CPU since downlevel targets do not support `firstTrailingBit`.
     pub alphas_tex_width_bits: u32,
+    /// Number of trailing zeros in the encoded paints texture width (log2 of width).
+    /// Pre-calculated on CPU since downlevel targets do not support `firstTrailingBit`.
+    pub encoded_paints_tex_width_bits: u32,
 }
 
 /// Represents a GPU strip for rendering.

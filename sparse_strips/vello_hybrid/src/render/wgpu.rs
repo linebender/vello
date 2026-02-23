@@ -965,6 +965,7 @@ impl Programs {
                 height: render_size.height,
                 strip_height: Tile::HEIGHT.into(),
                 alphas_tex_width_bits: alpha_texture_width.trailing_zeros(),
+                encoded_paints_tex_width_bits: alpha_texture_width.trailing_zeros(),
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         })
@@ -1334,6 +1335,7 @@ impl Programs {
                 height: new_render_size.height,
                 strip_height: Tile::HEIGHT.into(),
                 alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+                encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
             };
             let mut buffer = queue
                 .write_buffer_with(&self.resources.view_config_buffer, 0, SIZE_OF_CONFIG)

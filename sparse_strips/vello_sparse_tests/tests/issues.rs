@@ -554,7 +554,6 @@ fn issue_1433(ctx: &mut impl Renderer) {
     ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 4.0));
 }
 
-
 #[vello_test(width = 10, height = 10)]
 fn issue_1468(ctx: &mut impl Renderer) {
     const NUM_IMAGES: usize = 6000;
@@ -569,7 +568,11 @@ fn issue_1468(ctx: &mut impl Renderer) {
     for i in 0..NUM_IMAGES {
         let mut pix = Pixmap::new(1, 1);
         let val = (i % 255 + 1) as u8;
-        pix.set_pixel(0, 0, PremulRgba8::from_u32(u32::from_be_bytes([val, val, val, 255])));
+        pix.set_pixel(
+            0,
+            0,
+            PremulRgba8::from_u32(u32::from_be_bytes([val, val, val, 255])),
+        );
         let source = ctx.get_image_source(Arc::new(pix));
         ctx.set_paint(Image {
             image: source,
@@ -579,7 +582,11 @@ fn issue_1468(ctx: &mut impl Renderer) {
     }
 
     let mut final_pix = Pixmap::new(1, 1);
-    final_pix.set_pixel(0, 0, PremulRgba8::from_u32(u32::from_be_bytes([255, 0, 0, 255])));
+    final_pix.set_pixel(
+        0,
+        0,
+        PremulRgba8::from_u32(u32::from_be_bytes([255, 0, 0, 255])),
+    );
     let final_source = ctx.get_image_source(Arc::new(final_pix));
     ctx.set_paint(Image {
         image: final_source,

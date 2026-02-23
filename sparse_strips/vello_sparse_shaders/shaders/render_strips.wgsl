@@ -110,6 +110,9 @@ struct Config {
     // Number of trailing zeros in alphas_tex_width (log2 of width).
     // Pre-calculated on CPU since WebGL2 doesn't support `firstTrailingBit`.
     alphas_tex_width_bits: u32,
+    // Number of trailing zeros in encoded_paints_tex_width (log2 of width).
+    // Pre-calculated on CPU since WebGL2 doesn't support `firstTrailingBit`.
+    encoded_paints_tex_width_bits: u32,
 }
 
 // `paint` bit layout:
@@ -784,8 +787,10 @@ struct EncodedImage {
 
 // Convert a flat texel index to 2D texture coordinates for the encoded paints texture.
 fn encoded_paint_coord(flat_idx: u32) -> vec2<u32> {
-    let w = textureDimensions(encoded_paints_texture).x;
-    return vec2<u32>(flat_idx % w, flat_idx / w);
+    return vec2<u32>(
+        flat_idx & ((1u << config.encoded_paints_tex_width_bits) - 1u),
+        flat_idx >> config.encoded_paints_tex_width_bits
+    );
 }
 
 // Unpack encoded image from the encoded paints texture.
