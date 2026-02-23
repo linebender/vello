@@ -41,10 +41,11 @@ pub(crate) struct FastStripsPath {
 }
 
 /// A buffer that collects strips from paths that bypass coarse rasterization and scheduling.
+///
+/// Strip data itself lives in `strip_storage`. Each `FastStripsPath` records the range of strips
+/// for one path within that storage.
 #[derive(Debug, Default)]
 pub(crate) struct FastStripsBuffer {
-    /// The strips for all paths in the buffer.
-    pub(crate) strips: Vec<Strip>,
     /// All paths in the buffer.
     pub(crate) paths: Vec<FastStripsPath>,
 }
@@ -52,7 +53,6 @@ pub(crate) struct FastStripsBuffer {
 impl FastStripsBuffer {
     #[inline(always)]
     fn clear(&mut self) {
-        self.strips.clear();
         self.paths.clear();
     }
 }
@@ -157,19 +157,22 @@ pub struct Scene {
 }
 
 // We use this macro instead of a method to avoid borrowing issues in the corresponding methods.
+//
+// When the fast path is active it is in `Append` mode, so `$strip_start` (captured before generation)
+// and the current length delimit the range for this path.
+//
+// When the fast path is inactive, `strip_storage` is in `Replace` mode where each generation starts
+// with a clear, so the whole buffer is the current path's strips.
 macro_rules! submit_strips {
-    ($self:ident, $strips:expr, $paint:expr) => {
+    ($self:ident, $strip_storage:expr, $strip_start:expr, $paint:expr) => {
         if $self.strips_fast_path_active {
-            let start = $self.fast_strips_buffer.strips.len();
-            $self.fast_strips_buffer.strips.extend_from_slice($strips);
-            let end = $self.fast_strips_buffer.strips.len();
             $self.fast_strips_buffer.paths.push(FastStripsPath {
-                strips: start..end,
+                strips: $strip_start..$strip_storage.strips.len(),
                 paint: $paint,
             });
         } else {
             $self.wide.generate(
-                $strips,
+                &$strip_storage.strips,
                 $paint,
                 $self.blend_mode,
                 0,
@@ -202,7 +205,8 @@ impl Scene {
             paint_visible: true,
             stroke: render_state.stroke,
             strip_generator: StripGenerator::new(width, height, settings.level),
-            strip_storage: RefCell::new(StripStorage::default()),
+            // Start strip storage in `Append` mode since we enable the fast path by default.
+            strip_storage: RefCell::new(StripStorage::new(GenerationMode::Append)),
             transform: render_state.transform,
             fill_rule: render_state.fill_rule,
             blend_mode: render_state.blend_mode,
@@ -289,6 +293,7 @@ impl Scene {
         aliasing_threshold: Option<u8>,
     ) {
         let strip_storage = &mut self.strip_storage.borrow_mut();
+        let strip_start = strip_storage.strips.len();
         self.strip_generator.generate_filled_path(
             path,
             fill_rule,
@@ -298,7 +303,7 @@ impl Scene {
             self.clip_context.get(),
         );
 
-        submit_strips!(self, &strip_storage.strips, paint);
+        submit_strips!(self, strip_storage, strip_start, paint);
     }
 
     /// Push a new clip path to the clip stack.
@@ -347,6 +352,7 @@ impl Scene {
         aliasing_threshold: Option<u8>,
     ) {
         let strip_storage = &mut self.strip_storage.borrow_mut();
+        let strip_start = strip_storage.strips.len();
         self.strip_generator.generate_stroked_path(
             path,
             &self.stroke,
@@ -356,7 +362,7 @@ impl Scene {
             self.clip_context.get(),
         );
 
-        submit_strips!(self, &strip_storage.strips, paint);
+        submit_strips!(self, strip_storage, strip_start, paint);
     }
 
     /// Set the aliasing threshold.
@@ -406,13 +412,14 @@ impl Scene {
         let paint = self.encode_current_paint();
         let transformed_rect = self.transform.transform_rect_bbox(*rect);
         let strip_storage = &mut self.strip_storage.borrow_mut();
+        let strip_start = strip_storage.strips.len();
         self.strip_generator.generate_filled_rect_fast(
             &transformed_rect,
             strip_storage,
             self.clip_context.get(),
         );
 
-        submit_strips!(self, &strip_storage.strips, paint);
+        submit_strips!(self, strip_storage, strip_start, paint);
     }
 
     /// Stroke a rectangle with the current paint and stroke settings.
@@ -430,20 +437,26 @@ impl Scene {
     ///
     /// This retroactively generates wide tile commands for all strips that have been generated
     /// using the fast path.
+    ///
+    /// After this call, `strip_storage` is switched back to `Replace` mode.
     fn flush_fast_path(&mut self) {
         if !self.strips_fast_path_active {
             return;
         }
-        for path in &self.fast_strips_buffer.paths {
+
+        let mut strip_storage = self.strip_storage.borrow_mut();
+        for path in self.fast_strips_buffer.paths.drain(..) {
             self.wide.generate(
-                &self.fast_strips_buffer.strips[path.strips.clone()],
-                path.paint.clone(),
+                &strip_storage.strips[path.strips],
+                path.paint,
                 BlendMode::default(),
                 0,
                 None,
                 &self.encoded_paints,
             );
         }
+
+        strip_storage.set_generation_mode(GenerationMode::Replace);
         self.strips_fast_path_active = false;
     }
 
@@ -603,7 +616,12 @@ impl Scene {
         self.wide.reset();
         self.strip_generator.reset();
         self.clip_context.reset();
-        self.strip_storage.borrow_mut().clear();
+        // Set the strip storage back to `Append` mode since the fast path is re-enabled on reset.
+        {
+            let mut ss = self.strip_storage.borrow_mut();
+            ss.clear();
+            ss.set_generation_mode(GenerationMode::Append);
+        }
         self.encoded_paints.clear();
 
         let render_state = Self::default_render_state();
@@ -917,7 +935,26 @@ impl Scene {
         );
         let paint = self.encode_current_paint();
 
-        submit_strips!(self, &adjusted_strips[start..end], paint);
+        if self.strips_fast_path_active {
+            let mut strip_storage = self.strip_storage.borrow_mut();
+            let strip_start = strip_storage.strips.len();
+            strip_storage
+                .strips
+                .extend_from_slice(&adjusted_strips[start..end]);
+            self.fast_strips_buffer.paths.push(FastStripsPath {
+                strips: strip_start..strip_storage.strips.len(),
+                paint,
+            });
+        } else {
+            self.wide.generate(
+                &adjusted_strips[start..end],
+                paint,
+                self.blend_mode,
+                0,
+                None,
+                &self.encoded_paints,
+            );
+        }
     }
 
     /// Prepare cached strips for rendering by adjusting alpha indices and extending alpha buffer.

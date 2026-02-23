@@ -176,7 +176,7 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
-use crate::scene::FastStripsBuffer;
+use crate::scene::FastStripsPath;
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -1190,13 +1190,15 @@ fn has_non_zero_alpha(rgba: u32) -> bool {
 }
 
 pub(crate) fn generate_gpu_strips_for_fast_path(
-    buffer: &FastStripsBuffer,
+    paths: &[FastStripsPath],
     scene: &Scene,
     paint_idxs: &[u32],
     gpu_strips: &mut Vec<GpuStrip>,
 ) {
-    for path in &buffer.paths {
-        let strips = &buffer.strips[path.strips.clone()];
+    let strip_storage = scene.strip_storage.borrow();
+
+    for path in paths {
+        let strips = &strip_storage.strips[path.strips.clone()];
 
         if strips.is_empty() {
             continue;

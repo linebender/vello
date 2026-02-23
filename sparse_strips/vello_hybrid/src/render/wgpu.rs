@@ -162,7 +162,7 @@ impl Renderer {
             self.fast_path_gpu_strips.clear();
 
             generate_gpu_strips_for_fast_path(
-                &scene.fast_strips_buffer,
+                &scene.fast_strips_buffer.paths,
                 scene,
                 &self.paint_idxs,
                 &mut self.fast_path_gpu_strips,
