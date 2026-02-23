@@ -1535,12 +1535,12 @@ impl<const MODE: u8> WideTile<MODE> {
 
     /// Blend the current buffer into the previous buffer in the stack.
     fn blend(&mut self, blend_mode: BlendMode) {
-        // Whether we use a non-default blend mode to blend into the destination.
-        let blends_into_dest =
-            blend_mode.mix != Mix::Normal || blend_mode.compose != Compose::SrcOver;
-
         #[allow(clippy::collapsible_if, reason = "better expresses intent")]
         if MODE == MODE_HYBRID {
+            // Whether we use a non-default blend mode to blend into the destination.
+            let blends_into_dest =
+                blend_mode.mix != Mix::Normal || blend_mode.compose != Compose::SrcOver;
+
             if blends_into_dest && self.push_buf_indices.len() >= 2 {
                 let nos_idx = self.push_buf_indices[self.push_buf_indices.len() - 2];
 
