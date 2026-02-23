@@ -18,11 +18,13 @@ criterion_group!(tile, tile::tile);
 criterion_group!(flatten, flatten::flatten);
 criterion_group!(strokes, flatten::strokes);
 criterion_group!(render_strips, strip::render_strips);
+criterion_group!(render_rect, strip::render_rect);
 criterion_group!(glyph, glyph::glyph);
 criterion_group!(integration_bench, integration::images);
 criterion_main!(
     tile,
     render_strips,
+    render_rect,
     flatten,
     strokes,
     glyph,

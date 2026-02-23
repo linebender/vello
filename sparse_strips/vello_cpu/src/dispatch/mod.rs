@@ -6,7 +6,7 @@ pub(crate) mod multi_threaded;
 pub(crate) mod single_threaded;
 
 use crate::RenderMode;
-use crate::kurbo::{Affine, BezPath, Stroke};
+use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use core::fmt::Debug;
 use vello_common::coarse::Wide;
@@ -45,6 +45,15 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         paint: Paint,
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
+        mask: Option<Mask>,
+        encoded_paints: &[EncodedPaint],
+    );
+    /// Fill a pixel-aligned rectangle with the current paint.
+    fn fill_rect_fast(
+        &mut self,
+        rect: &Rect,
+        paint: Paint,
+        blend_mode: BlendMode,
         mask: Option<Mask>,
         encoded_paints: &[EncodedPaint],
     );
