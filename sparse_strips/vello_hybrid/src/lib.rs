@@ -61,7 +61,7 @@ pub use render::{AtlasWriter, RenderTargetConfig, Renderer};
 pub use render::{Config, GpuStrip, RenderSize};
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 pub use render::{WebGlAtlasWriter, WebGlRenderer, WebGlTextureWithDimensions};
-pub use scene::{RenderSettings, Scene};
+pub use scene::{RenderHints, RenderSettings, Scene};
 pub use util::DimensionConstraints;
 pub use vello_common::pixmap::Pixmap;
 
@@ -78,6 +78,9 @@ pub enum RenderError {
     /// TODO: Consider supporting more than a single column of slots in slot textures.
     #[error("No slots available for rendering")]
     SlotsExhausted,
+    /// An image referenced by a blit rect was not found in the image cache.
+    #[error("Image resource not found in cache")]
+    ImageResourceNotFound,
     // TODO: Consider expanding `RenderError` to replace some `.unwrap` and `.expect`.
 }
 

@@ -10,6 +10,8 @@
 
 use bytemuck::{Pod, Zeroable};
 
+use crate::{image_cache::ImageResource, scene::BlitRect};
+
 // GPU paint structure sizes in texels (1 texel = 16 bytes for RGBA32Uint texture format).
 pub(crate) const GPU_ENCODED_IMAGE_SIZE_TEXELS: u32 = (size_of::<GpuEncodedImage>() / 16) as u32;
 pub(crate) const GPU_LINEAR_GRADIENT_SIZE_TEXELS: u32 =
@@ -63,6 +65,90 @@ pub struct GpuStrip {
     pub payload: u32,
     /// See `StripInstance::paint` documentation in `render_strips.wgsl`.
     pub paint: u32,
+}
+
+/// Blit data stored in the `encoded_paints_texture` (3 texels of RGBA32Uint, 48 bytes).
+///
+/// Each blit rect occupies [`GPU_BLIT_DATA_SIZE_TEXELS`] consecutive texels so that
+/// the `render_strips.wgsl` shader can read the positioning and atlas-sampling info
+/// via `textureLoad` on the existing `encoded_paints_texture` binding.
+#[repr(C, align(16))]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+pub(crate) struct GpuBlitData {
+    // -- texel 0 --
+    pub col0_x: f32,
+    pub col0_y: f32,
+    pub col1_x: f32,
+    pub col1_y: f32,
+    // -- texel 1 --
+    pub center_x: f32,
+    pub center_y: f32,
+    /// Packed atlas source offset: u | (v << 16).
+    pub src_xy: u32,
+    /// Packed atlas source size: w | (h << 16).
+    pub src_wh: u32,
+    // -- texel 2 --
+    pub atlas_index: u32,
+    pub _padding: [u32; 3],
+}
+
+pub(crate) const GPU_BLIT_DATA_SIZE_TEXELS: u32 = (size_of::<GpuBlitData>() / 16) as u32;
+
+/// Resolve a [`BlitRect`] into GPU-ready [`GpuBlitData`] by looking up atlas
+/// coordinates and computing the visible image region.
+///
+/// Returns `None` if the visible region is empty.
+pub(crate) fn resolve_blit_rect(blit: &BlitRect, resource: &ImageResource) -> Option<GpuBlitData> {
+    let src_x0 = blit.img_origin[0].max(0.0);
+    let src_y0 = blit.img_origin[1].max(0.0);
+    let src_x1 = (blit.img_origin[0] + blit.rect_wh[0] as f32).min(resource.width as f32);
+    let src_y1 = (blit.img_origin[1] + blit.rect_wh[1] as f32).min(resource.height as f32);
+
+    let src_w = (src_x1 - src_x0).round() as u16;
+    let src_h = (src_y1 - src_y0).round() as u16;
+
+    if src_w == 0 || src_h == 0 {
+        return None;
+    }
+
+    let src_x = resource.offset[0] as u32 + src_x0.round() as u32;
+    let src_y = resource.offset[1] as u32 + src_y0.round() as u32;
+
+    // Adjust col0/col1/center to the visible sub-region.
+    let (col0, col1, center) = {
+        let rect_w = blit.rect_wh[0] as f32;
+        let rect_h = blit.rect_wh[1] as f32;
+        let frac_x0 = (src_x0 - blit.img_origin[0]) / rect_w;
+        let frac_x1 = (src_x1 - blit.img_origin[0]) / rect_w;
+        let frac_y0 = (src_y0 - blit.img_origin[1]) / rect_h;
+        let frac_y1 = (src_y1 - blit.img_origin[1]) / rect_h;
+
+        let src_scale_x = frac_x1 - frac_x0;
+        let src_scale_y = frac_y1 - frac_y0;
+        let col0 = [blit.col0[0] * src_scale_x, blit.col0[1] * src_scale_x];
+        let col1 = [blit.col1[0] * src_scale_y, blit.col1[1] * src_scale_y];
+
+        let mid_frac_x = (frac_x0 + frac_x1) * 0.5 - 0.5;
+        let mid_frac_y = (frac_y0 + frac_y1) * 0.5 - 0.5;
+        let center = [
+            blit.center[0] + blit.col0[0] * mid_frac_x + blit.col1[0] * mid_frac_y,
+            blit.center[1] + blit.col0[1] * mid_frac_x + blit.col1[1] * mid_frac_y,
+        ];
+        (col0, col1, center)
+    };
+
+    Some(GpuBlitData {
+        col0_x: col0[0],
+        col0_y: col0[1],
+        col1_x: col1[0],
+        col1_y: col1[1],
+        center_x: center[0],
+        center_y: center[1],
+        src_xy: src_x | (src_y << 16),
+        src_wh: (src_w as u32) | ((src_h as u32) << 16),
+        atlas_index: resource.atlas_id.as_u32(),
+        _padding: [0; 3],
+    })
 }
 
 /// Different types of GPU encoded paints.

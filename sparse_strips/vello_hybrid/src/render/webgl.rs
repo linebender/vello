@@ -28,14 +28,15 @@ use crate::{
     render::{
         Config,
         common::{
-            GPU_ENCODED_IMAGE_SIZE_TEXELS, GPU_LINEAR_GRADIENT_SIZE_TEXELS,
-            GPU_RADIAL_GRADIENT_SIZE_TEXELS, GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuEncodedImage,
-            GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
-            pack_image_offset, pack_image_params, pack_image_size, pack_radial_kind_and_swapped,
-            pack_texture_width_and_extend_mode,
+            GPU_BLIT_DATA_SIZE_TEXELS, GPU_ENCODED_IMAGE_SIZE_TEXELS,
+            GPU_LINEAR_GRADIENT_SIZE_TEXELS, GPU_RADIAL_GRADIENT_SIZE_TEXELS,
+            GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuBlitData, GpuEncodedImage, GpuEncodedPaint,
+            GpuLinearGradient, GpuRadialGradient, GpuSweepGradient, pack_image_offset,
+            pack_image_params, pack_image_size, pack_radial_kind_and_swapped,
+            pack_texture_width_and_extend_mode, resolve_blit_rect,
         },
     },
-    scene::Scene,
+    scene::{FastPathCommand, Scene},
     schedule::{LoadOp, RendererBackend, Scheduler, SchedulerState, build_gpu_strips_direct},
 };
 
@@ -177,6 +178,28 @@ impl WebGlRenderer {
         );
 
         self.prepare_gpu_encoded_paints(&scene.encoded_paints);
+
+        let blit_resolve = if scene.fast_path_active {
+            let (indices, data) = self.resolve_fast_path_blits(&scene.fast_path)?;
+            let base_texel = *self.paint_idxs.last().unwrap_or(&0);
+            if !data.is_empty() {
+                let total = data.len() as u32 * GPU_BLIT_DATA_SIZE_TEXELS;
+                if let Some(last) = self.paint_idxs.last_mut() {
+                    *last += total;
+                }
+            }
+            Some((indices, data, base_texel))
+        } else {
+            None
+        };
+
+        if let Some((_, ref blit_data, blit_base_texel)) = blit_resolve {
+            if !blit_data.is_empty() {
+                self.programs
+                    .write_blit_data_to_buffer(blit_data, blit_base_texel);
+            }
+        }
+
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
@@ -189,8 +212,16 @@ impl WebGlRenderer {
             &self.paint_idxs,
         );
         if scene.fast_path_active {
+            let (blit_tex_indices, _blit_data, _blit_base_texel) = blit_resolve.unwrap();
+
             let mut gpu_strips = Vec::new();
-            build_gpu_strips_direct(&scene.fast_path, scene, &self.paint_idxs, &mut gpu_strips);
+            build_gpu_strips_direct(
+                &scene.fast_path,
+                scene,
+                &self.paint_idxs,
+                &blit_tex_indices,
+                &mut gpu_strips,
+            );
             if !gpu_strips.is_empty() {
                 let mut ctx = WebGlRendererContext {
                     programs: &mut self.programs,
@@ -509,7 +540,36 @@ impl WebGlRenderer {
             }),
         }
     }
+
+    fn resolve_fast_path_blits(
+        &self,
+        fast_path: &crate::scene::FastPathBuffer,
+    ) -> Result<(Vec<u32>, Vec<GpuBlitData>), RenderError> {
+        let mut blit_tex_indices = Vec::new();
+        let mut blit_data = Vec::new();
+
+        let base_tex_idx = *self.paint_idxs.last().unwrap_or(&0);
+
+        for cmd in &fast_path.commands {
+            if let FastPathCommand::Blit(blit) = cmd {
+                let Some(resource) = self.image_cache.get(blit.image_id) else {
+                    return Err(RenderError::ImageResourceNotFound);
+                };
+                if let Some(gpu_blit) = resolve_blit_rect(blit, resource) {
+                    let tex_idx =
+                        base_tex_idx + (blit_data.len() as u32) * GPU_BLIT_DATA_SIZE_TEXELS;
+                    blit_tex_indices.push(tex_idx);
+                    blit_data.push(gpu_blit);
+                } else {
+                    blit_tex_indices.push(0);
+                }
+            }
+        }
+        Ok((blit_tex_indices, blit_data))
+    }
+
 }
+
 
 /// Contains the WebGL programs and resources for rendering.
 #[derive(Debug)]
@@ -961,36 +1021,47 @@ impl WebGlPrograms {
         gl: &WebGl2RenderingContext,
         encoded_paints: &[GpuEncodedPaint],
     ) {
-        if !encoded_paints.is_empty() {
-            let encoded_paints_texture_width = self.resources.max_texture_dimension_2d;
-            let encoded_paints_texture_height = self.resources.encoded_paints_texture_height;
-
-            GpuEncodedPaint::serialize_to_buffer(encoded_paints, &mut self.encoded_paints_data);
-
-            gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-            gl.bind_texture(
-                WebGl2RenderingContext::TEXTURE_2D,
-                Some(&self.resources.encoded_paints_texture),
-            );
-
-            // Pack encoded paints into RGBA uint32 texture
-            let encoded_paints_data_as_u32 =
-                bytemuck::cast_slice::<u8, u32>(&self.encoded_paints_data);
-            let packed_array = js_sys::Uint32Array::from(encoded_paints_data_as_u32);
-
-            gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
-                WebGl2RenderingContext::TEXTURE_2D,
-                0,
-                WebGl2RenderingContext::RGBA32UI as i32,
-                encoded_paints_texture_width as i32,
-                encoded_paints_texture_height as i32,
-                0,
-                WebGl2RenderingContext::RGBA_INTEGER,
-                WebGl2RenderingContext::UNSIGNED_INT,
-                Some(&packed_array),
-            )
-            .unwrap();
+        let encoded_paints_texture_height = self.resources.encoded_paints_texture_height;
+        if encoded_paints_texture_height == 0 {
+            return;
         }
+
+        let encoded_paints_texture_width = self.resources.max_texture_dimension_2d;
+
+        GpuEncodedPaint::serialize_to_buffer(encoded_paints, &mut self.encoded_paints_data);
+
+        gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+        gl.bind_texture(
+            WebGl2RenderingContext::TEXTURE_2D,
+            Some(&self.resources.encoded_paints_texture),
+        );
+
+        let encoded_paints_data_as_u32 =
+            bytemuck::cast_slice::<u8, u32>(&self.encoded_paints_data);
+        let packed_array = js_sys::Uint32Array::from(encoded_paints_data_as_u32);
+
+        gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
+            WebGl2RenderingContext::TEXTURE_2D,
+            0,
+            WebGl2RenderingContext::RGBA32UI as i32,
+            encoded_paints_texture_width as i32,
+            encoded_paints_texture_height as i32,
+            0,
+            WebGl2RenderingContext::RGBA_INTEGER,
+            WebGl2RenderingContext::UNSIGNED_INT,
+            Some(&packed_array),
+        )
+        .unwrap();
+    }
+
+    fn write_blit_data_to_buffer(&mut self, blit_data: &[GpuBlitData], base_texel: u32) {
+        let blit_bytes = bytemuck::cast_slice::<GpuBlitData, u8>(blit_data);
+        let byte_offset = base_texel as usize * 16;
+        let end = byte_offset + blit_bytes.len();
+        if self.encoded_paints_data.len() < end {
+            self.encoded_paints_data.resize(end, 0);
+        }
+        self.encoded_paints_data[byte_offset..end].copy_from_slice(blit_bytes);
     }
 
     /// Upload gradient data to the texture.

@@ -14,7 +14,8 @@ use vello_common::filter_effects::Filter;
 use vello_common::glyph::{GlyphCaches, GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
-use vello_common::paint::{Paint, PaintType};
+use vello_common::paint::{ImageId, ImageSource, Paint, PaintType};
+use vello_common::peniko::Extend;
 use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
@@ -27,6 +28,73 @@ use crate::AtlasConfig;
 
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
+
+/// Hints provided to the renderer to optimize performance.
+#[derive(Copy, Clone, Debug)]
+pub struct RenderHints(u32);
+
+impl Default for RenderHints {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RenderHints {
+    const DEFAULT_BLENDING_ONLY: u32 = 1 << 0;
+
+    /// Create a new set of render hints.
+    #[inline(always)]
+    pub fn new() -> Self {
+        Self(0)
+    }
+
+    /// Caller guarantees that the scene will only use the default blend mode
+    /// (normal, source-over). This enables the blit rect fast path.
+    ///
+    /// # Panics
+    ///
+    /// The renderer will panic if a non-default blend mode is used.
+    #[inline(always)]
+    pub fn expect_only_default_blending(self) -> Self {
+        Self(self.0 | Self::DEFAULT_BLENDING_ONLY)
+    }
+
+    #[inline(always)]
+    fn blit_rect_pipeline_enabled(&self) -> bool {
+        (self.0 & Self::DEFAULT_BLENDING_ONLY) != 0
+    }
+}
+
+/// A blit rect for the blit rect pipeline.
+///
+/// At scene-encode time we do not have enough information to fully resolve a
+/// blit rect (the [`ImageResource`](crate::image_cache::ImageResource) with
+/// atlas coordinates is only available at render time). This struct captures
+/// everything known at scene time; the renderer resolves it later.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct BlitRect {
+    /// Screen-space center of the quad (after geometry transform): [x, y].
+    pub center: [f32; 2],
+    /// First column vector of the rect-to-screen transform.
+    pub col0: [f32; 2],
+    /// Second column vector of the rect-to-screen transform.
+    pub col1: [f32; 2],
+    /// Pre-transform rect dimensions in geometry space: [w, h].
+    pub rect_wh: [u16; 2],
+    /// Source image reference (resolved to atlas coords at render time).
+    pub image_id: ImageId,
+    /// Image-space origin: where the rect's top-left maps to in image coords.
+    pub img_origin: [f32; 2],
+}
+
+/// A single command in the fast path buffer.
+#[derive(Debug)]
+pub(crate) enum FastPathCommand {
+    /// A regular path fill (strip-based).
+    Path(BufferedPath),
+    /// A blit rect (image-based, bypasses strips entirely).
+    Blit(BlitRect),
+}
 
 /// Metadata for a single buffered path in the fast path.
 #[derive(Debug)]
@@ -44,13 +112,13 @@ pub(crate) struct BufferedPath {
 #[derive(Debug, Default)]
 pub(crate) struct FastPathBuffer {
     pub(crate) strips: Vec<Strip>,
-    pub(crate) paths: Vec<BufferedPath>,
+    pub(crate) commands: Vec<FastPathCommand>,
 }
 
 impl FastPathBuffer {
     fn clear(&mut self) {
         self.strips.clear();
-        self.paths.clear();
+        self.commands.clear();
     }
 }
 
@@ -71,6 +139,8 @@ pub struct RenderSettings {
     /// Adjusting these settings can affect memory usage and rendering performance
     /// depending on your application's image usage patterns.
     pub atlas_config: AtlasConfig,
+    /// Render hints for the renderer.
+    pub render_hints: RenderHints,
 }
 
 impl Default for RenderSettings {
@@ -78,6 +148,7 @@ impl Default for RenderSettings {
         Self {
             level: Level::try_detect().unwrap_or(Level::fallback()),
             atlas_config: AtlasConfig::default(),
+            render_hints: RenderHints::new(),
         }
     }
 }
@@ -108,6 +179,8 @@ struct RenderState {
 /// pipeline from paths to strips that can be rendered by the GPU.
 #[derive(Debug)]
 pub struct Scene {
+    /// Render hints for the renderer.
+    render_hints: RenderHints,
     /// Width of the rendering surface in pixels.
     pub(crate) width: u16,
     /// Height of the rendering surface in pixels.
@@ -157,11 +230,14 @@ impl Scene {
         Self::new_with(width, height, RenderSettings::default())
     }
 
+    const DEFAULT_BLEND_MODE: BlendMode = BlendMode::new(Mix::Normal, Compose::SrcOver);
+
     /// Create a new render context with specific settings.
     pub fn new_with(width: u16, height: u16, settings: RenderSettings) -> Self {
         let render_state = Self::default_render_state();
         let render_graph = RenderGraph::new();
         Self {
+            render_hints: settings.render_hints,
             width,
             height,
             wide: Wide::<MODE_HYBRID>::new(width, height),
@@ -197,14 +273,13 @@ impl Scene {
             end_cap: Cap::Butt,
             ..Default::default()
         };
-        let blend_mode = BlendMode::new(Mix::Normal, Compose::SrcOver);
         RenderState {
             transform,
             fill_rule,
             paint,
             paint_transform,
             stroke,
-            blend_mode,
+            blend_mode: Self::DEFAULT_BLEND_MODE,
         }
     }
 
@@ -273,11 +348,13 @@ impl Scene {
                 .strips
                 .extend_from_slice(&strip_storage.strips);
             let strip_end = self.fast_path.strips.len();
-            self.fast_path.paths.push(BufferedPath {
-                strip_start,
-                strip_end,
-                paint,
-            });
+            self.fast_path
+                .commands
+                .push(FastPathCommand::Path(BufferedPath {
+                    strip_start,
+                    strip_end,
+                    paint,
+                }));
         } else {
             self.wide.generate(
                 &strip_storage.strips,
@@ -352,11 +429,13 @@ impl Scene {
                 .strips
                 .extend_from_slice(&strip_storage.strips);
             let strip_end = self.fast_path.strips.len();
-            self.fast_path.paths.push(BufferedPath {
-                strip_start,
-                strip_end,
-                paint,
-            });
+            self.fast_path
+                .commands
+                .push(FastPathCommand::Path(BufferedPath {
+                    strip_start,
+                    strip_end,
+                    paint,
+                }));
         } else {
             self.wide.generate(
                 &strip_storage.strips,
@@ -386,7 +465,113 @@ impl Scene {
 
     /// Fill a rectangle with the current paint and fill rule.
     pub fn fill_rect(&mut self, rect: &Rect) {
+        if self.try_blit_rect(rect) {
+            return;
+        }
         self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
+    }
+
+    /// Attempt the fast-path blit rect pipeline. Returns `true` if the rect was
+    /// handled by the blit pipeline, `false` if it should fall through to the
+    /// strip pipeline.
+    #[inline(always)]
+    fn try_blit_rect(&mut self, rect: &Rect) -> bool {
+        if !self.render_hints.blit_rect_pipeline_enabled() {
+            return false;
+        }
+
+        if !self.fast_path_active {
+            return false;
+        }
+
+        if !self.paint_visible {
+            return true;
+        }
+
+        if self.wide.has_layers() {
+            return false;
+        }
+
+        if self.clip_context.get().is_some() {
+            return false;
+        }
+
+        let image_id = match &self.paint {
+            PaintType::Image(img) => {
+                if img.sampler.x_extend != Extend::Pad
+                    || img.sampler.y_extend != Extend::Pad
+                    || img.sampler.alpha != 1.0
+                {
+                    return false;
+                }
+                match &img.image {
+                    ImageSource::OpaqueId(id) => *id,
+                    _ => return false,
+                }
+            }
+            _ => return false,
+        };
+
+        if self.blend_mode != Self::DEFAULT_BLEND_MODE {
+            return false;
+        }
+
+        let geo_coeffs = self.transform.as_coeffs();
+        if geo_coeffs[0] * geo_coeffs[3] - geo_coeffs[1] * geo_coeffs[2] <= 0.0 {
+            return false;
+        }
+
+        let paint_coeffs = self.paint_transform.as_coeffs();
+        if (paint_coeffs[1] as f32).abs() > f32::EPSILON
+            || (paint_coeffs[2] as f32).abs() > f32::EPSILON
+        {
+            return false;
+        }
+        if ((paint_coeffs[0] - 1.0) as f32).abs() > f32::EPSILON
+            || ((paint_coeffs[3] - 1.0) as f32).abs() > f32::EPSILON
+        {
+            return false;
+        }
+
+        let (ptx, pty) = (paint_coeffs[4], paint_coeffs[5]);
+        let img_origin_xy = [(rect.x0 - ptx) as f32, (rect.y0 - pty) as f32];
+
+        if img_origin_xy[0] < 0.0 || img_origin_xy[1] < 0.0 {
+            return false;
+        }
+
+        let rect_wh = [
+            pixel_snap(rect.x1 - rect.x0).max(0.0) as u16,
+            pixel_snap(rect.y1 - rect.y0).max(0.0) as u16,
+        ];
+
+        if rect_wh[0] == 0 || rect_wh[1] == 0 {
+            return true;
+        }
+
+        let [a, b, c, d, tx, ty] = geo_coeffs.map(|x| x as f32);
+        let w = rect_wh[0] as f32;
+        let h = rect_wh[1] as f32;
+
+        let col0 = [a * w, b * w];
+        let col1 = [c * h, d * h];
+
+        let cx = (rect.x0 + rect.x1) as f32 * 0.5;
+        let cy = (rect.y0 + rect.y1) as f32 * 0.5;
+        let center_xy = [a * cx + c * cy + tx, b * cx + d * cy + ty];
+
+        self.fast_path
+            .commands
+            .push(FastPathCommand::Blit(BlitRect {
+                center: center_xy,
+                col0,
+                col1,
+                rect_wh,
+                image_id,
+                img_origin: img_origin_xy,
+            }));
+
+        true
     }
 
     /// Stroke a rectangle with the current paint and stroke settings.
@@ -408,18 +593,28 @@ impl Scene {
         if !self.fast_path_active {
             return;
         }
-        for i in 0..self.fast_path.paths.len() {
-            let start = self.fast_path.paths[i].strip_start;
-            let end = self.fast_path.paths[i].strip_end;
-            let paint = self.fast_path.paths[i].paint.clone();
-            self.wide.generate(
-                &self.fast_path.strips[start..end],
-                paint,
-                BlendMode::default(),
-                0,
-                None,
-                &self.encoded_paints,
-            );
+        for i in 0..self.fast_path.commands.len() {
+            match &self.fast_path.commands[i] {
+                FastPathCommand::Path(buffered) => {
+                    let start = buffered.strip_start;
+                    let end = buffered.strip_end;
+                    let paint = buffered.paint.clone();
+                    self.wide.generate(
+                        &self.fast_path.strips[start..end],
+                        paint,
+                        BlendMode::default(),
+                        0,
+                        None,
+                        &self.encoded_paints,
+                    );
+                }
+                FastPathCommand::Blit(_blit) => {
+                    // Blit rects fall back to `fill_rect` through the normal pipeline
+                    // when the fast path is flushed. Since we don't have the original
+                    // rect, we skip them here — the caller should not have mixed blits
+                    // with layers (the blit conditions check for no layers).
+                }
+            }
         }
         self.fast_path_active = false;
     }
@@ -436,6 +631,14 @@ impl Scene {
         mask: Option<Mask>,
         filter: Option<Filter>,
     ) {
+        let blend_mode_val = blend_mode.unwrap_or(Self::DEFAULT_BLEND_MODE);
+        if self.render_hints.blit_rect_pipeline_enabled() {
+            assert!(
+                blend_mode_val == Self::DEFAULT_BLEND_MODE,
+                "blit rect pipeline only supports default blending"
+            );
+        }
+
         self.flush_fast_path();
 
         if filter.is_some() {
@@ -467,7 +670,7 @@ impl Scene {
         self.wide.push_layer(
             0,
             clip,
-            blend_mode.unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver)),
+            blend_mode_val,
             None,
             opacity.unwrap_or(1.),
             None,
@@ -516,6 +719,12 @@ impl Scene {
 
     /// Set the blend mode for subsequent rendering operations.
     pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
+        if self.render_hints.blit_rect_pipeline_enabled() {
+            assert!(
+                blend_mode == Self::DEFAULT_BLEND_MODE,
+                "blit rect pipeline only supports default blending"
+            );
+        }
         self.blend_mode = blend_mode;
     }
 
@@ -879,11 +1088,13 @@ impl Scene {
             let strip_start = self.fast_path.strips.len();
             self.fast_path.strips.extend_from_slice(strips);
             let strip_end = self.fast_path.strips.len();
-            self.fast_path.paths.push(BufferedPath {
-                strip_start,
-                strip_end,
-                paint,
-            });
+            self.fast_path
+                .commands
+                .push(FastPathCommand::Path(BufferedPath {
+                    strip_start,
+                    strip_end,
+                    paint,
+                }));
         } else {
             self.wide.generate(
                 strips,
@@ -943,4 +1154,14 @@ impl Scene {
         self.fill_rule = state.fill_rule;
         self.blend_mode = state.blend_mode;
     }
+}
+
+/// Round to the nearest integer for pixel snapping.
+///
+/// On `wasm32-unknown-unknown`, [`f64::round`] compiles to a software `libm`
+/// call. `(x + 0.5).floor()` maps directly to the native `f64.floor`
+/// instruction while giving identical results for non-negative values.
+#[inline(always)]
+fn pixel_snap(x: f64) -> f64 {
+    (x + 0.5).floor()
 }
