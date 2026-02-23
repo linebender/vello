@@ -1539,6 +1539,7 @@ impl<const MODE: u8> WideTile<MODE> {
         let blends_into_dest =
             blend_mode.mix != Mix::Normal || blend_mode.compose != Compose::SrcOver;
 
+        #[allow(clippy::collapsible_if, reason = "better expresses intent")]
         if MODE == MODE_HYBRID {
             if blends_into_dest && self.push_buf_indices.len() >= 2 {
                 let nos_idx = self.push_buf_indices[self.push_buf_indices.len() - 2];
