@@ -5,6 +5,7 @@
 
 use crate::color::{AlphaColor, Srgb};
 use crate::filter::gaussian_blur::{MAX_KERNEL_SIZE, plan_decimated_blur, transform_blur_params};
+use crate::filter::transform_offset_params;
 use crate::filter_effects::EdgeMode;
 use crate::kurbo::{Affine, Vec2};
 
@@ -76,14 +77,7 @@ pub(crate) fn transform_shadow_params(
     std_deviation: f32,
     transform: &Affine,
 ) -> (f32, f32, f32) {
-    // Transform the offset vector by the full transformation matrix
-    // to correctly handle rotation, scale, and shear.
-    // We use the linear part only (no translation) since this is a vector offset.
-    let offset = Vec2::new(dx as f64, dy as f64);
-    let [a, b, c, d, _, _] = transform.as_coeffs();
-    let transformed_offset = Vec2::new(a * offset.x + c * offset.y, b * offset.x + d * offset.y);
-    let scaled_dx = transformed_offset.x as f32;
-    let scaled_dy = transformed_offset.y as f32;
+    let (scaled_dx, scaled_dy) = transform_offset_params(dx, dy, transform);
 
     // Scale the blur radius uniformly
     let scaled_std_dev = transform_blur_params(std_deviation, transform);
