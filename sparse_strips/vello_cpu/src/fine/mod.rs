@@ -819,7 +819,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     EncodedPaint::Image(i) => {
                         let pixmap = match &i.source {
                             ImageSource::Pixmap(p) => p.clone(),
-                            ImageSource::OpaqueId(id) => image_resolver
+                            ImageSource::OpaqueId { id, .. } => image_resolver
                                 .resolve(*id)
                                 .unwrap_or_else(|| panic!("Image {:?} not found in registry", id)),
                         };
