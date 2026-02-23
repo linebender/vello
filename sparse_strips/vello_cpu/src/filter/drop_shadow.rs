@@ -14,59 +14,16 @@
 //! @see <https://drafts.fxtf.org/filter-effects-2/#feDropShadowElement>
 
 use super::FilterEffect;
-use super::gaussian_blur::{MAX_KERNEL_SIZE, apply_blur, plan_decimated_blur};
+use super::gaussian_blur::apply_blur;
 use super::shift::offset_pixels;
 use crate::layer_manager::LayerManager;
 use vello_common::color::{AlphaColor, Srgb};
+use vello_common::filter::drop_shadow::DropShadow;
 use vello_common::filter_effects::EdgeMode;
 use vello_common::peniko::color::PremulRgba8;
 #[cfg(not(feature = "std"))]
 use vello_common::peniko::kurbo::common::FloatFuncs as _;
 use vello_common::pixmap::Pixmap;
-
-pub(crate) struct DropShadow {
-    pub dx: f32,
-    pub dy: f32,
-    pub color: AlphaColor<Srgb>,
-    /// Standard deviation for the blur (for reference/debugging).
-    std_deviation: f32,
-    /// Edge mode for blur sampling.
-    edge_mode: EdgeMode,
-    /// Number of 2x2 decimation levels to use (0 means direct convolution).
-    n_decimations: usize,
-    /// Pre-computed Gaussian kernel weights for the reduced blur.
-    /// Only the first `kernel_size` elements are valid.
-    kernel: [f32; MAX_KERNEL_SIZE],
-    /// Actual length of the kernel (kernel is padded to `MAX_KERNEL_SIZE`).
-    kernel_size: u8,
-}
-
-impl DropShadow {
-    /// Create a new drop shadow filter with the specified parameters.
-    ///
-    /// This precomputes the blur decimation plan and kernel for optimal performance.
-    pub(crate) fn new(
-        dx: f32,
-        dy: f32,
-        std_deviation: f32,
-        edge_mode: EdgeMode,
-        color: AlphaColor<Srgb>,
-    ) -> Self {
-        // Precompute blur plan (same logic as GaussianBlur::new)
-        let (n_decimations, kernel, kernel_size) = plan_decimated_blur(std_deviation);
-
-        Self {
-            dx,
-            dy,
-            color,
-            std_deviation,
-            edge_mode,
-            n_decimations,
-            kernel,
-            kernel_size,
-        }
-    }
-}
 
 impl FilterEffect for DropShadow {
     fn execute_lowp(&self, pixmap: &mut Pixmap, layer_manager: &mut LayerManager) {
