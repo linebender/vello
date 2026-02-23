@@ -816,6 +816,8 @@ impl WebGlPrograms {
                     height: new_render_size.height,
                     strip_height: u32::from(Tile::HEIGHT),
                     alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+                    encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+                    _padding: [0; 3],
                 };
 
                 gl.bind_buffer(
@@ -838,6 +840,8 @@ impl WebGlPrograms {
                     height: u32::from(Tile::HEIGHT) * total_slots,
                     strip_height: u32::from(Tile::HEIGHT),
                     alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+                    encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+                    _padding: [0; 3],
                 };
 
                 gl.bind_buffer(

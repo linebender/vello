@@ -110,6 +110,13 @@ struct Config {
     // Number of trailing zeros in alphas_tex_width (log2 of width).
     // Pre-calculated on CPU since WebGL2 doesn't support `firstTrailingBit`.
     alphas_tex_width_bits: u32,
+    // Number of trailing zeros in encoded_paints_tex_width (log2 of width).
+    // Pre-calculated on CPU since WebGL2 doesn't support `firstTrailingBit`.
+    encoded_paints_tex_width_bits: u32,
+    // Padding to satisfy WebGL's 16-byte alignment requirement for uniform buffers.
+    _padding0: u32,
+    _padding1: u32,
+    _padding2: u32,
 }
 
 // `paint` bit layout:
@@ -782,11 +789,19 @@ struct EncodedImage {
     translate: vec2<f32>,
 }
 
+// Convert a flat texel index to 2D texture coordinates for the encoded paints texture.
+fn encoded_paint_coord(flat_idx: u32) -> vec2<u32> {
+    return vec2<u32>(
+        flat_idx & ((1u << config.encoded_paints_tex_width_bits) - 1u),
+        flat_idx >> config.encoded_paints_tex_width_bits
+    );
+}
+
 // Unpack encoded image from the encoded paints texture.
 fn unpack_encoded_image(paint_tex_idx: u32) -> EncodedImage {
-    let texel0 = textureLoad(encoded_paints_texture, vec2<u32>(paint_tex_idx, 0), 0);
-    let texel1 = textureLoad(encoded_paints_texture, vec2<u32>(paint_tex_idx + 1u, 0), 0);
-    let texel2 = textureLoad(encoded_paints_texture, vec2<u32>(paint_tex_idx + 2u, 0), 0);
+    let texel0 = textureLoad(encoded_paints_texture, encoded_paint_coord(paint_tex_idx), 0);
+    let texel1 = textureLoad(encoded_paints_texture, encoded_paint_coord(paint_tex_idx + 1u), 0);
+    let texel2 = textureLoad(encoded_paints_texture, encoded_paint_coord(paint_tex_idx + 2u), 0);
     
     let quality = texel0.x & 0x3u;
     let extend_x = (texel0.x >> 2u) & 0x3u;
@@ -1080,8 +1095,8 @@ struct SweepGradient {
 
 // Unpack linear gradient from the encoded paints texture.
 fn unpack_linear_gradient(paint_tex_idx: u32) -> LinearGradient {
-    let texel0 = textureLoad(encoded_paints_texture, vec2<u32>(paint_tex_idx, 0), 0);
-    let texel1 = textureLoad(encoded_paints_texture, vec2<u32>(paint_tex_idx + 1u, 0), 0);
+    let texel0 = textureLoad(encoded_paints_texture, encoded_paint_coord(paint_tex_idx), 0);
+    let texel1 = textureLoad(encoded_paints_texture, encoded_paint_coord(paint_tex_idx + 1u), 0);
     
     let texture_width_and_extend_mode = unpack_texture_width_and_extend_mode(texel0.x);
     let texture_width = texture_width_and_extend_mode.x;
@@ -1195,10 +1210,10 @@ fn calculate_radial_gradient(grad_pos: vec2<f32>, radial_gradient: RadialGradien
 
 // Unpack radial gradient from the encoded paints texture.
 fn unpack_radial_gradient(paint_tex_idx: u32) -> RadialGradient {
-    let texel0 = textureLoad(encoded_paints_texture, vec2<u32>(paint_tex_idx, 0), 0);
-    let texel1 = textureLoad(encoded_paints_texture, vec2<u32>(paint_tex_idx + 1u, 0), 0);
-    let texel2 = textureLoad(encoded_paints_texture, vec2<u32>(paint_tex_idx + 2u, 0), 0);
-    let texel3 = textureLoad(encoded_paints_texture, vec2<u32>(paint_tex_idx + 3u, 0), 0);
+    let texel0 = textureLoad(encoded_paints_texture, encoded_paint_coord(paint_tex_idx), 0);
+    let texel1 = textureLoad(encoded_paints_texture, encoded_paint_coord(paint_tex_idx + 1u), 0);
+    let texel2 = textureLoad(encoded_paints_texture, encoded_paint_coord(paint_tex_idx + 2u), 0);
+    let texel3 = textureLoad(encoded_paints_texture, encoded_paint_coord(paint_tex_idx + 3u), 0);
     
     let texture_width_and_extend_mode = unpack_texture_width_and_extend_mode(texel0.x);
     let texture_width = texture_width_and_extend_mode.x;
@@ -1229,9 +1244,9 @@ fn unpack_radial_gradient(paint_tex_idx: u32) -> RadialGradient {
 
 // Unpack sweep gradient from the encoded paints texture.
 fn unpack_sweep_gradient(paint_tex_idx: u32) -> SweepGradient {
-    let texel0 = textureLoad(encoded_paints_texture, vec2<u32>(paint_tex_idx, 0), 0);
-    let texel1 = textureLoad(encoded_paints_texture, vec2<u32>(paint_tex_idx + 1u, 0), 0);
-    let texel2 = textureLoad(encoded_paints_texture, vec2<u32>(paint_tex_idx + 2u, 0), 0);
+    let texel0 = textureLoad(encoded_paints_texture, encoded_paint_coord(paint_tex_idx), 0);
+    let texel1 = textureLoad(encoded_paints_texture, encoded_paint_coord(paint_tex_idx + 1u), 0);
+    let texel2 = textureLoad(encoded_paints_texture, encoded_paint_coord(paint_tex_idx + 2u), 0);
     
     let texture_width_and_extend_mode = unpack_texture_width_and_extend_mode(texel0.x);
     let texture_width = texture_width_and_extend_mode.x;
