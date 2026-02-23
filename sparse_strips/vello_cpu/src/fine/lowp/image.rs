@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::fine::PosExt;
-use crate::fine::common::image::{ImagePainterData, apply_tint_u8, extend, fract_floor, sample};
+use crate::fine::common::image::{ImagePainterData, extend, fract_floor, sample};
 use crate::fine::macros::u8x16_painter;
 use vello_common::encode::EncodedImage;
 use vello_common::fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, u8x16, u16x16};
@@ -107,7 +107,7 @@ impl<S: Simd> Iterator for BilinearImagePainter<'_, S> {
 
         self.data.cur_pos += self.data.image.x_advance;
 
-        Some(apply_tint_u8(self.simd, res, &self.data))
+        Some(res)
     }
 }
 
@@ -252,7 +252,7 @@ impl<S: Simd> Iterator for PlainBilinearImagePainter<'_, S> {
 
         self.cur_x_pos += self.advance;
 
-        Some(apply_tint_u8(self.simd, res, &self.data))
+        Some(res)
     }
 }
 

@@ -14,7 +14,7 @@ mod image;
 
 use crate::filter::filter_lowp;
 use crate::fine::lowp::image::{BilinearImagePainter, PlainBilinearImagePainter};
-use crate::fine::{COLOR_COMPONENTS, Painter, SCRATCH_BUF_SIZE};
+use crate::fine::{COLOR_COMPONENTS, Painter, SCRATCH_BUF_SIZE, Splat4thExt};
 use crate::fine::{FineKernel, highp, u8_to_f32};
 use crate::layer_manager::LayerManager;
 use crate::peniko::BlendMode;
@@ -28,7 +28,7 @@ use vello_common::fearless_simd::*;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::Affine;
 use vello_common::mask::Mask;
-use vello_common::paint::PremulColor;
+use vello_common::paint::{PremulColor, Tint, TintMode};
 use vello_common::pixmap::Pixmap;
 use vello_common::tile::Tile;
 use vello_common::util::{Div255Ext, f32_to_u8};
@@ -193,6 +193,32 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
     #[inline(always)]
     fn apply_painter<'a>(_: S, dest: &mut [Self::Numeric], mut painter: impl Painter + 'a) {
         painter.paint_u8(dest);
+    }
+
+    #[inline(always)]
+    fn apply_tint(simd: S, dest: &mut [Self::Numeric], tint: &Tint) {
+        let premul = tint.color.premultiply();
+        let [r, g, b, a] = premul.components;
+        let tint_v = f32x16::block_splat(f32x4::from_slice(simd, &[r, g, b, a]));
+
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                for chunk in dest.chunks_exact_mut(16) {
+                    let pixel = u8x16::from_slice(simd, chunk);
+                    let pixel_f = u8_to_f32(pixel);
+                    let tinted = match tint.mode {
+                        TintMode::AlphaMask => {
+                            let alphas = pixel_f.splat_4th();
+                            tint_v * alphas
+                        }
+                        TintMode::Multiply => pixel_f * tint_v,
+                    };
+                    let result = f32_to_u8(tinted + f32x16::splat(simd, 0.5));
+                    chunk.copy_from_slice(result.as_slice());
+                }
+            },
+        );
     }
 
     /// Composites a solid color onto a buffer using alpha blending.
