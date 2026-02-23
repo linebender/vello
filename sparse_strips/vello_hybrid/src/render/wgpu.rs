@@ -91,6 +91,8 @@ pub struct Renderer {
     paint_idxs: Vec<u32>,
     /// Gradient cache for storing gradient ramps.
     gradient_cache: GradientRampCache,
+    /// Reusable buffer for GPU strips produced by the fast path.
+    fast_path_gpu_strips: Vec<GpuStrip>,
 }
 
 impl Renderer {
@@ -124,6 +126,7 @@ impl Renderer {
             gradient_cache,
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
+            fast_path_gpu_strips: Vec::new(),
         }
     }
 
@@ -154,14 +157,14 @@ impl Renderer {
             &self.paint_idxs,
         );
         let result = if scene.strips_fast_path_active {
-            let mut gpu_strips = Vec::new();
+            self.fast_path_gpu_strips.clear();
             build_gpu_strips_direct(
                 &scene.fast_strips_buffer,
                 scene,
                 &self.paint_idxs,
-                &mut gpu_strips,
+                &mut self.fast_path_gpu_strips,
             );
-            if !gpu_strips.is_empty() {
+            if !self.fast_path_gpu_strips.is_empty() {
                 let mut ctx = RendererContext {
                     programs: &mut self.programs,
                     device,
@@ -169,7 +172,7 @@ impl Renderer {
                     encoder,
                     view,
                 };
-                ctx.render_strips(&gpu_strips, 2, LoadOp::Clear);
+                ctx.render_strips(&self.fast_path_gpu_strips, 2, LoadOp::Clear);
             }
             Ok(())
         } else {

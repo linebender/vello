@@ -93,6 +93,8 @@ pub struct WebGlRenderer {
     paint_idxs: Vec<u32>,
     /// Gradient cache for storing gradient ramps.
     gradient_cache: GradientRampCache,
+    /// Reusable buffer for GPU strips produced by the fast path.
+    fast_path_gpu_strips: Vec<GpuStrip>,
 }
 
 impl WebGlRenderer {
@@ -159,6 +161,7 @@ impl WebGlRenderer {
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
             gradient_cache,
+            fast_path_gpu_strips: Vec::new(),
         }
     }
 
@@ -188,19 +191,19 @@ impl WebGlRenderer {
             &self.paint_idxs,
         );
         if scene.strips_fast_path_active {
-            let mut gpu_strips = Vec::new();
+            self.fast_path_gpu_strips.clear();
             build_gpu_strips_direct(
                 &scene.fast_strips_buffer,
                 scene,
                 &self.paint_idxs,
-                &mut gpu_strips,
+                &mut self.fast_path_gpu_strips,
             );
-            if !gpu_strips.is_empty() {
+            if !self.fast_path_gpu_strips.is_empty() {
                 let mut ctx = WebGlRendererContext {
                     programs: &mut self.programs,
                     gl: &self.gl,
                 };
-                ctx.render_strips(&gpu_strips, 2, LoadOp::Clear);
+                ctx.render_strips(&self.fast_path_gpu_strips, 2, LoadOp::Clear);
             }
         } else {
             let mut ctx = WebGlRendererContext {
