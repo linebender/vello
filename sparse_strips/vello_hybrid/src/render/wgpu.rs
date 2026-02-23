@@ -308,7 +308,7 @@ impl Renderer {
             self.paint_idxs[encoded_paint_idx] = current_idx;
             match paint {
                 EncodedPaint::Image(img) => {
-                    if let ImageSource::OpaqueId(image_id, _) = img.source {
+                    if let ImageSource::OpaqueId { id: image_id, .. } = img.source {
                         let image_resource: Option<&ImageResource> = self.image_cache.get(image_id);
                         if let Some(image_resource) = image_resource {
                             let image_paint = self.encode_image_paint(img, image_resource);

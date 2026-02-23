@@ -61,8 +61,8 @@ fn main() {
             }
         }
         let img_sources = vec![
-            ImageSource::OpaqueId(ImageId::new(0), false),
-            ImageSource::OpaqueId(ImageId::new(1), true),
+            ImageSource::opaque_id_with_opacity_hint(ImageId::new(0), false),
+            ImageSource::opaque_id(ImageId::new(1)),
         ];
         let scenes = if svg_paths.is_empty() {
             get_example_scenes(None, img_sources)
@@ -76,8 +76,8 @@ fn main() {
     #[cfg(target_arch = "wasm32")]
     let (scenes, start_scene_index) = (
         get_example_scenes(vec![
-            ImageSource::OpaqueId(ImageId::new(0), true),
-            ImageSource::OpaqueId(ImageId::new(1), true),
+            ImageSource::opaque_id(ImageId::new(0)),
+            ImageSource::opaque_id(ImageId::new(1)),
         ]),
         0,
     );

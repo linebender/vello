@@ -117,7 +117,7 @@ impl PaintScene for CPUScenePainter {
                             let image_index =
                                 brush.image.to_raw().try_into().expect("Handle this.");
                             Brush::Image(ImageBrush {
-                                image: ImageSource::OpaqueId(ImageId::new(image_index), true),
+                                image: ImageSource::opaque_id(ImageId::new(image_index)),
                                 sampler: brush.sampler,
                             })
                         }
@@ -171,7 +171,7 @@ impl PaintScene for CPUScenePainter {
                 // TODO: Make this read more easily.
                 let image_index = brush.image.to_raw().try_into().expect("Handle this.");
                 Brush::Image(ImageBrush {
-                    image: ImageSource::OpaqueId(ImageId::new(image_index), true),
+                    image: ImageSource::opaque_id(ImageId::new(image_index)),
                     sampler: brush.sampler,
                 })
             }
