@@ -609,10 +609,7 @@ impl Scene {
                     );
                 }
                 FastPathCommand::Blit(_blit) => {
-                    // Blit rects fall back to `fill_rect` through the normal pipeline
-                    // when the fast path is flushed. Since we don't have the original
-                    // rect, we skip them here — the caller should not have mixed blits
-                    // with layers (the blit conditions check for no layers).
+                    unreachable!() // this can work so long as blends are not enabled.
                 }
             }
         }
@@ -639,6 +636,7 @@ impl Scene {
             );
         }
 
+        // TODO: This isn't necessary.
         self.flush_fast_path();
 
         if filter.is_some() {
