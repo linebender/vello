@@ -27,7 +27,7 @@ use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, dispatch};
 use vello_common::filter_effects::Filter;
 use vello_common::mask::Mask;
-use vello_common::paint::{ImageResolver, NoOpImageResolver, Paint};
+use vello_common::paint::{ImageResolver, Paint};
 use vello_common::render_graph::RenderGraph;
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{StripGenerator, StripStorage};
@@ -381,12 +381,8 @@ impl MultiThreadedDispatcher {
         width: u16,
         height: u16,
         encoded_paints: &[EncodedPaint],
-        _image_resolver: &dyn ImageResolver,
+        image_resolver: &dyn ImageResolver,
     ) {
-        // Note: Multi-threaded dispatcher does not support ImageSource::OpaqueId.
-        // Images with OpaqueId will panic at rasterization time.
-        let noop_resolver = NoOpImageResolver;
-
         let mut buffer = Regions::new(width, height, buffer);
         let fines = ThreadLocal::new();
         let wide = &self.wide;
@@ -415,7 +411,7 @@ impl MultiThreadedDispatcher {
                     let alphas = thread_idx
                         .map(|i| alpha_slots[i as usize].as_slice())
                         .unwrap_or(&[]);
-                    fine.run_cmd(cmd, alphas, encoded_paints, &noop_resolver, &wide.attrs);
+                    fine.run_cmd(cmd, alphas, encoded_paints, image_resolver, &wide.attrs);
                 }
 
                 fine.pack(region);

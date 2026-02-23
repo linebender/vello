@@ -145,8 +145,11 @@ pub type Image = peniko::ImageBrush<ImageSource>;
 /// image is actually needed during rasterization, enabling patterns like
 /// dynamic sprite atlases where the image data may be updated between
 /// encoding and rendering.
-pub trait ImageResolver {
+pub trait ImageResolver: Send + Sync {
     /// Resolve an `ImageId` to its pixmap data.
+    ///
+    /// In `vello_cpu`, this is called during fine rasterization for each wide tile
+    /// command that references an `ImageSource::OpaqueId`.
     ///
     /// Returns `None` if the image ID is not found in the registry.
     fn resolve(&self, id: ImageId) -> Option<Arc<Pixmap>>;

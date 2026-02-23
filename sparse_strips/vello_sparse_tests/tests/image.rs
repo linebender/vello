@@ -601,7 +601,7 @@ const HELLO_WORLD: &[Sprite] = &[
 
 /// Test rendering "hello" from a glyph atlas (spritesheet-style).
 /// Uses `ImageSource::OpaqueId` to demonstrate the image registry pattern.
-#[vello_test(width = 60, height = 30, skip_hybrid, skip_multithreaded)]
+#[vello_test(width = 60, height = 30, skip_hybrid)]
 fn image_spritesheet(ctx: &mut impl Renderer) {
     let atlas_id = ctx.register_image(load_image!("glyph_atlas"));
     let atlas_src = ImageSource::OpaqueId(atlas_id);

@@ -76,13 +76,8 @@ pub struct RenderContext {
     dispatcher: Box<dyn Dispatcher>,
     #[cfg(feature = "text")]
     pub(crate) glyph_caches: Option<GlyphCaches>,
-    /// Image registry for resolving `ImageSource::OpaqueId` to pixmap data.
-    ///
-    /// This allows decoupling render commands from image data, enabling
-    /// patterns like spritesheet rendering.
-    image_registry: HashMap<u32, Arc<Pixmap>>,
-    /// Counter for generating unique image IDs.
-    next_image_id: u32,
+    /// Registry for resolving `ImageSource::OpaqueId` to pixmap data.
+    image_registry: ImageRegistry,
 }
 
 /// Settings to apply to the render context.
@@ -178,8 +173,7 @@ impl RenderContext {
             filter: None,
             #[cfg(feature = "text")]
             glyph_caches: Some(GlyphCaches::default()),
-            image_registry: HashMap::new(),
-            next_image_id: 0,
+            image_registry: ImageRegistry::new(),
         }
     }
 
@@ -599,7 +593,7 @@ impl RenderContext {
             width,
             height,
             &self.encoded_paints,
-            self,
+            &self.image_registry,
         );
     }
 
@@ -645,7 +639,7 @@ impl RenderContext {
             dst_buffer_height,
             self.render_settings.render_mode,
             &self.encoded_paints,
-            self,
+            &self.image_registry,
         );
     }
 
@@ -703,41 +697,22 @@ impl RenderContext {
 impl RenderContext {
     /// Register a pixmap in the image registry and return its [`ImageId`].
     pub fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
-        let id = self.next_image_id;
-        self.next_image_id += 1;
-        self.image_registry.insert(id, pixmap);
-        ImageId::new(id)
-    }
-
-    /// Update an existing image in the registry with new pixmap data.
-    pub fn update_image(&mut self, id: ImageId, pixmap: Arc<Pixmap>) {
-        debug_assert!(
-            self.image_registry.contains_key(&id.as_u32()),
-            "Cannot update unregistered image {id:?}"
-        );
-        self.image_registry.insert(id.as_u32(), pixmap);
+        self.image_registry.register(pixmap)
     }
 
     /// Remove an image from the registry.
     pub fn destroy_image(&mut self, id: ImageId) -> bool {
-        self.image_registry.remove(&id.as_u32()).is_some()
+        self.image_registry.destroy(id)
     }
 
     /// Resolve an `ImageId` to its pixmap data.
     pub fn resolve_image(&self, id: ImageId) -> Option<Arc<Pixmap>> {
-        self.image_registry.get(&id.as_u32()).cloned()
+        self.image_registry.resolve(id)
     }
 
     /// Clear the image registry.
     pub fn clear_images(&mut self) {
         self.image_registry.clear();
-        self.next_image_id = 0;
-    }
-}
-
-impl ImageResolver for RenderContext {
-    fn resolve(&self, id: ImageId) -> Option<Arc<Pixmap>> {
-        self.image_registry.get(&id.as_u32()).cloned()
     }
 }
 
@@ -1036,7 +1011,51 @@ impl Recordable for RenderContext {
     }
 }
 
-/// Saved state for recording operations.
+/// Registry that maps opaque [`ImageId`]s to [`Pixmap`] data.
+///
+/// Used by [`RenderContext`] to resolve `ImageSource::OpaqueId` at rasterization time.
+#[derive(Debug)]
+struct ImageRegistry {
+    images: HashMap<u32, Arc<Pixmap>>,
+    next_id: u32,
+}
+
+impl ImageRegistry {
+    fn new() -> Self {
+        Self {
+            images: HashMap::new(),
+            next_id: 0,
+        }
+    }
+
+    fn register(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.images.insert(id, pixmap);
+        ImageId::new(id)
+    }
+
+    fn destroy(&mut self, id: ImageId) -> bool {
+        self.images.remove(&id.as_u32()).is_some()
+    }
+
+    fn resolve(&self, id: ImageId) -> Option<Arc<Pixmap>> {
+        self.images.get(&id.as_u32()).cloned()
+    }
+
+    fn clear(&mut self) {
+        self.images.clear();
+        self.next_id = 0;
+    }
+}
+
+impl ImageResolver for ImageRegistry {
+    fn resolve(&self, id: ImageId) -> Option<Arc<Pixmap>> {
+        self.images.get(&id.as_u32()).cloned()
+    }
+}
+
+/// Saved state for recording operations.¬
 #[derive(Debug)]
 pub struct RenderState {
     transform: Affine,
