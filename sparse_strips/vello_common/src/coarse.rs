@@ -1208,11 +1208,13 @@ pub struct WideTile<const MODE: u8 = MODE_CPU> {
     /// Vector of layer IDs this tile participates in.
     pub layer_ids: Vec<LayerKind>,
     /// Tracks the index into `cmds` of each `Start`/`PushBuf` command on the current stack.
+    ///
+    /// Only used in `HYBRID` mode.
     push_buf_indices: Vec<usize>,
     /// Indicates whether the main target surface is used as a blend target for a non
     /// src-over blending operation.
     ///
-    /// This is mainly needed to inform scheduling purposes in vello_hybrid.
+    /// This will only be set in `HYBRID` mode.
     surface_is_blend_target: bool,
 }
 
@@ -1467,7 +1469,11 @@ impl<const MODE: u8> WideTile<MODE> {
                 ranges.render_range = self.cmds.len() + 1..self.cmds.len() + 1;
             });
         }
-        self.push_buf_indices.push(self.cmds.len());
+
+        if MODE == MODE_HYBRID {
+            self.push_buf_indices.push(self.cmds.len());
+        }
+
         self.cmds.push(Cmd::PushBuf(layer_kind, false));
         self.layer_ids.push(layer_kind);
         self.n_bufs += 1;
@@ -1475,7 +1481,10 @@ impl<const MODE: u8> WideTile<MODE> {
 
     /// Pop the most recent buffer.
     fn pop_buf(&mut self) {
-        self.push_buf_indices.pop();
+        if MODE == MODE_HYBRID {
+            self.push_buf_indices.pop();
+        }
+
         let top_layer = self.layer_ids.pop().unwrap();
         let mut next_layer = *self.layer_ids.last().unwrap();
 
@@ -1530,19 +1539,22 @@ impl<const MODE: u8> WideTile<MODE> {
         let blends_into_dest =
             blend_mode.mix != Mix::Normal || blend_mode.compose != Compose::SrcOver;
 
-        if blends_into_dest && self.push_buf_indices.len() >= 2 {
-            let nos_idx = self.push_buf_indices[self.push_buf_indices.len() - 2];
+        if MODE == MODE_HYBRID {
+            if blends_into_dest && self.push_buf_indices.len() >= 2 {
+                let nos_idx = self.push_buf_indices[self.push_buf_indices.len() - 2];
 
-            if nos_idx == TARGET_SURFACE_PUSH_BUF_IDX {
-                self.surface_is_blend_target = true;
-            } else {
-                match &mut self.cmds[nos_idx] {
-                    Cmd::PushBuf(_, is_blend_target) => *is_blend_target = true,
-                    // Anything else shouldn't be possible.
-                    _ => unreachable!(),
+                if nos_idx == TARGET_SURFACE_PUSH_BUF_IDX {
+                    self.surface_is_blend_target = true;
+                } else {
+                    match &mut self.cmds[nos_idx] {
+                        Cmd::PushBuf(_, is_blend_target) => *is_blend_target = true,
+                        // Anything else shouldn't be possible.
+                        _ => unreachable!(),
+                    }
                 }
             }
         }
+
         self.cmds.push(Cmd::Blend(blend_mode));
     }
 }
