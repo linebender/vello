@@ -33,15 +33,20 @@ pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 /// Metadata for a single path stored in the fast strips buffer.
 #[derive(Debug)]
 pub(crate) struct FastStripsPath {
+    /// The index of the first strip of the path in the `strips` buffer.
     pub(crate) strip_start: usize,
+    /// The (exclusive) last index of the path in the `strips` buffer.
     pub(crate) strip_end: usize,
+    /// The paint of the path.
     pub(crate) paint: Paint,
 }
 
 /// A buffer that collects strips from path that bypass coarse rasterization and scheduling.
 #[derive(Debug, Default)]
 pub(crate) struct FastStripsBuffer {
+    /// The strips for all paths in the buffer.
     pub(crate) strips: Vec<Strip>,
+    /// All paths in the buffer.
     pub(crate) paths: Vec<FastStripsPath>,
 }
 
