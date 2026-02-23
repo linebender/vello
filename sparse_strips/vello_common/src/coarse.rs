@@ -1434,6 +1434,7 @@ impl<const MODE: u8> WideTile<MODE> {
     /// - Regular layers: Use local `blend_buf` stack for temporary storage
     /// - Filtered layers: Materialized in persistent layer storage for filter processing
     /// - Clip layers: Special handling for clipping operations
+    #[inline(always)]
     fn push_buf(&mut self, layer_kind: LayerKind) {
         let top_layer = layer_kind.id();
         if matches!(layer_kind, LayerKind::Filtered(_)) {
@@ -1463,6 +1464,7 @@ impl<const MODE: u8> WideTile<MODE> {
     }
 
     /// Pop the most recent buffer.
+    #[inline(always)]
     fn pop_buf(&mut self) {
         if MODE == MODE_HYBRID {
             self.push_buf_indices.pop();
