@@ -317,6 +317,7 @@ fn filter_set_effect(ctx: &mut impl Renderer) {
     ctx.fill_rect(&Rect::from_points((left, top), (left + width, top + width)));
 }
 
+// TODO: Add native format
 /// Test filter interactions with layers, clips, blend modes, and opacity.
 /// 9 scenarios testing filters at various depths, with clips, opacity, blend modes, etc.
 #[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
