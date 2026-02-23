@@ -151,6 +151,31 @@ pub struct Scene {
     pub(crate) strips_fast_path_active: bool,
 }
 
+// We use this macro instead of a method to avoid borrowing issues in the corresponding methods.
+macro_rules! submit_strips {
+    ($self:ident, $strips:expr, $paint:expr) => {
+        if $self.strips_fast_path_active {
+            let strip_start = $self.fast_strips_buffer.strips.len();
+            $self.fast_strips_buffer.strips.extend_from_slice($strips);
+            let strip_end = $self.fast_strips_buffer.strips.len();
+            $self.fast_strips_buffer.paths.push(FastStripsPath {
+                strip_start,
+                strip_end,
+                paint: $paint,
+            });
+        } else {
+            $self.wide.generate(
+                $strips,
+                $paint,
+                $self.blend_mode,
+                0,
+                None,
+                &$self.encoded_paints,
+            );
+        }
+    };
+}
+
 impl Scene {
     /// Create a new render context with the given width and height in pixels.
     pub fn new(width: u16, height: u16) -> Self {
@@ -268,27 +293,8 @@ impl Scene {
             strip_storage,
             self.clip_context.get(),
         );
-        if self.strips_fast_path_active {
-            let strip_start = self.fast_strips_buffer.strips.len();
-            self.fast_strips_buffer
-                .strips
-                .extend_from_slice(&strip_storage.strips);
-            let strip_end = self.fast_strips_buffer.strips.len();
-            self.fast_strips_buffer.paths.push(FastStripsPath {
-                strip_start,
-                strip_end,
-                paint,
-            });
-        } else {
-            self.wide.generate(
-                &strip_storage.strips,
-                paint,
-                self.blend_mode,
-                0,
-                None,
-                &self.encoded_paints,
-            );
-        }
+
+        submit_strips!(self, &strip_storage.strips, paint);
     }
 
     /// Push a new clip path to the clip stack.
@@ -337,7 +343,6 @@ impl Scene {
         aliasing_threshold: Option<u8>,
     ) {
         let strip_storage = &mut self.strip_storage.borrow_mut();
-
         self.strip_generator.generate_stroked_path(
             path,
             &self.stroke,
@@ -347,27 +352,7 @@ impl Scene {
             self.clip_context.get(),
         );
 
-        if self.strips_fast_path_active {
-            let strip_start = self.fast_strips_buffer.strips.len();
-            self.fast_strips_buffer
-                .strips
-                .extend_from_slice(&strip_storage.strips);
-            let strip_end = self.fast_strips_buffer.strips.len();
-            self.fast_strips_buffer.paths.push(FastStripsPath {
-                strip_start,
-                strip_end,
-                paint,
-            });
-        } else {
-            self.wide.generate(
-                &strip_storage.strips,
-                paint,
-                self.blend_mode,
-                0,
-                None,
-                &self.encoded_paints,
-            );
-        }
+        submit_strips!(self, &strip_storage.strips, paint);
     }
 
     /// Set the aliasing threshold.
@@ -422,27 +407,8 @@ impl Scene {
             strip_storage,
             self.clip_context.get(),
         );
-        if self.strips_fast_path_active {
-            let strip_start = self.fast_strips_buffer.strips.len();
-            self.fast_strips_buffer
-                .strips
-                .extend_from_slice(&strip_storage.strips);
-            let strip_end = self.fast_strips_buffer.strips.len();
-            self.fast_strips_buffer.paths.push(FastStripsPath {
-                strip_start,
-                strip_end,
-                paint,
-            });
-        } else {
-            self.wide.generate(
-                &strip_storage.strips,
-                paint,
-                self.blend_mode,
-                0,
-                None,
-                &self.encoded_paints,
-            );
-        }
+
+        submit_strips!(self, &strip_storage.strips, paint);
     }
 
     /// Stroke a rectangle with the current paint and stroke settings.
@@ -950,26 +916,8 @@ impl Scene {
             "Invalid strip range: start={start}, end={end}, count={count}"
         );
         let paint = self.encode_current_paint();
-        let strips = &adjusted_strips[start..end];
-        if self.strips_fast_path_active {
-            let strip_start = self.fast_strips_buffer.strips.len();
-            self.fast_strips_buffer.strips.extend_from_slice(strips);
-            let strip_end = self.fast_strips_buffer.strips.len();
-            self.fast_strips_buffer.paths.push(FastStripsPath {
-                strip_start,
-                strip_end,
-                paint,
-            });
-        } else {
-            self.wide.generate(
-                strips,
-                paint,
-                self.blend_mode,
-                0,
-                None,
-                &self.encoded_paints,
-            );
-        }
+
+        submit_strips!(self, &adjusted_strips[start..end], paint);
     }
 
     /// Prepare cached strips for rendering by adjusting alpha indices and extending alpha buffer.
