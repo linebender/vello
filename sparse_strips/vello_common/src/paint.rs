@@ -148,8 +148,8 @@ pub type Image = peniko::ImageBrush<ImageSource>;
 pub trait ImageResolver: Send + Sync {
     /// Resolve an `ImageId` to its pixmap data.
     ///
-    /// In `vello_cpu`, this is called during fine rasterization for each wide tile
-    /// command that references an `ImageSource::OpaqueId`.
+    /// This method may be called repeatedly (dozens or even hundreds of times
+    /// per frame) and should therefore be very fast.
     ///
     /// Returns `None` if the image ID is not found in the registry.
     fn resolve(&self, id: ImageId) -> Option<Arc<Pixmap>>;

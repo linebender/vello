@@ -1055,7 +1055,7 @@ impl ImageResolver for ImageRegistry {
     }
 }
 
-/// Saved state for recording operations.¬
+/// Saved state for recording operations.
 #[derive(Debug)]
 pub struct RenderState {
     transform: Affine,
