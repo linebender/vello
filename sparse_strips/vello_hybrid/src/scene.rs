@@ -424,13 +424,13 @@ impl Scene {
 
     /// Flush the fast path buffer through the normal coarse rasterization pipeline.
     ///
-    /// This is called when `push_layer` is invoked, retroactively processing all buffered
-    /// strips through `Wide::generate`. After flushing, `fast_path_active` is set to `false`,
-    /// disabling the fast path for the rest of the scene.
+    /// This retroactively generates wide tile commands for all strips that have been generated
+    /// using the fast path.
     fn flush_fast_path(&mut self) {
         if !self.strips_fast_path_active {
             return;
         }
+
         for i in 0..self.fast_strips_buffer.paths.len() {
             let start = self.fast_strips_buffer.paths[i].strip_start;
             let end = self.fast_strips_buffer.paths[i].strip_end;
