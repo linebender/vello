@@ -572,7 +572,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 // color matrix, component transfer) can be processed here directly on the
                 // blend buffer per-pixel as wide commands.
             }
-            Cmd::PushBuf(_layer_kind) => {
+            Cmd::PushBuf(_layer_kind, _) => {
                 self.blend_buf.push([T::Numeric::ZERO; SCRATCH_BUF_SIZE]);
             }
             Cmd::PopBuf => {
