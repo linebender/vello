@@ -422,14 +422,27 @@ impl Scene {
             strip_storage,
             self.clip_context.get(),
         );
-        self.wide.generate(
-            &strip_storage.strips,
-            paint,
-            self.blend_mode,
-            0,
-            None,
-            &self.encoded_paints,
-        );
+        if self.strips_fast_path_active {
+            let strip_start = self.fast_strips_buffer.strips.len();
+            self.fast_strips_buffer
+                .strips
+                .extend_from_slice(&strip_storage.strips);
+            let strip_end = self.fast_strips_buffer.strips.len();
+            self.fast_strips_buffer.paths.push(FastStripsPath {
+                strip_start,
+                strip_end,
+                paint,
+            });
+        } else {
+            self.wide.generate(
+                &strip_storage.strips,
+                paint,
+                self.blend_mode,
+                0,
+                None,
+                &self.encoded_paints,
+            );
+        }
     }
 
     /// Stroke a rectangle with the current paint and stroke settings.
