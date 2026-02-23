@@ -1393,6 +1393,14 @@ fn create_texture_inner(gl: &WebGl2RenderingContext, target: u32) -> WebGlTextur
         WebGl2RenderingContext::TEXTURE_WRAP_T,
         WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
     );
+    // Also only to be defensive, in theory this shouldn't be necessary since we use
+    // `NEAREST` for the filters/
+    gl.tex_parameteri(
+        WebGl2RenderingContext::TEXTURE_2D,
+        WebGl2RenderingContext::TEXTURE_MAX_LEVEL,
+        0,
+    );
+
     texture
 }
 
@@ -1499,11 +1507,6 @@ fn create_atlas_texture_array(
 /// Create a texture for slot rendering.
 fn create_slot_texture(gl: &WebGl2RenderingContext, slot_count: usize) -> WebGlTexture {
     let texture = create_texture(gl);
-    gl.tex_parameteri(
-        WebGl2RenderingContext::TEXTURE_2D,
-        WebGl2RenderingContext::TEXTURE_MAX_LEVEL,
-        0,
-    );
 
     gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
         WebGl2RenderingContext::TEXTURE_2D,
