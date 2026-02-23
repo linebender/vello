@@ -153,7 +153,7 @@ pub mod layer_manager;
 #[doc(hidden)]
 pub mod region;
 
-pub use render::{RenderContext, RenderSettings};
+pub use render::{RenderContext, RenderSettings, RenderState};
 pub use vello_common::fearless_simd::Level;
 #[cfg(feature = "text")]
 pub use vello_common::glyph::Glyph;

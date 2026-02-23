@@ -27,7 +27,7 @@ use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, dispatch};
 use vello_common::filter_effects::Filter;
 use vello_common::mask::Mask;
-use vello_common::paint::Paint;
+use vello_common::paint::{ImageResolver, Paint};
 use vello_common::render_graph::RenderGraph;
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{StripGenerator, StripStorage};
@@ -170,9 +170,10 @@ impl MultiThreadedDispatcher {
         width: u16,
         height: u16,
         encoded_paints: &[EncodedPaint],
+        image_resolver: &dyn ImageResolver,
     ) {
         use crate::fine::F32Kernel;
-        dispatch!(self.level, simd => self.rasterize_with::<_, F32Kernel>(simd, buffer, width, height, encoded_paints));
+        dispatch!(self.level, simd => self.rasterize_with::<_, F32Kernel>(simd, buffer, width, height, encoded_paints, image_resolver));
     }
 
     #[cfg(feature = "u8_pipeline")]
@@ -182,9 +183,10 @@ impl MultiThreadedDispatcher {
         width: u16,
         height: u16,
         encoded_paints: &[EncodedPaint],
+        image_resolver: &dyn ImageResolver,
     ) {
         use crate::fine::U8Kernel;
-        dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, buffer, width, height, encoded_paints));
+        dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, buffer, width, height, encoded_paints, image_resolver));
     }
 
     fn init(&mut self) {
@@ -379,6 +381,7 @@ impl MultiThreadedDispatcher {
         width: u16,
         height: u16,
         encoded_paints: &[EncodedPaint],
+        image_resolver: &dyn ImageResolver,
     ) {
         let mut buffer = Regions::new(width, height, buffer);
         let fines = ThreadLocal::new();
@@ -408,7 +411,7 @@ impl MultiThreadedDispatcher {
                     let alphas = thread_idx
                         .map(|i| alpha_slots[i as usize].as_slice())
                         .unwrap_or(&[]);
-                    fine.run_cmd(cmd, alphas, encoded_paints, &wide.attrs);
+                    fine.run_cmd(cmd, alphas, encoded_paints, image_resolver, &wide.attrs);
                 }
 
                 fine.pack(region);
@@ -608,6 +611,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         width: u16,
         height: u16,
         encoded_paints: &[EncodedPaint],
+        image_resolver: &dyn ImageResolver,
     ) {
         assert!(self.flushed, "attempted to rasterize before flushing");
 
@@ -615,21 +619,23 @@ impl Dispatcher for MultiThreadedDispatcher {
         #[cfg(all(feature = "u8_pipeline", not(feature = "f32_pipeline")))]
         {
             let _ = render_mode;
-            self.rasterize_u8(buffer, width, height, encoded_paints);
+            self.rasterize_u8(buffer, width, height, encoded_paints, image_resolver);
         }
         // Only f32 pipeline enabled
         #[cfg(all(feature = "f32_pipeline", not(feature = "u8_pipeline")))]
         {
             let _ = render_mode;
-            self.rasterize_f32(buffer, width, height, encoded_paints);
+            self.rasterize_f32(buffer, width, height, encoded_paints, image_resolver);
         }
 
         // Both pipelines enabled
         #[cfg(all(feature = "f32_pipeline", feature = "u8_pipeline"))]
         match render_mode {
-            RenderMode::OptimizeSpeed => self.rasterize_u8(buffer, width, height, encoded_paints),
+            RenderMode::OptimizeSpeed => {
+                self.rasterize_u8(buffer, width, height, encoded_paints, image_resolver);
+            }
             RenderMode::OptimizeQuality => {
-                self.rasterize_f32(buffer, width, height, encoded_paints);
+                self.rasterize_f32(buffer, width, height, encoded_paints, image_resolver);
             }
         }
     }
@@ -645,6 +651,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         _dst_buffer_height: u16,
         _render_mode: RenderMode,
         _encoded_paints: &[EncodedPaint],
+        _image_resolver: &dyn ImageResolver,
     ) {
         // TODO: Implement composite_at_offset for multi-threaded dispatcher.
         unimplemented!("composite_at_offset is not implemented for multi-threaded dispatcher");
