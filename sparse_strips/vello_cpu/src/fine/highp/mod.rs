@@ -171,16 +171,22 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         simd.vectorize(
             #[inline(always)]
             || {
-                for chunk in dest.chunks_exact_mut(16) {
-                    let pixel = f32x16::from_slice(simd, chunk);
-                    let tinted = match tint.mode {
-                        TintMode::AlphaMask => {
+                match tint.mode {
+                    TintMode::AlphaMask => {
+                        for chunk in dest.chunks_exact_mut(16) {
+                            let pixel = f32x16::from_slice(simd, chunk);
                             let alphas = pixel.splat_4th();
-                            tint_v * alphas
+                            let tinted = tint_v * alphas;
+                            chunk.copy_from_slice(tinted.as_slice());
                         }
-                        TintMode::Multiply => pixel * tint_v,
-                    };
-                    chunk.copy_from_slice(tinted.as_slice());
+                    }
+                    TintMode::Multiply => {
+                        for chunk in dest.chunks_exact_mut(16) {
+                            let pixel = f32x16::from_slice(simd, chunk);
+                            let tinted = pixel * tint_v;
+                            chunk.copy_from_slice(tinted.as_slice());
+                        }
+                    }
                 }
             },
         );

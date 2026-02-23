@@ -366,8 +366,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 );
             }
 
-            let is_multiply = f32(encoded_image.tint_mode);
-            final_color = alpha * mix(
+            let is_multiply = bool(encoded_image.tint_mode);
+            final_color = alpha * select(
                 encoded_image.tint * sample_color.a,
                 sample_color * encoded_image.tint,
                 is_multiply

@@ -19,6 +19,7 @@ use crate::fine::{FineKernel, highp, u8_to_f32};
 use crate::layer_manager::LayerManager;
 use crate::peniko::BlendMode;
 use crate::region::Region;
+use crate::util::NormalizedMulExt;
 use crate::util::scalar::div_255;
 use bytemuck::cast_slice;
 use core::iter;
@@ -199,23 +200,27 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
     fn apply_tint(simd: S, dest: &mut [Self::Numeric], tint: &Tint) {
         let premul = tint.color.premultiply();
         let [r, g, b, a] = premul.components;
-        let tint_v = f32x16::block_splat(f32x4::from_slice(simd, &[r, g, b, a]));
+        let to_u8 = |v: f32| (v * 255.0 + 0.5) as u8;
+        let color = u32::from_ne_bytes([to_u8(r), to_u8(g), to_u8(b), to_u8(a)]);
+        let tint_v = u32x8::block_splat(u32x4::splat(simd, color)).to_bytes();
 
         simd.vectorize(
             #[inline(always)]
-            || {
-                for chunk in dest.chunks_exact_mut(16) {
-                    let pixel = u8x16::from_slice(simd, chunk);
-                    let pixel_f = u8_to_f32(pixel);
-                    let tinted = match tint.mode {
-                        TintMode::AlphaMask => {
-                            let alphas = pixel_f.splat_4th();
-                            tint_v * alphas
-                        }
-                        TintMode::Multiply => pixel_f * tint_v,
-                    };
-                    let result = f32_to_u8(tinted + f32x16::splat(simd, 0.5));
-                    chunk.copy_from_slice(result.as_slice());
+            || match tint.mode {
+                TintMode::AlphaMask => {
+                    for chunk in dest.chunks_exact_mut(32) {
+                        let pixel = u8x32::from_slice(simd, chunk);
+                        let alphas = pixel.splat_4th();
+                        let tinted = tint_v.normalized_mul(alphas);
+                        chunk.copy_from_slice(tinted.as_slice());
+                    }
+                }
+                TintMode::Multiply => {
+                    for chunk in dest.chunks_exact_mut(32) {
+                        let pixel = u8x32::from_slice(simd, chunk);
+                        let tinted = pixel.normalized_mul(tint_v);
+                        chunk.copy_from_slice(tinted.as_slice());
+                    }
                 }
             },
         );
