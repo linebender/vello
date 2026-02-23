@@ -176,7 +176,7 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
-use crate::scene::FastPathBuffer;
+use crate::scene::FastStripsBuffer;
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -1196,7 +1196,7 @@ fn has_non_zero_alpha(rgba: u32) -> bool {
 /// `Wide::generate` + `Scheduler::do_tile`, but for the simple case where all draws
 /// happen at depth=1 directly to the surface with no layers or blending.
 pub(crate) fn build_gpu_strips_direct(
-    fast_path: &FastPathBuffer,
+    fast_path: &FastStripsBuffer,
     scene: &Scene,
     paint_idxs: &[u32],
     gpu_strips: &mut Vec<GpuStrip>,

@@ -187,9 +187,14 @@ impl WebGlRenderer {
             render_size,
             &self.paint_idxs,
         );
-        if scene.fast_path_active {
+        if scene.strips_fast_path_active {
             let mut gpu_strips = Vec::new();
-            build_gpu_strips_direct(&scene.fast_path, scene, &self.paint_idxs, &mut gpu_strips);
+            build_gpu_strips_direct(
+                &scene.fast_strips_buffer,
+                scene,
+                &self.paint_idxs,
+                &mut gpu_strips,
+            );
             if !gpu_strips.is_empty() {
                 let mut ctx = WebGlRendererContext {
                     programs: &mut self.programs,

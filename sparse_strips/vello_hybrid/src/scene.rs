@@ -30,26 +30,22 @@ use vello_common::util::{is_integer_rect, is_integer_translation};
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 
-/// Metadata for a single buffered path in the fast path.
+/// Metadata for a single path stored in the fast strips buffer.
 #[derive(Debug)]
-pub(crate) struct BufferedPath {
+pub(crate) struct FastStripsPath {
     pub(crate) strip_start: usize,
     pub(crate) strip_end: usize,
     pub(crate) paint: Paint,
 }
 
-/// Accumulates strips across path draws when no layers are active.
-///
-/// When a scene consists entirely of simple path fills with no layers, clips, or blending,
-/// this buffer collects strips directly and converts them to `GpuStrip`s at render time,
-/// bypassing both coarse rasterization and scheduling.
+/// A buffer that collects strips from path that bypass coarse rasterization and scheduling.
 #[derive(Debug, Default)]
-pub(crate) struct FastPathBuffer {
+pub(crate) struct FastStripsBuffer {
     pub(crate) strips: Vec<Strip>,
-    pub(crate) paths: Vec<BufferedPath>,
+    pub(crate) paths: Vec<FastStripsPath>,
 }
 
-impl FastPathBuffer {
+impl FastStripsBuffer {
     fn clear(&mut self) {
         self.strips.clear();
         self.paths.clear();
@@ -142,16 +138,17 @@ pub struct Scene {
     pub(crate) glyph_caches: Option<GlyphCaches>,
     /// Dependency graph for managing layer rendering order and filter effects.
     pub(crate) render_graph: RenderGraph,
-    /// Fast path buffer for simple scenes without layers.
+    /// A buffer that stores the strips of path drawing calls that have been emitted before
+    /// (a potential) first `push_layer` command.
     ///
-    /// Strips are accumulated here instead of going through coarse rasterization.
-    /// The buffer is retained across frames to avoid reallocations.
-    pub(crate) fast_path: FastPathBuffer,
-    /// Whether the fast path is active for the current scene.
+    /// For such paths, we can completely circumvent coarse rasterization and scheduling.
+    pub(crate) fast_strips_buffer: FastStripsBuffer,
+    /// Whether the fast path for rendering strips directly instead of going through coarse
+    /// rasterization is active.
     ///
-    /// Set to `true` on reset. Set to `false` once `push_layer` is called,
-    /// disabling the fast path for the rest of the scene.
-    pub(crate) fast_path_active: bool,
+    /// This is the case if we have not performed any `push_layer` command. In such a case, we
+    /// don't need to do coarse rasterization or scheduling and therefore save a lot of overhead.
+    pub(crate) strips_fast_path_active: bool,
 }
 
 impl Scene {
@@ -183,8 +180,8 @@ impl Scene {
             #[cfg(feature = "text")]
             glyph_caches: Some(GlyphCaches::default()),
             render_graph,
-            fast_path: FastPathBuffer::default(),
-            fast_path_active: true,
+            fast_strips_buffer: FastStripsBuffer::default(),
+            strips_fast_path_active: true,
         }
     }
 
@@ -271,13 +268,13 @@ impl Scene {
             strip_storage,
             self.clip_context.get(),
         );
-        if self.fast_path_active {
-            let strip_start = self.fast_path.strips.len();
-            self.fast_path
+        if self.strips_fast_path_active {
+            let strip_start = self.fast_strips_buffer.strips.len();
+            self.fast_strips_buffer
                 .strips
                 .extend_from_slice(&strip_storage.strips);
-            let strip_end = self.fast_path.strips.len();
-            self.fast_path.paths.push(BufferedPath {
+            let strip_end = self.fast_strips_buffer.strips.len();
+            self.fast_strips_buffer.paths.push(FastStripsPath {
                 strip_start,
                 strip_end,
                 paint,
@@ -350,13 +347,13 @@ impl Scene {
             self.clip_context.get(),
         );
 
-        if self.fast_path_active {
-            let strip_start = self.fast_path.strips.len();
-            self.fast_path
+        if self.strips_fast_path_active {
+            let strip_start = self.fast_strips_buffer.strips.len();
+            self.fast_strips_buffer
                 .strips
                 .extend_from_slice(&strip_storage.strips);
-            let strip_end = self.fast_path.strips.len();
-            self.fast_path.paths.push(BufferedPath {
+            let strip_end = self.fast_strips_buffer.strips.len();
+            self.fast_strips_buffer.paths.push(FastStripsPath {
                 strip_start,
                 strip_end,
                 paint,
@@ -452,15 +449,15 @@ impl Scene {
     /// strips through `Wide::generate`. After flushing, `fast_path_active` is set to `false`,
     /// disabling the fast path for the rest of the scene.
     fn flush_fast_path(&mut self) {
-        if !self.fast_path_active {
+        if !self.strips_fast_path_active {
             return;
         }
-        for i in 0..self.fast_path.paths.len() {
-            let start = self.fast_path.paths[i].strip_start;
-            let end = self.fast_path.paths[i].strip_end;
-            let paint = self.fast_path.paths[i].paint.clone();
+        for i in 0..self.fast_strips_buffer.paths.len() {
+            let start = self.fast_strips_buffer.paths[i].strip_start;
+            let end = self.fast_strips_buffer.paths[i].strip_end;
+            let paint = self.fast_strips_buffer.paths[i].paint.clone();
             self.wide.generate(
-                &self.fast_path.strips[start..end],
+                &self.fast_strips_buffer.strips[start..end],
                 paint,
                 BlendMode::default(),
                 0,
@@ -468,7 +465,7 @@ impl Scene {
                 &self.encoded_paints,
             );
         }
-        self.fast_path_active = false;
+        self.strips_fast_path_active = false;
     }
 
     /// Push a new layer with the given properties.
@@ -640,8 +637,8 @@ impl Scene {
 
         #[cfg(feature = "text")]
         self.glyph_caches.as_mut().unwrap().maintain();
-        self.fast_path.clear();
-        self.fast_path_active = true;
+        self.fast_strips_buffer.clear();
+        self.strips_fast_path_active = true;
     }
 
     /// Get the width of the render context.
@@ -941,11 +938,11 @@ impl Scene {
         );
         let paint = self.encode_current_paint();
         let strips = &adjusted_strips[start..end];
-        if self.fast_path_active {
-            let strip_start = self.fast_path.strips.len();
-            self.fast_path.strips.extend_from_slice(strips);
-            let strip_end = self.fast_path.strips.len();
-            self.fast_path.paths.push(BufferedPath {
+        if self.strips_fast_path_active {
+            let strip_start = self.fast_strips_buffer.strips.len();
+            self.fast_strips_buffer.strips.extend_from_slice(strips);
+            let strip_end = self.fast_strips_buffer.strips.len();
+            self.fast_strips_buffer.paths.push(FastStripsPath {
                 strip_start,
                 strip_end,
                 paint,
