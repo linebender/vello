@@ -1394,7 +1394,7 @@ fn create_texture_inner(gl: &WebGl2RenderingContext, target: u32) -> WebGlTextur
         WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
     );
     // Also only to be defensive, in theory this shouldn't be necessary since we use
-    // `NEAREST` for the filters/
+    // `NEAREST` for both filters.
     gl.tex_parameteri(
         WebGl2RenderingContext::TEXTURE_2D,
         WebGl2RenderingContext::TEXTURE_MAX_LEVEL,
