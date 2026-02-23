@@ -202,13 +202,11 @@ impl WebGlRenderer {
                 &mut self.fast_path_gpu_strips,
             );
 
-            if !self.fast_path_gpu_strips.is_empty() {
-                let mut ctx = WebGlRendererContext {
-                    programs: &mut self.programs,
-                    gl: &self.gl,
-                };
-                ctx.render_strips(&self.fast_path_gpu_strips, 2, LoadOp::Clear);
-            }
+            let mut ctx = WebGlRendererContext {
+                programs: &mut self.programs,
+                gl: &self.gl,
+            };
+            ctx.render_strips(&self.fast_path_gpu_strips, 2, LoadOp::Clear);
         } else {
             let mut ctx = WebGlRendererContext {
                 programs: &mut self.programs,
