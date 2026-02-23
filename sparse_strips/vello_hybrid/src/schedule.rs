@@ -848,7 +848,7 @@ impl Scheduler {
         Ok(())
     }
 
-    #[inline(always)]
+    #[inline]
     fn do_push_buf<R: RendererBackend>(
         &mut self,
         state: &mut SchedulerState,
@@ -930,7 +930,7 @@ impl Scheduler {
         Ok(())
     }
 
-    #[inline(always)]
+    #[inline]
     fn do_pop_buf(&mut self, state: &mut SchedulerState) {
         let depth = state.tile_state.stack.len();
 
@@ -972,7 +972,7 @@ impl Scheduler {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     fn do_blend(
         &mut self,
         state: &mut SchedulerState,
