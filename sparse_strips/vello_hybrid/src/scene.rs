@@ -50,6 +50,7 @@ pub(crate) struct FastStripsBuffer {
 }
 
 impl FastStripsBuffer {
+    #[inline(always)]
     fn clear(&mut self) {
         self.strips.clear();
         self.paths.clear();
