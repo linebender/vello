@@ -1984,7 +1984,7 @@ mod tests {
         wide.push_buf(LayerKind::Regular(0));
         wide.pop_buf();
 
-        assert_eq!(wide.cmds.len(), 1);
+        assert!(wide.cmds.is_empty());
     }
 
     #[test]
