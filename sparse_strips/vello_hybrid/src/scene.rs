@@ -40,7 +40,7 @@ pub(crate) struct FastStripsPath {
     pub(crate) paint: Paint,
 }
 
-/// A buffer that collects strips from path that bypass coarse rasterization and scheduling.
+/// A buffer that collects strips from paths that bypass coarse rasterization and scheduling.
 #[derive(Debug, Default)]
 pub(crate) struct FastStripsBuffer {
     /// The strips for all paths in the buffer.
