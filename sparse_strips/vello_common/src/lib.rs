@@ -92,6 +92,7 @@ pub mod paint;
 pub mod pico_svg;
 pub mod pixmap;
 pub mod recording;
+pub mod rect;
 pub mod render_graph;
 pub mod simd;
 pub mod strip;

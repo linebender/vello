@@ -521,7 +521,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             self.clip_context.get(),
         );
 
-        // Generate coarse-level commands from strips (layer_id 0 = root layer).
+        // Generate coarse-level commands from strips (thread_idx 0 for single-threaded).
         wide.generate(
             &self.strip_storage.strips,
             paint,
@@ -555,7 +555,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             self.clip_context.get(),
         );
 
-        // Generate coarse-level commands from strips (layer_id 0 = root layer).
+        // Generate coarse-level commands from strips (thread_idx 0 for single-threaded).
         wide.generate(
             &self.strip_storage.strips,
             paint,
@@ -583,7 +583,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             self.clip_context.get(),
         );
 
-        // Generate coarse-level commands from strips (layer_id 0 = root layer).
+        // Generate coarse-level commands from strips (thread_idx 0 for single-threaded).
         wide.generate(
             &self.strip_storage.strips,
             paint,
@@ -808,7 +808,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         blend_mode: BlendMode,
         encoded_paints: &[EncodedPaint],
     ) {
-        // Generate coarse-level commands from pre-computed strips (layer_id 0 = root layer).
+        // Generate coarse-level commands from pre-computed strips (thread_idx 0 for single-threaded).
         self.wide
             .generate(strip_buf, paint, blend_mode, 0, None, encoded_paints);
     }

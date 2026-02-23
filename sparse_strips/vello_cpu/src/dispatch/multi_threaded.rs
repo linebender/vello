@@ -6,7 +6,7 @@ use crate::dispatch::Dispatcher;
 use crate::dispatch::multi_threaded::cost::{COST_THRESHOLD, estimate_render_task_cost};
 use crate::dispatch::multi_threaded::worker::Worker;
 use crate::fine::{Fine, FineKernel};
-use crate::kurbo::{Affine, BezPath, PathEl, Rect, Shape, Stroke};
+use crate::kurbo::{Affine, BezPath, PathEl, Point, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::region::Regions;
 use alloc::boxed::Box;
@@ -486,9 +486,14 @@ impl Dispatcher for MultiThreadedDispatcher {
     ) {
         // For multi-threaded, fall back to path-based rendering.
         // TODO: Implement optimized rect strip generation in worker threads.
-        let path = rect.to_path(0.0);
         let start = self.allocation_group.path.len() as u32;
-        self.allocation_group.path.extend(&path);
+        self.allocation_group.path.extend([
+            PathEl::MoveTo(Point::new(rect.x0, rect.y0)),
+            PathEl::LineTo(Point::new(rect.x1, rect.y0)),
+            PathEl::LineTo(Point::new(rect.x1, rect.y1)),
+            PathEl::LineTo(Point::new(rect.x0, rect.y1)),
+            PathEl::ClosePath,
+        ]);
         let end = self.allocation_group.path.len() as u32;
         self.register_task(RenderTaskType::FillPath {
             path_range: start..end,

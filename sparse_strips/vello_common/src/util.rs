@@ -3,6 +3,7 @@
 
 //! Utility functions.
 
+use crate::math::FloatExt;
 use fearless_simd::{
     Bytes, Simd, SimdBase, SimdFloat, f32x16, u8x16, u8x32, u16x16, u16x32, u32x16,
 };
@@ -68,12 +69,12 @@ pub fn normalized_mul_u8x16<S: Simd>(a: u8x16<S>, b: u8x16<S>) -> u16x16<S> {
 #[inline]
 pub fn is_integer_translation(transform: &Affine) -> bool {
     let [a, b, c, d, e, f] = transform.as_coeffs();
-    (a - 1.0).abs() < 1e-9
-        && b.abs() < 1e-9
-        && c.abs() < 1e-9
-        && (d - 1.0).abs() < 1e-9
-        && (e - e.round()).abs() < 1e-9
-        && (f - f.round()).abs() < 1e-9
+    (a - 1.0).is_nearly_zero()
+        && b.is_nearly_zero()
+        && c.is_nearly_zero()
+        && (d - 1.0).is_nearly_zero()
+        && (e - e.round()).is_nearly_zero()
+        && (f - f.round()).is_nearly_zero()
 }
 
 /// Check if rect coordinates are all integers (no fractional parts).
@@ -82,10 +83,10 @@ pub fn is_integer_translation(transform: &Affine) -> bool {
 /// so non-integer coordinates require path-based rendering.
 #[inline]
 pub fn is_integer_rect(rect: &Rect) -> bool {
-    (rect.x0 - rect.x0.round()).abs() < 1e-9
-        && (rect.y0 - rect.y0.round()).abs() < 1e-9
-        && (rect.x1 - rect.x1.round()).abs() < 1e-9
-        && (rect.y1 - rect.y1.round()).abs() < 1e-9
+    (rect.x0 - rect.x0.round()).is_nearly_zero()
+        && (rect.y0 - rect.y0.round()).is_nearly_zero()
+        && (rect.x1 - rect.x1.round()).is_nearly_zero()
+        && (rect.y1 - rect.y1.round()).is_nearly_zero()
 }
 
 /// Extract scale factors from an affine transform using singular value decomposition.
