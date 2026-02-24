@@ -57,6 +57,54 @@ impl FastStripsBuffer {
     }
 }
 
+/// Constraints on a scene that the renderer can exploit for optimisation.
+///
+/// By default no constraints are active.
+#[derive(Copy, Clone, Debug)]
+pub struct SceneConstraints(u32);
+
+impl Default for SceneConstraints {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SceneConstraints {
+    const DEFAULT_BLENDING_ONLY: u32 = 1 << 0;
+
+    /// Create a new, unconstrained set of scene constraints.
+    #[inline(always)]
+    pub fn new() -> Self {
+        Self(0)
+    }
+
+    /// Caller guarantees that the scene will only use the default (normal, source-over)
+    /// blend mode.
+    ///
+    /// # Panics
+    ///
+    /// The renderer will panic if a non-default blend mode is used.
+    #[inline(always)]
+    pub fn default_blending_only(self) -> Self {
+        Self(self.0 | Self::DEFAULT_BLENDING_ONLY)
+    }
+
+    #[inline(always)]
+    fn use_default_blending_only(&self) -> bool {
+        (self.0 & Self::DEFAULT_BLENDING_ONLY) != 0
+    }
+
+    #[inline(always)]
+    fn assert_blend_mode(&self, blend_mode: BlendMode) {
+        if self.use_default_blending_only() {
+            assert!(
+                blend_mode == DEFAULT_BLEND_MODE,
+                "scene constrained to default blending"
+            );
+        }
+    }
+}
+
 /// Settings to apply to the render context.
 #[derive(Copy, Clone, Debug)]
 pub struct RenderSettings {
@@ -74,6 +122,8 @@ pub struct RenderSettings {
     /// Adjusting these settings can affect memory usage and rendering performance
     /// depending on your application's image usage patterns.
     pub atlas_config: AtlasConfig,
+    /// Constraints on the scene that the renderer can exploit for optimisation.
+    pub constraints: SceneConstraints,
 }
 
 impl Default for RenderSettings {
@@ -81,6 +131,7 @@ impl Default for RenderSettings {
         Self {
             level: Level::try_detect().unwrap_or(Level::baseline()),
             atlas_config: AtlasConfig::default(),
+            constraints: SceneConstraints::new(),
         }
     }
 }
@@ -111,6 +162,8 @@ struct RenderState {
 /// pipeline from paths to strips that can be rendered by the GPU.
 #[derive(Debug)]
 pub struct Scene {
+    /// Constraints on the scene that the renderer can exploit for optimisation.
+    constraints: SceneConstraints,
     /// Width of the rendering surface in pixels.
     pub(crate) width: u16,
     /// Height of the rendering surface in pixels.
@@ -185,6 +238,8 @@ macro_rules! submit_strips {
     };
 }
 
+const DEFAULT_BLEND_MODE: BlendMode = BlendMode::new(Mix::Normal, Compose::SrcOver);
+
 impl Scene {
     /// Create a new render context with the given width and height in pixels.
     pub fn new(width: u16, height: u16) -> Self {
@@ -196,6 +251,7 @@ impl Scene {
         let render_state = Self::default_render_state();
         let render_graph = RenderGraph::new();
         Self {
+            constraints: settings.constraints,
             width,
             height,
             wide: Wide::<MODE_HYBRID>::new(width, height),
@@ -234,14 +290,13 @@ impl Scene {
             end_cap: Cap::Butt,
             ..Default::default()
         };
-        let blend_mode = BlendMode::new(Mix::Normal, Compose::SrcOver);
         RenderState {
             transform,
             fill_rule,
             paint,
             paint_transform,
             stroke,
-            blend_mode,
+            blend_mode: DEFAULT_BLEND_MODE,
         }
     }
 
@@ -477,6 +532,9 @@ impl Scene {
         mask: Option<Mask>,
         filter: Option<Filter>,
     ) {
+        let blend_mode_val = blend_mode.unwrap_or(DEFAULT_BLEND_MODE);
+        self.constraints.assert_blend_mode(blend_mode_val);
+
         self.flush_fast_path();
 
         if filter.is_some() {
@@ -508,7 +566,7 @@ impl Scene {
         self.wide.push_layer(
             0,
             clip,
-            blend_mode.unwrap_or(BlendMode::new(Mix::Normal, Compose::SrcOver)),
+            blend_mode_val,
             None,
             opacity.unwrap_or(1.),
             None,
@@ -557,6 +615,7 @@ impl Scene {
 
     /// Set the blend mode for subsequent rendering operations.
     pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
+        self.constraints.assert_blend_mode(blend_mode);
         self.blend_mode = blend_mode;
     }
 
