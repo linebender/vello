@@ -1300,8 +1300,10 @@ impl<const MODE: u8> WideTile<MODE> {
             //
             // However, the extra cost of tracking such optimizations may outweigh the
             // benefit, especially in hybrid mode with GPU painting.
-            let can_override =
-                x == 0 && width == WideTile::WIDTH && self.n_clip == 0 && self.n_bufs == 0;
+
+            // TODO: Change this back once https://github.com/linebender/vello/pull/1478 has been
+            // merged.
+            let can_override = false;
 
             if can_override {
                 match fill_hint {
