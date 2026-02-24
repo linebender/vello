@@ -332,9 +332,12 @@ fn main(
             let even_odd = (draw_flags & DRAW_INFO_FLAGS_FILL_RULE_BIT) != 0u;
             let n_segs = tile.segment_count_or_ix;
 
-            // If this draw object represents an even-odd fill and we know that no line segment
-            // crosses this tile and then this draw object should not contribute to the tile if its
-            // backdrop (i.e. the winding number of its top-left corner) is even.
+            // If no line segment crosses this tile and the backdrop (i.e. the winding number of
+            // its top-left corner) and fill rule are such that the tile is completely uncovered,
+            // and we're not blending, then the tile is completely clear. This draw object should
+            // then not contribute to the tile, unless it is a clip. If the draw object is a clip,
+            // the "clear" logic is inversed: the draw object doesn't contribute only when the
+            // tile is completely covered.
             let backdrop_clear = select(tile.backdrop, abs(tile.backdrop) & 1, even_odd) == 0;
             let include_tile = n_segs != 0u || (backdrop_clear == is_clip) || is_blend;
             if include_tile {
