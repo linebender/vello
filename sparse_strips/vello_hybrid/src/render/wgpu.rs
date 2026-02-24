@@ -32,10 +32,7 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{
-        LoadOp, RendererBackend, Scheduler, SchedulerState, generate_gpu_strips_for_batch,
-        generate_gpu_strips_for_fast_path,
-    },
+    schedule::{LoadOp, RendererBackend, Scheduler, SchedulerState},
 };
 use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
@@ -94,8 +91,6 @@ pub struct Renderer {
     paint_idxs: Vec<u32>,
     /// Gradient cache for storing gradient ramps.
     gradient_cache: GradientRampCache,
-    /// Reusable buffer for GPU strips produced by the fast path.
-    fast_path_gpu_strips: Vec<GpuStrip>,
 }
 
 impl Renderer {
@@ -129,7 +124,6 @@ impl Renderer {
             gradient_cache,
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
-            fast_path_gpu_strips: Vec::new(),
         }
     }
 
@@ -159,85 +153,18 @@ impl Renderer {
             render_size,
             &self.paint_idxs,
         );
-        let result = if scene.strips_fast_path_active && !scene.fast_path_interleaved {
-            // Pure fast path: no push_layer happened, render all fast strips directly.
-            self.fast_path_gpu_strips.clear();
-
-            generate_gpu_strips_for_fast_path(
-                &scene.fast_strips_buffer.paths,
-                scene,
-                &self.paint_idxs,
-                &mut self.fast_path_gpu_strips,
-            );
-
-            let mut ctx = RendererContext {
-                programs: &mut self.programs,
-                device,
-                queue,
-                encoder,
-                view,
-            };
-            ctx.render_strips(&self.fast_path_gpu_strips, 2, LoadOp::Clear);
-
-            Ok(())
-        } else if scene.fast_path_interleaved {
-            // Interleaved: fast batches rendered between scheduled segments.
-            let total_batches = scene.fast_strips_buffer.batch_count();
-            let mut next_batch = 0usize;
-            let gpu_strips = &mut self.fast_path_gpu_strips;
-            let paint_idxs = &self.paint_idxs;
-
-            // Render the first fast batch (before any scheduled content).
-            if next_batch < total_batches {
-                gpu_strips.clear();
-                generate_gpu_strips_for_batch(scene, next_batch, paint_idxs, gpu_strips);
-                next_batch += 1;
-            }
-
-            let mut ctx = RendererContext {
-                programs: &mut self.programs,
-                device,
-                queue,
-                encoder,
-                view,
-            };
-            ctx.render_strips(gpu_strips, 2, LoadOp::Clear);
-
-            self.scheduler.do_scene_interleaved(
-                &mut self.scheduler_state,
-                &mut ctx,
-                scene,
-                paint_idxs,
-                &mut |renderer: &mut RendererContext<'_>| {
-                    if next_batch < total_batches {
-                        gpu_strips.clear();
-                        generate_gpu_strips_for_batch(scene, next_batch, paint_idxs, gpu_strips);
-                        renderer.render_strips(gpu_strips, 2, LoadOp::Load);
-                        next_batch += 1;
-                    }
-                },
-            )?;
-
-            // Render any remaining tail fast batches.
-            for i in next_batch..total_batches {
-                gpu_strips.clear();
-                generate_gpu_strips_for_batch(scene, i, paint_idxs, gpu_strips);
-                ctx.render_strips(gpu_strips, 2, LoadOp::Load);
-            }
-
-            Ok(())
-        } else {
-            // Pure scheduler path: We gave up on the fast path.
-            let mut ctx = RendererContext {
-                programs: &mut self.programs,
-                device,
-                queue,
-                encoder,
-                view,
-            };
-            self.scheduler
-                .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs)
+        let mut ctx = RendererContext {
+            programs: &mut self.programs,
+            device,
+            queue,
+            encoder,
+            view,
         };
+        // Clear the surface before the unified scheduling pass.
+        ctx.render_strips(&[], 2, LoadOp::Clear);
+        let result = self
+            .scheduler
+            .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs);
         self.gradient_cache.maintain();
 
         result

@@ -176,11 +176,12 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
-use crate::scene::FastStripsPath;
+use crate::scene::{FastStripsPath, SceneCommand};
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
-use vello_common::coarse::{CommandAttrs, MODE_HYBRID};
+use core::ops::Range;
+use vello_common::coarse::{CommandAttrs, Wide, MODE_HYBRID};
 use vello_common::peniko::BlendMode;
 use vello_common::strip_generator::StripStorage;
 use vello_common::{
@@ -443,6 +444,13 @@ impl Scheduler {
         Ok(slot)
     }
 
+    /// Schedule and render the scene.
+    ///
+    /// Iterates over the scene's command sequence, which interleaves fast-path
+    /// strips (rendered directly to the surface) and coarse-rasterized layer
+    /// content (scheduled through the round system). Fast-path strips are
+    /// appended directly to the current round's surface draw array, avoiding
+    /// separate GPU render calls.
     pub(crate) fn do_scene<R: RendererBackend>(
         &mut self,
         state: &mut SchedulerState,
@@ -450,39 +458,53 @@ impl Scheduler {
         scene: &Scene,
         paint_idxs: &[u32],
     ) -> Result<(), RenderError> {
-        let wide_tiles_per_row = scene.wide.width_tiles();
-        let wide_tiles_per_col = scene.wide.height_tiles();
+        let wide = &scene.wide;
+        let rows = wide.height_tiles();
+        let cols = wide.width_tiles();
+        let num_tiles = (rows * cols) as usize;
 
-        // Left to right, top to bottom iteration over wide tiles.
-        for wide_tile_row in 0..wide_tiles_per_col {
-            for wide_tile_col in 0..wide_tiles_per_row {
-                let wide_tile = scene.wide.get(wide_tile_col, wide_tile_row);
-                let wide_tile_x = wide_tile_col * WideTile::WIDTH;
-                let wide_tile_y = wide_tile_row * Tile::HEIGHT;
+        // Per-tile offset tracking for Scheduled segments.
+        // Each Scheduled command processes cmds from offsets[tile] to the end.
+        let mut offsets = alloc::vec![0usize; num_tiles];
+        let mut first_scheduled = true;
 
-                state.clear();
-
-                self.initialize_tile_state(
-                    &mut state.tile_state,
-                    wide_tile,
-                    wide_tile_x,
-                    wide_tile_y,
-                    scene,
-                    paint_idxs,
-                    true,
-                );
-                self.do_tile(
-                    state,
-                    renderer,
-                    scene,
-                    wide_tile_x,
-                    wide_tile_y,
-                    &wide_tile.cmds,
-                    wide_tile.surface_is_blend_target(),
-                    paint_idxs,
-                    &scene.wide.attrs,
-                )?;
+        // Process the explicit scene commands.
+        for cmd in &scene.scene_commands {
+            match cmd {
+                SceneCommand::DirectStrips(range) => {
+                    self.emit_direct_strips(scene, range.clone(), paint_idxs);
+                }
+                SceneCommand::Scheduled => {
+                    self.process_scheduled_segment(
+                        state,
+                        renderer,
+                        scene,
+                        wide,
+                        rows,
+                        cols,
+                        &mut offsets,
+                        paint_idxs,
+                        first_scheduled,
+                    )?;
+                    first_scheduled = false;
+                }
             }
+        }
+
+        // Handle the tail: fast-path strips added after the last pop_layer.
+        let tail_start = scene.fast_strips_buffer.batch_start;
+        let tail_end = scene.fast_strips_buffer.paths.len();
+        if tail_start < tail_end {
+            self.emit_direct_strips(scene, tail_start..tail_end, paint_idxs);
+        }
+
+        // If there were no scene commands and no fast-path tail, this is the
+        // pure coarse path (no default_blending_only). Process all tile
+        // commands in one pass.
+        if scene.scene_commands.is_empty() && tail_start >= tail_end {
+            self.process_scheduled_segment(
+                state, renderer, scene, wide, rows, cols, &mut offsets, paint_idxs, true,
+            )?;
         }
 
         while !self.rounds_queue.is_empty() {
@@ -503,102 +525,95 @@ impl Scheduler {
         Ok(())
     }
 
-    /// Process the scene segment by segment, flushing between `Cmd::SegmentEnd` boundaries
-    /// and invoking `on_segment_end` so the caller can render fast-path batches in between.
-    pub(crate) fn do_scene_interleaved<R: RendererBackend>(
+    /// Generate GpuStrips for a range of fast-path paths and append them
+    /// directly into the current round's surface draw array.
+    fn emit_direct_strips(
+        &mut self,
+        scene: &Scene,
+        range: Range<usize>,
+        paint_idxs: &[u32],
+    ) {
+        let strip_storage = scene.strip_storage.borrow();
+        let draw = self.draw_mut(self.round, 2);
+        for path in &scene.fast_strips_buffer.paths[range] {
+            generate_gpu_strips_for_path(path, &strip_storage, scene, paint_idxs, &mut draw.0);
+        }
+    }
+
+    /// Process one segment of coarse-rasterized wide tile commands.
+    ///
+    /// Iterates over all wide tiles, processing commands from each tile's
+    /// current offset up to the next `SegmentEnd` marker (or the end of the
+    /// command list for the pure-coarse fallback).
+    fn process_scheduled_segment<R: RendererBackend>(
         &mut self,
         state: &mut SchedulerState,
         renderer: &mut R,
         scene: &Scene,
+        wide: &Wide<MODE_HYBRID>,
+        rows: u16,
+        cols: u16,
+        offsets: &mut [usize],
         paint_idxs: &[u32],
-        on_segment_end: &mut impl FnMut(&mut R),
+        first: bool,
     ) -> Result<(), RenderError> {
-        let wide = &scene.wide;
-        let rows = wide.height_tiles();
-        let cols = wide.width_tiles();
-        let num_tiles = (rows * cols) as usize;
-        let mut offsets = alloc::vec![0usize; num_tiles];
-
-        loop {
-            let mut had_work = false;
-
-            for row in 0..rows {
-                for col in 0..cols {
-                    let idx = (row * cols + col) as usize;
-                    let tile = wide.get(col, row);
-                    let off = offsets[idx];
-                    if off >= tile.cmds.len() {
-                        continue;
-                    }
-
-                    let end = tile.cmds[off..]
-                        .iter()
-                        .position(|c| matches!(c, Cmd::SegmentEnd))
-                        .map(|p| off + p)
-                        .unwrap_or(tile.cmds.len());
-
-                    // We only must paint the background if we are at the start of the wide
-                    // tile.
-                    let paint_bg = off == 0;
-
-                    if end > off {
-                        had_work = true;
-                        let tile_x = col * WideTile::WIDTH;
-                        let tile_y = row * Tile::HEIGHT;
-
-                        state.clear();
-                        self.initialize_tile_state(
-                            &mut state.tile_state,
-                            tile,
-                            tile_x,
-                            tile_y,
-                            scene,
-                            paint_idxs,
-                            paint_bg,
-                        );
-                        self.do_tile(
-                            state,
-                            renderer,
-                            scene,
-                            tile_x,
-                            tile_y,
-                            &tile.cmds[off..end],
-                            tile.surface_is_blend_target(),
-                            paint_idxs,
-                            &wide.attrs,
-                        )?;
-                    } else if paint_bg {
-                        let tile_x = col * WideTile::WIDTH;
-                        let tile_y = row * Tile::HEIGHT;
-                        if self.paint_tile_bg(tile, tile_x, tile_y, scene, paint_idxs) {
-                            had_work = true;
-                        }
-                    }
-
-                    // Advance past the SegmentEnd marker (if present).
-                    offsets[idx] = if end < tile.cmds.len() { end + 1 } else { end };
+        for row in 0..rows {
+            for col in 0..cols {
+                let idx = (row * cols + col) as usize;
+                let tile = wide.get(col, row);
+                let off = offsets[idx];
+                if off >= tile.cmds.len() {
+                    continue;
                 }
-            }
 
-            if !had_work {
-                break;
-            }
+                let tile_x = col * WideTile::WIDTH;
+                let tile_y = row * Tile::HEIGHT;
 
-            while !self.rounds_queue.is_empty() {
-                self.flush(renderer);
+                // We only must paint the background if we are at the start of the
+                // wide tile and this is the first scheduled segment.
+                let paint_bg = first && off == 0;
+
+                // Find the end of this segment: scan for the next SegmentEnd marker.
+                let end = tile.cmds[off..]
+                    .iter()
+                    .position(|c| matches!(c, Cmd::SegmentEnd))
+                    .map(|p| off + p)
+                    .unwrap_or(tile.cmds.len());
+
+                if end > off {
+                    state.clear();
+                    self.initialize_tile_state(
+                        &mut state.tile_state,
+                        tile,
+                        tile_x,
+                        tile_y,
+                        scene,
+                        paint_idxs,
+                        paint_bg,
+                    );
+                    self.do_tile(
+                        state,
+                        renderer,
+                        scene,
+                        tile_x,
+                        tile_y,
+                        &tile.cmds[off..end],
+                        tile.surface_is_blend_target(),
+                        paint_idxs,
+                        &wide.attrs,
+                    )?;
+                } else if paint_bg {
+                    self.paint_tile_bg(tile, tile_x, tile_y, scene, paint_idxs);
+                }
+
+                // Advance past the SegmentEnd marker (if present).
+                offsets[idx] = if end < tile.cmds.len() {
+                    end + 1
+                } else {
+                    end
+                };
             }
-            on_segment_end(renderer);
         }
-
-        self.round = 0;
-        #[cfg(debug_assertions)]
-        {
-            for i in 0..self.total_slots {
-                debug_assert!(self.free[0].contains(&i), "free[0] is missing slot {i}");
-                debug_assert!(self.free[1].contains(&i), "free[1] is missing slot {i}");
-            }
-        }
-        debug_assert!(self.rounds_queue.is_empty(), "rounds_queue is not empty");
 
         Ok(())
     }
@@ -1307,33 +1322,6 @@ impl GpuStripBuilder {
 #[inline(always)]
 fn has_non_zero_alpha(rgba: u32) -> bool {
     rgba >= 0x1_00_00_00
-}
-
-pub(crate) fn generate_gpu_strips_for_fast_path(
-    paths: &[FastStripsPath],
-    scene: &Scene,
-    paint_idxs: &[u32],
-    gpu_strips: &mut Vec<GpuStrip>,
-) {
-    let strip_storage = scene.strip_storage.borrow();
-
-    for path in paths {
-        generate_gpu_strips_for_path(path, &strip_storage, scene, paint_idxs, gpu_strips);
-    }
-}
-
-/// Generate `GpuStrip`s for a single fast-path batch (by index) into the provided buffer.
-pub(crate) fn generate_gpu_strips_for_batch(
-    scene: &Scene,
-    batch_index: usize,
-    paint_idxs: &[u32],
-    gpu_strips: &mut Vec<GpuStrip>,
-) {
-    let strip_storage = scene.strip_storage.borrow();
-    gpu_strips.clear();
-    for path in scene.fast_strips_buffer.batch(batch_index) {
-        generate_gpu_strips_for_path(path, &strip_storage, scene, paint_idxs, gpu_strips);
-    }
 }
 
 fn generate_gpu_strips_for_path(

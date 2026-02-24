@@ -40,6 +40,19 @@ pub(crate) struct FastStripsPath {
     pub(crate) paint: Paint,
 }
 
+/// A command in the unified scene command sequence.
+///
+/// This enum describes the interleaving of fast-path strips (rendered directly
+/// to the surface) and coarse-rasterized content (scheduled via the round system).
+#[derive(Debug)]
+pub(crate) enum SceneCommand {
+    /// Fast-path strips to render directly to the surface.
+    /// The range indexes into `FastStripsBuffer.paths`.
+    DirectStrips(Range<usize>),
+    /// Coarse-rasterized layer content. Process all remaining wide tile commands.
+    Scheduled,
+}
+
 /// A buffer that collects strips from paths that bypass coarse rasterization and scheduling.
 ///
 /// Strip data itself lives in `strip_storage`. Each `FastStripsPath` records the range of strips
@@ -48,46 +61,15 @@ pub(crate) struct FastStripsPath {
 pub(crate) struct FastStripsBuffer {
     /// All paths in the buffer.
     pub(crate) paths: Vec<FastStripsPath>,
-    /// Completed batches of paths. Each `Range<usize>` indexes into `self.paths`.
-    /// A new batch is closed each time a `push_layer` occurs (with `default_blending_only`),
-    /// and a new one implicitly opens when paths are added after we `pop_layer` back to the
-    /// top level.
-    pub(crate) batches: Vec<Range<usize>>,
     /// Start index of the current open batch within `self.paths`.
-    batch_start: usize,
+    pub(crate) batch_start: usize,
 }
 
 impl FastStripsBuffer {
     #[inline(always)]
     fn clear(&mut self) {
         self.paths.clear();
-        self.batches.clear();
         self.batch_start = 0;
-    }
-
-    /// Close the current batch if it contains any paths.
-    #[inline(always)]
-    pub(crate) fn close_batch(&mut self) {
-        if self.batch_start < self.paths.len() {
-            self.batches.push(self.batch_start..self.paths.len());
-        }
-        self.batch_start = self.paths.len();
-    }
-
-    /// Total number of batches including an open tail batch (if any).
-    pub(crate) fn batch_count(&self) -> usize {
-        let has_tail = self.batch_start < self.paths.len();
-        self.batches.len() + usize::from(has_tail)
-    }
-
-    /// Get the paths for a batch by index (including the open tail as the last batch).
-    pub(crate) fn batch(&self, index: usize) -> &[FastStripsPath] {
-        if index < self.batches.len() {
-            &self.paths[self.batches[index].clone()]
-        } else {
-            debug_assert_eq!(index, self.batches.len(), "batch index out of bounds");
-            &self.paths[self.batch_start..]
-        }
     }
 }
 
@@ -246,6 +228,9 @@ pub struct Scene {
     /// True when the scene contains fast path and scheduled content. This can happen when
     /// the scene is inside a push/pop layer with `default_blending_only`.
     pub(crate) fast_path_interleaved: bool,
+    /// The unified command sequence describing the interleaving of fast-path strips
+    /// and coarse-rasterized layers. Built during scene construction.
+    pub(crate) scene_commands: Vec<SceneCommand>,
 }
 
 // We use this macro instead of a method to avoid borrowing issues in the corresponding methods.
@@ -320,6 +305,7 @@ impl Scene {
             fast_strips_buffer: FastStripsBuffer::default(),
             strips_fast_path_active: true,
             fast_path_interleaved: false,
+            scene_commands: Vec::new(),
         }
     }
 
@@ -584,8 +570,15 @@ impl Scene {
         let strip_offset;
         if self.constraints.use_default_blending_only() && self.strips_fast_path_active {
             // With default blending only we can keep fast strips alive. Close the
-            // current batch and switch strip storage to preserve the fast-path prefix.
-            self.fast_strips_buffer.close_batch();
+            // current batch as a DirectStrips command and switch strip storage to
+            // preserve the fast-path prefix.
+            let batch_end = self.fast_strips_buffer.paths.len();
+            if self.fast_strips_buffer.batch_start < batch_end {
+                self.scene_commands.push(SceneCommand::DirectStrips(
+                    self.fast_strips_buffer.batch_start..batch_end,
+                ));
+                self.fast_strips_buffer.batch_start = batch_end;
+            }
             let mut strip_storage = self.strip_storage.borrow_mut();
             strip_offset = strip_storage.strips.len();
             strip_storage.set_generation_mode(GenerationMode::ReplaceAfter(strip_offset));
@@ -671,6 +664,7 @@ impl Scene {
         self.wide.pop_layer(&mut self.render_graph);
         if self.fast_path_interleaved && !self.wide.has_layers() {
             self.wide.emit_segment_end();
+            self.scene_commands.push(SceneCommand::Scheduled);
             self.strip_storage
                 .borrow_mut()
                 .set_generation_mode(GenerationMode::Append);
@@ -776,6 +770,7 @@ impl Scene {
         self.fast_strips_buffer.clear();
         self.strips_fast_path_active = true;
         self.fast_path_interleaved = false;
+        self.scene_commands.clear();
     }
 
     /// Get the width of the render context.

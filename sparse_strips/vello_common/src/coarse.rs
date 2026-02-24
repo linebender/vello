@@ -288,7 +288,10 @@ impl Wide<MODE_HYBRID> {
         Self::new_internal(width, height)
     }
 
-    /// Emit a `SegmentEnd` command into every wide tile.
+    /// Emit a `SegmentEnd` marker into every wide tile.
+    ///
+    /// This is used to delimit boundaries between coarse-rasterized segments
+    /// so the scheduler knows where one segment ends and the next begins.
     pub fn emit_segment_end(&mut self) {
         for tile in &mut self.tiles {
             tile.cmds.push(Cmd::SegmentEnd);
