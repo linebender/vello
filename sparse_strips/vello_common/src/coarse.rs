@@ -96,6 +96,7 @@ struct NeedsBufLayerStack {
 }
 
 impl NeedsBufLayerStack {
+    #[inline]
     fn clear(&mut self) {
         for idx in 0..self.len {
             self.stack[idx].occupied_tiles.clear();
@@ -103,6 +104,7 @@ impl NeedsBufLayerStack {
         self.len = 0;
     }
 
+    #[inline]
     fn push(&mut self, kind: LayerKind) {
         if self.len == self.stack.len() {
             self.stack.push(LayerKindAndOccupiedTiles {
@@ -116,11 +118,13 @@ impl NeedsBufLayerStack {
         self.len += 1;
     }
 
+    #[inline]
     fn pop(&mut self) {
         debug_assert!(self.len > 0, "Called `pop` at the root");
         self.len -= 1;
     }
 
+    #[inline]
     fn last(&self) -> Option<&LayerKindAndOccupiedTiles> {
         self.len.checked_sub(1).map(|idx| &self.stack[idx])
     }
