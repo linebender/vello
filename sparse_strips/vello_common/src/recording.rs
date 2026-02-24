@@ -8,7 +8,7 @@ use crate::filter_effects::Filter;
 use crate::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::mask::Mask;
-use crate::paint::PaintType;
+use crate::paint::{PaintType, Tint};
 #[cfg(feature = "text")]
 use crate::peniko::FontData;
 use crate::peniko::{BlendMode, Fill};
@@ -131,6 +131,8 @@ pub enum RenderCommand {
     SetPaintTransform(Affine),
     /// Reset the paint transform.
     ResetPaintTransform,
+    /// Set or clear the tint for image paints.
+    SetTint(Option<Tint>),
     /// Set the current filter effect.
     SetFilterEffect(Filter),
     /// Reset the current filter effect.
@@ -407,6 +409,11 @@ impl<'a> Recorder<'a> {
     pub fn reset_paint_transform(&mut self) {
         self.recording
             .add_command(RenderCommand::ResetPaintTransform);
+    }
+
+    /// Set or clear the tint for subsequent image paint operations.
+    pub fn set_tint(&mut self, tint: Option<Tint>) {
+        self.recording.add_command(RenderCommand::SetTint(tint));
     }
 
     /// Set the current filter effect.

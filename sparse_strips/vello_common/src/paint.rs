@@ -5,6 +5,7 @@
 
 use crate::pixmap::Pixmap;
 use alloc::sync::Arc;
+pub use peniko::Color;
 use peniko::{
     Gradient,
     color::{AlphaColor, PremulRgba8, Srgb},
@@ -235,6 +236,39 @@ impl PremulColor {
     pub fn is_opaque(&self) -> bool {
         self.premul_f32.components[3] == 1.0
     }
+}
+
+/// How tint color is applied to an image.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum TintMode {
+    /// Alpha-mask tinting: `tint_premul * source.alpha`.
+    ///
+    /// The source image's alpha channel is used as a coverage mask,
+    /// and the result is filled with the premultiplied tint color.
+    /// This is the standard approach for glyph / monochrome image tinting.
+    AlphaMask = 0,
+    /// Component-wise multiply: `source * tint`.
+    ///
+    /// Each channel of the source pixel is multiplied by the corresponding
+    /// channel of the tint color. This works well for full-color images.
+    Multiply = 1,
+}
+
+impl TintMode {
+    /// Return the discriminant as a `u32`.
+    pub fn as_u32(self) -> u32 {
+        self as u32
+    }
+}
+
+/// A tint applied to image paints.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct Tint {
+    /// The tint color.
+    pub color: Color,
+    /// How the tint is applied.
+    pub mode: TintMode,
 }
 
 /// A kind of paint that can be used for filling and stroking shapes.

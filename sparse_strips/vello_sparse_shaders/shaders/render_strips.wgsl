@@ -342,9 +342,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 extend_mode(local_xy.y + offset, encoded_image.extend_modes.y, image_size.y)
             );
             
+            var sample_color: vec4<f32>;
             if encoded_image.quality == IMAGE_QUALITY_HIGH {
                 let final_xy = image_offset + extended_xy;
-                let sample_color = bicubic_sample(
+                sample_color = bicubic_sample(
                     atlas_texture_array,
                     final_xy,
                     i32(encoded_image.atlas_index),
@@ -352,10 +353,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                     image_size,
                     encoded_image.extend_modes,
                 );
-                final_color = alpha * sample_color;
             } else if encoded_image.quality == IMAGE_QUALITY_MEDIUM {
                 let final_xy = image_offset + extended_xy - vec2(0.5);
-                let sample_color = bilinear_sample(
+                sample_color = bilinear_sample(
                     atlas_texture_array,
                     final_xy,
                     i32(encoded_image.atlas_index),
@@ -363,17 +363,22 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                     image_size,
                     encoded_image.extend_modes,
                 );
-                final_color = alpha * sample_color;
-            } else if encoded_image.quality == IMAGE_QUALITY_LOW {
+            } else {
                 let final_xy = image_offset + extended_xy;
-                let sample_color = textureLoad(
+                sample_color = textureLoad(
                     atlas_texture_array,
                     vec2<u32>(final_xy),
                     i32(encoded_image.atlas_index),
                     0,
                 );
-                final_color = alpha * sample_color;
             }
+
+            let is_multiply = bool(encoded_image.tint_mode);
+            final_color = alpha * select(
+                encoded_image.tint * sample_color.a,
+                sample_color * encoded_image.tint,
+                is_multiply
+            );
         } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT {
             let paint_tex_idx = in.paint & PAINT_TEXTURE_INDEX_MASK;
             let linear_gradient = unpack_linear_gradient(paint_tex_idx);
@@ -769,6 +774,10 @@ fn blend_mix(cb: vec3<f32>, cs: vec3<f32>, mode: u32) -> vec3<f32> {
 }
 
 
+/// Tint mode constants.
+const TINT_MODE_ALPHA_MASK: u32 = 0u;
+const TINT_MODE_MULTIPLY: u32 = 1u;
+
 struct EncodedImage {
     /// The rendering quality of the image.
     quality: u32,
@@ -787,6 +796,10 @@ struct EncodedImage {
     /// Translation offset for 2D affine transformation.
     /// Contains [tx, ty] representing the translation component.
     translate: vec2<f32>,
+    /// Premultiplied tint color. Identity (vec4(1.0)) when no tint is set.
+    tint: vec4<f32>,
+    /// Tint mode: TINT_MODE_ALPHA_MASK (`0`) or TINT_MODE_MULTIPLY (`1`).
+    tint_mode: u32,
 }
 
 // Convert a flat texel index to 2D texture coordinates for the encoded paints texture.
@@ -816,6 +829,11 @@ fn unpack_encoded_image(paint_tex_idx: u32) -> EncodedImage {
         bitcast<f32>(texel1.y), bitcast<f32>(texel1.z)
     );
     let translate = vec2<f32>(bitcast<f32>(texel1.w), bitcast<f32>(texel2.x));
+    // When packed_tint is zero (no tint), use identity color vec4(1.0) with
+    // Multiply mode so the math reduces to sample_color * 1.0 = sample_color.
+    let packed_tint = texel2.y;
+    let tint = select(vec4<f32>(1.0), unpack4x8unorm(packed_tint), packed_tint != 0u);
+    let tint_mode = select(TINT_MODE_MULTIPLY, texel2.z, packed_tint != 0u);
 
     return EncodedImage(
         quality, 
@@ -824,7 +842,9 @@ fn unpack_encoded_image(paint_tex_idx: u32) -> EncodedImage {
         image_offset,
         atlas_index,
         transform,
-        translate
+        translate,
+        tint,
+        tint_mode
     );
 }
 

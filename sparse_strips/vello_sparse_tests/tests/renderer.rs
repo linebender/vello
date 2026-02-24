@@ -8,7 +8,7 @@ use vello_common::filter_effects::Filter;
 use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder};
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
-use vello_common::paint::{ImageId, ImageSource, PaintType};
+use vello_common::paint::{ImageId, ImageSource, PaintType, Tint};
 use vello_common::peniko::{BlendMode, Fill, FontData};
 use vello_common::pixmap::Pixmap;
 use vello_common::recording::{Recordable, Recorder, Recording};
@@ -53,6 +53,7 @@ pub(crate) trait Renderer: Sized {
     fn set_stroke(&mut self, stroke: Stroke);
     fn set_mask(&mut self, mask: Mask);
     fn set_paint(&mut self, paint: impl Into<PaintType>);
+    fn set_tint(&mut self, tint: Option<Tint>);
     fn set_paint_transform(&mut self, affine: Affine);
     fn set_fill_rule(&mut self, fill_rule: Fill);
     fn set_transform(&mut self, transform: Affine);
@@ -170,6 +171,10 @@ impl Renderer for RenderContext {
 
     fn set_paint(&mut self, paint: impl Into<PaintType>) {
         Self::set_paint(self, paint);
+    }
+
+    fn set_tint(&mut self, tint: Option<Tint>) {
+        Self::set_tint(self, tint);
     }
 
     fn set_paint_transform(&mut self, affine: Affine) {
@@ -391,6 +396,10 @@ impl Renderer for HybridRenderer {
 
     fn set_paint(&mut self, paint: impl Into<PaintType>) {
         self.scene.set_paint(paint);
+    }
+
+    fn set_tint(&mut self, tint: Option<Tint>) {
+        self.scene.set_tint(tint);
     }
 
     fn set_paint_transform(&mut self, affine: Affine) {
@@ -725,6 +734,10 @@ impl Renderer for HybridRenderer {
 
     fn set_paint(&mut self, paint: impl Into<PaintType>) {
         self.scene.set_paint(paint);
+    }
+
+    fn set_tint(&mut self, tint: Option<Tint>) {
+        self.scene.set_tint(tint);
     }
 
     fn set_paint_transform(&mut self, affine: Affine) {

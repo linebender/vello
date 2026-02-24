@@ -15,7 +15,7 @@
 
 use crate::filter::filter_highp;
 use crate::fine::FineKernel;
-use crate::fine::{COLOR_COMPONENTS, Painter};
+use crate::fine::{COLOR_COMPONENTS, Painter, Splat4thExt};
 use crate::layer_manager::LayerManager;
 use crate::peniko::BlendMode;
 use crate::region::Region;
@@ -23,7 +23,7 @@ use vello_common::fearless_simd::*;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::Affine;
 use vello_common::mask::Mask;
-use vello_common::paint::PremulColor;
+use vello_common::paint::{PremulColor, Tint, TintMode};
 use vello_common::pixmap::Pixmap;
 use vello_common::tile::Tile;
 
@@ -160,6 +160,34 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
     #[inline(always)]
     fn apply_painter<'a>(_: S, dest: &mut [Self::Numeric], mut painter: impl Painter + 'a) {
         painter.paint_f32(dest);
+    }
+
+    #[inline(always)]
+    fn apply_tint(simd: S, dest: &mut [Self::Numeric], tint: &Tint) {
+        let premul = tint.color.premultiply();
+        let [r, g, b, a] = premul.components;
+        let tint_v = f32x16::block_splat(f32x4::from_slice(simd, &[r, g, b, a]));
+
+        simd.vectorize(
+            #[inline(always)]
+            || match tint.mode {
+                TintMode::AlphaMask => {
+                    for chunk in dest.chunks_exact_mut(16) {
+                        let pixel = f32x16::from_slice(simd, chunk);
+                        let alphas = pixel.splat_4th();
+                        let tinted = tint_v * alphas;
+                        chunk.copy_from_slice(tinted.as_slice());
+                    }
+                }
+                TintMode::Multiply => {
+                    for chunk in dest.chunks_exact_mut(16) {
+                        let pixel = f32x16::from_slice(simd, chunk);
+                        let tinted = pixel * tint_v;
+                        chunk.copy_from_slice(tinted.as_slice());
+                    }
+                }
+            },
+        );
     }
 
     /// Composites a solid color onto a buffer using alpha blending.

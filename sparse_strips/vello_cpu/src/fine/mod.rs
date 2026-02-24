@@ -36,7 +36,7 @@ use vello_common::fearless_simd::{
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::Affine;
 use vello_common::mask::Mask;
-use vello_common::paint::{ImageResolver, ImageSource, Paint, PremulColor};
+use vello_common::paint::{ImageResolver, ImageSource, Paint, PremulColor, Tint};
 use vello_common::pixmap::Pixmap;
 use vello_common::simd::Splat4thExt;
 use vello_common::tile::Tile;
@@ -397,6 +397,13 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     /// Invokes the painter to generate pixel values and writes them to the destination.
     fn apply_painter<'a>(simd: S, dest: &mut [Self::Numeric], painter: impl Painter + 'a);
 
+    /// Apply an image tint to an already-painted buffer.
+    ///
+    /// This is called as a post-pass after `apply_painter`, only when a tint is
+    /// present. Keeping tint application out of the per-pixel iterator avoids
+    /// regressing the non-tinted fast path.
+    fn apply_tint(simd: S, dest: &mut [Self::Numeric], tint: &Tint);
+
     /// Perform alpha compositing with a solid color over the target buffer.
     ///
     /// Blends a solid RGBA color over the existing contents using standard alpha compositing
@@ -719,8 +726,14 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 // we would have to repeatedly provide all arguments if we made it a function.
                 macro_rules! fill_complex_paint {
                     ($may_have_opacities:expr, $filler:expr) => {
+                        fill_complex_paint!($may_have_opacities, $filler, None::<&Tint>)
+                    };
+                    ($may_have_opacities:expr, $filler:expr, $tint:expr) => {
                         if $may_have_opacities || alphas.is_some() {
                             T::apply_painter(self.simd, color_buf, $filler);
+                            if let Some(t) = $tint {
+                                T::apply_tint(self.simd, color_buf, t);
+                            }
 
                             if default_blend && mask.is_none() {
                                 T::alpha_composite_buffer(self.simd, blend_buf, color_buf, alphas);
@@ -742,6 +755,9 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                             // Similarly to solid colors we can just override the previous values
                             // if all colors in the gradient are fully opaque.
                             T::apply_painter(self.simd, blend_buf, $filler);
+                            if let Some(t) = $tint {
+                                T::apply_tint(self.simd, blend_buf, t);
+                            }
                         }
                     };
                 }
@@ -824,6 +840,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                 .unwrap_or_else(|| panic!("Image {:?} not found in registry", id)),
                         };
 
+                        let tint = i.tint.as_ref();
+
                         match (i.has_skew(), i.nearest_neighbor()) {
                             (false, false) => {
                                 // Axis-aligned with filtering - use optimized plain painters
@@ -832,14 +850,16 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                         i.may_have_opacities,
                                         T::plain_medium_quality_image_painter(
                                             self.simd, i, &pixmap, start_x, start_y
-                                        )
+                                        ),
+                                        tint
                                     );
                                 } else {
                                     fill_complex_paint!(
                                         i.may_have_opacities,
                                         T::high_quality_image_painter(
                                             self.simd, i, &pixmap, start_x, start_y
-                                        )
+                                        ),
+                                        tint
                                     );
                                 }
                             }
@@ -850,14 +870,16 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                         i.may_have_opacities,
                                         T::medium_quality_image_painter(
                                             self.simd, i, &pixmap, start_x, start_y
-                                        )
+                                        ),
+                                        tint
                                     );
                                 } else {
                                     fill_complex_paint!(
                                         i.may_have_opacities,
                                         T::high_quality_image_painter(
                                             self.simd, i, &pixmap, start_x, start_y
-                                        )
+                                        ),
+                                        tint
                                     );
                                 }
                             }
@@ -866,13 +888,15 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                     i.may_have_opacities,
                                     T::plain_nn_image_painter(
                                         self.simd, i, &pixmap, start_x, start_y
-                                    )
+                                    ),
+                                    tint
                                 );
                             }
                             (true, true) => {
                                 fill_complex_paint!(
                                     i.may_have_opacities,
-                                    T::nn_image_painter(self.simd, i, &pixmap, start_x, start_y)
+                                    T::nn_image_painter(self.simd, i, &pixmap, start_x, start_y),
+                                    tint
                                 );
                             }
                         }

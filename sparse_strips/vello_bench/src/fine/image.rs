@@ -182,7 +182,7 @@ fn image_base<S: Simd, T: FineKernel<S>>(
 ) {
     let mut paints = vec![];
 
-    let paint = image.encode_into(&mut paints, transform);
+    let paint = image.encode_into(&mut paints, transform, None);
 
     fill_single(
         &paint,

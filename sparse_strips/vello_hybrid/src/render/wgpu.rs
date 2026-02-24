@@ -28,7 +28,7 @@ use crate::{
             GPU_RADIAL_GRADIENT_SIZE_TEXELS, GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuEncodedImage,
             GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
             pack_image_offset, pack_image_params, pack_image_size, pack_radial_kind_and_swapped,
-            pack_texture_width_and_extend_mode,
+            pack_texture_width_and_extend_mode, pack_tint,
         },
     },
     scene::Scene,
@@ -357,13 +357,16 @@ impl Renderer {
             image.sampler.y_extend as u32,
             image_resource.atlas_id.as_u32(),
         );
+        let (tint, tint_mode) = pack_tint(image.tint);
 
         GpuEncodedPaint::Image(GpuEncodedImage {
             image_params,
             image_size,
             image_offset,
             transform,
-            _padding: [0, 0, 0],
+            tint,
+            tint_mode,
+            _padding: 0,
         })
     }
 
