@@ -34,7 +34,9 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{LoadOp, RendererBackend, Scheduler, SchedulerState},
+    schedule::{
+        LoadOp, RendererBackend, Scheduler, SchedulerState, generate_gpu_strips_for_fast_path,
+    },
 };
 use alloc::sync::Arc;
 use alloc::vec;
@@ -93,6 +95,8 @@ pub struct WebGlRenderer {
     paint_idxs: Vec<u32>,
     /// Gradient cache for storing gradient ramps.
     gradient_cache: GradientRampCache,
+    /// Reusable buffer for GPU strips produced by the fast path.
+    fast_path_gpu_strips: Vec<GpuStrip>,
 }
 
 impl WebGlRenderer {
@@ -159,6 +163,7 @@ impl WebGlRenderer {
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
             gradient_cache,
+            fast_path_gpu_strips: Vec::new(),
         }
     }
 
@@ -187,12 +192,33 @@ impl WebGlRenderer {
             render_size,
             &self.paint_idxs,
         );
-        let mut ctx = WebGlRendererContext {
-            programs: &mut self.programs,
-            gl: &self.gl,
-        };
-        self.scheduler
-            .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs)?;
+        if scene.strips_fast_path_active {
+            self.fast_path_gpu_strips.clear();
+
+            generate_gpu_strips_for_fast_path(
+                &scene.fast_strips_buffer.paths,
+                scene,
+                &self.paint_idxs,
+                &mut self.fast_path_gpu_strips,
+            );
+
+            let mut ctx = WebGlRendererContext {
+                programs: &mut self.programs,
+                gl: &self.gl,
+            };
+            ctx.render_strips(&self.fast_path_gpu_strips, 2, LoadOp::Clear);
+        } else {
+            let mut ctx = WebGlRendererContext {
+                programs: &mut self.programs,
+                gl: &self.gl,
+            };
+            self.scheduler.do_scene(
+                &mut self.scheduler_state,
+                &mut ctx,
+                scene,
+                &self.paint_idxs,
+            )?;
+        }
         self.gradient_cache.maintain();
 
         // Blit the view framebuffer to the default framebuffer (canvas element), reflecting the

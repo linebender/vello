@@ -6,6 +6,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
+use core::ops::Range;
 use vello_common::clip::ClipContext;
 use vello_common::coarse::{MODE_HYBRID, Wide};
 use vello_common::encode::{EncodeExt, EncodedPaint};
@@ -29,6 +30,32 @@ use vello_common::util::{is_integer_rect, is_integer_translation};
 
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
+
+/// Metadata for a single path stored in the fast strips buffer.
+#[derive(Debug)]
+pub(crate) struct FastStripsPath {
+    /// The range of strips for this path in the `strips` buffer.
+    pub(crate) strips: Range<usize>,
+    /// The paint of the path.
+    pub(crate) paint: Paint,
+}
+
+/// A buffer that collects strips from paths that bypass coarse rasterization and scheduling.
+///
+/// Strip data itself lives in `strip_storage`. Each `FastStripsPath` records the range of strips
+/// for one path within that storage.
+#[derive(Debug, Default)]
+pub(crate) struct FastStripsBuffer {
+    /// All paths in the buffer.
+    pub(crate) paths: Vec<FastStripsPath>,
+}
+
+impl FastStripsBuffer {
+    #[inline(always)]
+    fn clear(&mut self) {
+        self.paths.clear();
+    }
+}
 
 /// Settings to apply to the render context.
 #[derive(Copy, Clone, Debug)]
@@ -118,6 +145,44 @@ pub struct Scene {
     pub(crate) glyph_caches: Option<GlyphCaches>,
     /// Dependency graph for managing layer rendering order and filter effects.
     pub(crate) render_graph: RenderGraph,
+    /// A buffer that stores the strips of path drawing calls that have been emitted before
+    /// (a potential) first `push_layer` command.
+    ///
+    /// For such paths, we can completely circumvent coarse rasterization and scheduling.
+    pub(crate) fast_strips_buffer: FastStripsBuffer,
+    /// Whether the fast path for rendering strips directly instead of going through coarse
+    /// rasterization is active.
+    ///
+    /// This is the case if we have not performed any `push_layer` command. In such a case, we
+    /// don't need to do coarse rasterization or scheduling and therefore save a lot of overhead.
+    pub(crate) strips_fast_path_active: bool,
+}
+
+// We use this macro instead of a method to avoid borrowing issues in the corresponding methods.
+//
+// When the fast path is active it is in `Append` mode, so `$strip_start` (captured before generation)
+// and the current length delimit the range for this path.
+//
+// When the fast path is inactive, `strip_storage` is in `Replace` mode where each generation starts
+// with a clear, so the whole buffer is the current path's strips.
+macro_rules! submit_strips {
+    ($self:ident, $strip_storage:expr, $strip_start:expr, $paint:expr) => {
+        if $self.strips_fast_path_active {
+            $self.fast_strips_buffer.paths.push(FastStripsPath {
+                strips: $strip_start..$strip_storage.strips.len(),
+                paint: $paint,
+            });
+        } else {
+            $self.wide.generate(
+                &$strip_storage.strips,
+                $paint,
+                $self.blend_mode,
+                0,
+                None,
+                &$self.encoded_paints,
+            );
+        }
+    };
 }
 
 impl Scene {
@@ -143,13 +208,16 @@ impl Scene {
             paint_visible: true,
             stroke: render_state.stroke,
             strip_generator: StripGenerator::new(width, height, settings.level),
-            strip_storage: RefCell::new(StripStorage::default()),
+            // Start strip storage in `Append` mode since we enable the fast path by default.
+            strip_storage: RefCell::new(StripStorage::new(GenerationMode::Append)),
             transform: render_state.transform,
             fill_rule: render_state.fill_rule,
             blend_mode: render_state.blend_mode,
             #[cfg(feature = "text")]
             glyph_caches: Some(GlyphCaches::default()),
             render_graph,
+            fast_strips_buffer: FastStripsBuffer::default(),
+            strips_fast_path_active: true,
         }
     }
 
@@ -229,8 +297,8 @@ impl Scene {
         paint: Paint,
         aliasing_threshold: Option<u8>,
     ) {
-        let wide = &mut self.wide;
         let strip_storage = &mut self.strip_storage.borrow_mut();
+        let strip_start = strip_storage.strips.len();
         self.strip_generator.generate_filled_path(
             path,
             fill_rule,
@@ -239,14 +307,8 @@ impl Scene {
             strip_storage,
             self.clip_context.get(),
         );
-        wide.generate(
-            &strip_storage.strips,
-            paint,
-            self.blend_mode,
-            0,
-            None,
-            &self.encoded_paints,
-        );
+
+        submit_strips!(self, strip_storage, strip_start, paint);
     }
 
     /// Push a new clip path to the clip stack.
@@ -294,9 +356,8 @@ impl Scene {
         paint: Paint,
         aliasing_threshold: Option<u8>,
     ) {
-        let wide = &mut self.wide;
         let strip_storage = &mut self.strip_storage.borrow_mut();
-
+        let strip_start = strip_storage.strips.len();
         self.strip_generator.generate_stroked_path(
             path,
             &self.stroke,
@@ -306,14 +367,7 @@ impl Scene {
             self.clip_context.get(),
         );
 
-        wide.generate(
-            &strip_storage.strips,
-            paint,
-            self.blend_mode,
-            0,
-            None,
-            &self.encoded_paints,
-        );
+        submit_strips!(self, strip_storage, strip_start, paint);
     }
 
     /// Set the aliasing threshold.
@@ -363,19 +417,14 @@ impl Scene {
         let paint = self.encode_current_paint();
         let transformed_rect = self.transform.transform_rect_bbox(*rect);
         let strip_storage = &mut self.strip_storage.borrow_mut();
+        let strip_start = strip_storage.strips.len();
         self.strip_generator.generate_filled_rect_fast(
             &transformed_rect,
             strip_storage,
             self.clip_context.get(),
         );
-        self.wide.generate(
-            &strip_storage.strips,
-            paint,
-            self.blend_mode,
-            0,
-            None,
-            &self.encoded_paints,
-        );
+
+        submit_strips!(self, strip_storage, strip_start, paint);
     }
 
     /// Stroke a rectangle with the current paint and stroke settings.
@@ -387,6 +436,33 @@ impl Scene {
     #[cfg(feature = "text")]
     pub fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self> {
         GlyphRunBuilder::new(font.clone(), self.transform, self)
+    }
+
+    /// Flush the fast path buffer through the normal coarse rasterization pipeline.
+    ///
+    /// This retroactively generates wide tile commands for all strips that have been generated
+    /// using the fast path.
+    ///
+    /// After this call, `strip_storage` is switched back to `Replace` mode.
+    fn flush_fast_path(&mut self) {
+        if !self.strips_fast_path_active {
+            return;
+        }
+
+        let mut strip_storage = self.strip_storage.borrow_mut();
+        for path in self.fast_strips_buffer.paths.drain(..) {
+            self.wide.generate(
+                &strip_storage.strips[path.strips],
+                path.paint,
+                BlendMode::default(),
+                0,
+                None,
+                &self.encoded_paints,
+            );
+        }
+
+        strip_storage.set_generation_mode(GenerationMode::Replace);
+        self.strips_fast_path_active = false;
     }
 
     /// Push a new layer with the given properties.
@@ -401,6 +477,8 @@ impl Scene {
         mask: Option<Mask>,
         filter: Option<Filter>,
     ) {
+        self.flush_fast_path();
+
         if filter.is_some() {
             unimplemented!("Filter effects are not yet supported in vello_hybrid");
         }
@@ -553,7 +631,12 @@ impl Scene {
         self.wide.reset();
         self.strip_generator.reset();
         self.clip_context.reset();
-        self.strip_storage.borrow_mut().clear();
+        // Set the strip storage back to `Append` mode since the fast path is re-enabled on reset.
+        {
+            let mut ss = self.strip_storage.borrow_mut();
+            ss.clear();
+            ss.set_generation_mode(GenerationMode::Append);
+        }
         self.encoded_paints.clear();
 
         let render_state = Self::default_render_state();
@@ -567,6 +650,8 @@ impl Scene {
 
         #[cfg(feature = "text")]
         self.glyph_caches.as_mut().unwrap().maintain();
+        self.fast_strips_buffer.clear();
+        self.strips_fast_path_active = true;
     }
 
     /// Get the width of the render context.
@@ -868,14 +953,27 @@ impl Scene {
             "Invalid strip range: start={start}, end={end}, count={count}"
         );
         let paint = self.encode_current_paint();
-        self.wide.generate(
-            &adjusted_strips[start..end],
-            paint,
-            self.blend_mode,
-            0,
-            None,
-            &self.encoded_paints,
-        );
+
+        if self.strips_fast_path_active {
+            let mut strip_storage = self.strip_storage.borrow_mut();
+            let strip_start = strip_storage.strips.len();
+            strip_storage
+                .strips
+                .extend_from_slice(&adjusted_strips[start..end]);
+            self.fast_strips_buffer.paths.push(FastStripsPath {
+                strips: strip_start..strip_storage.strips.len(),
+                paint,
+            });
+        } else {
+            self.wide.generate(
+                &adjusted_strips[start..end],
+                paint,
+                self.blend_mode,
+                0,
+                None,
+                &self.encoded_paints,
+            );
+        }
     }
 
     /// Prepare cached strips for rendering by adjusting alpha indices and extending alpha buffer.

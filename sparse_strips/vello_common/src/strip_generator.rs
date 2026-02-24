@@ -35,6 +35,15 @@ pub enum GenerationMode {
 }
 
 impl StripStorage {
+    /// Create a new strip storage with the given generation mode.
+    pub fn new(generation_mode: GenerationMode) -> Self {
+        Self {
+            strips: Vec::new(),
+            alphas: Vec::new(),
+            generation_mode,
+        }
+    }
+
     /// Reset the storage.
     pub fn clear(&mut self) {
         self.strips.clear();

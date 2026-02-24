@@ -32,7 +32,9 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{LoadOp, RendererBackend, Scheduler, SchedulerState},
+    schedule::{
+        LoadOp, RendererBackend, Scheduler, SchedulerState, generate_gpu_strips_for_fast_path,
+    },
 };
 use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
@@ -91,6 +93,8 @@ pub struct Renderer {
     paint_idxs: Vec<u32>,
     /// Gradient cache for storing gradient ramps.
     gradient_cache: GradientRampCache,
+    /// Reusable buffer for GPU strips produced by the fast path.
+    fast_path_gpu_strips: Vec<GpuStrip>,
 }
 
 impl Renderer {
@@ -124,6 +128,7 @@ impl Renderer {
             gradient_cache,
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
+            fast_path_gpu_strips: Vec::new(),
         }
     }
 
@@ -153,20 +158,37 @@ impl Renderer {
             render_size,
             &self.paint_idxs,
         );
-        let mut junk = RendererContext {
-            programs: &mut self.programs,
-            device,
-            queue,
-            encoder,
-            view,
-        };
+        let result = if scene.strips_fast_path_active {
+            self.fast_path_gpu_strips.clear();
 
-        let result = self.scheduler.do_scene(
-            &mut self.scheduler_state,
-            &mut junk,
-            scene,
-            &self.paint_idxs,
-        );
+            generate_gpu_strips_for_fast_path(
+                &scene.fast_strips_buffer.paths,
+                scene,
+                &self.paint_idxs,
+                &mut self.fast_path_gpu_strips,
+            );
+
+            let mut ctx = RendererContext {
+                programs: &mut self.programs,
+                device,
+                queue,
+                encoder,
+                view,
+            };
+            ctx.render_strips(&self.fast_path_gpu_strips, 2, LoadOp::Clear);
+
+            Ok(())
+        } else {
+            let mut ctx = RendererContext {
+                programs: &mut self.programs,
+                device,
+                queue,
+                encoder,
+                view,
+            };
+            self.scheduler
+                .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs)
+        };
         self.gradient_cache.maintain();
 
         result

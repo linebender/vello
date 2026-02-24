@@ -176,6 +176,7 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
+use crate::scene::FastStripsPath;
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -1186,4 +1187,68 @@ impl GpuStripBuilder {
 #[inline(always)]
 fn has_non_zero_alpha(rgba: u32) -> bool {
     rgba >= 0x1_00_00_00
+}
+
+pub(crate) fn generate_gpu_strips_for_fast_path(
+    paths: &[FastStripsPath],
+    scene: &Scene,
+    paint_idxs: &[u32],
+    gpu_strips: &mut Vec<GpuStrip>,
+) {
+    let strip_storage = scene.strip_storage.borrow();
+
+    for path in paths {
+        let strips = &strip_storage.strips[path.strips.clone()];
+
+        if strips.is_empty() {
+            continue;
+        }
+
+        // Note: Some of this logic is similar to current coarse rasterization code, but
+        // the coarse rasterization code is more complex due to clip paths and other factors.
+        // It might be possible to reuse some code here, but it seems hard.
+
+        for i in 0..strips.len() - 1 {
+            let strip = &strips[i];
+
+            if strip.x >= scene.width {
+                continue;
+            }
+
+            let next_strip = &strips[i + 1];
+            let col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
+            let next_col = next_strip.alpha_idx() / u32::from(Tile::HEIGHT);
+            let strip_width = next_col.saturating_sub(col) as u16;
+            let x0 = strip.x;
+            let y = strip.y;
+
+            // Alpha fill for the strip's coverage region.
+            if strip_width > 0 {
+                let (payload, paint) =
+                    Scheduler::process_paint(&path.paint, scene, (x0, y), paint_idxs);
+                gpu_strips.push(
+                    GpuStripBuilder::at_surface(x0, y, strip_width)
+                        .with_sparse(strip_width, col)
+                        .paint(payload, paint),
+                );
+            }
+
+            // Solid fill for the gap to the next strip.
+            if next_strip.fill_gap() && strip.strip_y() == next_strip.strip_y() {
+                let x1 = x0.saturating_add(strip_width);
+                let x2 = next_strip.x.min(
+                    scene
+                        .width
+                        .checked_next_multiple_of(WideTile::WIDTH)
+                        .unwrap_or(u16::MAX),
+                );
+                if x2 > x1 {
+                    let (payload, paint) =
+                        Scheduler::process_paint(&path.paint, scene, (x1, y), paint_idxs);
+                    gpu_strips
+                        .push(GpuStripBuilder::at_surface(x1, y, x2 - x1).paint(payload, paint));
+                }
+            }
+        }
+    }
 }
