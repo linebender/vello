@@ -907,8 +907,9 @@ impl<const MODE: u8> Wide<MODE> {
                 let tile = &mut self.tiles[tile_idx];
 
                 // Optimization: If no drawing happened since the last `PushBuf`, then we don't
-                // need to do any masking or buffer-wide opacity work. The same holds for
-                // blending, unless it is destructive blending.
+                // need to do any masking or buffer-wide opacity work. Even though we push buffers
+                // lazily, this can still happen: e.g., filter layers and destructive blends
+                // currently push layers eagerly.
                 let has_draw_commands = !matches!(tile.cmds.last().unwrap(), &Cmd::PushBuf(..));
                 if has_draw_commands {
                     if let Some(mask) = layer.mask.clone() {
@@ -916,6 +917,8 @@ impl<const MODE: u8> Wide<MODE> {
                     }
                     tile.opacity(layer.opacity);
                 }
+                // We only need to blend if there are draw commands, unless this is destructive
+                // blending, in which case we always blend.
                 if has_draw_commands || layer.blend_mode.is_destructive() {
                     tile.blend(layer.blend_mode);
                 }
