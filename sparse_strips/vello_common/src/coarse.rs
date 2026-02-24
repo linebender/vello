@@ -928,11 +928,6 @@ impl<const MODE: u8> Wide<MODE> {
         // Decrement the depth counter after popping a filtered layer with clip
         if in_clipped_filter_layer {
             self.clipped_filter_layer_depth -= 1;
-            if self.clipped_filter_layer_depth == 0 {
-                for tile in &mut self.tiles {
-                    tile.in_clipped_filter_layer = false;
-                }
-            }
         }
     }
 
