@@ -28,7 +28,7 @@ pub struct RenderSize {
 }
 
 /// Configuration for the GPU renderer.
-#[repr(C)]
+#[repr(C, align(16))]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct Config {
     /// Width of the rendering target.
