@@ -1296,7 +1296,7 @@ pub struct WideTile<const MODE: u8 = MODE_CPU> {
     pub n_clip: usize,
     /// The number of pushed buffers, including buffers for clips.
     ///
-    /// Note not all layers require their own buffers.
+    /// Note not all layers require their own buffers; see [`Layer::needs_buf`].
     pub n_bufs: usize,
     /// True when this tile is in a filtered layer with clipping applied.
     /// When set, clip operations generate explicit commands instead of just
