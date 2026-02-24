@@ -69,8 +69,8 @@ const TARGET_SURFACE_PUSH_BUF_IDX: usize = usize::MAX;
 
 #[derive(Debug)]
 struct LayerKindAndOccupiedTiles {
-    /// The kind of layer needing a scratch buffer. This is tracked to allow lazy buffer to know
-    /// for which layer kind to push.
+    /// The kind of layer needing a scratch buffer. This is tracked to allow lazy buffer pushing to
+    /// know for which layer kind to push.
     kind: LayerKind,
     /// The indices into [`Wide::tiles`] of wide tiles that occupy this layer. These are the wide
     /// tiles that have pushed a buffer and need to be popped when the layer is popped.
