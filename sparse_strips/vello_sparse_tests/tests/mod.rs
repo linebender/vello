@@ -34,6 +34,7 @@ mod basic;
 mod blurred_rounded_rect;
 mod clip;
 mod compose;
+mod default_blending_only_fast_path;
 mod filter;
 mod glyph;
 mod gradient;

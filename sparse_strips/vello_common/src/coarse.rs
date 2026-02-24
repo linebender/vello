@@ -287,6 +287,13 @@ impl Wide<MODE_HYBRID> {
     pub fn new(width: u16, height: u16) -> Self {
         Self::new_internal(width, height)
     }
+
+    /// Emit a `SegmentEnd` command into every wide tile.
+    pub fn emit_segment_end(&mut self) {
+        for tile in &mut self.tiles {
+            tile.cmds.push(Cmd::SegmentEnd);
+        }
+    }
 }
 
 impl<const MODE: u8> Wide<MODE> {
@@ -1682,6 +1689,11 @@ pub enum Cmd {
     ///
     /// Modulates the alpha channel of the buffer using the provided mask.
     Mask(Mask),
+    /// Marks a batching boundary for interleaved fast paths and scheduled paths rendering.
+    ///
+    /// The hybrid scheduler flushes all pending rounds when it encounters this
+    /// command, allowing fast-path strips to be rendered between scheduled segments.
+    SegmentEnd,
 }
 
 #[cfg(debug_assertions)]
@@ -1714,6 +1726,7 @@ impl Cmd {
             Self::Blend(_) => "Blend",
             Self::Opacity(_) => "Opacity",
             Self::Mask(_) => "Mask",
+            Self::SegmentEnd => "SegmentEnd",
         }
     }
 

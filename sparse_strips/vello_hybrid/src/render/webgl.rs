@@ -35,7 +35,8 @@ use crate::{
     },
     scene::Scene,
     schedule::{
-        LoadOp, RendererBackend, Scheduler, SchedulerState, generate_gpu_strips_for_fast_path,
+        LoadOp, RendererBackend, Scheduler, SchedulerState, generate_gpu_strips_for_batch,
+        generate_gpu_strips_for_fast_path,
     },
 };
 use alloc::sync::Arc;
@@ -192,7 +193,8 @@ impl WebGlRenderer {
             render_size,
             &self.paint_idxs,
         );
-        if scene.strips_fast_path_active {
+        if scene.strips_fast_path_active && !scene.fast_path_interleaved {
+            // Pure fast path: no push_layer happened, render all fast strips directly.
             self.fast_path_gpu_strips.clear();
 
             generate_gpu_strips_for_fast_path(
@@ -207,7 +209,49 @@ impl WebGlRenderer {
                 gl: &self.gl,
             };
             ctx.render_strips(&self.fast_path_gpu_strips, 2, LoadOp::Clear);
+        } else if scene.fast_path_interleaved {
+            // Interleaved: fast batches rendered between scheduled segments.
+            let total_batches = scene.fast_strips_buffer.batch_count();
+            let mut next_batch = 0usize;
+            let gpu_strips = &mut self.fast_path_gpu_strips;
+            let paint_idxs = &self.paint_idxs;
+
+            // Render the first fast batch (before any scheduled content).
+            if next_batch < total_batches {
+                gpu_strips.clear();
+                generate_gpu_strips_for_batch(scene, next_batch, paint_idxs, gpu_strips);
+                next_batch += 1;
+            }
+
+            let mut ctx = WebGlRendererContext {
+                programs: &mut self.programs,
+                gl: &self.gl,
+            };
+            ctx.render_strips(gpu_strips, 2, LoadOp::Load);
+
+            self.scheduler.do_scene_interleaved(
+                &mut self.scheduler_state,
+                &mut ctx,
+                scene,
+                paint_idxs,
+                &mut |renderer: &mut WebGlRendererContext<'_>| {
+                    if next_batch < total_batches {
+                        gpu_strips.clear();
+                        generate_gpu_strips_for_batch(scene, next_batch, paint_idxs, gpu_strips);
+                        renderer.render_strips(gpu_strips, 2, LoadOp::Load);
+                        next_batch += 1;
+                    }
+                },
+            )?;
+
+            // Render any remaining tail fast batches.
+            for i in next_batch..total_batches {
+                gpu_strips.clear();
+                generate_gpu_strips_for_batch(scene, i, paint_idxs, gpu_strips);
+                ctx.render_strips(gpu_strips, 2, LoadOp::Load);
+            }
         } else {
+            // Pure scheduler path: We gave up on the fast path.
             let mut ctx = WebGlRendererContext {
                 programs: &mut self.programs,
                 gl: &self.gl,
@@ -1844,7 +1888,7 @@ impl RendererBackend for WebGlRendererContext<'_> {
         self.do_clear_slots_render_pass(texture_index, slots);
     }
 
-    /// Execute a render pass for strips.
+    /// Execute a render pass for rendering strips.
     fn render_strips(&mut self, strips: &[GpuStrip], target_index: usize, load_op: LoadOp) {
         self.do_strip_render_pass(strips, target_index, load_op);
     }

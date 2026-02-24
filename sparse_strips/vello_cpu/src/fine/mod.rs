@@ -653,6 +653,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 // These commands are handled by the dispatcher and should not reach fine rasterization
                 unreachable!();
             }
+            Cmd::SegmentEnd => {}
         }
     }
 
