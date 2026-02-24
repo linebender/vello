@@ -1385,10 +1385,9 @@ impl<const MODE: u8> WideTile<MODE> {
         (layer_bufs < layers.len).then(
             #[inline(never)]
             || {
-                let needed = layers.len - layer_bufs;
-                for idx in (layer_bufs..).take(needed) {
-                    layers.stack[idx].occupied_tiles.push(tile_idx);
-                    self.push_buf(layers.stack[idx].kind);
+                for layer in &mut layers.stack[layer_bufs..layers.len] {
+                    layer.occupied_tiles.push(tile_idx);
+                    self.push_buf(layer.kind);
                 }
             },
         );
