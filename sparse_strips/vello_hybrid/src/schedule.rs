@@ -178,6 +178,7 @@ only break in edge cases, and some of them are also only related to conversions 
 
 use crate::scene::FastStripsPath;
 use crate::{GpuStrip, RenderError, Scene};
+use vello_common::strip_generator::StripStorage;
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use vello_common::coarse::{CommandAttrs, MODE_HYBRID};
@@ -488,6 +489,99 @@ impl Scheduler {
         }
 
         // Restore state to reuse allocations.
+        self.round = 0;
+        #[cfg(debug_assertions)]
+        {
+            for i in 0..self.total_slots {
+                debug_assert!(self.free[0].contains(&i), "free[0] is missing slot {i}");
+                debug_assert!(self.free[1].contains(&i), "free[1] is missing slot {i}");
+            }
+        }
+        debug_assert!(self.rounds_queue.is_empty(), "rounds_queue is not empty");
+
+        Ok(())
+    }
+
+    /// Process the scene segment by segment, flushing between `Cmd::SegmentEnd` boundaries
+    /// and invoking `on_segment_end` so the caller can render fast-path batches in between.
+    pub(crate) fn do_scene_interleaved<R: RendererBackend>(
+        &mut self,
+        state: &mut SchedulerState,
+        renderer: &mut R,
+        scene: &Scene,
+        paint_idxs: &[u32],
+        on_segment_end: &mut impl FnMut(&mut R),
+    ) -> Result<(), RenderError> {
+        let wide = &scene.wide;
+        let rows = wide.height_tiles();
+        let cols = wide.width_tiles();
+        let num_tiles = (rows * cols) as usize;
+        let mut offsets = alloc::vec![0usize; num_tiles];
+
+        loop {
+            let mut had_work = false;
+
+            for row in 0..rows {
+                for col in 0..cols {
+                    let idx = (row * cols + col) as usize;
+                    let tile = wide.get(col, row);
+                    let off = offsets[idx];
+                    if off >= tile.cmds.len() {
+                        continue;
+                    }
+
+                    let end = tile.cmds[off..]
+                        .iter()
+                        .position(|c| matches!(c, Cmd::SegmentEnd))
+                        .map(|p| off + p)
+                        .unwrap_or(tile.cmds.len());
+
+                    if end > off {
+                        had_work = true;
+                        let tile_x = col * WideTile::WIDTH;
+                        let tile_y = row * Tile::HEIGHT;
+
+                        state.clear();
+                        self.initialize_tile_state(
+                            &mut state.tile_state,
+                            tile,
+                            tile_x,
+                            tile_y,
+                            scene,
+                            paint_idxs,
+                        );
+                        self.do_tile(
+                            state,
+                            renderer,
+                            scene,
+                            tile_x,
+                            tile_y,
+                            &tile.cmds[off..end],
+                            tile.surface_is_blend_target(),
+                            paint_idxs,
+                            &wide.attrs,
+                        )?;
+                    }
+
+                    // Advance past the SegmentEnd marker (if present).
+                    offsets[idx] = if end < tile.cmds.len() {
+                        end + 1
+                    } else {
+                        end
+                    };
+                }
+            }
+
+            if !had_work {
+                break;
+            }
+
+            while !self.rounds_queue.is_empty() {
+                self.flush(renderer);
+            }
+            on_segment_end(renderer);
+        }
+
         self.round = 0;
         #[cfg(debug_assertions)]
         {
@@ -836,6 +930,7 @@ impl Scheduler {
                 Cmd::Blend(mode) => {
                     self.do_blend(state, wide_tile_x, wide_tile_y, mode);
                 }
+                Cmd::SegmentEnd => {}
                 _ => unreachable!(),
             }
         }
@@ -1198,56 +1293,80 @@ pub(crate) fn generate_gpu_strips_for_fast_path(
     let strip_storage = scene.strip_storage.borrow();
 
     for path in paths {
-        let strips = &strip_storage.strips[path.strips.clone()];
+        generate_gpu_strips_for_path(path, &strip_storage, scene, paint_idxs, gpu_strips);
+    }
+}
 
-        if strips.is_empty() {
+/// Generate `GpuStrip`s for a single fast-path batch (by index) into the provided buffer.
+pub(crate) fn generate_gpu_strips_for_batch(
+    scene: &Scene,
+    batch_index: usize,
+    paint_idxs: &[u32],
+    gpu_strips: &mut Vec<GpuStrip>,
+) {
+    let strip_storage = scene.strip_storage.borrow();
+    gpu_strips.clear();
+    for path in scene.fast_strips_buffer.batch(batch_index) {
+        generate_gpu_strips_for_path(path, &strip_storage, scene, paint_idxs, gpu_strips);
+    }
+}
+
+fn generate_gpu_strips_for_path(
+    path: &FastStripsPath,
+    strip_storage: &StripStorage,
+    scene: &Scene,
+    paint_idxs: &[u32],
+    gpu_strips: &mut Vec<GpuStrip>,
+) {
+    let strips = &strip_storage.strips[path.strips.clone()];
+
+    if strips.is_empty() {
+        return;
+    }
+
+    // Note: Some of this logic is similar to current coarse rasterization code, but
+    // the coarse rasterization code is more complex due to clip paths and other factors.
+    // It might be possible to reuse some code here, but it seems hard.
+
+    for i in 0..strips.len() - 1 {
+        let strip = &strips[i];
+
+        if strip.x >= scene.width {
             continue;
         }
 
-        // Note: Some of this logic is similar to current coarse rasterization code, but
-        // the coarse rasterization code is more complex due to clip paths and other factors.
-        // It might be possible to reuse some code here, but it seems hard.
+        let next_strip = &strips[i + 1];
+        let col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
+        let next_col = next_strip.alpha_idx() / u32::from(Tile::HEIGHT);
+        let strip_width = next_col.saturating_sub(col) as u16;
+        let x0 = strip.x;
+        let y = strip.y;
 
-        for i in 0..strips.len() - 1 {
-            let strip = &strips[i];
+        // Alpha fill for the strip's coverage region.
+        if strip_width > 0 {
+            let (payload, paint) =
+                Scheduler::process_paint(&path.paint, scene, (x0, y), paint_idxs);
+            gpu_strips.push(
+                GpuStripBuilder::at_surface(x0, y, strip_width)
+                    .with_sparse(strip_width, col)
+                    .paint(payload, paint),
+            );
+        }
 
-            if strip.x >= scene.width {
-                continue;
-            }
-
-            let next_strip = &strips[i + 1];
-            let col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
-            let next_col = next_strip.alpha_idx() / u32::from(Tile::HEIGHT);
-            let strip_width = next_col.saturating_sub(col) as u16;
-            let x0 = strip.x;
-            let y = strip.y;
-
-            // Alpha fill for the strip's coverage region.
-            if strip_width > 0 {
+        // Solid fill for the gap to the next strip.
+        if next_strip.fill_gap() && strip.strip_y() == next_strip.strip_y() {
+            let x1 = x0.saturating_add(strip_width);
+            let x2 = next_strip.x.min(
+                scene
+                    .width
+                    .checked_next_multiple_of(WideTile::WIDTH)
+                    .unwrap_or(u16::MAX),
+            );
+            if x2 > x1 {
                 let (payload, paint) =
-                    Scheduler::process_paint(&path.paint, scene, (x0, y), paint_idxs);
-                gpu_strips.push(
-                    GpuStripBuilder::at_surface(x0, y, strip_width)
-                        .with_sparse(strip_width, col)
-                        .paint(payload, paint),
-                );
-            }
-
-            // Solid fill for the gap to the next strip.
-            if next_strip.fill_gap() && strip.strip_y() == next_strip.strip_y() {
-                let x1 = x0.saturating_add(strip_width);
-                let x2 = next_strip.x.min(
-                    scene
-                        .width
-                        .checked_next_multiple_of(WideTile::WIDTH)
-                        .unwrap_or(u16::MAX),
-                );
-                if x2 > x1 {
-                    let (payload, paint) =
-                        Scheduler::process_paint(&path.paint, scene, (x1, y), paint_idxs);
-                    gpu_strips
-                        .push(GpuStripBuilder::at_surface(x1, y, x2 - x1).paint(payload, paint));
-                }
+                    Scheduler::process_paint(&path.paint, scene, (x1, y), paint_idxs);
+                gpu_strips
+                    .push(GpuStripBuilder::at_surface(x1, y, x2 - x1).paint(payload, paint));
             }
         }
     }

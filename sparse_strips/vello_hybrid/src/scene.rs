@@ -48,12 +48,46 @@ pub(crate) struct FastStripsPath {
 pub(crate) struct FastStripsBuffer {
     /// All paths in the buffer.
     pub(crate) paths: Vec<FastStripsPath>,
+    /// Completed batches of paths. Each `Range<usize>` indexes into `self.paths`.
+    /// A new batch is closed each time a `push_layer` occurs (with `default_blending_only`),
+    /// and a new one implicitly opens when paths are added after we `pop_layer` back to the
+    /// top level.
+    pub(crate) batches: Vec<Range<usize>>,
+    /// Start index of the current open batch within `self.paths`.
+    batch_start: usize,
 }
 
 impl FastStripsBuffer {
     #[inline(always)]
     fn clear(&mut self) {
         self.paths.clear();
+        self.batches.clear();
+        self.batch_start = 0;
+    }
+
+    /// Close the current batch if it contains any paths.
+    #[inline(always)]
+    pub(crate) fn close_batch(&mut self) {
+        if self.batch_start < self.paths.len() {
+            self.batches.push(self.batch_start..self.paths.len());
+        }
+        self.batch_start = self.paths.len();
+    }
+
+    /// Total number of batches including an open tail batch (if any).
+    pub(crate) fn batch_count(&self) -> usize {
+        let has_tail = self.batch_start < self.paths.len();
+        self.batches.len() + usize::from(has_tail)
+    }
+
+    /// Get the paths for a batch by index (including the open tail as the last batch).
+    pub(crate) fn batch(&self, index: usize) -> &[FastStripsPath] {
+        if index < self.batches.len() {
+            &self.paths[self.batches[index].clone()]
+        } else {
+            debug_assert_eq!(index, self.batches.len(), "batch index out of bounds");
+            &self.paths[self.batch_start..]
+        }
     }
 }
 
@@ -207,25 +241,36 @@ pub struct Scene {
     /// This is the case if we have not performed any `push_layer` command. In such a case, we
     /// don't need to do coarse rasterization or scheduling and therefore save a lot of overhead.
     pub(crate) strips_fast_path_active: bool,
+    /// True when the scene contains fast path and scheduled content. This can happen when
+    /// the scene is inside a push/pop layer with `default_blending_only`.
+    pub(crate) fast_path_interleaved: bool,
 }
 
 // We use this macro instead of a method to avoid borrowing issues in the corresponding methods.
 //
-// When the fast path is active it is in `Append` mode, so `$strip_start` (captured before generation)
+// When the fast path is active AND we're at the top level (no layers pushed),
+// strip_storage is in `Append` mode, so `$strip_start` (captured before generation)
 // and the current length delimit the range for this path.
 //
-// When the fast path is inactive, `strip_storage` is in `Replace` mode where each generation starts
-// with a clear, so the whole buffer is the current path's strips.
+// When the fast path is inactive or we're inside a layer, `strip_storage` is in `Replace`
+// or `ReplaceAfter` mode where each generation starts with a clear/truncate, so the
+// relevant portion of the buffer is the current path's strips.
 macro_rules! submit_strips {
     ($self:ident, $strip_storage:expr, $strip_start:expr, $paint:expr) => {
-        if $self.strips_fast_path_active {
+        if $self.strips_fast_path_active && !$self.wide.has_layers() {
             $self.fast_strips_buffer.paths.push(FastStripsPath {
                 strips: $strip_start..$strip_storage.strips.len(),
                 paint: $paint,
             });
         } else {
+            // In `ReplaceAfter(n)` mode the fast-path prefix lives at `[0..n]`
+            // and must not be fed into the coarse rasterizer.
+            let coarse_start = match $strip_storage.generation_mode() {
+                GenerationMode::ReplaceAfter(n) => n,
+                _ => 0,
+            };
             $self.wide.generate(
-                &$strip_storage.strips,
+                &$strip_storage.strips[coarse_start..],
                 $paint,
                 $self.blend_mode,
                 0,
@@ -271,6 +316,7 @@ impl Scene {
             render_graph,
             fast_strips_buffer: FastStripsBuffer::default(),
             strips_fast_path_active: true,
+            fast_path_interleaved: false,
         }
     }
 
@@ -530,7 +576,19 @@ impl Scene {
         let blend_mode_val = blend_mode.unwrap_or(DEFAULT_BLEND_MODE);
         self.constraints.assert_blend_mode(blend_mode_val);
 
-        self.flush_fast_path();
+        let strip_offset;
+        if self.constraints.use_default_blending_only() && self.strips_fast_path_active {
+            // With default blending only we can keep fast strips alive. Close the
+            // current batch and switch strip storage to preserve the fast-path prefix.
+            self.fast_strips_buffer.close_batch();
+            let mut strip_storage = self.strip_storage.borrow_mut();
+            strip_offset = strip_storage.strips.len();
+            strip_storage.set_generation_mode(GenerationMode::ReplaceAfter(strip_offset));
+            self.fast_path_interleaved = true;
+        } else {
+            strip_offset = 0;
+            self.flush_fast_path();
+        }
 
         if filter.is_some() {
             unimplemented!("Filter effects are not yet supported in vello_hybrid");
@@ -548,7 +606,7 @@ impl Scene {
                 self.clip_context.get(),
             );
 
-            Some(strip_storage.strips.as_slice())
+            Some(&strip_storage.strips[strip_offset..])
         } else {
             None
         };
@@ -606,6 +664,12 @@ impl Scene {
     /// Pop the last pushed layer.
     pub fn pop_layer(&mut self) {
         self.wide.pop_layer(&mut self.render_graph);
+        if self.fast_path_interleaved && !self.wide.has_layers() {
+            self.wide.emit_segment_end();
+            self.strip_storage
+                .borrow_mut()
+                .set_generation_mode(GenerationMode::Append);
+        }
     }
 
     /// Set the blend mode for subsequent rendering operations.
@@ -695,6 +759,7 @@ impl Scene {
         self.glyph_caches.as_mut().unwrap().maintain();
         self.fast_strips_buffer.clear();
         self.strips_fast_path_active = true;
+        self.fast_path_interleaved = false;
     }
 
     /// Get the width of the render context.
@@ -994,7 +1059,7 @@ impl Scene {
         );
         let paint = self.encode_current_paint();
 
-        if self.strips_fast_path_active {
+        if self.strips_fast_path_active && !self.wide.has_layers() {
             let mut strip_storage = self.strip_storage.borrow_mut();
             let strip_start = strip_storage.strips.len();
             strip_storage
