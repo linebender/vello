@@ -69,7 +69,8 @@ const TARGET_SURFACE_PUSH_BUF_IDX: usize = usize::MAX;
 
 #[derive(Debug)]
 struct LayerKindAndOccupiedTiles {
-    /// The
+    /// The kind of layer needing a scratch buffer. This is tracked to allow lazy buffer to know
+    /// for which layer kind to push.
     kind: LayerKind,
     /// The indices into [`Wide::tiles`] of wide tiles that occupy this layer. These are the wide
     /// tiles that have pushed a buffer and need to be popped when the layer is popped.
@@ -89,7 +90,7 @@ struct LayerKindAndOccupiedTiles {
 #[derive(Debug, Default)]
 struct NeedsBufLayerStack {
     stack: Vec<LayerKindAndOccupiedTiles>,
-    /// The actual length of the stack above, as we never actually shrink it (see the note above
+    /// The actual length of [`Self::stack`], as we never actually shrink it (see the note above
     /// about keeping allocations around).
     len: usize,
 }
@@ -109,6 +110,7 @@ impl NeedsBufLayerStack {
                 occupied_tiles: vec![],
             });
         } else {
+            self.stack[self.len].occupied_tiles.clear();
             self.stack[self.len].kind = kind;
         }
         self.len += 1;
@@ -117,7 +119,6 @@ impl NeedsBufLayerStack {
     fn pop(&mut self) {
         debug_assert!(self.len > 0, "Called `pop` at the root");
         self.len -= 1;
-        self.stack[self.len].occupied_tiles.clear();
     }
 
     fn last(&self) -> Option<&LayerKindAndOccupiedTiles> {
@@ -391,6 +392,10 @@ impl<const MODE: u8> Wide<MODE> {
     #[inline(always)]
     fn ensure_layer_stack_bufs(&mut self, tile_idx: usize) {
         let tile = &mut self.tiles[tile_idx];
+        // `Self::layers_needing_buf_stack` tracks the number of layers that require scratch
+        // buffers, excluding those required for clips: clip buffers are handled separately. The
+        // scratch buffer stack for this tile is `tile.n_bufs`, of which `tile.n_clip` are for
+        // clips.
         let layer_bufs = tile.n_bufs - tile.n_clip;
         debug_assert!(
             layer_bufs <= self.layers_needing_buf_stack.len,
