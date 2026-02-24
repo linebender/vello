@@ -37,6 +37,7 @@ mod compose;
 mod filter;
 mod glyph;
 mod gradient;
+mod default_blending_only_fast_path;
 mod image;
 mod issues;
 mod layer;
