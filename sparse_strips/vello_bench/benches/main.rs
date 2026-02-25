@@ -5,8 +5,11 @@
 #![allow(dead_code, reason = "Might be unused on platforms not supporting SIMD")]
 
 use criterion::{criterion_group, criterion_main};
-use vello_bench::{fine, flatten, glyph, integration, strip, tile};
+use vello_bench::{coarse, fine, flatten, glyph, integration, strip, tile};
 
+criterion_group!(coarse_bench, coarse::coarse);
+criterion_group!(coarse_with_layer, coarse::coarse_with_layer);
+criterion_group!(coarse_layer_4k, coarse::coarse_with_layer_large_viewport);
 criterion_group!(fine_solid, fine::fill);
 criterion_group!(fine_strip, fine::strip);
 criterion_group!(fine_pack, fine::pack);
@@ -22,6 +25,9 @@ criterion_group!(render_rect, strip::render_rect);
 criterion_group!(glyph, glyph::glyph);
 criterion_group!(integration_bench, integration::images);
 criterion_main!(
+    coarse_bench,
+    coarse_with_layer,
+    coarse_layer_4k,
     tile,
     render_strips,
     render_rect,
