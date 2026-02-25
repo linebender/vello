@@ -345,17 +345,15 @@ impl WebGlRenderer {
         if clear {
             self.programs.clear_view_framebuffer(&self.gl);
         }
-        let result = {
-            let mut ctx = WebGlRendererContext {
-                programs: &mut self.programs,
-                gl: &self.gl,
-            };
-            self.scheduler
-                .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs)
+        let mut ctx = WebGlRendererContext {
+            programs: &mut self.programs,
+            gl: &self.gl,
         };
+        self.scheduler
+            .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs)?;
         self.gradient_cache.maintain();
 
-        result
+        Ok(())
     }
 
     /// Get a reference to the underlying WebGL context.

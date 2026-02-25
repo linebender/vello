@@ -273,12 +273,11 @@ impl Renderer {
             encoder,
             view,
         };
-        let result =
-            self.scheduler
-                .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs);
+        self.scheduler
+                .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs)?;
         self.gradient_cache.maintain();
 
-        result
+        Ok(())
     }
 
     /// Upload image to cache and atlas in one step. Returns the `ImageId`.
