@@ -40,17 +40,6 @@ pub(crate) struct FastStripsPath {
     pub(crate) paint: Paint,
 }
 
-//// A command to draw sparse strips directly to screen (without going through coarse)
-/// or a command that renders the next batch of coarse-rasterized wide tile commands.
-#[derive(Debug)]
-pub(crate) enum SceneCommand {
-    /// Fast-path strips to render directly to the surface.
-    /// The range indexes into `FastStripsBuffer.paths`.
-    DirectStrips(Range<usize>),
-    /// Process the next batch of coarse-rasterized wide tile commands.
-    Coarse,
-}
-
 /// A buffer that collects strips from paths that are rendered directly to the surface,
 /// bypassing coarse rasterization.
 ///
@@ -60,15 +49,12 @@ pub(crate) enum SceneCommand {
 pub(crate) struct FastStripsBuffer {
     /// All paths in the buffer.
     pub(crate) paths: Vec<FastStripsPath>,
-    /// Start index of the current open batch within `self.paths`.
-    pub(crate) batch_start: usize,
 }
 
 impl FastStripsBuffer {
     #[inline(always)]
     fn clear(&mut self) {
         self.paths.clear();
-        self.batch_start = 0;
     }
 }
 
@@ -227,8 +213,12 @@ pub struct Scene {
     /// True when the scene contains both [`SceneCommand::DirectStrips`] and [`SceneCommand::Coarse`].
     /// This can happen when the scene contains a layer with [`SceneConstraints::default_blending_only`].
     pub(crate) fast_path_interleaved: bool,
-    /// The commands that make up the scene.
-    pub(crate) scene_commands: Vec<SceneCommand>,
+    /// Split points in `fast_strips_buffer.paths` that mark coarse batch boundaries.
+    ///
+    /// Each entry records `fast_strips_buffer.paths.len()` at the time a layer was pushed.
+    /// The scheduler processes direct strips up to each split, then one coarse batch.
+    /// Direct strips after the last split are the "tail" handled separately.
+    pub(crate) coarse_batch_splits: Vec<usize>,
 }
 
 // We use this macro instead of a method to avoid borrowing issues in the corresponding methods.
@@ -303,7 +293,7 @@ impl Scene {
             fast_strips_buffer: FastStripsBuffer::default(),
             strips_fast_path_active: true,
             fast_path_interleaved: false,
-            scene_commands: Vec::new(),
+            coarse_batch_splits: Vec::new(),
         }
     }
 
@@ -567,16 +557,11 @@ impl Scene {
 
         let strip_offset;
         if self.constraints.use_default_blending_only() && self.strips_fast_path_active {
-            // With default blending only we can keep fast strips alive. Close the
-            // current batch as a DirectStrips command and switch strip storage to
-            // preserve the fast-path prefix.
-            let batch_start = self.fast_strips_buffer.batch_start;
-            let batch_end = self.fast_strips_buffer.paths.len();
-            if batch_start < batch_end {
-                self.scene_commands
-                    .push(SceneCommand::DirectStrips(batch_start..batch_end));
-                self.fast_strips_buffer.batch_start = batch_end;
-            }
+            // With default blending only we can keep fast path strips alive. Record a
+            // split point so the scheduler knows to process one coarse batch after
+            // processing fast path strips up to this point.
+            let split = self.fast_strips_buffer.paths.len();
+            self.coarse_batch_splits.push(split);
             let mut strip_storage = self.strip_storage.borrow_mut();
             strip_offset = strip_storage.strips.len();
             strip_storage.set_generation_mode(GenerationMode::ReplaceAfter(strip_offset));
@@ -662,7 +647,6 @@ impl Scene {
         self.wide.pop_layer(&mut self.render_graph);
         if self.fast_path_interleaved && !self.wide.has_layers() {
             self.wide.end_batch();
-            self.scene_commands.push(SceneCommand::Coarse);
             self.strip_storage
                 .borrow_mut()
                 .set_generation_mode(GenerationMode::Append);
@@ -768,7 +752,7 @@ impl Scene {
         self.fast_strips_buffer.clear();
         self.strips_fast_path_active = true;
         self.fast_path_interleaved = false;
-        self.scene_commands.clear();
+        self.coarse_batch_splits.clear();
     }
 
     /// Get the width of the render context.

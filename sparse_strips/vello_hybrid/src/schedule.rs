@@ -176,7 +176,7 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
-use crate::scene::{FastStripsPath, SceneCommand};
+use crate::scene::FastStripsPath;
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -446,11 +446,11 @@ impl Scheduler {
 
     /// Schedule and render the scene.
     ///
-    /// Iterates over the scene's command sequence, which interleaves fast path
-    /// strips (rendered directly to the surface) and coarse-rasterized layer
-    /// content.
+    /// Iterates over the commands encoded in the scene.
     ///
-    /// Fast path strips are appended directly to the current round's surface
+    /// We interleave fast path strips (rendered directly to the surface) and coarse-rasterized strips.
+    ///
+    /// Fast path strips are prepended directly to the the batch's corresponding round's surface
     /// draw array, avoiding separate GPU render calls.
     pub(crate) fn do_scene<R: RendererBackend>(
         &mut self,
@@ -464,44 +464,39 @@ impl Scheduler {
         let cols = wide.width_tiles();
         let num_tiles = (rows * cols) as usize;
 
-        // Per-tile offset tracking for coarse batches.
-        // Each Coarse op processes cmds from offsets[tile] to the end.
         let mut offsets = alloc::vec![0usize; num_tiles];
         let mut first_batch = true;
+        let mut prev_split = 0;
 
-        for cmd in &scene.scene_commands {
-            match cmd {
-                SceneCommand::DirectStrips(range) => {
-                    self.push_direct_strips(scene, range.clone(), paint_idxs);
-                }
-                SceneCommand::Coarse => {
-                    self.process_coarse_batch(
-                        state,
-                        renderer,
-                        scene,
-                        wide,
-                        rows,
-                        cols,
-                        &mut offsets,
-                        paint_idxs,
-                        first_batch,
-                    )?;
-                    first_batch = false;
-                }
+        for &split in &scene.coarse_batch_splits {
+            if prev_split < split {
+                self.push_direct_strips(scene, prev_split..split, paint_idxs);
             }
+            self.process_coarse_batch(
+                state,
+                renderer,
+                scene,
+                wide,
+                rows,
+                cols,
+                &mut offsets,
+                paint_idxs,
+                first_batch,
+            )?;
+            first_batch = false;
+            prev_split = split;
         }
 
-        // Handle the tail: fast path strips added after the last pop_layer.
-        let tail_start = scene.fast_strips_buffer.batch_start;
+        // Handle the tail: direct strips added after the last coarse batch.
         let tail_end = scene.fast_strips_buffer.paths.len();
-        if tail_start < tail_end {
-            self.push_direct_strips(scene, tail_start..tail_end, paint_idxs);
+        if prev_split < tail_end {
+            self.push_direct_strips(scene, prev_split..tail_end, paint_idxs);
         }
 
-        // If there were no scene ops and no direct-path tail, this is the
+        // If there were no coarse splits and no direct tail, this is the
         // pure coarse path (no default_blending_only). Process all tile
         // commands in one pass.
-        if scene.scene_commands.is_empty() && tail_start >= tail_end {
+        if scene.coarse_batch_splits.is_empty() && prev_split >= tail_end {
             self.process_coarse_batch(
                 state,
                 renderer,
