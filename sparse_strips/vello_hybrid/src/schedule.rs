@@ -228,6 +228,8 @@ pub(crate) enum LoadOp {
 pub(crate) struct Scheduler {
     /// Index of the current round
     round: usize,
+    /// Per-tile command offsets.
+    cmd_offsets: Vec<usize>,
     /// The total number of slots in each slot texture.
     total_slots: usize,
     /// The slots that are free to use in each slot texture.
@@ -410,6 +412,7 @@ impl Scheduler {
         let free: [Vec<usize>; 2] = [free0, free1];
         Self {
             round: 0,
+            cmd_offsets: Vec::new(),
             total_slots,
             free,
             rounds_queue: VecDeque::new(),
@@ -464,7 +467,9 @@ impl Scheduler {
         let cols = wide.width_tiles();
         let num_tiles = (rows * cols) as usize;
 
-        let mut offsets = alloc::vec![0usize; num_tiles];
+        let mut cmd_offsets = core::mem::take(&mut self.cmd_offsets);
+        cmd_offsets.clear();
+        cmd_offsets.resize(num_tiles, 0);
         let mut first_batch = true;
         let mut prev_split = 0;
 
@@ -479,7 +484,7 @@ impl Scheduler {
                 wide,
                 rows,
                 cols,
-                &mut offsets,
+                &mut cmd_offsets,
                 paint_idxs,
                 first_batch,
             )?;
@@ -504,11 +509,12 @@ impl Scheduler {
                 wide,
                 rows,
                 cols,
-                &mut offsets,
+                &mut cmd_offsets,
                 paint_idxs,
                 true,
             )?;
         }
+        self.cmd_offsets = cmd_offsets;
 
         while !self.rounds_queue.is_empty() {
             self.flush(renderer);
@@ -551,7 +557,7 @@ impl Scheduler {
         wide: &Wide<MODE_HYBRID>,
         rows: u16,
         cols: u16,
-        offsets: &mut [usize],
+        cmd_offsets: &mut [usize],
         paint_idxs: &[u32],
         first: bool,
     ) -> Result<(), RenderError> {
@@ -559,7 +565,7 @@ impl Scheduler {
             for col in 0..cols {
                 let idx = (row * cols + col) as usize;
                 let tile = wide.get(col, row);
-                let off = offsets[idx];
+                let off = cmd_offsets[idx];
                 if off >= tile.cmds.len() {
                     continue;
                 }
@@ -605,7 +611,7 @@ impl Scheduler {
                 }
 
                 // Advance past the BatchEnd marker (if present).
-                offsets[idx] = if end < tile.cmds.len() { end + 1 } else { end };
+                cmd_offsets[idx] = if end < tile.cmds.len() { end + 1 } else { end };
             }
         }
 
