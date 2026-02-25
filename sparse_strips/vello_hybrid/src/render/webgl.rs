@@ -345,7 +345,7 @@ impl WebGlRenderer {
         if clear {
             self.programs.clear_view_framebuffer(&self.gl);
         }
-        {
+        let result = {
             let mut ctx = WebGlRendererContext {
                 programs: &mut self.programs,
                 gl: &self.gl,
