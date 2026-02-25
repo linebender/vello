@@ -90,10 +90,8 @@ pub struct Wide<const MODE: u8 = MODE_CPU> {
     /// When > 0, command generation uses full viewport bounds instead of clip bounds
     /// to ensure filter effects can process the full layer before applying the clip.
     clipped_filter_layer_depth: u32,
-    /// Global batch counter, incremented each time a coarse batch boundary is crossed.
-    /// Each `WideTile` has a watermark (`last_batch_end`) that tracks how many
-    /// `BatchEnd` markers it has emitted. When a tile is about to receive a command,
-    /// it lazily emits the difference. Only meaningful in `MODE_HYBRID`.
+    /// Global batch counter, incremented each time we transition from fast strip rendering
+    /// to a set of strips passing through coarse rasterization.
     batch_count: u32,
 }
 
@@ -295,9 +293,8 @@ impl Wide<MODE_HYBRID> {
 
     /// Record a coarse batch boundary.
     ///
-    /// Instead of eagerly pushing `Cmd::BatchEnd` into every tile (O(n_tiles)),
-    /// this increments a global counter. Each tile lazily emits the pending
-    /// `BatchEnd` markers the next time it receives a command.
+    /// Each tile lazily emits the pending `BatchEnd` markers the next
+    /// time it receives a command.
     #[inline(always)]
     pub fn end_batch(&mut self) {
         self.batch_count += 1;
@@ -1289,16 +1286,12 @@ impl<const MODE: u8> WideTile<MODE> {
         }
     }
 
-    /// Emit any pending `BatchEnd` markers accumulated since this tile's last update.
-    ///
-    /// Compares the tile's watermark against the global batch counter and pushes
-    /// one `Cmd::BatchEnd` per missed boundary.
+    /// Emit any pending `BatchEnd` markers since this tile's last update.
     #[inline(always)]
     pub(crate) fn emit_pending_batch_ends(&mut self, current_batch: u32) {
         if self.last_batch_end < current_batch {
             let count = (current_batch - self.last_batch_end) as usize;
-            self.cmds
-                .extend(core::iter::repeat_n(Cmd::BatchEnd, count));
+            self.cmds.extend(core::iter::repeat_n(Cmd::BatchEnd, count));
             self.last_batch_end = current_batch;
         }
     }
