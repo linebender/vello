@@ -98,9 +98,6 @@ struct NeedsBufLayerStack {
 impl NeedsBufLayerStack {
     #[inline]
     fn clear(&mut self) {
-        for idx in 0..self.len {
-            self.stack[idx].occupied_tiles.clear();
-        }
         self.len = 0;
     }
 
