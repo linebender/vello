@@ -145,7 +145,7 @@ impl Renderer {
         render_size: &RenderSize,
         view: &TextureView,
     ) -> Result<(), RenderError> {
-        self.render_scene(scene, device, queue, encoder, render_size, view)
+        self.render_scene(scene, device, queue, encoder, render_size, view, true)
     }
 
     /// Render a `scene` directly into an atlas layer.
@@ -226,6 +226,7 @@ impl Renderer {
             &mut encoder,
             &atlas_render_size,
             &layer_view,
+            false,
         );
 
         // Restore the real atlas bind group.
@@ -243,6 +244,9 @@ impl Renderer {
 
     /// Shared render pipeline: prepares GPU resources, runs the scheduler against
     /// the provided `view` at `render_size`, and maintains caches.
+    ///
+    /// When `clear` is true the render target is cleared to transparent black
+    /// before drawing (normal frame rendering).
     fn render_scene(
         &mut self,
         scene: &Scene,
@@ -251,6 +255,7 @@ impl Renderer {
         encoder: &mut CommandEncoder,
         render_size: &RenderSize,
         view: &TextureView,
+        clear: bool,
     ) -> Result<(), RenderError> {
         self.prepare_gpu_encoded_paints(&scene.encoded_paints);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
@@ -282,7 +287,8 @@ impl Renderer {
                 encoder,
                 view,
             };
-            ctx.render_strips(&self.fast_path_gpu_strips, 2, LoadOp::Clear);
+            let load_op = if clear { LoadOp::Clear } else { LoadOp::Load };
+            ctx.render_strips(&self.fast_path_gpu_strips, 2, load_op);
 
             Ok(())
         } else {

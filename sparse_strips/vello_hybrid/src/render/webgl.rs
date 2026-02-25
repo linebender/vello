@@ -365,7 +365,8 @@ impl WebGlRenderer {
                 programs: &mut self.programs,
                 gl: &self.gl,
             };
-            ctx.render_strips(&self.fast_path_gpu_strips, 2, LoadOp::Clear);
+            let load_op = if clear { LoadOp::Clear } else { LoadOp::Load };
+            ctx.render_strips(&self.fast_path_gpu_strips, 2, load_op);
             Ok(())
         } else {
             let mut ctx = WebGlRendererContext {
