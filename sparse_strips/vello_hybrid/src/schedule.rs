@@ -720,8 +720,9 @@ impl Scheduler {
         wide_tile_y: u16,
         scene: &Scene,
         idxs: &[u32],
-    ) -> bool {
+    ) {
         let bg = tile.bg.as_premul_rgba8().to_u32();
+
         if has_non_zero_alpha(bg) {
             let (payload, paint) = Self::process_paint(
                 &Paint::Solid(tile.bg),
@@ -735,9 +736,6 @@ impl Scheduler {
                 GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
                     .paint(payload, paint),
             );
-            true
-        } else {
-            false
         }
     }
 
