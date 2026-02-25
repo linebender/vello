@@ -60,15 +60,11 @@ only break in edge cases, and some of them are also only related to conversions 
 #[cfg(all(feature = "std", feature = "libm"))]
 use libm as _;
 
-// Suppress the unused_crate_dependencies lint when std is not specified
-// (thiserror is only used in multi_atlas, which requires std).
-#[cfg(not(feature = "std"))]
-use thiserror as _;
-
 extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+pub(crate) mod allocator;
 pub mod blurred_rounded_rect;
 pub mod clip;
 pub mod coarse;
@@ -81,11 +77,9 @@ pub mod flatten;
 pub(crate) mod flatten_simd;
 #[cfg(feature = "text")]
 pub mod glyph;
-#[cfg(feature = "std")]
 pub mod image_cache;
 pub mod mask;
 pub mod math;
-#[cfg(feature = "std")]
 pub mod multi_atlas;
 pub mod paint;
 #[doc(hidden)]

@@ -21,7 +21,6 @@ vello_common = { workspace = true, features = ["std"] }
 wgpu = { workspace = true, default-features = false, optional = true }
 vello_sparse_shaders = { workspace = true, optional = true }
 log = { workspace = true }
-guillotiere = "0.6.2"
 hashbrown = { workspace = true }
 vello_api = { workspace = true, features = ["std"] }
 

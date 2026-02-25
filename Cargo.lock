@@ -3977,7 +3977,6 @@ version = "0.0.6"
 dependencies = [
  "bytemuck",
  "fearless_simd",
- "guillotiere",
  "hashbrown 0.16.1",
  "libm",
  "log",
@@ -4059,7 +4058,6 @@ name = "vello_hybrid"
 version = "0.0.6"
 dependencies = [
  "bytemuck",
- "guillotiere",
  "hashbrown 0.16.1",
  "js-sys",
  "log",
