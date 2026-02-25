@@ -446,10 +446,12 @@ impl Scheduler {
 
     /// Schedule and render the scene.
     ///
-    /// Iterates over the scene's command sequence, which interleaves direct
+    /// Iterates over the scene's command sequence, which interleaves fast path
     /// strips (rendered directly to the surface) and coarse-rasterized layer
-    /// content. Fast path strips are appended directly to the current round's
-    /// surface draw array, avoiding separate GPU render calls.
+    /// content.
+    ///
+    /// Fast path strips are appended directly to the current round's surface
+    /// draw array, avoiding separate GPU render calls.
     pub(crate) fn do_scene<R: RendererBackend>(
         &mut self,
         state: &mut SchedulerState,
