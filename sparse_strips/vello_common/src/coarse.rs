@@ -1735,10 +1735,9 @@ pub enum Cmd {
     ///
     /// Modulates the alpha channel of the buffer using the provided mask.
     Mask(Mask),
-    /// Marks a boundary between coarse batches in the interleaved rendering sequence.
+    /// Marks a boundary between rendering fast path strips and coarse rasterized strips.
     ///
-    /// The hybrid scheduler processes coarse commands up to this marker, then
-    /// switches to direct strips before the next coarse batch.
+    /// Only meaningful in `MODE_HYBRID`.
     BatchEnd,
 }
 
