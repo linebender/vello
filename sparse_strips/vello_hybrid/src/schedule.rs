@@ -524,6 +524,8 @@ impl Scheduler {
                 }
             }
         }
+
+        // Put the allocation back.
         self.cmd_offsets = cmd_offsets;
 
         while !self.rounds_queue.is_empty() {
