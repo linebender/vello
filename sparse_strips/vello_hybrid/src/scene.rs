@@ -210,14 +210,11 @@ pub struct Scene {
     /// This is the case if we have not performed any `push_layer` command. In such a case, we
     /// don't need to do coarse rasterization or scheduling and therefore save a lot of overhead.
     pub(crate) strips_fast_path_active: bool,
-    /// True when the scene contains both [`SceneCommand::DirectStrips`] and [`SceneCommand::Coarse`].
+    /// True when the scene contains both fast path strips and coarse rasterized strips.
     /// This can happen when the scene contains a layer with [`SceneConstraints::default_blending_only`].
     pub(crate) fast_path_interleaved: bool,
-    /// Split points in `fast_strips_buffer.paths` that mark coarse batch boundaries.
-    ///
-    /// Each entry records `fast_strips_buffer.paths.len()` at the time a layer was pushed.
-    /// The scheduler processes direct strips up to each split, then one coarse batch.
-    /// Direct strips after the last split are the "tail" handled separately.
+    /// Split points in `fast_strips_buffer.paths` that mark boundaries where we must
+    /// process one coarse batch before processing another fast path strip batch.
     pub(crate) coarse_batch_splits: Vec<usize>,
 }
 
@@ -282,7 +279,7 @@ impl Scene {
             paint_visible: true,
             stroke: render_state.stroke,
             strip_generator: StripGenerator::new(width, height, settings.level),
-            // Start strip storage in `Append` mode since the fast path is enabled by default.
+            // Start strip storage in `Append` mode since we enable the fast path by default.
             strip_storage: RefCell::new(StripStorage::new(GenerationMode::Append)),
             transform: render_state.transform,
             fill_rule: render_state.fill_rule,

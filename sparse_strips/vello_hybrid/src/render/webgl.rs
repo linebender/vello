@@ -192,8 +192,6 @@ impl WebGlRenderer {
                 programs: &mut self.programs,
                 gl: &self.gl,
             };
-            // Clear the surface before the unified scheduling pass.
-            ctx.render_strips(&[], 2, LoadOp::Clear);
             self.scheduler.do_scene(
                 &mut self.scheduler_state,
                 &mut ctx,
