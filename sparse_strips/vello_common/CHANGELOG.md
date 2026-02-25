@@ -26,6 +26,7 @@ This release has an [MSRV][] of 1.88.
 ### Fixed
 
 - Fixed rendering of blurred rounded rectangles with zero or very small blur standard deviations. ([#1422][] by [@tomcur][])
+- Fixed analytic AA performance regressions from `fearless_simd`'s tightened `max_precise` and `min_precise` semantics in v0.4.0. ([#1463][] and [#1464][] by [@tomcur][])
 
 ## [0.0.6][] - 2026-01-15
 
@@ -130,6 +131,8 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1354]: https://github.com/linebender/vello/pull/1354
 [#1399]: https://github.com/linebender/vello/pull/1399
 [#1422]: https://github.com/linebender/vello/pull/1422
+[#1463]: https://github.com/linebender/vello/pull/1463
+[#1464]: https://github.com/linebender/vello/pull/1464
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.6...HEAD
 [0.0.6]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.5...sparse-strips-v0.0.6
