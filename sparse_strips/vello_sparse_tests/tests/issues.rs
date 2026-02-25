@@ -594,3 +594,17 @@ fn issue_1468(ctx: &mut impl Renderer) {
     });
     ctx.fill_rect(&Rect::new(0.0, 0.0, 10.0, 10.0));
 }
+
+#[vello_test(width = 768, height = 4, skip_multithreaded, skip_hybrid)]
+fn issue_1477(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
+    let rect = Rect::new(0.0, 0.0, 768.0, 4.0);
+
+    ctx.push_layer(None, None, None, None, Some(filter));
+    ctx.set_paint(RED);
+    ctx.fill_rect(&rect);
+    ctx.pop_layer();
+
+    ctx.set_paint(BLACK);
+    ctx.fill_rect(&rect);
+}
