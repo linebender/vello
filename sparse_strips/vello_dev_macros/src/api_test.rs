@@ -1,0 +1,571 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! The [`vello_api_test`](crate::vello_api_test) macro, which automatically generates variations of tests for
+//! functions using Vello API.
+
+use crate::{
+    Attribute, AttributeInput, DEFAULT_CPU_F32_TOLERANCE, DEFAULT_CPU_U8_TOLERANCE,
+    DEFAULT_HYBRID_TOLERANCE, DEFAULT_SIMD_TOLERANCE, parse_int_lit, parse_string_lit,
+};
+use proc_macro::TokenStream;
+use proc_macro2::Ident;
+use quote::quote;
+use syn::{ItemFn, parse_macro_input};
+
+struct Arguments {
+    /// The width of the scene.
+    width: u16,
+    /// The height of the scene.
+    height: u16,
+    /// The (additional) maximum tolerance for how much two pixels are allowed to deviate from each other
+    /// when comparing to the reference images. Some renderers already have an existing tolerance
+    /// (see the constants at the top of the file), this value will simply be added
+    /// to the currently existing threshold. See the top of the file for an explanation of
+    /// how exactly the tolerance is interpreted.
+    cpu_u8_tolerance: u8,
+    /// Same as above, but for the hybrid renderer.
+    hybrid_tolerance: u8,
+    /// Whether the background should be transparent (the default is white).
+    transparent: bool,
+    /// Whether the test should not be run on the CPU (`vello_cpu`).
+    skip_cpu: bool,
+    /// Whether the test should not be run on the multi-threaded CPU (`vello_cpu`).
+    skip_multithreaded: bool,
+    /// Whether the test should not be run on the GPU (`vello_hybrid`).
+    skip_hybrid: bool,
+    /// The maximum number of pixels that are allowed to completely deviate from the reference
+    /// images. This attribute mainly exists because there are some test cases (like gradients),
+    /// where, due to floating point inaccuracies, some pixels might land on a different color
+    /// stop and thus yield a different value in CI.
+    diff_pixels: u16,
+    /// Whether no reference image should actually be created (for tests that only check
+    /// for panics, but are not interested in the actual output).
+    no_ref: bool,
+    /// Whether a reference image should be used but not created for this test.
+    ///
+    /// This is used for porting tests from the interim "API" to Vello API.
+    existing_ref: bool,
+    /// A reason for ignoring a test.
+    ignore_reason: Option<String>,
+}
+
+impl Default for Arguments {
+    fn default() -> Self {
+        Self {
+            width: 100,
+            height: 100,
+            cpu_u8_tolerance: 0,
+            hybrid_tolerance: 0,
+            transparent: false,
+            skip_cpu: false,
+            skip_multithreaded: false,
+            skip_hybrid: false,
+            no_ref: false,
+            diff_pixels: 0,
+            existing_ref: false,
+            ignore_reason: None,
+        }
+    }
+}
+
+pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let attrs = parse_macro_input!(attr as AttributeInput);
+
+    let input_fn = parse_macro_input!(item as ItemFn);
+
+    let input_fn_name = input_fn.sig.ident.clone();
+    let u8_fn_name_scalar = Ident::new(
+        &format!("{input_fn_name}_cpu_u8_scalar"),
+        input_fn_name.span(),
+    );
+    let f32_fn_name_scalar = Ident::new(
+        &format!("{input_fn_name}_cpu_f32_scalar"),
+        input_fn_name.span(),
+    );
+    let u8_fn_name_neon = Ident::new(
+        &format!("{input_fn_name}_cpu_u8_neon"),
+        input_fn_name.span(),
+    );
+    let f32_fn_name_neon = Ident::new(
+        &format!("{input_fn_name}_cpu_f32_neon"),
+        input_fn_name.span(),
+    );
+    let u8_fn_name_sse42 = Ident::new(
+        &format!("{input_fn_name}_cpu_u8_sse42"),
+        input_fn_name.span(),
+    );
+    let f32_fn_name_sse42 = Ident::new(
+        &format!("{input_fn_name}_cpu_f32_sse42"),
+        input_fn_name.span(),
+    );
+    let u8_fn_name_avx2 = Ident::new(
+        &format!("{input_fn_name}_cpu_u8_avx2"),
+        input_fn_name.span(),
+    );
+    let f32_fn_name_avx2 = Ident::new(
+        &format!("{input_fn_name}_cpu_f32_avx2"),
+        input_fn_name.span(),
+    );
+    let u8_fn_name_wasm = Ident::new(
+        &format!("{input_fn_name}_cpu_u8_wasm"),
+        input_fn_name.span(),
+    );
+    let f32_fn_name_wasm: Ident = Ident::new(
+        &format!("{input_fn_name}_cpu_f32_wasm"),
+        input_fn_name.span(),
+    );
+    let multithreaded_fn_name = Ident::new(
+        &format!("{input_fn_name}_cpu_multithreaded"),
+        input_fn_name.span(),
+    );
+    let wgpu_fn_name = Ident::new(
+        &format!("{input_fn_name}_hybrid_wgpu"),
+        input_fn_name.span(),
+    );
+    let webgl_fn_name = Ident::new(
+        &format!("{input_fn_name}_hybrid_webgl"),
+        input_fn_name.span(),
+    );
+    let params_name = Ident::new(
+        &format!("{input_fn_name}_PARAMS").to_uppercase(),
+        input_fn_name.span(),
+    );
+
+    // TODO: Tests with the same names in different modules can clash, see
+    // https://github.com/linebender/vello/pull/925#discussion_r2070710362.
+    // We should take the module path into consideration for naming the tests.
+
+    let input_fn_name_str = input_fn_name.to_string();
+    let u8_fn_name_str_scalar = u8_fn_name_scalar.to_string();
+    let f32_fn_name_str_scalar = f32_fn_name_scalar.to_string();
+    let u8_fn_name_str_neon = u8_fn_name_neon.to_string();
+    let f32_fn_name_str_neon = f32_fn_name_neon.to_string();
+    let u8_fn_name_str_sse42 = u8_fn_name_sse42.to_string();
+    let f32_fn_name_str_sse42 = f32_fn_name_sse42.to_string();
+    let u8_fn_name_str_avx2 = u8_fn_name_avx2.to_string();
+    let f32_fn_name_str_avx2 = f32_fn_name_avx2.to_string();
+    let u8_fn_name_wasm_str = u8_fn_name_wasm.to_string();
+    let f32_fn_name_wasm_str = f32_fn_name_wasm.to_string();
+    let multithreaded_fn_name_str = multithreaded_fn_name.to_string();
+    let hybrid_fn_name_str = wgpu_fn_name.to_string();
+    let webgl_fn_name_str = webgl_fn_name.to_string();
+
+    let Arguments {
+        width,
+        height,
+        cpu_u8_tolerance,
+        hybrid_tolerance,
+        transparent,
+        skip_cpu,
+        skip_multithreaded,
+        mut skip_hybrid,
+        ignore_reason,
+        no_ref,
+        diff_pixels,
+        existing_ref,
+    } = parse_args(&attrs);
+
+    if no_ref && existing_ref {
+        panic!("Setting `no_ref` and `existing_ref` at the same time is meaningless.");
+    }
+
+    let params_const = {
+        let cpu_u8_scalar_tolerance = cpu_u8_tolerance + DEFAULT_CPU_U8_TOLERANCE;
+        let cpu_u8_simd_tolerance =
+            cpu_u8_tolerance + DEFAULT_CPU_U8_TOLERANCE.max(DEFAULT_SIMD_TOLERANCE);
+        let hybrid_tolerance = hybrid_tolerance + DEFAULT_HYBRID_TOLERANCE;
+        let wasm_ref_bytes = if no_ref {
+            quote!(None)
+        } else {
+            quote!(Some(include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/snapshots/",
+                #input_fn_name_str,
+                ".png"
+            ))))
+        };
+        quote! {
+            const #params_name: crate::api::infra::TestParams = crate::api::infra::TestParams {
+                name: #input_fn_name_str,
+                cpu_u8_scalar_tolerance: #cpu_u8_scalar_tolerance,
+                cpu_u8_simd_tolerance: #cpu_u8_simd_tolerance,
+                cpu_f32_scalar_tolerance: #DEFAULT_CPU_F32_TOLERANCE,
+                cpu_f32_simd_tolerance: #DEFAULT_SIMD_TOLERANCE,
+                hybrid_tolerance: #hybrid_tolerance,
+                diff_pixels: #diff_pixels,
+                width: #width,
+                height: #height,
+                transparent: #transparent,
+                #[cfg(target_arch = "wasm32")]
+                reference_image_bytes: #wasm_ref_bytes,
+                #[cfg(not(target_arch = "wasm32"))]
+                reference_image_bytes: None,
+                no_ref: #no_ref,
+            };
+        }
+    };
+
+    let cpu_u8_tolerance_scalar = quote! { #params_name.cpu_u8_scalar_tolerance };
+    let cpu_u8_tolerance_simd = quote! { #params_name.cpu_u8_simd_tolerance };
+
+    // Since f32 is our gold standard, we always require exact matches for this one.
+    let cpu_f32_tolerance_scalar = quote! {#params_name.cpu_f32_scalar_tolerance};
+    let cpu_f32_tolerance_simd = quote!(#params_name.cpu_f32_simd_tolerance);
+
+    // These tests currently don't work with `vello_hybrid`.
+    skip_hybrid |= {
+        input_fn_name_str.contains("layer_multiple_properties")
+            || input_fn_name_str.contains("mask")
+            || input_fn_name_str.contains("blurred_rounded_rect")
+            || input_fn_name_str.contains("clip_clear")
+            || input_fn_name_str.contains("mix_non_isolated")
+            || input_fn_name_str.contains("compose_non_isolated")
+    };
+
+    let empty_snippet = quote! {};
+    let ignore_snippet = if let Some(reason) = ignore_reason {
+        quote! {#[ignore = #reason]}
+    } else {
+        quote! {#[ignore]}
+    };
+
+    let ignore_hybrid = if skip_hybrid {
+        ignore_snippet.clone()
+    } else {
+        empty_snippet.clone()
+    };
+    let ignore_hybrid_webgl = if skip_hybrid {
+        ignore_snippet.clone()
+    } else {
+        empty_snippet.clone()
+    };
+
+    let cpu_snippet = |fn_name: Ident,
+                       fn_name_str: String,
+                       tolerance_snippet: &proc_macro2::TokenStream,
+                       is_reference: bool,
+                       num_threads: u16,
+                       // Need to pass as string, to avoid dependency on `fearless_simd` and also
+                       // so that it works with proc_macros.
+                       level: proc_macro2::TokenStream,
+                       ignore: bool,
+                       render_mode: proc_macro2::TokenStream| {
+        // Use the name to infer if the test is running in the browser.
+        let is_wasm_test = fn_name_str.contains("wasm");
+        // WASM cannot create references, so force `is_reference` to be `false` unconditionally.
+        let is_reference = if is_wasm_test { false } else { is_reference };
+        let ignore_snippet = if ignore {
+            ignore_snippet.clone()
+        } else {
+            quote! {}
+        };
+
+        let (cfg_attr, test_attr) = if is_wasm_test {
+            assert_eq!(num_threads, 0, "wasm is single threaded");
+            (
+                quote! { #[cfg(target_arch = "wasm32")] },
+                quote! { #[wasm_bindgen_test::wasm_bindgen_test] },
+            )
+        } else {
+            (quote! {}, quote! { #[test] })
+        };
+
+        quote! {
+            #cfg_attr
+            #ignore_snippet
+            #test_attr
+            fn #fn_name() {
+                use crate::api::infra;
+                let Some(level) = infra::parse_level(#level) else {
+                    // We pass tests when the SIMD level isn't supported on this machine.
+                    // This is a trade-off for better cross-compilation.
+                    return;
+                };
+                infra::run_test_cpu(
+                    #input_fn_name,
+                    #params_name,
+                    vello_cpu::RenderSettings {
+                        level,
+                        num_threads: #num_threads,
+                        render_mode: vello_cpu::#render_mode,
+                    },
+                    #input_fn_name_str,
+                    #tolerance_snippet,
+                    #is_reference,
+                );
+            }
+        }
+    };
+
+    #[cfg(target_arch = "aarch64")]
+    let has_neon = std::arch::is_aarch64_feature_detected!("neon");
+    #[cfg(not(target_arch = "aarch64"))]
+    let has_neon = false;
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "x86")))]
+    let has_sse42 = false;
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    let has_sse42 = std::arch::is_x86_feature_detected!("sse4.2");
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "x86")))]
+    let has_avx2 = false;
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    let has_avx2 =
+        std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma");
+
+    let wasm_simd_level = quote! {if cfg!(target_feature = "simd128") {
+            "wasm_simd128"
+        } else {
+            "fallback"
+        }
+    };
+
+    let u8_snippet = cpu_snippet(
+        u8_fn_name_scalar,
+        u8_fn_name_str_scalar,
+        &cpu_u8_tolerance_scalar,
+        false,
+        0,
+        quote! {"fallback"},
+        skip_cpu,
+        quote! { RenderMode::OptimizeSpeed },
+    );
+    let f32_snippet = cpu_snippet(
+        f32_fn_name_scalar,
+        f32_fn_name_str_scalar,
+        &cpu_f32_tolerance_scalar,
+        // Only make a reference image if there is already a reference image existing.
+        !existing_ref,
+        0,
+        quote! {"fallback"},
+        skip_cpu,
+        quote! { RenderMode::OptimizeQuality },
+    );
+    let u8_snippet_wasm = cpu_snippet(
+        u8_fn_name_wasm,
+        u8_fn_name_wasm_str,
+        &cpu_u8_tolerance_scalar,
+        false,
+        0,
+        wasm_simd_level.clone(),
+        skip_cpu,
+        quote! { RenderMode::OptimizeSpeed },
+    );
+    let f32_snippet_wasm = cpu_snippet(
+        f32_fn_name_wasm,
+        f32_fn_name_wasm_str,
+        &cpu_f32_tolerance_scalar,
+        true,
+        0,
+        wasm_simd_level,
+        skip_cpu,
+        quote! { RenderMode::OptimizeQuality },
+    );
+    let multi_threaded_snippet = cpu_snippet(
+        multithreaded_fn_name,
+        multithreaded_fn_name_str,
+        &cpu_f32_tolerance_scalar,
+        false,
+        3,
+        quote! {"fallback"},
+        skip_cpu | skip_multithreaded,
+        quote! { RenderMode::OptimizeQuality },
+    );
+
+    let neon_u8_snippet = cpu_snippet(
+        u8_fn_name_neon,
+        u8_fn_name_str_neon,
+        &cpu_u8_tolerance_simd,
+        false,
+        0,
+        quote! {"neon"},
+        skip_cpu | !has_neon,
+        quote! { RenderMode::OptimizeSpeed },
+    );
+
+    let neon_f32_snippet = cpu_snippet(
+        f32_fn_name_neon,
+        f32_fn_name_str_neon,
+        &cpu_f32_tolerance_simd,
+        false,
+        0,
+        quote! {"neon"},
+        skip_cpu | !has_neon,
+        quote! { RenderMode::OptimizeQuality },
+    );
+
+    let sse42_u8_snippet = cpu_snippet(
+        u8_fn_name_sse42,
+        u8_fn_name_str_sse42,
+        &cpu_u8_tolerance_simd,
+        false,
+        0,
+        quote! {"sse42"},
+        skip_cpu | !has_sse42,
+        quote! { RenderMode::OptimizeSpeed },
+    );
+
+    let sse42_f32_snippet = cpu_snippet(
+        f32_fn_name_sse42,
+        f32_fn_name_str_sse42,
+        &cpu_f32_tolerance_simd,
+        false,
+        0,
+        quote! {"sse42"},
+        skip_cpu | !has_sse42,
+        quote! { RenderMode::OptimizeQuality },
+    );
+
+    let avx2_u8_snippet = cpu_snippet(
+        u8_fn_name_avx2,
+        u8_fn_name_str_avx2,
+        &cpu_u8_tolerance_simd,
+        false,
+        0,
+        quote! {"avx2"},
+        skip_cpu | !has_avx2,
+        quote! { RenderMode::OptimizeSpeed },
+    );
+
+    let avx2_f32_snippet = cpu_snippet(
+        f32_fn_name_avx2,
+        f32_fn_name_str_avx2,
+        &cpu_f32_tolerance_simd,
+        false,
+        0,
+        quote! {"avx2"},
+        skip_cpu | !has_avx2,
+        quote! { RenderMode::OptimizeQuality },
+    );
+
+    let expanded = quote! {
+        #input_fn
+
+        #params_const
+
+        #u8_snippet
+
+        #neon_u8_snippet
+
+        #sse42_u8_snippet
+
+        #avx2_u8_snippet
+
+        #u8_snippet_wasm
+
+        #f32_snippet
+
+        #neon_f32_snippet
+
+        #sse42_f32_snippet
+
+        #avx2_f32_snippet
+
+        #f32_snippet_wasm
+
+        #multi_threaded_snippet
+
+        #ignore_hybrid
+        #[test]
+        #[cfg(not(target_arch = "wasm32"))]
+        fn #wgpu_fn_name() {
+            use crate::api::infra;
+            // Currently we only test Vello Hybrid with the fallback level, to avoid making too many variations
+            let Some(level) = infra::parse_level("fallback") else {
+                // We pass tests when the SIMD level isn't supported on this machine.
+                // This is a trade-off for better cross-compilation.
+                return;
+            };
+            infra::run_test_hybrid_wgpu(
+                #input_fn_name,
+                #params_name,
+                vello_hybrid::RenderSettings {
+                    level,
+                    atlas_config: vello_hybrid::AtlasConfig::default(),
+                },
+                #hybrid_fn_name_str,
+                #params_name.hybrid_tolerance,
+                false,
+            );
+        }
+
+        #ignore_hybrid_webgl
+        #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+        #[wasm_bindgen_test::wasm_bindgen_test]
+        async fn #webgl_fn_name() {
+            use crate::api::infra;
+            // Currently we only test Vello Hybrid with the fallback level, to avoid making too many variations
+            let Some(level) = infra::parse_level("fallback") else {
+                // We pass tests when the SIMD level isn't supported on this machine.
+                // This is a trade-off for better cross-compilation.
+                return;
+            };
+            infra::run_test_hybrid_webgl(
+                #input_fn_name,
+                #params_name,
+                vello_hybrid::RenderSettings {
+                    level,
+                    atlas_config: vello_hybrid::AtlasConfig::default(),
+                },
+                #webgl_fn_name_str,
+                #params_name.hybrid_tolerance,
+            );
+        }
+    };
+
+    expanded.into()
+}
+
+fn parse_args(attribute_input: &AttributeInput) -> Arguments {
+    let mut args = Arguments::default();
+
+    for arg in &attribute_input.args {
+        match arg {
+            Attribute::KeyValue { key, expr, .. } => {
+                let key_str = key.to_string();
+                match key_str.as_str() {
+                    "ignore" => {
+                        args.skip_cpu = true;
+                        args.skip_multithreaded = true;
+                        args.skip_hybrid = true;
+                        args.ignore_reason = Some(parse_string_lit(expr, "ignore"));
+                    }
+                    "width" => args.width = parse_int_lit(expr, "width"),
+                    "diff_pixels" => args.diff_pixels = parse_int_lit(expr, "diff_pixels"),
+                    "height" => args.height = parse_int_lit(expr, "height"),
+                    "cpu_u8_tolerance" => {
+                        args.cpu_u8_tolerance = parse_int_lit(expr, "cpu_u8_tolerance")
+                            .try_into()
+                            .expect("value to fit for cpu_tolerance.");
+                    }
+                    "hybrid_tolerance" => {
+                        args.hybrid_tolerance = parse_int_lit(expr, "hybrid_tolerance")
+                            .try_into()
+                            .expect("value to fit for hybrid_tolerance.");
+                    }
+                    _ => panic!("unknown pair attribute {key_str}"),
+                }
+            }
+            Attribute::Flag(flag_ident) => {
+                let flag_str = flag_ident.to_string();
+                match flag_str.as_str() {
+                    "transparent" => args.transparent = true,
+                    "skip_cpu" => args.skip_cpu = true,
+                    "skip_multithreaded" => args.skip_multithreaded = true,
+                    "skip_hybrid" => args.skip_hybrid = true,
+                    "no_ref" => args.no_ref = true,
+                    "existing_ref" => args.existing_ref = true,
+                    "ignore" => {
+                        args.skip_cpu = true;
+                        args.skip_multithreaded = true;
+                        args.skip_hybrid = true;
+                    }
+                    _ => panic!("unknown flag attribute {flag_str}"),
+                }
+            }
+        }
+    }
+
+    args
+}

@@ -339,10 +339,31 @@ pub(crate) fn check_ref(
     // Whether the test instance is the "gold standard" and should be used
     // for creating reference images.
     is_reference: bool,
-    _: &[u8],
+    ref_data: &[u8],
 ) {
     let pixmap = render_pixmap(ctx);
 
+    check_pixmap_ref(
+        test_name,
+        specific_name,
+        threshold,
+        diff_pixels,
+        is_reference,
+        ref_data.is_empty().then_some(ref_data),
+        pixmap,
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn check_pixmap_ref(
+    test_name: &str,
+    specific_name: &str,
+    threshold: u8,
+    diff_pixels: u16,
+    is_reference: bool,
+    _ref_data: Option<&[u8]>,
+    pixmap: Pixmap,
+) {
     let encoded_image = pixmap.into_png().unwrap();
     let ref_path = REFS_PATH.join(format!("{test_name}.png"));
 
@@ -432,10 +453,33 @@ pub(crate) fn check_ref(
     assert!(!is_reference, "WASM cannot create new reference images");
 
     let pixmap = render_pixmap(ctx);
+    check_pixmap_ref(
+        _test_name,
+        specific_name,
+        threshold,
+        diff_pixels,
+        is_reference,
+        Some(ref_data),
+        pixmap,
+    );
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn check_pixmap_ref(
+    _test_name: &str,
+    specific_name: &str,
+    threshold: u8,
+    diff_pixels: u16,
+    _is_reference: bool,
+    ref_data: Option<&[u8]>,
+    pixmap: Pixmap,
+) {
     let encoded_image = pixmap.into_png().unwrap();
     let actual = load_from_memory(&encoded_image).unwrap().into_rgba8();
 
-    let ref_image = load_from_memory(ref_data).unwrap().into_rgba8();
+    let ref_image = load_from_memory(ref_data.expect("Ref data provided"))
+        .unwrap()
+        .into_rgba8();
 
     let diff_image = get_diff(&ref_image, &actual, threshold, diff_pixels);
     if let Some((ref img, _)) = diff_image {
