@@ -1826,7 +1826,7 @@ impl RendererBackend for WebGlRendererContext<'_> {
         self.do_clear_slots_render_pass(texture_index, slots);
     }
 
-    /// Execute a render pass for rendering strips.
+    /// Execute a render pass for strips.
     fn render_strips(&mut self, strips: &[GpuStrip], target_index: usize, load_op: LoadOp) {
         self.do_strip_render_pass(strips, target_index, load_op);
     }
