@@ -251,6 +251,7 @@ impl Renderer {
         render_size: &RenderSize,
         view: &TextureView,
         // See https://github.com/linebender/vello/pull/1458/changes#r2851077556
+        // TODO: Fix this ASAP!
         _clear: bool,
     ) -> Result<(), RenderError> {
         self.prepare_gpu_encoded_paints(&scene.encoded_paints);
