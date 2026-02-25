@@ -467,6 +467,8 @@ impl Scheduler {
         let cols = wide.width_tiles();
         let num_tiles = (rows * cols) as usize;
 
+        // A bit hacky, but we need this since we still need mutable access to
+        // self when processing everything.
         let mut cmd_offsets = core::mem::take(&mut self.cmd_offsets);
         cmd_offsets.clear();
         cmd_offsets.resize(num_tiles, 0);
