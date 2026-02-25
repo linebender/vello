@@ -1394,17 +1394,8 @@ impl<const MODE: u8> WideTile<MODE> {
         }
     }
 
-    /// Emit any pending `BatchEnd` markers since this tile's last update.
-    #[inline(always)]
-    pub(crate) fn emit_pending_batch_ends(&mut self, current_batch: u32) {
-        if self.last_batch_end < current_batch {
-            let count = (current_batch - self.last_batch_end) as usize;
-            self.cmds.extend(core::iter::repeat_n(Cmd::BatchEnd, count));
-            self.last_batch_end = current_batch;
-        }
-    }
-
     /// Push all layer buffers that have not yet been pushed for this tile.
+    /// Also emit `BatchEnd` commands in case we are in HYBRID mode.
     ///
     /// We push wide tile layer buffers lazily. This is called by wide tile draw methods to ensure
     /// all layer stack buffers are pushed for the wide tile. Calling this multiple times won't
@@ -1413,6 +1404,17 @@ impl<const MODE: u8> WideTile<MODE> {
     /// The `tile_idx` parameter is this tile's index in [`Wide::tiles`].
     #[inline(always)]
     fn ensure_layer_stack_bufs(&mut self, tile_idx: usize, layers: &mut NeedsBufLayerStack, batch_count: u32) {
+        // First emit `BatchEnd` commands if necessary.
+        if MODE == MODE_HYBRID {
+            if self.last_batch_end < batch_count {
+                let count = (batch_count - self.last_batch_end) as usize;
+                self.cmds.extend(core::iter::repeat_n(Cmd::BatchEnd, count));
+                self.last_batch_end = batch_count;
+            }
+        }
+
+        // Then, take care of emitting `PushBuf` commands that haven't been emitted yet.
+
         // `layers` tracks the number of layers that require scratch buffers, excluding those
         // required for clips: clip buffers are handled separately. The scratch buffer stack for
         // this tile is `self.n_bufs`, of which `self.n_clip` are for clips.
@@ -1432,7 +1434,7 @@ impl<const MODE: u8> WideTile<MODE> {
             || {
                 for layer in &mut layers.stack[layer_bufs..layers.len] {
                     layer.occupied_tiles.push(tile_idx);
-                    self.push_buf(layer.kind, batch_count);
+                    self.push_buf(layer.kind);
                 }
             },
         );
@@ -1460,10 +1462,6 @@ impl<const MODE: u8> WideTile<MODE> {
         fill_hint: FillHint,
     ) {
         if !self.is_zero_clip() || self.in_clipped_filter_layer {
-            if MODE == MODE_HYBRID {
-                self.emit_pending_batch_ends(batch_count);
-            }
-
             self.ensure_layer_stack_bufs(tile_idx, layers, batch_count);
 
 
@@ -1537,10 +1535,6 @@ impl<const MODE: u8> WideTile<MODE> {
         current_layer_id: LayerId,
     ) {
         if !self.is_zero_clip() || self.in_clipped_filter_layer {
-            if MODE == MODE_HYBRID {
-                self.emit_pending_batch_ends(batch_count);
-            }
-
             self.ensure_layer_stack_bufs(tile_idx, layers, batch_count);
 
             self.record_fill_cmd(current_layer_id, self.cmds.len());
@@ -1556,7 +1550,7 @@ impl<const MODE: u8> WideTile<MODE> {
     fn push_clip(&mut self, tile_idx: usize, layers: &mut NeedsBufLayerStack, layer_id: LayerId, batch_count: u32) {
         if !self.is_zero_clip() || self.in_clipped_filter_layer {
             self.ensure_layer_stack_bufs(tile_idx, layers, batch_count);
-            self.push_buf(LayerKind::Clip(layer_id), batch_count);
+            self.push_buf(LayerKind::Clip(layer_id));
             self.n_clip += 1;
         }
     }
@@ -1644,11 +1638,7 @@ impl<const MODE: u8> WideTile<MODE> {
     /// - Filtered layers: Materialized in persistent layer storage for filter processing
     /// - Clip layers: Special handling for clipping operations
     #[inline(always)]
-    fn push_buf(&mut self, layer_kind: LayerKind, batch_count: u32) {
-        if MODE == MODE_HYBRID {
-            self.emit_pending_batch_ends(batch_count);
-        }
-
+    fn push_buf(&mut self, layer_kind: LayerKind) {
         let top_layer = layer_kind.id();
         if matches!(layer_kind, LayerKind::Filtered(_)) {
             self.layer_cmd_ranges.insert(
@@ -2184,7 +2174,7 @@ mod tests {
     #[test]
     fn optimize_empty_layers() {
         let mut wide = WideTile::<MODE_CPU>::new(0, 0);
-        wide.push_buf(LayerKind::Regular(0), 0);
+        wide.push_buf(LayerKind::Regular(0));
         wide.pop_buf();
 
         assert!(wide.cmds.is_empty());
@@ -2226,7 +2216,7 @@ mod tests {
         let mut wide = WideTile::<MODE_CPU>::new(0, 0);
         let mut layers = NeedsBufLayerStack::default();
         layers.push(LayerKind::Regular(0));
-        wide.push_buf(LayerKind::Regular(0), 0);
+        wide.push_buf(LayerKind::Regular(0));
         wide.fill(0, 0, &mut layers, 0, 10, 0, 0, FillHint::None);
         wide.blend(blend_mode);
         wide.pop_buf();
