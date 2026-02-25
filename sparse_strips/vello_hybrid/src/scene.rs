@@ -572,11 +572,11 @@ impl Scene {
             // With default blending only we can keep fast strips alive. Close the
             // current batch as a DirectStrips command and switch strip storage to
             // preserve the fast-path prefix.
+            let batch_start = self.fast_strips_buffer.batch_start;
             let batch_end = self.fast_strips_buffer.paths.len();
-            if self.fast_strips_buffer.batch_start < batch_end {
-                self.scene_commands.push(SceneCommand::DirectStrips(
-                    self.fast_strips_buffer.batch_start..batch_end,
-                ));
+            if batch_start < batch_end {
+                self.scene_commands
+                    .push(SceneCommand::DirectStrips(batch_start..batch_end));
                 self.fast_strips_buffer.batch_start = batch_end;
             }
             let mut strip_storage = self.strip_storage.borrow_mut();
@@ -663,7 +663,7 @@ impl Scene {
     pub fn pop_layer(&mut self) {
         self.wide.pop_layer(&mut self.render_graph);
         if self.fast_path_interleaved && !self.wide.has_layers() {
-            self.wide.emit_segment_end();
+            self.wide.increment_segment();
             self.scene_commands.push(SceneCommand::Scheduled);
             self.strip_storage
                 .borrow_mut()
