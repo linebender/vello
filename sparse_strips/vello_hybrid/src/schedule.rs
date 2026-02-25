@@ -534,7 +534,7 @@ impl Scheduler {
         Ok(())
     }
 
-    /// Generate GpuStrips for a range of direct paths and append them
+    /// Generate `GpuStrips` for a range of direct paths and append them
     /// directly into the current round's surface draw array.
     fn push_direct_strips(&mut self, scene: &Scene, range: Range<usize>, paint_idxs: &[u32]) {
         let strip_storage = scene.strip_storage.borrow();
