@@ -176,7 +176,7 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
-use crate::scene::FastStripsPath;
+use crate::scene::{FastStripsPath, StripPathMode};
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -472,49 +472,59 @@ impl Scheduler {
         let mut cmd_offsets = core::mem::take(&mut self.cmd_offsets);
         cmd_offsets.clear();
         cmd_offsets.resize(num_tiles, 0);
-        let mut first_batch = true;
-        let mut prev_split = 0;
 
-        for &split in &scene.coarse_batch_splits {
-            if prev_split < split {
-                self.push_direct_strips(scene, prev_split..split, paint_idxs);
+        match scene.strip_path_mode {
+            StripPathMode::FastOnly => {
+                // All strips are direct — no coarse rasterization needed.
+                let end = scene.fast_strips_buffer.paths.len();
+                if end > 0 {
+                    self.push_direct_strips(scene, 0..end, paint_idxs);
+                }
             }
-            self.process_coarse_batch(
-                state,
-                renderer,
-                scene,
-                wide,
-                rows,
-                cols,
-                &mut cmd_offsets,
-                paint_idxs,
-                first_batch,
-            )?;
-            first_batch = false;
-            prev_split = split;
-        }
+            StripPathMode::Interleaved => {
+                // Alternate fast strip batches with coarse-rasterized layer batches.
+                let mut first_batch = true;
+                let mut prev_split = 0;
 
-        // Handle the tail: direct strips added after the last coarse batch.
-        let tail_end = scene.fast_strips_buffer.paths.len();
-        if prev_split < tail_end {
-            self.push_direct_strips(scene, prev_split..tail_end, paint_idxs);
-        }
+                for &split in &scene.coarse_batch_splits {
+                    if prev_split < split {
+                        self.push_direct_strips(scene, prev_split..split, paint_idxs);
+                    }
+                    self.process_coarse_batch(
+                        state,
+                        renderer,
+                        scene,
+                        wide,
+                        rows,
+                        cols,
+                        &mut cmd_offsets,
+                        paint_idxs,
+                        first_batch,
+                    )?;
+                    first_batch = false;
+                    prev_split = split;
+                }
 
-        // If there were no coarse splits and no direct tail, this is the
-        // pure coarse path (no default_blending_only). Process all tile
-        // commands in one pass.
-        if scene.coarse_batch_splits.is_empty() && prev_split >= tail_end {
-            self.process_coarse_batch(
-                state,
-                renderer,
-                scene,
-                wide,
-                rows,
-                cols,
-                &mut cmd_offsets,
-                paint_idxs,
-                true,
-            )?;
+                // Handle the tail: direct strips added after the last coarse batch.
+                let tail_end = scene.fast_strips_buffer.paths.len();
+                if prev_split < tail_end {
+                    self.push_direct_strips(scene, prev_split..tail_end, paint_idxs);
+                }
+            }
+            StripPathMode::CoarseOnly => {
+                // Pure coarse — process all wide tile commands in one pass.
+                self.process_coarse_batch(
+                    state,
+                    renderer,
+                    scene,
+                    wide,
+                    rows,
+                    cols,
+                    &mut cmd_offsets,
+                    paint_idxs,
+                    true,
+                )?;
+            }
         }
         self.cmd_offsets = cmd_offsets;
 
