@@ -162,9 +162,9 @@ impl Renderer {
         };
         // Clear the surface before the unified scheduling pass.
         ctx.render_strips(&[], 2, LoadOp::Clear);
-        let result = self
-            .scheduler
-            .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs);
+        let result =
+            self.scheduler
+                .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs);
         self.gradient_cache.maintain();
 
         result

@@ -181,7 +181,7 @@ use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use core::ops::Range;
-use vello_common::coarse::{CommandAttrs, Wide, MODE_HYBRID};
+use vello_common::coarse::{CommandAttrs, MODE_HYBRID, Wide};
 use vello_common::peniko::BlendMode;
 use vello_common::strip_generator::StripStorage;
 use vello_common::{
@@ -503,7 +503,15 @@ impl Scheduler {
         // commands in one pass.
         if scene.scene_commands.is_empty() && tail_start >= tail_end {
             self.process_scheduled_segment(
-                state, renderer, scene, wide, rows, cols, &mut offsets, paint_idxs, true,
+                state,
+                renderer,
+                scene,
+                wide,
+                rows,
+                cols,
+                &mut offsets,
+                paint_idxs,
+                true,
             )?;
         }
 
@@ -527,12 +535,7 @@ impl Scheduler {
 
     /// Generate GpuStrips for a range of fast-path paths and append them
     /// directly into the current round's surface draw array.
-    fn emit_direct_strips(
-        &mut self,
-        scene: &Scene,
-        range: Range<usize>,
-        paint_idxs: &[u32],
-    ) {
+    fn emit_direct_strips(&mut self, scene: &Scene, range: Range<usize>, paint_idxs: &[u32]) {
         let strip_storage = scene.strip_storage.borrow();
         let draw = self.draw_mut(self.round, 2);
         for path in &scene.fast_strips_buffer.paths[range] {
@@ -607,11 +610,7 @@ impl Scheduler {
                 }
 
                 // Advance past the SegmentEnd marker (if present).
-                offsets[idx] = if end < tile.cmds.len() {
-                    end + 1
-                } else {
-                    end
-                };
+                offsets[idx] = if end < tile.cmds.len() { end + 1 } else { end };
             }
         }
 
