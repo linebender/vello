@@ -305,8 +305,12 @@ impl SingleThreadedDispatcher {
         fine.clear(clear_color);
 
         // Process all commands in this layer's render range.
-        // Invariant: tiles within a layer's bbox must have commands for that layer.
-        let ranges = wtile.layer_cmd_ranges.get(&layer_id).unwrap();
+        // It can happen that the layer has no associated ranges in this wide tile in
+        // case they have been cleared by setting a new wide tile background, for example
+        // when filling a full-tile opaque solid color.
+        let Some(ranges) = wtile.layer_cmd_ranges.get(&layer_id) else {
+            return;
+        };
 
         let mut cmd_idx = ranges.render_range.start;
         while cmd_idx < ranges.render_range.end {
@@ -324,7 +328,8 @@ impl SingleThreadedDispatcher {
             // Filtered layers have already been rendered and stored in layer_manager.
             // Here we composite them into the current buffer, with special handling for clipping.
             if let Cmd::PushBuf(LayerKind::Filtered(child_layer_id), _) = cmd {
-                // Invariant: PushBuf(Filtered) command must have corresponding layer_cmd_ranges entry.
+                // Unlike above, the unwrap is safe here because as long as the filtered layer
+                // is referenced in the wide tile, it must have associated layer ranges.
                 let filtered_ranges = wtile.layer_cmd_ranges.get(child_layer_id).unwrap();
 
                 // Check what comes after the filtered layer push to determine clipping state

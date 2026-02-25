@@ -1342,18 +1342,24 @@ impl<const MODE: u8> WideTile<MODE> {
                     FillHint::OpaqueSolid(color) => {
                         self.cmds.clear();
                         self.bg = color;
-                        if let Some(ranges) = self.layer_cmd_ranges.get_mut(&current_layer_id) {
-                            ranges.clear();
-                        }
+
+                        // We need to invalidate the ranges of all layers that have been drawn so far
+                        // in that wide tile.
+                        self.layer_cmd_ranges.clear();
+                        self.layer_cmd_ranges
+                            .insert(current_layer_id, LayerCommandRanges::default());
                         return;
                     }
                     FillHint::OpaqueImage => {
                         // Opaque image: clear previous commands but still emit the fill.
                         self.cmds.clear();
                         self.bg = PremulColor::from_alpha_color(TRANSPARENT);
-                        if let Some(ranges) = self.layer_cmd_ranges.get_mut(&current_layer_id) {
-                            ranges.clear();
-                        }
+
+                        // We need to invalidate the ranges of all layers that have been drawn so far
+                        // in that wide tile.
+                        self.layer_cmd_ranges.clear();
+                        self.layer_cmd_ranges
+                            .insert(current_layer_id, LayerCommandRanges::default());
                         // Fall through to emit the fill command below, as opposed to
                         // solid paints where we have a return statement.
                     }
