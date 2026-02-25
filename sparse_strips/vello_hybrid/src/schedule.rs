@@ -578,7 +578,11 @@ impl Scheduler {
                 let idx = (row * cols + col) as usize;
                 let tile = wide.get(col, row);
                 let start_offset = cmd_offsets[idx];
-                if start_offset >= tile.cmds.len() {
+
+                // Note that we are explicitly checking >= instead of >.
+                // The reason is that it can happen the tile has no commands but still has a background,
+                // in which case we still need to do the painting of the background
+                if start_offset > tile.cmds.len() {
                     continue;
                 }
 
@@ -586,7 +590,7 @@ impl Scheduler {
                 let tile_y = row * Tile::HEIGHT;
 
                 // We only must paint the background if we are processing the wide tile for the
-                // first time (i.e. the offset is 0).
+                // first time (i.e. the start offset is 0).
                 let paint_bg = start_offset == 0;
 
                 // Find the end of this batch: scan for the next `BatchEnd` marker.
@@ -625,8 +629,8 @@ impl Scheduler {
                     self.paint_tile_bg(tile, tile_x, tile_y, scene, paint_idxs);
                 }
 
-                // Advance past the BatchEnd marker (if present).
-                cmd_offsets[idx] = if end < tile.cmds.len() { end + 1 } else { end };
+                // Advance past the `BatchEnd` marker (if present).
+                cmd_offsets[idx] = (end + 1).min(tile.cmds.len());
             }
         }
 
