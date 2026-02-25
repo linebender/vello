@@ -96,7 +96,7 @@ pub struct Wide<const MODE: u8 = MODE_CPU> {
     /// Whether to enable the optimization that allows fills with an opaque color to clear
     /// all previous commands if it spans the whole wide tile.
     ///
-    /// This needs to be disabled for the interleaved rendering path in vello_hybrid, because
+    /// This needs to be disabled for the interleaved rendering path in `vello_hybrid`, because
     /// the background is applied as the very first operation, and we have no way of clearing
     /// strips in the fast path that would affect the area of the wide tile.
     enable_bg_optimization: bool,
