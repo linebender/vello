@@ -88,7 +88,7 @@ pub struct WebGlRenderer {
     /// WebGL context.
     gl: WebGl2RenderingContext,
     /// Image cache for storing images atlas allocations.
-    pub(crate) image_cache: ImageCache,
+    pub image_cache: ImageCache,
     /// Encoded paints for storing encoded paints.
     encoded_paints: Vec<GpuEncodedPaint>,
     /// Stores the index (offset) of the encoded paints in the encoded paints texture.
