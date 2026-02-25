@@ -71,6 +71,25 @@ pub(crate) struct FastStripsPath {
     pub(crate) paint: Paint,
 }
 
+/// A rectangle stored in the fast-path buffer.
+#[derive(Debug)]
+pub(crate) struct FastPathRect {
+    pub(crate) x0: f32,
+    pub(crate) y0: f32,
+    pub(crate) x1: f32,
+    pub(crate) y1: f32,
+    pub(crate) paint: Paint,
+}
+
+/// A command in the fast strips buffer: either a normal path or a solid rectangle.
+#[derive(Debug)]
+pub(crate) enum FastStripCommand {
+    /// A path rendered via the normal strip pipeline.
+    Path(FastStripsPath),
+    /// A rectangle.
+    Rect(FastPathRect),
+}
+
 /// A buffer that collects strips from paths that are rendered directly to the surface,
 /// bypassing coarse rasterization.
 ///
@@ -78,14 +97,14 @@ pub(crate) struct FastStripsPath {
 /// for one path within that storage.
 #[derive(Debug, Default)]
 pub(crate) struct FastStripsBuffer {
-    /// All paths in the buffer.
-    pub(crate) paths: Vec<FastStripsPath>,
+    /// All commands in the buffer.
+    pub(crate) commands: Vec<FastStripCommand>,
 }
 
 impl FastStripsBuffer {
     #[inline(always)]
     fn clear(&mut self) {
-        self.paths.clear();
+        self.commands.clear();
     }
 }
 
@@ -253,10 +272,13 @@ pub struct Scene {
 macro_rules! submit_strips {
     ($self:ident, $strip_storage:expr, $strip_start:expr, $paint:expr) => {
         if $self.strip_path_mode != StripPathMode::CoarseOnly && !$self.wide.has_layers() {
-            $self.fast_strips_buffer.paths.push(FastStripsPath {
-                strips: $strip_start..$strip_storage.strips.len(),
-                paint: $paint,
-            });
+            $self
+                .fast_strips_buffer
+                .commands
+                .push(FastStripCommand::Path(FastStripsPath {
+                    strips: $strip_start..$strip_storage.strips.len(),
+                    paint: $paint,
+                }));
         } else {
             // In `ReplaceAfter(n)` mode the fast path prefix lives at `[0..n]`
             // and must not be fed into the coarse rasterizer.
@@ -490,6 +512,10 @@ impl Scene {
             return;
         }
 
+        if self.try_rect_strip(rect) {
+            return;
+        }
+
         // Fast path: use optimized rect filling when transforms are integer translations
         // AND rect coordinates are integers. This bypasses path processing by generating
         // strips directly for the rectangle.
@@ -505,6 +531,51 @@ impl Scene {
         } else {
             self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
         }
+    }
+
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "f64→f32 truncation is acceptable for pixel coordinates"
+    )]
+    fn try_rect_strip(&mut self, rect: &Rect) -> bool {
+        if self.strip_path_mode == StripPathMode::CoarseOnly || self.wide.has_layers() {
+            return false;
+        }
+
+        if self.clip_context.get().is_some() {
+            return false;
+        }
+
+        // We can't handle skewed rectangles.
+        let coeffs = self.transform.as_coeffs();
+        if coeffs[1].abs() > 1e-5 || coeffs[2].abs() > 1e-5 {
+            return false;
+        }
+
+        let paint = self.encode_current_paint();
+        let transformed_rect = self.transform.transform_rect_bbox(*rect);
+
+        let x0 = transformed_rect.x0.max(0.0).min(f64::from(self.width));
+        let y0 = transformed_rect.y0.max(0.0).min(f64::from(self.height));
+        let x1 = transformed_rect.x1.max(0.0).min(f64::from(self.width));
+        let y1 = transformed_rect.y1.max(0.0).min(f64::from(self.height));
+
+        // Can't handle mirrored or zero-sized rectangles.
+        if x1 <= x0 || y1 <= y0 {
+            return false;
+        }
+
+        self.fast_strips_buffer
+            .commands
+            .push(FastStripCommand::Rect(FastPathRect {
+                x0: x0 as f32,
+                y0: y0 as f32,
+                x1: x1 as f32,
+                y1: y1 as f32,
+                paint,
+            }));
+
+        true
     }
 
     /// Fast path for filling a pixel-aligned rectangle.
@@ -549,15 +620,38 @@ impl Scene {
         }
 
         let mut strip_storage = self.strip_storage.borrow_mut();
-        for path in self.fast_strips_buffer.paths.drain(..) {
-            self.wide.generate(
-                &strip_storage.strips[path.strips],
-                path.paint,
-                BlendMode::default(),
-                0,
-                None,
-                &self.encoded_paints,
-            );
+        for cmd in self.fast_strips_buffer.commands.drain(..) {
+            match cmd {
+                FastStripCommand::Path(path) => {
+                    self.wide.generate(
+                        &strip_storage.strips[path.strips],
+                        path.paint,
+                        BlendMode::default(),
+                        0,
+                        None,
+                        &self.encoded_paints,
+                    );
+                }
+                FastStripCommand::Rect(r) => {
+                    let rect = Rect::new(
+                        f64::from(r.x0),
+                        f64::from(r.y0),
+                        f64::from(r.x1),
+                        f64::from(r.y1),
+                    );
+                    let strip_start = strip_storage.strips.len();
+                    self.strip_generator
+                        .generate_filled_rect_fast(&rect, &mut strip_storage, None);
+                    self.wide.generate(
+                        &strip_storage.strips[strip_start..],
+                        r.paint,
+                        BlendMode::default(),
+                        0,
+                        None,
+                        &self.encoded_paints,
+                    );
+                }
+            }
         }
 
         strip_storage.set_generation_mode(GenerationMode::Replace);
@@ -584,7 +678,7 @@ impl Scene {
             // With default blending only we can keep fast path strips alive. Record a
             // split point so the scheduler knows to process one coarse batch after
             // processing fast path strips up to this point.
-            let split = self.fast_strips_buffer.paths.len();
+            let split = self.fast_strips_buffer.commands.len();
             self.coarse_batch_splits.push(split);
             let mut strip_storage = self.strip_storage.borrow_mut();
             strip_offset = strip_storage.strips.len();
@@ -1088,10 +1182,12 @@ impl Scene {
             strip_storage
                 .strips
                 .extend_from_slice(&adjusted_strips[start..end]);
-            self.fast_strips_buffer.paths.push(FastStripsPath {
-                strips: strip_start..strip_storage.strips.len(),
-                paint,
-            });
+            self.fast_strips_buffer
+                .commands
+                .push(FastStripCommand::Path(FastStripsPath {
+                    strips: strip_start..strip_storage.strips.len(),
+                    paint,
+                }));
         } else {
             self.wide.generate(
                 &adjusted_strips[start..end],
