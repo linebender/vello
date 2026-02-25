@@ -808,8 +808,11 @@ impl<const MODE: u8> Wide<MODE> {
                 || self.clipped_filter_layer_depth > 0
             {
                 for idx in 0..self.tiles.len() {
-                    self.tiles[idx]
-                        .ensure_layer_stack_bufs(idx, &mut self.layers_needing_buf_stack, batch_count);
+                    self.tiles[idx].ensure_layer_stack_bufs(
+                        idx,
+                        &mut self.layers_needing_buf_stack,
+                        batch_count,
+                    );
                     // Mark tiles that are in a clipped filter layer so they generate
                     // explicit clip commands for proper filter processing.
                     self.tiles[idx].in_clipped_filter_layer = in_clipped_filter_layer;
@@ -1047,9 +1050,13 @@ impl<const MODE: u8> Wide<MODE> {
             let wtile_x1 = (x + width).div_ceil(WideTile::WIDTH).min(clip_bbox.x1());
             if cur_wtile_x < wtile_x1 {
                 for wtile_x in cur_wtile_x..wtile_x1 {
-                    let idx = self.get_idx(wtile_x, cur_wtile_y)
-                        ;
-                    self.tiles[idx].push_clip(idx, &mut self.layers_needing_buf_stack, layer_id, batch_count);
+                    let idx = self.get_idx(wtile_x, cur_wtile_y);
+                    self.tiles[idx].push_clip(
+                        idx,
+                        &mut self.layers_needing_buf_stack,
+                        layer_id,
+                        batch_count,
+                    );
                 }
                 cur_wtile_x = wtile_x1;
             }
@@ -1403,14 +1410,17 @@ impl<const MODE: u8> WideTile<MODE> {
     ///
     /// The `tile_idx` parameter is this tile's index in [`Wide::tiles`].
     #[inline(always)]
-    fn ensure_layer_stack_bufs(&mut self, tile_idx: usize, layers: &mut NeedsBufLayerStack, batch_count: u32) {
+    fn ensure_layer_stack_bufs(
+        &mut self,
+        tile_idx: usize,
+        layers: &mut NeedsBufLayerStack,
+        batch_count: u32,
+    ) {
         // First emit `BatchEnd` commands if necessary.
-        if MODE == MODE_HYBRID {
-            if self.last_batch_end < batch_count {
-                let count = (batch_count - self.last_batch_end) as usize;
-                self.cmds.extend(core::iter::repeat_n(Cmd::BatchEnd, count));
-                self.last_batch_end = batch_count;
-            }
+        if MODE == MODE_HYBRID && self.last_batch_end < batch_count {
+            let count = (batch_count - self.last_batch_end) as usize;
+            self.cmds.extend(core::iter::repeat_n(Cmd::BatchEnd, count));
+            self.last_batch_end = batch_count;
         }
 
         // Then, take care of emitting `PushBuf` commands that haven't been emitted yet.
@@ -1463,7 +1473,6 @@ impl<const MODE: u8> WideTile<MODE> {
     ) {
         if !self.is_zero_clip() || self.in_clipped_filter_layer {
             self.ensure_layer_stack_bufs(tile_idx, layers, batch_count);
-
 
             // Check if we can apply overdraw elimination optimization.
             // This requires filling the entire tile width with no clip/buffer stack.
@@ -1547,7 +1556,13 @@ impl<const MODE: u8> WideTile<MODE> {
     /// Pushes a clip buffer unless the tile is in a zero-clip region (fully clipped out).
     /// For clipped filter layers, clip buffers are always pushed since filters need explicit
     /// clip state to process the full layer before applying the clip as a mask.
-    fn push_clip(&mut self, tile_idx: usize, layers: &mut NeedsBufLayerStack, layer_id: LayerId, batch_count: u32) {
+    fn push_clip(
+        &mut self,
+        tile_idx: usize,
+        layers: &mut NeedsBufLayerStack,
+        layer_id: LayerId,
+        batch_count: u32,
+    ) {
         if !self.is_zero_clip() || self.in_clipped_filter_layer {
             self.ensure_layer_stack_bufs(tile_idx, layers, batch_count);
             self.push_buf(LayerKind::Clip(layer_id));
