@@ -1295,21 +1295,21 @@ pub struct WideTile<const MODE: u8 = MODE_CPU> {
     /// The draw commands of the tile.
     pub cmds: Vec<Cmd>,
     /// The number of zero-winding clips.
-    pub n_zero_clip: usize,
+    n_zero_clip: usize,
     /// The number of non-zero-winding clips.
-    pub n_clip: usize,
+    n_clip: usize,
     /// The number of pushed buffers, including buffers for clips.
     ///
     /// Note not all layers require their own buffers; see [`Layer::needs_buf`].
-    pub n_bufs: usize,
+    n_bufs: usize,
     /// True when this tile is in a filtered layer with clipping applied.
     /// When set, clip operations generate explicit commands instead of just
     /// tracking counters, allowing filters to process clipped content correctly.
-    pub in_clipped_filter_layer: bool,
+    in_clipped_filter_layer: bool,
     /// Maps layer Id to command ranges for this tile.
     pub layer_cmd_ranges: HashMap<LayerId, LayerCommandRanges>,
     /// Vector of layer IDs this tile participates in.
-    pub layer_ids: Vec<LayerKind>,
+    layer_ids: Vec<LayerKind>,
     /// Tracks the index into `cmds` of each `Start`/`PushBuf` command on the current stack.
     ///
     /// Only used in `HYBRID` mode.
