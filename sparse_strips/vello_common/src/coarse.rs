@@ -93,6 +93,13 @@ pub struct Wide<const MODE: u8 = MODE_CPU> {
     /// Global batch counter, incremented each time we transition from fast strip rendering
     /// to a set of strips passing through coarse rasterization.
     batch_count: u32,
+    /// Whether to enable the optimization that allows fills with an opaque color to clear
+    /// all previous commands if it spans the whole wide tile.
+    ///
+    /// This needs to be disabled for the interleaved rendering path in vello_hybrid, because
+    /// the background is applied as the very first operation, and we have no way of clearing
+    /// strips in the fast path that would affect the area of the wide tile.
+    enable_bg_optimization: bool,
 }
 
 /// A clip region.
@@ -281,14 +288,14 @@ impl WideTilesBbox {
 impl Wide<MODE_CPU> {
     /// Create a new container for wide tiles.
     pub fn new(width: u16, height: u16) -> Self {
-        Self::new_internal(width, height)
+        Self::new_internal(width, height, true)
     }
 }
 
 impl Wide<MODE_HYBRID> {
     /// Create a new container for wide tiles.
-    pub fn new(width: u16, height: u16) -> Self {
-        Self::new_internal(width, height)
+    pub fn new(width: u16, height: u16, enable_bg_optimization: bool) -> Self {
+        Self::new_internal(width, height, enable_bg_optimization)
     }
 
     /// Record a coarse batch boundary.
@@ -303,7 +310,7 @@ impl Wide<MODE_HYBRID> {
 
 impl<const MODE: u8> Wide<MODE> {
     /// Create a new container for wide tiles.
-    fn new_internal(width: u16, height: u16) -> Self {
+    fn new_internal(width: u16, height: u16, enable_bg_optimization: bool) -> Self {
         let width_tiles = width.div_ceil(WideTile::WIDTH);
         let height_tiles = height.div_ceil(Tile::HEIGHT);
         let mut tiles = Vec::with_capacity(usize::from(width_tiles) * usize::from(height_tiles));
@@ -322,6 +329,7 @@ impl<const MODE: u8> Wide<MODE> {
             width,
             height,
             attrs: CommandAttrs::default(),
+            enable_bg_optimization,
             layer_stack: vec![],
             clip_stack: vec![],
             // Start with root node 0.
@@ -553,7 +561,7 @@ impl<const MODE: u8> Wide<MODE> {
 
                 // Compute fill hint based on paint type
                 let fill_attrs = &self.attrs.fill[attrs_idx as usize];
-                let fill_hint = if fill_attrs.mask.is_none() {
+                let fill_hint = if fill_attrs.mask.is_none() && self.enable_bg_optimization {
                     match &fill_attrs.paint {
                         Paint::Solid(s) if s.is_opaque() => FillHint::OpaqueSolid(*s),
                         Paint::Indexed(idx) => {
@@ -1333,9 +1341,8 @@ impl<const MODE: u8> WideTile<MODE> {
             // However, the extra cost of tracking such optimizations may outweigh the
             // benefit, especially in hybrid mode with GPU painting.
 
-            // TODO: Change this back once https://github.com/linebender/vello/pull/1478 has been
-            // merged.
-            let can_override = false;
+            let can_override =
+                x == 0 && width == WideTile::WIDTH && self.n_clip == 0 && self.n_bufs == 0;
 
             if can_override {
                 match fill_hint {

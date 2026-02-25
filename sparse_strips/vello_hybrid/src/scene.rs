@@ -265,11 +265,16 @@ impl Scene {
     pub fn new_with(width: u16, height: u16, settings: RenderSettings) -> Self {
         let render_state = Self::default_render_state();
         let render_graph = RenderGraph::new();
+
+        // We use the fast path if only default blending is enabled. Therefore,
+        // we have to disable bg optimizations in that case.
+        let enable_bg_optimization = !settings.constraints.use_default_blending_only();
+
         Self {
             constraints: settings.constraints,
             width,
             height,
-            wide: Wide::<MODE_HYBRID>::new(width, height),
+            wide: Wide::<MODE_HYBRID>::new(width, height, enable_bg_optimization),
             clip_context: ClipContext::new(),
             aliasing_threshold: None,
             paint: render_state.paint,
