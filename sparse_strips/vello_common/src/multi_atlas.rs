@@ -5,10 +5,102 @@
 //!
 //! This module provides support for managing multiple texture atlases, allowing for handling of
 //! large numbers of images.
+//!
+//! The allocator backend is a built-in `no_std`-compatible port of
+//! [guillotiere](https://github.com/nical/guillotiere)'s tree-based guillotine algorithm,
+//! providing O(1) neighbor lookup during deallocation and automatic free-rect coalescing.
 
+use crate::allocator::GuillotineAllocator;
 use alloc::vec::Vec;
-use guillotiere::{AllocId, Allocation, AtlasAllocator, size2};
 use thiserror::Error;
+
+// ---------------------------------------------------------------------------
+// Allocator backend abstraction
+// ---------------------------------------------------------------------------
+
+/// Opaque handle for a rectangle allocation within a single atlas.
+///
+/// Returned by [`Atlas::allocate`] and required by [`Atlas::deallocate`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct AllocId(pub(crate) u32);
+
+/// The result of a successful rectangle allocation within a single atlas.
+#[derive(Debug)]
+pub struct Allocation {
+    /// Opaque handle used for deallocation.
+    pub id: AllocId,
+    /// X coordinate of the top-left corner of the allocated rectangle.
+    pub x: u32,
+    /// Y coordinate of the top-left corner of the allocated rectangle.
+    pub y: u32,
+}
+
+// ---------------------------------------------------------------------------
+// Unified Atlas type
+// ---------------------------------------------------------------------------
+
+/// Represents a single atlas in the multi-atlas system.
+pub struct Atlas {
+    /// Unique identifier for this atlas.
+    pub id: AtlasId,
+    /// Rectangle allocator backend.
+    allocator: GuillotineAllocator,
+    /// Current usage statistics.
+    stats: AtlasUsageStats,
+    /// Allocation counter.
+    allocation_counter: u32,
+}
+
+impl Atlas {
+    /// Create a new atlas with the given ID and size.
+    pub fn new(id: AtlasId, width: u32, height: u32) -> Self {
+        Self {
+            id,
+            allocator: GuillotineAllocator::new(width, height),
+            stats: AtlasUsageStats {
+                allocated_area: 0,
+                total_area: width * height,
+                allocated_count: 0,
+            },
+            allocation_counter: 0,
+        }
+    }
+
+    /// Try to allocate an image in this atlas.
+    pub fn allocate(&mut self, width: u32, height: u32) -> Option<Allocation> {
+        let allocation = self.allocator.allocate(width, height)?;
+        self.stats.allocated_area += width * height;
+        self.stats.allocated_count += 1;
+        self.allocation_counter += 1;
+        Some(allocation)
+    }
+
+    /// Deallocate an image from this atlas.
+    pub fn deallocate(&mut self, alloc_id: AllocId, width: u32, height: u32) {
+        self.allocator.deallocate(alloc_id);
+        self.stats.allocated_area = self.stats.allocated_area.saturating_sub(width * height);
+        self.stats.allocated_count = self.stats.allocated_count.saturating_sub(1);
+    }
+
+    /// Get current usage statistics.
+    pub fn stats(&self) -> &AtlasUsageStats {
+        &self.stats
+    }
+}
+
+impl core::fmt::Debug for Atlas {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Atlas")
+            .field("id", &self.id)
+            .field("stats", &self.stats)
+            .field("allocation_counter", &self.allocation_counter)
+            .finish_non_exhaustive()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MultiAtlasManager
+// ---------------------------------------------------------------------------
 
 /// Manages multiple texture atlases.
 pub struct MultiAtlasManager {
@@ -261,68 +353,6 @@ impl core::fmt::Debug for MultiAtlasManager {
     }
 }
 
-/// Represents a single atlas in the multi-atlas system.
-pub struct Atlas {
-    /// Unique identifier for this atlas.
-    pub id: AtlasId,
-    /// Guillotiere allocator for this atlas.
-    allocator: AtlasAllocator,
-    /// Current usage statistics.
-    stats: AtlasUsageStats,
-    /// Round-robin allocation counter.
-    allocation_counter: u32,
-}
-
-impl Atlas {
-    /// Create a new atlas with the given ID and size.
-    pub fn new(id: AtlasId, width: u32, height: u32) -> Self {
-        Self {
-            id,
-            allocator: AtlasAllocator::new(size2(width as i32, height as i32)),
-            stats: AtlasUsageStats {
-                allocated_area: 0,
-                total_area: width * height,
-                allocated_count: 0,
-            },
-            allocation_counter: 0,
-        }
-    }
-
-    /// Try to allocate an image in this atlas.
-    pub fn allocate(&mut self, width: u32, height: u32) -> Option<Allocation> {
-        if let Some(allocation) = self.allocator.allocate(size2(width as i32, height as i32)) {
-            self.stats.allocated_area += width * height;
-            self.stats.allocated_count += 1;
-            self.allocation_counter += 1;
-            Some(allocation)
-        } else {
-            None
-        }
-    }
-
-    /// Deallocate an image from this atlas.
-    pub fn deallocate(&mut self, alloc_id: AllocId, width: u32, height: u32) {
-        self.allocator.deallocate(alloc_id);
-        self.stats.allocated_area = self.stats.allocated_area.saturating_sub(width * height);
-        self.stats.allocated_count = self.stats.allocated_count.saturating_sub(1);
-    }
-
-    /// Get current usage statistics.
-    pub fn stats(&self) -> &AtlasUsageStats {
-        &self.stats
-    }
-}
-
-impl core::fmt::Debug for Atlas {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("Atlas")
-            .field("id", &self.id)
-            .field("stats", &self.stats)
-            .field("allocation_counter", &self.allocation_counter)
-            .finish_non_exhaustive()
-    }
-}
-
 /// Errors that can occur during atlas operations.
 #[derive(Debug, Error)]
 pub enum AtlasError {
@@ -388,7 +418,7 @@ impl AtlasUsageStats {
 pub struct AtlasAllocation {
     /// The atlas where the allocation was made.
     pub atlas_id: AtlasId,
-    /// The allocation details from guillotiere.
+    /// The allocation details.
     pub allocation: Allocation,
 }
 
