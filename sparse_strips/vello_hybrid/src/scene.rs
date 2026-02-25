@@ -141,7 +141,7 @@ impl Default for RenderSettings {
 ///
 /// This is used to save and restore rendering state during recording operations.
 #[derive(Debug)]
-struct RenderState {
+pub struct RenderState {
     /// The paint type (solid color, gradient, or image).
     pub(crate) paint: PaintType,
     /// Transform applied to the paint coordinates.
@@ -726,6 +726,28 @@ impl Scene {
     pub fn height(&self) -> u16 {
         self.height
     }
+
+    /// Save current rendering state.
+    pub fn take_current_state(&mut self) -> RenderState {
+        RenderState {
+            paint: self.paint.clone(),
+            paint_transform: self.paint_transform,
+            transform: self.transform,
+            fill_rule: self.fill_rule,
+            blend_mode: self.blend_mode,
+            stroke: core::mem::take(&mut self.stroke),
+        }
+    }
+
+    /// Restore rendering state.
+    pub fn restore_state(&mut self, state: RenderState) {
+        self.paint = state.paint;
+        self.paint_transform = state.paint_transform;
+        self.stroke = state.stroke;
+        self.transform = state.transform;
+        self.fill_rule = state.fill_rule;
+        self.blend_mode = state.blend_mode;
+    }
 }
 
 #[cfg(feature = "text")]
@@ -1063,27 +1085,5 @@ impl Scene {
                 adjusted_strip
             })
             .collect()
-    }
-
-    /// Save current rendering state.
-    fn take_current_state(&mut self) -> RenderState {
-        RenderState {
-            paint: self.paint.clone(),
-            paint_transform: self.paint_transform,
-            transform: self.transform,
-            fill_rule: self.fill_rule,
-            blend_mode: self.blend_mode,
-            stroke: core::mem::take(&mut self.stroke),
-        }
-    }
-
-    /// Restore rendering state.
-    fn restore_state(&mut self, state: RenderState) {
-        self.paint = state.paint;
-        self.paint_transform = state.paint_transform;
-        self.stroke = state.stroke;
-        self.transform = state.transform;
-        self.fill_rule = state.fill_rule;
-        self.blend_mode = state.blend_mode;
     }
 }
