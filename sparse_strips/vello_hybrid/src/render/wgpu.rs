@@ -274,7 +274,7 @@ impl Renderer {
             view,
         };
         self.scheduler
-                .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs)?;
+            .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs)?;
         self.gradient_cache.maintain();
 
         Ok(())
