@@ -548,7 +548,7 @@ impl Scheduler {
     ///
     /// Iterates over all wide tiles, processing commands from each tile's
     /// current offset up to the next `BatchEnd` marker (or the end of the
-    /// command list for the pure-coarse fallback).
+    /// command list).
     fn process_coarse_batch<R: RendererBackend>(
         &mut self,
         state: &mut SchedulerState,
