@@ -40,20 +40,19 @@ pub(crate) struct FastStripsPath {
     pub(crate) paint: Paint,
 }
 
-/// A command in the unified scene command sequence.
-///
-/// This enum describes the interleaving of fast-path strips (rendered directly
-/// to the surface) and coarse-rasterized content (scheduled via the round system).
+//// A command to draw sparse strips directly to screen (without going through coarse)
+/// or a command that renders the next batch of coarse-rasterized wide tile commands.
 #[derive(Debug)]
 pub(crate) enum SceneCommand {
     /// Fast-path strips to render directly to the surface.
     /// The range indexes into `FastStripsBuffer.paths`.
     DirectStrips(Range<usize>),
-    /// Coarse-rasterized layer content. Process all remaining wide tile commands.
-    Scheduled,
+    /// Process the next batch of coarse-rasterized wide tile commands.
+    Coarse,
 }
 
-/// A buffer that collects strips from paths that bypass coarse rasterization and scheduling.
+/// A buffer that collects strips from paths that are rendered directly to the surface,
+/// bypassing coarse rasterization.
 ///
 /// Strip data itself lives in `strip_storage`. Each `FastStripsPath` records the range of strips
 /// for one path within that storage.
@@ -225,11 +224,10 @@ pub struct Scene {
     /// This is the case if we have not performed any `push_layer` command. In such a case, we
     /// don't need to do coarse rasterization or scheduling and therefore save a lot of overhead.
     pub(crate) strips_fast_path_active: bool,
-    /// True when the scene contains fast path and scheduled content. This can happen when
-    /// the scene is inside a push/pop layer with `default_blending_only`.
+    /// True when the scene contains both [`SceneCommand::DirectStrips`] and [`SceneCommand::Coarse`].
+    /// This can happen when the scene contains a layer with [`SceneConstraints::default_blending_only`].
     pub(crate) fast_path_interleaved: bool,
-    /// The unified command sequence describing the interleaving of fast-path strips
-    /// and coarse-rasterized layers. Built during scene construction.
+    /// The commands that make up the scene.
     pub(crate) scene_commands: Vec<SceneCommand>,
 }
 
@@ -250,7 +248,7 @@ macro_rules! submit_strips {
                 paint: $paint,
             });
         } else {
-            // In `ReplaceAfter(n)` mode the fast-path prefix lives at `[0..n]`
+            // In `ReplaceAfter(n)` mode the fast path prefix lives at `[0..n]`
             // and must not be fed into the coarse rasterizer.
             let coarse_start = match $strip_storage.generation_mode() {
                 GenerationMode::ReplaceAfter(n) => n,
@@ -294,7 +292,7 @@ impl Scene {
             paint_visible: true,
             stroke: render_state.stroke,
             strip_generator: StripGenerator::new(width, height, settings.level),
-            // Start strip storage in `Append` mode since we enable the fast path by default.
+            // Start strip storage in `Append` mode since the fast path is enabled by default.
             strip_storage: RefCell::new(StripStorage::new(GenerationMode::Append)),
             transform: render_state.transform,
             fill_rule: render_state.fill_rule,
@@ -663,8 +661,8 @@ impl Scene {
     pub fn pop_layer(&mut self) {
         self.wide.pop_layer(&mut self.render_graph);
         if self.fast_path_interleaved && !self.wide.has_layers() {
-            self.wide.increment_segment();
-            self.scene_commands.push(SceneCommand::Scheduled);
+            self.wide.end_batch();
+            self.scene_commands.push(SceneCommand::Coarse);
             self.strip_storage
                 .borrow_mut()
                 .set_generation_mode(GenerationMode::Append);

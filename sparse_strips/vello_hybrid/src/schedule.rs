@@ -446,11 +446,10 @@ impl Scheduler {
 
     /// Schedule and render the scene.
     ///
-    /// Iterates over the scene's command sequence, which interleaves fast-path
+    /// Iterates over the scene's command sequence, which interleaves direct
     /// strips (rendered directly to the surface) and coarse-rasterized layer
-    /// content (scheduled through the round system). Fast-path strips are
-    /// appended directly to the current round's surface draw array, avoiding
-    /// separate GPU render calls.
+    /// content. Fast path strips are appended directly to the current round's
+    /// surface draw array, avoiding separate GPU render calls.
     pub(crate) fn do_scene<R: RendererBackend>(
         &mut self,
         state: &mut SchedulerState,
@@ -463,19 +462,18 @@ impl Scheduler {
         let cols = wide.width_tiles();
         let num_tiles = (rows * cols) as usize;
 
-        // Per-tile offset tracking for Scheduled segments.
-        // Each Scheduled command processes cmds from offsets[tile] to the end.
+        // Per-tile offset tracking for coarse batches.
+        // Each Coarse op processes cmds from offsets[tile] to the end.
         let mut offsets = alloc::vec![0usize; num_tiles];
-        let mut first_scheduled = true;
+        let mut first_batch = true;
 
-        // Process the explicit scene commands.
         for cmd in &scene.scene_commands {
             match cmd {
                 SceneCommand::DirectStrips(range) => {
-                    self.emit_direct_strips(scene, range.clone(), paint_idxs);
+                    self.push_direct_strips(scene, range.clone(), paint_idxs);
                 }
-                SceneCommand::Scheduled => {
-                    self.process_scheduled_segment(
+                SceneCommand::Coarse => {
+                    self.process_coarse_batch(
                         state,
                         renderer,
                         scene,
@@ -484,25 +482,25 @@ impl Scheduler {
                         cols,
                         &mut offsets,
                         paint_idxs,
-                        first_scheduled,
+                        first_batch,
                     )?;
-                    first_scheduled = false;
+                    first_batch = false;
                 }
             }
         }
 
-        // Handle the tail: fast-path strips added after the last pop_layer.
+        // Handle the tail: fast path strips added after the last pop_layer.
         let tail_start = scene.fast_strips_buffer.batch_start;
         let tail_end = scene.fast_strips_buffer.paths.len();
         if tail_start < tail_end {
-            self.emit_direct_strips(scene, tail_start..tail_end, paint_idxs);
+            self.push_direct_strips(scene, tail_start..tail_end, paint_idxs);
         }
 
-        // If there were no scene commands and no fast-path tail, this is the
+        // If there were no scene ops and no direct-path tail, this is the
         // pure coarse path (no default_blending_only). Process all tile
         // commands in one pass.
         if scene.scene_commands.is_empty() && tail_start >= tail_end {
-            self.process_scheduled_segment(
+            self.process_coarse_batch(
                 state,
                 renderer,
                 scene,
@@ -533,9 +531,9 @@ impl Scheduler {
         Ok(())
     }
 
-    /// Generate GpuStrips for a range of fast-path paths and append them
+    /// Generate GpuStrips for a range of direct paths and append them
     /// directly into the current round's surface draw array.
-    fn emit_direct_strips(&mut self, scene: &Scene, range: Range<usize>, paint_idxs: &[u32]) {
+    fn push_direct_strips(&mut self, scene: &Scene, range: Range<usize>, paint_idxs: &[u32]) {
         let strip_storage = scene.strip_storage.borrow();
         let draw = self.draw_mut(self.round, 2);
         for path in &scene.fast_strips_buffer.paths[range] {
@@ -543,12 +541,12 @@ impl Scheduler {
         }
     }
 
-    /// Process one segment of coarse-rasterized wide tile commands.
+    /// Process one batch of coarse-rasterized wide tile commands.
     ///
     /// Iterates over all wide tiles, processing commands from each tile's
-    /// current offset up to the next `SegmentEnd` marker (or the end of the
+    /// current offset up to the next `BatchEnd` marker (or the end of the
     /// command list for the pure-coarse fallback).
-    fn process_scheduled_segment<R: RendererBackend>(
+    fn process_coarse_batch<R: RendererBackend>(
         &mut self,
         state: &mut SchedulerState,
         renderer: &mut R,
@@ -573,13 +571,13 @@ impl Scheduler {
                 let tile_y = row * Tile::HEIGHT;
 
                 // We only must paint the background if we are at the start of the
-                // wide tile and this is the first scheduled segment.
+                // wide tile and this is the first coarse batch.
                 let paint_bg = first && off == 0;
 
-                // Find the end of this segment: scan for the next SegmentEnd marker.
+                // Find the end of this batch: scan for the next BatchEnd marker.
                 let end = tile.cmds[off..]
                     .iter()
-                    .position(|c| matches!(c, Cmd::SegmentEnd))
+                    .position(|c| matches!(c, Cmd::BatchEnd))
                     .map(|p| off + p)
                     .unwrap_or(tile.cmds.len());
 
@@ -609,7 +607,7 @@ impl Scheduler {
                     self.paint_tile_bg(tile, tile_x, tile_y, scene, paint_idxs);
                 }
 
-                // Advance past the SegmentEnd marker (if present).
+                // Advance past the BatchEnd marker (if present).
                 offsets[idx] = if end < tile.cmds.len() { end + 1 } else { end };
             }
         }
@@ -969,7 +967,7 @@ impl Scheduler {
                 Cmd::Blend(mode) => {
                     self.do_blend(state, wide_tile_x, wide_tile_y, mode);
                 }
-                Cmd::SegmentEnd => {}
+                Cmd::BatchEnd => {}
                 _ => unreachable!(),
             }
         }

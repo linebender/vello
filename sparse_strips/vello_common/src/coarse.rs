@@ -90,11 +90,11 @@ pub struct Wide<const MODE: u8 = MODE_CPU> {
     /// When > 0, command generation uses full viewport bounds instead of clip bounds
     /// to ensure filter effects can process the full layer before applying the clip.
     clipped_filter_layer_depth: u32,
-    /// Global segment counter, incremented each time a segment boundary is crossed.
-    /// Each `WideTile` has a watermark (`last_segment_end`) that tracks how many
-    /// `SegmentEnd` markers it has emitted. When a tile is about to receive a command,
+    /// Global batch counter, incremented each time a coarse batch boundary is crossed.
+    /// Each `WideTile` has a watermark (`last_batch_end`) that tracks how many
+    /// `BatchEnd` markers it has emitted. When a tile is about to receive a command,
     /// it lazily emits the difference. Only meaningful in `MODE_HYBRID`.
-    segment_count: u32,
+    batch_count: u32,
 }
 
 /// A clip region.
@@ -293,14 +293,14 @@ impl Wide<MODE_HYBRID> {
         Self::new_internal(width, height)
     }
 
-    /// Record a segment boundary.
+    /// Record a coarse batch boundary.
     ///
-    /// Instead of eagerly pushing `Cmd::SegmentEnd` into every tile (O(n_tiles)),
+    /// Instead of eagerly pushing `Cmd::BatchEnd` into every tile (O(n_tiles)),
     /// this increments a global counter. Each tile lazily emits the pending
-    /// `SegmentEnd` markers the next time it receives a command.
+    /// `BatchEnd` markers the next time it receives a command.
     #[inline(always)]
-    pub fn increment_segment(&mut self) {
-        self.segment_count += 1;
+    pub fn end_batch(&mut self) {
+        self.batch_count += 1;
     }
 }
 
@@ -330,7 +330,7 @@ impl<const MODE: u8> Wide<MODE> {
             // Start with root node 0.
             filter_node_stack: vec![0],
             clipped_filter_layer_depth: 0,
-            segment_count: 0,
+            batch_count: 0,
         }
     }
 
@@ -357,14 +357,14 @@ impl<const MODE: u8> Wide<MODE> {
             // user-supplied `PushBuf` at position 0.
             tile.push_buf_indices.push(TARGET_SURFACE_PUSH_BUF_IDX);
             tile.surface_is_blend_target = false;
-            tile.last_segment_end = 0;
+            tile.last_batch_end = 0;
         }
         self.attrs.clear();
         self.layer_stack.clear();
         self.clip_stack.clear();
         self.filter_node_stack.truncate(1);
         self.clipped_filter_layer_depth = 0;
-        self.segment_count = 0;
+        self.batch_count = 0;
     }
 
     /// Return the number of horizontal tiles.
@@ -462,9 +462,9 @@ impl<const MODE: u8> Wide<MODE> {
         // Get current clip bounding box or full viewport if no clip is active
         let bbox = self.active_bbox();
 
-        // Save current_layer_id and segment_count to avoid borrowing issues
+        // Save current_layer_id and batch_count to avoid borrowing issues
         let current_layer_id = self.get_current_layer_id();
-        let segment_count = self.segment_count;
+        let batch_count = self.batch_count;
 
         for i in 0..strip_buf.len() - 1 {
             let strip = &strip_buf[i];
@@ -531,7 +531,7 @@ impl<const MODE: u8> Wide<MODE> {
                 x += width;
                 col += u32::from(width);
                 self.get_mut(wtile_x, strip_y)
-                    .strip(segment_count, cmd, current_layer_id);
+                    .strip(batch_count, cmd, current_layer_id);
                 self.update_current_layer_bbox(wtile_x, strip_y);
             }
 
@@ -587,7 +587,7 @@ impl<const MODE: u8> Wide<MODE> {
                     ) - x;
                     x += width;
                     self.get_mut(wtile_x, strip_y).fill(
-                        segment_count,
+                        batch_count,
                         x_wtile_rel,
                         width,
                         attrs_idx,
@@ -708,11 +708,11 @@ impl<const MODE: u8> Wide<MODE> {
         // - Filtered layers are materialized in persistent layer storage for filter processing
         // - Clip layers have special handling for clipping operations
         if layer.needs_buf() {
-            let segment_count = self.segment_count;
+            let batch_count = self.batch_count;
             for x in 0..self.width_tiles() {
                 for y in 0..self.height_tiles() {
                     let tile = self.get_mut(x, y);
-                    tile.push_buf(layer_kind, segment_count);
+                    tile.push_buf(layer_kind, batch_count);
                     // Mark tiles that are in a clipped filter layer so they generate
                     // explicit clip commands for proper filter processing.
                     tile.in_clipped_filter_layer = in_clipped_filter_layer;
@@ -891,7 +891,7 @@ impl<const MODE: u8> Wide<MODE> {
 
         let mut cur_wtile_x = clip_bbox.x0();
         let mut cur_wtile_y = clip_bbox.y0();
-        let segment_count = self.segment_count;
+        let batch_count = self.batch_count;
 
         // Process strips to determine the clipping state for each wide tile
         for i in 0..n_strips.saturating_sub(1) {
@@ -946,7 +946,7 @@ impl<const MODE: u8> Wide<MODE> {
             if cur_wtile_x < wtile_x1 {
                 for wtile_x in cur_wtile_x..wtile_x1 {
                     self.get_mut(wtile_x, cur_wtile_y)
-                        .push_clip(layer_id, segment_count);
+                        .push_clip(layer_id, batch_count);
                 }
                 cur_wtile_x = wtile_x1;
             }
@@ -1241,9 +1241,9 @@ pub struct WideTile<const MODE: u8 = MODE_CPU> {
     ///
     /// This will only be set in `HYBRID` mode.
     surface_is_blend_target: bool,
-    /// Watermark: the segment count at which this tile last emitted `SegmentEnd` markers.
+    /// Watermark: the batch count at which this tile last emitted `BatchEnd` markers.
     /// Only meaningful in `MODE_HYBRID`.
-    last_segment_end: u32,
+    last_batch_end: u32,
 }
 
 impl WideTile {
@@ -1285,21 +1285,21 @@ impl<const MODE: u8> WideTile<MODE> {
             layer_ids: vec![LayerKind::Regular(0)],
             push_buf_indices: vec![TARGET_SURFACE_PUSH_BUF_IDX],
             surface_is_blend_target: false,
-            last_segment_end: 0,
+            last_batch_end: 0,
         }
     }
 
-    /// Emit any pending `SegmentEnd` markers accumulated since this tile's last update.
+    /// Emit any pending `BatchEnd` markers accumulated since this tile's last update.
     ///
-    /// Compares the tile's watermark against the global segment counter and pushes
-    /// one `Cmd::SegmentEnd` per missed boundary.
+    /// Compares the tile's watermark against the global batch counter and pushes
+    /// one `Cmd::BatchEnd` per missed boundary.
     #[inline(always)]
-    pub(crate) fn emit_pending_segment_ends(&mut self, current_segment: u32) {
-        if self.last_segment_end < current_segment {
-            let count = (current_segment - self.last_segment_end) as usize;
+    pub(crate) fn emit_pending_batch_ends(&mut self, current_batch: u32) {
+        if self.last_batch_end < current_batch {
+            let count = (current_batch - self.last_batch_end) as usize;
             self.cmds
-                .extend(core::iter::repeat_n(Cmd::SegmentEnd, count));
-            self.last_segment_end = current_segment;
+                .extend(core::iter::repeat_n(Cmd::BatchEnd, count));
+            self.last_batch_end = current_batch;
         }
     }
 
@@ -1315,7 +1315,7 @@ impl<const MODE: u8> WideTile<MODE> {
     /// - `None`: No optimization available
     pub(crate) fn fill(
         &mut self,
-        segment_count: u32,
+        batch_count: u32,
         x: u16,
         width: u16,
         attrs_idx: u32,
@@ -1324,7 +1324,7 @@ impl<const MODE: u8> WideTile<MODE> {
     ) {
         if !self.is_zero_clip() || self.in_clipped_filter_layer {
             if MODE == MODE_HYBRID {
-                self.emit_pending_segment_ends(segment_count);
+                self.emit_pending_batch_ends(batch_count);
             }
             // Check if we can apply overdraw elimination optimization.
             // This requires filling the entire tile width with no clip/buffer stack.
@@ -1384,13 +1384,13 @@ impl<const MODE: u8> WideTile<MODE> {
     /// layer content rendered before applying the clip as a mask.
     pub(crate) fn strip(
         &mut self,
-        segment_count: u32,
+        batch_count: u32,
         cmd_strip: CmdAlphaFill,
         current_layer_id: LayerId,
     ) {
         if !self.is_zero_clip() || self.in_clipped_filter_layer {
             if MODE == MODE_HYBRID {
-                self.emit_pending_segment_ends(segment_count);
+                self.emit_pending_batch_ends(batch_count);
             }
             self.record_fill_cmd(current_layer_id, self.cmds.len());
             self.cmds.push(Cmd::AlphaFill(cmd_strip));
@@ -1402,9 +1402,9 @@ impl<const MODE: u8> WideTile<MODE> {
     /// Pushes a clip buffer unless the tile is in a zero-clip region (fully clipped out).
     /// For clipped filter layers, clip buffers are always pushed since filters need explicit
     /// clip state to process the full layer before applying the clip as a mask.
-    pub fn push_clip(&mut self, layer_id: LayerId, segment_count: u32) {
+    pub fn push_clip(&mut self, layer_id: LayerId, batch_count: u32) {
         if !self.is_zero_clip() || self.in_clipped_filter_layer {
-            self.push_buf(LayerKind::Clip(layer_id), segment_count);
+            self.push_buf(LayerKind::Clip(layer_id), batch_count);
             self.n_clip += 1;
         }
     }
@@ -1492,9 +1492,9 @@ impl<const MODE: u8> WideTile<MODE> {
     /// - Filtered layers: Materialized in persistent layer storage for filter processing
     /// - Clip layers: Special handling for clipping operations
     #[inline(always)]
-    fn push_buf(&mut self, layer_kind: LayerKind, segment_count: u32) {
+    fn push_buf(&mut self, layer_kind: LayerKind, batch_count: u32) {
         if MODE == MODE_HYBRID {
-            self.emit_pending_segment_ends(segment_count);
+            self.emit_pending_batch_ends(batch_count);
         }
 
         let top_layer = layer_kind.id();
@@ -1742,11 +1742,11 @@ pub enum Cmd {
     ///
     /// Modulates the alpha channel of the buffer using the provided mask.
     Mask(Mask),
-    /// Marks a batching boundary for interleaved fast paths and scheduled paths rendering.
+    /// Marks a boundary between coarse batches in the interleaved rendering sequence.
     ///
-    /// The hybrid scheduler flushes all pending rounds when it encounters this
-    /// command, allowing fast-path strips to be rendered between scheduled segments.
-    SegmentEnd,
+    /// The hybrid scheduler processes coarse commands up to this marker, then
+    /// switches to direct strips before the next coarse batch.
+    BatchEnd,
 }
 
 #[cfg(debug_assertions)]
@@ -1779,7 +1779,7 @@ impl Cmd {
             Self::Blend(_) => "Blend",
             Self::Opacity(_) => "Opacity",
             Self::Mask(_) => "Mask",
-            Self::SegmentEnd => "SegmentEnd",
+            Self::BatchEnd => "BatchEnd",
         }
     }
 
