@@ -306,7 +306,8 @@ impl SingleThreadedDispatcher {
 
         // Process all commands in this layer's render range.
         // It can happen that the layer has no associated ranges in this wide tile in
-        // case they have been cleared by setting a new wide tile background.
+        // case they have been cleared by setting a new wide tile background, for example
+        // when filling a full-tile opaque solid color.
         let Some(ranges) = wtile.layer_cmd_ranges.get(&layer_id) else {
             return;
         };
