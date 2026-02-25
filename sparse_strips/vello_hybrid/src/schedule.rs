@@ -475,44 +475,11 @@ impl Scheduler {
 
         match scene.strip_path_mode {
             StripPathMode::FastOnly => {
-                // All strips are direct — no coarse rasterization needed.
-                let end = scene.fast_strips_buffer.paths.len();
-                if end > 0 {
-                    self.push_direct_strips(scene, 0..end, paint_idxs);
-                }
-            }
-            StripPathMode::Interleaved => {
-                // Alternate fast strip batches with coarse-rasterized layer batches.
-                let mut first_batch = true;
-                let mut prev_split = 0;
-
-                for &split in &scene.coarse_batch_splits {
-                    if prev_split < split {
-                        self.push_direct_strips(scene, prev_split..split, paint_idxs);
-                    }
-                    self.process_coarse_batch(
-                        state,
-                        renderer,
-                        scene,
-                        wide,
-                        rows,
-                        cols,
-                        &mut cmd_offsets,
-                        paint_idxs,
-                        first_batch,
-                    )?;
-                    first_batch = false;
-                    prev_split = split;
-                }
-
-                // Handle the tail: direct strips added after the last coarse batch.
-                let tail_end = scene.fast_strips_buffer.paths.len();
-                if prev_split < tail_end {
-                    self.push_direct_strips(scene, prev_split..tail_end, paint_idxs);
-                }
+                // We only have strips.
+                self.push_direct_strips(scene, 0..scene.fast_strips_buffer.paths.len(), paint_idxs);
             }
             StripPathMode::CoarseOnly => {
-                // Pure coarse — process all wide tile commands in one pass.
+                // We only have coarse-rasterized paths.
                 self.process_coarse_batch(
                     state,
                     renderer,
@@ -522,8 +489,39 @@ impl Scheduler {
                     cols,
                     &mut cmd_offsets,
                     paint_idxs,
-                    true,
                 )?;
+            }
+            StripPathMode::Interleaved => {
+                // Alternate fast strip batches with coarse-rasterized layer batches.
+                let mut prev_split = 0;
+
+                for &split in &scene.coarse_batch_splits {
+                    // First process any direct strips.
+                    if prev_split < split {
+                        self.push_direct_strips(scene, prev_split..split, paint_idxs);
+                    }
+
+                    // Then process the coarse batch.
+                    self.process_coarse_batch(
+                        state,
+                        renderer,
+                        scene,
+                        wide,
+                        rows,
+                        cols,
+                        &mut cmd_offsets,
+                        paint_idxs,
+                    )?;
+
+                    prev_split = split;
+                }
+
+                // Handle the last batch of fast strips, which isn't explicitly delimited in the
+                // scene.
+                let tail_end = scene.fast_strips_buffer.paths.len();
+                if prev_split < tail_end {
+                    self.push_direct_strips(scene, prev_split..tail_end, paint_idxs);
+                }
             }
         }
         self.cmd_offsets = cmd_offsets;
@@ -550,7 +548,10 @@ impl Scheduler {
     /// directly into the current round's surface draw array.
     fn push_direct_strips(&mut self, scene: &Scene, range: Range<usize>, paint_idxs: &[u32]) {
         let strip_storage = scene.strip_storage.borrow();
+        // Always choose the draw of the final surface, since direct strips are only ever
+        // rendered to the final surface.
         let draw = self.draw_mut(self.round, 2);
+
         for path in &scene.fast_strips_buffer.paths[range] {
             generate_gpu_strips_for_path(path, &strip_storage, scene, paint_idxs, &mut draw.0);
         }
@@ -571,33 +572,34 @@ impl Scheduler {
         cols: u16,
         cmd_offsets: &mut [usize],
         paint_idxs: &[u32],
-        first: bool,
     ) -> Result<(), RenderError> {
         for row in 0..rows {
             for col in 0..cols {
                 let idx = (row * cols + col) as usize;
                 let tile = wide.get(col, row);
-                let off = cmd_offsets[idx];
-                if off >= tile.cmds.len() {
+                let start_offset = cmd_offsets[idx];
+                if start_offset >= tile.cmds.len() {
                     continue;
                 }
 
                 let tile_x = col * WideTile::WIDTH;
                 let tile_y = row * Tile::HEIGHT;
 
-                // We only must paint the background if we are at the start of the
-                // wide tile and this is the first coarse batch.
-                let paint_bg = first && off == 0;
+                // We only must paint the background if we are processing the wide tile for the
+                // first time (i.e. the offset is 0).
+                let paint_bg = start_offset == 0;
 
-                // Find the end of this batch: scan for the next BatchEnd marker.
-                let end = tile.cmds[off..]
+                // Find the end of this batch: scan for the next `BatchEnd` marker.
+                let end = tile.cmds[start_offset..]
                     .iter()
                     .position(|c| matches!(c, Cmd::BatchEnd))
-                    .map(|p| off + p)
+                    .map(|p| start_offset + p)
                     .unwrap_or(tile.cmds.len());
 
-                if end > off {
+                if end > start_offset {
                     state.clear();
+
+                    // This will also paint the background, if necessary.
                     self.initialize_tile_state(
                         &mut state.tile_state,
                         tile,
@@ -613,12 +615,13 @@ impl Scheduler {
                         scene,
                         tile_x,
                         tile_y,
-                        &tile.cmds[off..end],
+                        &tile.cmds[start_offset..end],
                         tile.surface_is_blend_target(),
                         paint_idxs,
                         &wide.attrs,
                     )?;
                 } else if paint_bg {
+                    // Otherwise, we still might have to paint the background!
                     self.paint_tile_bg(tile, tile_x, tile_y, scene, paint_idxs);
                 }
 
