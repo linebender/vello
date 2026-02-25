@@ -7,6 +7,7 @@
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
+pub mod coarse;
 pub mod data;
 pub mod fine;
 pub mod flatten;
