@@ -253,11 +253,9 @@ fn vs_main(
     // Unpack the x and y coordinates from the packed u32 instance.xy
     let x0 = instance.xy & 0xffffu;
     let y0 = instance.xy >> 16u;
-    // Unpack the total width and dense (alpha) width from the packed u32 instance.widths_or_rect_height
     let width = instance.widths_or_rect_height & 0xffffu;
     let dense_width = instance.widths_or_rect_height >> 16u;
 
-    // Check whether it's a rectangle or a normal strip.
     let is_rect = (instance.paint_and_rect_flag & RECT_STRIP_FLAG) != 0u;
     var height = config.strip_height;
     if is_rect {
