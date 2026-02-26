@@ -512,8 +512,7 @@ impl Scene {
             return;
         }
 
-        // Try the fast path first.
-        if self.try_rect_strip(rect) {
+        if self.try_fast_rect(rect) {
             return;
         }
 
@@ -524,7 +523,7 @@ impl Scene {
         clippy::cast_possible_truncation,
         reason = "f64→f32 truncation is acceptable for pixel coordinates"
     )]
-    fn try_rect_strip(&mut self, rect: &Rect) -> bool {
+    fn try_fast_rect(&mut self, rect: &Rect) -> bool {
         if self.strip_path_mode == StripPathMode::CoarseOnly || self.wide.has_layers() {
             return false;
         }
