@@ -449,12 +449,21 @@ impl Scheduler {
 
     /// Schedule and render the scene.
     ///
-    /// Iterates over the commands encoded in the scene.
+    /// Depending on [`StripPathMode`], the scene is processed in one of three ways:
     ///
-    /// We interleave fast path strips (rendered directly to the surface) and coarse-rasterized strips.
+    /// - **`FastOnly`**: All paths were rendered directly into the fast strips buffer
+    ///   (no layers were ever pushed). We draw the whole scene using a single draw call
+    ///   by uploading all strips directly to the GPU.
     ///
-    /// Fast path strips are prepended directly to the the batch's corresponding round's surface
-    /// draw array, avoiding separate GPU render calls.
+    /// - **`CoarseOnly`**: All paths went through coarse rasterization (non-default
+    ///   blending was requested, so in case there was a `push_layer` call the fast path
+    ///   was flushed retroactively). We use the normal scheduling approach for all commands
+    ///   in the wide tile.
+    ///
+    /// - **`Interleaved`**: The scene mixes fast path strips with coarse-rasterized
+    ///   layers. We still need to go through the usual scheduling process, but fast path
+    ///   strips can be processed much faster now since they haven't gone through coarse
+    ///   rasterization.
     pub(crate) fn do_scene<R: RendererBackend>(
         &mut self,
         state: &mut SchedulerState,
