@@ -166,7 +166,7 @@ pub struct Wide<const MODE: u8 = MODE_CPU> {
     /// strips in the fast path that would affect the area of the wide tile.
     enable_bg_optimization: bool,
     /// Whether at least one of the wide tiles has been mutated and thus they
-    /// need to be resetted.
+    /// need to be reset.
     tiles_dirty: bool,
 }
 
