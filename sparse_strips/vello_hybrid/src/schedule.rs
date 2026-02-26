@@ -595,41 +595,30 @@ impl Scheduler {
                 // first time (i.e. the start offset is 0).
                 let paint_bg = start_offset == 0;
 
-                // Find the end of this batch: scan for the next `BatchEnd` marker.
-                let end = tile.cmds[start_offset..]
-                    .iter()
-                    .position(|c| matches!(c, Cmd::BatchEnd))
-                    .map(|p| start_offset + p)
-                    .unwrap_or(tile.cmds.len());
+                state.clear();
 
-                if end > start_offset {
-                    state.clear();
-
-                    // This will also paint the background, if necessary.
-                    self.initialize_tile_state(
-                        &mut state.tile_state,
-                        tile,
-                        tile_x,
-                        tile_y,
-                        scene,
-                        paint_idxs,
-                        paint_bg,
-                    );
-                    self.do_tile(
-                        state,
-                        renderer,
-                        scene,
-                        tile_x,
-                        tile_y,
-                        &tile.cmds[start_offset..end],
-                        tile.surface_is_blend_target(),
-                        paint_idxs,
-                        &wide.attrs,
-                    )?;
-                } else if paint_bg {
-                    // Otherwise, we still might have to paint the background!
-                    self.paint_tile_bg(tile, tile_x, tile_y, scene, paint_idxs);
-                }
+                // This will also paint the background, if necessary.
+                self.initialize_tile_state(
+                    &mut state.tile_state,
+                    tile,
+                    tile_x,
+                    tile_y,
+                    scene,
+                    paint_idxs,
+                    paint_bg,
+                );
+                let relative_end = self.do_tile(
+                    state,
+                    renderer,
+                    scene,
+                    tile_x,
+                    tile_y,
+                    &tile.cmds[start_offset..],
+                    tile.surface_is_blend_target(),
+                    paint_idxs,
+                    &wide.attrs,
+                )?;
+                let end = relative_end + start_offset;
 
                 // Advance past the `BatchEnd` marker (if present).
                 cmd_offsets[idx] = (end + 1).min(tile.cmds.len());
@@ -780,7 +769,7 @@ impl Scheduler {
         surface_is_blend_target: bool,
         paint_idxs: &[u32],
         attrs: &CommandAttrs,
-    ) -> Result<(), RenderError> {
+    ) -> Result<usize, RenderError> {
         // What is going on with the `surface_is_blend_target` and `is_blend_target` variables in
         // `PushBuf`?
         // For blending of two layers (with a non-default blend mode) to work in vello_hybrid,
@@ -807,7 +796,7 @@ impl Scheduler {
             self.do_push_buf(state, renderer, true)?;
         }
 
-        for cmd in wide_tile_cmds {
+        for (idx, cmd) in wide_tile_cmds.iter().enumerate() {
             // Note: this starts at 1 (for the final target)
             let depth = state.tile_state.stack.len();
 
@@ -989,7 +978,9 @@ impl Scheduler {
                 Cmd::Blend(mode) => {
                     self.do_blend(state, wide_tile_x, wide_tile_y, mode);
                 }
-                Cmd::BatchEnd => {}
+                Cmd::BatchEnd => {
+                    return Ok(idx);
+                }
                 _ => unreachable!(),
             }
         }
@@ -1000,7 +991,7 @@ impl Scheduler {
             self.do_pop_buf(state);
         }
 
-        Ok(())
+        Ok(wide_tile_cmds.len())
     }
 
     #[inline]
