@@ -581,7 +581,7 @@ impl Scheduler {
                 let tile = wide.get(col, row);
                 let start_offset = cmd_offsets[idx];
 
-                // Note that we are explicitly checking >= instead of >.
+                // Note that we are explicitly checking > instead of >=.
                 // The reason is that it can happen the tile has no commands but still has a background,
                 // in which case we still need to do the painting of the background
                 if start_offset > tile.cmds.len() {
