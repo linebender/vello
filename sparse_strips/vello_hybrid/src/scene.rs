@@ -512,25 +512,12 @@ impl Scene {
             return;
         }
 
+        // Try the fast path first.
         if self.try_rect_strip(rect) {
             return;
         }
 
-        // Fast path: use optimized rect filling when transforms are integer translations
-        // AND rect coordinates are integers. This bypasses path processing by generating
-        // strips directly for the rectangle.
-        // - Requires integer translation to ensure pixel-aligned rect boundaries.
-        // - Requires integer rect coordinates because the optimized path doesn't handle
-        //   anti-aliasing for fractional edges.
-        // - Also requires simple paint transform to avoid precision differences with complex paints.
-        if is_integer_translation(&self.transform)
-            && is_integer_translation(&self.paint_transform)
-            && is_integer_rect(rect)
-        {
-            self.fill_rect_fast(rect);
-        } else {
-            self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
-        }
+        self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
     }
 
     #[expect(
