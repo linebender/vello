@@ -466,9 +466,7 @@ impl<const MODE: u8> Wide<MODE> {
     /// Get mutable access to the wide tile at the given coordinates.
     ///
     /// Panics if the coordinates are out-of-range.
-    pub fn get_mut(&mut self, x: u16, y: u16) -> &mut WideTile<MODE> {
-        self.tiles_dirty = true;
-
+    fn get_mut(&mut self, x: u16, y: u16) -> &mut WideTile<MODE> {
         let idx = self.get_idx(x, y);
         &mut self.tiles[idx]
     }
