@@ -1396,6 +1396,7 @@ impl<const MODE: u8> WideTile<MODE> {
         }
     }
 
+    #[inline]
     fn reset(&mut self) {
         self.bg = PremulColor::from_alpha_color(TRANSPARENT);
         self.cmds.clear();
