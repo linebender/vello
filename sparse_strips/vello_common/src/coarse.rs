@@ -418,23 +418,9 @@ impl<const MODE: u8> Wide<MODE> {
     pub fn reset(&mut self) {
         if self.tiles_dirty {
             for tile in &mut self.tiles {
-                tile.bg = PremulColor::from_alpha_color(TRANSPARENT);
-                tile.cmds.clear();
-                tile.n_zero_clip = 0;
-                tile.n_clip = 0;
-                tile.n_bufs = 0;
-                tile.in_clipped_filter_layer = false;
-                tile.layer_ids.truncate(1);
-                tile.layer_cmd_ranges.clear();
-                tile.layer_cmd_ranges
-                    .insert(0, LayerCommandRanges::default());
-                tile.push_buf_indices.clear();
-                // We can't use 0 here, because then we have no way of distinguishing it from a
-                // user-supplied `PushBuf` at position 0.
-                tile.push_buf_indices.push(TARGET_SURFACE_PUSH_BUF_IDX);
-                tile.surface_is_blend_target = false;
-                tile.last_batch_end = 0;
+                tile.reset();
             }
+
             self.tiles_dirty = false;
         }
         self.attrs.clear();
@@ -1408,6 +1394,25 @@ impl<const MODE: u8> WideTile<MODE> {
             surface_is_blend_target: false,
             last_batch_end: 0,
         }
+    }
+
+    fn reset(&mut self) {
+        self.bg = PremulColor::from_alpha_color(TRANSPARENT);
+        self.cmds.clear();
+        self.n_zero_clip = 0;
+        self.n_clip = 0;
+        self.n_bufs = 0;
+        self.in_clipped_filter_layer = false;
+        self.layer_ids.truncate(1);
+        self.layer_cmd_ranges.clear();
+        self.layer_cmd_ranges
+            .insert(0, LayerCommandRanges::default());
+        self.push_buf_indices.clear();
+        // We can't use 0 here, because then we have no way of distinguishing it from a
+        // user-supplied `PushBuf` at position 0.
+        self.push_buf_indices.push(TARGET_SURFACE_PUSH_BUF_IDX);
+        self.surface_is_blend_target = false;
+        self.last_batch_end = 0;
     }
 
     /// Push all layer buffers that have not yet been pushed for this tile.
