@@ -26,7 +26,6 @@ use vello_common::recording::{PushLayerCommand, Recordable, Recorder, Recording,
 use vello_common::render_graph::RenderGraph;
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
-use vello_common::util::{is_integer_rect, is_integer_translation};
 
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
@@ -562,25 +561,6 @@ impl Scene {
             }));
 
         true
-    }
-
-    /// Fast path for filling a pixel-aligned rectangle.
-    ///
-    /// Bypasses path processing by generating strips directly for the rectangle.
-    /// The caller must ensure the transform is an integer translation and the rect
-    /// has integer coordinates.
-    fn fill_rect_fast(&mut self, rect: &Rect) {
-        let paint = self.encode_current_paint();
-        let transformed_rect = self.transform.transform_rect_bbox(*rect);
-        let strip_storage = &mut self.strip_storage.borrow_mut();
-        let strip_start = strip_storage.strips.len();
-        self.strip_generator.generate_filled_rect_fast(
-            &transformed_rect,
-            strip_storage,
-            self.clip_context.get(),
-        );
-
-        submit_strips!(self, strip_storage, strip_start, paint);
     }
 
     /// Stroke a rectangle with the current paint and stroke settings.
