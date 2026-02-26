@@ -41,6 +41,9 @@ struct Arguments {
     no_ref: bool,
     /// A reason for ignoring a test.
     ignore_reason: Option<String>,
+    /// Whether to generate an additional testing variant that runs the test against a non-RGBA8
+    /// target surface texture.
+    native_format: bool,
 }
 
 impl Default for Arguments {
@@ -57,6 +60,7 @@ impl Default for Arguments {
             no_ref: false,
             diff_pixels: 0,
             ignore_reason: None,
+            native_format: false,
         }
     }
 }
@@ -112,6 +116,10 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         input_fn_name.span(),
     );
     let hybrid_fn_name = Ident::new(&format!("{input_fn_name}_hybrid"), input_fn_name.span());
+    let hybrid_native_format_fn_name = Ident::new(
+        &format!("{input_fn_name}_hybrid_native_format"),
+        input_fn_name.span(),
+    );
     let webgl_fn_name = Ident::new(
         &format!("{input_fn_name}_hybrid_webgl"),
         input_fn_name.span(),
@@ -134,6 +142,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let f32_fn_name_wasm_str = f32_fn_name_wasm.to_string();
     let multithreaded_fn_name_str = multithreaded_fn_name.to_string();
     let hybrid_fn_name_str = hybrid_fn_name.to_string();
+    let hybrid_native_format_fn_name_str = hybrid_native_format_fn_name.to_string();
     let webgl_fn_name_str = webgl_fn_name.to_string();
 
     let Arguments {
@@ -148,6 +157,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         ignore_reason,
         no_ref,
         diff_pixels,
+        native_format,
     } = parse_args(&attrs);
 
     // Wasm doesn't have access to the filesystem. For wasm, inline the snapshot bytes into the
@@ -210,6 +220,11 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     } else {
         empty_snippet.clone()
     };
+    let ignore_hybrid_native_format = if skip_hybrid || !native_format {
+        ignore_snippet.clone()
+    } else {
+        empty_snippet.clone()
+    };
 
     let cpu_snippet = |fn_name: Ident,
                        fn_name_str: String,
@@ -251,7 +266,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                 };
                 use vello_cpu::{RenderContext, RenderMode};
 
-                let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent, #num_threads, #level, #render_mode);
+                let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent, #num_threads, #level, #render_mode, false);
                 #input_fn_name(&mut ctx);
                 ctx.flush();
                 if !#no_ref {
@@ -437,11 +452,29 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             use crate::renderer::HybridRenderer;
             use vello_cpu::RenderMode;
 
-            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed);
+            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed, false);
             #input_fn_name(&mut ctx);
             ctx.flush();
             if !#no_ref {
                 check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
+            }
+        }
+
+        #ignore_hybrid_native_format
+        #[cfg(not(target_arch = "wasm32"))]
+        #[test]
+        fn #hybrid_native_format_fn_name() {
+            use crate::util::{
+                check_ref, get_ctx
+            };
+            use crate::renderer::HybridRenderer;
+            use vello_cpu::RenderMode;
+
+            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed, true);
+            #input_fn_name(&mut ctx);
+            ctx.flush();
+            if !#no_ref {
+                check_ref(&ctx, #input_fn_name_str, #hybrid_native_format_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
             }
         }
 
@@ -455,7 +488,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             use crate::renderer::HybridRenderer;
             use vello_cpu::RenderMode;
 
-            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed);
+            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed, false);
             #input_fn_name(&mut ctx);
             ctx.flush();
             if !#no_ref {
@@ -501,6 +534,7 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                     "skip_multithreaded" => args.skip_multithreaded = true,
                     "skip_hybrid" => args.skip_hybrid = true,
                     "no_ref" => args.no_ref = true,
+                    "native_format" => args.native_format = true,
                     "ignore" => {
                         args.skip_cpu = true;
                         args.skip_multithreaded = true;

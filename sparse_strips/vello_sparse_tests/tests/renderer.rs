@@ -26,6 +26,7 @@ pub(crate) trait Renderer: Sized {
         num_threads: u16,
         level: Level,
         render_mode: RenderMode,
+        native_format: bool,
     ) -> Self;
     fn fill_path(&mut self, path: &BezPath);
     fn stroke_path(&mut self, path: &BezPath);
@@ -80,6 +81,7 @@ impl Renderer for RenderContext {
         num_threads: u16,
         level: Level,
         render_mode: RenderMode,
+        _native_format: bool,
     ) -> Self {
         let settings = RenderSettings {
             level,
@@ -246,13 +248,21 @@ pub(crate) struct HybridRenderer {
     texture: wgpu::Texture,
     texture_view: wgpu::TextureView,
     renderer: RefCell<vello_hybrid::Renderer>,
+    format: wgpu::TextureFormat,
 }
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 impl Renderer for HybridRenderer {
     type GlyphRenderer = Scene;
 
-    fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
+    fn new(
+        width: u16,
+        height: u16,
+        num_threads: u16,
+        level: Level,
+        _: RenderMode,
+        native_format: bool,
+    ) -> Self {
         if num_threads != 0 {
             panic!("hybrid renderer doesn't support multi-threading");
         }
@@ -260,6 +270,14 @@ impl Renderer for HybridRenderer {
         if !level.is_fallback() {
             panic!("hybrid renderer doesn't support SIMD");
         }
+
+        // We use this to test issues that would occur if the render target
+        // is not natively RGBA8.
+        let format = if native_format {
+            wgpu::TextureFormat::Bgra8Unorm
+        } else {
+            wgpu::TextureFormat::Rgba8Unorm
+        };
 
         let scene = Scene::new(width, height);
         // Initialize wgpu device and queue for GPU rendering
@@ -288,7 +306,7 @@ impl Renderer for HybridRenderer {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
@@ -312,6 +330,7 @@ impl Renderer for HybridRenderer {
             texture,
             texture_view,
             renderer: RefCell::new(renderer),
+            format,
         }
     }
 
@@ -534,6 +553,13 @@ impl Renderer for HybridRenderer {
             buf.copy_from_slice(&row[0..width as usize * 4]);
         }
         texture_copy_buffer.unmap();
+
+        // Swizzle from BGRA to RGBA.
+        if self.format == wgpu::TextureFormat::Bgra8Unorm {
+            for pixel in pixmap.data_as_u8_slice_mut().chunks_exact_mut(4) {
+                pixel.swap(0, 2);
+            }
+        }
     }
 
     fn width(&self) -> u16 {
@@ -607,7 +633,14 @@ pub(crate) struct HybridRenderer {
 impl Renderer for HybridRenderer {
     type GlyphRenderer = Scene;
 
-    fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
+    fn new(
+        width: u16,
+        height: u16,
+        num_threads: u16,
+        level: Level,
+        _: RenderMode,
+        _native_format: bool,
+    ) -> Self {
         use wasm_bindgen::JsCast;
         use web_sys::HtmlCanvasElement;
 
