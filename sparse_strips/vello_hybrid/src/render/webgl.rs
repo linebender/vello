@@ -34,9 +34,7 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{
-        LoadOp, RendererBackend, Scheduler, SchedulerState, generate_gpu_strips_for_fast_path,
-    },
+    schedule::{LoadOp, RendererBackend, Scheduler, SchedulerState},
 };
 use alloc::sync::Arc;
 use alloc::vec;
@@ -95,8 +93,6 @@ pub struct WebGlRenderer {
     paint_idxs: Vec<u32>,
     /// Gradient cache for storing gradient ramps.
     gradient_cache: GradientRampCache,
-    /// Reusable buffer for GPU strips produced by the fast path.
-    fast_path_gpu_strips: Vec<GpuStrip>,
 }
 
 impl WebGlRenderer {
@@ -163,7 +159,6 @@ impl WebGlRenderer {
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
             gradient_cache,
-            fast_path_gpu_strips: Vec::new(),
         }
     }
 
@@ -350,35 +345,15 @@ impl WebGlRenderer {
         if clear {
             self.programs.clear_view_framebuffer(&self.gl);
         }
-
-        let result = if scene.strips_fast_path_active {
-            self.fast_path_gpu_strips.clear();
-
-            generate_gpu_strips_for_fast_path(
-                &scene.fast_strips_buffer.paths,
-                scene,
-                &self.paint_idxs,
-                &mut self.fast_path_gpu_strips,
-            );
-
-            let mut ctx = WebGlRendererContext {
-                programs: &mut self.programs,
-                gl: &self.gl,
-            };
-            let load_op = if clear { LoadOp::Clear } else { LoadOp::Load };
-            ctx.render_strips(&self.fast_path_gpu_strips, 2, load_op);
-            Ok(())
-        } else {
-            let mut ctx = WebGlRendererContext {
-                programs: &mut self.programs,
-                gl: &self.gl,
-            };
-            self.scheduler
-                .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs)
+        let mut ctx = WebGlRendererContext {
+            programs: &mut self.programs,
+            gl: &self.gl,
         };
+        self.scheduler
+            .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs)?;
         self.gradient_cache.maintain();
 
-        result
+        Ok(())
     }
 
     /// Get a reference to the underlying WebGL context.

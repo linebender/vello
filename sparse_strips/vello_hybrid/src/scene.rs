@@ -31,6 +31,37 @@ use vello_common::util::{is_integer_rect, is_integer_translation};
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 
+/// The pipeline mode for strip rendering.
+///
+/// Determines whether strips are sent directly to the GPU (fast path),
+/// go through coarse rasterization, or a mix of both.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StripPathMode {
+    /// No layers have been pushed. All strips go directly to the fast buffer,
+    /// bypassing coarse rasterization entirely.
+    ///
+    /// `StripStorage` is in `Append` mode.
+    #[default]
+    FastOnly,
+    /// This mode is activated if there has been a `push_layer` call, but the user indicated
+    /// that they will only use src-over blending.
+    ///
+    /// In this case, we will alternate between render fast strips and coarse-rasterized
+    /// layers. Which of the two modes is active is dependent on whether `wide.has_layers()` is
+    /// true.
+    ///
+    /// `StripStorage` alternates between `Append` (for the root level) and
+    /// `ReplaceAfter(n)` (inside a layer).
+    Interleaved,
+    /// This mode is activated if the user indicated not src-over blends might happen,
+    /// and there has been at least one `push_layer` call. All previous strips will be
+    /// retroactively coarse-rasterized, and from now on we always go through coarse
+    /// rasterization.
+    ///
+    /// `StripStorage` is in `Replace` mode.
+    CoarseOnly,
+}
+
 /// Metadata for a single path stored in the fast strips buffer.
 #[derive(Debug)]
 pub(crate) struct FastStripsPath {
@@ -40,7 +71,8 @@ pub(crate) struct FastStripsPath {
     pub(crate) paint: Paint,
 }
 
-/// A buffer that collects strips from paths that bypass coarse rasterization and scheduling.
+/// A buffer that collects strips from paths that are rendered directly to the surface,
+/// bypassing coarse rasterization.
 ///
 /// Strip data itself lives in `strip_storage`. Each `FastStripsPath` records the range of strips
 /// for one path within that storage.
@@ -198,36 +230,42 @@ pub struct Scene {
     pub(crate) glyph_caches: Option<GlyphCaches>,
     /// Dependency graph for managing layer rendering order and filter effects.
     pub(crate) render_graph: RenderGraph,
-    /// A buffer that stores the strips of path drawing calls that have been emitted before
-    /// (a potential) first `push_layer` command.
-    ///
-    /// For such paths, we can completely circumvent coarse rasterization and scheduling.
+    /// A buffer that stores the strips of path drawing calls that are rendered directly
+    /// to the surface, bypassing coarse rasterization.
     pub(crate) fast_strips_buffer: FastStripsBuffer,
-    /// Whether the fast path for rendering strips directly instead of going through coarse
-    /// rasterization is active.
-    ///
-    /// This is the case if we have not performed any `push_layer` command. In such a case, we
-    /// don't need to do coarse rasterization or scheduling and therefore save a lot of overhead.
-    pub(crate) strips_fast_path_active: bool,
+    /// The current strip rendering pipeline mode.
+    pub(crate) strip_path_mode: StripPathMode,
+    /// Split points in `fast_strips_buffer.paths` that mark boundaries where we must
+    /// process one coarse batch before processing another fast path strip batch.
+    /// Only meaningful in [`StripPathMode::Interleaved`] mode.
+    pub(crate) coarse_batch_splits: Vec<usize>,
 }
 
 // We use this macro instead of a method to avoid borrowing issues in the corresponding methods.
 //
-// When the fast path is active it is in `Append` mode, so `$strip_start` (captured before generation)
+// When the fast path is active AND we're at the top level (no layers pushed),
+// strip_storage is in `Append` mode, so `$strip_start` (captured before generation)
 // and the current length delimit the range for this path.
 //
-// When the fast path is inactive, `strip_storage` is in `Replace` mode where each generation starts
-// with a clear, so the whole buffer is the current path's strips.
+// When the fast path is inactive or we're inside a layer, `strip_storage` is in `Replace`
+// or `ReplaceAfter` mode where each generation starts with a clear/truncate, so the
+// relevant portion of the buffer is the current path's strips.
 macro_rules! submit_strips {
     ($self:ident, $strip_storage:expr, $strip_start:expr, $paint:expr) => {
-        if $self.strips_fast_path_active {
+        if $self.strip_path_mode != StripPathMode::CoarseOnly && !$self.wide.has_layers() {
             $self.fast_strips_buffer.paths.push(FastStripsPath {
                 strips: $strip_start..$strip_storage.strips.len(),
                 paint: $paint,
             });
         } else {
+            // In `ReplaceAfter(n)` mode the fast path prefix lives at `[0..n]`
+            // and must not be fed into the coarse rasterizer.
+            let coarse_start = match $strip_storage.generation_mode() {
+                GenerationMode::ReplaceAfter(n) => n,
+                _ => 0,
+            };
             $self.wide.generate(
-                &$strip_storage.strips,
+                &$strip_storage.strips[coarse_start..],
                 $paint,
                 $self.blend_mode,
                 0,
@@ -250,11 +288,16 @@ impl Scene {
     pub fn new_with(width: u16, height: u16, settings: RenderSettings) -> Self {
         let render_state = Self::default_render_state();
         let render_graph = RenderGraph::new();
+
+        // We use the fast path if only default blending is enabled. Therefore,
+        // we have to disable bg optimizations in that case.
+        let enable_bg_optimization = !settings.constraints.use_default_blending_only();
+
         Self {
             constraints: settings.constraints,
             width,
             height,
-            wide: Wide::<MODE_HYBRID>::new(width, height),
+            wide: Wide::<MODE_HYBRID>::new(width, height, enable_bg_optimization),
             clip_context: ClipContext::new(),
             aliasing_threshold: None,
             paint: render_state.paint,
@@ -273,7 +316,8 @@ impl Scene {
             glyph_caches: Some(GlyphCaches::default()),
             render_graph,
             fast_strips_buffer: FastStripsBuffer::default(),
-            strips_fast_path_active: true,
+            strip_path_mode: StripPathMode::FastOnly,
+            coarse_batch_splits: Vec::new(),
         }
     }
 
@@ -500,7 +544,7 @@ impl Scene {
     ///
     /// After this call, `strip_storage` is switched back to `Replace` mode.
     fn flush_fast_path(&mut self) {
-        if !self.strips_fast_path_active {
+        if self.strip_path_mode == StripPathMode::CoarseOnly {
             return;
         }
 
@@ -517,7 +561,7 @@ impl Scene {
         }
 
         strip_storage.set_generation_mode(GenerationMode::Replace);
-        self.strips_fast_path_active = false;
+        self.strip_path_mode = StripPathMode::CoarseOnly;
     }
 
     /// Push a new layer with the given properties.
@@ -535,7 +579,21 @@ impl Scene {
         let blend_mode_val = blend_mode.unwrap_or(DEFAULT_BLEND_MODE);
         self.constraints.assert_blend_mode(blend_mode_val);
 
-        self.flush_fast_path();
+        let strip_offset;
+        if self.constraints.use_default_blending_only() {
+            // With default blending only we can keep fast path strips alive. Record a
+            // split point so the scheduler knows to process one coarse batch after
+            // processing fast path strips up to this point.
+            let split = self.fast_strips_buffer.paths.len();
+            self.coarse_batch_splits.push(split);
+            let mut strip_storage = self.strip_storage.borrow_mut();
+            strip_offset = strip_storage.strips.len();
+            strip_storage.set_generation_mode(GenerationMode::ReplaceAfter(strip_offset));
+            self.strip_path_mode = StripPathMode::Interleaved;
+        } else {
+            strip_offset = 0;
+            self.flush_fast_path();
+        }
 
         if filter.is_some() {
             unimplemented!("Filter effects are not yet supported in vello_hybrid");
@@ -553,7 +611,7 @@ impl Scene {
                 self.clip_context.get(),
             );
 
-            Some(strip_storage.strips.as_slice())
+            Some(&strip_storage.strips[strip_offset..])
         } else {
             None
         };
@@ -611,6 +669,12 @@ impl Scene {
     /// Pop the last pushed layer.
     pub fn pop_layer(&mut self) {
         self.wide.pop_layer(&mut self.render_graph);
+        if self.strip_path_mode == StripPathMode::Interleaved && !self.wide.has_layers() {
+            self.wide.end_batch();
+            self.strip_storage
+                .borrow_mut()
+                .set_generation_mode(GenerationMode::Append);
+        }
     }
 
     /// Set the blend mode for subsequent rendering operations.
@@ -714,7 +778,8 @@ impl Scene {
         #[cfg(feature = "text")]
         self.glyph_caches.as_mut().unwrap().maintain();
         self.fast_strips_buffer.clear();
-        self.strips_fast_path_active = true;
+        self.strip_path_mode = StripPathMode::FastOnly;
+        self.coarse_batch_splits.clear();
     }
 
     /// Get the width of the render context.
@@ -1039,7 +1104,7 @@ impl Scene {
         );
         let paint = self.encode_current_paint();
 
-        if self.strips_fast_path_active {
+        if self.strip_path_mode != StripPathMode::CoarseOnly {
             let mut strip_storage = self.strip_storage.borrow_mut();
             let strip_start = strip_storage.strips.len();
             strip_storage
