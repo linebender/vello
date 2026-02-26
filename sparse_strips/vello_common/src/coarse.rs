@@ -165,6 +165,9 @@ pub struct Wide<const MODE: u8 = MODE_CPU> {
     /// the background is applied as the very first operation, and we have no way of clearing
     /// strips in the fast path that would affect the area of the wide tile.
     enable_bg_optimization: bool,
+    /// Whether at least one of the wide tiles has been mutated and thus they
+    /// need to be reset.
+    tiles_dirty: bool,
 }
 
 /// A clip region.
@@ -402,6 +405,7 @@ impl<const MODE: u8> Wide<MODE> {
             clipped_filter_layer_depth: 0,
             layers_needing_buf_stack: NeedsBufLayerStack::default(),
             batch_count: 0,
+            tiles_dirty: false,
         }
     }
 
@@ -412,23 +416,12 @@ impl<const MODE: u8> Wide<MODE> {
 
     /// Reset all tiles in the container.
     pub fn reset(&mut self) {
-        for tile in &mut self.tiles {
-            tile.bg = PremulColor::from_alpha_color(TRANSPARENT);
-            tile.cmds.clear();
-            tile.n_zero_clip = 0;
-            tile.n_clip = 0;
-            tile.n_bufs = 0;
-            tile.in_clipped_filter_layer = false;
-            tile.layer_ids.truncate(1);
-            tile.layer_cmd_ranges.clear();
-            tile.layer_cmd_ranges
-                .insert(0, LayerCommandRanges::default());
-            tile.push_buf_indices.clear();
-            // We can't use 0 here, because then we have no way of distinguishing it from a
-            // user-supplied `PushBuf` at position 0.
-            tile.push_buf_indices.push(TARGET_SURFACE_PUSH_BUF_IDX);
-            tile.surface_is_blend_target = false;
-            tile.last_batch_end = 0;
+        if self.tiles_dirty {
+            for tile in &mut self.tiles {
+                tile.reset();
+            }
+
+            self.tiles_dirty = false;
         }
         self.attrs.clear();
         self.layer_stack.clear();
@@ -473,7 +466,7 @@ impl<const MODE: u8> Wide<MODE> {
     /// Get mutable access to the wide tile at the given coordinates.
     ///
     /// Panics if the coordinates are out-of-range.
-    pub fn get_mut(&mut self, x: u16, y: u16) -> &mut WideTile<MODE> {
+    fn get_mut(&mut self, x: u16, y: u16) -> &mut WideTile<MODE> {
         let idx = self.get_idx(x, y);
         &mut self.tiles[idx]
     }
@@ -523,6 +516,7 @@ impl<const MODE: u8> Wide<MODE> {
             return;
         }
 
+        self.tiles_dirty = true;
         let alpha_base_idx = strip_buf[0].alpha_idx();
 
         // Create shared attributes for all commands from this path
@@ -706,6 +700,8 @@ impl<const MODE: u8> Wide<MODE> {
         render_graph: &mut RenderGraph,
         thread_idx: u8,
     ) {
+        self.tiles_dirty = true;
+
         // Some explanations about what is going on here: We support the concept of
         // layers, where a user can push a new layer (with certain properties), draw some
         // stuff, and finally pop the layer, as part of which the layer as a whole will be
@@ -841,6 +837,8 @@ impl<const MODE: u8> Wide<MODE> {
     /// - Popping any associated clip
     /// - Applying mask, opacity, and blend mode operations if needed
     pub fn pop_layer(&mut self, render_graph: &mut RenderGraph) {
+        self.tiles_dirty = true;
+
         // This method basically unwinds everything we did in `push_layer`.
         let mut layer = self.layer_stack.pop().unwrap();
 
@@ -946,12 +944,7 @@ impl<const MODE: u8> Wide<MODE> {
     ///    - If covered by zero winding: `push_zero_clip`
     ///    - If fully covered by non-zero winding: do nothing (clip is a no-op)
     ///    - If partially covered: `push_clip`
-    pub fn push_clip(
-        &mut self,
-        strips: impl Into<Box<[Strip]>>,
-        layer_id: LayerId,
-        thread_idx: u8,
-    ) {
+    fn push_clip(&mut self, strips: impl Into<Box<[Strip]>>, layer_id: LayerId, thread_idx: u8) {
         let strips = strips.into();
         let n_strips = strips.len();
 
@@ -1399,6 +1392,26 @@ impl<const MODE: u8> WideTile<MODE> {
             surface_is_blend_target: false,
             last_batch_end: 0,
         }
+    }
+
+    #[inline]
+    fn reset(&mut self) {
+        self.bg = PremulColor::from_alpha_color(TRANSPARENT);
+        self.cmds.clear();
+        self.n_zero_clip = 0;
+        self.n_clip = 0;
+        self.n_bufs = 0;
+        self.in_clipped_filter_layer = false;
+        self.layer_ids.truncate(1);
+        self.layer_cmd_ranges.clear();
+        self.layer_cmd_ranges
+            .insert(0, LayerCommandRanges::default());
+        self.push_buf_indices.clear();
+        // We can't use 0 here, because then we have no way of distinguishing it from a
+        // user-supplied `PushBuf` at position 0.
+        self.push_buf_indices.push(TARGET_SURFACE_PUSH_BUF_IDX);
+        self.surface_is_blend_target = false;
+        self.last_batch_end = 0;
     }
 
     /// Push all layer buffers that have not yet been pushed for this tile.
@@ -2181,6 +2194,8 @@ impl LayerCommandRanges {
 mod tests {
     use crate::coarse::{FillHint, LayerKind, MODE_CPU, NeedsBufLayerStack, Wide, WideTile};
     use crate::kurbo::Affine;
+    use crate::paint::{Paint, PremulColor};
+    use crate::peniko;
     use crate::peniko::{BlendMode, Compose, Mix};
     use crate::render_graph::RenderGraph;
     use crate::strip::Strip;
@@ -2297,5 +2312,64 @@ mod tests {
         assert_eq!(wide.layer_stack.len(), 0);
         assert_eq!(wide.clip_stack.len(), 0);
         assert_eq!(wide.tiles[0].n_bufs, 0);
+    }
+
+    #[test]
+    fn tiles_dirty_flag() {
+        type ClipPath = Option<Box<[Strip]>>;
+
+        let mut wide = Wide::<MODE_CPU>::new(256, 4);
+        let mut render_graph = RenderGraph::new();
+
+        assert!(!wide.tiles_dirty);
+
+        let strips = [Strip::new(0, 0, 0, false), Strip::new(10, 0, 4, true)];
+        wide.generate(
+            &strips,
+            Paint::Solid(PremulColor::from_alpha_color(
+                peniko::color::palette::css::RED,
+            )),
+            BlendMode::default(),
+            0,
+            None,
+            &[],
+        );
+        assert!(wide.tiles_dirty);
+
+        wide.reset();
+        assert!(!wide.tiles_dirty);
+
+        let no_clip: ClipPath = None;
+        wide.push_layer(
+            1,
+            no_clip,
+            BlendMode::default(),
+            None,
+            1.0,
+            None,
+            Affine::IDENTITY,
+            &mut render_graph,
+            0,
+        );
+        assert!(wide.tiles_dirty);
+
+        wide.pop_layer(&mut render_graph);
+        assert!(wide.tiles_dirty);
+
+        wide.reset();
+        assert!(!wide.tiles_dirty);
+
+        // Generating with empty strips does not need to mark it as dirty.
+        wide.generate(
+            &[],
+            Paint::Solid(PremulColor::from_alpha_color(
+                peniko::color::palette::css::RED,
+            )),
+            BlendMode::default(),
+            0,
+            None,
+            &[],
+        );
+        assert!(!wide.tiles_dirty);
     }
 }
