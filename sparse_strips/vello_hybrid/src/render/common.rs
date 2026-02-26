@@ -47,7 +47,7 @@ pub struct Config {
     pub _padding: [u32; 3],
 }
 
-/// Represents a GPU strip for rendering.
+/// A GPU strip instance for rendering.
 ///
 /// This struct corresponds to the `StripInstance` struct in the shader.
 /// See the `StripInstance` documentation in `render_strips.wgsl` for detailed field descriptions.
@@ -58,16 +58,16 @@ pub struct GpuStrip {
     pub x: u16,
     /// See `StripInstance::xy` documentation in `render_strips.wgsl`.
     pub y: u16,
-    /// See `StripInstance::widths` documentation in `render_strips.wgsl`.
+    /// See `StripInstance::dense_width_or_rect_height` documentation in `render_strips.wgsl`.
     pub width: u16,
-    /// See `StripInstance::widths` documentation in `render_strips.wgsl`.
-    pub dense_width: u16,
-    /// See `StripInstance::col_idx` documentation in `render_strips.wgsl`.
-    pub col_idx: u32,
+    /// See `StripInstance::dense_width_or_rect_height` documentation in `render_strips.wgsl`.
+    pub dense_width_or_rect_height: u16,
+    /// See `StripInstance::col_idx_or_rect_frac` documentation in `render_strips.wgsl`.
+    pub col_idx_or_rect_frac: u32,
     /// See `StripInstance::payload` documentation in `render_strips.wgsl`.
     pub payload: u32,
-    /// See `StripInstance::paint` documentation in `render_strips.wgsl`.
-    pub paint: u32,
+    /// See `StripInstance::paint_and_rect_flag` documentation in `render_strips.wgsl`.
+    pub paint_and_rect_flag: u32,
 }
 
 /// Different types of GPU encoded paints.
