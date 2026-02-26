@@ -81,7 +81,7 @@ pub(crate) struct FastPathRect {
     pub(crate) paint: Paint,
 }
 
-/// A command in the fast strips buffer: either a normal path or a solid rectangle.
+/// A command in the fast strips buffer.
 #[derive(Debug)]
 pub(crate) enum FastStripCommand {
     /// A path rendered via the normal strip pipeline.
