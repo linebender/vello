@@ -2636,6 +2636,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "parley_draw"
+version = "0.0.0"
+dependencies = [
+ "bytemuck",
+ "foldhash 0.2.0",
+ "hashbrown 0.16.1",
+ "log",
+ "skrifa 0.40.0",
+ "smallvec",
+ "vello_common",
+ "vello_cpu",
+ "vello_hybrid",
+]
+
+[[package]]
 name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2969,7 +2984,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b634fabf032fab15307ffd272149b622260f55974d9fad689292a5d33df02e5"
 dependencies = [
  "bytemuck",
- "core_maths",
  "font-types 0.11.0",
 ]
 
@@ -3362,7 +3376,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7fbdfe3d2475fbd7ddd1f3e5cf8288a30eb3e5f95832829570cd88115a7434ac"
 dependencies = [
  "bytemuck",
- "core_maths",
  "read-fonts 0.37.0",
 ]
 
@@ -3983,7 +3996,6 @@ dependencies = [
  "peniko 0.6.0",
  "png 0.17.16",
  "roxmltree",
- "skrifa 0.40.0",
  "smallvec",
  "thiserror 2.0.18",
 ]
@@ -4043,6 +4055,7 @@ dependencies = [
  "image",
  "log",
  "parley",
+ "parley_draw",
  "smallvec",
  "vello_common",
  "vello_cpu",
@@ -4110,6 +4123,7 @@ dependencies = [
  "fearless_simd",
  "image",
  "oxipng",
+ "parley_draw",
  "pollster",
  "serde",
  "serde_json",

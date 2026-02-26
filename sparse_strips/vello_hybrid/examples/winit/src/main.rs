@@ -45,7 +45,7 @@ struct App<'s> {
 fn main() {
     #[cfg(not(target_arch = "wasm32"))]
     let (scenes, start_scene_index) = {
-        let mut start_scene_index = 6; // MultiImageScene
+        let mut start_scene_index = 1; // TextScene
         let args: Vec<String> = env::args().collect();
         let mut svg_paths: Vec<&str> = Vec::new();
 

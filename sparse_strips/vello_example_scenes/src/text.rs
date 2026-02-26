@@ -2,43 +2,59 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! Text rendering example scene.
+//!
+//! Closely follows the parley example at `parley/examples/common/src/lib.rs`
+//! and `parley/examples/vello_hybrid_render/src/main.rs`.
 
+use core::any::Any;
 use core::fmt;
-use parley::FontFamily;
+
 use parley::{
-    Alignment, AlignmentOptions, FontContext, GlyphRun, Layout, LayoutContext,
-    PositionedLayoutItem, StyleProperty,
+    Alignment, AlignmentOptions, FontContext, FontFamily, FontWeight, GenericFamily, GlyphRun,
+    Layout, LayoutContext, LineHeight, PositionedLayoutItem, StyleProperty,
 };
-use vello_common::color::palette::css::WHITE;
-use vello_common::color::{AlphaColor, Srgb};
-use vello_common::glyph::Glyph;
-use vello_common::kurbo::Affine;
-use vello_common::recording::{Recorder, Recording};
+use parley_draw::Glyph;
+use vello_common::kurbo::{Affine, Rect, Vec2};
+use vello_common::peniko::Color;
 
 use crate::{ExampleScene, RenderingContext};
 
+const PADDING: u32 = 20;
+const MAX_ADVANCE: f32 = 200.0;
+const FONT_SIZE: f32 = 16.0;
+
+const SIMPLE_TEXT: &str = "Some text here. Let's make it a bit longer so that \
+    line wrapping kicks in easily. This demonstrates basic glyph caching with \
+    plain Latin text and common punctuation???";
+
+const RICH_TEXT: &str = "Some text here. Let's make it a bit longer so that \
+    line wrapping kicks in. Bitmap emoji 😊 and COLR emoji 🎉.\n\
+    And also some اللغة العربية arabic text.\n\
+    This is underlining pq and strikethrough text.";
+
+/// Minimal brush carrying only a solid color, matching the parley examples.
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct ColorBrush {
-    color: AlphaColor<Srgb>,
+pub struct ColorBrush {
+    /// The solid color for this brush.
+    pub color: Color,
 }
 
 impl Default for ColorBrush {
     fn default() -> Self {
-        Self { color: WHITE }
+        Self {
+            color: Color::WHITE,
+        }
     }
 }
 
-// Wasm doesn't support system fonts, so we need to include the font data directly.
 #[cfg(target_arch = "wasm32")]
 const ROBOTO_FONT: &[u8] = include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");
 
 /// State for the text example.
 pub struct TextScene {
     layout: Layout<ColorBrush>,
-    /// Whether recording functionality is enabled
-    recording_enabled: bool,
-    /// The recording to reuse
-    recording: CachedRecording,
+    /// Type-erased glyph caches, lazily initialized per backend.
+    glyph_caches: Option<Box<dyn Any>>,
 }
 
 impl fmt::Debug for TextScene {
@@ -49,274 +65,224 @@ impl fmt::Debug for TextScene {
 
 impl ExampleScene for TextScene {
     fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
-        if self.recording_enabled {
-            // Try to reuse existing recording if possible
-            let render_result = try_reuse_recording(ctx, &mut self.recording, root_transform);
-            if render_result.is_reused {
-                return;
-            }
-
-            // If we get here, we need to record fresh
-            record_fresh(self, ctx, root_transform);
-        } else {
-            // Direct rendering mode (no recording/caching)
-            #[cfg(not(target_arch = "wasm32"))]
-            let start = std::time::Instant::now();
-            ctx.set_transform(root_transform);
-            render_text(self, ctx);
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                let elapsed = start.elapsed();
-                println!(
-                    "Direct    : {:.3}ms | No caching",
-                    elapsed.as_secs_f64() * 1000.0
-                );
-            }
+        if self.glyph_caches.is_none() {
+            self.glyph_caches = Some(ctx.create_glyph_caches());
         }
-    }
 
-    fn handle_key(&mut self, key: &str) -> bool {
-        match key {
-            "r" | "R" => {
-                self.toggle_recording();
-                true
+        let content_transform =
+            root_transform * Affine::translate(Vec2::new(PADDING as f64, PADDING as f64));
+        ctx.set_transform(content_transform);
+
+        let glyph_caches = self
+            .glyph_caches
+            .as_mut()
+            .expect("glyph caches not initialized");
+
+        for line in self.layout.lines() {
+            for item in line.items() {
+                if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
+                    render_glyph_run(ctx, &glyph_run, glyph_caches.as_mut());
+                }
             }
-            _ => false,
         }
     }
 }
 
 impl TextScene {
-    /// Create a new `TextScene` with the given text.
+    /// Create a new `TextScene` with the given text using the simple layout.
     pub fn new(text: &str) -> Self {
-        // Typically, you'd want to store 1 `layout_cx` and `font_cx` for the
-        // duration of the program (or have an instance per thread).
+        let mut font_cx = FontContext::new();
         let mut layout_cx = LayoutContext::new();
 
-        #[cfg(not(target_arch = "wasm32"))]
-        let mut font_cx = FontContext::new();
         #[cfg(target_arch = "wasm32")]
-        let mut font_cx = {
-            let mut font_cx = FontContext::new();
-            font_cx
-                .collection
-                .register_fonts(ROBOTO_FONT.to_vec().into(), None);
-            font_cx
-        };
+        font_cx
+            .collection
+            .register_fonts(ROBOTO_FONT.to_vec().into(), None);
 
-        let mut builder = layout_cx.ranged_builder(&mut font_cx, text, 1.0, true);
-        builder.push_default(FontFamily::parse("Roboto").unwrap());
-        builder.push_default(StyleProperty::LineHeight(
-            parley::LineHeight::FontSizeRelative(1.3),
-        ));
-        builder.push_default(StyleProperty::FontSize(32.0));
-
-        let mut layout: Layout<ColorBrush> = builder.build(text);
-        let max_advance = Some(400.0);
-        layout.break_all_lines(max_advance);
-        layout.align(max_advance, Alignment::Middle, AlignmentOptions::default());
+        let layout = build_simple_layout(&mut font_cx, &mut layout_cx, text);
 
         Self {
             layout,
-            recording_enabled: true,
-            recording: CachedRecording::new(),
+            glyph_caches: None,
+        }
+    }
+
+    /// Create a new `TextScene` with the rich layout (emoji, underline, etc.).
+    pub fn rich() -> Self {
+        let mut font_cx = FontContext::new();
+        let mut layout_cx = LayoutContext::new();
+
+        #[cfg(target_arch = "wasm32")]
+        font_cx
+            .collection
+            .register_fonts(ROBOTO_FONT.to_vec().into(), None);
+
+        let layout = build_rich_layout(&mut font_cx, &mut layout_cx, RICH_TEXT);
+
+        Self {
+            layout,
+            glyph_caches: None,
         }
     }
 }
 
 impl Default for TextScene {
     fn default() -> Self {
-        Self::new("Hello, Vello!")
+        Self::new(SIMPLE_TEXT)
     }
 }
 
-struct RenderResult {
-    is_reused: bool,
-}
+fn build_simple_layout(
+    font_cx: &mut FontContext,
+    layout_cx: &mut LayoutContext<ColorBrush>,
+    text: &str,
+) -> Layout<ColorBrush> {
+    let mut builder = layout_cx.ranged_builder(font_cx, text, 1.0, true);
 
-struct CachedRecording {
-    // The transform the recording was taken at. Informs if recording can be re-used or if it needs
-    // to be re-recorded.
-    pub(crate) transform_key: Option<Affine>,
-    // The recording absolutely positioned from the `transform_key`.
-    recording: Recording,
-}
-
-impl CachedRecording {
-    fn new() -> Self {
-        Self {
-            transform_key: None,
-            recording: Recording::new(),
-        }
-    }
-}
-
-/// Try to reuse an existing recording, either directly (TODO: or with translation)
-fn try_reuse_recording(
-    ctx: &mut impl RenderingContext,
-    recording: &mut CachedRecording,
-    current_transform: Affine,
-) -> RenderResult {
-    // There is no `transform_key` meaning there is no valid recording to execute.
-    let Some(recording_transform) = recording.transform_key else {
-        return RenderResult { is_reused: false };
+    let foreground = ColorBrush {
+        color: Color::WHITE,
     };
-    #[cfg(not(target_arch = "wasm32"))]
-    let start = std::time::Instant::now();
+    builder.push_default(StyleProperty::Brush(foreground));
+    builder.push_default(GenericFamily::SystemUi);
+    builder.push_default(LineHeight::FontSizeRelative(1.3));
+    builder.push_default(StyleProperty::FontSize(FONT_SIZE));
 
-    // Case 1: Identical transforms - can reuse directly
-    if transforms_are_identical(recording_transform, current_transform) {
-        ctx.execute_recording(&recording.recording);
-        #[cfg(not(target_arch = "wasm32"))]
-        print_render_stats("Identical ", start.elapsed(), &recording.recording);
-        return RenderResult { is_reused: true };
+    let bold = FontWeight::new(600.0);
+    builder.push(StyleProperty::FontWeight(bold), 0..4);
+
+    if let Some((start, matched)) = text.match_indices("here").next() {
+        let purple = ColorBrush {
+            color: Color::from_rgb8(200, 130, 255),
+        };
+        builder.push(StyleProperty::Brush(purple), start..start + matched.len());
     }
 
-    // TODO: Implement "Case 2: Check if we can use with translation"
+    let mut layout = builder.build(text);
+    let max_advance = Some(MAX_ADVANCE);
+    layout.break_all_lines(max_advance);
+    layout.align(max_advance, Alignment::Start, AlignmentOptions::default());
 
-    // Case 3: Can't optimize, need to record fresh
-    RenderResult { is_reused: false }
+    layout
 }
 
-/// Record a fresh scene from scratch
-fn record_fresh(
-    scene_obj: &mut TextScene,
-    ctx: &mut impl RenderingContext,
-    current_transform: Affine,
-) {
-    #[cfg(not(target_arch = "wasm32"))]
-    let start = std::time::Instant::now();
-    scene_obj.recording.transform_key = Some(current_transform);
-    let recording = &mut scene_obj.recording.recording;
-    recording.clear();
-    ctx.record(recording, |recorder| {
-        render_text_record(&mut scene_obj.layout, recorder, current_transform);
-    });
-    ctx.prepare_recording(recording);
-    ctx.execute_recording(recording);
-    #[cfg(not(target_arch = "wasm32"))]
-    print_render_stats("Fresh     ", start.elapsed(), recording);
-}
+fn build_rich_layout(
+    font_cx: &mut FontContext,
+    layout_cx: &mut LayoutContext<ColorBrush>,
+    text: &str,
+) -> Layout<ColorBrush> {
+    let mut builder = layout_cx.ranged_builder(font_cx, text, 1.0, true);
 
-/// Print timing and statistics for a render operation
-#[cfg(not(target_arch = "wasm32"))]
-fn print_render_stats(render_type: &str, elapsed: std::time::Duration, recording: &Recording) {
-    println!(
-        "Text | {}: {:.3}ms | Strips: {} | Alphas: {}",
-        render_type,
-        elapsed.as_secs_f64() * 1000.0,
-        recording.strip_count(),
-        recording.alpha_count()
-    );
-}
+    let foreground = ColorBrush {
+        color: Color::WHITE,
+    };
+    builder.push_default(StyleProperty::Brush(foreground));
+    builder.push_default(GenericFamily::SystemUi);
+    builder.push_default(LineHeight::FontSizeRelative(1.3));
+    builder.push_default(StyleProperty::FontSize(FONT_SIZE));
 
-/// Check if two transforms are identical (within tolerance)
-fn transforms_are_identical(a: Affine, b: Affine) -> bool {
-    let a_coeffs = a.as_coeffs();
-    let b_coeffs = b.as_coeffs();
-    let tolerance = 1e-6;
+    let bold = FontWeight::new(600.0);
+    builder.push(StyleProperty::FontWeight(bold), 0..4);
 
-    for i in 0..6 {
-        if (a_coeffs[i] - b_coeffs[i]).abs() > tolerance {
-            return false;
-        }
+    if let Some((start, matched)) = text.match_indices("here").next() {
+        let purple = ColorBrush {
+            color: Color::from_rgb8(200, 130, 255),
+        };
+        builder.push(StyleProperty::Brush(purple), start..start + matched.len());
     }
-    true
-}
 
-impl TextScene {
-    /// Toggle recording functionality on/off
-    /// Returns the new state (true = enabled, false = disabled)
-    pub fn toggle_recording(&mut self) -> bool {
-        self.recording_enabled = !self.recording_enabled;
-        self.recording_enabled
+    if let Some((start, matched)) = text.match_indices("underlining pq").next() {
+        builder.push(StyleProperty::Underline(true), start..start + matched.len());
     }
-}
+    if let Some((start, matched)) = text.match_indices("strikethrough").next() {
+        builder.push(
+            StyleProperty::Strikethrough(true),
+            start..start + matched.len(),
+        );
+    }
+    if let Some((start, matched)) = text.match_indices("🎉").next() {
+        builder.push(
+            FontFamily::parse("Noto Color Emoji").unwrap(),
+            start..start + matched.len(),
+        );
+    }
 
-fn render_text(state: &mut TextScene, ctx: &mut impl RenderingContext) {
-    for line in state.layout.lines() {
-        for item in line.items() {
-            if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
-                render_glyph_run(ctx, &glyph_run, 30);
-            }
-        }
-    }
-}
+    let mut layout = builder.build(text);
+    let max_advance = Some(MAX_ADVANCE);
+    layout.break_all_lines(max_advance);
+    layout.align(max_advance, Alignment::Start, AlignmentOptions::default());
 
-/// Render text to recording
-fn render_text_record(layout: &mut Layout<ColorBrush>, ctx: &mut Recorder<'_>, transform: Affine) {
-    ctx.set_transform(transform);
-    for line in layout.lines() {
-        for item in line.items() {
-            if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
-                render_glyph_run_record(ctx, &glyph_run, 30);
-            }
-        }
-    }
+    layout
 }
 
 fn render_glyph_run(
     ctx: &mut impl RenderingContext,
     glyph_run: &GlyphRun<'_, ColorBrush>,
-    padding: u32,
+    glyph_caches: &mut dyn Any,
 ) {
-    let mut run_x = glyph_run.offset();
-    let run_y = glyph_run.baseline();
-    let glyphs = glyph_run.glyphs().map(|glyph| {
-        let glyph_x = run_x + glyph.x + padding as f32;
-        let glyph_y = run_y - glyph.y + padding as f32;
-        run_x += glyph.advance;
-
-        Glyph {
-            id: glyph.id as u32,
-            x: glyph_x,
-            y: glyph_y,
-        }
-    });
+    let style = glyph_run.style();
+    ctx.set_paint(style.brush.color);
 
     let run = glyph_run.run();
     let font = run.font();
     let font_size = run.font_size();
-    let normalized_coords = bytemuck::cast_slice(run.normalized_coords());
+    let normalized_coords = run.normalized_coords();
 
-    let style = glyph_run.style();
-    ctx.set_paint(style.brush.color);
-    ctx.glyph_run(font)
-        .font_size(font_size)
-        .normalized_coords(normalized_coords)
-        .hint(true)
-        .fill_glyphs(glyphs);
+    let glyphs: Vec<Glyph> = glyph_run
+        .positioned_glyphs()
+        .map(|g| Glyph {
+            id: u32::from(g.id),
+            x: g.x,
+            y: g.y,
+        })
+        .collect();
+
+    ctx.fill_glyphs(
+        font,
+        font_size,
+        true,
+        normalized_coords,
+        glyphs.into_iter(),
+        glyph_caches,
+    );
+
+    if let Some(decoration) = &style.underline {
+        let offset = decoration.offset.unwrap_or(run.metrics().underline_offset);
+        let size = decoration.size.unwrap_or(run.metrics().underline_size);
+        ctx.set_paint(decoration.brush.color);
+        render_decoration(ctx, glyph_run, offset, size);
+    }
+    if let Some(decoration) = &style.strikethrough {
+        let offset = decoration
+            .offset
+            .unwrap_or(run.metrics().strikethrough_offset);
+        let size = decoration.size.unwrap_or(run.metrics().strikethrough_size);
+        ctx.set_paint(decoration.brush.color);
+        render_strikethrough(ctx, glyph_run, offset, size);
+    }
 }
 
-fn render_glyph_run_record(
-    ctx: &mut Recorder<'_>,
+fn render_decoration(
+    ctx: &mut impl RenderingContext,
     glyph_run: &GlyphRun<'_, ColorBrush>,
-    padding: u32,
+    offset: f32,
+    size: f32,
 ) {
-    let mut run_x = glyph_run.offset();
-    let run_y = glyph_run.baseline();
-    let glyphs = glyph_run.glyphs().map(|glyph| {
-        let glyph_x = run_x + glyph.x + padding as f32;
-        let glyph_y = run_y - glyph.y + padding as f32;
-        run_x += glyph.advance;
+    let y = glyph_run.baseline() - offset;
+    let x = glyph_run.offset();
+    let x1 = x + glyph_run.advance();
+    let y1 = y + size;
+    ctx.fill_rect(&Rect::new(x as f64, y as f64, x1 as f64, y1 as f64));
+}
 
-        Glyph {
-            id: glyph.id as u32,
-            x: glyph_x,
-            y: glyph_y,
-        }
-    });
-
-    let run = glyph_run.run();
-    let font = run.font();
-    let font_size = run.font_size();
-    let normalized_coords = bytemuck::cast_slice(run.normalized_coords());
-
-    let style = glyph_run.style();
-    ctx.set_paint(style.brush.color);
-    ctx.glyph_run(font)
-        .font_size(font_size)
-        .normalized_coords(normalized_coords)
-        .hint(true)
-        .fill_glyphs(glyphs);
+fn render_strikethrough(
+    ctx: &mut impl RenderingContext,
+    glyph_run: &GlyphRun<'_, ColorBrush>,
+    offset: f32,
+    size: f32,
+) {
+    let y = glyph_run.baseline() - offset;
+    let x = glyph_run.offset();
+    let x1 = x + glyph_run.advance();
+    let y1 = y + size;
+    ctx.fill_rect(&Rect::new(x as f64, y as f64, x1 as f64, y1 as f64));
 }

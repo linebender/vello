@@ -249,9 +249,10 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                 use crate::util::{
                     check_ref, get_ctx
                 };
-                use vello_cpu::{RenderContext, RenderMode};
+                use crate::renderer::CpuRenderer;
+                use vello_cpu::RenderMode;
 
-                let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent, #num_threads, #level, #render_mode);
+                let mut ctx = get_ctx::<CpuRenderer>(#width, #height, #transparent, #num_threads, #level, #render_mode);
                 #input_fn_name(&mut ctx);
                 ctx.flush();
                 if !#no_ref {

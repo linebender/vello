@@ -14,10 +14,12 @@ pub mod simple;
 pub mod svg;
 pub mod text;
 
+use core::any::Any;
+
+use parley_draw::{Glyph, GlyphRunBuilder, ImageCache};
 use vello_common::coarse::WideTile;
 use vello_common::color::palette::css::WHITE;
 use vello_common::filter_effects::Filter;
-pub use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder};
 use vello_common::kurbo::Affine;
 pub use vello_common::kurbo::{BezPath, Rect, Shape, Stroke};
 pub use vello_common::mask::Mask;
@@ -31,9 +33,6 @@ use vello_hybrid::Scene;
 
 /// A generic rendering context.
 pub trait RenderingContext: Sized {
-    /// The glyph renderer type.
-    type GlyphRenderer: GlyphRenderer;
-
     /// Width of the render target in pixels.
     fn width(&self) -> u16;
     /// Height of the render target in pixels.
@@ -61,8 +60,6 @@ pub trait RenderingContext: Sized {
     fn stroke_path(&mut self, path: &BezPath);
     /// Fill a rectangle with the current paint.
     fn fill_rect(&mut self, rect: &Rect);
-    /// Create a glyph run builder for text rendering.
-    fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self::GlyphRenderer>;
     /// Push a clip layer.
     fn push_clip_layer(&mut self, path: &BezPath);
     /// Push a clip path.
@@ -86,12 +83,31 @@ pub trait RenderingContext: Sized {
     fn prepare_recording(&mut self, recording: &mut Recording);
     /// Execute a recording directly without preparation.
     fn execute_recording(&mut self, recording: &Recording);
+
+    /// Get the current transform.
+    fn transform(&self) -> Affine;
+
+    /// Create a new set of glyph caches for this renderer backend.
+    ///
+    /// Returns a type-erased cache that must be passed to [`Self::fill_glyphs`].
+    fn create_glyph_caches(&self) -> Box<dyn Any>;
+
+    /// Fill glyphs using the renderer's glyph pipeline.
+    ///
+    /// `glyph_caches` must be the value returned by [`Self::create_glyph_caches`].
+    fn fill_glyphs(
+        &mut self,
+        font: &FontData,
+        font_size: f32,
+        hint: bool,
+        normalized_coords: &[i16],
+        glyphs: impl Iterator<Item = Glyph>,
+        glyph_caches: &mut dyn Any,
+    );
 }
 
 #[cfg(feature = "cpu")]
 impl RenderingContext for RenderContext {
-    type GlyphRenderer = Self;
-
     fn width(&self) -> u16 {
         self.width()
     }
@@ -144,10 +160,6 @@ impl RenderingContext for RenderContext {
         self.fill_rect(rect);
     }
 
-    fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self> {
-        self.glyph_run(font)
-    }
-
     fn push_clip_layer(&mut self, path: &BezPath) {
         self.push_clip_layer(path);
     }
@@ -185,12 +197,48 @@ impl RenderingContext for RenderContext {
 
     fn pop_clip_path(&mut self) {
         Self::pop_clip_path(self);
+    }
+
+    fn transform(&self) -> Affine {
+        *self.transform()
+    }
+
+    fn create_glyph_caches(&self) -> Box<dyn Any> {
+        Box::new(CpuGlyphState {
+            glyph_caches: parley_draw::CpuGlyphCaches::new(512, 512),
+            image_cache: ImageCache::new_with_config(parley_draw::AtlasConfig::default()),
+        })
+    }
+
+    fn fill_glyphs(
+        &mut self,
+        font: &FontData,
+        font_size: f32,
+        hint: bool,
+        normalized_coords: &[i16],
+        glyphs: impl Iterator<Item = Glyph>,
+        glyph_caches: &mut dyn Any,
+    ) {
+        let state = glyph_caches
+            .downcast_mut::<CpuGlyphState>()
+            .expect("wrong glyph cache type for CPU renderer");
+        let transform = *self.transform();
+        GlyphRunBuilder::new(font.clone(), transform, self)
+            .font_size(font_size)
+            .hint(hint)
+            .normalized_coords(bytemuck::cast_slice(normalized_coords))
+            .fill_glyphs(glyphs, &mut state.glyph_caches, &mut state.image_cache);
     }
 }
 
-impl RenderingContext for Scene {
-    type GlyphRenderer = Self;
+/// Glyph caches for the CPU renderer backend.
+#[cfg(feature = "cpu")]
+struct CpuGlyphState {
+    glyph_caches: parley_draw::CpuGlyphCaches,
+    image_cache: ImageCache,
+}
 
+impl RenderingContext for Scene {
     fn width(&self) -> u16 {
         self.width()
     }
@@ -243,10 +291,6 @@ impl RenderingContext for Scene {
         self.fill_rect(rect);
     }
 
-    fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self> {
-        self.glyph_run(font)
-    }
-
     fn push_clip_layer(&mut self, path: &BezPath) {
         self.push_clip_layer(path);
     }
@@ -285,6 +329,45 @@ impl RenderingContext for Scene {
     fn pop_clip_path(&mut self) {
         Self::pop_clip_path(self);
     }
+
+    fn transform(&self) -> Affine {
+        *self.transform()
+    }
+
+    fn create_glyph_caches(&self) -> Box<dyn Any> {
+        Box::new(GpuGlyphState {
+            glyph_caches: parley_draw::GpuGlyphCaches::with_config(
+                parley_draw::GlyphCacheConfig::default(),
+            ),
+            image_cache: ImageCache::new_with_config(parley_draw::AtlasConfig::default()),
+        })
+    }
+
+    fn fill_glyphs(
+        &mut self,
+        font: &FontData,
+        font_size: f32,
+        hint: bool,
+        normalized_coords: &[i16],
+        glyphs: impl Iterator<Item = Glyph>,
+        glyph_caches: &mut dyn Any,
+    ) {
+        let state = glyph_caches
+            .downcast_mut::<GpuGlyphState>()
+            .expect("wrong glyph cache type for hybrid renderer");
+        let transform = *self.transform();
+        GlyphRunBuilder::new(font.clone(), transform, self)
+            .font_size(font_size)
+            .hint(hint)
+            .normalized_coords(bytemuck::cast_slice(normalized_coords))
+            .fill_glyphs(glyphs, &mut state.glyph_caches, &mut state.image_cache);
+    }
+}
+
+/// Glyph caches for the hybrid (GPU) renderer backend.
+struct GpuGlyphState {
+    glyph_caches: parley_draw::GpuGlyphCaches,
+    image_cache: ImageCache,
 }
 
 /// Example scene that can maintain state between renders.
@@ -424,7 +507,7 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
         scenes.push(AnyScene::new(svg::SvgScene::tiger()));
     }
 
-    scenes.push(AnyScene::new(text::TextScene::new("Hello, Vello!")));
+    scenes.push(AnyScene::new(text::TextScene::default()));
     scenes.push(AnyScene::new(simple::SimpleScene::new()));
     scenes.push(AnyScene::new(clip::ClipScene::new()));
     #[cfg(feature = "cpu")]
@@ -455,7 +538,6 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
 ) -> Box<[AnyScene<T>]> {
     let scenes = vec![
         AnyScene::new(svg::SvgScene::tiger()),
-        AnyScene::new(text::TextScene::new("Hello, Vello!")),
         AnyScene::new(simple::SimpleScene::new()),
         #[cfg(feature = "cpu")]
         AnyScene::new(filter::FilterScene::new()),

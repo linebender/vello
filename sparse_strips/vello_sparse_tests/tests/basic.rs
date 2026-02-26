@@ -4,7 +4,7 @@
 //! Tests for basic functionality.
 
 use crate::renderer::Renderer;
-use crate::util::{circular_star, crossed_line_star, layout_glyphs_roboto, miter_stroke_2};
+use crate::util::{circular_star, crossed_line_star, miter_stroke_2};
 use std::f64::consts::PI;
 use vello_common::coarse::Cmd;
 use vello_common::color::palette::css::{
@@ -12,8 +12,6 @@ use vello_common::color::palette::css::{
 };
 use vello_common::kurbo::{Affine, BezPath, Circle, Join, Point, Rect, Shape, Stroke};
 use vello_common::peniko::Fill;
-use vello_cpu::color::palette::css::BLACK;
-use vello_cpu::{Glyph, Level, Pixmap, RenderContext, RenderMode, RenderSettings};
 use vello_dev_macros::vello_test;
 
 #[vello_test(width = 8, height = 8)]
@@ -465,6 +463,13 @@ fn test_cmd_size(_: &mut impl Renderer) {
 /// 3. Use `composite_to_pixmap_at_offset` to blit it to a specific (x, y) position in a larger spritesheet
 #[test]
 fn composite_to_pixmap_at_offset() {
+    use crate::util::layout_glyphs_roboto;
+    use parley_draw::atlas::ImageCache;
+    use parley_draw::{CpuGlyphCaches, Glyph, GlyphRunBuilder};
+    use vello_common::multi_atlas::AtlasConfig;
+    use vello_cpu::color::palette::css::BLACK;
+    use vello_cpu::{Level, Pixmap, RenderContext, RenderMode, RenderSettings};
+
     let settings = RenderSettings {
         level: Level::try_detect().unwrap_or(Level::baseline()),
         num_threads: 0,
@@ -474,59 +479,67 @@ fn composite_to_pixmap_at_offset() {
     let spritesheet_height: u16 = 100;
     let mut spritesheet = Pixmap::new(spritesheet_width, spritesheet_height);
 
-    // Layout a single character to get glyph metrics
     let font_size: f32 = 50.0;
     let (font, glyphs) = layout_glyphs_roboto("B", font_size);
     let glyph = &glyphs[0];
 
-    // For simplicity, use a fixed glyph size
+    let mut glyph_caches = CpuGlyphCaches::new(512, 512);
+    let mut image_cache = ImageCache::new_with_config(AtlasConfig {
+        initial_atlas_count: 1,
+        max_atlases: 4,
+        atlas_size: (512, 512),
+        auto_grow: true,
+        ..Default::default()
+    });
+
     let max_glyph_size: u16 = 55;
-    // Create a small `RenderContext` sized for the glyph
     let mut glyph_renderer = RenderContext::new_with(max_glyph_size, max_glyph_size, settings);
 
     glyph_renderer.set_transform(Affine::translate((0.0, f64::from(font_size))));
     glyph_renderer.set_paint(BLACK);
-    glyph_renderer
-        .glyph_run(&font)
+    let transform = *glyph_renderer.transform();
+    GlyphRunBuilder::new(font.clone(), transform, &mut glyph_renderer)
         .font_size(font_size)
         .hint(true)
-        .fill_glyphs(std::iter::once(Glyph {
-            id: glyph.id,
-            x: 0.0,
-            y: 0.0,
-        }));
+        .fill_glyphs(
+            std::iter::once(Glyph {
+                id: glyph.id,
+                x: 0.0,
+                y: 0.0,
+            }),
+            &mut glyph_caches,
+            &mut image_cache,
+        );
     glyph_renderer.flush();
 
-    // Positions where we'll blit the glyph
     let positions: [(u16, u16); 3] = [(15, 15), (30, 30), (0, 0)];
 
     for (dst_x, dst_y) in positions {
         glyph_renderer.composite_to_pixmap_at_offset(&mut spritesheet, dst_x, dst_y);
     }
 
-    // Now render the glyphs directly at the same positions to a reference pixmap
-    // to verify that the glyphs are rendered correctly at the same positions.
     let mut reference_renderer =
         RenderContext::new_with(spritesheet_width, spritesheet_height, settings);
     reference_renderer.set_paint(BLACK);
 
     for (dst_x, dst_y) in positions {
-        // The glyph in glyph_renderer was rendered at (0, font_size).
-        // When blitted to (dst_x, dst_y), it appears at (dst_x + 0, dst_y + font_size).
-        // So we need to render at transform (dst_x, dst_y + font_size) in the reference.
         reference_renderer.set_transform(Affine::translate((
             f64::from(dst_x),
             f64::from(dst_y) + f64::from(font_size),
         )));
-        reference_renderer
-            .glyph_run(&font)
+        let transform = *reference_renderer.transform();
+        GlyphRunBuilder::new(font.clone(), transform, &mut reference_renderer)
             .font_size(font_size)
             .hint(true)
-            .fill_glyphs(std::iter::once(Glyph {
-                id: glyph.id,
-                x: 0.0,
-                y: 0.0,
-            }));
+            .fill_glyphs(
+                std::iter::once(Glyph {
+                    id: glyph.id,
+                    x: 0.0,
+                    y: 0.0,
+                }),
+                &mut glyph_caches,
+                &mut image_cache,
+            );
     }
     reference_renderer.flush();
 

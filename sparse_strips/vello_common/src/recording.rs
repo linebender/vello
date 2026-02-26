@@ -4,13 +4,9 @@
 //! Recording API for caching sparse strips
 
 use crate::filter_effects::Filter;
-#[cfg(feature = "text")]
-use crate::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::mask::Mask;
 use crate::paint::{PaintType, Tint};
-#[cfg(feature = "text")]
-use crate::peniko::FontData;
 use crate::peniko::{BlendMode, Fill};
 use crate::strip::Strip;
 use crate::strip_generator::StripStorage;
@@ -137,12 +133,6 @@ pub enum RenderCommand {
     SetFilterEffect(Filter),
     /// Reset the current filter effect.
     ResetFilterEffect,
-    /// Render a fill outline glyph.
-    #[cfg(feature = "text")]
-    FillOutlineGlyph((BezPath, Affine)),
-    /// Render a stroke outline glyph.
-    #[cfg(feature = "text")]
-    StrokeOutlineGlyph((BezPath, Affine)),
 }
 
 impl Recording {
@@ -331,24 +321,12 @@ pub trait Recordable {
 pub struct Recorder<'a> {
     /// The recording to capture commands into.
     recording: &'a mut Recording,
-
-    #[cfg(feature = "text")]
-    glyph_caches: Option<crate::glyph::GlyphCaches>,
 }
 
 impl<'a> Recorder<'a> {
     /// Create a new recorder for the given recording.
-    pub fn new(
-        recording: &'a mut Recording,
-        transform: Affine,
-        #[cfg(feature = "text")] glyph_caches: crate::glyph::GlyphCaches,
-    ) -> Self {
-        let mut s = Self {
-            recording,
-            #[cfg(feature = "text")]
-            glyph_caches: Some(glyph_caches),
-        };
-        // Ensure that the initial transform is saved on the recording.
+    pub fn new(recording: &'a mut Recording, transform: Affine) -> Self {
+        let mut s = Self { recording };
         s.set_transform(transform);
         s
     }
@@ -463,53 +441,4 @@ impl<'a> Recorder<'a> {
         self.recording.add_command(RenderCommand::PopLayer);
     }
 
-    /// Creates a builder for drawing a run of glyphs that have the same attributes.
-    #[cfg(feature = "text")]
-    pub fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self> {
-        GlyphRunBuilder::new(font.clone(), self.recording.transform, self)
-    }
-}
-
-#[cfg(feature = "text")]
-impl GlyphRenderer for Recorder<'_> {
-    fn fill_glyph(&mut self, glyph: PreparedGlyph<'_>) {
-        match glyph.glyph_type {
-            GlyphType::Outline(outline_glyph) => {
-                if !outline_glyph.path.is_empty() {
-                    self.recording.add_command(RenderCommand::FillOutlineGlyph((
-                        outline_glyph.path.clone(),
-                        glyph.transform,
-                    )));
-                }
-            }
-
-            _ => {
-                unimplemented!("Recording glyphs of type {:?}", glyph.glyph_type);
-            }
-        }
-    }
-
-    fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>) {
-        match glyph.glyph_type {
-            GlyphType::Outline(outline_glyph) => {
-                if !outline_glyph.path.is_empty() {
-                    self.recording
-                        .add_command(RenderCommand::StrokeOutlineGlyph((
-                            outline_glyph.path.clone(),
-                            glyph.transform,
-                        )));
-                }
-            }
-            _ => {
-                unimplemented!("Recording glyphs of type {:?}", glyph.glyph_type);
-            }
-        }
-    }
-
-    fn restore_glyph_caches(&mut self, caches: crate::glyph::GlyphCaches) {
-        self.glyph_caches = Some(caches);
-    }
-    fn take_glyph_caches(&mut self) -> crate::glyph::GlyphCaches {
-        self.glyph_caches.take().unwrap_or_default()
-    }
 }

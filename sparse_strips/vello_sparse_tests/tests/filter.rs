@@ -3,8 +3,9 @@
 
 //! Tests demonstrating the filter effects API usage.
 
+use crate::renderer::Renderer;
 use crate::util::circular_star;
-use crate::{renderer::Renderer, util::layout_glyphs_roboto};
+use crate::util::layout_glyphs_roboto;
 use vello_common::color::AlphaColor;
 use vello_common::color::palette::css::{
     BLACK, PURPLE, REBECCA_PURPLE, ROYAL_BLUE, SEA_GREEN, TOMATO, VIOLET,

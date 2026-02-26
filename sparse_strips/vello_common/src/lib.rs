@@ -21,9 +21,7 @@
 //!   (likely using your target's libc).
 //! - `libm`: Use floating point implementations from [libm][].
 //! - `png` (enabled by default): Allow loading [`Pixmap`][crate::pixmap::Pixmap]s from PNG images.
-//!   Also required for rendering glyphs with an embedded PNG.
 //!   Implies `std`.
-//! - `text` (enabled by default): Enables glyph rendering (see the [`glyph`][] module).
 //!
 //! At least one of `std` and `libm` is required; `std` overrides `libm`.
 //!
@@ -68,15 +66,11 @@ pub(crate) mod allocator;
 pub mod blurred_rounded_rect;
 pub mod clip;
 pub mod coarse;
-#[cfg(feature = "text")]
-pub mod colr;
 pub mod encode;
 pub mod filter;
 pub mod filter_effects;
 pub mod flatten;
 pub(crate) mod flatten_simd;
-#[cfg(feature = "text")]
-pub mod glyph;
 pub mod image_cache;
 pub mod mask;
 pub mod math;

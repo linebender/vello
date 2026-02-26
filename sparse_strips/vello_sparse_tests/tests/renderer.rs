@@ -4,10 +4,12 @@
 use std::cell::RefCell;
 use std::sync::Arc;
 
+use parley_draw::atlas::ImageCache;
+use parley_draw::{CpuGlyphCaches, Glyph, GlyphRunBuilder};
 use vello_common::filter_effects::Filter;
-use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder};
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
+use vello_common::multi_atlas::AtlasConfig;
 use vello_common::paint::{ImageId, ImageSource, PaintType, Tint};
 use vello_common::peniko::{BlendMode, Fill, FontData};
 use vello_common::pixmap::Pixmap;
@@ -17,9 +19,48 @@ use vello_hybrid::Scene;
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 use web_sys::WebGl2RenderingContext;
 
-pub(crate) trait Renderer: Sized {
-    type GlyphRenderer: GlyphRenderer;
+pub(crate) struct GlyphConfig {
+    pub font_size: f32,
+    pub hint: bool,
+    pub glyph_transform: Option<Affine>,
+}
 
+pub(crate) struct TestGlyphRun<'a, T: Renderer + ?Sized> {
+    renderer: &'a mut T,
+    font: FontData,
+    config: GlyphConfig,
+}
+
+impl<'a, T: Renderer> TestGlyphRun<'a, T> {
+    pub(crate) fn font_size(mut self, size: f32) -> Self {
+        self.config.font_size = size;
+        self
+    }
+
+    pub(crate) fn hint(mut self, hint: bool) -> Self {
+        self.config.hint = hint;
+        self
+    }
+
+    pub(crate) fn glyph_transform(mut self, transform: Affine) -> Self {
+        self.config.glyph_transform = Some(transform);
+        self
+    }
+
+    pub(crate) fn fill_glyphs(self, glyphs: impl Iterator<Item = Glyph>) {
+        let glyphs: Vec<Glyph> = glyphs.collect();
+        self.renderer
+            .fill_glyphs_impl(&self.font, &self.config, &glyphs);
+    }
+
+    pub(crate) fn stroke_glyphs(self, glyphs: impl Iterator<Item = Glyph>) {
+        let glyphs: Vec<Glyph> = glyphs.collect();
+        self.renderer
+            .stroke_glyphs_impl(&self.font, &self.config, &glyphs);
+    }
+}
+
+pub(crate) trait Renderer: Sized {
     fn new(
         width: u16,
         height: u16,
@@ -32,7 +73,6 @@ pub(crate) trait Renderer: Sized {
     fn fill_rect(&mut self, rect: &Rect);
     fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32);
     fn stroke_rect(&mut self, rect: &Rect);
-    fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self::GlyphRenderer>;
     fn push_layer(
         &mut self,
         clip_path: Option<&BezPath>,
@@ -69,11 +109,44 @@ pub(crate) trait Renderer: Sized {
     fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>));
     fn prepare_recording(&mut self, recording: &mut Recording);
     fn execute_recording(&mut self, recording: &Recording);
+
+    fn fill_glyphs_impl(&mut self, font: &FontData, config: &GlyphConfig, glyphs: &[Glyph]);
+    fn stroke_glyphs_impl(&mut self, font: &FontData, config: &GlyphConfig, glyphs: &[Glyph]);
+
+    fn glyph_run<'a>(&'a mut self, font: &FontData) -> TestGlyphRun<'a, Self> {
+        TestGlyphRun {
+            renderer: self,
+            font: font.clone(),
+            config: GlyphConfig {
+                font_size: 16.0,
+                hint: true,
+                glyph_transform: None,
+            },
+        }
+    }
 }
 
-impl Renderer for RenderContext {
-    type GlyphRenderer = Self;
+fn default_image_cache() -> ImageCache {
+    ImageCache::new_with_config(AtlasConfig {
+        initial_atlas_count: 1,
+        max_atlases: 4,
+        atlas_size: (512, 512),
+        auto_grow: true,
+        ..Default::default()
+    })
+}
 
+// ---------------------------------------------------------------------------
+// CPU renderer
+// ---------------------------------------------------------------------------
+
+pub(crate) struct CpuRenderer {
+    ctx: RenderContext,
+    glyph_caches: CpuGlyphCaches,
+    image_cache: ImageCache,
+}
+
+impl Renderer for CpuRenderer {
     fn new(
         width: u16,
         height: u16,
@@ -86,32 +159,31 @@ impl Renderer for RenderContext {
             num_threads,
             render_mode,
         };
-
-        Self::new_with(width, height, settings)
+        Self {
+            ctx: RenderContext::new_with(width, height, settings),
+            glyph_caches: CpuGlyphCaches::new(512, 512),
+            image_cache: default_image_cache(),
+        }
     }
 
     fn fill_path(&mut self, path: &BezPath) {
-        Self::fill_path(self, path);
+        self.ctx.fill_path(path);
     }
 
     fn stroke_path(&mut self, path: &BezPath) {
-        Self::stroke_path(self, path);
+        self.ctx.stroke_path(path);
     }
 
     fn fill_rect(&mut self, rect: &Rect) {
-        Self::fill_rect(self, rect);
+        self.ctx.fill_rect(rect);
     }
 
     fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
-        Self::fill_blurred_rounded_rect(self, rect, radius, std_dev);
+        self.ctx.fill_blurred_rounded_rect(rect, radius, std_dev);
     }
 
     fn stroke_rect(&mut self, rect: &Rect) {
-        Self::stroke_rect(self, rect);
-    }
-
-    fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self> {
-        Self::glyph_run(self, font)
+        self.ctx.stroke_rect(rect);
     }
 
     fn push_layer(
@@ -122,99 +194,100 @@ impl Renderer for RenderContext {
         mask: Option<Mask>,
         filter: Option<Filter>,
     ) {
-        Self::push_layer(self, clip_path, blend_mode, opacity, mask, filter);
+        self.ctx
+            .push_layer(clip_path, blend_mode, opacity, mask, filter);
     }
 
     fn flush(&mut self) {
-        Self::flush(self);
+        self.ctx.flush();
     }
 
     fn push_clip_layer(&mut self, path: &BezPath) {
-        Self::push_clip_layer(self, path);
+        self.ctx.push_clip_layer(path);
     }
 
     fn push_clip_path(&mut self, path: &BezPath) {
-        Self::push_clip_path(self, path);
+        self.ctx.push_clip_path(path);
     }
 
     fn push_blend_layer(&mut self, blend_mode: BlendMode) {
-        Self::push_blend_layer(self, blend_mode);
+        self.ctx.push_blend_layer(blend_mode);
     }
 
     fn push_opacity_layer(&mut self, opacity: f32) {
-        Self::push_opacity_layer(self, opacity);
+        self.ctx.push_opacity_layer(opacity);
     }
 
     fn push_mask_layer(&mut self, mask: Mask) {
-        Self::push_mask_layer(self, mask);
+        self.ctx.push_mask_layer(mask);
     }
 
     fn push_filter_layer(&mut self, filter: Filter) {
-        Self::push_filter_layer(self, filter);
+        self.ctx.push_filter_layer(filter);
     }
 
     fn pop_layer(&mut self) {
-        Self::pop_layer(self);
+        self.ctx.pop_layer();
     }
 
     fn pop_clip_path(&mut self) {
-        Self::pop_clip_path(self);
+        self.ctx.pop_clip_path();
     }
 
     fn set_stroke(&mut self, stroke: Stroke) {
-        Self::set_stroke(self, stroke);
+        self.ctx.set_stroke(stroke);
     }
 
     fn set_mask(&mut self, mask: Mask) {
-        Self::set_mask(self, mask);
+        self.ctx.set_mask(mask);
     }
 
     fn set_paint(&mut self, paint: impl Into<PaintType>) {
-        Self::set_paint(self, paint);
+        self.ctx.set_paint(paint);
     }
 
     fn set_tint(&mut self, tint: Option<Tint>) {
-        Self::set_tint(self, tint);
+        self.ctx.set_tint(tint);
     }
 
     fn set_paint_transform(&mut self, affine: Affine) {
-        Self::set_paint_transform(self, affine);
+        self.ctx.set_paint_transform(affine);
     }
 
     fn set_fill_rule(&mut self, fill_rule: Fill) {
-        Self::set_fill_rule(self, fill_rule);
+        self.ctx.set_fill_rule(fill_rule);
     }
 
     fn set_transform(&mut self, transform: Affine) {
-        Self::set_transform(self, transform);
+        self.ctx.set_transform(transform);
     }
 
     fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>) {
-        Self::set_aliasing_threshold(self, aliasing_threshold);
+        self.ctx.set_aliasing_threshold(aliasing_threshold);
     }
 
     fn set_blend_mode(&mut self, blend_mode: BlendMode) {
-        Self::set_blend_mode(self, blend_mode);
+        self.ctx.set_blend_mode(blend_mode);
     }
 
     fn set_filter_effect(&mut self, filter: Filter) {
-        Self::set_filter_effect(self, filter);
+        self.ctx.set_filter_effect(filter);
     }
 
     fn reset_filter_effect(&mut self) {
-        Self::reset_filter_effect(self);
+        self.ctx.reset_filter_effect();
     }
 
     fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
-        Self::render_to_pixmap(self, pixmap);
+        self.ctx.render_to_pixmap(pixmap);
     }
 
     fn width(&self) -> u16 {
-        Self::width(self)
+        self.ctx.width()
     }
 
     fn height(&self) -> u16 {
-        Self::height(self)
+        self.ctx.height()
     }
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
@@ -222,21 +295,55 @@ impl Renderer for RenderContext {
     }
 
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
-        Self::register_image(self, pixmap)
+        self.ctx.register_image(pixmap)
     }
 
     fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
-        Recordable::record(self, recording, f);
+        Recordable::record(&mut self.ctx, recording, f);
     }
 
     fn prepare_recording(&mut self, recording: &mut Recording) {
-        Recordable::prepare_recording(self, recording);
+        Recordable::prepare_recording(&mut self.ctx, recording);
     }
 
     fn execute_recording(&mut self, recording: &Recording) {
-        Recordable::execute_recording(self, recording);
+        Recordable::execute_recording(&mut self.ctx, recording);
+    }
+
+    fn fill_glyphs_impl(&mut self, font: &FontData, config: &GlyphConfig, glyphs: &[Glyph]) {
+        let transform = *self.ctx.transform();
+        let mut builder = GlyphRunBuilder::new(font.clone(), transform, &mut self.ctx)
+            .font_size(config.font_size)
+            .hint(config.hint);
+        if let Some(gt) = config.glyph_transform {
+            builder = builder.glyph_transform(gt);
+        }
+        builder.fill_glyphs(
+            glyphs.iter().copied(),
+            &mut self.glyph_caches,
+            &mut self.image_cache,
+        );
+    }
+
+    fn stroke_glyphs_impl(&mut self, font: &FontData, config: &GlyphConfig, glyphs: &[Glyph]) {
+        let transform = *self.ctx.transform();
+        let mut builder = GlyphRunBuilder::new(font.clone(), transform, &mut self.ctx)
+            .font_size(config.font_size)
+            .hint(config.hint);
+        if let Some(gt) = config.glyph_transform {
+            builder = builder.glyph_transform(gt);
+        }
+        builder.stroke_glyphs(
+            glyphs.iter().copied(),
+            &mut self.glyph_caches,
+            &mut self.image_cache,
+        );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Hybrid renderer (native / non-WebGL)
+// ---------------------------------------------------------------------------
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 pub(crate) struct HybridRenderer {
@@ -246,12 +353,11 @@ pub(crate) struct HybridRenderer {
     texture: wgpu::Texture,
     texture_view: wgpu::TextureView,
     renderer: RefCell<vello_hybrid::Renderer>,
+    glyph_caches: parley_draw::GpuGlyphCaches,
 }
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 impl Renderer for HybridRenderer {
-    type GlyphRenderer = Scene;
-
     fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
         if num_threads != 0 {
             panic!("hybrid renderer doesn't support multi-threading");
@@ -262,7 +368,6 @@ impl Renderer for HybridRenderer {
         }
 
         let scene = Scene::new(width, height);
-        // Initialize wgpu device and queue for GPU rendering
         let instance = wgpu::Instance::default();
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::default(),
@@ -277,7 +382,6 @@ impl Renderer for HybridRenderer {
         }))
         .expect("Failed to create device");
 
-        // Create a render target texture
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Render Target"),
             size: wgpu::Extent3d {
@@ -295,7 +399,6 @@ impl Renderer for HybridRenderer {
         #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Create renderer and render the scene to the texture
         let renderer = vello_hybrid::Renderer::new(
             &device,
             &vello_hybrid::RenderTargetConfig {
@@ -312,6 +415,9 @@ impl Renderer for HybridRenderer {
             texture,
             texture_view,
             renderer: RefCell::new(renderer),
+            glyph_caches: parley_draw::GpuGlyphCaches::with_config(
+                parley_draw::GlyphCacheConfig::default(),
+            ),
         }
     }
 
@@ -333,10 +439,6 @@ impl Renderer for HybridRenderer {
 
     fn stroke_rect(&mut self, rect: &Rect) {
         self.scene.stroke_rect(rect);
-    }
-
-    fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self::GlyphRenderer> {
-        self.scene.glyph_run(font)
     }
 
     fn push_layer(
@@ -430,19 +532,7 @@ impl Renderer for HybridRenderer {
         self.scene.reset_filter_effect();
     }
 
-    // This method creates device resources every time it is called. This does not matter much for
-    // testing, but should not be used as a basis for implementing something real. This would be a
-    // very bad example for that.
     fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
-        // On some platforms using `cargo test` triggers segmentation faults in wgpu when the GPU
-        // tests are run in parallel (likely related to the number of device resources being
-        // requested simultaneously). This is "fixed" by putting a mutex around this method,
-        // ensuring only one set of device resources is alive at the same time. This slows down
-        // testing when `cargo test` is used.
-        //
-        // Testing with `cargo nextest` (as on CI) is not meaningfully slowed down. `nextest` runs
-        // each test in its own process (<https://nexte.st/docs/design/why-process-per-test/>),
-        // meaning there is no contention on this mutex.
         let _guard = {
             use std::sync::Mutex;
             static M: Mutex<()> = Mutex::new(());
@@ -452,13 +542,10 @@ impl Renderer for HybridRenderer {
         let width = self.scene.width();
         let height = self.scene.height();
 
-        // for image in image_cache.images {}
-
         let render_size = vello_hybrid::RenderSize {
             width: width.into(),
             height: height.into(),
         };
-        // Copy texture to buffer
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -476,7 +563,6 @@ impl Renderer for HybridRenderer {
             )
             .unwrap();
 
-        // Create a buffer to copy the texture data
         let bytes_per_row = (u32::from(width) * 4).next_multiple_of(256);
         let texture_copy_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Output Buffer"),
@@ -508,7 +594,6 @@ impl Renderer for HybridRenderer {
         );
         self.queue.submit([encoder.finish()]);
 
-        // Map the buffer for reading
         texture_copy_buffer
             .slice(..)
             .map_async(wgpu::MapMode::Read, move |result| {
@@ -520,7 +605,6 @@ impl Renderer for HybridRenderer {
             .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
 
-        // Read back the pixel data
         for (row, buf) in texture_copy_buffer
             .slice(..)
             .get_mapped_range()
@@ -551,7 +635,6 @@ impl Renderer for HybridRenderer {
                 label: Some("Upload Test Image"),
             });
 
-        // Upload image to cache and atlas in one step!
         let image_id = self.renderer.borrow_mut().upload_image(
             &self.device,
             &self.queue,
@@ -594,19 +677,52 @@ impl Renderer for HybridRenderer {
     fn execute_recording(&mut self, recording: &Recording) {
         Recordable::execute_recording(&mut self.scene, recording);
     }
+
+    fn fill_glyphs_impl(&mut self, font: &FontData, config: &GlyphConfig, glyphs: &[Glyph]) {
+        let transform = *self.scene.transform();
+        let mut builder = GlyphRunBuilder::new(font.clone(), transform, &mut self.scene)
+            .font_size(config.font_size)
+            .hint(config.hint);
+        if let Some(gt) = config.glyph_transform {
+            builder = builder.glyph_transform(gt);
+        }
+        builder.fill_glyphs(
+            glyphs.iter().copied(),
+            &mut self.glyph_caches,
+            &mut self.renderer.borrow_mut().image_cache,
+        );
+    }
+
+    fn stroke_glyphs_impl(&mut self, font: &FontData, config: &GlyphConfig, glyphs: &[Glyph]) {
+        let transform = *self.scene.transform();
+        let mut builder = GlyphRunBuilder::new(font.clone(), transform, &mut self.scene)
+            .font_size(config.font_size)
+            .hint(config.hint);
+        if let Some(gt) = config.glyph_transform {
+            builder = builder.glyph_transform(gt);
+        }
+        builder.stroke_glyphs(
+            glyphs.iter().copied(),
+            &mut self.glyph_caches,
+            &mut self.renderer.borrow_mut().image_cache,
+        );
+    }
 }
+
+// ---------------------------------------------------------------------------
+// Hybrid renderer (WebGL / wasm32)
+// ---------------------------------------------------------------------------
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 pub(crate) struct HybridRenderer {
     scene: Scene,
     renderer: RefCell<vello_hybrid::WebGlRenderer>,
     gl: WebGl2RenderingContext,
+    glyph_caches: parley_draw::GpuGlyphCaches,
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 impl Renderer for HybridRenderer {
-    type GlyphRenderer = Scene;
-
     fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
         use wasm_bindgen::JsCast;
         use web_sys::HtmlCanvasElement;
@@ -621,8 +737,6 @@ impl Renderer for HybridRenderer {
 
         let scene = Scene::new(width, height);
 
-        // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
-        // the pixmap for diff checking.
         let document = web_sys::window().unwrap().document().unwrap();
 
         let canvas = document
@@ -647,6 +761,9 @@ impl Renderer for HybridRenderer {
             scene,
             renderer: RefCell::new(renderer),
             gl,
+            glyph_caches: parley_draw::GpuGlyphCaches::with_config(
+                parley_draw::GlyphCacheConfig::default(),
+            ),
         }
     }
 
@@ -672,10 +789,6 @@ impl Renderer for HybridRenderer {
 
     fn stroke_rect(&mut self, rect: &Rect) {
         self.scene.stroke_rect(rect);
-    }
-
-    fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self::GlyphRenderer> {
-        self.scene.glyph_run(font)
     }
 
     fn push_clip_path(&mut self, path: &BezPath) {
@@ -764,7 +877,6 @@ impl Renderer for HybridRenderer {
         self.scene.reset_filter_effect();
     }
 
-    // vello_hybrid WebGL renderer backend.
     fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
         use web_sys::WebGl2RenderingContext;
 
@@ -823,5 +935,35 @@ impl Renderer for HybridRenderer {
 
     fn execute_recording(&mut self, recording: &Recording) {
         self.scene.execute_recording(recording);
+    }
+
+    fn fill_glyphs_impl(&mut self, font: &FontData, config: &GlyphConfig, glyphs: &[Glyph]) {
+        let transform = *self.scene.transform();
+        let mut builder = GlyphRunBuilder::new(font.clone(), transform, &mut self.scene)
+            .font_size(config.font_size)
+            .hint(config.hint);
+        if let Some(gt) = config.glyph_transform {
+            builder = builder.glyph_transform(gt);
+        }
+        builder.fill_glyphs(
+            glyphs.iter().copied(),
+            &mut self.glyph_caches,
+            &mut self.renderer.borrow_mut().image_cache,
+        );
+    }
+
+    fn stroke_glyphs_impl(&mut self, font: &FontData, config: &GlyphConfig, glyphs: &[Glyph]) {
+        let transform = *self.scene.transform();
+        let mut builder = GlyphRunBuilder::new(font.clone(), transform, &mut self.scene)
+            .font_size(config.font_size)
+            .hint(config.hint);
+        if let Some(gt) = config.glyph_transform {
+            builder = builder.glyph_transform(gt);
+        }
+        builder.stroke_glyphs(
+            glyphs.iter().copied(),
+            &mut self.glyph_caches,
+            &mut self.renderer.borrow_mut().image_cache,
+        );
     }
 }

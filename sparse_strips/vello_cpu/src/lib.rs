@@ -68,7 +68,6 @@
 //! - `png`(enabled by default): Allow loading [`Pixmap`]s from PNG images.
 //!   Also required for rendering glyphs with an embedded PNG. Implies `std`.
 //! - `multithreading`: Enable multi-threaded rendering. Implies `std`.
-//! - `text` (enabled by default): Enables glyph rendering ([`glyph_run`][RenderContext::glyph_run]).
 //! - `u8_pipeline` (enabled by default): Enable the u8 pipeline, for speed focused rendering using u8 math.
 //!   The `u8` pipeline will be used for [`OptimizeSpeed`][RenderMode::OptimizeSpeed], if both pipelines are enabled.
 //!   If you're using Vello CPU for application rendering, you should prefer this pipeline.
@@ -155,8 +154,6 @@ pub mod region;
 
 pub use render::{RenderContext, RenderSettings, RenderState};
 pub use vello_common::fearless_simd::Level;
-#[cfg(feature = "text")]
-pub use vello_common::glyph::Glyph;
 pub use vello_common::mask::Mask;
 pub use vello_common::paint::{Image, ImageSource, Paint, PaintType};
 pub use vello_common::pixmap::Pixmap;
