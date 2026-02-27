@@ -845,7 +845,7 @@ impl<const MODE: u8> Wide<MODE> {
             // Generate filter commands for each tile (used for non-graph path rendering)
             // Apply filter BEFORE clipping (per SVG spec: filter → clip → mask → opacity → blend)
             // Also ensure that each wide tile in the filter bbox (out of which some might not
-            // have been drawn on yet) has
+            // have been drawn on yet) has a `PushBuf` command.
             for x in final_bbox.x0()..final_bbox.x1() {
                 for y in final_bbox.y0()..final_bbox.y1() {
                     let idx = self.get_idx(x, y);
