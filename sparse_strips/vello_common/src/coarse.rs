@@ -769,16 +769,13 @@ impl<const MODE: u8> Wide<MODE> {
         if layer.needs_buf() {
             self.layers_needing_buf_stack.push(layer_kind);
 
-            // We eagerly push buffers for the entire viewport if this is a filter layer, a
-            // destructive blend, or if we are (nested in) a clipped filter layer.
+            // We eagerly push buffers for the entire viewport if this is a destructive blend
+            // or if we are (nested in) a clipped filter layer.
             //
             // TODO: We may be able to do away with some or all of this eager pushing in the
             // future, but for now these types of layers need buffers for all wide tiles regardless
             // of whether they're drawn on.
-            if has_filter
-                || layer.blend_mode.is_destructive()
-                || self.clipped_filter_layer_depth > 0
-            {
+            if layer.blend_mode.is_destructive() || self.clipped_filter_layer_depth > 0 {
                 for idx in 0..self.tiles.len() {
                     self.tiles[idx]
                         .ensure_layer_stack_bufs(idx, &mut self.layers_needing_buf_stack);
@@ -847,9 +844,20 @@ impl<const MODE: u8> Wide<MODE> {
 
             // Generate filter commands for each tile (used for non-graph path rendering)
             // Apply filter BEFORE clipping (per SVG spec: filter → clip → mask → opacity → blend)
+            // Also ensure that each wide tile in the filter bbox (out of which some might not
+            // have been drawn on yet) has
             for x in final_bbox.x0()..final_bbox.x1() {
                 for y in final_bbox.y0()..final_bbox.y1() {
-                    self.get_mut(x, y).filter(layer.layer_id, filter.clone());
+                    let idx = self.get_idx(x, y);
+                    self.tiles[idx]
+                        .ensure_layer_stack_bufs(idx, &mut self.layers_needing_buf_stack);
+
+                    // Note that unlike commands like "mask" or "opacity" which only need to be applied
+                    // to wide tiles with drawing commands, filter commands always need to be applied
+                    // to all wide tiles in the filter bounding-box, because it's possible that after
+                    // applying a filter (like gaussian blur), wide tiles will take on a new color
+                    // even though nothing had been drawn there originally.
+                    self.tiles[idx].filter(layer.layer_id, filter.clone());
                 }
             }
         }
@@ -877,7 +885,7 @@ impl<const MODE: u8> Wide<MODE> {
 
                 // Optimization: If no drawing happened since the last `PushBuf`, then we don't
                 // need to do any masking or buffer-wide opacity work. Even though we push buffers
-                // lazily, this can still happen: e.g., filter layers and destructive blends
+                // lazily, this can still happen: e.g., filter layers with clips and destructive blends
                 // currently push layers eagerly.
                 let has_draw_commands = !matches!(tile.cmds.last().unwrap(), &Cmd::PushBuf(..));
                 if has_draw_commands {
