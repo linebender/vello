@@ -7,11 +7,96 @@ use peniko::kurbo::{Affine, BezPath, Rect, Stroke};
 use peniko::{BlendMode, Brush, Color, Fill, ImageBrush};
 
 use crate::exact::ExactPathElements;
-use crate::scene::Scene;
+use crate::scene::{BlurredRoundedRectBrush, Scene};
 use crate::texture::TextureId;
 
 /// The brush type used for most painting operations in Vello API.
 pub type StandardBrush = Brush<ImageBrush<TextureId>>;
+
+// Explicitly *not* #[non_exhaustive], because adding a variant here is a breaking change for implementations of the API.
+// (As we require all variants be implemented by a compliant implementation)
+pub enum Paint {
+    /// This method is used to set the brush for images and gradients.
+    StandardBrush {
+        brush: StandardBrush,
+        /// The further transform to apply to the painted content, in addition to the transform applied to the object.
+        ///
+        /// As this is not needed for solid colors, `Paint` implements [`From<Color>`](peniko::Color).
+        ///
+        /// If you need a paint which is not impacted by the transform applied to the object's `Path`,
+        /// you should use [`Paint::Encoded`].
+        /// (An example use case for that would be a gradient which is applied through a full block of text)
+        paint_transform: Affine,
+    },
+    CustomBrush {
+        brush: u32,
+        paint_transform: Affine,
+    },
+    /// Draw an immutable image with a dynamic lifetime.
+    ///
+    /// Using this paint type will likely increase memory usage further than would otherwise be necessary, as:
+    /// 1) A copy of the image's data will remain in the renderer even after the final render using the image, until it is garbage collected based on renderer-specific criteria.
+    /// 2) The [`ImageData`](peniko::ImageData) used in this brush will remain live until this scene is rendered.
+    ///
+    /// As such, it's recommend to encode the image manually, and use [`Paint::StandardBrush`].
+    /// This is especially important for short-lived images (in addition to animated images).
+    /// (Note that Vello API itself does not currently support encoding images manually, but
+    /// individual renderers may provide APIs for this).
+    ///
+    /// This method is provided for developer ergonomics.
+    AdHocImage {
+        image: ImageBrush,
+        paint_transform: Affine,
+    },
+    /// Use a rounded rectangle blurred with an approximate gaussian filter as the paint.
+    ///
+    /// **This `Paint` type is currently unimplemented on all backends, so should not be used.**
+    ///
+    /// For performance reasons, shapes drawn with this paint should not extend more than approximately
+    /// 2.5 times `std_dev` away from the edges of `rect` (as any such points will not be perceptably
+    /// painted to, but calculations will still be performed for them).
+    ///
+    /// This method effectively draws the blurred rounded rectangle clipped to the
+    /// shapes drawn with this paint.
+    /// This "clipping" is useful for drawing box shadows, where the shadow should only
+    /// be drawn outside the box.
+    /// If just the blurred rounded rectangle is desired, without any clipping you can use
+    /// the simpler [`fill_blurred_rounded_rect`][PaintScene::fill_blurred_rounded_rect].
+    /// For many users, that method will be easier to use.
+    ///
+    /// For details on the algorithm used, see the 2020 Blog Post describing the technique,
+    /// [*Blurred rounded rectangles*](https://raphlinus.github.io/graphics/2020/04/21/blurred-rounded-rects.html).
+    BlurredRoundedRect(BlurredRoundedRectBrush),
+    /// A paint which was previously encoded into this `PaintScene`.
+    ///
+    /// This is *not* valid between frames, nor can it be ported between [`Scene`]s.
+    ///
+    /// This is used primarily to efficiently share gradients between paints, without them being impacted by the transform applied to the object.
+    /// // We'd like to support both brushes which are "object-local" and brushes which are "scene-local".
+    // Image for example you want a gradient to be applied over a whole paragraph of text.
+    // The naive solution would need to apply the gradient with a paint transform which undoes the
+    // object's transform. That's clearly pretty poor, and we can do better.
+    // However, this isn't exposed in the current Vellos, so we're choosing to defer this.
+    // transform: Affine,
+    Encoded(u32),
+}
+
+impl From<BlurredRoundedRectBrush> for Paint {
+    fn from(value: BlurredRoundedRectBrush) -> Self {
+        Self::BlurredRoundedRect(value)
+    }
+}
+
+impl From<Color> for Paint {
+    fn from(value: Color) -> Self {
+        Self::StandardBrush {
+            brush: Brush::Solid(value),
+            // A paint_transform has no effect for a solid colour, so setting this
+            // paint_transform is not losing intent
+            paint_transform: Affine::IDENTITY,
+        }
+    }
+}
 
 /// A 2d scene or canvas.
 ///
@@ -87,7 +172,13 @@ pub trait PaintScene: Any {
     /// Both `shape` and the current brush will be transformed using the 2d affine `transform`.
     /// See the documentation on [`Fill`]'s variants for details on when you might choose a given fill rule.
     // It would be really nice to have images of nested paths here, to explain winding numbers.
-    fn fill_path(&mut self, transform: Affine, fill_rule: Fill, path: &impl ExactPathElements);
+    fn fill_path(
+        &mut self,
+        transform: Affine,
+        fill_rule: Fill,
+        path: &impl ExactPathElements,
+        paint: impl Into<Paint>,
+    );
 
     /// Stroke along `path` with the current brush, following the given stroke parameters.
     ///
@@ -98,59 +189,8 @@ pub trait PaintScene: Any {
         transform: Affine,
         stroke_params: &Stroke,
         path: &impl ExactPathElements,
+        paint: impl Into<Paint>,
     );
-
-    /// Set the current brush to `brush`.
-    ///
-    /// This method is used to set the brush for images and gradients.
-    /// The `paint_transform` will be applied to only the brush contents, in
-    /// addition to the transform applied to the object.
-    /// For solid colors, this has no effect, and so you may prefer [`set_solid_brush`](PaintScene::set_solid_brush).
-    fn set_brush(
-        &mut self,
-        brush: impl Into<StandardBrush>,
-        // We'd like to support both brushes which are "object-local" and brushes which are "scene-local".
-        // Image for example you want a gradient to be applied over a whole paragraph of text.
-        // The naive solution would need to apply the gradient with a paint transform which undoes the
-        // object's transform. That's clearly pretty poor, and we can do better.
-        // However, this isn't exposed in the current Vellos, so we're choosing to defer this.
-        // transform: Affine,
-        paint_transform: Affine,
-    );
-
-    /// Set the current brush to represent a rounded rectangle blurred with an approximate gaussian filter.
-    ///
-    /// **This method is currently unimplemented on all backends, so should not be used.**
-    ///
-    /// For performance reasons, shapes drawn with this brush should not extend more than approximately
-    /// 2.5 times `std_dev` away from the edges of `rect` (as any such points will not be perceptably
-    /// painted to, but calculations will still be performed for them).
-    ///
-    /// This method effectively draws the blurred rounded rectangle clipped to the
-    /// shapes drawn with this brush.
-    /// This clipping is useful for drawing box shadows, where the shadow should only
-    /// be drawn outside the box.
-    /// If just the blurred rounded rectangle is desired, without any clipping,
-    /// use the simpler [`fill_blurred_rounded_rect`][PaintScene::fill_blurred_rounded_rect].
-    /// For many users, that method will be easier to use.
-    ///
-    /// For details on the algorithm used, see the 2020 Blog Post describing the technique,
-    /// [*Blurred rounded rectangles*](https://raphlinus.github.io/graphics/2020/04/21/blurred-rounded-rects.html).
-    fn set_blurred_rounded_rect_brush(
-        &mut self,
-        // transform: Affine,
-        paint_transform: Affine,
-        color: Color,
-        rect: &Rect,
-        radius: f32,
-        std_dev: f32,
-    );
-
-    /// Set the current brush to a solid `color`.
-    fn set_solid_brush(&mut self, color: Color) {
-        // The transform doesn't matter for a solid color brush.
-        self.set_brush(Brush::Solid(color), Affine::IDENTITY);
-    }
 
     /// Draw a rounded rectangle blurred with an approximate gaussian filter.
     /// This method resets the current brush.
@@ -158,7 +198,7 @@ pub trait PaintScene: Any {
     /// **This method is currently unimplemented on some backends, so should not be used.**
     ///
     /// If the rounded rectangle needs to be clipped, you can instead use
-    /// [`set_blurred_rounded_rect_brush`](PaintScene::set_blurred_rounded_rect_brush).
+    /// [`BlurredRoundedRectBrush`] as a paint directly (see also [`Paint::BlurredRoundedRect`]).
     ///
     /// The drawing is cut off 2.5 times `std_dev` away from the edges of `rect` for performance
     /// reasons, as any points outside of that area would not be perceptably painted to.
@@ -174,13 +214,20 @@ pub trait PaintScene: Any {
         radius: f32,
         std_dev: f32,
     ) {
-        self.set_blurred_rounded_rect_brush(transform, color, rect, radius, std_dev);
+        let brush = BlurredRoundedRectBrush {
+            // (We apply the transform in the fill_path call below)
+            paint_transform: Affine::IDENTITY,
+            color,
+            rect: *rect,
+            radius,
+            std_dev,
+        };
         // The impulse response of a gaussian filter is infinite.
         // For performance reason we cut off the filter at some extent where the response is close to zero.
         let kernel_size = (2.5 * std_dev) as f64;
 
         let shape: Rect = rect.inflate(kernel_size, kernel_size);
-        self.fill_path(transform, Fill::EvenOdd, &shape);
+        self.fill_path(transform, Fill::EvenOdd, &shape, brush);
     }
 
     /// Pushes a new layer clipped by the specified shape (if provided) and composed with
