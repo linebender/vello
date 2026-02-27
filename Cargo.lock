@@ -4018,6 +4018,7 @@ dependencies = [
 name = "vello_cpu_winit"
 version = "0.0.0"
 dependencies = [
+ "parley_draw",
  "softbuffer",
  "vello_common",
  "vello_cpu",
@@ -4089,6 +4090,7 @@ dependencies = [
 name = "vello_hybrid_winit"
 version = "0.0.0"
 dependencies = [
+ "parley_draw",
  "pollster",
  "vello_common",
  "vello_example_scenes",

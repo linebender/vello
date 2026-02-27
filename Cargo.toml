@@ -167,3 +167,7 @@ vello_hybrid = { path = "sparse_strips/vello_hybrid" }
 inherits = "release"
 debug = true
 strip = "none"
+
+[profile.profiling]
+inherits = "release"
+debug = true

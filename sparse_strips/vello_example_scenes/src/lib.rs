@@ -31,6 +31,24 @@ use vello_common::recording::{Recordable, Recorder, Recording};
 use vello_cpu::RenderContext;
 use vello_hybrid::Scene;
 
+/// Configuration for text rendering passed through to example scenes.
+#[derive(Clone, Copy, Debug)]
+pub struct TextConfig {
+    /// Whether font hinting is enabled.
+    pub hint: bool,
+    /// Whether the glyph atlas cache is enabled.
+    pub use_atlas_cache: bool,
+}
+
+impl Default for TextConfig {
+    fn default() -> Self {
+        Self {
+            hint: true,
+            use_atlas_cache: true,
+        }
+    }
+}
+
 /// A generic rendering context.
 pub trait RenderingContext: Sized {
     /// Width of the render target in pixels.
@@ -87,22 +105,21 @@ pub trait RenderingContext: Sized {
     /// Get the current transform.
     fn transform(&self) -> Affine;
 
-    /// Create a new set of glyph caches for this renderer backend.
-    ///
-    /// Returns a type-erased cache that must be passed to [`Self::fill_glyphs`].
-    fn create_glyph_caches(&self) -> Box<dyn Any>;
-
     /// Fill glyphs using the renderer's glyph pipeline.
     ///
-    /// `glyph_caches` must be the value returned by [`Self::create_glyph_caches`].
+    /// `glyph_caches` is a type-erased backend-specific glyph cache
+    /// (e.g. `GpuGlyphCaches` or `CpuGlyphCaches`).
+    /// `image_cache` is the shared atlas allocator that must be the same
+    /// instance used by the GPU renderer for atlas lookups.
     fn fill_glyphs(
         &mut self,
         font: &FontData,
         font_size: f32,
-        hint: bool,
         normalized_coords: &[i16],
         glyphs: impl Iterator<Item = Glyph>,
         glyph_caches: &mut dyn Any,
+        image_cache: &mut ImageCache,
+        text_config: &TextConfig,
     );
 }
 
@@ -203,39 +220,27 @@ impl RenderingContext for RenderContext {
         *self.transform()
     }
 
-    fn create_glyph_caches(&self) -> Box<dyn Any> {
-        Box::new(CpuGlyphState {
-            glyph_caches: parley_draw::CpuGlyphCaches::new(512, 512),
-            image_cache: ImageCache::new_with_config(parley_draw::AtlasConfig::default()),
-        })
-    }
-
     fn fill_glyphs(
         &mut self,
         font: &FontData,
         font_size: f32,
-        hint: bool,
         normalized_coords: &[i16],
         glyphs: impl Iterator<Item = Glyph>,
         glyph_caches: &mut dyn Any,
+        image_cache: &mut ImageCache,
+        text_config: &TextConfig,
     ) {
-        let state = glyph_caches
-            .downcast_mut::<CpuGlyphState>()
+        let caches = glyph_caches
+            .downcast_mut::<parley_draw::CpuGlyphCaches>()
             .expect("wrong glyph cache type for CPU renderer");
         let transform = *self.transform();
         GlyphRunBuilder::new(font.clone(), transform, self)
             .font_size(font_size)
-            .hint(hint)
+            .hint(text_config.hint)
             .normalized_coords(bytemuck::cast_slice(normalized_coords))
-            .fill_glyphs(glyphs, &mut state.glyph_caches, &mut state.image_cache);
+            .atlas_cache(text_config.use_atlas_cache)
+            .fill_glyphs(glyphs, caches, image_cache);
     }
-}
-
-/// Glyph caches for the CPU renderer backend.
-#[cfg(feature = "cpu")]
-struct CpuGlyphState {
-    glyph_caches: parley_draw::CpuGlyphCaches,
-    image_cache: ImageCache,
 }
 
 impl RenderingContext for Scene {
@@ -334,46 +339,43 @@ impl RenderingContext for Scene {
         *self.transform()
     }
 
-    fn create_glyph_caches(&self) -> Box<dyn Any> {
-        Box::new(GpuGlyphState {
-            glyph_caches: parley_draw::GpuGlyphCaches::with_config(
-                parley_draw::GlyphCacheConfig::default(),
-            ),
-            image_cache: ImageCache::new_with_config(parley_draw::AtlasConfig::default()),
-        })
-    }
-
     fn fill_glyphs(
         &mut self,
         font: &FontData,
         font_size: f32,
-        hint: bool,
         normalized_coords: &[i16],
         glyphs: impl Iterator<Item = Glyph>,
         glyph_caches: &mut dyn Any,
+        image_cache: &mut ImageCache,
+        text_config: &TextConfig,
     ) {
-        let state = glyph_caches
-            .downcast_mut::<GpuGlyphState>()
+        let caches = glyph_caches
+            .downcast_mut::<parley_draw::GpuGlyphCaches>()
             .expect("wrong glyph cache type for hybrid renderer");
         let transform = *self.transform();
         GlyphRunBuilder::new(font.clone(), transform, self)
             .font_size(font_size)
-            .hint(hint)
+            .hint(text_config.hint)
             .normalized_coords(bytemuck::cast_slice(normalized_coords))
-            .fill_glyphs(glyphs, &mut state.glyph_caches, &mut state.image_cache);
+            .atlas_cache(text_config.use_atlas_cache)
+            .fill_glyphs(glyphs, caches, image_cache);
     }
-}
-
-/// Glyph caches for the hybrid (GPU) renderer backend.
-struct GpuGlyphState {
-    glyph_caches: parley_draw::GpuGlyphCaches,
-    image_cache: ImageCache,
 }
 
 /// Example scene that can maintain state between renders.
 pub trait ExampleScene {
     /// Render the scene using the current state.
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine);
+    ///
+    /// `glyph_caches` and `image_cache` are provided by the application so that
+    /// text-rendering scenes can share atlas state with the GPU renderer.
+    fn render(
+        &mut self,
+        ctx: &mut impl RenderingContext,
+        root_transform: Affine,
+        glyph_caches: &mut dyn Any,
+        image_cache: &mut ImageCache,
+        text_config: &TextConfig,
+    );
 
     /// Handle key press events (optional).
     /// Returns true if the key was handled, false otherwise.
@@ -400,7 +402,7 @@ pub struct AnyScene<T> {
 }
 
 /// A type-erased render function.
-type RenderFn<T> = Box<dyn FnMut(&mut T, Affine)>;
+type RenderFn<T> = Box<dyn FnMut(&mut T, Affine, &mut dyn Any, &mut ImageCache, &TextConfig)>;
 
 /// A type-erased key handler function.
 type KeyHandlerFn = Box<dyn FnMut(&str) -> bool>;
@@ -424,7 +426,9 @@ impl<T: RenderingContext> AnyScene<T> {
         let scene_status = scene.clone();
 
         Self {
-            render_fn: Box::new(move |s, transform| scene.borrow_mut().render(s, transform)),
+            render_fn: Box::new(move |s, transform, gc, ic, tc| {
+                scene.borrow_mut().render(s, transform, gc, ic, tc);
+            }),
             key_handler_fn: Box::new(move |key| scene_clone.borrow_mut().handle_key(key)),
             status_fn: Box::new(move || scene_status.borrow().status()),
             show_widetile_columns: false,
@@ -432,11 +436,16 @@ impl<T: RenderingContext> AnyScene<T> {
     }
 
     /// Render the scene.
-    pub fn render(&mut self, ctx: &mut T, root_transform: Affine) {
-        // Render the actual scene content
-        (self.render_fn)(ctx, root_transform);
+    pub fn render(
+        &mut self,
+        ctx: &mut T,
+        root_transform: Affine,
+        glyph_caches: &mut dyn Any,
+        image_cache: &mut ImageCache,
+        text_config: &TextConfig,
+    ) {
+        (self.render_fn)(ctx, root_transform, glyph_caches, image_cache, text_config);
 
-        // Draw tile grid overlay if enabled
         if self.show_widetile_columns {
             self.draw_widetile_columns(ctx);
         }

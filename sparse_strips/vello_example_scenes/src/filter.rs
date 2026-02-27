@@ -6,7 +6,10 @@
 //! This scene is based on the `filter_varying_depths_clips_and_compositions` test.
 //! See: `sparse_strips/vello_sparse_tests/tests/filter.rs`
 
-use crate::{ExampleScene, RenderingContext};
+use core::any::Any;
+use parley_draw::ImageCache;
+
+use crate::{ExampleScene, RenderingContext, TextConfig};
 use vello_common::color::AlphaColor;
 use vello_common::color::palette::css::{PURPLE, ROYAL_BLUE, SEA_GREEN, TOMATO, VIOLET};
 use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
@@ -18,7 +21,14 @@ use vello_common::peniko::{BlendMode, Compose, Mix};
 pub struct FilterScene {}
 
 impl ExampleScene for FilterScene {
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+    fn render(
+        &mut self,
+        ctx: &mut impl RenderingContext,
+        root_transform: Affine,
+        _glyph_caches: &mut dyn Any,
+        _image_cache: &mut ImageCache,
+        _text_config: &TextConfig,
+    ) {
         ctx.set_transform(root_transform);
 
         let filter_drop_shadow = Filter::from_primitive(FilterPrimitive::DropShadow {

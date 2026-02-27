@@ -244,20 +244,37 @@ impl RenderContext {
                     &ctx.encoded_paints,
                 );
             } else {
-                // Fall back to path-based rendering for rotated/skewed transforms.
-                ctx.rect_to_temp_path(rect);
-                ctx.dispatcher.fill_path(
-                    &ctx.temp_path,
-                    ctx.fill_rule,
-                    ctx.transform,
-                    paint,
-                    ctx.blend_mode,
-                    ctx.aliasing_threshold,
-                    ctx.mask.clone(),
-                    &ctx.encoded_paints,
-                );
+                ctx.fill_rect_slow(rect, paint);
             }
         });
+    }
+
+    /// Fill a rectangle, bypassing the pixel-alignment fast-path check.
+    ///
+    /// Use this when the caller already knows the transform/rect combination is
+    /// *not* pixel-aligned (e.g. glyph atlas rendering with fractional bearing
+    /// offsets or non-identity paint transforms). This avoids the per-call cost
+    /// of `is_integer_translation` and `is_integer_rect`.
+    #[inline]
+    pub fn fill_rect_pixel_aligned(&mut self, rect: &Rect) {
+        self.with_optional_filter(|ctx| {
+            let paint = ctx.encode_current_paint();
+            ctx.fill_rect_slow(rect, paint);
+        });
+    }
+
+    fn fill_rect_slow(&mut self, rect: &Rect, paint: Paint) {
+        self.rect_to_temp_path(rect);
+        self.dispatcher.fill_path(
+            &self.temp_path,
+            self.fill_rule,
+            self.transform,
+            paint,
+            self.blend_mode,
+            self.aliasing_threshold,
+            self.mask.clone(),
+            &self.encoded_paints,
+        );
     }
 
     /// Stroke a rectangle.

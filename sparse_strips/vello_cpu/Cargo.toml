@@ -48,6 +48,7 @@ multithreading = [
 u8_pipeline = []
 # Quality focussed rendering using f32 math
 f32_pipeline = []
+text = []
 
 [lints]
 workspace = true

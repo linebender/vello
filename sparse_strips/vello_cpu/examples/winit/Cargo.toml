@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 winit = { workspace = true }
+parley_draw = { workspace = true, features = ["std", "vello_cpu"] }
 vello_common = { workspace = true }
 vello_cpu = { workspace = true, features = ["multithreading"] }
 vello_example_scenes = { workspace = true, features = ["cpu"] }

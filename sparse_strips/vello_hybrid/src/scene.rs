@@ -454,6 +454,20 @@ impl Scene {
         }
     }
 
+    /// Fill a rectangle, bypassing the pixel-alignment fast-path check.
+    ///
+    /// Use this when the caller already knows the transform/rect combination is
+    /// *not* pixel-aligned (e.g. glyph atlas rendering with fractional bearing
+    /// offsets or non-identity paint transforms). This avoids the per-call cost
+    /// of `is_integer_translation` and `is_integer_rect`.
+    #[inline]
+    pub fn fill_rect_pixel_aligned(&mut self, rect: &Rect) {
+        if !self.paint_visible {
+            return;
+        }
+        self.fill_rect_fast(rect);
+    }
+
     /// Fast path for filling a pixel-aligned rectangle.
     ///
     /// Bypasses path processing by generating strips directly for the rectangle.

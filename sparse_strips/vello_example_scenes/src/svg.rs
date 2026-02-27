@@ -3,6 +3,8 @@
 
 //! SVG rendering example scene.
 
+use core::any::Any;
+use parley_draw::ImageCache;
 use std::fmt;
 use vello_common::kurbo::{Affine, Stroke};
 use vello_common::pico_svg::{Item, PicoSvg};
@@ -11,7 +13,7 @@ use vello_common::recording::{Recorder, Recording};
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
 
-use crate::{ExampleScene, RenderingContext};
+use crate::{ExampleScene, RenderingContext, TextConfig};
 
 /// SVG scene that renders an SVG file
 pub struct SvgScene {
@@ -30,7 +32,14 @@ impl fmt::Debug for SvgScene {
 }
 
 impl ExampleScene for SvgScene {
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+    fn render(
+        &mut self,
+        ctx: &mut impl RenderingContext,
+        root_transform: Affine,
+        _glyph_caches: &mut dyn Any,
+        _image_cache: &mut ImageCache,
+        _text_config: &TextConfig,
+    ) {
         let current_transform = root_transform * self.transform;
 
         if self.recording_enabled {

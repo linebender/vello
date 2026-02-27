@@ -9,7 +9,10 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
-use crate::{ExampleScene, RenderingContext};
+use core::any::Any;
+use parley_draw::ImageCache;
+
+use crate::{ExampleScene, RenderingContext, TextConfig};
 use vello_common::color::palette::css::{
     BLACK, BLUE, DARK_BLUE, DARK_GREEN, GREEN, REBECCA_PURPLE, RED,
 };
@@ -24,7 +27,14 @@ pub struct ClipScene {
 }
 
 impl ExampleScene for ClipScene {
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+    fn render(
+        &mut self,
+        ctx: &mut impl RenderingContext,
+        root_transform: Affine,
+        _glyph_caches: &mut dyn Any,
+        _image_cache: &mut ImageCache,
+        _text_config: &TextConfig,
+    ) {
         render(ctx, root_transform, self.use_clip_path, self.num_circles);
     }
 

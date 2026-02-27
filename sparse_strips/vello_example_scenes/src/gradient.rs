@@ -9,7 +9,10 @@
 //! - `RadialScene`:
 //!     - `two_point_radial` method from `https://github.com/linebender/vello/blob/0f3ef03a823eb10b0d7a60164e286cde77ffa222/examples/scenes/src/test_scenes.rs#L882`
 
-use crate::{ExampleScene, RenderingContext};
+use core::any::Any;
+use parley_draw::ImageCache;
+
+use crate::{ExampleScene, RenderingContext, TextConfig};
 use smallvec::smallvec;
 use vello_common::color::palette::css::{BLACK, BLUE, LIME, RED, WHITE, YELLOW};
 use vello_common::kurbo::{Affine, Ellipse, Point, Rect, Shape, Stroke};
@@ -28,7 +31,14 @@ impl GradientExtendScene {
 }
 
 impl ExampleScene for GradientExtendScene {
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+    fn render(
+        &mut self,
+        ctx: &mut impl RenderingContext,
+        root_transform: Affine,
+        _glyph_caches: &mut dyn Any,
+        _image_cache: &mut ImageCache,
+        _text_config: &TextConfig,
+    ) {
         enum Kind {
             Linear,
             Radial,
@@ -148,7 +158,14 @@ impl RadialScene {
 }
 
 impl ExampleScene for RadialScene {
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+    fn render(
+        &mut self,
+        ctx: &mut impl RenderingContext,
+        root_transform: Affine,
+        _glyph_caches: &mut dyn Any,
+        _image_cache: &mut ImageCache,
+        _text_config: &TextConfig,
+    ) {
         /// Helper function to create color stops
         fn create_color_stops(colors: &[Color]) -> ColorStops {
             ColorStops(smallvec![

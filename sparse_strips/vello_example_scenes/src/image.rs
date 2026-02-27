@@ -4,6 +4,8 @@
 //! Image rendering example scene.
 use std::f64::consts::PI;
 
+use core::any::Any;
+use parley_draw::ImageCache;
 use vello_common::color::PremulRgba8;
 use vello_common::kurbo::{BezPath, Point, Shape, Vec2};
 use vello_common::peniko::ImageFormat;
@@ -15,7 +17,7 @@ use vello_common::{
     peniko::{Extend, ImageQuality},
 };
 
-use crate::{ExampleScene, RenderingContext};
+use crate::{ExampleScene, RenderingContext, TextConfig};
 
 /// Image scene state
 #[derive(Debug, Default)]
@@ -31,7 +33,14 @@ impl ImageScene {
 }
 
 impl ExampleScene for ImageScene {
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+    fn render(
+        &mut self,
+        ctx: &mut impl RenderingContext,
+        root_transform: Affine,
+        _glyph_caches: &mut dyn Any,
+        _image_cache: &mut ImageCache,
+        _text_config: &TextConfig,
+    ) {
         let splash_flower_id = self.img_sources[0].clone();
         let cowboy_id = self.img_sources[1].clone();
 

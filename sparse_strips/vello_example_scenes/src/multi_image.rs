@@ -4,7 +4,10 @@
 //! Scene that renders multiple axis-aligned images at randomized positions across the viewport.
 //! Press "a"/"A" to add 50/1 images, "d"/"D" to remove 50/1 images.
 
-use crate::{ExampleScene, RenderingContext};
+use core::any::Any;
+use parley_draw::ImageCache;
+
+use crate::{ExampleScene, RenderingContext, TextConfig};
 use std::fmt::{Debug, Formatter, Result};
 use vello_common::color::palette::css::WHITE;
 use vello_common::kurbo::{Affine, Rect, Vec2};
@@ -71,7 +74,14 @@ impl MultiImageScene {
 }
 
 impl ExampleScene for MultiImageScene {
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+    fn render(
+        &mut self,
+        ctx: &mut impl RenderingContext,
+        root_transform: Affine,
+        _glyph_caches: &mut dyn Any,
+        _image_cache: &mut ImageCache,
+        _text_config: &TextConfig,
+    ) {
         let vw = ctx.width() as f64;
         let vh = ctx.height() as f64;
         let t = root_transform.translation();

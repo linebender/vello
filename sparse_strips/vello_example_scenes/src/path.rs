@@ -10,7 +10,10 @@
 //! - `fill_types` method
 //! - `robust_paths` method
 
-use crate::{ExampleScene, RenderingContext};
+use core::any::Any;
+use parley_draw::ImageCache;
+
+use crate::{ExampleScene, RenderingContext, TextConfig};
 use vello_common::color::palette::css::{AQUA, BLUE, GRAY, LIME, YELLOW};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Point, Rect, Shape, Stroke};
 use vello_common::peniko::{Color, Fill};
@@ -48,7 +51,14 @@ const Y_OFFSET: f64 = 180.0;
 const X_OFFSET: f64 = 450.0;
 
 impl ExampleScene for StrokeStylesScene {
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+    fn render(
+        &mut self,
+        ctx: &mut impl RenderingContext,
+        root_transform: Affine,
+        _glyph_caches: &mut dyn Any,
+        _image_cache: &mut ImageCache,
+        _text_config: &TextConfig,
+    ) {
         let colors = [
             Color::from_rgb8(140, 181, 236),
             Color::from_rgb8(246, 236, 202),
@@ -193,7 +203,14 @@ impl FunkyPathsScene {
 
 // TODO: fix issue https://github.com/linebender/vello/issues/1240
 impl ExampleScene for FunkyPathsScene {
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+    fn render(
+        &mut self,
+        ctx: &mut impl RenderingContext,
+        root_transform: Affine,
+        _glyph_caches: &mut dyn Any,
+        _image_cache: &mut ImageCache,
+        _text_config: &TextConfig,
+    ) {
         // Missing movetos path
         let mut missing_movetos = BezPath::new();
         missing_movetos.move_to((0.0, 0.0));
@@ -242,7 +259,14 @@ impl TrickyStrokesScene {
 }
 
 impl ExampleScene for TrickyStrokesScene {
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+    fn render(
+        &mut self,
+        ctx: &mut impl RenderingContext,
+        root_transform: Affine,
+        _glyph_caches: &mut dyn Any,
+        _image_cache: &mut ImageCache,
+        _text_config: &TextConfig,
+    ) {
         let colors = [
             Color::from_rgb8(140, 181, 236),
             Color::from_rgb8(246, 236, 202),
@@ -372,7 +396,14 @@ impl FillTypesScene {
 }
 
 impl ExampleScene for FillTypesScene {
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+    fn render(
+        &mut self,
+        ctx: &mut impl RenderingContext,
+        root_transform: Affine,
+        _glyph_caches: &mut dyn Any,
+        _image_cache: &mut ImageCache,
+        _text_config: &TextConfig,
+    ) {
         let rect = Rect::from_origin_size(Point::new(0.0, 0.0), (500.0, 500.0));
 
         // Create star path
@@ -469,7 +500,14 @@ impl RobustPathsScene {
 }
 
 impl ExampleScene for RobustPathsScene {
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+    fn render(
+        &mut self,
+        ctx: &mut impl RenderingContext,
+        root_transform: Affine,
+        _glyph_caches: &mut dyn Any,
+        _image_cache: &mut ImageCache,
+        _text_config: &TextConfig,
+    ) {
         let mut path = BezPath::new();
         path.move_to((16.0, 16.0));
         path.line_to((32.0, 16.0));

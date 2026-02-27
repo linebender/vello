@@ -3,17 +3,26 @@
 
 //! Simple example scene with basic shapes.
 
+use core::any::Any;
+use parley_draw::ImageCache;
 use vello_common::kurbo::{Affine, BezPath, Stroke};
 use vello_common::peniko::color::palette;
 
-use crate::{ExampleScene, RenderingContext};
+use crate::{ExampleScene, RenderingContext, TextConfig};
 
 /// Simple scene state
 #[derive(Debug)]
 pub struct SimpleScene {}
 
 impl ExampleScene for SimpleScene {
-    fn render(&mut self, target: &mut impl RenderingContext, root_transform: Affine) {
+    fn render(
+        &mut self,
+        target: &mut impl RenderingContext,
+        root_transform: Affine,
+        _glyph_caches: &mut dyn Any,
+        _image_cache: &mut ImageCache,
+        _text_config: &TextConfig,
+    ) {
         render(target, root_transform);
     }
 }

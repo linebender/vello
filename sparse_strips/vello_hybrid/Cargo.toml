@@ -54,6 +54,7 @@ wgpu = ["dep:wgpu", "dep:vello_sparse_shaders"]
 # with the features which you need enabled.
 wgpu_default = ["wgpu", "wgpu/default"]
 webgl = ["dep:js-sys", "dep:web-sys", "dep:vello_sparse_shaders", "vello_sparse_shaders/glsl"]
+text = []
 
 [lints]
 workspace = true

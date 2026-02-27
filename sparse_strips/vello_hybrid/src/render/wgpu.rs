@@ -145,7 +145,16 @@ impl Renderer {
         render_size: &RenderSize,
         view: &TextureView,
     ) -> Result<(), RenderError> {
-        self.render_scene(scene, device, queue, encoder, render_size, view, true)
+        self.render_scene(
+            scene,
+            device,
+            queue,
+            encoder,
+            render_size,
+            view,
+            true,
+            false,
+        )
     }
 
     /// Render a `scene` directly into an atlas layer.
@@ -215,10 +224,6 @@ impl Renderer {
             &mut self.programs.resources.stub_atlas_bind_group,
         );
 
-        // TODO: The atlas is always RGBA8; when the surface uses a different format (e.g. BGRA on
-        // macOS), we may need a dedicated RGBA8 render pipeline for atlas rendering. Adopt the
-        // fix from the filters/native-format pipeline work when available.
-
         let result = self.render_scene(
             scene,
             device,
@@ -227,6 +232,7 @@ impl Renderer {
             &atlas_render_size,
             &layer_view,
             false,
+            true,
         );
 
         // Restore the real atlas bind group.
@@ -256,6 +262,7 @@ impl Renderer {
         render_size: &RenderSize,
         view: &TextureView,
         clear: bool,
+        use_atlas_pipeline: bool,
     ) -> Result<(), RenderError> {
         self.prepare_gpu_encoded_paints(&scene.encoded_paints);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
@@ -286,6 +293,7 @@ impl Renderer {
                 queue,
                 encoder,
                 view,
+                use_atlas_pipeline,
             };
             let load_op = if clear { LoadOp::Clear } else { LoadOp::Load };
             ctx.render_strips(&self.fast_path_gpu_strips, 2, load_op);
@@ -298,6 +306,7 @@ impl Renderer {
                 queue,
                 encoder,
                 view,
+                use_atlas_pipeline,
             };
             self.scheduler
                 .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs)
@@ -613,6 +622,8 @@ impl Renderer {
 struct Programs {
     /// Pipeline for rendering wide tile commands.
     strip_pipeline: RenderPipeline,
+    /// Pipeline for rendering strips into the atlas (always Rgba8Unorm).
+    atlas_strip_pipeline: RenderPipeline,
     /// Bind group layout for strip draws
     strip_bind_group_layout: BindGroupLayout,
     /// Bind group layout for encoded paints
@@ -871,6 +882,39 @@ impl Programs {
             cache: None,
         });
 
+        let atlas_strip_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Atlas Strip Pipeline"),
+            layout: Some(&strip_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &strip_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: size_of::<GpuStrip>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &GpuStrip::vertex_attributes(),
+                }],
+                compilation_options: PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &strip_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                    write_mask: ColorWrites::ALL,
+                })],
+                compilation_options: PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
         let clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Clear Slots Pipeline"),
             layout: Some(&clear_pipeline_layout),
@@ -1099,6 +1143,7 @@ impl Programs {
 
         Self {
             strip_pipeline,
+            atlas_strip_pipeline,
             strip_bind_group_layout,
             encoded_paints_bind_group_layout,
             gradient_bind_group_layout,
@@ -1737,6 +1782,9 @@ struct RendererContext<'a> {
     queue: &'a Queue,
     encoder: &'a mut CommandEncoder,
     view: &'a TextureView,
+    /// When true, use the Rgba8Unorm atlas strip pipeline instead of the
+    /// surface-format strip pipeline.
+    use_atlas_pipeline: bool,
 }
 
 impl RendererContext<'_> {
@@ -1774,7 +1822,12 @@ impl RendererContext<'_> {
             occlusion_query_set: None,
             timestamp_writes: None,
         });
-        render_pass.set_pipeline(&self.programs.strip_pipeline);
+        let pipeline = if self.use_atlas_pipeline {
+            &self.programs.atlas_strip_pipeline
+        } else {
+            &self.programs.strip_pipeline
+        };
+        render_pass.set_pipeline(pipeline);
         render_pass.set_bind_group(0, &self.programs.resources.slot_bind_groups[ix], &[]);
         render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
         render_pass.set_bind_group(2, &self.programs.resources.encoded_paints_bind_group, &[]);

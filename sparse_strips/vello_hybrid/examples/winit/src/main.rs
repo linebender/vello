@@ -4,6 +4,8 @@
 //! Renders our example scenes with Vello Hybrid.
 
 mod render_context;
+use parley_draw::renderers::vello_renderer::replay_atlas_commands;
+use parley_draw::{GLYPH_PADDING, GlyphCache, GlyphCacheConfig, GpuGlyphCaches, PendingClearRect};
 use render_context::{RenderContext, RenderSurface, create_vello_renderer, create_winit_window};
 #[cfg(not(target_arch = "wasm32"))]
 use std::env;
@@ -13,8 +15,8 @@ use vello_common::kurbo::{Affine, Point};
 use vello_common::paint::ImageId;
 use vello_common::paint::ImageSource;
 use vello_example_scenes::image::ImageScene;
-use vello_example_scenes::{AnyScene, get_example_scenes};
-use vello_hybrid::{Pixmap, RenderSize, Renderer, Scene};
+use vello_example_scenes::{AnyScene, TextConfig, get_example_scenes};
+use vello_hybrid::{AtlasId, Pixmap, RenderSize, Renderer, Scene};
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
@@ -32,6 +34,9 @@ struct App<'s> {
     renderers: Vec<Option<Renderer>>,
     render_state: RenderState<'s>,
     scene: Scene,
+    glyph_renderer: Scene,
+    glyph_caches: GpuGlyphCaches,
+    text_config: TextConfig,
     transform: Affine,
     mouse_down: bool,
     last_cursor_position: Option<Point>,
@@ -40,6 +45,9 @@ struct App<'s> {
     fps_update_time: Instant,
     accumulated_frame_time: f64,
     accumulated_render_time: f64,
+    accumulated_acquire_time: f64,
+    accumulated_scene_time: f64,
+    accumulated_gpu_time: f64,
 }
 
 fn main() {
@@ -90,6 +98,12 @@ fn main() {
         current_scene: start_scene_index,
         render_state: RenderState::Suspended(None),
         scene: Scene::new(1800, 1200),
+        glyph_renderer: Scene::new(4096, 4096),
+        glyph_caches: GpuGlyphCaches::with_config(GlyphCacheConfig {
+            max_entry_age: u32::MAX,
+            eviction_frequency: u32::MAX,
+        }),
+        text_config: TextConfig::default(),
         transform: Affine::IDENTITY,
         mouse_down: false,
         last_cursor_position: None,
@@ -98,6 +112,9 @@ fn main() {
         fps_update_time: now,
         accumulated_frame_time: 0.0,
         accumulated_render_time: 0.0,
+        accumulated_acquire_time: 0.0,
+        accumulated_scene_time: 0.0,
+        accumulated_gpu_time: 0.0,
     };
 
     let event_loop = EventLoop::new().unwrap();
@@ -213,13 +230,27 @@ impl ApplicationHandler for App<'_> {
                 Key::Named(NamedKey::Escape) => {
                     event_loop.exit();
                 }
-                Key::Character(ch) => {
-                    if let Some(scene) = self.scenes.get_mut(self.current_scene)
-                        && scene.handle_key(ch.as_str())
-                    {
+                Key::Character(ch) => match ch.as_str() {
+                    "a" | "A" => {
+                        self.text_config.use_atlas_cache = !self.text_config.use_atlas_cache;
+                        println!(
+                            "Atlas cache: {}",
+                            if self.text_config.use_atlas_cache {
+                                "ON"
+                            } else {
+                                "OFF"
+                            }
+                        );
                         window.request_redraw();
                     }
-                }
+                    _ => {
+                        if let Some(scene) = self.scenes.get_mut(self.current_scene)
+                            && scene.handle_key(ch.as_str())
+                        {
+                            window.request_redraw();
+                        }
+                    }
+                },
                 _ => {}
             },
             WindowEvent::MouseInput { state, button, .. } => {
@@ -292,58 +323,114 @@ impl ApplicationHandler for App<'_> {
                         let avg_fps = 1000.0 / avg_frame_time;
                         let avg_render_time =
                             self.accumulated_render_time / self.frame_count as f64;
+                        let avg_acquire_time =
+                            self.accumulated_acquire_time / self.frame_count as f64;
+                        let avg_scene_time = self.accumulated_scene_time / self.frame_count as f64;
+                        let avg_gpu_time = self.accumulated_gpu_time / self.frame_count as f64;
                         let status = self.scenes[self.current_scene]
                             .status()
                             .map(|s| format!(" - {s}"))
                             .unwrap_or_default();
                         println!(
-                            "FPS: {avg_fps:.1} | render: {avg_render_time:.2}ms | frame: {avg_frame_time:.2}ms{status}"
+                            "FPS: {avg_fps:.1} | scene: {avg_scene_time:.2}ms | gpu: {avg_gpu_time:.2}ms | render: {avg_render_time:.2}ms | acquire: {avg_acquire_time:.2}ms | frame: {avg_frame_time:.2}ms{status}"
                         );
+                        let atlas_label = if self.text_config.use_atlas_cache {
+                            "atlas ON"
+                        } else {
+                            "atlas OFF"
+                        };
                         window.set_title(&format!(
-                            "Vello Hybrid - Scene {} - {:.1} FPS (render {:.2}ms){status}",
-                            self.current_scene, avg_fps, avg_render_time
+                            "Vello Hybrid - Scene {} - {:.1} FPS (scene {:.2}ms, gpu {:.2}ms, acquire {:.2}ms) [{atlas_label}]{status}",
+                            self.current_scene, avg_fps, avg_scene_time, avg_gpu_time, avg_acquire_time
                         ));
 
                         // Reset counters
                         self.frame_count = 0;
                         self.accumulated_frame_time = 0.0;
                         self.accumulated_render_time = 0.0;
+                        self.accumulated_acquire_time = 0.0;
+                        self.accumulated_scene_time = 0.0;
+                        self.accumulated_gpu_time = 0.0;
                         self.fps_update_time = now;
                     }
                 }
                 self.last_frame_time = Some(now);
 
-                self.scene.reset();
-
-                let render_start = Instant::now();
-
-                self.scene.set_transform(self.transform);
-                self.scenes[self.current_scene].render(&mut self.scene, self.transform);
-
-                let device_handle = &self.context.devices[surface.dev_id];
                 let render_size = RenderSize {
                     width: surface.config.width,
                     height: surface.config.height,
                 };
 
+                let acquire_start = Instant::now();
                 let surface_texture = surface
                     .surface
                     .get_current_texture()
                     .expect("failed to get surface texture");
-
                 let texture_view = surface_texture
                     .texture
                     .create_view(&wgpu::TextureViewDescriptor::default());
+                self.accumulated_acquire_time += acquire_start.elapsed().as_secs_f64() * 1000.0;
 
+                let render_start = Instant::now();
+
+                let renderer = self.renderers[surface.dev_id].as_mut().unwrap();
+
+                let scene_start = Instant::now();
+                self.scene.reset();
+                self.scene.set_transform(self.transform);
+                self.scenes[self.current_scene].render(
+                    &mut self.scene,
+                    self.transform,
+                    &mut self.glyph_caches,
+                    &mut renderer.image_cache,
+                    &self.text_config,
+                );
+                self.accumulated_scene_time += scene_start.elapsed().as_secs_f64() * 1000.0;
+
+                let device_handle = &self.context.devices[surface.dev_id];
+
+                let gpu_start = Instant::now();
+                // Replay outline/COLR draw commands into each atlas page.
+                let pending_cmds = self.glyph_caches.glyph_atlas.take_pending_atlas_commands();
+                for mut recorder in pending_cmds {
+                    self.glyph_renderer.reset();
+                    replay_atlas_commands(&mut recorder.commands, &mut self.glyph_renderer);
+                    renderer
+                        .render_to_atlas(
+                            &self.glyph_renderer,
+                            &device_handle.device,
+                            &device_handle.queue,
+                            AtlasId::new(recorder.page_index),
+                        )
+                        .expect("Failed to render glyphs to atlas");
+                }
+
+                // Upload bitmap glyphs to the GPU atlas.
+                let padding = u32::from(GLYPH_PADDING);
                 let mut encoder =
                     device_handle
                         .device
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                            label: Some("Vello Render to Surface pass"),
+                            label: Some("Glyph bitmap upload"),
                         });
-                self.renderers[surface.dev_id]
-                    .as_mut()
-                    .unwrap()
+                for upload in self.glyph_caches.glyph_atlas.take_pending_uploads() {
+                    let resource = renderer
+                        .image_cache
+                        .get(upload.image_id)
+                        .expect("Bitmap image not found in cache");
+                    let dst_x = resource.offset[0] as u32 + padding;
+                    let dst_y = resource.offset[1] as u32 + padding;
+                    renderer.write_to_atlas(
+                        &device_handle.device,
+                        &device_handle.queue,
+                        &mut encoder,
+                        upload.image_id,
+                        &upload.pixmap,
+                        Some([dst_x, dst_y]),
+                    );
+                }
+
+                renderer
                     .render(
                         &self.scene,
                         &device_handle.device,
@@ -357,7 +444,17 @@ impl ApplicationHandler for App<'_> {
                 device_handle.queue.submit([encoder.finish()]);
                 surface_texture.present();
 
+                // Maintain caches (eviction, etc.)
+                self.glyph_caches.maintain(&mut renderer.image_cache);
+
+                clear_atlas_regions(
+                    &device_handle.queue,
+                    renderer,
+                    &self.glyph_caches.glyph_atlas.take_pending_clear_rects(),
+                );
+
                 device_handle.device.poll(wgpu::PollType::Poll).unwrap();
+                self.accumulated_gpu_time += gpu_start.elapsed().as_secs_f64() * 1000.0;
 
                 self.accumulated_render_time += render_start.elapsed().as_secs_f64() * 1000.0;
 
@@ -366,6 +463,40 @@ impl ApplicationHandler for App<'_> {
             }
             _ => {}
         }
+    }
+}
+
+/// Zero out atlas regions on the GPU after eviction.
+fn clear_atlas_regions(queue: &wgpu::Queue, renderer: &Renderer, rects: &[PendingClearRect]) {
+    if rects.is_empty() {
+        return;
+    }
+    let atlas_texture = renderer.atlas_texture();
+    for rect in rects {
+        let zeroed = vec![0_u8; rect.width as usize * rect.height as usize * 4];
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: atlas_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: rect.x as u32,
+                    y: rect.y as u32,
+                    z: rect.page_index,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            &zeroed,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(rect.width as u32 * 4),
+                rows_per_image: None,
+            },
+            wgpu::Extent3d {
+                width: rect.width as u32,
+                height: rect.height as u32,
+                depth_or_array_layers: 1,
+            },
+        );
     }
 }
 

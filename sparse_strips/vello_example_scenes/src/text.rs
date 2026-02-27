@@ -13,19 +13,55 @@ use parley::{
     Alignment, AlignmentOptions, FontContext, FontFamily, FontWeight, GenericFamily, GlyphRun,
     Layout, LayoutContext, LineHeight, PositionedLayoutItem, StyleProperty,
 };
-use parley_draw::Glyph;
+use parley_draw::{Glyph, ImageCache};
 use vello_common::kurbo::{Affine, Rect, Vec2};
 use vello_common::peniko::Color;
 
-use crate::{ExampleScene, RenderingContext};
+use crate::{ExampleScene, RenderingContext, TextConfig};
 
-const PADDING: u32 = 20;
-const MAX_ADVANCE: f32 = 200.0;
-const FONT_SIZE: f32 = 16.0;
+const PADDING: u32 = 100;
+const MAX_ADVANCE: f32 = 1780.0;
+const FONT_SIZE: f32 = 32.0;
 
 const SIMPLE_TEXT: &str = "Some text here. Let's make it a bit longer so that \
     line wrapping kicks in easily. This demonstrates basic glyph caching with \
-    plain Latin text and common punctuation???";
+    plain Latin text and common punctuation??? The quick brown fox jumps over \
+    the lazy dog. Pack my box with five dozen liquor jugs. How vexingly quick \
+    daft zebras jump! The five boxing wizards jump quickly. Sphinx of black \
+    quartz, judge my vow. Two driven jocks help fax my big quiz. The jay, pig, \
+    fox, zebra and my wolves quack! Crazy Frederick bought many very exquisite \
+    opal jewels. We promptly judged antique ivory buckles for the next prize. \
+    A mad boxer shot a quick, gloved jab to the jaw of his dizzy opponent. \
+    Jived fox nymph grabs quick waltz. Glib jocks quiz nymph to vex dwarf. \
+    How quickly daft jumping zebras vex! Jackdaws love my big sphinx of quartz. \
+    The quick brown fox jumps over the lazy dog again and again and again. \
+    Amazingly few discotheques provide jukeboxes. My girl wove six dozen plaid \
+    jackets before she quit. Six big devils from Japan quickly forgot how to \
+    waltz. Big July earthquakes confound zany experimental vow. Foxy parsons \
+    quiz and cajole the lovably dim wiki-Loss. Have a pick: twenty-six letters, \
+    no more, no less. Each sentence is a pangram, using every letter at least \
+    once. This block of text is designed to stress test glyph caching by \
+    exercising the full Latin alphabet repeatedly across many lines of wrapped \
+    text at a small font size, ensuring the atlas must handle hundreds of glyph \
+    instances with varying subpixel positions. Some text here. Let's make it a bit longer so that \
+    line wrapping kicks in easily. This demonstrates basic glyph caching with \
+    plain Latin text and common punctuation??? The quick brown fox jumps over \
+    the lazy dog. Pack my box with five dozen liquor jugs. How vexingly quick \
+    daft zebras jump! The five boxing wizards jump quickly. Sphinx of black \
+    quartz, judge my vow. Two driven jocks help fax my big quiz. The jay, pig, \
+    fox, zebra and my wolves quack! Crazy Frederick bought many very exquisite \
+    opal jewels. We promptly judged antique ivory buckles for the next prize. \
+    A mad boxer shot a quick, gloved jab to the jaw of his dizzy opponent. \
+    Jived fox nymph grabs quick waltz. Glib jocks quiz nymph to vex dwarf. \
+    How quickly daft jumping zebras vex! Jackdaws love my big sphinx of quartz. \
+    The quick brown fox jumps over the lazy dog again and again and again. \
+    Amazingly few discotheques provide jukeboxes. My girl wove six dozen plaid \
+    jackets before she quit. Six big devils from Japan quickly forgot how to \
+    waltz. Big July earthquakes confound zany experimental vow.";
+
+// const SIMPLE_TEXT: &str = "Some text here. Let's make it a bit longer so that \
+//     line wrapping kicks in easily. This demonstrates basic glyph caching with \
+//     plain Latin text and common punctuation???";
 
 const RICH_TEXT: &str = "Some text here. Let's make it a bit longer so that \
     line wrapping kicks in. Bitmap emoji 😊 and COLR emoji 🎉.\n\
@@ -53,8 +89,7 @@ const ROBOTO_FONT: &[u8] = include_bytes!("../../../examples/assets/roboto/Robot
 /// State for the text example.
 pub struct TextScene {
     layout: Layout<ColorBrush>,
-    /// Type-erased glyph caches, lazily initialized per backend.
-    glyph_caches: Option<Box<dyn Any>>,
+    repeat_count: u32,
 }
 
 impl fmt::Debug for TextScene {
@@ -64,27 +99,46 @@ impl fmt::Debug for TextScene {
 }
 
 impl ExampleScene for TextScene {
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
-        if self.glyph_caches.is_none() {
-            self.glyph_caches = Some(ctx.create_glyph_caches());
-        }
+    fn render(
+        &mut self,
+        ctx: &mut impl RenderingContext,
+        root_transform: Affine,
+        glyph_caches: &mut dyn Any,
+        image_cache: &mut ImageCache,
+        text_config: &TextConfig,
+    ) {
+        for i in 0..self.repeat_count {
+            let offset = i as f64 * 10.0;
+            let content_transform = root_transform
+                * Affine::translate(Vec2::new(PADDING as f64 + offset, PADDING as f64 + offset));
+            ctx.set_transform(content_transform);
 
-        let content_transform =
-            root_transform * Affine::translate(Vec2::new(PADDING as f64, PADDING as f64));
-        ctx.set_transform(content_transform);
-
-        let glyph_caches = self
-            .glyph_caches
-            .as_mut()
-            .expect("glyph caches not initialized");
-
-        for line in self.layout.lines() {
-            for item in line.items() {
-                if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
-                    render_glyph_run(ctx, &glyph_run, glyph_caches.as_mut());
+            for line in self.layout.lines() {
+                for item in line.items() {
+                    if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
+                        render_glyph_run(ctx, &glyph_run, glyph_caches, image_cache, text_config);
+                    }
                 }
             }
         }
+    }
+
+    fn handle_key(&mut self, key: &str) -> bool {
+        match key {
+            "+" | "=" => {
+                self.repeat_count += 1;
+                true
+            }
+            "-" | "_" => {
+                self.repeat_count = self.repeat_count.saturating_sub(1).max(1);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn status(&self) -> Option<String> {
+        Some(format!("repeats: {}", self.repeat_count))
     }
 }
 
@@ -103,7 +157,7 @@ impl TextScene {
 
         Self {
             layout,
-            glyph_caches: None,
+            repeat_count: 1,
         }
     }
 
@@ -121,7 +175,7 @@ impl TextScene {
 
         Self {
             layout,
-            glyph_caches: None,
+            repeat_count: 1,
         }
     }
 }
@@ -218,6 +272,8 @@ fn render_glyph_run(
     ctx: &mut impl RenderingContext,
     glyph_run: &GlyphRun<'_, ColorBrush>,
     glyph_caches: &mut dyn Any,
+    image_cache: &mut ImageCache,
+    text_config: &TextConfig,
 ) {
     let style = glyph_run.style();
     ctx.set_paint(style.brush.color);
@@ -227,22 +283,18 @@ fn render_glyph_run(
     let font_size = run.font_size();
     let normalized_coords = run.normalized_coords();
 
-    let glyphs: Vec<Glyph> = glyph_run
-        .positioned_glyphs()
-        .map(|g| Glyph {
-            id: u32::from(g.id),
-            x: g.x,
-            y: g.y,
-        })
-        .collect();
-
     ctx.fill_glyphs(
         font,
         font_size,
-        true,
         normalized_coords,
-        glyphs.into_iter(),
+        glyph_run.positioned_glyphs().map(|g| Glyph {
+            id: u32::from(g.id),
+            x: g.x,
+            y: g.y,
+        }),
         glyph_caches,
+        image_cache,
+        text_config,
     );
 
     if let Some(decoration) = &style.underline {

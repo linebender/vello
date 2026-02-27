@@ -3,7 +3,10 @@
 
 //! Example compositing an image using blend layers.
 
-use crate::{ExampleScene, RenderingContext};
+use core::any::Any;
+use parley_draw::ImageCache;
+
+use crate::{ExampleScene, RenderingContext, TextConfig};
 use vello_common::color::palette::css::{BLUE, GREEN, PURPLE, RED, YELLOW};
 use vello_common::kurbo::{Affine, Circle, Point, Rect, Shape};
 use vello_common::peniko::{BlendMode, Color, Compose, Mix};
@@ -13,7 +16,14 @@ use vello_common::peniko::{BlendMode, Color, Compose, Mix};
 pub struct BlendScene {}
 
 impl ExampleScene for BlendScene {
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+    fn render(
+        &mut self,
+        ctx: &mut impl RenderingContext,
+        root_transform: Affine,
+        _glyph_caches: &mut dyn Any,
+        _image_cache: &mut ImageCache,
+        _text_config: &TextConfig,
+    ) {
         render(ctx, root_transform);
     }
 }
