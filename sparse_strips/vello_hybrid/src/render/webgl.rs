@@ -34,7 +34,9 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{LoadOp, OutputTarget, RenderTarget, RendererBackend, Scheduler, SchedulerState},
+    schedule::{
+        LoadOp, OutputTarget, RendererBackend, Scheduler, SchedulerState, StripPassRenderTarget,
+    },
 };
 use alloc::sync::Arc;
 use alloc::vec;
@@ -1760,7 +1762,7 @@ impl WebGlRendererContext<'_> {
     fn do_strip_render_pass(
         &mut self,
         strips: &[GpuStrip],
-        target: RenderTarget<&WebGlFramebuffer>,
+        target: StripPassRenderTarget<&WebGlFramebuffer>,
         load: LoadOp,
     ) {
         if strips.is_empty() {
@@ -1770,7 +1772,7 @@ impl WebGlRendererContext<'_> {
 
         // Bind the appropriate framebuffer.
         match target {
-            RenderTarget::Output(output) => {
+            StripPassRenderTarget::Output(output) => {
                 let framebuffer = match output {
                     OutputTarget::FinalView(fb) | OutputTarget::IntermediateTexture(fb) => fb,
                 };
@@ -1793,7 +1795,7 @@ impl WebGlRendererContext<'_> {
                     Some(&self.programs.resources.view_config_buffer),
                 );
             }
-            RenderTarget::SlotTexture(idx) => {
+            StripPassRenderTarget::SlotTexture(idx) => {
                 self.gl.bind_framebuffer(
                     WebGl2RenderingContext::FRAMEBUFFER,
                     Some(&self.programs.resources.slot_framebuffers[idx as usize]),
@@ -1844,7 +1846,7 @@ impl WebGlRendererContext<'_> {
             .uniform1i(Some(&self.programs.strip_uniforms.alphas_texture), 0);
 
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE1);
-        let clip_texture_idx = if matches!(target, RenderTarget::SlotTexture(1)) {
+        let clip_texture_idx = if matches!(target, StripPassRenderTarget::SlotTexture(1)) {
             0
         } else {
             1
@@ -1976,7 +1978,7 @@ impl RendererBackend for WebGlRendererContext<'_> {
     fn render_strips(
         &mut self,
         strips: &[GpuStrip],
-        target: RenderTarget<&WebGlFramebuffer>,
+        target: StripPassRenderTarget<&WebGlFramebuffer>,
         load_op: LoadOp,
     ) {
         self.do_strip_render_pass(strips, target, load_op);

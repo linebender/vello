@@ -218,7 +218,7 @@ pub(crate) enum OutputTarget<V> {
 
 /// The render target for a strip rendering pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RenderTarget<V> {
+pub(crate) enum StripPassRenderTarget<V> {
     /// Render to the current output target.
     Output(OutputTarget<V>),
     /// Render to one of the two slot textures used for clipping/blending.
@@ -237,7 +237,7 @@ pub(crate) trait RendererBackend {
     fn render_strips(
         &mut self,
         strips: &[GpuStrip],
-        target: RenderTarget<&Self::View>,
+        target: StripPassRenderTarget<&Self::View>,
         load_op: LoadOp,
     );
 }
@@ -721,9 +721,9 @@ impl Scheduler {
             }
 
             let target = if i == 2 {
-                RenderTarget::Output(output_target)
+                StripPassRenderTarget::Output(output_target)
             } else {
-                RenderTarget::SlotTexture(i as u8)
+                StripPassRenderTarget::SlotTexture(i as u8)
             };
             renderer.render_strips(&draw.0, target, load);
         }

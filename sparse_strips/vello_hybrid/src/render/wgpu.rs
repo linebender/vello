@@ -32,7 +32,9 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{LoadOp, OutputTarget, RenderTarget, RendererBackend, Scheduler, SchedulerState},
+    schedule::{
+        LoadOp, OutputTarget, RendererBackend, Scheduler, SchedulerState, StripPassRenderTarget,
+    },
 };
 use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
@@ -1730,7 +1732,7 @@ impl RendererContext<'_> {
     fn do_strip_render_pass(
         &mut self,
         strips: &[GpuStrip],
-        target: RenderTarget<&TextureView>,
+        target: StripPassRenderTarget<&TextureView>,
         load: wgpu::LoadOp<wgpu::Color>,
     ) {
         if strips.is_empty() {
@@ -1741,9 +1743,9 @@ impl RendererContext<'_> {
         self.programs.upload_strips(self.device, self.queue, strips);
 
         let (view, bind_group_index, pipeline_index) = match target {
-            RenderTarget::Output(OutputTarget::FinalView(view)) => (view, 2, 0),
-            RenderTarget::Output(OutputTarget::IntermediateTexture(view)) => (view, 2, 1),
-            RenderTarget::SlotTexture(idx) => (
+            StripPassRenderTarget::Output(OutputTarget::FinalView(view)) => (view, 2, 0),
+            StripPassRenderTarget::Output(OutputTarget::IntermediateTexture(view)) => (view, 2, 1),
+            StripPassRenderTarget::SlotTexture(idx) => (
                 &self.programs.resources.slot_texture_views[idx as usize],
                 idx as usize,
                 0,
@@ -1839,7 +1841,7 @@ impl RendererBackend for RendererContext<'_> {
     fn render_strips(
         &mut self,
         strips: &[GpuStrip],
-        target: RenderTarget<&TextureView>,
+        target: StripPassRenderTarget<&TextureView>,
         load_op: LoadOp,
     ) {
         let wgpu_load_op = match load_op {
