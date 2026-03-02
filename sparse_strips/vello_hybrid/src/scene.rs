@@ -14,13 +14,12 @@ use vello_common::fearless_simd::Level;
 use vello_common::filter_effects::Filter;
 #[cfg(feature = "text")]
 use vello_common::glyph::{GlyphCaches, GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
-use vello_common::kurbo::{Affine, BezPath, Cap, Join, Rect, Shape, Stroke};
+use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::multi_atlas::AtlasConfig;
 use vello_common::paint::{Paint, PaintType, Tint};
 #[cfg(feature = "text")]
 use vello_common::peniko::FontData;
-use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::recording::{
     PushLayerCommand, Recordable, Recorder, Recording, RenderCommand, RenderState,
@@ -153,24 +152,12 @@ pub struct Scene {
     /// Wide coarse rasterizer for generating binned draw commands.
     pub(crate) wide: Wide<MODE_HYBRID>,
     clip_context: ClipContext,
-    pub(crate) paint: PaintType,
-    /// Transform applied to paint coordinates.
-    pub(crate) paint_transform: Affine,
+    pub(crate) render_state: RenderState,
     pub(crate) aliasing_threshold: Option<u8>,
     /// Storage for encoded gradient and image paint data.
     pub(crate) encoded_paints: Vec<EncodedPaint>,
-    /// Optional tint applied to image paints.
-    pub(crate) tint: Option<Tint>,
     /// Whether the current paint is visible (e.g., alpha > 0).
     paint_visible: bool,
-    /// Current stroke style for path stroking operations.
-    pub(crate) stroke: Stroke,
-    /// Current transform applied to geometry.
-    pub(crate) transform: Affine,
-    /// Current fill rule for path filling operations.
-    pub(crate) fill_rule: Fill,
-    /// Current blend mode for compositing.
-    pub(crate) blend_mode: BlendMode,
     /// Generator for converting paths to strips.
     pub(crate) strip_generator: StripGenerator,
     /// Storage for generated strips and alpha values.
@@ -211,7 +198,7 @@ macro_rules! submit_strips {
             $self.wide.generate(
                 &$strip_storage.strips,
                 $paint,
-                $self.blend_mode,
+                $self.render_state.blend_mode,
                 0,
                 None,
                 &$self.encoded_paints,
@@ -230,7 +217,6 @@ impl Scene {
 
     /// Create a new render context with specific settings.
     pub fn new_with(width: u16, height: u16, settings: RenderSettings) -> Self {
-        let render_state = Self::default_render_state();
         let render_graph = RenderGraph::new();
         Self {
             constraints: settings.constraints,
@@ -238,49 +224,18 @@ impl Scene {
             height,
             wide: Wide::<MODE_HYBRID>::new(width, height),
             clip_context: ClipContext::new(),
+            render_state: RenderState::default(),
             aliasing_threshold: None,
-            paint: render_state.paint,
-            paint_transform: render_state.paint_transform,
             encoded_paints: vec![],
-            tint: None,
             paint_visible: true,
-            stroke: render_state.stroke,
             strip_generator: StripGenerator::new(width, height, settings.level),
             // Start strip storage in `Append` mode since we enable the fast path by default.
             strip_storage: RefCell::new(StripStorage::new(GenerationMode::Append)),
-            transform: render_state.transform,
-            fill_rule: render_state.fill_rule,
-            blend_mode: render_state.blend_mode,
             #[cfg(feature = "text")]
             glyph_caches: Some(GlyphCaches::default()),
             render_graph,
             fast_strips_buffer: FastStripsBuffer::default(),
             strips_fast_path_active: true,
-        }
-    }
-
-    /// Create default rendering state.
-    fn default_render_state() -> RenderState {
-        let transform = Affine::IDENTITY;
-        let fill_rule = Fill::NonZero;
-        let paint = BLACK.into();
-        let paint_transform = Affine::IDENTITY;
-        let tint = None;
-        let stroke = Stroke {
-            width: 1.0,
-            join: Join::Bevel,
-            start_cap: Cap::Butt,
-            end_cap: Cap::Butt,
-            ..Default::default()
-        };
-        RenderState {
-            transform,
-            fill_rule,
-            paint,
-            paint_transform,
-            stroke,
-            blend_mode: DEFAULT_BLEND_MODE,
-            tint,
         }
     }
 
@@ -291,17 +246,17 @@ impl Scene {
     /// a `Paint` that references that data. The combined transform (geometry + paint)
     /// is applied during encoding.
     fn encode_current_paint(&mut self) -> Paint {
-        match self.paint.clone() {
+        match self.render_state.paint.clone() {
             PaintType::Solid(s) => s.into(),
             PaintType::Gradient(g) => g.encode_into(
                 &mut self.encoded_paints,
-                self.transform * self.paint_transform,
+                self.render_state.transform * self.render_state.paint_transform,
                 None,
             ),
             PaintType::Image(i) => i.encode_into(
                 &mut self.encoded_paints,
-                self.transform * self.paint_transform,
-                self.tint,
+                self.render_state.transform * self.render_state.paint_transform,
+                self.render_state.tint,
             ),
         }
     }
@@ -315,8 +270,8 @@ impl Scene {
         let paint = self.encode_current_paint();
         self.fill_path_with(
             path,
-            self.transform,
-            self.fill_rule,
+            self.render_state.transform,
+            self.render_state.fill_rule,
             paint,
             self.aliasing_threshold,
         );
@@ -358,8 +313,8 @@ impl Scene {
         self.clip_context.push_clip(
             path,
             &mut self.strip_generator,
-            self.fill_rule,
-            self.transform,
+            self.render_state.fill_rule,
+            self.render_state.transform,
             self.aliasing_threshold,
         );
     }
@@ -379,7 +334,12 @@ impl Scene {
         }
 
         let paint = self.encode_current_paint();
-        self.stroke_path_with(path, self.transform, paint, self.aliasing_threshold);
+        self.stroke_path_with(
+            path,
+            self.render_state.transform,
+            paint,
+            self.aliasing_threshold,
+        );
     }
 
     /// Build strips for a stroked path with the given properties.
@@ -399,7 +359,7 @@ impl Scene {
         let strip_start = strip_storage.strips.len();
         self.strip_generator.generate_stroked_path(
             path,
-            &self.stroke,
+            &self.render_state.stroke,
             transform,
             aliasing_threshold,
             strip_storage,
@@ -437,8 +397,8 @@ impl Scene {
         // - Requires integer rect coordinates because the optimized path doesn't handle
         //   anti-aliasing for fractional edges.
         // - Also requires simple paint transform to avoid precision differences with complex paints.
-        if is_integer_translation(&self.transform)
-            && is_integer_translation(&self.paint_transform)
+        if is_integer_translation(&self.render_state.transform)
+            && is_integer_translation(&self.render_state.paint_transform)
             && is_integer_rect(rect)
         {
             self.fill_rect_fast(rect);
@@ -454,7 +414,7 @@ impl Scene {
     /// has integer coordinates.
     fn fill_rect_fast(&mut self, rect: &Rect) {
         let paint = self.encode_current_paint();
-        let transformed_rect = self.transform.transform_rect_bbox(*rect);
+        let transformed_rect = self.render_state.transform.transform_rect_bbox(*rect);
         let strip_storage = &mut self.strip_storage.borrow_mut();
         let strip_start = strip_storage.strips.len();
         self.strip_generator.generate_filled_rect_fast(
@@ -474,7 +434,7 @@ impl Scene {
     /// Creates a builder for drawing a run of glyphs that have the same attributes.
     #[cfg(feature = "text")]
     pub fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self> {
-        GlyphRunBuilder::new(font.clone(), self.transform, self)
+        GlyphRunBuilder::new(font.clone(), self.render_state.transform, self)
     }
 
     /// Flush the fast path buffer through the normal coarse rasterization pipeline.
@@ -530,8 +490,8 @@ impl Scene {
         let clip = if let Some(c) = clip_path {
             self.strip_generator.generate_filled_path(
                 c,
-                self.fill_rule,
-                self.transform,
+                self.render_state.fill_rule,
+                self.render_state.transform,
                 self.aliasing_threshold,
                 &mut strip_storage,
                 self.clip_context.get(),
@@ -554,7 +514,7 @@ impl Scene {
             None,
             opacity.unwrap_or(1.),
             None,
-            self.transform,
+            self.render_state.transform,
             &mut self.render_graph,
             0,
         );
@@ -600,12 +560,12 @@ impl Scene {
     /// Set the blend mode for subsequent rendering operations.
     pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
         self.constraints.assert_blend_mode(blend_mode);
-        self.blend_mode = blend_mode;
+        self.render_state.blend_mode = blend_mode;
     }
 
     /// Set the stroke settings for subsequent stroke operations.
     pub fn set_stroke(&mut self, stroke: Stroke) {
-        self.stroke = stroke;
+        self.render_state.stroke = stroke;
     }
 
     /// Set the paint for subsequent rendering operations.
@@ -613,8 +573,8 @@ impl Scene {
     //       Instead images should be passed via a backend-agnostic opaque id, and be hydrated at
     //       render time into a texture usable by the renderer backend.
     pub fn set_paint(&mut self, paint: impl Into<PaintType>) {
-        self.paint = paint.into();
-        self.paint_visible = match &self.paint {
+        self.render_state.paint = paint.into();
+        self.paint_visible = match &self.render_state.paint {
             PaintType::Solid(color) => color.components[3] != 0.0,
             _ => true,
         };
@@ -622,17 +582,17 @@ impl Scene {
 
     /// Set the tint for subsequent image paint operations.
     pub fn set_tint(&mut self, tint: Option<Tint>) {
-        self.tint = tint;
+        self.render_state.tint = tint;
     }
 
     /// Clear the tint, so subsequent image paints are drawn without tinting.
     pub fn reset_tint(&mut self) {
-        self.tint = None;
+        self.render_state.tint = None;
     }
 
     /// Get the current paint.
     pub fn paint(&self) -> &PaintType {
-        &self.paint
+        &self.render_state.paint
     }
     /// Set the current paint transform.
     ///
@@ -640,27 +600,27 @@ impl Scene {
     /// is drawn in, i.e., the paint transform is applied after the global transform. This allows
     /// transforming the paint independently from the drawn geometry.
     pub fn set_paint_transform(&mut self, paint_transform: Affine) {
-        self.paint_transform = paint_transform;
+        self.render_state.paint_transform = paint_transform;
     }
 
     /// Reset the current paint transform.
     pub fn reset_paint_transform(&mut self) {
-        self.paint_transform = Affine::IDENTITY;
+        self.render_state.paint_transform = Affine::IDENTITY;
     }
 
     /// Set the fill rule for subsequent fill operations.
     pub fn set_fill_rule(&mut self, fill_rule: Fill) {
-        self.fill_rule = fill_rule;
+        self.render_state.fill_rule = fill_rule;
     }
 
     /// Set the transform for subsequent rendering operations.
     pub fn set_transform(&mut self, transform: Affine) {
-        self.transform = transform;
+        self.render_state.transform = transform;
     }
 
     /// Reset the transform to identity.
     pub fn reset_transform(&mut self) {
-        self.transform = Affine::IDENTITY;
+        self.render_state.transform = Affine::IDENTITY;
     }
 
     /// Apply filter to the current paint (affects next drawn element)
@@ -686,14 +646,7 @@ impl Scene {
         }
         self.encoded_paints.clear();
 
-        let render_state = Self::default_render_state();
-        self.transform = render_state.transform;
-        self.paint_transform = render_state.paint_transform;
-        self.fill_rule = render_state.fill_rule;
-        self.paint = render_state.paint;
-        self.stroke = render_state.stroke;
-        self.blend_mode = render_state.blend_mode;
-        self.tint = None;
+        self.render_state.reset();
 
         #[cfg(feature = "text")]
         self.glyph_caches.as_mut().unwrap().maintain();
@@ -713,26 +666,12 @@ impl Scene {
 
     /// Save current rendering state.
     pub fn take_current_state(&mut self) -> RenderState {
-        RenderState {
-            paint: self.paint.clone(),
-            paint_transform: self.paint_transform,
-            transform: self.transform,
-            fill_rule: self.fill_rule,
-            blend_mode: self.blend_mode,
-            stroke: core::mem::take(&mut self.stroke),
-            tint: self.tint,
-        }
+        self.render_state.clone()
     }
 
     /// Restore rendering state.
     pub fn restore_state(&mut self, state: RenderState) {
-        self.paint = state.paint;
-        self.paint_transform = state.paint_transform;
-        self.stroke = state.stroke;
-        self.transform = state.transform;
-        self.fill_rule = state.fill_rule;
-        self.blend_mode = state.blend_mode;
-        self.tint = state.tint;
+        self.render_state = state;
     }
 }
 
@@ -787,7 +726,7 @@ impl Recordable for Scene {
     {
         let mut recorder = Recorder::new(
             recording,
-            self.transform,
+            self.render_state.transform,
             #[cfg(feature = "text")]
             self.take_glyph_caches(),
         );
@@ -913,8 +852,8 @@ impl Scene {
                 RenderCommand::FillPath(path) => {
                     self.strip_generator.generate_filled_path(
                         path,
-                        self.fill_rule,
-                        self.transform,
+                        self.render_state.fill_rule,
+                        self.render_state.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
                         None,
@@ -924,8 +863,8 @@ impl Scene {
                 RenderCommand::StrokePath(path) => {
                     self.strip_generator.generate_stroked_path(
                         path,
-                        &self.stroke,
-                        self.transform,
+                        &self.render_state.stroke,
+                        self.render_state.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
                         None,
@@ -935,8 +874,8 @@ impl Scene {
                 RenderCommand::FillRect(rect) => {
                     self.strip_generator.generate_filled_path(
                         rect.to_path(DEFAULT_TOLERANCE),
-                        self.fill_rule,
-                        self.transform,
+                        self.render_state.fill_rule,
+                        self.render_state.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
                         None,
@@ -946,8 +885,8 @@ impl Scene {
                 RenderCommand::StrokeRect(rect) => {
                     self.strip_generator.generate_stroked_path(
                         rect.to_path(DEFAULT_TOLERANCE),
-                        &self.stroke,
-                        self.transform,
+                        &self.render_state.stroke,
+                        self.render_state.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
                         None,
@@ -958,7 +897,7 @@ impl Scene {
                 RenderCommand::FillOutlineGlyph((path, glyph_transform)) => {
                     self.strip_generator.generate_filled_path(
                         path,
-                        self.fill_rule,
+                        self.render_state.fill_rule,
                         *glyph_transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
@@ -970,7 +909,7 @@ impl Scene {
                 RenderCommand::StrokeOutlineGlyph((path, glyph_transform)) => {
                     self.strip_generator.generate_stroked_path(
                         path,
-                        &self.stroke,
+                        &self.render_state.stroke,
                         *glyph_transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
@@ -979,13 +918,13 @@ impl Scene {
                     strip_start_indices.push(start_index);
                 }
                 RenderCommand::SetTransform(transform) => {
-                    self.transform = *transform;
+                    self.render_state.transform = *transform;
                 }
                 RenderCommand::SetFillRule(fill_rule) => {
-                    self.fill_rule = *fill_rule;
+                    self.render_state.fill_rule = *fill_rule;
                 }
                 RenderCommand::SetStroke(stroke) => {
-                    self.stroke = stroke.clone();
+                    self.render_state.stroke = stroke.clone();
                 }
 
                 _ => {}
@@ -1039,7 +978,7 @@ impl Scene {
             self.wide.generate(
                 &adjusted_strips[start..end],
                 paint,
-                self.blend_mode,
+                self.render_state.blend_mode,
                 0,
                 None,
                 &self.encoded_paints,

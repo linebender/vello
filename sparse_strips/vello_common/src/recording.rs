@@ -6,12 +6,13 @@
 use crate::filter_effects::Filter;
 #[cfg(feature = "text")]
 use crate::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
-use crate::kurbo::{Affine, BezPath, Rect, Stroke};
+use crate::kurbo::{Affine, BezPath, Cap, Join, Rect, Stroke};
 use crate::mask::Mask;
 use crate::paint::{PaintType, Tint};
 #[cfg(feature = "text")]
 use crate::peniko::FontData;
-use crate::peniko::{BlendMode, Fill};
+use crate::peniko::color::palette::css::BLACK;
+use crate::peniko::{BlendMode, Compose, Fill, Mix};
 use crate::strip::Strip;
 use crate::strip_generator::StripStorage;
 use alloc::vec::Vec;
@@ -518,7 +519,7 @@ impl GlyphRenderer for Recorder<'_> {
 /// the current transform.
 ///
 /// This is used to save and restore rendering state during recording operations.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RenderState {
     /// The paint type (solid color, gradient, or image).
     pub paint: PaintType,
@@ -534,4 +535,31 @@ pub struct RenderState {
     pub blend_mode: BlendMode,
     /// The tint for image painting.
     pub tint: Option<Tint>,
+}
+
+impl Default for RenderState {
+    fn default() -> Self {
+        Self {
+            paint: BLACK.into(),
+            paint_transform: Affine::IDENTITY,
+            stroke: Stroke {
+                width: 1.0,
+                join: Join::Bevel,
+                start_cap: Cap::Butt,
+                end_cap: Cap::Butt,
+                ..Default::default()
+            },
+            transform: Affine::IDENTITY,
+            fill_rule: Fill::NonZero,
+            blend_mode: BlendMode::new(Mix::Normal, Compose::SrcOver),
+            tint: None,
+        }
+    }
+}
+
+impl RenderState {
+    /// Reset to default state.
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
 }
