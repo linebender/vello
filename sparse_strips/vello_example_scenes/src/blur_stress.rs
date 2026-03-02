@@ -16,7 +16,7 @@
 use crate::{ExampleScene, RenderingContext};
 use vello_common::color::AlphaColor;
 use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
-use vello_common::kurbo::{Affine, Rect};
+use vello_common::kurbo::{Affine, Circle, Point, Shape};
 
 const SEED: u64 = 0xB10E_5CEE_E5EE_D000;
 
@@ -79,17 +79,16 @@ impl ExampleScene for BlurStressScene {
         let mut rng = SEED;
 
         for _ in 0..self.count {
-            // Size (60..800 px per side)
-            let w = next_f64(&mut rng, 60.0, 800.0);
-            let h = next_f64(&mut rng, 60.0, 800.0);
+            // Radius (30..400 px)
+            let radius = next_f64(&mut rng, 30.0, 400.0);
 
             // Blur std_deviation (generated before position so margin is known)
             let std_dev = next_f64(&mut rng, 0.5, self.max_std);
 
-            // Inset by ~3*sigma so the blur halo stays within 3840x2160
-            let margin = std_dev * 3.0;
-            let x = next_f64(&mut rng, margin, (3840.0 - w - margin).max(margin));
-            let y = next_f64(&mut rng, margin, (2160.0 - h - margin).max(margin));
+            // Inset by radius + ~3*sigma so the blur halo stays within 3840x2160
+            let margin = radius + std_dev * 3.0;
+            let cx = next_f64(&mut rng, margin, (3840.0 - margin).max(margin));
+            let cy = next_f64(&mut rng, margin, (2160.0 - margin).max(margin));
 
             // Color (semi-transparent)
             let r = next_u8(&mut rng);
@@ -122,7 +121,7 @@ impl ExampleScene for BlurStressScene {
 
             ctx.push_filter_layer(filter);
             ctx.set_paint(color);
-            ctx.fill_rect(&Rect::new(x, y, x + w, y + h));
+            ctx.fill_path(&Circle::new(Point::new(cx, cy), radius).to_path(0.1));
             ctx.pop_layer();
         }
     }
