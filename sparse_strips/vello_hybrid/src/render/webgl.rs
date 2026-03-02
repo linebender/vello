@@ -34,7 +34,7 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{LoadOp, RendererBackend, Scheduler, SchedulerState},
+    schedule::{LoadOp, OutputTarget, RenderTarget, RendererBackend, Scheduler, SchedulerState},
 };
 use alloc::sync::Arc;
 use alloc::vec;
@@ -175,7 +175,8 @@ impl WebGlRenderer {
             "Render size must match drawing buffer size"
         );
 
-        self.render_scene(scene, render_size, true)?;
+        let view_fb = &self.programs.resources.view_framebuffer;
+        self.render_scene(scene, render_size, OutputTarget::FinalView(view_fb), true)?;
 
         // Blit the view framebuffer to the default framebuffer (canvas element), reflecting the
         // image along the Y axis to complete the WebGPU to WebGL2 coordinate transform.
@@ -280,12 +281,9 @@ impl WebGlRenderer {
             atlas_id.as_u32() as i32,
         );
 
-        // Swap the view framebuffer and render size so the scheduler renders to the
-        // atlas layer instead of the normal view.
-        let saved_framebuffer = core::mem::replace(
-            &mut self.programs.resources.view_framebuffer,
-            atlas_framebuffer,
-        );
+        // Swap the render size so the config buffer and viewport match the atlas dimensions.
+        // TODO: This is not great, we should somehow tie the render size directly to the current
+        // output target.
         let saved_render_size =
             core::mem::replace(&mut self.programs.render_size, atlas_render_size);
 
@@ -296,7 +294,12 @@ impl WebGlRenderer {
             &mut self.programs.resources.stub_atlas_texture_array,
         );
 
-        let result = self.render_scene(scene, &self.programs.render_size.clone(), false);
+        let result = self.render_scene(
+            scene,
+            &self.programs.render_size.clone(),
+            OutputTarget::IntermediateTexture(&atlas_framebuffer),
+            false,
+        );
 
         // Restore the real atlas texture array.
         core::mem::swap(
@@ -304,12 +307,8 @@ impl WebGlRenderer {
             &mut self.programs.resources.stub_atlas_texture_array,
         );
 
-        // Restore the original view framebuffer and cache the atlas FBO for reuse.
-        let atlas_fb = core::mem::replace(
-            &mut self.programs.resources.view_framebuffer,
-            saved_framebuffer,
-        );
-        self.programs.resources.atlas_render_framebuffer = Some(atlas_fb);
+        // Cache the atlas FBO for reuse.
+        self.programs.resources.atlas_render_framebuffer = Some(atlas_framebuffer);
 
         self.programs.render_size = saved_render_size;
 
@@ -327,6 +326,7 @@ impl WebGlRenderer {
         &mut self,
         scene: &Scene,
         render_size: &RenderSize,
+        output_target: OutputTarget<&WebGlFramebuffer>,
         clear: bool,
     ) -> Result<(), RenderError> {
         self.prepare_gpu_encoded_paints(&scene.encoded_paints);
@@ -343,14 +343,24 @@ impl WebGlRenderer {
         );
 
         if clear {
-            self.programs.clear_view_framebuffer(&self.gl);
+            let framebuffer = match output_target {
+                // Note that the intermediate texture case is currently not hit since we never
+                // clear when calling `render_to_atlas`.
+                OutputTarget::FinalView(fb) | OutputTarget::IntermediateTexture(fb) => fb,
+            };
+            clear_framebuffer(framebuffer, &self.gl);
         }
         let mut ctx = WebGlRendererContext {
             programs: &mut self.programs,
             gl: &self.gl,
         };
-        self.scheduler
-            .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs)?;
+        self.scheduler.do_scene(
+            &mut self.scheduler_state,
+            &mut ctx,
+            scene,
+            &self.paint_idxs,
+            output_target,
+        )?;
         self.gradient_cache.maintain();
 
         Ok(())
@@ -1161,16 +1171,6 @@ impl WebGlPrograms {
         gradient_cache.restore_luts(luts);
     }
 
-    /// Clear the view framebuffer.
-    fn clear_view_framebuffer(&mut self, gl: &WebGl2RenderingContext) {
-        gl.bind_framebuffer(
-            WebGl2RenderingContext::FRAMEBUFFER,
-            Some(&self.resources.view_framebuffer),
-        );
-        gl.clear_color(0.0, 0.0, 0.0, 0.0);
-        gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
-    }
-
     /// Upload strip data to GPU.
     fn upload_strips(&mut self, gl: &WebGl2RenderingContext, strips: &[GpuStrip]) {
         if strips.is_empty() {
@@ -1756,61 +1756,69 @@ struct WebGlRendererContext<'a> {
 }
 
 impl WebGlRendererContext<'_> {
-    /// Render the strips to either the view or a slot texture (depending on `ix`).
-    fn do_strip_render_pass(&mut self, strips: &[GpuStrip], ix: usize, load: LoadOp) {
-        debug_assert!(ix < 3, "Invalid texture index");
+    /// Render the strips to the given target.
+    fn do_strip_render_pass(
+        &mut self,
+        strips: &[GpuStrip],
+        target: RenderTarget<&WebGlFramebuffer>,
+        load: LoadOp,
+    ) {
         if strips.is_empty() {
             return;
         }
         self.programs.upload_strips(self.gl, strips);
 
         // Bind the appropriate framebuffer.
-        if ix == 2 {
-            self.gl.bind_framebuffer(
-                WebGl2RenderingContext::FRAMEBUFFER,
-                Some(&self.programs.resources.view_framebuffer),
-            );
-            // Set viewport to match view framebuffer.
-            let width = self.programs.render_size.width;
-            let height = self.programs.render_size.height;
-            self.gl.viewport(0, 0, width as i32, height as i32);
+        match target {
+            RenderTarget::Output(output) => {
+                let framebuffer = match output {
+                    OutputTarget::FinalView(fb) | OutputTarget::IntermediateTexture(fb) => fb,
+                };
+                self.gl
+                    .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(framebuffer));
+                // Set viewport to match view framebuffer.
+                let width = self.programs.render_size.width;
+                let height = self.programs.render_size.height;
+                self.gl.viewport(0, 0, width as i32, height as i32);
 
-            // Use view config buffer for rendering to the main view.
-            self.gl.bind_buffer_base(
-                WebGl2RenderingContext::UNIFORM_BUFFER,
-                self.programs.strip_uniforms.config_vs_block_index,
-                Some(&self.programs.resources.view_config_buffer),
-            );
-            self.gl.bind_buffer_base(
-                WebGl2RenderingContext::UNIFORM_BUFFER,
-                self.programs.strip_uniforms.config_fs_block_index,
-                Some(&self.programs.resources.view_config_buffer),
-            );
-        } else {
-            self.gl.bind_framebuffer(
-                WebGl2RenderingContext::FRAMEBUFFER,
-                Some(&self.programs.resources.slot_framebuffers[ix]),
-            );
-            // Set viewport to match slot framebuffer.
-            // TODO: Remove the slot height texture calculation.
-            let total_slots: usize = (self.programs.resources.max_texture_dimension_2d
-                / u32::from(Tile::HEIGHT)) as usize;
-            // Set viewport to match slot texture.
-            let height = u32::from(Tile::HEIGHT) * total_slots as u32;
-            self.gl
-                .viewport(0, 0, i32::from(WideTile::WIDTH), height as i32);
+                // Use view config buffer for rendering to the output view.
+                self.gl.bind_buffer_base(
+                    WebGl2RenderingContext::UNIFORM_BUFFER,
+                    self.programs.strip_uniforms.config_vs_block_index,
+                    Some(&self.programs.resources.view_config_buffer),
+                );
+                self.gl.bind_buffer_base(
+                    WebGl2RenderingContext::UNIFORM_BUFFER,
+                    self.programs.strip_uniforms.config_fs_block_index,
+                    Some(&self.programs.resources.view_config_buffer),
+                );
+            }
+            RenderTarget::SlotTexture(idx) => {
+                self.gl.bind_framebuffer(
+                    WebGl2RenderingContext::FRAMEBUFFER,
+                    Some(&self.programs.resources.slot_framebuffers[idx as usize]),
+                );
+                // Set viewport to match slot framebuffer.
+                // TODO: Remove the slot height texture calculation.
+                let total_slots: usize = (self.programs.resources.max_texture_dimension_2d
+                    / u32::from(Tile::HEIGHT)) as usize;
+                // Set viewport to match slot texture.
+                let height = u32::from(Tile::HEIGHT) * total_slots as u32;
+                self.gl
+                    .viewport(0, 0, i32::from(WideTile::WIDTH), height as i32);
 
-            // Use slot config buffer for rendering to a slot texture.
-            self.gl.bind_buffer_base(
-                WebGl2RenderingContext::UNIFORM_BUFFER,
-                self.programs.strip_uniforms.config_vs_block_index,
-                Some(&self.programs.resources.slot_config_buffer),
-            );
-            self.gl.bind_buffer_base(
-                WebGl2RenderingContext::UNIFORM_BUFFER,
-                self.programs.strip_uniforms.config_fs_block_index,
-                Some(&self.programs.resources.slot_config_buffer),
-            );
+                // Use slot config buffer for rendering to a slot texture.
+                self.gl.bind_buffer_base(
+                    WebGl2RenderingContext::UNIFORM_BUFFER,
+                    self.programs.strip_uniforms.config_vs_block_index,
+                    Some(&self.programs.resources.slot_config_buffer),
+                );
+                self.gl.bind_buffer_base(
+                    WebGl2RenderingContext::UNIFORM_BUFFER,
+                    self.programs.strip_uniforms.config_fs_block_index,
+                    Some(&self.programs.resources.slot_config_buffer),
+                );
+            }
         }
 
         // Clear framebuffer if requested.
@@ -1835,11 +1843,12 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.strip_uniforms.alphas_texture), 0);
 
-        // Bound clip textures are dependent on `ix`:
-        // - ix=0 or ix=2: use slot_texture[1]
-        // - ix=1: use slot_texture[0]
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE1);
-        let clip_texture_idx = if ix == 1 { 0 } else { 1 };
+        let clip_texture_idx = if matches!(target, RenderTarget::SlotTexture(1)) {
+            0
+        } else {
+            1
+        };
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
             Some(&self.programs.resources.slot_textures[clip_texture_idx]),
@@ -1956,14 +1965,21 @@ impl WebGlRendererContext<'_> {
 }
 
 impl RendererBackend for WebGlRendererContext<'_> {
+    type View = WebGlFramebuffer;
+
     /// Clear specific slots in a texture
     fn clear_slots(&mut self, texture_index: usize, slots: &[u32]) {
         self.do_clear_slots_render_pass(texture_index, slots);
     }
 
     /// Execute a render pass for strips.
-    fn render_strips(&mut self, strips: &[GpuStrip], target_index: usize, load_op: LoadOp) {
-        self.do_strip_render_pass(strips, target_index, load_op);
+    fn render_strips(
+        &mut self,
+        strips: &[GpuStrip],
+        target: RenderTarget<&WebGlFramebuffer>,
+        load_op: LoadOp,
+    ) {
+        self.do_strip_render_pass(strips, target, load_op);
     }
 }
 
@@ -2178,6 +2194,13 @@ struct WebGlTextureSize {
     height: u32,
     /// The number of layers in the texture array.
     depth_or_array_layers: u32,
+}
+
+/// Clear a framebuffer.
+fn clear_framebuffer(frame_buffer: &WebGlFramebuffer, gl: &WebGl2RenderingContext) {
+    gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(frame_buffer));
+    gl.clear_color(0.0, 0.0, 0.0, 0.0);
+    gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
 }
 
 /// Helper function to copy from a source texture/framebuffer to a destination texture array layer.

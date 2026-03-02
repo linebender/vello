@@ -32,7 +32,7 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{LoadOp, RendererBackend, Scheduler, SchedulerState},
+    schedule::{LoadOp, OutputTarget, RenderTarget, RendererBackend, Scheduler, SchedulerState},
 };
 use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
@@ -140,7 +140,15 @@ impl Renderer {
         render_size: &RenderSize,
         view: &TextureView,
     ) -> Result<(), RenderError> {
-        self.render_scene(scene, device, queue, encoder, render_size, view, true)
+        self.render_scene(
+            scene,
+            device,
+            queue,
+            encoder,
+            render_size,
+            OutputTarget::FinalView(view),
+            true,
+        )
     }
 
     /// Render a `scene` directly into an atlas layer.
@@ -210,17 +218,13 @@ impl Renderer {
             &mut self.programs.resources.stub_atlas_bind_group,
         );
 
-        // TODO: The atlas is always RGBA8; when the surface uses a different format (e.g. BGRA on
-        // macOS), we may need a dedicated RGBA8 render pipeline for atlas rendering. Adopt the
-        // fix from the filters/native-format pipeline work when available.
-
         let result = self.render_scene(
             scene,
             device,
             queue,
             &mut encoder,
             &atlas_render_size,
-            &layer_view,
+            OutputTarget::IntermediateTexture(&layer_view),
             false,
         );
 
@@ -249,7 +253,7 @@ impl Renderer {
         queue: &Queue,
         encoder: &mut CommandEncoder,
         render_size: &RenderSize,
-        view: &TextureView,
+        output_target: OutputTarget<&TextureView>,
         // See https://github.com/linebender/vello/pull/1458/changes#r2851077556
         // TODO: Fix this ASAP!
         _clear: bool,
@@ -272,10 +276,14 @@ impl Renderer {
             device,
             queue,
             encoder,
-            view,
         };
-        self.scheduler
-            .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs)?;
+        self.scheduler.do_scene(
+            &mut self.scheduler_state,
+            &mut ctx,
+            scene,
+            &self.paint_idxs,
+            output_target,
+        )?;
         self.gradient_cache.maintain();
 
         Ok(())
@@ -585,8 +593,10 @@ impl Renderer {
 /// Defines the GPU resources and pipelines for rendering.
 #[derive(Debug)]
 struct Programs {
-    /// Pipeline for rendering wide tile commands.
-    strip_pipeline: RenderPipeline,
+    /// Pipelines for rendering wide tile commands.
+    /// Index 0: native surface format (for final view and slot textures).
+    /// Index 1: `Rgba8Unorm` (for intermediate textures).
+    strip_pipelines: [RenderPipeline; 2],
     /// Bind group layout for strip draws
     strip_bind_group_layout: BindGroupLayout,
     /// Bind group layout for encoded paints
@@ -812,37 +822,40 @@ impl Programs {
                 push_constant_ranges: &[],
             });
 
-        let strip_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Strip Pipeline"),
-            layout: Some(&strip_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &strip_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: size_of::<GpuStrip>() as u64,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &GpuStrip::vertex_attributes(),
-                }],
-                compilation_options: PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &strip_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(ColorTargetState {
-                    format: render_target_config.format,
-                    blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                    write_mask: ColorWrites::ALL,
-                })],
-                compilation_options: PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleStrip,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
+        let strip_formats = [render_target_config.format, wgpu::TextureFormat::Rgba8Unorm];
+        let strip_pipelines: [RenderPipeline; 2] = core::array::from_fn(|i| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Strip Pipeline"),
+                layout: Some(&strip_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &strip_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[wgpu::VertexBufferLayout {
+                        array_stride: size_of::<GpuStrip>() as u64,
+                        step_mode: wgpu::VertexStepMode::Instance,
+                        attributes: &GpuStrip::vertex_attributes(),
+                    }],
+                    compilation_options: PipelineCompilationOptions::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &strip_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(ColorTargetState {
+                        format: strip_formats[i],
+                        blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                        write_mask: ColorWrites::ALL,
+                    })],
+                    compilation_options: PipelineCompilationOptions::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleStrip,
+                    ..Default::default()
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            })
         });
 
         let clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -1072,7 +1085,7 @@ impl Programs {
         };
 
         Self {
-            strip_pipeline,
+            strip_pipelines,
             strip_bind_group_layout,
             encoded_paints_bind_group_layout,
             gradient_bind_group_layout,
@@ -1710,18 +1723,16 @@ struct RendererContext<'a> {
     device: &'a Device,
     queue: &'a Queue,
     encoder: &'a mut CommandEncoder,
-    view: &'a TextureView,
 }
 
 impl RendererContext<'_> {
-    /// Render the strips to either the view or a slot texture (depending on `ix`).
+    /// Render the strips to the given target.
     fn do_strip_render_pass(
         &mut self,
         strips: &[GpuStrip],
-        ix: usize,
+        target: RenderTarget<&TextureView>,
         load: wgpu::LoadOp<wgpu::Color>,
     ) {
-        debug_assert!(ix < 3, "Invalid texture index");
         if strips.is_empty() {
             return;
         }
@@ -1729,14 +1740,20 @@ impl RendererContext<'_> {
         // approach would be to re-use buffers or slices of a larger buffer.
         self.programs.upload_strips(self.device, self.queue, strips);
 
+        let (view, bind_group_index, pipeline_index) = match target {
+            RenderTarget::Output(OutputTarget::FinalView(view)) => (view, 2, 0),
+            RenderTarget::Output(OutputTarget::IntermediateTexture(view)) => (view, 2, 1),
+            RenderTarget::SlotTexture(idx) => (
+                &self.programs.resources.slot_texture_views[idx as usize],
+                idx as usize,
+                0,
+            ),
+        };
+
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("Render to Texture Pass"),
             color_attachments: &[Some(RenderPassColorAttachment {
-                view: if ix == 2 {
-                    self.view
-                } else {
-                    &self.programs.resources.slot_texture_views[ix]
-                },
+                view,
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
@@ -1748,8 +1765,12 @@ impl RendererContext<'_> {
             occlusion_query_set: None,
             timestamp_writes: None,
         });
-        render_pass.set_pipeline(&self.programs.strip_pipeline);
-        render_pass.set_bind_group(0, &self.programs.resources.slot_bind_groups[ix], &[]);
+        render_pass.set_pipeline(&self.programs.strip_pipelines[pipeline_index]);
+        render_pass.set_bind_group(
+            0,
+            &self.programs.resources.slot_bind_groups[bind_group_index],
+            &[],
+        );
         render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
         render_pass.set_bind_group(2, &self.programs.resources.encoded_paints_bind_group, &[]);
         render_pass.set_bind_group(3, &self.programs.resources.gradient_bind_group, &[]);
@@ -1807,19 +1828,26 @@ impl RendererContext<'_> {
 }
 
 impl RendererBackend for RendererContext<'_> {
+    type View = TextureView;
+
     /// Execute the render pass for clearing slots.
     fn clear_slots(&mut self, texture_index: usize, slots: &[u32]) {
         self.do_clear_slots_render_pass(texture_index, slots);
     }
 
     /// Execute the render pass for rendering strips.
-    fn render_strips(&mut self, strips: &[GpuStrip], target_index: usize, load_op: LoadOp) {
+    fn render_strips(
+        &mut self,
+        strips: &[GpuStrip],
+        target: RenderTarget<&TextureView>,
+        load_op: LoadOp,
+    ) {
         let wgpu_load_op = match load_op {
             LoadOp::Load => wgpu::LoadOp::Load,
             LoadOp::Clear => wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
         };
 
-        self.do_strip_render_pass(strips, target_index, wgpu_load_op);
+        self.do_strip_render_pass(strips, target, wgpu_load_op);
     }
 }
 

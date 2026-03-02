@@ -205,13 +205,41 @@ const PAINT_TYPE_SWEEP_GRADIENT: u32 = 4;
 // The sentinel tile index representing the surface.
 const SENTINEL_SLOT_IDX: usize = usize::MAX;
 
+/// The output target for a draw operation.
+///
+/// Either the final user-provided surface or an intermediate texture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OutputTarget<V> {
+    /// Render to the final, user-provided output view/surface.
+    FinalView(V),
+    /// Render to an intermediate texture.
+    IntermediateTexture(V),
+}
+
+/// The render target for a strip rendering pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RenderTarget<V> {
+    /// Render to the current output target.
+    Output(OutputTarget<V>),
+    /// Render to one of the two slot textures used for clipping/blending.
+    SlotTexture(u8),
+}
+
 /// Trait for abstracting the renderer backend from the scheduler.
 pub(crate) trait RendererBackend {
+    /// The backend-specific texture view type used for intermediate render targets.
+    type View;
+
     /// Clear specific slots in a texture.
     fn clear_slots(&mut self, texture_index: usize, slots: &[u32]);
 
     /// Execute a render pass for strips.
-    fn render_strips(&mut self, strips: &[GpuStrip], target_index: usize, load_op: LoadOp);
+    fn render_strips(
+        &mut self,
+        strips: &[GpuStrip],
+        target: RenderTarget<&Self::View>,
+        load_op: LoadOp,
+    );
 }
 
 /// Backend agnostic enum that specifies the operation to perform to the output attachment at the
@@ -424,12 +452,13 @@ impl Scheduler {
         &mut self,
         texture: usize,
         renderer: &mut R,
+        output_target: OutputTarget<&R::View>,
     ) -> Result<ClaimedSlot, RenderError> {
         while self.free[texture].is_empty() {
             if self.rounds_queue.is_empty() {
                 return Err(RenderError::SlotsExhausted);
             }
-            self.flush(renderer);
+            self.flush(renderer, output_target);
         }
 
         let slot_ix = self.free[texture].pop().unwrap();
@@ -470,6 +499,7 @@ impl Scheduler {
         renderer: &mut R,
         scene: &Scene,
         paint_idxs: &[u32],
+        output_target: OutputTarget<&R::View>,
     ) -> Result<(), RenderError> {
         let wide = &scene.wide;
         let rows = wide.height_tiles();
@@ -498,6 +528,7 @@ impl Scheduler {
                     cols,
                     &mut cmd_offsets,
                     paint_idxs,
+                    output_target,
                 )?;
             }
             StripPathMode::Interleaved => {
@@ -520,6 +551,7 @@ impl Scheduler {
                         cols,
                         &mut cmd_offsets,
                         paint_idxs,
+                        output_target,
                     )?;
 
                     prev_split = split;
@@ -538,7 +570,7 @@ impl Scheduler {
         self.cmd_offsets = cmd_offsets;
 
         while !self.rounds_queue.is_empty() {
-            self.flush(renderer);
+            self.flush(renderer, output_target);
         }
 
         // Restore state to reuse allocations.
@@ -583,6 +615,7 @@ impl Scheduler {
         cols: u16,
         cmd_offsets: &mut [usize],
         paint_idxs: &[u32],
+        output_target: OutputTarget<&R::View>,
     ) -> Result<(), RenderError> {
         for row in 0..rows {
             for col in 0..cols {
@@ -626,6 +659,7 @@ impl Scheduler {
                     tile.surface_is_blend_target(),
                     paint_idxs,
                     &wide.attrs,
+                    output_target,
                 )?;
                 let end = relative_end + start_offset;
 
@@ -640,7 +674,11 @@ impl Scheduler {
     /// Flush one round.
     ///
     /// The rounds queue must not be empty.
-    fn flush<R: RendererBackend>(&mut self, renderer: &mut R) {
+    fn flush<R: RendererBackend>(
+        &mut self,
+        renderer: &mut R,
+        output_target: OutputTarget<&R::View>,
+    ) {
         let round = self.rounds_queue.pop_front().unwrap();
         for (i, draw) in round.draws.iter().enumerate() {
             #[cfg(debug_assertions)]
@@ -682,7 +720,12 @@ impl Scheduler {
                 continue;
             }
 
-            renderer.render_strips(&draw.0, i, load);
+            let target = if i == 2 {
+                RenderTarget::Output(output_target)
+            } else {
+                RenderTarget::SlotTexture(i as u8)
+            };
+            renderer.render_strips(&draw.0, target, load);
         }
         for i in 0..2 {
             self.free[i].extend(&round.free[i]);
@@ -778,6 +821,7 @@ impl Scheduler {
         surface_is_blend_target: bool,
         paint_idxs: &[u32],
         attrs: &CommandAttrs,
+        output_target: OutputTarget<&R::View>,
     ) -> Result<usize, RenderError> {
         // What is going on with the `surface_is_blend_target` and `is_blend_target` variables in
         // `PushBuf`?
@@ -802,7 +846,7 @@ impl Scheduler {
         // in this case we need to "wrap" _everything_ into a push/pop layer operation.
 
         if surface_is_blend_target {
-            self.do_push_buf(state, renderer, true)?;
+            self.do_push_buf(state, renderer, true, output_target)?;
         }
 
         for (idx, cmd) in wide_tile_cmds.iter().enumerate() {
@@ -869,7 +913,7 @@ impl Scheduler {
                     );
                 }
                 Cmd::PushBuf(_, is_blend_target) => {
-                    self.do_push_buf(state, renderer, *is_blend_target)?;
+                    self.do_push_buf(state, renderer, *is_blend_target, output_target)?;
                 }
                 Cmd::PopBuf => {
                     self.do_pop_buf(state);
@@ -1009,6 +1053,7 @@ impl Scheduler {
         state: &mut SchedulerState,
         renderer: &mut R,
         needs_temporary_slot: bool,
+        output_target: OutputTarget<&R::View>,
     ) -> Result<(), RenderError> {
         let depth = state.tile_state.stack.len();
 
@@ -1062,9 +1107,9 @@ impl Scheduler {
 
         // Push a new tile.
         let ix = depth % 2;
-        let slot = self.claim_free_slot(ix, renderer)?;
+        let slot = self.claim_free_slot(ix, renderer, output_target)?;
         let temporary_slot = if needs_temporary_slot {
-            let temp_slot = self.claim_free_slot((ix + 1) % 2, renderer)?;
+            let temp_slot = self.claim_free_slot((ix + 1) % 2, renderer, output_target)?;
             debug_assert_ne!(
                 slot.get_texture(),
                 temp_slot.get_texture(),
