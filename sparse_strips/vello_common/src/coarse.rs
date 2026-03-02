@@ -840,6 +840,7 @@ impl<const MODE: u8> Wide<MODE> {
     pub fn pop_layer(&mut self, render_graph: &mut RenderGraph) {
         // This method basically unwinds everything we did in `push_layer`.
         let mut layer = self.layer_stack.pop().unwrap();
+        let batch_count = self.batch_count;
 
         if let Some(filter) = &layer.filter {
             let mut final_bbox = WideTilesBbox::inverted();
@@ -880,8 +881,11 @@ impl<const MODE: u8> Wide<MODE> {
             for x in final_bbox.x0()..final_bbox.x1() {
                 for y in final_bbox.y0()..final_bbox.y1() {
                     let idx = self.get_idx(x, y);
-                    self.tiles[idx]
-                        .ensure_layer_stack_bufs(idx, &mut self.layers_needing_buf_stack);
+                    self.tiles[idx].ensure_layer_stack_bufs(
+                        idx,
+                        &mut self.layers_needing_buf_stack,
+                        batch_count,
+                    );
 
                     // Note that unlike commands like "mask" or "opacity" which only need to be applied
                     // to wide tiles with drawing commands, filter commands always need to be applied
