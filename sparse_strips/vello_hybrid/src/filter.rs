@@ -3,6 +3,7 @@
 
 //! GPU filter types and conversion utilities.
 
+use alloc::vec;
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use hashbrown::HashMap;
@@ -43,6 +44,17 @@ pub(crate) mod edge_mode {
     pub(crate) const WRAP: u32 = 1;
     pub(crate) const MIRROR: u32 = 2;
     pub(crate) const NONE: u32 = 3;
+}
+
+pub(crate) mod pass_kind {
+    pub(crate) const COPY: u32 = 0;
+    pub(crate) const FLOOD: u32 = 1;
+    pub(crate) const OFFSET: u32 = 2;
+    pub(crate) const DOWNSCALE: u32 = 3;
+    pub(crate) const BLUR_H: u32 = 4;
+    pub(crate) const BLUR_V: u32 = 5;
+    pub(crate) const UPSCALE: u32 = 6;
+    pub(crate) const COMPOSITE: u32 = 7;
 }
 
 pub(crate) fn edge_mode_to_gpu(mode: EdgeMode) -> u32 {
@@ -272,11 +284,16 @@ impl GpuFilterData {
     )]
     pub(crate) const SIZE_TEXELS: u32 = size_of::<Self>().div_ceil(BYTES_PER_TEXEL) as u32;
 
-    fn filter_type(&self) -> u32 {
+    pub(crate) fn filter_type(&self) -> u32 {
         self.data[0] & 0x1F
     }
 
-    /// Returns whether this filter requires a scratch buffer.
+    /// Returns the number of decimation levels encoded in the header.
+    pub(crate) fn n_decimations(&self) -> usize {
+        ((self.data[0] >> 7) & 0xF) as usize
+    }
+
+    /// Returns whether this filter requires scratch buffers.
     pub(crate) fn needs_scratch_buffer(&self) -> bool {
         matches!(
             self.filter_type(),
@@ -340,36 +357,29 @@ pub(crate) struct FilterInstanceData {
     pub original_offset: [u32; 2],
     /// Width and height (in pixels) of the original content region.
     pub original_size: [u32; 2],
-    /// Padding for 16-byte alignment.
-    pub _padding: u32,
+    /// The type of filter pass to execute (see `pass_kind` module constants).
+    pub pass_kind: u32,
 }
 
-/// Describes the resources and instance data needed to execute the second filter pass.
-pub(crate) struct FilterPass2Data {
-    /// Instance data for the second filter pass.
+/// Where a filter pass writes its output.
+pub(crate) enum FilterPassTarget {
+    /// Output to a filter atlas texture (atlas_idx in `filter_context.image_cache`).
+    FilterAtlas(u32),
+    /// Output to the main atlas texture array (atlas_idx in main `image_cache`).
+    MainAtlas(u32),
+}
+
+/// Describes a single filter pass with its resources and instance data.
+pub(crate) struct FilterPass {
+    /// Instance data for this filter pass.
     pub instance: FilterInstanceData,
-    /// Atlas index of the scratch texture to read from (in `filter_context.image_cache`).
-    pub scratch_atlas_idx: u32,
-    /// Atlas index of the original input texture (in `filter_context.image_cache`).
-    pub original_atlas_idx: u32,
-    /// Atlas index of the final destination (in the main `image_cache`).
-    pub dest_atlas_idx: u32,
-}
-
-/// Describes the resources and instance data needed to execute filter passes.
-/// Built by `FilterContext`, consumed by backend-specific renderers.
-pub(crate) struct FilterPassData {
-    /// Instance data for the first filter pass.
-    pub pass_1: FilterInstanceData,
-    /// Atlas index of the input texture (in `filter_context.image_cache`).
+    /// Atlas index of the input texture to read from (in `filter_context.image_cache`).
     pub input_atlas_idx: u32,
-    /// Atlas index of the first pass output texture.
-    pub pass_1_output_atlas_idx: u32,
-    /// Whether the first pass output goes to a filter atlas texture (true)
-    /// or the main atlas texture array (false).
-    pub pass_1_output_is_filter_atlas: bool,
-    /// Instance data for the second filter pass, if it exists.
-    pub pass_2: Option<FilterPass2Data>,
+    /// Where this pass writes its output.
+    pub output: FilterPassTarget,
+    /// For COMPOSITE passes: atlas index of the original (unfiltered) texture
+    /// (in `filter_context.image_cache`). For non-COMPOSITE passes, this is `None`.
+    pub original_atlas_idx: Option<u32>,
 }
 
 /// Context used for keeping track of state necessary for filter rendering.
@@ -406,8 +416,9 @@ impl FilterContext {
             self.image_cache
                 .deallocate(filter_textures.initial_image_id);
             image_atlas_cache.deallocate(filter_textures.dest_image_id);
-            if let Some(scratch_id) = filter_textures.scratch_image_id {
-                self.image_cache.deallocate(scratch_id);
+            if let Some(scratch_ids) = filter_textures.scratch_image_ids {
+                self.image_cache.deallocate(scratch_ids[0]);
+                self.image_cache.deallocate(scratch_ids[1]);
             }
         }
 
@@ -468,16 +479,22 @@ impl FilterContext {
                 // in the same image atlas where normal images live, allowing us to treat them like normal
                 // image fills.
                 let dest_image_id = dest_cache.allocate(width, height)?;
-                // For multi-pass filters we need an intermediate scratch buffer. Therefore, it
-                // is important that inside of the atlas, the image lives on a different texture
-                // than the initial texture. Otherwise, we would have to read and write from the
-                // same texture (even though the locations are distinct), which is prohibited.
-                let scratch_image_id = if needs_scratch {
-                    Some(self.image_cache.allocate_excluding(
+                // For multi-pass filters we need two intermediate scratch buffers for ping-pong
+                // rendering. Each scratch must live on a different atlas texture than the other
+                // and than the initial texture, because we cannot read and write the same texture.
+                let scratch_image_ids = if needs_scratch {
+                    let scratch_1 = self.image_cache.allocate_excluding(
                         width,
                         height,
                         Some(AtlasId(initial_atlas_id.as_u32())),
-                    )?)
+                    )?;
+                    let scratch_1_atlas_id = self.image_cache.get(scratch_1).unwrap().atlas_id;
+                    let scratch_2 = self.image_cache.allocate_excluding(
+                        width,
+                        height,
+                        Some(AtlasId(scratch_1_atlas_id.as_u32())),
+                    )?;
+                    Some([scratch_1, scratch_2])
                 } else {
                     None
                 };
@@ -510,7 +527,7 @@ impl FilterContext {
                     FilterLayerData {
                         initial_image_id,
                         dest_image_id,
-                        scratch_image_id,
+                        scratch_image_ids,
                         paint_idx: idx as u32,
                         bbox: *wtile_bbox,
                     },
@@ -566,100 +583,235 @@ impl FilterContext {
         Some(height)
     }
 
-    /// Build backend-agnostic filter pass data for a given layer.
+    /// Build the sequence of filter passes for a given layer.
+    ///
+    /// Returns a `Vec<FilterPass>` describing each pass in order: what to read, what to write,
+    /// and the pass kind. The first pass reads from `initial` (filter atlas). Intermediate passes
+    /// ping-pong between `scratch_1` and `scratch_2`. The last pass writes to `dest` (main atlas).
     ///
     /// `dest_image_cache` is the main renderer's image cache (for `dest_image` lookups).
     /// `get_filter_atlas_size` returns the (width, height) of a filter atlas texture.
     /// `get_main_atlas_size` returns the (width, height) of the main atlas texture array.
-    pub(crate) fn build_filter_pass_data(
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "dimensions won't exceed u32"
+    )]
+    pub(crate) fn build_filter_passes(
         &self,
         layer_id: &LayerId,
         dest_image_cache: &ImageCache,
         get_filter_atlas_size: impl Fn(u32) -> [u32; 2],
         get_main_atlas_size: impl Fn() -> [u32; 2],
-    ) -> FilterPassData {
+    ) -> Vec<FilterPass> {
         let filter_data_offset = self.offsets.get(layer_id).copied().unwrap();
-        let uses_scratch = self
-            .get_filter_data(layer_id)
-            .is_some_and(|f| f.needs_scratch_buffer());
+        let gpu_filter = self.get_filter_data(layer_id).unwrap();
+        let filter_type = gpu_filter.filter_type();
         let filter_textures = self.filter_textures.get(layer_id).unwrap();
 
         let initial_image = self
             .image_cache
             .get(filter_textures.initial_image_id)
-            .expect("Main image must exist");
+            .expect("Initial image must exist");
         let dest_image = dest_image_cache
             .get(filter_textures.dest_image_id)
             .expect("Dest image must exist");
 
-        let input_atlas_idx = initial_image.atlas_id.as_u32();
+        let initial_atlas_idx = initial_image.atlas_id.as_u32();
+        let dest_atlas_idx = dest_image.atlas_id.as_u32();
+        let main_atlas_size = get_main_atlas_size();
 
-        let (first_pass_dest_offset, first_pass_dest_size, first_pass_dest_atlas_idx) =
-            if uses_scratch {
-                let scratch_id = filter_textures.scratch_image_id.unwrap();
-                let scratch = self.image_cache.get(scratch_id).unwrap();
-                (scratch.offsets(), scratch.size(), scratch.atlas_id.as_u32())
+        // Build the pass kind chain based on filter type.
+        let n_decimations = gpu_filter.n_decimations();
+
+        let pass_kinds: Vec<u32> = match filter_type {
+            filter_type::OFFSET => vec![pass_kind::OFFSET],
+            filter_type::FLOOD => vec![pass_kind::FLOOD],
+            filter_type::GAUSSIAN_BLUR => {
+                let mut kinds = Vec::new();
+                for _ in 0..n_decimations {
+                    kinds.push(pass_kind::DOWNSCALE);
+                }
+                kinds.push(pass_kind::BLUR_H);
+                kinds.push(pass_kind::BLUR_V);
+                for _ in 0..n_decimations {
+                    kinds.push(pass_kind::UPSCALE);
+                }
+                kinds
+            }
+            filter_type::DROP_SHADOW => {
+                let mut kinds = vec![pass_kind::OFFSET];
+                for _ in 0..n_decimations {
+                    kinds.push(pass_kind::DOWNSCALE);
+                }
+                kinds.push(pass_kind::BLUR_H);
+                kinds.push(pass_kind::BLUR_V);
+                for _ in 0..n_decimations {
+                    kinds.push(pass_kind::UPSCALE);
+                }
+                kinds.push(pass_kind::COMPOSITE);
+                kinds
+            }
+            _ => vec![pass_kind::COPY],
+        };
+
+        // For simple filters (single pass, no scratch), just read initial → write dest.
+        if pass_kinds.len() == 1 {
+            return vec![FilterPass {
+                instance: FilterInstanceData {
+                    src_offset: initial_image.offsets(),
+                    src_size: initial_image.size(),
+                    dest_offset: dest_image.offsets(),
+                    dest_size: dest_image.size(),
+                    dest_atlas_size: main_atlas_size,
+                    filter_data_offset,
+                    pass_kind: pass_kinds[0],
+                    original_offset: [0, 0],
+                    original_size: [0, 0],
+                },
+                input_atlas_idx: initial_atlas_idx,
+                output: FilterPassTarget::MainAtlas(dest_atlas_idx),
+                original_atlas_idx: None,
+            }];
+        }
+
+        // Multi-pass: need scratch images for ping-pong.
+        let scratch_ids = filter_textures
+            .scratch_image_ids
+            .expect("Multi-pass filters require scratch images");
+        let scratch_resources: [_; 2] = [
+            self.image_cache.get(scratch_ids[0]).unwrap(),
+            self.image_cache.get(scratch_ids[1]).unwrap(),
+        ];
+        let scratch_atlas_indices = [
+            scratch_resources[0].atlas_id.as_u32(),
+            scratch_resources[1].atlas_id.as_u32(),
+        ];
+
+        // Track dimensions through downscale/upscale.
+        let base_w = filter_textures.bbox.width_px() as u32;
+        let base_h = filter_textures.bbox.height_px() as u32;
+        let mut cur_w = base_w;
+        let mut cur_h = base_h;
+        let mut dim_stack: Vec<(u32, u32)> = Vec::new();
+
+        // Pre-compute dimensions for each pass.
+        let mut dims: Vec<(u32, u32, u32, u32)> = Vec::new(); // (src_w, src_h, dst_w, dst_h)
+        for &kind in &pass_kinds {
+            match kind {
+                pass_kind::DOWNSCALE => {
+                    let src_w = cur_w;
+                    let src_h = cur_h;
+                    dim_stack.push((cur_w, cur_h));
+                    cur_w = cur_w.div_ceil(2);
+                    cur_h = cur_h.div_ceil(2);
+                    dims.push((src_w, src_h, cur_w, cur_h));
+                }
+                pass_kind::UPSCALE => {
+                    let src_w = cur_w;
+                    let src_h = cur_h;
+                    let (target_w, target_h) = dim_stack.pop().unwrap();
+                    cur_w = (cur_w * 2).min(target_w);
+                    cur_h = (cur_h * 2).min(target_h);
+                    dims.push((src_w, src_h, cur_w, cur_h));
+                }
+                _ => {
+                    dims.push((cur_w, cur_h, cur_w, cur_h));
+                }
+            }
+        }
+
+        let num_passes = pass_kinds.len();
+        let mut passes = Vec::with_capacity(num_passes);
+
+        // Scratch write toggle: even passes write to scratch_1, odd to scratch_2.
+        // (The "current read" for pass i is the "previous write" target.)
+        // First pass reads from initial. Last pass writes to dest (main atlas).
+        // For COMPOSITE: the pass before it must write to scratch (not dest),
+        // and COMPOSITE reads from that scratch + original, writes to dest.
+
+        // Determine if the last pass is COMPOSITE (drop shadow).
+        let last_is_composite = pass_kinds[num_passes - 1] == pass_kind::COMPOSITE;
+        // The "final content pass" is the last pass that writes the actual result
+        // (for drop shadow, that's the pass before COMPOSITE).
+        let final_content_idx = if last_is_composite {
+            num_passes - 2
+        } else {
+            num_passes - 1
+        };
+
+        let mut scratch_toggle = 0_usize; // which scratch to write to next
+
+        for (i, &kind) in pass_kinds.iter().enumerate() {
+            let (src_w, src_h, dst_w, dst_h) = dims[i];
+
+            // Determine input.
+            let (input_idx, src_offset, src_size) = if i == 0 {
+                (initial_atlas_idx, initial_image.offsets(), [src_w, src_h])
             } else {
+                // Read from the scratch that the previous pass wrote to.
+                let prev_scratch = (scratch_toggle + 1) % 2;
                 (
-                    dest_image.offsets(),
-                    dest_image.size(),
-                    dest_image.atlas_id.as_u32(),
+                    scratch_atlas_indices[prev_scratch],
+                    scratch_resources[prev_scratch].offsets(),
+                    [src_w, src_h],
                 )
             };
 
-        let dest_atlas_size = if uses_scratch {
-            get_filter_atlas_size(first_pass_dest_atlas_idx)
-        } else {
-            get_main_atlas_size()
-        };
+            // Determine output.
+            let is_last = i == num_passes - 1;
+            let is_final_content = i == final_content_idx;
 
-        let pass_1 = FilterInstanceData {
-            src_offset: initial_image.offsets(),
-            src_size: initial_image.size(),
-            dest_offset: first_pass_dest_offset,
-            dest_size: first_pass_dest_size,
-            dest_atlas_size,
-            filter_data_offset,
-            _padding: 0,
-            // Unused in the first filter pass.
-            original_offset: [0, 0],
-            original_size: [0, 0],
-        };
+            let (output, dest_offset, dest_size, dest_atlas_size_val) =
+                if is_last || (is_final_content && !last_is_composite) {
+                    // Last pass (or final content pass without composite) → write to dest.
+                    (
+                        FilterPassTarget::MainAtlas(dest_atlas_idx),
+                        dest_image.offsets(),
+                        [dst_w, dst_h],
+                        main_atlas_size,
+                    )
+                } else {
+                    // Intermediate pass → write to current scratch.
+                    let s = scratch_toggle;
+                    scratch_toggle = (scratch_toggle + 1) % 2;
+                    (
+                        FilterPassTarget::FilterAtlas(scratch_atlas_indices[s]),
+                        scratch_resources[s].offsets(),
+                        [dst_w, dst_h],
+                        get_filter_atlas_size(scratch_atlas_indices[s]),
+                    )
+                };
 
-        let pass_2 = if uses_scratch {
-            let scratch_id = filter_textures.scratch_image_id.unwrap();
-            let scratch_resource = self.image_cache.get(scratch_id).unwrap();
-            let main_atlas_size = get_main_atlas_size();
-
-            let instance = FilterInstanceData {
-                src_offset: scratch_resource.offsets(),
-                src_size: scratch_resource.size(),
-                dest_offset: dest_image.offsets(),
-                dest_size: dest_image.size(),
-                dest_atlas_size: main_atlas_size,
-                filter_data_offset,
-                _padding: 0,
-                original_offset: initial_image.offsets(),
-                original_size: initial_image.size(),
+            // For COMPOSITE, bind original texture.
+            let (original_atlas, original_offset, original_size) = if kind == pass_kind::COMPOSITE {
+                (
+                    Some(initial_atlas_idx),
+                    initial_image.offsets(),
+                    initial_image.size(),
+                )
+            } else {
+                (None, [0, 0], [0, 0])
             };
 
-            Some(FilterPass2Data {
-                instance,
-                scratch_atlas_idx: scratch_resource.atlas_id.as_u32(),
-                original_atlas_idx: input_atlas_idx,
-                dest_atlas_idx: dest_image.atlas_id.as_u32(),
-            })
-        } else {
-            None
-        };
-
-        FilterPassData {
-            pass_1,
-            input_atlas_idx,
-            pass_1_output_atlas_idx: first_pass_dest_atlas_idx,
-            pass_1_output_is_filter_atlas: uses_scratch,
-            pass_2,
+            passes.push(FilterPass {
+                instance: FilterInstanceData {
+                    src_offset,
+                    src_size,
+                    dest_offset,
+                    dest_size,
+                    dest_atlas_size: dest_atlas_size_val,
+                    filter_data_offset,
+                    pass_kind: kind,
+                    original_offset,
+                    original_size,
+                },
+                input_atlas_idx: input_idx,
+                output,
+                original_atlas_idx: original_atlas,
+            });
         }
+
+        passes
     }
 }
 
@@ -672,9 +824,9 @@ pub(crate) struct FilterLayerData {
     /// the same image atlas as normal images, allowing us to treat filtered layers the same
     /// way as normal images that we can sample from.
     pub dest_image_id: ImageId,
-    /// Some filters require intermediate buffers. This field optionally holds the ID of
-    /// the intermediate texture we can use for that.
-    pub scratch_image_id: Option<ImageId>,
+    /// Some filters require intermediate buffers. This field optionally holds the IDs of
+    /// two intermediate textures we can use for ping-pong rendering.
+    pub scratch_image_ids: Option<[ImageId; 2]>,
     /// The paint index that points to the location in `encoded_paints` where
     /// the final filtered version of the image will be stored.
     pub paint_idx: u32,

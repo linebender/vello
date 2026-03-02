@@ -98,10 +98,7 @@ fn generate_compiled_shaders_module(buf: &mut String, shader_infos: &[(String, S
 #[cfg(feature = "glsl")]
 fn glsl_entry_points(file_stem: &str) -> Vec<(&str, &str, &str)> {
     match file_stem {
-        "filters" => vec![
-            ("_pass_1", "vs_main", "fs_pass_1"),
-            ("_pass_2", "vs_main", "fs_pass_2"),
-        ],
+        "filters" => vec![("", "vs_main", "fs_main")],
         // Assume standard setup by default.
         _ => vec![("", "vs_main", "fs_main")],
     }

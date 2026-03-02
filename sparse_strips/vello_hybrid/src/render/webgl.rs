@@ -22,7 +22,7 @@ only break in edge cases, and some of them are also only related to conversions 
 
 use crate::{
     AtlasConfig, GpuStrip, RenderError, RenderSettings, RenderSize,
-    filter::{FilterContext, FilterInstanceData},
+    filter::{FilterContext, FilterInstanceData, FilterPassTarget},
     gradient_cache::GradientRampCache,
     image_cache::{ImageCache, ImageResource},
     multi_atlas::AtlasId,
@@ -55,7 +55,7 @@ use vello_common::{
     render_graph::LayerId,
     tile::Tile,
 };
-use vello_sparse_shaders::{clear_slots, filters_pass_1, filters_pass_2, render_strips};
+use vello_sparse_shaders::{clear_slots, filters, render_strips};
 use web_sys::wasm_bindgen::{JsCast, JsValue};
 use web_sys::{
     WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlTexture,
@@ -559,14 +559,10 @@ struct WebGlPrograms {
     clear_program: WebGlProgram,
     /// Uniform locations for the `clear_program`.
     clear_uniforms: ClearUniforms,
-    /// Program for filter pass 1 (single-pass or first pass of multi-pass filters).
-    filter_pass_1_program: WebGlProgram,
-    /// Uniform locations for filter pass 1.
-    filter_pass_1_uniforms: FilterPassUniforms,
-    /// Program for filter pass 2 (second pass of multi-pass filters).
-    filter_pass_2_program: WebGlProgram,
-    /// Uniform locations for filter pass 2.
-    filter_pass_2_uniforms: FilterPassUniforms,
+    /// Single uber program for filter passes (dispatches on pass_kind in shader).
+    filter_program: WebGlProgram,
+    /// Uniform locations for the filter program.
+    filter_uniforms: FilterPassUniforms,
     /// WebGL resources for rendering.
     resources: WebGlResources,
     /// Dimensions of the rendering target.
@@ -605,7 +601,7 @@ struct ClearUniforms {
     config_block_index: u32,
 }
 
-/// Uniform locations for filter pass programs.
+/// Uniform locations for the filter uber program.
 #[derive(Debug)]
 struct FilterPassUniforms {
     /// Filter data texture (usampler2D) - group(0) binding(0).
@@ -614,8 +610,8 @@ struct FilterPassUniforms {
     /// In GLSL 300 ES, the sampler is combined with the texture, so `in_tex` already
     /// includes the linear sampler from the WGSL source.
     in_tex: WebGlUniformLocation,
-    /// Original texture (sampler2D) - group(2) binding(0), only used in pass 2.
-    original_tex: Option<WebGlUniformLocation>,
+    /// Original texture (sampler2D) - group(2) binding(0).
+    original_tex: WebGlUniformLocation,
 }
 
 /// Contains all WebGL resources needed for rendering.
@@ -718,23 +714,15 @@ impl WebGlPrograms {
             clear_slots::VERTEX_SOURCE,
             clear_slots::FRAGMENT_SOURCE,
         );
-        let filter_pass_1_program = create_shader_program(
+        let filter_program = create_shader_program(
             &gl,
-            filters_pass_1::VERTEX_SOURCE,
-            filters_pass_1::FRAGMENT_SOURCE,
-        );
-        let filter_pass_2_program = create_shader_program(
-            &gl,
-            filters_pass_2::VERTEX_SOURCE,
-            filters_pass_2::FRAGMENT_SOURCE,
+            filters::VERTEX_SOURCE,
+            filters::FRAGMENT_SOURCE,
         );
 
         let strip_uniforms = get_strip_uniforms(&gl, &strip_program);
         let clear_uniforms = get_clear_uniforms(&gl, &clear_program);
-        let filter_pass_1_uniforms =
-            get_filter_pass_uniforms(&gl, &filter_pass_1_program, false);
-        let filter_pass_2_uniforms =
-            get_filter_pass_uniforms(&gl, &filter_pass_2_program, true);
+        let filter_uniforms = get_filter_pass_uniforms(&gl, &filter_program);
 
         let resources = create_webgl_resources(&gl, image_cache, filter_context, slot_count);
 
@@ -753,10 +741,8 @@ impl WebGlPrograms {
         Self {
             strip_program,
             clear_program,
-            filter_pass_1_program,
-            filter_pass_1_uniforms,
-            filter_pass_2_program,
-            filter_pass_2_uniforms,
+            filter_program,
+            filter_uniforms,
             strip_uniforms,
             clear_uniforms,
             resources,
@@ -1595,23 +1581,20 @@ fn get_clear_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> Cl
     ClearUniforms { config_block_index }
 }
 
-/// Get the uniform locations for a filter pass program.
+/// Get the uniform locations for the filter uber program.
 fn get_filter_pass_uniforms(
     gl: &WebGl2RenderingContext,
     program: &WebGlProgram,
-    has_original_tex: bool,
 ) -> FilterPassUniforms {
     let filter_data = gl
-        .get_uniform_location(program, filters_pass_1::fragment::FILTER_DATA)
+        .get_uniform_location(program, filters::fragment::FILTER_DATA)
         .unwrap();
     let in_tex = gl
-        .get_uniform_location(program, filters_pass_1::fragment::IN_TEX)
+        .get_uniform_location(program, filters::fragment::IN_TEX)
         .unwrap();
-    let original_tex = if has_original_tex {
-        gl.get_uniform_location(program, filters_pass_2::fragment::ORIGINAL_TEX)
-    } else {
-        None
-    };
+    let original_tex = gl
+        .get_uniform_location(program, filters::fragment::ORIGINAL_TEX)
+        .unwrap();
 
     FilterPassUniforms {
         filter_data,
@@ -2119,6 +2102,11 @@ fn initialize_filter_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources
     gl.vertex_attrib_i_pointer_with_i32(7, 2, WebGl2RenderingContext::UNSIGNED_INT, stride, 52);
     gl.vertex_attrib_divisor(7, 1);
 
+    // Location 8: pass_kind (Uint32), offset 60
+    gl.enable_vertex_attrib_array(8);
+    gl.vertex_attrib_i_pointer_with_i32(8, 1, WebGl2RenderingContext::UNSIGNED_INT, stride, 60);
+    gl.vertex_attrib_divisor(8, 1);
+
     gl.bind_vertex_array(None);
 }
 
@@ -2498,7 +2486,7 @@ impl RendererBackend for WebGlRendererContext<'_> {
         let filter_atlas_width = self.programs.resources.filter_atlas_width;
         let filter_atlas_height = self.programs.resources.filter_atlas_height;
 
-        let pass_data = self.filter_context.build_filter_pass_data(
+        let passes = self.filter_context.build_filter_passes(
             &layer_id,
             self.image_cache,
             |_atlas_idx| [filter_atlas_width, filter_atlas_height],
@@ -2510,15 +2498,13 @@ impl RendererBackend for WebGlRendererContext<'_> {
             },
         );
 
-        // Upload pass 1 instance data.
-        self.programs
-            .upload_filter_instance(self.gl, &pass_data.pass_1);
-
         // Disable blending for filter passes (direct write).
         self.gl.disable(WebGl2RenderingContext::BLEND);
 
-        // --- Pass 1 ---
-        {
+        for pass in &passes {
+            self.programs
+                .upload_filter_instance(self.gl, &pass.instance);
+
             let _state_guard = WebGlStateGuard::with_config(
                 self.gl,
                 WebGlStateConfig {
@@ -2528,39 +2514,41 @@ impl RendererBackend for WebGlRendererContext<'_> {
                 },
             );
 
-            if pass_data.pass_1_output_is_filter_atlas {
-                let fb = &self.programs.resources.filter_atlas_framebuffers
-                    [pass_data.pass_1_output_atlas_idx as usize];
-                self.gl
-                    .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(fb));
-                self.gl.viewport(
-                    0,
-                    0,
-                    filter_atlas_width as i32,
-                    filter_atlas_height as i32,
-                );
-            } else {
-                // Output is a layer of the main atlas texture array.
-                let temp_fb = self.gl.create_framebuffer().unwrap();
-                self.gl
-                    .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&temp_fb));
-                self.gl.framebuffer_texture_layer(
-                    WebGl2RenderingContext::FRAMEBUFFER,
-                    WebGl2RenderingContext::COLOR_ATTACHMENT0,
-                    Some(&self.programs.resources.atlas_texture_array.texture),
-                    0,
-                    pass_data.pass_1_output_atlas_idx as i32,
-                );
-                self.gl.viewport(
-                    0,
-                    0,
-                    self.programs.resources.atlas_texture_array.size.width as i32,
-                    self.programs.resources.atlas_texture_array.size.height as i32,
-                );
+            // Set up output framebuffer and viewport.
+            match &pass.output {
+                FilterPassTarget::FilterAtlas(idx) => {
+                    let fb = &self.programs.resources.filter_atlas_framebuffers[*idx as usize];
+                    self.gl
+                        .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(fb));
+                    self.gl.viewport(
+                        0,
+                        0,
+                        filter_atlas_width as i32,
+                        filter_atlas_height as i32,
+                    );
+                }
+                FilterPassTarget::MainAtlas(idx) => {
+                    let temp_fb = self.gl.create_framebuffer().unwrap();
+                    self.gl
+                        .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&temp_fb));
+                    self.gl.framebuffer_texture_layer(
+                        WebGl2RenderingContext::FRAMEBUFFER,
+                        WebGl2RenderingContext::COLOR_ATTACHMENT0,
+                        Some(&self.programs.resources.atlas_texture_array.texture),
+                        0,
+                        *idx as i32,
+                    );
+                    self.gl.viewport(
+                        0,
+                        0,
+                        self.programs.resources.atlas_texture_array.size.width as i32,
+                        self.programs.resources.atlas_texture_array.size.height as i32,
+                    );
+                }
             }
 
             self.gl
-                .use_program(Some(&self.programs.filter_pass_1_program));
+                .use_program(Some(&self.programs.filter_program));
             self.gl
                 .bind_vertex_array(Some(&self.programs.resources.filter_vao));
 
@@ -2571,96 +2559,27 @@ impl RendererBackend for WebGlRendererContext<'_> {
                 Some(&self.programs.resources.filter_data_texture),
             );
             self.gl
-                .uniform1i(Some(&self.programs.filter_pass_1_uniforms.filter_data), 0);
+                .uniform1i(Some(&self.programs.filter_uniforms.filter_data), 0);
 
-            // Bind input filter atlas texture to unit 1.
+            // Bind input texture to unit 1.
             let input_tex =
-                &self.programs.resources.filter_atlas_textures[pass_data.input_atlas_idx as usize];
+                &self.programs.resources.filter_atlas_textures[pass.input_atlas_idx as usize];
             self.gl.active_texture(WebGl2RenderingContext::TEXTURE1);
             self.gl
                 .bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(input_tex));
             self.gl
-                .uniform1i(Some(&self.programs.filter_pass_1_uniforms.in_tex), 1);
-
-            // Linear sampling is already configured on the filter atlas texture via tex params.
-            self.gl.draw_arrays_instanced(
-                WebGl2RenderingContext::TRIANGLE_STRIP,
-                0,
-                4,
-                1,
-            );
-
-            self.gl.bind_vertex_array(None);
-        }
-
-        // --- Pass 2 (if needed) ---
-        if let Some(pass_2) = &pass_data.pass_2 {
-            self.programs
-                .upload_filter_instance(self.gl, &pass_2.instance);
-
-            let _state_guard = WebGlStateGuard::with_config(
-                self.gl,
-                WebGlStateConfig {
-                    framebuffer: true,
-                    viewport: true,
-                    ..Default::default()
-                },
-            );
-
-            // Output is a layer of the main atlas texture array.
-            let temp_fb = self.gl.create_framebuffer().unwrap();
-            self.gl
-                .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&temp_fb));
-            self.gl.framebuffer_texture_layer(
-                WebGl2RenderingContext::FRAMEBUFFER,
-                WebGl2RenderingContext::COLOR_ATTACHMENT0,
-                Some(&self.programs.resources.atlas_texture_array.texture),
-                0,
-                pass_2.dest_atlas_idx as i32,
-            );
-            self.gl.viewport(
-                0,
-                0,
-                self.programs.resources.atlas_texture_array.size.width as i32,
-                self.programs.resources.atlas_texture_array.size.height as i32,
-            );
-
-            self.gl
-                .use_program(Some(&self.programs.filter_pass_2_program));
-            self.gl
-                .bind_vertex_array(Some(&self.programs.resources.filter_vao));
-
-            // Bind filter_data texture to unit 0.
-            self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-            self.gl.bind_texture(
-                WebGl2RenderingContext::TEXTURE_2D,
-                Some(&self.programs.resources.filter_data_texture),
-            );
-            self.gl
-                .uniform1i(Some(&self.programs.filter_pass_2_uniforms.filter_data), 0);
-
-            // Bind scratch texture to unit 1.
-            let scratch_tex = &self.programs.resources.filter_atlas_textures
-                [pass_2.scratch_atlas_idx as usize];
-            self.gl.active_texture(WebGl2RenderingContext::TEXTURE1);
-            self.gl
-                .bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(scratch_tex));
-            self.gl
-                .uniform1i(Some(&self.programs.filter_pass_2_uniforms.in_tex), 1);
-
-            // Linear sampling is already configured on the filter atlas texture via tex params.
+                .uniform1i(Some(&self.programs.filter_uniforms.in_tex), 1);
 
             // Bind original texture to unit 2.
-            let original_tex = &self.programs.resources.filter_atlas_textures
-                [pass_2.original_atlas_idx as usize];
+            // For COMPOSITE, this is the initial texture; otherwise same as input (harmless).
+            let original_tex_idx = pass.original_atlas_idx.unwrap_or(pass.input_atlas_idx);
+            let original_tex =
+                &self.programs.resources.filter_atlas_textures[original_tex_idx as usize];
             self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);
             self.gl
                 .bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(original_tex));
-            if let Some(ref original_tex_uniform) =
-                self.programs.filter_pass_2_uniforms.original_tex
-            {
-                self.gl.uniform1i(Some(original_tex_uniform), 2);
-            }
+            self.gl
+                .uniform1i(Some(&self.programs.filter_uniforms.original_tex), 2);
 
             self.gl.draw_arrays_instanced(
                 WebGl2RenderingContext::TRIANGLE_STRIP,

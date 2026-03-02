@@ -23,7 +23,7 @@ use alloc::{sync::Arc, vec};
 use core::{fmt::Debug, num::NonZeroU64};
 
 use crate::AtlasConfig;
-use crate::filter::{FilterContext, FilterInstanceData};
+use crate::filter::{FilterContext, FilterInstanceData, FilterPassTarget};
 use crate::multi_atlas::{AtlasError, AtlasId};
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize,
@@ -543,10 +543,9 @@ struct Programs {
     atlas_bind_group_layout: BindGroupLayout,
     /// Bind group layout for filter textures
     filter_bind_group_layout: BindGroupLayout,
-    /// Pipelines for applying filter effects to intermediate textures.
-    /// Index 0 uses `fs_pass_1` (single-pass or first pass), index 1 uses `fs_pass_2` (second pass).
-    filter_pipelines: [RenderPipeline; 2],
-    /// Bind group layouts for filter input, per pass.
+    /// Single uber pipeline for applying filter effects (dispatches on pass_kind in shader).
+    filter_pipeline: RenderPipeline,
+    /// Bind group layouts for filter input (group 1: in_tex + sampler) and original (group 2: original_tex).
     filter_input_bind_group_layouts: [BindGroupLayout; 2],
     /// Pipeline for clearing slots in slot textures.
     clear_pipeline: RenderPipeline,
@@ -911,15 +910,13 @@ impl Programs {
             count: None,
         };
 
-        // We have two different layout for the (up to 2) passes.
-        // In the first pass, we simply pass the input texture.
-        // In the second pass, apart from providing the texture from the first
-        // pass, we also provide the original texture. This is needed because the
-        // drop shadow filter needs to composite the original shape on top of the
-        // shadow.
+        // Bind group layouts for filter passes:
+        // Group 0: filter_data (shared across all passes)
+        // Group 1: in_tex + linear_sampler (input texture)
+        // Group 2: original_tex (for COMPOSITE pass; otherwise bound to same as in_tex)
         let filter_input_bind_group_layouts = [
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Filter Input Bind Group Layout (Pass 1)"),
+                label: Some("Filter Input Bind Group Layout"),
                 entries: &[
                     filter_texture_entry,
                     wgpu::BindGroupLayoutEntry {
@@ -931,7 +928,7 @@ impl Programs {
                 ],
             }),
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Filter Input Bind Group Layout (Pass 2)"),
+                label: Some("Filter Original Bind Group Layout"),
                 entries: &[filter_texture_entry],
             }),
         ];
@@ -941,19 +938,9 @@ impl Programs {
             source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::FILTERS.into()),
         });
 
-        let filter_pipeline_layout_pass1 =
+        let filter_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Filter Pipeline Layout Pass 1"),
-                bind_group_layouts: &[
-                    &filter_bind_group_layout,
-                    &filter_input_bind_group_layouts[0],
-                ],
-                push_constant_ranges: &[],
-            });
-
-        let filter_pipeline_layout_pass2 =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Filter Pipeline Layout Pass 2"),
+                label: Some("Filter Pipeline Layout"),
                 bind_group_layouts: &[
                     &filter_bind_group_layout,
                     &filter_input_bind_group_layouts[0],
@@ -962,17 +949,10 @@ impl Programs {
                 push_constant_ranges: &[],
             });
 
-        let filter_pipeline_layouts =
-            [&filter_pipeline_layout_pass1, &filter_pipeline_layout_pass2];
-        let filter_fragment_entry_points = ["fs_pass_1", "fs_pass_2"];
-        let filter_pipelines: [RenderPipeline; 2] = core::array::from_fn(|i| {
+        let filter_pipeline =
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(if i == 0 {
-                    "Filter Pipeline Pass 1"
-                } else {
-                    "Filter Pipeline Pass 2"
-                }),
-                layout: Some(filter_pipeline_layouts[i]),
+                label: Some("Filter Pipeline"),
+                layout: Some(&filter_pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &filter_shader,
                     entry_point: Some("vs_main"),
@@ -988,13 +968,14 @@ impl Programs {
                             5 => Uint32,
                             6 => Uint32x2,
                             7 => Uint32x2,
+                            8 => Uint32,
                         ],
                     }],
                     compilation_options: PipelineCompilationOptions::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &filter_shader,
-                    entry_point: Some(filter_fragment_entry_points[i]),
+                    entry_point: Some("fs_main"),
                     targets: &[Some(ColorTargetState {
                         format: wgpu::TextureFormat::Rgba8Unorm,
                         blend: None,
@@ -1010,8 +991,7 @@ impl Programs {
                 multisample: wgpu::MultisampleState::default(),
                 multiview: None,
                 cache: None,
-            })
-        });
+            });
 
         let slot_texture_views: [TextureView; 2] = core::array::from_fn(|_| {
             device
@@ -1207,7 +1187,7 @@ impl Programs {
             gradient_bind_group_layout,
             atlas_bind_group_layout,
             filter_bind_group_layout,
-            filter_pipelines,
+            filter_pipeline,
             filter_input_bind_group_layouts,
             resources,
             encoded_paints_data,
@@ -2221,9 +2201,9 @@ impl RendererContext<'_> {
     fn run_filter_pass(
         &mut self,
         label: &str,
-        pipeline_index: usize,
         output_view: &TextureView,
-        extra_bind_groups: &[&BindGroup],
+        input_bind_group: &BindGroup,
+        original_bind_group: &BindGroup,
     ) {
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some(label),
@@ -2241,11 +2221,10 @@ impl RendererContext<'_> {
             timestamp_writes: None,
         });
 
-        render_pass.set_pipeline(&self.programs.filter_pipelines[pipeline_index]);
+        render_pass.set_pipeline(&self.programs.filter_pipeline);
         render_pass.set_bind_group(0, &self.programs.resources.filter_base_bind_group, &[]);
-        for (i, bind_group) in extra_bind_groups.iter().enumerate() {
-            render_pass.set_bind_group((i + 1) as u32, *bind_group, &[]);
-        }
+        render_pass.set_bind_group(1, input_bind_group, &[]);
+        render_pass.set_bind_group(2, original_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.programs.resources.filter_instance_buffer.slice(..));
         render_pass.draw(0..4, 0..1);
     }
@@ -2303,7 +2282,7 @@ impl RendererBackend for RendererContext<'_> {
     }
 
     fn apply_filter(&mut self, layer_id: LayerId) {
-        let pass_data = self.filter_context.build_filter_pass_data(
+        let passes = self.filter_context.build_filter_passes(
             &layer_id,
             self.image_cache,
             |atlas_idx| {
@@ -2317,78 +2296,63 @@ impl RendererBackend for RendererContext<'_> {
             },
         );
 
-        // Prepare for the first filter pass.
-
-        self.programs
-            .upload_filter_instance(self.device, self.queue, &pass_data.pass_1);
-
-        let input_texture =
-            &self.programs.resources.filter_atlas_textures[pass_data.input_atlas_idx as usize];
-        let input_view = input_texture.create_view(&TextureViewDescriptor::default());
-
-        let input_bind_group = create_filter_input_bind_group(
-            self.device,
-            &self.programs.filter_input_bind_group_layouts[0],
-            &self.programs.resources.filter_sampler,
-            &input_view,
-        );
-
-        let output_view = if pass_data.pass_1_output_is_filter_atlas {
-            self.programs.resources.filter_atlas_textures
-                [pass_data.pass_1_output_atlas_idx as usize]
-                .create_view(&TextureViewDescriptor::default())
-        } else {
-            create_atlas_layer_view(
-                &self.programs.resources.atlas_texture_array,
-                "Filter First Pass Output View",
-                pass_data.pass_1_output_atlas_idx,
-            )
-        };
-
-        // Run the first filter pass.
-        self.run_filter_pass("Apply Filter Pass 1", 0, &output_view, &[&input_bind_group]);
-
-        // Prepare the sceond filter pass, if one is necessary.
-        if let Some(pass_2) = &pass_data.pass_2 {
+        for pass in &passes {
             self.programs
-                .upload_filter_instance(self.device, self.queue, &pass_2.instance);
+                .upload_filter_instance(self.device, self.queue, &pass.instance);
 
-            let scratch_view = self.programs.resources.filter_atlas_textures
-                [pass_2.scratch_atlas_idx as usize]
+            // Create input bind group (group 1).
+            let input_view = self.programs.resources.filter_atlas_textures
+                [pass.input_atlas_idx as usize]
                 .create_view(&TextureViewDescriptor::default());
-
-            let main_bind_group = create_filter_input_bind_group(
+            let input_bind_group = create_filter_input_bind_group(
                 self.device,
                 &self.programs.filter_input_bind_group_layouts[0],
                 &self.programs.resources.filter_sampler,
-                &scratch_view,
+                &input_view,
             );
 
-            let original_view = self.programs.resources.filter_atlas_textures
-                [pass_2.original_atlas_idx as usize]
-                .create_view(&TextureViewDescriptor::default());
+            // Create original bind group (group 2).
+            // For COMPOSITE, bind the original texture; otherwise bind the same as input
+            // (harmless, the shader won't read it).
+            let original_view = match pass.original_atlas_idx {
+                Some(idx) => {
+                    self.programs.resources.filter_atlas_textures[idx as usize]
+                        .create_view(&TextureViewDescriptor::default())
+                }
+                None => {
+                    self.programs.resources.filter_atlas_textures
+                        [pass.input_atlas_idx as usize]
+                        .create_view(&TextureViewDescriptor::default())
+                }
+            };
+            let original_bind_group =
+                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: None,
+                    layout: &self.programs.filter_input_bind_group_layouts[1],
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&original_view),
+                    }],
+                });
 
-            // Contains the original image.
-            let second_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &self.programs.filter_input_bind_group_layouts[1],
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&original_view),
-                }],
-            });
-
-            let dest_view = create_atlas_layer_view(
-                &self.programs.resources.atlas_texture_array,
-                "Filter Dest Output View",
-                pass_2.dest_atlas_idx,
-            );
+            // Create output view.
+            let output_view = match &pass.output {
+                FilterPassTarget::FilterAtlas(idx) => {
+                    self.programs.resources.filter_atlas_textures[*idx as usize]
+                        .create_view(&TextureViewDescriptor::default())
+                }
+                FilterPassTarget::MainAtlas(idx) => create_atlas_layer_view(
+                    &self.programs.resources.atlas_texture_array,
+                    "Filter Pass Output View",
+                    *idx,
+                ),
+            };
 
             self.run_filter_pass(
-                "Apply Filter Pass 2",
-                1,
-                &dest_view,
-                &[&main_bind_group, &second_bind_group],
+                "Apply Filter Pass",
+                &output_view,
+                &input_bind_group,
+                &original_bind_group,
             );
         }
     }
