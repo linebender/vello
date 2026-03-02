@@ -98,7 +98,7 @@ fn filter_gaussian_blur_no_decimation(ctx: &mut impl Renderer) {
 
 /// Test Gaussian blur with larger radius (`std_deviation` = 4.0, uses decimation).
 /// Uses multi-scale downsampling for performance.
-#[vello_test(skip_multithreaded, hybrid_tolerance = 2)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
 fn filter_gaussian_blur_with_decimation(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 4.0,
