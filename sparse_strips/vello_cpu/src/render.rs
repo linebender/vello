@@ -51,7 +51,7 @@ pub struct RenderContext {
     pub(crate) width: u16,
     /// Height of the render target in pixels.
     pub(crate) height: u16,
-    /// The current rendering state (paint, transform, stroke, fill rule, blend mode, tint).
+    /// The current rendering state.
     pub(crate) state: RenderState,
     /// The current mask in place.
     pub(crate) mask: Option<Mask>,
@@ -685,15 +685,7 @@ impl RenderContext {
 
     /// Save the current rendering state.
     pub fn take_current_state(&mut self) -> RenderState {
-        RenderState {
-            paint: self.state.paint.clone(),
-            paint_transform: self.state.paint_transform,
-            transform: self.state.transform,
-            fill_rule: self.state.fill_rule,
-            stroke: core::mem::take(&mut self.state.stroke),
-            tint: self.state.tint,
-            blend_mode: self.state.blend_mode,
-        }
+        self.state.clone()
     }
 
     /// Restore the saved rendering state.
