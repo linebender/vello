@@ -173,7 +173,7 @@ impl Default for RenderSettings {
 ///
 /// This is used to save and restore rendering state during recording operations.
 #[derive(Debug)]
-struct RenderState {
+pub struct RenderState {
     /// The paint type (solid color, gradient, or image).
     pub(crate) paint: PaintType,
     /// Transform applied to the paint coordinates.
@@ -584,8 +584,10 @@ impl Scene {
             // With default blending only we can keep fast path strips alive. Record a
             // split point so the scheduler knows to process one coarse batch after
             // processing fast path strips up to this point.
-            let split = self.fast_strips_buffer.paths.len();
-            self.coarse_batch_splits.push(split);
+            if !self.wide.has_layers() {
+                let split = self.fast_strips_buffer.paths.len();
+                self.coarse_batch_splits.push(split);
+            }
             let mut strip_storage = self.strip_storage.borrow_mut();
             strip_offset = strip_storage.strips.len();
             strip_storage.set_generation_mode(GenerationMode::ReplaceAfter(strip_offset));
@@ -790,6 +792,28 @@ impl Scene {
     /// Get the height of the render context.
     pub fn height(&self) -> u16 {
         self.height
+    }
+
+    /// Save current rendering state.
+    pub fn take_current_state(&mut self) -> RenderState {
+        RenderState {
+            paint: self.paint.clone(),
+            paint_transform: self.paint_transform,
+            transform: self.transform,
+            fill_rule: self.fill_rule,
+            blend_mode: self.blend_mode,
+            stroke: core::mem::take(&mut self.stroke),
+        }
+    }
+
+    /// Restore rendering state.
+    pub fn restore_state(&mut self, state: RenderState) {
+        self.paint = state.paint;
+        self.paint_transform = state.paint_transform;
+        self.stroke = state.stroke;
+        self.transform = state.transform;
+        self.fill_rule = state.fill_rule;
+        self.blend_mode = state.blend_mode;
     }
 }
 
@@ -1128,27 +1152,5 @@ impl Scene {
                 adjusted_strip
             })
             .collect()
-    }
-
-    /// Save current rendering state.
-    fn take_current_state(&mut self) -> RenderState {
-        RenderState {
-            paint: self.paint.clone(),
-            paint_transform: self.paint_transform,
-            transform: self.transform,
-            fill_rule: self.fill_rule,
-            blend_mode: self.blend_mode,
-            stroke: core::mem::take(&mut self.stroke),
-        }
-    }
-
-    /// Restore rendering state.
-    fn restore_state(&mut self, state: RenderState) {
-        self.paint = state.paint;
-        self.paint_transform = state.paint_transform;
-        self.stroke = state.stroke;
-        self.transform = state.transform;
-        self.fill_rule = state.fill_rule;
-        self.blend_mode = state.blend_mode;
     }
 }
