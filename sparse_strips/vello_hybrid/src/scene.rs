@@ -22,7 +22,9 @@ use vello_common::paint::{Paint, PaintType, Tint};
 use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
-use vello_common::recording::{PushLayerCommand, Recordable, Recorder, Recording, RenderCommand};
+use vello_common::recording::{
+    PushLayerCommand, Recordable, Recorder, Recording, RenderCommand, RenderState,
+};
 use vello_common::render_graph::RenderGraph;
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
@@ -134,26 +136,6 @@ impl Default for RenderSettings {
             constraints: SceneConstraints::new(),
         }
     }
-}
-
-/// A render state which contains the style properties for path rendering and
-/// the current transform.
-///
-/// This is used to save and restore rendering state during recording operations.
-#[derive(Debug)]
-pub struct RenderState {
-    /// The paint type (solid color, gradient, or image).
-    pub(crate) paint: PaintType,
-    /// Transform applied to the paint coordinates.
-    pub(crate) paint_transform: Affine,
-    /// Stroke style for path stroking operations.
-    pub(crate) stroke: Stroke,
-    /// Transform applied to geometry.
-    pub(crate) transform: Affine,
-    /// Fill rule for path filling operations.
-    pub(crate) fill_rule: Fill,
-    /// Blend mode for compositing.
-    pub(crate) blend_mode: BlendMode,
 }
 
 /// A render context for hybrid CPU/GPU rendering.
@@ -283,6 +265,7 @@ impl Scene {
         let fill_rule = Fill::NonZero;
         let paint = BLACK.into();
         let paint_transform = Affine::IDENTITY;
+        let tint = None;
         let stroke = Stroke {
             width: 1.0,
             join: Join::Bevel,
@@ -297,6 +280,7 @@ impl Scene {
             paint_transform,
             stroke,
             blend_mode: DEFAULT_BLEND_MODE,
+            tint,
         }
     }
 
@@ -736,6 +720,7 @@ impl Scene {
             fill_rule: self.fill_rule,
             blend_mode: self.blend_mode,
             stroke: core::mem::take(&mut self.stroke),
+            tint: self.tint,
         }
     }
 
@@ -747,6 +732,7 @@ impl Scene {
         self.transform = state.transform;
         self.fill_rule = state.fill_rule;
         self.blend_mode = state.blend_mode;
+        self.tint = state.tint;
     }
 }
 

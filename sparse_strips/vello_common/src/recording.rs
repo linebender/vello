@@ -513,3 +513,25 @@ impl GlyphRenderer for Recorder<'_> {
         self.glyph_caches.take().unwrap_or_default()
     }
 }
+
+/// A render state which contains the style properties for path rendering and
+/// the current transform.
+///
+/// This is used to save and restore rendering state during recording operations.
+#[derive(Debug)]
+pub struct RenderState {
+    /// The paint type (solid color, gradient, or image).
+    pub paint: PaintType,
+    /// Transform applied to the paint coordinates.
+    pub paint_transform: Affine,
+    /// Stroke style for path stroking operations.
+    pub stroke: Stroke,
+    /// Transform applied to geometry.
+    pub transform: Affine,
+    /// Fill rule for path filling operations.
+    pub fill_rule: Fill,
+    /// Blend mode for compositing.
+    pub blend_mode: BlendMode,
+    /// The tint for image painting.
+    pub tint: Option<Tint>,
+}

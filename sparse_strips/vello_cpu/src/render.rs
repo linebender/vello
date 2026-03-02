@@ -27,7 +27,9 @@ use vello_common::paint::{ImageId, ImageResolver, Paint, PaintType, Tint};
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Fill};
 use vello_common::pixmap::Pixmap;
-use vello_common::recording::{PushLayerCommand, Recordable, Recorder, Recording, RenderCommand};
+use vello_common::recording::{
+    PushLayerCommand, Recordable, Recorder, Recording, RenderCommand, RenderState,
+};
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use vello_common::util::{is_integer_rect, is_integer_translation};
@@ -721,6 +723,8 @@ impl RenderContext {
             transform: self.transform,
             fill_rule: self.fill_rule,
             stroke: core::mem::take(&mut self.stroke),
+            tint: self.tint,
+            blend_mode: self.blend_mode,
         }
     }
 
@@ -731,6 +735,8 @@ impl RenderContext {
         self.stroke = state.stroke;
         self.paint = state.paint;
         self.paint_transform = state.paint_transform;
+        self.tint = state.tint;
+        self.blend_mode = state.blend_mode;
     }
 }
 
@@ -1097,16 +1103,6 @@ impl ImageResolver for ImageRegistry {
     fn resolve(&self, id: ImageId) -> Option<Arc<Pixmap>> {
         self.images.get(&id.as_u32()).cloned()
     }
-}
-
-/// Saved state for recording operations.
-#[derive(Debug)]
-pub struct RenderState {
-    transform: Affine,
-    fill_rule: Fill,
-    stroke: Stroke,
-    paint: PaintType,
-    paint_transform: Affine,
 }
 
 /// Recording management implementation.
