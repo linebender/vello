@@ -422,8 +422,8 @@ impl<const MODE: u8> Wide<MODE> {
             }
 
             self.tiles_dirty = false;
-            tile.last_batch_end = 0;
         }
+
         self.attrs.clear();
         self.layer_stack.clear();
         self.layers_needing_buf_stack.clear();
