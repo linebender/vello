@@ -177,7 +177,7 @@ impl WebGlRenderer {
             "Render size must match drawing buffer size"
         );
 
-        let view_fb = &self.programs.resources.view_framebuffer.clone();
+        let view_fb = self.programs.resources.view_framebuffer.clone();
         self.render_scene(scene, render_size, OutputTarget::FinalView(&view_fb), true)?;
 
         // Blit the view framebuffer to the default framebuffer (canvas element), reflecting the
