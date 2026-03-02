@@ -517,8 +517,6 @@ impl GlyphRenderer for Recorder<'_> {
 
 /// A render state which contains the style properties for path rendering and
 /// the current transform.
-///
-/// This is used to save and restore rendering state during recording operations.
 #[derive(Debug, Clone)]
 pub struct RenderState {
     /// The paint type (solid color, gradient, or image).
