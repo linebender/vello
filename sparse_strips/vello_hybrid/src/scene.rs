@@ -584,8 +584,10 @@ impl Scene {
             // With default blending only we can keep fast path strips alive. Record a
             // split point so the scheduler knows to process one coarse batch after
             // processing fast path strips up to this point.
-            let split = self.fast_strips_buffer.paths.len();
-            self.coarse_batch_splits.push(split);
+            if !self.wide.has_layers() {
+                let split = self.fast_strips_buffer.paths.len();
+                self.coarse_batch_splits.push(split);
+            }
             let mut strip_storage = self.strip_storage.borrow_mut();
             strip_offset = strip_storage.strips.len();
             strip_storage.set_generation_mode(GenerationMode::ReplaceAfter(strip_offset));
