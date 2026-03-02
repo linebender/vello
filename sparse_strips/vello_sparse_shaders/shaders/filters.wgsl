@@ -202,9 +202,11 @@ fn vs_main(
     let x = f32((quad_vertex & 1u));      // 0,1,0,1
     let y = f32((quad_vertex >> 1u));      // 0,0,1,1
 
-    // Calculate pixel position in atlas
-    let pix_x = f32(instance.dest_offset.x) + x * f32(instance.dest_size.x);
-    let pix_y = f32(instance.dest_offset.y) + y * f32(instance.dest_size.y);
+    // Calculate pixel position in atlas. The quad covers the full allocation size
+    // (original_size), which may be larger than dest_size after decimation.
+    // The fragment shader returns transparent for pixels outside dest_size.
+    let pix_x = f32(instance.dest_offset.x) + x * f32(instance.original_size.x);
+    let pix_y = f32(instance.dest_offset.y) + y * f32(instance.original_size.y);
 
     // Convert to NDC using the dest atlas dimensions
     let atlas_size = vec2<f32>(instance.dest_atlas_size);
@@ -377,9 +379,16 @@ const VERTICAL: vec2<f32> = vec2<f32>(0.0, 1.0);
 
 @fragment
 fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
-    let data = load_filter_data(in.filter_offset);
     let frag_coord = vec2<u32>(in.position.xy);
     let rel_coord = vec2<f32>(frag_coord - in.dest_offset);
+
+    // The vertex quad covers the full allocation size, but the actual dest region
+    // may be smaller (e.g. after decimation). Return transparent for OOB pixels.
+    if rel_coord.x >= f32(in.dest_size.x) || rel_coord.y >= f32(in.dest_size.y) {
+        return vec4<f32>(0.0);
+    }
+
+    let data = load_filter_data(in.filter_offset);
 
     switch in.pass_kind {
         case PASS_COPY: {

@@ -666,7 +666,7 @@ impl FilterContext {
                     filter_data_offset,
                     pass_kind: pass_kinds[0],
                     original_offset: [0, 0],
-                    original_size: [0, 0],
+                    original_size: dest_image.size(),
                 },
                 input_atlas_idx: initial_atlas_idx,
                 output: FilterPassTarget::MainAtlas(dest_atlas_idx),
@@ -783,14 +783,10 @@ impl FilterContext {
                 };
 
             // For COMPOSITE, bind original texture.
-            let (original_atlas, original_offset, original_size) = if kind == pass_kind::COMPOSITE {
-                (
-                    Some(initial_atlas_idx),
-                    initial_image.offsets(),
-                    initial_image.size(),
-                )
+            let (original_atlas, original_offset) = if kind == pass_kind::COMPOSITE {
+                (Some(initial_atlas_idx), initial_image.offsets())
             } else {
-                (None, [0, 0], [0, 0])
+                (None, [0, 0])
             };
 
             passes.push(FilterPass {
@@ -803,7 +799,7 @@ impl FilterContext {
                     filter_data_offset,
                     pass_kind: kind,
                     original_offset,
-                    original_size,
+                    original_size: [base_w, base_h],
                 },
                 input_atlas_idx: input_idx,
                 output,
