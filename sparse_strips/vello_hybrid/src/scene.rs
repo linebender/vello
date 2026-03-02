@@ -574,6 +574,10 @@ impl Scene {
     //       render time into a texture usable by the renderer backend.
     pub fn set_paint(&mut self, paint: impl Into<PaintType>) {
         self.render_state.paint = paint.into();
+        self.set_paint_visible();
+    }
+
+    fn set_paint_visible(&mut self) {
         self.paint_visible = match &self.render_state.paint {
             PaintType::Solid(color) => color.components[3] != 0.0,
             _ => true,
@@ -664,14 +668,23 @@ impl Scene {
         self.height
     }
 
-    /// Save current rendering state.
+    /// Take current rendering state and reset the existing state to its default.
     pub fn take_current_state(&mut self) -> RenderState {
+        let state = core::mem::take(&mut self.render_state);
+        self.set_paint_visible();
+
+        state
+    }
+
+    /// Save a copy of the current rendering state.
+    pub fn save_current_state(&mut self) -> RenderState {
         self.render_state.clone()
     }
 
     /// Restore rendering state.
     pub fn restore_state(&mut self, state: RenderState) {
         self.render_state = state;
+        self.set_paint_visible();
     }
 }
 
