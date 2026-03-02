@@ -42,6 +42,12 @@ fn next_u8(rng: &mut u64) -> u8 {
     (*rng & 0xFF) as u8
 }
 
+/// Extract a `bool` from a PRNG state, advancing it.
+fn next_bool(rng: &mut u64) -> bool {
+    *rng = xorshift64(*rng);
+    (*rng & 1) != 0
+}
+
 /// Blur stress test scene.
 #[derive(Debug)]
 pub struct BlurStressScene {
@@ -91,10 +97,28 @@ impl ExampleScene for BlurStressScene {
             let b = next_u8(&mut rng);
             let color = AlphaColor::from_rgba8(r, g, b, 180);
 
-            let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
-                std_deviation: std_dev as f32,
-                edge_mode: EdgeMode::None,
-            });
+            let use_drop_shadow = next_bool(&mut rng);
+            let filter = if use_drop_shadow {
+                let dx = next_f64(&mut rng, -50.0, 50.0) as f32;
+                let dy = next_f64(&mut rng, -50.0, 50.0) as f32;
+                let sr = next_u8(&mut rng);
+                let sg = next_u8(&mut rng);
+                let sb = next_u8(&mut rng);
+                let sa = next_u8(&mut rng).max(60);
+                let shadow_color = AlphaColor::from_rgba8(sr, sg, sb, sa);
+                Filter::from_primitive(FilterPrimitive::DropShadow {
+                    dx,
+                    dy,
+                    std_deviation: std_dev as f32,
+                    color: shadow_color,
+                    edge_mode: EdgeMode::None,
+                })
+            } else {
+                Filter::from_primitive(FilterPrimitive::GaussianBlur {
+                    std_deviation: std_dev as f32,
+                    edge_mode: EdgeMode::None,
+                })
+            };
 
             ctx.push_filter_layer(filter);
             ctx.set_paint(color);
@@ -105,7 +129,7 @@ impl ExampleScene for BlurStressScene {
 
     fn status(&self) -> Option<String> {
         Some(format!(
-            "Blur Stress: {} rects, max σ = {:.1}  [m/n: ±rect, b/v: ±σ]",
+            "Filter Stress: {} rects (blur + drop shadow), max σ = {:.1}  [m/n: ±rect, b/v: ±σ]",
             self.count, self.max_std
         ))
     }
