@@ -32,9 +32,7 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{
-        LoadOp, RendererBackend, Scheduler, SchedulerState, generate_gpu_strips_for_fast_path,
-    },
+    schedule::{LoadOp, RendererBackend, Scheduler, SchedulerState},
 };
 use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
@@ -93,8 +91,6 @@ pub struct Renderer {
     paint_idxs: Vec<u32>,
     /// Gradient cache for storing gradient ramps.
     gradient_cache: GradientRampCache,
-    /// Reusable buffer for GPU strips produced by the fast path.
-    fast_path_gpu_strips: Vec<GpuStrip>,
 }
 
 impl Renderer {
@@ -128,7 +124,6 @@ impl Renderer {
             gradient_cache,
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
-            fast_path_gpu_strips: Vec::new(),
         }
     }
 
@@ -255,7 +250,9 @@ impl Renderer {
         encoder: &mut CommandEncoder,
         render_size: &RenderSize,
         view: &TextureView,
-        clear: bool,
+        // See https://github.com/linebender/vello/pull/1458/changes#r2851077556
+        // TODO: Fix this ASAP!
+        _clear: bool,
     ) -> Result<(), RenderError> {
         self.prepare_gpu_encoded_paints(&scene.encoded_paints);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
@@ -270,41 +267,18 @@ impl Renderer {
             render_size,
             &self.paint_idxs,
         );
-        let result = if scene.strips_fast_path_active {
-            self.fast_path_gpu_strips.clear();
-
-            generate_gpu_strips_for_fast_path(
-                &scene.fast_strips_buffer.paths,
-                scene,
-                &self.paint_idxs,
-                &mut self.fast_path_gpu_strips,
-            );
-
-            let mut ctx = RendererContext {
-                programs: &mut self.programs,
-                device,
-                queue,
-                encoder,
-                view,
-            };
-            let load_op = if clear { LoadOp::Clear } else { LoadOp::Load };
-            ctx.render_strips(&self.fast_path_gpu_strips, 2, load_op);
-
-            Ok(())
-        } else {
-            let mut ctx = RendererContext {
-                programs: &mut self.programs,
-                device,
-                queue,
-                encoder,
-                view,
-            };
-            self.scheduler
-                .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs)
+        let mut ctx = RendererContext {
+            programs: &mut self.programs,
+            device,
+            queue,
+            encoder,
+            view,
         };
+        self.scheduler
+            .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs)?;
         self.gradient_cache.maintain();
 
-        result
+        Ok(())
     }
 
     /// Upload image to cache and atlas in one step. Returns the `ImageId`.

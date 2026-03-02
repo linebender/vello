@@ -32,6 +32,9 @@ pub enum GenerationMode {
     Replace,
     /// Don't clear strips, append to the existing buffer.
     Append,
+    /// Truncate strips to the given index before generating new ones,
+    /// preserving strips in `[0..n]`.
+    ReplaceAfter(usize),
 }
 
 impl StripStorage {
@@ -48,6 +51,11 @@ impl StripStorage {
     pub fn clear(&mut self) {
         self.strips.clear();
         self.alphas.clear();
+    }
+
+    /// Get the current generation mode.
+    pub fn generation_mode(&self) -> GenerationMode {
+        self.generation_mode
     }
 
     /// Set the generation mode of the storage.
@@ -220,8 +228,10 @@ fn render_with_clip(
     clip_path: Option<PathDataRef<'_>>,
     render_fn: impl FnOnce(&mut Vec<Strip>, &mut Vec<u8>),
 ) {
-    if strip_storage.generation_mode == GenerationMode::Replace {
-        strip_storage.strips.clear();
+    match strip_storage.generation_mode {
+        GenerationMode::Replace => strip_storage.strips.clear(),
+        GenerationMode::Append => {}
+        GenerationMode::ReplaceAfter(n) => strip_storage.strips.truncate(n),
     }
 
     if let Some(clip_path) = clip_path {

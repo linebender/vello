@@ -176,12 +176,14 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
-use crate::scene::FastStripsPath;
+use crate::scene::{FastStripsPath, StripPathMode};
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
-use vello_common::coarse::{CommandAttrs, MODE_HYBRID};
+use core::ops::Range;
+use vello_common::coarse::{CommandAttrs, MODE_HYBRID, Wide};
 use vello_common::peniko::BlendMode;
+use vello_common::strip_generator::StripStorage;
 use vello_common::{
     coarse::{Cmd, WideTile},
     encode::EncodedPaint,
@@ -226,6 +228,8 @@ pub(crate) enum LoadOp {
 pub(crate) struct Scheduler {
     /// Index of the current round
     round: usize,
+    /// Per-tile command offsets.
+    cmd_offsets: Vec<usize>,
     /// The total number of slots in each slot texture.
     total_slots: usize,
     /// The slots that are free to use in each slot texture.
@@ -408,6 +412,7 @@ impl Scheduler {
         let free: [Vec<usize>; 2] = [free0, free1];
         Self {
             round: 0,
+            cmd_offsets: Vec::new(),
             total_slots,
             free,
             rounds_queue: VecDeque::new(),
@@ -442,6 +447,23 @@ impl Scheduler {
         Ok(slot)
     }
 
+    /// Schedule and render the scene.
+    ///
+    /// Depending on [`StripPathMode`], the scene is processed in one of three ways:
+    ///
+    /// - **`FastOnly`**: All paths were rendered directly into the fast strips buffer
+    ///   (no layers were ever pushed). We draw the whole scene using a single draw call
+    ///   by uploading all strips directly to the GPU.
+    ///
+    /// - **`CoarseOnly`**: All paths went through coarse rasterization (non-default
+    ///   blending was requested, so in case there was a `push_layer` call the fast path
+    ///   was flushed retroactively). We use the normal scheduling approach for all commands
+    ///   in the wide tile.
+    ///
+    /// - **`Interleaved`**: The scene mixes fast path strips with coarse-rasterized
+    ///   layers. We still need to go through the usual scheduling process, but fast path
+    ///   strips can be processed much faster now since they haven't gone through coarse
+    ///   rasterization.
     pub(crate) fn do_scene<R: RendererBackend>(
         &mut self,
         state: &mut SchedulerState,
@@ -449,39 +471,71 @@ impl Scheduler {
         scene: &Scene,
         paint_idxs: &[u32],
     ) -> Result<(), RenderError> {
-        let wide_tiles_per_row = scene.wide.width_tiles();
-        let wide_tiles_per_col = scene.wide.height_tiles();
+        let wide = &scene.wide;
+        let rows = wide.height_tiles();
+        let cols = wide.width_tiles();
+        let num_tiles = (rows * cols) as usize;
 
-        // Left to right, top to bottom iteration over wide tiles.
-        for wide_tile_row in 0..wide_tiles_per_col {
-            for wide_tile_col in 0..wide_tiles_per_row {
-                let wide_tile = scene.wide.get(wide_tile_col, wide_tile_row);
-                let wide_tile_x = wide_tile_col * WideTile::WIDTH;
-                let wide_tile_y = wide_tile_row * Tile::HEIGHT;
+        // A bit hacky, but we need this since we still need mutable access to
+        // self when processing everything.
+        let mut cmd_offsets = core::mem::take(&mut self.cmd_offsets);
+        cmd_offsets.clear();
+        cmd_offsets.resize(num_tiles, 0);
 
-                state.clear();
-
-                self.initialize_tile_state(
-                    &mut state.tile_state,
-                    wide_tile,
-                    wide_tile_x,
-                    wide_tile_y,
-                    scene,
-                    paint_idxs,
-                );
-                self.do_tile(
+        match scene.strip_path_mode {
+            StripPathMode::FastOnly => {
+                // We only have strips.
+                self.push_direct_strips(scene, 0..scene.fast_strips_buffer.paths.len(), paint_idxs);
+            }
+            StripPathMode::CoarseOnly => {
+                // We only have coarse-rasterized paths.
+                self.process_coarse_batch(
                     state,
                     renderer,
                     scene,
-                    wide_tile_x,
-                    wide_tile_y,
-                    &wide_tile.cmds,
-                    wide_tile.surface_is_blend_target(),
+                    wide,
+                    rows,
+                    cols,
+                    &mut cmd_offsets,
                     paint_idxs,
-                    &scene.wide.attrs,
                 )?;
             }
+            StripPathMode::Interleaved => {
+                // Alternate fast strip batches with coarse-rasterized layer batches.
+                let mut prev_split = 0;
+
+                for &split in &scene.coarse_batch_splits {
+                    // First process any direct strips.
+                    if prev_split < split {
+                        self.push_direct_strips(scene, prev_split..split, paint_idxs);
+                    }
+
+                    // Then process the coarse batch.
+                    self.process_coarse_batch(
+                        state,
+                        renderer,
+                        scene,
+                        wide,
+                        rows,
+                        cols,
+                        &mut cmd_offsets,
+                        paint_idxs,
+                    )?;
+
+                    prev_split = split;
+                }
+
+                // Handle the last batch of fast strips, which isn't explicitly delimited in the
+                // scene.
+                let tail_end = scene.fast_strips_buffer.paths.len();
+                if prev_split < tail_end {
+                    self.push_direct_strips(scene, prev_split..tail_end, paint_idxs);
+                }
+            }
         }
+
+        // Put the allocation back.
+        self.cmd_offsets = cmd_offsets;
 
         while !self.rounds_queue.is_empty() {
             self.flush(renderer);
@@ -497,6 +551,88 @@ impl Scheduler {
             }
         }
         debug_assert!(self.rounds_queue.is_empty(), "rounds_queue is not empty");
+
+        Ok(())
+    }
+
+    /// Generate `GpuStrips` for a range of direct paths and append them
+    /// directly into the current round's surface draw array.
+    fn push_direct_strips(&mut self, scene: &Scene, range: Range<usize>, paint_idxs: &[u32]) {
+        let strip_storage = scene.strip_storage.borrow();
+        // Always choose the draw of the final surface, since direct strips are only ever
+        // rendered to the final surface.
+        let draw = self.draw_mut(self.round, 2);
+
+        for path in &scene.fast_strips_buffer.paths[range] {
+            generate_gpu_strips_for_path(path, &strip_storage, scene, paint_idxs, &mut draw.0);
+        }
+    }
+
+    /// Process one batch of coarse-rasterized wide tile commands.
+    ///
+    /// Iterates over all wide tiles, processing commands from each tile's
+    /// current offset up to the next `BatchEnd` marker (or the end of the
+    /// command list).
+    fn process_coarse_batch<R: RendererBackend>(
+        &mut self,
+        state: &mut SchedulerState,
+        renderer: &mut R,
+        scene: &Scene,
+        wide: &Wide<MODE_HYBRID>,
+        rows: u16,
+        cols: u16,
+        cmd_offsets: &mut [usize],
+        paint_idxs: &[u32],
+    ) -> Result<(), RenderError> {
+        for row in 0..rows {
+            for col in 0..cols {
+                let idx = (row * cols + col) as usize;
+                let tile = wide.get(col, row);
+                let start_offset = cmd_offsets[idx];
+
+                // Note that we are explicitly checking > instead of >=.
+                // The reason is that it can happen the tile has no commands but still has a background,
+                // in which case we still need to do the painting of the background
+                if start_offset > tile.cmds.len() {
+                    continue;
+                }
+
+                let tile_x = col * WideTile::WIDTH;
+                let tile_y = row * Tile::HEIGHT;
+
+                // We only must paint the background if we are processing the wide tile for the
+                // first time (i.e. the start offset is 0).
+                let paint_bg = start_offset == 0;
+
+                state.clear();
+
+                // This will also paint the background, if necessary.
+                self.initialize_tile_state(
+                    &mut state.tile_state,
+                    tile,
+                    tile_x,
+                    tile_y,
+                    scene,
+                    paint_idxs,
+                    paint_bg,
+                );
+                let relative_end = self.do_tile(
+                    state,
+                    renderer,
+                    scene,
+                    tile_x,
+                    tile_y,
+                    &tile.cmds[start_offset..],
+                    tile.surface_is_blend_target(),
+                    paint_idxs,
+                    &wide.attrs,
+                )?;
+                let end = relative_end + start_offset;
+
+                // Advance past the `BatchEnd` marker (if present).
+                cmd_offsets[idx] = (end + 1).min(tile.cmds.len());
+            }
+        }
 
         Ok(())
     }
@@ -573,6 +709,34 @@ impl Scheduler {
         &mut self.rounds_queue[rel_round]
     }
 
+    /// Render the tile's background color (set by overdraw elimination) to the
+    /// surface. Returns `true` if a strip was emitted.
+    fn paint_tile_bg(
+        &mut self,
+        tile: &WideTile<MODE_HYBRID>,
+        wide_tile_x: u16,
+        wide_tile_y: u16,
+        scene: &Scene,
+        idxs: &[u32],
+    ) {
+        let bg = tile.bg.as_premul_rgba8().to_u32();
+
+        if has_non_zero_alpha(bg) {
+            let (payload, paint) = Self::process_paint(
+                &Paint::Solid(tile.bg),
+                scene,
+                (wide_tile_x, wide_tile_y),
+                idxs,
+            );
+
+            let draw = self.draw_mut(self.round, 2);
+            draw.push(
+                GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
+                    .paint(payload, paint),
+            );
+        }
+    }
+
     fn initialize_tile_state(
         &mut self,
         tile_state: &mut TileState,
@@ -581,6 +745,7 @@ impl Scheduler {
         wide_tile_y: u16,
         scene: &Scene,
         idxs: &[u32],
+        paint_bg: bool,
     ) {
         // Sentinel `TileEl` to indicate the end of the stack where we draw all
         // commands to the final target.
@@ -592,23 +757,9 @@ impl Scheduler {
             round: self.round,
             opacity: 1.,
         });
-        {
-            // If the background has a non-zero alpha then we need to render it.
-            let bg = tile.bg.as_premul_rgba8().to_u32();
-            if has_non_zero_alpha(bg) {
-                let (payload, paint) = Self::process_paint(
-                    &Paint::Solid(tile.bg),
-                    scene,
-                    (wide_tile_x, wide_tile_y),
-                    idxs,
-                );
 
-                let draw = self.draw_mut(self.round, 2);
-                draw.push(
-                    GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
-                        .paint(payload, paint),
-                );
-            }
+        if paint_bg {
+            self.paint_tile_bg(tile, wide_tile_x, wide_tile_y, scene, idxs);
         }
     }
 
@@ -627,7 +778,7 @@ impl Scheduler {
         surface_is_blend_target: bool,
         paint_idxs: &[u32],
         attrs: &CommandAttrs,
-    ) -> Result<(), RenderError> {
+    ) -> Result<usize, RenderError> {
         // What is going on with the `surface_is_blend_target` and `is_blend_target` variables in
         // `PushBuf`?
         // For blending of two layers (with a non-default blend mode) to work in vello_hybrid,
@@ -654,7 +805,7 @@ impl Scheduler {
             self.do_push_buf(state, renderer, true)?;
         }
 
-        for cmd in wide_tile_cmds {
+        for (idx, cmd) in wide_tile_cmds.iter().enumerate() {
             // Note: this starts at 1 (for the final target)
             let depth = state.tile_state.stack.len();
 
@@ -836,6 +987,9 @@ impl Scheduler {
                 Cmd::Blend(mode) => {
                     self.do_blend(state, wide_tile_x, wide_tile_y, mode);
                 }
+                Cmd::BatchEnd => {
+                    return Ok(idx);
+                }
                 _ => unreachable!(),
             }
         }
@@ -846,7 +1000,7 @@ impl Scheduler {
             self.do_pop_buf(state);
         }
 
-        Ok(())
+        Ok(wide_tile_cmds.len())
     }
 
     #[inline]
@@ -1189,65 +1343,61 @@ fn has_non_zero_alpha(rgba: u32) -> bool {
     rgba >= 0x1_00_00_00
 }
 
-pub(crate) fn generate_gpu_strips_for_fast_path(
-    paths: &[FastStripsPath],
+fn generate_gpu_strips_for_path(
+    path: &FastStripsPath,
+    strip_storage: &StripStorage,
     scene: &Scene,
     paint_idxs: &[u32],
     gpu_strips: &mut Vec<GpuStrip>,
 ) {
-    let strip_storage = scene.strip_storage.borrow();
+    let strips = &strip_storage.strips[path.strips.clone()];
 
-    for path in paths {
-        let strips = &strip_storage.strips[path.strips.clone()];
+    if strips.is_empty() {
+        return;
+    }
 
-        if strips.is_empty() {
+    // Note: Some of this logic is similar to current coarse rasterization code, but
+    // the coarse rasterization code is more complex due to clip paths and other factors.
+    // It might be possible to reuse some code here, but it seems hard.
+
+    for i in 0..strips.len() - 1 {
+        let strip = &strips[i];
+
+        if strip.x >= scene.width {
             continue;
         }
 
-        // Note: Some of this logic is similar to current coarse rasterization code, but
-        // the coarse rasterization code is more complex due to clip paths and other factors.
-        // It might be possible to reuse some code here, but it seems hard.
+        let next_strip = &strips[i + 1];
+        let col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
+        let next_col = next_strip.alpha_idx() / u32::from(Tile::HEIGHT);
+        let strip_width = next_col.saturating_sub(col) as u16;
+        let x0 = strip.x;
+        let y = strip.y;
 
-        for i in 0..strips.len() - 1 {
-            let strip = &strips[i];
+        // Alpha fill for the strip's coverage region.
+        if strip_width > 0 {
+            let (payload, paint) =
+                Scheduler::process_paint(&path.paint, scene, (x0, y), paint_idxs);
+            gpu_strips.push(
+                GpuStripBuilder::at_surface(x0, y, strip_width)
+                    .with_sparse(strip_width, col)
+                    .paint(payload, paint),
+            );
+        }
 
-            if strip.x >= scene.width {
-                continue;
-            }
-
-            let next_strip = &strips[i + 1];
-            let col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
-            let next_col = next_strip.alpha_idx() / u32::from(Tile::HEIGHT);
-            let strip_width = next_col.saturating_sub(col) as u16;
-            let x0 = strip.x;
-            let y = strip.y;
-
-            // Alpha fill for the strip's coverage region.
-            if strip_width > 0 {
+        // Solid fill for the gap to the next strip.
+        if next_strip.fill_gap() && strip.strip_y() == next_strip.strip_y() {
+            let x1 = x0.saturating_add(strip_width);
+            let x2 = next_strip.x.min(
+                scene
+                    .width
+                    .checked_next_multiple_of(WideTile::WIDTH)
+                    .unwrap_or(u16::MAX),
+            );
+            if x2 > x1 {
                 let (payload, paint) =
-                    Scheduler::process_paint(&path.paint, scene, (x0, y), paint_idxs);
-                gpu_strips.push(
-                    GpuStripBuilder::at_surface(x0, y, strip_width)
-                        .with_sparse(strip_width, col)
-                        .paint(payload, paint),
-                );
-            }
-
-            // Solid fill for the gap to the next strip.
-            if next_strip.fill_gap() && strip.strip_y() == next_strip.strip_y() {
-                let x1 = x0.saturating_add(strip_width);
-                let x2 = next_strip.x.min(
-                    scene
-                        .width
-                        .checked_next_multiple_of(WideTile::WIDTH)
-                        .unwrap_or(u16::MAX),
-                );
-                if x2 > x1 {
-                    let (payload, paint) =
-                        Scheduler::process_paint(&path.paint, scene, (x1, y), paint_idxs);
-                    gpu_strips
-                        .push(GpuStripBuilder::at_surface(x1, y, x2 - x1).paint(payload, paint));
-                }
+                    Scheduler::process_paint(&path.paint, scene, (x1, y), paint_idxs);
+                gpu_strips.push(GpuStripBuilder::at_surface(x1, y, x2 - x1).paint(payload, paint));
             }
         }
     }
