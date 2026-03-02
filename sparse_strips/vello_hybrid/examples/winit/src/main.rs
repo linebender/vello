@@ -88,7 +88,7 @@ fn main() {
         scenes,
         current_scene: start_scene_index,
         render_state: RenderState::Suspended(None),
-        scene: Scene::new(1800, 1200),
+        scene: Scene::new(3840, 2160),
         transform: Affine::IDENTITY,
         mouse_down: false,
         last_cursor_position: None,

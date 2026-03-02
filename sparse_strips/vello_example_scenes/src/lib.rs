@@ -5,6 +5,7 @@
 
 pub mod blend;
 pub mod blur_benchmark;
+pub mod blur_stress;
 pub mod clip;
 pub mod filter;
 pub mod gradient;
@@ -424,6 +425,7 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
     scenes.push(AnyScene::new(path::FunkyPathsScene::new()));
     scenes.push(AnyScene::new(path::RobustPathsScene::new()));
     scenes.push(AnyScene::new(blur_benchmark::BlurBenchmarkScene::new()));
+    scenes.push(AnyScene::new(blur_stress::BlurStressScene::new()));
 
     scenes.into_boxed_slice()
 }

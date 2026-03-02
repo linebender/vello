@@ -447,7 +447,7 @@ impl Default for AtlasConfig {
             #[cfg(not(all(target_arch = "wasm32", feature = "wgpu")))]
             initial_atlas_count: 1,
             max_atlases: 8,
-            atlas_size: (4096, 4096),
+            atlas_size: (8192, 8192),
             auto_grow: true,
             allocation_strategy: AllocationStrategy::FirstFit,
         }
