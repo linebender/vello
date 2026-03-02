@@ -243,10 +243,13 @@ fn sample_source(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
     return textureLoad(in_tex, src_coord, 0);
 }
 
-// Clamped sampling for downscale/upscale operations.
-fn sample_input_clamped(in: FilterVertexOutput, coord: vec2<i32>) -> vec4<f32> {
-    let clamped = clamp(coord, vec2(0i), vec2<i32>(in.src_size) - vec2(1i));
-    let src_coord = vec2<u32>(clamped) + in.src_offset;
+// Sample input for downscale/upscale with EdgeMode::None (transparent for out-of-bounds).
+fn sample_input_edge_none(in: FilterVertexOutput, coord: vec2<i32>) -> vec4<f32> {
+    if coord.x < 0 || coord.x >= i32(in.src_size.x) ||
+       coord.y < 0 || coord.y >= i32(in.src_size.y) {
+        return vec4<f32>(0.0);
+    }
+    let src_coord = vec2<u32>(coord) + in.src_offset;
     return textureLoad(in_tex, src_coord, 0);
 }
 
@@ -272,7 +275,7 @@ fn decimate_filter(in: FilterVertexOutput) -> vec4<f32> {
         let wy = binomial_weight(dy);
         for (var dx = 0u; dx < 4u; dx++) {
             let wx = binomial_weight(dx);
-            let s = sample_input_clamped(in, src_center + vec2<i32>(i32(dx) - 1, i32(dy) - 1));
+            let s = sample_input_edge_none(in, src_center + vec2<i32>(i32(dx) - 1, i32(dy) - 1));
             color += s * wx * wy;
         }
     }
@@ -293,10 +296,10 @@ fn upscale_filter(in: FilterVertexOutput) -> vec4<f32> {
     let dx = vec2<i32>(select(-1i, 1i, phase.x == 1i), 0i);
     let dy = vec2<i32>(0i, select(-1i, 1i, phase.y == 1i));
 
-    let s00 = sample_input_clamped(in, src_base);
-    let s10 = sample_input_clamped(in, src_base + dx);
-    let s01 = sample_input_clamped(in, src_base + dy);
-    let s11 = sample_input_clamped(in, src_base + dx + dy);
+    let s00 = sample_input_edge_none(in, src_base);
+    let s10 = sample_input_edge_none(in, src_base + dx);
+    let s01 = sample_input_edge_none(in, src_base + dy);
+    let s11 = sample_input_edge_none(in, src_base + dx + dy);
 
     return s00 * 0.5625 + s10 * 0.1875 + s01 * 0.1875 + s11 * 0.0625;
 }
