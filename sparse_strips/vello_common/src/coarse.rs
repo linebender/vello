@@ -1902,6 +1902,7 @@ pub enum Cmd {
     /// Marks a boundary between rendering fast path strips and coarse rasterized strips.
     ///
     /// Only meaningful in `MODE_HYBRID`.
+    // TODO: Consider removing this, see https://github.com/linebender/vello/pull/1479#discussion_r2869917343.
     BatchEnd,
 }
 
