@@ -344,6 +344,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                     image_offset,
                     image_size,
                     encoded_image.extend_modes,
+                    encoded_image.image_padding,
                 );
                 final_color = alpha * sample_color;
             } else if encoded_image.quality == IMAGE_QUALITY_MEDIUM {
@@ -355,6 +356,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                     image_offset,
                     image_size,
                     encoded_image.extend_modes,
+                    encoded_image.image_padding,
                 );
                 final_color = alpha * sample_color;
             } else if encoded_image.quality == IMAGE_QUALITY_LOW {
@@ -780,6 +782,8 @@ struct EncodedImage {
     /// Translation offset for 2D affine transformation.
     /// Contains [tx, ty] representing the translation component.
     translate: vec2<f32>,
+    /// Number of transparent padding pixels around the image in the atlas.
+    image_padding: f32,
 }
 
 // Unpack encoded image from the encoded paints texture.
@@ -801,15 +805,17 @@ fn unpack_encoded_image(paint_tex_idx: u32) -> EncodedImage {
         bitcast<f32>(texel1.y), bitcast<f32>(texel1.z)
     );
     let translate = vec2<f32>(bitcast<f32>(texel1.w), bitcast<f32>(texel2.x));
+    let image_padding = f32(texel2.y);
 
     return EncodedImage(
-        quality, 
+        quality,
         vec2<u32>(extend_x, extend_y),
         image_size,
         image_offset,
         atlas_index,
         transform,
-        translate
+        translate,
+        image_padding
     );
 }
 
@@ -866,6 +872,7 @@ fn bilinear_sample(
     image_offset: vec2<f32>,
     image_size: vec2<f32>,
     extend_modes: vec2<u32>,
+    image_padding: f32,
 ) -> vec4<f32> {
     let atlas_max = image_offset + image_size - vec2(1.0);
     let atlas_uv_clamped = clamp(coords, image_offset, atlas_max);
@@ -891,6 +898,7 @@ fn bicubic_sample(
     image_offset: vec2<f32>,
     image_size: vec2<f32>,
     extend_modes: vec2<u32>,
+    image_padding: f32,
 ) -> vec4<f32> {
      let atlas_max = image_offset + image_size - vec2(1.0);
      let frac_coords = fract(coords + 0.5);

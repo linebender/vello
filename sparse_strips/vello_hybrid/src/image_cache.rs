@@ -15,8 +15,11 @@ pub(crate) struct ImageResource {
     pub(crate) height: u16,
     /// The Id of the atlas containing this image.
     pub(crate) atlas_id: AtlasId,
-    /// The offset of the image within its atlas.
+    /// The offset of the image within its atlas (does not include padding, i.e. it points to the
+    /// position of the first actual top-left pixel).
     pub(crate) offset: [u16; 2],
+    /// The number of transparent padding pixels around the image in the atlas.
+    pub(crate) padding: u16,
     /// The atlas allocation ID for deallocation.
     atlas_alloc_id: AllocId,
 }
@@ -69,12 +72,17 @@ impl ImageCache {
         self.slots.get(id.as_u32() as usize)?.as_ref()
     }
 
-    /// Allocate an image in the cache.
-    pub(crate) fn allocate(&mut self, width: u32, height: u32) -> Result<ImageId, AtlasError> {
-        self.allocate_excluding(width, height, None)
+    /// Allocate an image in the cache, with optional transparent padding.
+    pub(crate) fn allocate(
+        &mut self,
+        width: u32,
+        height: u32,
+        padding: u16,
+    ) -> Result<ImageId, AtlasError> {
+        self.allocate_excluding(width, height, padding, None)
     }
 
-    /// Allocate an image in the cache, excluding a specific atlas.
+    /// Allocate an image in the cache, excluding a specific atlas, with optional transparent padding.
     #[expect(
         clippy::cast_possible_truncation,
         reason = "u16 is enough for the offset and width/height"
@@ -83,11 +91,14 @@ impl ImageCache {
         &mut self,
         width: u32,
         height: u32,
+        padding: u16,
         exclude_atlas: Option<AtlasId>,
     ) -> Result<ImageId, AtlasError> {
+        let padded_width = width + u32::from(padding) * 2;
+        let padded_height = height + u32::from(padding) * 2;
         let atlas_alloc =
             self.atlas_manager
-                .try_allocate_excluding(width, height, exclude_atlas)?;
+                .try_allocate_excluding(padded_width, padded_height, exclude_atlas)?;
 
         let slot_idx = self.free_idxs.pop().unwrap_or_else(|| {
             // No free slots, append to vector
@@ -103,9 +114,10 @@ impl ImageCache {
             height: height as u16,
             atlas_id: atlas_alloc.atlas_id,
             offset: [
-                atlas_alloc.allocation.rectangle.min.x as u16,
-                atlas_alloc.allocation.rectangle.min.y as u16,
+                atlas_alloc.allocation.rectangle.min.x as u16 + padding,
+                atlas_alloc.allocation.rectangle.min.y as u16 + padding,
             ],
+            padding,
             atlas_alloc_id: atlas_alloc.allocation.id,
         };
         self.slots[slot_idx] = Some(image_resource);
@@ -118,12 +130,15 @@ impl ImageCache {
         let index = id.as_u32() as usize;
         if let Some(image_resource) = self.slots.get_mut(index).and_then(Option::take) {
             // Deallocate from the appropriate atlas
+            let padded_width = image_resource.width as u32 + u32::from(image_resource.padding) * 2;
+            let padded_height =
+                image_resource.height as u32 + u32::from(image_resource.padding) * 2;
             self.atlas_manager
                 .deallocate(
                     image_resource.atlas_id,
                     image_resource.atlas_alloc_id,
-                    image_resource.width as u32,
-                    image_resource.height as u32,
+                    padded_width,
+                    padded_height,
                 )
                 .unwrap();
             self.free_idxs.push(index);
@@ -157,7 +172,7 @@ mod tests {
             ..Default::default()
         });
 
-        let id = cache.allocate(100, 100).unwrap();
+        let id = cache.allocate(100, 100, 0).unwrap();
 
         assert_eq!(id.as_u32(), 0);
         let resource = cache.get(id).unwrap();
@@ -168,14 +183,32 @@ mod tests {
     }
 
     #[test]
+    fn test_insert_single_image_with_padding() {
+        let mut cache = ImageCache::new_with_config(AtlasConfig {
+            atlas_size: (ATLAS_SIZE, ATLAS_SIZE),
+            ..Default::default()
+        });
+
+        let id = cache.allocate(100, 100, 4).unwrap();
+
+        assert_eq!(id.as_u32(), 0);
+        let resource = cache.get(id).unwrap();
+        assert_eq!(resource.width, 100);
+        assert_eq!(resource.height, 100);
+        assert_eq!(resource.padding, 4);
+        // Offset should be shifted inward by padding.
+        assert_eq!(resource.offset, [4, 4]);
+    }
+
+    #[test]
     fn test_insert_multiple_images() {
         let mut cache = ImageCache::new_with_config(AtlasConfig {
             atlas_size: (ATLAS_SIZE, ATLAS_SIZE),
             ..Default::default()
         });
 
-        let id1 = cache.allocate(50, 50).unwrap();
-        let id2 = cache.allocate(75, 75).unwrap();
+        let id1 = cache.allocate(50, 50, 0).unwrap();
+        let id2 = cache.allocate(75, 75, 0).unwrap();
 
         assert_eq!(id1.as_u32(), 0);
         assert_eq!(id2.as_u32(), 1);
@@ -208,7 +241,7 @@ mod tests {
             ..Default::default()
         });
 
-        let id = cache.allocate(100, 100).unwrap();
+        let id = cache.allocate(100, 100, 0).unwrap();
         assert!(cache.get(id).is_some());
 
         cache.deallocate(id);
@@ -235,9 +268,9 @@ mod tests {
         });
 
         // Register three images
-        let id1 = cache.allocate(50, 50).unwrap();
-        let id2 = cache.allocate(60, 60).unwrap();
-        let id3 = cache.allocate(70, 70).unwrap();
+        let id1 = cache.allocate(50, 50, 0).unwrap();
+        let id2 = cache.allocate(60, 60, 0).unwrap();
+        let id3 = cache.allocate(70, 70, 0).unwrap();
 
         assert_eq!(id1.as_u32(), 0);
         assert_eq!(id2.as_u32(), 1);
@@ -248,7 +281,7 @@ mod tests {
         assert!(cache.get(id2).is_none());
 
         // Register a new image - should reuse slot 1
-        let id4 = cache.allocate(80, 80).unwrap();
+        let id4 = cache.allocate(80, 80, 0).unwrap();
         // Reused slot 1
         assert_eq!(id4.as_u32(), 1);
 
@@ -268,7 +301,7 @@ mod tests {
 
         // Register several images
         let ids: Vec<_> = (0..5)
-            .map(|i| cache.allocate(100 + i * 10, 100 + i * 10).unwrap())
+            .map(|i| cache.allocate(100 + i * 10, 100 + i * 10, 0).unwrap())
             .collect();
 
         // Unregister some in the middle
@@ -276,8 +309,8 @@ mod tests {
         cache.deallocate(ids[3]);
 
         // Register new images - should reuse the freed slots
-        let new_id1 = cache.allocate(200, 200).unwrap();
-        let new_id2 = cache.allocate(300, 300).unwrap();
+        let new_id1 = cache.allocate(200, 200, 0).unwrap();
+        let new_id2 = cache.allocate(300, 300, 0).unwrap();
 
         // Should have reused slots 3 and 1 (in reverse order due to stack behavior)
         assert_eq!(new_id1.as_u32(), 3);

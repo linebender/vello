@@ -25,6 +25,13 @@ use crate::AtlasConfig;
 use crate::image_cache::ImageCache;
 use crate::multi_atlas::{AtlasError, AtlasId};
 
+/// Padding (in pixels) added around filter atlas images so that texture samples
+/// reaching beyond the content region always read transparent. This covers:
+/// - Blur: max linear offset ~5.5 + 1.0 for linear sampling = ~6.5, ceil = 7
+/// - Downscale: kernel reaches [-1, +2] = 2 pixels
+/// - Upscale: reaches ±1 = 1 pixel
+const FILTER_ATLAS_PADDING: u16 = 7;
+
 // Note: Keep these variables and struct layouts in sync with `filters.wgsl`!
 
 // Since we store in RGBA32 texture.
@@ -473,12 +480,12 @@ impl FilterContext {
                 // pass we already bind that texture array as an input bind group. Therefore, it needs
                 // to live somewhere else. So we need to create a second image cache, which lives
                 // in the filter context.
-                let initial_image_id = self.image_cache.allocate(width, height)?;
+                let initial_image_id = self.image_cache.allocate(width, height, 0)?;
                 let initial_atlas_id = self.image_cache.get(initial_image_id).unwrap().atlas_id;
                 // This represents the destination where the final _filtered_ version lives. We store this
                 // in the same image atlas where normal images live, allowing us to treat them like normal
                 // image fills.
-                let dest_image_id = dest_cache.allocate(width, height)?;
+                let dest_image_id = dest_cache.allocate(width, height, 0)?;
                 // For multi-pass filters we need two intermediate scratch buffers for ping-pong
                 // rendering. Each scratch must live on a different atlas texture than the other
                 // and than the initial texture, because we cannot read and write the same texture.
@@ -486,12 +493,14 @@ impl FilterContext {
                     let scratch_1 = self.image_cache.allocate_excluding(
                         width,
                         height,
+                        0,
                         Some(AtlasId(initial_atlas_id.as_u32())),
                     )?;
                     let scratch_1_atlas_id = self.image_cache.get(scratch_1).unwrap().atlas_id;
                     let scratch_2 = self.image_cache.allocate_excluding(
                         width,
                         height,
+                        0,
                         Some(AtlasId(scratch_1_atlas_id.as_u32())),
                     )?;
                     Some([scratch_1, scratch_2])

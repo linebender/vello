@@ -120,8 +120,10 @@ pub(crate) struct GpuEncodedImage {
     pub image_offset: u32,
     /// Transform matrix [a, b, c, d, tx, ty].
     pub transform: [f32; 6],
+    /// Number of transparent padding pixels around the image in the atlas.
+    pub image_padding: u32,
     /// Padding for 16-byte alignment.
-    pub _padding: [u32; 3],
+    pub _padding: [u32; 2],
 }
 
 /// GPU encoded linear gradient data.

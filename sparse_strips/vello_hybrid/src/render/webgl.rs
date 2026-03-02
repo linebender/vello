@@ -322,9 +322,19 @@ impl WebGlRenderer {
         &mut self,
         writer: &T,
     ) -> vello_common::paint::ImageId {
+        // TODO: If we want to use native bilinear sampling for uploaded images,
+        // we can pass 1 instead of 0 here.
+        self.upload_image_with(writer, 0)
+    }
+
+    pub(crate) fn upload_image_with<T: WebGlAtlasWriter>(
+        &mut self,
+        writer: &T,
+        padding: u16,
+    ) -> vello_common::paint::ImageId {
         let width = writer.width();
         let height = writer.height();
-        let image_id = self.image_cache.allocate(width, height).unwrap();
+        let image_id = self.image_cache.allocate(width, height, padding).unwrap();
         let image_resource = self
             .image_cache
             .get(image_id)
@@ -352,14 +362,15 @@ impl WebGlRenderer {
     /// Destroy an image from the cache and clear the allocated slot in the atlas.
     pub fn destroy_image(&mut self, image_id: vello_common::paint::ImageId) {
         if let Some(image_resource) = self.image_cache.deallocate(image_id) {
+            let padding = image_resource.padding as u32;
             self.clear_atlas_region(
                 image_resource.atlas_id,
                 [
-                    image_resource.offset[0] as u32,
-                    image_resource.offset[1] as u32,
+                    image_resource.offset[0] as u32 - padding,
+                    image_resource.offset[1] as u32 - padding,
                 ],
-                image_resource.width as u32,
-                image_resource.height as u32,
+                image_resource.width as u32 + padding * 2,
+                image_resource.height as u32 + padding * 2,
             );
         }
     }
@@ -471,7 +482,8 @@ impl WebGlRenderer {
             image_size,
             image_offset,
             transform,
-            _padding: [0, 0, 0],
+            image_padding: image_resource.padding as u32,
+            _padding: [0, 0],
         })
     }
 
