@@ -130,8 +130,8 @@ pub(crate) struct GpuEncodedImage {
     pub tint: u32,
     /// [`TintMode`](vello_common::paint::TintMode) discriminant. Only meaningful when `tint != 0`.
     pub tint_mode: u32,
-    /// Padding for 16-byte alignment.
-    pub _padding: u32,
+    /// Number of transparent padding pixels around the image in the atlas.
+    pub image_padding: u32,
 }
 
 /// GPU encoded linear gradient data.

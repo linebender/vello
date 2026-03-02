@@ -296,9 +296,22 @@ impl Renderer {
         encoder: &mut CommandEncoder,
         writer: &T,
     ) -> vello_common::paint::ImageId {
+        // TODO: If we want to use native bilinear sampling for uploaded images,
+        // we can pass 1 instead of 0 here.
+        self.upload_image_with(device, queue, encoder, writer, 0)
+    }
+
+    pub(crate) fn upload_image_with<T: AtlasWriter>(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+        writer: &T,
+        padding: u16,
+    ) -> vello_common::paint::ImageId {
         let width = writer.width();
         let height = writer.height();
-        let image_id = self.image_cache.allocate(width, height).unwrap();
+        let image_id = self.image_cache.allocate(width, height, padding).unwrap();
         self.write_to_atlas(device, queue, encoder, image_id, writer, None);
         image_id
     }
@@ -359,17 +372,19 @@ impl Renderer {
         image_id: vello_common::paint::ImageId,
     ) {
         if let Some(image_resource) = self.image_cache.deallocate(image_id) {
+            let padding = image_resource.padding as u32;
+
             self.clear_atlas_region(
                 device,
                 queue,
                 encoder,
                 image_resource.atlas_id,
                 [
-                    image_resource.offset[0] as u32,
-                    image_resource.offset[1] as u32,
+                    image_resource.offset[0] as u32 - padding,
+                    image_resource.offset[1] as u32 - padding,
                 ],
-                image_resource.width as u32,
-                image_resource.height as u32,
+                image_resource.width as u32 + padding * 2,
+                image_resource.height as u32 + padding * 2,
             );
         }
     }
@@ -505,7 +520,7 @@ impl Renderer {
             transform,
             tint,
             tint_mode,
-            _padding: 0,
+            image_padding: image_resource.padding as u32,
         })
     }
 
