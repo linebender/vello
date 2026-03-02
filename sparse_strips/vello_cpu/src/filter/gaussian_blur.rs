@@ -354,8 +354,8 @@ fn upscale_x(src: &mut Pixmap, src_width: u16, src_height: u16, edge_mode: EdgeM
     for y in 0..src_height {
         // Maintain sliding window of three pixels: prev, current, next
         // This allows us to compute both output pixels that depend on current pixel x
-        let mut p0 = sample_x(src, src_width as i32 + 1, y, src_width, edge_mode);
-        let mut p1 = sample_x(src, src_width as i32, y, src_width, edge_mode);
+        let mut p0 = sample_x(src, src_width as i32, y, src_width, edge_mode);
+        let mut p1 = sample_x(src, src_width as i32 - 1, y, src_width, edge_mode);
 
         for x in (0..src_width).rev() {
             let src_x = x as i32;
@@ -386,8 +386,8 @@ fn upscale_y(src: &mut Pixmap, src_width: u16, src_height: u16, edge_mode: EdgeM
     for x in 0..src_width {
         // Maintain sliding window of three pixels: prev, current, next
         // This allows us to compute both output pixels that depend on current pixel y
-        let mut p0 = sample_y(src, x, src_height as i32 + 1, src_height, edge_mode);
-        let mut p1 = sample_y(src, x, src_height as i32, src_height, edge_mode);
+        let mut p0 = sample_y(src, x, src_height as i32, src_height, edge_mode);
+        let mut p1 = sample_y(src, x, src_height as i32 - 1, src_height, edge_mode);
 
         for y in (0..src_height).rev() {
             let src_y = y as i32;
