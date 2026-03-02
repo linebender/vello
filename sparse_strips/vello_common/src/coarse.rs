@@ -131,11 +131,11 @@ impl NeedsBufLayerStack {
 #[derive(Debug)]
 pub struct Wide<const MODE: u8 = MODE_CPU> {
     /// The width of the container.
-    pub width: u16,
+    width: u16,
     /// The height of the container.
-    pub height: u16,
+    height: u16,
     /// The wide tiles in the container.
-    pub tiles: Vec<WideTile<MODE>>,
+    tiles: Vec<WideTile<MODE>>,
     /// Shared command properties, referenced by index from fill and clip commands.
     pub attrs: CommandAttrs,
     /// The stack of layers.
