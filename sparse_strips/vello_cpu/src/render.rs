@@ -683,12 +683,17 @@ impl RenderContext {
         }
     }
 
-    /// Save the current rendering state.
+    /// Take current rendering state and reset the existing state to its default.
     pub fn take_current_state(&mut self) -> RenderState {
+        core::mem::take(&mut self.state)
+    }
+
+    /// Save a copy of the current rendering state.
+    pub fn save_current_state(&mut self) -> RenderState {
         self.state.clone()
     }
 
-    /// Restore the saved rendering state.
+    /// Restore rendering state.
     pub fn restore_state(&mut self, state: RenderState) {
         self.state = state;
     }
