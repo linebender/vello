@@ -227,31 +227,29 @@ fn vs_main(
     return out;
 }
 
+// Atlas padding around filter images guarantees transparent reads beyond the content
+// region, so these sampling functions omit bounds checks. The one exception is OFFSET,
+// which can shift by large dx/dy (e.g. 50 px for drop shadow) exceeding the padding;
+// that path uses sample_source_checked below.
+
 fn sample_original(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
-    if rel_coord.x < 0.0 || rel_coord.x >= f32(in.original_size.x) ||
-       rel_coord.y < 0.0 || rel_coord.y >= f32(in.original_size.y) {
-        return vec4<f32>(0.0);
-    }
     let src_coord = vec2<u32>(vec2<i32>(in.original_offset) + vec2<i32>(rel_coord));
     return textureLoad(original_tex, src_coord, 0);
 }
 
 fn sample_source(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
+    let src_coord = vec2<u32>(vec2<i32>(in.src_offset) + vec2<i32>(rel_coord));
+    return textureLoad(in_tex, src_coord, 0);
+}
+
+// Bounds-checked variant of sample_source, used only by OFFSET passes where the
+// shift can exceed the atlas padding.
+fn sample_source_checked(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
     if rel_coord.x < 0.0 || rel_coord.x >= f32(in.src_size.x) ||
        rel_coord.y < 0.0 || rel_coord.y >= f32(in.src_size.y) {
         return vec4<f32>(0.0);
     }
     let src_coord = vec2<u32>(vec2<i32>(in.src_offset) + vec2<i32>(rel_coord));
-    return textureLoad(in_tex, src_coord, 0);
-}
-
-// Sample input for downscale/upscale with EdgeMode::None (transparent for out-of-bounds).
-fn sample_input_edge_none(in: FilterVertexOutput, coord: vec2<i32>) -> vec4<f32> {
-    if coord.x < 0 || coord.x >= i32(in.src_size.x) ||
-       coord.y < 0 || coord.y >= i32(in.src_size.y) {
-        return vec4<f32>(0.0);
-    }
-    let src_coord = vec2<u32>(coord) + in.src_offset;
     return textureLoad(in_tex, src_coord, 0);
 }
 
@@ -277,7 +275,11 @@ fn decimate_filter(in: FilterVertexOutput) -> vec4<f32> {
         let wy = binomial_weight(dy);
         for (var dx = 0u; dx < 4u; dx++) {
             let wx = binomial_weight(dx);
-            let s = sample_input_edge_none(in, src_center + vec2<i32>(i32(dx) - 1, i32(dy) - 1));
+            // Add src_offset in i32 space before casting to u32 to handle negative coords
+            // (which land in the transparent padding region).
+            let coord = src_center + vec2<i32>(i32(dx) - 1, i32(dy) - 1);
+            let atlas_coord = vec2<u32>(vec2<i32>(in.src_offset) + coord);
+            let s = textureLoad(in_tex, atlas_coord, 0);
             color += s * wx * wy;
         }
     }
@@ -298,10 +300,12 @@ fn upscale_filter(in: FilterVertexOutput) -> vec4<f32> {
     let dx = vec2<i32>(select(-1i, 1i, phase.x == 1i), 0i);
     let dy = vec2<i32>(0i, select(-1i, 1i, phase.y == 1i));
 
-    let s00 = sample_input_edge_none(in, src_base);
-    let s10 = sample_input_edge_none(in, src_base + dx);
-    let s01 = sample_input_edge_none(in, src_base + dy);
-    let s11 = sample_input_edge_none(in, src_base + dx + dy);
+    // Add src_offset in i32 space before casting to u32 (see decimate_filter).
+    let base = vec2<i32>(in.src_offset);
+    let s00 = textureLoad(in_tex, vec2<u32>(base + src_base), 0);
+    let s10 = textureLoad(in_tex, vec2<u32>(base + src_base + dx), 0);
+    let s01 = textureLoad(in_tex, vec2<u32>(base + src_base + dy), 0);
+    let s11 = textureLoad(in_tex, vec2<u32>(base + src_base + dx + dy), 0);
 
     return s00 * 0.5625 + s10 * 0.1875 + s01 * 0.1875 + s11 * 0.0625;
 }
@@ -318,60 +322,19 @@ fn convolve(
     let atlas_center = vec2<f32>(in.src_offset) + center_in;
     let tex_size = vec2<f32>(textureDimensions(in_tex));
 
-    var max_reach = 0.0;
-    if n_linear_taps > 0u {
-        // + 1 Since we need one more pixel when doing linear sampling.
-        max_reach = offsets[n_linear_taps - 1u] + 1.0;
+    // Atlas padding guarantees transparent reads beyond content, so we can always
+    // use the fast GPU-native linear sampling path without bounds checking.
+    let center_uv = (atlas_center + 0.5) / tex_size;
+    var color = textureSample(in_tex, linear_sampler, center_uv) * center_weight;
+    for (var i = 0u; i < n_linear_taps; i++) {
+        let w = weights[i];
+        let d = dir * offsets[i];
+        let pos_uv = (atlas_center + d + 0.5) / tex_size;
+        let neg_uv = (atlas_center - d + 0.5) / tex_size;
+        color += textureSample(in_tex, linear_sampler, pos_uv) * w;
+        color += textureSample(in_tex, linear_sampler, neg_uv) * w;
     }
-    let axis_pos = dot(center_in, dir);
-    let axis_size = dot(vec2<f32>(in.src_size), dir);
-    let all_in_bounds = axis_pos - max_reach >= 0.0
-            && axis_pos + max_reach < axis_size;
-
-    // For the best performance, we distinguish between two different paths: In the first path, all pixels
-    // we sample are within the bounds of the image, so we can use the GPU-native linear sampling method.
-    // However, when blurring border pixels, we can't do that because the image atlas might contain different
-    // images there, so we would sample garbage pixels. Therefore, we need to do the interpolation manually there.
-
-    if all_in_bounds {
-        let center_uv = (atlas_center + 0.5) / tex_size;
-        var color = textureSample(in_tex, linear_sampler, center_uv) * center_weight;
-        for (var i = 0u; i < n_linear_taps; i++) {
-            let w = weights[i];
-            let d = dir * offsets[i];
-            let pos_uv = (atlas_center + d + 0.5) / tex_size;
-            let neg_uv = (atlas_center - d + 0.5) / tex_size;
-            color += textureSample(in_tex, linear_sampler, pos_uv) * w;
-            color += textureSample(in_tex, linear_sampler, neg_uv) * w;
-        }
-        return color;
-    } else {
-        var color = sample_source(in, center_in) * center_weight;
-        let fixed = center_in - dir * axis_pos;
-
-        for (var i = 0u; i < n_linear_taps; i++) {
-            let w = weights[i];
-            let o = offsets[i];
-            // positive direction
-            let pp = axis_pos + o;
-            let pp0 = floor(pp);
-            let pt = pp - pp0;
-            color += mix(
-                sample_source(in, fixed + dir * pp0),
-                sample_source(in, fixed + dir * (pp0 + 1.0)),
-                pt) * w;
-            // negative direction
-            let np = axis_pos - o;
-            let np0 = floor(np);
-            let nt = np - np0;
-            color += mix(
-                sample_source(in, fixed + dir * np0),
-                sample_source(in, fixed + dir * (np0 + 1.0)),
-                nt) * w;
-        }
-
-        return color;
-    }
+    return color;
 }
 
 const HORIZONTAL: vec2<f32> = vec2<f32>(1.0, 0.0);
@@ -403,10 +366,10 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
             if filter_type == FILTER_TYPE_DROP_SHADOW {
                 let shadow = unpack_drop_shadow_filter(data);
                 // For drop shadow, use floor to match the old combined offset+blur behavior.
-                return sample_source(in, floor(rel_coord - vec2<f32>(shadow.dx, shadow.dy)));
+                return sample_source_checked(in, floor(rel_coord - vec2<f32>(shadow.dx, shadow.dy)));
             } else {
                 let offset = unpack_offset_filter(data);
-                return sample_source(in, round(rel_coord - vec2<f32>(offset.dx, offset.dy)));
+                return sample_source_checked(in, round(rel_coord - vec2<f32>(offset.dx, offset.dy)));
             }
         }
         case PASS_DOWNSCALE: {
