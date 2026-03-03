@@ -31,6 +31,7 @@ const PASS_BLUR_H: u32 = 4u;
 const PASS_BLUR_V: u32 = 5u;
 const PASS_UPSCALE: u32 = 6u;
 const PASS_COMPOSITE: u32 = 7u;
+const PASS_UPSCALE_4X: u32 = 8u;
 
 const MAX_LINEAR_TAPS: u32 = 3u;
 
@@ -286,19 +287,62 @@ fn decimate_filter(in: FilterVertexOutput) -> vec4<f32> {
 // 0 or 1 per axis. The [0.75, 0.25] weighting between the main pixel and its neighbor
 // is exactly what GPU bilinear interpolation produces when the sample point is offset
 // by ±0.25 from the pixel center. This reduces 4 textureLoad calls to 1 textureSample.
+// 2x upscale using a single bilinear sample. Each output pixel maps to source via
+// src_pos = (rel + 0.5) * 0.5, and the GPU bilinear interpolation produces the
+// correct [0.75, 0.25] weighting between the main pixel and its neighbor.
 fn upscale_filter(in: FilterVertexOutput) -> vec4<f32> {
     let frag_coord = vec2<u32>(in.position.xy);
-    let rel = vec2<i32>(frag_coord - in.dest_offset);
-    let src_base = vec2<f32>(rel / 2);
-    let phase = vec2<f32>(rel % 2);
+    let rel = vec2<f32>(frag_coord - in.dest_offset);
     let tex_size = vec2<f32>(textureDimensions(in_tex));
-
-    // phase=0 → sample at base - 0.25 (0.75 main + 0.25 left/top neighbor)
-    // phase=1 → sample at base + 0.25 (0.75 main + 0.25 right/bottom neighbor)
-    let sample_offset = select(vec2(-0.25), vec2(0.25), phase == vec2(1.0));
-    let atlas_pos = vec2<f32>(in.src_offset) + src_base + sample_offset + 0.5;
-
+    let atlas_pos = vec2<f32>(in.src_offset) + (rel + 0.5) * 0.5;
     return textureSample(in_tex, linear_sampler, atlas_pos / tex_size);
+}
+
+// 4x upscale equivalent to two cascaded 2x upscales, in a single pass.
+//
+// Each output pixel at `rel` maps to an intermediate position `inter = rel / 2`.
+// The outer 2x upscale needs 4 virtual intermediate pixels (main + neighbors),
+// each of which is itself a bilinear sample from the source (the inner 2x upscale).
+// The intermediate pixel at position `p` samples the source at `(f32(p) + 0.5) * 0.5`.
+//
+// At the boundaries, neighbor intermediate positions may fall outside the virtual
+// intermediate texture. In the cascaded approach these would read from intermediate
+// padding (transparent). We replicate this by checking against `original_size`,
+// which carries the intermediate texture dimensions for UPSCALE_4X passes.
+fn upscale_4x_filter(in: FilterVertexOutput) -> vec4<f32> {
+    let frag_coord = vec2<u32>(in.position.xy);
+    let rel = vec2<i32>(frag_coord - in.dest_offset);
+    let tex_size = vec2<f32>(textureDimensions(in_tex));
+    // For UPSCALE_4X, original_offset carries the virtual intermediate texture size.
+    let inter_size = vec2<i32>(in.original_offset);
+
+    // Outer 2x upscale: map output to intermediate space.
+    let inter = rel / 2;
+    let outer_phase = rel % 2;
+    let neighbor_x = inter + vec2<i32>(select(-1i, 1i, outer_phase.x == 1i), 0i);
+    let neighbor_y = inter + vec2<i32>(0i, select(-1i, 1i, outer_phase.y == 1i));
+    let neighbor_xy = neighbor_x + vec2<i32>(0i, select(-1i, 1i, outer_phase.y == 1i));
+
+    // Check which neighbors are within the virtual intermediate texture.
+    let nx_valid = neighbor_x.x >= 0 && neighbor_x.x < inter_size.x;
+    let ny_valid = neighbor_y.y >= 0 && neighbor_y.y < inter_size.y;
+
+    // Inner 2x upscale: map intermediate position to source sample position.
+    let base = vec2<f32>(in.src_offset) + (vec2<f32>(inter) + 0.5) * 0.5;
+    let dx = select(-0.5, 0.5, outer_phase.x == 1i);
+    let dy = select(-0.5, 0.5, outer_phase.y == 1i);
+
+    // Main intermediate pixel (always valid).
+    let s00 = textureSample(in_tex, linear_sampler, base / tex_size);
+    // X-neighbor: transparent if outside intermediate.
+    let s10 = select(vec4(0.0), textureSample(in_tex, linear_sampler, (base + vec2(dx, 0.0)) / tex_size), nx_valid);
+    // Y-neighbor: transparent if outside intermediate.
+    let s01 = select(vec4(0.0), textureSample(in_tex, linear_sampler, (base + vec2(0.0, dy)) / tex_size), ny_valid);
+    // Diagonal: transparent if either axis is outside.
+    let s11 = select(vec4(0.0), textureSample(in_tex, linear_sampler, (base + vec2(dx, dy)) / tex_size), nx_valid && ny_valid);
+
+    // Combine with outer [0.75, 0.25] × [0.75, 0.25] weights.
+    return s00 * 0.5625 + s10 * 0.1875 + s01 * 0.1875 + s11 * 0.0625;
 }
 
 fn convolve(
@@ -376,6 +420,9 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
         }
         case PASS_UPSCALE: {
             return upscale_filter(in);
+        }
+        case PASS_UPSCALE_4X: {
+            return upscale_4x_filter(in);
         }
         case PASS_COMPOSITE: {
             // Drop shadow composite: colorize blurred result, composite original on top.

@@ -62,6 +62,7 @@ pub(crate) mod pass_kind {
     pub(crate) const BLUR_V: u32 = 5;
     pub(crate) const UPSCALE: u32 = 6;
     pub(crate) const COMPOSITE: u32 = 7;
+    pub(crate) const UPSCALE_4X: u32 = 8;
 }
 
 pub(crate) fn edge_mode_to_gpu(mode: EdgeMode) -> u32 {
@@ -646,7 +647,12 @@ impl FilterContext {
                 }
                 kinds.push(pass_kind::BLUR_H);
                 kinds.push(pass_kind::BLUR_V);
-                for _ in 0..n_decimations {
+                // Pair upscales into 4x where possible to reduce render passes.
+                for _ in 0..n_decimations / 2 {
+                    kinds.push(pass_kind::UPSCALE_4X);
+                }
+
+                if n_decimations % 2 != 0 {
                     kinds.push(pass_kind::UPSCALE);
                 }
                 kinds
@@ -658,7 +664,10 @@ impl FilterContext {
                 }
                 kinds.push(pass_kind::BLUR_H);
                 kinds.push(pass_kind::BLUR_V);
-                for _ in 0..n_decimations {
+                for _ in 0..n_decimations / 2 {
+                    kinds.push(pass_kind::UPSCALE_4X);
+                }
+                if n_decimations % 2 != 0 {
                     kinds.push(pass_kind::UPSCALE);
                 }
                 kinds.push(pass_kind::COMPOSITE);
@@ -708,7 +717,8 @@ impl FilterContext {
         let mut dim_stack: Vec<(u32, u32)> = Vec::new();
 
         // Pre-compute dimensions for each pass.
-        let mut dims: Vec<(u32, u32, u32, u32)> = Vec::new(); // (src_w, src_h, dst_w, dst_h)
+        // (src_w, src_h, dst_w, dst_h, inter_w, inter_h) — inter is only meaningful for UPSCALE_4X.
+        let mut dims: Vec<(u32, u32, u32, u32, u32, u32)> = Vec::new();
         for &kind in &pass_kinds {
             match kind {
                 pass_kind::DOWNSCALE => {
@@ -717,7 +727,7 @@ impl FilterContext {
                     dim_stack.push((cur_w, cur_h));
                     cur_w = cur_w.div_ceil(2);
                     cur_h = cur_h.div_ceil(2);
-                    dims.push((src_w, src_h, cur_w, cur_h));
+                    dims.push((src_w, src_h, cur_w, cur_h, 0, 0));
                 }
                 pass_kind::UPSCALE => {
                     let src_w = cur_w;
@@ -725,10 +735,21 @@ impl FilterContext {
                     let (target_w, target_h) = dim_stack.pop().unwrap();
                     cur_w = (cur_w * 2).min(target_w);
                     cur_h = (cur_h * 2).min(target_h);
-                    dims.push((src_w, src_h, cur_w, cur_h));
+                    dims.push((src_w, src_h, cur_w, cur_h, 0, 0));
+                }
+                pass_kind::UPSCALE_4X => {
+                    let src_w = cur_w;
+                    let src_h = cur_h;
+                    let (inter_target_w, inter_target_h) = dim_stack.pop().unwrap();
+                    let inter_w = (cur_w * 2).min(inter_target_w);
+                    let inter_h = (cur_h * 2).min(inter_target_h);
+                    let (target_w, target_h) = dim_stack.pop().unwrap();
+                    cur_w = (inter_w * 2).min(target_w);
+                    cur_h = (inter_h * 2).min(target_h);
+                    dims.push((src_w, src_h, cur_w, cur_h, inter_w, inter_h));
                 }
                 _ => {
-                    dims.push((cur_w, cur_h, cur_w, cur_h));
+                    dims.push((cur_w, cur_h, cur_w, cur_h, 0, 0));
                 }
             }
         }
@@ -755,7 +776,7 @@ impl FilterContext {
         let mut scratch_toggle = 0_usize; // which scratch to write to next
 
         for (i, &kind) in pass_kinds.iter().enumerate() {
-            let (src_w, src_h, dst_w, dst_h) = dims[i];
+            let (src_w, src_h, dst_w, dst_h, inter_w, inter_h) = dims[i];
 
             // Determine input.
             let (input_idx, src_offset, src_size) = if i == 0 {
@@ -800,6 +821,15 @@ impl FilterContext {
                 (Some(initial_atlas_idx), initial_image.offsets())
             } else {
                 (None, [0, 0])
+            };
+
+            // For UPSCALE_4X, pass the virtual intermediate texture size via
+            // original_offset so the shader can clip neighbor samples at the boundary.
+            // (original_offset is otherwise unused for non-COMPOSITE passes.)
+            let original_offset = if kind == pass_kind::UPSCALE_4X {
+                [inter_w, inter_h]
+            } else {
+                original_offset
             };
 
             passes.push(FilterPass {

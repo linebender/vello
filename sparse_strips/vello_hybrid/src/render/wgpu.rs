@@ -237,6 +237,7 @@ impl Renderer {
             view,
             image_cache: &self.image_cache,
             filter_context: &self.filter_context,
+            render_pass_count: 0,
         };
 
         let result = self.scheduler.do_scene(
@@ -247,6 +248,8 @@ impl Renderer {
             &self.filter_context,
             &encoded_paints,
         );
+
+        println!("render passes: {}", junk.render_pass_count);
 
         // Set back to the original length to remove any (potentially) added paints for filters.
         encoded_paints.truncate(scene_paint_count);
@@ -2047,6 +2050,7 @@ struct RendererContext<'a> {
     view: &'a TextureView,
     image_cache: &'a ImageCache,
     filter_context: &'a FilterContext,
+    render_pass_count: u32,
 }
 
 impl RendererContext<'_> {
@@ -2060,6 +2064,13 @@ impl RendererContext<'_> {
         if strips.is_empty() {
             return;
         }
+        let target_name = match target {
+            RenderTarget::Output(OutputTarget::FinalView) => "strips → final view",
+            RenderTarget::Output(OutputTarget::IntermediateTexture(_)) => "strips → filter atlas",
+            RenderTarget::SlotTexture(i) => if i == 0 { "strips → slot 0" } else { "strips → slot 1" },
+        };
+        self.render_pass_count += 1;
+        // println!("  render pass #{}: {} ({} strips)", self.render_pass_count, target_name, strips.len());
         // TODO: We currently allocate a new strips buffer for each render pass. A more efficient
         // approach would be to re-use buffers or slices of a larger buffer.
         self.programs.upload_strips(self.device, self.queue, strips);
@@ -2207,6 +2218,8 @@ impl RendererContext<'_> {
         buffer.copy_from_slice(bytemuck::cast_slice(slot_indices));
 
         {
+            self.render_pass_count += 1;
+            // println!("  render pass #{}: clear slots (ix={}, {} slots)", self.render_pass_count, ix, slot_indices.len());
             let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some("Clear Slots Render Pass"),
                 color_attachments: &[Some(RenderPassColorAttachment {
@@ -2238,6 +2251,8 @@ impl RendererContext<'_> {
         input_bind_group: &BindGroup,
         original_bind_group: &BindGroup,
     ) {
+        self.render_pass_count += 1;
+        // println!("  render pass #{}: filter ({})", self.render_pass_count, label);
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some(label),
             color_attachments: &[Some(RenderPassColorAttachment {
