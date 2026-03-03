@@ -1025,6 +1025,20 @@ fn filter_extreme_blur(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
+#[vello_test(skip_multithreaded, hybrid_tolerance = 4, width = 400, height = 400)]
+fn filter_extreme_blur_2(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 36.0,
+        edge_mode: EdgeMode::None,
+    });
+    let rect = Rect::new(100.0, 100.0, 300.0, 300.0).to_path(0.1);
+
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_path(&rect);
+    ctx.pop_layer();
+}
+
 /// Test filter on semi-transparent shapes.
 #[vello_test(skip_multithreaded)]
 fn filter_transparent_shapes(ctx: &mut impl Renderer) {
