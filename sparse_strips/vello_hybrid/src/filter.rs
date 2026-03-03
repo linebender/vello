@@ -369,6 +369,7 @@ pub(crate) struct FilterInstanceData {
 }
 
 /// Where a filter pass writes its output.
+#[derive(Debug)]
 pub(crate) enum FilterPassTarget {
     /// Output to a filter atlas texture (atlas_idx in `filter_context.image_cache`).
     FilterAtlas(u32),
@@ -377,6 +378,7 @@ pub(crate) enum FilterPassTarget {
 }
 
 /// Describes a single filter pass with its resources and instance data.
+#[derive(Debug)]
 pub(crate) struct FilterPass {
     /// Instance data for this filter pass.
     pub instance: FilterInstanceData,
