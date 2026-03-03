@@ -1054,4 +1054,101 @@ mod tests {
         assert_eq!(w2, 8);
         assert_eq!(h2, 8);
     }
+
+    fn pixmap_from_red(width: u16, height: u16, values: &[&[u8]]) -> Pixmap {
+        let mut pixmap = Pixmap::new(width, height);
+        for (y, row) in values.iter().enumerate() {
+            for (x, &r) in row.iter().enumerate() {
+                pixmap.set_pixel(
+                    x as u16,
+                    y as u16,
+                    PremulRgba8 {
+                        r,
+                        g: 0,
+                        b: 0,
+                        a: 255,
+                    },
+                );
+            }
+        }
+        pixmap
+    }
+
+    fn assert_red_values<const W: usize, const H: usize>(pixmap: &Pixmap, expected: [[u8; W]; H]) {
+        for (y, row) in expected.iter().enumerate() {
+            for (x, &want) in row.iter().enumerate() {
+                let got = pixmap.sample(x as u16, y as u16).r;
+
+                assert_eq!(
+                    got, want,
+                    "red mismatch at ({x}, {y}): got {got}, expected {want}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_downscale_x_non_uniform() {
+        //   (0,0)=0    (1,0)=40   (2,0)=80   (3,0)=120
+        //   (0,1)=20   (1,1)=60   (2,1)=100  (3,1)=140
+        let mut pixmap = pixmap_from_red(4, 2, &[&[0, 40, 80, 120], &[20, 60, 100, 140]]);
+
+        let dst_width = 4u16.div_ceil(2);
+        downscale_x(&mut pixmap, 4, 2, dst_width, EdgeMode::Duplicate);
+
+        // Row 0: p[-1]=0,p[0]=0,p[1]=40,p[2]=80    → (0+0*3+40*3+80+4)>>3       = 25
+        //        p[1]=40,p[2]=80,p[3]=120,p[4]=120  → (40+80*3+120*3+120+4)>>3   = 95
+        // Row 1: p[-1]=20,p[0]=20,p[1]=60,p[2]=100  → (20+20*3+60*3+100+4)>>3    = 45
+        //        p[1]=60,p[2]=100,p[3]=140,p[4]=140  → (60+100*3+140*3+140+4)>>3   = 115
+        assert_red_values(&pixmap, [[25, 95], [45, 115]]);
+    }
+
+    #[test]
+    fn test_downscale_y_non_uniform() {
+        // Use a 2x4 image (output of a prior downscale_x).
+        //   (0,0)=25   (1,0)=95
+        //   (0,1)=45   (1,1)=115
+        //   (0,2)=35   (1,2)=105
+        //   (0,3)=55   (1,3)=125
+        let mut pixmap = pixmap_from_red(2, 4, &[&[25, 95], &[45, 115], &[35, 105], &[55, 125]]);
+
+        let dst_height = 4u16.div_ceil(2);
+        downscale_y(&mut pixmap, 2, 4, dst_height, EdgeMode::Duplicate);
+
+        // Col 0: p[-1]=25,p[0]=25,p[1]=45,p[2]=35 → (25+25*3+45*3+35+4)>>3   = 34
+        //        p[1]=45,p[2]=35,p[3]=55,p[4]=55   → (45+35*3+55*3+55+4)>>3  = 46
+        // Col 1: p[-1]=95,p[0]=95,p[1]=115,p[2]=105 → (95+95*3+115*3+105+4)>>3 = 104
+        //        p[1]=115,p[2]=105,p[3]=125,p[4]=125 → (115+105*3+125*3+125+4)>>3 = 116
+        assert_red_values(&pixmap, [[34, 104], [46, 116]]);
+    }
+
+    #[test]
+    fn test_upscale_x_non_uniform() {
+        let mut pixmap = pixmap_from_red(4, 2, &[&[34, 104], &[46, 116]]);
+
+        upscale_x(&mut pixmap, 2, 2, EdgeMode::Duplicate);
+
+        // Row 0 [34, 104]:
+        //   x=0: interp25_75(34,34)=34,  interp75_25(34,104)=(34*3+104+2)>>2 = 52
+        //   x=1: interp25_75(34,104)=(34+104*3+2)>>2=87, interp75_25(104,104)=104
+        // Row 1 [46, 116]:
+        //   x=0: 46, interp75_25(46,116)=(46*3+116+2)>>2=64
+        //   x=1: interp25_75(46,116)=(46+116*3+2)>>2=99, 116
+        assert_red_values(&pixmap, [[34, 52, 87, 104], [46, 64, 99, 116]]);
+    }
+
+    #[test]
+    fn test_upscale_y_non_uniform() {
+        let mut pixmap = pixmap_from_red(4, 4, &[&[34, 52, 87, 104], &[46, 64, 99, 116]]);
+
+        upscale_y(&mut pixmap, 4, 2, EdgeMode::Duplicate);
+
+        #[rustfmt::skip]
+        assert_red_values(&pixmap, [
+            [ 34,  52,  87, 104],
+            [ 37,  55,  90, 107],
+            [ 43,  61,  96, 113],
+            [ 46,  64,  99, 116],
+        ]);
+    }
 }
