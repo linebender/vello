@@ -63,6 +63,7 @@ pub(crate) mod pass_kind {
     pub(crate) const UPSCALE: u32 = 6;
     pub(crate) const COMPOSITE: u32 = 7;
     pub(crate) const UPSCALE_4X: u32 = 8;
+    pub(crate) const DOWNSCALE_4X: u32 = 9;
 }
 
 pub(crate) fn edge_mode_to_gpu(mode: EdgeMode) -> u32 {
@@ -642,7 +643,11 @@ impl FilterContext {
             filter_type::FLOOD => vec![pass_kind::FLOOD],
             filter_type::GAUSSIAN_BLUR => {
                 let mut kinds = Vec::new();
-                for _ in 0..n_decimations {
+                // Pair downscales into 4x where possible to reduce render passes.
+                for _ in 0..n_decimations / 2 {
+                    kinds.push(pass_kind::DOWNSCALE_4X);
+                }
+                if n_decimations % 2 != 0 {
                     kinds.push(pass_kind::DOWNSCALE);
                 }
                 kinds.push(pass_kind::BLUR_H);
@@ -651,7 +656,6 @@ impl FilterContext {
                 for _ in 0..n_decimations / 2 {
                     kinds.push(pass_kind::UPSCALE_4X);
                 }
-
                 if n_decimations % 2 != 0 {
                     kinds.push(pass_kind::UPSCALE);
                 }
@@ -659,7 +663,10 @@ impl FilterContext {
             }
             filter_type::DROP_SHADOW => {
                 let mut kinds = vec![pass_kind::OFFSET];
-                for _ in 0..n_decimations {
+                for _ in 0..n_decimations / 2 {
+                    kinds.push(pass_kind::DOWNSCALE_4X);
+                }
+                if n_decimations % 2 != 0 {
                     kinds.push(pass_kind::DOWNSCALE);
                 }
                 kinds.push(pass_kind::BLUR_H);
@@ -727,6 +734,18 @@ impl FilterContext {
                     dim_stack.push((cur_w, cur_h));
                     cur_w = cur_w.div_ceil(2);
                     cur_h = cur_h.div_ceil(2);
+                    dims.push((src_w, src_h, cur_w, cur_h, 0, 0));
+                }
+                pass_kind::DOWNSCALE_4X => {
+                    let src_w = cur_w;
+                    let src_h = cur_h;
+                    // Push two entries to dim_stack (same as two individual downscales).
+                    dim_stack.push((cur_w, cur_h));
+                    let inter_w = cur_w.div_ceil(2);
+                    let inter_h = cur_h.div_ceil(2);
+                    dim_stack.push((inter_w, inter_h));
+                    cur_w = inter_w.div_ceil(2);
+                    cur_h = inter_h.div_ceil(2);
                     dims.push((src_w, src_h, cur_w, cur_h, 0, 0));
                 }
                 pass_kind::UPSCALE => {

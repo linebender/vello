@@ -32,6 +32,7 @@ const PASS_BLUR_V: u32 = 5u;
 const PASS_UPSCALE: u32 = 6u;
 const PASS_COMPOSITE: u32 = 7u;
 const PASS_UPSCALE_4X: u32 = 8u;
+const PASS_DOWNSCALE_4X: u32 = 9u;
 
 const MAX_LINEAR_TAPS: u32 = 3u;
 
@@ -281,6 +282,29 @@ fn decimate_filter(in: FilterVertexOutput) -> vec4<f32> {
     return (s00 + s01 + s10 + s11) * 0.25;
 }
 
+// 4x decimation equivalent to two cascaded 2x [1,3,3,1] decimations, in a single pass.
+//
+// Each second-level bilinear tap expands into 4 first-level bilinear taps from the
+// source, giving 4×4 = 16 equally-weighted samples on a regular grid at offsets
+// {-0.75, 0.75, 2.25, 3.75} per axis (= -0.75 + i*1.5 for i=0..3).
+fn decimate_4x_filter(in: FilterVertexOutput) -> vec4<f32> {
+    let frag_coord = vec2<u32>(in.position.xy);
+    let rel = vec2<i32>(frag_coord - in.dest_offset);
+    let src_center = vec2<f32>(rel * 4);
+    let atlas_center = vec2<f32>(in.src_offset) + src_center;
+    let tex_size = vec2<f32>(textureDimensions(in_tex));
+
+    var color = vec4<f32>(0.0);
+    for (var j = 0u; j < 4u; j++) {
+        let oy = -0.75 + f32(j) * 1.5;
+        for (var i = 0u; i < 4u; i++) {
+            let ox = -0.75 + f32(i) * 1.5;
+            color += textureSample(in_tex, linear_sampler, (atlas_center + vec2(ox, oy) + 0.5) / tex_size);
+        }
+    }
+    return color * (1.0 / 16.0);
+}
+
 // 2x upscale with bilinear sampling.
 //
 // Each output pixel maps to a source position at (base + phase * 0.5) where phase is
@@ -409,6 +433,9 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
         }
         case PASS_DOWNSCALE: {
             return decimate_filter(in);
+        }
+        case PASS_DOWNSCALE_4X: {
+            return decimate_4x_filter(in);
         }
         case PASS_BLUR_H: {
             let blur = unpack_blur_params(data);
