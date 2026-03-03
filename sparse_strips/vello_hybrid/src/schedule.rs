@@ -665,6 +665,15 @@ impl Scheduler {
                                     continue;
                                 };
 
+                                // TODO: This push buf is wasteful, as the filter layer
+                                // itself is already rendered into a new texture, so we are essentially
+                                // pushing twice, meaning that we will always render the result
+                                // into slot textures instead of the final canvas, even though
+                                // this should only be necessary if blending is enabled. However,
+                                // skipping while not breaking the `pop_buf` logic is not trivial,
+                                // therefore we leave it this way for now. Removing this should
+                                // give us a good speed boost, but probably only worth revisiting
+                                // once we have made coarse rasterization simpler.
                                 self.do_push_buf(state, renderer, *blend_into_dest)?;
 
                                 let copy_from_filter_layer =
