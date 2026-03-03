@@ -240,7 +240,9 @@ pub(crate) fn downscale(
     let dst_width = src_width.div_ceil(2);
     let dst_height = src_height.div_ceil(2);
     downscale_x(src, src_width, src_height, dst_width, edge_mode);
-    downscale_y(src, src_width, src_height, dst_height, edge_mode);
+    // We can pass `dst_width` instead of `src_width` here, since we already decimated
+    // horizontally.
+    downscale_y(src, dst_width, src_height, dst_height, edge_mode);
     (dst_width, dst_height)
 }
 
