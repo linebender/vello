@@ -311,7 +311,7 @@ jobs:
             sparse_strips/vello_sparse_tests/diffs
 
       - name: cargo test --doc
-        run: cargo test --doc --workspace --locked --all-features --no-fail-fast
+        run: cargo test --doc --workspace --locked --all-features --no-fail-fast --release
 
   test-stable-wasm:
     name: cargo test (wasm32)
