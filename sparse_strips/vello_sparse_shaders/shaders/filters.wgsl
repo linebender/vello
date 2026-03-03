@@ -253,61 +253,52 @@ fn sample_source_checked(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f
     return textureLoad(in_tex, src_coord, 0);
 }
 
-// 1D weight for [1,3,3,1]/8 binomial kernel.
-fn binomial_weight(i: u32) -> f32 {
-    switch i {
-        case 0u: { return 1.0 / 8.0; }
-        case 1u: { return 3.0 / 8.0; }
-        case 2u: { return 3.0 / 8.0; }
-        case 3u: { return 1.0 / 8.0; }
-        default: { return 0.0; }
-    }
-}
-
-// 2x decimation using [1,3,3,1]x[1,3,3,1]/64 binomial filter.
+// 2x decimation using [1,3,3,1]x[1,3,3,1]/64 binomial filter with bilinear sampling.
+//
+// The 1D [1,3,3,1]/8 kernel at offsets {-1, 0, +1, +2} relative to src_center is
+// merged into two bilinear taps:
+//   pair(-1, 0): weight 1/8+3/8 = 0.5, offset (-1*1 + 0*3)/4 = -0.25
+//   pair(+1,+2): weight 3/8+1/8 = 0.5, offset (+1*3 + 2*1)/4 =  1.25
+// In 2D all four combinations have equal weight 0.25, so the result is the average
+// of four bilinear samples. This reduces 16 textureLoad calls to 4 textureSample calls.
 fn decimate_filter(in: FilterVertexOutput) -> vec4<f32> {
     let frag_coord = vec2<u32>(in.position.xy);
     let rel = vec2<i32>(frag_coord - in.dest_offset);
-    let src_center = rel * 2;
+    let src_center = vec2<f32>(rel * 2);
+    let atlas_center = vec2<f32>(in.src_offset) + src_center;
+    let tex_size = vec2<f32>(textureDimensions(in_tex));
 
-    var color = vec4<f32>(0.0);
-    for (var dy = 0u; dy < 4u; dy++) {
-        let wy = binomial_weight(dy);
-        for (var dx = 0u; dx < 4u; dx++) {
-            let wx = binomial_weight(dx);
-            // Add src_offset in i32 space before casting to u32 to handle negative coords
-            // (which land in the transparent padding region).
-            let coord = src_center + vec2<i32>(i32(dx) - 1, i32(dy) - 1);
-            let atlas_coord = vec2<u32>(vec2<i32>(in.src_offset) + coord);
-            let s = textureLoad(in_tex, atlas_coord, 0);
-            color += s * wx * wy;
-        }
-    }
-    return color;
+    // Bilinear merge offsets for the [1,3,3,1] kernel pairs.
+    let lo = vec2<f32>(-0.25);  // pair(-1, 0)
+    let hi = vec2<f32>( 1.25);  // pair(+1, +2)
+
+    let s00 = textureSample(in_tex, linear_sampler, (atlas_center + vec2(lo.x, lo.y) + 0.5) / tex_size);
+    let s01 = textureSample(in_tex, linear_sampler, (atlas_center + vec2(lo.x, hi.y) + 0.5) / tex_size);
+    let s10 = textureSample(in_tex, linear_sampler, (atlas_center + vec2(hi.x, lo.y) + 0.5) / tex_size);
+    let s11 = textureSample(in_tex, linear_sampler, (atlas_center + vec2(hi.x, hi.y) + 0.5) / tex_size);
+
+    return (s00 + s01 + s10 + s11) * 0.25;
 }
 
-// 2x upscale with phase-aligned [0.75, 0.25] interpolation.
+// 2x upscale with bilinear sampling.
+//
+// Each output pixel maps to a source position at (base + phase * 0.5) where phase is
+// 0 or 1 per axis. The [0.75, 0.25] weighting between the main pixel and its neighbor
+// is exactly what GPU bilinear interpolation produces when the sample point is offset
+// by ±0.25 from the pixel center. This reduces 4 textureLoad calls to 1 textureSample.
 fn upscale_filter(in: FilterVertexOutput) -> vec4<f32> {
     let frag_coord = vec2<u32>(in.position.xy);
     let rel = vec2<i32>(frag_coord - in.dest_offset);
+    let src_base = vec2<f32>(rel / 2);
+    let phase = vec2<f32>(rel % 2);
+    let tex_size = vec2<f32>(textureDimensions(in_tex));
 
-    // Source pixel for this output pixel.
-    let src_base = rel / 2;
-    let phase = rel % 2; // 0 or 1 in each axis
+    // phase=0 → sample at base - 0.25 (0.75 main + 0.25 left/top neighbor)
+    // phase=1 → sample at base + 0.25 (0.75 main + 0.25 right/bottom neighbor)
+    let sample_offset = select(vec2(-0.25), vec2(0.25), phase == vec2(1.0));
+    let atlas_pos = vec2<f32>(in.src_offset) + src_base + sample_offset + 0.5;
 
-    // Weights: main pixel gets 0.75, neighbor gets 0.25 per axis.
-    // Combined: (0.75*0.75, 0.75*0.25, 0.25*0.75, 0.25*0.25) = (0.5625, 0.1875, 0.1875, 0.0625)
-    let dx = vec2<i32>(select(-1i, 1i, phase.x == 1i), 0i);
-    let dy = vec2<i32>(0i, select(-1i, 1i, phase.y == 1i));
-
-    // Add src_offset in i32 space before casting to u32 (see decimate_filter).
-    let base = vec2<i32>(in.src_offset);
-    let s00 = textureLoad(in_tex, vec2<u32>(base + src_base), 0);
-    let s10 = textureLoad(in_tex, vec2<u32>(base + src_base + dx), 0);
-    let s01 = textureLoad(in_tex, vec2<u32>(base + src_base + dy), 0);
-    let s11 = textureLoad(in_tex, vec2<u32>(base + src_base + dx + dy), 0);
-
-    return s00 * 0.5625 + s10 * 0.1875 + s01 * 0.1875 + s11 * 0.0625;
+    return textureSample(in_tex, linear_sampler, atlas_pos / tex_size);
 }
 
 fn convolve(
