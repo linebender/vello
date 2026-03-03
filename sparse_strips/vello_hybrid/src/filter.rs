@@ -639,6 +639,13 @@ impl FilterContext {
         let pass_kinds: Vec<u32> = match filter_type {
             filter_type::OFFSET => vec![pass_kind::OFFSET],
             filter_type::FLOOD => vec![pass_kind::FLOOD],
+            // TODO: From my experiments, it would very much be worth it to add a
+            // UPSCALE_4x and DOWNSCALE_4x pass, since unlike the CPU we can use bilinear
+            // filtering for sampling and therefore don't need as many samples, and can reduce
+            // the number of render passes for large standard deviations. However, this unfortunately
+            // causes higher pixel differences for some tests compared to vello_cpu, due since edge
+            // pixels will inevitably exhibit different behavior. Therefore, for now we stick to
+            // this more straight-forward approach.
             filter_type::GAUSSIAN_BLUR => {
                 let mut kinds = Vec::new();
                 for _ in 0..n_decimations {
