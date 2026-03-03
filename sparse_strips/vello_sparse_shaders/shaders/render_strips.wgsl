@@ -110,6 +110,9 @@ struct Config {
     // Number of trailing zeros in alphas_tex_width (log2 of width).
     // Pre-calculated on CPU since WebGL2 doesn't support `firstTrailingBit`.
     alphas_tex_width_bits: u32,
+    // Strip offset (scene-to-render-target mapping) applied by the CPU.
+    strip_offset_x: u32,
+    strip_offset_y: u32,
 }
 
 // `paint` bit layout:
@@ -227,9 +230,11 @@ fn vs_main(
     // Calculate the ending x-position of the dense (alpha) region
     // This boundary is used in the fragment shader to determine if alpha sampling is needed
     out.dense_end = instance.col_idx + dense_width;
-    // Calculate the pixel coordinates of the current vertex within the strip
-    let pix_x = f32(x0) + x * f32(width);
-    let pix_y = f32(y0) + y * f32(config.strip_height);
+    // Calculate the pixel coordinates of the current vertex within the strip.
+    // Strip coordinates are in scene space; subtract strip_offset to map to the render target.
+    // For the root layer strip_offset is (0, 0) so this is a no-op.
+    let pix_x = f32(i32(x0) - i32(config.strip_offset_x)) + x * f32(width);
+    let pix_y = f32(i32(y0) - i32(config.strip_offset_y)) + y * f32(config.strip_height);
     // Convert pixel coordinates to normalized device coordinates (NDC)
     // NDC ranges from -1 to 1, with (0,0) at the center of the viewport
     let ndc_x = pix_x * 2.0 / f32(config.width) - 1.0;
@@ -460,9 +465,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             final_color = alpha * gradient_color;
         }
     } else if color_source == COLOR_SOURCE_SLOT {
-        // in.payload encodes a slot in the source clip texture
-        let clip_x = u32(in.position.x) & 0xFFu;
-        let clip_y = (u32(in.position.y) & 3) + in.payload * config.strip_height;
+        // in.payload encodes a slot in the source clip texture.
+        // Add strip_offset back to position to recover scene-aligned coordinates,
+        // then mask to get the slot-relative position. This works because scene
+        // coordinates are always aligned to wide tile / strip height boundaries.
+        let clip_x = (u32(in.position.x) + config.strip_offset_x) & 0xFFu;
+        let clip_y = ((u32(in.position.y) + config.strip_offset_y) & 3u) + in.payload * config.strip_height;
         let clip_in_color = textureLoad(clip_input_texture, vec2(clip_x, clip_y), 0);
 
         // Extract opacity from first 8 bits (quantized from [0, 255])
@@ -473,16 +481,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let opacity = f32((in.paint >> 16u) & 0xFFu) * (1.0 / 255.0);
         let mix_mode = (in.paint >> 8u) & 0xFFu;
         let compose_mode = in.paint & 0xFFu;
-        
+
         // Read source color from slot
         let src_slot = in.payload & 0xFFFFu;
         let dest_slot = (in.payload >> 16u) & 0xFFFFu;
-        let clip_x = u32(in.position.x) & 0xFFu;
-        let src_y = (u32(in.position.y) & 3u) + src_slot * config.strip_height;
+        // Add strip_offset to recover scene-aligned coordinates (see SLOT comment above).
+        let clip_x = (u32(in.position.x) + config.strip_offset_x) & 0xFFu;
+        let clip_y_in_strip = (u32(in.position.y) + config.strip_offset_y) & 3u;
+        let src_y = clip_y_in_strip + src_slot * config.strip_height;
         let src_color = textureLoad(clip_input_texture, vec2(clip_x, src_y), 0);
-        
+
         // Read destination color from slot
-        let dest_y = (u32(in.position.y) & 3u) + dest_slot * config.strip_height;
+        let dest_y = clip_y_in_strip + dest_slot * config.strip_height;
         let dest_color = textureLoad(clip_input_texture, vec2(clip_x, dest_y), 0);
 
         final_color = blend_mix_compose(dest_color, src_color * opacity * alpha, compose_mode, mix_mode);

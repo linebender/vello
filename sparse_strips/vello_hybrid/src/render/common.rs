@@ -40,6 +40,12 @@ pub struct Config {
     /// Number of trailing zeros in `alphas_tex_width` (log2 of width).
     /// Pre-calculated on CPU since downlevel targets do not support `firstTrailingBit`.
     pub alphas_tex_width_bits: u32,
+    /// Strip offset applied by the CPU when mapping scene coordinates to render target
+    /// coordinates (stored as u32; negative values wrap). The fragment shader adds this
+    /// back to `position` to recover scene-aligned coordinates for slot texture reads.
+    pub strip_offset_x: u32,
+    /// See `strip_offset_x`.
+    pub strip_offset_y: u32,
 }
 
 /// Represents a GPU strip for rendering.

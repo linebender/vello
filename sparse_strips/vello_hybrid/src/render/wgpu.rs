@@ -964,49 +964,48 @@ impl Programs {
                 push_constant_ranges: &[],
             });
 
-        let filter_pipeline =
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Filter Pipeline"),
-                layout: Some(&filter_pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &filter_shader,
-                    entry_point: Some("vs_main"),
-                    buffers: &[wgpu::VertexBufferLayout {
-                        array_stride: size_of::<FilterInstanceData>() as u64,
-                        step_mode: wgpu::VertexStepMode::Instance,
-                        attributes: &wgpu::vertex_attr_array![
-                            0 => Uint32x2,
-                            1 => Uint32x2,
-                            2 => Uint32x2,
-                            3 => Uint32x2,
-                            4 => Uint32x2,
-                            5 => Uint32,
-                            6 => Uint32x2,
-                            7 => Uint32x2,
-                            8 => Uint32,
-                        ],
-                    }],
-                    compilation_options: PipelineCompilationOptions::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &filter_shader,
-                    entry_point: Some("fs_main"),
-                    targets: &[Some(ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba8Unorm,
-                        blend: None,
-                        write_mask: ColorWrites::ALL,
-                    })],
-                    compilation_options: PipelineCompilationOptions::default(),
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleStrip,
-                    ..Default::default()
-                },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview: None,
-                cache: None,
-            });
+        let filter_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Filter Pipeline"),
+            layout: Some(&filter_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &filter_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: size_of::<FilterInstanceData>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &wgpu::vertex_attr_array![
+                        0 => Uint32x2,
+                        1 => Uint32x2,
+                        2 => Uint32x2,
+                        3 => Uint32x2,
+                        4 => Uint32x2,
+                        5 => Uint32,
+                        6 => Uint32x2,
+                        7 => Uint32x2,
+                        8 => Uint32,
+                    ],
+                }],
+                compilation_options: PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &filter_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                })],
+                compilation_options: PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
 
         let slot_texture_views: [TextureView; 2] = core::array::from_fn(|_| {
             device
@@ -1255,6 +1254,8 @@ impl Programs {
                 height: render_size.height,
                 strip_height: Tile::HEIGHT.into(),
                 alphas_tex_width_bits: alpha_texture_width.trailing_zeros(),
+                strip_offset_x: 0,
+                strip_offset_y: 0,
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         })
@@ -1730,6 +1731,8 @@ impl Programs {
                 height: new_render_size.height,
                 strip_height: Tile::HEIGHT.into(),
                 alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+                strip_offset_x: 0,
+                strip_offset_y: 0,
             };
             let mut buffer = queue
                 .write_buffer_with(&self.resources.view_config_buffer, 0, SIZE_OF_CONFIG)
@@ -2082,6 +2085,19 @@ impl RendererContext<'_> {
                 // TODO: Are those worth caching? However, `alphas_text_width_bits` can change
                 // across frames, so it might not be worth it?
                 let atlas_size = filter_texture.size();
+                let filter_textures = self.filter_context.filter_textures.get(&layer_id).unwrap();
+
+                // We need to keep track of two offsets:
+                // First, we need to apply an offset to account for the fact that the
+                // bbox of the filter layer itself might not start at (0, 0), but we only
+                // allocate a texture large enough to hold the tight bounding box of the filter
+                // layer.
+                // Secondly, we need to apply another offset because our intermediate textures
+                // are stored in an atlas, where it could be allocated at any position.
+                let strip_offset_x = (filter_textures.bbox.x0() * WideTile::WIDTH) as i32
+                    - resources.offset[0] as i32;
+                let strip_offset_y =
+                    (filter_textures.bbox.y0() * Tile::HEIGHT) as i32 - resources.offset[1] as i32;
                 let atlas_config_buffer =
                     self.device
                         .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -2097,6 +2113,8 @@ impl RendererContext<'_> {
                                     .size()
                                     .width
                                     .trailing_zeros(),
+                                strip_offset_x: strip_offset_x as u32,
+                                strip_offset_y: strip_offset_y as u32,
                             }),
                             usage: wgpu::BufferUsages::UNIFORM,
                         });
@@ -2330,32 +2348,26 @@ impl RendererBackend for RendererContext<'_> {
             // For COMPOSITE, bind the original texture; otherwise bind the same as input
             // (harmless, the shader won't read it).
             let original_view = match pass.original_atlas_idx {
-                Some(idx) => {
-                    self.programs.resources.filter_atlas_textures[idx as usize]
-                        .create_view(&TextureViewDescriptor::default())
-                }
-                None => {
-                    self.programs.resources.filter_atlas_textures
-                        [pass.input_atlas_idx as usize]
-                        .create_view(&TextureViewDescriptor::default())
-                }
+                Some(idx) => self.programs.resources.filter_atlas_textures[idx as usize]
+                    .create_view(&TextureViewDescriptor::default()),
+                None => self.programs.resources.filter_atlas_textures
+                    [pass.input_atlas_idx as usize]
+                    .create_view(&TextureViewDescriptor::default()),
             };
-            let original_bind_group =
-                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: None,
-                    layout: &self.programs.filter_input_bind_group_layouts[1],
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&original_view),
-                    }],
-                });
+            let original_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &self.programs.filter_input_bind_group_layouts[1],
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&original_view),
+                }],
+            });
 
             // Create output view.
             let output_view = match &pass.output {
-                FilterPassTarget::FilterAtlas(idx) => {
-                    self.programs.resources.filter_atlas_textures[*idx as usize]
-                        .create_view(&TextureViewDescriptor::default())
-                }
+                FilterPassTarget::FilterAtlas(idx) => self.programs.resources.filter_atlas_textures
+                    [*idx as usize]
+                    .create_view(&TextureViewDescriptor::default()),
                 FilterPassTarget::MainAtlas(idx) => create_atlas_layer_view(
                     &self.programs.resources.atlas_texture_array,
                     "Filter Pass Output View",

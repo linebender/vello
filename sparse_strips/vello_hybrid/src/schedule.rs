@@ -325,22 +325,6 @@ impl Round {
 pub(crate) struct SchedulerState {
     /// The state of the current wide tile that is being processed.
     tile_state: TileState,
-    /// Pixel offset to subtract from strip coordinates.
-    ///
-    /// We need this when rendering filtered layers, for two reasons:
-    ///
-    /// 1) When rendering filtered layers, we only allocate a texture
-    /// the size of the bounding box of the filter layer. For example, let's say that the
-    /// bounding box is from (256, 8) to (512, 12). In this case, we will allocate a texture of
-    /// size (256, 4). However, since for example the original x coordinates range from 256-512, we
-    /// need to translate all of them by a negative offset so they are positioned correctly.
-    ///
-    /// 2) Secondly, filter textures can be allocated anywhere on the filter atlas. In case the
-    /// top-left does not land on (0, 0), we need to apply a positive offset to account for the
-    /// shift on the atlas.
-    ///
-    /// So the offset can either be positive or negative.
-    strip_offset: (i32, i32),
 }
 
 impl SchedulerState {
@@ -543,7 +527,6 @@ impl Scheduler {
 
                 state.clear();
 
-                let offset = state.strip_offset;
                 self.initialize_tile_state(
                     &mut state.tile_state,
                     wide_tile,
@@ -551,7 +534,6 @@ impl Scheduler {
                     wide_tile_y,
                     encoded_paints,
                     paint_idxs,
-                    offset,
                 );
                 self.do_tile(
                     state,
@@ -598,23 +580,8 @@ impl Scheduler {
                     wtile_bbox,
                     ..
                 } => {
-                    let image_id = filter_context
-                        .filter_textures
-                        .get(layer_id)
-                        .unwrap()
-                        .initial_image_id;
-                    let resources = filter_context.image_cache.get(image_id).unwrap();
-                    // We need to apply two offsets:
-                    // First, we need to apply an offset to account for the fact that the
-                    // bbox of the filter layer itself might not start at (0, 0), but we only
-                    // allocate a texture large enough to hold the tight bounding box of the filter
-                    // layer.
-                    // Secondly, we need to apply another offset because our intermediate textures
-                    // are stored in an atlas, where it could be allocated at any position.
-                    state.strip_offset = (
-                        (wtile_bbox.x0() * WideTile::WIDTH) as i32 - resources.offset[0] as i32,
-                        (wtile_bbox.y0() * Tile::HEIGHT) as i32 - resources.offset[1] as i32,
-                    );
+                    // The strip offset (scene-to-atlas mapping) is now applied by the
+                    // vertex shader via config.strip_offset, set by the renderer.
                     self.output_target = OutputTarget::IntermediateTexture(*layer_id);
                     (*layer_id, *wtile_bbox)
                 }
@@ -622,7 +589,6 @@ impl Scheduler {
                     layer_id,
                     wtile_bbox,
                 } => {
-                    state.strip_offset = (0, 0);
                     self.output_target = OutputTarget::FinalView;
                     (*layer_id, *wtile_bbox)
                 }
@@ -636,7 +602,6 @@ impl Scheduler {
 
                     state.clear();
 
-                    let offset = state.strip_offset;
                     self.initialize_tile_state(
                         &mut state.tile_state,
                         wide_tile,
@@ -644,7 +609,6 @@ impl Scheduler {
                         wide_tile_y,
                         encoded_paints,
                         paint_idxs,
-                        offset,
                     );
 
                     let Some(ranges) = wide_tile.layer_cmd_ranges.get(&layer_id) else {
@@ -896,7 +860,6 @@ impl Scheduler {
         wide_tile_y: u16,
         encoded_paints: &[EncodedPaint],
         idxs: &[u32],
-        offset: (i32, i32),
     ) {
         // Sentinel `TileEl` to indicate the end of the stack where we draw all
         // commands to the final target.
@@ -921,7 +884,7 @@ impl Scheduler {
 
                 let draw = self.draw_mut(self.round, 2);
                 draw.push(
-                    GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH, offset)
+                    GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
                         .paint(payload, paint),
                 );
             }
@@ -1012,7 +975,6 @@ impl Scheduler {
         wide_tile_y: u16,
         attrs: &CommandAttrs,
     ) {
-        let offset = state.strip_offset;
         let depth = state.tile_state.stack.len();
 
         let el = state.tile_state.stack.last_mut().unwrap();
@@ -1030,7 +992,7 @@ impl Scheduler {
         );
 
         let gpu_strip_builder = if depth == 1 {
-            GpuStripBuilder::at_surface(scene_strip_x, scene_strip_y, cmd.width, offset)
+            GpuStripBuilder::at_surface(scene_strip_x, scene_strip_y, cmd.width)
         } else {
             let slot_idx = if let TemporarySlot::Valid(temp_slot) = el.temporary_slot {
                 temp_slot.get_idx()
@@ -1080,14 +1042,13 @@ impl Scheduler {
         payload: u32,
         paint: u32,
     ) {
-        let offset = state.strip_offset;
         let depth = state.tile_state.stack.len();
 
         let el = state.tile_state.stack.last_mut().unwrap();
         let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
 
         let gpu_strip_builder = if depth == 1 {
-            GpuStripBuilder::at_surface(scene_strip_x, scene_strip_y, cmd.width, offset)
+            GpuStripBuilder::at_surface(scene_strip_x, scene_strip_y, cmd.width)
         } else {
             let slot_idx = if let TemporarySlot::Valid(temp_slot) = el.temporary_slot {
                 temp_slot.get_idx()
@@ -1228,7 +1189,6 @@ impl Scheduler {
         wide_tile_y: u16,
         cmd: &CmdClipFill,
     ) {
-        let offset = state.strip_offset;
         let depth = state.tile_state.stack.len();
         let tos: &TileEl = &state.tile_state.stack[depth - 1];
         let nos = &state.tile_state.stack[depth - 2];
@@ -1268,7 +1228,7 @@ impl Scheduler {
             },
         );
         let gpu_strip_builder = if depth <= 2 {
-            GpuStripBuilder::at_surface(wide_tile_x + cmd.x, wide_tile_y, cmd.width, offset)
+            GpuStripBuilder::at_surface(wide_tile_x + cmd.x, wide_tile_y, cmd.width)
         } else {
             GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), cmd.x, cmd.width)
         };
@@ -1286,7 +1246,6 @@ impl Scheduler {
         cmd: &CmdClipAlphaFill,
         attrs: &CommandAttrs,
     ) {
-        let offset = state.strip_offset;
         let depth = state.tile_state.stack.len();
         let tos = &state.tile_state.stack[depth - 1];
         let nos = &state.tile_state.stack[depth - 2];
@@ -1312,7 +1271,7 @@ impl Scheduler {
             },
         );
         let gpu_strip_builder = if depth <= 2 {
-            GpuStripBuilder::at_surface(wide_tile_x + cmd.x, wide_tile_y, cmd.width, offset)
+            GpuStripBuilder::at_surface(wide_tile_x + cmd.x, wide_tile_y, cmd.width)
         } else {
             GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), cmd.x, cmd.width)
         };
@@ -1337,7 +1296,6 @@ impl Scheduler {
         wide_tile_y: u16,
         mode: &BlendMode,
     ) {
-        let offset = state.strip_offset;
         let depth = state.tile_state.stack.len();
         let tos = state.tile_state.stack.last().unwrap();
         let nos = &state.tile_state.stack[state.tile_state.stack.len() - 2];
@@ -1355,7 +1313,7 @@ impl Scheduler {
         );
 
         let gpu_strip_builder = if depth <= 2 {
-            GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH, offset)
+            GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
         } else {
             GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
         };
@@ -1480,12 +1438,10 @@ struct GpuStripBuilder {
 
 impl GpuStripBuilder {
     /// Position at surface coordinates, with an optional offset.
-    fn at_surface(x: u16, y: u16, width: u16, offset: (i32, i32)) -> Self {
+    fn at_surface(x: u16, y: u16, width: u16) -> Self {
         Self {
-            // It should never happen that this underflows, since offsets are only
-            // applied in such a way that strips still end up at positive view coordinates.
-            x: (x as i32 - offset.0) as u16,
-            y: (y as i32 - offset.1) as u16,
+            x,
+            y,
             width,
             dense_width: 0,
             col_idx: 0,

@@ -196,7 +196,11 @@ impl WebGlRenderer {
 
         // Prepare filter textures: allocate intermediate images and push encoded paints.
         self.filter_context
-            .prepare(&scene.render_graph, &mut self.image_cache, &mut encoded_paints)
+            .prepare(
+                &scene.render_graph,
+                &mut self.image_cache,
+                &mut encoded_paints,
+            )
             .map_err(|_| RenderError::AtlasError)?;
 
         self.prepare_gpu_encoded_paints(&encoded_paints);
@@ -244,7 +248,10 @@ impl WebGlRenderer {
 
         // Truncate encoded paints back to scene-only paints (remove filter paints).
         drop(encoded_paints);
-        scene.encoded_paints.borrow_mut().truncate(scene_paint_count);
+        scene
+            .encoded_paints
+            .borrow_mut()
+            .truncate(scene_paint_count);
         self.gradient_cache.maintain();
 
         // Blit the view framebuffer to the default framebuffer (canvas element), reflecting the
@@ -726,11 +733,8 @@ impl WebGlPrograms {
             clear_slots::VERTEX_SOURCE,
             clear_slots::FRAGMENT_SOURCE,
         );
-        let filter_program = create_shader_program(
-            &gl,
-            filters::VERTEX_SOURCE,
-            filters::FRAGMENT_SOURCE,
-        );
+        let filter_program =
+            create_shader_program(&gl, filters::VERTEX_SOURCE, filters::FRAGMENT_SOURCE);
 
         let strip_uniforms = get_strip_uniforms(&gl, &strip_program);
         let clear_uniforms = get_clear_uniforms(&gl, &clear_program);
@@ -938,6 +942,8 @@ impl WebGlPrograms {
                     height: new_render_size.height,
                     strip_height: u32::from(Tile::HEIGHT),
                     alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+                    strip_offset_x: 0,
+                    strip_offset_y: 0,
                 };
 
                 gl.bind_buffer(
@@ -960,6 +966,8 @@ impl WebGlPrograms {
                     height: u32::from(Tile::HEIGHT) * total_slots,
                     strip_height: u32::from(Tile::HEIGHT),
                     alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+                    strip_offset_x: 0,
+                    strip_offset_y: 0,
                 };
 
                 gl.bind_buffer(
@@ -2167,6 +2175,13 @@ impl WebGlRendererContext<'_> {
             .viewport(0, 0, atlas_width as i32, atlas_height as i32);
 
         // Create and upload a temporary config buffer with filter atlas dimensions.
+        let filter_textures = self.filter_context.filter_textures.get(&layer_id).unwrap();
+
+        // See the comment in the wgpu backend for why we need those offsets.
+        let strip_offset_x =
+            (filter_textures.bbox.x0() * WideTile::WIDTH) as i32 - resources.offset[0] as i32;
+        let strip_offset_y =
+            (filter_textures.bbox.y0() * Tile::HEIGHT) as i32 - resources.offset[1] as i32;
         let config = Config {
             width: atlas_width,
             height: atlas_height,
@@ -2176,6 +2191,8 @@ impl WebGlRendererContext<'_> {
                 .resources
                 .max_texture_dimension_2d
                 .trailing_zeros(),
+            strip_offset_x: strip_offset_x as u32,
+            strip_offset_y: strip_offset_y as u32,
         };
         let temp_config_buffer = self.gl.create_buffer().unwrap();
         self.gl.bind_buffer(
@@ -2532,12 +2549,8 @@ impl RendererBackend for WebGlRendererContext<'_> {
                     let fb = &self.programs.resources.filter_atlas_framebuffers[*idx as usize];
                     self.gl
                         .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(fb));
-                    self.gl.viewport(
-                        0,
-                        0,
-                        filter_atlas_width as i32,
-                        filter_atlas_height as i32,
-                    );
+                    self.gl
+                        .viewport(0, 0, filter_atlas_width as i32, filter_atlas_height as i32);
                 }
                 FilterPassTarget::MainAtlas(idx) => {
                     let temp_fb = self.gl.create_framebuffer().unwrap();
@@ -2559,8 +2572,7 @@ impl RendererBackend for WebGlRendererContext<'_> {
                 }
             }
 
-            self.gl
-                .use_program(Some(&self.programs.filter_program));
+            self.gl.use_program(Some(&self.programs.filter_program));
             self.gl
                 .bind_vertex_array(Some(&self.programs.resources.filter_vao));
 
@@ -2593,12 +2605,8 @@ impl RendererBackend for WebGlRendererContext<'_> {
             self.gl
                 .uniform1i(Some(&self.programs.filter_uniforms.original_tex), 2);
 
-            self.gl.draw_arrays_instanced(
-                WebGl2RenderingContext::TRIANGLE_STRIP,
-                0,
-                4,
-                1,
-            );
+            self.gl
+                .draw_arrays_instanced(WebGl2RenderingContext::TRIANGLE_STRIP, 0, 4, 1);
 
             self.gl.bind_vertex_array(None);
         }
