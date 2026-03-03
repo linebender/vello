@@ -1093,7 +1093,7 @@ mod tests {
         //   (0,1)=20   (1,1)=60   (2,1)=100  (3,1)=140
         let mut pixmap = pixmap_from_red(4, 2, &[&[0, 40, 80, 120], &[20, 60, 100, 140]]);
 
-        let dst_width = 4u16.div_ceil(2);
+        let dst_width = 4_u16.div_ceil(2);
         downscale_x(&mut pixmap, 4, 2, dst_width, EdgeMode::Duplicate);
 
         // Row 0: p[-1]=0,p[0]=0,p[1]=40,p[2]=80    → (0+0*3+40*3+80+4)>>3       = 25
@@ -1112,7 +1112,7 @@ mod tests {
         //   (0,3)=55   (1,3)=125
         let mut pixmap = pixmap_from_red(2, 4, &[&[25, 95], &[45, 115], &[35, 105], &[55, 125]]);
 
-        let dst_height = 4u16.div_ceil(2);
+        let dst_height = 4_u16.div_ceil(2);
         downscale_y(&mut pixmap, 2, 4, dst_height, EdgeMode::Duplicate);
 
         // Col 0: p[-1]=25,p[0]=25,p[1]=45,p[2]=35 → (25+25*3+45*3+35+4)>>3   = 34
