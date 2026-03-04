@@ -209,11 +209,10 @@ impl From<&Flood> for GpuFlood {
 #[derive(Debug, Clone, Copy, PartialEq, Zeroable, Pod)]
 pub(crate) struct GpuGaussianBlur {
     pub header: u32,
-    pub std_deviation: f32,
     pub center_weight: f32,
     pub linear_weights: [f32; MAX_TAPS_PER_SIDE],
     pub linear_offsets: [f32; MAX_TAPS_PER_SIDE],
-    pub _padding: [u32; 3],
+    pub _padding: [u32; 4],
 }
 
 impl From<&GaussianBlur> for GpuGaussianBlur {
@@ -231,11 +230,10 @@ impl From<&GaussianBlur> for GpuGaussianBlur {
                 blur.n_decimations as u32,
                 lk.n_taps as u32,
             ),
-            std_deviation: blur.std_deviation,
             center_weight: lk.center_weight,
             linear_weights: lk.weights,
             linear_offsets: lk.offsets,
-            _padding: [0; 3],
+            _padding: [0; 4],
         }
     }
 }
@@ -244,13 +242,13 @@ impl From<&GaussianBlur> for GpuGaussianBlur {
 #[derive(Debug, Clone, Copy, PartialEq, Zeroable, Pod)]
 pub(crate) struct GpuDropShadow {
     pub header: u32,
-    pub dx: f32,
-    pub dy: f32,
-    pub color: u32,
-    pub std_deviation: f32,
     pub center_weight: f32,
     pub linear_weights: [f32; MAX_TAPS_PER_SIDE],
     pub linear_offsets: [f32; MAX_TAPS_PER_SIDE],
+    pub dx: f32,
+    pub dy: f32,
+    pub color: u32,
+    pub _padding: [u32; 1],
 }
 
 impl From<&DropShadow> for GpuDropShadow {
@@ -267,13 +265,13 @@ impl From<&DropShadow> for GpuDropShadow {
                 shadow.n_decimations as u32,
                 lk.n_taps as u32,
             ),
-            dx: shadow.dx,
-            dy: shadow.dy,
-            color: shadow.color.premultiply().to_rgba8().to_u32(),
-            std_deviation: shadow.std_deviation,
             center_weight: lk.center_weight,
             linear_weights: lk.weights,
             linear_offsets: lk.offsets,
+            dx: shadow.dx,
+            dy: shadow.dy,
+            color: shadow.color.premultiply().to_rgba8().to_u32(),
+            _padding: [0; 1],
         }
     }
 }

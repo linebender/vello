@@ -5,16 +5,16 @@
 @group(0) @binding(0) var filter_data: texture_2d<u32>;
 // The texture holding the input texture we want to filter.
 @group(1) @binding(0) var in_tex: texture_2d<f32>;
-// Linear sampler used for more efficient sampling during Gaussian blur.
+// A bilinear sampler.
 @group(1) @binding(1) var linear_sampler: sampler;
-// The original (unfiltered) content texture, used by COMPOSITE passes for drop shadow.
-// For non-COMPOSITE passes, this is bound to the same texture as in_tex (harmless).
+// The texture containing the original (unfiltered) content. This is only needed because
+// for the drop shadow filter, we need to composite the original content on top of the shadow.
 @group(2) @binding(0) var original_tex: texture_2d<f32>;
 
 // Keep these variables and structs in sync with the ones in `filter.rs`!
 
-const FILTER_SIZE_U32: u32 = 12u;
-// Since the texture is packed into Uint32.
+const FILTER_SIZE_BYTES: u32 = 48;
+const FILTER_SIZE_U32: u32 = FILTER_SIZE_BYTES / 4;
 const TEXELS_PER_FILTER: u32 = FILTER_SIZE_U32 / 4u;
 
 const FILTER_TYPE_OFFSET: u32 = 0u;
@@ -22,7 +22,6 @@ const FILTER_TYPE_FLOOD: u32 = 1u;
 const FILTER_TYPE_GAUSSIAN_BLUR: u32 = 2u;
 const FILTER_TYPE_DROP_SHADOW: u32 = 3u;
 
-// Pass kind constants (keep in sync with pass_kind module in filter.rs).
 const PASS_COPY: u32 = 0u;
 const PASS_FLOOD: u32 = 1u;
 const PASS_OFFSET: u32 = 2u;
@@ -32,10 +31,11 @@ const PASS_BLUR_V: u32 = 5u;
 const PASS_UPSCALE: u32 = 6u;
 const PASS_COMPOSITE: u32 = 7u;
 
-const MAX_LINEAR_TAPS: u32 = 3u;
+const MAX_TAPS_PER_SIDE: u32 = 3u;
 
+// A type erased instance of a filter containing the values of all parameters.
 struct GpuFilterData {
-    data: array<u32, 12>,
+    data: array<u32, 12>, // 12 = FILTER_SIZE_U32
 }
 
 struct OffsetFilter {
@@ -47,41 +47,27 @@ struct FloodFilter {
     color: u32,
 }
 
-// TODO: Support edge modes
-
-// Header packing layout (data[0]):
-//   bits [0:4]   = filter_type   (5 bits)
-//   bits [5:6]   = edge_mode     (2 bits)
-//   bits [7:10]  = n_decimations (4 bits)
-//   bits [11:12] = n_linear_taps (2 bits)
-
-// Blur parameters extracted from either GaussianBlur or DropShadow filter data.
 struct BlurParams {
     n_linear_taps: u32,
     center_weight: f32,
-    linear_weights: array<f32, MAX_LINEAR_TAPS>,
-    linear_offsets: array<f32, MAX_LINEAR_TAPS>,
+    linear_weights: array<f32, MAX_TAPS_PER_SIDE>,
+    linear_offsets: array<f32, MAX_TAPS_PER_SIDE>,
 }
 
 struct DropShadowFilter {
     dx: f32,
     dy: f32,
     color: u32,
-    std_deviation: f32,
-    edge_mode: u32,
-    n_decimations: u32,
-    n_linear_taps: u32,
-    center_weight: f32,
-    linear_weights: array<f32, MAX_LINEAR_TAPS>,
-    linear_offsets: array<f32, MAX_LINEAR_TAPS>,
 }
 
-fn get_filter_type(data: GpuFilterData) -> u32 {
-    return data.data[0] & 0x1Fu;
-}
+// The layout of the header:
+//   bits [0:4]   = filter_type   (5 bits)
+//   bits [5:6]   = edge_mode     (2 bits, only for blur filters), currently ignored.
+//   bits [7:10]  = n_decimations (4 bits, only for blur filters), only read on the CPU side.
+//   bits [11:12] = n_linear_taps (2 bits, only for blur filters)
+//   bits [13:32] = reserved for future use
 
-fn unpack_header_edge_mode(header: u32) -> u32 { return (header >> 5u) & 0x3u; }
-fn unpack_header_n_decimations(header: u32) -> u32 { return (header >> 7u) & 0xFu; }
+fn unpack_filter_type(data: GpuFilterData) -> u32 { return data.data[0] & 0x1Fu; }
 fn unpack_header_n_linear_taps(header: u32) -> u32 { return (header >> 11u) & 0x3u; }
 
 fn unpack_offset_filter(data: GpuFilterData) -> OffsetFilter {
@@ -95,72 +81,36 @@ fn unpack_flood_filter(data: GpuFilterData) -> FloodFilter {
     return FloodFilter(data.data[1]);
 }
 
-// Extract blur convolution parameters from filter data, regardless of whether
-// the underlying filter is GaussianBlur or DropShadow.
+// Note that this assumes that the data is stored directly after the header,
+// which currently is the case for gaussian blur and drop shadow.
 fn unpack_blur_params(data: GpuFilterData) -> BlurParams {
-    let header = data.data[0];
-    let filter_type = header & 0x1Fu;
-    let n_linear_taps = unpack_header_n_linear_taps(header);
+    let n_linear_taps = unpack_header_n_linear_taps(data.data[0]);
+    let center_weight = bitcast<f32>(data.data[1]);
+    var weights: array<f32, MAX_TAPS_PER_SIDE>;
+    var offsets: array<f32, MAX_TAPS_PER_SIDE>;
 
-    var center_weight: f32;
-    var weights: array<f32, 3>;
-    var offsets: array<f32, 3>;
-
-    if filter_type == FILTER_TYPE_GAUSSIAN_BLUR {
-        // GaussianBlur layout: [header, std_dev, center_weight, w0, w1, w2, o0, o1, o2, ...]
-        center_weight = bitcast<f32>(data.data[2]);
-        for (var i = 0u; i < 3u; i++) {
-            weights[i] = bitcast<f32>(data.data[3u + i]);
-            offsets[i] = bitcast<f32>(data.data[6u + i]);
-        }
-    } else {
-        // DropShadow layout: [header, dx, dy, color, std_dev, center_weight, w0, w1, w2, o0, o1, o2]
-        center_weight = bitcast<f32>(data.data[5]);
-        for (var i = 0u; i < 3u; i++) {
-            weights[i] = bitcast<f32>(data.data[6u + i]);
-            offsets[i] = bitcast<f32>(data.data[9u + i]);
-        }
+    for (var i = 0u; i < MAX_TAPS_PER_SIDE; i++) {
+        weights[i] = bitcast<f32>(data.data[2u + i]);
+        offsets[i] = bitcast<f32>(data.data[2u + MAX_TAPS_PER_SIDE + i]);
     }
 
     return BlurParams(n_linear_taps, center_weight, weights, offsets);
 }
 
 fn unpack_drop_shadow_filter(data: GpuFilterData) -> DropShadowFilter {
-    let header = data.data[0];
-    var weights: array<f32, 3>;
-    var offsets: array<f32, 3>;
-    for (var i = 0u; i < 3u; i++) {
-        weights[i] = bitcast<f32>(data.data[6u + i]);
-        offsets[i] = bitcast<f32>(data.data[9u + i]);
-    }
     return DropShadowFilter(
-        bitcast<f32>(data.data[1]),              // dx
-        bitcast<f32>(data.data[2]),              // dy
-        data.data[3],                            // color
-        bitcast<f32>(data.data[4]),              // std_deviation
-        unpack_header_edge_mode(header),         // edge_mode
-        unpack_header_n_decimations(header),     // n_decimations
-        unpack_header_n_linear_taps(header),     // n_linear_taps
-        bitcast<f32>(data.data[5]),              // center_weight
-        weights,
-        offsets,
+        bitcast<f32>(data.data[8]),
+        bitcast<f32>(data.data[9]),
+        data.data[10],
     );
 }
 
 fn load_filter_data(texel_offset: u32) -> GpuFilterData {
-    let tex_width = textureDimensions(filter_data).x;
-    var data: GpuFilterData;
-    for (var i = 0u; i < TEXELS_PER_FILTER; i++) {
-        let idx = texel_offset + i;
-        let x = idx % tex_width;
-        let y = idx / tex_width;
-        let texel = textureLoad(filter_data, vec2<u32>(x, y), 0);
-        data.data[i * 4u + 0u] = texel.x;
-        data.data[i * 4u + 1u] = texel.y;
-        data.data[i * 4u + 2u] = texel.z;
-        data.data[i * 4u + 3u] = texel.w;
-    }
-    return data;
+    let w = textureDimensions(filter_data).x;
+    let t0 = textureLoad(filter_data, vec2((texel_offset     ) % w, (texel_offset     ) / w), 0);
+    let t1 = textureLoad(filter_data, vec2((texel_offset + 1u) % w, (texel_offset + 1u) / w), 0);
+    let t2 = textureLoad(filter_data, vec2((texel_offset + 2u) % w, (texel_offset + 2u) / w), 0);
+    return GpuFilterData(array(t0.x, t0.y, t0.z, t0.w, t1.x, t1.y, t1.z, t1.w, t2.x, t2.y, t2.z, t2.w));
 }
 
 fn unpack_color(packed: u32) -> vec4<f32> {
@@ -252,6 +202,10 @@ fn sample_source_checked(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f
     let src_coord = vec2<u32>(vec2<i32>(in.src_offset) + vec2<i32>(rel_coord));
     return textureLoad(in_tex, src_coord, 0);
 }
+
+// TODO: Add support for edge modes when blurring. This unfortunately will make it harder/impossible to perform
+// filtering with bilinear samplers (since the padding of images is always transparent), hence why this is currently
+// not implemented. It's possible, but we should only do it if we really need it.
 
 // 2x decimation using [1,3,3,1]x[1,3,3,1]/64 binomial filter with bilinear sampling.
 //
@@ -353,7 +307,7 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
             return unpack_color(flood.color);
         }
         case PASS_OFFSET: {
-            let filter_type = get_filter_type(data);
+            let filter_type = unpack_filter_type(data);
             if filter_type == FILTER_TYPE_DROP_SHADOW {
                 let shadow = unpack_drop_shadow_filter(data);
                 // For drop shadow, use floor to match the old combined offset+blur behavior.
