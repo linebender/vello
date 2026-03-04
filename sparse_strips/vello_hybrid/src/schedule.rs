@@ -583,9 +583,7 @@ impl Scheduler {
                     );
                 }
                 FastStripCommand::Rect(r) => {
-                    let strip = pack_rectangle_into_gpu(
-                        r, scene, paint_idxs
-                    );
+                    let strip = pack_rectangle_into_gpu(r, scene, paint_idxs);
 
                     draw.0.push(strip);
                 }
@@ -1440,8 +1438,7 @@ fn pack_rectangle_into_gpu(rect: &FastPathRect, scene: &Scene, paint_idxs: &[u32
     let width = (sx1 - sx0) as u16;
     let height = (sy1 - sy0) as u16;
 
-    let (payload, paint_packed) =
-        Scheduler::process_paint(&rect.paint, scene, (x, y), paint_idxs);
+    let (payload, paint_packed) = Scheduler::process_paint(&rect.paint, scene, (x, y), paint_idxs);
 
     // Determine the fractional offsets for anti-aliasing and quantize so it
     // fits into u8.
