@@ -1035,7 +1035,6 @@ impl Scheduler {
     ) -> Result<(), RenderError> {
         let depth = state.tile_state.stack.len();
 
-        // TODO: Handle layer_id for filter effects when implemented.
         // `wgpu` does not allow reading/writing from the same slot texture. This means
         // that to represent the binary function `Blend(src_tile, dest_tile)` we need
         // both slots being blended to be on the same texture. This is accomplished as
