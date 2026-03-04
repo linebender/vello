@@ -113,10 +113,6 @@ fn load_filter_data(texel_offset: u32) -> GpuFilterData {
     return GpuFilterData(array(t0.x, t0.y, t0.z, t0.w, t1.x, t1.y, t1.z, t1.w, t2.x, t2.y, t2.z, t2.w));
 }
 
-fn unpack_color(packed: u32) -> vec4<f32> {
-    return unpack4x8unorm(packed);
-}
-
 struct FilterInstanceData {
     @location(0) src_offset: vec2<u32>,
     @location(1) src_size: vec2<u32>,
@@ -304,7 +300,7 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
         }
         case PASS_FLOOD: {
             let flood = unpack_flood_filter(data);
-            return unpack_color(flood.color);
+            return unpack4x8unorm(flood.color);
         }
         case PASS_OFFSET: {
             let filter_type = unpack_filter_type(data);
@@ -335,7 +331,7 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
             // Drop shadow composite: colorize blurred result, composite original on top.
             let shadow = unpack_drop_shadow_filter(data);
             let blurred = sample_source(in, rel_coord);
-            let shadow_color = unpack_color(shadow.color);
+            let shadow_color = unpack4x8unorm(shadow.color);
             let shadow_result = shadow_color * blurred.a;
             let original = sample_original(in, rel_coord);
             return original + shadow_result * (1.0 - original.a);
