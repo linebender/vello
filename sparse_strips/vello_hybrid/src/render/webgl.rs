@@ -195,12 +195,11 @@ impl WebGlRenderer {
         let mut encoded_paints = scene.encoded_paints.borrow_mut();
         let scene_paint_count = encoded_paints.len();
 
-        self.filter_context
-            .prepare(
-                &scene.render_graph,
-                &mut self.image_cache,
-                &mut encoded_paints,
-            )?;
+        self.filter_context.prepare(
+            &scene.render_graph,
+            &mut self.image_cache,
+            &mut encoded_paints,
+        )?;
 
         self.prepare_gpu_encoded_paints(&encoded_paints);
 
@@ -889,11 +888,8 @@ impl WebGlPrograms {
             clear_slots::VERTEX_SOURCE,
             clear_slots::FRAGMENT_SOURCE,
         );
-        let filter_program = create_shader_program(
-            &gl,
-            filters::VERTEX_SOURCE,
-            filters::FRAGMENT_SOURCE,
-        );
+        let filter_program =
+            create_shader_program(&gl, filters::VERTEX_SOURCE, filters::FRAGMENT_SOURCE);
         let filter_uniforms = get_filter_pass_uniforms(&gl, &filter_program);
 
         let strip_uniforms = get_strip_uniforms(&gl, &strip_program);
@@ -1779,7 +1775,11 @@ fn get_filter_pass_uniforms(
 }
 
 /// Create a 2D RGBA8 texture for filter atlas intermediate results.
-fn create_filter_atlas_texture(gl: &WebGl2RenderingContext, width: u32, height: u32) -> WebGlTexture {
+fn create_filter_atlas_texture(
+    gl: &WebGl2RenderingContext,
+    width: u32,
+    height: u32,
+) -> WebGlTexture {
     let texture = gl.create_texture().unwrap();
     gl.active_texture(WebGl2RenderingContext::TEXTURE0);
     gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&texture));
@@ -2399,10 +2399,10 @@ impl WebGlRendererContext<'_> {
         let filter_textures = self.filter_context.filter_textures.get(&layer_id).unwrap();
 
         // Same sign convention as wgpu: shader adds offset, so offset = atlas_pos - scene_pos.
-        let strip_offset_x = resources.offset[0] as i32
-            - (filter_textures.bbox.x0() * WideTile::WIDTH) as i32;
-        let strip_offset_y = resources.offset[1] as i32
-            - (filter_textures.bbox.y0() * Tile::HEIGHT) as i32;
+        let strip_offset_x =
+            resources.offset[0] as i32 - (filter_textures.bbox.x0() * WideTile::WIDTH) as i32;
+        let strip_offset_y =
+            resources.offset[1] as i32 - (filter_textures.bbox.y0() * Tile::HEIGHT) as i32;
 
         let config = Config {
             width: atlas_width,
@@ -2440,18 +2440,16 @@ impl WebGlRendererContext<'_> {
         }
 
         self.gl.use_program(Some(&self.programs.strip_program));
-        self.gl
-            .bind_buffer_base(
-                WebGl2RenderingContext::UNIFORM_BUFFER,
-                self.programs.strip_uniforms.config_vs_block_index,
-                Some(&temp_config_buffer),
-            );
-        self.gl
-            .bind_buffer_base(
-                WebGl2RenderingContext::UNIFORM_BUFFER,
-                self.programs.strip_uniforms.config_fs_block_index,
-                Some(&temp_config_buffer),
-            );
+        self.gl.bind_buffer_base(
+            WebGl2RenderingContext::UNIFORM_BUFFER,
+            self.programs.strip_uniforms.config_vs_block_index,
+            Some(&temp_config_buffer),
+        );
+        self.gl.bind_buffer_base(
+            WebGl2RenderingContext::UNIFORM_BUFFER,
+            self.programs.strip_uniforms.config_fs_block_index,
+            Some(&temp_config_buffer),
+        );
         self.gl
             .bind_vertex_array(Some(&self.programs.resources.strip_vao));
 
