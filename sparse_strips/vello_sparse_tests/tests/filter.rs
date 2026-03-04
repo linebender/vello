@@ -3,7 +3,7 @@
 
 //! Tests demonstrating the filter effects API usage.
 
-use crate::util::circular_star;
+use crate::util::{circular_star, stops_blue_green_red_yellow};
 use crate::{renderer::Renderer, util::layout_glyphs_roboto};
 use vello_common::color::AlphaColor;
 use vello_common::color::palette::css::{
@@ -11,7 +11,7 @@ use vello_common::color::palette::css::{
 };
 use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
 use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape, Stroke};
-use vello_common::peniko::{BlendMode, Compose, Mix};
+use vello_common::peniko::{BlendMode, Compose, Gradient, LinearGradientPosition, Mix};
 use vello_cpu::color::palette::css::{BLUE, GREEN, RED};
 use vello_cpu::kurbo::Dashes;
 use vello_dev_macros::vello_test;
@@ -46,6 +46,35 @@ fn filter_flood_star(ctx: &mut impl Renderer) {
     ctx.push_filter_layer(filter_flood);
     ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_path(&star_path);
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded, skip_hybrid)]
+fn filter_offset_simple(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 15.0, dy: 15.0 });
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 70.0, 70.0));
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded, skip_hybrid)]
+fn filter_offset_no_offset(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(15.0, 15.0, 85.0, 85.0));
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded, skip_hybrid)]
+fn filter_offset_nested(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 10.0, dy: 10.0 });
+    ctx.push_filter_layer(filter.clone());
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(5.0, 5.0, 55.0, 55.0));
     ctx.pop_layer();
     ctx.pop_layer();
 }
@@ -994,6 +1023,26 @@ fn filter_extreme_blur(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
+#[vello_test(
+    skip_multithreaded,
+    skip_hybrid,
+    hybrid_tolerance = 4,
+    width = 400,
+    height = 400
+)]
+fn filter_extreme_blur_2(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 36.0,
+        edge_mode: EdgeMode::None,
+    });
+    let rect = Rect::new(100.0, 100.0, 300.0, 300.0).to_path(0.1);
+
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_path(&rect);
+    ctx.pop_layer();
+}
+
 /// Test filter on semi-transparent shapes.
 #[vello_test(skip_hybrid, skip_multithreaded)]
 fn filter_transparent_shapes(ctx: &mut impl Renderer) {
@@ -1084,6 +1133,111 @@ fn issue_filter_canvas_boundaries(ctx: &mut impl Renderer) {
     ctx.push_filter_layer(filter);
     ctx.set_paint(VIOLET);
     ctx.fill_path(&rect_br);
+    ctx.pop_layer();
+}
+
+// If the bbox of a filter layer doesn't start on the top-left wide tile, we will shift
+// the image so the top-left wide tile of the bbox starts at (0, 0). This test
+// ensures that complex paints are also appropriately shifted. The correct behavior is
+// to see the whole gradient, the wrong behavior would be to only see a blue rectangle.
+#[vello_test(skip_multithreaded, skip_hybrid, width = 512, height = 4)]
+fn filter_with_complex_paint_and_wide_tile_shift(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
+
+    let gradient = Gradient {
+        kind: LinearGradientPosition {
+            start: Point::new(256.0, 0.0),
+            end: Point::new(512.0, 0.0),
+        }
+        .into(),
+        stops: stops_blue_green_red_yellow(),
+        extend: vello_common::peniko::Extend::Pad,
+        ..Default::default()
+    };
+
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(gradient);
+    ctx.fill_rect(&Rect::new(256.0, 0.0, 612.0, 4.0));
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded, skip_hybrid)]
+fn filter_with_opacity(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 2.0,
+        edge_mode: EdgeMode::None,
+    });
+    let rect = Rect::new(20.0, 20.0, 80.0, 80.0).to_path(0.1);
+
+    ctx.push_layer(None, None, Some(0.5), None, Some(filter));
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_path(&rect);
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded, skip_hybrid)]
+fn filter_with_nested_opacity(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 2.0,
+        edge_mode: EdgeMode::None,
+    });
+    let rect = Rect::new(20.0, 20.0, 80.0, 80.0).to_path(0.1);
+
+    ctx.push_layer(None, None, None, None, Some(filter));
+    ctx.push_layer(None, None, Some(0.5), None, None);
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_path(&rect);
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded, skip_hybrid)]
+fn filter_in_nested_layer(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 2.0,
+        edge_mode: EdgeMode::None,
+    });
+
+    let rect = Rect::new(15.0, 15.0, 85.0, 85.0);
+
+    ctx.push_layer(None, None, None, None, None);
+    ctx.push_filter_layer(filter.clone());
+    ctx.set_paint(VIOLET);
+    ctx.fill_rect(&rect);
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded, skip_hybrid)]
+fn filter_in_double_nested_layer(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 2.0,
+        edge_mode: EdgeMode::None,
+    });
+
+    let rect = Rect::new(15.0, 15.0, 85.0, 85.0);
+
+    ctx.push_layer(None, None, None, None, None);
+    ctx.push_layer(None, None, None, None, None);
+    ctx.push_filter_layer(filter.clone());
+    ctx.set_paint(VIOLET);
+    ctx.fill_rect(&rect);
+    ctx.pop_layer();
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded, no_ref, skip_hybrid)]
+fn filter_on_right_of_viewport(ctx: &mut impl Renderer) {
+    let offset = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
+
+    let x = 101.0;
+    let y = 0.0;
+    let size = 100.0;
+
+    ctx.push_filter_layer(offset.clone());
+    ctx.set_paint(SEA_GREEN);
+    ctx.fill_rect(&Rect::from_points((x, y), (x + size, y + size)));
     ctx.pop_layer();
 }
 
