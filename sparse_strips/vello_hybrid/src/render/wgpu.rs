@@ -1442,13 +1442,19 @@ impl Programs {
         height: u32,
         atlas_count: u32,
     ) -> (Texture, TextureView) {
-        // Create a single texture array with multiple layers
+        // See the comment in `AtlasConfig::default`. On WASM, we need to set this to at
+        // least 2 so it works with the wgpu WebGL backend.
+        #[cfg(target_arch = "wasm32")]
+        let depth_or_array_layers = atlas_count.max(2);
+        #[cfg(not(target_arch = "wasm32"))]
+        let depth_or_array_layers = atlas_count;
+
         let atlas_texture_array = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Atlas Texture Array"),
             size: Extent3d {
                 width,
                 height,
-                depth_or_array_layers: atlas_count,
+                depth_or_array_layers,
             },
             mip_level_count: 1,
             sample_count: 1,
