@@ -220,7 +220,7 @@ fn sample_input_checked(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f3
 //   pair(+1,+2): weight 3/8+1/8 = 0.5, offset (+1*3 + 2*1)/4 =  1.25
 // In 2D all four combinations have equal weight 0.25, so the result is the average
 // of four bilinear samples. This reduces 16 textureLoad calls to 4 textureSample calls.
-fn decimate_filter(in: FilterVertexOutput) -> vec4<f32> {
+fn downscale(in: FilterVertexOutput) -> vec4<f32> {
     let frag_coord = vec2<u32>(in.position.xy);
     let rel = vec2<i32>(frag_coord - in.dest_offset);
     let src_center = vec2<f32>(rel * 2);
@@ -245,7 +245,7 @@ fn decimate_filter(in: FilterVertexOutput) -> vec4<f32> {
 // 0 or 1 per axis. The [0.75, 0.25] weighting between the main pixel and its neighbor
 // is exactly what GPU bilinear interpolation produces when the sample point is offset
 // by +/-0.25 from the pixel center. This reduces 4 textureLoad calls to 1 textureSample.
-fn upscale_filter(in: FilterVertexOutput) -> vec4<f32> {
+fn upscale(in: FilterVertexOutput) -> vec4<f32> {
     let frag_coord = vec2<u32>(in.position.xy);
     let rel = vec2<i32>(frag_coord - in.dest_offset);
     let src_base = vec2<f32>(rel / 2);
@@ -323,7 +323,7 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
             }
         }
         case PASS_DOWNSCALE: {
-            return decimate_filter(in);
+            return downscale(in);
         }
         case PASS_BLUR_H: {
             let blur = unpack_blur_params(data);
@@ -334,7 +334,7 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
             return convolve(in, rel_coord, VERTICAL, blur.n_linear_taps, blur.center_weight, blur.linear_weights, blur.linear_offsets);
         }
         case PASS_UPSCALE: {
-            return upscale_filter(in);
+            return upscale(in);
         }
         case PASS_COMPOSITE: {
             // Drop shadow composite: colorize blurred result, composite original on top.
