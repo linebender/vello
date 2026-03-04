@@ -2179,9 +2179,9 @@ impl WebGlRendererContext<'_> {
 
         // See the comment in the wgpu backend for why we need those offsets.
         let strip_offset_x =
-            (filter_textures.bbox.x0() * WideTile::WIDTH) as i32 - resources.offset[0] as i32;
+            resources.offset[0] as i32 - (filter_textures.bbox.x0() * WideTile::WIDTH) as i32;
         let strip_offset_y =
-            (filter_textures.bbox.y0() * Tile::HEIGHT) as i32 - resources.offset[1] as i32;
+            resources.offset[1] as i32 - (filter_textures.bbox.y0() * Tile::HEIGHT) as i32;
         let config = Config {
             width: atlas_width,
             height: atlas_height,
@@ -2191,8 +2191,8 @@ impl WebGlRendererContext<'_> {
                 .resources
                 .max_texture_dimension_2d
                 .trailing_zeros(),
-            strip_offset_x: strip_offset_x as u32,
-            strip_offset_y: strip_offset_y as u32,
+            strip_offset_x,
+            strip_offset_y,
         };
         let temp_config_buffer = self.gl.create_buffer().unwrap();
         self.gl.bind_buffer(

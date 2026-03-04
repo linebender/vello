@@ -2094,10 +2094,10 @@ impl RendererContext<'_> {
                 // layer.
                 // Secondly, we need to apply another offset because our intermediate textures
                 // are stored in an atlas, where it could be allocated at any position.
-                let strip_offset_x = (filter_textures.bbox.x0() * WideTile::WIDTH) as i32
-                    - resources.offset[0] as i32;
-                let strip_offset_y =
-                    (filter_textures.bbox.y0() * Tile::HEIGHT) as i32 - resources.offset[1] as i32;
+                let strip_offset_x = resources.offset[0] as i32
+                    - (filter_textures.bbox.x0() * WideTile::WIDTH) as i32;
+                let strip_offset_y = resources.offset[1] as i32
+                    - (filter_textures.bbox.y0() * Tile::HEIGHT) as i32;
                 let atlas_config_buffer =
                     self.device
                         .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -2113,8 +2113,8 @@ impl RendererContext<'_> {
                                     .size()
                                     .width
                                     .trailing_zeros(),
-                                strip_offset_x: strip_offset_x as u32,
-                                strip_offset_y: strip_offset_y as u32,
+                                strip_offset_x,
+                                strip_offset_y,
                             }),
                             usage: wgpu::BufferUsages::UNIFORM,
                         });
