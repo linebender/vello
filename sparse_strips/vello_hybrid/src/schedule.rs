@@ -1237,7 +1237,7 @@ impl Scheduler {
                 let paint_id = indexed_paint.index();
                 let paint_idx = paint_idxs.get(paint_id).copied().unwrap();
 
-                match scene.encoded_paints.get(paint_id) {
+                match scene.encoded_paints.borrow().get(paint_id) {
                     Some(EncodedPaint::Image(encoded_image)) => match &encoded_image.source {
                         ImageSource::OpaqueId { .. } => {
                             let paint_packed = (COLOR_SOURCE_PAYLOAD << 29)

@@ -254,7 +254,7 @@ impl Renderer {
         // TODO: Fix this ASAP!
         _clear: bool,
     ) -> Result<(), RenderError> {
-        self.prepare_gpu_encoded_paints(&scene.encoded_paints);
+        self.prepare_gpu_encoded_paints(&scene.encoded_paints.borrow());
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
