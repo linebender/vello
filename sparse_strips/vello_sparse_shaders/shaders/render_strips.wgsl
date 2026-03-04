@@ -300,11 +300,9 @@ fn vs_main(
         }
     }
 
-    if is_rect {
-        out.tex_coord = vec2<f32>(x * f32(width), y * f32(height));
-    } else {
-        out.tex_coord = vec2<f32>(f32(instance.col_idx_or_rect_frac) + x * f32(width), y * f32(height));
-    }
+    let col_offset = select(f32(instance.col_idx_or_rect_frac), 0.0, is_rect);
+    out.tex_coord = vec2<f32>(col_offset + x * f32(width), y * f32(height));
+
     out.position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
     out.payload = instance.payload;
     out.paint_and_rect_flag = instance.paint_and_rect_flag;
