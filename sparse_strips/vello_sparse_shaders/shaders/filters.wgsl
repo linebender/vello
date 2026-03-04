@@ -153,18 +153,21 @@ fn vs_main(
     @builtin(vertex_index) vertex_index: u32,
     instance: FilterInstanceData
 ) -> FilterVertexOutput {
-    // Generate quad (0-3) covering the dest region
     let quad_vertex = vertex_index % 4u;
-    let x = f32((quad_vertex & 1u));      // 0,1,0,1
-    let y = f32((quad_vertex >> 1u));      // 0,0,1,1
+    let x = f32((quad_vertex & 1u));
+    let y = f32((quad_vertex >> 1u));
 
-    // Calculate pixel position in atlas. The quad covers the full allocation size
-    // (original_size), which may be larger than dest_size after decimation.
-    // The fragment shader returns transparent for pixels outside dest_size.
+    // Note: We are using `original_size` instead of `dest_size` on purpose here. When allocating the regions
+    // in the atlas, we always allocate the same size as is used by the original texture. However, `dest_size`
+    // can be smaller than `original_size`, for example because we applied a decimation pass for gaussian blurs.
+    // However, in the vertex shader we ALWAYS cover the whole region instead of just the destination size.
+    // The reason is that we need to make sure that all unaffected pixels are set to transparent, which is important
+    // because some filters assume that the border pixels are transparent. In the fragment shader, we have a shortcut
+    // to check whether the pixel lies outside of the destination region, in which case we just return a transparent
+    // pixel instead of doing actual computational work.
     let pix_x = f32(instance.dest_offset.x) + x * f32(instance.original_size.x);
     let pix_y = f32(instance.dest_offset.y) + y * f32(instance.original_size.y);
 
-    // Convert to NDC using the dest atlas dimensions
     let atlas_size = vec2<f32>(instance.dest_atlas_size);
     let ndc_x = pix_x * 2.0 / atlas_size.x - 1.0;
     let ndc_y = 1.0 - pix_y * 2.0 / atlas_size.y;
@@ -183,30 +186,26 @@ fn vs_main(
     return out;
 }
 
-// Atlas padding around filter images guarantees transparent reads beyond the content
-// region, so these sampling functions omit bounds checks. The one exception is OFFSET,
-// which can shift by large dx/dy (e.g. 50 px for drop shadow) exceeding the padding;
-// that path uses sample_source_checked below.
-
+// Sample a pixel from the original texture.
 fn sample_original(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
     let src_coord = vec2<u32>(vec2<i32>(in.original_offset) + vec2<i32>(rel_coord));
     return textureLoad(original_tex, src_coord, 0);
 }
 
-fn sample_source(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
+// Sample a pixel from the input texture.
+fn sample_input(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
     let src_coord = vec2<u32>(vec2<i32>(in.src_offset) + vec2<i32>(rel_coord));
     return textureLoad(in_tex, src_coord, 0);
 }
 
-// Bounds-checked variant of sample_source, used only by OFFSET passes where the
-// shift can exceed the atlas padding.
-fn sample_source_checked(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
+// Same as `sample_input`, but with bounds checking.
+fn sample_input_checked(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
     if rel_coord.x < 0.0 || rel_coord.x >= f32(in.src_size.x) ||
        rel_coord.y < 0.0 || rel_coord.y >= f32(in.src_size.y) {
         return vec4<f32>(0.0);
     }
-    let src_coord = vec2<u32>(vec2<i32>(in.src_offset) + vec2<i32>(rel_coord));
-    return textureLoad(in_tex, src_coord, 0);
+
+    return sample_input(in, rel_coord);
 }
 
 // TODO: Add support for edge modes when blurring. This unfortunately will make it harder/impossible to perform
@@ -306,7 +305,7 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
 
     switch in.pass_kind {
         case PASS_COPY: {
-            return sample_source(in, rel_coord);
+            return sample_input(in, rel_coord);
         }
         case PASS_FLOOD: {
             let flood = unpack_flood_filter(data);
@@ -317,10 +316,10 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
             if filter_type == FILTER_TYPE_DROP_SHADOW {
                 let shadow = unpack_drop_shadow_filter(data);
                 // For drop shadow, use floor to match the old combined offset+blur behavior.
-                return sample_source_checked(in, floor(rel_coord - vec2<f32>(shadow.dx, shadow.dy)));
+                return sample_input_checked(in, floor(rel_coord - vec2<f32>(shadow.dx, shadow.dy)));
             } else {
                 let offset = unpack_offset_filter(data);
-                return sample_source_checked(in, round(rel_coord - vec2<f32>(offset.dx, offset.dy)));
+                return sample_input_checked(in, round(rel_coord - vec2<f32>(offset.dx, offset.dy)));
             }
         }
         case PASS_DOWNSCALE: {
@@ -340,7 +339,7 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
         case PASS_COMPOSITE: {
             // Drop shadow composite: colorize blurred result, composite original on top.
             let shadow = unpack_drop_shadow_filter(data);
-            let blurred = sample_source(in, rel_coord);
+            let blurred = sample_input(in, rel_coord);
             let shadow_color = unpack4x8unorm(shadow.color);
             let shadow_result = shadow_color * blurred.a;
             let original = sample_original(in, rel_coord);
