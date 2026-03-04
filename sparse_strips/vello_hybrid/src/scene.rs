@@ -477,6 +477,7 @@ impl Scene {
 
         // We can't handle skewed rectangles.
         let coeffs = self.render_state.transform.as_coeffs();
+        // TODO: Maybe support rotated rectangles (https://github.com/linebender/vello/pull/1482#discussion_r2881223621)
         if coeffs[1].abs() > 1e-5 || coeffs[2].abs() > 1e-5 {
             return false;
         }
