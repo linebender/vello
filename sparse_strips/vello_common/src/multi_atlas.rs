@@ -159,7 +159,8 @@ impl MultiAtlasManager {
         self.try_allocate_excluding(width, height, None)
     }
 
-    /// Try to allocate space, optionally excluding a specific atlas.
+    /// Try to allocate space for an image with the given dimensions,
+    /// optionally excluding a specific atlas.
     pub fn try_allocate_excluding(
         &mut self,
         width: u32,
