@@ -25,12 +25,12 @@ use vello_common::image_cache::ImageCache;
 use vello_common::multi_atlas::AtlasConfig;
 use vello_common::multi_atlas::{AtlasError, AtlasId};
 
-/// Padding (in pixels) added around filter atlas images so that texture samples
-/// reaching beyond the content region always read transparent. This covers:
-/// - Blur: max linear offset ~5.5 + 1.0 for linear sampling = ~6.5, ceil = 7
-/// - Downscale: kernel reaches [-1, +2] = 2 pixels
-/// - Upscale: reaches ±1 = 1 pixel
-const FILTER_ATLAS_PADDING: u16 = 7;
+/// How much transparent padding to reserve for filter layers within the image. Needed so
+/// that the various shader programs can assume transparent pixels on the outside, making
+/// the code significantly easier since we don't need to special-case border pixels. Since we
+/// do use checked accesses for the offset filter, the bottleneck is formed by the gaussian blur
+/// convolution.
+const FILTER_ATLAS_PADDING: u16 = (MAX_KERNEL_SIZE as u16 / 2);
 
 // Note: Keep these variables and struct layouts in sync with `filters.wgsl`!
 
@@ -131,7 +131,7 @@ impl LinearKernel {
         let (pairs, remainder) = positive_side.as_chunks::<2>();
 
         // Merge each consecutive pair into a single bilinear tap. See the
-        // formulas on the website.
+        // formulas on the website linked above.
         for (k, &[w1, w2]) in pairs.iter().enumerate() {
             let merged_weight = w1 + w2;
             let offset1 = (2 * k + 1) as f32;
@@ -165,7 +165,7 @@ impl LinearKernel {
 // Currently, we assume that each filter struct has the same size so we can cast them into
 // the type-erased type and assume uniform offsets. It might be worth exploring variable offsets
 // (as is done for encoded paints) in the future, but it doesn't seem to be worth it for filters
-// specifically.
+// specifically since it's uncommon to have more than a few dozen filters in a single scene.
 
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, PartialEq, Zeroable, Pod)]
@@ -212,6 +212,7 @@ pub(crate) struct GpuGaussianBlur {
     pub center_weight: f32,
     pub linear_weights: [f32; MAX_TAPS_PER_SIDE],
     pub linear_offsets: [f32; MAX_TAPS_PER_SIDE],
+    // Needed since drop shadow has a bigger footprint.
     pub _padding: [u32; 4],
 }
 
@@ -227,6 +228,9 @@ impl From<&GaussianBlur> for GpuGaussianBlur {
             header: pack_with_gaussian_params(
                 filter_type::GAUSSIAN_BLUR,
                 edge_mode_to_gpu(blur.edge_mode),
+                // Note that this could be exceeded in theory, but it would have to be a huge
+                // standard deviation! If it turns out to be a problem we can reserve additional
+                // bits for it in the future.
                 blur.n_decimations as u32,
                 lk.n_taps as u32,
             ),
