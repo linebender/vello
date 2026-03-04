@@ -6,10 +6,9 @@
 //! This module provides an [`ImageCache`] that manages image resources across multiple texture
 //! atlases, supporting allocation, deallocation, and slot reuse.
 
-use crate::multi_atlas::{AtlasConfig, AtlasError, AtlasId, MultiAtlasManager};
+use crate::multi_atlas::{AllocId, AtlasConfig, AtlasError, AtlasId, MultiAtlasManager};
 use crate::paint::ImageId;
 use alloc::vec::Vec;
-use guillotiere::AllocId;
 
 /// Represents an image resource for rendering.
 #[derive(Debug)]
@@ -86,8 +85,8 @@ impl ImageCache {
             height: height as u16,
             atlas_id: atlas_alloc.atlas_id,
             offset: [
-                atlas_alloc.allocation.rectangle.min.x as u16,
-                atlas_alloc.allocation.rectangle.min.y as u16,
+                atlas_alloc.allocation.x as u16,
+                atlas_alloc.allocation.y as u16,
             ],
             atlas_alloc_id: atlas_alloc.allocation.id,
         };
