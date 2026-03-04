@@ -877,7 +877,7 @@ impl Scheduler {
                     );
                 }
                 FastStripCommand::Rect(r) => {
-                    let strip = pack_rectangle_into_gpu(r, scene, encoded_paints, paint_idxs);
+                    let strip = pack_rectangle_into_gpu(r, encoded_paints, paint_idxs);
 
                     draw.0.push(strip);
                 }
@@ -1129,9 +1129,6 @@ impl Scheduler {
         }
 
         for (idx, cmd) in wide_tile_cmds.iter().enumerate() {
-            // Note: this starts at 1 (for the final target)
-            let depth = state.tile_state.stack.len();
-
             match cmd {
                 Cmd::Fill(fill) => {
                     self.do_fill(
@@ -1811,7 +1808,6 @@ fn generate_gpu_strips_for_fast_path(
 
 fn pack_rectangle_into_gpu(
     rect: &FastPathRect,
-    scene: &Scene,
     encoded_paints: &[EncodedPaint],
     paint_idxs: &[u32],
 ) -> GpuStrip {
