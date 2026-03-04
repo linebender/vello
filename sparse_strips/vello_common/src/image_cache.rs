@@ -77,11 +77,26 @@ impl ImageCache {
         height: u32,
         padding: u16,
     ) -> Result<ImageId, AtlasError> {
+        self.allocate_excluding(width, height, padding, None)
+    }
+
+    /// Allocate an image, optionally excluding a specific atlas.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "u16 is enough for the offset and width/height"
+    )]
+    pub fn allocate_excluding(
+        &mut self,
+        width: u32,
+        height: u32,
+        padding: u16,
+        exclude_atlas_id: Option<AtlasId>,
+    ) -> Result<ImageId, AtlasError> {
         let padded_width = width + u32::from(padding) * 2;
         let padded_height = height + u32::from(padding) * 2;
         let atlas_alloc = self
             .atlas_manager
-            .try_allocate(padded_width, padded_height)?;
+            .try_allocate_excluding(padded_width, padded_height, exclude_atlas_id)?;
 
         let slot_idx = self.free_idxs.pop().unwrap_or_else(|| {
             // No free slots, append to vector
