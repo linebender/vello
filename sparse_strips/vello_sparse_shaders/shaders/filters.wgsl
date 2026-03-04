@@ -113,25 +113,15 @@ fn load_filter_data(texel_offset: u32) -> GpuFilterData {
     return GpuFilterData(array(t0.x, t0.y, t0.z, t0.w, t1.x, t1.y, t1.z, t1.w, t2.x, t2.y, t2.z, t2.w));
 }
 
-/// Per-instance data for a single filter draw call, sourced from the instance buffer.
 struct FilterInstanceData {
-    /// Top-left pixel coordinate of the source region in the input atlas.
     @location(0) src_offset: vec2<u32>,
-    /// Size in pixels of the source region.
     @location(1) src_size: vec2<u32>,
-    /// Top-left pixel coordinate of the destination region in the output atlas.
     @location(2) dest_offset: vec2<u32>,
-    /// Size in pixels of the destination region.
     @location(3) dest_size: vec2<u32>,
-    /// Full pixel dimensions of the destination atlas texture.
     @location(4) dest_atlas_size: vec2<u32>,
-    /// Texel offset into filter_data where this filter's data is stored.
     @location(5) filter_offset: u32,
-    /// Top-left pixel coordinate of the original content region.
     @location(6) original_offset: vec2<u32>,
-    /// Size in pixels of the original content region.
     @location(7) original_size: vec2<u32>,
-    /// The filter pass that should be executed.
     @location(8) pass_kind: u32,
 }
 

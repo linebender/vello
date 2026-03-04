@@ -350,32 +350,32 @@ impl From<&PreparedFilter> for GpuFilterData {
 #[repr(C, align(16))]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub(crate) struct FilterInstanceData {
-    /// Top-left pixel offset of the source region in `in_tex` of the atlas texture it lives in.
+    /// Top-left pixel coordinate of the source region in the input atlas.
     pub src_offset: [u32; 2],
-    /// Width and height (in pixels) of the source region in `in_tex`.
+    /// Size in pixels of the source region.
     pub src_size: [u32; 2],
-    /// Top-left pixel offset of the destination region in the output atlas.
+    /// Top-left pixel coordinate of the destination region in the output atlas.
     pub dest_offset: [u32; 2],
-    /// Width and height (in pixels) of the destination region.
+    /// Size in pixels of the destination region.
     pub dest_size: [u32; 2],
-    /// Full dimensions of the destination atlas texture.
+    /// Full pixel dimensions of the destination atlas texture.
     pub dest_atlas_size: [u32; 2],
-    /// Texel offset into `filter_data` where this filter's parameters begin.
+    /// Texel offset into filter_data where this filter's data is stored.
     pub filter_data_offset: u32,
-    /// Top-left pixel offset of the original texture in `original_tex` of the atlas texture it lives in.
+    /// Top-left pixel coordinate of the original content region.
     pub original_offset: [u32; 2],
-    /// Width and height (in pixels) of the original content region.
+    /// Size in pixels of the original content region.
     pub original_size: [u32; 2],
-    /// The type of filter pass to execute (see `pass_kind` module constants).
+    /// The filter pass that should be executed.
     pub pass_kind: u32,
 }
 
 /// Where a filter pass writes its output.
 #[derive(Debug)]
 pub(crate) enum FilterPassTarget {
-    /// Output to a filter atlas texture (atlas_idx in `filter_context.image_cache`).
+    /// Output to a filter atlas texture.
     FilterAtlas(u32),
-    /// Output to the main atlas texture array (atlas_idx in main `image_cache`).
+    /// Output to the main atlas texture.
     MainAtlas(u32),
 }
 
