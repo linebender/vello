@@ -43,8 +43,12 @@ pub struct Config {
     /// Number of trailing zeros in the encoded paints texture width (log2 of width).
     /// Pre-calculated on CPU since downlevel targets do not support `firstTrailingBit`.
     pub encoded_paints_tex_width_bits: u32,
+    /// A horizontal offset to apply to strips.
+    pub strip_offset_x: i32,
+    /// A vertical offset to apply to strips.
+    pub strip_offset_y: i32,
     /// Padding to satisfy WebGL's 16-byte alignment requirement for uniform buffers.
-    pub _padding: [u32; 3],
+    pub _padding: u32,
 }
 
 /// A GPU strip instance for rendering.

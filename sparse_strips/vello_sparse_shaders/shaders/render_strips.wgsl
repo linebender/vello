@@ -115,10 +115,16 @@ struct Config {
     // Number of trailing zeros in encoded_paints_tex_width (log2 of width).
     // Pre-calculated on CPU since WebGL2 doesn't support `firstTrailingBit`.
     encoded_paints_tex_width_bits: u32,
+    // An offset to apply to the strip.
+    //
+    // In most cases, these will be zero. However,
+    // when rendering filter layers, we need to account for the 1) shift caused by
+    // only rendering the tight bounding box of the filter layer and 2) the offset
+    // within the atlas where the filter layer will be rendered to.
+    strip_offset_x: i32,
+    strip_offset_y: i32,
     // Padding to satisfy WebGL's 16-byte alignment requirement for uniform buffers.
     _padding0: u32,
-    _padding1: u32,
-    _padding2: u32,
 }
 
 // A `StripInstance` can represent either a **normal strip** (representing a sparse fill or alpha fill of height
@@ -266,9 +272,10 @@ fn vs_main(
         out.dense_end_or_rect_size = instance.col_idx_or_rect_frac + dense_width;
         out.rect_frac = 0u;
     }
-    // Calculate the pixel coordinates of the current vertex within the strip
-    let pix_x = f32(x0) + x * f32(width);
-    let pix_y = f32(y0) + y * f32(height);
+    // Calculate the pixel coordinates of the current vertex within the strip.
+    // Don't forget to apply the strip offset!
+    let pix_x = f32(i32(x0) + config.strip_offset_x) + x * f32(width);
+    let pix_y = f32(i32(y0) + config.strip_offset_y) + y * f32(height);
     // Convert pixel coordinates to normalized device coordinates (NDC)
     // NDC ranges from -1 to 1, with (0,0) at the center of the viewport
     let ndc_x = pix_x * 2.0 / f32(config.width) - 1.0;
@@ -521,9 +528,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             final_color = alpha * gradient_color;
         }
     } else if color_source == COLOR_SOURCE_SLOT {
-        // in.payload encodes a slot in the source clip texture
-        let clip_x = u32(in.position.x) & 0xFFu;
-        let clip_y = (u32(in.position.y) & 3) + in.payload * config.strip_height;
+        // in.payload encodes a slot in the source clip texture.
+        // This is a bit finicky: When copying from a texture slot, we already
+        // know which slot to choose and where that slot is located. Therefore, we now
+        // only need to determine the pixel within the slot to sample. However, this
+        // position should not be affected by the strip offset. For example, if the
+        // strip offset is (2, 2), then the pixel (2, 2) should still map to (0, 0)
+        // within the single wide tile slot! Therefore, we need to subtract the strip
+        // offset here.
+        let clip_x = u32(i32(in.position.x) - config.strip_offset_x) & 0xFFu;
+        let clip_y = (u32(i32(in.position.y) - config.strip_offset_y) & 3u) + in.payload * config.strip_height;
         let clip_in_color = textureLoad(clip_input_texture, vec2(clip_x, clip_y), 0);
 
         // Extract opacity from first 8 bits (quantized from [0, 255])
@@ -538,12 +552,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // Read source color from slot
         let src_slot = in.payload & 0xFFFFu;
         let dest_slot = (in.payload >> 16u) & 0xFFFFu;
-        let clip_x = u32(in.position.x) & 0xFFu;
-        let src_y = (u32(in.position.y) & 3u) + src_slot * config.strip_height;
+        // See the comment above for why we need to subtract the strip offset.
+        let clip_x = u32(i32(in.position.x) - config.strip_offset_x) & 0xFFu;
+        let clip_y_in_strip = u32(i32(in.position.y) - config.strip_offset_y) & 3u;
+        let src_y = clip_y_in_strip + src_slot * config.strip_height;
         let src_color = textureLoad(clip_input_texture, vec2(clip_x, src_y), 0);
-        
+
         // Read destination color from slot
-        let dest_y = (u32(in.position.y) & 3u) + dest_slot * config.strip_height;
+        let dest_y = clip_y_in_strip + dest_slot * config.strip_height;
         let dest_color = textureLoad(clip_input_texture, vec2(clip_x, dest_y), 0);
 
         final_color = blend_mix_compose(dest_color, src_color * opacity * alpha, compose_mode, mix_mode);
