@@ -216,7 +216,7 @@ struct VertexOutput {
     @location(2) sample_xy: vec2<f32>,
     // For normal strips: ending x-position of the dense (alpha) region.
     // For rect strips: packed dimensions (width | height << 16).
-    @location(3) @interpolate(flat) dense_end: u32,
+    @location(3) @interpolate(flat) dense_end_or_rect_size: u32,
     // Color value or slot index when alpha is 0
     @location(4) @interpolate(flat) payload: u32,
     // Packed fractional edge offsets for rectangles.
@@ -260,10 +260,10 @@ fn vs_main(
     var height = config.strip_height;
     if is_rect {
         height = dense_width;
-        out.dense_end = width | (dense_width << 16u);
+        out.dense_end_or_rect_size = width | (dense_width << 16u);
         out.rect_frac = instance.col_idx_or_rect_frac;
     } else {
-        out.dense_end = instance.col_idx_or_rect_frac + dense_width;
+        out.dense_end_or_rect_size = instance.col_idx_or_rect_frac + dense_width;
         out.rect_frac = 0u;
     }
     // Calculate the pixel coordinates of the current vertex within the strip
@@ -329,14 +329,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // then multiplying them.
         // For (maybe?) better performance, we calculate the x and y dimension in a single
         // pass by packing everything into a vec2.
-        let rect_size = vec2<f32>(f32(in.dense_end & 0xFFFFu), f32(in.dense_end >> 16u));
+        let rect_size = vec2<f32>(f32(in.dense_end_or_rect_size & 0xFFFFu), f32(in.dense_end_or_rect_size >> 16u));
         let tc = in.tex_coord;
         // + 0.5 and -0.5 since the fragment shader positions the coordinates in the center of the pixel.
         let bottom_and_right = min(tc + 0.5, rect_size - frac.zw);
         let top_and_left = max(tc - 0.5, frac.xy);
         let a = clamp(bottom_and_right - top_and_left, vec2(0.0), vec2(1.0));
         alpha = a.x * a.y;
-    } else if !is_rect && in.dense_end != 0u {
+    } else if !is_rect && in.dense_end_or_rect_size != 0u {
         let x = u32(floor(in.tex_coord.x));
         let y = u32(floor(in.tex_coord.y));
         // Retrieve alpha value from the texture. We store 16 1-byte alpha
