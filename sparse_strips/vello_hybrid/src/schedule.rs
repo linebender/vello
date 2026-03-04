@@ -599,11 +599,7 @@ impl Scheduler {
 
                     // Determine the fractional offsets for anti-aliasing and quantize so it
                     // fits into u8.
-                    let q = |f: f32| -> u8 { (f * 255.0 + 0.5) as u8 };
-                    let frac = u32::from(q(r.x0 - sx0))
-                        | (u32::from(q(r.y0 - sy0)) << 8)
-                        | (u32::from(q(sx1 - r.x1)) << 16)
-                        | (u32::from(q(sy1 - r.y1)) << 24);
+                    let frac = pack_unorm4x8([r.x0 - sx0, r.y0 - sy0, sx1 - r.x1, sy1 - r.y1]);
 
                     draw.0.push(GpuStrip {
                         x,
@@ -1452,4 +1448,12 @@ fn generate_gpu_strips_for_fast_path(
             }
         }
     }
+}
+
+fn pack_unorm4x8(v: [f32; 4]) -> u32 {
+    let q = |f: f32| -> u8 { (f * 255.0 + 0.5) as u8 };
+    u32::from(q(v[0]))
+        | (u32::from(q(v[1])) << 8)
+        | (u32::from(q(v[2])) << 16)
+        | (u32::from(q(v[3])) << 24)
 }
