@@ -532,9 +532,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // This is a bit finicky: When copying from a texture slot, we already
         // know which slot to choose and where that slot is located. Therefore, we now
         // only need to determine the pixel within the slot to sample. However, this
-        // position should not be affected by the strip offset. For example, if the
+        // position should not be affected by the global strip offset. For example, if the
         // strip offset is (2, 2), then the pixel (2, 2) should still map to (0, 0)
-        // within the single wide tile slot! Therefore, we need to subtract the strip
+        // within the wide tile slot! Therefore, we need to subtract the strip
         // offset here.
         let clip_x = u32(i32(in.position.x) - config.strip_offset_x) & 0xFFu;
         let clip_y = (u32(i32(in.position.y) - config.strip_offset_y) & 3u) + in.payload * config.strip_height;
