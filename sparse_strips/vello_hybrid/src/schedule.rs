@@ -176,7 +176,7 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
-use crate::scene::{FastStripCommand, FastStripsPath, StripPathMode};
+use crate::scene::{FastPathRect, FastStripCommand, FastStripsPath, StripPathMode};
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -583,33 +583,11 @@ impl Scheduler {
                     );
                 }
                 FastStripCommand::Rect(r) => {
-                    let sx0 = r.x0.floor();
-                    let sy0 = r.y0.floor();
-                    let sx1 = r.x1.ceil();
-                    let sy1 = r.y1.ceil();
+                    let strip = pack_rectangle_into_gpu(
+                        r, scene, paint_idxs
+                    );
 
-                    let x = sx0 as u16;
-                    let y = sy0 as u16;
-                    // Are guaranteed to be > 0 since we rejected negative rectangles.
-                    let width = (sx1 - sx0) as u16;
-                    let height = (sy1 - sy0) as u16;
-
-                    let (payload, paint_packed) =
-                        Self::process_paint(&r.paint, scene, (x, y), paint_idxs);
-
-                    // Determine the fractional offsets for anti-aliasing and quantize so it
-                    // fits into u8.
-                    let frac = pack_unorm4x8([r.x0 - sx0, r.y0 - sy0, sx1 - r.x1, sy1 - r.y1]);
-
-                    draw.0.push(GpuStrip {
-                        x,
-                        y,
-                        width,
-                        dense_width_or_rect_height: height,
-                        col_idx_or_rect_frac: frac,
-                        payload,
-                        paint_and_rect_flag: paint_packed | RECT_STRIP_FLAG,
-                    });
+                    draw.0.push(strip);
                 }
             }
         }
@@ -1447,6 +1425,36 @@ fn generate_gpu_strips_for_fast_path(
                 gpu_strips.push(GpuStripBuilder::at_surface(x1, y, x2 - x1).paint(payload, paint));
             }
         }
+    }
+}
+
+fn pack_rectangle_into_gpu(rect: &FastPathRect, scene: &Scene, paint_idxs: &[u32]) -> GpuStrip {
+    let sx0 = rect.x0.floor();
+    let sy0 = rect.y0.floor();
+    let sx1 = rect.x1.ceil();
+    let sy1 = rect.y1.ceil();
+
+    let x = sx0 as u16;
+    let y = sy0 as u16;
+    // Are guaranteed to be > 0 since we rejected negative rectangles.
+    let width = (sx1 - sx0) as u16;
+    let height = (sy1 - sy0) as u16;
+
+    let (payload, paint_packed) =
+        Scheduler::process_paint(&rect.paint, scene, (x, y), paint_idxs);
+
+    // Determine the fractional offsets for anti-aliasing and quantize so it
+    // fits into u8.
+    let frac = pack_unorm4x8([rect.x0 - sx0, rect.y0 - sy0, sx1 - rect.x1, sy1 - rect.y1]);
+
+    GpuStrip {
+        x,
+        y,
+        width,
+        dense_width_or_rect_height: height,
+        col_idx_or_rect_frac: frac,
+        payload,
+        paint_and_rect_flag: paint_packed | RECT_STRIP_FLAG,
     }
 }
 
