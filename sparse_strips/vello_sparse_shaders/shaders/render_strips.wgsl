@@ -341,6 +341,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 extend_mode(local_xy.x + offset, encoded_image.extend_modes.x, image_size.x),
                 extend_mode(local_xy.y + offset, encoded_image.extend_modes.y, image_size.y)
             );
+
+            // TODO: add a fast path for images where we are using bilinear sampling and want transparent pixels,
+            // using GPU-native bilinear sampling
             
             var sample_color: vec4<f32>;
             if encoded_image.quality == IMAGE_QUALITY_HIGH {
@@ -352,6 +355,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                     image_offset,
                     image_size,
                     encoded_image.extend_modes,
+                    encoded_image.image_padding,
                 );
             } else if encoded_image.quality == IMAGE_QUALITY_MEDIUM {
                 let final_xy = image_offset + extended_xy - vec2(0.5);
@@ -362,6 +366,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                     image_offset,
                     image_size,
                     encoded_image.extend_modes,
+                    encoded_image.image_padding,
                 );
             } else {
                 let final_xy = image_offset + extended_xy;
@@ -800,6 +805,8 @@ struct EncodedImage {
     tint: vec4<f32>,
     /// Tint mode: TINT_MODE_ALPHA_MASK (`0`) or TINT_MODE_MULTIPLY (`1`).
     tint_mode: u32,
+    /// Number of transparent padding pixels around the image in the atlas.
+    image_padding: f32,
 }
 
 // Convert a flat texel index to 2D texture coordinates for the encoded paints texture.
@@ -834,6 +841,7 @@ fn unpack_encoded_image(paint_tex_idx: u32) -> EncodedImage {
     let packed_tint = texel2.y;
     let tint = select(vec4<f32>(1.0), unpack4x8unorm(packed_tint), packed_tint != 0u);
     let tint_mode = select(TINT_MODE_MULTIPLY, texel2.z, packed_tint != 0u);
+    let image_padding = f32(texel2.w);
 
     return EncodedImage(
         quality, 
@@ -844,7 +852,8 @@ fn unpack_encoded_image(paint_tex_idx: u32) -> EncodedImage {
         transform,
         translate,
         tint,
-        tint_mode
+        tint_mode,
+        image_padding
     );
 }
 
@@ -901,6 +910,7 @@ fn bilinear_sample(
     image_offset: vec2<f32>,
     image_size: vec2<f32>,
     extend_modes: vec2<u32>,
+    image_padding: f32,
 ) -> vec4<f32> {
     let atlas_max = image_offset + image_size - vec2(1.0);
     let atlas_uv_clamped = clamp(coords, image_offset, atlas_max);
@@ -926,6 +936,7 @@ fn bicubic_sample(
     image_offset: vec2<f32>,
     image_size: vec2<f32>,
     extend_modes: vec2<u32>,
+    image_padding: f32,
 ) -> vec4<f32> {
      let atlas_max = image_offset + image_size - vec2(1.0);
      let frac_coords = fract(coords + 0.5);
