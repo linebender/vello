@@ -176,15 +176,18 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
+use crate::filter::FilterContext;
 use crate::scene::{FastPathRect, FastStripCommand, FastStripsPath, StripPathMode};
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use core::ops::Range;
 use vello_common::coarse::{
-    CmdAlphaFill, CmdClipAlphaFill, CmdClipFill, CmdFill, CommandAttrs, MODE_HYBRID, Wide,
+    CmdAlphaFill, CmdClipAlphaFill, CmdClipFill, CmdFill, CommandAttrs, LayerKind, MODE_HYBRID,
+    Wide,
 };
 use vello_common::peniko::BlendMode;
+use vello_common::render_graph::{LayerId, RenderNodeKind};
 use vello_common::strip_generator::StripStorage;
 use vello_common::{
     coarse::{Cmd, WideTile},
@@ -211,13 +214,39 @@ const RECT_STRIP_FLAG: u32 = 1 << 31;
 // The sentinel tile index representing the surface.
 const SENTINEL_SLOT_IDX: usize = usize::MAX;
 
+/// The output target for the main rendering operations within a round.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OutputTarget {
+    /// Render to the final, user-provided output view/surface.
+    FinalView,
+    /// Render to the intermediate texture associated with the given filter layer.
+    IntermediateTexture(LayerId),
+}
+
+/// Specifies the target for a render pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StripPassRenderTarget {
+    /// Render to the current output target (final view or intermediate texture).
+    Output(OutputTarget),
+    /// Render to one of the slot textures used for clipping/blending.
+    SlotTexture(u8),
+}
+
 /// Trait for abstracting the renderer backend from the scheduler.
 pub(crate) trait RendererBackend {
     /// Clear specific slots in a texture.
     fn clear_slots(&mut self, texture_index: usize, slots: &[u32]);
 
     /// Execute a render pass for strips.
-    fn render_strips(&mut self, strips: &[GpuStrip], target_index: usize, load_op: LoadOp);
+    fn render_strips(
+        &mut self,
+        strips: &[GpuStrip],
+        target: StripPassRenderTarget,
+        load_op: LoadOp,
+    );
+
+    /// Apply filter effects for the given layer after its content has been rendered.
+    fn apply_filter(&mut self, layer_id: LayerId);
 }
 
 /// Backend agnostic enum that specifies the operation to perform to the output attachment at the
@@ -245,6 +274,10 @@ pub(crate) struct Scheduler {
     /// A pool of `Round` objects that can be reused, so that we can reduce
     /// the number of allocations.
     round_pool: RoundPool,
+    /// The output target for the main rendering operations. This is the final
+    /// surface in the normal case, or an intermediate texture when rendering a
+    /// filter layer.
+    output_target: OutputTarget,
 }
 
 #[derive(Debug, Default)]
@@ -423,6 +456,7 @@ impl Scheduler {
             free,
             rounds_queue: VecDeque::new(),
             round_pool: RoundPool::default(),
+            output_target: OutputTarget::FinalView,
         }
     }
 
@@ -455,6 +489,46 @@ impl Scheduler {
 
     /// Schedule and render the scene.
     ///
+    /// Routes to either [`Self::do_scene_with_filters`] when the scene has filter layers,
+    /// or [`Self::do_scene_no_filters`] otherwise.
+    pub(crate) fn do_scene<R: RendererBackend>(
+        &mut self,
+        state: &mut SchedulerState,
+        renderer: &mut R,
+        scene: &Scene,
+        paint_idxs: &[u32],
+        filter_context: &FilterContext,
+        encoded_paints: &[EncodedPaint],
+    ) -> Result<(), RenderError> {
+        if scene.render_graph.has_filters() {
+            self.do_scene_with_filters(
+                state,
+                renderer,
+                scene,
+                paint_idxs,
+                filter_context,
+                encoded_paints,
+            )?;
+        } else {
+            self.do_scene_no_filters(state, renderer, scene, paint_idxs, encoded_paints)?;
+        }
+
+        // Restore state to reuse allocations.
+        self.round = 0;
+        #[cfg(debug_assertions)]
+        {
+            for i in 0..self.total_slots {
+                debug_assert!(self.free[0].contains(&i), "free[0] is missing slot {i}");
+                debug_assert!(self.free[1].contains(&i), "free[1] is missing slot {i}");
+            }
+        }
+        debug_assert!(self.rounds_queue.is_empty(), "rounds_queue is not empty");
+
+        Ok(())
+    }
+
+    /// Schedule and render a scene without filter layers.
+    ///
     /// Depending on [`StripPathMode`], the scene is processed in one of three ways:
     ///
     /// - **`FastOnly`**: All paths were rendered directly into the fast strips buffer
@@ -470,12 +544,13 @@ impl Scheduler {
     ///   layers. We still need to go through the usual scheduling process, but fast path
     ///   strips can be processed much faster now since they haven't gone through coarse
     ///   rasterization.
-    pub(crate) fn do_scene<R: RendererBackend>(
+    fn do_scene_no_filters<R: RendererBackend>(
         &mut self,
         state: &mut SchedulerState,
         renderer: &mut R,
         scene: &Scene,
         paint_idxs: &[u32],
+        encoded_paints: &[EncodedPaint],
     ) -> Result<(), RenderError> {
         let wide = &scene.wide;
         let rows = wide.height_tiles();
@@ -502,12 +577,12 @@ impl Scheduler {
                 self.process_coarse_batch(
                     state,
                     renderer,
-                    scene,
                     wide,
                     rows,
                     cols,
                     &mut cmd_offsets,
                     paint_idxs,
+                    encoded_paints,
                 )?;
             }
             StripPathMode::Interleaved => {
@@ -524,12 +599,12 @@ impl Scheduler {
                     self.process_coarse_batch(
                         state,
                         renderer,
-                        scene,
                         wide,
                         rows,
                         cols,
                         &mut cmd_offsets,
                         paint_idxs,
+                        encoded_paints,
                     )?;
 
                     prev_split = split;
@@ -551,16 +626,215 @@ impl Scheduler {
             self.flush(renderer);
         }
 
-        // Restore state to reuse allocations.
-        self.round = 0;
-        #[cfg(debug_assertions)]
-        {
-            for i in 0..self.total_slots {
-                debug_assert!(self.free[0].contains(&i), "free[0] is missing slot {i}");
-                debug_assert!(self.free[1].contains(&i), "free[1] is missing slot {i}");
+        Ok(())
+    }
+
+    /// Schedule and render a scene that has filter layers.
+    ///
+    /// Iterates the render graph in execution order. For each node, renders all
+    /// wide tiles within its bounding box, then applies the filter if the node is
+    /// a filter layer.
+    fn do_scene_with_filters<R: RendererBackend>(
+        &mut self,
+        state: &mut SchedulerState,
+        renderer: &mut R,
+        scene: &Scene,
+        paint_idxs: &[u32],
+        filter_context: &FilterContext,
+        encoded_paints: &[EncodedPaint],
+    ) -> Result<(), RenderError> {
+        for node_id in scene.render_graph.execution_order() {
+            let node = &scene.render_graph.nodes[node_id];
+
+            if node.is_empty() {
+                continue;
+            }
+
+            let (layer_id, wtile_bbox) = match &node.kind {
+                RenderNodeKind::FilterLayer {
+                    layer_id,
+                    wtile_bbox,
+                    ..
+                } => {
+                    self.output_target = OutputTarget::IntermediateTexture(*layer_id);
+                    (*layer_id, *wtile_bbox)
+                }
+                RenderNodeKind::RootLayer {
+                    layer_id,
+                    wtile_bbox,
+                } => {
+                    self.output_target = OutputTarget::FinalView;
+                    (*layer_id, *wtile_bbox)
+                }
+            };
+
+            for y in wtile_bbox.y0()..wtile_bbox.y1() {
+                for x in wtile_bbox.x0()..wtile_bbox.x1() {
+                    let wide_tile = scene.wide.get(x, y);
+                    let wide_tile_x = x * WideTile::WIDTH;
+                    let wide_tile_y = y * Tile::HEIGHT;
+
+                    state.clear();
+                    self.initialize_tile_state(
+                        &mut state.tile_state,
+                        wide_tile,
+                        wide_tile_x,
+                        wide_tile_y,
+                        encoded_paints,
+                        paint_idxs,
+                        true,
+                    );
+
+                    let Some(ranges) = wide_tile.layer_cmd_ranges.get(&layer_id) else {
+                        continue;
+                    };
+
+                    // For the root layer, use `surface_is_blend_target` to determine
+                    // whether the entire tile content must be wrapped in a push/pop for
+                    // blending. For filter layers, the intermediate texture is always
+                    // clean, so wrapping is never needed.
+                    let wrap_surface = matches!(self.output_target, OutputTarget::FinalView)
+                        && wide_tile.surface_is_blend_target();
+
+                    if wrap_surface {
+                        self.do_push_buf(state, renderer, true)?;
+                    }
+
+                    let attrs = &scene.wide.attrs;
+                    let mut cmd_idx = ranges.render_range.start;
+
+                    while cmd_idx < ranges.render_range.end {
+                        let cmd = &wide_tile.cmds[cmd_idx];
+
+                        match cmd {
+                            Cmd::Fill(fill) => {
+                                self.do_fill(
+                                    state,
+                                    encoded_paints,
+                                    fill,
+                                    paint_idxs,
+                                    wide_tile_x,
+                                    wide_tile_y,
+                                    attrs,
+                                );
+                            }
+                            Cmd::AlphaFill(alpha_fill) => {
+                                self.do_alpha_fill(
+                                    state,
+                                    encoded_paints,
+                                    alpha_fill,
+                                    paint_idxs,
+                                    wide_tile_x,
+                                    wide_tile_y,
+                                    attrs,
+                                );
+                            }
+                            Cmd::PushBuf(LayerKind::Filtered(child_layer_id), blend_into_dest) => {
+                                let filtered_ranges =
+                                    wide_tile.layer_cmd_ranges.get(child_layer_id).unwrap();
+                                // If the filter layer was zero-sized, no texture was allocated.
+                                // Skip its entire range.
+                                let Some(filter_textures) =
+                                    filter_context.filter_textures.get(child_layer_id)
+                                else {
+                                    cmd_idx = filtered_ranges.full_range.end;
+                                    continue;
+                                };
+
+                                self.do_push_buf(state, renderer, *blend_into_dest)?;
+
+                                let copy_from_filter_layer =
+                                    |scheduler: &mut Self, state: &mut SchedulerState| {
+                                        let cmd = CmdFill {
+                                            x: 0,
+                                            width: WideTile::WIDTH,
+                                            attrs_idx: 0,
+                                        };
+                                        let encoded_paint = encoded_paints
+                                            .get(filter_textures.paint_idx as usize)
+                                            .expect("filter paint not found");
+                                        let paint_tex_idx =
+                                            paint_idxs[filter_textures.paint_idx as usize];
+                                        let (payload, paint) = Self::process_encoded_paint(
+                                            encoded_paint,
+                                            paint_tex_idx,
+                                            wide_tile_x,
+                                            wide_tile_y,
+                                        );
+                                        scheduler.do_fill_with(
+                                            state,
+                                            &cmd,
+                                            wide_tile_x,
+                                            wide_tile_y,
+                                            payload,
+                                            paint,
+                                        );
+                                    };
+
+                                match wide_tile.cmds.get(cmd_idx + 1) {
+                                    Some(Cmd::PushZeroClip(id)) if *id == *child_layer_id => {
+                                        cmd_idx = filtered_ranges.full_range.end - 1;
+                                        continue;
+                                    }
+                                    Some(Cmd::PushBuf(LayerKind::Clip(_), is_blend_dest)) => {
+                                        self.do_push_buf(state, renderer, *is_blend_dest)?;
+                                        cmd_idx += 1;
+                                        copy_from_filter_layer(self, state);
+                                    }
+                                    _ => {
+                                        copy_from_filter_layer(self, state);
+                                    }
+                                }
+
+                                cmd_idx = filtered_ranges.render_range.end.max(cmd_idx + 1);
+                                continue;
+                            }
+                            Cmd::PushBuf(_, needs_temp) => {
+                                self.do_push_buf(state, renderer, *needs_temp)?;
+                            }
+                            Cmd::PopBuf => {
+                                self.do_pop_buf(state);
+                            }
+                            Cmd::ClipFill(clip_fill) => {
+                                self.do_clip_fill(state, wide_tile_x, wide_tile_y, clip_fill);
+                            }
+                            Cmd::ClipStrip(clip_alpha_fill) => {
+                                self.do_clip_strip(
+                                    state,
+                                    wide_tile_x,
+                                    wide_tile_y,
+                                    clip_alpha_fill,
+                                    attrs,
+                                );
+                            }
+                            Cmd::Opacity(opacity) => {
+                                self.do_opacity(state, *opacity);
+                            }
+                            Cmd::Blend(b) => {
+                                self.do_blend(state, wide_tile_x, wide_tile_y, b);
+                            }
+                            Cmd::Filter(_, _) => {}
+                            _ => unreachable!(),
+                        }
+
+                        cmd_idx += 1;
+                    }
+
+                    if wrap_surface {
+                        self.do_blend(state, wide_tile_x, wide_tile_y, &BlendMode::default());
+                        self.do_pop_buf(state);
+                    }
+                }
+            }
+
+            while !self.rounds_queue.is_empty() {
+                self.flush(renderer);
+            }
+
+            if let OutputTarget::IntermediateTexture(layer_id) = self.output_target {
+                renderer.apply_filter(layer_id);
             }
         }
-        debug_assert!(self.rounds_queue.is_empty(), "rounds_queue is not empty");
 
         Ok(())
     }
@@ -602,12 +876,12 @@ impl Scheduler {
         &mut self,
         state: &mut SchedulerState,
         renderer: &mut R,
-        scene: &Scene,
         wide: &Wide<MODE_HYBRID>,
         rows: u16,
         cols: u16,
         cmd_offsets: &mut [usize],
         paint_idxs: &[u32],
+        encoded_paints: &[EncodedPaint],
     ) -> Result<(), RenderError> {
         for row in 0..rows {
             for col in 0..cols {
@@ -637,14 +911,14 @@ impl Scheduler {
                     tile,
                     tile_x,
                     tile_y,
-                    scene,
+                    encoded_paints,
                     paint_idxs,
                     paint_bg,
                 );
                 let relative_end = self.do_tile(
                     state,
                     renderer,
-                    scene,
+                    encoded_paints,
                     tile_x,
                     tile_y,
                     &tile.cmds[start_offset..],
@@ -682,6 +956,12 @@ impl Scheduler {
                     }
                 }
             }
+            let target = if i == 2 {
+                StripPassRenderTarget::Output(self.output_target)
+            } else {
+                StripPassRenderTarget::SlotTexture(i as u8)
+            };
+
             let load = {
                 if i == 2 {
                     // We're rendering to the view, don't clear.
@@ -707,7 +987,7 @@ impl Scheduler {
                 continue;
             }
 
-            renderer.render_strips(&draw.0, i, load);
+            renderer.render_strips(&draw.0, target, load);
         }
         for i in 0..2 {
             self.free[i].extend(&round.free[i]);
@@ -741,7 +1021,7 @@ impl Scheduler {
         tile: &WideTile<MODE_HYBRID>,
         wide_tile_x: u16,
         wide_tile_y: u16,
-        scene: &Scene,
+        encoded_paints: &[EncodedPaint],
         idxs: &[u32],
     ) {
         let bg = tile.bg.as_premul_rgba8().to_u32();
@@ -749,8 +1029,7 @@ impl Scheduler {
         if has_non_zero_alpha(bg) {
             let (payload, paint) = Self::process_paint(
                 &Paint::Solid(tile.bg),
-                // TODO: Move to parent.
-                &scene.encoded_paints.borrow(),
+                encoded_paints,
                 (wide_tile_x, wide_tile_y),
                 idxs,
             );
@@ -769,7 +1048,7 @@ impl Scheduler {
         tile: &WideTile<MODE_HYBRID>,
         wide_tile_x: u16,
         wide_tile_y: u16,
-        scene: &Scene,
+        encoded_paints: &[EncodedPaint],
         idxs: &[u32],
         paint_bg: bool,
     ) {
@@ -785,7 +1064,7 @@ impl Scheduler {
         });
 
         if paint_bg {
-            self.paint_tile_bg(tile, wide_tile_x, wide_tile_y, scene, idxs);
+            self.paint_tile_bg(tile, wide_tile_x, wide_tile_y, encoded_paints, idxs);
         }
     }
 
@@ -797,7 +1076,7 @@ impl Scheduler {
         &mut self,
         state: &mut SchedulerState,
         renderer: &mut R,
-        scene: &Scene,
+        encoded_paints: &[EncodedPaint],
         wide_tile_x: u16,
         wide_tile_y: u16,
         wide_tile_cmds: &[Cmd],
@@ -826,9 +1105,6 @@ impl Scheduler {
         // end up being the destination of a blending operation. Since that surface is provided
         // by the user, there is no way we can read from it, which is required for blending. Therefore,
         // in this case we need to "wrap" _everything_ into a push/pop layer operation.
-
-        // TODO: Move this to parent
-        let encoded_paints = &scene.encoded_paints.borrow();
 
         if surface_is_blend_target {
             self.do_push_buf(state, renderer, true)?;

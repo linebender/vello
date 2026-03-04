@@ -22,6 +22,7 @@ only break in edge cases, and some of them are also only related to conversions 
 
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize,
+    filter::FilterContext,
     gradient_cache::GradientRampCache,
     render::{
         Config,
@@ -34,7 +35,9 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{LoadOp, RendererBackend, Scheduler, SchedulerState},
+    schedule::{
+        LoadOp, OutputTarget, RendererBackend, Scheduler, SchedulerState, StripPassRenderTarget,
+    },
 };
 use alloc::sync::Arc;
 use alloc::vec;
@@ -93,6 +96,8 @@ pub struct WebGlRenderer {
     paint_idxs: Vec<u32>,
     /// Gradient cache for storing gradient ramps.
     gradient_cache: GradientRampCache,
+    /// Context for GPU filter effects.
+    filter_context: FilterContext,
 }
 
 impl WebGlRenderer {
@@ -149,6 +154,7 @@ impl WebGlRenderer {
         let max_gradient_cache_size =
             max_texture_dimension_2d * max_texture_dimension_2d / MAX_GRADIENT_LUT_SIZE as u32;
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
+        let filter_context = FilterContext::new(settings.atlas_config);
 
         Self {
             programs: WebGlPrograms::new(gl.clone(), &image_cache, total_slots),
@@ -159,6 +165,7 @@ impl WebGlRenderer {
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
             gradient_cache,
+            filter_context,
         }
     }
 
@@ -329,7 +336,8 @@ impl WebGlRenderer {
         render_size: &RenderSize,
         clear: bool,
     ) -> Result<(), RenderError> {
-        self.prepare_gpu_encoded_paints(&scene.encoded_paints.borrow());
+        let encoded_paints = scene.encoded_paints.borrow();
+        self.prepare_gpu_encoded_paints(&encoded_paints);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
@@ -349,8 +357,14 @@ impl WebGlRenderer {
             programs: &mut self.programs,
             gl: &self.gl,
         };
-        self.scheduler
-            .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs)?;
+        self.scheduler.do_scene(
+            &mut self.scheduler_state,
+            &mut ctx,
+            scene,
+            &self.paint_idxs,
+            &self.filter_context,
+            &encoded_paints,
+        )?;
         self.gradient_cache.maintain();
 
         Ok(())
@@ -1977,8 +1991,24 @@ impl RendererBackend for WebGlRendererContext<'_> {
     }
 
     /// Execute a render pass for strips.
-    fn render_strips(&mut self, strips: &[GpuStrip], target_index: usize, load_op: LoadOp) {
+    fn render_strips(
+        &mut self,
+        strips: &[GpuStrip],
+        target: StripPassRenderTarget,
+        load_op: LoadOp,
+    ) {
+        let target_index = match target {
+            StripPassRenderTarget::SlotTexture(i) => i as usize,
+            StripPassRenderTarget::Output(OutputTarget::FinalView) => 2,
+            StripPassRenderTarget::Output(OutputTarget::IntermediateTexture(_)) => {
+                unimplemented!("rendering to intermediate filter texture (step 8)")
+            }
+        };
         self.do_strip_render_pass(strips, target_index, load_op);
+    }
+
+    fn apply_filter(&mut self, _layer_id: vello_common::render_graph::LayerId) {
+        unimplemented!("filter application (step 8)")
     }
 }
 
