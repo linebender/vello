@@ -427,7 +427,6 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
     scenes.push(AnyScene::new(text::TextScene::new("Hello, Vello!")));
     scenes.push(AnyScene::new(simple::SimpleScene::new()));
     scenes.push(AnyScene::new(clip::ClipScene::new()));
-    #[cfg(feature = "cpu")]
     scenes.push(AnyScene::new(filter::FilterScene::new()));
     scenes.push(AnyScene::new(blend::BlendScene::new()));
     let flower_source = img_sources[0].clone();
@@ -457,7 +456,6 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
         AnyScene::new(svg::SvgScene::tiger()),
         AnyScene::new(text::TextScene::new("Hello, Vello!")),
         AnyScene::new(simple::SimpleScene::new()),
-        #[cfg(feature = "cpu")]
         AnyScene::new(filter::FilterScene::new()),
         AnyScene::new(clip::ClipScene::new()),
         AnyScene::new(blend::BlendScene::new()),

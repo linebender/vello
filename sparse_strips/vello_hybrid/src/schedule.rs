@@ -570,6 +570,7 @@ impl Scheduler {
                     scene,
                     0..scene.fast_strips_buffer.commands.len(),
                     paint_idxs,
+                    encoded_paints,
                 );
             }
             StripPathMode::CoarseOnly => {
@@ -592,7 +593,12 @@ impl Scheduler {
                 for &split in &scene.coarse_batch_splits {
                     // First process any direct strips.
                     if prev_split < split {
-                        self.push_direct_strips(scene, prev_split..split, paint_idxs);
+                        self.push_direct_strips(
+                            scene,
+                            prev_split..split,
+                            paint_idxs,
+                            encoded_paints,
+                        );
                     }
 
                     // Then process the coarse batch.
@@ -614,7 +620,12 @@ impl Scheduler {
                 // scene.
                 let tail_end = scene.fast_strips_buffer.commands.len();
                 if prev_split < tail_end {
-                    self.push_direct_strips(scene, prev_split..tail_end, paint_idxs);
+                    self.push_direct_strips(
+                        scene,
+                        prev_split..tail_end,
+                        paint_idxs,
+                        encoded_paints,
+                    );
                 }
             }
         }
@@ -841,7 +852,13 @@ impl Scheduler {
 
     /// Generate `GpuStrips` for a range of direct commands and append them
     /// directly into the current round's surface draw array.
-    fn push_direct_strips(&mut self, scene: &Scene, range: Range<usize>, paint_idxs: &[u32]) {
+    fn push_direct_strips(
+        &mut self,
+        scene: &Scene,
+        range: Range<usize>,
+        paint_idxs: &[u32],
+        encoded_paints: &[EncodedPaint],
+    ) {
         let strip_storage = scene.strip_storage.borrow();
         // Always choose the draw of the final surface, since direct strips are only ever
         // rendered to the final surface.
@@ -854,12 +871,13 @@ impl Scheduler {
                         path,
                         &strip_storage,
                         scene,
+                        encoded_paints,
                         paint_idxs,
                         &mut draw.0,
                     );
                 }
                 FastStripCommand::Rect(r) => {
-                    let strip = pack_rectangle_into_gpu(r, scene, paint_idxs);
+                    let strip = pack_rectangle_into_gpu(r, scene, encoded_paints, paint_idxs);
 
                     draw.0.push(strip);
                 }
@@ -1734,6 +1752,7 @@ fn generate_gpu_strips_for_fast_path(
     path: &FastStripsPath,
     strip_storage: &StripStorage,
     scene: &Scene,
+    encoded_paints: &[EncodedPaint],
     paint_idxs: &[u32],
     gpu_strips: &mut Vec<GpuStrip>,
 ) {
@@ -1763,12 +1782,8 @@ fn generate_gpu_strips_for_fast_path(
 
         // Alpha fill for the strip's coverage region.
         if strip_width > 0 {
-            let (payload, paint) = Scheduler::process_paint(
-                &path.paint,
-                &scene.encoded_paints.borrow(),
-                (x0, y),
-                paint_idxs,
-            );
+            let (payload, paint) =
+                Scheduler::process_paint(&path.paint, encoded_paints, (x0, y), paint_idxs);
             gpu_strips.push(
                 GpuStripBuilder::at_surface(x0, y, strip_width)
                     .with_sparse(strip_width, col)
@@ -1786,19 +1801,20 @@ fn generate_gpu_strips_for_fast_path(
                     .unwrap_or(u16::MAX),
             );
             if x2 > x1 {
-                let (payload, paint) = Scheduler::process_paint(
-                    &path.paint,
-                    &scene.encoded_paints.borrow(),
-                    (x1, y),
-                    paint_idxs,
-                );
+                let (payload, paint) =
+                    Scheduler::process_paint(&path.paint, encoded_paints, (x1, y), paint_idxs);
                 gpu_strips.push(GpuStripBuilder::at_surface(x1, y, x2 - x1).paint(payload, paint));
             }
         }
     }
 }
 
-fn pack_rectangle_into_gpu(rect: &FastPathRect, scene: &Scene, paint_idxs: &[u32]) -> GpuStrip {
+fn pack_rectangle_into_gpu(
+    rect: &FastPathRect,
+    scene: &Scene,
+    encoded_paints: &[EncodedPaint],
+    paint_idxs: &[u32],
+) -> GpuStrip {
     let sx0 = rect.x0.floor();
     let sy0 = rect.y0.floor();
     let sx1 = rect.x1.ceil();
@@ -1810,12 +1826,8 @@ fn pack_rectangle_into_gpu(rect: &FastPathRect, scene: &Scene, paint_idxs: &[u32
     let width = (sx1 - sx0) as u16;
     let height = (sy1 - sy0) as u16;
 
-    let (payload, paint_packed) = Scheduler::process_paint(
-        &rect.paint,
-        &scene.encoded_paints.borrow(),
-        (x, y),
-        paint_idxs,
-    );
+    let (payload, paint_packed) =
+        Scheduler::process_paint(&rect.paint, encoded_paints, (x, y), paint_idxs);
 
     // Determine the fractional offsets for anti-aliasing and quantize so it
     // fits into u8.

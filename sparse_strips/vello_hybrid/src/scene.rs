@@ -490,7 +490,10 @@ impl Scene {
         reason = "f64→f32 truncation is acceptable for pixel coordinates"
     )]
     fn try_fast_rect(&mut self, rect: &Rect) -> bool {
-        if self.strip_path_mode == StripPathMode::CoarseOnly || self.wide.has_layers() {
+        if self.strip_path_mode == StripPathMode::CoarseOnly
+            || self.wide.has_layers()
+            || self.filter.is_some()
+        {
             return false;
         }
 

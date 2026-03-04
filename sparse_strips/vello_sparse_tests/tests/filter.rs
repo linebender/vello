@@ -19,7 +19,7 @@ use vello_dev_macros::vello_test;
 // TODO: We are purposefully using multiple of WideTile width/height here, because the implementation
 // currently works incorrectly if it's not the case. Once the issue as been fixed, we should update
 // this test to use normal dimensions.
-#[vello_test(skip_hybrid, skip_multithreaded, width = 256, height = 40)]
+#[vello_test(skip_multithreaded, width = 256, height = 40)]
 fn filter_flood(ctx: &mut impl Renderer) {
     let filter_flood = Filter::from_primitive(FilterPrimitive::Flood { color: TOMATO });
 
@@ -33,7 +33,7 @@ fn filter_flood(ctx: &mut impl Renderer) {
 ///
 /// Note: SVG-compliant flood would use `feComposite` with `operator="in"`, which requires
 /// implementing the composite primitive and filter subregions.
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded)]
 fn filter_flood_star(ctx: &mut impl Renderer) {
     let filter_flood = Filter::from_primitive(FilterPrimitive::Flood { color: TOMATO });
     let star_path = circular_star(Point::new(50.0, 50.0), 5, 20.0, 40.0);
@@ -50,7 +50,7 @@ fn filter_flood_star(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(skip_multithreaded, skip_hybrid)]
+#[vello_test(skip_multithreaded)]
 fn filter_offset_simple(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 15.0, dy: 15.0 });
     ctx.push_filter_layer(filter);
@@ -59,7 +59,7 @@ fn filter_offset_simple(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(skip_multithreaded, skip_hybrid)]
+#[vello_test(skip_multithreaded)]
 fn filter_offset_no_offset(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
     ctx.push_filter_layer(filter);
@@ -68,7 +68,7 @@ fn filter_offset_no_offset(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(skip_multithreaded, skip_hybrid)]
+#[vello_test(skip_multithreaded)]
 fn filter_offset_nested(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 10.0, dy: 10.0 });
     ctx.push_filter_layer(filter.clone());
@@ -81,7 +81,7 @@ fn filter_offset_nested(ctx: &mut impl Renderer) {
 
 /// Test Gaussian blur with small radius (`std_deviation` = 2.0, no decimation).
 /// Uses direct separable convolution at full resolution.
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded)]
 fn filter_gaussian_blur_no_decimation(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 2.0,
@@ -97,7 +97,7 @@ fn filter_gaussian_blur_no_decimation(ctx: &mut impl Renderer) {
 
 /// Test Gaussian blur with larger radius (`std_deviation` = 4.0, uses decimation).
 /// Uses multi-scale downsampling for performance.
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
 fn filter_gaussian_blur_with_decimation(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 4.0,
@@ -113,7 +113,7 @@ fn filter_gaussian_blur_with_decimation(ctx: &mut impl Renderer) {
 
 /// Test drop shadow filter on text glyph.
 /// Creates a blurred, offset shadow beneath the original graphic.
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
 fn filter_drop_shadow(ctx: &mut impl Renderer) {
     let font_size: f32 = 80_f32;
     let (font, glyphs) = layout_glyphs_roboto("A", font_size);
@@ -137,7 +137,7 @@ fn filter_drop_shadow(ctx: &mut impl Renderer) {
 
 /// Test drop shadow on a simple rectangle.
 /// Verifies the offset pixel optimization works correctly with different offsets.
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded)]
 fn filter_drop_shadow_corners(ctx: &mut impl Renderer) {
     // Layout parameters
     let margin = 8.0;
@@ -265,7 +265,7 @@ fn filter_drop_shadow_corners(ctx: &mut impl Renderer) {
 
 /// Test `set_filter_effect` and `reset_filter_effect` API.
 /// Applies filters to individual draw calls without creating layers.
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
 fn filter_set_effect(ctx: &mut impl Renderer) {
     let filter_drop_shadow = Filter::from_primitive(FilterPrimitive::DropShadow {
         dx: 2.0,
@@ -318,7 +318,7 @@ fn filter_set_effect(ctx: &mut impl Renderer) {
 
 /// Test filter interactions with layers, clips, blend modes, and opacity.
 /// 9 scenarios testing filters at various depths, with clips, opacity, blend modes, etc.
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
 fn filter_varying_depths_clips_and_compositions(ctx: &mut impl Renderer) {
     let filter_drop_shadow = Filter::from_primitive(FilterPrimitive::DropShadow {
         dx: 2.0,
@@ -793,7 +793,7 @@ fn filter_varying_depths_clips_and_compositions(ctx: &mut impl Renderer) {
 /// This verifies that the expansion calculation uses `transform_rect_bbox` to account for
 /// the full transformation matrix (including rotation and shear), rather than just extracting
 /// x/y scales separately. A 45-degree rotation should produce a diamond-shaped blur.
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
 fn filter_rotated_blur(ctx: &mut impl Renderer) {
     let filter_gaussian_blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 4.0,
@@ -859,7 +859,7 @@ fn filter_rotated_blur(ctx: &mut impl Renderer) {
 }
 
 /// Test that zero blur acts as identity (no-op).
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded)]
 fn filter_gaussian_blur_zero(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 0.0,
@@ -874,7 +874,7 @@ fn filter_gaussian_blur_zero(ctx: &mut impl Renderer) {
 }
 
 /// Test drop shadow with sub-pixel offsets.
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded)]
 fn filter_drop_shadow_fractional_offset(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::DropShadow {
         dx: 2.5,
@@ -892,7 +892,7 @@ fn filter_drop_shadow_fractional_offset(ctx: &mut impl Renderer) {
 }
 
 /// Test drop shadow with zero offset (shadow directly behind).
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded)]
 fn filter_drop_shadow_zero_offset(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::DropShadow {
         dx: 0.0,
@@ -912,7 +912,7 @@ fn filter_drop_shadow_zero_offset(ctx: &mut impl Renderer) {
 /// Test offset filter primitive.
 ///
 /// This shifts content within a filter layer and should not clip content to the original bounds.
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded)]
 fn filter_offset(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::Offset {
         dx: 18.0,
@@ -947,7 +947,7 @@ fn filter_offset(ctx: &mut impl Renderer) {
 }
 
 /// Test blur with various transforms (translate, rotate, scale, skew).
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 2)]
 fn filter_transformed_blur(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 3.0,
@@ -969,7 +969,7 @@ fn filter_transformed_blur(ctx: &mut impl Renderer) {
 }
 
 /// Test filter layer with no content drawn.
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded)]
 fn filter_empty_layers(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 4.0,
@@ -986,7 +986,7 @@ fn filter_empty_layers(ctx: &mut impl Renderer) {
 }
 
 /// Test nested filter layers (blur inside drop shadow).
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded)]
 fn filter_nested_layers(ctx: &mut impl Renderer) {
     let blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 2.0,
@@ -1009,7 +1009,7 @@ fn filter_nested_layers(ctx: &mut impl Renderer) {
 }
 
 /// Test blur with very large `std_deviation`.
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 3)]
 fn filter_extreme_blur(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 20.0,
@@ -1023,13 +1023,7 @@ fn filter_extreme_blur(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(
-    skip_multithreaded,
-    skip_hybrid,
-    hybrid_tolerance = 4,
-    width = 400,
-    height = 400
-)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 4, width = 400, height = 400)]
 fn filter_extreme_blur_2(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 36.0,
@@ -1044,7 +1038,7 @@ fn filter_extreme_blur_2(ctx: &mut impl Renderer) {
 }
 
 /// Test filter on semi-transparent shapes.
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
 fn filter_transparent_shapes(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 3.0,
@@ -1067,7 +1061,7 @@ fn filter_transparent_shapes(ctx: &mut impl Renderer) {
 }
 
 /// Test filter on stroked paths.
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded)]
 fn filter_stroked_paths(ctx: &mut impl Renderer) {
     use vello_common::kurbo::{Cap, Join, Stroke};
 
@@ -1100,7 +1094,7 @@ fn filter_stroked_paths(ctx: &mut impl Renderer) {
 /// TODO: This test currently demonstrates a bug where filters render incorrectly
 /// when filtered elements are near or extend beyond viewport boundaries.
 /// See: <https://github.com/linebender/vello/issues/1304>
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 2)]
 fn issue_filter_canvas_boundaries(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 5.0,
@@ -1140,7 +1134,7 @@ fn issue_filter_canvas_boundaries(ctx: &mut impl Renderer) {
 // the image so the top-left wide tile of the bbox starts at (0, 0). This test
 // ensures that complex paints are also appropriately shifted. The correct behavior is
 // to see the whole gradient, the wrong behavior would be to only see a blue rectangle.
-#[vello_test(skip_multithreaded, skip_hybrid, width = 512, height = 4)]
+#[vello_test(skip_multithreaded, width = 512, height = 4)]
 fn filter_with_complex_paint_and_wide_tile_shift(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
 
@@ -1161,7 +1155,7 @@ fn filter_with_complex_paint_and_wide_tile_shift(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(skip_multithreaded, skip_hybrid)]
+#[vello_test(skip_multithreaded)]
 fn filter_with_opacity(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 2.0,
@@ -1175,7 +1169,7 @@ fn filter_with_opacity(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(skip_multithreaded, skip_hybrid)]
+#[vello_test(skip_multithreaded)]
 fn filter_with_nested_opacity(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 2.0,
@@ -1191,7 +1185,7 @@ fn filter_with_nested_opacity(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(skip_multithreaded, skip_hybrid)]
+#[vello_test(skip_multithreaded)]
 fn filter_in_nested_layer(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 2.0,
@@ -1208,7 +1202,7 @@ fn filter_in_nested_layer(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(skip_multithreaded, skip_hybrid)]
+#[vello_test(skip_multithreaded)]
 fn filter_in_double_nested_layer(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 2.0,
@@ -1227,7 +1221,7 @@ fn filter_in_double_nested_layer(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(skip_multithreaded, no_ref, skip_hybrid)]
+#[vello_test(skip_multithreaded, no_ref)]
 fn filter_on_right_of_viewport(ctx: &mut impl Renderer) {
     let offset = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
 
@@ -1263,17 +1257,17 @@ pub(crate) fn blur_with_edge_mode(ctx: &mut impl Renderer, edge_mode: EdgeMode) 
 // because edge modes currently don't handle other widths/heights correctly. Once that is
 // fixed, we should change the tests back to 100x100 to exercise that path as well.
 
-#[vello_test(skip_hybrid, skip_multithreaded, width = 256, height = 100)]
+#[vello_test(skip_multithreaded, skip_hybrid, width = 256, height = 100)]
 fn filter_gaussian_blur_edge_mode_duplicate(ctx: &mut impl Renderer) {
     blur_with_edge_mode(ctx, EdgeMode::Duplicate);
 }
 
-#[vello_test(skip_hybrid, skip_multithreaded, width = 256, height = 100)]
+#[vello_test(skip_multithreaded, skip_hybrid, width = 256, height = 100)]
 fn filter_gaussian_blur_edge_mode_wrap(ctx: &mut impl Renderer) {
     blur_with_edge_mode(ctx, EdgeMode::Wrap);
 }
 
-#[vello_test(skip_hybrid, skip_multithreaded, width = 256, height = 100)]
+#[vello_test(skip_multithreaded, skip_hybrid, width = 256, height = 100)]
 fn filter_gaussian_blur_edge_mode_mirror(ctx: &mut impl Renderer) {
     blur_with_edge_mode(ctx, EdgeMode::Mirror);
 }
