@@ -61,7 +61,7 @@ pub(crate) mod pass_kind {
     pub(crate) const BLUR_H: u32 = 4;
     pub(crate) const BLUR_V: u32 = 5;
     pub(crate) const UPSCALE: u32 = 6;
-    pub(crate) const COMPOSITE: u32 = 7;
+    pub(crate) const COMPOSITE_DROP_SHADOW: u32 = 7;
 }
 
 pub(crate) fn edge_mode_to_gpu(mode: EdgeMode) -> u32 {
@@ -670,7 +670,7 @@ impl FilterContext {
                 for _ in 0..n_decimations {
                     kinds.push(pass_kind::UPSCALE);
                 }
-                kinds.push(pass_kind::COMPOSITE);
+                kinds.push(pass_kind::COMPOSITE_DROP_SHADOW);
                 kinds
             }
             _ => vec![pass_kind::COPY],
@@ -752,7 +752,7 @@ impl FilterContext {
         // and COMPOSITE reads from that scratch + original, writes to dest.
 
         // Determine if the last pass is COMPOSITE (drop shadow).
-        let last_is_composite = pass_kinds[num_passes - 1] == pass_kind::COMPOSITE;
+        let last_is_composite = pass_kinds[num_passes - 1] == pass_kind::COMPOSITE_DROP_SHADOW;
         // The "final content pass" is the last pass that writes the actual result
         // (for drop shadow, that's the pass before COMPOSITE).
         let final_content_idx = if last_is_composite {
@@ -805,7 +805,7 @@ impl FilterContext {
                 };
 
             // For COMPOSITE, bind original texture.
-            let (original_atlas, original_offset) = if kind == pass_kind::COMPOSITE {
+            let (original_atlas, original_offset) = if kind == pass_kind::COMPOSITE_DROP_SHADOW {
                 (Some(initial_atlas_idx), initial_image.offsets())
             } else {
                 (None, [0, 0])

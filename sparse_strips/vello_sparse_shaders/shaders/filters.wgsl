@@ -29,7 +29,7 @@ const PASS_DOWNSCALE: u32 = 3u;
 const PASS_BLUR_H: u32 = 4u;
 const PASS_BLUR_V: u32 = 5u;
 const PASS_UPSCALE: u32 = 6u;
-const PASS_COMPOSITE: u32 = 7u;
+const PASS_COMPOSITE_DROP_SHADOW: u32 = 7u;
 
 const MAX_TAPS_PER_SIDE: u32 = 3u;
 
@@ -212,78 +212,87 @@ fn sample_input_checked(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f3
 // filtering with bilinear samplers (since the padding of images is always transparent), hence why this is currently
 // not implemented. It's possible, but we should only do it if we really need it.
 
-// 2x decimation using [1,3,3,1]x[1,3,3,1]/64 binomial filter with bilinear sampling.
-//
-// The 1D [1,3,3,1]/8 kernel at offsets {-1, 0, +1, +2} relative to src_center is
-// merged into two bilinear taps:
-//   pair(-1, 0): weight 1/8+3/8 = 0.5, offset (-1*1 + 0*3)/4 = -0.25
-//   pair(+1,+2): weight 3/8+1/8 = 0.5, offset (+1*3 + 2*1)/4 =  1.25
-// In 2D all four combinations have equal weight 0.25, so the result is the average
-// of four bilinear samples. This reduces 16 textureLoad calls to 4 textureSample calls.
+// Note that `downscale` and `upscale` and `convolve` all use GPU-native bilinear sampling, assuming that there is a large
+// enough transparent border around the images (which is currently always the case).
+
 fn downscale(in: FilterVertexOutput) -> vec4<f32> {
     let frag_coord = vec2<u32>(in.position.xy);
     let rel = vec2<i32>(frag_coord - in.dest_offset);
-    let src_center = vec2<f32>(rel * 2);
-    let atlas_center = vec2<f32>(in.src_offset) + src_center;
+    let src_rel = vec2<f32>(rel * 2);
+    let src_texel = vec2<f32>(in.src_offset) + src_rel;
     let tex_size = vec2<f32>(textureDimensions(in_tex));
 
-    // Bilinear merge offsets for the [1,3,3,1] kernel pairs.
-    let lo = vec2<f32>(-0.25);  // pair(-1, 0)
-    let hi = vec2<f32>( 1.25);  // pair(+1, +2)
+    // Overall, this follows the same approach that is used by the CPU, where a [1,3,3,1]/8 filter
+    // is applied in each direction to downscale. However, on the GPU we have native bilinear sampling, which
+    // makes things a lot easier for us! Instead of splitting into vertical/horizontal passes we can combine them
+    // both into a single pass and determine the sampling points in such a way that the number of total samples
+    // is reduced from 16 to just 4.
 
-    let s00 = textureSample(in_tex, linear_sampler, (atlas_center + vec2(lo.x, lo.y) + 0.5) / tex_size);
-    let s01 = textureSample(in_tex, linear_sampler, (atlas_center + vec2(lo.x, hi.y) + 0.5) / tex_size);
-    let s10 = textureSample(in_tex, linear_sampler, (atlas_center + vec2(hi.x, lo.y) + 0.5) / tex_size);
-    let s11 = textureSample(in_tex, linear_sampler, (atlas_center + vec2(hi.x, hi.y) + 0.5) / tex_size);
+    // Our sample points are like this [src - 1, src, src + 1, src + 2]. Therefore, to achieve the weighting
+    // [1,3,3,1], the left sample points needs to be shifted 0.25 to the left, and
+    // the right sample point 1.25 to the right.
+    let lo = vec2<f32>(-0.25);
+    let hi = vec2<f32>( 1.25);
 
+    let s00 = textureSample(in_tex, linear_sampler, (src_texel + vec2(lo.x, lo.y) + 0.5) / tex_size);
+    let s01 = textureSample(in_tex, linear_sampler, (src_texel + vec2(lo.x, hi.y) + 0.5) / tex_size);
+    let s10 = textureSample(in_tex, linear_sampler, (src_texel + vec2(hi.x, lo.y) + 0.5) / tex_size);
+    let s11 = textureSample(in_tex, linear_sampler, (src_texel + vec2(hi.x, hi.y) + 0.5) / tex_size);
+
+    // Now we can just average them.
     return (s00 + s01 + s10 + s11) * 0.25;
 }
 
-// 2x upscale with bilinear sampling.
-//
-// Each output pixel maps to a source position at (base + phase * 0.5) where phase is
-// 0 or 1 per axis. The [0.75, 0.25] weighting between the main pixel and its neighbor
-// is exactly what GPU bilinear interpolation produces when the sample point is offset
-// by +/-0.25 from the pixel center. This reduces 4 textureLoad calls to 1 textureSample.
 fn upscale(in: FilterVertexOutput) -> vec4<f32> {
+    // Same story as for downscaling, but this time even simpler and we can get away with a single texture sample.
+
     let frag_coord = vec2<u32>(in.position.xy);
     let rel = vec2<i32>(frag_coord - in.dest_offset);
     let src_base = vec2<f32>(rel / 2);
     let phase = vec2<f32>(rel % 2);
     let tex_size = vec2<f32>(textureDimensions(in_tex));
 
-    // phase=0 -> sample at base - 0.25 (0.75 main + 0.25 left/top neighbor)
-    // phase=1 -> sample at base + 0.25 (0.75 main + 0.25 right/bottom neighbor)
+    // For even phases: 75% of current, 25% of top/left.
+    // For odd phases: 75% of current, 25% of bottom/right.
     let sample_offset = select(vec2(-0.25), vec2(0.25), phase == vec2(1.0));
-    let atlas_pos = vec2<f32>(in.src_offset) + src_base + sample_offset + 0.5;
+    let src_texel = vec2<f32>(in.src_offset) + src_base + sample_offset;
 
-    return textureSample(in_tex, linear_sampler, atlas_pos / tex_size);
+    // Yay, just a single sample!
+    return textureSample(in_tex, linear_sampler, (src_texel + 0.5) / tex_size);
 }
 
 fn convolve(
     in: FilterVertexOutput,
-    center_in: vec2<f32>,
+    src_rel: vec2<f32>,
     dir: vec2<f32>,
     n_linear_taps: u32,
     center_weight: f32,
     weights: array<f32, 3>,
     offsets: array<f32, 3>,
 ) -> vec4<f32> {
-    let atlas_center = vec2<f32>(in.src_offset) + center_in;
+    // See the description in `filter.rs` for a bit more information on how this works. For vello_cpu, we
+    // precompute a kernel and then apply separate horizontal/vertical passes to achieve the blurring.
+    // For the GPU version, we also do horizontal/vertical filtering in two separate passes, but we precompute
+    // new weights as well as a number of fractional offsets, such that we can achieve the same filtering result
+    // with much fewer samples, again thanks to bilinear filtering!
+
+    // TODO: Explore whether combining horizontal and vertical filtering is worth it. Likely not worth doing
+    // since downscaling/upscaling forms the bottleneck for now.
+
+    let src_texel = vec2<f32>(in.src_offset) + src_rel;
     let tex_size = vec2<f32>(textureDimensions(in_tex));
 
-    // Atlas padding guarantees transparent reads beyond content, so we can always
-    // use the fast GPU-native linear sampling path without bounds checking.
-    let center_uv = (atlas_center + 0.5) / tex_size;
-    var color = textureSample(in_tex, linear_sampler, center_uv) * center_weight;
+    // First compute the color contribution of the center pixel.
+    var color = textureSample(in_tex, linear_sampler, (src_texel + 0.5) / tex_size) * center_weight;
+
+    // Then, compute and sum the contributions of the adjacent pixels.
     for (var i = 0u; i < n_linear_taps; i++) {
         let w = weights[i];
         let d = dir * offsets[i];
-        let pos_uv = (atlas_center + d + 0.5) / tex_size;
-        let neg_uv = (atlas_center - d + 0.5) / tex_size;
-        color += textureSample(in_tex, linear_sampler, pos_uv) * w;
-        color += textureSample(in_tex, linear_sampler, neg_uv) * w;
+        color += textureSample(in_tex, linear_sampler, (src_texel + d + 0.5) / tex_size) * w;
+        color += textureSample(in_tex, linear_sampler, (src_texel - d + 0.5) / tex_size) * w;
     }
+
     return color;
 }
 
@@ -295,8 +304,7 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
     let frag_coord = vec2<u32>(in.position.xy);
     let rel_coord = vec2<f32>(frag_coord - in.dest_offset);
 
-    // The vertex quad covers the full allocation size, but the actual dest region
-    // may be smaller (e.g. after decimation). Return transparent for OOB pixels.
+    // See the comment in `vs_main`.
     if rel_coord.x >= f32(in.dest_size.x) || rel_coord.y >= f32(in.dest_size.y) {
         return vec4<f32>(0.0);
     }
@@ -309,18 +317,23 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
         }
         case PASS_FLOOD: {
             let flood = unpack_flood_filter(data);
+
             return unpack4x8unorm(flood.color);
         }
         case PASS_OFFSET: {
             let filter_type = unpack_filter_type(data);
+            var dxdy: vec2<f32>;
+
             if filter_type == FILTER_TYPE_DROP_SHADOW {
                 let shadow = unpack_drop_shadow_filter(data);
-                // For drop shadow, use floor to match the old combined offset+blur behavior.
-                return sample_input_checked(in, floor(rel_coord - vec2<f32>(shadow.dx, shadow.dy)));
+                dxdy = vec2<f32>(shadow.dx, shadow.dy);
             } else {
                 let offset = unpack_offset_filter(data);
-                return sample_input_checked(in, round(rel_coord - vec2<f32>(offset.dx, offset.dy)));
+                dxdy = vec2<f32>(offset.dx, offset.dy);
             }
+
+            // CPU version uses normal round but WGSL round with ties even, so we use floor + 0.5 instead.
+            return sample_input_checked(in, rel_coord - floor(dxdy + 0.5));
         }
         case PASS_DOWNSCALE: {
             return downscale(in);
@@ -336,15 +349,18 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
         case PASS_UPSCALE: {
             return upscale(in);
         }
-        case PASS_COMPOSITE: {
+        case PASS_COMPOSITE_DROP_SHADOW: {
             // Drop shadow composite: colorize blurred result, composite original on top.
             let shadow = unpack_drop_shadow_filter(data);
             let blurred = sample_input(in, rel_coord);
             let shadow_color = unpack4x8unorm(shadow.color);
             let shadow_result = shadow_color * blurred.a;
             let original = sample_original(in, rel_coord);
+
+            // Simple source-over compositing.
             return original + shadow_result * (1.0 - original.a);
         }
+        // Shouldn't be reached.
         default: {
             return vec4<f32>(0.0);
         }
