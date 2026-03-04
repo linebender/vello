@@ -6,6 +6,9 @@
 //! Ported from [guillotiere](https://github.com/nical/guillotiere) (Apache-2.0 OR MIT)
 //! by Nicolas Silva. Adapted for `no_std` by replacing `euclid` types with local
 //! equivalents and removing `std`-only functionality (SVG dump, serde).
+//!
+//! TODO: Once [servo/euclid#543](https://github.com/servo/euclid/pull/543) is merged
+//! and `guillotiere` is updated, switch back to the official crate.
 
 use crate::multi_atlas::{AllocId, Allocation};
 use alloc::vec;
