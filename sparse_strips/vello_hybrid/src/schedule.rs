@@ -176,7 +176,7 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
-use crate::scene::{FastStripsPath, StripPathMode};
+use crate::scene::{FastPathRect, FastStripCommand, FastStripsPath, StripPathMode};
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -201,6 +201,10 @@ const PAINT_TYPE_IMAGE: u32 = 1;
 const PAINT_TYPE_LINEAR_GRADIENT: u32 = 2;
 const PAINT_TYPE_RADIAL_GRADIENT: u32 = 3;
 const PAINT_TYPE_SWEEP_GRADIENT: u32 = 4;
+
+/// Bit 31 of [`GpuStrip::paint_and_rect_flag`] signals that the strip
+/// represents a full rectangle.
+const RECT_STRIP_FLAG: u32 = 1 << 31;
 
 // The sentinel tile index representing the surface.
 const SENTINEL_SLOT_IDX: usize = usize::MAX;
@@ -485,7 +489,11 @@ impl Scheduler {
         match scene.strip_path_mode {
             StripPathMode::FastOnly => {
                 // We only have strips.
-                self.push_direct_strips(scene, 0..scene.fast_strips_buffer.paths.len(), paint_idxs);
+                self.push_direct_strips(
+                    scene,
+                    0..scene.fast_strips_buffer.commands.len(),
+                    paint_idxs,
+                );
             }
             StripPathMode::CoarseOnly => {
                 // We only have coarse-rasterized paths.
@@ -527,7 +535,7 @@ impl Scheduler {
 
                 // Handle the last batch of fast strips, which isn't explicitly delimited in the
                 // scene.
-                let tail_end = scene.fast_strips_buffer.paths.len();
+                let tail_end = scene.fast_strips_buffer.commands.len();
                 if prev_split < tail_end {
                     self.push_direct_strips(scene, prev_split..tail_end, paint_idxs);
                 }
@@ -555,7 +563,7 @@ impl Scheduler {
         Ok(())
     }
 
-    /// Generate `GpuStrips` for a range of direct paths and append them
+    /// Generate `GpuStrips` for a range of direct commands and append them
     /// directly into the current round's surface draw array.
     fn push_direct_strips(&mut self, scene: &Scene, range: Range<usize>, paint_idxs: &[u32]) {
         let strip_storage = scene.strip_storage.borrow();
@@ -563,8 +571,23 @@ impl Scheduler {
         // rendered to the final surface.
         let draw = self.draw_mut(self.round, 2);
 
-        for path in &scene.fast_strips_buffer.paths[range] {
-            generate_gpu_strips_for_path(path, &strip_storage, scene, paint_idxs, &mut draw.0);
+        for cmd in &scene.fast_strips_buffer.commands[range] {
+            match cmd {
+                FastStripCommand::Path(path) => {
+                    generate_gpu_strips_for_fast_path(
+                        path,
+                        &strip_storage,
+                        scene,
+                        paint_idxs,
+                        &mut draw.0,
+                    );
+                }
+                FastStripCommand::Rect(r) => {
+                    let strip = pack_rectangle_into_gpu(r, scene, paint_idxs);
+
+                    draw.0.push(strip);
+                }
+            }
         }
     }
 
@@ -1207,7 +1230,7 @@ impl Scheduler {
                     has_non_zero_alpha(rgba),
                     "Color fields with 0 alpha are reserved for clipping"
                 );
-                let paint_packed = (COLOR_SOURCE_PAYLOAD << 30) | (PAINT_TYPE_SOLID << 27);
+                let paint_packed = (COLOR_SOURCE_PAYLOAD << 29) | (PAINT_TYPE_SOLID << 26);
                 (rgba, paint_packed)
             }
             Paint::Indexed(indexed_paint) => {
@@ -1217,9 +1240,9 @@ impl Scheduler {
                 match scene.encoded_paints.get(paint_id) {
                     Some(EncodedPaint::Image(encoded_image)) => match &encoded_image.source {
                         ImageSource::OpaqueId { .. } => {
-                            let paint_packed = (COLOR_SOURCE_PAYLOAD << 30)
-                                | (PAINT_TYPE_IMAGE << 27)
-                                | (paint_idx & 0x07FFFFFF);
+                            let paint_packed = (COLOR_SOURCE_PAYLOAD << 29)
+                                | (PAINT_TYPE_IMAGE << 26)
+                                | (paint_idx & 0x03FF_FFFF);
                             let scene_strip_xy =
                                 ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
                             (scene_strip_xy, paint_packed)
@@ -1233,9 +1256,9 @@ impl Scheduler {
                             EncodedKind::Radial(_) => PAINT_TYPE_RADIAL_GRADIENT,
                             EncodedKind::Sweep(_) => PAINT_TYPE_SWEEP_GRADIENT,
                         };
-                        let paint_packed = (COLOR_SOURCE_PAYLOAD << 30)
-                            | (gradient_paint_type << 27)
-                            | (paint_idx & 0x07FFFFFF);
+                        let paint_packed = (COLOR_SOURCE_PAYLOAD << 29)
+                            | (gradient_paint_type << 26)
+                            | (paint_idx & 0x03FF_FFFF);
                         let scene_strip_xy =
                             ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
                         (scene_strip_xy, paint_packed)
@@ -1253,8 +1276,8 @@ struct GpuStripBuilder {
     x: u16,
     y: u16,
     width: u16,
-    dense_width: u16,
-    col_idx: u32,
+    dense_width_or_rect_height: u16,
+    col_idx_or_rect_frac: u32,
 }
 
 impl GpuStripBuilder {
@@ -1264,8 +1287,8 @@ impl GpuStripBuilder {
             x,
             y,
             width,
-            dense_width: 0,
-            col_idx: 0,
+            dense_width_or_rect_height: 0,
+            col_idx_or_rect_frac: 0,
         }
     }
 
@@ -1275,15 +1298,15 @@ impl GpuStripBuilder {
             x: x_offset,
             y: u16::try_from(slot_idx).unwrap() * Tile::HEIGHT,
             width,
-            dense_width: 0,
-            col_idx: 0,
+            dense_width_or_rect_height: 0,
+            col_idx_or_rect_frac: 0,
         }
     }
 
     /// Add sparse strip parameters.
     fn with_sparse(mut self, dense_width: u16, col_idx: u32) -> Self {
-        self.dense_width = dense_width;
-        self.col_idx = col_idx;
+        self.dense_width_or_rect_height = dense_width;
+        self.col_idx_or_rect_frac = col_idx;
         self
     }
 
@@ -1293,10 +1316,10 @@ impl GpuStripBuilder {
             x: self.x,
             y: self.y,
             width: self.width,
-            dense_width: self.dense_width,
-            col_idx: self.col_idx,
+            dense_width_or_rect_height: self.dense_width_or_rect_height,
+            col_idx_or_rect_frac: self.col_idx_or_rect_frac,
             payload,
-            paint,
+            paint_and_rect_flag: paint,
         }
     }
 
@@ -1306,10 +1329,10 @@ impl GpuStripBuilder {
             x: self.x,
             y: self.y,
             width: self.width,
-            dense_width: self.dense_width,
-            col_idx: self.col_idx,
+            dense_width_or_rect_height: self.dense_width_or_rect_height,
+            col_idx_or_rect_frac: self.col_idx_or_rect_frac,
             payload: u32::try_from(from_slot).unwrap(),
-            paint: (COLOR_SOURCE_SLOT << 30) | (opacity as u32),
+            paint_and_rect_flag: (COLOR_SOURCE_SLOT << 29) | (opacity as u32),
         }
     }
 
@@ -1326,11 +1349,11 @@ impl GpuStripBuilder {
             x: self.x,
             y: self.y,
             width: self.width,
-            dense_width: self.dense_width,
-            col_idx: self.col_idx,
+            dense_width_or_rect_height: self.dense_width_or_rect_height,
+            col_idx_or_rect_frac: self.col_idx_or_rect_frac,
             payload: (u32::try_from(src_slot).unwrap())
                 | ((u32::try_from(dest_slot).unwrap()) << 16),
-            paint: (COLOR_SOURCE_BLEND << 30)
+            paint_and_rect_flag: (COLOR_SOURCE_BLEND << 29)
                 | ((opacity as u32) << 16)
                 | ((mix_mode as u32) << 8)
                 | (compose_mode as u32),
@@ -1343,7 +1366,7 @@ fn has_non_zero_alpha(rgba: u32) -> bool {
     rgba >= 0x1_00_00_00
 }
 
-fn generate_gpu_strips_for_path(
+fn generate_gpu_strips_for_fast_path(
     path: &FastStripsPath,
     strip_storage: &StripStorage,
     scene: &Scene,
@@ -1401,4 +1424,41 @@ fn generate_gpu_strips_for_path(
             }
         }
     }
+}
+
+fn pack_rectangle_into_gpu(rect: &FastPathRect, scene: &Scene, paint_idxs: &[u32]) -> GpuStrip {
+    let sx0 = rect.x0.floor();
+    let sy0 = rect.y0.floor();
+    let sx1 = rect.x1.ceil();
+    let sy1 = rect.y1.ceil();
+
+    let x = sx0 as u16;
+    let y = sy0 as u16;
+    // Are guaranteed to be > 0 since we rejected negative rectangles.
+    let width = (sx1 - sx0) as u16;
+    let height = (sy1 - sy0) as u16;
+
+    let (payload, paint_packed) = Scheduler::process_paint(&rect.paint, scene, (x, y), paint_idxs);
+
+    // Determine the fractional offsets for anti-aliasing and quantize so it
+    // fits into u8.
+    let frac = pack_unorm4x8([rect.x0 - sx0, rect.y0 - sy0, sx1 - rect.x1, sy1 - rect.y1]);
+
+    GpuStrip {
+        x,
+        y,
+        width,
+        dense_width_or_rect_height: height,
+        col_idx_or_rect_frac: frac,
+        payload,
+        paint_and_rect_flag: paint_packed | RECT_STRIP_FLAG,
+    }
+}
+
+fn pack_unorm4x8(v: [f32; 4]) -> u32 {
+    let q = |f: f32| -> u8 { (f * 255.0 + 0.5) as u8 };
+    u32::from(q(v[0]))
+        | (u32::from(q(v[1])) << 8)
+        | (u32::from(q(v[2])) << 16)
+        | (u32::from(q(v[3])) << 24)
 }
