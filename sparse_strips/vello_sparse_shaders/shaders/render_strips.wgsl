@@ -320,6 +320,8 @@ var clip_input_texture: texture_2d<f32>;
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var alpha = 1.0;
     let is_rect = (in.paint_and_rect_flag & RECT_STRIP_FLAG) != 0u;
+    // TODO: Explore doing these calculations only for rectangle parts that actually need anti-aliasing. See
+    // https://github.com/linebender/vello/pull/1482#discussion_r2861311034
     if is_rect && in.rect_frac != 0u {
         let frac = unpack4x8unorm(in.rect_frac);
         // Calculate how much of the pixel is actually covered by the rect.
