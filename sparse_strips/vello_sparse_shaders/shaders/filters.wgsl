@@ -35,7 +35,7 @@ const MAX_TAPS_PER_SIDE: u32 = 3u;
 
 // A type erased instance of a filter containing the values of all parameters.
 struct GpuFilterData {
-    data: array<u32, 12>, // 12 = FILTER_SIZE_U32
+    data: array<u32, FILTER_SIZE_U32>
 }
 
 struct OffsetFilter {
