@@ -45,6 +45,7 @@
 
 extern crate alloc;
 
+pub(crate) mod filter;
 mod gradient_cache;
 mod render;
 mod scene;
@@ -77,7 +78,9 @@ pub enum RenderError {
     /// TODO: Consider supporting more than a single column of slots in slot textures.
     #[error("No slots available for rendering")]
     SlotsExhausted,
-    // TODO: Consider expanding `RenderError` to replace some `.unwrap` and `.expect`.
+    /// Filter texture atlas allocation failed.
+    #[error("Filter atlas allocation failed: {0}")]
+    AtlasError(#[from] vello_common::multi_atlas::AtlasError),
 }
 
 #[cfg(test)]

@@ -176,9 +176,7 @@ impl MultiAtlasManager {
             AllocationStrategy::FirstFit => {
                 self.allocate_first_fit(width, height, exclude_atlas_id)
             }
-            AllocationStrategy::BestFit => {
-                self.allocate_best_fit(width, height, exclude_atlas_id)
-            }
+            AllocationStrategy::BestFit => self.allocate_best_fit(width, height, exclude_atlas_id),
             AllocationStrategy::LeastUsed => {
                 self.allocate_least_used(width, height, exclude_atlas_id)
             }
