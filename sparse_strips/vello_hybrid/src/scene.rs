@@ -476,6 +476,7 @@ impl Scene {
     /// [`GPU_QUALITY_GPU_BILINEAR`](Self::GPU_QUALITY_GPU_BILINEAR) so the shader
     /// uses hardware bilinear sampling instead of manual interpolation.
     pub fn draw_image(&mut self, image: ImageSource, rect: &Rect) {
+        // TODO: Restore previous transform/paint
         self.set_paint_transform(Affine::IDENTITY);
         self.set_paint(Image {
             image,
