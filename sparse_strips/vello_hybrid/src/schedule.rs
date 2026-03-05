@@ -225,10 +225,10 @@ pub(crate) enum OutputTarget {
     IntermediateTexture(LayerId),
 }
 
-/// Specifies the target for a render pass.
+/// Specifies the target for a strip render pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StripPassRenderTarget {
-    /// Render to the current output target (final view or intermediate texture).
+    /// Render to the current output target.
     Output(OutputTarget),
     /// Render to one of the slot textures used for clipping/blending.
     SlotTexture(u8),
@@ -276,9 +276,7 @@ pub(crate) struct Scheduler {
     /// A pool of `Round` objects that can be reused, so that we can reduce
     /// the number of allocations.
     round_pool: RoundPool,
-    /// The output target for the main rendering operations. This is the final
-    /// surface in the normal case, or an intermediate texture when rendering a
-    /// filter layer.
+    /// The output target for the main rendering operations.
     output_target: OutputTarget,
 }
 
@@ -491,8 +489,6 @@ impl Scheduler {
 
     /// Schedule and render the scene.
     ///
-    /// Routes to either [`Self::do_scene_with_filters`] when the scene has filter layers,
-    /// or [`Self::do_scene_no_filters`] otherwise.
     pub(crate) fn do_scene<R: RendererBackend>(
         &mut self,
         state: &mut SchedulerState,
