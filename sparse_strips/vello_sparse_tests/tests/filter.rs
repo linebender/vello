@@ -3,6 +3,7 @@
 
 //! Tests demonstrating the filter effects API usage.
 
+use vello_api::peniko::color::palette::css::LIME;
 use crate::load_image;
 use crate::util::{circular_star, stops_blue_green_red_yellow};
 use crate::{renderer::Renderer, util::layout_glyphs_roboto};
@@ -16,7 +17,7 @@ use vello_common::paint::Image;
 use vello_common::peniko::{
     BlendMode, Compose, Extend, Gradient, ImageQuality, ImageSampler, LinearGradientPosition, Mix,
 };
-use vello_cpu::color::palette::css::{BLUE, GREEN, RED, TRANSPARENT};
+use vello_cpu::color::palette::css::{BLUE, GREEN, RED, TRANSPARENT, WHITE, YELLOW};
 use vello_cpu::kurbo::Dashes;
 use vello_dev_macros::vello_test;
 
@@ -1316,6 +1317,7 @@ fn filter_over_existing_content_inner<R: Renderer>(ctx: &mut R, draw_bg: impl Fn
     ctx.pop_layer();
 }
 
+// Test the interaction between fast rect path and filter layers.
 #[vello_test(skip_multithreaded)]
 fn filter_over_existing_content_rect(ctx: &mut impl Renderer) {
     filter_over_existing_content_inner(ctx, |ctx| {
@@ -1323,10 +1325,48 @@ fn filter_over_existing_content_rect(ctx: &mut impl Renderer) {
     });
 }
 
+// Test the interaction between fast path and filter layers.
 #[vello_test(skip_multithreaded)]
 fn filter_over_existing_content_star(ctx: &mut impl Renderer) {
     filter_over_existing_content_inner(ctx, |ctx| {
         let star = circular_star(Point::new(50.0, 50.0), 5, 15.0, 35.0);
         ctx.fill_path(&star);
     });
+}
+
+#[vello_test(skip_multithreaded)]
+fn filter_interleaved_fast_path(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
+    ctx.set_paint(GREEN);
+    ctx.fill_rect(&Rect::new(10.0, 10.0, 40.0, 40.0));
+
+    ctx.push_filter_layer(filter.clone());
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(60.0, 10.0, 90.0, 40.0));
+    ctx.pop_layer();
+
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(10.0, 60.0, 40.0, 90.0));
+
+    ctx.push_filter_layer(filter.clone());
+    ctx.set_paint(YELLOW);
+    ctx.fill_rect(&Rect::new(60.0, 60.0, 90.0, 90.0));
+    ctx.pop_layer();
+}
+
+// Doesn't seem to work in hybrid yet. :(
+#[vello_test(skip_multithreaded, skip_hybrid)]
+fn filter_blending_in_layer(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
+
+    ctx.push_filter_layer(filter);
+    let rect1 = Rect::new(10.5, 10.5, 70.5, 70.5);
+    ctx.set_paint(BLUE.with_alpha(0.5));
+    ctx.fill_rect(&rect1);
+    ctx.push_blend_layer(BlendMode::new(Mix::SoftLight, Compose::SrcOver));
+    let rect2 = Rect::new(30.5, 30.5, 90.5, 90.5);
+    ctx.set_paint(LIME.with_alpha(0.5));
+    ctx.fill_rect(&rect2);
+    ctx.pop_layer();
+    ctx.pop_layer();
 }
