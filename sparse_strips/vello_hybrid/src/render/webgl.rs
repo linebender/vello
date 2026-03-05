@@ -20,6 +20,7 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
+use crate::render::common::{IMAGE_PADDING, IMAGE_QUALITY_GPU_BILINEAR};
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize,
     gradient_cache::GradientRampCache,
@@ -371,9 +372,7 @@ impl WebGlRenderer {
         &mut self,
         writer: &T,
     ) -> vello_common::paint::ImageId {
-        // TODO: If we want to use native bilinear sampling for uploaded images,
-        // we can pass 1 instead of 0 here.
-        self.upload_image_with(writer, 0)
+        self.upload_image_with(writer, IMAGE_PADDING)
     }
 
     pub(crate) fn upload_image_with<T: WebGlAtlasWriter>(
@@ -543,8 +542,16 @@ impl WebGlRenderer {
         let transform = image_transform.as_coeffs().map(|x| x as f32);
         let image_size = pack_image_size(image_resource.width, image_resource.height);
         let image_offset = pack_image_offset(image_resource.offset[0], image_resource.offset[1]);
+
+        // See the comment in the wgpu backend.
+        let quality = if image.use_gpu_bilinear() {
+            IMAGE_QUALITY_GPU_BILINEAR
+        } else {
+            image.sampler.quality as u32
+        };
+
         let image_params = pack_image_params(
-            image.sampler.quality as u32,
+            quality,
             image.sampler.x_extend as u32,
             image.sampler.y_extend as u32,
             image_resource.atlas_id.as_u32(),
@@ -665,8 +672,10 @@ struct StripUniforms {
     alphas_texture: WebGlUniformLocation,
     /// Clip input texture location.
     clip_input_texture: WebGlUniformLocation,
-    /// Atlas texture location.
-    atlas_texture_array: WebGlUniformLocation,
+    /// Atlas texture location for fragment shader.
+    atlas_texture_array_fs: WebGlUniformLocation,
+    /// Atlas texture location for vertex shader.
+    atlas_texture_array_vs: WebGlUniformLocation,
     /// Encoded paints texture location for fragment shader.
     encoded_paints_texture_fs: WebGlUniformLocation,
     /// Encoded paints texture location for vertex shader.
@@ -1463,7 +1472,8 @@ fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> St
     // Get texture uniform locations.
     let alphas_texture_name = render_strips::fragment::ALPHAS_TEXTURE;
     let clip_input_texture_name = render_strips::fragment::CLIP_INPUT_TEXTURE;
-    let atlas_texture_array_name = render_strips::fragment::ATLAS_TEXTURE_ARRAY;
+    let atlas_texture_array_fs_name = render_strips::fragment::ATLAS_TEXTURE_ARRAY;
+    let atlas_texture_array_vs_name = render_strips::vertex::ATLAS_TEXTURE_ARRAY;
     let encoded_paints_texture_fs_name = render_strips::fragment::ENCODED_PAINTS_TEXTURE;
     let encoded_paints_texture_vs_name = render_strips::vertex::ENCODED_PAINTS_TEXTURE;
     let gradient_texture_name = render_strips::fragment::GRADIENT_TEXTURE;
@@ -1477,8 +1487,11 @@ fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> St
         clip_input_texture: gl
             .get_uniform_location(program, clip_input_texture_name)
             .unwrap(),
-        atlas_texture_array: gl
-            .get_uniform_location(program, atlas_texture_array_name)
+        atlas_texture_array_fs: gl
+            .get_uniform_location(program, atlas_texture_array_fs_name)
+            .unwrap(),
+        atlas_texture_array_vs: gl
+            .get_uniform_location(program, atlas_texture_array_vs_name)
             .unwrap(),
         encoded_paints_texture_fs: gl
             .get_uniform_location(program, encoded_paints_texture_fs_name)
@@ -1514,10 +1527,37 @@ fn create_texture(gl: &WebGl2RenderingContext) -> WebGlTexture {
     create_texture_inner(gl, WebGl2RenderingContext::TEXTURE_2D)
 }
 
-/// Create a texture array with nearest neighbor sampling and
-/// clamp-to-edge wrapping.
+/// Create a texture array with bilinear sampling and clamp-to-edge wrapping.
 fn create_texture_array(gl: &WebGl2RenderingContext) -> WebGlTexture {
-    create_texture_inner(gl, WebGl2RenderingContext::TEXTURE_2D_ARRAY)
+    let texture = gl.create_texture().unwrap();
+    gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+    gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D_ARRAY, Some(&texture));
+    gl.tex_parameteri(
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+        WebGl2RenderingContext::TEXTURE_MIN_FILTER,
+        WebGl2RenderingContext::LINEAR as i32,
+    );
+    gl.tex_parameteri(
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+        WebGl2RenderingContext::TEXTURE_MAG_FILTER,
+        WebGl2RenderingContext::LINEAR as i32,
+    );
+    gl.tex_parameteri(
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+        WebGl2RenderingContext::TEXTURE_WRAP_S,
+        WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+    );
+    gl.tex_parameteri(
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+        WebGl2RenderingContext::TEXTURE_WRAP_T,
+        WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+    );
+    gl.tex_parameteri(
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+        WebGl2RenderingContext::TEXTURE_MAX_LEVEL,
+        0,
+    );
+    texture
 }
 
 fn create_texture_inner(gl: &WebGl2RenderingContext, target: u32) -> WebGlTexture {
@@ -1864,8 +1904,14 @@ impl WebGlRendererContext<'_> {
             WebGl2RenderingContext::TEXTURE_2D_ARRAY,
             Some(&self.programs.resources.atlas_texture_array.texture),
         );
-        self.gl
-            .uniform1i(Some(&self.programs.strip_uniforms.atlas_texture_array), 2);
+        self.gl.uniform1i(
+            Some(&self.programs.strip_uniforms.atlas_texture_array_fs),
+            2,
+        );
+        self.gl.uniform1i(
+            Some(&self.programs.strip_uniforms.atlas_texture_array_vs),
+            2,
+        );
 
         // Bind encoded paints texture for image metadata
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE3);

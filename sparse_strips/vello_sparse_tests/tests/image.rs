@@ -645,6 +645,48 @@ fn render_sprite(
     ctx.fill_rect(&Rect::new(0.0, 0.0, glyph.width, glyph.height));
 }
 
+// Note: Windows CI seems to yield slight differences in native bilinear sampling behavior, so we need
+// an additional tolerance.
+
+#[vello_test(skip_cpu, hybrid_ref, hybrid_tolerance = 1)]
+fn image_draw_image_2x2(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_2x2(ctx);
+    ctx.set_transform(Affine::translate((10.0, 10.0)) * Affine::scale(40.0));
+    ctx.draw_image(image_source, &Rect::new(0.0, 0.0, 2.0, 2.0));
+}
+
+#[vello_test(skip_cpu, hybrid_ref, hybrid_tolerance = 1)]
+fn image_draw_image_2x2_rotated(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_2x2(ctx);
+
+    ctx.set_transform(
+        Affine::rotate_about(45.0_f64.to_radians(), Point::new(50.0, 50.0))
+            * Affine::translate((10.0, 10.0))
+            * Affine::scale(40.0),
+    );
+
+    ctx.draw_image(image_source, &Rect::new(0.0, 0.0, 2.0, 2.0));
+}
+
+#[vello_test(skip_cpu, hybrid_ref, hybrid_tolerance = 1)]
+fn image_draw_image_2x3(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_2x3(ctx);
+
+    // Shouldn't have any effect.
+    ctx.set_paint_transform(Affine::scale(5.0));
+
+    ctx.set_transform(Affine::translate((25.0, 12.5)) * Affine::scale(25.0));
+    ctx.draw_image(image_source, &Rect::new(0.0, 0.0, 2.0, 3.0));
+}
+
+#[vello_test(skip_cpu, hybrid_ref, hybrid_tolerance = 1)]
+fn image_draw_image_10x10(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_10x10(ctx);
+
+    ctx.set_transform(Affine::translate((10.0, 10.0)) * Affine::scale(8.0));
+    ctx.draw_image(image_source, &Rect::new(0.0, 0.0, 10.0, 10.0));
+}
+
 /// Same as `image_spritesheet`, but renders "hello world" with a purple tint.
 #[vello_test(width = 60, height = 30, skip_multithreaded)]
 fn image_spritesheet_tinted(ctx: &mut impl Renderer) {

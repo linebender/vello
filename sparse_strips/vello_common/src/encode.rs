@@ -525,6 +525,8 @@ impl EncodeExt for Image {
             x_advance,
             y_advance,
             tint,
+            // If needed, this will be updated by backends afterward.
+            custom: 0,
         };
 
         paints.push(EncodedPaint::Image(encoded));
@@ -573,6 +575,18 @@ pub struct EncodedImage {
     pub y_advance: Vec2,
     /// Optional tint applied to the image.
     pub tint: Option<Tint>,
+    /// A custom field that can be used by rendering backends to
+    /// attach additional information to the image.
+    pub custom: u8,
+}
+
+impl EncodedImage {
+    const GPU_BILINEAR: u8 = 1 << 0;
+
+    /// Whether to use GPU-bilinear sampling.
+    pub fn use_gpu_bilinear(&self) -> bool {
+        self.custom & Self::GPU_BILINEAR != 0
+    }
 }
 
 /// Computed properties of a linear gradient.
