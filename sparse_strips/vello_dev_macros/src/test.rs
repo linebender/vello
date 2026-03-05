@@ -209,8 +209,9 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         || input_fn_name_str.contains("compose")
         || (input_fn_name_str.contains("blend")
             && !input_fn_name_str.contains("default_blending_only"))
-        || input_fn_name_str.contains("filter")
         || input_fn_name_str.contains("recording")
+        // TODO: Add test annotation instead of hard coding here
+        || input_fn_name_str.contains("filter_varying_depths_clips_and_compositions")
         || input_fn_name_str.contains("gradient_color_alpha_unmul");
 
     let empty_snippet = quote! {};
