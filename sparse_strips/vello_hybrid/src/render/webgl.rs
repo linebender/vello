@@ -184,70 +184,7 @@ impl WebGlRenderer {
             "Render size must match drawing buffer size"
         );
 
-        // Clear previous filter atlas textures if any filter textures were allocated
-        // in the previous frame.
-        if !self.filter_context.filter_textures.is_empty() {
-            self.programs.clear_filter_atlas_textures(&self.gl);
-        }
-
-        self.filter_context
-            .deallocate_all_and_clear(&mut self.image_cache);
-
-        let mut encoded_paints = scene.encoded_paints.borrow_mut();
-        let scene_paint_count = encoded_paints.len();
-
-        self.filter_context.prepare(
-            &scene.render_graph,
-            &mut self.image_cache,
-            &mut encoded_paints,
-        )?;
-
-        self.prepare_gpu_encoded_paints(&encoded_paints);
-
-        self.programs
-            .maybe_resize_atlas_texture_array(&self.gl, self.image_cache.atlas_count() as u32);
-        self.programs.maybe_resize_filter_atlas_textures(
-            &self.gl,
-            self.filter_context.image_cache.atlas_count() as u32,
-        );
-
-        self.programs.prepare(
-            &self.gl,
-            &mut self.gradient_cache,
-            &self.encoded_paints,
-            &mut scene.strip_storage.borrow_mut().alphas,
-            render_size,
-            &self.paint_idxs,
-            &self.filter_context,
-        );
-
-        // Drop borrow_mut before creating the immutable reference for do_scene.
-        drop(encoded_paints);
-        let encoded_paints = scene.encoded_paints.borrow();
-
-        self.programs.clear_view_framebuffer(&self.gl);
-
-        let mut ctx = WebGlRendererContext {
-            programs: &mut self.programs,
-            gl: &self.gl,
-            image_cache: &self.image_cache,
-            filter_context: &self.filter_context,
-        };
-        self.scheduler.do_scene(
-            &mut self.scheduler_state,
-            &mut ctx,
-            scene,
-            &self.paint_idxs,
-            &self.filter_context,
-            &encoded_paints,
-        )?;
-
-        drop(encoded_paints);
-        scene
-            .encoded_paints
-            .borrow_mut()
-            .truncate(scene_paint_count);
-        self.gradient_cache.maintain();
+        self.render_scene(scene, render_size, true)?;
 
         // Blit the view framebuffer to the default framebuffer (canvas element), reflecting the
         // image along the Y axis to complete the WebGPU to WebGL2 coordinate transform.
@@ -401,8 +338,32 @@ impl WebGlRenderer {
         render_size: &RenderSize,
         clear: bool,
     ) -> Result<(), RenderError> {
-        let encoded_paints = scene.encoded_paints.borrow();
+        // Clear filter atlas textures from the previous frame.
+        if !self.filter_context.filter_textures.is_empty() {
+            self.programs.clear_filter_atlas_textures(&self.gl);
+        }
+
+        self.filter_context
+            .deallocate_all_and_clear(&mut self.image_cache);
+
+        let mut encoded_paints = scene.encoded_paints.borrow_mut();
+        let original_scene_paint_count = encoded_paints.len();
+
+        self.filter_context.prepare(
+            &scene.render_graph,
+            &mut self.image_cache,
+            &mut encoded_paints,
+        )?;
+
         self.prepare_gpu_encoded_paints(&encoded_paints);
+
+        self.programs
+            .maybe_resize_atlas_texture_array(&self.gl, self.image_cache.atlas_count() as u32);
+        self.programs.maybe_resize_filter_atlas_textures(
+            &self.gl,
+            self.filter_context.image_cache.atlas_count() as u32,
+        );
+
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
@@ -433,6 +394,8 @@ impl WebGlRenderer {
             &self.filter_context,
             &encoded_paints,
         )?;
+
+        encoded_paints.truncate(original_scene_paint_count);
         self.gradient_cache.maintain();
 
         Ok(())
