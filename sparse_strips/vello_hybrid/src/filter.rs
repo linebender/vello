@@ -83,7 +83,7 @@ fn pack_header(filter_type: u32) -> u32 {
     filter_type
 }
 
-fn pack_with_gaussian_params(
+fn pack_header_with_gaussian_params(
     filter_type: u32,
     edge_mode: u32,
     n_decimations: u32,
@@ -229,7 +229,7 @@ impl From<&GaussianBlur> for GpuGaussianBlur {
         let lk = LinearKernel::new(&blur.kernel, blur.kernel_size);
 
         Self {
-            header: pack_with_gaussian_params(
+            header: pack_header_with_gaussian_params(
                 filter_type::GAUSSIAN_BLUR,
                 edge_mode_to_gpu(blur.edge_mode),
                 // Note that this could be exceeded in theory, but it would have to be a huge
@@ -267,7 +267,7 @@ impl From<&DropShadow> for GpuDropShadow {
     fn from(shadow: &DropShadow) -> Self {
         let lk = LinearKernel::new(&shadow.kernel, shadow.kernel_size);
         Self {
-            header: pack_with_gaussian_params(
+            header: pack_header_with_gaussian_params(
                 filter_type::DROP_SHADOW,
                 edge_mode_to_gpu(shadow.edge_mode),
                 shadow.n_decimations as u32,
