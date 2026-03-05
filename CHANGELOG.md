@@ -13,7 +13,11 @@ You can find its changes [documented below](#070---2026-01-13).
 
 ## [Unreleased]
 
-This release has an [MSRV][] of 1.88.
+This release has an [MSRV][] of 1.92.
+
+### Changed
+
+- Breaking change: `wgpu` has been updated to v28. ([#1492][] by [@xStrom][])
 
 ## [0.7.0][] - 2026-01-13
 
@@ -396,6 +400,7 @@ This release has an [MSRV][] of 1.75.
 [#1332]: https://github.com/linebender/vello/pull/1332
 [#1342]: https://github.com/linebender/vello/pull/1342
 [#1349]: https://github.com/linebender/vello/pull/1349
+[#1492]: https://github.com/linebender/vello/pull/1492
 
 [Unreleased]: https://github.com/linebender/vello/compare/v0.7.0...HEAD
 [0.7.0]: https://github.com/linebender/vello/compare/v0.6.0...v0.7.0
