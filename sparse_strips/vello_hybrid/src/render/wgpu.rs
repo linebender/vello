@@ -296,12 +296,15 @@ impl Renderer {
         encoder: &mut CommandEncoder,
         writer: &T,
     ) -> vello_common::paint::ImageId {
-        // TODO: If we want to use native bilinear sampling for uploaded images,
-        // we can pass 1 instead of 0 here.
-        self.upload_image_with(device, queue, encoder, writer, 0)
+        self.upload_image_with(device, queue, encoder, writer, 1)
     }
 
-    pub(crate) fn upload_image_with<T: AtlasWriter>(
+    /// Upload image to cache and atlas with explicit padding. Returns the `ImageId`.
+    ///
+    /// Use `padding = 1` for images that will be sampled with GPU-native bilinear
+    /// filtering (quality 3), so the hardware sampler reads transparent texels at
+    /// image edges instead of neighbouring atlas content.
+    pub fn upload_image_with<T: AtlasWriter>(
         &mut self,
         device: &Device,
         queue: &Queue,
@@ -462,13 +465,12 @@ impl Renderer {
             self.paint_idxs[encoded_paint_idx] = current_idx;
             match paint {
                 EncodedPaint::Image(img) => {
-                    if let ImageSource::OpaqueId { id: image_id, .. } = img.source {
-                        let image_resource: Option<&ImageResource> = self.image_cache.get(image_id);
-                        if let Some(image_resource) = image_resource {
-                            let image_paint = self.encode_image_paint(img, image_resource);
-                            self.encoded_paints[encoded_paint_idx] = image_paint;
-                            current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
-                        }
+                    if let ImageSource::OpaqueId { id, .. } = &img.source
+                        && let Some(image_resource) = self.image_cache.get(*id)
+                    {
+                        let image_paint = self.encode_image_paint(img, image_resource);
+                        self.encoded_paints[encoded_paint_idx] = image_paint;
+                        current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
                     }
                 }
                 EncodedPaint::Gradient(gradient) => {
@@ -506,7 +508,7 @@ impl Renderer {
         let image_size = pack_image_size(image_resource.width, image_resource.height);
         let image_offset = pack_image_offset(image_resource.offset[0], image_resource.offset[1]);
         let image_params = pack_image_params(
-            image.sampler.quality as u32,
+            image.gpu_quality,
             image.sampler.x_extend as u32,
             image.sampler.y_extend as u32,
             image_resource.atlas_id.as_u32(),
@@ -633,6 +635,8 @@ struct GpuResources {
     atlas_texture_array: Texture,
     /// View for atlas texture array
     atlas_texture_array_view: TextureView,
+    /// Bilinear sampler for GPU-native image sampling
+    atlas_sampler: wgpu::Sampler,
     /// Bind group for atlas textures (as texture array)
     atlas_bind_group: BindGroup,
     /// Texture for encoded paints
@@ -740,16 +744,24 @@ impl Programs {
         let atlas_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Atlas Texture Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2Array,
-                        multisampled: false,
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
+                            multisampled: false,
+                        },
+                        count: None,
                     },
-                    count: None,
-                }],
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
             });
 
         let encoded_paints_bind_group_layout =
@@ -1015,10 +1027,17 @@ impl Programs {
             *atlas_height,
             *initial_atlas_count as u32,
         );
+        let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Atlas Bilinear Sampler"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
         let atlas_bind_group = Self::create_atlas_bind_group(
             device,
             &atlas_bind_group_layout,
             &atlas_texture_array_view,
+            &atlas_sampler,
         );
 
         // Create a 1x1 stub atlas texture array for use during render_to_atlas.
@@ -1026,8 +1045,12 @@ impl Programs {
         // a shader input (bind group) and render target in the same pass.
         let (_stub_atlas_texture, stub_atlas_view) =
             Self::create_atlas_texture_array(device, 1, 1, 1);
-        let stub_atlas_bind_group =
-            Self::create_atlas_bind_group(device, &atlas_bind_group_layout, &stub_atlas_view);
+        let stub_atlas_bind_group = Self::create_atlas_bind_group(
+            device,
+            &atlas_bind_group_layout,
+            &stub_atlas_view,
+            &atlas_sampler,
+        );
 
         const INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT: u32 = 1;
         let encoded_paints_data = vec![
@@ -1077,6 +1100,7 @@ impl Programs {
             alphas_texture,
             atlas_texture_array,
             atlas_texture_array_view,
+            atlas_sampler,
             atlas_bind_group,
             stub_atlas_bind_group,
             encoded_paints_texture,
@@ -1201,14 +1225,21 @@ impl Programs {
         device: &Device,
         atlas_bind_group_layout: &BindGroupLayout,
         atlas_texture_array_view: &TextureView,
+        atlas_sampler: &wgpu::Sampler,
     ) -> BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Atlas Bind Group"),
             layout: atlas_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(atlas_texture_array_view),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(atlas_texture_array_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(atlas_sampler),
+                },
+            ],
         })
     }
 
@@ -1549,6 +1580,7 @@ impl Programs {
                 device,
                 atlas_bind_group_layout,
                 &new_atlas_texture_array_view,
+                &resources.atlas_sampler,
             );
 
             // Replace the old resources

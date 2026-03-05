@@ -371,9 +371,7 @@ impl WebGlRenderer {
         &mut self,
         writer: &T,
     ) -> vello_common::paint::ImageId {
-        // TODO: If we want to use native bilinear sampling for uploaded images,
-        // we can pass 1 instead of 0 here.
-        self.upload_image_with(writer, 0)
+        self.upload_image_with(writer, 1)
     }
 
     pub(crate) fn upload_image_with<T: WebGlAtlasWriter>(
@@ -500,13 +498,12 @@ impl WebGlRenderer {
             self.paint_idxs[encoded_paint_idx] = current_idx;
             match paint {
                 EncodedPaint::Image(img) => {
-                    if let ImageSource::OpaqueId { id: image_id, .. } = img.source {
-                        let image_resource: Option<&ImageResource> = self.image_cache.get(image_id);
-                        if let Some(image_resource) = image_resource {
-                            let gpu_image = self.encode_image_paint(img, image_resource);
-                            self.encoded_paints[encoded_paint_idx] = gpu_image;
-                            current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
-                        }
+                    if let ImageSource::OpaqueId { id, .. } = &img.source
+                        && let Some(image_resource) = self.image_cache.get(*id)
+                    {
+                        let gpu_image = self.encode_image_paint(img, image_resource);
+                        self.encoded_paints[encoded_paint_idx] = gpu_image;
+                        current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
                     }
                 }
                 EncodedPaint::Gradient(gradient) => {
@@ -544,7 +541,7 @@ impl WebGlRenderer {
         let image_size = pack_image_size(image_resource.width, image_resource.height);
         let image_offset = pack_image_offset(image_resource.offset[0], image_resource.offset[1]);
         let image_params = pack_image_params(
-            image.sampler.quality as u32,
+            image.gpu_quality,
             image.sampler.x_extend as u32,
             image.sampler.y_extend as u32,
             image_resource.atlas_id.as_u32(),
@@ -1514,10 +1511,42 @@ fn create_texture(gl: &WebGl2RenderingContext) -> WebGlTexture {
     create_texture_inner(gl, WebGl2RenderingContext::TEXTURE_2D)
 }
 
-/// Create a texture array with nearest neighbor sampling and
-/// clamp-to-edge wrapping.
+/// Create a texture array with bilinear sampling and clamp-to-edge wrapping.
+///
+/// Uses LINEAR filtering so that `textureSampleLevel` (compiled to `textureLod` in GLSL)
+/// performs hardware bilinear interpolation for GPU-native image sampling.
+/// This does not affect `textureLoad` (compiled to `texelFetch`), which always
+/// bypasses the sampler regardless of filter mode.
 fn create_texture_array(gl: &WebGl2RenderingContext) -> WebGlTexture {
-    create_texture_inner(gl, WebGl2RenderingContext::TEXTURE_2D_ARRAY)
+    let texture = gl.create_texture().unwrap();
+    gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+    gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D_ARRAY, Some(&texture));
+    gl.tex_parameteri(
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+        WebGl2RenderingContext::TEXTURE_MIN_FILTER,
+        WebGl2RenderingContext::LINEAR as i32,
+    );
+    gl.tex_parameteri(
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+        WebGl2RenderingContext::TEXTURE_MAG_FILTER,
+        WebGl2RenderingContext::LINEAR as i32,
+    );
+    gl.tex_parameteri(
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+        WebGl2RenderingContext::TEXTURE_WRAP_S,
+        WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+    );
+    gl.tex_parameteri(
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+        WebGl2RenderingContext::TEXTURE_WRAP_T,
+        WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+    );
+    gl.tex_parameteri(
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+        WebGl2RenderingContext::TEXTURE_MAX_LEVEL,
+        0,
+    );
+    texture
 }
 
 fn create_texture_inner(gl: &WebGl2RenderingContext, target: u32) -> WebGlTexture {

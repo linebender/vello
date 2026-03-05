@@ -17,7 +17,8 @@ use vello_common::glyph::{GlyphCaches, GlyphRenderer, GlyphRunBuilder, GlyphType
 use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::multi_atlas::AtlasConfig;
-use vello_common::paint::{Paint, PaintType, Tint};
+use vello_common::paint::{Image, ImageSource, Paint, PaintType, Tint};
+use vello_common::peniko::{Extend, ImageQuality, ImageSampler};
 #[cfg(feature = "text")]
 use vello_common::peniko::FontData;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
@@ -460,6 +461,39 @@ impl Scene {
         }
 
         self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
+    }
+
+    /// GPU-native bilinear quality constant (value 3).
+    ///
+    /// Values 0–2 mirror [`ImageQuality`] (Low, Medium, High).
+    /// Value 3 selects GPU-native bilinear sampling with transparent padding.
+    const GPU_QUALITY_GPU_BILINEAR: u32 = 3;
+
+    /// Draw an image using GPU-native bilinear sampling with transparent edges.
+    ///
+    /// The image source should be an [`ImageSource::OpaqueId`] that was uploaded
+    /// to the atlas with 1 px transparent padding. The quality is overridden to
+    /// [`GPU_QUALITY_GPU_BILINEAR`](Self::GPU_QUALITY_GPU_BILINEAR) so the shader
+    /// uses hardware bilinear sampling instead of manual interpolation.
+    pub fn draw_image(&mut self, image: ImageSource, rect: &Rect) {
+        self.set_paint_transform(Affine::IDENTITY);
+        self.set_paint(Image {
+            image,
+            sampler: ImageSampler {
+                x_extend: Extend::Pad,
+                y_extend: Extend::Pad,
+                quality: ImageQuality::Medium,
+                alpha: 1.0,
+            },
+        });
+
+        let paint_idx = self.encoded_paints.len();
+        self.fill_rect(rect);
+
+        // Override quality to GPU-native bilinear.
+        if let Some(EncodedPaint::Image(img)) = self.encoded_paints.get_mut(paint_idx) {
+            img.gpu_quality = Self::GPU_QUALITY_GPU_BILINEAR;
+        }
     }
 
     #[expect(

@@ -245,7 +245,7 @@ pub(crate) fn pack_image_offset(x: u16, y: u16) -> u32 {
 /// `atlas_index`: stored in bits 6-13 (8 bits, supports up to 256 atlases)
 /// `extend_y`: stored in bits 4-5 (2 bits)
 /// `extend_x`: stored in bits 2-3 (2 bits)
-/// `quality`: stored in bits 0-1 (2 bits)
+/// `quality`: stored in bits 0-1 (2 bits, values 0–3)
 #[inline(always)]
 pub(crate) fn pack_image_params(
     quality: u32,

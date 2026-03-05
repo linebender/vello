@@ -47,6 +47,7 @@ const RECT_STRIP_FLAG: u32 = 0x80000000u;
 const IMAGE_QUALITY_LOW = 0u;
 const IMAGE_QUALITY_MEDIUM = 1u;
 const IMAGE_QUALITY_HIGH = 2u;
+const IMAGE_QUALITY_GPU_BILINEAR = 3u;
 
 // Gradient types.
 const GRADIENT_TYPE_LINEAR: u32 = 0u;
@@ -234,6 +235,9 @@ var<uniform> config: Config;
 @group(1) @binding(0)
 var atlas_texture_array: texture_2d_array<f32>;
 
+@group(1) @binding(1)
+var atlas_sampler: sampler;
+
 @group(2) @binding(0)
 var encoded_paints_texture: texture_2d<u32>;
 
@@ -388,11 +392,20 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 extend_mode(local_xy.y + offset, encoded_image.extend_modes.y, image_size.y)
             );
 
-            // TODO: add a fast path for images where we are using bilinear sampling and want transparent pixels,
-            // using GPU-native bilinear sampling
-            
             var sample_color: vec4<f32>;
-            if encoded_image.quality == IMAGE_QUALITY_HIGH {
+            if encoded_image.quality == IMAGE_QUALITY_GPU_BILINEAR {
+                // GPU-native bilinear sampling: the image is uploaded with 1px transparent
+                // padding, so the hardware sampler naturally blends to transparent at edges.
+                let atlas_dims = vec2<f32>(textureDimensions(atlas_texture_array));
+                let sample_xy = (image_offset + local_xy) / atlas_dims;
+                sample_color = textureSampleLevel(
+                    atlas_texture_array,
+                    atlas_sampler,
+                    sample_xy,
+                    i32(encoded_image.atlas_index),
+                    0.0,
+                );
+            } else if encoded_image.quality == IMAGE_QUALITY_HIGH {
                 let final_xy = image_offset + extended_xy;
                 sample_color = bicubic_sample(
                     atlas_texture_array,
@@ -830,7 +843,7 @@ const TINT_MODE_ALPHA_MASK: u32 = 0u;
 const TINT_MODE_MULTIPLY: u32 = 1u;
 
 struct EncodedImage {
-    /// The rendering quality of the image.
+    /// The rendering quality of the image (0=Low, 1=Medium, 2=High, 3=GPU bilinear).
     quality: u32,
     /// The extends in the horizontal and vertical direction.
     extend_modes: vec2<u32>,
@@ -890,7 +903,7 @@ fn unpack_encoded_image(paint_tex_idx: u32) -> EncodedImage {
     let image_padding = f32(texel2.w);
 
     return EncodedImage(
-        quality, 
+        quality,
         vec2<u32>(extend_x, extend_y),
         image_size,
         image_offset,
