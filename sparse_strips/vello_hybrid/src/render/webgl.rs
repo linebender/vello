@@ -689,7 +689,7 @@ struct WebGlPrograms {
     clear_program: WebGlProgram,
     /// Uniform locations for the `clear_program`.
     clear_uniforms: ClearUniforms,
-    /// Single uber program for filter passes (dispatches on pass_kind in shader).
+    /// Program for filter passes.
     filter_program: WebGlProgram,
     /// Uniform locations for the filter program.
     filter_uniforms: FilterPassUniforms,
@@ -703,14 +703,10 @@ struct WebGlPrograms {
     filter_data: Vec<u8>,
 }
 
-/// Uniform locations for the filter uber program.
 #[derive(Debug)]
 struct FilterPassUniforms {
-    /// Filter data texture (usampler2D).
     filter_data: WebGlUniformLocation,
-    /// Input texture (sampler2D).
     in_tex: WebGlUniformLocation,
-    /// Original texture (sampler2D) for COMPOSITE passes.
     original_tex: WebGlUniformLocation,
 }
 
@@ -799,8 +795,6 @@ struct WebGlResources {
     atlas_render_framebuffer: Option<WebGlFramebuffer>,
 
     /// Individual 2D textures for filter intermediate results.
-    /// Not a texture array because WebGL cannot bind a single layer of a texture array
-    /// as both input and output simultaneously.
     filter_atlas_textures: Vec<WebGlTexture>,
     /// Framebuffers for each filter atlas texture.
     filter_atlas_framebuffers: Vec<WebGlFramebuffer>,
@@ -903,7 +897,7 @@ impl WebGlPrograms {
 
         self.maybe_resize_alphas_tex(max_texture_dimension_2d, alphas.len());
         self.maybe_resize_encoded_paints_tex(max_texture_dimension_2d, paint_idxs);
-        self.maybe_resize_filter_data_tex(gl, filter_context);
+        self.maybe_resize_filter_data_tex(filter_context);
         self.maybe_update_config_buffer(gl, max_texture_dimension_2d, render_size);
 
         self.upload_alpha_texture(gl, alphas);
@@ -977,19 +971,18 @@ impl WebGlPrograms {
         }
     }
 
-    /// Update the alpha texture size if needed.
-    /// Resize the filter data texture height if needed.
     fn maybe_resize_filter_data_tex(
         &mut self,
-        _gl: &WebGl2RenderingContext,
         filter_context: &FilterContext,
     ) {
         let max_texture_dimension_2d = self.resources.max_texture_dimension_2d;
+
         let Some(required_height) =
             filter_context.required_filter_data_height(max_texture_dimension_2d)
         else {
             return;
         };
+
         if required_height > self.resources.filter_data_texture_height {
             let required_size = (max_texture_dimension_2d * required_height) << 4;
             self.filter_data.resize(required_size as usize, 0);
@@ -997,7 +990,6 @@ impl WebGlPrograms {
         }
     }
 
-    /// Upload filter data to the filter data texture.
     fn upload_filter_data_texture(
         &mut self,
         gl: &WebGl2RenderingContext,
@@ -1006,6 +998,7 @@ impl WebGlPrograms {
         if filter_context.is_empty() {
             return;
         }
+
         let width = self.resources.max_texture_dimension_2d;
         let height = self.resources.filter_data_texture_height;
         filter_context.serialize_to_buffer(&mut self.filter_data);
@@ -1030,13 +1023,14 @@ impl WebGlPrograms {
         .unwrap();
     }
 
-    /// Resize filter atlas textures if needed.
     fn maybe_resize_filter_atlas_textures(
         &mut self,
         gl: &WebGl2RenderingContext,
         required_count: u32,
     ) {
         let current_count = self.resources.filter_atlas_textures.len() as u32;
+        // TODO: Same as wgpu, should we be destroying
+        // textures if they aren't needed anymore?
         if required_count > current_count {
             let width = self.resources.filter_atlas_width;
             let height = self.resources.filter_atlas_height;
@@ -1049,7 +1043,6 @@ impl WebGlPrograms {
         }
     }
 
-    /// Clear all filter atlas textures to transparent.
     fn clear_filter_atlas_textures(&self, gl: &WebGl2RenderingContext) {
         let _state_guard = WebGlStateGuard::with_config(
             gl,
@@ -1087,6 +1080,7 @@ impl WebGlPrograms {
         );
     }
 
+    /// Update the alpha texture size if needed.
     fn maybe_resize_alphas_tex(&mut self, max_texture_dimension_2d: u32, alphas_len: usize) {
         let required_alpha_height = (alphas_len as u32)
             // There are 16 1-byte alpha values per texel.
