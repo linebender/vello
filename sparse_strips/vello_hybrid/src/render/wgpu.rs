@@ -142,15 +142,14 @@ impl Renderer {
         }
     }
 
-    /// Prepare filter textures for the current frame: clear previous filter atlas contents,
-    /// deallocate stale allocations, allocate new ones, and resize atlas textures if needed.
-    fn prepare_filter_textures(
+   fn prepare_filter_textures(
         &mut self,
         scene: &Scene,
         device: &Device,
         encoder: &mut CommandEncoder,
         encoded_paints: &mut Vec<EncodedPaint>,
     ) -> Result<(), AtlasError> {
+       // TODO: Maybe we can do the clear implicitly when using the textures for the first time.
         if !self.filter_context.filter_textures.is_empty() {
             for atlas_texture in &self.programs.resources.filter_atlas_textures {
                 let view = atlas_texture.create_view(&TextureViewDescriptor::default());
@@ -220,6 +219,7 @@ impl Renderer {
             render_size,
             view,
             &encoded_paints,
+            true
         );
 
         encoded_paints.truncate(scene_paint_count);
@@ -306,6 +306,7 @@ impl Renderer {
             &atlas_render_size,
             &layer_view,
             &encoded_paints,
+            false
         );
 
         // Restore the real atlas bind group.
@@ -324,8 +325,8 @@ impl Renderer {
     /// Shared render pipeline: prepares GPU resources, runs the scheduler against
     /// the provided `view` at `render_size`, and maintains caches.
     ///
-    /// `encoded_paints` must already be borrowed (and potentially extended with filter paints)
-    /// before calling this method.
+    /// When `clear` is true the render target is cleared to transparent black
+    /// before drawing (normal frame rendering).
     fn render_scene(
         &mut self,
         scene: &Scene,
@@ -335,6 +336,9 @@ impl Renderer {
         render_size: &RenderSize,
         view: &TextureView,
         encoded_paints: &[EncodedPaint],
+        // See https://github.com/linebender/vello/pull/1458/changes#r2851077556
+        // TODO: Fix this ASAP!
+        _clear: bool,
     ) -> Result<(), RenderError> {
         self.prepare_gpu_encoded_paints(encoded_paints);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
@@ -689,9 +693,9 @@ impl Renderer {
 /// Defines the GPU resources and pipelines for rendering.
 #[derive(Debug)]
 struct Programs {
-    /// Pipelines for rendering wide tile commands.
-    /// Index 0: native surface format (for final view and slot textures).
-    /// Index 1: `Rgba8Unorm` (for filter intermediate textures).
+    /// Pipelines for rendering strips.
+    /// The first pipeline should be used for color attachments in the native pixel format,
+    /// the second for color attachments in RGBA8.
     strip_pipelines: [RenderPipeline; 2],
     /// Bind group layout for strip draws
     strip_bind_group_layout: BindGroupLayout,
@@ -701,9 +705,9 @@ struct Programs {
     gradient_bind_group_layout: BindGroupLayout,
     /// Bind group layout for atlas textures
     atlas_bind_group_layout: BindGroupLayout,
-    /// Bind group layout for filter data texture (group 0 in filter pipeline).
+    /// Bind group layout for filter data texture.
     filter_bind_group_layout: BindGroupLayout,
-    /// Single uber pipeline for applying filter effects.
+    /// Pipeline for applying filter effects.
     filter_pipeline: RenderPipeline,
     /// Bind group layouts for filter input (group 1: in_tex + sampler) and original (group 2: original_tex).
     filter_input_bind_group_layouts: [BindGroupLayout; 2],
@@ -734,10 +738,14 @@ struct GpuResources {
     atlas_texture_array_view: TextureView,
     /// Bind group for atlas textures (as texture array)
     atlas_bind_group: BindGroup,
-    /// Individual textures for filter intermediate data. Stored as a Vec of separate textures
-    /// rather than a texture array because each can be a render target independently (WebGL
-    /// cannot bind individual array layers as render targets for sub-array textures).
+    /// Individual textures for filter intermediate data. Unlike image atlases, we don't use
+    /// texture arrays but instead a real vector of individual textures, since you cannot bind
+    /// texture in the same array as color attachment and input binding at the same time (even
+    /// if the texture accesses themselves are mutually exclusive).
+    /// Lazily allocated: stays empty until the first scene with filters.
     filter_atlas_textures: Vec<Texture>,
+    /// Dimensions for filter atlas textures, stored so we can lazily allocate them.
+    filter_atlas_size: (u32, u32),
     /// Texture for encoded paints
     encoded_paints_texture: Texture,
     /// Bind group for encoded paints
@@ -748,7 +756,7 @@ struct GpuResources {
     gradient_bind_group: BindGroup,
     /// Texture holding serialized `GpuFilterData` for all filter layers.
     filter_data_texture: Texture,
-    /// Bind group for the filter data texture (group 0 in filter pipeline).
+    /// Bind group for the filter data texture.
     filter_base_bind_group: BindGroup,
     /// Linear sampler used for bilinear sampling in filter passes.
     filter_sampler: Sampler,
@@ -939,8 +947,6 @@ impl Programs {
                 push_constant_ranges: &[],
             });
 
-        // Two strip pipelines: index 0 for native surface format (final view + slot textures),
-        // index 1 for Rgba8Unorm (filter intermediate textures).
         let strip_formats = [render_target_config.format, wgpu::TextureFormat::Rgba8Unorm];
         let strip_pipelines: [RenderPipeline; 2] = core::array::from_fn(|i| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -1052,7 +1058,6 @@ impl Programs {
             cache: None,
         });
 
-        // Filter pipeline bind group layouts.
         let filter_texture_entry = wgpu::BindGroupLayoutEntry {
             binding: 0,
             visibility: wgpu::ShaderStages::FRAGMENT,
@@ -1063,7 +1068,6 @@ impl Programs {
             },
             count: None,
         };
-        // Group 0: filter_data (Rgba32Uint, same layout as encoded paints/gradient)
         let filter_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Filter Bind Group Layout"),
@@ -1078,8 +1082,8 @@ impl Programs {
                     count: None,
                 }],
             });
-        // Group 1: in_tex + linear_sampler. Group 2: original_tex.
         let filter_input_bind_group_layouts = [
+            // Input texture and linear sampler.
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Filter Input Bind Group Layout"),
                 entries: &[
@@ -1092,6 +1096,7 @@ impl Programs {
                     },
                 ],
             }),
+            // The original texture.
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Filter Original Bind Group Layout"),
                 entries: &[filter_texture_entry],
@@ -1278,20 +1283,13 @@ impl Programs {
             &gradient_texture.create_view(&TextureViewDescriptor::default()),
         );
 
-        // Filter atlas textures (individual textures, not an array).
         let AtlasConfig {
             atlas_size: (filter_atlas_width, filter_atlas_height),
-            initial_atlas_count: filter_initial_atlas_count,
             ..
         } = filter_texture_cache.atlas_manager().config();
-        let filter_atlas_textures = Self::create_filter_atlas_textures(
-            device,
-            *filter_atlas_width,
-            *filter_atlas_height,
-            *filter_initial_atlas_count as u32,
-        );
+        let filter_atlas_size = (*filter_atlas_width, *filter_atlas_height);
 
-        // Filter data texture and bind group.
+        // TODO: We really should deduplicate handling of this this with encoded paints texture.
         const INITIAL_FILTER_TEXTURE_HEIGHT: u32 = 1;
         let filter_data =
             vec![0u8; ((max_texture_dimension_2d * INITIAL_FILTER_TEXTURE_HEIGHT) << 4) as usize];
@@ -1337,7 +1335,8 @@ impl Programs {
             atlas_texture_array,
             atlas_texture_array_view,
             atlas_bind_group,
-            filter_atlas_textures,
+            filter_atlas_textures: Vec::new(),
+            filter_atlas_size,
             stub_atlas_bind_group,
             encoded_paints_texture,
             encoded_paints_bind_group,
@@ -1479,33 +1478,6 @@ impl Programs {
         });
 
         (atlas_texture_array, atlas_texture_array_view)
-    }
-
-    fn create_filter_atlas_textures(
-        device: &Device,
-        width: u32,
-        height: u32,
-        count: u32,
-    ) -> Vec<Texture> {
-        (0..count)
-            .map(|_| {
-                device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("Filter Atlas Texture"),
-                    size: Extent3d {
-                        width,
-                        height,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING
-                        | wgpu::TextureUsages::RENDER_ATTACHMENT,
-                    view_formats: &[],
-                })
-            })
-            .collect()
     }
 
     fn create_filter_data_texture(device: &Device, width: u32, height: u32) -> Texture {
@@ -1711,7 +1683,6 @@ impl Programs {
         }
     }
 
-    /// Update the filter data texture size if needed.
     fn maybe_resize_filter_tex(
         &mut self,
         device: &Device,
@@ -1749,7 +1720,6 @@ impl Programs {
         }
     }
 
-    /// Resize the filter atlas textures Vec to accommodate more atlases.
     fn maybe_resize_filter_atlas_textures(
         device: &Device,
         resources: &mut GpuResources,
@@ -1757,13 +1727,7 @@ impl Programs {
     ) {
         let current_count = resources.filter_atlas_textures.len() as u32;
         if required_atlas_count > current_count {
-            let (width, height) = if current_count > 0 {
-                let first = &resources.filter_atlas_textures[0];
-                (first.width(), first.height())
-            } else {
-                // Fallback: shouldn't happen since we always init at least 1 texture.
-                (1024, 1024)
-            };
+            let (width, height) = resources.filter_atlas_size;
             for _ in current_count..required_atlas_count {
                 resources.filter_atlas_textures.push(device.create_texture(
                     &wgpu::TextureDescriptor {

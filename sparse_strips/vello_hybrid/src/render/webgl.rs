@@ -1977,21 +1977,11 @@ fn create_webgl_resources(
     // Create filter data texture (RGBA32UI, initially empty — resized on demand).
     let filter_data_texture = create_texture(gl);
 
-    // Create initial filter atlas textures from filter context config.
+    // Filter atlas textures are lazily allocated when the first scene with filters is rendered.
     let AtlasConfig {
         atlas_size: (filter_atlas_width, filter_atlas_height),
-        initial_atlas_count: filter_initial_count,
         ..
     } = filter_context.image_cache.atlas_manager().config();
-
-    let mut filter_atlas_textures = Vec::new();
-    let mut filter_atlas_framebuffers = Vec::new();
-    for _ in 0..*filter_initial_count {
-        let tex = create_filter_atlas_texture(gl, *filter_atlas_width, *filter_atlas_height);
-        let fb = create_framebuffer_for_texture(gl, &tex);
-        filter_atlas_textures.push(tex);
-        filter_atlas_framebuffers.push(fb);
-    }
 
     WebGlResources {
         strip_vao,
@@ -2015,8 +2005,8 @@ fn create_webgl_resources(
         max_texture_dimension_2d,
         stub_atlas_texture_array,
         atlas_render_framebuffer: None,
-        filter_atlas_textures,
-        filter_atlas_framebuffers,
+        filter_atlas_textures: Vec::new(),
+        filter_atlas_framebuffers: Vec::new(),
         filter_data_texture,
         filter_data_texture_height: 0,
         filter_instance_buffer,
