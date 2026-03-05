@@ -78,7 +78,9 @@ pub enum RenderError {
     /// TODO: Consider supporting more than a single column of slots in slot textures.
     #[error("No slots available for rendering")]
     SlotsExhausted,
-    /// Filter texture atlas allocation failed.
+    /// An allocation error occurred while trying to allocate a new image. This can happen
+    /// if the scene contains filter layers, which need space in the image atlas for intermediate
+    /// storage.
     #[error("Filter atlas allocation failed: {0}")]
     AtlasError(#[from] vello_common::multi_atlas::AtlasError),
 }
