@@ -338,7 +338,6 @@ impl WebGlRenderer {
         render_size: &RenderSize,
         clear: bool,
     ) -> Result<(), RenderError> {
-        // Clear filter atlas textures from the previous frame.
         if !self.filter_context.filter_textures.is_empty() {
             self.programs.clear_filter_atlas_textures(&self.gl);
         }
@@ -806,6 +805,8 @@ struct WebGlResources {
     filter_instance_buffer: WebGlBuffer,
     /// VAO for filter rendering.
     filter_vao: WebGlVertexArrayObject,
+    /// Config buffer for rendering filter layers.
+    filter_config_buffer: WebGlBuffer,
     /// Cached atlas width for creating new filter atlas textures.
     filter_atlas_width: u32,
     /// Cached atlas height for creating new filter atlas textures.
@@ -1059,20 +1060,18 @@ impl WebGlPrograms {
         }
     }
 
-    /// Upload a single `FilterInstanceData` to the filter instance buffer.
-    fn upload_filter_instance(
+    fn upload_filter_instances(
         &self,
         gl: &WebGl2RenderingContext,
-        instance_data: &FilterInstanceData,
+        instances: &[FilterInstanceData],
     ) {
         gl.bind_buffer(
             WebGl2RenderingContext::ARRAY_BUFFER,
             Some(&self.resources.filter_instance_buffer),
         );
-        let data = bytemuck::bytes_of(instance_data);
         gl.buffer_data_with_u8_array(
             WebGl2RenderingContext::ARRAY_BUFFER,
-            data,
+            bytemuck::cast_slice(instances),
             WebGl2RenderingContext::DYNAMIC_DRAW,
         );
     }
@@ -1727,7 +1726,6 @@ fn get_filter_pass_uniforms(
     }
 }
 
-/// Create a 2D RGBA8 texture for filter atlas intermediate results.
 fn create_filter_atlas_texture(
     gl: &WebGl2RenderingContext,
     width: u32,
@@ -1771,7 +1769,6 @@ fn create_filter_atlas_texture(
     texture
 }
 
-/// Initialize filter VAO with `FilterInstanceData` layout.
 fn initialize_filter_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) {
     gl.bind_vertex_array(Some(&resources.filter_vao));
     gl.bind_buffer(
@@ -1928,10 +1925,9 @@ fn create_webgl_resources(
 
     let max_texture_dimension_2d = get_max_texture_dimension_2d(gl);
 
-    // Create filter data texture (RGBA32UI, initially empty — resized on demand).
     let filter_data_texture = create_texture(gl);
+    let filter_config_buffer = gl.create_buffer().unwrap();
 
-    // Filter atlas textures are lazily allocated when the first scene with filters is rendered.
     let AtlasConfig {
         atlas_size: (filter_atlas_width, filter_atlas_height),
         ..
@@ -1965,6 +1961,7 @@ fn create_webgl_resources(
         filter_data_texture_height: 0,
         filter_instance_buffer,
         filter_vao,
+        filter_config_buffer,
         filter_atlas_width: *filter_atlas_width,
         filter_atlas_height: *filter_atlas_height,
     }
@@ -2114,10 +2111,7 @@ impl WebGlRendererContext<'_> {
         }
         self.programs.upload_strips(self.gl, strips);
 
-        // Set up framebuffer, viewport, and config buffer based on the render target.
-        // The intermediate texture case needs a temporary config buffer with strip offsets;
-        // the other cases use pre-created config buffers.
-        let temp_config_buffer = match &target {
+        match &target {
             StripPassRenderTarget::Output(OutputTarget::IntermediateTexture(layer_id)) => {
                 let image_id = self
                     .filter_context
@@ -2161,25 +2155,24 @@ impl WebGlRendererContext<'_> {
                     strip_offset_y,
                     _padding: 0,
                 };
-                let buf = self.gl.create_buffer().unwrap();
+                let buf = &self.programs.resources.filter_config_buffer;
                 self.gl
-                    .bind_buffer(WebGl2RenderingContext::UNIFORM_BUFFER, Some(&buf));
+                    .bind_buffer(WebGl2RenderingContext::UNIFORM_BUFFER, Some(buf));
                 self.gl.buffer_data_with_u8_array(
                     WebGl2RenderingContext::UNIFORM_BUFFER,
                     bytemuck::bytes_of(&config),
-                    WebGl2RenderingContext::STATIC_DRAW,
+                    WebGl2RenderingContext::DYNAMIC_DRAW,
                 );
                 self.gl.bind_buffer_base(
                     WebGl2RenderingContext::UNIFORM_BUFFER,
                     self.programs.strip_uniforms.config_vs_block_index,
-                    Some(&buf),
+                    Some(buf),
                 );
                 self.gl.bind_buffer_base(
                     WebGl2RenderingContext::UNIFORM_BUFFER,
                     self.programs.strip_uniforms.config_fs_block_index,
-                    Some(&buf),
+                    Some(buf),
                 );
-                Some(buf)
             }
             StripPassRenderTarget::Output(OutputTarget::FinalView) => {
                 self.gl.bind_framebuffer(
@@ -2200,7 +2193,6 @@ impl WebGlRendererContext<'_> {
                     self.programs.strip_uniforms.config_fs_block_index,
                     Some(&self.programs.resources.view_config_buffer),
                 );
-                None
             }
             StripPassRenderTarget::SlotTexture(ix) => {
                 self.gl.bind_framebuffer(
@@ -2224,16 +2216,18 @@ impl WebGlRendererContext<'_> {
                     self.programs.strip_uniforms.config_fs_block_index,
                     Some(&self.programs.resources.slot_config_buffer),
                 );
-                None
             }
-        };
+        }
 
         if matches!(load, LoadOp::Clear) {
             self.gl.clear_color(0.0, 0.0, 0.0, 0.0);
             self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
         }
 
+        // Use the strip program.
         self.gl.use_program(Some(&self.programs.strip_program));
+
+        // Set up attributes.
         self.gl
             .bind_vertex_array(Some(&self.programs.resources.strip_vao));
 
@@ -2246,7 +2240,6 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.strip_uniforms.alphas_texture), 0);
 
-        // Clip texture: slot_textures[0] when rendering to slot 1, otherwise slot_textures[1].
         let clip_texture_idx = match &target {
             StripPassRenderTarget::SlotTexture(1) => 0,
             _ => 1,
@@ -2259,6 +2252,7 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.strip_uniforms.clip_input_texture), 1);
 
+        // Bind atlas texture array for image rendering
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D_ARRAY,
@@ -2267,6 +2261,7 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.strip_uniforms.atlas_texture_array), 2);
 
+        // Bind encoded paints texture for image metadata
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE3);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
@@ -2281,6 +2276,7 @@ impl WebGlRendererContext<'_> {
             3,
         );
 
+        // Bind gradient texture for gradient rendering
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE4);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
@@ -2289,6 +2285,7 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.strip_uniforms.gradient_texture), 4);
 
+        // Draw.
         self.gl.draw_arrays_instanced(
             WebGl2RenderingContext::TRIANGLE_STRIP,
             0,
@@ -2297,9 +2294,6 @@ impl WebGlRendererContext<'_> {
         );
 
         self.gl.bind_vertex_array(None);
-        if let Some(buf) = temp_config_buffer {
-            self.gl.delete_buffer(Some(&buf));
-        }
     }
 
     /// Clear specific slots from a slot texture.
@@ -2405,6 +2399,10 @@ impl RendererBackend for WebGlRendererContext<'_> {
 
         self.gl.disable(WebGl2RenderingContext::BLEND);
 
+        // Upload all instances at once.
+        let instances = pass_state.instances();
+        self.programs.upload_filter_instances(self.gl, instances);
+
         // Set up the filter program and invariant state once before the loop.
         self.gl.use_program(Some(&self.programs.filter_program));
         self.gl
@@ -2420,9 +2418,73 @@ impl RendererBackend for WebGlRendererContext<'_> {
 
         // Reusable framebuffer for passes that output to a main atlas layer.
         let mut main_atlas_fb: Option<WebGlFramebuffer> = None;
+        let stride = size_of::<FilterInstanceData>() as i32;
 
-        for (instance, pass) in pass_state.instances().iter().zip(filter_passes) {
-            self.programs.upload_filter_instance(self.gl, instance);
+        for (i, pass) in filter_passes.iter().enumerate() {
+            let base = (i as i32) * stride;
+            self.gl.vertex_attrib_i_pointer_with_i32(
+                0,
+                2,
+                WebGl2RenderingContext::UNSIGNED_INT,
+                stride,
+                base,
+            );
+            self.gl.vertex_attrib_i_pointer_with_i32(
+                1,
+                2,
+                WebGl2RenderingContext::UNSIGNED_INT,
+                stride,
+                base + 8,
+            );
+            self.gl.vertex_attrib_i_pointer_with_i32(
+                2,
+                2,
+                WebGl2RenderingContext::UNSIGNED_INT,
+                stride,
+                base + 16,
+            );
+            self.gl.vertex_attrib_i_pointer_with_i32(
+                3,
+                2,
+                WebGl2RenderingContext::UNSIGNED_INT,
+                stride,
+                base + 24,
+            );
+            self.gl.vertex_attrib_i_pointer_with_i32(
+                4,
+                2,
+                WebGl2RenderingContext::UNSIGNED_INT,
+                stride,
+                base + 32,
+            );
+            self.gl.vertex_attrib_i_pointer_with_i32(
+                5,
+                1,
+                WebGl2RenderingContext::UNSIGNED_INT,
+                stride,
+                base + 40,
+            );
+            self.gl.vertex_attrib_i_pointer_with_i32(
+                6,
+                2,
+                WebGl2RenderingContext::UNSIGNED_INT,
+                stride,
+                base + 44,
+            );
+            self.gl.vertex_attrib_i_pointer_with_i32(
+                7,
+                2,
+                WebGl2RenderingContext::UNSIGNED_INT,
+                stride,
+                base + 52,
+            );
+            self.gl.vertex_attrib_i_pointer_with_i32(
+                8,
+                1,
+                WebGl2RenderingContext::UNSIGNED_INT,
+                stride,
+                base + 60,
+            );
 
             match &pass.output {
                 FilterPassTarget::FilterAtlas(idx) => {
