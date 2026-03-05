@@ -3,6 +3,7 @@
 
 //! Tests demonstrating the filter effects API usage.
 
+use crate::load_image;
 use crate::util::{circular_star, stops_blue_green_red_yellow};
 use crate::{renderer::Renderer, util::layout_glyphs_roboto};
 use vello_common::color::AlphaColor;
@@ -11,8 +12,11 @@ use vello_common::color::palette::css::{
 };
 use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
 use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape, Stroke};
-use vello_common::peniko::{BlendMode, Compose, Gradient, LinearGradientPosition, Mix};
-use vello_cpu::color::palette::css::{BLUE, GREEN, RED};
+use vello_common::paint::Image;
+use vello_common::peniko::{
+    BlendMode, Compose, Extend, Gradient, ImageQuality, ImageSampler, LinearGradientPosition, Mix,
+};
+use vello_cpu::color::palette::css::{BLUE, GREEN, RED, TRANSPARENT};
 use vello_cpu::kurbo::Dashes;
 use vello_dev_macros::vello_test;
 
@@ -1145,7 +1149,7 @@ fn filter_with_complex_paint_and_wide_tile_shift(ctx: &mut impl Renderer) {
         }
         .into(),
         stops: stops_blue_green_red_yellow(),
-        extend: vello_common::peniko::Extend::Pad,
+        extend: Extend::Pad,
         ..Default::default()
     };
 
@@ -1270,4 +1274,59 @@ fn filter_gaussian_blur_edge_mode_wrap(ctx: &mut impl Renderer) {
 #[vello_test(skip_multithreaded, skip_hybrid, width = 256, height = 100)]
 fn filter_gaussian_blur_edge_mode_mirror(ctx: &mut impl Renderer) {
     blur_with_edge_mode(ctx, EdgeMode::Mirror);
+}
+
+#[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
+fn filter_blur_with_image(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 4.0,
+        edge_mode: EdgeMode::None,
+    });
+
+    let image_source = ctx.get_image_source(load_image!("rgb_image_10x10"));
+
+    ctx.push_filter_layer(filter);
+    ctx.set_paint_transform(Affine::translate((45.0, 45.0)));
+    ctx.set_paint(Image {
+        image: image_source,
+        sampler: ImageSampler {
+            x_extend: Extend::Pad,
+            y_extend: Extend::Pad,
+            quality: ImageQuality::Low,
+            alpha: 1.0,
+        },
+    });
+    ctx.fill_rect(&Rect::new(15.0, 15.0, 85.0, 85.0));
+    ctx.pop_layer();
+}
+
+/// Draw a green background shape, then composite a filter layer on top.
+///
+/// Verifies that content drawn before a filter layer is preserved correctly
+/// underneath the filtered result — in particular that fast-path strips
+/// (used for the background rect) still work alongside the filter path.
+fn filter_over_existing_content_inner<R: Renderer>(ctx: &mut R, draw_bg: impl FnOnce(&mut R)) {
+    ctx.set_paint(GREEN);
+    draw_bg(ctx);
+
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(TRANSPARENT);
+    ctx.fill_rect(&Rect::new(30.0, 30.0, 70.0, 70.0));
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded)]
+fn filter_over_existing_content_rect(ctx: &mut impl Renderer) {
+    filter_over_existing_content_inner(ctx, |ctx| {
+        ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
+    });
+}
+
+#[vello_test(skip_multithreaded)]
+fn filter_over_existing_content_star(ctx: &mut impl Renderer) {
+    filter_over_existing_content_inner(ctx, |ctx| {
+        let star = circular_star(Point::new(50.0, 50.0), 5, 15.0, 35.0);
+        ctx.fill_path(&star);
+    });
 }
