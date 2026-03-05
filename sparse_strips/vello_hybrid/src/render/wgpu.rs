@@ -18,6 +18,7 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
+use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize,
     filter::{FilterContext, FilterInstanceData, FilterPassTarget},
@@ -386,9 +387,7 @@ impl Renderer {
         encoder: &mut CommandEncoder,
         writer: &T,
     ) -> vello_common::paint::ImageId {
-        // TODO: If we want to use native bilinear sampling for uploaded images,
-        // we can pass 1 instead of 0 here.
-        self.upload_image_with(device, queue, encoder, writer, 0)
+        self.upload_image_with(device, queue, encoder, writer, IMAGE_PADDING)
     }
 
     pub(crate) fn upload_image_with<T: AtlasWriter>(

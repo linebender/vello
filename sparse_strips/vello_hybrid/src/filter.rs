@@ -21,6 +21,7 @@ use vello_common::peniko::{ImageQuality, ImageSampler};
 use vello_common::render_graph::{LayerId, RenderGraph, RenderNodeKind};
 use vello_common::tile::Tile;
 
+use crate::render::common::IMAGE_PADDING;
 use vello_common::image_cache::ImageCache;
 use vello_common::multi_atlas::AtlasConfig;
 use vello_common::multi_atlas::{AtlasError, AtlasId};
@@ -30,7 +31,7 @@ use vello_common::multi_atlas::{AtlasError, AtlasId};
 /// the code significantly easier since we don't need to special-case border pixels. Since we
 /// do use checked accesses for the offset filter, the bottleneck is formed by the gaussian blur
 /// convolution.
-const FILTER_ATLAS_PADDING: u16 = (MAX_KERNEL_SIZE as u16 / 2);
+const FILTER_ATLAS_PADDING: u16 = MAX_KERNEL_SIZE as u16 / 2;
 
 // Note: Keep these variables and struct layouts in sync with `filters.wgsl`!
 
@@ -302,8 +303,8 @@ impl GpuFilterData {
         ((self.data[0] >> 7) & 0xF) as usize
     }
 
-    /// Returns whether this filter requires scratch buffers.
-    pub(crate) fn needs_scratch_buffer(&self) -> bool {
+    /// Whether the filter is a multi-pass filter, requiring intermediate scratch textures.
+    pub(crate) fn is_multi_pass(&self) -> bool {
         matches!(
             self.filter_type(),
             filter_type::GAUSSIAN_BLUR | filter_type::DROP_SHADOW
@@ -384,7 +385,7 @@ pub(crate) enum FilterPassTarget {
 pub(crate) struct FilterPass {
     /// Instance data for this filter pass.
     pub instance: FilterInstanceData,
-    /// Atlas index of the input texture to read from (in `filter_context.image_cache`).
+    /// Atlas index of the input texture that will be used as the basis for the operation.
     pub input_atlas_idx: u32,
     /// Where this pass writes its output.
     pub output: FilterPassTarget,
@@ -433,7 +434,7 @@ impl FilterContext {
             }
         }
 
-        // Now clear everything.
+        // Now clear everything (except for `image_cache`, where there is nothing to clear).
         self.filters.clear();
         self.offsets.clear();
         self.filter_textures.clear();
@@ -458,7 +459,8 @@ impl FilterContext {
         for node in &render_graph.nodes {
             // During coarse rasterization it can happen that filter layers with a zero-sized
             // bounding box are allocated. Trying to allocate such a texture in our atlas manager
-            // would give an error, so we skip those nodes.
+            // would give an error, so we skip those nodes. Later on, we skip nodes with no
+            // associated filter layer gracefully.
             if node.is_empty() {
                 continue;
             }
@@ -475,27 +477,30 @@ impl FilterContext {
 
                 let instantiated = PreparedFilter::new(filter, transform);
                 let gpu_filter = GpuFilterData::from(&instantiated);
-                let needs_scratch = gpu_filter.needs_scratch_buffer();
+                let is_multi_pass = gpu_filter.is_multi_pass();
 
-                // The tricky part! Why do we have two image caches and don't just use the main
+                // The tricky part! Why do we have two distinct image caches and don't just use the main
                 // atlas that is used by renderers to store images? Fundamentally, the problem is
                 // that the destination texture where we render the initial contents of the layer
                 // with the filter cannot live in that texture array, because during the `render_strips`
-                // pass we already bind that texture array as an input bind group. Therefore, it needs
-                // to live somewhere else. So we need to create a second image cache, which lives
-                // in the filter context.
+                // pass we already bind that texture array as an input bind group so that we can render
+                // normal images. Since filter layers can also have normal images, they can't live
+                // in the same location. Therefore, it needs to live somewhere else.
+                // So we need to create a second image cache, and the initial rendering of the
+                // image needs to be stored there.
                 let initial_image_id =
                     self.image_cache
                         .allocate(width, height, FILTER_ATLAS_PADDING)?;
                 let initial_atlas_id = self.image_cache.get(initial_image_id).unwrap().atlas_id;
                 // This represents the destination where the final _filtered_ version lives. We store this
                 // in the same image atlas where normal images live, allowing us to treat them like normal
-                // image fills. No padding needed on the final output.
-                let dest_image_id = dest_cache.allocate(width, height, 0)?;
+                // image fills.
+                let dest_image_id = dest_cache.allocate(width, height, IMAGE_PADDING)?;
                 // For multi-pass filters we need two intermediate scratch buffers for ping-pong
                 // rendering. Each scratch must live on a different atlas texture than the other
-                // and than the initial texture, because we cannot read and write the same texture.
-                let scratch_image_ids = if needs_scratch {
+                // and then the initial texture, because we cannot read and write the same texture.
+                let scratch_image_ids = if is_multi_pass {
+                    // First scratch buffer needs to live on a different texture than the initial image.
                     let scratch_1 = self.image_cache.allocate_excluding(
                         width,
                         height,
@@ -503,6 +508,8 @@ impl FilterContext {
                         Some(AtlasId(initial_atlas_id.as_u32())),
                     )?;
                     let scratch_1_atlas_id = self.image_cache.get(scratch_1).unwrap().atlas_id;
+
+                    // Second scratch buffer needs to live on a different texture than first scratch buffer.
                     let scratch_2 = self.image_cache.allocate_excluding(
                         width,
                         height,
@@ -521,8 +528,8 @@ impl FilterContext {
                     },
                     sampler: ImageSampler::new().with_quality(ImageQuality::Low),
                     may_have_opacities: true,
-                    // Since filter layers are always shifted to start at (0, 0), we need
-                    // to "unshift" them when sampling.
+                    // Since filter layers are always shifted to start at (0, 0) relative to
+                    // their bounding box, we need to "unshift" them when sampling.
                     transform: Affine::translate((
                         -(wtile_bbox.x0() as f64) * WideTile::WIDTH as f64,
                         -(wtile_bbox.y0() as f64) * Tile::HEIGHT as f64,
