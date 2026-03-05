@@ -219,6 +219,8 @@ const SENTINEL_SLOT_IDX: usize = usize::MAX;
 pub(crate) enum OutputTarget {
     /// Render to the final, user-provided output view/surface.
     FinalView,
+    // TODO: This should also be used in the `render_to_atlas` method so that it works
+    // on devices with no native RGBA8.
     /// Render to the intermediate texture associated with the given filter layer.
     IntermediateTexture(LayerId),
 }
