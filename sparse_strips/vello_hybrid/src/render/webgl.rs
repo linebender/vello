@@ -2530,7 +2530,7 @@ impl RendererBackend for WebGlRendererContext<'_> {
         let filter_atlas_width = self.programs.resources.filter_atlas_width;
         let filter_atlas_height = self.programs.resources.filter_atlas_height;
 
-        let passes = self.filter_context.build_filter_passes(
+        self.filter_context.build_filter_passes(
             &layer_id,
             self.image_cache,
             |_atlas_idx| [filter_atlas_width, filter_atlas_height],
@@ -2542,11 +2542,16 @@ impl RendererBackend for WebGlRendererContext<'_> {
             },
         );
 
+        let pass_state = self.filter_context.filter_pass_state.borrow();
+
         self.gl.disable(WebGl2RenderingContext::BLEND);
 
-        for pass in &passes {
-            self.programs
-                .upload_filter_instance(self.gl, &pass.instance);
+        for (instance, pass) in pass_state
+            .instances()
+            .iter()
+            .zip(pass_state.filter_passes())
+        {
+            self.programs.upload_filter_instance(self.gl, instance);
 
             let _state_guard = WebGlStateGuard::with_config(
                 self.gl,

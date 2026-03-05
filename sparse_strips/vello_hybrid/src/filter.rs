@@ -377,11 +377,9 @@ pub(crate) enum FilterPassTarget {
     MainAtlas(u32),
 }
 
-/// Describes a single filter pass with its resources and instance data.
+/// Describes a single filter pass with its resources.
 #[derive(Debug)]
 pub(crate) struct FilterPass {
-    /// Instance data for this filter pass.
-    pub(crate) instance: FilterInstanceData,
     /// Atlas index of the input texture that will be used as the basis for the operation.
     pub(crate) input_atlas_idx: u32,
     /// Where this pass writes its output.
@@ -411,23 +409,34 @@ pub(crate) struct FilterContext {
 pub(crate) struct FilterPassState {
     /// Store the most recently generated filter passes.
     filter_passes: Vec<FilterPass>,
+    /// The instance data for each filter pass.
+    instances: Vec<FilterInstanceData>,
     sizer: DecimationSizer,
 }
 
 impl FilterPassState {
     fn clear(&mut self) {
         self.filter_passes.clear();
+        self.instances.clear();
+    }
+
+    fn push(&mut self, instance: FilterInstanceData, pass: FilterPass) {
+        self.instances.push(instance);
+        self.filter_passes.push(pass);
     }
 
     pub(crate) fn filter_passes(&self) -> &[FilterPass] {
         &self.filter_passes
     }
+
+    pub(crate) fn instances(&self) -> &[FilterInstanceData] {
+        &self.instances
+    }
 }
 
 /// A helper struct making it easier to schedule the rendering passes for filters.
 struct PassScheduler<'a> {
-    passes: &'a mut Vec<FilterPass>,
-    sizer: &'a mut DecimationSizer,
+    state: &'a mut FilterPassState,
     /// Atlas index and region of the initial (unfiltered) image.
     initial: (u32, [u32; 2]),
     /// Atlas index and region of the final destination.
@@ -449,23 +458,23 @@ impl PassScheduler<'_> {
     fn apply_pass_dimensions(&mut self, kind: u32) -> ([u32; 2], [u32; 2]) {
         match kind {
             pass_kind::DOWNSCALE => {
-                let (sw, sh) = self.sizer.current();
-                let (dw, dh) = self.sizer.downscale();
+                let (sw, sh) = self.state.sizer.current();
+                let (dw, dh) = self.state.sizer.downscale();
                 (
                     [u32::from(sw), u32::from(sh)],
                     [u32::from(dw), u32::from(dh)],
                 )
             }
             pass_kind::UPSCALE => {
-                let (sw, sh) = self.sizer.current();
-                let (dw, dh) = self.sizer.upscale();
+                let (sw, sh) = self.state.sizer.current();
+                let (dw, dh) = self.state.sizer.upscale();
                 (
                     [u32::from(sw), u32::from(sh)],
                     [u32::from(dw), u32::from(dh)],
                 )
             }
             _ => {
-                let (w, h) = self.sizer.current();
+                let (w, h) = self.state.sizer.current();
                 let size = [u32::from(w), u32::from(h)];
                 (size, size)
             }
@@ -492,8 +501,8 @@ impl PassScheduler<'_> {
         let s = self.toggle;
         self.toggle = (self.toggle + 1) % 2;
 
-        self.passes.push(FilterPass {
-            instance: FilterInstanceData {
+        self.state.push(
+            FilterInstanceData {
                 src: IntRect::new(src_offset, src_size),
                 dest: IntRect::new(self.scratch[s].1.offset, dst_size),
                 dest_atlas_size: self.scratch[s].1.size,
@@ -501,10 +510,12 @@ impl PassScheduler<'_> {
                 original: IntRect::new([0, 0], self.original_size),
                 pass_kind: kind,
             },
-            input_atlas_idx: input_idx,
-            output: FilterPassTarget::FilterAtlas(self.scratch[s].0),
-            original_atlas_idx: None,
-        });
+            FilterPass {
+                input_atlas_idx: input_idx,
+                output: FilterPassTarget::FilterAtlas(self.scratch[s].0),
+                original_atlas_idx: None,
+            },
+        );
     }
 
     /// Emit a pass to the final destination.
@@ -512,8 +523,8 @@ impl PassScheduler<'_> {
         let (src_size, dst_size) = self.apply_pass_dimensions(kind);
         let (input_idx, src_offset) = self.input();
 
-        self.passes.push(FilterPass {
-            instance: FilterInstanceData {
+        self.state.push(
+            FilterInstanceData {
                 src: IntRect::new(src_offset, src_size),
                 dest: IntRect::new(self.dest.1.offset, dst_size),
                 dest_atlas_size: self.dest.1.size,
@@ -521,10 +532,12 @@ impl PassScheduler<'_> {
                 original: IntRect::new([0, 0], self.original_size),
                 pass_kind: kind,
             },
-            input_atlas_idx: input_idx,
-            output: FilterPassTarget::MainAtlas(self.dest.0),
-            original_atlas_idx: None,
-        });
+            FilterPass {
+                input_atlas_idx: input_idx,
+                output: FilterPassTarget::MainAtlas(self.dest.0),
+                original_atlas_idx: None,
+            },
+        );
     }
 
     /// Emit a composite pass that reads from the previous scratch and the original,
@@ -533,8 +546,8 @@ impl PassScheduler<'_> {
         let (src_size, dst_size) = self.apply_pass_dimensions(kind);
         let (input_idx, src_offset) = self.input();
 
-        self.passes.push(FilterPass {
-            instance: FilterInstanceData {
+        self.state.push(
+            FilterInstanceData {
                 src: IntRect::new(src_offset, src_size),
                 dest: IntRect::new(self.dest.1.offset, dst_size),
                 dest_atlas_size: self.dest.1.size,
@@ -542,10 +555,12 @@ impl PassScheduler<'_> {
                 original: IntRect::new(self.initial.1, self.original_size),
                 pass_kind: kind,
             },
-            input_atlas_idx: input_idx,
-            output: FilterPassTarget::MainAtlas(self.dest.0),
-            original_atlas_idx: Some(self.initial.0),
-        });
+            FilterPass {
+                input_atlas_idx: input_idx,
+                output: FilterPassTarget::MainAtlas(self.dest.0),
+                original_atlas_idx: Some(self.initial.0),
+            },
+        );
     }
 
     /// Apply the sequences of passes that is needed to create a full Gaussian blur with
@@ -830,8 +845,8 @@ impl FilterContext {
                 _ => unimplemented!(),
             };
 
-            state.filter_passes.push(FilterPass {
-                instance: FilterInstanceData {
+            state.push(
+                FilterInstanceData {
                     src: IntRect::new(initial_image.offsets(), initial_image.size()),
                     dest: IntRect::new(dest_image.offsets(), dest_image.size()),
                     dest_atlas_size: main_atlas_size,
@@ -841,10 +856,12 @@ impl FilterContext {
                     original: IntRect::new([0, 0], dest_image.size()),
                     pass_kind: pass,
                 },
-                input_atlas_idx: initial_atlas_idx,
-                output: FilterPassTarget::MainAtlas(dest_atlas_idx),
-                original_atlas_idx: None,
-            });
+                FilterPass {
+                    input_atlas_idx: initial_atlas_idx,
+                    output: FilterPassTarget::MainAtlas(dest_atlas_idx),
+                    original_atlas_idx: None,
+                },
+            );
 
             return;
         }
@@ -863,8 +880,7 @@ impl FilterContext {
         );
 
         let mut builder = PassScheduler {
-            passes: &mut state.filter_passes,
-            sizer: &mut state.sizer,
+            state,
             initial: (initial_atlas_idx, initial_image.offsets()),
             dest: (
                 dest_atlas_idx,
