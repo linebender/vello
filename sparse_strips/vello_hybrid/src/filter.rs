@@ -57,6 +57,7 @@ pub(crate) mod edge_mode {
 }
 
 pub(crate) mod pass_kind {
+    #[expect(dead_code, reason = "Useful in the future")]
     pub(crate) const COPY: u32 = 0;
     pub(crate) const FLOOD: u32 = 1;
     pub(crate) const OFFSET: u32 = 2;
