@@ -23,10 +23,10 @@ use vello_common::render_graph::{LayerId, RenderGraph, RenderNodeKind};
 use vello_common::tile::Tile;
 
 use crate::render::common::IMAGE_PADDING;
+use crate::util::IntRect;
 use vello_common::image_cache::ImageCache;
 use vello_common::multi_atlas::AtlasConfig;
 use vello_common::multi_atlas::{AtlasError, AtlasId};
-use crate::util::IntRect;
 
 /// How much transparent padding to reserve for filter layers within the image. Needed so
 /// that the various shader programs can assume transparent pixels on the outside, making
@@ -450,12 +450,18 @@ impl PassScheduler<'_> {
             pass_kind::DOWNSCALE => {
                 let (sw, sh) = self.sizer.current();
                 let (dw, dh) = self.sizer.downscale();
-                ([u32::from(sw), u32::from(sh)], [u32::from(dw), u32::from(dh)])
+                (
+                    [u32::from(sw), u32::from(sh)],
+                    [u32::from(dw), u32::from(dh)],
+                )
             }
             pass_kind::UPSCALE => {
                 let (sw, sh) = self.sizer.current();
                 let (dw, dh) = self.sizer.upscale();
-                ([u32::from(sw), u32::from(sh)], [u32::from(dw), u32::from(dh)])
+                (
+                    [u32::from(sw), u32::from(sh)],
+                    [u32::from(dw), u32::from(dh)],
+                )
             }
             _ => {
                 let (w, h) = self.sizer.current();
@@ -541,40 +547,38 @@ impl PassScheduler<'_> {
         });
     }
 
-    /// Emit the blur pass sequence shared by gaussian blur and drop shadow:
-    /// downscale × n, blur_h, blur_v, upscale × n.
-    ///
-    /// If `final_to_dest` is true, the last pass in the sequence writes to the main
-    /// atlas destination. Otherwise, all passes write to scratch (for use when a
-    /// composite pass follows).
-    //
-    // TODO: From my experiments, it would very much be worth it to add a
-    // UPSCALE_4x and DOWNSCALE_4x pass, since unlike the CPU we can use bilinear
-    // filtering for sampling and therefore don't need as many samples, and can reduce
-    // the number of render passes for large standard deviations. However, this unfortunately
-    // causes higher pixel differences for some tests compared to vello_cpu, since edge
-    // pixels will inevitably exhibit different behavior. Therefore, for now we stick to
-    // this more straight-forward approach.
+    /// Apply the sequences of passes that is needed to create a full Gaussian blur with
+    /// the given number of decimations.
     fn emit_blur_sequence(&mut self, n_decimations: usize, final_to_dest: bool) {
+        // TODO: From my experiments, it would very much be worth it to add a
+        // UPSCALE_4x and DOWNSCALE_4x pass, since unlike the CPU we can use bilinear
+        // filtering for sampling and therefore don't need as many samples, and can reduce
+        // the number of render passes for large standard deviations. However, this unfortunately
+        // causes higher pixel differences for some tests compared to vello_cpu, since edge
+        // pixels will inevitably exhibit different behavior. Therefore, for now we stick to
+        // this more straight-forward approach.
+
         for _ in 0..n_decimations {
             self.emit_to_scratch(pass_kind::DOWNSCALE);
         }
         self.emit_to_scratch(pass_kind::BLUR_H);
 
+        let mut final_pass = pass_kind::BLUR_V;
+
         if n_decimations > 0 {
             self.emit_to_scratch(pass_kind::BLUR_V);
+
             for _ in 0..n_decimations - 1 {
                 self.emit_to_scratch(pass_kind::UPSCALE);
             }
-            if final_to_dest {
-                self.emit_to_dest(pass_kind::UPSCALE);
-            } else {
-                self.emit_to_scratch(pass_kind::UPSCALE);
-            }
-        } else if final_to_dest {
-            self.emit_to_dest(pass_kind::BLUR_V);
+
+            final_pass = pass_kind::UPSCALE;
+        }
+
+        if final_to_dest {
+            self.emit_to_dest(final_pass);
         } else {
-            self.emit_to_scratch(pass_kind::BLUR_V);
+            self.emit_to_scratch(final_pass);
         }
     }
 }
@@ -822,19 +826,24 @@ impl FilterContext {
         let initial_atlas_idx = initial_image.atlas_id.as_u32();
         let dest_atlas_idx = dest_image.atlas_id.as_u32();
         let main_atlas_size = get_image_atlas_size();
-        // Single-pass filters don't need scratch buffer handling.
+
+        // Short-circuit single-pass filters.
         if !gpu_filter.is_multi_pass() {
             let pass = match filter_type {
                 filter_type::OFFSET => pass_kind::OFFSET,
                 filter_type::FLOOD => pass_kind::FLOOD,
-                _ => pass_kind::COPY,
+                // The above are the only single-pass filters currently implemented.
+                _ => unimplemented!(),
             };
+
             state.filter_passes.push(FilterPass {
                 instance: FilterInstanceData {
                     src: IntRect::new(initial_image.offsets(), initial_image.size()),
                     dest: IntRect::new(dest_image.offsets(), dest_image.size()),
                     dest_atlas_size: main_atlas_size,
                     filter_data_offset,
+                    // Note that these two passes don't sample the original atlas, so we
+                    // can pass anything here.
                     original: IntRect::new([0, 0], dest_image.size()),
                     pass_kind: pass,
                 },
@@ -842,14 +851,14 @@ impl FilterContext {
                 output: FilterPassTarget::MainAtlas(dest_atlas_idx),
                 original_atlas_idx: None,
             });
+
             return;
         }
 
-        // Multi-pass filters require scratch buffers for ping-pong rendering.
+        // Otherwise, schedule the multi-pass filters.
 
-        let n_decimations = gpu_filter.n_decimations();
         let scratch_ids = filter_textures.scratch_image_ids.unwrap();
-        let scratch_resources: [_; 2] = [
+        let scratch_resources = [
             self.image_cache.get(scratch_ids[0]).unwrap(),
             self.image_cache.get(scratch_ids[1]).unwrap(),
         ];
@@ -863,7 +872,10 @@ impl FilterContext {
             passes: &mut state.filter_passes,
             sizer: &mut state.sizer,
             initial: (initial_atlas_idx, initial_image.offsets()),
-            dest: (dest_atlas_idx, IntRect::new(dest_image.offsets(), main_atlas_size)),
+            dest: (
+                dest_atlas_idx,
+                IntRect::new(dest_image.offsets(), main_atlas_size),
+            ),
             scratch: [
                 (
                     scratch_resources[0].atlas_id.as_u32(),
@@ -891,14 +903,19 @@ impl FilterContext {
 
         match filter_type {
             filter_type::GAUSSIAN_BLUR => {
+                let n_decimations = gpu_filter.n_decimations();
+
                 builder.emit_blur_sequence(n_decimations, true);
             }
             filter_type::DROP_SHADOW => {
+                let n_decimations = gpu_filter.n_decimations();
+
                 builder.emit_to_scratch(pass_kind::OFFSET);
                 builder.emit_blur_sequence(n_decimations, false);
                 builder.emit_composite_to_dest(pass_kind::COMPOSITE_DROP_SHADOW);
             }
-            _ => unreachable!("only GAUSSIAN_BLUR and DROP_SHADOW are multi-pass"),
+            // The above are the only supported multi-pass filters for now.
+            _ => unimplemented!(),
         }
     }
 }

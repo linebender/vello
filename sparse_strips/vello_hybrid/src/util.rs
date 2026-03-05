@@ -5,8 +5,8 @@
 
 //! Simple helpers for managing wgpu state and surfaces.
 
-use core::ops::RangeInclusive;
 use bytemuck::{Pod, Zeroable};
+use core::ops::RangeInclusive;
 
 /// Represents dimension constraints for surfaces
 #[derive(Debug)]

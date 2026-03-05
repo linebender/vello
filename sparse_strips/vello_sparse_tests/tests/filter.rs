@@ -3,10 +3,10 @@
 
 //! Tests demonstrating the filter effects API usage.
 
-use vello_api::peniko::color::palette::css::LIME;
 use crate::load_image;
 use crate::util::{circular_star, stops_blue_green_red_yellow};
 use crate::{renderer::Renderer, util::layout_glyphs_roboto};
+use vello_api::peniko::color::palette::css::LIME;
 use vello_common::color::AlphaColor;
 use vello_common::color::palette::css::{
     BLACK, PURPLE, REBECCA_PURPLE, ROYAL_BLUE, SEA_GREEN, TOMATO, VIOLET,
