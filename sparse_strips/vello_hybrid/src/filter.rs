@@ -381,14 +381,14 @@ pub(crate) enum FilterPassTarget {
 #[derive(Debug)]
 pub(crate) struct FilterPass {
     /// Instance data for this filter pass.
-    pub instance: FilterInstanceData,
+    pub(crate) instance: FilterInstanceData,
     /// Atlas index of the input texture that will be used as the basis for the operation.
-    pub input_atlas_idx: u32,
+    pub(crate) input_atlas_idx: u32,
     /// Where this pass writes its output.
-    pub output: FilterPassTarget,
-    /// For COMPOSITE passes: atlas index of the original (unfiltered) texture
-    /// (in `filter_context.image_cache`). For non-COMPOSITE passes, this is `None`.
-    pub original_atlas_idx: Option<u32>,
+    pub(crate) output: FilterPassTarget,
+    /// The index of the atlas that contains the original content. This is only set for
+    /// filter passes that actually need it.
+    pub(crate) original_atlas_idx: Option<u32>,
 }
 
 /// Context used for keeping track of state necessary for filter rendering.
@@ -787,15 +787,8 @@ impl FilterContext {
         Some(height)
     }
 
-    /// Build the sequence of filter passes for a given layer.
-    ///
-    /// Returns a `Vec<FilterPass>` describing each pass in order: what to read, what to write,
-    /// and the pass kind. The first pass reads from `initial` (filter atlas). Intermediate passes
-    /// ping-pong between `scratch_1` and `scratch_2`. The last pass writes to `dest` (main atlas).
-    ///
-    /// `dest_image_cache` is the main renderer's image cache (for `dest_image` lookups).
-    /// `get_filter_atlas_size` returns the (width, height) of a filter atlas texture.
-    /// `get_main_atlas_size` returns the (width, height) of the main atlas texture array.
+    /// Build the sequence of filter passes for a given layer and store it in the internal
+    /// buffer.
     #[expect(
         clippy::cast_possible_truncation,
         reason = "dimensions won't exceed u32"
