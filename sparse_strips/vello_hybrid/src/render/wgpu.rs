@@ -2444,7 +2444,7 @@ impl RendererBackend for RendererContext<'_> {
     }
 
     fn apply_filter(&mut self, layer_id: LayerId) {
-        let passes = self.filter_context.build_filter_passes(
+        self.filter_context.build_filter_passes(
             &layer_id,
             self.image_cache,
             |atlas_idx| {
@@ -2458,7 +2458,12 @@ impl RendererBackend for RendererContext<'_> {
             },
         );
 
-        for pass in &passes {
+        for pass in self
+            .filter_context
+            .filter_pass_state
+            .borrow()
+            .filter_passes()
+        {
             self.programs
                 .upload_filter_instance(self.device, self.queue, &pass.instance);
 

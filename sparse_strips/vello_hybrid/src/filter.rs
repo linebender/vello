@@ -3,9 +3,10 @@
 
 //! GPU filter types and conversion utilities.
 
-use alloc::vec;
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
+use core::cell::RefCell;
+use core::ops::DerefMut;
 use hashbrown::HashMap;
 use vello_common::coarse::{WideTile, WideTilesBbox};
 use vello_common::encode::{EncodedImage, EncodedPaint};
@@ -406,6 +407,31 @@ pub(crate) struct FilterContext {
     pub(crate) filter_textures: HashMap<LayerId, FilterLayerData>,
     /// Image cache for storing filter intermediate textures.
     pub(crate) image_cache: ImageCache,
+    /// State used for constructing filter passes.
+    pub(crate) filter_pass_state: RefCell<FilterPassState>,
+}
+
+#[derive(Default, Debug)]
+pub(crate) struct FilterPassState {
+    /// Scratch buffer for storing pass kinds.
+    pass_kinds_scratch: Vec<u32>,
+    /// Store the most recently generated filter passes.
+    filter_passes: Vec<FilterPass>,
+    dims: Vec<(u32, u32, u32, u32)>,
+    dim_stack: Vec<(u32, u32)>,
+}
+
+impl FilterPassState {
+    fn clear(&mut self) {
+        self.pass_kinds_scratch.clear();
+        self.filter_passes.clear();
+        self.dims.clear();
+        self.dim_stack.clear();
+    }
+
+    pub(crate) fn filter_passes(&self) -> &[FilterPass] {
+        &self.filter_passes
+    }
 }
 
 impl FilterContext {
@@ -415,6 +441,7 @@ impl FilterContext {
             offsets: HashMap::new(),
             filter_textures: HashMap::new(),
             image_cache: ImageCache::new_with_config(atlas_config),
+            filter_pass_state: RefCell::new(FilterPassState::default()),
         }
     }
 
@@ -438,6 +465,7 @@ impl FilterContext {
         self.filters.clear();
         self.offsets.clear();
         self.filter_textures.clear();
+        self.filter_pass_state.borrow_mut().clear();
     }
 
     /// Prepares the context for rendering the filter layers that exist in this scene.
@@ -628,7 +656,11 @@ impl FilterContext {
         dest_image_cache: &ImageCache,
         get_filter_atlas_size: impl Fn(u32) -> [u32; 2],
         get_main_atlas_size: impl Fn() -> [u32; 2],
-    ) -> Vec<FilterPass> {
+    ) {
+        let s = &mut self.filter_pass_state.borrow_mut();
+        let state = s.deref_mut();
+        state.clear();
+
         // These unwraps can only panic for filter layers without a bbox, but those are skipped
         // anyway before even getting here, so unwrap should be safe here.
         let filter_data_offset = self.offsets.get(layer_id).copied().unwrap();
@@ -651,9 +683,9 @@ impl FilterContext {
         // Build the pass kind chain based on filter type.
         let n_decimations = gpu_filter.n_decimations();
 
-        let pass_kinds: Vec<u32> = match filter_type {
-            filter_type::OFFSET => vec![pass_kind::OFFSET],
-            filter_type::FLOOD => vec![pass_kind::FLOOD],
+        match filter_type {
+            filter_type::OFFSET => state.pass_kinds_scratch.push(pass_kind::OFFSET),
+            filter_type::FLOOD => state.pass_kinds_scratch.push(pass_kind::FLOOD),
             // TODO: From my experiments, it would very much be worth it to add a
             // UPSCALE_4x and DOWNSCALE_4x pass, since unlike the CPU we can use bilinear
             // filtering for sampling and therefore don't need as many samples, and can reduce
@@ -662,36 +694,39 @@ impl FilterContext {
             // pixels will inevitably exhibit different behavior. Therefore, for now we stick to
             // this more straight-forward approach.
             filter_type::GAUSSIAN_BLUR => {
-                let mut kinds = Vec::new();
                 for _ in 0..n_decimations {
-                    kinds.push(pass_kind::DOWNSCALE);
+                    state.pass_kinds_scratch.push(pass_kind::DOWNSCALE);
                 }
-                kinds.push(pass_kind::BLUR_H);
-                kinds.push(pass_kind::BLUR_V);
+
+                state.pass_kinds_scratch.push(pass_kind::BLUR_H);
+                state.pass_kinds_scratch.push(pass_kind::BLUR_V);
+
                 for _ in 0..n_decimations {
-                    kinds.push(pass_kind::UPSCALE);
+                    state.pass_kinds_scratch.push(pass_kind::UPSCALE);
                 }
-                kinds
             }
             filter_type::DROP_SHADOW => {
-                let mut kinds = vec![pass_kind::OFFSET];
+                state.pass_kinds_scratch.push(pass_kind::OFFSET);
                 for _ in 0..n_decimations {
-                    kinds.push(pass_kind::DOWNSCALE);
+                    state.pass_kinds_scratch.push(pass_kind::DOWNSCALE);
                 }
-                kinds.push(pass_kind::BLUR_H);
-                kinds.push(pass_kind::BLUR_V);
+
+                state.pass_kinds_scratch.push(pass_kind::BLUR_H);
+                state.pass_kinds_scratch.push(pass_kind::BLUR_V);
+
                 for _ in 0..n_decimations {
-                    kinds.push(pass_kind::UPSCALE);
+                    state.pass_kinds_scratch.push(pass_kind::UPSCALE);
                 }
-                kinds.push(pass_kind::COMPOSITE_DROP_SHADOW);
-                kinds
+                state
+                    .pass_kinds_scratch
+                    .push(pass_kind::COMPOSITE_DROP_SHADOW);
             }
-            _ => vec![pass_kind::COPY],
+            _ => state.pass_kinds_scratch.push(pass_kind::COPY),
         };
 
         // For simple filters (single pass, no scratch), just read initial → write dest.
-        if pass_kinds.len() == 1 {
-            return vec![FilterPass {
+        if state.pass_kinds_scratch.len() == 1 {
+            state.filter_passes.push(FilterPass {
                 instance: FilterInstanceData {
                     src_offset: initial_image.offsets(),
                     src_size: initial_image.size(),
@@ -699,14 +734,16 @@ impl FilterContext {
                     dest_size: dest_image.size(),
                     dest_atlas_size: main_atlas_size,
                     filter_data_offset,
-                    pass_kind: pass_kinds[0],
+                    pass_kind: state.pass_kinds_scratch[0],
                     original_offset: [0, 0],
                     original_size: dest_image.size(),
                 },
                 input_atlas_idx: initial_atlas_idx,
                 output: FilterPassTarget::MainAtlas(dest_atlas_idx),
                 original_atlas_idx: None,
-            }];
+            });
+
+            return;
         }
 
         // Multi-pass: need scratch images for ping-pong.
@@ -727,36 +764,33 @@ impl FilterContext {
         let base_h = filter_textures.bbox.height_px() as u32;
         let mut cur_w = base_w;
         let mut cur_h = base_h;
-        let mut dim_stack: Vec<(u32, u32)> = Vec::new();
 
         // Pre-compute dimensions for each pass.
-        let mut dims: Vec<(u32, u32, u32, u32)> = Vec::new(); // (src_w, src_h, dst_w, dst_h)
-        for &kind in &pass_kinds {
+        for &kind in &state.pass_kinds_scratch {
             match kind {
                 pass_kind::DOWNSCALE => {
                     let src_w = cur_w;
                     let src_h = cur_h;
-                    dim_stack.push((cur_w, cur_h));
+                    state.dim_stack.push((cur_w, cur_h));
                     cur_w = cur_w.div_ceil(2);
                     cur_h = cur_h.div_ceil(2);
-                    dims.push((src_w, src_h, cur_w, cur_h));
+                    state.dims.push((src_w, src_h, cur_w, cur_h));
                 }
                 pass_kind::UPSCALE => {
                     let src_w = cur_w;
                     let src_h = cur_h;
-                    let (target_w, target_h) = dim_stack.pop().unwrap();
+                    let (target_w, target_h) = state.dim_stack.pop().unwrap();
                     cur_w = (cur_w * 2).min(target_w);
                     cur_h = (cur_h * 2).min(target_h);
-                    dims.push((src_w, src_h, cur_w, cur_h));
+                    state.dims.push((src_w, src_h, cur_w, cur_h));
                 }
                 _ => {
-                    dims.push((cur_w, cur_h, cur_w, cur_h));
+                    state.dims.push((cur_w, cur_h, cur_w, cur_h));
                 }
             }
         }
 
-        let num_passes = pass_kinds.len();
-        let mut passes = Vec::with_capacity(num_passes);
+        let num_passes = state.pass_kinds_scratch.len();
 
         // Scratch write toggle: even passes write to scratch_1, odd to scratch_2.
         // (The "current read" for pass i is the "previous write" target.)
@@ -765,7 +799,8 @@ impl FilterContext {
         // and COMPOSITE reads from that scratch + original, writes to dest.
 
         // Determine if the last pass is COMPOSITE (drop shadow).
-        let last_is_composite = pass_kinds[num_passes - 1] == pass_kind::COMPOSITE_DROP_SHADOW;
+        let last_is_composite =
+            state.pass_kinds_scratch[num_passes - 1] == pass_kind::COMPOSITE_DROP_SHADOW;
         // The "final content pass" is the last pass that writes the actual result
         // (for drop shadow, that's the pass before COMPOSITE).
         let final_content_idx = if last_is_composite {
@@ -776,8 +811,8 @@ impl FilterContext {
 
         let mut scratch_toggle = 0_usize; // which scratch to write to next
 
-        for (i, &kind) in pass_kinds.iter().enumerate() {
-            let (src_w, src_h, dst_w, dst_h) = dims[i];
+        for (i, &kind) in state.pass_kinds_scratch.iter().enumerate() {
+            let (src_w, src_h, dst_w, dst_h) = state.dims[i];
 
             // Determine input.
             let (input_idx, src_offset, src_size) = if i == 0 {
@@ -824,7 +859,7 @@ impl FilterContext {
                 (None, [0, 0])
             };
 
-            passes.push(FilterPass {
+            state.filter_passes.push(FilterPass {
                 instance: FilterInstanceData {
                     src_offset,
                     src_size,
@@ -841,8 +876,6 @@ impl FilterContext {
                 original_atlas_idx: original_atlas,
             });
         }
-
-        passes
     }
 }
 
