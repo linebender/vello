@@ -6,6 +6,7 @@
 //! Simple helpers for managing wgpu state and surfaces.
 
 use core::ops::RangeInclusive;
+use bytemuck::{Pod, Zeroable};
 
 /// Represents dimension constraints for surfaces
 #[derive(Debug)]
@@ -91,6 +92,19 @@ impl Default for DimensionConstraints {
             width_range: 100.0..=2000.0,
             height_range: 100.0..=2000.0,
         }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub(crate) struct IntRect {
+    pub offset: [u32; 2],
+    pub size: [u32; 2],
+}
+
+impl IntRect {
+    pub(crate) fn new(offset: [u32; 2], size: [u32; 2]) -> Self {
+        Self { offset, size }
     }
 }
 

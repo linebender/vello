@@ -26,6 +26,7 @@ use crate::render::common::IMAGE_PADDING;
 use vello_common::image_cache::ImageCache;
 use vello_common::multi_atlas::AtlasConfig;
 use vello_common::multi_atlas::{AtlasError, AtlasId};
+use crate::util::IntRect;
 
 /// How much transparent padding to reserve for filter layers within the image. Needed so
 /// that the various shader programs can assume transparent pixels on the outside, making
@@ -352,22 +353,16 @@ impl From<&PreparedFilter> for GpuFilterData {
 #[repr(C, align(16))]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub(crate) struct FilterInstanceData {
-    /// Top-left pixel coordinate of the source region in the input atlas.
-    pub src_offset: [u32; 2],
-    /// Size in pixels of the source region.
-    pub src_size: [u32; 2],
-    /// Top-left pixel coordinate of the destination region in the output atlas.
-    pub dest_offset: [u32; 2],
-    /// Size in pixels of the destination region.
-    pub dest_size: [u32; 2],
+    /// Source region in the input atlas.
+    pub src: IntRect,
+    /// Destination region in the output atlas.
+    pub dest: IntRect,
     /// Full pixel dimensions of the destination atlas texture.
     pub dest_atlas_size: [u32; 2],
     /// Texel offset into filter_data where this filter's data is stored.
     pub filter_data_offset: u32,
-    /// Top-left pixel coordinate of the original content region.
-    pub original_offset: [u32; 2],
-    /// Size in pixels of the original content region.
-    pub original_size: [u32; 2],
+    /// The region of the original (unfiltered) content.
+    pub original: IntRect,
     /// The filter pass that should be executed.
     pub pass_kind: u32,
 }
@@ -425,6 +420,162 @@ impl FilterPassState {
 
     pub(crate) fn filter_passes(&self) -> &[FilterPass] {
         &self.filter_passes
+    }
+}
+
+/// A helper struct making it easier to schedule the rendering passes for filters.
+struct PassScheduler<'a> {
+    passes: &'a mut Vec<FilterPass>,
+    sizer: &'a mut DecimationSizer,
+    /// Atlas index and region of the initial (unfiltered) image.
+    initial: (u32, [u32; 2]),
+    /// Atlas index and region of the final destination.
+    dest: (u32, IntRect),
+    /// Atlas index and region of each scratch buffers.
+    scratch: [(u32, IntRect); 2],
+    /// Texel offset into the filter data texture.
+    filter_data_offset: u32,
+    /// Full size of the original content region.
+    original_size: [u32; 2],
+    /// Which scratch buffer to write to next.
+    toggle: usize,
+    /// Whether the next pass is the first (reads from initial instead of scratch).
+    first: bool,
+}
+
+impl PassScheduler<'_> {
+    /// Compute and update source and destination sizes based on the pass kind,
+    fn apply_pass_dimensions(&mut self, kind: u32) -> ([u32; 2], [u32; 2]) {
+        match kind {
+            pass_kind::DOWNSCALE => {
+                let (sw, sh) = self.sizer.current();
+                let (dw, dh) = self.sizer.downscale();
+                ([u32::from(sw), u32::from(sh)], [u32::from(dw), u32::from(dh)])
+            }
+            pass_kind::UPSCALE => {
+                let (sw, sh) = self.sizer.current();
+                let (dw, dh) = self.sizer.upscale();
+                ([u32::from(sw), u32::from(sh)], [u32::from(dw), u32::from(dh)])
+            }
+            _ => {
+                let (w, h) = self.sizer.current();
+                let size = [u32::from(w), u32::from(h)];
+                (size, size)
+            }
+        }
+    }
+
+    /// Resolve the input atlas index and offsets for the next pass.
+    fn input(&mut self) -> (u32, [u32; 2]) {
+        if self.first {
+            // Atlas containing the original, unfiltered layer.
+            self.first = false;
+            (self.initial.0, self.initial.1)
+        } else {
+            // Atlas containing the layers inside the previous scratch buffer.
+            let prev = (self.toggle + 1) % 2;
+            (self.scratch[prev].0, self.scratch[prev].1.offset)
+        }
+    }
+
+    /// Emit a pass to the next scratch buffer.
+    fn emit_to_scratch(&mut self, kind: u32) {
+        let (src_size, dst_size) = self.apply_pass_dimensions(kind);
+        let (input_idx, src_offset) = self.input();
+        let s = self.toggle;
+        self.toggle = (self.toggle + 1) % 2;
+
+        self.passes.push(FilterPass {
+            instance: FilterInstanceData {
+                src: IntRect::new(src_offset, src_size),
+                dest: IntRect::new(self.scratch[s].1.offset, dst_size),
+                dest_atlas_size: self.scratch[s].1.size,
+                filter_data_offset: self.filter_data_offset,
+                original: IntRect::new([0, 0], self.original_size),
+                pass_kind: kind,
+            },
+            input_atlas_idx: input_idx,
+            output: FilterPassTarget::FilterAtlas(self.scratch[s].0),
+            original_atlas_idx: None,
+        });
+    }
+
+    /// Emit a pass to the final destination.
+    fn emit_to_dest(&mut self, kind: u32) {
+        let (src_size, dst_size) = self.apply_pass_dimensions(kind);
+        let (input_idx, src_offset) = self.input();
+
+        self.passes.push(FilterPass {
+            instance: FilterInstanceData {
+                src: IntRect::new(src_offset, src_size),
+                dest: IntRect::new(self.dest.1.offset, dst_size),
+                dest_atlas_size: self.dest.1.size,
+                filter_data_offset: self.filter_data_offset,
+                original: IntRect::new([0, 0], self.original_size),
+                pass_kind: kind,
+            },
+            input_atlas_idx: input_idx,
+            output: FilterPassTarget::MainAtlas(self.dest.0),
+            original_atlas_idx: None,
+        });
+    }
+
+    /// Emit a composite pass that reads from the previous scratch and the original,
+    /// and writes to the final destination.
+    fn emit_composite_to_dest(&mut self, kind: u32) {
+        let (src_size, dst_size) = self.apply_pass_dimensions(kind);
+        let (input_idx, src_offset) = self.input();
+
+        self.passes.push(FilterPass {
+            instance: FilterInstanceData {
+                src: IntRect::new(src_offset, src_size),
+                dest: IntRect::new(self.dest.1.offset, dst_size),
+                dest_atlas_size: self.dest.1.size,
+                filter_data_offset: self.filter_data_offset,
+                original: IntRect::new(self.initial.1, self.original_size),
+                pass_kind: kind,
+            },
+            input_atlas_idx: input_idx,
+            output: FilterPassTarget::MainAtlas(self.dest.0),
+            original_atlas_idx: Some(self.initial.0),
+        });
+    }
+
+    /// Emit the blur pass sequence shared by gaussian blur and drop shadow:
+    /// downscale × n, blur_h, blur_v, upscale × n.
+    ///
+    /// If `final_to_dest` is true, the last pass in the sequence writes to the main
+    /// atlas destination. Otherwise, all passes write to scratch (for use when a
+    /// composite pass follows).
+    //
+    // TODO: From my experiments, it would very much be worth it to add a
+    // UPSCALE_4x and DOWNSCALE_4x pass, since unlike the CPU we can use bilinear
+    // filtering for sampling and therefore don't need as many samples, and can reduce
+    // the number of render passes for large standard deviations. However, this unfortunately
+    // causes higher pixel differences for some tests compared to vello_cpu, since edge
+    // pixels will inevitably exhibit different behavior. Therefore, for now we stick to
+    // this more straight-forward approach.
+    fn emit_blur_sequence(&mut self, n_decimations: usize, final_to_dest: bool) {
+        for _ in 0..n_decimations {
+            self.emit_to_scratch(pass_kind::DOWNSCALE);
+        }
+        self.emit_to_scratch(pass_kind::BLUR_H);
+
+        if n_decimations > 0 {
+            self.emit_to_scratch(pass_kind::BLUR_V);
+            for _ in 0..n_decimations - 1 {
+                self.emit_to_scratch(pass_kind::UPSCALE);
+            }
+            if final_to_dest {
+                self.emit_to_dest(pass_kind::UPSCALE);
+            } else {
+                self.emit_to_scratch(pass_kind::UPSCALE);
+            }
+        } else if final_to_dest {
+            self.emit_to_dest(pass_kind::BLUR_V);
+        } else {
+            self.emit_to_scratch(pass_kind::BLUR_V);
+        }
     }
 }
 
@@ -680,15 +831,12 @@ impl FilterContext {
             };
             state.filter_passes.push(FilterPass {
                 instance: FilterInstanceData {
-                    src_offset: initial_image.offsets(),
-                    src_size: initial_image.size(),
-                    dest_offset: dest_image.offsets(),
-                    dest_size: dest_image.size(),
+                    src: IntRect::new(initial_image.offsets(), initial_image.size()),
+                    dest: IntRect::new(dest_image.offsets(), dest_image.size()),
                     dest_atlas_size: main_atlas_size,
                     filter_data_offset,
+                    original: IntRect::new([0, 0], dest_image.size()),
                     pass_kind: pass,
-                    original_offset: [0, 0],
-                    original_size: dest_image.size(),
                 },
                 input_atlas_idx: initial_atlas_idx,
                 output: FilterPassTarget::MainAtlas(dest_atlas_idx),
@@ -705,148 +853,50 @@ impl FilterContext {
             self.image_cache.get(scratch_ids[0]).unwrap(),
             self.image_cache.get(scratch_ids[1]).unwrap(),
         ];
-        let scratch_atlas_indices = [
-            scratch_resources[0].atlas_id.as_u32(),
-            scratch_resources[1].atlas_id.as_u32(),
-        ];
-
-        let base_w = filter_textures.bbox.width_px() as u32;
-        let base_h = filter_textures.bbox.height_px() as u32;
 
         state.sizer.reset(
             filter_textures.bbox.width_px(),
             filter_textures.bbox.height_px(),
         );
 
-        // Pre-compute pass count so we know which pass writes to the final destination.
-        let last_is_composite = filter_type == filter_type::DROP_SHADOW;
-        let num_passes = match filter_type {
-            filter_type::GAUSSIAN_BLUR => 2 * n_decimations + 2,
-            filter_type::DROP_SHADOW => 2 * n_decimations + 4,
-            _ => unreachable!("only GAUSSIAN_BLUR and DROP_SHADOW are multi-pass"),
-        };
-        let final_content_idx = if last_is_composite {
-            num_passes - 2
-        } else {
-            num_passes - 1
-        };
-
-        let mut pass_idx = 0_usize;
-        let mut scratch_toggle = 0_usize;
-
-        // Emit a single filter pass, resolving dimensions, input/output buffers, and
-        // ping-pong state. Each call advances the sizer and scratch toggle as needed.
-        //
-        // TODO: From my experiments, it would very much be worth it to add a
-        // UPSCALE_4x and DOWNSCALE_4x pass, since unlike the CPU we can use bilinear
-        // filtering for sampling and therefore don't need as many samples, and can reduce
-        // the number of render passes for large standard deviations. However, this unfortunately
-        // causes higher pixel differences for some tests compared to vello_cpu, since edge
-        // pixels will inevitably exhibit different behavior. Therefore, for now we stick to
-        // this more straight-forward approach.
-        let mut emit_pass = |kind: u32, state: &mut FilterPassState| {
-            let (src_w, src_h, dst_w, dst_h) = match kind {
-                pass_kind::DOWNSCALE => {
-                    let (sw, sh) = state.sizer.current();
-                    let (dw, dh) = state.sizer.downscale();
-                    (u32::from(sw), u32::from(sh), u32::from(dw), u32::from(dh))
-                }
-                pass_kind::UPSCALE => {
-                    let (sw, sh) = state.sizer.current();
-                    let (dw, dh) = state.sizer.upscale();
-                    (u32::from(sw), u32::from(sh), u32::from(dw), u32::from(dh))
-                }
-                _ => {
-                    let (w, h) = state.sizer.current();
-                    (u32::from(w), u32::from(h), u32::from(w), u32::from(h))
-                }
-            };
-
-            // First pass reads from the initial image; subsequent passes read from
-            // the scratch buffer that the previous pass wrote to.
-            let (input_idx, src_offset, src_size) = if pass_idx == 0 {
-                (initial_atlas_idx, initial_image.offsets(), [src_w, src_h])
-            } else {
-                let prev_scratch = (scratch_toggle + 1) % 2;
+        let mut builder = PassScheduler {
+            passes: &mut state.filter_passes,
+            sizer: &mut state.sizer,
+            initial: (initial_atlas_idx, initial_image.offsets()),
+            dest: (dest_atlas_idx, IntRect::new(dest_image.offsets(), main_atlas_size)),
+            scratch: [
                 (
-                    scratch_atlas_indices[prev_scratch],
-                    scratch_resources[prev_scratch].offsets(),
-                    [src_w, src_h],
-                )
-            };
-
-            // Last pass (or final content pass without composite) writes to the
-            // main atlas destination; intermediate passes write to the next scratch buffer.
-            let is_last = pass_idx == num_passes - 1;
-            let is_final_content = pass_idx == final_content_idx;
-
-            let (output, dest_offset, dest_size, dest_atlas_size_val) =
-                if is_last || (is_final_content && !last_is_composite) {
-                    (
-                        FilterPassTarget::MainAtlas(dest_atlas_idx),
-                        dest_image.offsets(),
-                        [dst_w, dst_h],
-                        main_atlas_size,
-                    )
-                } else {
-                    let s = scratch_toggle;
-                    scratch_toggle = (scratch_toggle + 1) % 2;
-                    (
-                        FilterPassTarget::FilterAtlas(scratch_atlas_indices[s]),
-                        scratch_resources[s].offsets(),
-                        [dst_w, dst_h],
-                        get_filter_atlas_size(scratch_atlas_indices[s]),
-                    )
-                };
-
-            let (original_atlas, original_offset) = if kind == pass_kind::COMPOSITE_DROP_SHADOW {
-                (Some(initial_atlas_idx), initial_image.offsets())
-            } else {
-                (None, [0, 0])
-            };
-
-            state.filter_passes.push(FilterPass {
-                instance: FilterInstanceData {
-                    src_offset,
-                    src_size,
-                    dest_offset,
-                    dest_size,
-                    dest_atlas_size: dest_atlas_size_val,
-                    filter_data_offset,
-                    pass_kind: kind,
-                    original_offset,
-                    original_size: [base_w, base_h],
-                },
-                input_atlas_idx: input_idx,
-                output,
-                original_atlas_idx: original_atlas,
-            });
-
-            pass_idx += 1;
+                    scratch_resources[0].atlas_id.as_u32(),
+                    IntRect::new(
+                        scratch_resources[0].offsets(),
+                        get_filter_atlas_size(scratch_resources[0].atlas_id.as_u32()),
+                    ),
+                ),
+                (
+                    scratch_resources[1].atlas_id.as_u32(),
+                    IntRect::new(
+                        scratch_resources[1].offsets(),
+                        get_filter_atlas_size(scratch_resources[1].atlas_id.as_u32()),
+                    ),
+                ),
+            ],
+            filter_data_offset,
+            original_size: [
+                filter_textures.bbox.width_px() as u32,
+                filter_textures.bbox.height_px() as u32,
+            ],
+            toggle: 0,
+            first: true,
         };
 
         match filter_type {
             filter_type::GAUSSIAN_BLUR => {
-                for _ in 0..n_decimations {
-                    emit_pass(pass_kind::DOWNSCALE, state);
-                }
-                emit_pass(pass_kind::BLUR_H, state);
-                emit_pass(pass_kind::BLUR_V, state);
-                for _ in 0..n_decimations {
-                    emit_pass(pass_kind::UPSCALE, state);
-                }
+                builder.emit_blur_sequence(n_decimations, true);
             }
             filter_type::DROP_SHADOW => {
-                emit_pass(pass_kind::OFFSET, state);
-                for _ in 0..n_decimations {
-                    emit_pass(pass_kind::DOWNSCALE, state);
-                }
-                emit_pass(pass_kind::BLUR_H, state);
-                emit_pass(pass_kind::BLUR_V, state);
-                for _ in 0..n_decimations {
-                    emit_pass(pass_kind::UPSCALE, state);
-                }
-                emit_pass(pass_kind::COMPOSITE_DROP_SHADOW, state);
+                builder.emit_to_scratch(pass_kind::OFFSET);
+                builder.emit_blur_sequence(n_decimations, false);
+                builder.emit_composite_to_dest(pass_kind::COMPOSITE_DROP_SHADOW);
             }
             _ => unreachable!("only GAUSSIAN_BLUR and DROP_SHADOW are multi-pass"),
         }
