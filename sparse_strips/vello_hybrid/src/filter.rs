@@ -13,7 +13,7 @@ use vello_common::encode::{EncodedImage, EncodedPaint};
 use vello_common::filter::PreparedFilter;
 use vello_common::filter::drop_shadow::DropShadow;
 use vello_common::filter::flood::Flood;
-use vello_common::filter::gaussian_blur::{GaussianBlur, MAX_KERNEL_SIZE};
+use vello_common::filter::gaussian_blur::{DecimationSizer, GaussianBlur, MAX_KERNEL_SIZE};
 use vello_common::filter::offset::Offset;
 use vello_common::filter_effects::EdgeMode;
 use vello_common::kurbo::{Affine, Vec2};
@@ -418,7 +418,7 @@ pub(crate) struct FilterPassState {
     /// Store the most recently generated filter passes.
     filter_passes: Vec<FilterPass>,
     dims: Vec<(u32, u32, u32, u32)>,
-    dim_stack: Vec<(u32, u32)>,
+    sizer: DecimationSizer,
 }
 
 impl FilterPassState {
@@ -426,7 +426,6 @@ impl FilterPassState {
         self.pass_kinds_scratch.clear();
         self.filter_passes.clear();
         self.dims.clear();
-        self.dim_stack.clear();
     }
 
     pub(crate) fn filter_passes(&self) -> &[FilterPass] {
@@ -655,7 +654,7 @@ impl FilterContext {
         layer_id: &LayerId,
         dest_image_cache: &ImageCache,
         get_filter_atlas_size: impl Fn(u32) -> [u32; 2],
-        get_main_atlas_size: impl Fn() -> [u32; 2],
+        get_image_atlas_size: impl Fn() -> [u32; 2],
     ) {
         let s = &mut self.filter_pass_state.borrow_mut();
         let state = s.deref_mut();
@@ -671,18 +670,12 @@ impl FilterContext {
         let initial_image = self
             .image_cache
             .get(filter_textures.initial_image_id)
-            .expect("Initial image must exist");
-        let dest_image = dest_image_cache
-            .get(filter_textures.dest_image_id)
-            .expect("Dest image must exist");
+            .unwrap();
+        let dest_image = dest_image_cache.get(filter_textures.dest_image_id).unwrap();
 
         let initial_atlas_idx = initial_image.atlas_id.as_u32();
         let dest_atlas_idx = dest_image.atlas_id.as_u32();
-        let main_atlas_size = get_main_atlas_size();
-
-        // Build the pass kind chain based on filter type.
-        let n_decimations = gpu_filter.n_decimations();
-
+        let main_atlas_size = get_image_atlas_size();
         match filter_type {
             filter_type::OFFSET => state.pass_kinds_scratch.push(pass_kind::OFFSET),
             filter_type::FLOOD => state.pass_kinds_scratch.push(pass_kind::FLOOD),
@@ -694,6 +687,8 @@ impl FilterContext {
             // pixels will inevitably exhibit different behavior. Therefore, for now we stick to
             // this more straight-forward approach.
             filter_type::GAUSSIAN_BLUR => {
+                let n_decimations = gpu_filter.n_decimations();
+
                 for _ in 0..n_decimations {
                     state.pass_kinds_scratch.push(pass_kind::DOWNSCALE);
                 }
@@ -706,6 +701,8 @@ impl FilterContext {
                 }
             }
             filter_type::DROP_SHADOW => {
+                let n_decimations = gpu_filter.n_decimations();
+
                 state.pass_kinds_scratch.push(pass_kind::OFFSET);
                 for _ in 0..n_decimations {
                     state.pass_kinds_scratch.push(pass_kind::DOWNSCALE);
@@ -717,6 +714,7 @@ impl FilterContext {
                 for _ in 0..n_decimations {
                     state.pass_kinds_scratch.push(pass_kind::UPSCALE);
                 }
+
                 state
                     .pass_kinds_scratch
                     .push(pass_kind::COMPOSITE_DROP_SHADOW);
@@ -724,7 +722,7 @@ impl FilterContext {
             _ => state.pass_kinds_scratch.push(pass_kind::COPY),
         };
 
-        // For simple filters (single pass, no scratch), just read initial → write dest.
+        // If we only have a single pass, we don't need any scratch buffer handling.
         if state.pass_kinds_scratch.len() == 1 {
             state.filter_passes.push(FilterPass {
                 instance: FilterInstanceData {
@@ -740,16 +738,17 @@ impl FilterContext {
                 },
                 input_atlas_idx: initial_atlas_idx,
                 output: FilterPassTarget::MainAtlas(dest_atlas_idx),
+                // No single pass filter needs the original image (only drop shadow for nwo),
+                // so just pass `None` here.
                 original_atlas_idx: None,
             });
 
             return;
         }
 
-        // Multi-pass: need scratch images for ping-pong.
-        let scratch_ids = filter_textures
-            .scratch_image_ids
-            .expect("Multi-pass filters require scratch images");
+        // Otherwise, we have a multi-pass filter.
+
+        let scratch_ids = filter_textures.scratch_image_ids.unwrap();
         let scratch_resources: [_; 2] = [
             self.image_cache.get(scratch_ids[0]).unwrap(),
             self.image_cache.get(scratch_ids[1]).unwrap(),
@@ -762,30 +761,39 @@ impl FilterContext {
         // Track dimensions through downscale/upscale.
         let base_w = filter_textures.bbox.width_px() as u32;
         let base_h = filter_textures.bbox.height_px() as u32;
-        let mut cur_w = base_w;
-        let mut cur_h = base_h;
 
         // Pre-compute dimensions for each pass.
+        state.sizer.reset(
+            filter_textures.bbox.width_px(),
+            filter_textures.bbox.height_px(),
+        );
         for &kind in &state.pass_kinds_scratch {
             match kind {
                 pass_kind::DOWNSCALE => {
-                    let src_w = cur_w;
-                    let src_h = cur_h;
-                    state.dim_stack.push((cur_w, cur_h));
-                    cur_w = cur_w.div_ceil(2);
-                    cur_h = cur_h.div_ceil(2);
-                    state.dims.push((src_w, src_h, cur_w, cur_h));
+                    let (src_w, src_h) = state.sizer.current();
+                    let (dst_w, dst_h) = state.sizer.downscale();
+                    state.dims.push((
+                        u32::from(src_w),
+                        u32::from(src_h),
+                        u32::from(dst_w),
+                        u32::from(dst_h),
+                    ));
                 }
                 pass_kind::UPSCALE => {
-                    let src_w = cur_w;
-                    let src_h = cur_h;
-                    let (target_w, target_h) = state.dim_stack.pop().unwrap();
-                    cur_w = (cur_w * 2).min(target_w);
-                    cur_h = (cur_h * 2).min(target_h);
-                    state.dims.push((src_w, src_h, cur_w, cur_h));
+                    let (src_w, src_h) = state.sizer.current();
+                    let (dst_w, dst_h) = state.sizer.upscale();
+                    state.dims.push((
+                        u32::from(src_w),
+                        u32::from(src_h),
+                        u32::from(dst_w),
+                        u32::from(dst_h),
+                    ));
                 }
                 _ => {
-                    state.dims.push((cur_w, cur_h, cur_w, cur_h));
+                    let (w, h) = state.sizer.current();
+                    state
+                        .dims
+                        .push((u32::from(w), u32::from(h), u32::from(w), u32::from(h)));
                 }
             }
         }

@@ -20,8 +20,7 @@
 
 use super::FilterEffect;
 use crate::layer_manager::LayerManager;
-use alloc::vec;
-use vello_common::filter::gaussian_blur::GaussianBlur;
+use vello_common::filter::gaussian_blur::{DecimationSizer, GaussianBlur};
 use vello_common::filter_effects::EdgeMode;
 use vello_common::peniko::color::PremulRgba8;
 #[cfg(not(feature = "std"))]
@@ -78,34 +77,28 @@ pub(crate) fn apply_blur(
     }
 
     // Track logical dimensions through decimation (physical buffer stays the same size)
-    let mut src_width = width;
-    let mut src_height = height;
-    let mut dimensions_stack = vec![(width, height)];
+    let mut sizer = DecimationSizer::new(width, height);
 
     // Downsample n times (each step reduces resolution by 2×)
     for _ in 0..n_decimations {
-        (src_width, src_height) = downscale(pixmap, src_width, src_height, edge_mode);
-        dimensions_stack.push((src_width, src_height));
+        let (w, h) = sizer.current();
+        downscale(pixmap, w, h, edge_mode);
+        sizer.downscale();
     }
 
     // Apply the reduced blur at the coarsest resolution
-    convolve(
-        pixmap, scratch, src_width, src_height, kernel, radius, edge_mode,
-    );
+    let (w, h) = sizer.current();
+    convolve(pixmap, scratch, w, h, kernel, radius, edge_mode);
 
     // Upsample back to original resolution (each step doubles resolution by 2×)
     for _ in 0..n_decimations {
-        dimensions_stack.pop();
-        if let Some(&(target_width, target_height)) = dimensions_stack.last() {
-            (src_width, src_height) = upscale(pixmap, src_width, src_height, edge_mode);
-            // Clamp because upscale can exceed target on odd dimensions (e.g., 5→3→6 > 5)
-            src_width = src_width.min(target_width);
-            src_height = src_height.min(target_height);
-        }
+        let (w, h) = sizer.current();
+        upscale(pixmap, w, h, edge_mode);
+        sizer.upscale();
     }
 
     debug_assert_eq!(
-        (src_width, src_height),
+        sizer.current(),
         (width, height),
         "Final dimensions should match original"
     );
