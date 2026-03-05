@@ -629,6 +629,8 @@ impl FilterContext {
         get_filter_atlas_size: impl Fn(u32) -> [u32; 2],
         get_main_atlas_size: impl Fn() -> [u32; 2],
     ) -> Vec<FilterPass> {
+        // These unwraps can only panic for filter layers without a bbox, but those are skipped
+        // anyway before even getting here, so unwrap should be safe here.
         let filter_data_offset = self.offsets.get(layer_id).copied().unwrap();
         let gpu_filter = self.get_filter_data(layer_id).unwrap();
         let filter_type = gpu_filter.filter_type();
