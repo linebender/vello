@@ -1776,8 +1776,9 @@ fn initialize_filter_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources
         Some(&resources.filter_instance_buffer),
     );
 
-    let stride = size_of::<FilterInstanceData>() as i32;
-    debug_assert_eq!(stride, 64, "expected stride of 64");
+    const STRIDE: i32 = size_of::<FilterInstanceData>() as i32;
+    const { assert!(STRIDE == 64, "expected stride of 64") };
+    let stride = STRIDE;
 
     // Location 0: src_offset (Uint32x2), offset 0
     gl.enable_vertex_attrib_array(0);
@@ -2041,8 +2042,9 @@ fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
         Some(&resources.strips_buffer),
     );
 
-    let stride = size_of::<GpuStrip>() as i32;
-    debug_assert_eq!(stride, 20, "expected stride of 20");
+    const STRIDE: i32 = size_of::<GpuStrip>() as i32;
+    const { assert!(STRIDE == 20, "expected stride of 20") };
+    let stride = STRIDE;
 
     // Configure attributes.
     for i in 0..5 {
