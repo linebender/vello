@@ -17,7 +17,7 @@ use vello_common::paint::Image;
 use vello_common::peniko::{
     BlendMode, Compose, Extend, Gradient, ImageQuality, ImageSampler, LinearGradientPosition, Mix,
 };
-use vello_cpu::color::palette::css::{BLUE, GREEN, RED, TRANSPARENT, WHITE, YELLOW};
+use vello_cpu::color::palette::css::{BLUE, GREEN, RED, TRANSPARENT, YELLOW};
 use vello_cpu::kurbo::Dashes;
 use vello_dev_macros::vello_test;
 
