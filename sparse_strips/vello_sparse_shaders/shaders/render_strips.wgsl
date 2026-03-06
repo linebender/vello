@@ -843,7 +843,7 @@ const TINT_MODE_ALPHA_MASK: u32 = 0u;
 const TINT_MODE_MULTIPLY: u32 = 1u;
 
 struct EncodedImage {
-    /// The rendering quality of the image (0=Low, 1=Medium, 2=High, 3=GPU bilinear).
+    /// The rendering quality of the image.
     quality: u32,
     /// The extends in the horizontal and vertical direction.
     extend_modes: vec2<u32>,
