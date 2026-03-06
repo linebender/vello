@@ -645,14 +645,17 @@ fn render_sprite(
     ctx.fill_rect(&Rect::new(0.0, 0.0, glyph.width, glyph.height));
 }
 
-#[vello_test(skip_cpu, hybrid_ref)]
+// Note: Windows CI seems to yield slight differences in native bilinear sampling behavior, so we need
+// an additional tolerance.
+
+#[vello_test(skip_cpu, hybrid_ref, hybrid_tolerance = 1)]
 fn image_draw_image_2x2(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
     ctx.set_transform(Affine::translate((10.0, 10.0)) * Affine::scale(40.0));
     ctx.draw_image(image_source, &Rect::new(0.0, 0.0, 2.0, 2.0));
 }
 
-#[vello_test(skip_cpu, hybrid_ref)]
+#[vello_test(skip_cpu, hybrid_ref, hybrid_tolerance = 1)]
 fn image_draw_image_2x2_rotated(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
 
@@ -665,7 +668,7 @@ fn image_draw_image_2x2_rotated(ctx: &mut impl Renderer) {
     ctx.draw_image(image_source, &Rect::new(0.0, 0.0, 2.0, 2.0));
 }
 
-#[vello_test(skip_cpu, hybrid_ref)]
+#[vello_test(skip_cpu, hybrid_ref, hybrid_tolerance = 1)]
 fn image_draw_image_2x3(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x3(ctx);
 
@@ -676,7 +679,7 @@ fn image_draw_image_2x3(ctx: &mut impl Renderer) {
     ctx.draw_image(image_source, &Rect::new(0.0, 0.0, 2.0, 3.0));
 }
 
-#[vello_test(skip_cpu, hybrid_ref)]
+#[vello_test(skip_cpu, hybrid_ref, hybrid_tolerance = 1)]
 fn image_draw_image_10x10(ctx: &mut impl Renderer) {
     let image_source = rgb_img_10x10(ctx);
 
