@@ -79,10 +79,6 @@ impl ImageCache {
     }
 
     /// Allocate an image in the cache, with optional transparent padding.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "u16 is enough for the offset and width/height"
-    )]
     pub fn allocate(
         &mut self,
         width: u32,
