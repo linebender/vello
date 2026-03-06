@@ -201,6 +201,7 @@ impl DecimationSizer {
     /// Apply a new upsacle operation.
     pub fn upscale(&mut self) -> (u16, u16) {
         let (target_w, target_h) = self.dim_stack.pop().unwrap();
+        // Clamp because upscale can exceed target on odd dimensions (e.g., 5→3→6 > 5)
         self.width = (self.width * 2).min(target_w);
         self.height = (self.height * 2).min(target_h);
         (self.width, self.height)
