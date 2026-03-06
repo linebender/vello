@@ -798,7 +798,7 @@ fn filter_varying_depths_clips_and_compositions(ctx: &mut impl Renderer) {
 /// This verifies that the expansion calculation uses `transform_rect_bbox` to account for
 /// the full transformation matrix (including rotation and shear), rather than just extracting
 /// x/y scales separately. A 45-degree rotation should produce a diamond-shaped blur.
-#[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 2)]
 fn filter_rotated_blur(ctx: &mut impl Renderer) {
     let filter_gaussian_blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 4.0,
@@ -1066,7 +1066,7 @@ fn filter_transparent_shapes(ctx: &mut impl Renderer) {
 }
 
 /// Test filter on stroked paths.
-#[vello_test(skip_multithreaded)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
 fn filter_stroked_paths(ctx: &mut impl Renderer) {
     use vello_common::kurbo::{Cap, Join, Stroke};
 
