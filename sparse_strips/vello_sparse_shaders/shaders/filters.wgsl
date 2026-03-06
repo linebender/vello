@@ -205,6 +205,9 @@ fn sample_input_checked(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f3
 // Note that `downscale` and `upscale` and `convolve` all use GPU-native bilinear sampling, assuming that there is a large
 // enough transparent border around the images (which is currently always the case).
 
+// We need to use `textureSampleLevel` instead of `textureSample` for loops with dynamic
+// iteration count so that it works properly in the Direct3D backend.
+
 fn downscale(in: FilterVertexOutput) -> vec4<f32> {
     let frag_coord = vec2<u32>(in.position.xy);
     let rel = vec2<i32>(frag_coord - in.dest_offset);
@@ -224,10 +227,10 @@ fn downscale(in: FilterVertexOutput) -> vec4<f32> {
     let lo = vec2<f32>(-0.25);
     let hi = vec2<f32>( 1.25);
 
-    let s00 = textureSample(in_tex, linear_sampler, (src_texel + vec2(lo.x, lo.y) + 0.5) / tex_size);
-    let s01 = textureSample(in_tex, linear_sampler, (src_texel + vec2(lo.x, hi.y) + 0.5) / tex_size);
-    let s10 = textureSample(in_tex, linear_sampler, (src_texel + vec2(hi.x, lo.y) + 0.5) / tex_size);
-    let s11 = textureSample(in_tex, linear_sampler, (src_texel + vec2(hi.x, hi.y) + 0.5) / tex_size);
+    let s00 = textureSampleLevel(in_tex, linear_sampler, (src_texel + vec2(lo.x, lo.y) + 0.5) / tex_size, 0.0);
+    let s01 = textureSampleLevel(in_tex, linear_sampler, (src_texel + vec2(lo.x, hi.y) + 0.5) / tex_size, 0.0);
+    let s10 = textureSampleLevel(in_tex, linear_sampler, (src_texel + vec2(hi.x, lo.y) + 0.5) / tex_size, 0.0);
+    let s11 = textureSampleLevel(in_tex, linear_sampler, (src_texel + vec2(hi.x, hi.y) + 0.5) / tex_size, 0.0);
 
     // Now we can just average them.
     return (s00 + s01 + s10 + s11) * 0.25;
@@ -248,7 +251,7 @@ fn upscale(in: FilterVertexOutput) -> vec4<f32> {
     let src_texel = vec2<f32>(in.src_offset) + src_base + sample_offset;
 
     // Yay, just a single sample!
-    return textureSample(in_tex, linear_sampler, (src_texel + 0.5) / tex_size);
+    return textureSampleLevel(in_tex, linear_sampler, (src_texel + 0.5) / tex_size, 0.0);
 }
 
 fn convolve(
@@ -273,14 +276,14 @@ fn convolve(
     let tex_size = vec2<f32>(textureDimensions(in_tex));
 
     // First compute the color contribution of the center pixel.
-    var color = textureSample(in_tex, linear_sampler, (src_texel + 0.5) / tex_size) * center_weight;
+    var color = textureSampleLevel(in_tex, linear_sampler, (src_texel + 0.5) / tex_size, 0.0) * center_weight;
 
     // Then, compute and sum the contributions of the adjacent pixels.
     for (var i = 0u; i < n_linear_taps; i++) {
         let w = weights[i];
         let d = dir * offsets[i];
-        color += textureSample(in_tex, linear_sampler, (src_texel + d + 0.5) / tex_size) * w;
-        color += textureSample(in_tex, linear_sampler, (src_texel - d + 0.5) / tex_size) * w;
+        color += textureSampleLevel(in_tex, linear_sampler, (src_texel + d + 0.5) / tex_size, 0.0) * w;
+        color += textureSampleLevel(in_tex, linear_sampler, (src_texel - d + 0.5) / tex_size, 0.0) * w;
     }
 
     return color;
