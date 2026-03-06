@@ -30,7 +30,7 @@ pub fn translate(shader: &ShaderInfo) -> Result<String, naga_msl::Error> {
         "main".to_string(),
         naga_msl::EntryPointResources {
             resources: binding_map,
-            push_constant_buffer: None,
+            immediates_buffer: None,
             sizes_buffer: Some(30),
         },
     );

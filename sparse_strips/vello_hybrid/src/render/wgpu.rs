@@ -442,6 +442,7 @@ impl Renderer {
             depth_stencil_attachment: None,
             occlusion_query_set: None,
             timestamp_writes: None,
+            multiview_mask: None,
         });
 
         // Set scissor rectangle to limit clearing to specific region
@@ -817,14 +818,14 @@ impl Programs {
                     &encoded_paints_bind_group_layout,
                     &gradient_bind_group_layout,
                 ],
-                push_constant_ranges: &[],
+                immediate_size: 0,
             });
 
         let clear_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Clear Slots Pipeline Layout"),
                 bind_group_layouts: &[&clear_bind_group_layout],
-                push_constant_ranges: &[],
+                immediate_size: 0,
             });
 
         let strip_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -856,7 +857,7 @@ impl Programs {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -894,7 +895,7 @@ impl Programs {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -903,7 +904,7 @@ impl Programs {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Atlas Clear Pipeline Layout"),
                 bind_group_layouts: &[],
-                push_constant_ranges: &[],
+                immediate_size: 0,
             });
         let atlas_clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Atlas Clear Pipeline"),
@@ -931,7 +932,7 @@ impl Programs {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -1762,6 +1763,7 @@ impl RendererContext<'_> {
             depth_stencil_attachment: None,
             occlusion_query_set: None,
             timestamp_writes: None,
+            multiview_mask: None,
         });
         render_pass.set_pipeline(&self.programs.strip_pipeline);
         render_pass.set_bind_group(0, &self.programs.resources.slot_bind_groups[ix], &[]);
@@ -1811,6 +1813,7 @@ impl RendererContext<'_> {
                 depth_stencil_attachment: None,
                 occlusion_query_set: None,
                 timestamp_writes: None,
+                multiview_mask: None,
             });
 
             render_pass.set_pipeline(&self.programs.clear_pipeline);

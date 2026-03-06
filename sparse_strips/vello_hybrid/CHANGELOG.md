@@ -13,7 +13,7 @@ You can find its changes [documented below](#006---2026-01-15).
 
 ## [Unreleased]
 
-This release has an [MSRV][] of 1.88.
+This release has an [MSRV][] of 1.92.
 
 ### Fixed
 
