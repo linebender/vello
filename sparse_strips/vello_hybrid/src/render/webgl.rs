@@ -20,6 +20,7 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
+use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize,
     gradient_cache::GradientRampCache,
@@ -371,7 +372,7 @@ impl WebGlRenderer {
         &mut self,
         writer: &T,
     ) -> vello_common::paint::ImageId {
-        self.upload_image_with(writer, 1)
+        self.upload_image_with(writer, IMAGE_PADDING)
     }
 
     pub(crate) fn upload_image_with<T: WebGlAtlasWriter>(
@@ -498,12 +499,13 @@ impl WebGlRenderer {
             self.paint_idxs[encoded_paint_idx] = current_idx;
             match paint {
                 EncodedPaint::Image(img) => {
-                    if let ImageSource::OpaqueId { id, .. } = &img.source
-                        && let Some(image_resource) = self.image_cache.get(*id)
-                    {
-                        let gpu_image = self.encode_image_paint(img, image_resource);
-                        self.encoded_paints[encoded_paint_idx] = gpu_image;
-                        current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
+                    if let ImageSource::OpaqueId { id: image_id, .. } = img.source {
+                        let image_resource: Option<&ImageResource> = self.image_cache.get(image_id);
+                        if let Some(image_resource) = image_resource {
+                            let gpu_image = self.encode_image_paint(img, image_resource);
+                            self.encoded_paints[encoded_paint_idx] = gpu_image;
+                            current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
+                        }
                     }
                 }
                 EncodedPaint::Gradient(gradient) => {
@@ -540,8 +542,16 @@ impl WebGlRenderer {
         let transform = image_transform.as_coeffs().map(|x| x as f32);
         let image_size = pack_image_size(image_resource.width, image_resource.height);
         let image_offset = pack_image_offset(image_resource.offset[0], image_resource.offset[1]);
+
+        // See the comment in the wgpu backend.
+        let quality = if image.custom & 1 == 1 {
+            3
+        } else {
+            image.sampler.quality as u32
+        };
+
         let image_params = pack_image_params(
-            image.gpu_quality,
+            quality,
             image.sampler.x_extend as u32,
             image.sampler.y_extend as u32,
             image_resource.atlas_id.as_u32(),
@@ -1512,11 +1522,6 @@ fn create_texture(gl: &WebGl2RenderingContext) -> WebGlTexture {
 }
 
 /// Create a texture array with bilinear sampling and clamp-to-edge wrapping.
-///
-/// Uses LINEAR filtering so that `textureSampleLevel` (compiled to `textureLod` in GLSL)
-/// performs hardware bilinear interpolation for GPU-native image sampling.
-/// This does not affect `textureLoad` (compiled to `texelFetch`), which always
-/// bypasses the sampler regardless of filter mode.
 fn create_texture_array(gl: &WebGl2RenderingContext) -> WebGlTexture {
     let texture = gl.create_texture().unwrap();
     gl.active_texture(WebGl2RenderingContext::TEXTURE0);

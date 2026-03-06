@@ -18,6 +18,9 @@ pub(crate) const GPU_RADIAL_GRADIENT_SIZE_TEXELS: u32 =
     (size_of::<GpuRadialGradient>() / 16) as u32;
 pub(crate) const GPU_SWEEP_GRADIENT_SIZE_TEXELS: u32 = (size_of::<GpuSweepGradient>() / 16) as u32;
 
+// One pixel padding to account for bilinear filtering.
+pub(crate) const IMAGE_PADDING: u16 = 1;
+
 /// Dimensions of the rendering target.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct RenderSize {
@@ -245,7 +248,7 @@ pub(crate) fn pack_image_offset(x: u16, y: u16) -> u32 {
 /// `atlas_index`: stored in bits 6-13 (8 bits, supports up to 256 atlases)
 /// `extend_y`: stored in bits 4-5 (2 bits)
 /// `extend_x`: stored in bits 2-3 (2 bits)
-/// `quality`: stored in bits 0-1 (2 bits, values 0–3)
+/// `quality`: stored in bits 0-1 (2 bits)
 #[inline(always)]
 pub(crate) fn pack_image_params(
     quality: u32,

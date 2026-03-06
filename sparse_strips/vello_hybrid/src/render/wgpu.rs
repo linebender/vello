@@ -18,6 +18,7 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
+use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize,
     gradient_cache::GradientRampCache,
@@ -296,15 +297,10 @@ impl Renderer {
         encoder: &mut CommandEncoder,
         writer: &T,
     ) -> vello_common::paint::ImageId {
-        self.upload_image_with(device, queue, encoder, writer, 1)
+        self.upload_image_with(device, queue, encoder, writer, IMAGE_PADDING)
     }
 
-    /// Upload image to cache and atlas with explicit padding. Returns the `ImageId`.
-    ///
-    /// Use `padding = 1` for images that will be sampled with GPU-native bilinear
-    /// filtering (quality 3), so the hardware sampler reads transparent texels at
-    /// image edges instead of neighbouring atlas content.
-    pub fn upload_image_with<T: AtlasWriter>(
+    pub(crate) fn upload_image_with<T: AtlasWriter>(
         &mut self,
         device: &Device,
         queue: &Queue,
@@ -465,12 +461,13 @@ impl Renderer {
             self.paint_idxs[encoded_paint_idx] = current_idx;
             match paint {
                 EncodedPaint::Image(img) => {
-                    if let ImageSource::OpaqueId { id, .. } = &img.source
-                        && let Some(image_resource) = self.image_cache.get(*id)
-                    {
-                        let image_paint = self.encode_image_paint(img, image_resource);
-                        self.encoded_paints[encoded_paint_idx] = image_paint;
-                        current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
+                    if let ImageSource::OpaqueId { id: image_id, .. } = img.source {
+                        let image_resource: Option<&ImageResource> = self.image_cache.get(image_id);
+                        if let Some(image_resource) = image_resource {
+                            let image_paint = self.encode_image_paint(img, image_resource);
+                            self.encoded_paints[encoded_paint_idx] = image_paint;
+                            current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
+                        }
                     }
                 }
                 EncodedPaint::Gradient(gradient) => {
@@ -507,8 +504,18 @@ impl Renderer {
         let transform = image_transform.as_coeffs().map(|x| x as f32);
         let image_size = pack_image_size(image_resource.width, image_resource.height);
         let image_offset = pack_image_offset(image_resource.offset[0], image_resource.offset[1]);
+
+        // Values 0-2 represent the peniko `ImageQuality` variants, value 3
+        // stands for "GPU-native bilinear sampling with transparent padding".
+        // Meaning that if quality is 3, the extend modes will be ignored as well.
+        let quality = if image.custom & 1 == 1 {
+            3
+        } else {
+            image.sampler.quality as u32
+        };
+
         let image_params = pack_image_params(
-            image.gpu_quality,
+            quality,
             image.sampler.x_extend as u32,
             image.sampler.y_extend as u32,
             image_resource.atlas_id.as_u32(),

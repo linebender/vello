@@ -18,10 +18,10 @@ use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::multi_atlas::AtlasConfig;
 use vello_common::paint::{Image, ImageSource, Paint, PaintType, Tint};
-use vello_common::peniko::{Extend, ImageQuality, ImageSampler};
 #[cfg(feature = "text")]
 use vello_common::peniko::FontData;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
+use vello_common::peniko::{Extend, ImageQuality, ImageSampler};
 use vello_common::recording::{
     PushLayerCommand, Recordable, Recorder, Recording, RenderCommand, RenderState,
 };
@@ -491,9 +491,9 @@ impl Scene {
         let paint_idx = self.encoded_paints.len();
         self.fill_rect(rect);
 
-        // Override quality to GPU-native bilinear.
+        // See comment in wgpu backend.
         if let Some(EncodedPaint::Image(img)) = self.encoded_paints.get_mut(paint_idx) {
-            img.gpu_quality = Self::GPU_QUALITY_GPU_BILINEAR;
+            img.custom = 1;
         }
     }
 

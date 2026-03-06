@@ -525,7 +525,8 @@ impl EncodeExt for Image {
             x_advance,
             y_advance,
             tint,
-            gpu_quality: sampler.quality as u32,
+            // If needed, this will be updated by backends afterward.
+            custom: 0,
         };
 
         paints.push(EncodedPaint::Image(encoded));
@@ -574,10 +575,9 @@ pub struct EncodedImage {
     pub y_advance: Vec2,
     /// Optional tint applied to the image.
     pub tint: Option<Tint>,
-    /// Image quality for GPU rendering.
-    /// Values 0–2 mirror [`ImageQuality`] (Low, Medium, High).
-    /// Value 3 selects GPU-native bilinear sampling with transparent padding.
-    pub gpu_quality: u32,
+    /// A custom field that can be used by rendering backends to
+    /// attach additional information to the image.
+    pub custom: u8,
 }
 
 /// Computed properties of a linear gradient.
