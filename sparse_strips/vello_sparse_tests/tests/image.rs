@@ -653,6 +653,19 @@ fn image_draw_image_2x2(ctx: &mut impl Renderer) {
 }
 
 #[vello_test(skip_cpu, hybrid_ref)]
+fn image_draw_image_2x2_rotated(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_2x2(ctx);
+
+    ctx.set_transform(
+        Affine::rotate_about(45.0_f64.to_radians(), Point::new(50.0, 50.0))
+            * Affine::translate((10.0, 10.0))
+            * Affine::scale(40.0),
+    );
+
+    ctx.draw_image(image_source, &Rect::new(0.0, 0.0, 2.0, 2.0));
+}
+
+#[vello_test(skip_cpu, hybrid_ref)]
 fn image_draw_image_2x3(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x3(ctx);
 
