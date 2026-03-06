@@ -33,6 +33,7 @@ use vello_common::multi_atlas::{AtlasError, AtlasId};
 /// the code significantly easier since we don't need to special-case border pixels. Since we
 /// do use checked accesses for the offset filter, the bottleneck is formed by the gaussian blur
 /// convolution.
+#[expect(clippy::cast_possible_truncation, reason = "safe in this case")]
 const FILTER_ATLAS_PADDING: u16 = MAX_KERNEL_SIZE as u16 / 2;
 
 // Note: Keep these variables and struct layouts in sync with `filters.wgsl`!
@@ -360,7 +361,7 @@ pub(crate) struct FilterInstanceData {
     pub dest: IntRect,
     /// Full pixel dimensions of the destination atlas texture.
     pub dest_atlas_size: [u32; 2],
-    /// Texel offset into filter_data where this filter's data is stored.
+    /// Texel offset into `filter_data` where this filter's data is stored.
     pub filter_data_offset: u32,
     /// The region of the original (unfiltered) content.
     pub original: IntRect,
@@ -804,10 +805,6 @@ impl FilterContext {
 
     /// Build the sequence of filter passes for a given layer and store it in the internal
     /// buffer.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "dimensions won't exceed u32"
-    )]
     pub(crate) fn build_filter_passes(
         &self,
         layer_id: &LayerId,

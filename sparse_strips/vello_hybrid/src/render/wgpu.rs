@@ -709,7 +709,7 @@ struct Programs {
     filter_bind_group_layout: BindGroupLayout,
     /// Pipeline for applying filter effects.
     filter_pipeline: RenderPipeline,
-    /// Bind group layouts for filter input (group 1: in_tex + sampler) and original (group 2: original_tex).
+    /// Bind group layouts for filter input.
     filter_input_bind_group_layouts: [BindGroupLayout; 2],
     /// Pipeline for clearing slots in slot textures.
     clear_pipeline: RenderPipeline,
@@ -1363,7 +1363,7 @@ impl Programs {
         // TODO: We really should deduplicate handling of this this with encoded paints texture.
         const INITIAL_FILTER_TEXTURE_HEIGHT: u32 = 1;
         let filter_data =
-            vec![0u8; ((max_texture_dimension_2d * INITIAL_FILTER_TEXTURE_HEIGHT) << 4) as usize];
+            vec![0_u8; ((max_texture_dimension_2d * INITIAL_FILTER_TEXTURE_HEIGHT) << 4) as usize];
         let filter_data_texture = Self::create_filter_data_texture(
             device,
             max_texture_dimension_2d,
