@@ -463,24 +463,23 @@ impl Scene {
         self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
     }
 
-    /// GPU-native bilinear quality constant (value 3).
+    /// Draw an image using bilinear filtering.
     ///
-    /// Values 0–2 mirror [`ImageQuality`] (Low, Medium, High).
-    /// Value 3 selects GPU-native bilinear sampling with transparent padding.
-    const GPU_QUALITY_GPU_BILINEAR: u32 = 3;
-
-    /// Draw an image using GPU-native bilinear sampling with transparent edges.
+    /// If you want more room for customization, you can also paint an image by setting
+    /// an image paint via `set_paint` and specifying parameters like extend and filtering quality
+    /// manually. However, if you only need bilinear filtering, using this method is recommended
+    /// as it will be much faster.
     ///
-    /// The image source should be an [`ImageSource::OpaqueId`] that was uploaded
-    /// to the atlas with 1 px transparent padding. The quality is overridden to
-    /// [`GPU_QUALITY_GPU_BILINEAR`](Self::GPU_QUALITY_GPU_BILINEAR) so the shader
-    /// uses hardware bilinear sampling instead of manual interpolation.
+    /// This method will respect the current affine transformation in place (set via [`Scene::set_transform`],
+    /// but is not affected by the current paint transform (set via [`Scene::set_paint_transform`] in place.
     pub fn draw_image(&mut self, image: ImageSource, rect: &Rect) {
-        // TODO: Restore previous transform/paint
+        let state = self.save_current_state();
+
         self.set_paint_transform(Affine::IDENTITY);
         self.set_paint(Image {
             image,
             sampler: ImageSampler {
+                // Extend doesn't actually matter.
                 x_extend: Extend::Pad,
                 y_extend: Extend::Pad,
                 quality: ImageQuality::Medium,
@@ -495,6 +494,8 @@ impl Scene {
         if let Some(EncodedPaint::Image(img)) = self.encoded_paints.get_mut(paint_idx) {
             img.custom = 1;
         }
+
+        self.restore_state(state);
     }
 
     #[expect(
@@ -731,6 +732,8 @@ impl Scene {
     }
 
     /// Set the paint for subsequent rendering operations.
+    ///
+    /// For drawing images, see also the [`Scene::draw_image`] method.
     // TODO: This API is not final. Supporting images from a pixmap is explicitly out of scope.
     //       Instead images should be passed via a backend-agnostic opaque id, and be hydrated at
     //       render time into a texture usable by the renderer backend.
