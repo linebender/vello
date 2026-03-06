@@ -1769,6 +1769,21 @@ fn create_filter_atlas_texture(
     texture
 }
 
+/// Vertex attribute layout for [`FilterInstanceData`].
+const FILTER_ATTRIBS: [(i32, i32); 9] = [
+    (2, 0),  // src_offset
+    (2, 8),  // src_size
+    (2, 16), // dest_offset
+    (2, 24), // dest_size
+    (2, 32), // dest_atlas_size
+    (1, 40), // filter_data_offset
+    (2, 44), // original_offset
+    (2, 52), // original_size
+    (1, 60), // pass_kind
+];
+
+const FILTER_INSTANCE_STRIDE: i32 = size_of::<FilterInstanceData>() as i32;
+
 fn initialize_filter_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) {
     gl.bind_vertex_array(Some(&resources.filter_vao));
     gl.bind_buffer(
@@ -1776,46 +1791,18 @@ fn initialize_filter_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources
         Some(&resources.filter_instance_buffer),
     );
 
-    const STRIDE: i32 = size_of::<FilterInstanceData>() as i32;
-    const { assert!(STRIDE == 64, "expected stride of 64") };
-    let stride = STRIDE;
-
-    // Location 0: src_offset (Uint32x2), offset 0
-    gl.enable_vertex_attrib_array(0);
-    gl.vertex_attrib_i_pointer_with_i32(0, 2, WebGl2RenderingContext::UNSIGNED_INT, stride, 0);
-    gl.vertex_attrib_divisor(0, 1);
-    // Location 1: src_size (Uint32x2), offset 8
-    gl.enable_vertex_attrib_array(1);
-    gl.vertex_attrib_i_pointer_with_i32(1, 2, WebGl2RenderingContext::UNSIGNED_INT, stride, 8);
-    gl.vertex_attrib_divisor(1, 1);
-    // Location 2: dest_offset (Uint32x2), offset 16
-    gl.enable_vertex_attrib_array(2);
-    gl.vertex_attrib_i_pointer_with_i32(2, 2, WebGl2RenderingContext::UNSIGNED_INT, stride, 16);
-    gl.vertex_attrib_divisor(2, 1);
-    // Location 3: dest_size (Uint32x2), offset 24
-    gl.enable_vertex_attrib_array(3);
-    gl.vertex_attrib_i_pointer_with_i32(3, 2, WebGl2RenderingContext::UNSIGNED_INT, stride, 24);
-    gl.vertex_attrib_divisor(3, 1);
-    // Location 4: dest_atlas_size (Uint32x2), offset 32
-    gl.enable_vertex_attrib_array(4);
-    gl.vertex_attrib_i_pointer_with_i32(4, 2, WebGl2RenderingContext::UNSIGNED_INT, stride, 32);
-    gl.vertex_attrib_divisor(4, 1);
-    // Location 5: filter_data_offset (Uint32), offset 40
-    gl.enable_vertex_attrib_array(5);
-    gl.vertex_attrib_i_pointer_with_i32(5, 1, WebGl2RenderingContext::UNSIGNED_INT, stride, 40);
-    gl.vertex_attrib_divisor(5, 1);
-    // Location 6: original_offset (Uint32x2), offset 44
-    gl.enable_vertex_attrib_array(6);
-    gl.vertex_attrib_i_pointer_with_i32(6, 2, WebGl2RenderingContext::UNSIGNED_INT, stride, 44);
-    gl.vertex_attrib_divisor(6, 1);
-    // Location 7: original_size (Uint32x2), offset 52
-    gl.enable_vertex_attrib_array(7);
-    gl.vertex_attrib_i_pointer_with_i32(7, 2, WebGl2RenderingContext::UNSIGNED_INT, stride, 52);
-    gl.vertex_attrib_divisor(7, 1);
-    // Location 8: pass_kind (Uint32), offset 60
-    gl.enable_vertex_attrib_array(8);
-    gl.vertex_attrib_i_pointer_with_i32(8, 1, WebGl2RenderingContext::UNSIGNED_INT, stride, 60);
-    gl.vertex_attrib_divisor(8, 1);
+    for (loc, &(components, offset)) in FILTER_ATTRIBS.iter().enumerate() {
+        let loc = loc as u32;
+        gl.enable_vertex_attrib_array(loc);
+        gl.vertex_attrib_i_pointer_with_i32(
+            loc,
+            components,
+            WebGl2RenderingContext::UNSIGNED_INT,
+            FILTER_INSTANCE_STRIDE,
+            offset,
+        );
+        gl.vertex_attrib_divisor(loc, 1);
+    }
 
     gl.bind_vertex_array(None);
 }
@@ -2201,13 +2188,16 @@ impl WebGlRendererContext<'_> {
                     WebGl2RenderingContext::FRAMEBUFFER,
                     Some(&self.programs.resources.slot_framebuffers[*ix as usize]),
                 );
+                // Set viewport to match slot framebuffer.
                 // TODO: Remove the slot height texture calculation.
                 let total_slots: usize = (self.programs.resources.max_texture_dimension_2d
                     / u32::from(Tile::HEIGHT)) as usize;
+                // Set viewport to match slot texture.
                 let height = u32::from(Tile::HEIGHT) * total_slots as u32;
                 self.gl
                     .viewport(0, 0, i32::from(WideTile::WIDTH), height as i32);
 
+                // Use slot config buffer for rendering to a slot texture.
                 self.gl.bind_buffer_base(
                     WebGl2RenderingContext::UNIFORM_BUFFER,
                     self.programs.strip_uniforms.config_vs_block_index,
@@ -2221,6 +2211,7 @@ impl WebGlRendererContext<'_> {
             }
         }
 
+        // Clear framebuffer if requested.
         if matches!(load, LoadOp::Clear) {
             self.gl.clear_color(0.0, 0.0, 0.0, 0.0);
             self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
@@ -2295,6 +2286,7 @@ impl WebGlRendererContext<'_> {
             strips.len() as i32,
         );
 
+        // Clean up.
         self.gl.bind_vertex_array(None);
     }
 
@@ -2401,11 +2393,9 @@ impl RendererBackend for WebGlRendererContext<'_> {
 
         self.gl.disable(WebGl2RenderingContext::BLEND);
 
-        // Upload all instances at once.
         let instances = pass_state.instances();
         self.programs.upload_filter_instances(self.gl, instances);
 
-        // Set up the filter program and invariant state once before the loop.
         self.gl.use_program(Some(&self.programs.filter_program));
         self.gl
             .bind_vertex_array(Some(&self.programs.resources.filter_vao));
@@ -2418,75 +2408,21 @@ impl RendererBackend for WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.filter_uniforms.filter_data), 0);
 
-        // Reusable framebuffer for passes that output to a main atlas layer.
         let mut main_atlas_fb: Option<WebGlFramebuffer> = None;
-        let stride = size_of::<FilterInstanceData>() as i32;
 
         for (i, pass) in filter_passes.iter().enumerate() {
-            let base = (i as i32) * stride;
-            self.gl.vertex_attrib_i_pointer_with_i32(
-                0,
-                2,
-                WebGl2RenderingContext::UNSIGNED_INT,
-                stride,
-                base,
-            );
-            self.gl.vertex_attrib_i_pointer_with_i32(
-                1,
-                2,
-                WebGl2RenderingContext::UNSIGNED_INT,
-                stride,
-                base + 8,
-            );
-            self.gl.vertex_attrib_i_pointer_with_i32(
-                2,
-                2,
-                WebGl2RenderingContext::UNSIGNED_INT,
-                stride,
-                base + 16,
-            );
-            self.gl.vertex_attrib_i_pointer_with_i32(
-                3,
-                2,
-                WebGl2RenderingContext::UNSIGNED_INT,
-                stride,
-                base + 24,
-            );
-            self.gl.vertex_attrib_i_pointer_with_i32(
-                4,
-                2,
-                WebGl2RenderingContext::UNSIGNED_INT,
-                stride,
-                base + 32,
-            );
-            self.gl.vertex_attrib_i_pointer_with_i32(
-                5,
-                1,
-                WebGl2RenderingContext::UNSIGNED_INT,
-                stride,
-                base + 40,
-            );
-            self.gl.vertex_attrib_i_pointer_with_i32(
-                6,
-                2,
-                WebGl2RenderingContext::UNSIGNED_INT,
-                stride,
-                base + 44,
-            );
-            self.gl.vertex_attrib_i_pointer_with_i32(
-                7,
-                2,
-                WebGl2RenderingContext::UNSIGNED_INT,
-                stride,
-                base + 52,
-            );
-            self.gl.vertex_attrib_i_pointer_with_i32(
-                8,
-                1,
-                WebGl2RenderingContext::UNSIGNED_INT,
-                stride,
-                base + 60,
-            );
+            // Base points to the correct offset for that specific filter pass.
+            let base = (i as i32) * FILTER_INSTANCE_STRIDE;
+
+            for (loc, &(components, offset)) in FILTER_ATTRIBS.iter().enumerate() {
+                self.gl.vertex_attrib_i_pointer_with_i32(
+                    loc as u32,
+                    components,
+                    WebGl2RenderingContext::UNSIGNED_INT,
+                    FILTER_INSTANCE_STRIDE,
+                    base + offset,
+                );
+            }
 
             match &pass.output {
                 FilterPassTarget::FilterAtlas(idx) => {
