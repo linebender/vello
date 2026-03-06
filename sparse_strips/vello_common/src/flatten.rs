@@ -235,12 +235,14 @@ pub fn stroke(
     width: u16,
     height: u16,
 ) {
-    // TODO: Temporary hack to ensure that strokes are scaled properly by the transform.
-    let tolerance = TOL
-        / affine.as_coeffs()[0]
-            .abs()
-            .max(affine.as_coeffs()[3].abs())
-            .max(1.);
+    // A transform can be decomposed to a rotation, a scale along the x and y axes, and another
+    // rotation. We are interested in knowing the max scale along those axes. This is the same as
+    // finding the semi-major axis of the ellipse created by transforming the unit circle.
+    let max_scale = kurbo::Ellipse::from_affine(affine)
+        .radii()
+        .to_size()
+        .max_side();
+    let tolerance = TOL / max_scale;
 
     expand_stroke(path, style, tolerance, stroke_ctx);
     fill(
