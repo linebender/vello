@@ -394,16 +394,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
             var sample_color: vec4<f32>;
             if encoded_image.quality == IMAGE_QUALITY_GPU_BILINEAR {
-                // GPU-native bilinear sampling: the image is uploaded with 1px transparent
-                // padding, so the hardware sampler naturally blends to transparent at edges.
                 let atlas_dims = vec2<f32>(textureDimensions(atlas_texture_array));
                 let sample_xy = (image_offset + local_xy) / atlas_dims;
-                sample_color = textureSampleLevel(
+                sample_color = textureSample(
                     atlas_texture_array,
                     atlas_sampler,
                     sample_xy,
                     i32(encoded_image.atlas_index),
-                    0.0,
                 );
             } else if encoded_image.quality == IMAGE_QUALITY_HIGH {
                 let final_xy = image_offset + extended_xy;
