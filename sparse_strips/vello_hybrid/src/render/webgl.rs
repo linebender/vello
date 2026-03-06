@@ -343,7 +343,7 @@ impl WebGlRenderer {
         }
 
         self.filter_context
-            .deallocate_all_and_clear(&mut self.image_cache);
+            .deallocate_all_and_clear_context(&mut self.image_cache);
 
         let mut encoded_paints = scene.encoded_paints.borrow_mut();
         let original_scene_paint_count = encoded_paints.len();

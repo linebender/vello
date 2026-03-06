@@ -171,7 +171,7 @@ impl Renderer {
         }
 
         self.filter_context
-            .deallocate_all_and_clear(&mut self.image_cache);
+            .deallocate_all_and_clear_context(&mut self.image_cache);
 
         self.filter_context
             .prepare(&scene.render_graph, &mut self.image_cache, encoded_paints)?;

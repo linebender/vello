@@ -615,7 +615,7 @@ impl FilterContext {
     ///
     /// Note that the client is responsible for clearing (with a transparent color) the existing
     /// images in the atlas, if desired.
-    pub(crate) fn deallocate_all_and_clear(&mut self, image_atlas_cache: &mut ImageCache) {
+    pub(crate) fn deallocate_all_and_clear_context(&mut self, image_atlas_cache: &mut ImageCache) {
         for filter_textures in self.filter_textures.values() {
             self.image_cache
                 .deallocate(filter_textures.initial_image_id);
