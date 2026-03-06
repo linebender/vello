@@ -42,6 +42,8 @@ struct Arguments {
     /// Whether no reference image should actually be created (for tests that only check
     /// for panics, but are not interested in the actual output).
     no_ref: bool,
+    /// Whether the hybrid renderer should create reference images instead of the CPU renderer.
+    hybrid_ref: bool,
     /// A reason for ignoring a test.
     ignore_reason: Option<String>,
 }
@@ -59,6 +61,7 @@ impl Default for Arguments {
             skip_hybrid: false,
             skip_hybrid_constrained: false,
             no_ref: false,
+            hybrid_ref: false,
             diff_pixels: 0,
             ignore_reason: None,
         }
@@ -157,6 +160,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         mut skip_hybrid_constrained,
         ignore_reason,
         no_ref,
+        hybrid_ref,
         diff_pixels,
     } = parse_args(&attrs);
 
@@ -466,7 +470,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             #input_fn_name(&mut ctx);
             ctx.flush();
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
+                check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, #diff_pixels, #hybrid_ref, #reference_image_name);
             }
         }
 
@@ -545,6 +549,7 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                     "skip_hybrid" => args.skip_hybrid = true,
                     "skip_hybrid_constrained" => args.skip_hybrid_constrained = true,
                     "no_ref" => args.no_ref = true,
+                    "hybrid_ref" => args.hybrid_ref = true,
                     "ignore" => {
                         args.skip_cpu = true;
                         args.skip_multithreaded = true;
