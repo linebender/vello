@@ -222,6 +222,12 @@ impl WideTilesBbox {
         self.bbox[3]
     }
 
+    /// Returns `true` if the bounding box has zero area.
+    #[inline(always)]
+    pub fn is_empty(&self) -> bool {
+        self.x0() >= self.x1() || self.y0() >= self.y1()
+    }
+
     /// Get the width of the bounding box (x1 - x0).
     #[inline(always)]
     pub fn width_tiles(&self) -> u16 {

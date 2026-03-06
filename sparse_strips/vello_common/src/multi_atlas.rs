@@ -156,6 +156,17 @@ impl MultiAtlasManager {
 
     /// Try to allocate space for an image with the given dimensions.
     pub fn try_allocate(&mut self, width: u32, height: u32) -> Result<AtlasAllocation, AtlasError> {
+        self.try_allocate_excluding(width, height, None)
+    }
+
+    /// Try to allocate space for an image with the given dimensions,
+    /// optionally excluding a specific atlas.
+    pub fn try_allocate_excluding(
+        &mut self,
+        width: u32,
+        height: u32,
+        exclude_atlas_id: Option<AtlasId>,
+    ) -> Result<AtlasAllocation, AtlasError> {
         // Check if the image is too large for any atlas
         if width > self.config.atlas_size.0 || height > self.config.atlas_size.1 {
             return Err(AtlasError::TextureTooLarge { width, height });
@@ -163,10 +174,16 @@ impl MultiAtlasManager {
 
         // Try allocation based on strategy
         match self.config.allocation_strategy {
-            AllocationStrategy::FirstFit => self.allocate_first_fit(width, height),
-            AllocationStrategy::BestFit => self.allocate_best_fit(width, height),
-            AllocationStrategy::LeastUsed => self.allocate_least_used(width, height),
-            AllocationStrategy::RoundRobin => self.allocate_round_robin(width, height),
+            AllocationStrategy::FirstFit => {
+                self.allocate_first_fit(width, height, exclude_atlas_id)
+            }
+            AllocationStrategy::BestFit => self.allocate_best_fit(width, height, exclude_atlas_id),
+            AllocationStrategy::LeastUsed => {
+                self.allocate_least_used(width, height, exclude_atlas_id)
+            }
+            AllocationStrategy::RoundRobin => {
+                self.allocate_round_robin(width, height, exclude_atlas_id)
+            }
         }
     }
 
@@ -175,8 +192,13 @@ impl MultiAtlasManager {
         &mut self,
         width: u32,
         height: u32,
+        exclude_atlas_id: Option<AtlasId>,
     ) -> Result<AtlasAllocation, AtlasError> {
         for atlas in &mut self.atlases {
+            if Some(atlas.id) == exclude_atlas_id {
+                continue;
+            }
+
             if let Some(allocation) = atlas.allocate(width, height) {
                 return Ok(AtlasAllocation {
                     atlas_id: atlas.id,
@@ -206,12 +228,17 @@ impl MultiAtlasManager {
         &mut self,
         width: u32,
         height: u32,
+        exclude_atlas_id: Option<AtlasId>,
     ) -> Result<AtlasAllocation, AtlasError> {
         let mut best_atlas_idx = None;
         let mut best_remaining_space = u32::MAX;
 
         // Find the atlas with the least remaining space that can fit the image
         for (idx, atlas) in self.atlases.iter().enumerate() {
+            if Some(atlas.id) == exclude_atlas_id {
+                continue;
+            }
+
             let stats = atlas.stats();
             let remaining_space = stats.total_area - stats.allocated_area;
 
@@ -232,7 +259,7 @@ impl MultiAtlasManager {
         }
 
         // Fallback to first-fit if best-fit didn't work
-        self.allocate_first_fit(width, height)
+        self.allocate_first_fit(width, height, exclude_atlas_id)
     }
 
     /// Allocate using least-used strategy: prefer the atlas with the lowest usage percentage.
@@ -240,12 +267,17 @@ impl MultiAtlasManager {
         &mut self,
         width: u32,
         height: u32,
+        exclude_atlas_id: Option<AtlasId>,
     ) -> Result<AtlasAllocation, AtlasError> {
         let mut best_atlas_idx = None;
         let mut lowest_usage = f32::MAX;
 
         // Find the atlas with the lowest usage percentage
         for (idx, atlas) in self.atlases.iter().enumerate() {
+            if Some(atlas.id) == exclude_atlas_id {
+                continue;
+            }
+
             let usage = atlas.stats().usage_percentage();
             if usage < lowest_usage {
                 lowest_usage = usage;
@@ -264,7 +296,7 @@ impl MultiAtlasManager {
         }
 
         // Fallback to first-fit if least-used didn't work
-        self.allocate_first_fit(width, height)
+        self.allocate_first_fit(width, height, exclude_atlas_id)
     }
 
     /// Allocate using round-robin strategy: cycle through atlases using a round-robin counter.
@@ -272,9 +304,10 @@ impl MultiAtlasManager {
         &mut self,
         width: u32,
         height: u32,
+        exclude_atlas_id: Option<AtlasId>,
     ) -> Result<AtlasAllocation, AtlasError> {
         if self.atlases.is_empty() {
-            return self.allocate_first_fit(width, height);
+            return self.allocate_first_fit(width, height, exclude_atlas_id);
         }
 
         let start_idx = self.round_robin_counter % self.atlases.len();
@@ -282,6 +315,10 @@ impl MultiAtlasManager {
         // Try starting from the round-robin position
         for i in 0..self.atlases.len() {
             let idx = (start_idx + i) % self.atlases.len();
+
+            if Some(self.atlases[idx].id) == exclude_atlas_id {
+                continue;
+            }
 
             if let Some(allocation) = self.atlases[idx].allocate(width, height) {
                 let atlas_id = self.atlases[idx].id;
@@ -672,5 +709,53 @@ mod tests {
 
         let allocation2 = manager.try_allocate(256, 256).unwrap();
         assert_eq!(allocation2.atlas_id.as_u32(), 2);
+    }
+
+    fn test_allocate_excluding_with_strategy(strategy: AllocationStrategy) {
+        let mut manager = MultiAtlasManager::new(AtlasConfig {
+            initial_atlas_count: 3,
+            max_atlases: 3,
+            atlas_size: (256, 256),
+            allocation_strategy: strategy,
+            auto_grow: false,
+        });
+
+        let allocation0 = manager.try_allocate(100, 100).unwrap();
+        let first_atlas = allocation0.atlas_id;
+        let allocation1 = manager
+            .try_allocate_excluding(256, 256, Some(first_atlas))
+            .unwrap();
+        assert_ne!(allocation1.atlas_id, first_atlas);
+
+        let second_atlas = allocation1.atlas_id;
+        let allocation2 = manager
+            .try_allocate_excluding(100, 100, Some(second_atlas))
+            .unwrap();
+        assert_ne!(allocation2.atlas_id, second_atlas);
+
+        let allocation3 = manager
+            .try_allocate_excluding(100, 100, Some(first_atlas))
+            .unwrap();
+        assert_ne!(allocation3.atlas_id, first_atlas);
+    }
+
+    #[test]
+    fn test_allocate_excluding_first_fit() {
+        test_allocate_excluding_with_strategy(AllocationStrategy::FirstFit);
+    }
+
+    #[test]
+    fn test_allocate_excluding_best_fit() {
+        test_allocate_excluding_with_strategy(AllocationStrategy::BestFit);
+    }
+
+    #[test]
+    fn test_allocate_excluding_least_used() {
+        test_allocate_excluding_with_strategy(AllocationStrategy::LeastUsed);
+    }
+
+    #[test]
+    fn test_allocate_excluding_round_robin() {
+        test_allocate_excluding_with_strategy(AllocationStrategy::RoundRobin);
     }
 }

@@ -28,6 +28,18 @@ pub struct ImageResource {
     atlas_alloc_id: AllocId,
 }
 
+impl ImageResource {
+    /// Returns the offset as `[u32; 2]`.
+    pub fn offsets(&self) -> [u32; 2] {
+        [self.offset[0] as u32, self.offset[1] as u32]
+    }
+
+    /// Returns the size as `[u32; 2]`.
+    pub fn size(&self) -> [u32; 2] {
+        [self.width as u32, self.height as u32]
+    }
+}
+
 /// Manages image resources for the renderer.
 pub struct ImageCache {
     /// Multi-atlas manager for handling multiple texture atlases.
@@ -67,21 +79,35 @@ impl ImageCache {
     }
 
     /// Allocate an image in the cache, with optional transparent padding.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "u16 is enough for the offset and width/height"
-    )]
     pub fn allocate(
         &mut self,
         width: u32,
         height: u32,
         padding: u16,
     ) -> Result<ImageId, AtlasError> {
+        self.allocate_excluding(width, height, padding, None)
+    }
+
+    /// Allocate an image in the cache, with optional transparency padding
+    /// and  optionally excluding a specific atlas.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "u16 is enough for the offset and width/height"
+    )]
+    pub fn allocate_excluding(
+        &mut self,
+        width: u32,
+        height: u32,
+        padding: u16,
+        exclude_atlas_id: Option<AtlasId>,
+    ) -> Result<ImageId, AtlasError> {
         let padded_width = width + u32::from(padding) * 2;
         let padded_height = height + u32::from(padding) * 2;
-        let atlas_alloc = self
-            .atlas_manager
-            .try_allocate(padded_width, padded_height)?;
+        let atlas_alloc = self.atlas_manager.try_allocate_excluding(
+            padded_width,
+            padded_height,
+            exclude_atlas_id,
+        )?;
 
         let slot_idx = self.free_idxs.pop().unwrap_or_else(|| {
             // No free slots, append to vector

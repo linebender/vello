@@ -18,6 +18,10 @@ pub(crate) const GPU_RADIAL_GRADIENT_SIZE_TEXELS: u32 =
     (size_of::<GpuRadialGradient>() / 16) as u32;
 pub(crate) const GPU_SWEEP_GRADIENT_SIZE_TEXELS: u32 = (size_of::<GpuSweepGradient>() / 16) as u32;
 
+// TODO: If we want to use native bilinear sampling for uploaded images,
+// we can pass 1 instead of 0 here.
+pub(crate) const IMAGE_PADDING: u16 = 0;
+
 /// Dimensions of the rendering target.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct RenderSize {
@@ -43,8 +47,12 @@ pub struct Config {
     /// Number of trailing zeros in the encoded paints texture width (log2 of width).
     /// Pre-calculated on CPU since downlevel targets do not support `firstTrailingBit`.
     pub encoded_paints_tex_width_bits: u32,
+    /// A horizontal offset to apply to strips.
+    pub strip_offset_x: i32,
+    /// A vertical offset to apply to strips.
+    pub strip_offset_y: i32,
     /// Padding to satisfy WebGL's 16-byte alignment requirement for uniform buffers.
-    pub _padding: [u32; 3],
+    pub _padding: u32,
 }
 
 /// A GPU strip instance for rendering.

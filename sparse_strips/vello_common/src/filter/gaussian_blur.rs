@@ -3,6 +3,8 @@
 
 //! The gaussian blur filter.
 
+use alloc::vec::Vec;
+
 use crate::filter_effects::EdgeMode;
 use crate::kurbo::Affine;
 use crate::util::extract_scales;
@@ -158,9 +160,59 @@ pub fn compute_gaussian_kernel(std_deviation: f32) -> ([f32; MAX_KERNEL_SIZE], u
     (kernel, kernel_size)
 }
 
+/// Tracks dimensions through a chain of downscale/upscale operations.
+#[derive(Debug, Default)]
+pub struct DecimationSizer {
+    width: u16,
+    height: u16,
+    dim_stack: Vec<(u16, u16)>,
+}
+
+impl DecimationSizer {
+    /// Create a new sizer with the given initial dimensions.
+    pub fn new(width: u16, height: u16) -> Self {
+        Self {
+            width,
+            height,
+            dim_stack: Vec::new(),
+        }
+    }
+
+    /// Reset the sizer so it can be reused.
+    pub fn reset(&mut self, width: u16, height: u16) {
+        self.width = width;
+        self.height = height;
+        self.dim_stack.clear();
+    }
+
+    /// Returns the current logical dimensions.
+    pub fn current(&self) -> (u16, u16) {
+        (self.width, self.height)
+    }
+
+    /// Apply a new downscale operation.
+    pub fn downscale(&mut self) -> (u16, u16) {
+        self.dim_stack.push((self.width, self.height));
+        self.width = self.width.div_ceil(2);
+        self.height = self.height.div_ceil(2);
+        (self.width, self.height)
+    }
+
+    /// Apply a new upsacle operation.
+    pub fn upscale(&mut self) -> (u16, u16) {
+        let (target_w, target_h) = self.dim_stack.pop().unwrap();
+        // Clamp because upscale can exceed target on odd dimensions (e.g., 5→3→6 > 5)
+        self.width = (self.width * 2).min(target_w);
+        self.height = (self.height * 2).min(target_h);
+        (self.width, self.height)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::filter::gaussian_blur::{compute_gaussian_kernel, plan_decimated_blur};
+    use crate::filter::gaussian_blur::{
+        DecimationSizer, compute_gaussian_kernel, plan_decimated_blur,
+    };
 
     /// Test Gaussian kernel computation for small σ.
     #[test]
@@ -243,5 +295,35 @@ mod tests {
         assert_eq!(n_decimations, 0);
         assert_eq!(size, 1);
         assert!((kernel[0] - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_decimation_sizer_even() {
+        let mut sizer = DecimationSizer::new(8, 8);
+        assert_eq!(sizer.current(), (8, 8));
+
+        assert_eq!(sizer.downscale(), (4, 4));
+        assert_eq!(sizer.downscale(), (2, 2));
+
+        assert_eq!(sizer.upscale(), (4, 4));
+        assert_eq!(sizer.upscale(), (8, 8));
+    }
+
+    #[test]
+    fn test_decimation_sizer_odd() {
+        let mut sizer = DecimationSizer::new(5, 7);
+        assert_eq!(sizer.downscale(), (3, 4));
+        assert_eq!(sizer.downscale(), (2, 2));
+
+        // Upscale clamps to the pre-downscale target
+        assert_eq!(sizer.upscale(), (3, 4));
+        assert_eq!(sizer.upscale(), (5, 7));
+    }
+
+    #[test]
+    fn test_decimation_sizer_single_level() {
+        let mut sizer = DecimationSizer::new(100, 50);
+        assert_eq!(sizer.downscale(), (50, 25));
+        assert_eq!(sizer.upscale(), (100, 50));
     }
 }
