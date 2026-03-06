@@ -391,7 +391,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                     sample_xy,
                     i32(encoded_image.atlas_index),
                 );
-            }   else {
+            } else {
                 let image_offset = encoded_image.image_offset;
                 let image_size = encoded_image.image_size;
                 let local_xy = in.sample_xy - image_offset;
@@ -404,16 +404,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                     extend_mode(local_xy.y + offset, encoded_image.extend_modes.y, image_size.y)
                 );
 
-                if encoded_image.quality == IMAGE_QUALITY_GPU_BILINEAR {
-                    let atlas_dims = vec2<f32>(textureDimensions(atlas_texture_array));
-                    let sample_xy = (in.sample_xy) / atlas_dims;
-                    sample_color = textureSample(
-                        atlas_texture_array,
-                        atlas_sampler,
-                        sample_xy,
-                        i32(encoded_image.atlas_index),
-                    );
-                } else if encoded_image.quality == IMAGE_QUALITY_HIGH {
+                if encoded_image.quality == IMAGE_QUALITY_HIGH {
                     let final_xy = image_offset + extended_xy;
                     sample_color = bicubic_sample(
                         atlas_texture_array,
