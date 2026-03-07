@@ -17,10 +17,11 @@ use vello_common::glyph::{GlyphCaches, GlyphRenderer, GlyphRunBuilder, GlyphType
 use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::multi_atlas::AtlasConfig;
-use vello_common::paint::{Paint, PaintType, Tint};
+use vello_common::paint::{Image, ImageSource, Paint, PaintType, Tint};
 #[cfg(feature = "text")]
 use vello_common::peniko::FontData;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
+use vello_common::peniko::{Extend, ImageQuality, ImageSampler};
 use vello_common::recording::{
     PushLayerCommand, Recordable, Recorder, Recording, RenderCommand, RenderState,
 };
@@ -462,6 +463,41 @@ impl Scene {
         self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
     }
 
+    /// Draw an image using bilinear filtering.
+    ///
+    /// If you want more room for customization, you can also paint an image by setting
+    /// an image paint via `set_paint` and specifying parameters like extend and filtering quality
+    /// manually. However, if you only need bilinear filtering, using this method is recommended
+    /// as it will be much faster.
+    ///
+    /// This method will respect the current affine transformation in place (set via [`Scene::set_transform`],
+    /// but is not affected by the current paint transform (set via [`Scene::set_paint_transform`] in place.
+    pub fn draw_image(&mut self, image: ImageSource, rect: &Rect) {
+        let state = self.save_current_state();
+
+        self.set_paint_transform(Affine::IDENTITY);
+        self.set_paint(Image {
+            image,
+            sampler: ImageSampler {
+                // Extend doesn't actually matter.
+                x_extend: Extend::Pad,
+                y_extend: Extend::Pad,
+                quality: ImageQuality::Medium,
+                alpha: 1.0,
+            },
+        });
+
+        let paint_idx = self.encoded_paints.len();
+        self.fill_rect(rect);
+
+        // See comment in wgpu backend.
+        if let Some(EncodedPaint::Image(img)) = self.encoded_paints.get_mut(paint_idx) {
+            img.custom = 1;
+        }
+
+        self.restore_state(state);
+    }
+
     #[expect(
         clippy::cast_possible_truncation,
         reason = "f64→f32 truncation is acceptable for pixel coordinates"
@@ -696,6 +732,8 @@ impl Scene {
     }
 
     /// Set the paint for subsequent rendering operations.
+    ///
+    /// For drawing images, see also the [`Scene::draw_image`] method.
     // TODO: This API is not final. Supporting images from a pixmap is explicitly out of scope.
     //       Instead images should be passed via a backend-agnostic opaque id, and be hydrated at
     //       render time into a texture usable by the renderer backend.

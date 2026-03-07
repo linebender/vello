@@ -20,6 +20,7 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
+use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize,
     gradient_cache::GradientRampCache,
@@ -371,9 +372,7 @@ impl WebGlRenderer {
         &mut self,
         writer: &T,
     ) -> vello_common::paint::ImageId {
-        // TODO: If we want to use native bilinear sampling for uploaded images,
-        // we can pass 1 instead of 0 here.
-        self.upload_image_with(writer, 0)
+        self.upload_image_with(writer, IMAGE_PADDING)
     }
 
     pub(crate) fn upload_image_with<T: WebGlAtlasWriter>(
@@ -543,8 +542,16 @@ impl WebGlRenderer {
         let transform = image_transform.as_coeffs().map(|x| x as f32);
         let image_size = pack_image_size(image_resource.width, image_resource.height);
         let image_offset = pack_image_offset(image_resource.offset[0], image_resource.offset[1]);
+
+        // See the comment in the wgpu backend.
+        let quality = if image.custom & 1 == 1 {
+            3
+        } else {
+            image.sampler.quality as u32
+        };
+
         let image_params = pack_image_params(
-            image.sampler.quality as u32,
+            quality,
             image.sampler.x_extend as u32,
             image.sampler.y_extend as u32,
             image_resource.atlas_id.as_u32(),
@@ -1514,10 +1521,37 @@ fn create_texture(gl: &WebGl2RenderingContext) -> WebGlTexture {
     create_texture_inner(gl, WebGl2RenderingContext::TEXTURE_2D)
 }
 
-/// Create a texture array with nearest neighbor sampling and
-/// clamp-to-edge wrapping.
+/// Create a texture array with bilinear sampling and clamp-to-edge wrapping.
 fn create_texture_array(gl: &WebGl2RenderingContext) -> WebGlTexture {
-    create_texture_inner(gl, WebGl2RenderingContext::TEXTURE_2D_ARRAY)
+    let texture = gl.create_texture().unwrap();
+    gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+    gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D_ARRAY, Some(&texture));
+    gl.tex_parameteri(
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+        WebGl2RenderingContext::TEXTURE_MIN_FILTER,
+        WebGl2RenderingContext::LINEAR as i32,
+    );
+    gl.tex_parameteri(
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+        WebGl2RenderingContext::TEXTURE_MAG_FILTER,
+        WebGl2RenderingContext::LINEAR as i32,
+    );
+    gl.tex_parameteri(
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+        WebGl2RenderingContext::TEXTURE_WRAP_S,
+        WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+    );
+    gl.tex_parameteri(
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+        WebGl2RenderingContext::TEXTURE_WRAP_T,
+        WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+    );
+    gl.tex_parameteri(
+        WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+        WebGl2RenderingContext::TEXTURE_MAX_LEVEL,
+        0,
+    );
+    texture
 }
 
 fn create_texture_inner(gl: &WebGl2RenderingContext, target: u32) -> WebGlTexture {
