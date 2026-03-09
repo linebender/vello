@@ -227,6 +227,9 @@ impl GradientRampCache {
         // For each entry that is still in the cache, find the correct index in the prefix sum
         // and adjust the start position.
         for (_, (ramp, _)) in self.cache.iter_mut() {
+            // This partition point will yield the position of the first entry where `r.lut_start >= ramp.lut_start`,
+            // so that entry shouldn't be included anymore. However, since `prefix_sum` starts with
+            // a `0` entry, this index is shifted by one and thus the correct one.
             let pos = ramps_to_remove.partition_point(|(_, r)| r.lut_start < ramp.lut_start);
             ramp.lut_start -= prefix_sum[pos];
         }
