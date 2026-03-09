@@ -20,7 +20,7 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
-use crate::render::common::{IMAGE_PADDING, IMAGE_QUALITY_GPU_BILINEAR};
+use crate::render::common::{IMAGE_PADDING, IMAGE_QUALITY_GPU_FAST_PATH};
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize,
     gradient_cache::GradientRampCache,
@@ -544,8 +544,8 @@ impl WebGlRenderer {
         let image_offset = pack_image_offset(image_resource.offset[0], image_resource.offset[1]);
 
         // See the comment in the wgpu backend.
-        let quality = if image.use_gpu_bilinear() {
-            IMAGE_QUALITY_GPU_BILINEAR
+        let quality = if image.use_gpu_fast_path() {
+            IMAGE_QUALITY_GPU_FAST_PATH
         } else {
             image.sampler.quality as u32
         };

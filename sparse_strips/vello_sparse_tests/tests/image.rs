@@ -4,7 +4,7 @@
 use crate::gradient::tan_45;
 use crate::load_image;
 use crate::renderer::Renderer;
-use crate::util::crossed_line_star;
+use crate::util::{crossed_line_star, stops_green_blue};
 use std::f64::consts::PI;
 use std::sync::Arc;
 use vello_common::color::palette::css::REBECCA_PURPLE;
@@ -12,8 +12,9 @@ use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::kurbo::{Shape, Triangle};
 use vello_common::paint::{Image, ImageSource, Tint, TintMode};
 use vello_common::peniko::Color;
-use vello_common::peniko::ImageSampler;
 use vello_common::peniko::{Extend, ImageQuality};
+use vello_common::peniko::{Gradient, ImageSampler};
+use vello_cpu::peniko::LinearGradientPosition;
 use vello_dev_macros::vello_test;
 
 fn rgb_img_10x10(ctx: &mut impl Renderer) -> ImageSource {
@@ -652,20 +653,18 @@ fn render_sprite(
 fn image_draw_image_2x2(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
     ctx.set_transform(Affine::translate((10.0, 10.0)) * Affine::scale(40.0));
-    ctx.draw_image(image_source, &Rect::new(0.0, 0.0, 2.0, 2.0));
+    ctx.draw_image(image_source, &Rect::new(0.0, 0.0, 2.0, 2.0), true);
 }
 
 #[vello_test(skip_cpu, hybrid_ref, hybrid_tolerance = 1)]
 fn image_draw_image_2x2_rotated(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
-
     ctx.set_transform(
         Affine::rotate_about(45.0_f64.to_radians(), Point::new(50.0, 50.0))
             * Affine::translate((10.0, 10.0))
             * Affine::scale(40.0),
     );
-
-    ctx.draw_image(image_source, &Rect::new(0.0, 0.0, 2.0, 2.0));
+    ctx.draw_image(image_source, &Rect::new(0.0, 0.0, 2.0, 2.0), true);
 }
 
 #[vello_test(skip_cpu, hybrid_ref, hybrid_tolerance = 1)]
@@ -676,15 +675,68 @@ fn image_draw_image_2x3(ctx: &mut impl Renderer) {
     ctx.set_paint_transform(Affine::scale(5.0));
 
     ctx.set_transform(Affine::translate((25.0, 12.5)) * Affine::scale(25.0));
-    ctx.draw_image(image_source, &Rect::new(0.0, 0.0, 2.0, 3.0));
+    ctx.draw_image(image_source, &Rect::new(0.0, 0.0, 2.0, 3.0), true);
 }
 
 #[vello_test(skip_cpu, hybrid_ref, hybrid_tolerance = 1)]
 fn image_draw_image_10x10(ctx: &mut impl Renderer) {
     let image_source = rgb_img_10x10(ctx);
-
     ctx.set_transform(Affine::translate((10.0, 10.0)) * Affine::scale(8.0));
-    ctx.draw_image(image_source, &Rect::new(0.0, 0.0, 10.0, 10.0));
+    ctx.draw_image(image_source, &Rect::new(0.0, 0.0, 10.0, 10.0), true);
+}
+
+#[vello_test(skip_cpu, hybrid_ref)]
+fn image_draw_image_nn_10x10(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_10x10(ctx);
+    ctx.set_transform(Affine::translate((10.0, 10.0)) * Affine::scale(8.0));
+    ctx.draw_image(image_source, &Rect::new(0.0, 0.0, 10.0, 10.0), false);
+}
+
+#[vello_test(skip_cpu, hybrid_ref)]
+fn image_draw_image_nn_2x3(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_2x3(ctx);
+
+    ctx.set_transform(Affine::translate((25.0, 12.5)) * Affine::scale(25.0));
+    ctx.draw_image(image_source, &Rect::new(0.0, 0.0, 2.0, 3.0), false);
+}
+
+#[vello_test(skip_cpu, hybrid_ref)]
+fn image_draw_image_nn_2x2_rotated(ctx: &mut impl Renderer) {
+    let image_source = rgb_img_2x2(ctx);
+    ctx.set_transform(
+        Affine::rotate_about(45.0_f64.to_radians(), Point::new(50.0, 50.0))
+            * Affine::translate((10.0, 10.0))
+            * Affine::scale(40.0),
+    );
+    ctx.draw_image(image_source, &Rect::new(0.0, 0.0, 2.0, 2.0), false);
+}
+
+// Ensures that `draw_image` doesn't pollute the current paint in use.
+#[vello_test(skip_cpu, hybrid_ref)]
+fn image_draw_image_preserves_paint(ctx: &mut impl Renderer) {
+    let strip_left = Rect::new(2.5, 10.0, 7.5, 90.0);
+    let strip_right = Rect::new(92.5, 10.0, 97.5, 90.0);
+
+    let gradient = Gradient {
+        kind: LinearGradientPosition {
+            start: Point::new(0.0, 10.0),
+            end: Point::new(0.0, 90.0),
+        }
+        .into(),
+        stops: stops_green_blue(),
+        ..Default::default()
+    };
+
+    ctx.set_paint(gradient);
+
+    ctx.fill_rect(&strip_left);
+
+    let image_source = rgb_img_10x10(ctx);
+    ctx.set_transform(Affine::translate((10.0, 10.0)) * Affine::scale(8.0));
+    ctx.draw_image(image_source, &Rect::new(0.0, 0.0, 10.0, 10.0), true);
+
+    ctx.set_transform(Affine::IDENTITY);
+    ctx.fill_rect(&strip_right);
 }
 
 /// Same as `image_spritesheet`, but renders "hello world" with a purple tint.

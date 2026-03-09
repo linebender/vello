@@ -18,7 +18,7 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
-use crate::render::common::{IMAGE_PADDING, IMAGE_QUALITY_GPU_BILINEAR};
+use crate::render::common::{IMAGE_PADDING, IMAGE_QUALITY_GPU_FAST_PATH};
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize,
     gradient_cache::GradientRampCache,
@@ -507,9 +507,10 @@ impl Renderer {
 
         // Values 0-2 represent the peniko `ImageQuality` variants, value 3 (IMAGE_QUALITY_GPU_BILINEAR)
         // stands for "GPU-native bilinear sampling with transparent padding".
-        // Meaning that if quality is 3, the extend modes will be ignored as well.
-        let quality = if image.use_gpu_bilinear() {
-            IMAGE_QUALITY_GPU_BILINEAR
+        // Meaning that if quality is 3, the extend modes will be ignored and are instead used
+        // to distinguish between bilinear sampling and nearest-neighbor sampling.
+        let quality = if image.use_gpu_fast_path() {
+            IMAGE_QUALITY_GPU_FAST_PATH
         } else {
             image.sampler.quality as u32
         };

@@ -67,7 +67,7 @@ pub(crate) trait Renderer: Sized {
     fn height(&self) -> u16;
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource;
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId;
-    fn draw_image(&mut self, image: ImageSource, rect: &Rect);
+    fn draw_image(&mut self, image: ImageSource, rect: &Rect, bilinear: bool);
     fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>));
     fn prepare_recording(&mut self, recording: &mut Recording);
     fn execute_recording(&mut self, recording: &Recording);
@@ -228,7 +228,7 @@ impl Renderer for RenderContext {
         Self::register_image(self, pixmap)
     }
 
-    fn draw_image(&mut self, _image: ImageSource, _rect: &Rect) {
+    fn draw_image(&mut self, _image: ImageSource, _rect: &Rect, _bilinear: bool) {
         unimplemented!()
     }
 
@@ -606,8 +606,8 @@ impl Renderer for HybridRenderer {
         image_id
     }
 
-    fn draw_image(&mut self, image: ImageSource, rect: &Rect) {
-        self.scene.draw_image(image, rect);
+    fn draw_image(&mut self, image: ImageSource, rect: &Rect, bilinear: bool) {
+        self.scene.draw_image(image, rect, bilinear);
     }
 
     fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
@@ -851,8 +851,8 @@ impl Renderer for HybridRenderer {
         self.renderer.borrow_mut().upload_image(&pixmap)
     }
 
-    fn draw_image(&mut self, image: ImageSource, rect: &Rect) {
-        self.scene.draw_image(image, rect);
+    fn draw_image(&mut self, image: ImageSource, rect: &Rect, bilinear: bool) {
+        self.scene.draw_image(image, rect, bilinear);
     }
 
     fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {

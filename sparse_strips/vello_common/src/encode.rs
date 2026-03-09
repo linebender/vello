@@ -581,11 +581,16 @@ pub struct EncodedImage {
 }
 
 impl EncodedImage {
-    const GPU_BILINEAR: u8 = 1 << 0;
+    const GPU_FAST_PATH: u8 = 1 << 0;
 
-    /// Whether to use GPU-bilinear sampling.
-    pub fn use_gpu_bilinear(&self) -> bool {
-        self.custom & Self::GPU_BILINEAR != 0
+    /// Indicate that the GPU fast path should be used for this image.
+    pub fn set_use_gpu_fast_path(&mut self) {
+        self.custom |= Self::GPU_FAST_PATH;
+    }
+
+    /// Whether to use the GPU fast path.
+    pub fn use_gpu_fast_path(&self) -> bool {
+        self.custom & Self::GPU_FAST_PATH != 0
     }
 }
 

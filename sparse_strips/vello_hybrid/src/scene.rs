@@ -463,16 +463,17 @@ impl Scene {
         self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
     }
 
-    /// Draw an image using bilinear filtering.
+    /// Draw an image using nearest-neighbor or bilinear filtering.
     ///
     /// If you want more room for customization, you can also paint an image by setting
     /// an image paint via `set_paint` and specifying parameters like extend and filtering quality
-    /// manually. However, if you only need bilinear filtering, using this method is recommended
-    /// as it will be much faster.
+    /// manually. However, if you only want to draw a simple image without bicubic filtering or
+    /// any special extend mode, it is recommended to use this method as it leverages GPU-native
+    /// capabilities and is therefore significantly faster.
     ///
     /// This method will respect the current affine transformation in place (set via [`Scene::set_transform`],
     /// but is not affected by the current paint transform (set via [`Scene::set_paint_transform`] in place.
-    pub fn draw_image(&mut self, image: ImageSource, rect: &Rect) {
+    pub fn draw_image(&mut self, image: ImageSource, rect: &Rect, bilinear: bool) {
         let old_paint_transform = core::mem::take(&mut self.render_state.paint_transform);
         let old_paint = core::mem::take(&mut self.render_state.paint);
 
@@ -480,8 +481,14 @@ impl Scene {
         self.set_paint(Image {
             image,
             sampler: ImageSampler {
-                // Extend doesn't actually matter.
-                x_extend: Extend::Pad,
+                // For the fast path, we always sample transparent pixels outside,
+                // so the extend mode becomes irrelevant. We therefore repurpose the
+                // field to store whether to use bilinear or nearest-neighbor filtering.
+                x_extend: if bilinear {
+                    Extend::Repeat
+                } else {
+                    Extend::Pad
+                },
                 y_extend: Extend::Pad,
                 quality: ImageQuality::Medium,
                 alpha: 1.0,
@@ -491,9 +498,8 @@ impl Scene {
         let paint_idx = self.encoded_paints.len();
         self.fill_rect(rect);
 
-        // See comment in wgpu backend.
         if let Some(EncodedPaint::Image(img)) = self.encoded_paints.get_mut(paint_idx) {
-            img.custom = 1;
+            img.set_use_gpu_fast_path();
         }
 
         self.set_paint_transform(old_paint_transform);

@@ -47,7 +47,7 @@ const RECT_STRIP_FLAG: u32 = 0x80000000u;
 const IMAGE_QUALITY_LOW = 0u;
 const IMAGE_QUALITY_MEDIUM = 1u;
 const IMAGE_QUALITY_HIGH = 2u;
-const IMAGE_QUALITY_GPU_BILINEAR = 3u;
+const IMAGE_QUALITY_GPU_FAST_PATH = 3u;
 
 // Gradient types.
 const GRADIENT_TYPE_LINEAR: u32 = 0u;
@@ -66,6 +66,8 @@ const TWO_PI: f32 = 2.0 * PI;
 // Note: This must match SCALAR_NEARLY_ZERO in vello_common/src/math.rs
 // @see {@link https://github.com/linebender/vello/blob/748ba4c7a8973f642f778591b09658d8ee6e1132/sparse_strips/vello_common/src/math.rs#L21}
 const NEARLY_ZERO_TOLERANCE: f32 = 1.0 / 4096.0;
+
+const PIXEL_CENTER_NUDGE: f32 = 0.00001;
 
 // Composite modes.
 const COMPOSE_CLEAR: u32 = 0u;
@@ -296,8 +298,9 @@ fn vs_main(
                 + encoded_image.transform.xy * x * f32(width)
                 + encoded_image.transform.zw * y * f32(height);
 
-            // In this mode, the sample coordinates need to be normalized.
-            if encoded_image.quality == IMAGE_QUALITY_GPU_BILINEAR {
+            // In the fast path, for native bilinear sampling, coordinates need to be normalized to [0, 1]
+            // since we use `textureSample` instead of `textureLoad`.
+            if encoded_image.quality == IMAGE_QUALITY_GPU_FAST_PATH && encoded_image.extend_modes.x == 1 {
                 let atlas_dims = vec2<f32>(textureDimensions(atlas_texture_array));
                 out.sample_xy = out.sample_xy / atlas_dims;
             }
@@ -388,13 +391,24 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let encoded_image = unpack_encoded_image(paint_tex_idx);
             var sample_color: vec4<f32>;
 
-            if encoded_image.quality == IMAGE_QUALITY_GPU_BILINEAR {
-                sample_color = textureSample(
-                    atlas_texture_array,
-                    atlas_sampler,
-                    in.sample_xy,
-                    i32(encoded_image.atlas_index),
-                );
+            if encoded_image.quality == IMAGE_QUALITY_GPU_FAST_PATH {
+                if encoded_image.extend_modes.x == 1 {
+                    // Bilinear sampling.
+                    sample_color = textureSample(
+                        atlas_texture_array,
+                        atlas_sampler,
+                        in.sample_xy,
+                        i32(encoded_image.atlas_index),
+                    );
+                } else {
+                    sample_color = textureLoad(
+                        atlas_texture_array,
+                        // See the comment in the else branch for why we have this nudge.
+                        vec2<i32>(in.sample_xy + PIXEL_CENTER_NUDGE),
+                        i32(encoded_image.atlas_index),
+                        0,
+                    );
+                }
             } else {
                 let image_offset = encoded_image.image_offset;
                 let image_size = encoded_image.image_size;
@@ -402,7 +416,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 // This offset doesn't exist in vello_cpu, and we use it because 45 degree skewing seems to cause
                 // artifacts on the GPU. We have something similar in place for gradients. It might be worth revisiting
                 // this to see whether a better approach is possible.
-                let offset = 0.00001;
+                // TODO: This is only really needed for nearest-neighbor sampling, not bilinear/bicubic.
+                let offset = PIXEL_CENTER_NUDGE;
                 let extended_xy = vec2<f32>(
                     extend_mode(local_xy.x + offset, encoded_image.extend_modes.x, image_size.x),
                     extend_mode(local_xy.y + offset, encoded_image.extend_modes.y, image_size.y)
@@ -463,7 +478,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             );
             
             // For linear gradient, t-value is just the x coordinate in gradient space
-            let t_value = grad_pos.x + 0.00001;
+            let t_value = grad_pos.x + PIXEL_CENTER_NUDGE;
             let gradient_color = sample_gradient_lut(
                 t_value,
                 linear_gradient.extend_mode,

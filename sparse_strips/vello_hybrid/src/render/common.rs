@@ -21,7 +21,7 @@ pub(crate) const GPU_SWEEP_GRADIENT_SIZE_TEXELS: u32 = (size_of::<GpuSweepGradie
 // One pixel padding to account for bilinear filtering.
 pub(crate) const IMAGE_PADDING: u16 = 1;
 
-pub(crate) const IMAGE_QUALITY_GPU_BILINEAR: u32 = 3;
+pub(crate) const IMAGE_QUALITY_GPU_FAST_PATH: u32 = 3;
 
 /// Dimensions of the rendering target.
 #[derive(Debug, PartialEq, Eq, Clone)]
