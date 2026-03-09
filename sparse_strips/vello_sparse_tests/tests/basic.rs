@@ -306,6 +306,83 @@ fn filled_transformed_rect_4(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
 }
 
+fn fill_centered_rotated_rect(
+    ctx: &mut impl Renderer,
+    rect: &Rect,
+    sx: f64,
+    sy: f64,
+    angle_deg: f64,
+) {
+    let cx = 50.0;
+    let cy = 50.0;
+    let half_w = rect.width() * sx / 2.0;
+    let half_h = rect.height() * sy / 2.0;
+
+    let transform = Affine::translate((cx, cy))
+        * Affine::rotate(angle_deg * PI / 180.0)
+        * Affine::translate((-half_w, -half_h))
+        * Affine::scale_non_uniform(sx, sy);
+
+    ctx.set_transform(transform);
+    ctx.set_paint(BLUE.with_alpha(0.5));
+    ctx.fill_rect(rect);
+}
+
+#[vello_test]
+fn rect_no_rotation(ctx: &mut impl Renderer) {
+    fill_centered_rotated_rect(ctx, &Rect::new(0.0, 0.0, 1.0, 1.0), 40.0, 40.0, 0.0);
+}
+
+#[vello_test]
+fn rect_45deg(ctx: &mut impl Renderer) {
+    fill_centered_rotated_rect(ctx, &Rect::new(0.0, 0.0, 1.0, 1.0), 40.0, 40.0, 45.0);
+}
+
+#[vello_test]
+fn rect_80deg(ctx: &mut impl Renderer) {
+    fill_centered_rotated_rect(ctx, &Rect::new(0.0, 0.0, 1.0, 1.0), 40.0, 40.0, 80.0);
+}
+
+#[vello_test]
+fn rect_250deg(ctx: &mut impl Renderer) {
+    fill_centered_rotated_rect(ctx, &Rect::new(0.0, 0.0, 1.0, 1.0), 40.0, 40.0, 250.0);
+}
+
+#[vello_test]
+fn rect_nonuniform_45deg(ctx: &mut impl Renderer) {
+    fill_centered_rotated_rect(ctx, &Rect::new(0.0, 0.0, 1.0, 1.0), 60.0, 40.0, 45.0);
+}
+
+#[vello_test]
+fn rect_nonuniform_150deg(ctx: &mut impl Renderer) {
+    fill_centered_rotated_rect(ctx, &Rect::new(0.0, 0.0, 1.0, 1.0), 60.0, 40.0, 150.0);
+}
+
+#[vello_test]
+fn rect_nonsquare_45deg(ctx: &mut impl Renderer) {
+    fill_centered_rotated_rect(ctx, &Rect::new(0.0, 0.0, 2.0, 3.0), 20.0, 20.0, 45.0);
+}
+
+#[vello_test]
+fn rect_skew_x(ctx: &mut impl Renderer) {
+    let rect = Rect::new(-1.0, -1.0, 1.0, 1.0);
+    ctx.set_transform(
+        Affine::translate((50.0, 50.0)) * Affine::skew(1.0, 0.0) * Affine::scale(20.0),
+    );
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&rect);
+}
+
+#[vello_test]
+fn rect_skew_y(ctx: &mut impl Renderer) {
+    let rect = Rect::new(-1.0, -1.0, 1.0, 1.0);
+    ctx.set_transform(
+        Affine::translate((50.0, 50.0)) * Affine::skew(0.0, 1.0) * Affine::scale(20.0),
+    );
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&rect);
+}
+
 #[vello_test(width = 30, height = 30)]
 fn stroked_transformed_rect_1(ctx: &mut impl Renderer) {
     let rect = Rect::new(0.0, 0.0, 10.0, 10.0);
@@ -401,6 +478,14 @@ fn no_anti_aliasing(ctx: &mut impl Renderer) {
         45.0 * PI / 180.0,
         Point::new(50.0, 50.0),
     ));
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
+    ctx.fill_rect(&rect);
+}
+
+#[vello_test(width = 100, height = 100)]
+fn no_anti_aliasing_2(ctx: &mut impl Renderer) {
+    let rect = Rect::new(30.5, 30.5, 69.5, 69.5);
+    ctx.set_aliasing_threshold(Some(128));
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_rect(&rect);
 }
