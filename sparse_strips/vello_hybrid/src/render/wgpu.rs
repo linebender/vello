@@ -140,7 +140,10 @@ impl Renderer {
         render_size: &RenderSize,
         view: &TextureView,
     ) -> Result<(), RenderError> {
-        self.render_scene(scene, device, queue, encoder, render_size, view, true)
+        // TODO: Passing `false` here because wgpu swapchain textures likely have
+        // undefined initial content, making an explicit clear redundant in the common
+        // case. Verify whether there are scenarios where wgpu would need a clear.
+        self.render_scene(scene, device, queue, encoder, render_size, view, false)
     }
 
     /// Render a `scene` directly into an atlas layer.
@@ -250,9 +253,7 @@ impl Renderer {
         encoder: &mut CommandEncoder,
         render_size: &RenderSize,
         view: &TextureView,
-        // See https://github.com/linebender/vello/pull/1458/changes#r2851077556
-        // TODO: Fix this ASAP!
-        _clear: bool,
+        clear: bool,
     ) -> Result<(), RenderError> {
         self.prepare_gpu_encoded_paints(&scene.encoded_paints);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
@@ -267,6 +268,10 @@ impl Renderer {
             render_size,
             &self.paint_idxs,
         );
+
+        if clear {
+            Self::clear_view(encoder, view);
+        }
         let mut ctx = RendererContext {
             programs: &mut self.programs,
             device,
@@ -279,6 +284,26 @@ impl Renderer {
         self.gradient_cache.maintain();
 
         Ok(())
+    }
+
+    /// Clear the view to transparent black.
+    fn clear_view(encoder: &mut CommandEncoder, view: &TextureView) {
+        encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("Clear View"),
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+                depth_slice: None,
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+            multiview_mask: None,
+        });
     }
 
     /// Upload image to cache and atlas in one step. Returns the `ImageId`.
