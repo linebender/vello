@@ -495,7 +495,6 @@ impl Scene {
         let sin = decomp.sin as f32;
 
         if sin.abs().is_nearly_zero() {
-            // Axis-aligned: transform bounds directly and clamp to viewport.
             let transformed_rect = self.render_state.transform.transform_rect_bbox(*rect);
 
             let x0 = transformed_rect.x0.max(0.0).min(f64::from(self.width)) as f32;
