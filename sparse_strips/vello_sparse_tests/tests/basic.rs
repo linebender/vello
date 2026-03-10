@@ -632,3 +632,5 @@ fn composite_to_pixmap_at_offset() {
         "composite_to_pixmap_at_offset result should match direct rendering"
     );
 }
+
+// TODO: Add tests for small rectangles, with different rotations
