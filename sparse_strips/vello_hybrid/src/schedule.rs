@@ -176,9 +176,7 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
-use crate::scene::{
-    FastPathRect, FastPathRotatedRect, FastStripCommand, FastStripsPath, StripPathMode,
-};
+use crate::scene::{FastPathRect, FastStripCommand, FastStripsPath, StripPathMode};
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -586,11 +584,7 @@ impl Scheduler {
                     );
                 }
                 FastStripCommand::Rect(r) => {
-                    let strip = pack_rectangle_into_gpu(r, scene, paint_idxs);
-                    draw.0.push(strip);
-                }
-                FastStripCommand::RotatedRect(r) => {
-                    let strip = pack_rotated_rectangle_into_gpu(r, scene, paint_idxs);
+                    let strip = pack_rect_into_gpu(r, scene, paint_idxs);
                     draw.0.push(strip);
                 }
             }
@@ -1435,80 +1429,86 @@ fn generate_gpu_strips_for_fast_path(
     }
 }
 
-fn pack_rectangle_into_gpu(rect: &FastPathRect, scene: &Scene, paint_idxs: &[u32]) -> GpuStrip {
-    let sx0 = rect.x0.floor();
-    let sy0 = rect.y0.floor();
-    let sx1 = rect.x1.ceil();
-    let sy1 = rect.y1.ceil();
+fn pack_rect_into_gpu(rect: &FastPathRect, scene: &Scene, paint_idxs: &[u32]) -> GpuStrip {
+    let is_axis_aligned = rect.sin.abs() <= 1e-5;
 
-    let x = sx0 as u16;
-    let y = sy0 as u16;
-    // Are guaranteed to be > 0 since we rejected negative rectangles.
-    let width = (sx1 - sx0) as u16;
-    let height = (sy1 - sy0) as u16;
+    if is_axis_aligned {
+        // Axis-aligned: use the efficient encoding with sub-pixel fractional AA.
+        // Reconstruct the axis-aligned rect bounds from center + half-extents.
+        let x0 = rect.cx - rect.half_width;
+        let y0 = rect.cy - rect.half_height;
+        let x1 = rect.cx + rect.half_width;
+        let y1 = rect.cy + rect.half_height;
 
-    let (payload, paint_packed) = Scheduler::process_paint(&rect.paint, scene, (x, y), paint_idxs);
+        let sx0 = x0.floor();
+        let sy0 = y0.floor();
+        let sx1 = x1.ceil();
+        let sy1 = y1.ceil();
 
-    // Determine the fractional offsets for anti-aliasing and quantize so it
-    // fits into u8.
-    let frac = pack_unorm4x8([rect.x0 - sx0, rect.y0 - sy0, sx1 - rect.x1, sy1 - rect.y1]);
+        let x = sx0.max(0.0) as u16;
+        let y = sy0.max(0.0) as u16;
+        let width = (sx1 - sx0.max(0.0)) as u16;
+        let height = (sy1 - sy0.max(0.0)) as u16;
 
-    GpuStrip {
-        x,
-        y,
-        width,
-        dense_width_or_rect_height: height,
-        col_idx_or_rect_frac: frac,
-        payload,
-        paint_and_rect_flag: paint_packed | RECT_STRIP_FLAG,
-        rotation: 0,
-    }
-}
+        let (payload, paint_packed) =
+            Scheduler::process_paint(&rect.paint, scene, (x, y), paint_idxs);
 
-fn pack_rotated_rectangle_into_gpu(
-    rect: &FastPathRotatedRect,
-    scene: &Scene,
-    paint_idxs: &[u32],
-) -> GpuStrip {
-    // Compute the AABB of the rotated rectangle.
-    let aabb_hw = rect.half_width * rect.cos.abs() + rect.half_height * rect.sin.abs();
-    let aabb_hh = rect.half_width * rect.sin.abs() + rect.half_height * rect.cos.abs();
+        let frac = pack_unorm4x8([
+            x0 - sx0.max(0.0),
+            y0 - sy0.max(0.0),
+            sx1 - x1,
+            sy1 - y1,
+        ]);
 
-    // Snap AABB outward to integer pixels, with 1px margin for AA.
-    // The AA region extends 0.5px beyond the rect edge in local space, which
-    // maps to up to 0.5*(|cos|+|sin|) extra pixels in screen space.
-    let aabb_x0 = (rect.cx - aabb_hw - 1.0).floor().max(0.0);
-    let aabb_y0 = (rect.cy - aabb_hh - 1.0).floor().max(0.0);
-    let aabb_x1 = (rect.cx + aabb_hw + 1.0).ceil();
-    let aabb_y1 = (rect.cy + aabb_hh + 1.0).ceil();
+        GpuStrip {
+            x,
+            y,
+            width,
+            dense_width_or_rect_height: height,
+            col_idx_or_rect_frac: frac,
+            payload,
+            paint_and_rect_flag: paint_packed | RECT_STRIP_FLAG,
+            rotation: 0,
+        }
+    } else {
+        // Rotated: use AABB + half-extents + sin/cos encoding.
+        let aabb_hw = rect.half_width * rect.cos.abs() + rect.half_height * rect.sin.abs();
+        let aabb_hh = rect.half_width * rect.sin.abs() + rect.half_height * rect.cos.abs();
 
-    let x = aabb_x0 as u16;
-    let y = aabb_y0 as u16;
-    let width = (aabb_x1 - aabb_x0) as u16;
-    let height = (aabb_y1 - aabb_y0) as u16;
+        // Snap AABB outward with 1px margin for AA.
+        let aabb_x0 = (rect.cx - aabb_hw - 1.0).floor().max(0.0);
+        let aabb_y0 = (rect.cy - aabb_hh - 1.0).floor().max(0.0);
+        let aabb_x1 = (rect.cx + aabb_hw + 1.0).ceil();
+        let aabb_y1 = (rect.cy + aabb_hh + 1.0).ceil();
 
-    let (payload, paint_packed) =
-        Scheduler::process_paint(&rect.paint, scene, (x, y), paint_idxs);
+        let x = aabb_x0 as u16;
+        let y = aabb_y0 as u16;
+        let width = (aabb_x1 - aabb_x0) as u16;
+        let height = (aabb_y1 - aabb_y0) as u16;
 
-    // Pack half-extents as 12.4 fixed point (max ~4095 pixels, 1/16 sub-pixel precision).
-    let hw_u16 = (rect.half_width * 16.0) as u16;
-    let hh_u16 = (rect.half_height * 16.0) as u16;
-    let half_extents_packed = u32::from(hw_u16) | (u32::from(hh_u16) << 16);
+        let (payload, paint_packed) =
+            Scheduler::process_paint(&rect.paint, scene, (x, y), paint_idxs);
 
-    // Pack sin and cos as u16 values: [-1, 1] → [0, 65535].
-    let sin_u16 = ((rect.sin * 0.5 + 0.5) * 65535.0) as u16;
-    let cos_u16 = ((rect.cos * 0.5 + 0.5) * 65535.0) as u16;
-    let rotation = u32::from(sin_u16) | (u32::from(cos_u16) << 16);
+        // Pack half-extents as 12.4 fixed point.
+        let hw_u16 = (rect.half_width * 16.0) as u16;
+        let hh_u16 = (rect.half_height * 16.0) as u16;
+        let half_extents_packed = u32::from(hw_u16) | (u32::from(hh_u16) << 16);
 
-    GpuStrip {
-        x,
-        y,
-        width,
-        dense_width_or_rect_height: height,
-        col_idx_or_rect_frac: half_extents_packed,
-        payload,
-        paint_and_rect_flag: paint_packed | RECT_STRIP_FLAG,
-        rotation,
+        // Pack sin and cos as u16 values: [-1, 1] → [0, 65535].
+        let sin_u16 = ((rect.sin * 0.5 + 0.5) * 65535.0) as u16;
+        let cos_u16 = ((rect.cos * 0.5 + 0.5) * 65535.0) as u16;
+        let rotation = u32::from(sin_u16) | (u32::from(cos_u16) << 16);
+
+        GpuStrip {
+            x,
+            y,
+            width,
+            dense_width_or_rect_height: height,
+            col_idx_or_rect_frac: half_extents_packed,
+            payload,
+            paint_and_rect_flag: paint_packed | RECT_STRIP_FLAG,
+            rotation,
+        }
     }
 }
 
