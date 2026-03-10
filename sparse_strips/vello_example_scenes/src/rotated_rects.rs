@@ -8,7 +8,7 @@ use crate::{ExampleScene, RenderingContext};
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::kurbo::{Affine, Rect};
 
-const BATCH_SIZE: usize = 100;
+const BATCH_SIZE: usize = 500;
 const MIN_SIZE: f64 = 20.0;
 const MAX_SIZE: f64 = 100.0;
 const MIN_SPEED: f64 = 0.5;
