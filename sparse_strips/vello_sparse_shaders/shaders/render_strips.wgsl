@@ -306,8 +306,7 @@ fn vs_main(
 
         // Pass half-extents to fragment shader via dense_end_or_rect_size.
         out.dense_end_or_rect_size = u32(hw * 16.0 + 0.5) | (u32(hh * 16.0 + 0.5) << 16u);
-        // Pass center to fragment shader via rect_frac (as two u16 in 8.8 fixed point).
-        out.rect_frac = u32(center_x * 256.0) | (u32(center_y * 256.0) << 16u);
+        out.rect_frac = instance.col_idx_or_rect_frac;
     } else {
         var height = config.strip_height;
         if is_rect {
@@ -457,9 +456,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let px = floor(in.position.x);
         let py = floor(in.position.y);
 
-        // Unpack center from rect_frac (8.8 fixed point, passed flat from vertex shader).
-        let center_x = f32(in.rect_frac & 0xffffu) / 256.0;
-        let center_y = f32(in.rect_frac >> 16u) / 256.0;
+        // Reconstruct center from pixel position and local-space coords.
+        // local = R^T * (pixel - center), so center = pixel - R * local.
+        let local = in.tex_coord;
+        let center_x = in.position.x - (local.x * cos_r - local.y * sin_r);
+        let center_y = in.position.y - (local.x * sin_r + local.y * cos_r);
 
         // Rect corners in screen space
         let rx = vec2(cos_r, sin_r) * hw;
