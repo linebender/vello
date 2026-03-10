@@ -79,9 +79,9 @@ pub(crate) struct FastPathRect {
     pub(crate) y0: f32,
     pub(crate) x1: f32,
     pub(crate) y1: f32,
-    /// Sine of the rotation angle (0 for axis-aligned).
+    /// Sine of the rotation angle.
     pub(crate) sin: f32,
-    /// Cosine of the rotation angle (1 for axis-aligned).
+    /// Cosine of the rotation angle.
     pub(crate) cos: f32,
     pub(crate) paint: Paint,
 }
@@ -91,7 +91,7 @@ pub(crate) struct FastPathRect {
 pub(crate) enum FastStripCommand {
     /// A path rendered via the normal strip pipeline.
     Path(FastStripsPath),
-    /// A rectangle (axis-aligned or rotated).
+    /// A rectangle.
     Rect(FastPathRect),
 }
 
@@ -491,55 +491,79 @@ impl Scene {
         };
 
         let paint = self.encode_current_paint();
-
-        let scaled_w = (rect.width() * decomp.sx) as f32;
-        let scaled_h = (rect.height() * decomp.sy) as f32;
-
-        if scaled_w <= 0.0 || scaled_h <= 0.0 {
-            return false;
-        }
-
         let cos = decomp.cos as f32;
         let sin = decomp.sin as f32;
 
-        // Transform the rect center using the full affine.
-        let [a, b, c, d, e, f] = self.render_state.transform.as_coeffs();
-        let rect_cx = rect.x0 + rect.width() / 2.0;
-        let rect_cy = rect.y0 + rect.height() / 2.0;
-        let cx = (a * rect_cx + c * rect_cy + e) as f32;
-        let cy = (b * rect_cx + d * rect_cy + f) as f32;
+        if sin.abs() <= 1e-5 {
+            // Axis-aligned: transform bounds directly and clamp to viewport.
+            let transformed_rect = self.render_state.transform.transform_rect_bbox(*rect);
 
-        // Store as screen-space bounds centered at (cx, cy).
-        let x0 = cx - scaled_w / 2.0;
-        let y0 = cy - scaled_h / 2.0;
-        let x1 = cx + scaled_w / 2.0;
-        let y1 = cy + scaled_h / 2.0;
+            let x0 = transformed_rect.x0.max(0.0).min(f64::from(self.width)) as f32;
+            let y0 = transformed_rect.y0.max(0.0).min(f64::from(self.height)) as f32;
+            let x1 = transformed_rect.x1.max(0.0).min(f64::from(self.width)) as f32;
+            let y1 = transformed_rect.y1.max(0.0).min(f64::from(self.height)) as f32;
 
-        // Compute the AABB and check it's within the viewport.
-        let hw = scaled_w / 2.0;
-        let hh = scaled_h / 2.0;
-        let aabb_hw = hw * cos.abs() + hh * sin.abs();
-        let aabb_hh = hw * sin.abs() + hh * cos.abs();
+            if x1 <= x0 || y1 <= y0 {
+                return false;
+            }
 
-        if cx + aabb_hw <= 0.0
-            || cy + aabb_hh <= 0.0
-            || cx - aabb_hw >= self.width as f32
-            || cy - aabb_hh >= self.height as f32
-        {
-            return false;
+            self.fast_strips_buffer
+                .commands
+                .push(FastStripCommand::Rect(FastPathRect {
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                    sin: 0.0,
+                    cos: 1.0,
+                    paint,
+                }));
+        } else {
+            // Rotated: compute screen-space bounds from center + scaled dimensions.
+            let scaled_w = (rect.width() * decomp.sx) as f32;
+            let scaled_h = (rect.height() * decomp.sy) as f32;
+
+            if scaled_w <= 0.0 || scaled_h <= 0.0 {
+                return false;
+            }
+
+            let [a, b, c, d, e, f] = self.render_state.transform.as_coeffs();
+            let rect_cx = rect.x0 + rect.width() / 2.0;
+            let rect_cy = rect.y0 + rect.height() / 2.0;
+            let cx = (a * rect_cx + c * rect_cy + e) as f32;
+            let cy = (b * rect_cx + d * rect_cy + f) as f32;
+
+            let x0 = cx - scaled_w / 2.0;
+            let y0 = cy - scaled_h / 2.0;
+            let x1 = cx + scaled_w / 2.0;
+            let y1 = cy + scaled_h / 2.0;
+
+            // Check AABB against viewport.
+            let hw = scaled_w / 2.0;
+            let hh = scaled_h / 2.0;
+            let aabb_hw = hw * cos.abs() + hh * sin.abs();
+            let aabb_hh = hw * sin.abs() + hh * cos.abs();
+
+            if cx + aabb_hw <= 0.0
+                || cy + aabb_hh <= 0.0
+                || cx - aabb_hw >= self.width as f32
+                || cy - aabb_hh >= self.height as f32
+            {
+                return false;
+            }
+
+            self.fast_strips_buffer
+                .commands
+                .push(FastStripCommand::Rect(FastPathRect {
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                    sin,
+                    cos,
+                    paint,
+                }));
         }
-
-        self.fast_strips_buffer
-            .commands
-            .push(FastStripCommand::Rect(FastPathRect {
-                x0,
-                y0,
-                x1,
-                y1,
-                sin,
-                cos,
-                paint,
-            }));
 
         true
     }
@@ -580,6 +604,7 @@ impl Scene {
                     );
                 }
                 FastStripCommand::Rect(r) => {
+                    // TODO: Add tests for this.
                     // For the coarse path fallback, generate the rect as a
                     // path through the flatten → tiles → strips pipeline.
                     let hw = (r.x1 - r.x0) / 2.0;
