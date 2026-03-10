@@ -1433,8 +1433,6 @@ fn pack_rect_into_gpu(rect: &FastPathRect, scene: &Scene, paint_idxs: &[u32]) ->
     let is_axis_aligned = rect.sin.abs() <= 1e-5;
 
     if is_axis_aligned {
-        // Axis-aligned: use the efficient encoding with sub-pixel fractional AA.
-        // Reconstruct the axis-aligned rect bounds from center + half-extents.
         let x0 = rect.cx - rect.half_width;
         let y0 = rect.cy - rect.half_height;
         let x1 = rect.cx + rect.half_width;
@@ -1445,20 +1443,17 @@ fn pack_rect_into_gpu(rect: &FastPathRect, scene: &Scene, paint_idxs: &[u32]) ->
         let sx1 = x1.ceil();
         let sy1 = y1.ceil();
 
-        let x = sx0.max(0.0) as u16;
-        let y = sy0.max(0.0) as u16;
-        let width = (sx1 - sx0.max(0.0)) as u16;
-        let height = (sy1 - sy0.max(0.0)) as u16;
+        let x = sx0 as u16;
+        let y = sy0 as u16;
+        // Are guaranteed to be > 0 since we rejected negative rectangles.
+        let width = (sx1 - sx0) as u16;
+        let height = (sy1 - sy0) as u16;
 
-        let (payload, paint_packed) =
-            Scheduler::process_paint(&rect.paint, scene, (x, y), paint_idxs);
+        let (payload, paint_packed) = Scheduler::process_paint(&rect.paint, scene, (x, y), paint_idxs);
 
-        let frac = pack_unorm4x8([
-            x0 - sx0.max(0.0),
-            y0 - sy0.max(0.0),
-            sx1 - x1,
-            sy1 - y1,
-        ]);
+        // Determine the fractional offsets for anti-aliasing and quantize so it
+        // fits into u8.
+        let frac = pack_unorm4x8([x0 - sx0, y0 - sy0, sx1 - x1, sy1 - y1]);
 
         GpuStrip {
             x,
