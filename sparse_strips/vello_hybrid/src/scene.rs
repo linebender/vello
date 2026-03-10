@@ -531,22 +531,19 @@ impl Scene {
                 return false;
             }
 
-            // Apply scale + translation (without rotation) to get the local-frame bounds.
+            // Build the new rectangle at the right center point and with the scaled size.
             let transformed_center = self.render_state.transform * rect.center();
-            let local_rect = (Affine::translate((transformed_center.x, transformed_center.y))
-                * Affine::scale_non_uniform(decomp.sx, decomp.sy)
-                * Affine::translate((-rect.center().x, -rect.center().y)))
-            .transform_rect_bbox(*rect);
+            let rect = Rect::from_center_size(transformed_center, (decomp.sx * rect.width(), decomp.sy * rect.height()));
 
             // Similarly to above, don't support mirrored rectangles for simplicity for now.
-            if local_rect.width() <= 0.0 || local_rect.height() <= 0.0 {
+            if rect.width() <= 0.0 || rect.height() <= 0.0 {
                 return false;
             }
 
-            let x0 = local_rect.x0 as f32;
-            let y0 = local_rect.y0 as f32;
-            let x1 = local_rect.x1 as f32;
-            let y1 = local_rect.y1 as f32;
+            let x0 = rect.x0 as f32;
+            let y0 = rect.y0 as f32;
+            let x1 = rect.x1 as f32;
+            let y1 = rect.y1 as f32;
 
             self.fast_strips_buffer
                 .commands
