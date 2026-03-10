@@ -520,39 +520,31 @@ impl Scene {
                     paint,
                 }));
         } else {
-            // Rotated: compute screen-space bounds from center + scaled dimensions.
-            let scaled_w = (rect.width() * decomp.sx) as f32;
-            let scaled_h = (rect.height() * decomp.sy) as f32;
-
-            // Same as above, for simplicity don't support mirroring for now.
-            if scaled_w <= 0.0 || scaled_h <= 0.0 {
+            // If the rectangle has a rotation, we need to make sure that after applying the whole
+            // transform, the bounding box of the rectangle is still fully within the viewport. This
+            // is necessary because later on, rects are clamped to u16 coordinates. This works fine
+            // if we just have a scaling/translation component, but if we have an additional rotation,
+            // this might cut off parts of the rectangle that should actually be visible.
+            let viewport = Rect::new(0.0, 0.0, self.width as f64, self.height as f64);
+            let aabb = self.render_state.transform.transform_rect_bbox(*rect);
+            if !viewport.contains_rect(aabb) {
                 return false;
             }
 
-            let [a, b, c, d, e, f] = self.render_state.transform.as_coeffs();
-            let rect_cx = rect.x0 + rect.width() / 2.0;
-            let rect_cy = rect.y0 + rect.height() / 2.0;
-            let cx = (a * rect_cx + c * rect_cy + e) as f32;
-            let cy = (b * rect_cx + d * rect_cy + f) as f32;
+            let center = self.render_state.transform * rect.center();
+            let scale_only = Affine::scale_non_uniform(decomp.sx, decomp.sy);
+            let scaled_rect = scale_only.transform_rect_bbox(*rect);
 
-            let x0 = cx - scaled_w / 2.0;
-            let y0 = cy - scaled_h / 2.0;
-            let x1 = cx + scaled_w / 2.0;
-            let y1 = cy + scaled_h / 2.0;
-
-            // Check AABB against viewport.
-            let hw = scaled_w / 2.0;
-            let hh = scaled_h / 2.0;
-            let aabb_hw = hw * cos.abs() + hh * sin.abs();
-            let aabb_hh = hw * sin.abs() + hh * cos.abs();
-
-            if cx + aabb_hw <= 0.0
-                || cy + aabb_hh <= 0.0
-                || cx - aabb_hw >= self.width as f32
-                || cy - aabb_hh >= self.height as f32
-            {
+            // Similarly to above, don't support mirrored rectangles for simplicity for now.
+            if scaled_rect.width() <= 0.0 || scaled_rect.height() <= 0.0 {
                 return false;
             }
+
+            // Local-frame bounds centered at the screen-space center.
+            let x0 = (center.x - scaled_rect.width() / 2.0) as f32;
+            let y0 = (center.y - scaled_rect.height() / 2.0) as f32;
+            let x1 = (center.x + scaled_rect.width() / 2.0) as f32;
+            let y1 = (center.y + scaled_rect.height() / 2.0) as f32;
 
             self.fast_strips_buffer
                 .commands
