@@ -264,25 +264,27 @@ fn vs_main(
     let dense_width = instance.widths_or_rect_height >> 16u;
 
     let is_rect = (instance.paint_and_rect_flag & RECT_STRIP_FLAG) != 0u;
-    let is_rotated_rect = is_rect && instance.rotation != 0u;
+    // Unpack sin to detect rotated vs axis-aligned rects.
+    let sin_t = f32(instance.rotation & 0xffffu) / 65535.0 * 2.0 - 1.0;
+    let is_rotated_rect = is_rect && abs(sin_t) > 0.001;
     out.rotation = instance.rotation;
 
     var pix_x: f32;
     var pix_y: f32;
 
     if is_rotated_rect {
-        // For rotated rects, x/y/width/height store the local rect bounds (same
-        // layout as axis-aligned rects). col_idx_or_rect_frac = 4 × u8 fractional
-        // parts (x0, y0, w, h). rotation = packed sin/cos.
+        // For rotated rects, same encoding as axis-aligned: x/y = floor(x0, y0),
+        // width/height = ceil(x1)-floor(x0), ceil(y1)-floor(y0).
+        // col_idx_or_rect_frac = 4 × u8 edge fracs (x0, y0, x1, y1).
         let frac = unpack4x8unorm(instance.col_idx_or_rect_frac);
         let rect_x0 = f32(x0) + frac.x;
         let rect_y0 = f32(y0) + frac.y;
-        let rect_w = f32(width) + frac.z;
-        let rect_h = f32(dense_width) + frac.w;
-        let hw = rect_w * 0.5;
-        let hh = rect_h * 0.5;
-        let center_x = rect_x0 + hw;
-        let center_y = rect_y0 + hh;
+        let rect_x1 = f32(x0) + f32(width) - frac.z;
+        let rect_y1 = f32(y0) + f32(dense_width) - frac.w;
+        let hw = (rect_x1 - rect_x0) * 0.5;
+        let hh = (rect_y1 - rect_y0) * 0.5;
+        let center_x = (rect_x0 + rect_x1) * 0.5;
+        let center_y = (rect_y0 + rect_y1) * 0.5;
 
         // Unpack sin/cos from rotation field: u16 in [0, 65535] → [-1, 1].
         let sin_t = f32(instance.rotation & 0xffffu) / 65535.0 * 2.0 - 1.0;
@@ -411,7 +413,8 @@ fn halfplane_coverage(d: f32, a: f32, b: f32, inv_2ab: f32) -> f32 {
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var alpha = 1.0;
     let is_rect = (in.paint_and_rect_flag & RECT_STRIP_FLAG) != 0u;
-    let is_rotated_rect = is_rect && in.rotation != 0u;
+    let sin_t = f32(in.rotation & 0xffffu) / 65535.0 * 2.0 - 1.0;
+    let is_rotated_rect = is_rect && abs(sin_t) > 0.001;
 
     if is_rotated_rect {
         // For rotated rects, tex_coord contains the interpolated local-space coordinates

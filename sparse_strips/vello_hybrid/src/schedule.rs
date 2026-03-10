@@ -1430,88 +1430,41 @@ fn generate_gpu_strips_for_fast_path(
 }
 
 fn pack_rect_into_gpu(rect: &FastPathRect, scene: &Scene, paint_idxs: &[u32]) -> GpuStrip {
-    let is_axis_aligned = rect.sin.abs() <= 1e-5;
+    let sx0 = rect.x0.floor();
+    let sy0 = rect.y0.floor();
+    let sx1 = rect.x1.ceil();
+    let sy1 = rect.y1.ceil();
 
-    let vw = f32::from(scene.width);
-    let vh = f32::from(scene.height);
+    let x = sx0.max(0.0) as u16;
+    let y = sy0.max(0.0) as u16;
+    let width = (sx1 - sx0) as u16;
+    let height = (sy1 - sy0) as u16;
 
-    if is_axis_aligned {
-        // Axis-aligned: same encoding as original — store bounds directly.
-        let x0 = rect.x0.max(0.0).min(vw);
-        let y0 = rect.y0.max(0.0).min(vh);
-        let x1 = rect.x1.max(0.0).min(vw);
-        let y1 = rect.y1.max(0.0).min(vh);
+    let (payload, paint_packed) =
+        Scheduler::process_paint(&rect.paint, scene, (x, y), paint_idxs);
 
-        let sx0 = x0.floor();
-        let sy0 = y0.floor();
-        let sx1 = x1.ceil();
-        let sy1 = y1.ceil();
+    // Fractional offsets for anti-aliasing: how far each edge is from the
+    // snapped pixel boundary.
+    let frac = pack_unorm4x8([
+        rect.x0 - sx0,
+        rect.y0 - sy0,
+        sx1 - rect.x1,
+        sy1 - rect.y1,
+    ]);
 
-        let x = sx0 as u16;
-        let y = sy0 as u16;
-        // Are guaranteed to be > 0 since we rejected negative rectangles.
-        let width = (sx1 - sx0) as u16;
-        let height = (sy1 - sy0) as u16;
+    let sin_u16 = ((rect.sin * 0.5 + 0.5) * 65535.0) as u16;
+    let cos_u16 = ((rect.cos * 0.5 + 0.5) * 65535.0) as u16;
+    let rotation = u32::from(sin_u16) | (u32::from(cos_u16) << 16);
 
-        let (payload, paint_packed) = Scheduler::process_paint(&rect.paint, scene, (x, y), paint_idxs);
-
-        // Determine the fractional offsets for anti-aliasing and quantize so it
-        // fits into u8.
-        let frac = pack_unorm4x8([x0 - sx0, y0 - sy0, sx1 - x1, sy1 - y1]);
-
-        GpuStrip {
-            x,
-            y,
-            width,
-            dense_width_or_rect_height: height,
-            col_idx_or_rect_frac: frac,
-            payload,
-            paint_and_rect_flag: paint_packed | RECT_STRIP_FLAG,
-            rotation: 0,
-        }
-    } else {
-        // Rotated: store local rect bounds in x/y/width/height (same layout as
-        // axis-aligned), with 4 × u8 fractional parts, plus sin/cos in rotation.
-        // The vertex shader reconstructs precise bounds, derives center and
-        // half-extents, and computes the AABB on-the-fly.
-        let sx0 = rect.x0.floor();
-        let sy0 = rect.y0.floor();
-        let w = rect.x1 - rect.x0;
-        let h = rect.y1 - rect.y0;
-        let sw = w.floor();
-        let sh = h.floor();
-
-        let x = sx0.max(0.0) as u16;
-        let y = sy0.max(0.0) as u16;
-        let width = sw as u16;
-        let height = sh as u16;
-
-        let (payload, paint_packed) =
-            Scheduler::process_paint(&rect.paint, scene, (x, y), paint_idxs);
-
-        // Pack fractional parts of x0, y0, width, height as 4 × u8 (unorm).
-        let frac = pack_unorm4x8([
-            rect.x0 - sx0,
-            rect.y0 - sy0,
-            w - sw,
-            h - sh,
-        ]);
-
-        // Pack sin and cos as u16 values: [-1, 1] → [0, 65535].
-        let sin_u16 = ((rect.sin * 0.5 + 0.5) * 65535.0) as u16;
-        let cos_u16 = ((rect.cos * 0.5 + 0.5) * 65535.0) as u16;
-        let rotation = u32::from(sin_u16) | (u32::from(cos_u16) << 16);
-
-        GpuStrip {
-            x,
-            y,
-            width,
-            dense_width_or_rect_height: height,
-            col_idx_or_rect_frac: frac,
-            payload,
-            paint_and_rect_flag: paint_packed | RECT_STRIP_FLAG,
-            rotation,
-        }
+    GpuStrip {
+        x,
+        y,
+        width,
+        dense_width_or_rect_height: height,
+        col_idx_or_rect_frac: frac,
+        payload,
+        paint_and_rect_flag: paint_packed | RECT_STRIP_FLAG,
+        rotation,
     }
 }
 
