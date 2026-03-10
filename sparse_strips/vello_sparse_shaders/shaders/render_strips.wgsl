@@ -271,23 +271,25 @@ fn vs_main(
     var pix_y: f32;
 
     if is_rotated_rect {
-        // For rotated rects, x/y/width/height = AABB (snapped outward).
-        // col_idx_or_rect_frac = packed half-extents as 12.4 fixed point.
+        // For rotated rects, x/y = center (integer), width/height = half-extents (integer).
+        // col_idx_or_rect_frac = 4 × u8 fractional parts (cx, cy, hw, hh).
         // rotation = packed sin/cos.
-        let hw = f32(instance.col_idx_or_rect_frac & 0xffffu) / 16.0;
-        let hh = f32(instance.col_idx_or_rect_frac >> 16u) / 16.0;
-
-        // Derive center from AABB center.
-        let center_x = f32(x0) + f32(width) * 0.5;
-        let center_y = f32(y0) + f32(dense_width) * 0.5;
+        let frac = unpack4x8unorm(instance.col_idx_or_rect_frac);
+        let center_x = f32(x0) + frac.x;
+        let center_y = f32(y0) + frac.y;
+        let hw = f32(width) + frac.z;
+        let hh = f32(dense_width) + frac.w;
 
         // Unpack sin/cos from rotation field: u16 in [0, 65535] → [-1, 1].
         let sin_t = f32(instance.rotation & 0xffffu) / 65535.0 * 2.0 - 1.0;
         let cos_t = f32(instance.rotation >> 16u) / 65535.0 * 2.0 - 1.0;
 
-        // Use the AABB directly for the quad.
-        pix_x = f32(x0) + x * f32(width);
-        pix_y = f32(y0) + y * f32(dense_width);
+        // Compute AABB from center + half-extents + rotation + margin.
+        let aabb_hw = hw * abs(cos_t) + hh * abs(sin_t) + 1.0;
+        let aabb_hh = hw * abs(sin_t) + hh * abs(cos_t) + 1.0;
+
+        pix_x = center_x + (x * 2.0 - 1.0) * aabb_hw;
+        pix_y = center_y + (y * 2.0 - 1.0) * aabb_hh;
 
         // Rotate (pixel - center) into the rect's local frame for the fragment shader.
         let pdx = pix_x - center_x;
@@ -296,9 +298,10 @@ fn vs_main(
         let local_y = -pdx * sin_t + pdy * cos_t;
         out.tex_coord = vec2<f32>(local_x, local_y);
 
-        // Pass half-extents to fragment shader.
+        // Pass half-extents to fragment shader via dense_end_or_rect_size.
+        // Pack as 12.4 fixed point (sufficient for the coverage computation).
+        out.dense_end_or_rect_size = u32(hw * 16.0) | (u32(hh * 16.0) << 16u);
         out.rect_frac = instance.col_idx_or_rect_frac;
-        out.dense_end_or_rect_size = instance.col_idx_or_rect_frac;
     } else {
         var height = config.strip_height;
         if is_rect {
@@ -325,25 +328,41 @@ fn vs_main(
     let color_source = (instance.paint_and_rect_flag >> 29u) & 0x3u;
     if color_source == COLOR_SOURCE_PAYLOAD {
         let paint_type = (instance.paint_and_rect_flag >> 26u) & 0x7u;
-        // Unpack view coordinates for image sampling and gradient calculations
-        let scene_strip_x = instance.payload & 0xffffu;
-        let scene_strip_y = instance.payload >> 16u;
-        let height_for_paint = select(config.strip_height, dense_width, is_rect);
 
-        if paint_type == PAINT_TYPE_IMAGE {
-            let paint_tex_idx = instance.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
-            let encoded_image = unpack_encoded_image(paint_tex_idx);
-            out.sample_xy = encoded_image.translate
-                + encoded_image.image_offset
-                + encoded_image.transform.xy * f32(scene_strip_x)
-                + encoded_image.transform.zw * f32(scene_strip_y)
-                + encoded_image.transform.xy * x * f32(width)
-                + encoded_image.transform.zw * y * f32(height_for_paint);
-        } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT || paint_type == PAINT_TYPE_RADIAL_GRADIENT || paint_type == PAINT_TYPE_SWEEP_GRADIENT {
-            out.sample_xy = vec2<f32>(
-                f32(scene_strip_x) + x * f32(width),
-                f32(scene_strip_y) + y * f32(height_for_paint)
-            );
+        if is_rotated_rect {
+            // For rotated rects, sample_xy is simply the pixel position in screen space.
+            // pix_x/pix_y already contain the correct screen coordinates.
+            if paint_type == PAINT_TYPE_IMAGE {
+                let paint_tex_idx = instance.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
+                let encoded_image = unpack_encoded_image(paint_tex_idx);
+                out.sample_xy = encoded_image.translate
+                    + encoded_image.image_offset
+                    + encoded_image.transform.xy * pix_x
+                    + encoded_image.transform.zw * pix_y;
+            } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT || paint_type == PAINT_TYPE_RADIAL_GRADIENT || paint_type == PAINT_TYPE_SWEEP_GRADIENT {
+                out.sample_xy = vec2<f32>(pix_x, pix_y);
+            }
+        } else {
+            // For axis-aligned strips/rects, compute from scene strip position + vertex offset.
+            let scene_strip_x = instance.payload & 0xffffu;
+            let scene_strip_y = instance.payload >> 16u;
+            let height_for_paint = select(config.strip_height, dense_width, is_rect);
+
+            if paint_type == PAINT_TYPE_IMAGE {
+                let paint_tex_idx = instance.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
+                let encoded_image = unpack_encoded_image(paint_tex_idx);
+                out.sample_xy = encoded_image.translate
+                    + encoded_image.image_offset
+                    + encoded_image.transform.xy * f32(scene_strip_x)
+                    + encoded_image.transform.zw * f32(scene_strip_y)
+                    + encoded_image.transform.xy * x * f32(width)
+                    + encoded_image.transform.zw * y * f32(height_for_paint);
+            } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT || paint_type == PAINT_TYPE_RADIAL_GRADIENT || paint_type == PAINT_TYPE_SWEEP_GRADIENT {
+                out.sample_xy = vec2<f32>(
+                    f32(scene_strip_x) + x * f32(width),
+                    f32(scene_strip_y) + y * f32(height_for_paint)
+                );
+            }
         }
     }
 
