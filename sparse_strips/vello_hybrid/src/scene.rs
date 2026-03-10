@@ -72,18 +72,13 @@ pub(crate) struct FastStripsPath {
     pub(crate) paint: Paint,
 }
 
-/// A rectangle stored in the fast-path buffer, defined by center, half-extents, and rotation.
-/// Axis-aligned rects use sin=0, cos=1.
+/// A rectangle stored in the fast-path buffer.
 #[derive(Debug)]
 pub(crate) struct FastPathRect {
-    /// Center x in pixel coordinates.
-    pub(crate) cx: f32,
-    /// Center y in pixel coordinates.
-    pub(crate) cy: f32,
-    /// Half-width of the (unrotated) rectangle in screen pixels.
-    pub(crate) half_width: f32,
-    /// Half-height of the (unrotated) rectangle in screen pixels.
-    pub(crate) half_height: f32,
+    pub(crate) x0: f32,
+    pub(crate) y0: f32,
+    pub(crate) x1: f32,
+    pub(crate) y1: f32,
     /// Sine of the rotation angle (0 for axis-aligned).
     pub(crate) sin: f32,
     /// Cosine of the rotation angle (1 for axis-aligned).
@@ -497,10 +492,10 @@ impl Scene {
 
         let paint = self.encode_current_paint();
 
-        let half_width = (rect.width() * decomp.sx / 2.0) as f32;
-        let half_height = (rect.height() * decomp.sy / 2.0) as f32;
+        let scaled_w = (rect.width() * decomp.sx) as f32;
+        let scaled_h = (rect.height() * decomp.sy) as f32;
 
-        if half_width <= 0.0 || half_height <= 0.0 {
+        if scaled_w <= 0.0 || scaled_h <= 0.0 {
             return false;
         }
 
@@ -514,9 +509,17 @@ impl Scene {
         let cx = (a * rect_cx + c * rect_cy + e) as f32;
         let cy = (b * rect_cx + d * rect_cy + f) as f32;
 
+        // Store as screen-space bounds centered at (cx, cy).
+        let x0 = cx - scaled_w / 2.0;
+        let y0 = cy - scaled_h / 2.0;
+        let x1 = cx + scaled_w / 2.0;
+        let y1 = cy + scaled_h / 2.0;
+
         // Compute the AABB and check it's within the viewport.
-        let aabb_hw = half_width * cos.abs() + half_height * sin.abs();
-        let aabb_hh = half_width * sin.abs() + half_height * cos.abs();
+        let hw = scaled_w / 2.0;
+        let hh = scaled_h / 2.0;
+        let aabb_hw = hw * cos.abs() + hh * sin.abs();
+        let aabb_hh = hw * sin.abs() + hh * cos.abs();
 
         if cx + aabb_hw <= 0.0
             || cy + aabb_hh <= 0.0
@@ -529,10 +532,10 @@ impl Scene {
         self.fast_strips_buffer
             .commands
             .push(FastStripCommand::Rect(FastPathRect {
-                cx,
-                cy,
-                half_width,
-                half_height,
+                x0,
+                y0,
+                x1,
+                y1,
                 sin,
                 cos,
                 paint,
@@ -579,15 +582,18 @@ impl Scene {
                 FastStripCommand::Rect(r) => {
                     // For the coarse path fallback, generate the rect as a
                     // path through the flatten → tiles → strips pipeline.
-                    // TODO: Add tests for this
+                    let hw = (r.x1 - r.x0) / 2.0;
+                    let hh = (r.y1 - r.y0) / 2.0;
+                    let cx = (r.x0 + r.x1) / 2.0;
+                    let cy = (r.y0 + r.y1) / 2.0;
                     let angle = f64::from(r.sin).atan2(f64::from(r.cos));
                     let rect = Rect::new(
-                        f64::from(-r.half_width),
-                        f64::from(-r.half_height),
-                        f64::from(r.half_width),
-                        f64::from(r.half_height),
+                        f64::from(-hw),
+                        f64::from(-hh),
+                        f64::from(hw),
+                        f64::from(hh),
                     );
-                    let transform = Affine::translate((f64::from(r.cx), f64::from(r.cy)))
+                    let transform = Affine::translate((f64::from(cx), f64::from(cy)))
                         * Affine::rotate(angle);
                     let path = rect.to_path(DEFAULT_TOLERANCE);
                     let strip_start = strip_storage.strips.len();
