@@ -494,7 +494,7 @@ impl Scene {
         let cos = decomp.cos as f32;
         let sin = decomp.sin as f32;
 
-        if sin.abs() <= 1e-5 {
+        if sin.abs().is_nearly_zero() {
             // Axis-aligned: transform bounds directly and clamp to viewport.
             let transformed_rect = self.render_state.transform.transform_rect_bbox(*rect);
 
@@ -503,6 +503,7 @@ impl Scene {
             let x1 = transformed_rect.x1.max(0.0).min(f64::from(self.width)) as f32;
             let y1 = transformed_rect.y1.max(0.0).min(f64::from(self.height)) as f32;
 
+            // For now we don't support mirroring (and zero-sized rectangles).
             if x1 <= x0 || y1 <= y0 {
                 return false;
             }
@@ -523,6 +524,7 @@ impl Scene {
             let scaled_w = (rect.width() * decomp.sx) as f32;
             let scaled_h = (rect.height() * decomp.sy) as f32;
 
+            // Same as above, for simplicity don't support mirroring for now.
             if scaled_w <= 0.0 || scaled_h <= 0.0 {
                 return false;
             }
