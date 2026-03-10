@@ -305,9 +305,9 @@ fn vs_main(
         out.tex_coord = vec2<f32>(local_x, local_y);
 
         // Pass half-extents to fragment shader via dense_end_or_rect_size.
-        // Pack as 12.4 fixed point (sufficient for the coverage computation).
-        out.dense_end_or_rect_size = u32(hw * 16.0) | (u32(hh * 16.0) << 16u);
-        out.rect_frac = instance.col_idx_or_rect_frac;
+        out.dense_end_or_rect_size = u32(hw * 16.0 + 0.5) | (u32(hh * 16.0 + 0.5) << 16u);
+        // Pass center to fragment shader via rect_frac (as two u16 in 8.8 fixed point).
+        out.rect_frac = u32(center_x * 256.0) | (u32(center_y * 256.0) << 16u);
     } else {
         var height = config.strip_height;
         if is_rect {
@@ -385,28 +385,56 @@ var alphas_texture: texture_2d<u32>;
 @group(0) @binding(2)
 var clip_input_texture: texture_2d<f32>;
 
-// Exact area coverage of a unit-square pixel by a half-plane at signed distance `d`
-// from the pixel center (positive = inside). The edge normal has components with
-// absolute values `a` = max(|nx|, |ny|) and `b` = min(|nx|, |ny|).
-// `inv_2ab` = 1/(2*a*b), precomputed to avoid repeated division.
-fn halfplane_coverage(d: f32, a: f32, b: f32, inv_2ab: f32) -> f32 {
-    let r = 0.5 * (a + b);
-    if d >= r { return 1.0; }
-    if d <= -r { return 0.0; }
-    let t = d + r;
-    // Near-axis-aligned edge (b ≈ 0): linear transition.
-    if b < 0.001 {
-        return clamp(t / a, 0.0, 1.0);
-    }
-    // Piecewise quadratic/linear coverage function.
-    if t < b {
-        return t * t * inv_2ab;
-    } else if t < a {
-        return (2.0 * t - b) / (2.0 * a);
+// Compute ∫_a^b clamp(u, 0, 1) du for a linear variable u.
+// This is the exact integral of a clamped linear function.
+fn integral_clamped_01(a: f32, b: f32) -> f32 {
+    let lo = min(a, b);
+    let hi = max(a, b);
+    let lo_c = clamp(lo, 0.0, 1.0);
+    let hi_c = clamp(hi, 0.0, 1.0);
+    // Quadratic part: ∫_{lo_c}^{hi_c} u du
+    let quadratic = (hi_c * hi_c - lo_c * lo_c) * 0.5;
+    // Saturated part: length where u > 1
+    let saturated = max(hi - max(lo, 1.0), 0.0);
+    let magnitude = quadratic + saturated;
+    return select(-magnitude, magnitude, b >= a);
+}
+
+// Signed area contribution of one edge of a polygon to a pixel at (px, py).
+// Uses the same winding-number area approach as the CPU strip renderer.
+fn edge_area(px: f32, py: f32, x0: f32, y0: f32, x1: f32, y1: f32) -> f32 {
+    let dy = y1 - y0;
+    if abs(dy) < 1e-6 { return 0.0; } // Skip near-horizontal edges
+
+    let dx = x1 - x0;
+
+    // Clip to pixel y-range [py, py+1]
+    let inv_dy = 1.0 / dy;
+    let ta = (py - y0) * inv_dy;
+    let tb = (py + 1.0 - y0) * inv_dy;
+    let t_lo = clamp(min(ta, tb), 0.0, 1.0);
+    let t_hi = clamp(max(ta, tb), 0.0, 1.0);
+
+    if t_lo >= t_hi { return 0.0; }
+
+    // Clipped segment x-coordinates relative to pixel left edge
+    let xa = x0 + t_lo * dx - px;
+    let xb = x0 + t_hi * dx - px;
+
+    // Height of clipped segment
+    let h = (t_hi - t_lo) * abs(dy);
+
+    // Integrate clamp(x(t), 0, 1) over the height
+    let x_diff = xb - xa;
+    var integral: f32;
+    if abs(x_diff) < 1e-6 {
+        integral = h * clamp(xa, 0.0, 1.0);
     } else {
-        let s = a + b - t;
-        return 1.0 - s * s * inv_2ab;
+        integral = h / x_diff * integral_clamped_01(xa, xb);
     }
+
+    // Positive for downward-going edges, negative for upward
+    return select(-integral, integral, dy > 0.0);
 }
 
 @fragment
@@ -417,36 +445,39 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let is_rotated_rect = is_rect && abs(sin_t) > 0.001;
 
     if is_rotated_rect {
-        // For rotated rects, tex_coord contains the interpolated local-space coordinates
-        // (already rotated by the vertex shader). Compute coverage using exact half-plane
-        // area coverage for each of the 4 edges, then take the minimum.
+        // For rotated rects, compute exact pixel coverage using the same winding-number
+        // area approach as the CPU strip renderer. Sum the signed area contribution of
+        // each of the 4 rect edges to the current pixel.
         let hw = f32(in.dense_end_or_rect_size & 0xffffu) / 16.0;
         let hh = f32(in.dense_end_or_rect_size >> 16u) / 16.0;
 
-        // Unpack sin/cos for edge normal direction.
-        let sin_t = f32(in.rotation & 0xffffu) / 65535.0 * 2.0 - 1.0;
-        let cos_t = f32(in.rotation >> 16u) / 65535.0 * 2.0 - 1.0;
+        let sin_r = f32(in.rotation & 0xffffu) / 65535.0 * 2.0 - 1.0;
+        let cos_r = f32(in.rotation >> 16u) / 65535.0 * 2.0 - 1.0;
 
-        // For a unit-square pixel and an edge with normal (cos,sin), the exact coverage
-        // as a function of signed distance d from pixel center is a piecewise function.
-        // Let a = max(|cos|, |sin|), b = min(|cos|, |sin|), r = (a+b)/2.
-        // Both edge pairs of a rectangle have the same a, b values.
-        let a = max(abs(cos_t), abs(sin_t));
-        let b = min(abs(cos_t), abs(sin_t));
-        let inv_2ab = select(1.0 / (2.0 * a * b), 0.0, b < 0.001);
+        let px = floor(in.position.x);
+        let py = floor(in.position.y);
 
-        // Signed distance from pixel center to each edge (positive = inside).
-        let dist_left = in.tex_coord.x + hw;
-        let dist_right = hw - in.tex_coord.x;
-        let dist_top = in.tex_coord.y + hh;
-        let dist_bottom = hh - in.tex_coord.y;
+        // Unpack center from rect_frac (8.8 fixed point, passed flat from vertex shader).
+        let center_x = f32(in.rect_frac & 0xffffu) / 256.0;
+        let center_y = f32(in.rect_frac >> 16u) / 256.0;
 
-        let cov_left = halfplane_coverage(dist_left, a, b, inv_2ab);
-        let cov_right = halfplane_coverage(dist_right, a, b, inv_2ab);
-        let cov_top = halfplane_coverage(dist_top, a, b, inv_2ab);
-        let cov_bottom = halfplane_coverage(dist_bottom, a, b, inv_2ab);
+        // Rect corners in screen space
+        let rx = vec2(cos_r, sin_r) * hw;
+        let ry = vec2(-sin_r, cos_r) * hh;
+        let c = vec2(center_x, center_y);
+        let p0 = c - rx - ry;
+        let p1 = c + rx - ry;
+        let p2 = c + rx + ry;
+        let p3 = c - rx + ry;
 
-        alpha = cov_left * cov_right * cov_top * cov_bottom;
+        // Sum signed area contributions from all 4 edges
+        var area = 0.0;
+        area += edge_area(px, py, p0.x, p0.y, p1.x, p1.y);
+        area += edge_area(px, py, p1.x, p1.y, p2.x, p2.y);
+        area += edge_area(px, py, p2.x, p2.y, p3.x, p3.y);
+        area += edge_area(px, py, p3.x, p3.y, p0.x, p0.y);
+
+        alpha = clamp(abs(area), 0.0, 1.0);
     // TODO: Explore doing these calculations only for rectangle parts that actually need anti-aliasing. See
     // https://github.com/linebender/vello/pull/1482#discussion_r2861311034
     } else if is_rect && in.rect_frac != 0u {
