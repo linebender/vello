@@ -16,6 +16,7 @@ use vello_common::filter_effects::Filter;
 use vello_common::glyph::{GlyphCaches, GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
+use vello_common::math::FloatExt;
 use vello_common::multi_atlas::AtlasConfig;
 use vello_common::paint::{Paint, PaintType, Tint};
 #[cfg(feature = "text")]
@@ -489,54 +490,25 @@ impl Scene {
             return false;
         }
 
-        // We can't handle skewed rectangles.
-        let coeffs = self.render_state.transform.as_coeffs();
-        let [a, b, c, d, e, f] = coeffs;
-
-        // Kurbo Affine layout: [a, b, c, d, e, f] where
-        //   x' = a*x + c*y + e
-        //   y' = b*x + d*y + f
-        // Column 1 (local x-axis): (a, b)
-        // Column 2 (local y-axis): (c, d)
-        // Translation: (e, f)
-
-        // Check if the transform is axis-aligned (no rotation/skew).
-        // Axis-aligned means both off-diagonal elements of each column are ~0.
-        let is_axis_aligned = b.abs() <= 1e-5 && c.abs() <= 1e-5;
-
-        // Check if the transform is a rotation+scale (columns are perpendicular).
-        // Column 1 · Column 2 = a*c + b*d
-        let is_rotation = !is_axis_aligned && (a * c + b * d).abs() <= 1e-5;
-
-        if !is_axis_aligned && !is_rotation {
-            return false;
-        }
+        let decomp = match decompose_affine_rotation(&self.render_state.transform) {
+            Some(d) => d,
+            None => return false,
+        };
 
         let paint = self.encode_current_paint();
 
-        // Extract scale factors from column lengths.
-        // Column 1 = (a, b), Column 2 = (c, d).
-        let sx = (a * a + b * b).sqrt();
-        let sy = (c * c + d * d).sqrt();
-
-        // Reject degenerate transforms.
-        if sx <= 1e-10 || sy <= 1e-10 {
-            return false;
-        }
-
-        let half_width = (rect.width() * sx / 2.0) as f32;
-        let half_height = (rect.height() * sy / 2.0) as f32;
+        let half_width = (rect.width() * decomp.sx / 2.0) as f32;
+        let half_height = (rect.height() * decomp.sy / 2.0) as f32;
 
         if half_width <= 0.0 || half_height <= 0.0 {
             return false;
         }
 
-        // Extract rotation from column 1: (a, b) = sx * (cos θ, sin θ).
-        // For axis-aligned transforms, sin ≈ 0 and cos ≈ ±1.
-        let cos = (a / sx) as f32;
-        let sin = (b / sx) as f32;
+        let cos = decomp.cos as f32;
+        let sin = decomp.sin as f32;
 
-        // Transform the rect center: x' = a*x + c*y + e, y' = b*x + d*y + f
+        // Transform the rect center using the full affine.
+        let [a, b, c, d, e, f] = self.render_state.transform.as_coeffs();
         let rect_cx = rect.x0 + rect.width() / 2.0;
         let rect_cy = rect.y0 + rect.height() / 2.0;
         let cx = (a * rect_cx + c * rect_cy + e) as f32;
@@ -1227,5 +1199,116 @@ impl Scene {
                 adjusted_strip
             })
             .collect()
+    }
+}
+
+/// Result of decomposing an affine transform into rotation + scale.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct AffineDecomposition {
+    /// Scale factor along the local x-axis.
+    pub sx: f64,
+    /// Scale factor along the local y-axis.
+    pub sy: f64,
+    /// Cosine of the rotation angle.
+    pub cos: f64,
+    /// Sine of the rotation angle.
+    pub sin: f64,
+}
+
+/// Decompose an affine transform into rotation + non-uniform scale, if possible.
+pub(crate) fn decompose_affine_rotation(affine: &Affine) -> Option<AffineDecomposition> {
+    // For now, we don't support flipping. Should be possible to add in the future, though.
+    if affine.determinant() <= 0.0 {
+        return None;
+    }
+
+    let [a, b, c, d, _, _] = affine.as_coeffs();
+
+    // Ensure that the axes are perpendicular, since we don't support raw skewing.
+    if !(a * c + b * d).abs().is_nearly_zero() {
+        return None;
+    }
+
+    // Extract the scale factor in each direction.
+    let sx = (a * a + b * b).sqrt();
+    let sy = (c * c + d * d).sqrt();
+
+    let cos = a / sx;
+    let sin = b / sx;
+
+    Some(AffineDecomposition { sx, sy, cos, sin })
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn check_decompose_exhaustively(sx: f64, sy: f64) {
+        let mut angle = 0.0_f64;
+
+        while angle < 360.0 {
+            let theta = angle.to_radians();
+            let affine = Affine::scale_non_uniform(sx, sy).then_rotate(theta);
+            let decomp = decompose_affine_rotation(&affine).unwrap();
+            let expected_cos = theta.cos();
+            let expected_sin = theta.sin();
+
+            assert!(
+                (decomp.cos - expected_cos).abs() < 1e-10,
+                "cos mismatch at {angle}°: expected {expected_cos}, got {}",
+                decomp.cos
+            );
+            assert!(
+                (decomp.sin - expected_sin).abs() < 1e-10,
+                "sin mismatch at {angle}°: expected {expected_sin}, got {}",
+                decomp.sin
+            );
+            assert!(
+                (decomp.sx - sx).abs() < 1e-10,
+                "sx mismatch at {angle}°: expected {sx}, got {}",
+                decomp.sx
+            );
+            assert!(
+                (decomp.sy - sy).abs() < 1e-10,
+                "sy mismatch at {angle}°: expected {sy}, got {}",
+                decomp.sy
+            );
+
+            angle += 0.375;
+        }
+    }
+
+    #[test]
+    fn decompose_uniform_scale_1() {
+        check_decompose_exhaustively(1.0, 1.0);
+    }
+
+    #[test]
+    fn decompose_uniform_scale_2_5() {
+        check_decompose_exhaustively(2.5, 2.5);
+    }
+
+    #[test]
+    fn decompose_non_uniform_scale() {
+        check_decompose_exhaustively(3.75, 2.39);
+    }
+
+    #[test]
+    fn decompose_affine_rejects_skew() {
+        let affine = Affine::skew(0.3, 0.0);
+        assert!(decompose_affine_rotation(&affine).is_none());
+
+        let affine = Affine::skew(0.0, 0.3);
+        assert!(decompose_affine_rotation(&affine).is_none());
+    }
+
+    #[test]
+    fn decompose_affine_identity() {
+        let decomp = decompose_affine_rotation(&Affine::IDENTITY).unwrap();
+        assert!((decomp.cos - 1.0).abs() < 1e-10);
+        assert!(decomp.sin.abs() < 1e-10);
+        assert!((decomp.sx - 1.0).abs() < 1e-10);
+        assert!((decomp.sy - 1.0).abs() < 1e-10);
     }
 }
