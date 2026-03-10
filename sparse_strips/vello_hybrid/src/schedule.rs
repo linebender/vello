@@ -1486,19 +1486,8 @@ fn pack_rect_into_gpu(rect: &FastPathRect, scene: &Scene, paint_idxs: &[u32]) ->
         let width = sw as u16;
         let height = sh as u16;
 
-        // For non-solid paints, payload encodes the scene position for sampling.
-        // Use the AABB top-left, computed from center + half-extents + rotation.
-        let hw = w / 2.0;
-        let hh = h / 2.0;
-        let cx = rect.x0 + hw;
-        let cy = rect.y0 + hh;
-        let aabb_hw = hw * rect.cos.abs() + hh * rect.sin.abs();
-        let aabb_hh = hw * rect.sin.abs() + hh * rect.cos.abs();
-        let aabb_x = (cx - aabb_hw - 1.0).floor().max(0.0) as u16;
-        let aabb_y = (cy - aabb_hh - 1.0).floor().max(0.0) as u16;
-
         let (payload, paint_packed) =
-            Scheduler::process_paint(&rect.paint, scene, (aabb_x, aabb_y), paint_idxs);
+            Scheduler::process_paint(&rect.paint, scene, (x, y), paint_idxs);
 
         // Pack fractional parts of x0, y0, width, height as 4 × u8 (unorm).
         let frac = pack_unorm4x8([
