@@ -1432,11 +1432,14 @@ fn generate_gpu_strips_for_fast_path(
 fn pack_rect_into_gpu(rect: &FastPathRect, scene: &Scene, paint_idxs: &[u32]) -> GpuStrip {
     let is_axis_aligned = rect.sin.abs() <= 1e-5;
 
+    let vw = f32::from(scene.width);
+    let vh = f32::from(scene.height);
+
     if is_axis_aligned {
-        let x0 = rect.cx - rect.half_width;
-        let y0 = rect.cy - rect.half_height;
-        let x1 = rect.cx + rect.half_width;
-        let y1 = rect.cy + rect.half_height;
+        let x0 = (rect.cx - rect.half_width).max(0.0).min(vw);
+        let y0 = (rect.cy - rect.half_height).max(0.0).min(vh);
+        let x1 = (rect.cx + rect.half_width).max(0.0).min(vw);
+        let y1 = (rect.cy + rect.half_height).max(0.0).min(vh);
 
         let sx0 = x0.floor();
         let sy0 = y0.floor();
@@ -1445,7 +1448,6 @@ fn pack_rect_into_gpu(rect: &FastPathRect, scene: &Scene, paint_idxs: &[u32]) ->
 
         let x = sx0 as u16;
         let y = sy0 as u16;
-        // Are guaranteed to be > 0 since we rejected negative rectangles.
         let width = (sx1 - sx0) as u16;
         let height = (sy1 - sy0) as u16;
 
@@ -1470,11 +1472,11 @@ fn pack_rect_into_gpu(rect: &FastPathRect, scene: &Scene, paint_idxs: &[u32]) ->
         let aabb_hw = rect.half_width * rect.cos.abs() + rect.half_height * rect.sin.abs();
         let aabb_hh = rect.half_width * rect.sin.abs() + rect.half_height * rect.cos.abs();
 
-        // Snap AABB outward with 1px margin for AA.
-        let aabb_x0 = (rect.cx - aabb_hw - 1.0).floor().max(0.0);
-        let aabb_y0 = (rect.cy - aabb_hh - 1.0).floor().max(0.0);
-        let aabb_x1 = (rect.cx + aabb_hw + 1.0).ceil();
-        let aabb_y1 = (rect.cy + aabb_hh + 1.0).ceil();
+        // Snap AABB outward with 1px margin for AA, clamped to viewport.
+        let aabb_x0 = (rect.cx - aabb_hw - 1.0).floor().max(0.0).min(vw);
+        let aabb_y0 = (rect.cy - aabb_hh - 1.0).floor().max(0.0).min(vh);
+        let aabb_x1 = (rect.cx + aabb_hw + 1.0).ceil().max(0.0).min(vw);
+        let aabb_y1 = (rect.cy + aabb_hh + 1.0).ceil().max(0.0).min(vh);
 
         let x = aabb_x0 as u16;
         let y = aabb_y0 as u16;
