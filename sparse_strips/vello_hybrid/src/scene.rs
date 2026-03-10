@@ -531,20 +531,22 @@ impl Scene {
                 return false;
             }
 
-            let center = self.render_state.transform * rect.center();
-            let scale_only = Affine::scale_non_uniform(decomp.sx, decomp.sy);
-            let scaled_rect = scale_only.transform_rect_bbox(*rect);
+            // Apply scale + translation (without rotation) to get the local-frame bounds.
+            let transformed_center = self.render_state.transform * rect.center();
+            let local_rect = (Affine::translate((transformed_center.x, transformed_center.y))
+                * Affine::scale_non_uniform(decomp.sx, decomp.sy)
+                * Affine::translate((-rect.center().x, -rect.center().y)))
+            .transform_rect_bbox(*rect);
 
             // Similarly to above, don't support mirrored rectangles for simplicity for now.
-            if scaled_rect.width() <= 0.0 || scaled_rect.height() <= 0.0 {
+            if local_rect.width() <= 0.0 || local_rect.height() <= 0.0 {
                 return false;
             }
 
-            // Local-frame bounds centered at the screen-space center.
-            let x0 = (center.x - scaled_rect.width() / 2.0) as f32;
-            let y0 = (center.y - scaled_rect.height() / 2.0) as f32;
-            let x1 = (center.x + scaled_rect.width() / 2.0) as f32;
-            let y1 = (center.y + scaled_rect.height() / 2.0) as f32;
+            let x0 = local_rect.x0 as f32;
+            let y0 = local_rect.y0 as f32;
+            let x1 = local_rect.x1 as f32;
+            let y1 = local_rect.y1 as f32;
 
             self.fast_strips_buffer
                 .commands
