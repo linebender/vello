@@ -4495,6 +4495,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "webgl_bench"
+version = "0.7.0"
+dependencies = [
+ "console_error_panic_hook",
+ "console_log",
+ "log",
+ "smallvec",
+ "vello_common",
+ "vello_hybrid",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "wgpu"
 version = "28.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

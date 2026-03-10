@@ -1,0 +1,38 @@
+[package]
+name = "webgl_bench"
+version.workspace = true
+description = "A WebGL benchmark tool for Vello Hybrid."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+console_error_panic_hook = { workspace = true }
+console_log = { workspace = true }
+log = { workspace = true }
+smallvec = { workspace = true }
+vello_common = { workspace = true }
+vello_hybrid = { workspace = true, features = ["webgl"] }
+wasm-bindgen = "0.2.106"
+wasm-bindgen-futures = "0.4.56"
+web-sys = { version = "0.3.83", features = [
+    "Window",
+    "Document",
+    "Element",
+    "HtmlElement",
+    "HtmlCanvasElement",
+    "HtmlInputElement",
+    "HtmlSelectElement",
+    "CssStyleDeclaration",
+    "WebGl2RenderingContext",
+    "Performance",
+    "Event",
+    "InputEvent",
+] }

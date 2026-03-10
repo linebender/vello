@@ -22,6 +22,7 @@ members = [
     "sparse_strips/vello_hybrid",
     "sparse_strips/vello_sparse_shaders",
     "sparse_strips/vello_hybrid/examples/native_webgl",
+    "sparse_strips/vello_hybrid/examples/webgl_bench",
     "sparse_strips/vello_example_scenes",
     "sparse_strips/vello_hybrid/examples/wgpu_webgl",
     "sparse_strips/vello_hybrid/examples/winit",
