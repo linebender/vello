@@ -271,14 +271,18 @@ fn vs_main(
     var pix_y: f32;
 
     if is_rotated_rect {
-        // For rotated rects, x/y = center (integer), width/height = half-extents (integer).
-        // col_idx_or_rect_frac = 4 × u8 fractional parts (cx, cy, hw, hh).
-        // rotation = packed sin/cos.
+        // For rotated rects, x/y/width/height store the local rect bounds (same
+        // layout as axis-aligned rects). col_idx_or_rect_frac = 4 × u8 fractional
+        // parts (x0, y0, w, h). rotation = packed sin/cos.
         let frac = unpack4x8unorm(instance.col_idx_or_rect_frac);
-        let center_x = f32(x0) + frac.x;
-        let center_y = f32(y0) + frac.y;
-        let hw = f32(width) + frac.z;
-        let hh = f32(dense_width) + frac.w;
+        let rect_x0 = f32(x0) + frac.x;
+        let rect_y0 = f32(y0) + frac.y;
+        let rect_w = f32(width) + frac.z;
+        let rect_h = f32(dense_width) + frac.w;
+        let hw = rect_w * 0.5;
+        let hh = rect_h * 0.5;
+        let center_x = rect_x0 + hw;
+        let center_y = rect_y0 + hh;
 
         // Unpack sin/cos from rotation field: u16 in [0, 65535] → [-1, 1].
         let sin_t = f32(instance.rotation & 0xffffu) / 65535.0 * 2.0 - 1.0;

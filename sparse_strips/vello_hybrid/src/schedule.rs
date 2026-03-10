@@ -1470,27 +1470,28 @@ fn pack_rect_into_gpu(rect: &FastPathRect, scene: &Scene, paint_idxs: &[u32]) ->
             rotation: 0,
         }
     } else {
-        // Rotated: store center in x/y, half-extents in width/height,
-        // fractional parts in col_idx_or_rect_frac (4 × u8: cx, cy, hw, hh),
-        // and sin/cos in rotation. The vertex shader reconstructs precise
-        // values and computes the AABB on-the-fly.
-        let cx = (rect.x0 + rect.x1) / 2.0;
-        let cy = (rect.y0 + rect.y1) / 2.0;
-        let hw = (rect.x1 - rect.x0) / 2.0;
-        let hh = (rect.y1 - rect.y0) / 2.0;
+        // Rotated: store local rect bounds in x/y/width/height (same layout as
+        // axis-aligned), with 4 × u8 fractional parts, plus sin/cos in rotation.
+        // The vertex shader reconstructs precise bounds, derives center and
+        // half-extents, and computes the AABB on-the-fly.
+        let sx0 = rect.x0.floor();
+        let sy0 = rect.y0.floor();
+        let w = rect.x1 - rect.x0;
+        let h = rect.y1 - rect.y0;
+        let sw = w.floor();
+        let sh = h.floor();
 
-        let cx_floor = cx.floor().max(0.0).min(vw);
-        let cy_floor = cy.floor().max(0.0).min(vh);
-        let hw_floor = hw.floor();
-        let hh_floor = hh.floor();
-
-        let x = cx_floor as u16;
-        let y = cy_floor as u16;
-        let width = hw_floor as u16;
-        let height = hh_floor as u16;
+        let x = sx0.max(0.0) as u16;
+        let y = sy0.max(0.0) as u16;
+        let width = sw as u16;
+        let height = sh as u16;
 
         // For non-solid paints, payload encodes the scene position for sampling.
-        // Use the AABB top-left for this, computed from center + half-extents + rotation.
+        // Use the AABB top-left, computed from center + half-extents + rotation.
+        let hw = w / 2.0;
+        let hh = h / 2.0;
+        let cx = rect.x0 + hw;
+        let cy = rect.y0 + hh;
         let aabb_hw = hw * rect.cos.abs() + hh * rect.sin.abs();
         let aabb_hh = hw * rect.sin.abs() + hh * rect.cos.abs();
         let aabb_x = (cx - aabb_hw - 1.0).floor().max(0.0) as u16;
@@ -1499,12 +1500,12 @@ fn pack_rect_into_gpu(rect: &FastPathRect, scene: &Scene, paint_idxs: &[u32]) ->
         let (payload, paint_packed) =
             Scheduler::process_paint(&rect.paint, scene, (aabb_x, aabb_y), paint_idxs);
 
-        // Pack fractional parts of center and half-extents as 4 × u8 (unorm).
+        // Pack fractional parts of x0, y0, width, height as 4 × u8 (unorm).
         let frac = pack_unorm4x8([
-            cx - cx_floor,
-            cy - cy_floor,
-            hw - hw_floor,
-            hh - hh_floor,
+            rect.x0 - sx0,
+            rect.y0 - sy0,
+            w - sw,
+            h - sh,
         ]);
 
         // Pack sin and cos as u16 values: [-1, 1] → [0, 65535].
