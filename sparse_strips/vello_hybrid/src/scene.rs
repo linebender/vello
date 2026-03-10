@@ -475,6 +475,11 @@ impl Scene {
             return false;
         }
 
+        // Could be made to work in the future, but for now we don't support this.
+        if self.aliasing_threshold.is_some() {
+            return false;
+        }
+
         // We can't handle skewed rectangles.
         let coeffs = self.render_state.transform.as_coeffs();
         // TODO: Maybe support rotated rectangles (https://github.com/linebender/vello/pull/1482#discussion_r2881223621)
