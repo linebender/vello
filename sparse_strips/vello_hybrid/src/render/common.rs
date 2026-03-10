@@ -68,6 +68,10 @@ pub struct GpuStrip {
     pub payload: u32,
     /// See `StripInstance::paint_and_rect_flag` documentation in `render_strips.wgsl`.
     pub paint_and_rect_flag: u32,
+    /// See `StripInstance::rotation` documentation in `render_strips.wgsl`.
+    /// Packed sin/cos for rotated rects: u16(sin) in low bits, u16(cos) in high bits.
+    /// Zero for non-rotated strips/rects.
+    pub rotation: u32,
 }
 
 /// Different types of GPU encoded paints.

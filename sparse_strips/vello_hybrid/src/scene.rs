@@ -71,7 +71,7 @@ pub(crate) struct FastStripsPath {
     pub(crate) paint: Paint,
 }
 
-/// A rectangle stored in the fast-path buffer.
+/// An axis-aligned rectangle stored in the fast-path buffer.
 #[derive(Debug)]
 pub(crate) struct FastPathRect {
     pub(crate) x0: f32,
@@ -81,13 +81,33 @@ pub(crate) struct FastPathRect {
     pub(crate) paint: Paint,
 }
 
+/// A rotated rectangle stored in the fast-path buffer.
+#[derive(Debug)]
+pub(crate) struct FastPathRotatedRect {
+    /// Center x in pixel coordinates.
+    pub(crate) cx: f32,
+    /// Center y in pixel coordinates.
+    pub(crate) cy: f32,
+    /// Half-width of the original (unrotated) rectangle.
+    pub(crate) half_width: f32,
+    /// Half-height of the original (unrotated) rectangle.
+    pub(crate) half_height: f32,
+    /// Sine of the rotation angle.
+    pub(crate) sin: f32,
+    /// Cosine of the rotation angle.
+    pub(crate) cos: f32,
+    pub(crate) paint: Paint,
+}
+
 /// A command in the fast strips buffer.
 #[derive(Debug)]
 pub(crate) enum FastStripCommand {
     /// A path rendered via the normal strip pipeline.
     Path(FastStripsPath),
-    /// A rectangle.
+    /// An axis-aligned rectangle.
     Rect(FastPathRect),
+    /// A rotated rectangle.
+    RotatedRect(FastPathRotatedRect),
 }
 
 /// A buffer that collects strips from paths that are rendered directly to the surface,
@@ -482,33 +502,109 @@ impl Scene {
 
         // We can't handle skewed rectangles.
         let coeffs = self.render_state.transform.as_coeffs();
-        // TODO: Maybe support rotated rectangles (https://github.com/linebender/vello/pull/1482#discussion_r2881223621)
-        if coeffs[1].abs() > 1e-5 || coeffs[2].abs() > 1e-5 {
+        let [a, b, c, d, e, f] = coeffs;
+
+        // Kurbo Affine layout: [a, b, c, d, e, f] where
+        //   x' = a*x + c*y + e
+        //   y' = b*x + d*y + f
+        // Column 1 (local x-axis): (a, b)
+        // Column 2 (local y-axis): (c, d)
+        // Translation: (e, f)
+
+        // Check if the transform is axis-aligned (no rotation/skew).
+        // Axis-aligned means both off-diagonal elements of each column are ~0.
+        let is_axis_aligned = b.abs() <= 1e-5 && c.abs() <= 1e-5;
+
+        // Check if the transform is a rotation+scale (columns are perpendicular).
+        // Column 1 · Column 2 = a*c + b*d
+        let is_rotation = !is_axis_aligned && (a * c + b * d).abs() <= 1e-5;
+
+        if !is_axis_aligned && !is_rotation {
             return false;
         }
 
         let paint = self.encode_current_paint();
-        let transformed_rect = self.render_state.transform.transform_rect_bbox(*rect);
 
-        let x0 = transformed_rect.x0.max(0.0).min(f64::from(self.width));
-        let y0 = transformed_rect.y0.max(0.0).min(f64::from(self.height));
-        let x1 = transformed_rect.x1.max(0.0).min(f64::from(self.width));
-        let y1 = transformed_rect.y1.max(0.0).min(f64::from(self.height));
+        if is_axis_aligned {
+            let transformed_rect = self.render_state.transform.transform_rect_bbox(*rect);
 
-        // Can't handle mirrored or zero-sized rectangles.
-        if x1 <= x0 || y1 <= y0 {
-            return false;
+            let x0 = transformed_rect.x0.max(0.0).min(f64::from(self.width));
+            let y0 = transformed_rect.y0.max(0.0).min(f64::from(self.height));
+            let x1 = transformed_rect.x1.max(0.0).min(f64::from(self.width));
+            let y1 = transformed_rect.y1.max(0.0).min(f64::from(self.height));
+
+            // Can't handle mirrored or zero-sized rectangles.
+            if x1 <= x0 || y1 <= y0 {
+                return false;
+            }
+
+            self.fast_strips_buffer
+                .commands
+                .push(FastStripCommand::Rect(FastPathRect {
+                    x0: x0 as f32,
+                    y0: y0 as f32,
+                    x1: x1 as f32,
+                    y1: y1 as f32,
+                    paint,
+                }));
+        } else {
+            // Rotated rectangle. Extract scale factors from column lengths.
+            // Column 1 = (a, b), Column 2 = (c, d).
+            let sx = (a * a + b * b).sqrt();
+            let sy = (c * c + d * d).sqrt();
+
+            // Reject degenerate or reflected transforms.
+            let det = a * d - b * c;
+            if det.abs() <= 1e-10 {
+                return false;
+            }
+
+            let half_width = (rect.width() * sx / 2.0) as f32;
+            let half_height = (rect.height() * sy / 2.0) as f32;
+
+            if half_width <= 0.0 || half_height <= 0.0 {
+                return false;
+            }
+
+            // Extract rotation angle from column 1: (a, b) = sx * (cos θ, sin θ)
+            let cos = (a / sx) as f32;
+            let sin = (b / sx) as f32;
+
+            // Transform the rect center: x' = a*x + c*y + e, y' = b*x + d*y + f
+            let rect_cx = rect.x0 + rect.width() / 2.0;
+            let rect_cy = rect.y0 + rect.height() / 2.0;
+            let cx = (a * rect_cx + c * rect_cy + e) as f32;
+            let cy = (b * rect_cx + d * rect_cy + f) as f32;
+
+            // Compute the AABB and check it's within the viewport.
+            let aabb_hw = half_width * cos.abs() + half_height * sin.abs();
+            let aabb_hh = half_width * sin.abs() + half_height * cos.abs();
+            let aabb_x0 = cx - aabb_hw;
+            let aabb_y0 = cy - aabb_hh;
+            let aabb_x1 = cx + aabb_hw;
+            let aabb_y1 = cy + aabb_hh;
+
+            // Reject if entirely outside the viewport.
+            if aabb_x1 <= 0.0
+                || aabb_y1 <= 0.0
+                || aabb_x0 >= self.width as f32
+                || aabb_y0 >= self.height as f32
+            {
+                return false;
+            }
+
+            self.fast_strips_buffer
+                .commands
+                .push(FastStripCommand::RotatedRect(FastPathRotatedRect {
+                    cx,
+                    cy,
+                    half_width,
+                    half_height,
+                    sin,
+                    cos,
+                    paint,
+                }));
         }
-
-        self.fast_strips_buffer
-            .commands
-            .push(FastStripCommand::Rect(FastPathRect {
-                x0: x0 as f32,
-                y0: y0 as f32,
-                x1: x1 as f32,
-                y1: y1 as f32,
-                paint,
-            }));
 
         true
     }
@@ -558,6 +654,37 @@ impl Scene {
                     let strip_start = strip_storage.strips.len();
                     self.strip_generator
                         .generate_filled_rect_fast(&rect, &mut strip_storage, None);
+                    self.wide.generate(
+                        &strip_storage.strips[strip_start..],
+                        r.paint,
+                        BlendMode::default(),
+                        0,
+                        None,
+                        &self.encoded_paints,
+                    );
+                }
+                FastStripCommand::RotatedRect(r) => {
+                    // For the coarse path fallback, generate the rotated rect as a
+                    // regular path through the flatten → tiles → strips pipeline.
+                    let angle = f64::from(r.sin).atan2(f64::from(r.cos));
+                    let rect = Rect::new(
+                        f64::from(-r.half_width),
+                        f64::from(-r.half_height),
+                        f64::from(r.half_width),
+                        f64::from(r.half_height),
+                    );
+                    let transform = Affine::translate((f64::from(r.cx), f64::from(r.cy)))
+                        * Affine::rotate(angle);
+                    let path = rect.to_path(DEFAULT_TOLERANCE);
+                    let strip_start = strip_storage.strips.len();
+                    self.strip_generator.generate_filled_path(
+                        &path,
+                        Fill::NonZero,
+                        transform,
+                        None,
+                        &mut strip_storage,
+                        None,
+                    );
                     self.wide.generate(
                         &strip_storage.strips[strip_start..],
                         r.paint,

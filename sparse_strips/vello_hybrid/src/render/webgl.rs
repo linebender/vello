@@ -1712,10 +1712,10 @@ fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
     );
 
     let stride = size_of::<GpuStrip>() as i32;
-    debug_assert_eq!(stride, 20, "expected stride of 20");
+    debug_assert_eq!(stride, 24, "expected stride of 24");
 
     // Configure attributes.
-    for i in 0..5 {
+    for i in 0..6 {
         let location = i as u32;
         let offset = i * 4;
 

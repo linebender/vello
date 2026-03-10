@@ -324,7 +324,7 @@ fn fill_centered_rotated_rect(
         * Affine::scale_non_uniform(sx, sy);
 
     ctx.set_transform(transform);
-    ctx.set_paint(BLUE.with_alpha(0.5));
+    ctx.set_paint(BLUE);
     ctx.fill_rect(rect);
 }
 

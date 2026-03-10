@@ -176,7 +176,9 @@
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
 
-use crate::scene::{FastPathRect, FastStripCommand, FastStripsPath, StripPathMode};
+use crate::scene::{
+    FastPathRect, FastPathRotatedRect, FastStripCommand, FastStripsPath, StripPathMode,
+};
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -205,6 +207,7 @@ const PAINT_TYPE_SWEEP_GRADIENT: u32 = 4;
 /// Bit 31 of [`GpuStrip::paint_and_rect_flag`] signals that the strip
 /// represents a full rectangle.
 const RECT_STRIP_FLAG: u32 = 1 << 31;
+
 
 // The sentinel tile index representing the surface.
 const SENTINEL_SLOT_IDX: usize = usize::MAX;
@@ -584,7 +587,10 @@ impl Scheduler {
                 }
                 FastStripCommand::Rect(r) => {
                     let strip = pack_rectangle_into_gpu(r, scene, paint_idxs);
-
+                    draw.0.push(strip);
+                }
+                FastStripCommand::RotatedRect(r) => {
+                    let strip = pack_rotated_rectangle_into_gpu(r, scene, paint_idxs);
                     draw.0.push(strip);
                 }
             }
@@ -1320,6 +1326,7 @@ impl GpuStripBuilder {
             col_idx_or_rect_frac: self.col_idx_or_rect_frac,
             payload,
             paint_and_rect_flag: paint,
+            rotation: 0,
         }
     }
 
@@ -1333,6 +1340,7 @@ impl GpuStripBuilder {
             col_idx_or_rect_frac: self.col_idx_or_rect_frac,
             payload: u32::try_from(from_slot).unwrap(),
             paint_and_rect_flag: (COLOR_SOURCE_SLOT << 29) | (opacity as u32),
+            rotation: 0,
         }
     }
 
@@ -1357,6 +1365,7 @@ impl GpuStripBuilder {
                 | ((opacity as u32) << 16)
                 | ((mix_mode as u32) << 8)
                 | (compose_mode as u32),
+            rotation: 0,
         }
     }
 }
@@ -1452,6 +1461,54 @@ fn pack_rectangle_into_gpu(rect: &FastPathRect, scene: &Scene, paint_idxs: &[u32
         col_idx_or_rect_frac: frac,
         payload,
         paint_and_rect_flag: paint_packed | RECT_STRIP_FLAG,
+        rotation: 0,
+    }
+}
+
+fn pack_rotated_rectangle_into_gpu(
+    rect: &FastPathRotatedRect,
+    scene: &Scene,
+    paint_idxs: &[u32],
+) -> GpuStrip {
+    // Compute the AABB of the rotated rectangle.
+    let aabb_hw = rect.half_width * rect.cos.abs() + rect.half_height * rect.sin.abs();
+    let aabb_hh = rect.half_width * rect.sin.abs() + rect.half_height * rect.cos.abs();
+
+    // Snap AABB outward to integer pixels, with 1px margin for AA.
+    // The AA region extends 0.5px beyond the rect edge in local space, which
+    // maps to up to 0.5*(|cos|+|sin|) extra pixels in screen space.
+    let aabb_x0 = (rect.cx - aabb_hw - 1.0).floor().max(0.0);
+    let aabb_y0 = (rect.cy - aabb_hh - 1.0).floor().max(0.0);
+    let aabb_x1 = (rect.cx + aabb_hw + 1.0).ceil();
+    let aabb_y1 = (rect.cy + aabb_hh + 1.0).ceil();
+
+    let x = aabb_x0 as u16;
+    let y = aabb_y0 as u16;
+    let width = (aabb_x1 - aabb_x0) as u16;
+    let height = (aabb_y1 - aabb_y0) as u16;
+
+    let (payload, paint_packed) =
+        Scheduler::process_paint(&rect.paint, scene, (x, y), paint_idxs);
+
+    // Pack half-extents as 12.4 fixed point (max ~4095 pixels, 1/16 sub-pixel precision).
+    let hw_u16 = (rect.half_width * 16.0) as u16;
+    let hh_u16 = (rect.half_height * 16.0) as u16;
+    let half_extents_packed = u32::from(hw_u16) | (u32::from(hh_u16) << 16);
+
+    // Pack sin and cos as u16 values: [-1, 1] → [0, 65535].
+    let sin_u16 = ((rect.sin * 0.5 + 0.5) * 65535.0) as u16;
+    let cos_u16 = ((rect.cos * 0.5 + 0.5) * 65535.0) as u16;
+    let rotation = u32::from(sin_u16) | (u32::from(cos_u16) << 16);
+
+    GpuStrip {
+        x,
+        y,
+        width,
+        dense_width_or_rect_height: height,
+        col_idx_or_rect_frac: half_extents_packed,
+        payload,
+        paint_and_rect_flag: paint_packed | RECT_STRIP_FLAG,
+        rotation,
     }
 }
 

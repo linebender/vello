@@ -205,6 +205,10 @@ struct StripInstance {
     @location(3) payload: u32,
     // See StripInstance documentation above.
     @location(4) paint_and_rect_flag: u32,
+    // For rotated rects: packed sin/cos as u16 pair.
+    // sin = low 16 bits, cos = high 16 bits, each mapped from [-1,1] to [0,65535].
+    // Zero for non-rotated strips/rects.
+    @location(5) rotation: u32,
 }
 
 struct VertexOutput {
@@ -223,6 +227,9 @@ struct VertexOutput {
     // Bits 0-7: x0, 8-15: y0, 16-23: x1, 24-31: y1.
     // Zero for normal strips.
     @location(5) @interpolate(flat) rect_frac: u32,
+    // For rotated rects: packed sin/cos (passed through from instance).
+    // Zero for non-rotated strips/rects.
+    @location(6) @interpolate(flat) rotation: u32,
     // Normalized device coordinates (NDC) for the current vertex
     @builtin(position) position: vec4<f32>,
 };
@@ -257,18 +264,59 @@ fn vs_main(
     let dense_width = instance.widths_or_rect_height >> 16u;
 
     let is_rect = (instance.paint_and_rect_flag & RECT_STRIP_FLAG) != 0u;
-    var height = config.strip_height;
-    if is_rect {
-        height = dense_width;
-        out.dense_end_or_rect_size = width | (dense_width << 16u);
+    let is_rotated_rect = is_rect && instance.rotation != 0u;
+    out.rotation = instance.rotation;
+
+    var pix_x: f32;
+    var pix_y: f32;
+
+    if is_rotated_rect {
+        // For rotated rects, x/y/width/height = AABB (snapped outward).
+        // col_idx_or_rect_frac = packed half-extents as 12.4 fixed point.
+        // rotation = packed sin/cos.
+        let hw = f32(instance.col_idx_or_rect_frac & 0xffffu) / 16.0;
+        let hh = f32(instance.col_idx_or_rect_frac >> 16u) / 16.0;
+
+        // Derive center from AABB center.
+        let center_x = f32(x0) + f32(width) * 0.5;
+        let center_y = f32(y0) + f32(dense_width) * 0.5;
+
+        // Unpack sin/cos from rotation field: u16 in [0, 65535] → [-1, 1].
+        let sin_t = f32(instance.rotation & 0xffffu) / 65535.0 * 2.0 - 1.0;
+        let cos_t = f32(instance.rotation >> 16u) / 65535.0 * 2.0 - 1.0;
+
+        // Use the AABB directly for the quad.
+        pix_x = f32(x0) + x * f32(width);
+        pix_y = f32(y0) + y * f32(dense_width);
+
+        // Rotate (pixel - center) into the rect's local frame for the fragment shader.
+        let pdx = pix_x - center_x;
+        let pdy = pix_y - center_y;
+        let local_x = pdx * cos_t + pdy * sin_t;
+        let local_y = -pdx * sin_t + pdy * cos_t;
+        out.tex_coord = vec2<f32>(local_x, local_y);
+
+        // Pass half-extents to fragment shader.
         out.rect_frac = instance.col_idx_or_rect_frac;
+        out.dense_end_or_rect_size = instance.col_idx_or_rect_frac;
     } else {
-        out.dense_end_or_rect_size = instance.col_idx_or_rect_frac + dense_width;
-        out.rect_frac = 0u;
+        var height = config.strip_height;
+        if is_rect {
+            height = dense_width;
+            out.dense_end_or_rect_size = width | (dense_width << 16u);
+            out.rect_frac = instance.col_idx_or_rect_frac;
+        } else {
+            out.dense_end_or_rect_size = instance.col_idx_or_rect_frac + dense_width;
+            out.rect_frac = 0u;
+        }
+
+        pix_x = f32(x0) + x * f32(width);
+        pix_y = f32(y0) + y * f32(height);
+
+        let col_offset = select(f32(instance.col_idx_or_rect_frac), 0.0, is_rect);
+        out.tex_coord = vec2<f32>(col_offset + x * f32(width), y * f32(height));
     }
-    // Calculate the pixel coordinates of the current vertex within the strip
-    let pix_x = f32(x0) + x * f32(width);
-    let pix_y = f32(y0) + y * f32(height);
+
     // Convert pixel coordinates to normalized device coordinates (NDC)
     // NDC ranges from -1 to 1, with (0,0) at the center of the viewport
     let ndc_x = pix_x * 2.0 / f32(config.width) - 1.0;
@@ -280,28 +328,24 @@ fn vs_main(
         // Unpack view coordinates for image sampling and gradient calculations
         let scene_strip_x = instance.payload & 0xffffu;
         let scene_strip_y = instance.payload >> 16u;
+        let height_for_paint = select(config.strip_height, dense_width, is_rect);
 
         if paint_type == PAINT_TYPE_IMAGE {
             let paint_tex_idx = instance.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
             let encoded_image = unpack_encoded_image(paint_tex_idx);
-            // Use view coordinates for image sampling (always in global view space)
-            out.sample_xy = encoded_image.translate 
+            out.sample_xy = encoded_image.translate
                 + encoded_image.image_offset
-                + encoded_image.transform.xy * f32(scene_strip_x) 
+                + encoded_image.transform.xy * f32(scene_strip_x)
                 + encoded_image.transform.zw * f32(scene_strip_y)
                 + encoded_image.transform.xy * x * f32(width)
-                + encoded_image.transform.zw * y * f32(height);
+                + encoded_image.transform.zw * y * f32(height_for_paint);
         } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT || paint_type == PAINT_TYPE_RADIAL_GRADIENT || paint_type == PAINT_TYPE_SWEEP_GRADIENT {
-            // Use view coordinates for gradient transform (always in global view space)
             out.sample_xy = vec2<f32>(
                 f32(scene_strip_x) + x * f32(width),
-                f32(scene_strip_y) + y * f32(height)
+                f32(scene_strip_y) + y * f32(height_for_paint)
             );
         }
     }
-
-    let col_offset = select(f32(instance.col_idx_or_rect_frac), 0.0, is_rect);
-    out.tex_coord = vec2<f32>(col_offset + x * f32(width), y * f32(height));
 
     out.position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
     out.payload = instance.payload;
@@ -316,13 +360,70 @@ var alphas_texture: texture_2d<u32>;
 @group(0) @binding(2)
 var clip_input_texture: texture_2d<f32>;
 
+// Exact area coverage of a unit-square pixel by a half-plane at signed distance `d`
+// from the pixel center (positive = inside). The edge normal has components with
+// absolute values `a` = max(|nx|, |ny|) and `b` = min(|nx|, |ny|).
+// `inv_2ab` = 1/(2*a*b), precomputed to avoid repeated division.
+fn halfplane_coverage(d: f32, a: f32, b: f32, inv_2ab: f32) -> f32 {
+    let r = 0.5 * (a + b);
+    if d >= r { return 1.0; }
+    if d <= -r { return 0.0; }
+    let t = d + r;
+    // Near-axis-aligned edge (b ≈ 0): linear transition.
+    if b < 0.001 {
+        return clamp(t / a, 0.0, 1.0);
+    }
+    // Piecewise quadratic/linear coverage function.
+    if t < b {
+        return t * t * inv_2ab;
+    } else if t < a {
+        return (2.0 * t - b) / (2.0 * a);
+    } else {
+        let s = a + b - t;
+        return 1.0 - s * s * inv_2ab;
+    }
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var alpha = 1.0;
     let is_rect = (in.paint_and_rect_flag & RECT_STRIP_FLAG) != 0u;
+    let is_rotated_rect = is_rect && in.rotation != 0u;
+
+    if is_rotated_rect {
+        // For rotated rects, tex_coord contains the interpolated local-space coordinates
+        // (already rotated by the vertex shader). Compute coverage using exact half-plane
+        // area coverage for each of the 4 edges, then take the minimum.
+        let hw = f32(in.dense_end_or_rect_size & 0xffffu) / 16.0;
+        let hh = f32(in.dense_end_or_rect_size >> 16u) / 16.0;
+
+        // Unpack sin/cos for edge normal direction.
+        let sin_t = f32(in.rotation & 0xffffu) / 65535.0 * 2.0 - 1.0;
+        let cos_t = f32(in.rotation >> 16u) / 65535.0 * 2.0 - 1.0;
+
+        // For a unit-square pixel and an edge with normal (cos,sin), the exact coverage
+        // as a function of signed distance d from pixel center is a piecewise function.
+        // Let a = max(|cos|, |sin|), b = min(|cos|, |sin|), r = (a+b)/2.
+        // Both edge pairs of a rectangle have the same a, b values.
+        let a = max(abs(cos_t), abs(sin_t));
+        let b = min(abs(cos_t), abs(sin_t));
+        let inv_2ab = select(1.0 / (2.0 * a * b), 0.0, b < 0.001);
+
+        // Signed distance from pixel center to each edge (positive = inside).
+        let dist_left = in.tex_coord.x + hw;
+        let dist_right = hw - in.tex_coord.x;
+        let dist_top = in.tex_coord.y + hh;
+        let dist_bottom = hh - in.tex_coord.y;
+
+        let cov_left = halfplane_coverage(dist_left, a, b, inv_2ab);
+        let cov_right = halfplane_coverage(dist_right, a, b, inv_2ab);
+        let cov_top = halfplane_coverage(dist_top, a, b, inv_2ab);
+        let cov_bottom = halfplane_coverage(dist_bottom, a, b, inv_2ab);
+
+        alpha = cov_left * cov_right * cov_top * cov_bottom;
     // TODO: Explore doing these calculations only for rectangle parts that actually need anti-aliasing. See
     // https://github.com/linebender/vello/pull/1482#discussion_r2861311034
-    if is_rect && in.rect_frac != 0u {
+    } else if is_rect && in.rect_frac != 0u {
         let frac = unpack4x8unorm(in.rect_frac);
         // Calculate how much of the pixel is actually covered by the rect.
         // We do this by simply calculating the fractions in the x and y direction, and

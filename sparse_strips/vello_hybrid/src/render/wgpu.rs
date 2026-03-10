@@ -683,13 +683,14 @@ struct ClearSlotsConfig {
 
 impl GpuStrip {
     /// Vertex attributes for the strip
-    pub fn vertex_attributes() -> [wgpu::VertexAttribute; 5] {
+    pub fn vertex_attributes() -> [wgpu::VertexAttribute; 6] {
         wgpu::vertex_attr_array![
             0 => Uint32,
             1 => Uint32,
             2 => Uint32,
             3 => Uint32,
             4 => Uint32,
+            5 => Uint32,
         ]
     }
 }
