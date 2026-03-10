@@ -141,7 +141,7 @@ impl ApplicationHandler for App<'_> {
             window.clone(),
             size.width,
             size.height,
-            wgpu::PresentMode::Immediate, // Unlimited FPS mode
+            wgpu::PresentMode::Fifo,
             wgpu::TextureFormat::Bgra8Unorm,
         ));
 
