@@ -234,6 +234,9 @@ struct VertexOutput {
     @builtin(position) position: vec4<f32>,
 };
 
+// NOTE: All of the rotated rect code has been written by Claude
+// and not been reviewed yet!
+
 // TODO: Measure performance of moving to a separate group
 @group(0) @binding(1)
 var<uniform> config: Config;
