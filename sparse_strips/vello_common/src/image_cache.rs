@@ -46,6 +46,7 @@ impl core::fmt::Debug for ImageCache {
             .field("slots", &self.slots)
             .field("free_idxs", &self.free_idxs)
             .field("atlas_count", &self.atlas_manager.atlas_count())
+            .field("atlas_manager_config", self.atlas_manager.config())
             .field("atlas_stats", &atlas_stats)
             .finish()
     }

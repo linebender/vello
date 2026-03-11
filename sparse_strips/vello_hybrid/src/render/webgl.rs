@@ -85,8 +85,6 @@ pub struct WebGlRenderer {
     scheduler_state: SchedulerState,
     /// WebGL context.
     gl: WebGl2RenderingContext,
-    /// Image cache for storing images atlas allocations.
-    pub image_cache: ImageCache,
     /// Encoded paints for storing encoded paints.
     encoded_paints: Vec<GpuEncodedPaint>,
     /// Stores the index (offset) of the encoded paints in the encoded paints texture.
@@ -97,12 +95,16 @@ pub struct WebGlRenderer {
 
 impl WebGlRenderer {
     /// Creates a new WebGL2 renderer
-    pub fn new(canvas: &web_sys::HtmlCanvasElement) -> Self {
-        Self::new_with(canvas, RenderSettings::default())
+    pub fn new(canvas: &web_sys::HtmlCanvasElement, image_cache: &ImageCache) -> Self {
+        Self::new_with(canvas, RenderSettings::default(), image_cache)
     }
 
     /// Creates a new WebGL2 renderer with specific settings.
-    pub fn new_with(canvas: &web_sys::HtmlCanvasElement, settings: RenderSettings) -> Self {
+    pub fn new_with(
+        canvas: &web_sys::HtmlCanvasElement,
+        settings: RenderSettings,
+        image_cache: &ImageCache,
+    ) -> Self {
         super::common::maybe_warn_about_webgl_feature_conflict();
 
         // The WebGL context must be created with anti-aliasing disabled such that we can blit the
@@ -143,7 +145,6 @@ impl WebGlRenderer {
 
         let max_texture_dimension_2d = get_max_texture_dimension_2d(&gl);
         let total_slots: usize = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
-        let image_cache = ImageCache::new_with_config(settings.atlas_config);
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
         // and the maximum gradient LUT size - worst case scenario.
         let max_gradient_cache_size =
@@ -151,11 +152,10 @@ impl WebGlRenderer {
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
 
         Self {
-            programs: WebGlPrograms::new(gl.clone(), &image_cache, total_slots),
+            programs: WebGlPrograms::new(gl.clone(), image_cache, total_slots),
             scheduler: Scheduler::new(total_slots),
             scheduler_state: SchedulerState::default(),
             gl,
-            image_cache,
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
             gradient_cache,
@@ -165,7 +165,12 @@ impl WebGlRenderer {
     /// Render `scene` using WebGL2
     ///
     /// This method creates GPU resources as needed and schedules potentially multiple draw calls.
-    pub fn render(&mut self, scene: &Scene, render_size: &RenderSize) -> Result<(), RenderError> {
+    pub fn render(
+        &mut self,
+        scene: &Scene,
+        image_cache: &ImageCache,
+        render_size: &RenderSize,
+    ) -> Result<(), RenderError> {
         debug_assert_eq!(
             RenderSize {
                 width: self.gl.drawing_buffer_width() as u32,
@@ -175,7 +180,7 @@ impl WebGlRenderer {
             "Render size must match drawing buffer size"
         );
 
-        self.render_scene(scene, render_size, true)?;
+        self.render_scene(scene, image_cache, render_size, true)?;
 
         // Blit the view framebuffer to the default framebuffer (canvas element), reflecting the
         // image along the Y axis to complete the WebGPU to WebGL2 coordinate transform.
@@ -252,9 +257,14 @@ impl WebGlRenderer {
     /// [`render`](Self::render) call (the two methods share GPU resources that
     /// are staged by `queue.write_*` and only applied on the next `queue.submit`).
     #[doc(hidden)]
-    pub fn render_to_atlas(&mut self, scene: &Scene, atlas_id: AtlasId) -> Result<(), RenderError> {
+    pub fn render_to_atlas(
+        &mut self,
+        scene: &Scene,
+        image_cache: &ImageCache,
+        atlas_id: AtlasId,
+    ) -> Result<(), RenderError> {
         self.programs
-            .maybe_resize_atlas_texture_array(&self.gl, self.image_cache.atlas_count() as u32);
+            .maybe_resize_atlas_texture_array(&self.gl, image_cache.atlas_count() as u32);
 
         let atlas_size = self.programs.resources.atlas_texture_array.size();
         let atlas_render_size = RenderSize {
@@ -296,7 +306,12 @@ impl WebGlRenderer {
             &mut self.programs.resources.stub_atlas_texture_array,
         );
 
-        let result = self.render_scene(scene, &self.programs.render_size.clone(), false);
+        let result = self.render_scene(
+            scene,
+            image_cache,
+            &self.programs.render_size.clone(),
+            false,
+        );
 
         // Restore the real atlas texture array.
         core::mem::swap(
@@ -313,6 +328,8 @@ impl WebGlRenderer {
 
         self.programs.render_size = saved_render_size;
 
+        debug_log_atlas_pages(&self.gl, &self.programs.resources.atlas_texture_array);
+
         result
     }
 
@@ -326,10 +343,11 @@ impl WebGlRenderer {
     fn render_scene(
         &mut self,
         scene: &Scene,
+        image_cache: &ImageCache,
         render_size: &RenderSize,
         clear: bool,
     ) -> Result<(), RenderError> {
-        self.prepare_gpu_encoded_paints(&scene.encoded_paints);
+        self.prepare_gpu_encoded_paints(&scene.encoded_paints, image_cache);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
@@ -370,21 +388,23 @@ impl WebGlRenderer {
     pub fn upload_image<T: WebGlAtlasWriter>(
         &mut self,
         writer: &T,
+        image_cache: &mut ImageCache,
     ) -> vello_common::paint::ImageId {
         // TODO: If we want to use native bilinear sampling for uploaded images,
         // we can pass 1 instead of 0 here.
-        self.upload_image_with(writer, 0)
+        self.upload_image_with(writer, image_cache, 0)
     }
 
     pub(crate) fn upload_image_with<T: WebGlAtlasWriter>(
         &mut self,
         writer: &T,
+        image_cache: &mut ImageCache,
         padding: u16,
     ) -> vello_common::paint::ImageId {
         let width = writer.width();
         let height = writer.height();
-        let image_id = self.image_cache.allocate(width, height, padding).unwrap();
-        self.write_to_atlas(image_id, writer, None);
+        let image_id = image_cache.allocate(width, height, padding).unwrap();
+        self.write_to_atlas(image_id, writer, image_cache, None);
         image_id
     }
 
@@ -402,15 +422,13 @@ impl WebGlRenderer {
         &mut self,
         image_id: vello_common::paint::ImageId,
         writer: &T,
+        image_cache: &ImageCache,
         offset_override: Option<[u32; 2]>,
     ) {
-        let image_resource = self
-            .image_cache
-            .get(image_id)
-            .expect("Image resource not found");
+        let image_resource = image_cache.get(image_id).expect("Image resource not found");
 
         self.programs
-            .maybe_resize_atlas_texture_array(&self.gl, self.image_cache.atlas_count() as u32);
+            .maybe_resize_atlas_texture_array(&self.gl, image_cache.atlas_count() as u32);
         let offset = offset_override.unwrap_or([
             image_resource.offset[0] as u32,
             image_resource.offset[1] as u32,
@@ -423,11 +441,16 @@ impl WebGlRenderer {
             writer.width(),
             writer.height(),
         );
+        debug_log_atlas_pages(&self.gl, &self.programs.resources.atlas_texture_array);
     }
 
     /// Destroy an image from the cache and clear the allocated slot in the atlas.
-    pub fn destroy_image(&mut self, image_id: vello_common::paint::ImageId) {
-        if let Some(image_resource) = self.image_cache.deallocate(image_id) {
+    pub fn destroy_image(
+        &mut self,
+        image_id: vello_common::paint::ImageId,
+        image_cache: &mut ImageCache,
+    ) {
+        if let Some(image_resource) = image_cache.deallocate(image_id) {
             let padding = image_resource.padding as u32;
             self.clear_atlas_region(
                 image_resource.atlas_id,
@@ -490,7 +513,11 @@ impl WebGlRenderer {
         self.gl.delete_framebuffer(Some(&temp_framebuffer));
     }
 
-    fn prepare_gpu_encoded_paints(&mut self, encoded_paints: &[EncodedPaint]) {
+    fn prepare_gpu_encoded_paints(
+        &mut self,
+        encoded_paints: &[EncodedPaint],
+        image_cache: &ImageCache,
+    ) {
         self.encoded_paints
             .resize_with(encoded_paints.len(), || GPU_PAINT_PLACEHOLDER);
         self.paint_idxs.resize(encoded_paints.len() + 1, 0);
@@ -501,7 +528,7 @@ impl WebGlRenderer {
             match paint {
                 EncodedPaint::Image(img) => {
                     if let ImageSource::OpaqueId { id: image_id, .. } = img.source {
-                        let image_resource: Option<&ImageResource> = self.image_cache.get(image_id);
+                        let image_resource: Option<&ImageResource> = image_cache.get(image_id);
                         if let Some(image_resource) = image_resource {
                             let gpu_image = self.encode_image_paint(img, image_resource);
                             self.encoded_paints[encoded_paint_idx] = gpu_image;
@@ -534,6 +561,7 @@ impl WebGlRenderer {
         self.paint_idxs[encoded_paints.len()] = current_idx;
     }
 
+    // TODO: Consolidate with wgpu.rs
     fn encode_image_paint(
         &self,
         image: &vello_common::encode::EncodedImage,
@@ -550,6 +578,31 @@ impl WebGlRenderer {
             image_resource.atlas_id.as_u32(),
         );
         let (tint, tint_mode) = pack_tint(image.tint);
+
+        web_sys::console::log_1(
+            &format!(
+                "[glyph_atlas] encode_image_paint: \
+                 image.transform={:?}, image_transform(after -0.5)={:?}, \
+                 gpu_transform={:?}, \
+                 resource.offset=({}, {}), resource.size={}x{}, resource.padding={}, \
+                 resource.atlas_id={:?}, \
+                 quality={:?}, extends=({:?}, {:?}), tint={:?}",
+                image.transform.as_coeffs(),
+                image_transform.as_coeffs(),
+                transform,
+                image_resource.offset[0],
+                image_resource.offset[1],
+                image_resource.width,
+                image_resource.height,
+                image_resource.padding,
+                image_resource.atlas_id,
+                image.sampler.quality,
+                image.sampler.x_extend,
+                image.sampler.y_extend,
+                image.tint,
+            )
+            .into(),
+        );
 
         GpuEncodedPaint::Image(GpuEncodedImage {
             image_params,
@@ -2234,4 +2287,98 @@ fn copy_to_texture_array_layer(
 
     // Clean up
     gl.delete_framebuffer(Some(&read_framebuffer));
+}
+
+/// Debug helper: read back every atlas layer and log each as a rendered image
+/// in the Chrome DevTools console using the CSS background technique.
+fn debug_log_atlas_pages(gl: &WebGl2RenderingContext, atlas: &WebGlTextureArray) {
+    let size = atlas.size();
+    let width = size.width;
+    let height = size.height;
+    let layer_count = size.depth_or_array_layers;
+
+    if layer_count == 0 {
+        return;
+    }
+
+    let _state_guard = WebGlStateGuard::with_config(
+        gl,
+        WebGlStateConfig {
+            framebuffer: true,
+            ..Default::default()
+        },
+    );
+
+    let read_fb = gl.create_framebuffer().unwrap();
+
+    for layer in 0..layer_count {
+        gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&read_fb));
+        gl.framebuffer_texture_layer(
+            WebGl2RenderingContext::FRAMEBUFFER,
+            WebGl2RenderingContext::COLOR_ATTACHMENT0,
+            Some(&atlas.texture),
+            0,
+            layer as i32,
+        );
+
+        let pixel_count = (width * height * 4) as usize;
+        let mut pixels = vec![0u8; pixel_count];
+        gl.read_pixels_with_opt_u8_array(
+            0,
+            0,
+            width as i32,
+            height as i32,
+            WebGl2RenderingContext::RGBA,
+            WebGl2RenderingContext::UNSIGNED_BYTE,
+            Some(&mut pixels),
+        )
+        .unwrap();
+
+        // No vertical flip needed: both Pixmap uploads (texSubImage3D without
+        // UNPACK_FLIP_Y) and render_to_atlas (naga Y-flip, no corrective blit)
+        // store the visual top at GL y=0, so readPixels already returns rows in
+        // top-to-bottom order matching canvas putImageData.
+
+        let js_pixels = js_sys::Uint8Array::from(&pixels[..]);
+
+        let log_fn = js_sys::Function::new_with_args(
+            "pixels, width, height, layer",
+            r#"
+            var clamped = new Uint8ClampedArray(pixels);
+            var canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            var ctx = canvas.getContext('2d');
+            var imageData = new ImageData(clamped, width, height);
+            ctx.putImageData(imageData, 0, 0);
+            var dataUrl = canvas.toDataURL('image/png');
+            var scale = Math.min(1, 512 / Math.max(width, height));
+            var w = Math.floor(width * scale);
+            var h = Math.floor(height * scale);
+            var style = [
+                'font-size: 1px;',
+                'padding: ' + (h/2) + 'px ' + (w/2) + 'px;',
+                'background: url(' + dataUrl + ') no-repeat;',
+                'background-size: ' + w + 'px ' + h + 'px;'
+            ].join(' ');
+            console.log('Atlas Layer ' + layer + ' (' + width + 'x' + height + ')');
+            console.log('%c ', style);
+            var a = document.createElement('a');
+            a.href = dataUrl;
+            a.download = 'atlas_layer_' + layer + '.png';
+            a.textContent = 'Download atlas_layer_' + layer + '.png';
+            a.style.cssText = 'position:fixed;top:0;left:0;z-index:999999;padding:8px 16px;background:#1a73e8;color:#fff;font:14px sans-serif;border-radius:4px;text-decoration:none;margin:' + (8 + layer * 40) + 'px 8px';
+            document.body.appendChild(a);
+            "#,
+        );
+
+        let args = js_sys::Array::new();
+        args.push(&js_pixels);
+        args.push(&JsValue::from(width));
+        args.push(&JsValue::from(height));
+        args.push(&JsValue::from(layer));
+        let _ = log_fn.apply(&JsValue::NULL, &args);
+    }
+
+    gl.delete_framebuffer(Some(&read_fb));
 }

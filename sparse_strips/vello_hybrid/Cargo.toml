@@ -25,8 +25,8 @@ hashbrown = { workspace = true }
 vello_api = { workspace = true, features = ["std"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-js-sys = { version = "0.3.83", optional = true }
-web-sys = { version = "0.3.83", features = [
+js-sys = { version = "0.3.77", optional = true }
+web-sys = { version = "0.3.77", features = [
     "HtmlCanvasElement",
     "WebGl2RenderingContext",
     "WebGlContextAttributes",
@@ -46,7 +46,7 @@ vello_common = { workspace = true, features = ["pico_svg"] }
 roxmltree = "0.20.0"
 
 [features]
-default = ["wgpu", "wgpu_default", "text"]
+default = ["webgl", "wgpu_default", "text"]
 std = ["wgpu", "vello_common/std"]
 wgpu = ["dep:wgpu", "dep:vello_sparse_shaders"]
 # Enable wgpu with its default features. If you need to customise the set of enabled wgpu features,

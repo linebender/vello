@@ -318,11 +318,24 @@ impl Scene {
                 self.render_state.transform * self.render_state.paint_transform,
                 None,
             ),
-            PaintType::Image(i) => i.encode_into(
-                &mut self.encoded_paints,
-                self.render_state.transform * self.render_state.paint_transform,
-                self.render_state.tint,
-            ),
+            PaintType::Image(i) => {
+                let composed = self.render_state.transform * self.render_state.paint_transform;
+                log::debug!(
+                    "[glyph_atlas] Scene::encode_current_paint(Image): \
+                     geometry_transform={:?}, paint_transform={:?}, \
+                     composed={:?}, tint={:?}, source={:?}",
+                    self.render_state.transform.as_coeffs(),
+                    self.render_state.paint_transform.as_coeffs(),
+                    composed.as_coeffs(),
+                    self.render_state.tint,
+                    i.image,
+                );
+                i.encode_into(
+                    &mut self.encoded_paints,
+                    composed,
+                    self.render_state.tint,
+                )
+            }
         }
     }
 
@@ -459,6 +472,11 @@ impl Scene {
             return;
         }
 
+        log::debug!(
+            "[glyph_atlas] fill_rect slow path (not fast rect): rect={rect:?}, \
+             transform={:?}",
+            self.render_state.transform.as_coeffs(),
+        );
         self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
     }
 
@@ -492,8 +510,20 @@ impl Scene {
 
         // Can't handle mirrored or zero-sized rectangles.
         if x1 <= x0 || y1 <= y0 {
+            log::debug!(
+                "[glyph_atlas] try_fast_rect REJECTED (mirrored/zero): \
+                 rect={rect:?}, transformed=({x0},{y0})-({x1},{y1}), \
+                 transform={:?}",
+                self.render_state.transform.as_coeffs(),
+            );
             return false;
         }
+
+        log::debug!(
+            "[glyph_atlas] try_fast_rect ACCEPTED: \
+             input_rect={rect:?}, screen_rect=({x0},{y0})-({x1},{y1}), \
+             paint={paint:?}",
+        );
 
         self.fast_strips_buffer
             .commands

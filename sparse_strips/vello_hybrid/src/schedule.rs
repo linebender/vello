@@ -488,6 +488,10 @@ impl Scheduler {
 
         match scene.strip_path_mode {
             StripPathMode::FastOnly => {
+                web_sys::console::log_1(&"FastOnly".into());
+                web_sys::console::log_1(
+                    &format!("FastOnly: {:?}", scene.fast_strips_buffer.commands).into(),
+                );
                 // We only have strips.
                 self.push_direct_strips(
                     scene,
@@ -496,6 +500,10 @@ impl Scheduler {
                 );
             }
             StripPathMode::CoarseOnly => {
+                web_sys::console::log_1(&"CoarseOnly".into());
+                web_sys::console::log_1(
+                    &format!("CoarseOnly: {:?}", scene.fast_strips_buffer.commands).into(),
+                );
                 // We only have coarse-rasterized paths.
                 self.process_coarse_batch(
                     state,
@@ -509,10 +517,19 @@ impl Scheduler {
                 )?;
             }
             StripPathMode::Interleaved => {
+                web_sys::console::log_1(&"Interleaved".into());
                 // Alternate fast strip batches with coarse-rasterized layer batches.
                 let mut prev_split = 0;
 
                 for &split in &scene.coarse_batch_splits {
+                    web_sys::console::log_1(
+                        &format!(
+                            "Interleaved (fast): {:?}",
+                            scene.fast_strips_buffer.commands
+                        )
+                        .into(),
+                    );
+
                     // First process any direct strips.
                     if prev_split < split {
                         self.push_direct_strips(scene, prev_split..split, paint_idxs);
@@ -802,6 +819,9 @@ impl Scheduler {
         paint_idxs: &[u32],
         attrs: &CommandAttrs,
     ) -> Result<usize, RenderError> {
+        web_sys::console::log_1(&"do_tile".into());
+        web_sys::console::log_1(&format!("do_tile: {:?}", wide_tile_cmds).into());
+
         // What is going on with the `surface_is_blend_target` and `is_blend_target` variables in
         // `PushBuf`?
         // For blending of two layers (with a non-default blend mode) to work in vello_hybrid,
