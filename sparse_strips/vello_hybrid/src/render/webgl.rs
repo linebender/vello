@@ -383,6 +383,7 @@ impl WebGlRenderer {
             );
         }
 
+        #[cfg(debug_assertions)]
         debug_log_atlas_pages(&self.gl, &self.programs.resources.atlas_texture_array);
 
         result
@@ -496,6 +497,7 @@ impl WebGlRenderer {
             writer.width(),
             writer.height(),
         );
+        #[cfg(debug_assertions)]
         debug_log_atlas_pages(&self.gl, &self.programs.resources.atlas_texture_array);
     }
 
@@ -633,31 +635,6 @@ impl WebGlRenderer {
             image_resource.atlas_id.as_u32(),
         );
         let (tint, tint_mode) = pack_tint(image.tint);
-
-        web_sys::console::log_1(
-            &format!(
-                "[glyph_atlas] encode_image_paint: \
-                 image.transform={:?}, image_transform(after -0.5)={:?}, \
-                 gpu_transform={:?}, \
-                 resource.offset=({}, {}), resource.size={}x{}, resource.padding={}, \
-                 resource.atlas_id={:?}, \
-                 quality={:?}, extends=({:?}, {:?}), tint={:?}",
-                image.transform.as_coeffs(),
-                image_transform.as_coeffs(),
-                transform,
-                image_resource.offset[0],
-                image_resource.offset[1],
-                image_resource.width,
-                image_resource.height,
-                image_resource.padding,
-                image_resource.atlas_id,
-                image.sampler.quality,
-                image.sampler.x_extend,
-                image.sampler.y_extend,
-                image.tint,
-            )
-            .into(),
-        );
 
         GpuEncodedPaint::Image(GpuEncodedImage {
             image_params,
