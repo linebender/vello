@@ -297,7 +297,37 @@ impl WebGlRenderer {
             atlas_framebuffer,
         );
         let saved_render_size =
-            core::mem::replace(&mut self.programs.render_size, atlas_render_size);
+            core::mem::replace(&mut self.programs.render_size, atlas_render_size.clone());
+
+        // Force-upload the atlas config to the GPU uniform buffer.
+        // `maybe_update_config_buffer` (called by `prepare` inside
+        // `render_scene`) skips the upload when `self.render_size` already
+        // equals the requested size — but the actual GPU buffer still holds
+        // the main-scene dimensions from the previous `render()` call.
+        // We cannot use `maybe_update_config_buffer` here because it also
+        // resizes the view texture, which would break the atlas framebuffer
+        // attachment. Instead we upload only the view config buffer directly.
+        {
+            let max_texture_dimension_2d = self.programs.resources.max_texture_dimension_2d;
+            let config = Config {
+                width: atlas_render_size.width,
+                height: atlas_render_size.height,
+                strip_height: u32::from(Tile::HEIGHT),
+                alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+                encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+                _padding: [0; 3],
+            };
+            self.gl.bind_buffer(
+                WebGl2RenderingContext::UNIFORM_BUFFER,
+                Some(&self.programs.resources.view_config_buffer),
+            );
+            let config_data = bytemuck::bytes_of(&config);
+            self.gl.buffer_data_with_u8_array(
+                WebGl2RenderingContext::UNIFORM_BUFFER,
+                config_data,
+                WebGl2RenderingContext::STATIC_DRAW,
+            );
+        }
 
         // Swap in the stub atlas texture array to avoid binding the real atlas
         // texture as a shader input while it is also the render target.
