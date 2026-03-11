@@ -356,7 +356,32 @@ impl WebGlRenderer {
         );
         self.programs.resources.atlas_render_framebuffer = Some(atlas_fb);
 
-        self.programs.render_size = saved_render_size;
+        self.programs.render_size = saved_render_size.clone();
+
+        // TODO: Add tests for this and maybe come up with a better solution.
+        // Restore the original size in the config so that next calls to `render`
+        // will work correctly.
+        {
+            let max_texture_dimension_2d = self.programs.resources.max_texture_dimension_2d;
+            let config = Config {
+                width: saved_render_size.width,
+                height: saved_render_size.height,
+                strip_height: u32::from(Tile::HEIGHT),
+                alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+                encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+                _padding: [0; 3],
+            };
+            self.gl.bind_buffer(
+                WebGl2RenderingContext::UNIFORM_BUFFER,
+                Some(&self.programs.resources.view_config_buffer),
+            );
+            let config_data = bytemuck::bytes_of(&config);
+            self.gl.buffer_data_with_u8_array(
+                WebGl2RenderingContext::UNIFORM_BUFFER,
+                config_data,
+                WebGl2RenderingContext::STATIC_DRAW,
+            );
+        }
 
         debug_log_atlas_pages(&self.gl, &self.programs.resources.atlas_texture_array);
 
