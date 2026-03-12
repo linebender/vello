@@ -1132,6 +1132,23 @@ impl WebGlPrograms {
             )
             .unwrap();
 
+            // Re-attach the texture to the framebuffer after reallocation. Some GPU
+            // drivers (notably Mali on low-end Android devices, accessed through
+            // ANGLE) cache framebuffer completeness and don't re-evaluate it when an
+            // attached texture's storage is reallocated via tex_image_2d while the
+            // framebuffer is not bound.
+            gl.bind_framebuffer(
+                WebGl2RenderingContext::FRAMEBUFFER,
+                Some(&self.resources.view_framebuffer),
+            );
+            gl.framebuffer_texture_2d(
+                WebGl2RenderingContext::FRAMEBUFFER,
+                WebGl2RenderingContext::COLOR_ATTACHMENT0,
+                WebGl2RenderingContext::TEXTURE_2D,
+                Some(&self.resources.view_texture),
+                0,
+            );
+
             self.render_size = new_render_size.clone();
         }
     }
@@ -1659,7 +1676,7 @@ fn create_texture_inner(gl: &WebGl2RenderingContext, target: u32) -> WebGlTextur
     // Also only to be defensive, in theory this shouldn't be necessary since we use
     // `NEAREST` for both filters.
     gl.tex_parameteri(
-        WebGl2RenderingContext::TEXTURE_2D,
+        target,
         WebGl2RenderingContext::TEXTURE_MAX_LEVEL,
         0,
     );

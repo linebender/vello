@@ -11,6 +11,7 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use vello_common::image_cache::ImageCache;
 use vello_common::paint::ImageId;
 use vello_common::{
     kurbo::{Affine, Vec2},
@@ -18,7 +19,7 @@ use vello_common::{
 };
 use vello_example_scenes::AnyScene;
 use vello_example_scenes::image::ImageScene;
-use vello_hybrid::Scene;
+use vello_hybrid::{AtlasConfig, Scene};
 use wasm_bindgen::prelude::*;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 
@@ -28,7 +29,8 @@ struct RendererWrapper {
 
 impl RendererWrapper {
     fn new(canvas: HtmlCanvasElement) -> Self {
-        let renderer = vello_hybrid::WebGlRenderer::new(&canvas);
+        let image_cache = ImageCache::new_with_config(AtlasConfig::default());
+        let renderer = vello_hybrid::WebGlRenderer::new(&canvas, &image_cache);
 
         Self { renderer }
     }
@@ -90,9 +92,11 @@ impl AppState {
             height: self.height,
         };
 
+        let image_cache = ImageCache::new_with_config(AtlasConfig::default());
+
         self.renderer_wrapper
             .renderer
-            .render(&self.scene, &render_size)
+            .render(&self.scene, &image_cache, &render_size)
             .unwrap();
         self.need_render = false;
     }
@@ -184,14 +188,14 @@ impl AppState {
     /// Upload images to the WebGL atlas texture
     /// This is the WebGL analogue of the winit example's `upload_images_to_atlas` function
     fn upload_images_to_atlas(&mut self) {
-        // 1st example — uploading pixmap directly to WebGL atlas
-        let pixmap1 = ImageScene::read_flower_image();
-        self.renderer_wrapper.renderer.upload_image(&pixmap1);
+        // // 1st example — uploading pixmap directly to WebGL atlas
+        // let pixmap1 = ImageScene::read_flower_image();
+        // self.renderer_wrapper.renderer.upload_image(&pixmap1, &self.image_cache);
 
-        // 2nd example — uploading from a WebGL texture
-        let pixmap2 = ImageScene::read_cowboy_image();
-        let texture2 = self.pixmap_to_webgl_texture(&pixmap2);
-        self.renderer_wrapper.renderer.upload_image(&texture2);
+        // // 2nd example — uploading from a WebGL texture
+        // let pixmap2 = ImageScene::read_cowboy_image();
+        // let texture2 = self.pixmap_to_webgl_texture(&pixmap2);
+        // self.renderer_wrapper.renderer.upload_image(&texture2);
     }
 
     /// Convert a pixmap to WebGL texture
@@ -453,12 +457,13 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
         .append_child(&canvas)
         .unwrap();
 
-    let mut renderer = vello_hybrid::WebGlRenderer::new(&canvas);
+    let image_cache = ImageCache::new_with_config(AtlasConfig::default());
+    let mut renderer = vello_hybrid::WebGlRenderer::new(&canvas, &image_cache);
 
     let render_size = vello_hybrid::RenderSize {
         width: width as u32,
         height: height as u32,
     };
 
-    renderer.render(&scene, &render_size).unwrap();
+    renderer.render(&scene, &image_cache, &render_size).unwrap();
 }
