@@ -12,9 +12,6 @@ use crate::scenes::{BenchScene, Param, ParamKind};
 use wasm_bindgen::prelude::*;
 use web_sys::{Document, Element, HtmlElement, HtmlInputElement, HtmlSelectElement};
 
-/// Width of the sidebar in pixels.
-pub const SIDEBAR_WIDTH: u32 = 280;
-
 /// A single parameter control — either a slider or a select.
 enum ParamControl {
     Slider(HtmlInputElement),
@@ -23,17 +20,22 @@ enum ParamControl {
 
 /// References to DOM elements used by the UI.
 pub struct Ui {
+    sidebar: HtmlElement,
+    toggle_btn: HtmlElement,
     fps_label: HtmlElement,
+    render_label: HtmlElement,
     viewport_label: HtmlElement,
     /// Scene selector dropdown.
     pub scene_select: HtmlSelectElement,
     controls: Vec<(ParamControl, HtmlElement, &'static str)>,
+    collapsed: bool,
 }
 
 impl std::fmt::Debug for Ui {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Ui")
             .field("control_count", &self.controls.len())
+            .field("collapsed", &self.collapsed)
             .finish_non_exhaustive()
     }
 }
@@ -57,16 +59,21 @@ impl Ui {
             .set_property("background-color", "#111")
             .unwrap();
 
-        // Sidebar container
-        let sidebar = document.create_element("div").unwrap();
-        let ss = el_style(&sidebar);
+        // Sidebar container — semi-transparent overlay
+        let sidebar: HtmlElement = document
+            .create_element("div")
+            .unwrap()
+            .dyn_into()
+            .unwrap();
+        let ss = sidebar.style();
         ss.set_property("position", "fixed").unwrap();
         ss.set_property("top", "0").unwrap();
         ss.set_property("left", "0").unwrap();
-        ss.set_property("width", &format!("{SIDEBAR_WIDTH}px"))
-            .unwrap();
+        ss.set_property("width", "280px").unwrap();
         ss.set_property("height", "100vh").unwrap();
-        ss.set_property("background", "#1a1a2e").unwrap();
+        ss.set_property("background", "rgba(26, 26, 46, 0.85)")
+            .unwrap();
+        ss.set_property("backdrop-filter", "blur(4px)").unwrap();
         ss.set_property("color", "#e0e0e0").unwrap();
         ss.set_property("font-family", "monospace").unwrap();
         ss.set_property("font-size", "13px").unwrap();
@@ -74,6 +81,35 @@ impl Ui {
         ss.set_property("box-sizing", "border-box").unwrap();
         ss.set_property("overflow-y", "auto").unwrap();
         ss.set_property("z-index", "10").unwrap();
+        ss.set_property("transition", "transform 0.2s ease").unwrap();
+
+        // Collapse/expand toggle button
+        let toggle_btn: HtmlElement = document
+            .create_element("div")
+            .unwrap()
+            .dyn_into()
+            .unwrap();
+        let tb = toggle_btn.style();
+        tb.set_property("position", "fixed").unwrap();
+        tb.set_property("top", "8px").unwrap();
+        tb.set_property("left", "284px").unwrap();
+        tb.set_property("width", "28px").unwrap();
+        tb.set_property("height", "28px").unwrap();
+        tb.set_property("background", "rgba(26, 26, 46, 0.85)")
+            .unwrap();
+        tb.set_property("color", "#7ecfff").unwrap();
+        tb.set_property("border-radius", "0 4px 4px 0").unwrap();
+        tb.set_property("cursor", "pointer").unwrap();
+        tb.set_property("z-index", "11").unwrap();
+        tb.set_property("display", "flex").unwrap();
+        tb.set_property("align-items", "center").unwrap();
+        tb.set_property("justify-content", "center").unwrap();
+        tb.set_property("font-family", "monospace").unwrap();
+        tb.set_property("font-size", "16px").unwrap();
+        tb.set_property("user-select", "none").unwrap();
+        tb.set_property("transition", "left 0.2s ease").unwrap();
+        toggle_btn.set_inner_html("&#x25C0;"); // left arrow
+        body.append_child(&toggle_btn).unwrap();
 
         // Title
         let title = document.create_element("h3").unwrap();
@@ -88,7 +124,7 @@ impl Ui {
         fps_label.set_text_content(Some("FPS: --"));
         fps_label
             .style()
-            .set_property("margin-bottom", "4px")
+            .set_property("margin-bottom", "2px")
             .unwrap();
         fps_label
             .style()
@@ -99,6 +135,19 @@ impl Ui {
             .set_property("font-weight", "bold")
             .unwrap();
         sidebar.append_child(&fps_label).unwrap();
+
+        // Render time display
+        let render_label = create_html_element(document);
+        render_label.set_text_content(Some("Render: --"));
+        render_label
+            .style()
+            .set_property("margin-bottom", "4px")
+            .unwrap();
+        render_label
+            .style()
+            .set_property("color", "#aaa")
+            .unwrap();
+        sidebar.append_child(&render_label).unwrap();
 
         // Viewport size display
         let viewport_label = create_html_element(document);
@@ -155,17 +204,63 @@ impl Ui {
         body.append_child(&sidebar).unwrap();
 
         Self {
+            sidebar,
+            toggle_btn,
             fps_label,
+            render_label,
             viewport_label,
             scene_select,
             controls,
+            collapsed: false,
         }
     }
 
-    /// Update the FPS display.
-    pub fn update_fps(&self, fps: f64, frame_time: f64) {
+    /// Toggle sidebar visibility. Called from the main loop when the toggle button is clicked.
+    pub fn toggle(&mut self) {
+        self.collapsed = !self.collapsed;
+        if self.collapsed {
+            self.sidebar
+                .style()
+                .set_property("transform", "translateX(-100%)")
+                .unwrap();
+            self.toggle_btn
+                .style()
+                .set_property("left", "0")
+                .unwrap();
+            self.toggle_btn
+                .style()
+                .set_property("border-radius", "0 4px 4px 0")
+                .unwrap();
+            self.toggle_btn.set_inner_html("&#x25B6;"); // right arrow
+        } else {
+            self.sidebar
+                .style()
+                .set_property("transform", "translateX(0)")
+                .unwrap();
+            self.toggle_btn
+                .style()
+                .set_property("left", "284px")
+                .unwrap();
+            self.toggle_btn
+                .style()
+                .set_property("border-radius", "0 4px 4px 0")
+                .unwrap();
+            self.toggle_btn.set_inner_html("&#x25C0;"); // left arrow
+        }
+    }
+
+    /// Return a reference to the toggle button element (for event binding).
+    pub fn toggle_btn(&self) -> &HtmlElement {
+        &self.toggle_btn
+    }
+
+    /// Update the FPS and render time displays.
+    pub fn update_timing(&self, fps: f64, frame_time: f64, render_time: f64) {
         self.fps_label.set_text_content(Some(&format!(
             "FPS: {fps:.1}  ({frame_time:.1}ms)"
+        )));
+        self.render_label.set_text_content(Some(&format!(
+            "Render: {render_time:.2}ms"
         )));
     }
 
@@ -202,10 +297,7 @@ impl Ui {
             }
         }
 
-        let body = document.body().unwrap();
-        let sidebar = body.first_element_child().unwrap();
-
-        self.controls = build_controls(document, &sidebar, params);
+        self.controls = build_controls(document, &self.sidebar, params);
     }
 
     /// Read the selected scene index.

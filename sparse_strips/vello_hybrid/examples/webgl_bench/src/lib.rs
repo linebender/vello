@@ -22,7 +22,7 @@ use std::rc::Rc;
 
 use fps::FpsTracker;
 use scenes::BenchScene;
-use ui::{Ui, SIDEBAR_WIDTH};
+use ui::Ui;
 use vello_hybrid::Scene;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
@@ -76,7 +76,10 @@ impl AppState {
             self.scenes[idx].set_param(name, value);
         }
 
-        // Render
+        // Measure CPU render time (scene build + GPU submission)
+        let perf = web_sys::window().unwrap().performance().unwrap();
+        let render_start = perf.now();
+
         self.scene.reset();
         let (w, h) = (self.width, self.height);
         self.scenes[idx].render(&mut self.scene, w, h, now);
@@ -86,10 +89,28 @@ impl AppState {
             height: h,
         };
         self.renderer.render(&self.scene, &render_size).unwrap();
+        // Force GPU sync by reading back a single pixel. Browsers may no-op
+        // gl.finish(), but readPixels must block until all prior draws complete.
+        {
+            let gl = self.renderer.gl_context();
+            let mut pixel = [0_u8; 4];
+            gl.read_pixels_with_opt_u8_array(
+                0,
+                0,
+                1,
+                1,
+                web_sys::WebGl2RenderingContext::RGBA,
+                web_sys::WebGl2RenderingContext::UNSIGNED_BYTE,
+                Some(&mut pixel),
+            )
+            .unwrap();
+        }
 
-        // Update FPS
+        let render_ms = perf.now() - render_start;
+
+        // Update timing display
         let (fps, frame_time) = self.fps_tracker.frame(now);
-        self.ui.update_fps(fps, frame_time);
+        self.ui.update_timing(fps, frame_time, render_ms);
     }
 }
 
@@ -100,38 +121,35 @@ pub async fn run() {
     let performance = window.performance().unwrap();
     let dpr = window.device_pixel_ratio();
 
-    let canvas_css_width = window.inner_width().unwrap().as_f64().unwrap() as u32 - SIDEBAR_WIDTH;
-    let canvas_css_height = window.inner_height().unwrap().as_f64().unwrap() as u32;
-    let canvas_px_width = (canvas_css_width as f64 * dpr) as u32;
-    let canvas_px_height = (canvas_css_height as f64 * dpr) as u32;
+    // Canvas fills the entire viewport
+    let css_w = window.inner_width().unwrap().as_f64().unwrap() as u32;
+    let css_h = window.inner_height().unwrap().as_f64().unwrap() as u32;
+    let px_w = (css_w as f64 * dpr) as u32;
+    let px_h = (css_h as f64 * dpr) as u32;
 
-    // Create canvas
     let canvas: HtmlCanvasElement = document
         .create_element("canvas")
         .unwrap()
         .dyn_into()
         .unwrap();
-    canvas.set_width(canvas_px_width);
-    canvas.set_height(canvas_px_height);
+    canvas.set_width(px_w);
+    canvas.set_height(px_h);
 
     let cs = canvas.style();
     cs.set_property("position", "fixed").unwrap();
     cs.set_property("top", "0").unwrap();
-    cs.set_property("left", &format!("{SIDEBAR_WIDTH}px"))
-        .unwrap();
-    cs.set_property("width", &format!("{canvas_css_width}px"))
-        .unwrap();
-    cs.set_property("height", &format!("{canvas_css_height}px"))
-        .unwrap();
+    cs.set_property("left", "0").unwrap();
+    cs.set_property("width", &format!("{css_w}px")).unwrap();
+    cs.set_property("height", &format!("{css_h}px")).unwrap();
 
     document.body().unwrap().append_child(&canvas).unwrap();
 
     // Build scenes and UI
     let bench_scenes = scenes::all_scenes();
-    let ui = Ui::build(&document, &bench_scenes, 0, canvas_px_width, canvas_px_height);
+    let ui = Ui::build(&document, &bench_scenes, 0, px_w, px_h);
 
     let renderer = vello_hybrid::WebGlRenderer::new(&canvas);
-    let scene = Scene::new(canvas_px_width as u16, canvas_px_height as u16);
+    let scene = Scene::new(px_w as u16, px_h as u16);
 
     let now = performance.now();
 
@@ -141,11 +159,24 @@ pub async fn run() {
         scene,
         renderer,
         canvas,
-        width: canvas_px_width,
-        height: canvas_px_height,
+        width: px_w,
+        height: px_h,
         fps_tracker: FpsTracker::new(now),
         ui,
     }));
+
+    // Toggle button click handler
+    {
+        let toggle_state = state.clone();
+        let toggle_btn = state.borrow().ui.toggle_btn().clone();
+        let closure = Closure::wrap(Box::new(move || {
+            toggle_state.borrow_mut().ui.toggle();
+        }) as Box<dyn FnMut()>);
+        toggle_btn
+            .add_event_listener_with_callback("click", closure.as_ref().unchecked_ref())
+            .unwrap();
+        closure.forget();
+    }
 
     // Animation loop
     {
@@ -170,7 +201,7 @@ pub async fn run() {
             let window = web_sys::window().unwrap();
             let dpr = window.device_pixel_ratio();
 
-            let css_w = window.inner_width().unwrap().as_f64().unwrap() as u32 - SIDEBAR_WIDTH;
+            let css_w = window.inner_width().unwrap().as_f64().unwrap() as u32;
             let css_h = window.inner_height().unwrap().as_f64().unwrap() as u32;
             let px_w = (css_w as f64 * dpr) as u32;
             let px_h = (css_h as f64 * dpr) as u32;

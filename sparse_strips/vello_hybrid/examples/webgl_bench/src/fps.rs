@@ -1,48 +1,74 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! FPS tracking with a rolling average over recent frames.
+//! Frame timing with rolling averages for both wall-clock frame time and CPU render time.
 
 const RING_SIZE: usize = 60;
 
-/// Tracks frame durations and computes rolling average FPS.
+/// Rolling average over a ring buffer of `f64` samples.
 #[derive(Debug)]
-pub(crate) struct FpsTracker {
-    /// Ring buffer of frame durations in milliseconds.
-    durations: [f64; RING_SIZE],
-    /// Current write index into the ring buffer.
+struct RollingAvg {
+    samples: [f64; RING_SIZE],
     index: usize,
-    /// Number of samples collected so far (up to `RING_SIZE`).
     count: usize,
-    /// Timestamp of the previous frame (ms), from `performance.now()`.
-    last_time: f64,
 }
 
-impl FpsTracker {
-    /// Create a new FPS tracker starting at the given timestamp.
-    pub(crate) fn new(now: f64) -> Self {
+impl RollingAvg {
+    fn new() -> Self {
         Self {
-            durations: [0.0; RING_SIZE],
+            samples: [0.0; RING_SIZE],
             index: 0,
             count: 0,
-            last_time: now,
         }
     }
 
-    /// Record a new frame at the given timestamp (ms). Returns `(avg_fps, avg_frame_time_ms)`.
-    pub(crate) fn frame(&mut self, now: f64) -> (f64, f64) {
-        let dt = now - self.last_time;
-        self.last_time = now;
-
-        self.durations[self.index] = dt;
+    fn push(&mut self, value: f64) {
+        self.samples[self.index] = value;
         self.index = (self.index + 1) % RING_SIZE;
         if self.count < RING_SIZE {
             self.count += 1;
         }
+    }
 
-        let sum: f64 = self.durations[..self.count].iter().sum();
-        let avg_ms = sum / self.count as f64;
-        let fps = if avg_ms > 0.0 { 1000.0 / avg_ms } else { 0.0 };
-        (fps, avg_ms)
+    fn avg(&self) -> f64 {
+        if self.count == 0 {
+            return 0.0;
+        }
+        self.samples[..self.count].iter().sum::<f64>() / self.count as f64
+    }
+}
+
+/// Tracks wall-clock frame time (vsync-limited, rolling average) and instantaneous CPU render time.
+#[derive(Debug)]
+pub(crate) struct FpsTracker {
+    last_time: f64,
+    frame_times: RollingAvg,
+}
+
+impl FpsTracker {
+    /// Create a new tracker starting at the given timestamp (ms).
+    pub(crate) fn new(now: f64) -> Self {
+        Self {
+            last_time: now,
+            frame_times: RollingAvg::new(),
+        }
+    }
+
+    /// Record a frame. `now` is the current `performance.now()` timestamp.
+    ///
+    /// Returns `(fps, avg_frame_time_ms)`.
+    pub(crate) fn frame(&mut self, now: f64) -> (f64, f64) {
+        let dt = now - self.last_time;
+        self.last_time = now;
+
+        self.frame_times.push(dt);
+
+        let avg_frame = self.frame_times.avg();
+        let fps = if avg_frame > 0.0 {
+            1000.0 / avg_frame
+        } else {
+            0.0
+        };
+        (fps, avg_frame)
     }
 }
