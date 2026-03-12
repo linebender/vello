@@ -4,8 +4,10 @@
 //! Benchmark scene definitions.
 
 mod rect;
+mod svg;
 
 pub use rect::RectScene;
+pub use svg::TigerScene;
 use vello_hybrid::{Scene, WebGlRenderer};
 
 /// A tweakable parameter for a benchmark scene.
@@ -58,5 +60,5 @@ pub trait BenchScene {
 
 /// Return all available benchmark scenes.
 pub fn all_scenes() -> Vec<Box<dyn BenchScene>> {
-    vec![Box::new(RectScene::new())]
+    vec![Box::new(RectScene::new()), Box::new(TigerScene::new())]
 }

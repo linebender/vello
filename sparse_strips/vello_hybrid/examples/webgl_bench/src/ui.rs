@@ -653,6 +653,15 @@ impl Ui {
             set_prop(&cb, "height", "16px");
             set_prop(&cb, "cursor", "pointer");
             set_prop(&cb, "flex-shrink", "0");
+            // Prevent checkbox clicks from triggering the row's screenshot handler.
+            {
+                let stop = Closure::wrap(Box::new(move |e: web_sys::Event| {
+                    e.stop_propagation();
+                }) as Box<dyn FnMut(_)>);
+                cb.add_event_listener_with_callback("click", stop.as_ref().unchecked_ref())
+                    .unwrap();
+                stop.forget();
+            }
             row.append_child(&cb).unwrap();
 
             // Status dot

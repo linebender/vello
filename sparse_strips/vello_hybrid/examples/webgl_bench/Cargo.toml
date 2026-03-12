@@ -20,7 +20,7 @@ log = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 smallvec = { workspace = true }
-vello_common = { workspace = true }
+vello_common = { workspace = true, features = ["pico_svg"] }
 vello_hybrid = { workspace = true, features = ["webgl"] }
 wasm-bindgen = "0.2.106"
 wasm-bindgen-futures = "0.4.56"
