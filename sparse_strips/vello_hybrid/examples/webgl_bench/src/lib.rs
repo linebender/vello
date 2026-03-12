@@ -91,7 +91,10 @@ impl AppState {
         self.scene.reset();
         let (w, h) = (self.width, self.height);
         self.scenes[idx].render(&mut self.scene, &mut self.renderer, w, h, now);
-        let rs = vello_hybrid::RenderSize { width: w, height: h };
+        let rs = vello_hybrid::RenderSize {
+            width: w,
+            height: h,
+        };
         self.renderer.render(&self.scene, &rs).unwrap();
         gpu_sync(&self.renderer);
 
@@ -147,7 +150,10 @@ fn gpu_sync(renderer: &vello_hybrid::WebGlRenderer) {
     let gl = renderer.gl_context();
     let mut pixel = [0_u8; 4];
     gl.read_pixels_with_opt_u8_array(
-        0, 0, 1, 1,
+        0,
+        0,
+        1,
+        1,
         web_sys::WebGl2RenderingContext::RGBA,
         web_sys::WebGl2RenderingContext::UNSIGNED_BYTE,
         Some(&mut pixel),
@@ -167,7 +173,11 @@ pub async fn run() {
     let px_w = (css_w as f64 * dpr) as u32;
     let px_h = (css_h as f64 * dpr) as u32;
 
-    let canvas: HtmlCanvasElement = document.create_element("canvas").unwrap().dyn_into().unwrap();
+    let canvas: HtmlCanvasElement = document
+        .create_element("canvas")
+        .unwrap()
+        .dyn_into()
+        .unwrap();
     canvas.set_width(px_w);
     canvas.set_height(px_h);
     let cs = canvas.style();
@@ -175,7 +185,8 @@ pub async fn run() {
     cs.set_property("top", "40px").unwrap(); // below top bar
     cs.set_property("left", "0").unwrap();
     cs.set_property("width", &format!("{css_w}px")).unwrap();
-    cs.set_property("height", &format!("{}px", css_h.saturating_sub(40))).unwrap();
+    cs.set_property("height", &format!("{}px", css_h.saturating_sub(40)))
+        .unwrap();
     document.body().unwrap().append_child(&canvas).unwrap();
 
     let bench_scenes = scenes::all_scenes();
@@ -208,8 +219,10 @@ pub async fn run() {
     {
         let s = state.clone();
         let btn = state.borrow().ui.toggle_btn().clone();
-        let cb = Closure::wrap(Box::new(move || s.borrow_mut().ui.toggle_sidebar()) as Box<dyn FnMut()>);
-        btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref()).unwrap();
+        let cb =
+            Closure::wrap(Box::new(move || s.borrow_mut().ui.toggle_sidebar()) as Box<dyn FnMut()>);
+        btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
+            .unwrap();
         cb.forget();
     }
 
@@ -225,9 +238,13 @@ pub async fn run() {
         let canvas_ref = state.borrow().canvas.clone();
         let cb = Closure::wrap(Box::new(move || {
             s.borrow_mut().ui.set_mode(AppMode::Interactive);
-            canvas_ref.style().set_property("visibility", "visible").unwrap();
+            canvas_ref
+                .style()
+                .set_property("visibility", "visible")
+                .unwrap();
         }) as Box<dyn FnMut()>);
-        itab.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref()).unwrap();
+        itab.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
+            .unwrap();
         cb.forget();
 
         let s = state.clone();
@@ -235,9 +252,13 @@ pub async fn run() {
         let cb = Closure::wrap(Box::new(move || {
             s.borrow_mut().ui.set_mode(AppMode::Benchmark);
             // Canvas stays in DOM for WebGL but is invisible.
-            canvas_ref.style().set_property("visibility", "hidden").unwrap();
+            canvas_ref
+                .style()
+                .set_property("visibility", "hidden")
+                .unwrap();
         }) as Box<dyn FnMut()>);
-        btab.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref()).unwrap();
+        btab.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
+            .unwrap();
         cb.forget();
     }
 
@@ -265,7 +286,8 @@ pub async fn run() {
             st.ui.bench_started(&selected);
             st.harness.start(selected);
         }) as Box<dyn FnMut()>);
-        btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref()).unwrap();
+        btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
+            .unwrap();
         cb.forget();
     }
 
@@ -277,7 +299,8 @@ pub async fn run() {
             let st = s.borrow();
             st.ui.save_results(&st.bench_defs);
         }) as Box<dyn FnMut()>);
-        btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref()).unwrap();
+        btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
+            .unwrap();
         cb.forget();
     }
 
@@ -288,7 +311,8 @@ pub async fn run() {
         let cb = Closure::wrap(Box::new(move || {
             s.borrow_mut().ui.load_comparison();
         }) as Box<dyn FnMut()>);
-        sel.add_event_listener_with_callback("change", cb.as_ref().unchecked_ref()).unwrap();
+        sel.add_event_listener_with_callback("change", cb.as_ref().unchecked_ref())
+            .unwrap();
         cb.forget();
     }
 
@@ -300,7 +324,8 @@ pub async fn run() {
             let mut st = s.borrow_mut();
             st.ui.delete_selected_report();
         }) as Box<dyn FnMut()>);
-        btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref()).unwrap();
+        btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
+            .unwrap();
         cb.forget();
     }
 
@@ -331,14 +356,23 @@ pub async fn run() {
 
             st.canvas.set_width(px_w);
             st.canvas.set_height(px_h);
-            st.canvas.style().set_property("width", &format!("{css_w}px")).unwrap();
-            st.canvas.style().set_property("height", &format!("{}px", css_h.saturating_sub(40))).unwrap();
+            st.canvas
+                .style()
+                .set_property("width", &format!("{css_w}px"))
+                .unwrap();
+            st.canvas
+                .style()
+                .set_property("height", &format!("{}px", css_h.saturating_sub(40)))
+                .unwrap();
             st.width = px_w;
             st.height = px_h;
             st.scene = Scene::new(px_w as u16, px_h as u16);
             st.ui.update_viewport(px_w, px_h);
         }) as Box<dyn FnMut(_)>);
-        web_sys::window().unwrap().add_event_listener_with_callback("resize", cb.as_ref().unchecked_ref()).unwrap();
+        web_sys::window()
+            .unwrap()
+            .add_event_listener_with_callback("resize", cb.as_ref().unchecked_ref())
+            .unwrap();
         cb.forget();
     }
 }

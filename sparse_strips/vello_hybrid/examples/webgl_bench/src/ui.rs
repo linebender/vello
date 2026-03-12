@@ -15,7 +15,9 @@ use crate::harness::{BenchDef, BenchResult};
 use crate::scenes::{BenchScene, Param, ParamKind};
 use crate::storage::BenchReport;
 use wasm_bindgen::prelude::*;
-use web_sys::{Document, Element, HtmlElement, HtmlImageElement, HtmlInputElement, HtmlSelectElement};
+use web_sys::{
+    Document, Element, HtmlElement, HtmlImageElement, HtmlInputElement, HtmlSelectElement,
+};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -51,7 +53,11 @@ fn select_style(sel: &HtmlSelectElement) {
 }
 
 fn format_val(v: f64, step: f64) -> String {
-    if step >= 1.0 { format!("{}", v as i64) } else { format!("{v:.1}") }
+    if step >= 1.0 {
+        format!("{}", v as i64)
+    } else {
+        format!("{v:.1}")
+    }
 }
 
 // ── Mode ─────────────────────────────────────────────────────────────────────
@@ -172,18 +178,35 @@ impl Ui {
 
         // ── Top bar ──────────────────────────────────────────────────────
         let top_bar = div(document);
-        set(&top_bar, &[
-            ("position", "fixed"), ("top", "0"), ("left", "0"), ("right", "0"),
-            ("height", "40px"), ("background", "rgba(30, 30, 46, 0.95)"),
-            ("backdrop-filter", "blur(8px)"),
-            ("display", "flex"), ("align-items", "center"),
-            ("padding", "0 16px"), ("z-index", "100"),
-            ("border-bottom", "1px solid #313244"),
-        ]);
+        set(
+            &top_bar,
+            &[
+                ("position", "fixed"),
+                ("top", "0"),
+                ("left", "0"),
+                ("right", "0"),
+                ("height", "40px"),
+                ("background", "rgba(30, 30, 46, 0.95)"),
+                ("backdrop-filter", "blur(8px)"),
+                ("display", "flex"),
+                ("align-items", "center"),
+                ("padding", "0 16px"),
+                ("z-index", "100"),
+                ("border-bottom", "1px solid #313244"),
+            ],
+        );
 
         let logo = div(document);
         logo.set_text_content(Some("vello bench"));
-        set(&logo, &[("color", "#89b4fa"), ("font-weight", "700"), ("margin-right", "24px"), ("font-size", "14px")]);
+        set(
+            &logo,
+            &[
+                ("color", "#89b4fa"),
+                ("font-weight", "700"),
+                ("margin-right", "24px"),
+                ("font-size", "14px"),
+            ],
+        );
         top_bar.append_child(&logo).unwrap();
 
         let tab_interactive = div(document);
@@ -200,59 +223,115 @@ impl Ui {
 
         // ── Interactive view ─────────────────────────────────────────────
         let interactive_view = div(document);
-        set(&interactive_view, &[("position", "fixed"), ("top", "40px"), ("left", "0"), ("right", "0"), ("bottom", "0")]);
+        set(
+            &interactive_view,
+            &[
+                ("position", "fixed"),
+                ("top", "40px"),
+                ("left", "0"),
+                ("right", "0"),
+                ("bottom", "0"),
+            ],
+        );
 
         // Sidebar
         let sidebar: HtmlElement = div(document);
-        set(&sidebar, &[
-            ("position", "absolute"), ("top", "0"), ("left", "0"),
-            ("width", "280px"), ("height", "100%"),
-            ("background", "rgba(30, 30, 46, 0.88)"),
-            ("backdrop-filter", "blur(8px)"),
-            ("padding", "16px"), ("box-sizing", "border-box"),
-            ("overflow-y", "auto"), ("z-index", "10"),
-            ("transition", "transform 0.2s ease"),
-            ("border-right", "1px solid #313244"),
-        ]);
+        set(
+            &sidebar,
+            &[
+                ("position", "absolute"),
+                ("top", "0"),
+                ("left", "0"),
+                ("width", "280px"),
+                ("height", "100%"),
+                ("background", "rgba(30, 30, 46, 0.88)"),
+                ("backdrop-filter", "blur(8px)"),
+                ("padding", "16px"),
+                ("box-sizing", "border-box"),
+                ("overflow-y", "auto"),
+                ("z-index", "10"),
+                ("transition", "transform 0.2s ease"),
+                ("border-right", "1px solid #313244"),
+            ],
+        );
 
         let toggle_btn = div(document);
-        set(&toggle_btn, &[
-            ("position", "absolute"), ("top", "8px"), ("left", "284px"),
-            ("width", "24px"), ("height", "24px"),
-            ("background", "rgba(30, 30, 46, 0.88)"),
-            ("color", "#89b4fa"), ("border-radius", "0 6px 6px 0"),
-            ("cursor", "pointer"), ("z-index", "11"),
-            ("display", "flex"), ("align-items", "center"), ("justify-content", "center"),
-            ("font-size", "14px"), ("user-select", "none"),
-            ("transition", "left 0.2s ease"),
-            ("border", "1px solid #313244"), ("border-left", "none"),
-        ]);
+        set(
+            &toggle_btn,
+            &[
+                ("position", "absolute"),
+                ("top", "8px"),
+                ("left", "284px"),
+                ("width", "24px"),
+                ("height", "24px"),
+                ("background", "rgba(30, 30, 46, 0.88)"),
+                ("color", "#89b4fa"),
+                ("border-radius", "0 6px 6px 0"),
+                ("cursor", "pointer"),
+                ("z-index", "11"),
+                ("display", "flex"),
+                ("align-items", "center"),
+                ("justify-content", "center"),
+                ("font-size", "14px"),
+                ("user-select", "none"),
+                ("transition", "left 0.2s ease"),
+                ("border", "1px solid #313244"),
+                ("border-left", "none"),
+            ],
+        );
         toggle_btn.set_inner_html("&#x25C0;");
         interactive_view.append_child(&toggle_btn).unwrap();
 
         // FPS / Render / Viewport
         let fps_label = div(document);
         fps_label.set_text_content(Some("FPS: --"));
-        set(&fps_label, &[("font-size", "15px"), ("font-weight", "700"), ("color", "#a6e3a1"), ("margin-bottom", "2px")]);
+        set(
+            &fps_label,
+            &[
+                ("font-size", "15px"),
+                ("font-weight", "700"),
+                ("color", "#a6e3a1"),
+                ("margin-bottom", "2px"),
+            ],
+        );
         sidebar.append_child(&fps_label).unwrap();
 
         let render_label = div(document);
         render_label.set_text_content(Some("Render: --"));
-        set(&render_label, &[("color", "#9399b2"), ("margin-bottom", "2px")]);
+        set(
+            &render_label,
+            &[("color", "#9399b2"), ("margin-bottom", "2px")],
+        );
         sidebar.append_child(&render_label).unwrap();
 
         let viewport_label = div(document);
         viewport_label.set_text_content(Some(&format!("Viewport: {vp_w} x {vp_h}")));
-        set(&viewport_label, &[("color", "#6c7086"), ("margin-bottom", "14px")]);
+        set(
+            &viewport_label,
+            &[("color", "#6c7086"), ("margin-bottom", "14px")],
+        );
         sidebar.append_child(&viewport_label).unwrap();
 
         // Scene selector
         let lbl = div(document);
         lbl.set_text_content(Some("Scene"));
-        set(&lbl, &[("color", "#9399b2"), ("margin-bottom", "4px"), ("font-size", "11px"), ("text-transform", "uppercase"), ("letter-spacing", "1px")]);
+        set(
+            &lbl,
+            &[
+                ("color", "#9399b2"),
+                ("margin-bottom", "4px"),
+                ("font-size", "11px"),
+                ("text-transform", "uppercase"),
+                ("letter-spacing", "1px"),
+            ],
+        );
         sidebar.append_child(&lbl).unwrap();
 
-        let scene_select: HtmlSelectElement = document.create_element("select").unwrap().dyn_into().unwrap();
+        let scene_select: HtmlSelectElement = document
+            .create_element("select")
+            .unwrap()
+            .dyn_into()
+            .unwrap();
         select_style(&scene_select);
         set_prop(&scene_select, "margin-bottom", "16px");
         for (i, s) in scenes.iter().enumerate() {
@@ -266,7 +345,13 @@ impl Ui {
 
         // Separator
         let sep = div(document);
-        set(&sep, &[("border-top", "1px solid #313244"), ("margin", "4px 0 12px 0")]);
+        set(
+            &sep,
+            &[
+                ("border-top", "1px solid #313244"),
+                ("margin", "4px 0 12px 0"),
+            ],
+        );
         sidebar.append_child(&sep).unwrap();
 
         // Param controls
@@ -277,55 +362,100 @@ impl Ui {
 
         // ── Benchmark view (hidden initially) ────────────────────────────
         let benchmark_view = div(document);
-        set(&benchmark_view, &[
-            ("position", "fixed"), ("top", "40px"), ("left", "0"), ("right", "0"), ("bottom", "0"),
-            ("display", "none"), ("overflow-y", "auto"),
-            ("padding", "16px 16px 16px 12px"), ("box-sizing", "border-box"),
-        ]);
+        set(
+            &benchmark_view,
+            &[
+                ("position", "fixed"),
+                ("top", "40px"),
+                ("left", "0"),
+                ("right", "0"),
+                ("bottom", "0"),
+                ("display", "none"),
+                ("overflow-y", "auto"),
+                ("padding", "16px 16px 16px 12px"),
+                ("box-sizing", "border-box"),
+            ],
+        );
 
         // Two-column layout: left sidebar (config + screenshot), right main (bench rows)
         let bench_layout = div(document);
-        set(&bench_layout, &[
-            ("display", "flex"), ("gap", "16px"),
-            ("align-items", "flex-start"),
-        ]);
+        set(
+            &bench_layout,
+            &[
+                ("display", "flex"),
+                ("gap", "16px"),
+                ("align-items", "flex-start"),
+            ],
+        );
 
         // ── Left column: config + screenshot below ──────────────────────
         let left_wrapper = div(document);
         set(&left_wrapper, &[("width", "240px"), ("flex-shrink", "0")]);
 
         let left_col = div(document);
-        set(&left_col, &[
-            ("background", "#1e1e2e"), ("border", "1px solid #313244"),
-            ("border-radius", "12px"), ("padding", "16px"),
-            ("box-sizing", "border-box"),
-        ]);
+        set(
+            &left_col,
+            &[
+                ("background", "#1e1e2e"),
+                ("border", "1px solid #313244"),
+                ("border-radius", "12px"),
+                ("padding", "16px"),
+                ("box-sizing", "border-box"),
+            ],
+        );
 
         // Section: Run config
         let section_label = |doc: &Document, text: &str| -> HtmlElement {
             let el = div(doc);
             el.set_text_content(Some(text));
-            set(&el, &[
-                ("color", "#9399b2"), ("font-size", "10px"), ("text-transform", "uppercase"),
-                ("letter-spacing", "1.5px"), ("margin-bottom", "8px"), ("font-weight", "600"),
-            ]);
+            set(
+                &el,
+                &[
+                    ("color", "#9399b2"),
+                    ("font-size", "10px"),
+                    ("text-transform", "uppercase"),
+                    ("letter-spacing", "1.5px"),
+                    ("margin-bottom", "8px"),
+                    ("font-weight", "600"),
+                ],
+            );
             el
         };
 
-        left_col.append_child(&section_label(document, "Run Config")).unwrap();
+        left_col
+            .append_child(&section_label(document, "Run Config"))
+            .unwrap();
 
         let warmup_input = num_input(document, "Warmup", "250");
-        warmup_input.0.style().set_property("margin-bottom", "6px").unwrap();
+        warmup_input
+            .0
+            .style()
+            .set_property("margin-bottom", "6px")
+            .unwrap();
         left_col.append_child(&warmup_input.0).unwrap();
         let run_input = num_input(document, "Run", "1000");
-        run_input.0.style().set_property("margin-bottom", "12px").unwrap();
+        run_input
+            .0
+            .style()
+            .set_property("margin-bottom", "12px")
+            .unwrap();
         left_col.append_child(&run_input.0).unwrap();
 
         // Viewport
-        left_col.append_child(&section_label(document, "Viewport")).unwrap();
+        left_col
+            .append_child(&section_label(document, "Viewport"))
+            .unwrap();
 
         let vp_row = div(document);
-        set(&vp_row, &[("display", "flex"), ("gap", "6px"), ("margin-bottom", "16px"), ("align-items", "center")]);
+        set(
+            &vp_row,
+            &[
+                ("display", "flex"),
+                ("gap", "6px"),
+                ("margin-bottom", "16px"),
+                ("align-items", "center"),
+            ],
+        );
         let vp_width_input = sized_num_input(document, &vp_w.to_string(), "70px");
         vp_row.append_child(&vp_width_input).unwrap();
         let x_label = div(document);
@@ -343,47 +473,94 @@ impl Ui {
         // Start button (full width)
         let start_btn = div(document);
         start_btn.set_text_content(Some("Run Selected"));
-        set(&start_btn, &[
-            ("padding", "10px 0"), ("background", "#89b4fa"), ("color", "#1e1e2e"),
-            ("border-radius", "8px"), ("font-weight", "700"), ("cursor", "pointer"),
-            ("user-select", "none"), ("font-size", "13px"), ("text-align", "center"),
-            ("transition", "opacity 0.15s"), ("margin-bottom", "16px"),
-        ]);
+        set(
+            &start_btn,
+            &[
+                ("padding", "10px 0"),
+                ("background", "#89b4fa"),
+                ("color", "#1e1e2e"),
+                ("border-radius", "8px"),
+                ("font-weight", "700"),
+                ("cursor", "pointer"),
+                ("user-select", "none"),
+                ("font-size", "13px"),
+                ("text-align", "center"),
+                ("transition", "opacity 0.15s"),
+                ("margin-bottom", "16px"),
+            ],
+        );
         left_col.append_child(&start_btn).unwrap();
 
         // Separator
         let sep = div(document);
-        set(&sep, &[("border-top", "1px solid #313244"), ("margin-bottom", "16px")]);
+        set(
+            &sep,
+            &[
+                ("border-top", "1px solid #313244"),
+                ("margin-bottom", "16px"),
+            ],
+        );
         left_col.append_child(&sep).unwrap();
 
         // Save/load section
-        left_col.append_child(&section_label(document, "Reports")).unwrap();
+        left_col
+            .append_child(&section_label(document, "Reports"))
+            .unwrap();
 
         let save_name_input = sized_num_input(document, "baseline", "100%");
         save_name_input.set_type("text");
         save_name_input.set_placeholder("Report name");
-        save_name_input.style().set_property("margin-bottom", "8px").unwrap();
-        save_name_input.style().set_property("box-sizing", "border-box").unwrap();
+        save_name_input
+            .style()
+            .set_property("margin-bottom", "8px")
+            .unwrap();
+        save_name_input
+            .style()
+            .set_property("box-sizing", "border-box")
+            .unwrap();
         left_col.append_child(&save_name_input).unwrap();
 
         let save_btn = div(document);
         save_btn.set_text_content(Some("Save"));
-        set(&save_btn, &[
-            ("padding", "7px 0"), ("background", "#a6e3a1"), ("color", "#1e1e2e"),
-            ("border-radius", "6px"), ("font-weight", "700"), ("cursor", "pointer"),
-            ("user-select", "none"), ("font-size", "12px"), ("text-align", "center"),
-            ("margin-bottom", "12px"),
-        ]);
+        set(
+            &save_btn,
+            &[
+                ("padding", "7px 0"),
+                ("background", "#a6e3a1"),
+                ("color", "#1e1e2e"),
+                ("border-radius", "6px"),
+                ("font-weight", "700"),
+                ("cursor", "pointer"),
+                ("user-select", "none"),
+                ("font-size", "12px"),
+                ("text-align", "center"),
+                ("margin-bottom", "12px"),
+            ],
+        );
         left_col.append_child(&save_btn).unwrap();
 
         let compare_label = div(document);
         compare_label.set_text_content(Some("Compare with"));
-        set(&compare_label, &[("color", "#9399b2"), ("font-size", "11px"), ("margin-bottom", "4px")]);
+        set(
+            &compare_label,
+            &[
+                ("color", "#9399b2"),
+                ("font-size", "11px"),
+                ("margin-bottom", "4px"),
+            ],
+        );
         left_col.append_child(&compare_label).unwrap();
 
-        let compare_select: HtmlSelectElement = document.create_element("select").unwrap().dyn_into().unwrap();
+        let compare_select: HtmlSelectElement = document
+            .create_element("select")
+            .unwrap()
+            .dyn_into()
+            .unwrap();
         select_style(&compare_select);
-        compare_select.style().set_property("margin-bottom", "8px").unwrap();
+        compare_select
+            .style()
+            .set_property("margin-bottom", "8px")
+            .unwrap();
         {
             let opt = document.create_element("option").unwrap();
             opt.set_text_content(Some("(none)"));
@@ -402,17 +579,27 @@ impl Ui {
 
         let delete_btn = div(document);
         delete_btn.set_text_content(Some("Delete Selected Report"));
-        set(&delete_btn, &[
-            ("padding", "6px 0"), ("background", "#45475a"), ("color", "#f38ba8"),
-            ("border-radius", "6px"), ("font-weight", "600"), ("cursor", "pointer"),
-            ("user-select", "none"), ("font-size", "11px"), ("text-align", "center"),
-        ]);
+        set(
+            &delete_btn,
+            &[
+                ("padding", "6px 0"),
+                ("background", "#45475a"),
+                ("color", "#f38ba8"),
+                ("border-radius", "6px"),
+                ("font-weight", "600"),
+                ("cursor", "pointer"),
+                ("user-select", "none"),
+                ("font-size", "11px"),
+                ("text-align", "center"),
+            ],
+        );
         left_col.append_child(&delete_btn).unwrap();
 
         left_wrapper.append_child(&left_col).unwrap();
 
         // Screenshot (below config card, full left-column width)
-        let screenshot_img: HtmlImageElement = document.create_element("img").unwrap().dyn_into().unwrap();
+        let screenshot_img: HtmlImageElement =
+            document.create_element("img").unwrap().dyn_into().unwrap();
         set_prop(&screenshot_img, "width", "100%");
         set_prop(&screenshot_img, "border-radius", "8px");
         set_prop(&screenshot_img, "border", "1px solid #313244");
@@ -438,16 +625,27 @@ impl Ui {
 
         for def in bench_defs {
             let row = div(document);
-            set(&row, &[
-                ("background", "#1e1e2e"), ("border", "1px solid #313244"),
-                ("border-radius", "10px"), ("padding", "12px 16px"),
-                ("margin-bottom", "8px"), ("display", "flex"),
-                ("align-items", "center"), ("gap", "12px"),
-                ("transition", "border-color 0.3s, background 0.3s"),
-            ]);
+            set(
+                &row,
+                &[
+                    ("background", "#1e1e2e"),
+                    ("border", "1px solid #313244"),
+                    ("border-radius", "10px"),
+                    ("padding", "12px 16px"),
+                    ("margin-bottom", "8px"),
+                    ("display", "flex"),
+                    ("align-items", "center"),
+                    ("gap", "12px"),
+                    ("transition", "border-color 0.3s, background 0.3s"),
+                ],
+            );
 
             // Checkbox
-            let cb: HtmlInputElement = document.create_element("input").unwrap().dyn_into().unwrap();
+            let cb: HtmlInputElement = document
+                .create_element("input")
+                .unwrap()
+                .dyn_into()
+                .unwrap();
             cb.set_type("checkbox");
             cb.set_checked(true);
             set_prop(&cb, "accent-color", "#89b4fa");
@@ -459,11 +657,17 @@ impl Ui {
 
             // Status dot
             let dot = div(document);
-            set(&dot, &[
-                ("width", "8px"), ("height", "8px"), ("border-radius", "50%"),
-                ("background", "#45475a"), ("flex-shrink", "0"),
-                ("transition", "background 0.3s"),
-            ]);
+            set(
+                &dot,
+                &[
+                    ("width", "8px"),
+                    ("height", "8px"),
+                    ("border-radius", "50%"),
+                    ("background", "#45475a"),
+                    ("flex-shrink", "0"),
+                    ("transition", "background 0.3s"),
+                ],
+            );
             row.append_child(&dot).unwrap();
 
             // Name + params
@@ -477,19 +681,42 @@ impl Ui {
 
             let params_el = div(document);
             params_el.set_text_content(Some(def.description));
-            set(&params_el, &[("color", "#6c7086"), ("font-size", "11px"), ("margin-top", "2px")]);
+            set(
+                &params_el,
+                &[
+                    ("color", "#6c7086"),
+                    ("font-size", "11px"),
+                    ("margin-top", "2px"),
+                ],
+            );
             info.append_child(&params_el).unwrap();
 
             row.append_child(&info).unwrap();
 
             // Result text (hidden until done)
             let result_text = div(document);
-            set(&result_text, &[("color", "#a6e3a1"), ("font-size", "12px"), ("white-space", "nowrap"), ("display", "none")]);
+            set(
+                &result_text,
+                &[
+                    ("color", "#a6e3a1"),
+                    ("font-size", "12px"),
+                    ("white-space", "nowrap"),
+                    ("display", "none"),
+                ],
+            );
             row.append_child(&result_text).unwrap();
 
             // Delta text (for comparison, hidden until populated)
             let delta_text = div(document);
-            set(&delta_text, &[("font-size", "12px"), ("white-space", "nowrap"), ("display", "none"), ("font-weight", "600")]);
+            set(
+                &delta_text,
+                &[
+                    ("font-size", "12px"),
+                    ("white-space", "nowrap"),
+                    ("display", "none"),
+                    ("font-weight", "600"),
+                ],
+            );
             row.append_child(&delta_text).unwrap();
 
             // Screenshot storage + click handler
@@ -506,7 +733,8 @@ impl Ui {
                         img.style().set_property("display", "block").unwrap();
                     }
                 }) as Box<dyn FnMut()>);
-                row.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref()).unwrap();
+                row.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
+                    .unwrap();
                 cb.forget();
             }
 
@@ -571,14 +799,26 @@ impl Ui {
         self.mode = mode;
         match mode {
             AppMode::Interactive => {
-                self.interactive_view.style().set_property("display", "block").unwrap();
-                self.benchmark_view.style().set_property("display", "none").unwrap();
+                self.interactive_view
+                    .style()
+                    .set_property("display", "block")
+                    .unwrap();
+                self.benchmark_view
+                    .style()
+                    .set_property("display", "none")
+                    .unwrap();
                 style_tab(&self.tab_interactive, true);
                 style_tab(&self.tab_benchmark, false);
             }
             AppMode::Benchmark => {
-                self.interactive_view.style().set_property("display", "none").unwrap();
-                self.benchmark_view.style().set_property("display", "block").unwrap();
+                self.interactive_view
+                    .style()
+                    .set_property("display", "none")
+                    .unwrap();
+                self.benchmark_view
+                    .style()
+                    .set_property("display", "block")
+                    .unwrap();
                 style_tab(&self.tab_interactive, false);
                 style_tab(&self.tab_benchmark, true);
             }
@@ -596,12 +836,21 @@ impl Ui {
     pub fn toggle_sidebar(&mut self) {
         self.sidebar_collapsed = !self.sidebar_collapsed;
         if self.sidebar_collapsed {
-            self.sidebar.style().set_property("transform", "translateX(-100%)").unwrap();
+            self.sidebar
+                .style()
+                .set_property("transform", "translateX(-100%)")
+                .unwrap();
             self.toggle_btn.style().set_property("left", "0").unwrap();
             self.toggle_btn.set_inner_html("&#x25B6;");
         } else {
-            self.sidebar.style().set_property("transform", "translateX(0)").unwrap();
-            self.toggle_btn.style().set_property("left", "284px").unwrap();
+            self.sidebar
+                .style()
+                .set_property("transform", "translateX(0)")
+                .unwrap();
+            self.toggle_btn
+                .style()
+                .set_property("left", "284px")
+                .unwrap();
             self.toggle_btn.set_inner_html("&#x25C0;");
         }
     }
@@ -615,13 +864,16 @@ impl Ui {
 
     /// Update FPS/render displays.
     pub fn update_timing(&self, fps: f64, frame_time: f64, render_time: f64) {
-        self.fps_label.set_text_content(Some(&format!("FPS: {fps:.1}  ({frame_time:.1}ms)")));
-        self.render_label.set_text_content(Some(&format!("Render: {render_time:.2}ms")));
+        self.fps_label
+            .set_text_content(Some(&format!("FPS: {fps:.1}  ({frame_time:.1}ms)")));
+        self.render_label
+            .set_text_content(Some(&format!("Render: {render_time:.2}ms")));
     }
 
     /// Update viewport display.
     pub fn update_viewport(&self, w: u32, h: u32) {
-        self.viewport_label.set_text_content(Some(&format!("Viewport: {w} x {h}")));
+        self.viewport_label
+            .set_text_content(Some(&format!("Viewport: {w} x {h}")));
     }
 
     /// Read interactive param values.
@@ -687,9 +939,18 @@ impl Ui {
 
     /// Reset all rows to idle state before a run.
     pub fn bench_started(&self, selected: &[usize]) {
-        self.screenshot_img.style().set_property("display", "none").unwrap();
-        for (i, (row, (dot, result_text))) in self.bench_rows.iter()
-            .zip(self.bench_status_dots.iter().zip(self.bench_result_texts.iter()))
+        self.screenshot_img
+            .style()
+            .set_property("display", "none")
+            .unwrap();
+        for (i, (row, (dot, result_text))) in self
+            .bench_rows
+            .iter()
+            .zip(
+                self.bench_status_dots
+                    .iter()
+                    .zip(self.bench_result_texts.iter()),
+            )
             .enumerate()
         {
             result_text.style().set_property("display", "none").unwrap();
@@ -707,8 +968,14 @@ impl Ui {
             // Disable checkboxes during run
             self.bench_checkboxes[i].set_disabled(true);
         }
-        self.start_btn.style().set_property("opacity", "0.4").unwrap();
-        self.start_btn.style().set_property("pointer-events", "none").unwrap();
+        self.start_btn
+            .style()
+            .set_property("opacity", "0.4")
+            .unwrap();
+        self.start_btn
+            .style()
+            .set_property("pointer-events", "none")
+            .unwrap();
     }
 
     /// Mark a bench as currently running — prominent red-tinted card.
@@ -716,7 +983,9 @@ impl Ui {
         let row = &self.bench_rows[idx];
         let dot = &self.bench_status_dots[idx];
         row.style().set_property("border-color", "#f38ba8").unwrap();
-        row.style().set_property("background", "rgba(243, 139, 168, 0.15)").unwrap();
+        row.style()
+            .set_property("background", "rgba(243, 139, 168, 0.15)")
+            .unwrap();
         dot.style().set_property("background", "#f38ba8").unwrap();
     }
 
@@ -734,14 +1003,20 @@ impl Ui {
             "{:.2} ms/f  ({} iters)",
             r.ms_per_frame, r.iterations
         )));
-        result_text.style().set_property("display", "block").unwrap();
+        result_text
+            .style()
+            .set_property("display", "block")
+            .unwrap();
         self.show_delta_for(idx, r.ms_per_frame);
     }
 
     /// Show screenshot from data URL and store it for the given bench index.
     pub fn set_screenshot(&self, bench_idx: usize, data_url: &str) {
         self.screenshot_img.set_src(data_url);
-        self.screenshot_img.style().set_property("display", "block").unwrap();
+        self.screenshot_img
+            .style()
+            .set_property("display", "block")
+            .unwrap();
         if let Some(slot) = self.bench_screenshots.get(bench_idx) {
             *slot.borrow_mut() = data_url.to_string();
         }
@@ -751,10 +1026,16 @@ impl Ui {
     pub fn bench_all_done(&self) {
         for (i, cb) in self.bench_checkboxes.iter().enumerate() {
             cb.set_disabled(false);
-            self.bench_rows[i].style().set_property("opacity", "1").unwrap();
+            self.bench_rows[i]
+                .style()
+                .set_property("opacity", "1")
+                .unwrap();
         }
         self.start_btn.style().set_property("opacity", "1").unwrap();
-        self.start_btn.style().set_property("pointer-events", "auto").unwrap();
+        self.start_btn
+            .style()
+            .set_property("pointer-events", "auto")
+            .unwrap();
         self.show_deltas();
     }
 
@@ -863,7 +1144,12 @@ impl Ui {
         };
         let delta_el = &self.bench_delta_texts[idx];
         let name = self.bench_names[idx];
-        let Some(base) = report.results.iter().find(|r| r.name == name).map(|r| r.ms_per_frame) else {
+        let Some(base) = report
+            .results
+            .iter()
+            .find(|r| r.name == name)
+            .map(|r| r.ms_per_frame)
+        else {
             delta_el.style().set_property("display", "none").unwrap();
             return;
         };
@@ -888,7 +1174,9 @@ impl Ui {
             return;
         };
         for (i, delta_el) in self.bench_delta_texts.iter().enumerate() {
-            let cur_text = self.bench_result_texts[i].text_content().unwrap_or_default();
+            let cur_text = self.bench_result_texts[i]
+                .text_content()
+                .unwrap_or_default();
             let cur_ms = cur_text
                 .split(" ms/f")
                 .next()
@@ -974,18 +1262,26 @@ impl Ui {
 // ── Tab styling ──────────────────────────────────────────────────────────────
 
 fn style_tab(el: &HtmlElement, active: bool) {
-    set(el, &[
-        ("padding", "8px 16px"), ("cursor", "pointer"), ("user-select", "none"),
-        ("font-size", "13px"), ("border-radius", "6px 6px 0 0"),
-        ("transition", "color 0.15s, border-color 0.15s"),
-        ("border-bottom", "2px solid"),
-    ]);
+    set(
+        el,
+        &[
+            ("padding", "8px 16px"),
+            ("cursor", "pointer"),
+            ("user-select", "none"),
+            ("font-size", "13px"),
+            ("border-radius", "6px 6px 0 0"),
+            ("transition", "color 0.15s, border-color 0.15s"),
+            ("border-bottom", "2px solid"),
+        ],
+    );
     if active {
         el.style().set_property("color", "#89b4fa").unwrap();
         el.style().set_property("border-color", "#89b4fa").unwrap();
     } else {
         el.style().set_property("color", "#6c7086").unwrap();
-        el.style().set_property("border-color", "transparent").unwrap();
+        el.style()
+            .set_property("border-color", "transparent")
+            .unwrap();
     }
 }
 
@@ -993,14 +1289,25 @@ fn style_tab(el: &HtmlElement, active: bool) {
 
 fn num_input(document: &Document, label: &str, default: &str) -> (HtmlElement, HtmlInputElement) {
     let wrapper = div(document);
-    set(&wrapper, &[("display", "flex"), ("align-items", "center"), ("gap", "6px")]);
+    set(
+        &wrapper,
+        &[
+            ("display", "flex"),
+            ("align-items", "center"),
+            ("gap", "6px"),
+        ],
+    );
 
     let lbl = div(document);
     lbl.set_text_content(Some(label));
     set(&lbl, &[("color", "#9399b2"), ("font-size", "12px")]);
     wrapper.append_child(&lbl).unwrap();
 
-    let input: HtmlInputElement = document.create_element("input").unwrap().dyn_into().unwrap();
+    let input: HtmlInputElement = document
+        .create_element("input")
+        .unwrap()
+        .dyn_into()
+        .unwrap();
     input.set_type("number");
     input.set_value(default);
     set_prop(&input, "width", "70px");
@@ -1022,7 +1329,11 @@ fn num_input(document: &Document, label: &str, default: &str) -> (HtmlElement, H
 }
 
 fn sized_num_input(document: &Document, default: &str, width: &str) -> HtmlInputElement {
-    let input: HtmlInputElement = document.create_element("input").unwrap().dyn_into().unwrap();
+    let input: HtmlInputElement = document
+        .create_element("input")
+        .unwrap()
+        .dyn_into()
+        .unwrap();
     input.set_type("number");
     input.set_value(default);
     set_prop(&input, "width", width);
@@ -1056,15 +1367,35 @@ fn build_controls(
 
         let label = div(document);
         label.set_text_content(Some(p.label));
-        set(&label, &[("color", "#9399b2"), ("margin-bottom", "4px"), ("font-size", "11px"), ("text-transform", "uppercase"), ("letter-spacing", "1px")]);
+        set(
+            &label,
+            &[
+                ("color", "#9399b2"),
+                ("margin-bottom", "4px"),
+                ("font-size", "11px"),
+                ("text-transform", "uppercase"),
+                ("letter-spacing", "1px"),
+            ],
+        );
         row.append_child(&label).unwrap();
 
         let val_span = div(document);
-        set(&val_span, &[("display", "inline"), ("margin-left", "8px"), ("color", "#cdd6f4")]);
+        set(
+            &val_span,
+            &[
+                ("display", "inline"),
+                ("margin-left", "8px"),
+                ("color", "#cdd6f4"),
+            ],
+        );
 
         let ctrl = match &p.kind {
             ParamKind::Slider { min, max, step } => {
-                let input: HtmlInputElement = document.create_element("input").unwrap().dyn_into().unwrap();
+                let input: HtmlInputElement = document
+                    .create_element("input")
+                    .unwrap()
+                    .dyn_into()
+                    .unwrap();
                 input.set_type("range");
                 input.set_min(&min.to_string());
                 input.set_max(&max.to_string());
@@ -1087,14 +1418,20 @@ fn build_controls(
                         let v: f64 = ic.value().parse().unwrap_or(0.0);
                         vc.set_text_content(Some(&format_val(v, st)));
                     }) as Box<dyn FnMut()>);
-                    input.add_event_listener_with_callback("input", cb.as_ref().unchecked_ref()).unwrap();
+                    input
+                        .add_event_listener_with_callback("input", cb.as_ref().unchecked_ref())
+                        .unwrap();
                     cb.forget();
                 }
 
                 ParamCtrl::Slider(input)
             }
             ParamKind::Select(options) => {
-                let sel: HtmlSelectElement = document.create_element("select").unwrap().dyn_into().unwrap();
+                let sel: HtmlSelectElement = document
+                    .create_element("select")
+                    .unwrap()
+                    .dyn_into()
+                    .unwrap();
                 select_style(&sel);
                 sel.set_disabled(read_only);
                 for &(text, val) in options {
@@ -1103,7 +1440,10 @@ fn build_controls(
                     opt.set_attribute("value", &val.to_string()).unwrap();
                     sel.append_child(&opt).unwrap();
                 }
-                let idx = options.iter().position(|&(_, v)| (v - p.value).abs() < f64::EPSILON).unwrap_or(0);
+                let idx = options
+                    .iter()
+                    .position(|&(_, v)| (v - p.value).abs() < f64::EPSILON)
+                    .unwrap_or(0);
                 sel.set_selected_index(idx as i32);
                 row.append_child(&sel).unwrap();
 

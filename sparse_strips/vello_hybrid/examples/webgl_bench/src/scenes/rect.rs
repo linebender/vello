@@ -123,8 +123,15 @@ impl RectScene {
             let freq = rng.f64() * 5.0 + 3.0;
             let max_dist = (cx * cx + cy * cy).sqrt();
 
-            let mut pixels =
-                vec![PremulRgba8 { r: 0, g: 0, b: 0, a: 0 }; s as usize * s as usize];
+            let mut pixels = vec![
+                PremulRgba8 {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 0
+                };
+                s as usize * s as usize
+            ];
 
             for y in 0..IMAGE_SIZE {
                 for x in 0..IMAGE_SIZE {
@@ -158,7 +165,8 @@ impl RectScene {
                 }
             }
 
-            let pixmap = Pixmap::from_parts_with_opacity(pixels, IMAGE_SIZE, IMAGE_SIZE, !self.image_opaque);
+            let pixmap =
+                Pixmap::from_parts_with_opacity(pixels, IMAGE_SIZE, IMAGE_SIZE, !self.image_opaque);
             let id = renderer.upload_image(&pixmap);
             self.image_ids.push(id);
         }
@@ -208,11 +216,7 @@ impl BenchScene for RectScene {
             Param {
                 name: "paint_mode",
                 label: "Paint",
-                kind: ParamKind::Select(vec![
-                    ("Solid", 0.0),
-                    ("Gradient", 1.0),
-                    ("Image", 2.0),
-                ]),
+                kind: ParamKind::Select(vec![("Solid", 0.0), ("Gradient", 1.0), ("Image", 2.0)]),
                 value: self.paint_mode as f64,
             },
             Param {
@@ -332,11 +336,7 @@ impl BenchScene for RectScene {
                     scene.set_paint(r.color);
                 }
                 1 => {
-                    let (gx, gy) = if self.rotated {
-                        (0.0, 0.0)
-                    } else {
-                        (r.x, r.y)
-                    };
+                    let (gx, gy) = if self.rotated { (0.0, 0.0) } else { (r.x, r.y) };
                     let gradient = Gradient {
                         kind: LinearGradientPosition {
                             start: Point::new(gx, gy),
