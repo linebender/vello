@@ -12,9 +12,9 @@ use smallvec::smallvec;
 use std::cmp::max;
 use std::sync::Arc;
 use vello_common::color::DynamicColor;
-use vello_common::color::palette::css::{BLUE, GREEN, RED, WHITE, YELLOW};
+use vello_common::color::palette::css::{BLUE, GREEN, RED, YELLOW};
 use vello_common::glyph::Glyph;
-use vello_common::kurbo::{BezPath, Join, Point, Rect, Shape, Stroke, Vec2};
+use vello_common::kurbo::{BezPath, Join, Point, Stroke, Vec2};
 use vello_common::peniko::{Blob, ColorStop, ColorStops, FontData};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::{Level, RenderMode};
@@ -100,7 +100,6 @@ macro_rules! load_image {
 pub(crate) fn get_ctx<T: Renderer>(
     width: u16,
     height: u16,
-    transparent: bool,
     num_threads: u16,
     level: &str,
     render_mode: RenderMode,
@@ -143,7 +142,7 @@ pub(crate) fn get_ctx<T: Renderer>(
         _ => panic!("unknown level: {level}"),
     };
 
-    let mut ctx = T::new(
+    let ctx = T::new(
         width,
         height,
         num_threads,
@@ -151,13 +150,6 @@ pub(crate) fn get_ctx<T: Renderer>(
         render_mode,
         default_blending_only,
     );
-
-    if !transparent {
-        let path = Rect::new(0.0, 0.0, width as f64, height as f64).to_path(0.1);
-
-        ctx.set_paint(WHITE);
-        ctx.fill_path(&path);
-    }
 
     ctx
 }
