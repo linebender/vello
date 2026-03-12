@@ -841,6 +841,7 @@ impl Scene {
 
     /// Set the fill rule for subsequent fill operations.
     pub fn set_fill_rule(&mut self, fill_rule: Fill) {
+        unimplemented!();
         self.render_state.fill_rule = fill_rule;
     }
 
