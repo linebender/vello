@@ -254,6 +254,8 @@ impl Ui {
                 ("z-index", "10"),
                 ("transition", "transform 0.2s ease"),
                 ("border-right", "1px solid #313244"),
+                ("display", "flex"),
+                ("flex-direction", "column"),
             ],
         );
 
@@ -365,7 +367,7 @@ impl Ui {
         set(
             &reset_view_btn,
             &[
-                ("margin-top", "12px"),
+                ("margin-top", "auto"),
                 ("padding", "6px 12px"),
                 ("background", "#313244"),
                 ("color", "#cdd6f4"),
@@ -890,6 +892,11 @@ impl Ui {
     /// Toggle button for event binding.
     pub fn toggle_btn(&self) -> &HtmlElement {
         &self.toggle_btn
+    }
+
+    /// Sidebar element (for hit-testing).
+    pub fn sidebar(&self) -> &HtmlElement {
+        &self.sidebar
     }
 
     // ── Interactive displays ─────────────────────────────────────────────

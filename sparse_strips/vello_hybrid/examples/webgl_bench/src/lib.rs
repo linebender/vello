@@ -393,10 +393,19 @@ pub async fn run() {
     // Canvas panning (mouse drag on window, only in interactive mode)
     {
         let s = state.clone();
+        let sidebar = state.borrow().ui.sidebar().clone();
         let cb = Closure::wrap(Box::new(move |e: web_sys::MouseEvent| {
             let mut st = s.borrow_mut();
             if st.ui.mode != AppMode::Interactive {
                 return;
+            }
+            // Don't start drag when clicking on sidebar controls.
+            if let Some(target) = e.target() {
+                if let Ok(node) = target.dyn_into::<web_sys::Node>() {
+                    if sidebar.contains(Some(&node)) {
+                        return;
+                    }
+                }
             }
             st.dragging = true;
             st.drag_last_x = e.client_x() as f64;

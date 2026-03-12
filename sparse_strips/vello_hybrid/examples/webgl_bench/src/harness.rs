@@ -319,7 +319,7 @@ pub(crate) fn bench_defs() -> Vec<BenchDef> {
         BenchDef {
             name: "Tiger SVG · 1×",
             description: "Ghostscript Tiger SVG fit to viewport",
-            scene_idx: 1,
+            scene_idx: 2,
             params: &[],
         },
     ]
