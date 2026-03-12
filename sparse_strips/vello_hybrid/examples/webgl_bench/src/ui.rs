@@ -13,6 +13,7 @@ use std::rc::Rc;
 
 use crate::harness::{BenchDef, BenchResult};
 use crate::scenes::{BenchScene, Param, ParamKind};
+use crate::storage::BenchReport;
 use wasm_bindgen::prelude::*;
 use web_sys::{Document, Element, HtmlElement, HtmlImageElement, HtmlInputElement, HtmlSelectElement};
 
@@ -111,7 +112,27 @@ pub struct Ui {
     bench_result_texts: Vec<HtmlElement>,
     /// Stored screenshot data URLs per bench (empty string if not yet captured).
     bench_screenshots: Vec<Rc<RefCell<String>>>,
+    /// Delta text elements per row (for comparison).
+    bench_delta_texts: Vec<HtmlElement>,
+    /// Bench names (in order of `bench_defs`).
+    bench_names: Vec<&'static str>,
     screenshot_img: HtmlImageElement,
+
+    // Viewport config
+    vp_width_input: HtmlInputElement,
+    vp_height_input: HtmlInputElement,
+
+    // Save/load
+    save_name_input: HtmlInputElement,
+    /// Save button.
+    pub save_btn: HtmlElement,
+    /// Compare dropdown.
+    pub compare_select: HtmlSelectElement,
+    /// Delete button for saved reports.
+    pub delete_btn: HtmlElement,
+
+    /// Currently loaded comparison report (if any).
+    compare_report: Option<BenchReport>,
 
     /// Current mode.
     pub mode: AppMode,
@@ -290,6 +311,84 @@ impl Ui {
         config_row.append_child(&start_btn).unwrap();
         inner.append_child(&config_row).unwrap();
 
+        // Viewport config row
+        let vp_row = div(document);
+        set(&vp_row, &[("display", "flex"), ("gap", "16px"), ("margin-bottom", "12px"), ("align-items", "center"), ("flex-wrap", "wrap")]);
+
+        let vp_label = div(document);
+        vp_label.set_text_content(Some("Viewport:"));
+        set(&vp_label, &[("color", "#9399b2"), ("font-size", "12px")]);
+        vp_row.append_child(&vp_label).unwrap();
+
+        let vp_width_input = sized_num_input(document, &vp_w.to_string(), "70px");
+        vp_row.append_child(&vp_width_input).unwrap();
+        let x_label = div(document);
+        x_label.set_text_content(Some("x"));
+        set(&x_label, &[("color", "#6c7086")]);
+        vp_row.append_child(&x_label).unwrap();
+        let vp_height_input = sized_num_input(document, &vp_h.to_string(), "70px");
+        vp_row.append_child(&vp_height_input).unwrap();
+        let px_label = div(document);
+        px_label.set_text_content(Some("px"));
+        set(&px_label, &[("color", "#6c7086"), ("font-size", "11px")]);
+        vp_row.append_child(&px_label).unwrap();
+
+        inner.append_child(&vp_row).unwrap();
+
+        // Save/load row
+        let save_row = div(document);
+        set(&save_row, &[("display", "flex"), ("gap", "10px"), ("margin-bottom", "20px"), ("align-items", "center"), ("flex-wrap", "wrap")]);
+
+        let save_name_input = sized_num_input(document, "baseline", "140px");
+        save_name_input.set_type("text");
+        save_name_input.set_placeholder("Report name");
+        save_row.append_child(&save_name_input).unwrap();
+
+        let save_btn = div(document);
+        save_btn.set_text_content(Some("Save"));
+        set(&save_btn, &[
+            ("padding", "6px 16px"), ("background", "#a6e3a1"), ("color", "#1e1e2e"),
+            ("border-radius", "6px"), ("font-weight", "700"), ("cursor", "pointer"),
+            ("user-select", "none"), ("font-size", "12px"),
+        ]);
+        save_row.append_child(&save_btn).unwrap();
+
+        let compare_label = div(document);
+        compare_label.set_text_content(Some("Compare:"));
+        set(&compare_label, &[("color", "#9399b2"), ("font-size", "12px"), ("margin-left", "8px")]);
+        save_row.append_child(&compare_label).unwrap();
+
+        let compare_select: HtmlSelectElement = document.create_element("select").unwrap().dyn_into().unwrap();
+        select_style(&compare_select);
+        compare_select.style().set_property("width", "160px").unwrap();
+        // Populate with existing reports
+        {
+            let opt = document.create_element("option").unwrap();
+            opt.set_text_content(Some("(none)"));
+            opt.set_attribute("value", "").unwrap();
+            compare_select.append_child(&opt).unwrap();
+        }
+        let saved = crate::storage::load_reports();
+        for (i, r) in saved.reports.iter().enumerate() {
+            let opt = document.create_element("option").unwrap();
+            let label = format!("{} ({}x{})", r.label, r.viewport_width, r.viewport_height);
+            opt.set_text_content(Some(&label));
+            opt.set_attribute("value", &i.to_string()).unwrap();
+            compare_select.append_child(&opt).unwrap();
+        }
+        save_row.append_child(&compare_select).unwrap();
+
+        let delete_btn = div(document);
+        delete_btn.set_text_content(Some("Delete"));
+        set(&delete_btn, &[
+            ("padding", "6px 12px"), ("background", "#f38ba8"), ("color", "#1e1e2e"),
+            ("border-radius", "6px"), ("font-weight", "700"), ("cursor", "pointer"),
+            ("user-select", "none"), ("font-size", "12px"),
+        ]);
+        save_row.append_child(&delete_btn).unwrap();
+
+        inner.append_child(&save_row).unwrap();
+
         // Screenshot (shown during/after runs)
         let screenshot_img: HtmlImageElement = document.create_element("img").unwrap().dyn_into().unwrap();
         set_prop(&screenshot_img, "max-width", "360px");
@@ -305,6 +404,8 @@ impl Ui {
         let mut bench_status_dots = Vec::new();
         let mut bench_result_texts = Vec::new();
         let mut bench_screenshots: Vec<Rc<RefCell<String>>> = Vec::new();
+        let mut bench_delta_texts = Vec::new();
+        let mut bench_names: Vec<&'static str> = Vec::new();
         let screenshot_img_rc = Rc::new(screenshot_img);
 
         for def in bench_defs {
@@ -370,6 +471,11 @@ impl Ui {
             set(&result_text, &[("color", "#a6e3a1"), ("font-size", "12px"), ("white-space", "nowrap"), ("display", "none")]);
             row.append_child(&result_text).unwrap();
 
+            // Delta text (for comparison, hidden until populated)
+            let delta_text = div(document);
+            set(&delta_text, &[("font-size", "12px"), ("white-space", "nowrap"), ("display", "none"), ("font-weight", "600")]);
+            row.append_child(&delta_text).unwrap();
+
             // Screenshot storage + click handler
             let screenshot_data: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
             {
@@ -395,12 +501,14 @@ impl Ui {
             bench_status_dots.push(dot);
             bench_result_texts.push(result_text);
             bench_screenshots.push(screenshot_data);
+            bench_delta_texts.push(delta_text);
+            bench_names.push(def.name);
         }
 
         benchmark_view.append_child(&inner).unwrap();
         body.append_child(&benchmark_view).unwrap();
 
-        Self {
+        let mut ui = Self {
             top_bar,
             interactive_view,
             benchmark_view,
@@ -422,9 +530,21 @@ impl Ui {
             bench_status_dots,
             bench_result_texts,
             bench_screenshots,
+            bench_delta_texts,
+            bench_names,
             screenshot_img: (*screenshot_img_rc).clone(),
-            mode: AppMode::Interactive,
-        }
+            vp_width_input,
+            vp_height_input,
+            save_name_input,
+            save_btn,
+            compare_select,
+            delete_btn,
+            compare_report: None,
+            mode: AppMode::Benchmark,
+        };
+        // Start in Benchmark mode.
+        ui.set_mode(AppMode::Benchmark);
+        ui
     }
 
     // ── Mode switching ───────────────────────────────────────────────────
@@ -609,7 +729,7 @@ impl Ui {
         }
     }
 
-    /// All benchmarks done — re-enable UI.
+    /// All benchmarks done — re-enable UI and show deltas if comparison loaded.
     pub fn bench_all_done(&self) {
         for (i, cb) in self.bench_checkboxes.iter().enumerate() {
             cb.set_disabled(false);
@@ -617,6 +737,188 @@ impl Ui {
         }
         self.start_btn.style().set_property("opacity", "1").unwrap();
         self.start_btn.style().set_property("pointer-events", "auto").unwrap();
+        self.show_deltas();
+    }
+
+    // ── Save / Load / Compare ─────────────────────────────────────────
+
+    /// Save current benchmark results to localStorage.
+    pub(crate) fn save_results(&self, bench_defs: &[BenchDef]) {
+        let label = self.save_name_input.value();
+        let label = label.trim();
+        if label.is_empty() {
+            return;
+        }
+        let vp_w: u32 = self.vp_width_input.value().parse().unwrap_or(0);
+        let vp_h: u32 = self.vp_height_input.value().parse().unwrap_or(0);
+
+        let mut results = Vec::new();
+        for (i, rt) in self.bench_result_texts.iter().enumerate() {
+            let text = rt.text_content().unwrap_or_default();
+            if text.is_empty() {
+                continue;
+            }
+            // Parse "X.XX ms/f  (N iters)"
+            if let Some(ms_str) = text.split(" ms/f").next()
+                && let Ok(ms) = ms_str.trim().parse::<f64>()
+            {
+                let iters = text
+                    .split('(')
+                    .nth(1)
+                    .and_then(|s| s.split(' ').next())
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(0);
+                results.push(crate::storage::SavedResult {
+                    name: bench_defs[i].name.to_string(),
+                    ms_per_frame: ms,
+                    iterations: iters,
+                });
+            }
+        }
+
+        if results.is_empty() {
+            return;
+        }
+
+        crate::storage::save_report(BenchReport {
+            label: label.to_string(),
+            viewport_width: vp_w,
+            viewport_height: vp_h,
+            results,
+        });
+
+        self.refresh_compare_dropdown();
+    }
+
+    /// Refresh the compare dropdown with current saved reports.
+    pub fn refresh_compare_dropdown(&self) {
+        // Clear existing options.
+        self.compare_select.set_inner_html("");
+        let d = doc();
+        let none_opt = d.create_element("option").unwrap();
+        none_opt.set_text_content(Some("(none)"));
+        none_opt.set_attribute("value", "").unwrap();
+        self.compare_select.append_child(&none_opt).unwrap();
+
+        let saved = crate::storage::load_reports();
+        for (i, r) in saved.reports.iter().enumerate() {
+            let opt = d.create_element("option").unwrap();
+            let lbl = format!("{} ({}x{})", r.label, r.viewport_width, r.viewport_height);
+            opt.set_text_content(Some(&lbl));
+            opt.set_attribute("value", &i.to_string()).unwrap();
+            self.compare_select.append_child(&opt).unwrap();
+        }
+    }
+
+    /// Load a comparison report by index, or clear if empty.
+    pub fn load_comparison(&mut self) {
+        let val = self.compare_select.value();
+        if val.is_empty() {
+            self.compare_report = None;
+            self.hide_deltas();
+            return;
+        }
+        let idx: usize = match val.parse() {
+            Ok(i) => i,
+            Err(_) => {
+                self.compare_report = None;
+                self.hide_deltas();
+                return;
+            }
+        };
+        let store = crate::storage::load_reports();
+        if let Some(report) = store.reports.get(idx).cloned() {
+            self.compare_report = Some(report);
+            self.show_deltas();
+        }
+    }
+
+    /// Show delta indicators comparing current results to loaded report.
+    fn show_deltas(&self) {
+        let Some(ref report) = self.compare_report else {
+            return;
+        };
+        for (i, delta_el) in self.bench_delta_texts.iter().enumerate() {
+            let cur_text = self.bench_result_texts[i].text_content().unwrap_or_default();
+            let cur_ms = cur_text
+                .split(" ms/f")
+                .next()
+                .and_then(|s| s.trim().parse::<f64>().ok());
+            let Some(cur) = cur_ms else {
+                delta_el.style().set_property("display", "none").unwrap();
+                continue;
+            };
+
+            let name = self.bench_names[i];
+            let baseline = report
+                .results
+                .iter()
+                .find(|r| r.name == name)
+                .map(|r| r.ms_per_frame);
+
+            let Some(base) = baseline else {
+                delta_el.style().set_property("display", "none").unwrap();
+                continue;
+            };
+
+            let pct = ((cur - base) / base) * 100.0;
+            let abs_pct = pct.abs();
+
+            if abs_pct < 5.0 {
+                // Within noise — grey.
+                delta_el.set_text_content(Some(&format!("{pct:+.1}%")));
+                delta_el.style().set_property("color", "#6c7086").unwrap();
+            } else if pct < 0.0 {
+                // Faster — green.
+                delta_el.set_text_content(Some(&format!("{pct:+.1}%")));
+                delta_el.style().set_property("color", "#a6e3a1").unwrap();
+            } else {
+                // Slower — red.
+                delta_el.set_text_content(Some(&format!("+{pct:.1}%")));
+                delta_el.style().set_property("color", "#f38ba8").unwrap();
+            }
+            delta_el.style().set_property("display", "block").unwrap();
+        }
+    }
+
+    /// Hide all delta indicators.
+    pub fn hide_deltas(&self) {
+        for el in &self.bench_delta_texts {
+            el.style().set_property("display", "none").unwrap();
+        }
+    }
+
+    /// Read configured viewport width.
+    pub fn configured_viewport(&self) -> (u32, u32) {
+        let w: u32 = self.vp_width_input.value().parse().unwrap_or(0);
+        let h: u32 = self.vp_height_input.value().parse().unwrap_or(0);
+        (w, h)
+    }
+
+    /// Save button ref.
+    pub fn save_btn(&self) -> &HtmlElement {
+        &self.save_btn
+    }
+
+    /// Compare select ref.
+    pub fn compare_select(&self) -> &HtmlSelectElement {
+        &self.compare_select
+    }
+
+    /// Delete the currently selected comparison report.
+    pub fn delete_selected_report(&mut self) {
+        let val = self.compare_select.value();
+        if val.is_empty() {
+            return;
+        }
+        let idx: usize = match val.parse() {
+            Ok(i) => i,
+            Err(_) => return,
+        };
+        crate::storage::delete_report(idx);
+        self.compare_report = None;
+        self.hide_deltas();
+        self.refresh_compare_dropdown();
     }
 }
 
@@ -668,6 +970,21 @@ fn num_input(document: &Document, label: &str, default: &str) -> (HtmlElement, H
     wrapper.append_child(&ms).unwrap();
 
     (wrapper, input)
+}
+
+fn sized_num_input(document: &Document, default: &str, width: &str) -> HtmlInputElement {
+    let input: HtmlInputElement = document.create_element("input").unwrap().dyn_into().unwrap();
+    input.set_type("number");
+    input.set_value(default);
+    set_prop(&input, "width", width);
+    set_prop(&input, "background", "#1e1e2e");
+    set_prop(&input, "color", "#cdd6f4");
+    set_prop(&input, "border", "1px solid #45475a");
+    set_prop(&input, "border-radius", "6px");
+    set_prop(&input, "padding", "4px 8px");
+    set_prop(&input, "font-family", "inherit");
+    set_prop(&input, "font-size", "12px");
+    input
 }
 
 fn set_prop(el: &impl AsRef<HtmlElement>, k: &str, v: &str) {

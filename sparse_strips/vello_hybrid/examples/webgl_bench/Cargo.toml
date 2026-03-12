@@ -17,6 +17,8 @@ workspace = true
 console_error_panic_hook = { workspace = true }
 console_log = { workspace = true }
 log = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 smallvec = { workspace = true }
 vello_common = { workspace = true }
 vello_hybrid = { workspace = true, features = ["webgl"] }
@@ -34,6 +36,7 @@ web-sys = { version = "0.3.83", features = [
     "CssStyleDeclaration",
     "WebGl2RenderingContext",
     "Performance",
+    "Storage",
     "Event",
     "InputEvent",
 ] }

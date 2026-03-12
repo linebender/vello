@@ -17,6 +17,7 @@ mod fps;
 pub(crate) mod harness;
 pub(crate) mod rng;
 pub mod scenes;
+pub(crate) mod storage;
 pub mod ui;
 
 use std::cell::RefCell;
@@ -184,6 +185,9 @@ pub async fn run() {
     let scene = Scene::new(px_w as u16, px_h as u16);
     let now = performance.now();
 
+    // Canvas starts hidden (Benchmark tab is default).
+    canvas.style().set_property("visibility", "hidden").unwrap();
+
     let state = Rc::new(RefCell::new(AppState {
         scenes: bench_scenes,
         current_scene: 0,
@@ -251,6 +255,41 @@ pub async fn run() {
             st.harness.run_ms = st.ui.run_ms();
             st.ui.bench_started(&selected);
             st.harness.start(selected);
+        }) as Box<dyn FnMut()>);
+        btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref()).unwrap();
+        cb.forget();
+    }
+
+    // Save button
+    {
+        let s = state.clone();
+        let btn = state.borrow().ui.save_btn().clone();
+        let cb = Closure::wrap(Box::new(move || {
+            let st = s.borrow();
+            st.ui.save_results(&st.bench_defs);
+        }) as Box<dyn FnMut()>);
+        btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref()).unwrap();
+        cb.forget();
+    }
+
+    // Compare dropdown
+    {
+        let s = state.clone();
+        let sel = state.borrow().ui.compare_select().clone();
+        let cb = Closure::wrap(Box::new(move || {
+            s.borrow_mut().ui.load_comparison();
+        }) as Box<dyn FnMut()>);
+        sel.add_event_listener_with_callback("change", cb.as_ref().unchecked_ref()).unwrap();
+        cb.forget();
+    }
+
+    // Delete report button
+    {
+        let s = state.clone();
+        let btn = state.borrow().ui.delete_btn.clone();
+        let cb = Closure::wrap(Box::new(move || {
+            let mut st = s.borrow_mut();
+            st.ui.delete_selected_report();
         }) as Box<dyn FnMut()>);
         btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref()).unwrap();
         cb.forget();

@@ -4501,6 +4501,8 @@ dependencies = [
  "console_error_panic_hook",
  "console_log",
  "log",
+ "serde",
+ "serde_json",
  "smallvec",
  "vello_common",
  "vello_hybrid",
