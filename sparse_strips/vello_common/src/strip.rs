@@ -459,3 +459,4 @@ fn render_impl<S: Simd>(
         accumulated_winding += acc;
     }
 }
+

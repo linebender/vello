@@ -615,6 +615,10 @@ struct Programs {
     clear_pipeline: RenderPipeline,
     /// Pipeline for clearing atlas regions.
     atlas_clear_pipeline: RenderPipeline,
+    /// Pipeline for rendering tile-line instances into the winding texture.
+    winding_pipeline: RenderPipeline,
+    /// Bind group layout for the winding pass.
+    winding_bind_group_layout: BindGroupLayout,
     /// GPU resources for rendering (created during prepare)
     resources: GpuResources,
     /// Dimensions of the rendering target
@@ -628,8 +632,16 @@ struct Programs {
 struct GpuResources {
     /// Buffer for [`GpuStrip`] data
     strips_buffer: Buffer,
-    /// Texture for alpha values (used by both view and slot rendering)
-    alphas_texture: Texture,
+    /// Winding texture (R16Float) replacing the alpha texture.
+    winding_texture: Texture,
+    /// View for the winding texture.
+    winding_texture_view: TextureView,
+    /// Buffer for [`GpuTileLine`] instances.
+    tile_lines_buffer: Buffer,
+    /// Bind group for the winding pass.
+    winding_bind_group: BindGroup,
+    /// Uniform buffer for winding shader config.
+    winding_config_buffer: Buffer,
     /// Textures for atlas data (multiple atlases supported)
     atlas_texture_array: Texture,
     /// View for atlas texture array
@@ -709,7 +721,7 @@ impl Programs {
                         binding: 0,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Uint,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
                             view_dimension: wgpu::TextureViewDimension::D2,
                             multisampled: false,
                         },
@@ -990,12 +1002,110 @@ impl Programs {
         );
 
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
-        const INITIAL_ALPHA_TEXTURE_HEIGHT: u32 = 1;
-        let alphas_texture = Self::create_alphas_texture(
+
+        // --- Winding texture (replaces alpha texture) ---
+        const INITIAL_WINDING_TEXTURE_HEIGHT: u32 = 4; // At least one band of TILE_HEIGHT
+        let winding_texture = Self::create_winding_texture(
             device,
             max_texture_dimension_2d,
-            INITIAL_ALPHA_TEXTURE_HEIGHT,
+            INITIAL_WINDING_TEXTURE_HEIGHT,
         );
+        let winding_texture_view = winding_texture.create_view(&TextureViewDescriptor::default());
+
+        // Winding shader + pipeline
+        let winding_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Winding Shader"),
+            source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::WINDING.into()),
+        });
+        let winding_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Winding Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+        let winding_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Winding Pipeline Layout"),
+                bind_group_layouts: &[&winding_bind_group_layout],
+                immediate_size: 0,
+            });
+        let winding_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Winding Pipeline"),
+            layout: Some(&winding_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &winding_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: size_of::<crate::gpu_winding::GpuTileLine>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &wgpu::vertex_attr_array![
+                        0 => Uint32,    // winding_col
+                        1 => Uint32,    // tile_xy_kind
+                        2 => Float32x2, // p0
+                        3 => Float32x2, // p1
+                    ],
+                }],
+                compilation_options: PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &winding_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(ColorTargetState {
+                    format: wgpu::TextureFormat::R16Float,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent::OVER,
+                    }),
+                    write_mask: ColorWrites::ALL,
+                })],
+                compilation_options: PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
+        #[repr(C)]
+        #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+        struct WindingConfig {
+            winding_tex_width: u32,
+            winding_tex_height: u32,
+        }
+        let winding_config_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Winding Config Buffer"),
+                contents: bytemuck::bytes_of(&WindingConfig {
+                    winding_tex_width: max_texture_dimension_2d,
+                    winding_tex_height: INITIAL_WINDING_TEXTURE_HEIGHT,
+                }),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+        let winding_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Winding Bind Group"),
+            layout: &winding_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: winding_config_buffer.as_entire_binding(),
+            }],
+        });
+        let tile_lines_buffer = Self::create_tile_lines_buffer(device, 0);
         let view_config_buffer = Self::create_config_buffer(
             device,
             &RenderSize {
@@ -1062,7 +1172,7 @@ impl Programs {
         let slot_bind_groups = Self::create_strip_bind_groups(
             device,
             &strip_bind_group_layout,
-            &alphas_texture.create_view(&TextureViewDescriptor::default()),
+            &winding_texture_view,
             &slot_config_buffer,
             &view_config_buffer,
             &slot_texture_views,
@@ -1075,7 +1185,11 @@ impl Programs {
             slot_config_buffer,
             slot_bind_groups,
             clear_bind_group,
-            alphas_texture,
+            winding_texture,
+            winding_texture_view,
+            tile_lines_buffer,
+            winding_bind_group,
+            winding_config_buffer,
             atlas_texture_array,
             atlas_texture_array_view,
             atlas_bind_group,
@@ -1093,6 +1207,8 @@ impl Programs {
             encoded_paints_bind_group_layout,
             gradient_bind_group_layout,
             atlas_bind_group_layout,
+            winding_pipeline,
+            winding_bind_group_layout,
             resources,
             encoded_paints_data,
             render_size: RenderSize {
@@ -1141,9 +1257,9 @@ impl Programs {
         })
     }
 
-    fn create_alphas_texture(device: &Device, width: u32, height: u32) -> Texture {
+    fn create_winding_texture(device: &Device, width: u32, height: u32) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Alpha Texture"),
+            label: Some("Winding Texture"),
             size: Extent3d {
                 width,
                 height,
@@ -1152,9 +1268,20 @@ impl Programs {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba32Uint,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            format: wgpu::TextureFormat::R16Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
+        })
+    }
+
+    fn create_tile_lines_buffer(device: &Device, required_size: u64) -> Buffer {
+        let size = required_size.max(size_of::<crate::gpu_winding::GpuTileLine>() as u64);
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Tile Lines Buffer"),
+            size,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         })
     }
 
@@ -1352,11 +1479,12 @@ impl Programs {
         paint_idxs: &[u32],
     ) {
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
-        self.maybe_resize_alphas_tex(device, max_texture_dimension_2d, alphas.len());
+        // Still need to size winding texture based on alpha count (same number of values).
+        self.maybe_resize_winding_tex(device, queue, max_texture_dimension_2d, alphas.len());
         self.maybe_resize_encoded_paints_tex(device, max_texture_dimension_2d, paint_idxs);
         self.maybe_update_config_buffer(queue, max_texture_dimension_2d, new_render_size);
 
-        self.upload_alpha_texture(queue, alphas);
+        // Alpha upload is skipped — the GPU winding pass fills the winding texture.
         self.upload_encoded_paints_texture(queue, encoded_paints);
 
         if gradient_cache.has_changed() {
@@ -1366,50 +1494,61 @@ impl Programs {
         }
     }
 
-    /// Update the alpha texture size if needed.
-    fn maybe_resize_alphas_tex(
+    /// Update the winding texture size if needed.
+    fn maybe_resize_winding_tex(
         &mut self,
         device: &Device,
+        queue: &Queue,
         max_texture_dimension_2d: u32,
-        alphas_len: usize,
+        winding_value_count: usize,
     ) {
-        let required_alpha_height = u32::try_from(alphas_len)
+        // R16Float: 1 pixel per winding value.
+        let required_height = u32::try_from(winding_value_count)
             .unwrap()
-            // There are 16 1-byte alpha values per texel.
-            .div_ceil(max_texture_dimension_2d << 4);
-        debug_assert!(
-            self.resources.alphas_texture.width() == max_texture_dimension_2d,
-            "Alpha texture width must match max texture dimensions"
-        );
-        let current_alpha_height = self.resources.alphas_texture.height();
-        if required_alpha_height > current_alpha_height {
-            // We need to resize the alpha texture to fit the new alpha data.
+            .div_ceil(max_texture_dimension_2d)
+            .max(u32::from(Tile::HEIGHT)); // at least one band
+        let current_height = self.resources.winding_texture.height();
+        if required_height > current_height {
             assert!(
-                required_alpha_height <= max_texture_dimension_2d,
-                "Alpha texture height exceeds max texture dimensions"
+                required_height <= max_texture_dimension_2d,
+                "Winding texture height exceeds max texture dimensions"
             );
 
-            // The alpha texture encodes 16 1-byte alpha values per texel, with 4 alpha values packed in each channel
-            let alphas_texture = Self::create_alphas_texture(
+            let winding_texture = Self::create_winding_texture(
                 device,
                 max_texture_dimension_2d,
-                required_alpha_height,
+                required_height,
             );
-            self.resources.alphas_texture = alphas_texture;
+            self.resources.winding_texture_view =
+                winding_texture.create_view(&TextureViewDescriptor::default());
+            self.resources.winding_texture = winding_texture;
 
-            // Since the alpha texture has changed, we need to update the clip bind groups.
+            // Update strip bind groups to use the new winding texture.
             self.resources.slot_bind_groups = Self::create_strip_bind_groups(
                 device,
                 &self.strip_bind_group_layout,
-                &self
-                    .resources
-                    .alphas_texture
-                    .create_view(&TextureViewDescriptor::default()),
+                &self.resources.winding_texture_view,
                 &self.resources.slot_config_buffer,
                 &self.resources.view_config_buffer,
                 &self.resources.slot_texture_views,
             );
         }
+
+        // Update winding config uniform with current dimensions.
+        #[repr(C)]
+        #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+        struct WindingConfig {
+            winding_tex_width: u32,
+            winding_tex_height: u32,
+        }
+        queue.write_buffer(
+            &self.resources.winding_config_buffer,
+            0,
+            bytemuck::bytes_of(&WindingConfig {
+                winding_tex_width: self.resources.winding_texture.width(),
+                winding_tex_height: self.resources.winding_texture.height(),
+            }),
+        );
     }
 
     /// Update the encoded paints texture size if needed.
@@ -1591,45 +1730,26 @@ impl Programs {
         );
     }
 
-    /// Upload alpha data to the texture.
-    fn upload_alpha_texture(&mut self, queue: &Queue, alphas: &mut Vec<u8>) {
-        if alphas.is_empty() {
+    /// Upload tile-line instances to the GPU buffer.
+    fn upload_tile_lines(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        tile_lines: &[crate::gpu_winding::GpuTileLine],
+    ) {
+        if tile_lines.is_empty() {
             return;
         }
-
-        let texture_width = self.resources.alphas_texture.width();
-        let texture_height = self.resources.alphas_texture.height();
-        let total_size = texture_width as usize * texture_height as usize * 16;
-
-        let original_len = alphas.len();
-
-        // Temporarily pad the length of the alphas to the texture size before uploading.
-        alphas.resize(total_size, 0);
-
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &self.resources.alphas_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            alphas,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                // 16 bytes per RGBA32Uint texel (4 u32s × 4 bytes each), which is equivalent to
-                // a bit shift of 4.
-                bytes_per_row: Some(texture_width << 4),
-                rows_per_image: Some(texture_height),
-            },
-            Extent3d {
-                width: texture_width,
-                height: texture_height,
-                depth_or_array_layers: 1,
-            },
+        let required_size = size_of_val(tile_lines) as u64;
+        if self.resources.tile_lines_buffer.size() < required_size {
+            self.resources.tile_lines_buffer =
+                Self::create_tile_lines_buffer(device, required_size);
+        }
+        queue.write_buffer(
+            &self.resources.tile_lines_buffer,
+            0,
+            bytemuck::cast_slice(tile_lines),
         );
-
-        // Truncate back to the original size.
-        alphas.truncate(original_len);
     }
 
     /// Upload encoded paints to the texture.
@@ -1730,6 +1850,40 @@ struct RendererContext<'a> {
 }
 
 impl RendererContext<'_> {
+    /// Render tile-line instances into the winding texture.
+    fn do_winding_render_pass(
+        &mut self,
+        tile_lines: &[crate::gpu_winding::GpuTileLine],
+    ) {
+        if tile_lines.is_empty() {
+            return;
+        }
+        self.programs
+            .upload_tile_lines(self.device, self.queue, tile_lines);
+
+        let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("Winding Render Pass"),
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view: &self.programs.resources.winding_texture_view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+            multiview_mask: None,
+        });
+        render_pass.set_pipeline(&self.programs.winding_pipeline);
+        render_pass.set_bind_group(0, &self.programs.resources.winding_bind_group, &[]);
+        render_pass
+            .set_vertex_buffer(0, self.programs.resources.tile_lines_buffer.slice(..));
+        render_pass.draw(0..4, 0..u32::try_from(tile_lines.len()).unwrap());
+    }
+
     /// Render the strips to either the view or a slot texture (depending on `ix`).
     fn do_strip_render_pass(
         &mut self,

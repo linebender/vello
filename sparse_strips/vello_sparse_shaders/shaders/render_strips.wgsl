@@ -311,7 +311,7 @@ fn vs_main(
 }
 
 @group(0) @binding(0)
-var alphas_texture: texture_2d<u32>;
+var winding_texture: texture_2d<f32>;
 
 @group(0) @binding(2)
 var clip_input_texture: texture_2d<f32>;
@@ -337,31 +337,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let a = clamp(bottom_and_right - top_and_left, vec2(0.0), vec2(1.0));
         alpha = a.x * a.y;
     } else if !is_rect && in.dense_end_or_rect_size != 0u {
-        let x = u32(floor(in.tex_coord.x));
-        let y = u32(floor(in.tex_coord.y));
-        // Retrieve alpha value from the texture. We store 16 1-byte alpha
-        // values per texel, with each color channel packing 4 alpha values.
-        // The code here assumes the strip height is 4, i.e., each color
-        // channel encodes the alpha values for a single column within a strip.
-        // Divide x by 4 to get the texel position.
-        let alphas_index = x;
-        let tex_dimensions = textureDimensions(alphas_texture);
-        let alphas_tex_width = tex_dimensions.x;
-        // Which texel contains the alpha values for this column
-        let texel_index = alphas_index / 4u;
-        // Which channel (R,G,B,A) in the texel contains the alpha values for this column
-        let channel_index = alphas_index % 4u;
-        // Calculate texel coordinates
-        let tex_x = texel_index & (alphas_tex_width - 1u);
-        let tex_y = texel_index >> config.alphas_tex_width_bits;
+        // Sample the winding texture. Layout: columns packed left-to-right, each
+        // TILE_HEIGHT pixels tall. tex_coord.x = column index, tex_coord.y = row (0..3).
+        let col = u32(floor(in.tex_coord.x));
+        let row = u32(floor(in.tex_coord.y));
+        let tex_dims = textureDimensions(winding_texture);
+        let tex_x = col % tex_dims.x;
+        let band = col / tex_dims.x;
+        let tex_y = band * config.strip_height + row;
 
-        // Load all 4 channels from the texture
-        let rgba_values = textureLoad(alphas_texture, vec2<u32>(tex_x, tex_y), 0);
-
-        // Get the column's alphas from the appropriate RGBA channel based on the index
-        let alphas_u32 = unpack_alphas_from_channel(rgba_values, channel_index);
-        // Extract the alpha value for the current y-position from the packed u32 data
-        alpha = f32((alphas_u32 >> (y * 8u)) & 0xffu) * (1.0 / 255.0);
+        let winding = textureLoad(winding_texture, vec2<u32>(tex_x, tex_y), 0).r;
+        // NonZero fill rule: any non-zero winding → fully opaque.
+        alpha = min(abs(winding), 1.0);
     }
     // Apply the alpha value to the unpacked RGBA color or slot index
     let color_source = (in.paint_and_rect_flag >> 29u) & 0x3u;
