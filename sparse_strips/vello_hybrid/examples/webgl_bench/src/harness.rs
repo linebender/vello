@@ -1,15 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Benchmark harness that runs predefined benchmarks with warmup calibration.
-//!
-//! Each benchmark goes through two phases:
-//! 1. **Warmup** — render frames in a tight loop for `warmup_ms`, count how many complete.
-//! 2. **Run** — use the warmup count to estimate iterations for `run_ms`, execute them,
-//!    and divide total time by iteration count for a vsync-independent per-frame time.
-//!
-//! Multiple iterations run within a single rAF callback (tight loop with `readPixels`
-//! GPU sync), so vsync does not affect the measurement.
+//! Benchmark harness with warmup calibration and vsync-independent timing.
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -23,95 +15,96 @@ use vello_hybrid::Scene;
 #[derive(Debug, Clone)]
 pub(crate) struct BenchDef {
     /// Display name.
-    pub name: &'static str,
-    /// Which scene index to use (into the `all_scenes()` list).
-    pub scene_idx: usize,
-    /// Parameter overrides to apply before running.
-    pub params: &'static [(&'static str, f64)],
+    pub(crate) name: &'static str,
+    /// Which scene index to use.
+    pub(crate) scene_idx: usize,
+    /// Parameter overrides (speed is always forced to 0 on top of these).
+    pub(crate) params: &'static [(&'static str, f64)],
 }
 
 /// Result of a single benchmark run.
 #[derive(Debug, Clone)]
 pub(crate) struct BenchResult {
     /// Benchmark name.
-    pub name: &'static str,
+    pub(crate) name: &'static str,
     /// Average time per frame in milliseconds.
-    pub time_per_frame_ms: f64,
+    pub(crate) ms_per_frame: f64,
     /// Number of iterations in the run phase.
-    pub iterations: usize,
+    pub(crate) iterations: usize,
     /// Total wall-clock time of the run phase in milliseconds.
-    pub total_time_ms: f64,
+    #[allow(dead_code, reason = "useful for detailed output")]
+    pub(crate) total_ms: f64,
 }
 
-/// Current phase of the harness.
+/// Events emitted by the harness after each tick.
+#[derive(Debug)]
+pub(crate) enum HarnessEvent {
+    /// The first warmup frame was just rendered — caller should capture a screenshot.
+    ScreenshotReady,
+    /// A single benchmark finished.
+    BenchDone(BenchResult),
+    /// All benchmarks finished.
+    AllDone,
+}
+
+/// Current phase.
 #[derive(Debug)]
 enum Phase {
-    /// Not running.
     Idle,
-    /// About to warmup benchmark at index `bench_idx`.
     PendingWarmup(usize),
-    /// About to run benchmark at index `bench_idx` with `target_iters` iterations.
-    PendingRun {
-        bench_idx: usize,
-        target_iters: usize,
-    },
-    /// All benchmarks finished.
+    PendingRun { idx: usize, target_iters: usize },
     Complete,
 }
 
-/// Orchestrates running a list of benchmarks.
+/// Orchestrates running benchmarks.
 #[derive(Debug)]
 pub(crate) struct BenchHarness {
     phase: Phase,
-    /// Duration of warmup phase in ms.
-    pub warmup_ms: f64,
-    /// Target duration of run phase in ms.
-    pub run_ms: f64,
-    /// Collected results.
-    pub results: Vec<BenchResult>,
+    pub(crate) warmup_ms: f64,
+    pub(crate) run_ms: f64,
+    pub(crate) results: Vec<BenchResult>,
+    /// Ordered list of bench def indices to run.
+    run_order: Vec<usize>,
+    /// Current position within `run_order`.
+    run_pos: usize,
 }
 
 impl BenchHarness {
-    /// Create a new harness with default timing.
     pub(crate) fn new() -> Self {
         Self {
             phase: Phase::Idle,
             warmup_ms: 250.0,
             run_ms: 1000.0,
             results: Vec::new(),
+            run_order: Vec::new(),
+            run_pos: 0,
         }
     }
 
-    /// Start (or restart) the benchmark suite from the first benchmark.
-    pub(crate) fn start(&mut self) {
+    /// Start with a specific set of def indices to run (in order).
+    pub(crate) fn start(&mut self, selected: Vec<usize>) {
         self.results.clear();
-        self.phase = Phase::PendingWarmup(0);
+        self.run_order = selected;
+        self.run_pos = 0;
+        if self.run_order.is_empty() {
+            self.phase = Phase::Complete;
+        } else {
+            self.phase = Phase::PendingWarmup(self.run_order[0]);
+        }
     }
 
-    /// Whether the harness is currently running.
     pub(crate) fn is_running(&self) -> bool {
         !matches!(self.phase, Phase::Idle | Phase::Complete)
     }
 
-    /// Whether benchmarking has finished.
-    pub(crate) fn is_complete(&self) -> bool {
-        matches!(self.phase, Phase::Complete)
-    }
-
-    /// The index of the benchmark currently being processed, if any.
     pub(crate) fn current_bench_idx(&self) -> Option<usize> {
         match &self.phase {
-            Phase::PendingWarmup(i) | Phase::PendingRun { bench_idx: i, .. } => Some(*i),
+            Phase::PendingWarmup(i) | Phase::PendingRun { idx: i, .. } => Some(*i),
             _ => None,
         }
     }
 
-    /// Drive one step of the harness. Call this once per rAF.
-    ///
-    /// Each step does a tight loop (warmup or run) and then yields back
-    /// so the browser can repaint and the UI can update.
-    ///
-    /// Returns `true` if the harness did work this tick.
+    /// Drive one step. Returns events for the caller to act on.
     pub(crate) fn tick(
         &mut self,
         defs: &[BenchDef],
@@ -120,23 +113,25 @@ impl BenchHarness {
         renderer: &mut vello_hybrid::WebGlRenderer,
         width: u32,
         height: u32,
-    ) -> bool {
-        match self.phase {
-            Phase::Idle | Phase::Complete => false,
-            Phase::PendingWarmup(bench_idx) => {
-                let def = &defs[bench_idx];
-                let scene = &mut *scenes[def.scene_idx];
-                for &(name, value) in def.params {
-                    scene.set_param(name, value);
-                }
+    ) -> Vec<HarnessEvent> {
+        let mut events = Vec::new();
 
-                // Force rect generation by rendering one frame
+        match self.phase {
+            Phase::Idle | Phase::Complete => {}
+            Phase::PendingWarmup(idx) => {
+                let def = &defs[idx];
+                let scene = &mut *scenes[def.scene_idx];
+                apply_params(scene, def.params);
+
                 let perf = web_sys::window().unwrap().performance().unwrap();
+
+                // First frame: generate geometry + capture screenshot
                 let now = perf.now();
                 render_one(scene, vello_scene, renderer, width, height, now);
                 gpu_sync(renderer);
+                events.push(HarnessEvent::ScreenshotReady);
 
-                // Warmup: tight loop for warmup_ms
+                // Warmup loop
                 let start = perf.now();
                 let mut count = 0_usize;
                 loop {
@@ -148,23 +143,17 @@ impl BenchHarness {
                         break;
                     }
                 }
-                let warmup_elapsed = perf.now() - start;
-
-                // Estimate target iterations for run_ms
-                let rate = count as f64 / warmup_elapsed;
+                let elapsed = perf.now() - start;
+                let rate = count as f64 / elapsed;
                 let target = (rate * self.run_ms).max(1.0) as usize;
 
                 self.phase = Phase::PendingRun {
-                    bench_idx,
+                    idx,
                     target_iters: target,
                 };
-                true
             }
-            Phase::PendingRun {
-                bench_idx,
-                target_iters,
-            } => {
-                let def = &defs[bench_idx];
+            Phase::PendingRun { idx, target_iters } => {
+                let def = &defs[idx];
                 let scene = &mut *scenes[def.scene_idx];
 
                 let perf = web_sys::window().unwrap().performance().unwrap();
@@ -176,27 +165,37 @@ impl BenchHarness {
                 }
                 let total_ms = perf.now() - start;
 
-                self.results.push(BenchResult {
+                let result = BenchResult {
                     name: def.name,
-                    time_per_frame_ms: total_ms / target_iters as f64,
+                    ms_per_frame: total_ms / target_iters as f64,
                     iterations: target_iters,
-                    total_time_ms: total_ms,
-                });
+                    total_ms,
+                };
+                self.results.push(result.clone());
+                events.push(HarnessEvent::BenchDone(result));
 
-                // Move to next benchmark or complete
-                let next = bench_idx + 1;
-                if next < defs.len() {
-                    self.phase = Phase::PendingWarmup(next);
+                self.run_pos += 1;
+                if self.run_pos < self.run_order.len() {
+                    self.phase = Phase::PendingWarmup(self.run_order[self.run_pos]);
                 } else {
                     self.phase = Phase::Complete;
+                    events.push(HarnessEvent::AllDone);
                 }
-                true
             }
         }
+
+        events
     }
 }
 
-/// Render a single frame (scene build + GPU submit).
+fn apply_params(scene: &mut dyn BenchScene, params: &[(&str, f64)]) {
+    for &(name, value) in params {
+        scene.set_param(name, value);
+    }
+    // Always force speed=0 for deterministic benchmarks.
+    scene.set_param("speed", 0.0);
+}
+
 fn render_one(
     bench_scene: &mut dyn BenchScene,
     vello_scene: &mut Scene,
@@ -211,7 +210,6 @@ fn render_one(
     renderer.render(vello_scene, &render_size).unwrap();
 }
 
-/// Force GPU sync by reading back a single pixel.
 fn gpu_sync(renderer: &vello_hybrid::WebGlRenderer) {
     let gl = renderer.gl_context();
     let mut pixel = [0_u8; 4];
@@ -227,16 +225,35 @@ fn gpu_sync(renderer: &vello_hybrid::WebGlRenderer) {
     .unwrap();
 }
 
-/// The predefined benchmark definitions.
+/// All predefined benchmarks.
 pub(crate) fn bench_defs() -> Vec<BenchDef> {
-    vec![BenchDef {
-        name: "Solid 5px (200k)",
-        scene_idx: 0,
-        params: &[
-            ("num_rects", 200_000.0),
-            ("rect_size", 5.0),
-            ("paint_mode", 0.0),
-            ("speed", 5.0),
-        ],
-    }]
+    vec![
+        BenchDef {
+            name: "Solid 5px (200k)",
+            scene_idx: 0,
+            params: &[
+                ("num_rects", 200_000.0),
+                ("rect_size", 5.0),
+                ("paint_mode", 0.0),
+            ],
+        },
+        BenchDef {
+            name: "Solid 50px (50k)",
+            scene_idx: 0,
+            params: &[
+                ("num_rects", 50_000.0),
+                ("rect_size", 50.0),
+                ("paint_mode", 0.0),
+            ],
+        },
+        BenchDef {
+            name: "Solid 200px (10k)",
+            scene_idx: 0,
+            params: &[
+                ("num_rects", 10_000.0),
+                ("rect_size", 200.0),
+                ("paint_mode", 0.0),
+            ],
+        },
+    ]
 }
