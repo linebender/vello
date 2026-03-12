@@ -52,9 +52,10 @@ struct AppState {
     ui: Ui,
     harness: BenchHarness,
     bench_defs: Vec<BenchDef>,
-    // Pan state (in physical pixels).
+    // View state (pan in physical pixels, zoom multiplier).
     pan_x: f64,
     pan_y: f64,
+    zoom: f64,
     dragging: bool,
     drag_last_x: f64,
     drag_last_y: f64,
@@ -97,7 +98,7 @@ impl AppState {
 
         self.scene.reset();
         let (w, h) = (self.width, self.height);
-        let view = Affine::translate((self.pan_x, self.pan_y));
+        let view = Affine::translate((self.pan_x, self.pan_y)) * Affine::scale(self.zoom);
         self.scenes[idx].render(&mut self.scene, &mut self.renderer, w, h, now, view);
         let rs = vello_hybrid::RenderSize {
             width: w,
@@ -111,9 +112,38 @@ impl AppState {
         self.ui.update_timing(fps, frame_time, render_ms);
     }
 
+    fn is_view_default(&self) -> bool {
+        self.pan_x == 0.0 && self.pan_y == 0.0 && self.zoom == 1.0
+    }
+
+    fn update_reset_btn(&self) {
+        let display = if self.is_view_default() {
+            "none"
+        } else {
+            "block"
+        };
+        self.ui
+            .reset_view_btn
+            .style()
+            .set_property("display", display)
+            .unwrap();
+    }
+
     fn reset_view(&mut self) {
         self.pan_x = 0.0;
         self.pan_y = 0.0;
+        self.zoom = 1.0;
+        self.update_reset_btn();
+    }
+
+    /// Zoom centered on a point in physical pixels.
+    fn zoom_at(&mut self, cx: f64, cy: f64, factor: f64) {
+        let new_zoom = (self.zoom * factor).clamp(0.05, 100.0);
+        let ratio = new_zoom / self.zoom;
+        self.pan_x = cx - ratio * (cx - self.pan_x);
+        self.pan_y = cy - ratio * (cy - self.pan_y);
+        self.zoom = new_zoom;
+        self.update_reset_btn();
     }
 
     fn tick_benchmark(&mut self, _now: f64) {
@@ -226,6 +256,7 @@ pub async fn run() {
         bench_defs: defs,
         pan_x: 0.0,
         pan_y: 0.0,
+        zoom: 1.0,
         dragging: false,
         drag_last_x: 0.0,
         drag_last_y: 0.0,
@@ -389,6 +420,7 @@ pub async fn run() {
             st.pan_y += (y - st.drag_last_y) * dpr;
             st.drag_last_x = x;
             st.drag_last_y = y;
+            st.update_reset_btn();
         }) as Box<dyn FnMut(_)>);
         window
             .add_event_listener_with_callback("mousemove", cb.as_ref().unchecked_ref())
@@ -401,6 +433,43 @@ pub async fn run() {
         }) as Box<dyn FnMut(_)>);
         window
             .add_event_listener_with_callback("mouseup", cb.as_ref().unchecked_ref())
+            .unwrap();
+        cb.forget();
+
+        // Zoom (wheel / trackpad pinch)
+        let s = state.clone();
+        let cb = Closure::wrap(Box::new(move |e: web_sys::WheelEvent| {
+            let mut st = s.borrow_mut();
+            if st.ui.mode != AppMode::Interactive {
+                return;
+            }
+            e.prevent_default();
+            let dpr = web_sys::window().unwrap().device_pixel_ratio();
+            // Cursor position in physical pixels (canvas starts 40px below top).
+            let cx = e.client_x() as f64 * dpr;
+            let cy = (e.client_y() as f64 - 40.0) * dpr;
+
+            let dy = e.delta_y();
+            let scale = if e.ctrl_key() {
+                // Trackpad pinch: smaller delta.
+                0.01
+            } else {
+                // Mouse wheel: normalize line-mode deltas.
+                let line_mult = if e.delta_mode() == 1 { 16.0 } else { 1.0 };
+                0.002 * line_mult
+            };
+            let factor = (-dy * scale).exp();
+            st.zoom_at(cx, cy, factor);
+        }) as Box<dyn FnMut(_)>);
+        // Use non-passive listener so we can preventDefault.
+        let opts = web_sys::AddEventListenerOptions::new();
+        opts.set_passive(false);
+        window
+            .add_event_listener_with_callback_and_add_event_listener_options(
+                "wheel",
+                cb.as_ref().unchecked_ref(),
+                &opts,
+            )
             .unwrap();
         cb.forget();
     }

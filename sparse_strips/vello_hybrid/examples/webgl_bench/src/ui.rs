@@ -374,6 +374,7 @@ impl Ui {
                 ("text-align", "center"),
                 ("font-size", "12px"),
                 ("user-select", "none"),
+                ("display", "none"),
             ],
         );
         sidebar.append_child(&reset_view_btn).unwrap();

@@ -266,7 +266,7 @@ pub(crate) fn bench_defs() -> Vec<BenchDef> {
         },
         BenchDef {
             name: "10k Rect · 200×200 · Image · Nearest",
-            description: "Checks how fast we can draw image rectangles with nearest-neighbor filtering",
+            description: "Checks how fast we can draw transparent image rectangles with nearest-neighbor filtering",
             scene_idx: 0,
             params: &[
                 ("num_rects", 10_000.0),
@@ -274,11 +274,12 @@ pub(crate) fn bench_defs() -> Vec<BenchDef> {
                 ("paint_mode", 2.0),
                 ("rotated", 0.0),
                 ("image_filter", 0.0),
+                ("image_opaque", 0.0),
             ],
         },
         BenchDef {
             name: "10k Rect · 200×200 · Image · Bilinear",
-            description: "Checks how fast we can draw image rectangles with bilinear filtering",
+            description: "Checks how fast we can draw transparent image rectangles with bilinear filtering",
             scene_idx: 0,
             params: &[
                 ("num_rects", 10_000.0),
@@ -286,6 +287,7 @@ pub(crate) fn bench_defs() -> Vec<BenchDef> {
                 ("paint_mode", 2.0),
                 ("rotated", 0.0),
                 ("image_filter", 1.0),
+                ("image_opaque", 0.0),
             ],
         },
         BenchDef {
@@ -316,9 +318,9 @@ pub(crate) fn bench_defs() -> Vec<BenchDef> {
         },
         BenchDef {
             name: "Tiger SVG · 1×",
-            description: "Ghostscript Tiger SVG at 1× scale, fit to viewport",
+            description: "Ghostscript Tiger SVG fit to viewport",
             scene_idx: 1,
-            params: &[("scale", 1.0)],
+            params: &[],
         },
     ]
 }

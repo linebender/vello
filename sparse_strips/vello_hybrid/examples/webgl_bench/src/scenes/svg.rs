@@ -3,7 +3,7 @@
 
 //! SVG (Ghostscript Tiger) benchmark scene.
 
-use super::{BenchScene, Param, ParamKind};
+use super::{BenchScene, Param};
 use vello_common::kurbo::{Affine, Stroke};
 use vello_common::pico_svg::{Item, PicoSvg};
 use vello_hybrid::{Scene, WebGlRenderer};
@@ -12,7 +12,6 @@ use vello_hybrid::{Scene, WebGlRenderer};
 #[derive(Debug)]
 pub struct TigerScene {
     svg: PicoSvg,
-    scale: f64,
 }
 
 impl Default for TigerScene {
@@ -27,7 +26,7 @@ impl TigerScene {
         let svg_content =
             include_str!("../../../../../../examples/assets/Ghostscript_Tiger.svg");
         let svg = PicoSvg::load(svg_content, 1.0).expect("Failed to parse Tiger SVG");
-        Self { svg, scale: 1.0 }
+        Self { svg }
     }
 }
 
@@ -60,23 +59,10 @@ impl BenchScene for TigerScene {
     }
 
     fn params(&self) -> Vec<Param> {
-        vec![Param {
-            name: "scale",
-            label: "Scale",
-            kind: ParamKind::Slider {
-                min: 0.5,
-                max: 10.0,
-                step: 0.1,
-            },
-            value: self.scale,
-        }]
+        vec![]
     }
 
-    fn set_param(&mut self, name: &str, value: f64) {
-        if name == "scale" {
-            self.scale = value;
-        }
-    }
+    fn set_param(&mut self, _name: &str, _value: f64) {}
 
     fn render(
         &mut self,
@@ -90,9 +76,8 @@ impl BenchScene for TigerScene {
         let svg_w = self.svg.size.width;
         let svg_h = self.svg.size.height;
 
-        // Scale to fit viewport, then apply user scale.
-        let fit = (width as f64 / svg_w).min(height as f64 / svg_h);
-        let s = fit * self.scale;
+        // Scale to fit viewport.
+        let s = (width as f64 / svg_w).min(height as f64 / svg_h);
 
         // Center in viewport.
         let tx = (width as f64 - svg_w * s) / 2.0;
