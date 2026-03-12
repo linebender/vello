@@ -142,16 +142,14 @@ pub(crate) fn get_ctx<T: Renderer>(
         _ => panic!("unknown level: {level}"),
     };
 
-    let ctx = T::new(
+    T::new(
         width,
         height,
         num_threads,
         level,
         render_mode,
         default_blending_only,
-    );
-
-    ctx
+    )
 }
 
 pub(crate) fn render_pixmap(ctx: &impl Renderer) -> Pixmap {
