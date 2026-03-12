@@ -3,8 +3,9 @@
 
 //! WebGL benchmark tool for Vello Hybrid.
 //!
-//! Provides an interactive browser-based benchmark with tweakable parameters,
-//! FPS measurement, and multiple benchmark scenes.
+//! Two modes:
+//! - **Interactive** — tweak parameters in real-time, observe FPS.
+//! - **Benchmark** — automated suite with warmup calibration, vsync-independent timing.
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -13,6 +14,7 @@
 #![cfg(target_arch = "wasm32")]
 
 mod fps;
+pub(crate) mod harness;
 pub(crate) mod rng;
 pub mod scenes;
 pub mod ui;
@@ -21,8 +23,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use fps::FpsTracker;
+use harness::{BenchDef, BenchHarness, bench_defs};
 use scenes::BenchScene;
-use ui::Ui;
+use ui::{AppMode, Ui};
 use vello_hybrid::Scene;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
@@ -46,6 +49,9 @@ struct AppState {
     height: u32,
     fps_tracker: FpsTracker,
     ui: Ui,
+    // Benchmark mode
+    harness: BenchHarness,
+    bench_defs: Vec<BenchDef>,
 }
 
 impl std::fmt::Debug for AppState {
@@ -59,14 +65,14 @@ impl std::fmt::Debug for AppState {
 }
 
 impl AppState {
-    fn tick(&mut self, now: f64) {
+    /// Interactive mode tick.
+    fn tick_interactive(&mut self, now: f64) {
         // Check for scene change
         let selected = self.ui.selected_scene();
         if selected != self.current_scene && selected < self.scenes.len() {
             self.current_scene = selected;
-            let document = web_sys::window().unwrap().document().unwrap();
             let params = self.scenes[self.current_scene].params();
-            self.ui.rebuild_params(&document, &params);
+            self.ui.rebuild_params(&params);
         }
 
         // Read params from sliders and apply
@@ -76,7 +82,7 @@ impl AppState {
             self.scenes[idx].set_param(name, value);
         }
 
-        // Measure CPU render time (scene build + GPU submission)
+        // Measure CPU+GPU render time
         let perf = web_sys::window().unwrap().performance().unwrap();
         let render_start = perf.now();
 
@@ -89,39 +95,109 @@ impl AppState {
             height: h,
         };
         self.renderer.render(&self.scene, &render_size).unwrap();
-        // Force GPU sync by reading back a single pixel. Browsers may no-op
-        // gl.finish(), but readPixels must block until all prior draws complete.
-        {
-            let gl = self.renderer.gl_context();
-            let mut pixel = [0_u8; 4];
-            gl.read_pixels_with_opt_u8_array(
-                0,
-                0,
-                1,
-                1,
-                web_sys::WebGl2RenderingContext::RGBA,
-                web_sys::WebGl2RenderingContext::UNSIGNED_BYTE,
-                Some(&mut pixel),
-            )
-            .unwrap();
-        }
+        gpu_sync(&self.renderer);
 
         let render_ms = perf.now() - render_start;
 
-        // Update timing display
         let (fps, frame_time) = self.fps_tracker.frame(now);
         self.ui.update_timing(fps, frame_time, render_ms);
     }
+
+    /// Benchmark mode tick.
+    fn tick_benchmark(&mut self, now: f64) {
+        if !self.harness.is_running() {
+            // Still render the last frame so the screen isn't blank
+            self.render_current_frame(now);
+            return;
+        }
+
+        // Update status
+        if let Some(idx) = self.harness.current_bench_idx() {
+            let total = self.bench_defs.len();
+            let def = &self.bench_defs[idx];
+            self.ui.set_bench_status(&format!(
+                "Running {}/{total}: {}",
+                idx + 1,
+                def.name
+            ));
+
+            // Show read-only params for current bench
+            let scene = &self.scenes[def.scene_idx];
+            // We need to apply params first so the scene reports correct values
+            let mut params = scene.params();
+            for &(pname, pval) in def.params {
+                if let Some(p) = params.iter_mut().find(|p| p.name == pname) {
+                    p.value = pval;
+                }
+            }
+            self.ui.show_bench_params(&params);
+        }
+
+        let (w, h) = (self.width, self.height);
+        let did_work = self.harness.tick(
+            &self.bench_defs,
+            &mut self.scenes,
+            &mut self.scene,
+            &mut self.renderer,
+            w,
+            h,
+        );
+
+        if did_work && self.harness.is_complete() {
+            self.ui.set_bench_status("Complete!");
+            self.ui.show_results(&self.harness.results);
+            self.ui.set_bench_running(false);
+        }
+
+        // Update FPS display
+        let (fps, frame_time) = self.fps_tracker.frame(now);
+        self.ui.update_timing(fps, frame_time, 0.0);
+    }
+
+    /// Render one frame of the current interactive scene (used as backdrop in bench mode).
+    fn render_current_frame(&mut self, now: f64) {
+        self.scene.reset();
+        let (w, h) = (self.width, self.height);
+        let idx = self.current_scene;
+        self.scenes[idx].render(&mut self.scene, w, h, now);
+        let render_size = vello_hybrid::RenderSize {
+            width: w,
+            height: h,
+        };
+        self.renderer.render(&self.scene, &render_size).unwrap();
+    }
+
+    fn tick(&mut self, now: f64) {
+        match self.ui.mode {
+            AppMode::Interactive => self.tick_interactive(now),
+            AppMode::Benchmark => self.tick_benchmark(now),
+        }
+    }
 }
 
-/// Entry point: sets up canvas, UI, renderer, and starts the animation loop.
+/// Force GPU sync by reading back a single pixel.
+fn gpu_sync(renderer: &vello_hybrid::WebGlRenderer) {
+    let gl = renderer.gl_context();
+    let mut pixel = [0_u8; 4];
+    gl.read_pixels_with_opt_u8_array(
+        0,
+        0,
+        1,
+        1,
+        web_sys::WebGl2RenderingContext::RGBA,
+        web_sys::WebGl2RenderingContext::UNSIGNED_BYTE,
+        Some(&mut pixel),
+    )
+    .unwrap();
+}
+
+/// Entry point.
 pub async fn run() {
     let window = web_sys::window().unwrap();
     let document = window.document().unwrap();
     let performance = window.performance().unwrap();
     let dpr = window.device_pixel_ratio();
 
-    // Canvas fills the entire viewport
     let css_w = window.inner_width().unwrap().as_f64().unwrap() as u32;
     let css_h = window.inner_height().unwrap().as_f64().unwrap() as u32;
     let px_w = (css_w as f64 * dpr) as u32;
@@ -134,23 +210,18 @@ pub async fn run() {
         .unwrap();
     canvas.set_width(px_w);
     canvas.set_height(px_h);
-
     let cs = canvas.style();
     cs.set_property("position", "fixed").unwrap();
     cs.set_property("top", "0").unwrap();
     cs.set_property("left", "0").unwrap();
     cs.set_property("width", &format!("{css_w}px")).unwrap();
     cs.set_property("height", &format!("{css_h}px")).unwrap();
-
     document.body().unwrap().append_child(&canvas).unwrap();
 
-    // Build scenes and UI
     let bench_scenes = scenes::all_scenes();
     let ui = Ui::build(&document, &bench_scenes, 0, px_w, px_h);
-
     let renderer = vello_hybrid::WebGlRenderer::new(&canvas);
     let scene = Scene::new(px_w as u16, px_h as u16);
-
     let now = performance.now();
 
     let state = Rc::new(RefCell::new(AppState {
@@ -163,17 +234,63 @@ pub async fn run() {
         height: px_h,
         fps_tracker: FpsTracker::new(now),
         ui,
+        harness: BenchHarness::new(),
+        bench_defs: bench_defs(),
     }));
 
-    // Toggle button click handler
+    // --- Event handlers ---
+
+    // Toggle button
     {
-        let toggle_state = state.clone();
-        let toggle_btn = state.borrow().ui.toggle_btn().clone();
+        let s = state.clone();
+        let btn = state.borrow().ui.toggle_btn().clone();
         let closure = Closure::wrap(Box::new(move || {
-            toggle_state.borrow_mut().ui.toggle();
+            s.borrow_mut().ui.toggle();
         }) as Box<dyn FnMut()>);
-        toggle_btn
-            .add_event_listener_with_callback("click", closure.as_ref().unchecked_ref())
+        btn.add_event_listener_with_callback("click", closure.as_ref().unchecked_ref())
+            .unwrap();
+        closure.forget();
+    }
+
+    // Mode tabs
+    {
+        let borrow = state.borrow();
+        let (itab, btab) = borrow.ui.tab_elements();
+        let itab = itab.clone();
+        let btab = btab.clone();
+        drop(borrow);
+
+        let s = state.clone();
+        let closure = Closure::wrap(Box::new(move || {
+            s.borrow_mut().ui.set_mode(AppMode::Interactive);
+        }) as Box<dyn FnMut()>);
+        itab.add_event_listener_with_callback("click", closure.as_ref().unchecked_ref())
+            .unwrap();
+        closure.forget();
+
+        let s = state.clone();
+        let closure = Closure::wrap(Box::new(move || {
+            s.borrow_mut().ui.set_mode(AppMode::Benchmark);
+        }) as Box<dyn FnMut()>);
+        btab.add_event_listener_with_callback("click", closure.as_ref().unchecked_ref())
+            .unwrap();
+        closure.forget();
+    }
+
+    // Start benchmarks button
+    {
+        let s = state.clone();
+        let btn = state.borrow().ui.start_btn().clone();
+        let closure = Closure::wrap(Box::new(move || {
+            let mut st = s.borrow_mut();
+            st.harness.warmup_ms = st.ui.warmup_ms();
+            st.harness.run_ms = st.ui.run_ms();
+            st.harness.start();
+            st.ui.set_bench_running(true);
+            st.ui.set_bench_status("Starting...");
+            st.ui.show_results(&[]);
+        }) as Box<dyn FnMut()>);
+        btn.add_event_listener_with_callback("click", closure.as_ref().unchecked_ref())
             .unwrap();
         closure.forget();
     }
@@ -182,47 +299,42 @@ pub async fn run() {
     {
         let f: RafClosure = Rc::new(RefCell::new(None));
         let g = f.clone();
-        let state = state.clone();
-
+        let s = state.clone();
         *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
             let now = web_sys::window().unwrap().performance().unwrap().now();
-            state.borrow_mut().tick(now);
+            s.borrow_mut().tick(now);
             request_animation_frame(f.borrow().as_ref().unwrap());
         }) as Box<dyn FnMut()>));
-
         request_animation_frame(g.borrow().as_ref().unwrap());
     }
 
     // Window resize handler
     {
-        let state = state.clone();
+        let s = state.clone();
         let closure = Closure::wrap(Box::new(move |_: web_sys::Event| {
-            let mut s = state.borrow_mut();
+            let mut st = s.borrow_mut();
             let window = web_sys::window().unwrap();
             let dpr = window.device_pixel_ratio();
-
             let css_w = window.inner_width().unwrap().as_f64().unwrap() as u32;
             let css_h = window.inner_height().unwrap().as_f64().unwrap() as u32;
             let px_w = (css_w as f64 * dpr) as u32;
             let px_h = (css_h as f64 * dpr) as u32;
 
-            s.canvas.set_width(px_w);
-            s.canvas.set_height(px_h);
-            s.canvas
+            st.canvas.set_width(px_w);
+            st.canvas.set_height(px_h);
+            st.canvas
                 .style()
                 .set_property("width", &format!("{css_w}px"))
                 .unwrap();
-            s.canvas
+            st.canvas
                 .style()
                 .set_property("height", &format!("{css_h}px"))
                 .unwrap();
-
-            s.width = px_w;
-            s.height = px_h;
-            s.scene = Scene::new(px_w as u16, px_h as u16);
-            s.ui.update_viewport(px_w, px_h);
+            st.width = px_w;
+            st.height = px_h;
+            st.scene = Scene::new(px_w as u16, px_h as u16);
+            st.ui.update_viewport(px_w, px_h);
         }) as Box<dyn FnMut(_)>);
-
         web_sys::window()
             .unwrap()
             .add_event_listener_with_callback("resize", closure.as_ref().unchecked_ref())
