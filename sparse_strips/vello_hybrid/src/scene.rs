@@ -386,6 +386,13 @@ impl Scene {
             let lines = self.strip_generator.lines();
             let output =
                 gpu_winding::render_strips_and_tile_lines(tiles, fill_rule, lines, alpha_offset);
+            debug_assert_eq!(
+                output.winding_value_count,
+                strip_storage.alphas.len() as u32,
+                "winding_value_count ({}) != alphas.len() ({})",
+                output.winding_value_count,
+                strip_storage.alphas.len(),
+            );
             self.tile_lines.extend(output.tile_lines);
         }
 
@@ -462,6 +469,13 @@ impl Scene {
             let lines = self.strip_generator.lines();
             let output =
                 gpu_winding::render_strips_and_tile_lines(tiles, Fill::NonZero, lines, alpha_offset);
+            debug_assert_eq!(
+                output.winding_value_count,
+                strip_storage.alphas.len() as u32,
+                "winding_value_count ({}) != alphas.len() ({})",
+                output.winding_value_count,
+                strip_storage.alphas.len(),
+            );
             self.tile_lines.extend(output.tile_lines);
         }
 
@@ -643,6 +657,9 @@ impl Scene {
         let mut strip_storage = self.strip_storage.borrow_mut();
 
         let clip = if let Some(c) = clip_path {
+            #[cfg(feature = "wgpu")]
+            let alpha_offset = strip_storage.alphas.len() as u32;
+
             self.strip_generator.generate_filled_path(
                 c,
                 self.render_state.fill_rule,
@@ -651,6 +668,19 @@ impl Scene {
                 &mut strip_storage,
                 self.clip_context.get(),
             );
+
+            #[cfg(feature = "wgpu")]
+            {
+                let tiles = self.strip_generator.tiles();
+                let lines = self.strip_generator.lines();
+                let output = gpu_winding::render_strips_and_tile_lines(
+                    tiles,
+                    self.render_state.fill_rule,
+                    lines,
+                    alpha_offset,
+                );
+                self.tile_lines.extend(output.tile_lines);
+            }
 
             Some(&strip_storage.strips[strip_offset..])
         } else {

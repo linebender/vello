@@ -166,11 +166,67 @@ pub fn render_strips_and_tile_lines(
         let sign = (p0_y - p1_y).signum();
         winding_delta += sign as i32 * i32::from(tile.winding());
 
-        // --- Cheap per-row height clamping to track accumulated winding ---
         let tile_top_y = f32::from(tile.y) * f32::from(Tile::HEIGHT);
         let tile_left_x = f32::from(tile.x) * f32::from(Tile::WIDTH);
         let tile_right_x = tile_left_x + f32::from(Tile::WIDTH);
 
+        let p0_x = line.p0.x - tile_left_x;
+        let p1_x = line.p1.x - tile_left_x;
+        let (line_left_x, line_left_y, line_right_x) = if p0_x < p1_x {
+            (p0_x, line.p0.y - tile_top_y, p1_x)
+        } else {
+            (p1_x, line.p1.y - tile_top_y, p0_x)
+        };
+
+        // --- Viewport left edge: account for winding from left-of-viewport portion ---
+        if tile.x == 0 && line_left_x < 0. {
+            let (line_top_y_local, line_top_x, line_bottom_y_local) = if p0_y < p1_y {
+                (p0_y, p0_x, p1_y)
+            } else {
+                (p1_y, p1_x, p0_y)
+            };
+            let y_slope = (line_bottom_y_local - line_top_y_local)
+                / (if p0_y < p1_y { p1_x - p0_x } else { p0_x - p1_x });
+
+            let (vp_ymin, vp_ymax) = if line.p0.x == line.p1.x {
+                (line_top_y_local, line_bottom_y_local)
+            } else {
+                let line_viewport_left_y = (line_top_y_local - line_top_x * y_slope)
+                    .max(line_top_y_local)
+                    .min(line_bottom_y_local);
+                (
+                    f32::min(line_left_y, line_viewport_left_y),
+                    f32::max(line_left_y, line_viewport_left_y),
+                )
+            };
+
+            // Per-row contribution from left-of-viewport portion.
+            let mut left_winding = [0.0f32; Tile::HEIGHT as usize];
+            for row in 0..Tile::HEIGHT as usize {
+                let row_top = row as f32;
+                let row_bottom = row_top + 1.0;
+                let h = (vp_ymax.min(row_bottom) - vp_ymin.max(row_top)).max(0.0);
+                left_winding[row] = h * sign;
+                accumulated_winding[row] += h * sign;
+            }
+
+            // Emit coarse instance for the left-of-viewport contribution.
+            if left_winding.iter().any(|&v| v != 0.0) {
+                tile_lines.push(GpuTileLine {
+                    winding_col: location_winding_col,
+                    tile_xy_kind: pack_tile_xy_kind(tile.x, tile.y, 1),
+                    p0: [left_winding[0], left_winding[1]],
+                    p1: [left_winding[2], left_winding[3]],
+                });
+            }
+
+            if line_right_x < 0. {
+                // Entire line is left of viewport — no analytic instance needed.
+                continue;
+            }
+        }
+
+        // --- Cheap per-row height clamping to track accumulated winding ---
         let global_top_y = line.p0.y.min(line.p1.y);
         let global_bot_y = line.p0.y.max(line.p1.y);
 
