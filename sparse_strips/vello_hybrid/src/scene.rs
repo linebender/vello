@@ -499,6 +499,7 @@ impl Scene {
     /// Note that there is no performance benefit to disabling anti-aliasing and
     /// this functionality is simply provided for compatibility.
     pub fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>) {
+        unimplemented!();
         self.aliasing_threshold = aliasing_threshold;
     }
 
