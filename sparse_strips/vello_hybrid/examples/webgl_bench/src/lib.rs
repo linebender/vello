@@ -359,10 +359,8 @@ pub async fn run() {
         cb.forget();
     }
 
-    // Canvas panning (mouse drag)
+    // Canvas panning (mouse drag on window, only in interactive mode)
     {
-        let canvas_et: web_sys::EventTarget = state.borrow().canvas.clone().into();
-
         let s = state.clone();
         let cb = Closure::wrap(Box::new(move |e: web_sys::MouseEvent| {
             let mut st = s.borrow_mut();
@@ -373,7 +371,7 @@ pub async fn run() {
             st.drag_last_x = e.client_x() as f64;
             st.drag_last_y = e.client_y() as f64;
         }) as Box<dyn FnMut(_)>);
-        canvas_et
+        window
             .add_event_listener_with_callback("mousedown", cb.as_ref().unchecked_ref())
             .unwrap();
         cb.forget();
@@ -392,8 +390,7 @@ pub async fn run() {
             st.drag_last_x = x;
             st.drag_last_y = y;
         }) as Box<dyn FnMut(_)>);
-        web_sys::window()
-            .unwrap()
+        window
             .add_event_listener_with_callback("mousemove", cb.as_ref().unchecked_ref())
             .unwrap();
         cb.forget();
@@ -402,8 +399,7 @@ pub async fn run() {
         let cb = Closure::wrap(Box::new(move |_: web_sys::MouseEvent| {
             s.borrow_mut().dragging = false;
         }) as Box<dyn FnMut(_)>);
-        web_sys::window()
-            .unwrap()
+        window
             .add_event_listener_with_callback("mouseup", cb.as_ref().unchecked_ref())
             .unwrap();
         cb.forget();
