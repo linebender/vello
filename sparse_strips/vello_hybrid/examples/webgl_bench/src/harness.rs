@@ -9,6 +9,7 @@
 )]
 
 use crate::scenes::BenchScene;
+use vello_common::kurbo::Affine;
 use vello_hybrid::Scene;
 
 /// A predefined benchmark with fixed parameters.
@@ -207,7 +208,7 @@ fn render_one(
     time: f64,
 ) {
     vello_scene.reset();
-    bench_scene.render(vello_scene, renderer, width, height, time);
+    bench_scene.render(vello_scene, renderer, width, height, time, Affine::IDENTITY);
     let render_size = vello_hybrid::RenderSize { width, height };
     renderer.render(vello_scene, &render_size).unwrap();
 }

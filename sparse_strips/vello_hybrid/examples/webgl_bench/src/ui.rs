@@ -102,6 +102,8 @@ pub struct Ui {
     /// Scene selector.
     pub scene_select: HtmlSelectElement,
     controls: Vec<(ParamCtrl, HtmlElement, &'static str)>,
+    /// Reset view button.
+    pub reset_view_btn: HtmlElement,
 
     // Benchmark
     warmup_input: HtmlInputElement,
@@ -356,6 +358,25 @@ impl Ui {
 
         // Param controls
         let controls = build_controls(document, &sidebar, &scenes[current_scene].params(), false);
+
+        // Reset View button
+        let reset_view_btn = div(document);
+        reset_view_btn.set_text_content(Some("Reset View"));
+        set(
+            &reset_view_btn,
+            &[
+                ("margin-top", "12px"),
+                ("padding", "6px 12px"),
+                ("background", "#313244"),
+                ("color", "#cdd6f4"),
+                ("border-radius", "6px"),
+                ("cursor", "pointer"),
+                ("text-align", "center"),
+                ("font-size", "12px"),
+                ("user-select", "none"),
+            ],
+        );
+        sidebar.append_child(&reset_view_btn).unwrap();
 
         interactive_view.append_child(&sidebar).unwrap();
         body.append_child(&interactive_view).unwrap();
@@ -776,6 +797,7 @@ impl Ui {
             viewport_label,
             scene_select,
             controls,
+            reset_view_btn,
             warmup_input: warmup_input.1,
             run_input: run_input.1,
             start_btn,

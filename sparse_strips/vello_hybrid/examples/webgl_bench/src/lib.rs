@@ -27,6 +27,7 @@ use fps::FpsTracker;
 use harness::{BenchDef, BenchHarness, HarnessEvent, bench_defs};
 use scenes::BenchScene;
 use ui::{AppMode, Ui};
+use vello_common::kurbo::Affine;
 use vello_hybrid::Scene;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
@@ -51,6 +52,12 @@ struct AppState {
     ui: Ui,
     harness: BenchHarness,
     bench_defs: Vec<BenchDef>,
+    // Pan state (in physical pixels).
+    pan_x: f64,
+    pan_y: f64,
+    dragging: bool,
+    drag_last_x: f64,
+    drag_last_y: f64,
 }
 
 impl std::fmt::Debug for AppState {
@@ -90,7 +97,8 @@ impl AppState {
 
         self.scene.reset();
         let (w, h) = (self.width, self.height);
-        self.scenes[idx].render(&mut self.scene, &mut self.renderer, w, h, now);
+        let view = Affine::translate((self.pan_x, self.pan_y));
+        self.scenes[idx].render(&mut self.scene, &mut self.renderer, w, h, now, view);
         let rs = vello_hybrid::RenderSize {
             width: w,
             height: h,
@@ -101,6 +109,11 @@ impl AppState {
         let render_ms = perf.now() - t0;
         let (fps, frame_time) = self.fps_tracker.frame(now);
         self.ui.update_timing(fps, frame_time, render_ms);
+    }
+
+    fn reset_view(&mut self) {
+        self.pan_x = 0.0;
+        self.pan_y = 0.0;
     }
 
     fn tick_benchmark(&mut self, _now: f64) {
@@ -211,6 +224,11 @@ pub async fn run() {
         ui,
         harness: BenchHarness::new(),
         bench_defs: defs,
+        pan_x: 0.0,
+        pan_y: 0.0,
+        dragging: false,
+        drag_last_x: 0.0,
+        drag_last_y: 0.0,
     }));
 
     // ── Event handlers ───────────────────────────────────────────────────
@@ -325,6 +343,68 @@ pub async fn run() {
             st.ui.delete_selected_report();
         }) as Box<dyn FnMut()>);
         btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
+            .unwrap();
+        cb.forget();
+    }
+
+    // Reset view button
+    {
+        let s = state.clone();
+        let btn = state.borrow().ui.reset_view_btn.clone();
+        let cb = Closure::wrap(Box::new(move || {
+            s.borrow_mut().reset_view();
+        }) as Box<dyn FnMut()>);
+        btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
+            .unwrap();
+        cb.forget();
+    }
+
+    // Canvas panning (mouse drag)
+    {
+        let canvas_et: web_sys::EventTarget = state.borrow().canvas.clone().into();
+
+        let s = state.clone();
+        let cb = Closure::wrap(Box::new(move |e: web_sys::MouseEvent| {
+            let mut st = s.borrow_mut();
+            if st.ui.mode != AppMode::Interactive {
+                return;
+            }
+            st.dragging = true;
+            st.drag_last_x = e.client_x() as f64;
+            st.drag_last_y = e.client_y() as f64;
+        }) as Box<dyn FnMut(_)>);
+        canvas_et
+            .add_event_listener_with_callback("mousedown", cb.as_ref().unchecked_ref())
+            .unwrap();
+        cb.forget();
+
+        let s = state.clone();
+        let dpr = window.device_pixel_ratio();
+        let cb = Closure::wrap(Box::new(move |e: web_sys::MouseEvent| {
+            let mut st = s.borrow_mut();
+            if !st.dragging {
+                return;
+            }
+            let x = e.client_x() as f64;
+            let y = e.client_y() as f64;
+            st.pan_x += (x - st.drag_last_x) * dpr;
+            st.pan_y += (y - st.drag_last_y) * dpr;
+            st.drag_last_x = x;
+            st.drag_last_y = y;
+        }) as Box<dyn FnMut(_)>);
+        web_sys::window()
+            .unwrap()
+            .add_event_listener_with_callback("mousemove", cb.as_ref().unchecked_ref())
+            .unwrap();
+        cb.forget();
+
+        let s = state.clone();
+        let cb = Closure::wrap(Box::new(move |_: web_sys::MouseEvent| {
+            s.borrow_mut().dragging = false;
+        }) as Box<dyn FnMut(_)>);
+        web_sys::window()
+            .unwrap()
+            .add_event_listener_with_callback("mouseup", cb.as_ref().unchecked_ref())
             .unwrap();
         cb.forget();
     }

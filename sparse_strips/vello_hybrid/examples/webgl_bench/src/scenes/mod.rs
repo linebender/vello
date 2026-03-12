@@ -8,6 +8,7 @@ mod svg;
 
 pub use rect::RectScene;
 pub use svg::TigerScene;
+use vello_common::kurbo::Affine;
 use vello_hybrid::{Scene, WebGlRenderer};
 
 /// A tweakable parameter for a benchmark scene.
@@ -48,6 +49,9 @@ pub trait BenchScene {
     /// Update a parameter by name.
     fn set_param(&mut self, name: &str, value: f64);
     /// Render one frame into the scene.
+    ///
+    /// `view` is a view transform (e.g. pan/zoom) applied by the interactive mode.
+    /// Scenes should compose it with their own transforms.
     fn render(
         &mut self,
         scene: &mut Scene,
@@ -55,6 +59,7 @@ pub trait BenchScene {
         width: u32,
         height: u32,
         time: f64,
+        view: Affine,
     );
 }
 

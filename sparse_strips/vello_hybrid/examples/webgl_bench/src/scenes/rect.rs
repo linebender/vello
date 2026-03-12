@@ -270,6 +270,7 @@ impl BenchScene for RectScene {
         width: u32,
         height: u32,
         time: f64,
+        view: Affine,
     ) {
         let w = width as f64;
         let h = height as f64;
@@ -293,6 +294,8 @@ impl BenchScene for RectScene {
 
         let size = self.rect_size;
         let half = size / 2.0;
+
+        scene.set_transform(view);
 
         for r in &mut self.rects {
             r.x += r.vx * dt;
@@ -318,7 +321,8 @@ impl BenchScene for RectScene {
                 let cx = r.x + half;
                 let cy = r.y + half;
                 scene.set_transform(
-                    Affine::translate((cx, cy))
+                    view
+                        * Affine::translate((cx, cy))
                         * Affine::rotate(r.angle)
                         * Affine::translate((-half, -half)),
                 );
@@ -390,7 +394,7 @@ impl BenchScene for RectScene {
             scene.fill_rect(&rect);
 
             if self.rotated {
-                scene.reset_transform();
+                scene.set_transform(view);
             }
             if self.paint_mode == 2 {
                 scene.reset_paint_transform();

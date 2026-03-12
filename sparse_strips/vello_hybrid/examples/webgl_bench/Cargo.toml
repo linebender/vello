@@ -39,4 +39,5 @@ web-sys = { version = "0.3.83", features = [
     "Storage",
     "Event",
     "InputEvent",
+    "MouseEvent",
 ] }

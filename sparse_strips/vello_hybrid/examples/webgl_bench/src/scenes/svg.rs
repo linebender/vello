@@ -85,6 +85,7 @@ impl BenchScene for TigerScene {
         width: u32,
         height: u32,
         _time: f64,
+        view: Affine,
     ) {
         let svg_w = self.svg.size.width;
         let svg_h = self.svg.size.height;
@@ -97,7 +98,7 @@ impl BenchScene for TigerScene {
         let tx = (width as f64 - svg_w * s) / 2.0;
         let ty = (height as f64 - svg_h * s) / 2.0;
 
-        let transform = Affine::translate((tx, ty)) * Affine::scale(s);
+        let transform = view * Affine::translate((tx, ty)) * Affine::scale(s);
         render_svg(scene, &self.svg.items, transform);
         scene.reset_transform();
     }
