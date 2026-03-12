@@ -321,8 +321,7 @@ impl BenchScene for RectScene {
                 let cx = r.x + half;
                 let cy = r.y + half;
                 scene.set_transform(
-                    view
-                        * Affine::translate((cx, cy))
+                    view * Affine::translate((cx, cy))
                         * Affine::rotate(r.angle)
                         * Affine::translate((-half, -half)),
                 );

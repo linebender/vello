@@ -23,8 +23,7 @@ impl Default for TigerScene {
 impl TigerScene {
     /// Create a new Tiger SVG benchmark scene.
     pub fn new() -> Self {
-        let svg_content =
-            include_str!("../../../../../../examples/assets/Ghostscript_Tiger.svg");
+        let svg_content = include_str!("../../../../../../examples/assets/Ghostscript_Tiger.svg");
         let svg = PicoSvg::load(svg_content, 1.0).expect("Failed to parse Tiger SVG");
         Self { svg }
     }

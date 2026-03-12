@@ -127,11 +127,7 @@ impl BenchScene for LinesScene {
             Param {
                 name: "cap",
                 label: "Cap",
-                kind: ParamKind::Select(vec![
-                    ("Butt", 0.0),
-                    ("Square", 1.0),
-                    ("Round", 2.0),
-                ]),
+                kind: ParamKind::Select(vec![("Butt", 0.0), ("Square", 1.0), ("Round", 2.0)]),
                 value: self.cap as f64,
             },
             Param {
