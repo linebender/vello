@@ -194,8 +194,8 @@ impl Ui {
         tab_benchmark.set_text_content(Some("Benchmark"));
         style_tab(&tab_benchmark, false);
 
-        top_bar.append_child(&tab_interactive).unwrap();
         top_bar.append_child(&tab_benchmark).unwrap();
+        top_bar.append_child(&tab_interactive).unwrap();
         body.append_child(&top_bar).unwrap();
 
         // ── Interactive view ─────────────────────────────────────────────
@@ -280,46 +280,52 @@ impl Ui {
         set(&benchmark_view, &[
             ("position", "fixed"), ("top", "40px"), ("left", "0"), ("right", "0"), ("bottom", "0"),
             ("display", "none"), ("overflow-y", "auto"),
-            ("padding", "32px"), ("box-sizing", "border-box"),
+            ("padding", "16px 16px 16px 12px"), ("box-sizing", "border-box"),
         ]);
 
-        let inner = div(document);
-        set(&inner, &[("max-width", "720px"), ("margin", "0 auto")]);
+        // Two-column layout: left sidebar (config + screenshot), right main (bench rows)
+        let bench_layout = div(document);
+        set(&bench_layout, &[
+            ("display", "flex"), ("gap", "16px"),
+            ("align-items", "flex-start"),
+        ]);
 
-        let title = div(document);
-        title.set_text_content(Some("Benchmark Suite"));
-        set(&title, &[("font-size", "20px"), ("font-weight", "700"), ("color", "#cdd6f4"), ("margin-bottom", "20px")]);
-        inner.append_child(&title).unwrap();
+        // ── Left column: config + screenshot below ──────────────────────
+        let left_wrapper = div(document);
+        set(&left_wrapper, &[("width", "240px"), ("flex-shrink", "0")]);
 
-        // Config row
-        let config_row = div(document);
-        set(&config_row, &[("display", "flex"), ("gap", "16px"), ("margin-bottom", "20px"), ("align-items", "center"), ("flex-wrap", "wrap")]);
+        let left_col = div(document);
+        set(&left_col, &[
+            ("background", "#1e1e2e"), ("border", "1px solid #313244"),
+            ("border-radius", "12px"), ("padding", "16px"),
+            ("box-sizing", "border-box"),
+        ]);
+
+        // Section: Run config
+        let section_label = |doc: &Document, text: &str| -> HtmlElement {
+            let el = div(doc);
+            el.set_text_content(Some(text));
+            set(&el, &[
+                ("color", "#9399b2"), ("font-size", "10px"), ("text-transform", "uppercase"),
+                ("letter-spacing", "1.5px"), ("margin-bottom", "8px"), ("font-weight", "600"),
+            ]);
+            el
+        };
+
+        left_col.append_child(&section_label(document, "Run Config")).unwrap();
 
         let warmup_input = num_input(document, "Warmup", "250");
-        config_row.append_child(&warmup_input.0).unwrap();
+        warmup_input.0.style().set_property("margin-bottom", "6px").unwrap();
+        left_col.append_child(&warmup_input.0).unwrap();
         let run_input = num_input(document, "Run", "1000");
-        config_row.append_child(&run_input.0).unwrap();
+        run_input.0.style().set_property("margin-bottom", "12px").unwrap();
+        left_col.append_child(&run_input.0).unwrap();
 
-        let start_btn = div(document);
-        start_btn.set_text_content(Some("Run Selected"));
-        set(&start_btn, &[
-            ("padding", "8px 24px"), ("background", "#89b4fa"), ("color", "#1e1e2e"),
-            ("border-radius", "8px"), ("font-weight", "700"), ("cursor", "pointer"),
-            ("user-select", "none"), ("font-size", "13px"),
-            ("transition", "opacity 0.15s"),
-        ]);
-        config_row.append_child(&start_btn).unwrap();
-        inner.append_child(&config_row).unwrap();
+        // Viewport
+        left_col.append_child(&section_label(document, "Viewport")).unwrap();
 
-        // Viewport config row
         let vp_row = div(document);
-        set(&vp_row, &[("display", "flex"), ("gap", "16px"), ("margin-bottom", "12px"), ("align-items", "center"), ("flex-wrap", "wrap")]);
-
-        let vp_label = div(document);
-        vp_label.set_text_content(Some("Viewport:"));
-        set(&vp_label, &[("color", "#9399b2"), ("font-size", "12px")]);
-        vp_row.append_child(&vp_label).unwrap();
-
+        set(&vp_row, &[("display", "flex"), ("gap", "6px"), ("margin-bottom", "16px"), ("align-items", "center")]);
         let vp_width_input = sized_num_input(document, &vp_w.to_string(), "70px");
         vp_row.append_child(&vp_width_input).unwrap();
         let x_label = div(document);
@@ -332,36 +338,52 @@ impl Ui {
         px_label.set_text_content(Some("px"));
         set(&px_label, &[("color", "#6c7086"), ("font-size", "11px")]);
         vp_row.append_child(&px_label).unwrap();
+        left_col.append_child(&vp_row).unwrap();
 
-        inner.append_child(&vp_row).unwrap();
+        // Start button (full width)
+        let start_btn = div(document);
+        start_btn.set_text_content(Some("Run Selected"));
+        set(&start_btn, &[
+            ("padding", "10px 0"), ("background", "#89b4fa"), ("color", "#1e1e2e"),
+            ("border-radius", "8px"), ("font-weight", "700"), ("cursor", "pointer"),
+            ("user-select", "none"), ("font-size", "13px"), ("text-align", "center"),
+            ("transition", "opacity 0.15s"), ("margin-bottom", "16px"),
+        ]);
+        left_col.append_child(&start_btn).unwrap();
 
-        // Save/load row
-        let save_row = div(document);
-        set(&save_row, &[("display", "flex"), ("gap", "10px"), ("margin-bottom", "20px"), ("align-items", "center"), ("flex-wrap", "wrap")]);
+        // Separator
+        let sep = div(document);
+        set(&sep, &[("border-top", "1px solid #313244"), ("margin-bottom", "16px")]);
+        left_col.append_child(&sep).unwrap();
 
-        let save_name_input = sized_num_input(document, "baseline", "140px");
+        // Save/load section
+        left_col.append_child(&section_label(document, "Reports")).unwrap();
+
+        let save_name_input = sized_num_input(document, "baseline", "100%");
         save_name_input.set_type("text");
         save_name_input.set_placeholder("Report name");
-        save_row.append_child(&save_name_input).unwrap();
+        save_name_input.style().set_property("margin-bottom", "8px").unwrap();
+        save_name_input.style().set_property("box-sizing", "border-box").unwrap();
+        left_col.append_child(&save_name_input).unwrap();
 
         let save_btn = div(document);
         save_btn.set_text_content(Some("Save"));
         set(&save_btn, &[
-            ("padding", "6px 16px"), ("background", "#a6e3a1"), ("color", "#1e1e2e"),
+            ("padding", "7px 0"), ("background", "#a6e3a1"), ("color", "#1e1e2e"),
             ("border-radius", "6px"), ("font-weight", "700"), ("cursor", "pointer"),
-            ("user-select", "none"), ("font-size", "12px"),
+            ("user-select", "none"), ("font-size", "12px"), ("text-align", "center"),
+            ("margin-bottom", "12px"),
         ]);
-        save_row.append_child(&save_btn).unwrap();
+        left_col.append_child(&save_btn).unwrap();
 
         let compare_label = div(document);
-        compare_label.set_text_content(Some("Compare:"));
-        set(&compare_label, &[("color", "#9399b2"), ("font-size", "12px"), ("margin-left", "8px")]);
-        save_row.append_child(&compare_label).unwrap();
+        compare_label.set_text_content(Some("Compare with"));
+        set(&compare_label, &[("color", "#9399b2"), ("font-size", "11px"), ("margin-bottom", "4px")]);
+        left_col.append_child(&compare_label).unwrap();
 
         let compare_select: HtmlSelectElement = document.create_element("select").unwrap().dyn_into().unwrap();
         select_style(&compare_select);
-        compare_select.style().set_property("width", "160px").unwrap();
-        // Populate with existing reports
+        compare_select.style().set_property("margin-bottom", "8px").unwrap();
         {
             let opt = document.create_element("option").unwrap();
             opt.set_text_content(Some("(none)"));
@@ -376,27 +398,33 @@ impl Ui {
             opt.set_attribute("value", &i.to_string()).unwrap();
             compare_select.append_child(&opt).unwrap();
         }
-        save_row.append_child(&compare_select).unwrap();
+        left_col.append_child(&compare_select).unwrap();
 
         let delete_btn = div(document);
-        delete_btn.set_text_content(Some("Delete"));
+        delete_btn.set_text_content(Some("Delete Selected Report"));
         set(&delete_btn, &[
-            ("padding", "6px 12px"), ("background", "#f38ba8"), ("color", "#1e1e2e"),
-            ("border-radius", "6px"), ("font-weight", "700"), ("cursor", "pointer"),
-            ("user-select", "none"), ("font-size", "12px"),
+            ("padding", "6px 0"), ("background", "#45475a"), ("color", "#f38ba8"),
+            ("border-radius", "6px"), ("font-weight", "600"), ("cursor", "pointer"),
+            ("user-select", "none"), ("font-size", "11px"), ("text-align", "center"),
         ]);
-        save_row.append_child(&delete_btn).unwrap();
+        left_col.append_child(&delete_btn).unwrap();
 
-        inner.append_child(&save_row).unwrap();
+        left_wrapper.append_child(&left_col).unwrap();
 
-        // Screenshot (shown during/after runs)
+        // Screenshot (below config card, full left-column width)
         let screenshot_img: HtmlImageElement = document.create_element("img").unwrap().dyn_into().unwrap();
-        set_prop(&screenshot_img, "max-width", "360px");
-        set_prop(&screenshot_img, "border-radius", "10px");
+        set_prop(&screenshot_img, "width", "100%");
+        set_prop(&screenshot_img, "border-radius", "8px");
         set_prop(&screenshot_img, "border", "1px solid #313244");
-        set_prop(&screenshot_img, "margin-bottom", "16px");
+        set_prop(&screenshot_img, "margin-top", "12px");
         set_prop(&screenshot_img, "display", "none");
-        inner.append_child(&screenshot_img).unwrap();
+        left_wrapper.append_child(&screenshot_img).unwrap();
+
+        bench_layout.append_child(&left_wrapper).unwrap();
+
+        // ── Right column: bench rows ────────────────────────────────────
+        let inner = div(document);
+        set(&inner, &[("flex", "1"), ("min-width", "0")]);
 
         // Bench rows — always visible, styled for status
         let mut bench_checkboxes = Vec::new();
@@ -447,20 +475,8 @@ impl Ui {
             set(&name_el, &[("font-weight", "600"), ("color", "#cdd6f4")]);
             info.append_child(&name_el).unwrap();
 
-            let params_text = def
-                .params
-                .iter()
-                .map(|(k, v)| {
-                    if *v == (*v as i64) as f64 {
-                        format!("{k}: {}", *v as i64)
-                    } else {
-                        format!("{k}: {v}")
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("  ·  ");
             let params_el = div(document);
-            params_el.set_text_content(Some(&params_text));
+            params_el.set_text_content(Some(def.description));
             set(&params_el, &[("color", "#6c7086"), ("font-size", "11px"), ("margin-top", "2px")]);
             info.append_child(&params_el).unwrap();
 
@@ -505,7 +521,8 @@ impl Ui {
             bench_names.push(def.name);
         }
 
-        benchmark_view.append_child(&inner).unwrap();
+        bench_layout.append_child(&inner).unwrap();
+        benchmark_view.append_child(&bench_layout).unwrap();
         body.append_child(&benchmark_view).unwrap();
 
         let mut ui = Self {
@@ -694,13 +711,13 @@ impl Ui {
         self.start_btn.style().set_property("pointer-events", "none").unwrap();
     }
 
-    /// Mark a bench as currently running (pulsing blue).
+    /// Mark a bench as currently running — prominent red-tinted card.
     pub fn bench_set_running(&self, idx: usize) {
         let row = &self.bench_rows[idx];
         let dot = &self.bench_status_dots[idx];
-        row.style().set_property("border-color", "#89b4fa").unwrap();
-        row.style().set_property("background", "rgba(137, 180, 250, 0.08)").unwrap();
-        dot.style().set_property("background", "#89b4fa").unwrap();
+        row.style().set_property("border-color", "#f38ba8").unwrap();
+        row.style().set_property("background", "rgba(243, 139, 168, 0.15)").unwrap();
+        dot.style().set_property("background", "#f38ba8").unwrap();
     }
 
     /// Mark a bench as complete with result.
@@ -718,6 +735,7 @@ impl Ui {
             r.ms_per_frame, r.iterations
         )));
         result_text.style().set_property("display", "block").unwrap();
+        self.show_delta_for(idx, r.ms_per_frame);
     }
 
     /// Show screenshot from data URL and store it for the given bench index.
@@ -745,9 +763,14 @@ impl Ui {
     /// Save current benchmark results to localStorage.
     pub(crate) fn save_results(&self, bench_defs: &[BenchDef]) {
         let label = self.save_name_input.value();
-        let label = label.trim();
+        let label = label.trim().to_string();
         if label.is_empty() {
             return;
+        }
+        // Prevent duplicate names — overwrite existing report with same name.
+        let store = crate::storage::load_reports();
+        if let Some(idx) = store.reports.iter().position(|r| r.label == label) {
+            crate::storage::delete_report(idx);
         }
         let vp_w: u32 = self.vp_width_input.value().parse().unwrap_or(0);
         let vp_h: u32 = self.vp_height_input.value().parse().unwrap_or(0);
@@ -781,7 +804,7 @@ impl Ui {
         }
 
         crate::storage::save_report(BenchReport {
-            label: label.to_string(),
+            label,
             viewport_width: vp_w,
             viewport_height: vp_h,
             results,
@@ -831,6 +854,32 @@ impl Ui {
             self.compare_report = Some(report);
             self.show_deltas();
         }
+    }
+
+    /// Show delta for a single bench row given its current ms/frame.
+    fn show_delta_for(&self, idx: usize, cur_ms: f64) {
+        let Some(ref report) = self.compare_report else {
+            return;
+        };
+        let delta_el = &self.bench_delta_texts[idx];
+        let name = self.bench_names[idx];
+        let Some(base) = report.results.iter().find(|r| r.name == name).map(|r| r.ms_per_frame) else {
+            delta_el.style().set_property("display", "none").unwrap();
+            return;
+        };
+        let pct = ((cur_ms - base) / base) * 100.0;
+        let abs_pct = pct.abs();
+        if abs_pct < 5.0 {
+            delta_el.set_text_content(Some(&format!("{pct:+.1}%")));
+            delta_el.style().set_property("color", "#6c7086").unwrap();
+        } else if pct < 0.0 {
+            delta_el.set_text_content(Some(&format!("{pct:+.1}%")));
+            delta_el.style().set_property("color", "#a6e3a1").unwrap();
+        } else {
+            delta_el.set_text_content(Some(&format!("+{pct:.1}%")));
+            delta_el.style().set_property("color", "#f38ba8").unwrap();
+        }
+        delta_el.style().set_property("display", "block").unwrap();
     }
 
     /// Show delta indicators comparing current results to loaded report.

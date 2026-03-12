@@ -6,7 +6,7 @@
 mod rect;
 
 pub use rect::RectScene;
-use vello_hybrid::Scene;
+use vello_hybrid::{Scene, WebGlRenderer};
 
 /// A tweakable parameter for a benchmark scene.
 #[derive(Debug, Clone)]
@@ -46,7 +46,14 @@ pub trait BenchScene {
     /// Update a parameter by name.
     fn set_param(&mut self, name: &str, value: f64);
     /// Render one frame into the scene.
-    fn render(&mut self, scene: &mut Scene, width: u32, height: u32, time: f64);
+    fn render(
+        &mut self,
+        scene: &mut Scene,
+        renderer: &mut WebGlRenderer,
+        width: u32,
+        height: u32,
+        time: f64,
+    );
 }
 
 /// Return all available benchmark scenes.

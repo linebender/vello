@@ -16,6 +16,8 @@ use vello_hybrid::Scene;
 pub(crate) struct BenchDef {
     /// Display name.
     pub(crate) name: &'static str,
+    /// Short description of what this benchmark tests.
+    pub(crate) description: &'static str,
     /// Which scene index to use.
     pub(crate) scene_idx: usize,
     /// Parameter overrides (speed is always forced to 0 on top of these).
@@ -205,7 +207,7 @@ fn render_one(
     time: f64,
 ) {
     vello_scene.reset();
-    bench_scene.render(vello_scene, width, height, time);
+    bench_scene.render(vello_scene, renderer, width, height, time);
     let render_size = vello_hybrid::RenderSize { width, height };
     renderer.render(vello_scene, &render_size).unwrap();
 }
@@ -229,30 +231,86 @@ fn gpu_sync(renderer: &vello_hybrid::WebGlRenderer) {
 pub(crate) fn bench_defs() -> Vec<BenchDef> {
     vec![
         BenchDef {
-            name: "Solid 5px (200k)",
+            name: "200k Rect · 5×5 · Solid",
+            description: "Checks how fast we can draw small rectangles",
             scene_idx: 0,
             params: &[
                 ("num_rects", 200_000.0),
                 ("rect_size", 5.0),
                 ("paint_mode", 0.0),
+                ("rotated", 0.0),
             ],
         },
         BenchDef {
-            name: "Solid 50px (50k)",
+            name: "50k Rect · 50×50 · Solid",
+            description: "Checks how fast we can draw medium-sized rectangles",
             scene_idx: 0,
             params: &[
                 ("num_rects", 50_000.0),
                 ("rect_size", 50.0),
                 ("paint_mode", 0.0),
+                ("rotated", 0.0),
             ],
         },
         BenchDef {
-            name: "Solid 200px (10k)",
+            name: "10k Rect · 200×200 · Solid",
+            description: "Checks how fast we can draw large rectangles",
             scene_idx: 0,
             params: &[
                 ("num_rects", 10_000.0),
                 ("rect_size", 200.0),
                 ("paint_mode", 0.0),
+                ("rotated", 0.0),
+            ],
+        },
+        BenchDef {
+            name: "10k Rect · 200×200 · Image · Nearest",
+            description: "Checks how fast we can draw image rectangles with nearest-neighbor filtering",
+            scene_idx: 0,
+            params: &[
+                ("num_rects", 10_000.0),
+                ("rect_size", 200.0),
+                ("paint_mode", 2.0),
+                ("rotated", 0.0),
+                ("image_filter", 0.0),
+            ],
+        },
+        BenchDef {
+            name: "10k Rect · 200×200 · Image · Bilinear",
+            description: "Checks how fast we can draw image rectangles with bilinear filtering",
+            scene_idx: 0,
+            params: &[
+                ("num_rects", 10_000.0),
+                ("rect_size", 200.0),
+                ("paint_mode", 2.0),
+                ("rotated", 0.0),
+                ("image_filter", 1.0),
+            ],
+        },
+        BenchDef {
+            name: "10k Rect · 200×200 · Opaque Image · Nearest",
+            description: "Checks how fast we can draw opaque image rectangles with nearest-neighbor filtering",
+            scene_idx: 0,
+            params: &[
+                ("num_rects", 10_000.0),
+                ("rect_size", 200.0),
+                ("paint_mode", 2.0),
+                ("rotated", 0.0),
+                ("image_filter", 0.0),
+                ("image_opaque", 1.0),
+            ],
+        },
+        BenchDef {
+            name: "10k Rect · 200×200 · Opaque Image · Bilinear",
+            description: "Checks how fast we can draw opaque image rectangles with bilinear filtering",
+            scene_idx: 0,
+            params: &[
+                ("num_rects", 10_000.0),
+                ("rect_size", 200.0),
+                ("paint_mode", 2.0),
+                ("rotated", 0.0),
+                ("image_filter", 1.0),
+                ("image_opaque", 1.0),
             ],
         },
     ]

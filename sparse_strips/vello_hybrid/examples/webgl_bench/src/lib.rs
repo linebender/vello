@@ -90,7 +90,7 @@ impl AppState {
 
         self.scene.reset();
         let (w, h) = (self.width, self.height);
-        self.scenes[idx].render(&mut self.scene, w, h, now);
+        self.scenes[idx].render(&mut self.scene, &mut self.renderer, w, h, now);
         let rs = vello_hybrid::RenderSize { width: w, height: h };
         self.renderer.render(&self.scene, &rs).unwrap();
         gpu_sync(&self.renderer);
@@ -250,6 +250,15 @@ pub async fn run() {
             let selected = st.ui.selected_bench_indices();
             if selected.is_empty() {
                 return;
+            }
+            // Apply configured viewport size.
+            let (vp_w, vp_h) = st.ui.configured_viewport();
+            if vp_w > 0 && vp_h > 0 && (vp_w != st.width || vp_h != st.height) {
+                st.canvas.set_width(vp_w);
+                st.canvas.set_height(vp_h);
+                st.width = vp_w;
+                st.height = vp_h;
+                st.scene = Scene::new(vp_w as u16, vp_h as u16);
             }
             st.harness.warmup_ms = st.ui.warmup_ms();
             st.harness.run_ms = st.ui.run_ms();
