@@ -267,6 +267,10 @@ impl Renderer {
             render_size,
             &self.paint_idxs,
         );
+        // Upload tile-line instances and run the winding render pass before strip rendering.
+        self.programs
+            .upload_tile_lines(device, queue, &scene.tile_lines);
+
         let mut ctx = RendererContext {
             programs: &mut self.programs,
             device,
@@ -274,6 +278,7 @@ impl Renderer {
             encoder,
             view,
         };
+        ctx.do_winding_render_pass(&scene.tile_lines);
         self.scheduler
             .do_scene(&mut self.scheduler_state, &mut ctx, scene, &self.paint_idxs)?;
         self.gradient_cache.maintain();
@@ -617,8 +622,6 @@ struct Programs {
     atlas_clear_pipeline: RenderPipeline,
     /// Pipeline for rendering tile-line instances into the winding texture.
     winding_pipeline: RenderPipeline,
-    /// Bind group layout for the winding pass.
-    winding_bind_group_layout: BindGroupLayout,
     /// GPU resources for rendering (created during prepare)
     resources: GpuResources,
     /// Dimensions of the rendering target
@@ -1208,7 +1211,6 @@ impl Programs {
             gradient_bind_group_layout,
             atlas_bind_group_layout,
             winding_pipeline,
-            winding_bind_group_layout,
             resources,
             encoded_paints_data,
             render_size: RenderSize {

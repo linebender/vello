@@ -208,6 +208,16 @@ impl StripGenerator {
         );
     }
 
+    /// Access the tiles from the last generation call.
+    pub fn tiles(&self) -> &Tiles {
+        &self.tiles
+    }
+
+    /// Access the line buffer from the last generation call.
+    pub fn lines(&self) -> &[Line] {
+        &self.line_buf
+    }
+
     /// Reset the strip generator.
     pub fn reset(&mut self) {
         self.line_buf.clear();

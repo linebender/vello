@@ -28,6 +28,9 @@ use vello_common::render_graph::RenderGraph;
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 
+#[cfg(feature = "wgpu")]
+use crate::gpu_winding::{self, GpuTileLine};
+
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 
@@ -226,6 +229,9 @@ pub struct Scene {
     /// process one coarse batch before processing another fast path strip batch.
     /// Only meaningful in [`StripPathMode::Interleaved`] mode.
     pub(crate) coarse_batch_splits: Vec<usize>,
+    /// GPU tile-line instances accumulated across all paths for the winding render pass.
+    #[cfg(feature = "wgpu")]
+    pub(crate) tile_lines: Vec<GpuTileLine>,
 }
 
 // We use this macro instead of a method to avoid borrowing issues in the corresponding methods.
@@ -301,6 +307,8 @@ impl Scene {
             fast_strips_buffer: FastStripsBuffer::default(),
             strip_path_mode: StripPathMode::FastOnly,
             coarse_batch_splits: Vec::new(),
+            #[cfg(feature = "wgpu")]
+            tile_lines: Vec::new(),
         }
     }
 
@@ -358,6 +366,9 @@ impl Scene {
     ) {
         let strip_storage = &mut self.strip_storage.borrow_mut();
         let strip_start = strip_storage.strips.len();
+        #[cfg(feature = "wgpu")]
+        let alpha_offset = strip_storage.alphas.len() as u32;
+
         self.strip_generator.generate_filled_path(
             path,
             fill_rule,
@@ -366,6 +377,17 @@ impl Scene {
             strip_storage,
             self.clip_context.get(),
         );
+
+        // Generate GPU tile-line instances from the tiles that are still available
+        // in the strip generator after the generate call.
+        #[cfg(feature = "wgpu")]
+        {
+            let tiles = self.strip_generator.tiles();
+            let lines = self.strip_generator.lines();
+            let output =
+                gpu_winding::render_strips_and_tile_lines(tiles, fill_rule, lines, alpha_offset);
+            self.tile_lines.extend(output.tile_lines);
+        }
 
         submit_strips!(self, strip_storage, strip_start, paint);
     }
@@ -422,6 +444,9 @@ impl Scene {
     ) {
         let strip_storage = &mut self.strip_storage.borrow_mut();
         let strip_start = strip_storage.strips.len();
+        #[cfg(feature = "wgpu")]
+        let alpha_offset = strip_storage.alphas.len() as u32;
+
         self.strip_generator.generate_stroked_path(
             path,
             &self.render_state.stroke,
@@ -430,6 +455,15 @@ impl Scene {
             strip_storage,
             self.clip_context.get(),
         );
+
+        #[cfg(feature = "wgpu")]
+        {
+            let tiles = self.strip_generator.tiles();
+            let lines = self.strip_generator.lines();
+            let output =
+                gpu_winding::render_strips_and_tile_lines(tiles, Fill::NonZero, lines, alpha_offset);
+            self.tile_lines.extend(output.tile_lines);
+        }
 
         submit_strips!(self, strip_storage, strip_start, paint);
     }
@@ -784,6 +818,8 @@ impl Scene {
         self.fast_strips_buffer.clear();
         self.strip_path_mode = StripPathMode::FastOnly;
         self.coarse_batch_splits.clear();
+        #[cfg(feature = "wgpu")]
+        self.tile_lines.clear();
     }
 
     /// Get the width of the render context.

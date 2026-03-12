@@ -59,10 +59,14 @@ pub struct GpuWindingOutput {
 /// This replaces the CPU alpha computation in `strip::render()`. The strip layout
 /// (boundaries, `fill_gap`, `alpha_idx`) is identical; instead of computing per-pixel
 /// alpha, we emit [`GpuTileLine`] instances for a subsequent GPU winding pass.
+/// `alpha_idx_offset` aligns winding_col values with the cumulative alpha_idx
+/// in StripStorage. Pass `strip_storage.alphas.len() as u32` before the
+/// corresponding `strip::render()` call.
 pub fn render_strips_and_tile_lines(
     tiles: &Tiles,
     fill_rule: Fill,
     lines: &[Line],
+    alpha_idx_offset: u32,
 ) -> GpuWindingOutput {
     let mut strips = Vec::new();
     let mut tile_lines = Vec::new();
@@ -83,7 +87,7 @@ pub fn render_strips_and_tile_lines(
     let mut winding_delta: i32 = 0;
     let mut accumulated_winding = [0.0f32; Tile::HEIGHT as usize];
     let mut prev_tile = *tiles.get(0);
-    let mut alpha_idx_counter: u32 = 0;
+    let mut alpha_idx_counter: u32 = alpha_idx_offset;
     let mut location_winding_col: u32 = 0;
 
     const SENTINEL: Tile = Tile::new(u16::MAX, u16::MAX, 0, 0);
