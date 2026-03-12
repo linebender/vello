@@ -70,8 +70,8 @@ fn vs_main(
     let tex_x = col % config.winding_tex_width;
     let tex_y = band * TILE_SIZE + u32(offset_y);
 
-    let ndc_x = (f32(tex_x) + 0.5) * 2.0 / f32(config.winding_tex_width) - 1.0;
-    let ndc_y = 1.0 - (f32(tex_y) + 0.5) * 2.0 / f32(config.winding_tex_height);
+    let ndc_x = f32(tex_x) * 2.0 / f32(config.winding_tex_width) - 1.0;
+    let ndc_y = 1.0 - f32(tex_y) * 2.0 / f32(config.winding_tex_height);
 
     // --- Clip line to tile x-bounds (analytic only) ---
     var out_p0 = instance.p0;

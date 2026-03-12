@@ -232,6 +232,9 @@ pub struct Scene {
     /// GPU tile-line instances accumulated across all paths for the winding render pass.
     #[cfg(feature = "wgpu")]
     pub(crate) tile_lines: Vec<GpuTileLine>,
+    /// Scratch storage for generating tiles/lines for rects in flush_fast_path.
+    #[cfg(feature = "wgpu")]
+    strip_generator_scratch: StripStorage,
 }
 
 // We use this macro instead of a method to avoid borrowing issues in the corresponding methods.
@@ -309,6 +312,8 @@ impl Scene {
             coarse_batch_splits: Vec::new(),
             #[cfg(feature = "wgpu")]
             tile_lines: Vec::new(),
+            #[cfg(feature = "wgpu")]
+            strip_generator_scratch: StripStorage::default(),
         }
     }
 
@@ -599,8 +604,39 @@ impl Scene {
                         f64::from(r.y1),
                     );
                     let strip_start = strip_storage.strips.len();
+                    #[cfg(feature = "wgpu")]
+                    let alpha_offset = strip_storage.alphas.len() as u32;
+
                     self.strip_generator
                         .generate_filled_rect_fast(&rect, &mut strip_storage, None);
+
+                    // generate_filled_rect_fast doesn't use the tile pipeline, so
+                    // we additionally flatten the rect into tiles for tile-line
+                    // generation.
+                    #[cfg(feature = "wgpu")]
+                    {
+                        // Reuse the strip generator's tiles by going through the
+                        // normal filled path just for its tiles/lines.
+                        self.strip_generator.generate_filled_path(
+                            rect.to_path(DEFAULT_TOLERANCE),
+                            Fill::NonZero,
+                            Affine::IDENTITY,
+                            None,
+                            // Throw-away storage — we only want the tiles/lines.
+                            &mut self.strip_generator_scratch,
+                            None,
+                        );
+                        let tiles = self.strip_generator.tiles();
+                        let lines = self.strip_generator.lines();
+                        let output = gpu_winding::render_strips_and_tile_lines(
+                            tiles,
+                            Fill::NonZero,
+                            lines,
+                            alpha_offset,
+                        );
+                        self.tile_lines.extend(output.tile_lines);
+                    }
+
                     self.wide.generate(
                         &strip_storage.strips[strip_start..],
                         r.paint,
@@ -850,6 +886,8 @@ impl Scene {
         self.coarse_batch_splits.clear();
         #[cfg(feature = "wgpu")]
         self.tile_lines.clear();
+        #[cfg(feature = "wgpu")]
+        self.strip_generator_scratch.clear();
     }
 
     /// Get the width of the render context.
