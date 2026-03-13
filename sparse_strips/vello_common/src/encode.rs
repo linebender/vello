@@ -37,6 +37,20 @@ const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
 const NUDGE_VAL: f32 = 1.0e-7;
 const PIXEL_CENTER_OFFSET: f64 = 0.5;
 
+/// Sanitize a stop position so that it is finite and in the `[0.0, 1.0]` range.
+///
+/// This is intended as a last line of defence for inputs that bypass CSS-style validation or
+/// encode semantics directly in terms of ranges.
+fn sanitize_stop_position(pos: f32) -> f32 {
+    if pos.is_nan() {
+        0.0
+    } else if pos.is_infinite() {
+        if pos.is_sign_negative() { 0.0 } else { 1.0 }
+    } else {
+        pos.clamp(0.0, 1.0)
+    }
+}
+
 #[cfg(feature = "std")]
 fn exp(val: f32) -> f32 {
     val.exp()
@@ -1005,7 +1019,17 @@ impl<T: FromF32Color> GradientLut<T> {
             let mut prev_idx = 0;
 
             for range in ranges {
-                let max_idx = (range.x1 * lut_size as f32) as usize;
+                // Clamp the range end position to a finite value within \[0.0, 1.0\] so that the
+                // computed LUT index is always in-bounds and monotonic.
+                let pos = sanitize_stop_position(range.x1);
+                let scaled = (pos * lut_size as f32).floor() as usize;
+                let mut max_idx = scaled.min(lut_size);
+
+                // Ensure indices are monotonically increasing so we never create an empty or
+                // backwards range, even if the underlying stops were not sorted correctly.
+                if max_idx < prev_idx {
+                    max_idx = prev_idx;
+                }
 
                 ramps.push((prev_idx..max_idx, range));
                 prev_idx = max_idx;
@@ -1122,16 +1146,18 @@ fn determine_lut_size(ranges: &[GradientRange]) -> usize {
     };
 
     // In case we have some tricky stops (for example 3 stops with 0.0, 0.001, 1.0), we might
-    // increase the resolution.
+    // increase the resolution. We also sanitize the positions here to defend against NaNs and
+    // infinities coming from upstream parsers.
     let mut last_x1 = 0.0;
     let mut min_size = 0;
 
-    for x1 in ranges.iter().map(|e| e.x1) {
+    for x1 in ranges.iter().map(|e| sanitize_stop_position(e.x1)) {
         // For example, if the first stop is at 0.001, then we need a resolution of at least 1000
         // so that we can still safely capture the first stop.
-        let res = ((1.0 / (x1 - last_x1)).ceil() as usize)
-            .min(MAX_GRADIENT_LUT_SIZE)
-            .next_power_of_two();
+        let delta = (x1 - last_x1).max(NUDGE_VAL);
+        let mut res = (1.0 / delta).ceil() as usize;
+        res = res.clamp(1, MAX_GRADIENT_LUT_SIZE);
+        let res = res.next_power_of_two();
         min_size = min_size.max(res);
         last_x1 = x1;
     }
@@ -1149,14 +1175,16 @@ mod private {
 
 #[cfg(test)]
 mod tests {
-    use super::{EncodeExt, Gradient};
+    use super::{EncodeExt, Gradient, GradientLut, GradientRange, sanitize_stop_position};
     use crate::color::DynamicColor;
     use crate::color::palette::css::{BLACK, BLUE, GREEN};
     use crate::kurbo::{Affine, Point};
-    use crate::peniko::{ColorStop, ColorStops};
+    use crate::peniko::{ColorStop, ColorStops, InterpolationAlphaSpace};
     use alloc::vec;
     use peniko::{LinearGradientPosition, RadialGradientPosition};
     use smallvec::smallvec;
+
+    use crate::fearless_simd::Fallback;
 
     #[test]
     fn gradient_missing_stops() {
@@ -1288,5 +1316,66 @@ mod tests {
             gradient.encode_into(&mut buf, Affine::IDENTITY, None),
             GREEN.into()
         );
+    }
+
+    #[test]
+    fn sanitize_stop_position_handles_non_finite_values() {
+        assert_eq!(sanitize_stop_position(f32::NEG_INFINITY), 0.0);
+        assert_eq!(sanitize_stop_position(f32::INFINITY), 1.0);
+        assert_eq!(sanitize_stop_position(f32::NAN), 0.0);
+        assert_eq!(sanitize_stop_position(-2.0), 0.0);
+        assert_eq!(sanitize_stop_position(2.0), 1.0);
+    }
+
+    #[test]
+    fn gradient_lut_handles_infinite_stop_offset() {
+        let simd = Fallback::new();
+
+        let ranges = vec![
+            GradientRange {
+                x1: 0.0,
+                bias: [0.0; 4],
+                scale: [0.0; 4],
+                interpolation_alpha_space: InterpolationAlphaSpace::Premultiplied,
+            },
+            GradientRange {
+                x1: f32::INFINITY,
+                bias: [0.0; 4],
+                scale: [0.0; 4],
+                interpolation_alpha_space: InterpolationAlphaSpace::Premultiplied,
+            },
+        ];
+
+        let lut = GradientLut::<u8>::new(simd, &ranges, false);
+        assert!(lut.width() > 0);
+    }
+
+    #[test]
+    fn gradient_lut_handles_unsorted_and_out_of_range_offsets() {
+        let simd = Fallback::new();
+
+        let ranges = vec![
+            GradientRange {
+                x1: 0.75,
+                bias: [0.0; 4],
+                scale: [0.0; 4],
+                interpolation_alpha_space: InterpolationAlphaSpace::Premultiplied,
+            },
+            GradientRange {
+                x1: -1.0,
+                bias: [0.0; 4],
+                scale: [0.0; 4],
+                interpolation_alpha_space: InterpolationAlphaSpace::Premultiplied,
+            },
+            GradientRange {
+                x1: 2.0,
+                bias: [0.0; 4],
+                scale: [0.0; 4],
+                interpolation_alpha_space: InterpolationAlphaSpace::Premultiplied,
+            },
+        ];
+
+        let lut = GradientLut::<f32>::new(simd, &ranges, false);
+        assert!(lut.width() > 0);
     }
 }
