@@ -1173,6 +1173,7 @@ impl WebGlPrograms {
     }
 
     /// Clear the view framebuffer.
+    // TODO: Investigate adding tests for the clear_view behavior.
     fn clear_view_framebuffer(&mut self, gl: &WebGl2RenderingContext) {
         gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
