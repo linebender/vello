@@ -287,6 +287,7 @@ impl Renderer {
     }
 
     /// Clear the view to transparent black.
+    // TODO: Investigate adding tests for the clear_view behavior.
     fn clear_view(encoder: &mut CommandEncoder, view: &TextureView) {
         encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("Clear View"),
