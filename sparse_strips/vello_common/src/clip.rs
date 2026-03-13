@@ -162,6 +162,9 @@ fn intersect_impl<S: Simd>(
     path_2: PathDataRef<'_>,
     target: &mut StripStorage,
 ) {
+    // TODO: Rewrite the implementation (and the tests further below)
+    // so it can be made compatible with i16.
+
     // In case either path is empty, the clip path should be empty.
     if path_1.strips.is_empty() || path_2.strips.is_empty() {
         return;
@@ -169,10 +172,10 @@ fn intersect_impl<S: Simd>(
 
     // Ignore any y values that are outside the bounding box of either of the two paths, as
     // those are guaranteed to have neither fill nor strip regions.
-    let mut cur_y = path_1.strips[0].strip_y().min(path_2.strips[0].strip_y());
+    let mut cur_y = path_1.strips[0].tile_y().min(path_2.strips[0].tile_y());
     let end_y = path_1.strips[path_1.strips.len() - 1]
-        .strip_y()
-        .min(path_2.strips[path_2.strips.len() - 1].strip_y());
+        .tile_y()
+        .min(path_2.strips[path_2.strips.len() - 1].tile_y());
 
     let mut path_1_idx = 0;
     let mut path_2_idx = 0;
@@ -277,12 +280,9 @@ fn intersect_impl<S: Simd>(
     }
 
     // Push the sentinel strip.
-    target.strips.push(Strip::new(
-        u16::MAX,
-        end_y * Tile::HEIGHT,
-        target.alphas.len() as u32,
-        false,
-    ));
+    target
+        .strips
+        .push(Strip::new_sentinel(end_y, target.alphas.len() as u32));
 }
 
 /// An overlap between two regions.
@@ -383,8 +383,8 @@ impl Region<'_> {
 struct RowIterator<'a> {
     /// The path in question.
     input: PathDataRef<'a>,
-    /// The strip row we want to iterate over.
-    strip_y: u16,
+    /// The strip row we want to iterate over, in tile coordinates.
+    tile_y: u16,
     /// The index of the current strip.
     cur_idx: &'a mut usize,
     /// Whether the iterator should yield a strip next or not.
@@ -395,16 +395,16 @@ struct RowIterator<'a> {
 }
 
 impl<'a> RowIterator<'a> {
-    fn new(input: PathDataRef<'a>, cur_idx: &'a mut usize, strip_y: u16) -> Self {
+    fn new(input: PathDataRef<'a>, cur_idx: &'a mut usize, tile_y: u16) -> Self {
         // Forward the index until we have found the right strip.
-        while input.strips[*cur_idx].strip_y() < strip_y {
+        while input.strips[*cur_idx].tile_y() < tile_y {
             *cur_idx += 1;
         }
 
         Self {
             input,
             cur_idx,
-            strip_y,
+            tile_y,
             on_strip: true,
         }
     }
@@ -440,8 +440,8 @@ impl<'a> RowIterator<'a> {
         // zero winding so we don't need to special case this.
         if next.fill_gap() {
             let cur = self.cur_strip();
-            let x = cur.x + self.cur_strip_width();
-            let width = next.x - x;
+            let x = cur.x() + self.cur_strip_width();
+            let width = next.x() - x;
 
             Some(FillRegion { start: x, width })
         } else {
@@ -477,12 +477,12 @@ impl<'a> Iterator for RowIterator<'a> {
         self.on_strip = false;
 
         // If the current strip is sentinel or not within our target row, terminate.
-        if self.cur_strip().is_sentinel() || self.cur_strip().strip_y() != self.strip_y {
+        if self.cur_strip().is_sentinel() || self.cur_strip().tile_y() != self.tile_y {
             return None;
         }
 
         // Calculate the dimensions of the strip and yield it.
-        let x = self.cur_strip().x;
+        let x = self.cur_strip().x();
         let width = self.cur_strip_width();
         let alphas = self.cur_strip_alphas();
 
@@ -496,16 +496,16 @@ impl<'a> Iterator for RowIterator<'a> {
 
 /// The data of the current strip we are building.
 struct StripState {
-    x: u16,
+    tile_x: u16,
     alpha_idx: u32,
     fill_gap: bool,
 }
 
-fn flush_strip(strip_state: &mut Option<StripState>, strips: &mut Vec<Strip>, cur_y: u16) {
+fn flush_strip(strip_state: &mut Option<StripState>, strips: &mut Vec<Strip>, tile_y: u16) {
     if let Some(state) = core::mem::take(strip_state) {
         strips.push(Strip::new(
-            state.x,
-            cur_y * Tile::HEIGHT,
+            state.tile_x,
+            tile_y,
             state.alpha_idx,
             state.fill_gap,
         ));
@@ -515,7 +515,7 @@ fn flush_strip(strip_state: &mut Option<StripState>, strips: &mut Vec<Strip>, cu
 #[inline(always)]
 fn start_strip(strip_data: &mut Option<StripState>, alphas: &[u8], x: u16, fill_gap: bool) {
     *strip_data = Some(StripState {
-        x,
+        tile_x: x / Tile::WIDTH,
         alpha_idx: alphas.len() as u32,
         fill_gap,
     });
@@ -529,7 +529,7 @@ fn should_create_new_strip(
     // Returns false in case we can append to the currently built strip.
     strip_state.as_ref().is_none_or(|state| {
         let width = ((alphas.len() as u32 - state.alpha_idx) / Tile::HEIGHT as u32) as u16;
-        let strip_end = state.x + width;
+        let strip_end = state.tile_x * Tile::WIDTH + width;
 
         strip_end < overlap_start - 1
     })
@@ -674,6 +674,8 @@ mod tests {
             }
         }
 
+        // TODO: Rewrite tests so we work with tile_x instead of x.
+
         fn add_strip(self, x: u16, strip_y: u16, end: u16, fill_gap: bool) -> Self {
             let width = end - x;
             self.add_strip_with(
@@ -688,7 +690,7 @@ mod tests {
         fn add_strip_with(
             mut self,
             x: u16,
-            strip_y: u16,
+            tile_y: u16,
             end: u16,
             fill_gap: bool,
             alphas: &[u8],
@@ -698,19 +700,19 @@ mod tests {
             let idx = self.storage.alphas.len();
             self.storage
                 .strips
-                .push(Strip::new(x, strip_y * Tile::HEIGHT, idx as u32, fill_gap));
+                .push(Strip::new(x / Tile::WIDTH, tile_y, idx as u32, fill_gap));
             self.storage.alphas.extend_from_slice(alphas);
 
             self
         }
 
         fn finish(mut self) -> StripStorage {
-            let last_y = self.storage.strips.last().unwrap().y;
+            let last_tile_y = self.storage.strips.last().unwrap().tile_y();
             let idx = self.storage.alphas.len();
 
             self.storage
                 .strips
-                .push(Strip::new(u16::MAX, last_y, idx as u32, false));
+                .push(Strip::new_sentinel(last_tile_y, idx as u32));
 
             self.storage
         }
