@@ -434,16 +434,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
             let linear_gradient = unpack_linear_gradient(paint_tex_idx);
             
-            // Calculate fragment position and apply transform
+            // Calculate fragment position and apply affine transform
             let fragment_pos = in.sample_xy;
-            let grad_pos = vec2<f32>(
-                linear_gradient.transform[0] * fragment_pos.x + 
-                linear_gradient.transform[2] * fragment_pos.y +
-                linear_gradient.transform[4],
-                linear_gradient.transform[1] * fragment_pos.x +
-                linear_gradient.transform[3] * fragment_pos.y + 
-                linear_gradient.transform[5]
-            );
+            let grad_pos = linear_gradient.transform * fragment_pos + linear_gradient.translate;
             
             // For linear gradient, t-value is just the x coordinate in gradient space
             let t_value = grad_pos.x + 0.00001;
@@ -459,16 +452,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
             let radial_gradient = unpack_radial_gradient(paint_tex_idx);
             
-            // Calculate fragment position and apply transform
+            // Calculate fragment position and apply affine transform
             let fragment_pos = in.sample_xy;
-            let grad_pos = vec2<f32>(
-                radial_gradient.transform[0] * fragment_pos.x + 
-                radial_gradient.transform[2] * fragment_pos.y + 
-                radial_gradient.transform[4],
-                radial_gradient.transform[1] * fragment_pos.x + 
-                radial_gradient.transform[3] * fragment_pos.y + 
-                radial_gradient.transform[5]
-            );
+            let grad_pos = radial_gradient.transform * fragment_pos + radial_gradient.translate;
             
             // For radial gradient, calculate distance from center
             let gradient_result = calculate_radial_gradient(grad_pos, radial_gradient);
@@ -484,16 +470,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
             let sweep_gradient = unpack_sweep_gradient(paint_tex_idx);
             
-            // Calculate fragment position and apply transform
+            // Calculate fragment position and apply affine transform
             let fragment_pos = in.sample_xy;
-            var grad_pos = vec2<f32>(
-                sweep_gradient.transform[0] * fragment_pos.x + 
-                sweep_gradient.transform[2] * fragment_pos.y + 
-                sweep_gradient.transform[4],
-                sweep_gradient.transform[1] * fragment_pos.x + 
-                sweep_gradient.transform[3] * fragment_pos.y + 
-                sweep_gradient.transform[5]
-            );
+            var grad_pos = sweep_gradient.transform * fragment_pos + sweep_gradient.translate;
 
             // Before passing the position to the angle calculation, we bias
             // very small coordinates to 0. Otherwise the sweep gradient's seam
@@ -1122,8 +1101,10 @@ struct LinearGradient {
     gradient_start: u32,
     /// Width of the gradient texture.
     texture_width: u32,
-    /// Transform matrix [a, b, c, d, tx, ty].
-    transform: array<f32, 6>,
+    /// 2×2 linear part of the affine transform (columns [a,b] and [c,d]).
+    transform: mat2x2<f32>,
+    /// Translation part of the affine transform [tx, ty].
+    translate: vec2<f32>,
 }
 
 struct RadialGradient {
@@ -1133,8 +1114,10 @@ struct RadialGradient {
     gradient_start: u32,
     /// Width of the gradient texture.
     texture_width: u32,
-    /// Transform matrix [a, b, c, d, tx, ty].
-    transform: array<f32, 6>,
+    /// 2×2 linear part of the affine transform (columns [a,b] and [c,d]).
+    transform: mat2x2<f32>,
+    /// Translation part of the affine transform [tx, ty].
+    translate: vec2<f32>,
     /// Bias value for radial gradient calculation.
     bias: f32,
     /// Scale factor for radial gradient calculation.
@@ -1162,8 +1145,10 @@ struct SweepGradient {
     gradient_start: u32,
     /// Width of the gradient texture.
     texture_width: u32,
-    /// Transform matrix [a, b, c, d, tx, ty].
-    transform: array<f32, 6>,
+    /// 2×2 linear part of the affine transform (columns [a,b] and [c,d]).
+    transform: mat2x2<f32>,
+    /// Translation part of the affine transform [tx, ty].
+    translate: vec2<f32>,
     /// Starting angle for sweep gradient (in radians).
     start_angle: f32,
     /// Inverse of angle delta for sweep gradient.
@@ -1180,13 +1165,14 @@ fn unpack_linear_gradient(paint_tex_idx: u32) -> LinearGradient {
     let extend_mode = texture_width_and_extend_mode.y;
     let gradient_start = texel0.y;
     
-    let transform = array<f32, 6>(
-        bitcast<f32>(texel0.z), bitcast<f32>(texel0.w), bitcast<f32>(texel1.x),
-        bitcast<f32>(texel1.y), bitcast<f32>(texel1.z), bitcast<f32>(texel1.w)
+    let transform = mat2x2<f32>(
+        vec2<f32>(bitcast<f32>(texel0.z), bitcast<f32>(texel0.w)),
+        vec2<f32>(bitcast<f32>(texel1.x), bitcast<f32>(texel1.y))
     );
+    let translate = vec2<f32>(bitcast<f32>(texel1.z), bitcast<f32>(texel1.w));
     
     return LinearGradient(
-        extend_mode, gradient_start, texture_width, transform
+        extend_mode, gradient_start, texture_width, transform, translate
     );
 }
 
@@ -1296,10 +1282,11 @@ fn unpack_radial_gradient(paint_tex_idx: u32) -> RadialGradient {
     let texture_width = texture_width_and_extend_mode.x;
     let extend_mode = texture_width_and_extend_mode.y;
     let gradient_start = texel0.y;
-    let transform = array<f32, 6>(
-        bitcast<f32>(texel0.z), bitcast<f32>(texel0.w), bitcast<f32>(texel1.x),
-        bitcast<f32>(texel1.y), bitcast<f32>(texel1.z), bitcast<f32>(texel1.w)
+    let transform = mat2x2<f32>(
+        vec2<f32>(bitcast<f32>(texel0.z), bitcast<f32>(texel0.w)),
+        vec2<f32>(bitcast<f32>(texel1.x), bitcast<f32>(texel1.y))
     );
+    let translate = vec2<f32>(bitcast<f32>(texel1.z), bitcast<f32>(texel1.w));
     
     let kind_and_swapped = unpack_radial_kind_and_swapped(texel2.x);
     let kind = kind_and_swapped.x;
@@ -1314,7 +1301,7 @@ fn unpack_radial_gradient(paint_tex_idx: u32) -> RadialGradient {
     let scaled_r0_squared = bitcast<f32>(texel3.w);
     
     return RadialGradient(
-        extend_mode, gradient_start, texture_width, transform,
+        extend_mode, gradient_start, texture_width, transform, translate,
         bias, scale, fp0, fp1, fr1, f_focal_x, f_is_swapped, scaled_r0_squared, kind
     );
 }
@@ -1329,16 +1316,17 @@ fn unpack_sweep_gradient(paint_tex_idx: u32) -> SweepGradient {
     let texture_width = texture_width_and_extend_mode.x;
     let extend_mode = texture_width_and_extend_mode.y;
     let gradient_start = texel0.y;
-    let transform = array<f32, 6>(
-        bitcast<f32>(texel0.z), bitcast<f32>(texel0.w), bitcast<f32>(texel1.x),
-        bitcast<f32>(texel1.y), bitcast<f32>(texel1.z), bitcast<f32>(texel1.w)
+    let transform = mat2x2<f32>(
+        vec2<f32>(bitcast<f32>(texel0.z), bitcast<f32>(texel0.w)),
+        vec2<f32>(bitcast<f32>(texel1.x), bitcast<f32>(texel1.y))
     );
+    let translate = vec2<f32>(bitcast<f32>(texel1.z), bitcast<f32>(texel1.w));
     
     let start_angle = bitcast<f32>(texel2.x);
     let inv_angle_delta = bitcast<f32>(texel2.y);
 
     return SweepGradient(
-        extend_mode, gradient_start, texture_width, transform, start_angle, inv_angle_delta
+        extend_mode, gradient_start, texture_width, transform, translate, start_angle, inv_angle_delta
     );
 }
 
