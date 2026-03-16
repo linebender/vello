@@ -302,18 +302,18 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(0.0);
     }
 
-    let data = load_filter_data(in.filter_offset);
-
     switch in.pass_kind {
         case PASS_COPY: {
             return sample_input(in, rel_coord);
         }
         case PASS_FLOOD: {
+            let data = load_filter_data(in.filter_offset);
             let flood = unpack_flood_filter(data);
 
             return unpack4x8unorm(flood.color);
         }
         case PASS_OFFSET: {
+            let data = load_filter_data(in.filter_offset);
             let filter_type = unpack_filter_type(data);
             var dxdy: vec2<f32>;
 
@@ -332,10 +332,12 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
             return downscale(in);
         }
         case PASS_BLUR_H: {
+            let data = load_filter_data(in.filter_offset);
             let blur = unpack_blur_params(data);
             return convolve(in, rel_coord, HORIZONTAL, blur.n_linear_taps, blur.center_weight, blur.linear_weights, blur.linear_offsets);
         }
         case PASS_BLUR_V: {
+            let data = load_filter_data(in.filter_offset);
             let blur = unpack_blur_params(data);
             return convolve(in, rel_coord, VERTICAL, blur.n_linear_taps, blur.center_weight, blur.linear_weights, blur.linear_offsets);
         }
@@ -343,6 +345,7 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
             return upscale(in);
         }
         case PASS_COMPOSITE_DROP_SHADOW: {
+            let data = load_filter_data(in.filter_offset);
             // Drop shadow composite: colorize blurred result, composite original on top.
             let shadow = unpack_drop_shadow_filter(data);
             let blurred = sample_input(in, rel_coord);
