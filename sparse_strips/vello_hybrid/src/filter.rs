@@ -522,6 +522,8 @@ impl BlurPassScheduler<'_> {
             FilterPass {
                 input_atlas_idx: input_idx,
                 output: FilterPassTarget::FilterAtlas(self.scratch[s].atlas_idx),
+                // Note: We must not bind the original texture here! See the comment in
+                // `emit_composite_to_dest`.
                 original_atlas_idx: None,
             },
         );
@@ -544,6 +546,8 @@ impl BlurPassScheduler<'_> {
             FilterPass {
                 input_atlas_idx: input_idx,
                 output: FilterPassTarget::MainAtlas(self.dest.atlas_idx),
+                // Note: We must not bind the original texture here! See the comment in
+                // `emit_composite_to_dest`.
                 original_atlas_idx: None,
             },
         );
@@ -567,6 +571,18 @@ impl BlurPassScheduler<'_> {
             FilterPass {
                 input_atlas_idx: input_idx,
                 output: FilterPassTarget::MainAtlas(self.dest.atlas_idx),
+                // There is some important subtlety going on. We have three different "regions":
+                // The initial image region (storing the unfiltered representation of the layer)
+                // as well as two scratch buffers. Scratch buffer 0 always lives on a different atlas
+                // than the initial image, but scratch buffer 1 could live on the same.
+                // This is intentional: Right now, we only ever need to access the initial image
+                // during drop shadow, where the original image needs to be composited on top of
+                // the filtered version. However, since this is the very last step, we can just bind
+                // the two textures as input (even if they point to the same atlas) since we only
+                // read from them, and the final destination we write to is guaranteed to live somewhere
+                // else. However, care needs to be exercised in case we add more filters in the future
+                // that also need to sample from the unfiltered texture, but where the write target
+                // is still a scratch buffer.
                 original_atlas_idx: Some(self.initial.0),
             },
         );
@@ -712,6 +728,8 @@ impl FilterContext {
                     let scratch_1_atlas_id = self.image_cache.get(scratch_1).unwrap().atlas_id;
 
                     // Second scratch buffer needs to live on a different texture than first scratch buffer.
+                    // Note: The second scratch buffer is allowed to live on the same atlas
+                    // as the initial image texture. See the comment in `emit_composite_to_dest`.
                     let scratch_2 = self.image_cache.allocate_excluding(
                         width,
                         height,
