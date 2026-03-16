@@ -440,8 +440,8 @@ struct AtlasLocation {
     atlas_size: IntSize,
 }
 
-/// A helper struct making it easier to schedule the rendering passes for filters.
-struct PassScheduler<'a> {
+/// A helper struct making it easier to schedule blur filters.
+struct BlurPassScheduler<'a> {
     state: &'a mut FilterPassState,
     /// Atlas index and offset of the initial (unfiltered) image.
     ///
@@ -462,7 +462,7 @@ struct PassScheduler<'a> {
     first: bool,
 }
 
-impl PassScheduler<'_> {
+impl BlurPassScheduler<'_> {
     /// Compute and update source and destination sizes based on the pass kind,
     fn apply_pass_dimensions(&mut self, kind: u32) -> (IntSize, IntSize) {
         match kind {
@@ -895,7 +895,7 @@ impl FilterContext {
             filter_textures.bbox.height_px(),
         );
 
-        let mut builder = PassScheduler {
+        let mut builder = BlurPassScheduler {
             state,
             initial: (initial_atlas_idx, IntOffset(initial_image.offsets())),
             dest: AtlasLocation {
