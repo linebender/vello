@@ -214,6 +214,9 @@ impl Renderer {
 
         self.prepare_filter_textures(scene, device, encoder, &mut encoded_paints)?;
 
+        // TODO: Passing `false` here because wgpu swapchain textures likely have
+        // undefined initial content, making an explicit clear redundant in the common
+        // case. Verify whether there are scenarios where wgpu would need a clear.
         let result = self.render_scene(
             scene,
             device,
@@ -222,7 +225,7 @@ impl Renderer {
             render_size,
             view,
             &encoded_paints,
-            true,
+            false,
         );
 
         encoded_paints.truncate(scene_paint_count);
@@ -339,9 +342,7 @@ impl Renderer {
         render_size: &RenderSize,
         view: &TextureView,
         encoded_paints: &[EncodedPaint],
-        // See https://github.com/linebender/vello/pull/1458/changes#r2851077556
-        // TODO: Fix this ASAP!
-        _clear: bool,
+        clear: bool,
     ) -> Result<(), RenderError> {
         self.prepare_gpu_encoded_paints(encoded_paints);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
@@ -357,6 +358,10 @@ impl Renderer {
             &self.paint_idxs,
             &self.filter_context,
         );
+
+        if clear {
+            Self::clear_view(encoder, view);
+        }
         let mut ctx = RendererContext {
             programs: &mut self.programs,
             device,
@@ -378,6 +383,27 @@ impl Renderer {
         self.gradient_cache.maintain();
 
         Ok(())
+    }
+
+    /// Clear the view to transparent black.
+    // TODO: Investigate adding tests for the clear_view behavior.
+    fn clear_view(encoder: &mut CommandEncoder, view: &TextureView) {
+        encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("Clear View"),
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+                depth_slice: None,
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+            multiview_mask: None,
+        });
     }
 
     /// Upload image to cache and atlas in one step. Returns the `ImageId`.
@@ -539,6 +565,7 @@ impl Renderer {
             depth_stencil_attachment: None,
             occlusion_query_set: None,
             timestamp_writes: None,
+            multiview_mask: None,
         });
 
         // Set scissor rectangle to limit clearing to specific region
@@ -1012,14 +1039,14 @@ impl Programs {
                     &encoded_paints_bind_group_layout,
                     &gradient_bind_group_layout,
                 ],
-                push_constant_ranges: &[],
+                immediate_size: 0,
             });
 
         let clear_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Clear Slots Pipeline Layout"),
                 bind_group_layouts: &[&clear_bind_group_layout],
-                push_constant_ranges: &[],
+                immediate_size: 0,
             });
 
         let strip_formats = [render_target_config.format, wgpu::TextureFormat::Rgba8Unorm];
@@ -1053,7 +1080,7 @@ impl Programs {
                 },
                 depth_stencil: None,
                 multisample: wgpu::MultisampleState::default(),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             })
         });
@@ -1092,7 +1119,7 @@ impl Programs {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -1101,7 +1128,7 @@ impl Programs {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Atlas Clear Pipeline Layout"),
                 bind_group_layouts: &[],
-                push_constant_ranges: &[],
+                immediate_size: 0,
             });
         let atlas_clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Atlas Clear Pipeline"),
@@ -1129,7 +1156,7 @@ impl Programs {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -2331,6 +2358,7 @@ impl RendererContext<'_> {
             depth_stencil_attachment: None,
             occlusion_query_set: None,
             timestamp_writes: None,
+            multiview_mask: None,
         });
         render_pass.set_pipeline(&self.programs.strip_pipelines[pipeline_idx]);
         render_pass.set_bind_group(0, bind_group.as_ref(), &[]);
@@ -2380,6 +2408,7 @@ impl RendererContext<'_> {
                 depth_stencil_attachment: None,
                 occlusion_query_set: None,
                 timestamp_writes: None,
+                multiview_mask: None,
             });
 
             render_pass.set_pipeline(&self.programs.clear_pipeline);

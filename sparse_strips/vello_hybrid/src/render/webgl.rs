@@ -298,8 +298,6 @@ impl WebGlRenderer {
             &mut self.programs.resources.view_framebuffer,
             atlas_framebuffer,
         );
-        let saved_render_size =
-            core::mem::replace(&mut self.programs.render_size, atlas_render_size);
 
         // Swap in the stub atlas texture array to avoid binding the real atlas
         // texture as a shader input while it is also the render target.
@@ -308,7 +306,7 @@ impl WebGlRenderer {
             &mut self.programs.resources.stub_atlas_texture_array,
         );
 
-        let result = self.render_scene(scene, &self.programs.render_size.clone(), false);
+        let result = self.render_scene(scene, &atlas_render_size, false);
 
         // Restore the real atlas texture array.
         core::mem::swap(
@@ -322,8 +320,6 @@ impl WebGlRenderer {
             saved_framebuffer,
         );
         self.programs.resources.atlas_render_framebuffer = Some(atlas_fb);
-
-        self.programs.render_size = saved_render_size;
 
         result
     }
@@ -1381,6 +1377,7 @@ impl WebGlPrograms {
     }
 
     /// Clear the view framebuffer.
+    // TODO: Investigate adding tests for the clear_view behavior.
     fn clear_view_framebuffer(&mut self, gl: &WebGl2RenderingContext) {
         gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
