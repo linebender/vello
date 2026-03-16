@@ -293,29 +293,29 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         };
 
         quote! {
-            #cfg_attr
-            #ignore_snippet
-            #test_attr
-            fn #fn_name() {
-                use crate::util::{
-                    check_ref, get_ctx
-                };
-                use vello_cpu::{RenderContext, RenderMode};
+                    #cfg_attr
+                    #ignore_snippet
+                    #test_attr
+                    fn #fn_name() {
+                        use crate::util::{
+                            check_ref, get_ctx
+                        };
+                        use vello_cpu::{RenderContext, RenderMode};
 
-                let mut ctx = get_ctx::<RenderContext>(#width, #height, #num_threads, #level, #render_mode, false);
-                for frame in 0..#frame_count {
-                    if frame > 0 {
-ctx.reset();
+                        let mut ctx = get_ctx::<RenderContext>(#width, #height, #num_threads, #level, #render_mode, false);
+                        for frame in 0..#frame_count {
+                            if frame > 0 {
+        ctx.reset();
+                            }
+                            #draw_bg_snippet
+                            #test_fn_call
+                            ctx.flush();
+                        }
+                        if !#no_ref {
+                            check_ref(&ctx, #input_fn_name_str, #fn_name_str, #tolerance, #diff_pixels, #is_reference, #reference_image_name);
+                        }
                     }
-                    #draw_bg_snippet
-                    #test_fn_call
-                    ctx.flush();
                 }
-                if !#no_ref {
-                    check_ref(&ctx, #input_fn_name_str, #fn_name_str, #tolerance, #diff_pixels, #is_reference, #reference_image_name);
-                }
-            }
-        }
     };
 
     #[cfg(target_arch = "aarch64")]
