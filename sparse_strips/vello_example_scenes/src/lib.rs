@@ -6,6 +6,7 @@
 pub mod blend;
 pub mod clip;
 pub mod filter;
+pub mod filter_elements;
 pub mod gradient;
 pub mod image;
 pub mod multi_image;
@@ -434,6 +435,7 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
     scenes.push(AnyScene::new(multi_image::MultiImageScene::new(
         flower_source,
     )));
+    scenes.push(AnyScene::new(filter_elements::FilterElementsScene::new()));
     scenes.push(AnyScene::new(gradient::GradientExtendScene::new()));
     scenes.push(AnyScene::new(gradient::RadialScene::new()));
     scenes.push(AnyScene::new(path::FillTypesScene::new()));
@@ -461,6 +463,7 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
         AnyScene::new(blend::BlendScene::new()),
         AnyScene::new(image::ImageScene::new(img_sources.clone())),
         AnyScene::new(multi_image::MultiImageScene::new(img_sources[0].clone())),
+        AnyScene::new(filter_elements::FilterElementsScene::new()),
         AnyScene::new(gradient::GradientExtendScene::new()),
         AnyScene::new(gradient::RadialScene::new()),
         AnyScene::new(path::FillTypesScene::new()),
