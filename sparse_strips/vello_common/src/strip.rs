@@ -91,6 +91,7 @@ impl Strip {
 }
 
 /// Render the tiles stored in `tiles` into the strip and alpha buffer.
+#[inline(never)]
 pub fn render(
     level: Level,
     tiles: &Tiles,

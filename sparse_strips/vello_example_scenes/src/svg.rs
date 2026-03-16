@@ -182,7 +182,7 @@ impl SvgScene {
         Self {
             transform: Affine::scale(3.0),
             svg,
-            recording_enabled: true,
+            recording_enabled: false,
             recording: CachedRecording::new(),
         }
     }
@@ -197,7 +197,7 @@ impl SvgScene {
             transform: Affine::scale(3.0),
             svg,
             recording: CachedRecording::new(),
-            recording_enabled: true,
+            recording_enabled: false,
         })
     }
 

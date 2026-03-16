@@ -11,7 +11,7 @@
 //! - `robust_paths` method
 
 use crate::{ExampleScene, RenderingContext};
-use vello_common::color::palette::css::{AQUA, BLUE, GRAY, LIME, YELLOW};
+use vello_common::color::palette::css::{AQUA, BLUE, GRAY, LIME, REBECCA_PURPLE, YELLOW};
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Point, Rect, Shape, Stroke};
 use vello_common::peniko::{Color, Fill};
 
@@ -544,6 +544,32 @@ impl ExampleScene for RobustPathsScene {
         ctx.set_transform(root_transform * Affine::translate((300.0, 100.0)));
         ctx.set_paint(LIME);
         ctx.set_fill_rule(Fill::EvenOdd);
+        ctx.fill_path(&path);
+    }
+}
+
+/// Scene that draws a filled polyline with pseudo-random vertices.
+#[derive(Debug, Default)]
+pub struct RandomPolylineScene;
+
+impl RandomPolylineScene {
+    /// Create a new random polyline scene.
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl ExampleScene for RandomPolylineScene {
+    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+        ctx.set_transform(root_transform);
+
+        let mut path = BezPath::new();
+        path.move_to((100.0, 50.0));
+        path.line_to((300.0, 250.0));
+        path.line_to((50.0, 200.0));
+        path.close_path();
+
+        ctx.set_paint(REBECCA_PURPLE);
         ctx.fill_path(&path);
     }
 }

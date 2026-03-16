@@ -1504,11 +1504,12 @@ impl Programs {
         max_texture_dimension_2d: u32,
         winding_value_count: usize,
     ) {
-        // R16Float: 1 pixel per winding value.
-        let required_height = u32::try_from(winding_value_count)
-            .unwrap()
-            .div_ceil(max_texture_dimension_2d)
-            .max(u32::from(Tile::HEIGHT)); // at least one band
+        // R16Float: 1 pixel per winding value. Columns are TILE_HEIGHT pixels tall
+        // and wrap into bands of `max_texture_dimension_2d` columns each.
+        let tile_height = u32::from(Tile::HEIGHT);
+        let num_columns = u32::try_from(winding_value_count).unwrap().div_ceil(tile_height);
+        let num_bands = num_columns.div_ceil(max_texture_dimension_2d).max(1);
+        let required_height = num_bands * tile_height;
         let current_height = self.resources.winding_texture.height();
         if required_height > current_height {
             assert!(

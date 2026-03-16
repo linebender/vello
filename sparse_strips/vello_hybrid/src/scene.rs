@@ -371,9 +371,28 @@ impl Scene {
     ) {
         let strip_storage = &mut self.strip_storage.borrow_mut();
         let strip_start = strip_storage.strips.len();
-        #[cfg(feature = "wgpu")]
-        let alpha_offset = strip_storage.alphas.len() as u32;
 
+        #[cfg(feature = "wgpu")]
+        {
+            // GPU path: flatten + tile, then produce strips and tile-lines together.
+            // This replaces the CPU per-pixel alpha computation.
+            let alpha_offset = strip_storage.alphas.len() as u32;
+            self.strip_generator
+                .prepare_tiles_for_fill(path, transform);
+            let tiles = self.strip_generator.tiles();
+            let lines = self.strip_generator.lines();
+            let output =
+                gpu_winding::render_strips_and_tile_lines(tiles, fill_rule, lines, alpha_offset);
+            strip_storage.strips.extend_from_slice(&output.strips);
+            // Alphas buffer must match in length for winding texture sizing, but
+            // values are unused — the GPU winding pass fills the winding texture.
+            strip_storage
+                .alphas
+                .resize(output.winding_value_count as usize, 0);
+            self.tile_lines.extend(output.tile_lines);
+        }
+
+        #[cfg(not(feature = "wgpu"))]
         self.strip_generator.generate_filled_path(
             path,
             fill_rule,
@@ -382,24 +401,6 @@ impl Scene {
             strip_storage,
             self.clip_context.get(),
         );
-
-        // Generate GPU tile-line instances from the tiles that are still available
-        // in the strip generator after the generate call.
-        #[cfg(feature = "wgpu")]
-        {
-            let tiles = self.strip_generator.tiles();
-            let lines = self.strip_generator.lines();
-            let output =
-                gpu_winding::render_strips_and_tile_lines(tiles, fill_rule, lines, alpha_offset);
-            debug_assert_eq!(
-                output.winding_value_count,
-                strip_storage.alphas.len() as u32,
-                "winding_value_count ({}) != alphas.len() ({})",
-                output.winding_value_count,
-                strip_storage.alphas.len(),
-            );
-            self.tile_lines.extend(output.tile_lines);
-        }
 
         submit_strips!(self, strip_storage, strip_start, paint);
     }
@@ -456,9 +457,27 @@ impl Scene {
     ) {
         let strip_storage = &mut self.strip_storage.borrow_mut();
         let strip_start = strip_storage.strips.len();
-        #[cfg(feature = "wgpu")]
-        let alpha_offset = strip_storage.alphas.len() as u32;
 
+        #[cfg(feature = "wgpu")]
+        {
+            let alpha_offset = strip_storage.alphas.len() as u32;
+            self.strip_generator.prepare_tiles_for_stroke(
+                path,
+                &self.render_state.stroke,
+                transform,
+            );
+            let tiles = self.strip_generator.tiles();
+            let lines = self.strip_generator.lines();
+            let output =
+                gpu_winding::render_strips_and_tile_lines(tiles, Fill::NonZero, lines, alpha_offset);
+            strip_storage.strips.extend_from_slice(&output.strips);
+            strip_storage
+                .alphas
+                .resize(output.winding_value_count as usize, 0);
+            self.tile_lines.extend(output.tile_lines);
+        }
+
+        #[cfg(not(feature = "wgpu"))]
         self.strip_generator.generate_stroked_path(
             path,
             &self.render_state.stroke,
@@ -467,22 +486,6 @@ impl Scene {
             strip_storage,
             self.clip_context.get(),
         );
-
-        #[cfg(feature = "wgpu")]
-        {
-            let tiles = self.strip_generator.tiles();
-            let lines = self.strip_generator.lines();
-            let output =
-                gpu_winding::render_strips_and_tile_lines(tiles, Fill::NonZero, lines, alpha_offset);
-            debug_assert_eq!(
-                output.winding_value_count,
-                strip_storage.alphas.len() as u32,
-                "winding_value_count ({}) != alphas.len() ({})",
-                output.winding_value_count,
-                strip_storage.alphas.len(),
-            );
-            self.tile_lines.extend(output.tile_lines);
-        }
 
         submit_strips!(self, strip_storage, strip_start, paint);
     }
@@ -842,7 +845,9 @@ impl Scene {
 
     /// Set the fill rule for subsequent fill operations.
     pub fn set_fill_rule(&mut self, fill_rule: Fill) {
-        unimplemented!();
+        if fill_rule != Fill::NonZero {
+            unimplemented!();
+        }
         self.render_state.fill_rule = fill_rule;
     }
 

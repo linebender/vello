@@ -118,7 +118,7 @@ impl TextScene {
 
         Self {
             layout,
-            recording_enabled: true,
+            recording_enabled: false,
             recording: CachedRecording::new(),
         }
     }

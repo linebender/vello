@@ -208,6 +208,55 @@ impl StripGenerator {
         );
     }
 
+    /// Flatten a filled path and generate sorted tiles, without computing strips or alpha.
+    ///
+    /// After this call, [`tiles()`](Self::tiles) and [`lines()`](Self::lines) contain the
+    /// tile and line data for the path.
+    pub fn prepare_tiles_for_fill(
+        &mut self,
+        path: impl IntoIterator<Item = PathEl>,
+        transform: Affine,
+    ) {
+        flatten::fill(
+            self.level,
+            path,
+            transform,
+            &mut self.line_buf,
+            &mut self.flatten_ctx,
+            self.width,
+            self.height,
+        );
+        self.tiles
+            .make_tiles_analytic_aa(&self.line_buf, self.width, self.height);
+        self.tiles.sort_tiles();
+    }
+
+    /// Flatten a stroked path and generate sorted tiles, without computing strips or alpha.
+    ///
+    /// After this call, [`tiles()`](Self::tiles) and [`lines()`](Self::lines) contain the
+    /// tile and line data for the path.
+    pub fn prepare_tiles_for_stroke(
+        &mut self,
+        path: impl IntoIterator<Item = PathEl>,
+        stroke: &Stroke,
+        transform: Affine,
+    ) {
+        flatten::stroke(
+            self.level,
+            path,
+            stroke,
+            transform,
+            &mut self.line_buf,
+            &mut self.flatten_ctx,
+            &mut self.stroke_ctx,
+            self.width,
+            self.height,
+        );
+        self.tiles
+            .make_tiles_analytic_aa(&self.line_buf, self.width, self.height);
+        self.tiles.sort_tiles();
+    }
+
     /// Access the tiles from the last generation call.
     pub fn tiles(&self) -> &Tiles {
         &self.tiles

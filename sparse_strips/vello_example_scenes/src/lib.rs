@@ -444,6 +444,7 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
     scenes.push(AnyScene::new(path::TrickyStrokesScene::new()));
     scenes.push(AnyScene::new(path::FunkyPathsScene::new()));
     scenes.push(AnyScene::new(path::RobustPathsScene::new()));
+    scenes.push(AnyScene::new(path::RandomPolylineScene::new()));
 
     scenes.into_boxed_slice()
 }
@@ -472,6 +473,7 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
         AnyScene::new(path::TrickyStrokesScene::new()),
         AnyScene::new(path::FunkyPathsScene::new()),
         AnyScene::new(path::RobustPathsScene::new()),
+        AnyScene::new(path::RandomPolylineScene::new()),
     ];
     scenes.into_boxed_slice()
 }
