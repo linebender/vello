@@ -783,6 +783,7 @@ impl FilterContext {
 
     pub(crate) fn serialize_to_buffer(&self, buffer: &mut [u8]) {
         let src = bytemuck::cast_slice::<GpuFilterData, u8>(&self.filters);
+        debug_assert!(buffer.len() >= src.len(), "filter data buffer too small: {} < {}", buffer.len(), src.len());
         buffer[..src.len()].copy_from_slice(src);
     }
 
