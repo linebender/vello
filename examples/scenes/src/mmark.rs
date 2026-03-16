@@ -81,9 +81,13 @@ impl TestScene for MMark {
         let mut path = BezPath::new();
         let len = self.elements.len();
         for (i, element) in self.elements.iter_mut().enumerate() {
-            if path.is_empty() {
-                path.move_to(element.seg.start());
+            // Delete old path events.
+            if !path.is_empty() {
+                path.truncate(0); // Should have clear method, to avoid allocations.
             }
+
+            path.move_to(element.seg.start());
+
             match element.seg {
                 PathSeg::Line(l) => path.line_to(l.p1),
                 PathSeg::Quad(q) => path.quad_to(q.p1, q.p2),
@@ -99,7 +103,6 @@ impl TestScene for MMark {
                     None,
                     &path,
                 );
-                path.truncate(0); // Should have clear method, to avoid allocations.
             }
             if rng.random::<f32>() > 0.995 {
                 element.is_split ^= true;
