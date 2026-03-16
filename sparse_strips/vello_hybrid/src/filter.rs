@@ -322,26 +322,15 @@ impl GpuFilterData {
     }
 }
 
-impl From<GpuOffset> for GpuFilterData {
-    fn from(filter: GpuOffset) -> Self {
-        bytemuck::cast(filter)
-    }
-}
+trait CastToFilterData: Pod {}
 
-impl From<GpuFlood> for GpuFilterData {
-    fn from(filter: GpuFlood) -> Self {
-        bytemuck::cast(filter)
-    }
-}
+impl CastToFilterData for GpuOffset {}
+impl CastToFilterData for GpuFlood {}
+impl CastToFilterData for GpuGaussianBlur {}
+impl CastToFilterData for GpuDropShadow {}
 
-impl From<GpuGaussianBlur> for GpuFilterData {
-    fn from(filter: GpuGaussianBlur) -> Self {
-        bytemuck::cast(filter)
-    }
-}
-
-impl From<GpuDropShadow> for GpuFilterData {
-    fn from(filter: GpuDropShadow) -> Self {
+impl<T: CastToFilterData> From<T> for GpuFilterData {
+    fn from(filter: T) -> Self {
         bytemuck::cast(filter)
     }
 }
