@@ -795,7 +795,7 @@ impl FilterContext {
             return None;
         }
         let height = required_texels.div_ceil(max_texture_dimension_2d);
-        assert!(
+        debug_assert!(
             height <= max_texture_dimension_2d,
             "Filter texture height exceeds max texture dimensions"
         );
