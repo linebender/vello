@@ -2202,10 +2202,24 @@ impl RendererContext<'_> {
         // approach would be to re-use buffers or slices of a larger buffer.
         self.programs.upload_strips(self.device, self.queue, strips);
 
-        let (view, bind_group): (TextureView, BindGroup) = match target {
+        enum MaybeOwned<'a, T> {
+            Borrowed(&'a T),
+            Owned(T),
+        }
+
+        impl<T> AsRef<T> for MaybeOwned<'_, T> {
+            fn as_ref(&self) -> &T {
+                match self {
+                    Self::Borrowed(r) => r,
+                    Self::Owned(v) => v,
+                }
+            }
+        }
+
+        let (view, bind_group): (&TextureView, MaybeOwned<'_, BindGroup>) = match target {
             StripPassRenderTarget::Output(OutputTarget::FinalView) => (
-                self.view.clone(),
-                self.programs.resources.slot_bind_groups[2].clone(),
+                self.view,
+                MaybeOwned::Borrowed(&self.programs.resources.slot_bind_groups[2]),
             ),
             StripPassRenderTarget::Output(OutputTarget::IntermediateTexture(layer_id)) => {
                 let image_id = self
@@ -2218,7 +2232,6 @@ impl RendererContext<'_> {
 
                 let atlas_idx = resources.atlas_id.as_u32() as usize;
                 let filter_atlas = &self.programs.resources.filter_atlas;
-                let view = filter_atlas.views[atlas_idx].clone();
 
                 let atlas_size = filter_atlas.textures[atlas_idx].size();
                 let filter_textures = self.filter_context.filter_textures.get(&layer_id).unwrap();
@@ -2287,11 +2300,14 @@ impl RendererContext<'_> {
                     ],
                 });
 
-                (view, bind_group)
+                (
+                    &filter_atlas.views[atlas_idx],
+                    MaybeOwned::Owned(bind_group),
+                )
             }
             StripPassRenderTarget::SlotTexture(idx) => (
-                self.programs.resources.slot_texture_views[idx as usize].clone(),
-                self.programs.resources.slot_bind_groups[idx as usize].clone(),
+                &self.programs.resources.slot_texture_views[idx as usize],
+                MaybeOwned::Borrowed(&self.programs.resources.slot_bind_groups[idx as usize]),
             ),
         };
 
@@ -2303,7 +2319,7 @@ impl RendererContext<'_> {
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("Render to Texture Pass"),
             color_attachments: &[Some(RenderPassColorAttachment {
-                view: &view,
+                view,
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
@@ -2316,7 +2332,7 @@ impl RendererContext<'_> {
             timestamp_writes: None,
         });
         render_pass.set_pipeline(&self.programs.strip_pipelines[pipeline_idx]);
-        render_pass.set_bind_group(0, &bind_group, &[]);
+        render_pass.set_bind_group(0, bind_group.as_ref(), &[]);
         render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
         render_pass.set_bind_group(2, &self.programs.resources.encoded_paints_bind_group, &[]);
         render_pass.set_bind_group(3, &self.programs.resources.gradient_bind_group, &[]);
