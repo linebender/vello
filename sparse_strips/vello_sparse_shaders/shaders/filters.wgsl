@@ -177,12 +177,16 @@ fn vs_main(
 }
 
 // Sample a pixel from the original texture.
+// Note: `rel_cord` needs to be positive and must not exceed the width/height of the image
+// that is to be sampled.
 fn sample_original(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
     let src_coord = vec2<u32>(vec2<i32>(in.original_offset) + vec2<i32>(rel_coord));
     return textureLoad(original_tex, src_coord, 0);
 }
 
 // Sample a pixel from the input texture.
+// Note: `rel_cord` needs to be positive and must not exceed the width/height of the image
+// that is to be sampled.
 fn sample_input(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
     let src_coord = vec2<u32>(vec2<i32>(in.src_offset) + vec2<i32>(rel_coord));
     return textureLoad(in_tex, src_coord, 0);
