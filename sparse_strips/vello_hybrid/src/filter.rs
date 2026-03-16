@@ -23,7 +23,7 @@ use vello_common::render_graph::{LayerId, RenderGraph, RenderNodeKind};
 use vello_common::tile::Tile;
 
 use crate::render::common::IMAGE_PADDING;
-use crate::util::IntRect;
+use crate::util::{IntOffset, IntRect, IntSize};
 use vello_common::image_cache::ImageCache;
 use vello_common::multi_atlas::AtlasConfig;
 use vello_common::multi_atlas::{AtlasError, AtlasId};
@@ -355,7 +355,7 @@ pub(crate) struct FilterInstanceData {
     /// Destination region in the output atlas.
     pub dest: IntRect,
     /// Full pixel dimensions of the destination atlas texture.
-    pub dest_atlas_size: [u32; 2],
+    pub dest_atlas_size: IntSize,
     /// Texel offset into `filter_data` where this filter's data is stored.
     pub filter_data_offset: u32,
     /// The region of the original (unfiltered) content.
@@ -430,19 +430,32 @@ impl FilterPassState {
     }
 }
 
+/// An image location within an atlas texture.
+struct AtlasLocation {
+    /// Index of the atlas texture.
+    atlas_idx: u32,
+    /// Texel offset of the image within the atlas.
+    offset: IntOffset,
+    /// Full pixel dimensions of the atlas texture.
+    atlas_size: IntSize,
+}
+
 /// A helper struct making it easier to schedule the rendering passes for filters.
 struct PassScheduler<'a> {
     state: &'a mut FilterPassState,
-    /// Atlas index and region of the initial (unfiltered) image.
-    initial: (u32, [u32; 2]),
-    /// Atlas index and region of the final destination.
-    dest: (u32, IntRect),
-    /// Atlas index and region of each scratch buffers.
-    scratch: [(u32, IntRect); 2],
+    /// Atlas index and offset of the initial (unfiltered) image.
+    ///
+    /// Unlike `dest` and `scratch`, we dont need to store the size of the atlas
+    /// itself since we never write into the initial image when appplying filters.
+    initial: (u32, IntOffset),
+    /// Location of the final destination in its atlas.
+    dest: AtlasLocation,
+    /// Location of each scratch buffer in its atlas.
+    scratch: [AtlasLocation; 2],
     /// Texel offset into the filter data texture.
     filter_data_offset: u32,
     /// Full size of the original content region.
-    original_size: [u32; 2],
+    original_size: IntSize,
     /// Which scratch buffer to write to next.
     toggle: usize,
     /// Whether the next pass is the first (reads from initial instead of scratch).
@@ -451,34 +464,34 @@ struct PassScheduler<'a> {
 
 impl PassScheduler<'_> {
     /// Compute and update source and destination sizes based on the pass kind,
-    fn apply_pass_dimensions(&mut self, kind: u32) -> ([u32; 2], [u32; 2]) {
+    fn apply_pass_dimensions(&mut self, kind: u32) -> (IntSize, IntSize) {
         match kind {
             pass_kind::DOWNSCALE => {
                 let (sw, sh) = self.state.sizer.current();
                 let (dw, dh) = self.state.sizer.downscale();
                 (
-                    [u32::from(sw), u32::from(sh)],
-                    [u32::from(dw), u32::from(dh)],
+                    IntSize([u32::from(sw), u32::from(sh)]),
+                    IntSize([u32::from(dw), u32::from(dh)]),
                 )
             }
             pass_kind::UPSCALE => {
                 let (sw, sh) = self.state.sizer.current();
                 let (dw, dh) = self.state.sizer.upscale();
                 (
-                    [u32::from(sw), u32::from(sh)],
-                    [u32::from(dw), u32::from(dh)],
+                    IntSize([u32::from(sw), u32::from(sh)]),
+                    IntSize([u32::from(dw), u32::from(dh)]),
                 )
             }
             _ => {
                 let (w, h) = self.state.sizer.current();
-                let size = [u32::from(w), u32::from(h)];
+                let size = IntSize([u32::from(w), u32::from(h)]);
                 (size, size)
             }
         }
     }
 
-    /// Resolve the input atlas index and offsets for the next pass.
-    fn input(&mut self) -> (u32, [u32; 2]) {
+    /// Resolve the input atlas index and offset for the next pass.
+    fn input(&mut self) -> (u32, IntOffset) {
         if self.first {
             // Atlas containing the original, unfiltered layer.
             self.first = false;
@@ -486,7 +499,7 @@ impl PassScheduler<'_> {
         } else {
             // Atlas containing the layers inside the previous scratch buffer.
             let prev = (self.toggle + 1) % 2;
-            (self.scratch[prev].0, self.scratch[prev].1.offset)
+            (self.scratch[prev].atlas_idx, self.scratch[prev].offset)
         }
     }
 
@@ -500,15 +513,15 @@ impl PassScheduler<'_> {
         self.state.push(
             FilterInstanceData {
                 src: IntRect::new(src_offset, src_size),
-                dest: IntRect::new(self.scratch[s].1.offset, dst_size),
-                dest_atlas_size: self.scratch[s].1.size,
+                dest: IntRect::new(self.scratch[s].offset, dst_size),
+                dest_atlas_size: self.scratch[s].atlas_size,
                 filter_data_offset: self.filter_data_offset,
                 original: IntRect::new([0, 0], self.original_size),
                 pass_kind: kind,
             },
             FilterPass {
                 input_atlas_idx: input_idx,
-                output: FilterPassTarget::FilterAtlas(self.scratch[s].0),
+                output: FilterPassTarget::FilterAtlas(self.scratch[s].atlas_idx),
                 original_atlas_idx: None,
             },
         );
@@ -522,15 +535,15 @@ impl PassScheduler<'_> {
         self.state.push(
             FilterInstanceData {
                 src: IntRect::new(src_offset, src_size),
-                dest: IntRect::new(self.dest.1.offset, dst_size),
-                dest_atlas_size: self.dest.1.size,
+                dest: IntRect::new(self.dest.offset, dst_size),
+                dest_atlas_size: self.dest.atlas_size,
                 filter_data_offset: self.filter_data_offset,
                 original: IntRect::new([0, 0], self.original_size),
                 pass_kind: kind,
             },
             FilterPass {
                 input_atlas_idx: input_idx,
-                output: FilterPassTarget::MainAtlas(self.dest.0),
+                output: FilterPassTarget::MainAtlas(self.dest.atlas_idx),
                 original_atlas_idx: None,
             },
         );
@@ -545,15 +558,15 @@ impl PassScheduler<'_> {
         self.state.push(
             FilterInstanceData {
                 src: IntRect::new(src_offset, src_size),
-                dest: IntRect::new(self.dest.1.offset, dst_size),
-                dest_atlas_size: self.dest.1.size,
+                dest: IntRect::new(self.dest.offset, dst_size),
+                dest_atlas_size: self.dest.atlas_size,
                 filter_data_offset: self.filter_data_offset,
                 original: IntRect::new(self.initial.1, self.original_size),
                 pass_kind: kind,
             },
             FilterPass {
                 input_atlas_idx: input_idx,
-                output: FilterPassTarget::MainAtlas(self.dest.0),
+                output: FilterPassTarget::MainAtlas(self.dest.atlas_idx),
                 original_atlas_idx: Some(self.initial.0),
             },
         );
@@ -778,7 +791,12 @@ impl FilterContext {
 
     pub(crate) fn serialize_to_buffer(&self, buffer: &mut [u8]) {
         let src = bytemuck::cast_slice::<GpuFilterData, u8>(&self.filters);
-        debug_assert!(buffer.len() >= src.len(), "filter data buffer too small: {} < {}", buffer.len(), src.len());
+        debug_assert!(
+            buffer.len() >= src.len(),
+            "filter data buffer too small: {} < {}",
+            buffer.len(),
+            src.len()
+        );
         buffer[..src.len()].copy_from_slice(src);
     }
 
@@ -847,7 +865,7 @@ impl FilterContext {
                 FilterInstanceData {
                     src: IntRect::new(initial_image.offsets(), initial_image.size()),
                     dest: IntRect::new(dest_image.offsets(), dest_image.size()),
-                    dest_atlas_size: main_atlas_size,
+                    dest_atlas_size: IntSize(main_atlas_size),
                     filter_data_offset,
                     // Note that these two passes don't sample the original atlas, so we
                     // can pass anything here.
@@ -879,32 +897,33 @@ impl FilterContext {
 
         let mut builder = PassScheduler {
             state,
-            initial: (initial_atlas_idx, initial_image.offsets()),
-            dest: (
-                dest_atlas_idx,
-                IntRect::new(dest_image.offsets(), main_atlas_size),
-            ),
+            initial: (initial_atlas_idx, IntOffset(initial_image.offsets())),
+            dest: AtlasLocation {
+                atlas_idx: dest_atlas_idx,
+                offset: IntOffset(dest_image.offsets()),
+                atlas_size: IntSize(main_atlas_size),
+            },
             scratch: [
-                (
-                    scratch_resources[0].atlas_id.as_u32(),
-                    IntRect::new(
-                        scratch_resources[0].offsets(),
-                        get_filter_atlas_size(scratch_resources[0].atlas_id.as_u32()),
-                    ),
-                ),
-                (
-                    scratch_resources[1].atlas_id.as_u32(),
-                    IntRect::new(
-                        scratch_resources[1].offsets(),
-                        get_filter_atlas_size(scratch_resources[1].atlas_id.as_u32()),
-                    ),
-                ),
+                AtlasLocation {
+                    atlas_idx: scratch_resources[0].atlas_id.as_u32(),
+                    offset: IntOffset(scratch_resources[0].offsets()),
+                    atlas_size: IntSize(get_filter_atlas_size(
+                        scratch_resources[0].atlas_id.as_u32(),
+                    )),
+                },
+                AtlasLocation {
+                    atlas_idx: scratch_resources[1].atlas_id.as_u32(),
+                    offset: IntOffset(scratch_resources[1].offsets()),
+                    atlas_size: IntSize(get_filter_atlas_size(
+                        scratch_resources[1].atlas_id.as_u32(),
+                    )),
+                },
             ],
             filter_data_offset,
-            original_size: [
+            original_size: IntSize([
                 filter_textures.bbox.width_px() as u32,
                 filter_textures.bbox.height_px() as u32,
-            ],
+            ]),
             toggle: 0,
             first: true,
         };
