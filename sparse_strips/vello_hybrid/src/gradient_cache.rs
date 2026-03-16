@@ -165,12 +165,15 @@ impl GradientRampCache {
                 .map(|(key, (_, last_used))| (key, *last_used)),
         );
 
-        // Sort by last_used (ascending) to get LRU entries first
-        entries.sort_by_key(|(_, last_used)| *last_used);
+        let (lesser, median, _) =
+            entries.select_nth_unstable_by_key(count - 1, |(_, last_used)| *last_used);
 
+        // Note that since we use `select_nth_unstable`, the entries themselves are not guaranteed
+        // to be sorted.
         let mut removed = core::mem::take(&mut self.scratch.removed);
         removed.clear();
-        removed.extend(entries.iter().take(count).map(|(key, _)| (*key).clone()));
+        removed.extend(lesser.iter().map(|(key, _)| (*key).clone()));
+        removed.push(median.0.clone());
         self.scratch.entries = reuse_vec(entries);
 
         for key in removed.drain(..) {
@@ -191,7 +194,8 @@ impl GradientRampCache {
             return;
         }
 
-        // Sort by lut_start position (ascending) for efficient processing
+        // See comment in `remove_lru_entries`, the entries are not sorted yet but need to be
+        // for the prefix sum to work correctly.
         ramps_to_remove.sort_by_key(|(_, ramp)| ramp.lut_start);
 
         // Compute a prefix sum of how much the `lut_start` entry of a given cached ramp needs
