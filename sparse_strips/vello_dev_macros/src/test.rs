@@ -305,7 +305,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                 let mut ctx = get_ctx::<RenderContext>(#width, #height, #num_threads, #level, #render_mode, false);
                 for frame in 0..#frame_count {
                     if frame > 0 {
-                        ctx.reset()
+ctx.reset();
                     }
                     #draw_bg_snippet
                     #test_fn_call
