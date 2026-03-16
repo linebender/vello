@@ -1040,6 +1040,7 @@ impl Scheduler {
                         attrs,
                     );
                 }
+                // This is roughly equivalent to `process_layer_tile` in vello_cpu.
                 Cmd::PushBuf(LayerKind::Filtered(child_layer_id), blend_into_dest) => {
                     let filtered_ranges = tile.layer_cmd_ranges.get(child_layer_id).unwrap();
                     // If the filter layer was zero-sized, no texture was allocated.
