@@ -442,7 +442,7 @@ struct BlurPassScheduler<'a> {
     /// Atlas index and offset of the initial (unfiltered) image.
     ///
     /// Unlike `dest` and `scratch`, we dont need to store the size of the atlas
-    /// itself since we never write into the initial image when appplying filters.
+    /// itself since we never write into the initial image when applying filters.
     initial: (u32, IntOffset),
     /// Location of the final destination in its atlas.
     dest: AtlasLocation,
