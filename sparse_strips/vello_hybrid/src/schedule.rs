@@ -487,6 +487,9 @@ impl Scheduler {
         Ok(slot)
     }
 
+    // Note: This is roughly equivalent to `rasterize_with_filters` in vello_cpu.
+    // However, unlike `vello_cpu` we have one combined method that handles both, the
+    // filter and no-filter case.
     /// Schedule and render the scene.
     pub(crate) fn do_scene<R: RendererBackend>(
         &mut self,
