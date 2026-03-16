@@ -2465,7 +2465,7 @@ impl RendererBackend for RendererContext<'_> {
                 programs
                     .resources
                     .filter_instance_buffer
-                    .slice(i as u64 * instance_stride..),
+                    .slice((i as u64 * instance_stride)..((i as u64 + 1) * instance_stride)),
             );
             render_pass.draw(0..4, 0..1);
         }
