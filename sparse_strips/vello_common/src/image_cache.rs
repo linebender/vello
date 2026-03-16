@@ -89,7 +89,7 @@ impl ImageCache {
     }
 
     /// Allocate an image in the cache, with optional transparency padding
-    /// and  optionally excluding a specific atlas.
+    /// and optionally excluding a specific atlas.
     #[expect(
         clippy::cast_possible_truncation,
         reason = "u16 is enough for the offset and width/height"
