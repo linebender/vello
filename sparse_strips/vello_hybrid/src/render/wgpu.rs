@@ -2417,6 +2417,7 @@ impl RendererBackend for RendererContext<'_> {
         let instances = self.filter_pass_state.instances();
         let instance_stride = size_of::<FilterInstanceData>() as u64;
         let total_size = instances.len() as u64 * instance_stride;
+        // TODO: Reuse buffer (https://github.com/linebender/vello/pull/1494#discussion_r2937890819)
         self.programs.resources.filter_instance_buffer =
             Programs::create_filter_instance_buffer(self.device, total_size);
         self.queue.write_buffer(
