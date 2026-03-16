@@ -169,6 +169,7 @@ impl Renderer {
                     depth_stencil_attachment: None,
                     occlusion_query_set: None,
                     timestamp_writes: None,
+                    multiview_mask: None,
                 });
             }
         }
@@ -1217,7 +1218,7 @@ impl Programs {
                     &filter_input_bind_group_layouts[0],
                     &filter_input_bind_group_layouts[1],
                 ],
-                push_constant_ranges: &[],
+                immediate_size: 0,
             });
         let filter_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Filter Pipeline"),
@@ -1258,8 +1259,8 @@ impl Programs {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
             cache: None,
+            multiview_mask: None,
         });
 
         let slot_texture_views: [TextureView; 2] = core::array::from_fn(|_| {
@@ -2502,6 +2503,7 @@ impl RendererBackend for RendererContext<'_> {
                 depth_stencil_attachment: None,
                 occlusion_query_set: None,
                 timestamp_writes: None,
+                multiview_mask: None,
             });
             render_pass.set_pipeline(&programs.filter_pipeline);
             render_pass.set_bind_group(0, &programs.resources.filter_base_bind_group, &[]);
