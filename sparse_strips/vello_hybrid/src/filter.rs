@@ -5,8 +5,6 @@
 
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
-use core::cell::RefCell;
-use core::ops::DerefMut;
 use hashbrown::HashMap;
 use vello_common::coarse::{WideTile, WideTilesBbox};
 use vello_common::encode::{EncodedImage, EncodedPaint};
@@ -397,8 +395,6 @@ pub(crate) struct FilterContext {
     pub(crate) filter_textures: HashMap<LayerId, FilterLayerData>,
     /// Image cache for storing filter intermediate textures.
     pub(crate) image_cache: ImageCache,
-    /// State used for constructing filter passes.
-    pub(crate) filter_pass_state: RefCell<FilterPassState>,
 }
 
 #[derive(Default, Debug)]
@@ -631,7 +627,6 @@ impl FilterContext {
             offsets: HashMap::new(),
             filter_textures: HashMap::new(),
             image_cache: ImageCache::new_with_config(atlas_config),
-            filter_pass_state: RefCell::new(FilterPassState::default()),
         }
     }
 
@@ -655,7 +650,6 @@ impl FilterContext {
         self.filters.clear();
         self.offsets.clear();
         self.filter_textures.clear();
-        self.filter_pass_state.borrow_mut().clear();
     }
 
     /// Prepares the context for rendering the filter layers that exist in this scene.
@@ -839,13 +833,12 @@ impl FilterContext {
     /// buffer.
     pub(crate) fn build_filter_passes(
         &self,
+        state: &mut FilterPassState,
         layer_id: &LayerId,
         dest_image_cache: &ImageCache,
         get_filter_atlas_size: impl Fn(u32) -> [u32; 2],
         get_image_atlas_size: impl Fn() -> [u32; 2],
     ) {
-        let s = &mut self.filter_pass_state.borrow_mut();
-        let state = s.deref_mut();
         state.clear();
 
         // These unwraps can only panic for filter layers without a bbox, but those are skipped

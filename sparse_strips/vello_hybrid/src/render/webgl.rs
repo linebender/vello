@@ -23,7 +23,7 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize,
-    filter::{FilterContext, FilterInstanceData, FilterPassTarget},
+    filter::{FilterContext, FilterInstanceData, FilterPassState, FilterPassTarget},
     gradient_cache::GradientRampCache,
     render::{
         Config,
@@ -100,6 +100,8 @@ pub struct WebGlRenderer {
     gradient_cache: GradientRampCache,
     /// Context for GPU filter effects.
     filter_context: FilterContext,
+    /// State used for constructing filter passes.
+    filter_pass_state: FilterPassState,
 }
 
 impl WebGlRenderer {
@@ -168,6 +170,7 @@ impl WebGlRenderer {
             paint_idxs: Vec::new(),
             gradient_cache,
             filter_context,
+            filter_pass_state: FilterPassState::default(),
         }
     }
 
@@ -384,6 +387,7 @@ impl WebGlRenderer {
             gl: &self.gl,
             image_cache: &self.image_cache,
             filter_context: &self.filter_context,
+            filter_pass_state: &mut self.filter_pass_state,
         };
         self.scheduler.do_scene(
             &mut self.scheduler_state,
@@ -2085,6 +2089,7 @@ struct WebGlRendererContext<'a> {
     gl: &'a WebGl2RenderingContext,
     image_cache: &'a ImageCache,
     filter_context: &'a FilterContext,
+    filter_pass_state: &'a mut FilterPassState,
 }
 
 impl WebGlRendererContext<'_> {
@@ -2374,6 +2379,7 @@ impl RendererBackend for WebGlRendererContext<'_> {
         let filter_atlas_height = self.programs.resources.filter_atlas_height;
 
         self.filter_context.build_filter_passes(
+            self.filter_pass_state,
             &layer_id,
             self.image_cache,
             |_atlas_idx| [filter_atlas_width, filter_atlas_height],
@@ -2385,15 +2391,14 @@ impl RendererBackend for WebGlRendererContext<'_> {
             },
         );
 
-        let pass_state = self.filter_context.filter_pass_state.borrow();
-        let filter_passes = pass_state.filter_passes();
+        let filter_passes = self.filter_pass_state.filter_passes();
         if filter_passes.is_empty() {
             return;
         }
 
         self.gl.disable(WebGl2RenderingContext::BLEND);
 
-        let instances = pass_state.instances();
+        let instances = self.filter_pass_state.instances();
         self.programs.upload_filter_instances(self.gl, instances);
 
         self.gl.use_program(Some(&self.programs.filter_program));

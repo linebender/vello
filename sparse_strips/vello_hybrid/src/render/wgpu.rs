@@ -21,7 +21,7 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize,
-    filter::{FilterContext, FilterInstanceData, FilterPassTarget},
+    filter::{FilterContext, FilterInstanceData, FilterPassState, FilterPassTarget},
     gradient_cache::GradientRampCache,
     render::{
         Config,
@@ -98,6 +98,8 @@ pub struct Renderer {
     gradient_cache: GradientRampCache,
     /// Context for GPU filter effects.
     filter_context: FilterContext,
+    /// State used for constructing filter passes.
+    filter_pass_state: FilterPassState,
 }
 
 impl Renderer {
@@ -139,6 +141,7 @@ impl Renderer {
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
             filter_context,
+            filter_pass_state: FilterPassState::default(),
         }
     }
 
@@ -362,6 +365,7 @@ impl Renderer {
             view,
             image_cache: &self.image_cache,
             filter_context: &self.filter_context,
+            filter_pass_state: &mut self.filter_pass_state,
         };
         self.scheduler.do_scene(
             &mut self.scheduler_state,
@@ -2180,6 +2184,7 @@ struct RendererContext<'a> {
     view: &'a TextureView,
     image_cache: &'a ImageCache,
     filter_context: &'a FilterContext,
+    filter_pass_state: &'a mut FilterPassState,
 }
 
 impl RendererContext<'_> {
@@ -2391,6 +2396,7 @@ impl RendererBackend for RendererContext<'_> {
     fn apply_filter(&mut self, layer_id: LayerId) {
         let filter_atlas = &self.programs.resources.filter_atlas;
         self.filter_context.build_filter_passes(
+            self.filter_pass_state,
             &layer_id,
             self.image_cache,
             |atlas_idx| {
@@ -2403,13 +2409,12 @@ impl RendererBackend for RendererContext<'_> {
             },
         );
 
-        let pass_state = self.filter_context.filter_pass_state.borrow();
-        let filter_passes = pass_state.filter_passes();
+        let filter_passes = self.filter_pass_state.filter_passes();
         if filter_passes.is_empty() {
             return;
         }
 
-        let instances = pass_state.instances();
+        let instances = self.filter_pass_state.instances();
         let instance_stride = size_of::<FilterInstanceData>() as u64;
         let total_size = instances.len() as u64 * instance_stride;
         self.programs.resources.filter_instance_buffer =
