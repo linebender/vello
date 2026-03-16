@@ -797,6 +797,10 @@ struct WebGlResources {
     /// Reused to avoid create/delete overhead on every call.
     atlas_render_framebuffer: Option<WebGlFramebuffer>,
 
+    /// Cached framebuffer for filter passes that write back to the main atlas.
+    /// Reused to avoid create/delete overhead on every filter application.
+    filter_main_atlas_framebuffer: Option<WebGlFramebuffer>,
+
     /// Individual 2D textures for filter intermediate results.
     filter_atlas_textures: Vec<WebGlTexture>,
     /// Framebuffers for each filter atlas texture.
@@ -937,8 +941,11 @@ impl WebGlPrograms {
 
             // Replace the old resources
             self.resources.atlas_texture_array = new_atlas_texture_array;
-            // Cached FBO was attached to the old texture; drop it so we recreate on next use.
+            // Cached FBOs were attached to the old texture; drop them so we recreate on next use.
             if let Some(fb) = self.resources.atlas_render_framebuffer.take() {
+                gl.delete_framebuffer(Some(&fb));
+            }
+            if let Some(fb) = self.resources.filter_main_atlas_framebuffer.take() {
                 gl.delete_framebuffer(Some(&fb));
             }
         }
@@ -1947,6 +1954,7 @@ fn create_webgl_resources(
         max_texture_dimension_2d,
         stub_atlas_texture_array,
         atlas_render_framebuffer: None,
+        filter_main_atlas_framebuffer: None,
         filter_atlas_textures: Vec::new(),
         filter_atlas_framebuffers: Vec::new(),
         filter_data_texture,
@@ -2413,8 +2421,6 @@ impl RendererBackend for WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.filter_uniforms.filter_data), 0);
 
-        let mut main_atlas_fb: Option<WebGlFramebuffer> = None;
-
         for (i, pass) in filter_passes.iter().enumerate() {
             // Base points to the correct offset for that specific filter pass.
             let base = (i as i32) * FILTER_INSTANCE_STRIDE;
@@ -2438,8 +2444,11 @@ impl RendererBackend for WebGlRendererContext<'_> {
                         .viewport(0, 0, filter_atlas_width as i32, filter_atlas_height as i32);
                 }
                 FilterPassTarget::MainAtlas(idx) => {
-                    let fb =
-                        main_atlas_fb.get_or_insert_with(|| self.gl.create_framebuffer().unwrap());
+                    let fb = self
+                        .programs
+                        .resources
+                        .filter_main_atlas_framebuffer
+                        .get_or_insert_with(|| self.gl.create_framebuffer().unwrap());
                     self.gl
                         .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(fb));
                     self.gl.framebuffer_texture_layer(
@@ -2477,10 +2486,6 @@ impl RendererBackend for WebGlRendererContext<'_> {
 
             self.gl
                 .draw_arrays_instanced(WebGl2RenderingContext::TRIANGLE_STRIP, 0, 4, 1);
-        }
-
-        if let Some(fb) = main_atlas_fb {
-            self.gl.delete_framebuffer(Some(&fb));
         }
         self.gl.bind_vertex_array(None);
         self.gl.enable(WebGl2RenderingContext::BLEND);
