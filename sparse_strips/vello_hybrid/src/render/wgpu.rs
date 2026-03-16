@@ -2244,6 +2244,7 @@ impl RendererContext<'_> {
                 let strip_offset_y =
                     resources.offset[1] as i32 - (filter_textures.bbox.y0() * Tile::HEIGHT) as i32;
 
+                // TODO: Cache this and bind group? See https://github.com/linebender/vello/pull/1494#discussion_r2937895891.
                 let atlas_config_buffer =
                     self.device
                         .create_buffer_init(&wgpu::util::BufferInitDescriptor {
