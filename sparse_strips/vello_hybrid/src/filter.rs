@@ -818,6 +818,11 @@ impl FilterContext {
 
         // These unwraps can only panic for filter layers without a bbox, but those are skipped
         // anyway before even getting here, so unwrap should be safe here.
+        // See also:
+        // In `prepare`, nodes with an empty filter bbox are skipped and thus never inserted
+        // here. For all other filter layers we do insert everything.
+        // However, in `do_scene`, we skip empty nodes as well, and thus `build_filer_passes` is never
+        // called on empty nodes.
         let filter_data_offset = self.offsets.get(layer_id).copied().unwrap();
         let gpu_filter = self.get_filter_data(layer_id).unwrap();
         let filter_type = gpu_filter.filter_type();
