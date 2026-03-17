@@ -1060,6 +1060,16 @@ impl WebGlPrograms {
                 0,
             );
 
+            #[cfg(debug_assertions)]
+            {
+                let status = gl.check_framebuffer_status(WebGl2RenderingContext::FRAMEBUFFER);
+                debug_assert_eq!(
+                    status,
+                    WebGl2RenderingContext::FRAMEBUFFER_COMPLETE,
+                    "view framebuffer incomplete"
+                );
+            }
+
             self.render_size = new_render_size.clone();
         }
     }
