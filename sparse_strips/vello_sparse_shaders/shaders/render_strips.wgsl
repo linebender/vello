@@ -285,12 +285,8 @@ fn vs_main(
             let paint_tex_idx = instance.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
             let encoded_image = unpack_encoded_image(paint_tex_idx);
             // Use view coordinates for image sampling (always in global view space)
-            out.sample_xy = encoded_image.translate 
-                + encoded_image.image_offset
-                + encoded_image.transform.xy * f32(scene_strip_x) 
-                + encoded_image.transform.zw * f32(scene_strip_y)
-                + encoded_image.transform.xy * x * f32(width)
-                + encoded_image.transform.zw * y * f32(height);
+            let pos = vec2<f32>(f32(scene_strip_x) + x * f32(width), f32(scene_strip_y) + y * f32(height));
+            out.sample_xy = encoded_image.translate + encoded_image.image_offset + encoded_image.transform * pos;
         } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT || paint_type == PAINT_TYPE_RADIAL_GRADIENT || paint_type == PAINT_TYPE_SWEEP_GRADIENT {
             // Use view coordinates for gradient transform (always in global view space)
             out.sample_xy = vec2<f32>(
@@ -819,12 +815,9 @@ struct EncodedImage {
     image_offset: vec2<f32>,
     /// The atlas index containing this image.
     atlas_index: u32,
-    /// Linear transformation matrix coefficients for 2D affine transformation.
-    /// Contains [a, b, c, d] where the transformation matrix is:
-    /// This enables scaling, rotation, and skewing of the image coordinates.
-    transform: vec4<f32>,
-    /// Translation offset for 2D affine transformation.
-    /// Contains [tx, ty] representing the translation component.
+    /// 2×2 linear part of the affine transform (columns [a,b] and [c,d]).
+    transform: mat2x2<f32>,
+    /// Translation part of the affine transform [tx, ty].
     translate: vec2<f32>,
     /// Premultiplied tint color. Identity (vec4(1.0)) when no tint is set.
     tint: vec4<f32>,
@@ -856,9 +849,9 @@ fn unpack_encoded_image(paint_tex_idx: u32) -> EncodedImage {
     let image_size = vec2<f32>(f32(texel0.y >> 16u), f32(texel0.y & 0xFFFFu));
     // Unpack image_offset from texel0.z (stored as u32, unpack to x/y)
     let image_offset = vec2<f32>(f32(texel0.z >> 16u), f32(texel0.z & 0xFFFFu));
-    let transform = vec4<f32>(
-        bitcast<f32>(texel0.w), bitcast<f32>(texel1.x), 
-        bitcast<f32>(texel1.y), bitcast<f32>(texel1.z)
+    let transform = mat2x2<f32>(
+        vec2<f32>(bitcast<f32>(texel0.w), bitcast<f32>(texel1.x)),
+        vec2<f32>(bitcast<f32>(texel1.y), bitcast<f32>(texel1.z))
     );
     let translate = vec2<f32>(bitcast<f32>(texel1.w), bitcast<f32>(texel2.x));
     // When packed_tint is zero (no tint), use identity color vec4(1.0) with
