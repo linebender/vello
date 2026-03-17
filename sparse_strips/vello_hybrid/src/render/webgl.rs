@@ -279,6 +279,17 @@ impl WebGlRenderer {
             0,
             atlas_id.as_u32() as i32,
         );
+        #[cfg(debug_assertions)]
+        {
+            let status = self
+                .gl
+                .check_framebuffer_status(WebGl2RenderingContext::FRAMEBUFFER);
+            debug_assert_eq!(
+                status,
+                WebGl2RenderingContext::FRAMEBUFFER_COMPLETE,
+                "atlas render framebuffer not complete"
+            );
+        }
 
         // Swap the view framebuffer and render size so the scheduler renders to the
         // atlas layer instead of the normal view.
@@ -689,16 +700,23 @@ struct WebGlResources {
     alphas_texture: WebGlTexture,
     /// Height of alpha texture.
     alpha_texture_height: u32,
+    /// True when the alpha texture storage must be (re)allocated via `tex_image_2d`.
+    /// Set on first use and whenever the texture height increases; cleared after upload.
+    alpha_texture_needs_realloc: bool,
     /// Texture array for atlas data (multiple atlases supported)
     atlas_texture_array: WebGlTextureArray,
     /// Encoded paints texture for image metadata.
     encoded_paints_texture: WebGlTexture,
     /// Height of encoded paints texture.
     encoded_paints_texture_height: u32,
+    /// True when the encoded paints texture storage must be (re)allocated.
+    encoded_paints_texture_needs_realloc: bool,
     /// Gradient texture for gradient ramp data.
     gradient_texture: WebGlTexture,
     /// Height of gradient texture.
     gradient_texture_height: u32,
+    /// True when the gradient texture storage must be (re)allocated.
+    gradient_texture_needs_realloc: bool,
 
     /// Config buffer for rendering wide tile commands into the view texture.
     view_config_buffer: WebGlBuffer,
@@ -887,14 +905,13 @@ impl WebGlPrograms {
 
         let current_alpha_height = self.resources.alpha_texture_height;
         if required_alpha_height > current_alpha_height {
-            // We need to resize the alpha texture to fit the new alpha data.
             assert!(
                 required_alpha_height <= max_texture_dimension_2d,
                 "Alpha texture height exceeds max texture dimensions"
             );
 
-            // Track the new height.
             self.resources.alpha_texture_height = required_alpha_height;
+            self.resources.alpha_texture_needs_realloc = true;
         }
     }
 
@@ -918,6 +935,7 @@ impl WebGlPrograms {
             self.encoded_paints_data
                 .resize(required_encoded_paints_size as usize, 0);
             self.resources.encoded_paints_texture_height = required_encoded_paints_height;
+            self.resources.encoded_paints_texture_needs_realloc = true;
         }
     }
 
@@ -945,6 +963,7 @@ impl WebGlPrograms {
             );
 
             self.resources.gradient_texture_height = required_gradient_height;
+            self.resources.gradient_texture_needs_realloc = true;
         }
     }
 
@@ -1085,24 +1104,40 @@ impl WebGlPrograms {
             Some(&self.resources.alphas_texture),
         );
 
-        // Pack alpha values into RGBA uint32 texture
         let alpha_data_as_u32 = bytemuck::cast_slice::<u8, u32>(alphas);
         let packed_array = js_sys::Uint32Array::from(alpha_data_as_u32);
 
-        gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
-            WebGl2RenderingContext::TEXTURE_2D,
-            0,
-            WebGl2RenderingContext::RGBA32UI as i32,
-            alpha_texture_width as i32,
-            alpha_texture_height as i32,
-            0,
-            WebGl2RenderingContext::RGBA_INTEGER,
-            WebGl2RenderingContext::UNSIGNED_INT,
-            Some(&packed_array),
-        )
-        .unwrap();
+        // Only reallocate storage when dimensions change;
+        // otherwise update in-place to avoid implicit GPU syncs on Mali.
+        if self.resources.alpha_texture_needs_realloc {
+            gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
+                WebGl2RenderingContext::TEXTURE_2D,
+                0,
+                WebGl2RenderingContext::RGBA32UI as i32,
+                alpha_texture_width as i32,
+                alpha_texture_height as i32,
+                0,
+                WebGl2RenderingContext::RGBA_INTEGER,
+                WebGl2RenderingContext::UNSIGNED_INT,
+                Some(&packed_array),
+            )
+            .unwrap();
+            self.resources.alpha_texture_needs_realloc = false;
+        } else {
+            gl.tex_sub_image_2d_with_i32_and_i32_and_u32_and_type_and_opt_array_buffer_view(
+                WebGl2RenderingContext::TEXTURE_2D,
+                0,
+                0,
+                0,
+                alpha_texture_width as i32,
+                alpha_texture_height as i32,
+                WebGl2RenderingContext::RGBA_INTEGER,
+                WebGl2RenderingContext::UNSIGNED_INT,
+                Some(&packed_array),
+            )
+            .unwrap();
+        }
 
-        // Truncate back to the original size.
         alphas.truncate(original_len);
     }
 
@@ -1112,23 +1147,26 @@ impl WebGlPrograms {
         gl: &WebGl2RenderingContext,
         encoded_paints: &[GpuEncodedPaint],
     ) {
-        if !encoded_paints.is_empty() {
-            let encoded_paints_texture_width = self.resources.max_texture_dimension_2d;
-            let encoded_paints_texture_height = self.resources.encoded_paints_texture_height;
+        if encoded_paints.is_empty() {
+            return;
+        }
 
-            GpuEncodedPaint::serialize_to_buffer(encoded_paints, &mut self.encoded_paints_data);
+        let encoded_paints_texture_width = self.resources.max_texture_dimension_2d;
+        let encoded_paints_texture_height = self.resources.encoded_paints_texture_height;
 
-            gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-            gl.bind_texture(
-                WebGl2RenderingContext::TEXTURE_2D,
-                Some(&self.resources.encoded_paints_texture),
-            );
+        GpuEncodedPaint::serialize_to_buffer(encoded_paints, &mut self.encoded_paints_data);
 
-            // Pack encoded paints into RGBA uint32 texture
-            let encoded_paints_data_as_u32 =
-                bytemuck::cast_slice::<u8, u32>(&self.encoded_paints_data);
-            let packed_array = js_sys::Uint32Array::from(encoded_paints_data_as_u32);
+        gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+        gl.bind_texture(
+            WebGl2RenderingContext::TEXTURE_2D,
+            Some(&self.resources.encoded_paints_texture),
+        );
 
+        let encoded_paints_data_as_u32 =
+            bytemuck::cast_slice::<u8, u32>(&self.encoded_paints_data);
+        let packed_array = js_sys::Uint32Array::from(encoded_paints_data_as_u32);
+
+        if self.resources.encoded_paints_texture_needs_realloc {
             gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
                 WebGl2RenderingContext::TEXTURE_2D,
                 0,
@@ -1136,6 +1174,20 @@ impl WebGlPrograms {
                 encoded_paints_texture_width as i32,
                 encoded_paints_texture_height as i32,
                 0,
+                WebGl2RenderingContext::RGBA_INTEGER,
+                WebGl2RenderingContext::UNSIGNED_INT,
+                Some(&packed_array),
+            )
+            .unwrap();
+            self.resources.encoded_paints_texture_needs_realloc = false;
+        } else {
+            gl.tex_sub_image_2d_with_i32_and_i32_and_u32_and_type_and_opt_array_buffer_view(
+                WebGl2RenderingContext::TEXTURE_2D,
+                0,
+                0,
+                0,
+                encoded_paints_texture_width as i32,
+                encoded_paints_texture_height as i32,
                 WebGl2RenderingContext::RGBA_INTEGER,
                 WebGl2RenderingContext::UNSIGNED_INT,
                 Some(&packed_array),
@@ -1158,7 +1210,6 @@ impl WebGlPrograms {
         let gradient_texture_height = self.resources.gradient_texture_height;
         let total_capacity = (gradient_texture_width * gradient_texture_height * 4) as usize;
 
-        // Take ownership of the luts to avoid copying, then resize for texture padding.
         let mut luts = gradient_cache.take_luts();
         luts.resize(total_capacity, 0);
 
@@ -1168,20 +1219,35 @@ impl WebGlPrograms {
             Some(&self.resources.gradient_texture),
         );
 
-        gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
-            WebGl2RenderingContext::TEXTURE_2D,
-            0,
-            WebGl2RenderingContext::RGBA8 as i32,
-            gradient_texture_width as i32,
-            gradient_texture_height as i32,
-            0,
-            WebGl2RenderingContext::RGBA,
-            WebGl2RenderingContext::UNSIGNED_BYTE,
-            Some(&luts),
-        )
-        .unwrap();
+        if self.resources.gradient_texture_needs_realloc {
+            gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
+                WebGl2RenderingContext::TEXTURE_2D,
+                0,
+                WebGl2RenderingContext::RGBA8 as i32,
+                gradient_texture_width as i32,
+                gradient_texture_height as i32,
+                0,
+                WebGl2RenderingContext::RGBA,
+                WebGl2RenderingContext::UNSIGNED_BYTE,
+                Some(&luts),
+            )
+            .unwrap();
+            self.resources.gradient_texture_needs_realloc = false;
+        } else {
+            gl.tex_sub_image_2d_with_i32_and_i32_and_u32_and_type_and_opt_u8_array(
+                WebGl2RenderingContext::TEXTURE_2D,
+                0,
+                0,
+                0,
+                gradient_texture_width as i32,
+                gradient_texture_height as i32,
+                WebGl2RenderingContext::RGBA,
+                WebGl2RenderingContext::UNSIGNED_BYTE,
+                Some(&luts),
+            )
+            .unwrap();
+        }
 
-        // Restore the luts back to the cache.
         gradient_cache.restore_luts(luts);
     }
 
@@ -1226,6 +1292,7 @@ struct WebGlStateGuard<'a> {
     original_texture_2d_array: Option<WebGlTexture>,
     scissor_enabled: bool,
     viewport: [i32; 4],
+    clear_color: [f32; 4],
 }
 
 impl<'a> WebGlStateGuard<'a> {
@@ -1286,6 +1353,18 @@ impl<'a> WebGlStateGuard<'a> {
             [0, 0, 0, 0]
         };
 
+        let clear_color = if config.clear_color {
+            let cc_js = gl
+                .get_parameter(WebGl2RenderingContext::COLOR_CLEAR_VALUE)
+                .unwrap()
+                .dyn_into::<js_sys::Float32Array>()
+                .unwrap();
+            let cc_vec = cc_js.to_vec();
+            [cc_vec[0], cc_vec[1], cc_vec[2], cc_vec[3]]
+        } else {
+            [0.0; 4]
+        };
+
         Self {
             gl,
             config,
@@ -1294,6 +1373,7 @@ impl<'a> WebGlStateGuard<'a> {
             original_texture_2d_array,
             scissor_enabled,
             viewport,
+            clear_color,
         }
     }
 
@@ -1305,6 +1385,7 @@ impl<'a> WebGlStateGuard<'a> {
                 framebuffer: true,
                 scissor: true,
                 viewport: true,
+                clear_color: true,
                 ..Default::default()
             },
         )
@@ -1369,6 +1450,15 @@ impl Drop for WebGlStateGuard<'_> {
                 self.original_texture_2d_array.as_ref(),
             );
         }
+
+        if self.config.clear_color {
+            self.gl.clear_color(
+                self.clear_color[0],
+                self.clear_color[1],
+                self.clear_color[2],
+                self.clear_color[3],
+            );
+        }
     }
 }
 /// Configuration for which WebGL state to save/restore.
@@ -1384,6 +1474,8 @@ struct WebGlStateConfig {
     scissor: bool,
     /// Save/restore viewport
     viewport: bool,
+    /// Save/restore clear color (`COLOR_CLEAR_VALUE`)
+    clear_color: bool,
 }
 
 /// Create a WebGL shader program from vertex and fragment sources.
@@ -1627,11 +1719,14 @@ fn create_webgl_resources(
         strips_buffer,
         alphas_texture,
         alpha_texture_height: 0,
+        alpha_texture_needs_realloc: true,
         atlas_texture_array,
         encoded_paints_texture,
         encoded_paints_texture_height: 0,
+        encoded_paints_texture_needs_realloc: true,
         gradient_texture,
         gradient_texture_height: 0,
+        gradient_texture_needs_realloc: true,
         view_config_buffer,
         slot_config_buffer,
         clear_slot_indices_buffer,
@@ -2083,51 +2178,6 @@ impl WebGlAtlasWriter for Arc<Pixmap> {
     }
 }
 
-/// Implementation for `WebGlTexture` - texture-to-texture copy.
-impl WebGlAtlasWriter for WebGlTexture {
-    fn width(&self) -> u32 {
-        // WebGL textures don't expose their dimensions directly
-        // This is a limitation - in practice, you'd need to track dimensions separately
-        // For now, we'll require the caller to provide correct width/height parameters
-        unreachable!("WebGlTexture width must be provided by caller")
-    }
-
-    fn height(&self) -> u32 {
-        // WebGL textures don't expose their dimensions directly
-        // This is a limitation - in practice, you'd need to track dimensions separately
-        // For now, we'll require the caller to provide correct width/height parameters
-        unreachable!("WebGlTexture height must be provided by caller")
-    }
-
-    fn write_to_atlas_layer(
-        &self,
-        gl: &WebGl2RenderingContext,
-        atlas_texture_array: &WebGlTexture,
-        layer: u32,
-        offset: [u32; 2],
-        width: u32,
-        height: u32,
-    ) {
-        copy_to_texture_array_layer(
-            gl,
-            |gl| {
-                // Attach source texture to read framebuffer
-                gl.framebuffer_texture_2d(
-                    WebGl2RenderingContext::READ_FRAMEBUFFER,
-                    WebGl2RenderingContext::COLOR_ATTACHMENT0,
-                    WebGl2RenderingContext::TEXTURE_2D,
-                    Some(self),
-                    0,
-                );
-            },
-            atlas_texture_array,
-            layer,
-            offset,
-            [width, height],
-        );
-    }
-}
-
 /// Wrapper for `WebGlTexture` with known dimensions.
 #[derive(Debug)]
 pub struct WebGlTextureWithDimensions {
@@ -2157,8 +2207,22 @@ impl WebGlAtlasWriter for WebGlTextureWithDimensions {
         width: u32,
         height: u32,
     ) {
-        self.texture
-            .write_to_atlas_layer(gl, atlas_texture_array, layer, offset, width, height);
+        copy_to_texture_array_layer(
+            gl,
+            |gl| {
+                gl.framebuffer_texture_2d(
+                    WebGl2RenderingContext::READ_FRAMEBUFFER,
+                    WebGl2RenderingContext::COLOR_ATTACHMENT0,
+                    WebGl2RenderingContext::TEXTURE_2D,
+                    Some(&self.texture),
+                    0,
+                );
+            },
+            atlas_texture_array,
+            layer,
+            offset,
+            [width, height],
+        );
     }
 }
 
