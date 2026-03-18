@@ -482,6 +482,7 @@ impl Scene {
             return;
         }
 
+        // TODO: Use a temporary storage for rect paths, like in `vello_cpu`.
         self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
     }
 
@@ -500,6 +501,9 @@ impl Scene {
         if self.clip_context.get().is_some() {
             return false;
         }
+
+        // TODO: Either bail out or properly implement the case where `aliasing_threshold` is set.
+        // Also update the code in `flush_fast_path`.
 
         // We can't handle skewed rectangles.
         let coeffs = self.render_state.transform.as_coeffs();
