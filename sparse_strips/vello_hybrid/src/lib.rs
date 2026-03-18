@@ -83,6 +83,7 @@ pub enum RenderError {
     /// storage.
     #[error("Filter atlas allocation failed: {0}")]
     AtlasError(#[from] vello_common::multi_atlas::AtlasError),
+    // TODO: Consider expanding `RenderError` to replace some `.unwrap` and `.expect`.
 }
 
 #[cfg(test)]
