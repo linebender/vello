@@ -393,6 +393,9 @@ pub(crate) struct FilterContext {
     pub(crate) offsets: HashMap<LayerId, u32>,
     /// Data for each filter layer.
     pub(crate) filter_textures: HashMap<LayerId, FilterLayerData>,
+    // Note that this image cache is separate from the image cache used for used-uploaded images.
+    // This means that intermediate content for filters is _not_ stored in the main image texture atlas,
+    // but instead in a separate atlas array.
     /// Image cache for storing filter intermediate textures.
     pub(crate) image_cache: ImageCache,
 }
