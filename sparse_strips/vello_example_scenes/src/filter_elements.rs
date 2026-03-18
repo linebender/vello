@@ -97,8 +97,8 @@ impl FilterElementsScene {
     }
 
     fn random_element(&mut self) -> Element {
-        let shape_idx = self.rng.next_u64() as usize % SHAPE_KINDS.len();
-        let filter_idx = self.rng.next_u64() as usize % 3;
+        let shape_idx = usize::try_from(self.rng.next_u64()).unwrap() % SHAPE_KINDS.len();
+        let filter_idx = usize::try_from(self.rng.next_u64()).unwrap() % 3;
         #[expect(
             clippy::cast_possible_truncation,
             reason = "std_deviation range is small and positive"
@@ -119,7 +119,7 @@ impl FilterElementsScene {
             ny: self.rng.range_f64(0.0, 1.0),
             size: self.rng.range_f64(80.0, 250.0),
             rotation: self.rng.range_f64(0.0, std::f64::consts::TAU),
-            color_idx: self.rng.next_u64() as usize % COLORS.len(),
+            color_idx: usize::try_from(self.rng.next_u64()).unwrap() % COLORS.len(),
         }
     }
 
