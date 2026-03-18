@@ -1355,9 +1355,7 @@ fn filter_interleaved_fast_path(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-// Doesn't seem to work in hybrid yet. :(
-// TODO(laurenz): Investigate this
-#[vello_test(skip_multithreaded, skip_hybrid)]
+#[vello_test(skip_multithreaded)]
 fn filter_blending_in_layer(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
 

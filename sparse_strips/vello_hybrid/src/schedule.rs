@@ -709,9 +709,10 @@ impl Scheduler {
                     continue;
                 };
 
-                // See the comment in `do_tile`, we currently don't need this for filter layers.
-                // This might change in the future.
-                let wrap_surface = false;
+                let wrap_surface = matches!(
+                    wide_tile.cmds[ranges.full_range.start],
+                    Cmd::PushBuf(_, true)
+                );
 
                 self.do_tile(
                     state,
@@ -1041,7 +1042,7 @@ impl Scheduler {
                     );
                 }
                 // This is roughly equivalent to `process_layer_tile` in vello_cpu.
-                Cmd::PushBuf(LayerKind::Filtered(child_layer_id), blend_into_dest) => {
+                Cmd::PushBuf(LayerKind::Filtered(child_layer_id), _) => {
                     let filtered_ranges = tile.layer_cmd_ranges.get(child_layer_id).unwrap();
                     // If the filter layer was zero-sized, no texture was allocated.
                     // Skip its entire range.
@@ -1063,7 +1064,7 @@ impl Scheduler {
                     // once we have made coarse rasterization simpler.
                     // Important: If we change this behavior, we have to update
                     // `wrap_surface` for filter nodes.
-                    self.do_push_buf(state, renderer, *blend_into_dest)?;
+                    self.do_push_buf(state, renderer, false)?;
 
                     let copy_from_filter_layer =
                         |scheduler: &mut Self, state: &mut SchedulerState| {
