@@ -170,6 +170,7 @@ pub struct DecimationSizer {
 
 impl DecimationSizer {
     /// Create a new sizer with the given initial dimensions.
+    #[inline]
     pub fn new(width: u16, height: u16) -> Self {
         Self {
             width,
@@ -179,6 +180,7 @@ impl DecimationSizer {
     }
 
     /// Reset the sizer so it can be reused.
+    #[inline]
     pub fn reset(&mut self, width: u16, height: u16) {
         self.width = width;
         self.height = height;
@@ -186,11 +188,13 @@ impl DecimationSizer {
     }
 
     /// Returns the current logical dimensions.
+    #[inline]
     pub fn current(&self) -> (u16, u16) {
         (self.width, self.height)
     }
 
     /// Apply a new downscale operation.
+    #[inline]
     pub fn downscale(&mut self) -> (u16, u16) {
         self.dim_stack.push((self.width, self.height));
         self.width = self.width.div_ceil(2);
@@ -199,6 +203,7 @@ impl DecimationSizer {
     }
 
     /// Apply a new upscale operation.
+    #[inline]
     pub fn upscale(&mut self) -> (u16, u16) {
         let (target_w, target_h) = self.dim_stack.pop().unwrap();
         // Clamp because upscale can exceed target on odd dimensions (e.g., 5→3→6 > 5)
