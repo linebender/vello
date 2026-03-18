@@ -1313,7 +1313,7 @@ fn filter_over_existing_content_inner<R: Renderer>(ctx: &mut R, draw_bg: impl Fn
 
     let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
     ctx.push_filter_layer(filter);
-    ctx.set_paint(TRANSPARENT);
+    ctx.set_paint(BLUE.with_alpha(0.2));
     ctx.fill_rect(&Rect::new(30.0, 30.0, 70.0, 70.0));
     ctx.pop_layer();
 }
