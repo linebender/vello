@@ -1226,6 +1226,7 @@ fn filter_in_double_nested_layer(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
+// This test uses `no_ref` because we don't care about the output, just that it doesn't panic.
 #[vello_test(skip_multithreaded, no_ref)]
 fn filter_on_right_of_viewport(ctx: &mut impl Renderer) {
     let offset = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
