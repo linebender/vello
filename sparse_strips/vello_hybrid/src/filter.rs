@@ -1,6 +1,29 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+// A very brief explanation of how filters work on a high-level follows here:
+//
+// During coarse rasterization, filter layers become nodes in the `RenderGraph`. Once we hit
+// vello_hybrid, we render those nodes in an order such that all children nodes are done rendering
+// before they are needed by their parent nodes. In terms of allocation, we reserve
+// 1) A position in a new atlas array (distinct from the atlas array used for normal images), which
+// stores the raw, unfiltered version of the layer.
+// 2) In case the filter is multi-pass, we also allocate 2 scratch buffers in that new atlas array,
+// such that we can do ping-ponging between them.
+// 3) A position in the image atlas array, which stores the final filtered version of the layer,
+// such that it can be consumed like a normal image in parent layers.
+//
+// When rendering a filtered layer, as mentioned we first render the normal raw content of the layer
+// using the normal existing mechanism for rendering, except for the fact that we render into an
+// intermediate texture instead of the final output. Then, in the end, we either apply a single-pass
+// filter that just copies the contents from intermediate storage into the image atlas (while applying
+// the filter), or we apply a multi-pass filter (currently only used for Gaussian blurring), which
+// splits the filter into more atomic filter passes and applies them repeatedly using the scratch
+// textures.
+//
+// Finally, when the parent layer needs to render the filtered child layer, it can simply treat it
+// like a normal image.
+
 //! GPU filter types and conversion utilities.
 
 use alloc::vec::Vec;
