@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::ops::Range;
 use vello_common::clip::ClipContext;
-use vello_common::coarse::{MODE_HYBRID, Wide};
+use vello_common::coarse::{MODE_HYBRID, Wide, WideTilesBbox};
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::filter_effects::Filter;
@@ -24,7 +24,7 @@ use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::recording::{
     PushLayerCommand, Recordable, Recorder, Recording, RenderCommand, RenderState,
 };
-use vello_common::render_graph::RenderGraph;
+use vello_common::render_graph::{RenderGraph, RenderNodeKind};
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 
@@ -204,8 +204,11 @@ pub struct Scene {
     clip_context: ClipContext,
     pub(crate) render_state: RenderState,
     pub(crate) aliasing_threshold: Option<u8>,
+    // The reason we use `RefCell` here is that during `render`, we need
+    // mutable access so we can store additional encoded paints for filtered layers,
+    // if applicable.
     /// Storage for encoded gradient and image paint data.
-    pub(crate) encoded_paints: Vec<EncodedPaint>,
+    pub(crate) encoded_paints: RefCell<Vec<EncodedPaint>>,
     /// Whether the current paint is visible (e.g., alpha > 0).
     paint_visible: bool,
     /// Generator for converting paths to strips.
@@ -215,8 +218,12 @@ pub struct Scene {
     /// Cache for rasterized glyphs to improve text rendering performance.
     #[cfg(feature = "text")]
     pub(crate) glyph_caches: Option<GlyphCaches>,
+    /// Counter for generating unique layer IDs.
+    layer_id_next: u32,
     /// Dependency graph for managing layer rendering order and filter effects.
     pub(crate) render_graph: RenderGraph,
+    /// Current filter effect applied to individual draw operations.
+    filter: Option<Filter>,
     /// A buffer that stores the strips of path drawing calls that are rendered directly
     /// to the surface, bypassing coarse rasterization.
     pub(crate) fast_strips_buffer: FastStripsBuffer,
@@ -260,7 +267,7 @@ macro_rules! submit_strips {
                 $self.render_state.blend_mode,
                 0,
                 None,
-                &$self.encoded_paints,
+                &$self.encoded_paints.borrow(),
             );
         }
     };
@@ -276,28 +283,40 @@ impl Scene {
 
     /// Create a new render context with specific settings.
     pub fn new_with(width: u16, height: u16, settings: RenderSettings) -> Self {
-        let render_graph = RenderGraph::new();
+        let mut render_graph = RenderGraph::new();
 
         // We use the fast path if only default blending is enabled. Therefore,
         // we have to disable bg optimizations in that case.
         let enable_bg_optimization = !settings.constraints.use_default_blending_only();
 
+        let wide = Wide::<MODE_HYBRID>::new(width, height, enable_bg_optimization);
+
+        // Create root node (layer_id 0) as the first node (will be node 0).
+        // This ensures the root layer is always rendered last in the execution order.
+        let wtile_bbox = WideTilesBbox::new([0, 0, wide.width_tiles(), wide.height_tiles()]);
+        let _ = render_graph.add_node(RenderNodeKind::RootLayer {
+            layer_id: 0,
+            wtile_bbox,
+        });
+
         Self {
             constraints: settings.constraints,
             width,
             height,
-            wide: Wide::<MODE_HYBRID>::new(width, height, enable_bg_optimization),
+            wide,
             clip_context: ClipContext::new(),
             render_state: RenderState::default(),
             aliasing_threshold: None,
-            encoded_paints: vec![],
+            encoded_paints: RefCell::new(vec![]),
             paint_visible: true,
             strip_generator: StripGenerator::new(width, height, settings.level),
             // Start strip storage in `Append` mode since we enable the fast path by default.
             strip_storage: RefCell::new(StripStorage::new(GenerationMode::Append)),
             #[cfg(feature = "text")]
             glyph_caches: Some(GlyphCaches::default()),
+            layer_id_next: 0,
             render_graph,
+            filter: None,
             fast_strips_buffer: FastStripsBuffer::default(),
             strip_path_mode: StripPathMode::FastOnly,
             coarse_batch_splits: Vec::new(),
@@ -314,12 +333,12 @@ impl Scene {
         match self.render_state.paint.clone() {
             PaintType::Solid(s) => s.into(),
             PaintType::Gradient(g) => g.encode_into(
-                &mut self.encoded_paints,
+                &mut self.encoded_paints.borrow_mut(),
                 self.render_state.transform * self.render_state.paint_transform,
                 None,
             ),
             PaintType::Image(i) => i.encode_into(
-                &mut self.encoded_paints,
+                &mut self.encoded_paints.borrow_mut(),
                 self.render_state.transform * self.render_state.paint_transform,
                 self.render_state.tint,
             ),
@@ -332,14 +351,16 @@ impl Scene {
             return;
         }
 
-        let paint = self.encode_current_paint();
-        self.fill_path_with(
-            path,
-            self.render_state.transform,
-            self.render_state.fill_rule,
-            paint,
-            self.aliasing_threshold,
-        );
+        self.with_optional_filter(|ctx| {
+            let paint = ctx.encode_current_paint();
+            ctx.fill_path_with(
+                path,
+                ctx.render_state.transform,
+                ctx.render_state.fill_rule,
+                paint,
+                ctx.aliasing_threshold,
+            );
+        });
     }
 
     /// Build strips for a filled path with the given properties.
@@ -398,13 +419,15 @@ impl Scene {
             return;
         }
 
-        let paint = self.encode_current_paint();
-        self.stroke_path_with(
-            path,
-            self.render_state.transform,
-            paint,
-            self.aliasing_threshold,
-        );
+        self.with_optional_filter(|ctx| {
+            let paint = ctx.encode_current_paint();
+            ctx.stroke_path_with(
+                path,
+                ctx.render_state.transform,
+                paint,
+                ctx.aliasing_threshold,
+            );
+        });
     }
 
     /// Build strips for a stroked path with the given properties.
@@ -467,7 +490,10 @@ impl Scene {
         reason = "f64→f32 truncation is acceptable for pixel coordinates"
     )]
     fn try_fast_rect(&mut self, rect: &Rect) -> bool {
-        if self.strip_path_mode == StripPathMode::CoarseOnly || self.wide.has_layers() {
+        if self.strip_path_mode == StripPathMode::CoarseOnly
+            || self.wide.has_layers()
+            || self.filter.is_some()
+        {
             return false;
         }
 
@@ -540,7 +566,7 @@ impl Scene {
                         BlendMode::default(),
                         0,
                         None,
-                        &self.encoded_paints,
+                        &self.encoded_paints.borrow(),
                     );
                 }
                 FastStripCommand::Rect(r) => {
@@ -559,7 +585,7 @@ impl Scene {
                         BlendMode::default(),
                         0,
                         None,
-                        &self.encoded_paints,
+                        &self.encoded_paints.borrow(),
                     );
                 }
             }
@@ -570,9 +596,6 @@ impl Scene {
     }
 
     /// Push a new layer with the given properties.
-    ///
-    /// Only `clip_path` is supported for now.
-    // TODO: Implement filter integration.
     pub fn push_layer(
         &mut self,
         clip_path: Option<&BezPath>,
@@ -583,6 +606,8 @@ impl Scene {
     ) {
         let blend_mode_val = blend_mode.unwrap_or(DEFAULT_BLEND_MODE);
         self.constraints.assert_blend_mode(blend_mode_val);
+
+        self.layer_id_next += 1;
 
         let strip_offset;
         if self.constraints.use_default_blending_only() {
@@ -600,10 +625,6 @@ impl Scene {
         } else {
             strip_offset = 0;
             self.flush_fast_path();
-        }
-
-        if filter.is_some() {
-            unimplemented!("Filter effects are not yet supported in vello_hybrid");
         }
 
         let mut strip_storage = self.strip_storage.borrow_mut();
@@ -629,12 +650,12 @@ impl Scene {
         }
 
         self.wide.push_layer(
-            0,
+            self.layer_id_next,
             clip,
             blend_mode_val,
             None,
             opacity.unwrap_or(1.),
-            None,
+            filter,
             self.render_state.transform,
             &mut self.render_graph,
             0,
@@ -754,14 +775,27 @@ impl Scene {
         self.render_state.transform = Affine::IDENTITY;
     }
 
-    /// Apply filter to the current paint (affects next drawn element)
-    pub fn set_filter_effect(&mut self, _filter: Filter) {
-        unimplemented!("Filter effects integration with Scene")
+    /// Apply filter to the current paint (affects next drawn element).
+    pub fn set_filter_effect(&mut self, filter: Filter) {
+        self.filter = Some(filter);
     }
 
     /// Reset the current filter effect.
     pub fn reset_filter_effect(&mut self) {
-        unimplemented!("Filter effects integration with Scene")
+        self.filter = None;
+    }
+
+    fn with_optional_filter<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&mut Self),
+    {
+        if let Some(filter) = self.filter.clone() {
+            self.push_filter_layer(filter);
+            f(self);
+            self.pop_layer();
+        } else {
+            f(self);
+        }
     }
 
     /// Reset scene to default values.
@@ -775,7 +809,7 @@ impl Scene {
             ss.clear();
             ss.set_generation_mode(GenerationMode::Append);
         }
-        self.encoded_paints.clear();
+        self.encoded_paints.borrow_mut().clear();
 
         self.render_state.reset();
 
@@ -784,6 +818,16 @@ impl Scene {
         self.fast_strips_buffer.clear();
         self.strip_path_mode = StripPathMode::FastOnly;
         self.coarse_batch_splits.clear();
+
+        self.layer_id_next = 0;
+        self.render_graph.clear();
+        let wtile_bbox =
+            WideTilesBbox::new([0, 0, self.wide.width_tiles(), self.wide.height_tiles()]);
+        self.render_graph.add_node(RenderNodeKind::RootLayer {
+            layer_id: 0,
+            wtile_bbox,
+        });
+        self.filter = None;
     }
 
     /// Get the width of the render context.
@@ -1124,7 +1168,7 @@ impl Scene {
                 self.render_state.blend_mode,
                 0,
                 None,
-                &self.encoded_paints,
+                &self.encoded_paints.borrow(),
             );
         }
     }

@@ -6,6 +6,7 @@
 pub mod blend;
 pub mod clip;
 pub mod filter;
+pub mod filter_elements;
 pub mod gradient;
 pub mod image;
 pub mod multi_image;
@@ -427,7 +428,6 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
     scenes.push(AnyScene::new(text::TextScene::new("Hello, Vello!")));
     scenes.push(AnyScene::new(simple::SimpleScene::new()));
     scenes.push(AnyScene::new(clip::ClipScene::new()));
-    #[cfg(feature = "cpu")]
     scenes.push(AnyScene::new(filter::FilterScene::new()));
     scenes.push(AnyScene::new(blend::BlendScene::new()));
     let flower_source = img_sources[0].clone();
@@ -435,6 +435,7 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
     scenes.push(AnyScene::new(multi_image::MultiImageScene::new(
         flower_source,
     )));
+    scenes.push(AnyScene::new(filter_elements::FilterElementsScene::new()));
     scenes.push(AnyScene::new(gradient::GradientExtendScene::new()));
     scenes.push(AnyScene::new(gradient::RadialScene::new()));
     scenes.push(AnyScene::new(path::FillTypesScene::new()));
@@ -457,12 +458,12 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
         AnyScene::new(svg::SvgScene::tiger()),
         AnyScene::new(text::TextScene::new("Hello, Vello!")),
         AnyScene::new(simple::SimpleScene::new()),
-        #[cfg(feature = "cpu")]
         AnyScene::new(filter::FilterScene::new()),
         AnyScene::new(clip::ClipScene::new()),
         AnyScene::new(blend::BlendScene::new()),
         AnyScene::new(image::ImageScene::new(img_sources.clone())),
         AnyScene::new(multi_image::MultiImageScene::new(img_sources[0].clone())),
+        AnyScene::new(filter_elements::FilterElementsScene::new()),
         AnyScene::new(gradient::GradientExtendScene::new()),
         AnyScene::new(gradient::RadialScene::new()),
         AnyScene::new(path::FillTypesScene::new()),
