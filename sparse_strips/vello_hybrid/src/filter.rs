@@ -64,11 +64,11 @@ const BYTES_PER_TEXEL: usize = 16;
 const FILTER_SIZE_BYTES: usize = 48;
 const FILTER_SIZE_U32: usize = FILTER_SIZE_BYTES / 4;
 
-const _: () = assert!(size_of::<GpuFilterData>() == FILTER_SIZE_BYTES);
-const _: () = assert!(size_of::<GpuOffset>() == FILTER_SIZE_BYTES);
-const _: () = assert!(size_of::<GpuFlood>() == FILTER_SIZE_BYTES);
-const _: () = assert!(size_of::<GpuDropShadow>() == FILTER_SIZE_BYTES);
-const _: () = assert!(size_of::<GpuGaussianBlur>() == FILTER_SIZE_BYTES);
+const _: () = assert!(size_of::<GpuFilterData>() == FILTER_SIZE_BYTES, "memory size of filters need to match");
+const _: () = assert!(size_of::<GpuOffset>() == FILTER_SIZE_BYTES, "memory size of filters need to match");
+const _: () = assert!(size_of::<GpuFlood>() == FILTER_SIZE_BYTES, "memory size of filters need to match");
+const _: () = assert!(size_of::<GpuDropShadow>() == FILTER_SIZE_BYTES, "memory size of filters need to match");
+const _: () = assert!(size_of::<GpuGaussianBlur>() == FILTER_SIZE_BYTES, "memory size of filters need to match");
 
 pub(crate) mod filter_type {
     pub(crate) const OFFSET: u32 = 0;
