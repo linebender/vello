@@ -1372,3 +1372,5 @@ fn filter_blending_in_layer(ctx: &mut impl Renderer) {
     ctx.pop_layer();
     ctx.pop_layer();
 }
+
+// TODO: Add more tests to test interaction between filters and clip layers.
