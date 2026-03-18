@@ -1095,22 +1095,12 @@ impl WebGlPrograms {
             Some(&self.resources.alphas_texture),
         );
 
-        // Pack alpha values into RGBA uint32 texture
-        let alpha_data_as_u32 = bytemuck::cast_slice::<u8, u32>(alphas);
-        let packed_array = js_sys::Uint32Array::from(alpha_data_as_u32);
-
-        gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
-            WebGl2RenderingContext::TEXTURE_2D,
-            0,
-            WebGl2RenderingContext::RGBA32UI as i32,
-            alpha_texture_width as i32,
-            alpha_texture_height as i32,
-            0,
-            WebGl2RenderingContext::RGBA_INTEGER,
-            WebGl2RenderingContext::UNSIGNED_INT,
-            Some(&packed_array),
-        )
-        .unwrap();
+        upload_data_to_rgba32_texture(
+            gl,
+            bytemuck::cast_slice::<u8, u32>(alphas),
+            alpha_texture_width,
+            alpha_texture_height,
+        );
 
         // Truncate back to the original size.
         alphas.truncate(original_len);
@@ -1134,23 +1124,12 @@ impl WebGlPrograms {
                 Some(&self.resources.encoded_paints_texture),
             );
 
-            // Pack encoded paints into RGBA uint32 texture
-            let encoded_paints_data_as_u32 =
-                bytemuck::cast_slice::<u8, u32>(&self.encoded_paints_data);
-            let packed_array = js_sys::Uint32Array::from(encoded_paints_data_as_u32);
-
-            gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
-                WebGl2RenderingContext::TEXTURE_2D,
-                0,
-                WebGl2RenderingContext::RGBA32UI as i32,
-                encoded_paints_texture_width as i32,
-                encoded_paints_texture_height as i32,
-                0,
-                WebGl2RenderingContext::RGBA_INTEGER,
-                WebGl2RenderingContext::UNSIGNED_INT,
-                Some(&packed_array),
-            )
-            .unwrap();
+            upload_data_to_rgba32_texture(
+                gl,
+                bytemuck::cast_slice::<u8, u32>(&self.encoded_paints_data),
+                encoded_paints_texture_width,
+                encoded_paints_texture_height,
+            );
         }
     }
 
@@ -2254,4 +2233,45 @@ fn copy_to_texture_array_layer(
 
     // Clean up
     gl.delete_framebuffer(Some(&read_framebuffer));
+}
+
+// Upload the data to the currently bound texture assuming a RGBA32UI format.
+fn upload_data_to_rgba32_texture(
+    gl: &WebGl2RenderingContext,
+    data: &[u32],
+    texture_width: u32,
+    texture_height: u32,
+) {
+    // Safety: This calling `Uint32Array::view` is unsafe because it provides a view into
+    // WASM linear memory, and any additional allocations might invalidate that view.
+    // In our case, this is not an issue because we only use this view once for uploading
+    // data to the GPU below, and no allocations happen between that.
+    // The `tex_image_2d` method is synchronous in the sense that once it returns, it is guaranteed
+    // that all necessary data has already been read, so any allocations that happen
+    // after this block don't affect this anymore.
+    //
+    // See also: https://wikis.khronos.org/opengl/Synchronization
+    // >> There are several OpenGL functions that can pull data directly from client-side memory,
+    // >> or push data directly into client-side memory. Functions like `glTexSubImage2D`,
+    // >> `glReadPixels`, `glBufferSubData` and so forth.
+    //
+    // >> Because OpenGL is defined to be synchronous, when any of these functions have
+    // >> returned, they must have finished with the client memory. When `glReadPixels` returns,
+    // >> the pixel data is in your client memory (unless you are reading into a buffer object).
+    // >> When `glBufferSubData` returns, you can immediately modify or delete whatever memory
+    // >> pointer you gave it, as OpenGL has already read as much as it wants.
+    let packed_array = unsafe { js_sys::Uint32Array::view(data) };
+
+    gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
+        WebGl2RenderingContext::TEXTURE_2D,
+        0,
+        WebGl2RenderingContext::RGBA32UI as i32,
+        texture_width as i32,
+        texture_height as i32,
+        0,
+        WebGl2RenderingContext::RGBA_INTEGER,
+        WebGl2RenderingContext::UNSIGNED_INT,
+        Some(&packed_array),
+    )
+    .unwrap();
 }
