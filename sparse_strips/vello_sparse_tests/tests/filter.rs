@@ -1371,4 +1371,161 @@ fn filter_blending_in_layer(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-// TODO: Add more tests to test interaction between filters and clip layers.
+#[vello_test(skip_multithreaded)]
+fn filter_layer_with_blending(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
+
+    let rect1 = Rect::new(10.5, 10.5, 70.5, 70.5);
+    ctx.set_paint(BLUE.with_alpha(0.5));
+    ctx.fill_rect(&rect1);
+    ctx.push_layer(
+        None,
+        Some(BlendMode::new(Mix::SoftLight, Compose::SrcOver)),
+        None,
+        None,
+        Some(filter),
+    );
+    let rect2 = Rect::new(30.5, 30.5, 90.5, 90.5);
+    ctx.set_paint(LIME.with_alpha(0.5));
+    ctx.fill_rect(&rect2);
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded)]
+fn filter_layer_with_blending_and_opacity(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
+
+    let rect1 = Rect::new(10.5, 10.5, 70.5, 70.5);
+    ctx.set_paint(BLUE.with_alpha(0.5));
+    ctx.fill_rect(&rect1);
+    ctx.push_layer(
+        None,
+        Some(BlendMode::new(Mix::SoftLight, Compose::SrcOver)),
+        Some(0.5),
+        None,
+        Some(filter),
+    );
+    let rect2 = Rect::new(30.5, 30.5, 90.5, 90.5);
+    ctx.set_paint(LIME.with_alpha(0.5));
+    ctx.fill_rect(&rect2);
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded, hybrid_tolerance = 3)]
+fn filter_clip_with_constrained_blur(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 16.0,
+        edge_mode: EdgeMode::None,
+    });
+    let clip = Rect::new(15.0, 15.0, 85.0, 85.0).to_path(0.1);
+
+    ctx.push_clip_layer(&clip);
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_rect(&Rect::new(25.0, 25.0, 75.0, 75.0));
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded)]
+fn filter_and_clip_combined_layer(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 5.0, dy: 5.0 });
+    let clip = Rect::new(15.0, 15.0, 85.0, 85.0).to_path(0.1);
+
+    ctx.push_layer(Some(&clip), None, None, None, Some(filter));
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(15.0, 15.0, 75.0, 75.0));
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded)]
+fn filter_clip_blend_nested(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
+    let clip = Rect::new(25.0, 25.0, 75.0, 75.0).to_path(0.1);
+
+    ctx.set_paint(GREEN);
+    ctx.fill_rect(&Rect::new(15.0, 15.0, 85.0, 85.0));
+
+    ctx.push_clip_layer(&clip);
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(15.0, 15.0, 85.0, 85.0));
+    ctx.push_blend_layer(BlendMode::new(Mix::Multiply, Compose::SrcOver));
+    ctx.set_paint(RED.with_alpha(0.7));
+    ctx.fill_rect(&Rect::new(15.0, 15.0, 85.0, 85.0));
+    ctx.pop_layer();
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded, hybrid_tolerance = 2)]
+fn filter_with_non_rect_clip(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 7.0,
+        edge_mode: EdgeMode::None,
+    });
+    let clip = Circle::new((50.0, 50.0), 30.0).to_path(0.1);
+
+    ctx.push_clip_layer(&clip);
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(ROYAL_BLUE);
+    ctx.fill_rect(&Rect::new(25.0, 25.0, 75.0, 75.0));
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded)]
+fn filter_drop_shadow_inside_clip(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: 20.0,
+        dy: 20.0,
+        std_deviation: 3.0,
+        color: BLACK,
+        edge_mode: Default::default(),
+    });
+    let clip = Rect::new(15.0, 15.0, 85.0, 85.0).to_path(0.1);
+
+    ctx.push_clip_layer(&clip);
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(PURPLE);
+    ctx.fill_rect(&Rect::new(25.0, 25.0, 65.0, 65.0));
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded)]
+fn filter_sequential_clip_layers(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
+
+    let clip1 = Rect::new(15.0, 15.0, 45.0, 45.0).to_path(0.1);
+    ctx.push_clip_layer(&clip1);
+    ctx.push_filter_layer(filter.clone());
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(15.0, 15.0, 45.0, 45.0));
+    ctx.pop_layer();
+    ctx.pop_layer();
+
+    let clip2 = Rect::new(55.0, 55.0, 85.0, 85.0).to_path(0.1);
+    ctx.push_clip_layer(&clip2);
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(55.0, 55.0, 85.0, 85.0));
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded)]
+fn filter_with_out_of_bounds_clip(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 2.0,
+        edge_mode: EdgeMode::None,
+    });
+    let clip = Rect::new(-20.0, -20.0, 30.0, 30.0).to_path(0.1);
+
+    ctx.push_clip_layer(&clip);
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(15.0, 15.0, 85.0, 85.0));
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
