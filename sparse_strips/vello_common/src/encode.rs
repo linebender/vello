@@ -59,6 +59,12 @@ pub trait EncodeExt: private::Sealed {
         paints: &mut Vec<EncodedPaint>,
         transform: Affine,
         tint: Option<Tint>,
+        // Note: We make this configurable because different backends have different requirements.
+        // For vello_cpu, it makes sense to apply the center shift _once_ during encoding, so that
+        // we don't have to manually apply the shift for each wide tile command.
+        // However, for vello_hybrid, the fragment shader already calculates the positions such
+        // that they are centered in the pixel, so we don't need to apply the shift during encoding.
+        apply_center_shift: bool,
     ) -> Paint;
 }
 
@@ -69,6 +75,7 @@ impl EncodeExt for Gradient {
         paints: &mut Vec<EncodedPaint>,
         transform: Affine,
         _tint: Option<Tint>,
+        apply_center_shift: bool,
     ) -> Paint {
         // First make sure that the gradient is valid and not degenerate.
         if let Err(paint) = validate(self) {
@@ -196,13 +203,14 @@ impl EncodeExt for Gradient {
         // This represents the transform that needs to be applied to the starting point of a
         // command before starting with the rendering.
         // First we need to account for the base transform of the shader, then
-        // we account for the fact that we sample in the center of a pixel and not in the corner by
-        // adding `PIXEL_CENTER_OFFSET`.
+        // we (optionally) account for the fact that we want to sample in the center of a pixel and not
+        // in the corner by adding `PIXEL_CENTER_OFFSET`.
         // Finally, we need to apply the _inverse_ paint transform to the point so that we can account
         // for the paint transform of the render context.
-        let transform = base_transform
-            * transform.inverse()
-            * Affine::translate((PIXEL_CENTER_OFFSET, PIXEL_CENTER_OFFSET));
+        let mut transform = base_transform * transform.inverse();
+        if apply_center_shift {
+            transform *= Affine::translate((PIXEL_CENTER_OFFSET, PIXEL_CENTER_OFFSET));
+        }
 
         // One possible approach of calculating the positions would be to apply the above
         // transform to _each_ pixel that we render in the wide tile. However, a much better
@@ -482,6 +490,7 @@ impl EncodeExt for Image {
         paints: &mut Vec<EncodedPaint>,
         transform: Affine,
         tint: Option<Tint>,
+        apply_center_shift: bool,
     ) -> Paint {
         let idx = paints.len();
 
@@ -506,10 +515,13 @@ impl EncodeExt for Image {
             sampler.quality = ImageQuality::Low;
         }
 
-        // Similarly to gradients, apply the `PIXEL_CENTER_OFFSET` offset so we sample at the center of
-        // a pixel.
-        let transform =
-            transform.inverse() * Affine::translate((PIXEL_CENTER_OFFSET, PIXEL_CENTER_OFFSET));
+        // Similarly to gradients, optionally apply the `PIXEL_CENTER_OFFSET` offset so we sample
+        // at the center of a pixel.
+        let mut transform = transform.inverse();
+
+        if apply_center_shift {
+            transform *= Affine::translate((PIXEL_CENTER_OFFSET, PIXEL_CENTER_OFFSET));
+        }
 
         let (x_advance, y_advance) = x_y_advances(&transform);
 
@@ -847,6 +859,10 @@ impl EncodeExt for BlurredRoundedRectangle {
         paints: &mut Vec<EncodedPaint>,
         transform: Affine,
         _tint: Option<Tint>,
+        // I'm not sure why, but for some reason applying this here gives wrong
+        // results for the "blurred_rounded_rect_non" test case. It's possible that the
+        // current algorithm somehow already assumes centered sampling.
+        _apply_center_shift: bool,
     ) -> Paint {
         let rect = {
             // Ensure rectangle has positive width/height.
@@ -1172,7 +1188,7 @@ mod tests {
         };
 
         assert_eq!(
-            gradient.encode_into(&mut buf, Affine::IDENTITY, None),
+            gradient.encode_into(&mut buf, Affine::IDENTITY, None, false),
             BLACK.into()
         );
     }
@@ -1196,7 +1212,7 @@ mod tests {
 
         // Should return the color of the first stop.
         assert_eq!(
-            gradient.encode_into(&mut buf, Affine::IDENTITY, None),
+            gradient.encode_into(&mut buf, Affine::IDENTITY, None, false),
             GREEN.into()
         );
     }
@@ -1225,7 +1241,7 @@ mod tests {
         };
 
         assert_eq!(
-            gradient.encode_into(&mut buf, Affine::IDENTITY, None),
+            gradient.encode_into(&mut buf, Affine::IDENTITY, None, false),
             GREEN.into()
         );
     }
@@ -1254,7 +1270,7 @@ mod tests {
         };
 
         assert_eq!(
-            gradient.encode_into(&mut buf, Affine::IDENTITY, None),
+            gradient.encode_into(&mut buf, Affine::IDENTITY, None, false),
             GREEN.into()
         );
     }
@@ -1285,7 +1301,7 @@ mod tests {
         };
 
         assert_eq!(
-            gradient.encode_into(&mut buf, Affine::IDENTITY, None),
+            gradient.encode_into(&mut buf, Affine::IDENTITY, None, false),
             GREEN.into()
         );
     }

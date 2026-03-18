@@ -310,7 +310,7 @@ mod tests {
 
     fn create_encoded_gradient(gradient: Gradient) -> EncodedGradient {
         let mut encoded_paints = vec![];
-        gradient.encode_into(&mut encoded_paints, Affine::IDENTITY, None);
+        gradient.encode_into(&mut encoded_paints, Affine::IDENTITY, None, false);
         match encoded_paints.into_iter().last().unwrap() {
             EncodedPaint::Gradient(encoded_gradient) => encoded_gradient,
             _ => panic!("Expected a gradient paint"),

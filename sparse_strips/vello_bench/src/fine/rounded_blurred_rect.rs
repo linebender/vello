@@ -40,7 +40,7 @@ fn base<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>, t
         std_dev: 10.0,
     };
 
-    let paint = rect.encode_into(&mut paints, transform, None);
+    let paint = rect.encode_into(&mut paints, transform, None, true);
     fill_single(
         &paint,
         &paints,

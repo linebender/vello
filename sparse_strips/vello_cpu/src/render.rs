@@ -163,12 +163,14 @@ impl RenderContext {
                     &mut self.encoded_paints,
                     self.state.transform * self.state.paint_transform,
                     None,
+                    true,
                 )
             }
             PaintType::Image(i) => i.encode_into(
                 &mut self.encoded_paints,
                 self.state.transform * self.state.paint_transform,
                 self.state.tint,
+                true,
             ),
         }
     }
@@ -308,7 +310,7 @@ impl RenderContext {
 
         self.rect_to_temp_path(&inflated_rect);
 
-        let paint = blurred_rect.encode_into(&mut self.encoded_paints, transform, None);
+        let paint = blurred_rect.encode_into(&mut self.encoded_paints, transform, None, true);
         self.dispatcher.fill_path(
             &self.temp_path,
             Fill::NonZero,

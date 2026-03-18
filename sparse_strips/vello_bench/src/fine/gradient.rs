@@ -244,7 +244,7 @@ fn gradient_base<S: Simd, N: FineKernel<S>>(
         ..Default::default()
     };
 
-    let paint = grad.encode_into(&mut paints, Affine::IDENTITY, None);
+    let paint = grad.encode_into(&mut paints, Affine::IDENTITY, None, true);
     fill_single(
         &paint,
         &paints,

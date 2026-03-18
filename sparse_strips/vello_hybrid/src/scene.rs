@@ -336,11 +336,13 @@ impl Scene {
                 &mut self.encoded_paints.borrow_mut(),
                 self.render_state.transform * self.render_state.paint_transform,
                 None,
+                false,
             ),
             PaintType::Image(i) => i.encode_into(
                 &mut self.encoded_paints.borrow_mut(),
                 self.render_state.transform * self.render_state.paint_transform,
                 self.render_state.tint,
+                false,
             ),
         }
     }
