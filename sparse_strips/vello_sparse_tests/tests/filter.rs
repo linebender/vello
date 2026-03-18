@@ -1481,7 +1481,7 @@ fn filter_drop_shadow_inside_clip(ctx: &mut impl Renderer) {
         dy: 20.0,
         std_deviation: 3.0,
         color: BLACK,
-        edge_mode: Default::default(),
+        edge_mode: EdgeMode::default(),
     });
     let clip = Rect::new(15.0, 15.0, 85.0, 85.0).to_path(0.1);
 
