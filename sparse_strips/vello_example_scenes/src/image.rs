@@ -3,6 +3,7 @@
 
 //! Image rendering example scene.
 use std::f64::consts::PI;
+use std::io::Cursor;
 
 use vello_common::color::PremulRgba8;
 use vello_common::kurbo::{BezPath, Point, Shape, Vec2};
@@ -204,7 +205,7 @@ impl ImageScene {
     /// Read the cowboy image
     pub fn read_cowboy_image() -> Pixmap {
         let data = include_bytes!("../../vello_sparse_tests/tests/assets/cowboy.png");
-        Pixmap::from_png(&data[..]).unwrap()
+        Pixmap::from_png(Cursor::new(data)).unwrap()
     }
 }
 
