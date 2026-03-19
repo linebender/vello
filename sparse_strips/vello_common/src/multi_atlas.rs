@@ -6,23 +6,14 @@
 //! This module provides support for managing multiple texture atlases, allowing for handling of
 //! large numbers of images.
 //!
-//! The allocator backend is a built-in `no_std`-compatible port of
-//! [guillotiere](https://github.com/nical/guillotiere)'s tree-based guillotine algorithm,
-//! providing O(1) neighbor lookup during deallocation and automatic free-rect coalescing.
+//! The allocator backend is [guillotiere](https://github.com/nical/guillotiere)'s tree-based
+//! guillotine algorithm, providing O(1) neighbor lookup during deallocation and automatic
+//! free-rect coalescing.
 
-use crate::allocator::GuillotineAllocator;
 use alloc::vec::Vec;
+pub use guillotiere::AllocId;
+use guillotiere::AtlasAllocator;
 use thiserror::Error;
-
-// ---------------------------------------------------------------------------
-// Allocator backend abstraction
-// ---------------------------------------------------------------------------
-
-/// Opaque handle for a rectangle allocation within a single atlas.
-///
-/// Returned by [`Atlas::allocate`] and required by [`Atlas::deallocate`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct AllocId(pub(crate) u32);
 
 /// The result of a successful rectangle allocation within a single atlas.
 #[derive(Debug)]
@@ -44,7 +35,7 @@ pub struct Atlas {
     /// Unique identifier for this atlas.
     pub id: AtlasId,
     /// Rectangle allocator backend.
-    allocator: GuillotineAllocator,
+    allocator: AtlasAllocator,
     /// Current usage statistics.
     stats: AtlasUsageStats,
     /// Allocation counter.
@@ -56,7 +47,7 @@ impl Atlas {
     pub fn new(id: AtlasId, width: u32, height: u32) -> Self {
         Self {
             id,
-            allocator: GuillotineAllocator::new(width, height),
+            allocator: AtlasAllocator::new(guillotiere::size2(width as i32, height as i32)),
             stats: AtlasUsageStats {
                 allocated_area: 0,
                 total_area: width * height,
@@ -67,12 +58,22 @@ impl Atlas {
     }
 
     /// Try to allocate an image in this atlas.
+    #[expect(
+        clippy::cast_sign_loss,
+        reason = "coordinates are always non-negative for valid allocations"
+    )]
     pub fn allocate(&mut self, width: u32, height: u32) -> Option<Allocation> {
-        let allocation = self.allocator.allocate(width, height)?;
+        let alloc = self
+            .allocator
+            .allocate(guillotiere::size2(width as i32, height as i32))?;
         self.stats.allocated_area += width * height;
         self.stats.allocated_count += 1;
         self.allocation_counter += 1;
-        Some(allocation)
+        Some(Allocation {
+            id: alloc.id,
+            x: alloc.rectangle.min.x as u32,
+            y: alloc.rectangle.min.y as u32,
+        })
     }
 
     /// Deallocate an image from this atlas.
