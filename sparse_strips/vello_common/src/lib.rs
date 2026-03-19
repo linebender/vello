@@ -64,7 +64,6 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
-pub(crate) mod allocator;
 pub mod blurred_rounded_rect;
 pub mod clip;
 pub mod coarse;
