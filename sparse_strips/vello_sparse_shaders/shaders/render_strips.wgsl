@@ -240,6 +240,9 @@ var<uniform> config: Config;
 @group(1) @binding(0)
 var atlas_texture_array: texture_2d_array<f32>;
 
+@group(1) @binding(1)
+var atlas_sampler: sampler;
+
 @group(2) @binding(0)
 var encoded_paints_texture: texture_2d<u32>;
 
@@ -933,10 +936,26 @@ fn extend_mode_normalized(t: f32, mode: u32) -> f32 {
     }
 }
 
-// Bilinear filtering
+// Convert atlas-space pixel coordinates to normalized UVs suitable for textureSample.
 //
-// Bilinear filtering consists of sampling the 4 surrounding pixels of the target point and
-// interpolating them with a bilinear filter.
+// To prevent bleeding from neighboring atlas images, we clamp the UVs so that the boundary
+// samples land on the CENTER of the boundary texels, not their edges. 
+//
+// The input `sample_xy` is in atlas pixel space (after extend-mode and offset are applied).
+fn atlas_to_normalized_uv(
+    sample_xy: vec2<f32>,
+    image_offset: vec2<f32>,
+    image_size: vec2<f32>,
+    extend_modes: vec2<u32>,
+) -> vec2<f32> {
+    let atlas_dim = vec2<f32>(textureDimensions(atlas_texture_array));
+    let uv_min = (image_offset + 0.5) / atlas_dim;
+    let uv_max = (image_offset + image_size - 0.5) / atlas_dim;
+    let uv = ((sample_xy + 0.5) / atlas_dim);
+    return clamp(uv, uv_min, uv_max);
+}
+
+// Bilinear filtering via hardware textureSample.
 fn bilinear_sample(
     tex: texture_2d_array<f32>,
     coords: vec2<f32>,
@@ -946,15 +965,8 @@ fn bilinear_sample(
     extend_modes: vec2<u32>,
     image_padding: f32,
 ) -> vec4<f32> {
-    let atlas_max = image_offset + image_size - vec2(1.0);
-    let atlas_uv_clamped = clamp(coords, image_offset, atlas_max);
-    let uv_quad = vec4(floor(atlas_uv_clamped), ceil(atlas_uv_clamped));
-    let uv_frac = fract(coords);
-    let a = textureLoad(tex, vec2<i32>(uv_quad.xy), atlas_idx, 0);
-    let b = textureLoad(tex, vec2<i32>(uv_quad.xw), atlas_idx, 0);
-    let c = textureLoad(tex, vec2<i32>(uv_quad.zy), atlas_idx, 0);
-    let d = textureLoad(tex, vec2<i32>(uv_quad.zw), atlas_idx, 0);
-    return mix(mix(a, b, uv_frac.y), mix(c, d, uv_frac.y), uv_frac.x);
+    let uv = atlas_to_normalized_uv(coords, image_offset, image_size, extend_modes);
+    return textureSample(tex, atlas_sampler, uv, atlas_idx);
 }
 
 // Bicubic filtering using Mitchell filter with B=1/3, C=1/3

@@ -1842,12 +1842,12 @@ fn create_texture_inner(gl: &WebGl2RenderingContext, target: u32) -> WebGlTextur
     gl.tex_parameteri(
         target,
         WebGl2RenderingContext::TEXTURE_MIN_FILTER,
-        WebGl2RenderingContext::NEAREST as i32,
+        WebGl2RenderingContext::LINEAR as i32,
     );
     gl.tex_parameteri(
         target,
         WebGl2RenderingContext::TEXTURE_MAG_FILTER,
-        WebGl2RenderingContext::NEAREST as i32,
+        WebGl2RenderingContext::LINEAR as i32,
     );
     gl.tex_parameteri(
         target,
