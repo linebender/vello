@@ -13,6 +13,9 @@ use alloc::vec::Vec;
 use fearless_simd::{Level, Simd, SimdBase, dispatch, u8x16};
 use peniko::Fill;
 
+#[cfg(not(feature = "std"))]
+use peniko::kurbo::common::FloatFuncs as _;
+
 #[derive(Debug)]
 struct ClipData {
     alpha_start: u32,
