@@ -83,15 +83,18 @@ macro_rules! load_image {
         #[cfg(target_arch = "wasm32")]
         {
             let bytes = include_bytes!(concat!("../tests/assets/", $name, ".png"));
-            std::sync::Arc::new(vello_common::pixmap::Pixmap::from_png(&bytes[..]).unwrap())
+            std::sync::Arc::new(
+                vello_common::pixmap::Pixmap::from_png(std::io::Cursor::new(bytes)).unwrap(),
+            )
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
             let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join(format!("tests/assets/{}.png", $name));
+            let bytes = std::fs::read(path).unwrap();
             std::sync::Arc::new(
-                vello_common::pixmap::Pixmap::from_png(std::fs::File::open(path).unwrap()).unwrap(),
+                vello_common::pixmap::Pixmap::from_png(std::io::Cursor::new(bytes)).unwrap(),
             )
         }
     }};

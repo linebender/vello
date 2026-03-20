@@ -111,8 +111,8 @@ hashbrown = { version = "0.16.1", default-features = false, features = ["default
 smallvec = "1.15.1"
 static_assertions = "1.1.0"
 thiserror = { version = "2.0.18", default-features = false }
-oxipng = { version = "9.1.5", default-features = false }
-png = "0.17.16"
+oxipng = { version = "10.1.0", default-features = false }
+png = "0.18.1"
 rayon = { version = "1.11.0" }
 thread_local = "1.1.9"
 crossbeam-channel = "0.5.15"

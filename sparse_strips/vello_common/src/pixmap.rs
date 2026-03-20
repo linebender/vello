@@ -5,9 +5,10 @@
 
 use alloc::vec;
 use alloc::vec::Vec;
-use peniko::color::Rgba8;
+#[cfg(feature = "png")]
+use std::io::{BufRead, Seek};
 
-use crate::peniko::color::PremulRgba8;
+use crate::peniko::color::{PremulRgba8, Rgba8};
 
 #[cfg(feature = "png")]
 extern crate std;
@@ -185,7 +186,7 @@ impl Pixmap {
 
     /// Create a pixmap from a PNG file.
     #[cfg(feature = "png")]
-    pub fn from_png(data: impl std::io::Read) -> Result<Self, png::DecodingError> {
+    pub fn from_png(data: impl BufRead + Seek) -> Result<Self, png::DecodingError> {
         let mut decoder = png::Decoder::new(data);
         decoder.set_transformations(
             png::Transformations::normalize_to_color8() | png::Transformations::ALPHA,
@@ -223,7 +224,7 @@ impl Pixmap {
             }
             png::ColorType::Rgba => {
                 debug_assert_eq!(
-                    pixmap.data_as_u8_slice().len(),
+                    Some(pixmap.data_as_u8_slice().len()),
                     reader.output_buffer_size(),
                     "The pixmap buffer should have the same number of bytes as the image."
                 );
@@ -231,11 +232,11 @@ impl Pixmap {
             }
             png::ColorType::GrayscaleAlpha => {
                 debug_assert_eq!(
-                    pixmap.data().len() * 2,
+                    Some(pixmap.data().len() * 2),
                     reader.output_buffer_size(),
                     "The pixmap buffer should have twice the number of bytes of the grayscale image."
                 );
-                let mut grayscale_data = vec![0; reader.output_buffer_size()];
+                let mut grayscale_data = vec![0; reader.output_buffer_size().unwrap_or_default()];
                 reader.next_frame(&mut grayscale_data)?;
 
                 for (grayscale_pixel, pixmap_pixel) in

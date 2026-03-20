@@ -1401,7 +1401,7 @@ dependencies = [
  "clap",
  "env_logger",
  "futures-intrusive",
- "png 0.17.16",
+ "png",
  "pollster",
  "scenes",
  "vello",
@@ -1570,7 +1570,7 @@ dependencies = [
  "byteorder-lite",
  "moxcms",
  "num-traits",
- "png 0.18.1",
+ "png",
  "zune-core",
  "zune-jpeg",
 ]
@@ -1749,7 +1749,7 @@ source = "git+https://github.com/linebender/kompari.git?rev=4b851413e1b17307064a
 dependencies = [
  "image",
  "log",
- "oxipng",
+ "oxipng 9.1.5",
  "rayon",
  "thiserror 2.0.18",
  "walkdir",
@@ -2606,6 +2606,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxipng"
+version = "10.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "efc4ea5566cd49b80c4b5e8eac2167d137d2ca3007ec8976d4cd9fe8b654ba2b"
+dependencies = [
+ "bitvec",
+ "crossbeam-channel",
+ "indexmap",
+ "libdeflater",
+ "log",
+ "rayon",
+ "rgb",
+ "rustc-hash 2.1.1",
+]
+
+[[package]]
 name = "parking_lot"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2727,19 +2743,6 @@ name = "plain"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
-
-[[package]]
-name = "png"
-version = "0.17.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82151a2fc869e011c153adc57cf2789ccb8d9906ce52c0b39a6b5697749d7526"
-dependencies = [
- "bitflags 1.3.2",
- "crc32fast",
- "fdeflate",
- "flate2",
- "miniz_oxide",
-]
 
 [[package]]
 name = "png"
@@ -3946,7 +3949,7 @@ dependencies = [
  "futures-intrusive",
  "log",
  "peniko 0.6.0",
- "png 0.17.16",
+ "png",
  "skrifa 0.40.0",
  "static_assertions",
  "thiserror 2.0.18",
@@ -3962,7 +3965,7 @@ version = "0.7.0"
 dependencies = [
  "bytemuck",
  "peniko 0.6.0",
- "png 0.17.16",
+ "png",
 ]
 
 [[package]]
@@ -3991,7 +3994,7 @@ dependencies = [
  "libm",
  "log",
  "peniko 0.6.0",
- "png 0.17.16",
+ "png",
  "roxmltree",
  "skrifa 0.40.0",
  "smallvec",
@@ -4071,7 +4074,7 @@ dependencies = [
  "hashbrown 0.16.1",
  "js-sys",
  "log",
- "png 0.17.16",
+ "png",
  "pollster",
  "roxmltree",
  "thiserror 2.0.18",
@@ -4119,7 +4122,7 @@ dependencies = [
  "bytemuck",
  "fearless_simd",
  "image",
- "oxipng",
+ "oxipng 10.1.0",
  "pollster",
  "serde",
  "serde_json",
@@ -4146,8 +4149,8 @@ dependencies = [
  "futures-intrusive",
  "image",
  "nv-flip",
- "oxipng",
- "png 0.17.16",
+ "oxipng 10.1.0",
+ "png",
  "pollster",
  "scenes",
  "vello",
