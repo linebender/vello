@@ -1269,8 +1269,7 @@ mod tests {
             Affine::IDENTITY,
             &mut line_buf,
             &mut FlattenCtx::default(),
-            VIEWPORT_WIDTH,
-            VIEWPORT_HEIGHT,
+            [0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT],
         );
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));

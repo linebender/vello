@@ -103,6 +103,18 @@ impl StripGenerator {
         }
     }
 
+    /// Get this strip generator's viewport width.
+    #[inline(always)]
+    pub fn width(&self) -> u16 {
+        self.width
+    }
+
+    /// Get this strip generator's viewport height.
+    #[inline(always)]
+    pub fn height(&self) -> u16 {
+        self.height
+    }
+
     /// Generate the strips for a filled path.
     pub fn generate_filled_path(
         &mut self,
@@ -113,14 +125,17 @@ impl StripGenerator {
         strip_storage: &mut StripStorage,
         clip_path: Option<PathDataRef<'_>>,
     ) {
+        let cull_bbox =
+            clip_path
+                .map(|clip_path| clip_path.bbox)
+                .unwrap_or([0, 0, self.width, self.height]);
         flatten::fill(
             self.level,
             path,
             transform,
             &mut self.line_buf,
             &mut self.flatten_ctx,
-            self.width,
-            self.height,
+            cull_bbox,
         );
 
         self.generate_with_clip(aliasing_threshold, strip_storage, fill_rule, clip_path);
@@ -136,6 +151,10 @@ impl StripGenerator {
         strip_storage: &mut StripStorage,
         clip_path: Option<PathDataRef<'_>>,
     ) {
+        let cull_bbox =
+            clip_path
+                .map(|clip_path| clip_path.bbox)
+                .unwrap_or([0, 0, self.width, self.height]);
         flatten::stroke(
             self.level,
             path,
@@ -144,8 +163,7 @@ impl StripGenerator {
             &mut self.line_buf,
             &mut self.flatten_ctx,
             &mut self.stroke_ctx,
-            self.width,
-            self.height,
+            cull_bbox,
         );
         self.generate_with_clip(aliasing_threshold, strip_storage, Fill::NonZero, clip_path);
     }
@@ -242,6 +260,7 @@ fn render_with_clip(
         let path_data = PathDataRef {
             strips: &temp_storage.strips,
             alphas: &temp_storage.alphas,
+            bbox: [0, 0, u16::MAX, u16::MAX],
         };
         intersect(level, clip_path, path_data, strip_storage);
     } else {

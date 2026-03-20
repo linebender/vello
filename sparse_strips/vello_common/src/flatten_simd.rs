@@ -46,13 +46,14 @@ pub(crate) fn flatten<S: Simd>(
     path: impl IntoIterator<Item = PathEl>,
     callback: &mut impl Callback,
     flatten_ctx: &mut FlattenCtx,
-    width: u16,
-    height: u16,
+    cull_bbox: [u16; 4],
 ) {
     flatten_ctx.flattened_cubics.clear();
 
-    let width = width as f64;
-    let height = height as f64;
+    let left = cull_bbox[0] as f64;
+    let top = cull_bbox[1] as f64;
+    let right = cull_bbox[2] as f64;
+    let bottom = cull_bbox[3] as f64;
 
     let mut closed = true;
     let mut start_pt = Point::ZERO;
@@ -78,19 +79,19 @@ pub(crate) fn flatten<S: Simd>(
                 debug_assert!(!closed, "Expected a `MoveTo` before a `QuadTo`");
                 let p0 = last_pt;
                 let line = Line::new(p0, p2);
-                // If the quadratic Bézier is fully to the right, top, or bottom of the viewport,
-                // it does not impact pixel coverage or winding. We can ignore it. The following
-                // checks that conservatively by checking whether the bounding box of the Bézier's
-                // control points is fully to the right, top, or bottom of the viewport.
-                if [p0, p1, p2].into_iter().all(|p| p.x > width)
-                    || [p0, p1, p2].into_iter().all(|p| p.y < 0.)
-                    || [p0, p1, p2].into_iter().all(|p| p.y > height)
+                // If the quadratic Bézier is fully to the right, top, or bottom of the culling
+                // bbox, it does not impact pixel coverage or winding. We can ignore it. The
+                // following checks that conservatively by checking whether the bounding box of the
+                // Bézier's control points is fully outside the culling bbox.
+                if [p0, p1, p2].into_iter().all(|p| p.x > right)
+                    || [p0, p1, p2].into_iter().all(|p| p.y < top)
+                    || [p0, p1, p2].into_iter().all(|p| p.y > bottom)
                 {
                     callback.callback(LinePathEl::MoveTo(p2));
                 }
                 // The following checks two things. First, if the quadratic Bézier is fully to the
-                // left of the viewport, it may affect pixel coverage and winding, but its exact
-                // shape does not matter. It can be emitted as a line segment [p0, p2].
+                // left of the culling bbox, it may affect pixel coverage and winding, but its
+                // exact shape does not matter. It can be emitted as a line segment [p0, p2].
                 //
                 // Second, an upper bound on the shortest distance of any point on the quadratic
                 // Bézier curve to the line segment [p0, p2] is 1/2 of the control-point-to-line-segment
@@ -108,7 +109,7 @@ pub(crate) fn flatten<S: Simd>(
                 //
                 // The following takes the square to elide the square root of the Euclidean
                 // distance.
-                else if [p0, p1, p2].into_iter().all(|p| p.x < 0.)
+                else if [p0, p1, p2].into_iter().all(|p| p.x < left)
                     || line.nearest(p1, 0.).distance_sq <= 4. * TOL_2
                 {
                     callback.callback(LinePathEl::LineTo(p2));
@@ -131,18 +132,18 @@ pub(crate) fn flatten<S: Simd>(
                 debug_assert!(!closed, "Expected a `MoveTo` before a `CurveTo`");
                 let p0 = last_pt;
                 let line = Line::new(p0, p3);
-                // If the cubic Bézier is fully to the right, top, or bottom of the viewport, it
-                // does not impact pixel coverage or winding. We can ignore it. The following
+                // If the cubic Bézier is fully to the right, top, or bottom of the culling bbox,
+                // it does not impact pixel coverage or winding. We can ignore it. The following
                 // checks that conservatively by checking whether the bounding box of the Bézier's
-                // control points is fully to the right, top, or bottom of the viewport.
-                if [p0, p1, p2, p3].into_iter().all(|p| p.x > width)
-                    || [p0, p1, p2, p3].into_iter().all(|p| p.y < 0.)
-                    || [p0, p1, p2, p3].into_iter().all(|p| p.y > height)
+                // control points is fully outside the culling bbox.
+                if [p0, p1, p2, p3].into_iter().all(|p| p.x > right)
+                    || [p0, p1, p2, p3].into_iter().all(|p| p.y < top)
+                    || [p0, p1, p2, p3].into_iter().all(|p| p.y > bottom)
                 {
                     callback.callback(LinePathEl::MoveTo(p3));
                 }
-                // The following checks two things. First, if the cubic Bézier is fully to the
-                // left of the viewport, it may affect pixel coverage and winding, but its exact
+                // The following checks two things. First, if the cubic Bézier is fully to the left
+                // of the culling bbox, it may affect pixel coverage and winding, but its exact
                 // shape does not matter. It can be emitted as a line segment [p0, p3].
                 //
                 // Second, an upper bound on the shortest distance of any point on the cubic Bézier
@@ -164,7 +165,7 @@ pub(crate) fn flatten<S: Simd>(
                 //
                 // The following takes the square to elide the square root of the Euclidean
                 // distance.
-                else if [p0, p1, p2, p3].into_iter().all(|p| p.x < 0.)
+                else if [p0, p1, p2, p3].into_iter().all(|p| p.x < left)
                     || f64::max(
                         line.nearest(p1, 0.).distance_sq,
                         line.nearest(p2, 0.).distance_sq,

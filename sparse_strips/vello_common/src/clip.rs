@@ -3,7 +3,7 @@
 
 //! Managing clipping state.
 
-use crate::kurbo::{Affine, BezPath};
+use crate::kurbo::{Affine, BezPath, PathEl, Rect};
 use crate::strip::Strip;
 use crate::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use crate::tile::Tile;
@@ -17,6 +17,11 @@ use peniko::Fill;
 struct ClipData {
     alpha_start: u32,
     strip_start: u32,
+
+    /// A coarse bounding box of the clip path in pixel coordinates `[left, top, right, bottom]`.
+    ///
+    /// These bounds have already been intersected with the viewport.
+    bbox: [u16; 4],
 }
 
 impl ClipData {
@@ -30,6 +35,7 @@ impl ClipData {
                 .alphas
                 .get(self.alpha_start as usize..)
                 .unwrap_or(&[]),
+            bbox: self.bbox,
         }
     }
 }
@@ -92,9 +98,38 @@ impl ClipContext {
         let alpha_start = self.storage.alphas.len() as u32;
         let strip_start = self.storage.strips.len() as u32;
 
+        // Calculate a coarse bounding box of the path. If the path is empty, the bounding box is
+        // an infinite and inversed `kurbo::Rect`. This is harmless in practice: an empty path does
+        // not produce any strips.
+        //
+        // Note this iterates `clip_path`, which means we iterate it twice: once here, and once in
+        // flattening. If we ever take an iterator instead, or want to prevent iterating twice, we
+        // could move this calculation into flattening (perhaps with a const-generic as to not
+        // pessimize calls that don't require the bbox).
+        let path_bbox = control_point_bbox(clip_path, transform);
+        let mut bbox = [
+            path_bbox.x0 as u16,
+            path_bbox.y0 as u16,
+            path_bbox.x1.ceil() as u16,
+            path_bbox.y1.ceil() as u16,
+        ];
+
+        // Intersect with the existing clip bounding box, or the viewport if this is the outermost
+        // clip.
+        if let Some(existing) = self.clip_stack.last() {
+            bbox[0] = bbox[0].max(existing.bbox[0]);
+            bbox[1] = bbox[1].max(existing.bbox[1]);
+            bbox[2] = bbox[2].min(existing.bbox[2]);
+            bbox[3] = bbox[3].min(existing.bbox[3]);
+        } else {
+            bbox[2] = bbox[2].min(strip_generator.width());
+            bbox[3] = bbox[3].min(strip_generator.height());
+        }
+
         let clip_data = ClipData {
             alpha_start,
             strip_start,
+            bbox,
         };
 
         let existing_clip = self
@@ -124,6 +159,39 @@ impl ClipContext {
     }
 }
 
+/// Compute a conservative bounding box for the transformed path by computing the bounding box of
+/// the transformed control points.
+///
+/// If `path` is empty, this returns an infinite, inversed [`Rect`] (`left` > `right` and `top` > `bottom`).
+fn control_point_bbox(path: &BezPath, transform: Affine) -> Rect {
+    // Start with an infinite, inversed rectangle. Adding the first point immediately collapses it
+    // without branching.
+    let mut bbox = Rect::new(
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NEG_INFINITY,
+    );
+    for el in path.iter() {
+        match el {
+            PathEl::MoveTo(p) | PathEl::LineTo(p) => {
+                bbox = bbox.union_pt(transform * p);
+            }
+            PathEl::QuadTo(p1, p2) => {
+                bbox = bbox.union_pt(transform * p1);
+                bbox = bbox.union_pt(transform * p2);
+            }
+            PathEl::CurveTo(p1, p2, p3) => {
+                bbox = bbox.union_pt(transform * p1);
+                bbox = bbox.union_pt(transform * p2);
+                bbox = bbox.union_pt(transform * p3);
+            }
+            PathEl::ClosePath => {}
+        }
+    }
+    bbox
+}
+
 /// Borrowed data of a stripped path.
 #[derive(Clone, Copy, Debug)]
 pub struct PathDataRef<'a> {
@@ -131,6 +199,11 @@ pub struct PathDataRef<'a> {
     pub strips: &'a [Strip],
     /// The alpha buffer.
     pub alphas: &'a [u8],
+
+    /// A coarse bounding box of the clip path in pixel coordinates `[left, top, right, bottom]`.
+    ///
+    /// These bounds have already been intersected with the viewport.
+    pub bbox: [u16; 4],
 }
 
 /// Compute the sparse strips representation of a path that results
@@ -636,6 +709,7 @@ mod tests {
         let path_ref = PathDataRef {
             strips: &path_1.strips,
             alphas: &path_1.alphas,
+            bbox: [0, 0, u16::MAX, u16::MAX],
         };
 
         let mut idx = 0;
@@ -651,11 +725,13 @@ mod tests {
         let path_1 = PathDataRef {
             strips: &path_1.strips,
             alphas: &path_1.alphas,
+            bbox: [0, 0, u16::MAX, u16::MAX],
         };
 
         let path_2 = PathDataRef {
             strips: &path_2.strips,
             alphas: &path_2.alphas,
+            bbox: [0, 0, u16::MAX, u16::MAX],
         };
 
         intersect(Level::new(), path_1, path_2, &mut write_target);
