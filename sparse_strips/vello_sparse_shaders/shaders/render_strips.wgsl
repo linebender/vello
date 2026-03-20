@@ -410,7 +410,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                     encoded_image.image_padding,
                 );
             } else if encoded_image.quality == IMAGE_QUALITY_MEDIUM {
-                let final_xy = image_offset + extended_xy - vec2(0.5);
+                let final_xy = image_offset + extended_xy;
                 sample_color = bilinear_sample(
                     atlas_texture_array,
                     final_xy,
@@ -948,10 +948,10 @@ fn atlas_to_normalized_uv(
     image_size: vec2<f32>,
     extend_modes: vec2<u32>,
 ) -> vec2<f32> {
-    let atlas_dim = vec2<f32>(textureDimensions(atlas_texture_array));
-    let uv_min = (image_offset + 0.5) / atlas_dim;
-    let uv_max = (image_offset + image_size - 0.5) / atlas_dim;
-    let uv = ((sample_xy + 0.5) / atlas_dim);
+    let inv_atlas_dim = 1.0 / vec2<f32>(textureDimensions(atlas_texture_array));
+    let uv_min = (image_offset + 0.5) * inv_atlas_dim;
+    let uv_max = (image_offset + image_size - 0.5) * inv_atlas_dim;
+    let uv = sample_xy * inv_atlas_dim;
     return clamp(uv, uv_min, uv_max);
 }
 
