@@ -1372,8 +1372,12 @@ impl Programs {
         // a shader input (bind group) and render target in the same pass.
         let (_stub_atlas_texture, stub_atlas_view) =
             Self::create_atlas_texture_array(device, 1, 1, 1);
-        let stub_atlas_bind_group =
-            Self::create_atlas_bind_group(device, &atlas_bind_group_layout, &stub_atlas_view,  &atlas_sampler);
+        let stub_atlas_bind_group = Self::create_atlas_bind_group(
+            device,
+            &atlas_bind_group_layout,
+            &stub_atlas_view,
+            &atlas_sampler,
+        );
 
         const INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT: u32 = 1;
         let encoded_paints_data = vec![
