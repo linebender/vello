@@ -1774,6 +1774,7 @@ pub struct HintCache {
     // internal memory when reconfigured for the same format.
     glyf_entries: Vec<HintEntry>,
     cff_entries: Vec<HintEntry>,
+    varc_entries: Vec<HintEntry>,
     serial: u64,
 }
 
@@ -1782,6 +1783,7 @@ impl Debug for HintCache {
         f.debug_struct("HintCache")
             .field("glyf_entries", &self.glyf_entries.len())
             .field("cff_entries", &self.cff_entries.len())
+            .field("varc_entries", &self.varc_entries.len())
             .field("serial", &self.serial)
             .finish()
     }
@@ -1793,6 +1795,7 @@ impl HintCache {
         let entries = match key.outlines.format()? {
             OutlineGlyphFormat::Glyf => &mut self.glyf_entries,
             OutlineGlyphFormat::Cff | OutlineGlyphFormat::Cff2 => &mut self.cff_entries,
+            OutlineGlyphFormat::Varc => &mut self.varc_entries,
         };
         let (entry_ix, is_current) = find_hint_entry(entries, key)?;
         let entry = entries.get_mut(entry_ix)?;
@@ -1818,6 +1821,7 @@ impl HintCache {
     pub fn clear(&mut self) {
         self.glyf_entries.clear();
         self.cff_entries.clear();
+        self.varc_entries.clear();
         self.serial = 0;
     }
 }
