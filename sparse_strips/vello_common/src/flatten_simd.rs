@@ -386,13 +386,13 @@ fn eval_cubics_simd<S: Simd>(simd: S, c: &CubicBez, n: usize, result: &mut Flatt
     let (p0_128, p1_128) = split_single(p0p1);
     let (p2_128, p3_128) = split_single(p2p3);
 
-    let coeff_a = (p1_128 - p2_128) * f32x8::splat(simd, 3.0) - p0_128 + p3_128;
-    let coeff_b = (p0_128 - p1_128 * f32x8::splat(simd, 2.0) + p2_128) * f32x8::splat(simd, 3.0);
-    let coeff_c = (p1_128 - p0_128) * f32x8::splat(simd, 3.0);
+    let coeff_a = (p1_128 - p2_128).mul_add(3.0, p3_128 - p0_128);
+    let coeff_b = p1_128.mul_add(-2.0, p0_128 + p2_128) * 3.0;
+    let coeff_c = (p1_128 - p0_128) * 3.0;
     let coeff_d = p0_128;
 
     let iota = f32x8::from_slice(simd, &[0.0, 0.0, 2.0, 2.0, 1.0, 1.0, 3.0, 3.0]);
-    let step = iota * f32x8::splat(simd, dt);
+    let step = iota * dt;
     let mut t = step;
     let t_inc = f32x8::splat(simd, 4.0 * dt);
 
@@ -510,10 +510,10 @@ fn output_lines_simd<S: Simd>(
 
     const IOTA2: [f32; 8] = [0., 0., 1., 1., 2., 2., 3., 3.];
     let iota2 = f32x8::from_slice(simd, IOTA2.as_ref());
-    let x = iota2.mul_add(f32x8::splat(simd, dx), f32x8::splat(simd, x0));
+    let x = iota2.mul_add(dx, f32x8::splat(simd, x0));
     let da = f32x8::splat(simd, ctx.da[i]);
     let mut a = da.mul_add(x, f32x8::splat(simd, ctx.a0[i]));
-    let a_inc = f32x8::splat(simd, 4.0 * dx) * da;
+    let a_inc = 4.0 * dx * da;
     let uscale = f32x8::splat(simd, ctx.uscale[i]);
     let u0 = f32x8::splat(simd, ctx.u0[i]);
 
