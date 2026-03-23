@@ -358,23 +358,6 @@ fn pt_splat_simd<S: Simd>(simd: S, pt: Point32) -> f32x8<S> {
 }
 
 #[inline(always)]
-fn eval_simd<S: Simd>(
-    p0: f32x8<S>,
-    p1: f32x8<S>,
-    p2: f32x8<S>,
-    p3: f32x8<S>,
-    t: f32x8<S>,
-) -> f32x8<S> {
-    let mt = 1.0 - t;
-    let im0 = p0 * mt * mt * mt;
-    let im1 = p1 * mt * mt * 3.0;
-    let im2 = p2 * mt * 3.0;
-    let im3 = p3.mul_add(t, im2) * t;
-
-    (im1 + im3).mul_add(t, im0)
-}
-
-#[inline(always)]
 fn eval_cubics_simd<S: Simd>(simd: S, c: &CubicBez, n: usize, result: &mut FlattenCtx) {
     result.n_quads = n;
     let dt = 0.5 / n as f32;
@@ -403,6 +386,15 @@ fn eval_cubics_simd<S: Simd>(simd: S, c: &CubicBez, n: usize, result: &mut Flatt
     let (p0_128, p1_128) = split_single(p0p1);
     let (p2_128, p3_128) = split_single(p2p3);
 
+    // Use Horner's method to evaluate p(t) as ((a*t + b)*t + c)*t + d. This allows hoisting
+    // coefficients out of the loop, and then evaluating as three sequential FMAs. Estrin's method
+    // would expose more ILP, but the increase in work on such small polynomials (cubic here and
+    // quad below) makes it a net slowdown.
+    let coeff_a = (p1_128 - p2_128).mul_add(3.0, p3_128 - p0_128);
+    let coeff_b = p1_128.mul_add(-2.0, p0_128 + p2_128) * 3.0;
+    let coeff_c = (p1_128 - p0_128) * 3.0;
+    let coeff_d = p0_128;
+
     let iota = f32x8::from_slice(simd, &[0.0, 0.0, 2.0, 2.0, 1.0, 1.0, 3.0, 3.0]);
     let step = iota * dt;
     let mut t = step;
@@ -412,7 +404,10 @@ fn eval_cubics_simd<S: Simd>(simd: S, c: &CubicBez, n: usize, result: &mut Flatt
     let odd_pts: &mut [f32] = bytemuck::cast_slice_mut(&mut result.odd_pts);
 
     for i in 0..n.div_ceil(2) {
-        let evaluated = eval_simd(p0_128, p1_128, p2_128, p3_128, t);
+        let evaluated = (coeff_a.mul_add(t, coeff_b))
+            .mul_add(t, coeff_c)
+            .mul_add(t, coeff_d);
+
         let (low, high) = simd.split_f32x8(evaluated);
 
         even_pts[i * 4..][..4].copy_from_slice(low.as_slice());
@@ -524,19 +519,20 @@ fn output_lines_simd<S: Simd>(
     let mut a = da.mul_add(x, f32x8::splat(simd, ctx.a0[i]));
     let a_inc = 4.0 * dx * da;
     let uscale = f32x8::splat(simd, ctx.uscale[i]);
+    let u0 = f32x8::splat(simd, ctx.u0[i]);
+
+    // See Horner comment above
+    let coeff_a = p1.mul_add(-2.0, p0) + p2;
+    let coeff_b = (p1 - p0) * 2.0;
+    let coeff_c = p0;
 
     let out: &mut [f32] = bytemuck::cast_slice_mut(&mut ctx.flattened_cubics[start_idx..]);
 
     for j in 0..n.div_ceil(4) {
         let u = approx_parabola_inv_integral_simd(a);
-        let t = u.mul_add(uscale, -ctx.u0[i] * uscale);
-        let mt = 1.0 - t;
-        let z = p0 * mt * mt;
-        let z1 = p1.mul_add(2.0 * t * mt, z);
-        let p = p2.mul_add(t * t, z1);
-
+        let t = (u - u0) * uscale;
+        let p = coeff_a.mul_add(t, coeff_b).mul_add(t, coeff_c);
         out[j * 8..][..8].copy_from_slice(p.as_slice());
-
         a += a_inc;
     }
 }
