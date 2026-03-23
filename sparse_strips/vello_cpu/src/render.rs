@@ -213,8 +213,7 @@ impl RenderContext {
             let paint = ctx.encode_current_paint();
 
             // Fast path: Use optimized rect filling if we have no skew in the path transform.
-            if is_axis_aligned(&ctx.state.transform)
-            {
+            if is_axis_aligned(&ctx.state.transform) {
                 // Transform the rect to screen coordinates.
                 let transformed_rect = ctx.state.transform.transform_rect_bbox(*rect);
                 ctx.dispatcher.fill_rect_fast(

@@ -7,9 +7,9 @@ use crate::math::FloatExt;
 use fearless_simd::{
     Bytes, Simd, SimdBase, SimdFloat, f32x16, u8x16, u8x32, u16x16, u16x32, u32x16,
 };
+use peniko::kurbo::Affine;
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
-use peniko::kurbo::Affine;
 
 /// Convert f32x16 to u8x16.
 #[inline(always)]
