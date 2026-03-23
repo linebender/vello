@@ -5,11 +5,11 @@
 
 #[cfg(feature = "png")]
 use crate::Pixmap;
-use crate::atlas::GlyphCacheKey;
-use crate::atlas::GlyphCacheStats;
-use crate::renderers::vello_cpu::CpuGlyphAtlas;
+use parley_draw::atlas::GlyphCacheKey;
+use parley_draw::atlas::GlyphCacheStats;
+use crate::text::CpuGlyphAtlas;
 #[cfg(feature = "png")]
-use crate::renderers::vello_cpu::CpuGlyphCaches;
+use crate::text::CpuGlyphCaches;
 #[cfg(feature = "png")]
 use alloc::format;
 

@@ -2670,8 +2670,6 @@ dependencies = [
  "skrifa 0.40.0",
  "smallvec",
  "vello_common",
- "vello_cpu",
- "vello_hybrid",
 ]
 
 [[package]]
@@ -4026,6 +4024,7 @@ dependencies = [
  "crossbeam-channel",
  "hashbrown 0.16.1",
  "ordered-channel",
+ "parley_draw",
  "rayon",
  "thread_local",
  "vello_api",
@@ -4091,6 +4090,7 @@ dependencies = [
  "hashbrown 0.16.1",
  "js-sys",
  "log",
+ "parley_draw",
  "png",
  "pollster",
  "roxmltree",

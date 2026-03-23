@@ -31,7 +31,8 @@ use vello_common::paint::{Tint, TintMode};
 /// Outcome of a cache-first render attempt.
 ///
 /// Callers use the variant to decide whether to fall back to direct rendering.
-enum CacheResult {
+#[derive(Debug)]
+pub enum CacheResult {
     /// Glyph was rasterised, stored in the atlas, and drawn. No fallback needed.
     CachedAndRendered,
     /// Transform contains rotation or skew — cannot be cached at a single
@@ -48,7 +49,7 @@ enum CacheResult {
 /// and outline/COLR rendering into the [`AtlasCommandRecorder`] — are defined
 /// as trait methods.  The shared cache orchestration logic lives in the
 /// generic free functions [`fill_glyph`] and [`stroke_glyph`].
-pub(crate) trait GlyphAtlasBackend {
+pub trait GlyphAtlasBackend {
     /// The renderer type for this backend (e.g. `RenderContext` or `Scene`).
     type Renderer;
 
@@ -104,7 +105,7 @@ pub(crate) trait GlyphAtlasBackend {
 
 /// Fill a prepared glyph, using the glyph atlas when possible and falling
 /// back to direct rendering otherwise.
-pub(crate) fn fill_glyph<B: GlyphAtlasBackend>(
+pub fn fill_glyph<B: GlyphAtlasBackend>(
     renderer: &mut B::Renderer,
     prepared_glyph: PreparedGlyph<'_>,
     glyph_atlas: &mut B::Cache,
@@ -172,7 +173,7 @@ pub(crate) fn fill_glyph<B: GlyphAtlasBackend>(
 
 /// Stroke a prepared glyph, using the glyph atlas when possible and falling
 /// back to direct rendering otherwise.
-pub(crate) fn stroke_glyph<B: GlyphAtlasBackend>(
+pub fn stroke_glyph<B: GlyphAtlasBackend>(
     renderer: &mut B::Renderer,
     prepared_glyph: PreparedGlyph<'_>,
     glyph_atlas: &mut B::Cache,
@@ -389,7 +390,7 @@ fn insert_and_render_colr<B: GlyphAtlasBackend>(
 /// quality is always `Low` (nearest-neighbour) because the glyph was already
 /// rasterised at the target resolution.
 #[inline]
-pub(crate) fn render_outline_glyph_from_atlas<B: GlyphAtlasBackend>(
+pub fn render_outline_glyph_from_atlas<B: GlyphAtlasBackend>(
     renderer: &mut B::Renderer,
     atlas_slot: AtlasSlot,
     transform: Affine,
@@ -421,7 +422,7 @@ pub(crate) fn render_outline_glyph_from_atlas<B: GlyphAtlasBackend>(
 /// Called on the cache-hit fast path — no glyph preparation needed. Sampling
 /// quality adapts to the scale factor to avoid aliasing on downscaled glyphs.
 #[inline]
-pub(crate) fn render_bitmap_glyph_from_atlas<B: GlyphAtlasBackend>(
+pub fn render_bitmap_glyph_from_atlas<B: GlyphAtlasBackend>(
     renderer: &mut B::Renderer,
     atlas_slot: AtlasSlot,
     transform: Affine,
@@ -444,7 +445,7 @@ pub(crate) fn render_bitmap_glyph_from_atlas<B: GlyphAtlasBackend>(
 /// This version accepts a pre-calculated fractional area to preserve
 /// sub-pixel accuracy during rendering, avoiding scaling artifacts.
 #[inline]
-pub(crate) fn render_colr_glyph_from_atlas<B: GlyphAtlasBackend>(
+pub fn render_colr_glyph_from_atlas<B: GlyphAtlasBackend>(
     renderer: &mut B::Renderer,
     atlas_slot: AtlasSlot,
     transform: Affine,
@@ -468,7 +469,7 @@ pub(crate) fn render_colr_glyph_from_atlas<B: GlyphAtlasBackend>(
     reason = "glyph bounds fit in i32/u16/i16 at reasonable ppem values"
 )]
 #[inline]
-pub(crate) fn calculate_raster_metrics(bounds: &Rect) -> RasterMetrics {
+pub fn calculate_raster_metrics(bounds: &Rect) -> RasterMetrics {
     // Floor/ceil round outward from the fractional bounding box. Width gets an
     // extra pixel to accommodate the horizontal subpixel offset (up to 0.75 px)
     // applied when rasterising into the atlas; the Y axis has no subpixel shift
@@ -498,13 +499,13 @@ pub(crate) fn calculate_raster_metrics(bounds: &Rect) -> RasterMetrics {
 /// Axis-aligned transforms can be cached in the atlas; rotated/skewed glyphs
 /// fall back to direct rendering.
 #[inline]
-pub(crate) fn is_axis_aligned(transform: &Affine) -> bool {
+pub fn is_axis_aligned(transform: &Affine) -> bool {
     !has_skew(transform)
 }
 
 /// Returns `true` if the transform has any rotation or skew component.
 #[inline]
-pub(crate) fn has_skew(transform: &Affine) -> bool {
+pub fn has_skew(transform: &Affine) -> bool {
     let [_, b, c, _, _, _] = transform.as_coeffs();
     b.abs() > 1e-6 || c.abs() > 1e-6
 }
@@ -514,7 +515,7 @@ pub(crate) fn has_skew(transform: &Affine) -> bool {
 /// Returns `High` when the transform scales below 50% (where aliasing is
 /// visible), `Medium` otherwise.
 #[inline]
-pub(crate) fn quality_for_scale(transform: &Affine) -> ImageQuality {
+pub fn quality_for_scale(transform: &Affine) -> ImageQuality {
     let [a, _, _, d, _, _] = transform.as_coeffs();
     if a < 0.5 || d < 0.5 {
         ImageQuality::High
@@ -529,7 +530,7 @@ pub(crate) fn quality_for_scale(transform: &Affine) -> ImageQuality {
 /// transforms use `Low` (nearest-neighbour) since the content was already
 /// rasterized at pixel boundaries.
 #[inline]
-pub(crate) fn quality_for_skew(transform: &Affine) -> ImageQuality {
+pub fn quality_for_skew(transform: &Affine) -> ImageQuality {
     if has_skew(transform) {
         ImageQuality::Medium
     } else {

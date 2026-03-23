@@ -10,26 +10,23 @@
 //! GPU renderer owns atlas textures and receives pixel data through the
 //! pending-upload queue.
 
-use super::vello_renderer;
-use crate::atlas::{
+use parley_draw::renderers::vello_renderer;
+use parley_draw::atlas::{
     AtlasCommandRecorder, AtlasSlot, GLYPH_PADDING, GlyphAtlas, GlyphCache, GlyphCacheConfig,
     GlyphCacheKey, ImageCache, PendingBitmapUpload, PendingClearRect, RasterMetrics,
 };
-use crate::renderers::vello_renderer::{AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale};
-use crate::{GlyphCaches, HintCache, OutlineCache, kurbo, peniko};
-use crate::{
-    Pixmap,
-    colr::{ColrPainter, ColrRenderer},
-    glyph::{CachedGlyphType, GlyphBitmap, GlyphColr, GlyphRenderer, PreparedGlyph},
-};
+use parley_draw::renderers::vello_renderer::{AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale};
+use parley_draw::GlyphCaches;
+use parley_draw::colr::{ColrPainter, ColrRenderer};
+use parley_draw::glyph::{CachedGlyphType, GlyphBitmap, GlyphColr, GlyphRenderer, PreparedGlyph};
+use crate::Scene;
 use alloc::sync::Arc;
-use alloc::vec::Vec;
-use kurbo::{Affine, BezPath, Rect};
-use peniko::color::palette::css::BLACK;
-use peniko::color::{AlphaColor, Srgb};
-use peniko::{BlendMode, Extend, Gradient, ImageQuality, ImageSampler};
+use vello_common::kurbo::{Affine, BezPath, Rect};
+use vello_common::peniko::color::palette::css::BLACK;
+use vello_common::peniko::color::{AlphaColor, Srgb};
+use vello_common::peniko::{BlendMode, Extend, Gradient, ImageQuality, ImageSampler};
 use vello_common::paint::{Image, ImageId, ImageSource, PaintType, Tint};
-use vello_hybrid::Scene;
+use vello_common::pixmap::Pixmap;
 
 /// Glyph atlas cache for the hybrid (GPU) renderer.
 ///
@@ -37,7 +34,7 @@ use vello_hybrid::Scene;
 /// but does not allocate any local pixel storage — the GPU renderer manages
 /// atlas textures itself via `Renderer::write_to_atlas`.
 #[derive(Debug, Default)]
-pub struct GpuGlyphAtlas {
+pub(crate) struct GpuGlyphAtlas {
     /// Shared allocator, LRU eviction state, and pending-command queues.
     inner: GlyphAtlas,
 }
@@ -45,7 +42,7 @@ pub struct GpuGlyphAtlas {
 impl GpuGlyphAtlas {
     /// Creates a new hybrid glyph atlas cache with default eviction settings.
     #[inline]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             inner: GlyphAtlas::new(),
         }
@@ -53,7 +50,7 @@ impl GpuGlyphAtlas {
 
     /// Creates a new hybrid glyph atlas cache with custom eviction settings.
     #[inline]
-    pub fn with_config(eviction_config: GlyphCacheConfig) -> Self {
+    pub(crate) fn with_config(eviction_config: GlyphCacheConfig) -> Self {
         Self {
             inner: GlyphAtlas::with_config(eviction_config),
         }
@@ -158,19 +155,7 @@ impl GlyphCache for GpuGlyphAtlas {
 }
 
 /// Convenience alias: all glyph caches needed by the hybrid (GPU) renderer.
-pub type GpuGlyphCaches = GlyphCaches<GpuGlyphAtlas>;
-
-impl GpuGlyphCaches {
-    /// Creates a new `GpuGlyphCaches` instance with custom eviction settings.
-    pub fn with_config(eviction_config: GlyphCacheConfig) -> Self {
-        Self {
-            outline_cache: OutlineCache::default(),
-            hinting_cache: HintCache::default(),
-            underline_exclusions: Vec::new(),
-            glyph_atlas: GpuGlyphAtlas::with_config(eviction_config),
-        }
-    }
-}
+pub(crate) type GpuGlyphCaches = GlyphCaches<GpuGlyphAtlas>;
 
 /// Bridges Parley's [`GlyphRenderer`] trait to the shared
 /// [`vello_renderer`] cache orchestration for the hybrid backend.
@@ -394,7 +379,79 @@ impl ColrRenderer for Scene {
     }
 }
 
-/// Allows recorded [`AtlasCommand`](crate::atlas::commands::AtlasCommand)s
+/// Builder for drawing a run of glyphs.
+///
+/// Created via [`Scene::glyph_run`].
+#[must_use = "Methods on the builder don't do anything until `fill_glyphs` or `stroke_glyphs` is called."]
+#[allow(missing_debug_implementations, reason = "contains &mut Scene which has a complex Debug")]
+pub struct GlyphRunBuilder<'a> {
+    /// The inner parley_draw builder.
+    pub(crate) inner: parley_draw::GlyphRunBuilder<'a>,
+    /// The scene (owns the glyph caches).
+    pub(crate) scene: &'a mut Scene,
+}
+
+impl<'a> GlyphRunBuilder<'a> {
+    /// Set the font size in pixels per em.
+    pub fn font_size(mut self, size: f32) -> Self {
+        self.inner = self.inner.font_size(size);
+        self
+    }
+
+    /// Set the per-glyph transform.
+    pub fn glyph_transform(mut self, transform: Affine) -> Self {
+        self.inner = self.inner.glyph_transform(transform);
+        self
+    }
+
+    /// Set whether font hinting is enabled.
+    pub fn hint(mut self, hint: bool) -> Self {
+        self.inner = self.inner.hint(hint);
+        self
+    }
+
+    /// Set normalized variation coordinates for variable fonts.
+    pub fn normalized_coords(mut self, coords: &'a [i16]) -> Self {
+        self.inner = self.inner.normalized_coords(coords);
+        self
+    }
+
+    /// Enable or disable the glyph atlas cache.
+    pub fn atlas_cache(mut self, enabled: bool) -> Self {
+        self.inner = self.inner.atlas_cache(enabled);
+        self
+    }
+
+    /// Consumes the builder and fills the glyphs.
+    pub fn fill_glyphs(self, glyphs: impl Iterator<Item = parley_draw::Glyph> + Clone) {
+        let mut caches = self.scene.glyph_caches.take().unwrap();
+        let mut image_cache = core::mem::replace(
+            &mut self.scene.glyph_image_cache,
+            ImageCache::new_with_config(Default::default()),
+        );
+        self.inner
+            .build(glyphs, &mut caches, &mut image_cache)
+            .fill_glyphs(self.scene);
+        self.scene.glyph_caches = Some(caches);
+        self.scene.glyph_image_cache = image_cache;
+    }
+
+    /// Consumes the builder and strokes the glyphs.
+    pub fn stroke_glyphs(self, glyphs: impl Iterator<Item = parley_draw::Glyph> + Clone) {
+        let mut caches = self.scene.glyph_caches.take().unwrap();
+        let mut image_cache = core::mem::replace(
+            &mut self.scene.glyph_image_cache,
+            ImageCache::new_with_config(Default::default()),
+        );
+        self.inner
+            .build(glyphs, &mut caches, &mut image_cache)
+            .stroke_glyphs(self.scene);
+        self.scene.glyph_caches = Some(caches);
+        self.scene.glyph_image_cache = image_cache;
+    }
+}
+
+/// Allows recorded [`AtlasCommand`](parley_draw::atlas::AtlasCommand)s
 /// to be replayed into a hybrid [`Scene`].
 impl AtlasReplayTarget for Scene {
     #[inline]

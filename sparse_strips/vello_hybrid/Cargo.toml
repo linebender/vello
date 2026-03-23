@@ -23,6 +23,7 @@ vello_sparse_shaders = { workspace = true, optional = true }
 log = { workspace = true }
 hashbrown = { workspace = true }
 vello_api = { workspace = true, features = ["std"] }
+parley_draw = { workspace = true, optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = { version = "0.3.91", optional = true }
@@ -47,14 +48,14 @@ roxmltree = "0.20.0"
 
 [features]
 default = ["wgpu", "wgpu_default", "text"]
-std = ["wgpu", "vello_common/std"]
+std = ["wgpu", "vello_common/std", "parley_draw?/std"]
 wgpu = ["dep:wgpu", "dep:vello_sparse_shaders"]
 # Enable wgpu with its default features. If you need to customise the set of enabled wgpu features,
 # please disable this crate's default features, enable its "wgpu" feature, then depend on wgpu directly
 # with the features which you need enabled.
 wgpu_default = ["wgpu", "wgpu/default"]
 # Add support for text rendering.
-text = ["vello_common/text"]
+text = ["dep:parley_draw"]
 webgl = ["dep:js-sys", "dep:web-sys", "dep:vello_sparse_shaders", "vello_sparse_shaders/glsl"]
 
 [lints]

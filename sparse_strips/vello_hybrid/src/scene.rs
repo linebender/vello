@@ -12,14 +12,10 @@ use vello_common::coarse::{MODE_HYBRID, Wide, WideTilesBbox};
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::filter_effects::Filter;
-#[cfg(feature = "text")]
-use vello_common::glyph::{GlyphCaches, GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::multi_atlas::AtlasConfig;
 use vello_common::paint::{Paint, PaintType, Tint};
-#[cfg(feature = "text")]
-use vello_common::peniko::FontData;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::recording::{
     PushLayerCommand, Recordable, Recorder, Recording, RenderCommand, RenderState,
@@ -217,7 +213,10 @@ pub struct Scene {
     pub(crate) strip_storage: RefCell<StripStorage>,
     /// Cache for rasterized glyphs to improve text rendering performance.
     #[cfg(feature = "text")]
-    pub(crate) glyph_caches: Option<GlyphCaches>,
+    pub(crate) glyph_caches: Option<crate::text::GpuGlyphCaches>,
+    /// Atlas allocator for glyph caching.
+    #[cfg(feature = "text")]
+    pub(crate) glyph_image_cache: parley_draw::ImageCache,
     /// Counter for generating unique layer IDs.
     layer_id_next: u32,
     /// Dependency graph for managing layer rendering order and filter effects.
@@ -313,7 +312,9 @@ impl Scene {
             // Start strip storage in `Append` mode since we enable the fast path by default.
             strip_storage: RefCell::new(StripStorage::new(GenerationMode::Append)),
             #[cfg(feature = "text")]
-            glyph_caches: Some(GlyphCaches::default()),
+            glyph_caches: Some(crate::text::GpuGlyphCaches::default()),
+            #[cfg(feature = "text")]
+            glyph_image_cache: parley_draw::ImageCache::new_with_config(Default::default()),
             layer_id_next: 0,
             render_graph,
             filter: None,
@@ -541,8 +542,14 @@ impl Scene {
 
     /// Creates a builder for drawing a run of glyphs that have the same attributes.
     #[cfg(feature = "text")]
-    pub fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self> {
-        GlyphRunBuilder::new(font.clone(), self.render_state.transform, self)
+    pub fn glyph_run(
+        &mut self,
+        font: &vello_common::peniko::FontData,
+    ) -> crate::text::GlyphRunBuilder<'_> {
+        crate::text::GlyphRunBuilder {
+            inner: parley_draw::GlyphRunBuilder::new(font.clone(), self.render_state.transform),
+            scene: self,
+        }
     }
 
     /// Flush the fast path buffer through the normal coarse rasterization pipeline.
@@ -814,7 +821,7 @@ impl Scene {
         self.render_state.reset();
 
         #[cfg(feature = "text")]
-        self.glyph_caches.as_mut().unwrap().maintain();
+        self.glyph_caches.as_mut().unwrap().maintain(&mut self.glyph_image_cache);
         self.fast_strips_buffer.clear();
         self.strip_path_mode = StripPathMode::FastOnly;
         self.coarse_batch_splits.clear();
@@ -860,66 +867,13 @@ impl Scene {
     }
 }
 
-#[cfg(feature = "text")]
-impl GlyphRenderer for Scene {
-    fn fill_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
-        match prepared_glyph.glyph_type {
-            GlyphType::Outline(glyph) => {
-                let paint = self.encode_current_paint();
-                self.fill_path_with(
-                    glyph.path,
-                    prepared_glyph.transform,
-                    Fill::NonZero,
-                    paint,
-                    self.aliasing_threshold,
-                );
-            }
-            GlyphType::Bitmap(_) => {}
-            GlyphType::Colr(_) => {}
-        }
-    }
-
-    fn stroke_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
-        match prepared_glyph.glyph_type {
-            GlyphType::Outline(glyph) => {
-                let paint = self.encode_current_paint();
-                self.stroke_path_with(
-                    glyph.path,
-                    prepared_glyph.transform,
-                    paint,
-                    self.aliasing_threshold,
-                );
-            }
-            GlyphType::Bitmap(_) => {}
-            GlyphType::Colr(_) => {}
-        }
-    }
-
-    fn take_glyph_caches(&mut self) -> GlyphCaches {
-        self.glyph_caches.take().unwrap_or_default()
-    }
-
-    fn restore_glyph_caches(&mut self, cache: GlyphCaches) {
-        self.glyph_caches = Some(cache);
-    }
-}
-
 impl Recordable for Scene {
     fn record<F>(&mut self, recording: &mut Recording, f: F)
     where
         F: FnOnce(&mut Recorder<'_>),
     {
-        let mut recorder = Recorder::new(
-            recording,
-            self.render_state.transform,
-            #[cfg(feature = "text")]
-            self.take_glyph_caches(),
-        );
+        let mut recorder = Recorder::new(recording, self.render_state.transform);
         f(&mut recorder);
-        #[cfg(feature = "text")]
-        {
-            self.glyph_caches = Some(recorder.take_glyph_caches());
-        }
     }
 
     fn prepare_recording(&mut self, recording: &mut Recording) {
@@ -944,15 +898,6 @@ impl Recordable for Scene {
                 | RenderCommand::StrokePath(_)
                 | RenderCommand::FillRect(_)
                 | RenderCommand::StrokeRect(_) => {
-                    self.process_geometry_command(
-                        strip_start_indices,
-                        range_index,
-                        &adjusted_strips,
-                    );
-                    range_index += 1;
-                }
-                #[cfg(feature = "text")]
-                RenderCommand::FillOutlineGlyph(_) | RenderCommand::StrokeOutlineGlyph(_) => {
                     self.process_geometry_command(
                         strip_start_indices,
                         range_index,
@@ -1072,30 +1017,6 @@ impl Scene {
                         rect.to_path(DEFAULT_TOLERANCE),
                         &self.render_state.stroke,
                         self.render_state.transform,
-                        self.aliasing_threshold,
-                        &mut strip_storage,
-                        None,
-                    );
-                    strip_start_indices.push(start_index);
-                }
-                #[cfg(feature = "text")]
-                RenderCommand::FillOutlineGlyph((path, glyph_transform)) => {
-                    self.strip_generator.generate_filled_path(
-                        path,
-                        self.render_state.fill_rule,
-                        *glyph_transform,
-                        self.aliasing_threshold,
-                        &mut strip_storage,
-                        None,
-                    );
-                    strip_start_indices.push(start_index);
-                }
-                #[cfg(feature = "text")]
-                RenderCommand::StrokeOutlineGlyph((path, glyph_transform)) => {
-                    self.strip_generator.generate_stroked_path(
-                        path,
-                        &self.render_state.stroke,
-                        *glyph_transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
                         None,

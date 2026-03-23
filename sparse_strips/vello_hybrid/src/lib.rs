@@ -24,7 +24,7 @@
 //!
 //! - `wgpu` (enabled by default): Enables the GPU rendering backend via wgpu and includes the required sparse shaders.
 //! - `wgpu_default` (enabled by default): Enables wgpu with its default hardware backends (such as Vulkan, Metal, and DX12).
-//! - `text` (enabled by default): Enables glyph rendering ([`Scene::glyph_run`]).
+//! - `text` (enabled by default): Enables glyph rendering via the [`parley_draw`] crate.
 //! - `webgl`: Enables the WebGL rendering backend for browser support, using GLSL shaders for compatibility.
 //!
 //! If you need to customize the set of enabled wgpu features, disable this crate's default features then enable its `wgpu` feature.
@@ -49,6 +49,8 @@ pub(crate) mod filter;
 mod gradient_cache;
 mod render;
 mod scene;
+#[cfg(feature = "text")]
+pub(crate) mod text;
 #[cfg(any(all(target_arch = "wasm32", feature = "webgl"), feature = "wgpu"))]
 mod schedule;
 
@@ -64,6 +66,10 @@ pub use scene::{RenderSettings, Scene, SceneConstraints};
 pub use util::DimensionConstraints;
 pub use vello_common::multi_atlas::{AllocationStrategy, AtlasConfig, AtlasId};
 pub use vello_common::pixmap::Pixmap;
+#[cfg(feature = "text")]
+pub use parley_draw;
+#[cfg(feature = "text")]
+pub use text::GlyphRunBuilder;
 
 use thiserror::Error;
 

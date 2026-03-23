@@ -8,7 +8,6 @@
 //! - `std` (enabled by default): Get floating point functions from the standard library
 //!   (likely using your target's libc).
 //! - `libm`: Use floating point implementations from `libm`.
-//! - `vello_cpu` (enabled by default): Implements `GlyphRenderer` for Vello CPU's `RenderContext`.
 //! - `png`: Enables PNG support for drawing bitmap glyphs.
 //!
 //! At least one of `std` and `libm` is required.
@@ -36,8 +35,8 @@ extern crate std;
 use vello_common::{color, kurbo, peniko, pixmap::Pixmap};
 
 pub mod atlas;
-mod colr;
-mod glyph;
+pub mod colr;
+pub mod glyph;
 mod math;
 
 pub mod renderers;
@@ -52,9 +51,3 @@ pub use glyph::{
     CachedGlyphType, Glyph, GlyphBitmap, GlyphCaches, GlyphColr, GlyphOutline, GlyphRenderer,
     GlyphRunBuilder, GlyphRunRenderer, GlyphType, HintCache, HintKey, OutlineCache, PreparedGlyph,
 };
-
-#[cfg(feature = "vello_cpu")]
-pub use renderers::vello_cpu::{CpuGlyphAtlas, CpuGlyphCaches};
-
-#[cfg(feature = "vello_hybrid")]
-pub use renderers::vello_hybrid::{GpuGlyphAtlas, GpuGlyphCaches};

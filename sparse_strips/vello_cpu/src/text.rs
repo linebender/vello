@@ -11,35 +11,32 @@
 //! [`Arc<Pixmap>`]s here, so the CPU renderer can read pixels directly without
 //! any GPU upload step.
 
-use super::vello_renderer;
-use crate::atlas::{
+use parley_draw::renderers::vello_renderer;
+use parley_draw::atlas::{
     AtlasCommandRecorder, AtlasSlot, GlyphAtlas, GlyphCache, GlyphCacheConfig, GlyphCacheKey,
     ImageCache, PendingBitmapUpload, PendingClearRect, RasterMetrics,
 };
-use crate::glyph::{HintCache, OutlineCache};
-use crate::renderers::vello_renderer::{AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale};
-use crate::{GlyphCaches, kurbo, peniko};
-use crate::{
-    Pixmap,
-    colr::{ColrPainter, ColrRenderer},
-    glyph::{CachedGlyphType, GlyphBitmap, GlyphColr, GlyphRenderer, PreparedGlyph},
-};
+use parley_draw::renderers::vello_renderer::{AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale};
+use parley_draw::GlyphCaches;
+use parley_draw::colr::{ColrPainter, ColrRenderer};
+use parley_draw::glyph::{CachedGlyphType, GlyphBitmap, GlyphColr, GlyphRenderer, PreparedGlyph};
+use crate::render::RenderContext;
+use crate::{Image, ImageSource, PaintType, Pixmap};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt::{Debug, Formatter};
-use kurbo::{Affine, BezPath, Rect};
-use peniko::Extend;
-use peniko::color::{AlphaColor, Srgb};
-use peniko::{BlendMode, Gradient};
+use vello_common::kurbo::{Affine, BezPath, Rect};
+use vello_common::peniko::Extend;
+use vello_common::peniko::color::{AlphaColor, Srgb};
+use vello_common::peniko::{BlendMode, Gradient, ImageQuality, ImageSampler};
 use vello_common::paint::{ImageId, Tint};
-use vello_cpu::peniko::{ImageQuality, ImageSampler};
-use vello_cpu::{Image, ImageSource, PaintType, RenderContext, color::palette::css::BLACK};
+use vello_common::peniko::color::palette::css::BLACK;
 
 /// CPU-side glyph atlas backed by per-page [`Pixmap`]s.
 ///
 /// Wraps the shared [`GlyphAtlas`] allocator and adds owned pixel storage
 /// so that glyphs can be rasterized directly into CPU-accessible memory.
-pub struct CpuGlyphAtlas {
+pub(crate) struct CpuGlyphAtlas {
     /// Shared cache data.
     pub(crate) inner: GlyphAtlas,
     /// One `Pixmap` per atlas page, grown on demand. Wrapped in `Arc` so
@@ -54,13 +51,13 @@ pub struct CpuGlyphAtlas {
 impl CpuGlyphAtlas {
     /// Creates a new atlas with the given page dimensions and default eviction settings.
     #[inline]
-    pub fn new(page_width: u16, page_height: u16) -> Self {
+    pub(crate) fn new(page_width: u16, page_height: u16) -> Self {
         Self::with_config(page_width, page_height, GlyphCacheConfig::default())
     }
 
     /// Creates a new atlas with custom page dimensions and eviction settings.
     #[inline]
-    pub fn with_config(
+    pub(crate) fn with_config(
         page_width: u16,
         page_height: u16,
         eviction_config: GlyphCacheConfig,
@@ -76,19 +73,19 @@ impl CpuGlyphAtlas {
     /// Returns a reference to the `Arc<Pixmap>` for `page_index`, allowing
     /// cheap `Arc::clone` when registering the page with a render context.
     #[inline]
-    pub fn page_pixmap(&self, page_index: usize) -> Option<&Arc<Pixmap>> {
+    pub(crate) fn page_pixmap(&self, page_index: usize) -> Option<&Arc<Pixmap>> {
         self.pixmaps.get(page_index)
     }
 
     /// Returns a mutable reference to the pixmap for `page_index`.
     #[inline]
-    pub fn page_pixmap_mut(&mut self, page_index: usize) -> Option<&mut Pixmap> {
+    pub(crate) fn page_pixmap_mut(&mut self, page_index: usize) -> Option<&mut Pixmap> {
         self.pixmaps.get_mut(page_index).and_then(Arc::get_mut)
     }
 
     /// Returns the number of atlas pages currently allocated.
     #[inline]
-    pub fn page_count(&self) -> usize {
+    pub(crate) fn page_count(&self) -> usize {
         self.pixmaps.len()
     }
 
@@ -97,7 +94,7 @@ impl CpuGlyphAtlas {
     /// The closure receives `(recorder, pixmaps)`, allowing the caller to
     /// composite into the target page pixmap without a borrow conflict.
     #[inline]
-    pub fn replay_pending_atlas_commands_with_pixmaps(
+    pub(crate) fn replay_pending_atlas_commands_with_pixmaps(
         &mut self,
         mut f: impl FnMut(&mut AtlasCommandRecorder, &mut Vec<Arc<Pixmap>>),
     ) {
@@ -234,29 +231,7 @@ impl GlyphCache for CpuGlyphAtlas {
 }
 
 /// Convenience alias: all glyph caches needed by the CPU renderer.
-pub type CpuGlyphCaches = GlyphCaches<CpuGlyphAtlas>;
-
-impl CpuGlyphCaches {
-    /// Creates a new `CpuGlyphCaches` instance with the given atlas page size
-    /// and default eviction settings.
-    pub fn new(page_width: u16, page_height: u16) -> Self {
-        Self::with_config(page_width, page_height, GlyphCacheConfig::default())
-    }
-
-    /// Creates a new `CpuGlyphCaches` instance with custom page size and eviction settings.
-    pub fn with_config(
-        page_width: u16,
-        page_height: u16,
-        eviction_config: GlyphCacheConfig,
-    ) -> Self {
-        Self {
-            outline_cache: OutlineCache::default(),
-            hinting_cache: HintCache::default(),
-            underline_exclusions: Vec::new(),
-            glyph_atlas: CpuGlyphAtlas::with_config(page_width, page_height, eviction_config),
-        }
-    }
-}
+pub(crate) type CpuGlyphCaches = GlyphCaches<CpuGlyphAtlas>;
 
 /// Bridges Parley's [`GlyphRenderer`] trait to the shared
 /// [`vello_renderer`] cache orchestration for the CPU backend.
@@ -470,7 +445,7 @@ impl ColrRenderer for RenderContext {
     }
 }
 
-/// Allows recorded [`AtlasCommand`](crate::atlas::commands::AtlasCommand)s
+/// Allows recorded [`AtlasCommand`](parley_draw::atlas::AtlasCommand)s
 /// to be replayed into a CPU [`RenderContext`].
 impl AtlasReplayTarget for RenderContext {
     #[inline]
@@ -519,6 +494,83 @@ impl AtlasReplayTarget for RenderContext {
     }
 }
 
+/// Builder for drawing a run of glyphs.
+///
+/// Created via [`RenderContext::glyph_run`].
+#[must_use = "Methods on the builder don't do anything until `fill_glyphs` or `stroke_glyphs` is called."]
+pub struct GlyphRunBuilder<'a> {
+    /// The inner parley_draw builder.
+    pub(crate) inner: parley_draw::GlyphRunBuilder<'a>,
+    /// The render context (owns the glyph caches).
+    pub(crate) ctx: &'a mut RenderContext,
+}
+
+impl<'a> GlyphRunBuilder<'a> {
+    /// Set the font size in pixels per em.
+    pub fn font_size(mut self, size: f32) -> Self {
+        self.inner = self.inner.font_size(size);
+        self
+    }
+
+    /// Set the per-glyph transform.
+    pub fn glyph_transform(mut self, transform: Affine) -> Self {
+        self.inner = self.inner.glyph_transform(transform);
+        self
+    }
+
+    /// Set whether font hinting is enabled.
+    pub fn hint(mut self, hint: bool) -> Self {
+        self.inner = self.inner.hint(hint);
+        self
+    }
+
+    /// Set normalized variation coordinates for variable fonts.
+    pub fn normalized_coords(mut self, coords: &'a [i16]) -> Self {
+        self.inner = self.inner.normalized_coords(coords);
+        self
+    }
+
+    /// Enable or disable the glyph atlas cache.
+    pub fn atlas_cache(mut self, enabled: bool) -> Self {
+        self.inner = self.inner.atlas_cache(enabled);
+        self
+    }
+
+    /// Consumes the builder and fills the glyphs.
+    pub fn fill_glyphs(self, glyphs: impl Iterator<Item = parley_draw::Glyph> + Clone) {
+        let mut caches = self.ctx.glyph_caches.take().unwrap();
+        let mut image_cache = core::mem::replace(
+            &mut self.ctx.glyph_image_cache,
+            ImageCache::new_with_config(Default::default()),
+        );
+        self.inner
+            .build(glyphs, &mut caches, &mut image_cache)
+            .fill_glyphs(self.ctx);
+        self.ctx.glyph_caches = Some(caches);
+        self.ctx.glyph_image_cache = image_cache;
+    }
+
+    /// Consumes the builder and strokes the glyphs.
+    pub fn stroke_glyphs(self, glyphs: impl Iterator<Item = parley_draw::Glyph> + Clone) {
+        let mut caches = self.ctx.glyph_caches.take().unwrap();
+        let mut image_cache = core::mem::replace(
+            &mut self.ctx.glyph_image_cache,
+            ImageCache::new_with_config(Default::default()),
+        );
+        self.inner
+            .build(glyphs, &mut caches, &mut image_cache)
+            .stroke_glyphs(self.ctx);
+        self.ctx.glyph_caches = Some(caches);
+        self.ctx.glyph_image_cache = image_cache;
+    }
+}
+
+impl Debug for GlyphRunBuilder<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "GlyphRunBuilder {{..}}")
+    }
+}
+
 /// Debug utilities for visualizing glyph bounds during rasterization.
 #[cfg(feature = "debug_glyph_bounds")]
 #[allow(
@@ -530,10 +582,10 @@ impl AtlasReplayTarget for RenderContext {
 mod debug {
     use core::sync::atomic::{AtomicUsize, Ordering};
 
-    use crate::atlas::RasterMetrics;
-    use crate::kurbo::{Affine, Rect};
-    use crate::peniko;
-    use vello_cpu::RenderContext;
+    use parley_draw::atlas::RasterMetrics;
+    use vello_common::kurbo::{Affine, Rect};
+    use vello_common::peniko;
+    use crate::render::RenderContext;
 
     static COLOR_INDEX: AtomicUsize = AtomicUsize::new(0);
 

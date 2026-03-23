@@ -25,12 +25,13 @@ ordered-channel = { workspace = true, optional = true, features = ["crossbeam-ch
 rayon = { workspace = true, optional = true }
 thread_local = { workspace = true, optional = true }
 vello_api.workspace = true
+parley_draw = { workspace = true, optional = true }
 
 [features]
 # If adding new features, also add to `src/lib.rs`
 default = ["std", "png", "text", "u8_pipeline"]
 # Get floating point functions from the standard library (likely using your target’s libc).
-std = ["vello_common/std", "vello_api/std"]
+std = ["vello_common/std", "vello_api/std", "parley_draw?/std"]
 # Use floating point implementations from libm.
 libm = ["vello_common/libm", "vello_api/libm"]
 # Allow loading Pixmap from PNG, and drawing png glyphs.
@@ -45,8 +46,10 @@ multithreading = [
     "vello_common/multithreading",
 ]
 # Add support for text rendering
-text = ["vello_common/text"]
+text = ["dep:parley_draw"]
 
+# Debug feature for visualizing glyph bounds during rasterization.
+debug_glyph_bounds = []
 # Speed focussed rendering using u8 math
 u8_pipeline = []
 # Quality focussed rendering using f32 math
