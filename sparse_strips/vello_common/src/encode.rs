@@ -1180,10 +1180,11 @@ mod private {
 
 #[cfg(test)]
 mod tests {
-    use super::{EncodeExt, Gradient, PixelSampling};
+    use super::{EncodeExt, EncodedPaint, Gradient, PixelSampling};
     use crate::color::DynamicColor;
     use crate::color::palette::css::{BLACK, BLUE, GREEN};
     use crate::kurbo::{Affine, Point};
+    use crate::paint::{Image, ImageId, ImageSource};
     use crate::peniko::{ColorStop, ColorStops};
     use alloc::vec;
     use peniko::{LinearGradientPosition, RadialGradientPosition};
@@ -1288,6 +1289,67 @@ mod tests {
             gradient.encode_into(&mut buf, Affine::IDENTITY, None, PixelSampling::Center),
             GREEN.into()
         );
+    }
+
+    #[test]
+    fn gradient_encode_sampling_offset() {
+        let mut buf = vec![];
+
+        let gradient = Gradient {
+            kind: LinearGradientPosition {
+                start: Point::new(0.0, 0.0),
+                end: Point::new(1.0, 0.0),
+            }
+            .into(),
+            stops: ColorStops(smallvec![
+                ColorStop {
+                    offset: 0.0,
+                    color: DynamicColor::from_alpha_color(GREEN),
+                },
+                ColorStop {
+                    offset: 1.0,
+                    color: DynamicColor::from_alpha_color(BLUE),
+                },
+            ]),
+            ..Default::default()
+        };
+
+        gradient.encode_into(&mut buf, Affine::IDENTITY, None, PixelSampling::Center);
+        gradient.encode_into(&mut buf, Affine::IDENTITY, None, PixelSampling::Corner);
+
+        let EncodedPaint::Gradient(g) = &buf[0] else {
+            unreachable!()
+        };
+        assert_eq!(g.transform, Affine::IDENTITY);
+        let EncodedPaint::Gradient(g) = &buf[1] else {
+            unreachable!()
+        };
+        assert_eq!(g.transform, Affine::translate((0.5, 0.5)));
+    }
+
+    #[test]
+    fn image_encode_sampling_offset() {
+        let mut buf = vec![];
+
+        let image = Image {
+            image: ImageSource::OpaqueId {
+                id: ImageId::new(0),
+                may_have_opacities: false,
+            },
+            sampler: Default::default(),
+        };
+
+        image.encode_into(&mut buf, Affine::IDENTITY, None, PixelSampling::Center);
+        image.encode_into(&mut buf, Affine::IDENTITY, None, PixelSampling::Corner);
+
+        let EncodedPaint::Image(i) = &buf[0] else {
+            unreachable!()
+        };
+        assert_eq!(i.transform, Affine::IDENTITY);
+        let EncodedPaint::Image(i) = &buf[1] else {
+            unreachable!()
+        };
+        assert_eq!(i.transform, Affine::translate((0.5, 0.5)));
     }
 
     #[test]
