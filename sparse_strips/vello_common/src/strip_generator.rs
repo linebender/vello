@@ -392,8 +392,8 @@ mod tests {
 
     #[test]
     fn rect_fractional_exhaustive() {
-        for xi in 0..100u32 {
-            for yi in 0..100u32 {
+        for xi in 0..100_u32 {
+            for yi in 0..100_u32 {
                 let dx = xi as f64 * 0.01;
                 let dy = yi as f64 * 0.01;
                 let rect = Rect::new(dx, dy, 50.0 + dx, 50.0 + dy);

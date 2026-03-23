@@ -90,8 +90,6 @@ fn render_impl<S: Simd>(s: S, rect: Rect, strip_buf: &mut Vec<Strip>, alpha_buf:
         if is_top_edge || is_bottom_edge {
             let alpha_start = alpha_buf.len() as u32;
 
-            // Walk every tile column, computing per-pixel alpha as the
-            // product of horizontal and vertical coverage.
             let y_cov = coverage(strip_y, rect_y0, rect_y1);
             let mut col = left_tile_x;
             // TODO: Can this result in an infinite loop in case x_end == u16::MAX?

@@ -76,7 +76,7 @@ pub fn is_integer_translation(transform: &Affine) -> bool {
         && (e - e.round()).is_nearly_zero()
         && (f - f.round()).is_nearly_zero()
 }
-/// Check if an affine transform has now skewing (i.e. preserves axis alignment).
+/// Check if an affine transform has no skewing (i.e. preserves axis alignment).
 #[inline]
 pub fn is_axis_aligned(transform: &Affine) -> bool {
     let [_, b, c, ..] = transform.as_coeffs();
