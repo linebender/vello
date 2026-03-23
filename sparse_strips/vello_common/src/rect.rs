@@ -72,10 +72,10 @@ fn render_impl<S: Simd>(s: S, rect: Rect, strip_buf: &mut Vec<Strip>, alpha_buf:
     // A right strip is only needed when the rect spans more than one tile column.
     let needs_right_strip = right_tile_x > left_tile_x;
 
-    let left_x_cov = x_coverage(left_tile_x, rect_x0, rect_x1);
-    let right_x_cov = x_coverage(right_tile_x, rect_x0, rect_x1);
-    let left_x_mask = alpha_mask_from_x_coverage(s, &left_x_cov);
-    let right_x_mask = alpha_mask_from_x_coverage(s, &right_x_cov);
+    let left_x_cov = coverage(left_tile_x, rect_x0, rect_x1);
+    let right_x_cov = coverage(right_tile_x, rect_x0, rect_x1);
+    let left_x_mask = alpha_mask_from_coverage(s, &left_x_cov);
+    let right_x_mask = alpha_mask_from_coverage(s, &right_x_cov);
 
     for tile_y in tile_start_y..tile_end_y {
         let strip_y = tile_y * Tile::HEIGHT;
@@ -92,11 +92,14 @@ fn render_impl<S: Simd>(s: S, rect: Rect, strip_buf: &mut Vec<Strip>, alpha_buf:
 
             // Walk every tile column, computing per-pixel alpha as the
             // product of horizontal and vertical coverage.
+            let y_cov = coverage(strip_y, rect_y0, rect_y1);
             let mut col = left_tile_x;
             // TODO: Can this result in an infinite loop in case x_end == u16::MAX?
             while col + Tile::WIDTH <= x_end {
-                let combined =
-                    combined_tile_alpha(s, col, strip_y, rect_x0, rect_y0, rect_x1, rect_y1);
+                // TODO: We could optimize this so this is only computed for the left-most and right-most
+                // tile of the edge, all intermediate tiles have full horizontal coverage.
+                let x_cov = coverage(col, rect_x0, rect_x1);
+                let combined = combined_tile_alpha(s, &x_cov, &y_cov);
                 alpha_buf.extend_from_slice(combined.as_slice());
                 col += Tile::WIDTH;
             }
@@ -127,22 +130,23 @@ fn render_impl<S: Simd>(s: S, rect: Rect, strip_buf: &mut Vec<Strip>, alpha_buf:
     ));
 }
 
-/// Compute fractional coverages for each x position of the given tile.
+/// Compute fractional pixel coverage for `N` consecutive pixels starting at `start`.
 #[inline(always)]
-fn x_coverage(tile_x: u16, rect_x0: f32, rect_x1: f32) -> [f32; Tile::WIDTH as usize] {
-    let mut cov = [0.0_f32; Tile::WIDTH as usize];
+fn coverage<const N: usize>(start: u16, rect_lo: f32, rect_hi: f32) -> [f32; N] {
+    let mut cov = [0.0_f32; N];
 
     #[allow(clippy::needless_range_loop, reason = "better clarity")]
-    for col in 0..Tile::WIDTH as usize {
-        let px = (tile_x as usize + col) as f32;
-        cov[col] = (rect_x1.min(px + 1.0) - rect_x0.max(px)).clamp(0.0, 1.0);
+    for i in 0..N {
+        let px = (start as usize + i) as f32;
+        cov[i] = (rect_hi.min(px + 1.0) - rect_lo.max(px)).clamp(0.0, 1.0);
     }
     cov
 }
 
-/// Build an alpha mask for the 4x4 tile from the given horizontal coverages.
+/// Build an alpha mask for the 4x4 tile from the given horizontal/vertical coverages,
+/// splatting them across the other dimension.
 #[inline(always)]
-fn alpha_mask_from_x_coverage<S: Simd>(s: S, cov: &[f32; Tile::WIDTH as usize]) -> u8x16<S> {
+fn alpha_mask_from_coverage<S: Simd>(s: S, cov: &[f32; Tile::WIDTH as usize]) -> u8x16<S> {
     let mut buf = [0_u8; 16];
 
     #[allow(clippy::needless_range_loop, reason = "better clarity")]
@@ -160,24 +164,13 @@ fn alpha_mask_from_x_coverage<S: Simd>(s: S, cov: &[f32; Tile::WIDTH as usize]) 
 #[inline(always)]
 fn combined_tile_alpha<S: Simd>(
     s: S,
-    tile_x: u16,
-    strip_y: u16,
-    rect_x0: f32,
-    rect_y0: f32,
-    rect_x1: f32,
-    rect_y1: f32,
+    x_cov: &[f32; Tile::WIDTH as usize],
+    y_cov: &[f32; Tile::HEIGHT as usize],
 ) -> u8x16<S> {
-    // TODO: We could optimize this so this is only computed for the left-most and right-most
-    // tile of the edge, all intermediate tiles have full horizontal coverage.
-    let x_cov = x_coverage(tile_x, rect_x0, rect_x1);
     let mut buf = [0_u8; 16];
-
-    #[allow(clippy::needless_range_loop, reason = "better clarity")]
-    for col in 0..Tile::WIDTH as usize {
-        for row in 0..Tile::HEIGHT as usize {
-            let py = (strip_y as usize + row) as f32;
-            let y_cov = (rect_y1.min(py + 1.0) - rect_y0.max(py)).clamp(0.0, 1.0);
-            buf[col * Tile::HEIGHT as usize + row] = (x_cov[col] * y_cov * 255.0 + 0.5) as u8;
+    for (col, xc) in x_cov.iter().copied().enumerate() {
+        for (row, yc) in y_cov.iter().copied().enumerate() {
+            buf[col * Tile::HEIGHT as usize + row] = (xc * yc * 255.0 + 0.5) as u8;
         }
     }
 
