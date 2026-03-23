@@ -75,6 +75,7 @@ This release has an [MSRV][] of 1.88.
 
 - A new module `clip` allowing for the possibility to intersect two strips to create a new strip representing their intersection. ([#1203][] by [@LaurenzV])
 - An `extend` method to `StripStorage` to extend its alphas/strips from another `StripStorage`. ([#1203][] by [@LaurenzV])
+- A new trait for approximate integer division by 255. ([#1203][] by [@LaurenzV])
 - A `from_parts` method for masks. ([#1237][] by [@LaurenzV])
 - Initial support for image filters. ([#1286][] by [@grebmeg])
 
