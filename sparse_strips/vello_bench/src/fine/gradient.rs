@@ -10,7 +10,7 @@ use smallvec::{SmallVec, smallvec};
 use vello_common::coarse::WideTile;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, YELLOW};
 use vello_common::color::{AlphaColor, DynamicColor, Srgb};
-use vello_common::encode::EncodeExt;
+use vello_common::encode::{EncodeExt, PixelSampling};
 use vello_common::fearless_simd::Simd;
 use vello_common::kurbo::{Affine, Point};
 use vello_common::peniko;
@@ -244,7 +244,7 @@ fn gradient_base<S: Simd, N: FineKernel<S>>(
         ..Default::default()
     };
 
-    let paint = grad.encode_into(&mut paints, Affine::IDENTITY, None, true);
+    let paint = grad.encode_into(&mut paints, Affine::IDENTITY, None, PixelSampling::Corner);
     fill_single(
         &paint,
         &paints,

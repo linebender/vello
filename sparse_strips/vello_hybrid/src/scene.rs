@@ -9,7 +9,7 @@ use core::cell::RefCell;
 use core::ops::Range;
 use vello_common::clip::ClipContext;
 use vello_common::coarse::{MODE_HYBRID, Wide, WideTilesBbox};
-use vello_common::encode::{EncodeExt, EncodedPaint};
+use vello_common::encode::{EncodeExt, EncodedPaint, PixelSampling};
 use vello_common::fearless_simd::Level;
 use vello_common::filter_effects::Filter;
 #[cfg(feature = "text")]
@@ -336,13 +336,13 @@ impl Scene {
                 &mut self.encoded_paints.borrow_mut(),
                 self.render_state.transform * self.render_state.paint_transform,
                 None,
-                false,
+                PixelSampling::Center,
             ),
             PaintType::Image(i) => i.encode_into(
                 &mut self.encoded_paints.borrow_mut(),
                 self.render_state.transform * self.render_state.paint_transform,
                 self.render_state.tint,
-                false,
+                PixelSampling::Center,
             ),
         }
     }

@@ -290,7 +290,7 @@ mod tests {
     use super::*;
     use alloc::vec;
     use vello_common::color::{ColorSpaceTag, DynamicColor, HueDirection};
-    use vello_common::encode::{EncodeExt, EncodedPaint};
+    use vello_common::encode::{EncodeExt, EncodedPaint, PixelSampling};
     use vello_common::kurbo::{Affine, Point};
     use vello_common::peniko::{Color, ColorStop, ColorStops, Gradient, LinearGradientPosition};
 
@@ -310,7 +310,12 @@ mod tests {
 
     fn create_encoded_gradient(gradient: Gradient) -> EncodedGradient {
         let mut encoded_paints = vec![];
-        gradient.encode_into(&mut encoded_paints, Affine::IDENTITY, None, false);
+        gradient.encode_into(
+            &mut encoded_paints,
+            Affine::IDENTITY,
+            None,
+            PixelSampling::Center,
+        );
         match encoded_paints.into_iter().last().unwrap() {
             EncodedPaint::Gradient(encoded_gradient) => encoded_gradient,
             _ => panic!("Expected a gradient paint"),

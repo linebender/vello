@@ -16,7 +16,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use hashbrown::HashMap;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
-use vello_common::encode::{EncodeExt, EncodedPaint};
+use vello_common::encode::{EncodeExt, EncodedPaint, PixelSampling};
 use vello_common::fearless_simd::Level;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
@@ -163,14 +163,14 @@ impl RenderContext {
                     &mut self.encoded_paints,
                     self.state.transform * self.state.paint_transform,
                     None,
-                    true,
+                    PixelSampling::Corner,
                 )
             }
             PaintType::Image(i) => i.encode_into(
                 &mut self.encoded_paints,
                 self.state.transform * self.state.paint_transform,
                 self.state.tint,
-                true,
+                PixelSampling::Corner,
             ),
         }
     }
@@ -310,7 +310,12 @@ impl RenderContext {
 
         self.rect_to_temp_path(&inflated_rect);
 
-        let paint = blurred_rect.encode_into(&mut self.encoded_paints, transform, None, true);
+        let paint = blurred_rect.encode_into(
+            &mut self.encoded_paints,
+            transform,
+            None,
+            PixelSampling::Corner,
+        );
         self.dispatcher.fill_path(
             &self.temp_path,
             Fill::NonZero,

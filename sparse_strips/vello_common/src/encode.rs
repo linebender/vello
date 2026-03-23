@@ -37,6 +37,20 @@ const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
 const NUDGE_VAL: f32 = 1.0e-7;
 const PIXEL_CENTER_OFFSET: f64 = 0.5;
 
+/// How the client performs pixel sampling.
+///
+/// For complex paints like images and gradients, it's important that the value is always sampled
+/// at the center of the pixel. In case the client code uses sampling based on the top-left corner
+/// instead, an additional correctional shift will be encoded in the transform of the paint to
+/// account for that.
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub enum PixelSampling {
+    /// Assume that the client does sampling from the pixel center by default.
+    Center,
+    /// Assume that the client does sampling from the top-left pixel corner by default.
+    Corner,
+}
+
 #[cfg(feature = "std")]
 fn exp(val: f32) -> f32 {
     val.exp()
@@ -61,10 +75,11 @@ pub trait EncodeExt: private::Sealed {
         tint: Option<Tint>,
         // Note: We make this configurable because different backends have different requirements.
         // For vello_cpu, it makes sense to apply the center shift _once_ during encoding, so that
-        // we don't have to manually apply the shift for each wide tile command.
+        // we don't have to manually apply the shift for each wide tile command (since by default,
+        // we will sample from the top-left corner).
         // However, for vello_hybrid, the fragment shader already calculates the positions such
-        // that they are centered in the pixel, so we don't need to apply the shift during encoding.
-        apply_center_shift: bool,
+        // that they are centered in the pixel, so there is no need to apply an additional shift.
+        pixel_sampling: PixelSampling,
     ) -> Paint;
 }
 
@@ -75,7 +90,7 @@ impl EncodeExt for Gradient {
         paints: &mut Vec<EncodedPaint>,
         transform: Affine,
         _tint: Option<Tint>,
-        apply_center_shift: bool,
+        pixel_sampling: PixelSampling,
     ) -> Paint {
         // First make sure that the gradient is valid and not degenerate.
         if let Err(paint) = validate(self) {
@@ -208,7 +223,7 @@ impl EncodeExt for Gradient {
         // Finally, we need to apply the _inverse_ paint transform to the point so that we can account
         // for the paint transform of the render context.
         let mut transform = base_transform * transform.inverse();
-        if apply_center_shift {
+        if pixel_sampling == PixelSampling::Corner {
             transform *= Affine::translate((PIXEL_CENTER_OFFSET, PIXEL_CENTER_OFFSET));
         }
 
@@ -490,7 +505,7 @@ impl EncodeExt for Image {
         paints: &mut Vec<EncodedPaint>,
         transform: Affine,
         tint: Option<Tint>,
-        apply_center_shift: bool,
+        pixel_sampling: PixelSampling,
     ) -> Paint {
         let idx = paints.len();
 
@@ -519,7 +534,7 @@ impl EncodeExt for Image {
         // at the center of a pixel.
         let mut transform = transform.inverse();
 
-        if apply_center_shift {
+        if pixel_sampling == PixelSampling::Corner {
             transform *= Affine::translate((PIXEL_CENTER_OFFSET, PIXEL_CENTER_OFFSET));
         }
 
@@ -862,7 +877,7 @@ impl EncodeExt for BlurredRoundedRectangle {
         // I'm not sure why, but for some reason applying this here gives wrong
         // results for the "blurred_rounded_rect_non" test case. It's possible that the
         // current algorithm somehow already assumes centered sampling.
-        _apply_center_shift: bool,
+        _pixel_sampling: PixelSampling,
     ) -> Paint {
         let rect = {
             // Ensure rectangle has positive width/height.
@@ -1165,7 +1180,7 @@ mod private {
 
 #[cfg(test)]
 mod tests {
-    use super::{EncodeExt, Gradient};
+    use super::{EncodeExt, Gradient, PixelSampling};
     use crate::color::DynamicColor;
     use crate::color::palette::css::{BLACK, BLUE, GREEN};
     use crate::kurbo::{Affine, Point};
@@ -1188,7 +1203,7 @@ mod tests {
         };
 
         assert_eq!(
-            gradient.encode_into(&mut buf, Affine::IDENTITY, None, false),
+            gradient.encode_into(&mut buf, Affine::IDENTITY, None, PixelSampling::Center),
             BLACK.into()
         );
     }
@@ -1212,7 +1227,7 @@ mod tests {
 
         // Should return the color of the first stop.
         assert_eq!(
-            gradient.encode_into(&mut buf, Affine::IDENTITY, None, false),
+            gradient.encode_into(&mut buf, Affine::IDENTITY, None, PixelSampling::Center),
             GREEN.into()
         );
     }
@@ -1241,7 +1256,7 @@ mod tests {
         };
 
         assert_eq!(
-            gradient.encode_into(&mut buf, Affine::IDENTITY, None, false),
+            gradient.encode_into(&mut buf, Affine::IDENTITY, None, PixelSampling::Center),
             GREEN.into()
         );
     }
@@ -1270,7 +1285,7 @@ mod tests {
         };
 
         assert_eq!(
-            gradient.encode_into(&mut buf, Affine::IDENTITY, None, false),
+            gradient.encode_into(&mut buf, Affine::IDENTITY, None, PixelSampling::Center),
             GREEN.into()
         );
     }
@@ -1301,7 +1316,7 @@ mod tests {
         };
 
         assert_eq!(
-            gradient.encode_into(&mut buf, Affine::IDENTITY, None, false),
+            gradient.encode_into(&mut buf, Affine::IDENTITY, None, PixelSampling::Center),
             GREEN.into()
         );
     }
