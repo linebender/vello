@@ -294,7 +294,8 @@ impl GlyphAtlas {
         let padded_w = u32::from(raster_metrics.width) + u32::from(GLYPH_PADDING) * 2;
         let padded_h = u32::from(raster_metrics.height) + u32::from(GLYPH_PADDING) * 2;
 
-        let image_id = image_cache.allocate(padded_w, padded_h).ok()?;
+        // TODO: Pass a padding here and remove padding handling from glifo?
+        let image_id = image_cache.allocate(padded_w, padded_h, 0).ok()?;
         let resource = image_cache.get(image_id)?;
         let page_index = resource.atlas_id.as_u32() as usize;
 

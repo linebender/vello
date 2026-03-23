@@ -401,7 +401,9 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
                 .glyph_for_size(Size::new(self.prepared_run.font_size), glyph_id)
                 .and_then(|g| match g.data {
                     #[cfg(feature = "png")]
-                    BitmapData::Png(data) => Pixmap::from_png(data).ok().map(|d| (g, d)),
+                    BitmapData::Png(data) => {
+                        Pixmap::from_png(std::io::Cursor::new(data)).ok().map(|d| (g, d))
+                    }
                     #[cfg(not(feature = "png"))]
                     BitmapData::Png(_) => None,
                     // The others are not worth implementing for now (unless we can find a test case),
