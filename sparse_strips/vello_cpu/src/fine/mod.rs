@@ -45,6 +45,9 @@ use vello_common::util::f32_to_u8;
 pub use highp::F32Kernel;
 pub use lowp::U8Kernel;
 
+/// Offset to shift from pixel corner to pixel center for sampling.
+const PIXEL_CENTER_OFFSET: f64 = 0.5;
+
 /// Number of color components per pixel (RGBA).
 pub(crate) const COLOR_COMPONENTS: usize = 4;
 
@@ -297,8 +300,8 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
+        start_x: f64,
+        start_y: f64,
     ) -> impl Painter + 'a {
         simd.vectorize(
             #[inline(always)]
@@ -314,8 +317,8 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
+        start_x: f64,
+        start_y: f64,
     ) -> impl Painter + 'a {
         simd.vectorize(
             #[inline(always)]
@@ -330,8 +333,8 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
+        start_x: f64,
+        start_y: f64,
     ) -> impl Painter + 'a {
         simd.vectorize(
             #[inline(always)]
@@ -346,8 +349,8 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
+        start_x: f64,
+        start_y: f64,
     ) -> impl Painter + 'a {
         simd.vectorize(
             #[inline(always)]
@@ -362,8 +365,8 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
+        start_x: f64,
+        start_y: f64,
     ) -> impl Painter + 'a {
         simd.vectorize(
             #[inline(always)]
@@ -378,8 +381,8 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     fn blurred_rounded_rectangle_painter(
         simd: S,
         rect: &EncodedBlurredRoundedRectangle,
-        start_x: u16,
-        start_y: u16,
+        start_x: f64,
+        start_y: f64,
     ) -> impl Painter {
         simd.vectorize(
             #[inline(always)]
@@ -723,6 +726,10 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 let start_x = self.wide_coords.0 * WideTile::WIDTH + x as u16;
                 let start_y = self.wide_coords.1 * Tile::HEIGHT;
 
+                // Make sure sampling happens at the center of the pixel.
+                let sampler_x = start_x as f64 + PIXEL_CENTER_OFFSET;
+                let sampler_y = start_y as f64 + PIXEL_CENTER_OFFSET;
+
                 // We need to have this as a macro because closures cannot take generic arguments, and
                 // we would have to repeatedly provide all arguments if we made it a function.
                 macro_rules! fill_complex_paint {
@@ -767,7 +774,9 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     EncodedPaint::BlurredRoundedRect(b) => {
                         fill_complex_paint!(
                             true,
-                            T::blurred_rounded_rectangle_painter(self.simd, b, start_x, start_y)
+                            T::blurred_rounded_rectangle_painter(
+                                self.simd, b, sampler_x, sampler_y
+                            )
                         );
                     }
                     EncodedPaint::Gradient(g) => {
@@ -785,8 +794,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                     SimdLinearKind::new(self.simd, *l),
                                     f32_buf,
                                     g,
-                                    start_x,
-                                    start_y,
+                                    sampler_x,
+                                    sampler_y,
                                 );
 
                                 fill_complex_paint!(
@@ -800,8 +809,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                     SimdSweepKind::new(self.simd, s),
                                     f32_buf,
                                     g,
-                                    start_x,
-                                    start_y,
+                                    sampler_x,
+                                    sampler_y,
                                 );
 
                                 fill_complex_paint!(
@@ -815,8 +824,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                     SimdRadialKind::new(self.simd, r),
                                     f32_buf,
                                     g,
-                                    start_x,
-                                    start_y,
+                                    sampler_x,
+                                    sampler_y,
                                 );
 
                                 if r.has_undefined() {
@@ -850,7 +859,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                     fill_complex_paint!(
                                         i.may_have_opacities,
                                         T::plain_medium_quality_image_painter(
-                                            self.simd, i, &pixmap, start_x, start_y
+                                            self.simd, i, &pixmap, sampler_x, sampler_y
                                         ),
                                         tint
                                     );
@@ -858,7 +867,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                     fill_complex_paint!(
                                         i.may_have_opacities,
                                         T::high_quality_image_painter(
-                                            self.simd, i, &pixmap, start_x, start_y
+                                            self.simd, i, &pixmap, sampler_x, sampler_y
                                         ),
                                         tint
                                     );
@@ -870,7 +879,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                     fill_complex_paint!(
                                         i.may_have_opacities,
                                         T::medium_quality_image_painter(
-                                            self.simd, i, &pixmap, start_x, start_y
+                                            self.simd, i, &pixmap, sampler_x, sampler_y
                                         ),
                                         tint
                                     );
@@ -878,7 +887,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                     fill_complex_paint!(
                                         i.may_have_opacities,
                                         T::high_quality_image_painter(
-                                            self.simd, i, &pixmap, start_x, start_y
+                                            self.simd, i, &pixmap, sampler_x, sampler_y
                                         ),
                                         tint
                                     );
@@ -888,7 +897,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                 fill_complex_paint!(
                                     i.may_have_opacities,
                                     T::plain_nn_image_painter(
-                                        self.simd, i, &pixmap, start_x, start_y
+                                        self.simd, i, &pixmap, sampler_x, sampler_y
                                     ),
                                     tint
                                 );
@@ -896,7 +905,9 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                             (true, true) => {
                                 fill_complex_paint!(
                                     i.may_have_opacities,
-                                    T::nn_image_painter(self.simd, i, &pixmap, start_x, start_y),
+                                    T::nn_image_painter(
+                                        self.simd, i, &pixmap, sampler_x, sampler_y
+                                    ),
                                     tint
                                 );
                             }

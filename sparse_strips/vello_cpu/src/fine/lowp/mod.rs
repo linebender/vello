@@ -138,8 +138,8 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
+        start_x: f64,
+        start_y: f64,
     ) -> impl Painter + 'a {
         simd.vectorize(
             #[inline(always)]
@@ -155,8 +155,8 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
+        start_x: f64,
+        start_y: f64,
     ) -> impl Painter + 'a {
         simd.vectorize(
             #[inline(always)]

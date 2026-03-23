@@ -6,7 +6,7 @@ use criterion::{Bencher, Criterion};
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::coarse::WideTile;
 use vello_common::color::palette::css::GREEN;
-use vello_common::encode::{EncodeExt, PixelSampling};
+use vello_common::encode::EncodeExt;
 use vello_common::fearless_simd::Simd;
 use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::tile::Tile;
@@ -40,7 +40,7 @@ fn base<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>, t
         std_dev: 10.0,
     };
 
-    let paint = rect.encode_into(&mut paints, transform, None, PixelSampling::Corner);
+    let paint = rect.encode_into(&mut paints, transform, None);
     fill_single(
         &paint,
         &paints,

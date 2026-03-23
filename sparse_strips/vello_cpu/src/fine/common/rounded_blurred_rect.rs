@@ -26,10 +26,10 @@ impl<S: Simd> BlurredRoundedRectFiller<S> {
     pub(crate) fn new(
         simd: S,
         rect: &EncodedBlurredRoundedRectangle,
-        start_x: u16,
-        start_y: u16,
+        start_x: f64,
+        start_y: f64,
     ) -> Self {
-        let start_pos = rect.transform * Point::new(f64::from(start_x), f64::from(start_y));
+        let start_pos = rect.transform * Point::new(start_x, start_y);
         let color_components = rect.color.as_premul_f32().components;
         let r = f32x8::splat(simd, color_components[0]);
         let g = f32x8::splat(simd, color_components[1]);

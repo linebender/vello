@@ -24,8 +24,8 @@ impl<'a, S: Simd> PlainNNImagePainter<'a, S> {
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
+        start_x: f64,
+        start_y: f64,
     ) -> Self {
         let data = ImagePainterData::new(simd, image, pixmap, start_x, start_y);
 
@@ -94,8 +94,8 @@ impl<'a, S: Simd> NNImagePainter<'a, S> {
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
+        start_x: f64,
+        start_y: f64,
     ) -> Self {
         let data = ImagePainterData::new(simd, image, pixmap, start_x, start_y);
 
@@ -163,8 +163,8 @@ impl<'a, S: Simd, const QUALITY: u8> FilteredImagePainter<'a, S, QUALITY> {
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
+        start_x: f64,
+        start_y: f64,
     ) -> Self {
         let data = ImagePainterData::new(simd, image, pixmap, start_x, start_y);
 
@@ -363,12 +363,12 @@ impl<'a, S: Simd> ImagePainterData<'a, S> {
         simd: S,
         image: &'a EncodedImage,
         pixmap: &'a Pixmap,
-        start_x: u16,
-        start_y: u16,
+        start_x: f64,
+        start_y: f64,
     ) -> Self {
         let width = pixmap.width() as f32;
         let height = pixmap.height() as f32;
-        let start_pos = image.transform * Point::new(f64::from(start_x), f64::from(start_y));
+        let start_pos = image.transform * Point::new(start_x, start_y);
 
         let width_inv = f32x4::splat(simd, 1.0 / width);
         let height_inv = f32x4::splat(simd, 1.0 / height);

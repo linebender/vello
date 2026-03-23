@@ -5,7 +5,7 @@ use crate::fine::{default_blend, fill_single};
 use criterion::{Bencher, Criterion};
 use std::sync::Arc;
 use vello_common::coarse::WideTile;
-use vello_common::encode::{EncodeExt, PixelSampling};
+use vello_common::encode::EncodeExt;
 use vello_common::fearless_simd::Simd;
 use vello_common::kurbo::Affine;
 use vello_common::paint::{Image, ImageSource};
@@ -182,7 +182,7 @@ fn image_base<S: Simd, T: FineKernel<S>>(
 ) {
     let mut paints = vec![];
 
-    let paint = image.encode_into(&mut paints, transform, None, PixelSampling::Corner);
+    let paint = image.encode_into(&mut paints, transform, None);
 
     fill_single(
         &paint,
