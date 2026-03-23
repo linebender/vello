@@ -17,19 +17,19 @@ This release has an [MSRV][] of 1.92.
 
 ### Added
 
-- Added `composite_to_pixmap_at_offset` method to `RenderContext` for compositing at specific offsets within a larger pixmap. ([#1416][] by [@grebmeg][])
-- Added `ImageResolver` for resolving opaque image IDs at rasterization time. ([#1451][] by [@grebmeg][])
-- Added image tinting support. ([#1460][] by [@grebmeg][])
-
-### Changed
-
-- Improve performance of bilinear image sampling in the `RenderMode::OptimizeQuality` (`f32`) pipeline. ([#1343][] by [@tomcur][])
+- `composite_to_pixmap_at_offset` method to `RenderContext` for compositing at specific offsets within a larger pixmap. ([#1416][] by [@grebmeg][])
+- `ImageResolver` for resolving opaque image IDs at rasterization time. ([#1451][] by [@grebmeg][])
+- Support for image tinting. ([#1460][] by [@grebmeg][])
 
 ### Fixed
 
-- Fixed rendering of blurred rounded rectangles with zero or very small blur standard deviations. ([#1422][] by [@tomcur][])
-- Fixed off-by-one error in gaussian blur decimation filter. ([#1488][] by [@LaurenzV][])
-- Fixed behavior for filter layers with zero clips. ([#1437][] by [@LaurenzV][])
+- Rendering of blurred rounded rectangles with zero or very small blur standard deviations. ([#1422][] by [@tomcur][])
+- Off-by-one error in gaussian blur decimation filter. ([#1488][] by [@LaurenzV][])
+- Filter layers with zero clips. ([#1437][] by [@LaurenzV][])
+
+### Optimized
+
+- Bilinear image sampling in the `RenderMode::OptimizeQuality` (`f32`) pipeline. ([#1343][] by [@tomcur][])
 
 ## [0.0.6][] - 2026-01-15
 
@@ -37,7 +37,7 @@ This release has an [MSRV][] of 1.88.
 
 ### Added
 
-- Support for the "offset" filter has been added ([#1351] by [@waywardmonkeys])
+- Support for the "offset" filter. ([#1351] by [@waywardmonkeys])
 
 ### Changed
 
@@ -45,7 +45,9 @@ This release has an [MSRV][] of 1.88.
   - This also updates Kurbo to [v0.13.0](https://github.com/linebender/kurbo/releases/tag/v0.13.0).
 - Upgraded Skrifa to v0.40.0. ([#1353][] by [@waywardmonkeys][])
 - Upgraded Hashbrown to v0.16.1. ([#1354][] by [@waywardmonkeys][])
-- Perf: optimize image rendering for axis-aligned images ([#1335][] by [@grebmeg][])
+- Optimized image rendering for axis-aligned images. ([#1335][] by [@grebmeg][])
+
+See also the [vello_hybrid 0.0.6](../vello_hybrid/CHANGELOG.md#006---2026-01-15) and [vello_common 0.0.6](../vello_common/CHANGELOG.md#006---2026-01-15) releases.
 
 ## [0.0.5][] - 2026-01-08
 
@@ -64,9 +66,12 @@ This release has an [MSRV][] of 1.88.
     Uses an optimized decimated blur algorithm with automatic downsampling for performance.
   - Drop Shadow filter with customizable offset, blur radius, and shadow color.
   - Flood filter for solid color fills.
-- Added a `set_mask` method to make it possible to mask rendered paths without inducing layer isolation. ([#1237][] by [@LaurenzV])
-- Added support for conditionally disabling the u8 or f32 pipeline. ([#1294][] by [@nicoburns])
-- Improve performance of rendering opaque images. ([#1327][] by [@grebmeg])
+- A `set_mask` method to make it possible to mask rendered paths without inducing layer isolation. ([#1237][] by [@LaurenzV])
+- Support for conditionally disabling the u8 or f32 pipeline. ([#1294][] by [@nicoburns])
+
+### Changed
+
+- Improved performance of rendering opaque images. ([#1327][] by [@grebmeg])
 
 ### Known Limitations
 

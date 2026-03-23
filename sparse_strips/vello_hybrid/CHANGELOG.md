@@ -17,26 +17,29 @@ This release has an [MSRV][] of 1.92.
 
 ### Added
 
-- Added initial support for filter effects. ([#1494][] by [@LaurenzV][])
-- Added `render_to_atlas` and `write_to_atlas` APIs for glyph caching. ([#1458][] by [@grebmeg][])
-- Added `push_blend_layer`, `push_opacity_layer` and `push_mask_layer` methods to `Scene`. ([#1420][] by [@grebmeg][])
-- Added scene constraints for conditionally achieving better rendering performance. ([#1476][] by [@taj-p][])
-- Added image tinting support. ([#1460][] by [@grebmeg][])
+- Initial support for filter effects. ([#1494][] by [@LaurenzV][])
+- `render_to_atlas` and `write_to_atlas` APIs for glyph caching. ([#1458][] by [@grebmeg][])
+- `push_blend_layer`, `push_opacity_layer` and `push_mask_layer` methods to `Scene`. ([#1420][] by [@grebmeg][])
+- Scene constraints for conditionally achieving better rendering performance. ([#1476][] by [@taj-p][])
+- Support for image tinting. ([#1460][] by [@grebmeg][])
 
 ### Changed
 
 - Updated `wgpu` to v28. ([#1492][] by [@xStrom][])
-- Added a fast path for rendering axis-aligned rectangles. ([#1482][] by [@LaurenzV][])
-- Optimized rendering of opaque full-tile images. ([#1461][] by [@grebmeg][])
-- Optimized layer blending for src-over compositing. ([#1436][] by [@LaurenzV][])
-- Added a fast-path for skipping coarse rasterization and scheduling for scenes without layers. ([#1454][] by [@LaurenzV][])
 - Made text rendering an optional feature. ([#1455][] by [@LaurenzV][])
 
 ### Fixed
 
-- Fixed rendering artifacts sometimes present along the seam in sweep gradients by improving numerical robustness around the seam. ([#1352][] by [@tomcur][])
-- Fixed wrong handling of scenes with many complex paints. ([#1467][] by [@taj-p][])
-- Fixed slow performance of scenes with many changing gradients. ([#1496][] by [@LaurenzV][])
+- Rendering artifacts sometimes present along the seam in sweep gradients by improving numerical robustness around the seam. ([#1352][] by [@tomcur][])
+- Incorrect handling of scenes with many complex paints. ([#1467][] by [@taj-p][])
+
+### Optimized
+
+- Rendering axis-aligned rectangles. ([#1482][] by [@LaurenzV][])
+- Rendering of opaque full-tile images. ([#1461][] by [@grebmeg][])
+- Layer blending for src-over compositing. ([#1436][] by [@LaurenzV][])
+- Coarse rasterization and scheduling of scenes without layers. ([#1454][] by [@LaurenzV][])
+- Scenes with many changing gradients. ([#1496][] by [@LaurenzV][])
 
 ## [0.0.6][] - 2026-01-15
 
@@ -48,6 +51,8 @@ This release has an [MSRV][] of 1.88.
   - This also updates Kurbo to [v0.13.0](https://github.com/linebender/kurbo/releases/tag/v0.13.0).
 - Upgraded Skrifa to v0.40.0. ([#1353][] by [@waywardmonkeys][])
 - Upgraded Hashbrown to v0.16.1. ([#1354][] by [@waywardmonkeys][])
+
+See also the [vello_cpu 0.0.6](../vello_cpu/CHANGELOG.md#006---2026-01-15) and [vello_common 0.0.6](../vello_common/CHANGELOG.md#006---2026-01-15) releases.
 
 ## [0.0.5][] - 2026-01-08
 
