@@ -2658,6 +2658,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "parley_draw"
+version = "0.0.0"
+dependencies = [
+ "bytemuck",
+ "core_maths",
+ "foldhash 0.2.0",
+ "hashbrown 0.16.1",
+ "log",
+ "png",
+ "skrifa 0.40.0",
+ "smallvec",
+ "vello_common",
+ "vello_cpu",
+ "vello_hybrid",
+]
+
+[[package]]
 name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
