@@ -386,6 +386,10 @@ fn eval_cubics_simd<S: Simd>(simd: S, c: &CubicBez, n: usize, result: &mut Flatt
     let (p0_128, p1_128) = split_single(p0p1);
     let (p2_128, p3_128) = split_single(p2p3);
 
+    // Use Horner's method to evaluate p(t) as ((a*t + b)*t + c)*t + d. This allows hoisting
+    // coefficients out of the loop, and then evaluating as three sequential FMAs. Estrin's method
+    // would expose more ILP, but the increase in work on such small polynomials (cubic here and
+    // quad below) makes it a net slowdown.
     let coeff_a = (p1_128 - p2_128).mul_add(3.0, p3_128 - p0_128);
     let coeff_b = p1_128.mul_add(-2.0, p0_128 + p2_128) * 3.0;
     let coeff_c = (p1_128 - p0_128) * 3.0;
@@ -517,8 +521,9 @@ fn output_lines_simd<S: Simd>(
     let uscale = f32x8::splat(simd, ctx.uscale[i]);
     let u0 = f32x8::splat(simd, ctx.u0[i]);
 
-    let coeff_a = p0 - p1 * f32x8::splat(simd, 2.0) + p2;
-    let coeff_b = (p1 - p0) * f32x8::splat(simd, 2.0);
+    // See Horner comment above
+    let coeff_a = p1.mul_add(-2.0, p0) + p2;
+    let coeff_b = (p1 - p0) * 2.0;
     let coeff_c = p0;
 
     let out: &mut [f32] = bytemuck::cast_slice_mut(&mut ctx.flattened_cubics[start_idx..]);
