@@ -1,0 +1,40 @@
+[package]
+name = "parley_draw"
+version = "0.0.0"
+description = "Parley Draw provides APIs for efficiently rendering text."
+keywords = ["text", "layout"]
+categories = ["gui", "graphics"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+publish = false
+
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+default = ["std", "vello_cpu"]
+std = ["vello_common/std", "skrifa/std", "vello_cpu?/std", "vello_hybrid?/std"]
+libm = ["skrifa/libm", "vello_common/libm", "vello_cpu?/libm", "dep:core_maths"]
+png = ["std", "dep:png", "vello_common/png", "vello_cpu?/png"]
+vello_cpu = ["dep:vello_cpu"]
+vello_hybrid = ["dep:vello_hybrid"]
+debug_glyph_bounds = []
+
+[lints]
+workspace = true
+
+[dependencies]
+bytemuck = { workspace = true }
+foldhash = { workspace = true }
+log = { version = "0.4", default-features = false }
+hashbrown = { workspace = true }
+skrifa = { workspace = true }
+smallvec = { workspace = true }
+vello_common = { workspace = true }
+vello_cpu = { workspace = true, optional = true, features = ["u8_pipeline", "text"] }
+vello_hybrid = { workspace = true, optional = true, features = ["text"] }
+png = { version = "0.17", optional = true }
+core_maths = { version = "0.1.1", optional = true }
