@@ -40,23 +40,23 @@ pub fn render(level: Level, rect: Rect, strip_buf: &mut Vec<Strip>, alpha_buf: &
 ///
 /// The x-alpha masks for the left/right edge tiles are y-independent, so they
 /// are precomputed once and reused across all interior rows.
-// TODO: Consider extending this to handle arbitrary axis-aligned rectangles (with fractional
-// coordinates) by computing partial coverage alpha values for edge pixels instead of
-// binary 0/255.
 fn render_impl<S: Simd>(s: S, rect: Rect, strip_buf: &mut Vec<Strip>, alpha_buf: &mut Vec<u8>) {
-    // TODO: Negative rect coordinates are not handled correctly — casting negative
-    // f64 to u16 saturates to 0. The caller currently clamps to the viewport, but if
-    // that changes, this will need signed-integer math or explicit clamping.
-    let rect_x0 = rect.x0.floor() as u16;
-    let rect_y0 = rect.y0.floor() as u16;
-    let rect_x1 = rect.x1.ceil() as u16;
-    let rect_y1 = rect.y1.ceil() as u16;
+    let rect_x0 = rect.x0 as f32;
+    let rect_y0 = rect.y0 as f32;
+    let rect_x1 = rect.x1 as f32;
+    let rect_y1 = rect.y1 as f32;
 
-    let left_tile_x = (rect_x0 / Tile::WIDTH) * Tile::WIDTH;
-    let right_tile_x = (rect_x1 / Tile::WIDTH) * Tile::WIDTH;
+    // Integer pixel bounds.
+    let px_x0 = rect_x0.floor() as u16;
+    let px_y0 = rect_y0.floor() as u16;
+    let px_y1 = rect_y1.ceil() as u16;
 
-    let y0 = (rect_y0 / Tile::HEIGHT) * Tile::HEIGHT;
-    let y1 = (rect_y1.saturating_add(Tile::HEIGHT - 1) / Tile::HEIGHT) * Tile::HEIGHT;
+    let left_tile_x = (px_x0 / Tile::WIDTH) * Tile::WIDTH;
+    let right_tile_x = (rect_x1 as u16 / Tile::WIDTH) * Tile::WIDTH;
+
+    let y0 = (px_y0 / Tile::HEIGHT) * Tile::HEIGHT;
+    // Note: y1 is exclusive, but it's gonna break for the very last tile if we have a height of u16::MAX.
+    let y1 = (px_y1.saturating_add(Tile::HEIGHT - 1) / Tile::HEIGHT) * Tile::HEIGHT;
     // Include one tile past the right edge so the right-edge tile column is
     // covered by the edge-row wide-strip loop.
     let x_end = right_tile_x.saturating_add(Tile::WIDTH);
@@ -71,26 +71,31 @@ fn render_impl<S: Simd>(s: S, rect: Rect, strip_buf: &mut Vec<Strip>, alpha_buf:
     // A right strip is only needed when the rect spans more than one tile column.
     let needs_right_strip = right_tile_x > left_tile_x;
 
-    let left_x_mask = x_alpha_tile(s, left_tile_x, rect_x0, rect_x1);
-    let right_x_mask = x_alpha_tile(s, right_tile_x, rect_x0, rect_x1);
+    let left_x_cov = x_coverage(left_tile_x, rect_x0, rect_x1);
+    let right_x_cov = x_coverage(right_tile_x, rect_x0, rect_x1);
+    let left_x_mask = alpha_mask_from_x_coverage(s, &left_x_cov);
+    let right_x_mask = alpha_mask_from_x_coverage(s, &right_x_cov);
 
     for tile_y in tile_start_y..tile_end_y {
         let strip_y = tile_y * Tile::HEIGHT;
+        let strip_y_f = strip_y as f32;
+        let strip_y_end_f = strip_y as f32 + Tile::HEIGHT as f32;
 
         // A row is an "edge" if the rect's top or bottom boundary falls
         // *inside* it (i.e. partial vertical coverage).
-        let is_top_edge = strip_y < rect_y0 && rect_y0 < strip_y + Tile::HEIGHT;
-        let is_bottom_edge = strip_y < rect_y1 && rect_y1 < strip_y + Tile::HEIGHT;
+        let is_top_edge = strip_y_f < rect_y0 && rect_y0 < strip_y_end_f;
+        let is_bottom_edge = strip_y_f < rect_y1 && rect_y1 < strip_y_end_f;
 
         if is_top_edge || is_bottom_edge {
             let alpha_start = alpha_buf.len() as u32;
-            let y_mask = y_alpha_tile(s, strip_y, rect_y0, rect_y1);
 
-            // Walk every tile column, AND the per-column x-mask with the
-            // per-row y-mask to get the final per-pixel alpha.
+            // Walk every tile column, computing per-pixel alpha as the
+            // product of horizontal and vertical coverage.
             let mut col = left_tile_x;
+            // TODO: Can this result in an infinite loop in case x_end == u16::MAX?
             while col + Tile::WIDTH <= x_end {
-                let combined = x_alpha_tile(s, col, rect_x0, rect_x1) & y_mask;
+                let combined =
+                    combined_tile_alpha(s, col, strip_y, rect_x0, rect_y0, rect_x1, rect_y1);
                 alpha_buf.extend_from_slice(combined.as_slice());
                 col += Tile::WIDTH;
             }
@@ -121,46 +126,55 @@ fn render_impl<S: Simd>(s: S, rect: Rect, strip_buf: &mut Vec<Strip>, alpha_buf:
     ));
 }
 
-/// Build a column-major x-alpha mask for one tile-width of columns.
-///
-/// Each column gets `Tile::HEIGHT` lanes, all 0x00 or all 0xFF depending on
-/// whether the column falls inside `[rect_x0, rect_x1)`.
+/// Compute fractional coverages for each x position of the given tile.
 #[inline(always)]
-fn x_alpha_tile<S: Simd>(s: S, tile_x: u16, rect_x0: u16, rect_x1: u16) -> u8x16<S> {
+fn x_coverage(tile_x: u16, rect_x0: f32, rect_x1: f32) -> [f32; Tile::WIDTH as usize] {
+    let mut cov = [0.0_f32; Tile::WIDTH as usize];
+    for col in 0..Tile::WIDTH as usize {
+        let px = (tile_x as usize + col) as f32;
+        cov[col] = (rect_x1.min(px + 1.0) - rect_x0.max(px)).clamp(0.0, 1.0);
+    }
+    cov
+}
+
+/// Build an alpha mask for the 4x4 tile from the given horizontal coverages.
+#[inline(always)]
+fn alpha_mask_from_x_coverage<S: Simd>(s: S, cov: &[f32; Tile::WIDTH as usize]) -> u8x16<S> {
     let mut buf = [0_u8; 16];
-    for col in 0..Tile::WIDTH {
-        let px = tile_x + col;
-        let alpha = if px >= rect_x0 && px < rect_x1 {
-            255
-        } else {
-            0
-        };
-        let base = (col * Tile::HEIGHT) as usize;
+
+    for col in 0..Tile::WIDTH as usize {
+        let alpha = (cov[col] * 255.0 + 0.5) as u8;
+        let base = col * Tile::HEIGHT as usize;
         buf[base..base + Tile::HEIGHT as usize].fill(alpha);
     }
+
     u8x16::from_slice(s, &buf)
 }
 
-/// Build a column-major y-alpha mask for one tile row.
-///
-/// Each of the `Tile::HEIGHT` rows is 0x00 or 0xFF depending on whether it
-/// falls inside `[rect_y0, rect_y1)`. The pattern is identical across all
-/// `Tile::WIDTH` columns.
+/// Compute the alphas for a single 4x4 tile, taking horizontal as well as vertical coverage
+/// of the rectangle into account.
 #[inline(always)]
-fn y_alpha_tile<S: Simd>(s: S, strip_y: u16, rect_y0: u16, rect_y1: u16) -> u8x16<S> {
-    let mut y_mask = [0_u8; 4];
-    for row in 0..Tile::HEIGHT {
-        let py = strip_y + row;
-        y_mask[row as usize] = if py >= rect_y0 && py < rect_y1 {
-            255
-        } else {
-            0
-        };
-    }
+fn combined_tile_alpha<S: Simd>(
+    s: S,
+    tile_x: u16,
+    strip_y: u16,
+    rect_x0: f32,
+    rect_y0: f32,
+    rect_x1: f32,
+    rect_y1: f32,
+) -> u8x16<S> {
+    // TODO: We could optimize this so this is only computed for the left-most and right-most
+    // tile of the edge, all intermediate tiles have full horizontal coverage.
+    let x_cov = x_coverage(tile_x, rect_x0, rect_x1);
     let mut buf = [0_u8; 16];
+
     for col in 0..Tile::WIDTH as usize {
-        let base = col * Tile::HEIGHT as usize;
-        buf[base..base + Tile::HEIGHT as usize].copy_from_slice(&y_mask);
+        for row in 0..Tile::HEIGHT as usize {
+            let py = (strip_y as usize + row) as f32;
+            let y_cov = (rect_y1.min(py + 1.0) - rect_y0.max(py)).clamp(0.0, 1.0);
+            buf[col * Tile::HEIGHT as usize + row] = (x_cov[col] * y_cov * 255.0 + 0.5) as u8;
+        }
     }
+
     u8x16::from_slice(s, &buf)
 }
