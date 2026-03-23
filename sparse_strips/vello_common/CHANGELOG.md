@@ -15,19 +15,34 @@ You can find its changes [documented below](#006---2026-01-15).
 
 This release has an [MSRV][] of 1.92.
 
+### Added
+
+- Added image tinting support. ([#1460][] by [@grebmeg][])
+- Introduce a `RenderState` abstraction. ([#1486][] by [@LaurenzV][])
+- Added some helpers for rendering filters. ([#1446][] by [@LaurenzV][])
+- Added `ImageCache` and `MultiAtlasManager`. ([#1457][] by [@grebmeg][])
+
 ### Changed
 
 - Improved Bézier flattening performance by catching more Béziers whose chords are immediately within rendering tolerance. ([#1216][] by [@tomcur][])
-- Significantly improved rendering performance of scenes including blend layers by ensuring no commands are generated for wide tiles without layer content. ([#1399][] by [@tomcur][])
+- Removed the Process Row Incremental Macro and Perfect Bit. ([#1384][] by [@b0nes164][])
+- Improved flattening and tiling performance by culling out-of-viewport Béziers before flattening. ([#1341][] by [@tomcur][])
+- Removed the `tolerance` parameter from the flattening method. ([#1399][] by [@LaurenzV][])
+- Significantly improved rendering performance of scenes including blend layers by ensuring no commands are generated for wide tiles without layer content. ([#1403][] by [@tomcur][])
+- Replaced custom blend mode representation with peniko `Mix` for filter effects. ([#1410][] by [@LaurenzV][])
 - Further improved performance of scenes including blend layers by only allocating layer scratch buffers for a wide tile upon draw commands being performed in that wide tile. ([#1414][] by [@tomcur][])
-- Improved flattening and tiling performance by culling out-of-viewport Béziers before flattening. ([#1341][] by [@tomcur][])  
-  This drops all out-of-viewport geometry that does not impact winding or pixel coverage (i.e., geometry above, to the right, or below the viewport).
-  For geometry that is to the left of the viewport (impacting winding), this skips flattening by directly yielding the Bézier's chord.
+- Improved analytic anti-aliasing performance. ([#1426][], [#1442][] by [@tomcur][])
+- Removed the command annotation logic. ([#1438][] by [@LaurenzV][])
+- Added a fast path for rendering pixel-aligned rectangles. ([#1453][] by [@grebmeg][])
+- Added a fast-path for skipping coarse rasterization and scheduling for scenes without layers. ([#1454][] by [@LaurenzV][])
+- Added an optimization to not reset wide tiles when not needed. ([#1484][] by [@LaurenzV][])
 
 ### Fixed
 
-- Fixed rendering of blurred rounded rectangles with zero or very small blur standard deviations. ([#1422][] by [@tomcur][])
+- Fixed double-scaling bug with non-hinted COLR glyphs. ([#1370][] by [@conor-93][])
+- Fixed bug in handling of `pop_clip` commands and properly reset wide tiles. ([#1443][] by [@LaurenzV][])
 - Fixed analytic AA performance regressions from `fearless_simd`'s tightened `max_precise` and `min_precise` semantics in v0.4.0. ([#1463][] and [#1464][] by [@tomcur][])
+- Fixed layer ranges not being updated when a wide tile is reset with a background color. ([#1478][] by [@LaurenzV][])
 
 ## [0.0.6][] - 2026-01-15
 
@@ -103,6 +118,7 @@ This is the initial release. No changelog was kept for this release.
 See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) release.
 
 [@b0nes164]: https://github.com/b0nes164
+[@conor-93]: https://github.com/conor-93
 [@DJMcNab]: https://github.com/waywardmonkeys
 [@grebmeg]: https://github.com/grebmeg
 [@LaurenzV]: https://github.com/LaurenzV
@@ -131,10 +147,25 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1353]: https://github.com/linebender/vello/pull/1353
 [#1354]: https://github.com/linebender/vello/pull/1354
 [#1399]: https://github.com/linebender/vello/pull/1399
+[#1403]: https://github.com/linebender/vello/pull/1403
 [#1414]: https://github.com/linebender/vello/pull/1414
-[#1422]: https://github.com/linebender/vello/pull/1422
+[#1370]: https://github.com/linebender/vello/pull/1370
+[#1384]: https://github.com/linebender/vello/pull/1384
+[#1410]: https://github.com/linebender/vello/pull/1410
+[#1426]: https://github.com/linebender/vello/pull/1426
+[#1438]: https://github.com/linebender/vello/pull/1438
+[#1442]: https://github.com/linebender/vello/pull/1442
+[#1443]: https://github.com/linebender/vello/pull/1443
+[#1446]: https://github.com/linebender/vello/pull/1446
+[#1453]: https://github.com/linebender/vello/pull/1453
+[#1454]: https://github.com/linebender/vello/pull/1454
+[#1457]: https://github.com/linebender/vello/pull/1457
+[#1460]: https://github.com/linebender/vello/pull/1460
 [#1463]: https://github.com/linebender/vello/pull/1463
 [#1464]: https://github.com/linebender/vello/pull/1464
+[#1478]: https://github.com/linebender/vello/pull/1478
+[#1484]: https://github.com/linebender/vello/pull/1484
+[#1486]: https://github.com/linebender/vello/pull/1486
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.6...HEAD
 [0.0.6]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.5...sparse-strips-v0.0.6

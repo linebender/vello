@@ -17,7 +17,9 @@ This release has an [MSRV][] of 1.92.
 
 ### Added
 
-- Added `composite_to_pixmap_at_offset` method to `RenderContext` for compositing at specific offsets within a larger pixmap, enabling spritesheet/atlas support. ([#1416][] by [@grebmeg][])
+- Added `composite_to_pixmap_at_offset` method to `RenderContext` for compositing at specific offsets within a larger pixmap. ([#1416][] by [@grebmeg][])
+- Added `ImageResolver` for resolving opaque image IDs at rasterization time. ([#1451][] by [@grebmeg][])
+- Added image tinting support. ([#1460][] by [@grebmeg][])
 
 ### Changed
 
@@ -26,6 +28,8 @@ This release has an [MSRV][] of 1.92.
 ### Fixed
 
 - Fixed rendering of blurred rounded rectangles with zero or very small blur standard deviations. ([#1422][] by [@tomcur][])
+- Fixed off-by-one error in gaussian blur decimation filter. ([#1488][] by [@LaurenzV][])
+- Fixed behavior for filter layers with zero clips. ([#1437][] by [@LaurenzV][])
 
 ## [0.0.6][] - 2026-01-15
 
@@ -117,13 +121,17 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [#1294]: https://github.com/linebender/vello/pull/1294
 [#1327]: https://github.com/linebender/vello/pull/1327
 [#1335]: https://github.com/linebender/vello/pull/1335
-[#1416]: https://github.com/linebender/vello/pull/1416
 [#1343]: https://github.com/linebender/vello/pull/1343
 [#1349]: https://github.com/linebender/vello/pull/1349
 [#1351]: https://github.com/linebender/vello/pull/1351
 [#1353]: https://github.com/linebender/vello/pull/1353
 [#1354]: https://github.com/linebender/vello/pull/1354
+[#1416]: https://github.com/linebender/vello/pull/1416
 [#1422]: https://github.com/linebender/vello/pull/1422
+[#1437]: https://github.com/linebender/vello/pull/1437
+[#1451]: https://github.com/linebender/vello/pull/1451
+[#1460]: https://github.com/linebender/vello/pull/1460
+[#1488]: https://github.com/linebender/vello/pull/1488
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.6...HEAD
 [0.0.6]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.5...sparse-strips-v0.0.6
