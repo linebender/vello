@@ -74,8 +74,8 @@ fn render_impl<S: Simd>(s: S, rect: Rect, strip_buf: &mut Vec<Strip>, alpha_buf:
 
     let left_x_cov = coverage(left_tile_x, rect_x0, rect_x1);
     let right_x_cov = coverage(right_tile_x, rect_x0, rect_x1);
-    let left_x_mask = alpha_mask_from_coverage(s, &left_x_cov);
-    let right_x_mask = alpha_mask_from_coverage(s, &right_x_cov);
+    let left_x_mask = alpha_mask_from_x_coverage(s, &left_x_cov);
+    let right_x_mask = alpha_mask_from_x_coverage(s, &right_x_cov);
 
     for tile_y in tile_start_y..tile_end_y {
         let strip_y = tile_y * Tile::HEIGHT;
@@ -141,10 +141,10 @@ fn coverage<const N: usize>(start: u16, rect_lo: f32, rect_hi: f32) -> [f32; N] 
     cov
 }
 
-/// Build an alpha mask for the 4x4 tile from the given horizontal/vertical coverages,
+/// Build an alpha mask for the 4x4 tile from the given horizontal coverages,
 /// splatting them across the other dimension.
 #[inline(always)]
-fn alpha_mask_from_coverage<S: Simd>(s: S, cov: &[f32; Tile::WIDTH as usize]) -> u8x16<S> {
+fn alpha_mask_from_x_coverage<S: Simd>(s: S, cov: &[f32; Tile::WIDTH as usize]) -> u8x16<S> {
     let mut buf = [0_u8; 16];
 
     #[allow(clippy::needless_range_loop, reason = "better clarity")]
