@@ -76,6 +76,12 @@ pub fn is_integer_translation(transform: &Affine) -> bool {
         && (e - e.round()).is_nearly_zero()
         && (f - f.round()).is_nearly_zero()
 }
+/// Check if an affine transform has now skewing (i.e. preserves axis alignment).
+#[inline]
+pub fn is_axis_aligned(transform: &Affine) -> bool {
+    let [_, b, c, ..] = transform.as_coeffs();
+    b.is_nearly_zero() && c.is_nearly_zero()
+}
 
 /// Extract scale factors from an affine transform using singular value decomposition.
 ///

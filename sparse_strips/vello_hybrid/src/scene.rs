@@ -27,6 +27,7 @@ use vello_common::recording::{
 use vello_common::render_graph::{RenderGraph, RenderNodeKind};
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
+use vello_common::util::is_axis_aligned;
 
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
@@ -506,9 +507,8 @@ impl Scene {
         // Also update the code in `flush_fast_path`.
 
         // We can't handle skewed rectangles.
-        let coeffs = self.render_state.transform.as_coeffs();
         // TODO: Maybe support rotated rectangles (https://github.com/linebender/vello/pull/1482#discussion_r2881223621)
-        if coeffs[1].abs() > 1e-5 || coeffs[2].abs() > 1e-5 {
+        if !is_axis_aligned(&self.render_state.transform) {
             return false;
         }
 

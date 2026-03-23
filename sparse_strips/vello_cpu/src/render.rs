@@ -32,7 +32,7 @@ use vello_common::recording::{
 };
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
-use vello_common::util::{is_integer_rect, is_integer_translation};
+use vello_common::util::is_axis_aligned;
 #[cfg(feature = "text")]
 use vello_common::{
     color::{AlphaColor, Srgb},
@@ -212,16 +212,8 @@ impl RenderContext {
         self.with_optional_filter(|ctx| {
             let paint = ctx.encode_current_paint();
 
-            // Fast path: use optimized rect filling when transforms are integer translations
-            // AND rect coordinates are integers. This bypasses path processing by generating
-            // strips directly for the rectangle.
-            // - Requires integer translation to ensure pixel-aligned rect boundaries.
-            // - Requires integer rect coordinates because the optimized path doesn't handle
-            //   anti-aliasing for fractional edges.
-            // - Also requires simple paint transform to avoid precision differences with complex paints.
-            if is_integer_translation(&ctx.state.transform)
-                && is_integer_translation(&ctx.state.paint_transform)
-                && is_integer_rect(rect)
+            // Fast path: Use optimized rect filling if we have no skew in the path transform.
+            if is_axis_aligned(&ctx.state.transform)
             {
                 // Transform the rect to screen coordinates.
                 let transformed_rect = ctx.state.transform.transform_rect_bbox(*rect);
