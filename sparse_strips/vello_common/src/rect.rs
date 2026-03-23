@@ -52,6 +52,7 @@ fn render_impl<S: Simd>(s: S, rect: Rect, strip_buf: &mut Vec<Strip>, alpha_buf:
     let px_y1 = rect_y1.ceil() as u16;
 
     let left_tile_x = (px_x0 / Tile::WIDTH) * Tile::WIDTH;
+    // Inclusive, so don't use `ceil` here but just `rect_x1` directly.
     let right_tile_x = (rect_x1 as u16 / Tile::WIDTH) * Tile::WIDTH;
 
     let y0 = (px_y0 / Tile::HEIGHT) * Tile::HEIGHT;
