@@ -1188,7 +1188,7 @@ mod tests {
     use crate::paint::{Image, ImageId, ImageSource};
     use crate::peniko::{ColorStop, ColorStops};
     use alloc::vec;
-    use peniko::{LinearGradientPosition, RadialGradientPosition};
+    use peniko::{ImageSampler, LinearGradientPosition, RadialGradientPosition};
     use smallvec::smallvec;
 
     #[test]
@@ -1337,7 +1337,7 @@ mod tests {
                 id: ImageId::new(0),
                 may_have_opacities: false,
             },
-            sampler: Default::default(),
+            sampler: ImageSampler::default(),
         };
 
         image.encode_into(&mut buf, Affine::IDENTITY, None, PixelSampling::Center);
