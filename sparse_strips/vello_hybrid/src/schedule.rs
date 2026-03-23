@@ -709,6 +709,7 @@ impl Scheduler {
                     continue;
                 };
 
+                // TODO: Use enum instead of `wrap_surface`?
                 let wrap_surface = matches!(
                     wide_tile.cmds[ranges.full_range.start],
                     Cmd::PushBuf(_, true)
