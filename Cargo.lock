@@ -4140,6 +4140,7 @@ dependencies = [
  "fearless_simd",
  "image",
  "oxipng 10.1.0",
+ "parley_draw",
  "pollster",
  "serde",
  "serde_json",

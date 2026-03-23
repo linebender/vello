@@ -31,6 +31,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 skrifa = { workspace = true }
 smallvec = { workspace = true }
+parley_draw = { workspace = true, features = ["std"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 oxipng = { workspace = true, features = ["freestanding", "parallel"] }
