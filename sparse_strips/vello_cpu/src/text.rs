@@ -494,6 +494,98 @@ impl AtlasReplayTarget for RenderContext {
     }
 }
 
+/// Replay pending atlas commands, upload bitmaps, and register atlas pages.
+///
+/// Called from [`RenderContext::flush`] to finalize glyph rendering before
+/// the frame is composited.
+pub(crate) fn flush_glyph_atlas(ctx: &mut RenderContext) {
+    use parley_draw::renderers::vello_renderer::replay_atlas_commands;
+
+    let mut caches = ctx.glyph_caches.take().unwrap();
+
+    // Replay outline/COLR draw commands into each atlas page's pixmap.
+    let settings = crate::RenderSettings {
+        level: ctx.render_settings.level,
+        render_mode: ctx.render_settings.render_mode,
+        num_threads: 0,
+    };
+    caches
+        .glyph_atlas
+        .replay_pending_atlas_commands_with_pixmaps(|recorder, pixmaps| {
+            let page_index = recorder.page_index as usize;
+            // Ensure the page pixmap exists.
+            if pixmaps.len() <= page_index {
+                return;
+            }
+            let (atlas_w, atlas_h) = {
+                let pm = &pixmaps[page_index];
+                (pm.width(), pm.height())
+            };
+            let mut glyph_renderer = RenderContext::new_with(atlas_w, atlas_h, settings);
+            replay_atlas_commands(&mut recorder.commands, &mut glyph_renderer);
+            glyph_renderer.flush();
+            if let Some(atlas_pixmap) = pixmaps
+                .get_mut(page_index)
+                .and_then(Arc::get_mut)
+            {
+                glyph_renderer.composite_to_pixmap_at_offset(atlas_pixmap, 0, 0);
+            }
+        });
+
+    // Copy bitmap glyph pixels into atlas pages.
+    let uploads: Vec<_> = caches.glyph_atlas.drain_pending_uploads().collect();
+    for upload in uploads {
+        let page_index = upload.atlas_slot.page_index as usize;
+        if let Some(atlas_pixmap) = caches.glyph_atlas.page_pixmap_mut(page_index) {
+            copy_pixmap_to_atlas(
+                &upload.pixmap,
+                atlas_pixmap,
+                upload.atlas_slot.x,
+                upload.atlas_slot.y,
+                upload.atlas_slot.width,
+                upload.atlas_slot.height,
+            );
+        }
+    }
+
+    // Register atlas page pixmaps as images so the renderer can resolve them.
+    let page_count = caches.glyph_atlas.page_count();
+    for page_index in 0..page_count {
+        if let Some(page_pixmap) = caches.glyph_atlas.page_pixmap(page_index) {
+            ctx.register_image(page_pixmap.clone());
+        }
+    }
+
+    ctx.glyph_caches = Some(caches);
+}
+
+/// Copy bitmap glyph pixels into a rectangular region of an atlas page.
+fn copy_pixmap_to_atlas(
+    src: &Pixmap,
+    dst: &mut Pixmap,
+    dst_x: u16,
+    dst_y: u16,
+    width: u16,
+    height: u16,
+) {
+    let copy_width = width as usize;
+    let copy_height = height as usize;
+    let src_stride = src.width() as usize;
+    let dst_stride = dst.width() as usize;
+
+    let src_data = src.data_as_u8_slice();
+    let dst_data = dst.data_as_u8_slice_mut();
+
+    for y in 0..copy_height {
+        let src_row_start = y * src_stride * 4;
+        let src_row_end = src_row_start + copy_width * 4;
+        let dst_row_start = ((dst_y as usize + y) * dst_stride + dst_x as usize) * 4;
+        let dst_row_end = dst_row_start + copy_width * 4;
+
+        dst_data[dst_row_start..dst_row_end].copy_from_slice(&src_data[src_row_start..src_row_end]);
+    }
+}
+
 /// Builder for drawing a run of glyphs.
 ///
 /// Created via [`RenderContext::glyph_run`].

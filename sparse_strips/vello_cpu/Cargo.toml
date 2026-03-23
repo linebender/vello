@@ -35,7 +35,7 @@ std = ["vello_common/std", "vello_api/std", "parley_draw?/std"]
 # Use floating point implementations from libm.
 libm = ["vello_common/libm", "vello_api/libm"]
 # Allow loading Pixmap from PNG, and drawing png glyphs.
-png = ["vello_common/png"]
+png = ["vello_common/png", "parley_draw?/png"]
 # Enable multi-threaded rendering.
 multithreading = [
     "std",

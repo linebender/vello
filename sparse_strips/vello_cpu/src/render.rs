@@ -576,6 +576,8 @@ impl RenderContext {
     /// For multi-threaded rendering, you _have_ to call this before rasterizing, otherwise
     /// the program will panic.
     pub fn flush(&mut self) {
+        #[cfg(feature = "text")]
+        crate::text::flush_glyph_atlas(self);
         self.dispatcher.flush(&self.encoded_paints);
     }
 
