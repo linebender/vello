@@ -874,10 +874,7 @@ impl EncodeExt for BlurredRoundedRectangle {
         paints: &mut Vec<EncodedPaint>,
         transform: Affine,
         _tint: Option<Tint>,
-        // I'm not sure why, but for some reason applying this here gives wrong
-        // results for the "blurred_rounded_rect_non" test case. It's possible that the
-        // current algorithm somehow already assumes centered sampling.
-        _pixel_sampling: PixelSampling,
+        pixel_sampling: PixelSampling,
     ) -> Paint {
         let rect = {
             // Ensure rectangle has positive width/height.
@@ -894,7 +891,11 @@ impl EncodeExt for BlurredRoundedRectangle {
             rect
         };
 
-        let transform = Affine::translate((-rect.x0, -rect.y0)) * transform.inverse();
+        let mut transform = Affine::translate((-rect.x0, -rect.y0)) * transform.inverse();
+
+        if pixel_sampling == PixelSampling::Corner {
+            transform *= Affine::translate((PIXEL_CENTER_OFFSET, PIXEL_CENTER_OFFSET));
+        }
 
         let (x_advance, y_advance) = x_y_advances(&transform);
 
