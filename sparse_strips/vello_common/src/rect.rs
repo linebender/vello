@@ -130,6 +130,8 @@ fn render_impl<S: Simd>(s: S, rect: Rect, strip_buf: &mut Vec<Strip>, alpha_buf:
 #[inline(always)]
 fn x_coverage(tile_x: u16, rect_x0: f32, rect_x1: f32) -> [f32; Tile::WIDTH as usize] {
     let mut cov = [0.0_f32; Tile::WIDTH as usize];
+
+    #[allow(clippy::needless_range_loop, reason = "better clarity")]
     for col in 0..Tile::WIDTH as usize {
         let px = (tile_x as usize + col) as f32;
         cov[col] = (rect_x1.min(px + 1.0) - rect_x0.max(px)).clamp(0.0, 1.0);
@@ -142,6 +144,7 @@ fn x_coverage(tile_x: u16, rect_x0: f32, rect_x1: f32) -> [f32; Tile::WIDTH as u
 fn alpha_mask_from_x_coverage<S: Simd>(s: S, cov: &[f32; Tile::WIDTH as usize]) -> u8x16<S> {
     let mut buf = [0_u8; 16];
 
+    #[allow(clippy::needless_range_loop, reason = "better clarity")]
     for col in 0..Tile::WIDTH as usize {
         let alpha = (cov[col] * 255.0 + 0.5) as u8;
         let base = col * Tile::HEIGHT as usize;
@@ -168,6 +171,7 @@ fn combined_tile_alpha<S: Simd>(
     let x_cov = x_coverage(tile_x, rect_x0, rect_x1);
     let mut buf = [0_u8; 16];
 
+    #[allow(clippy::needless_range_loop, reason = "better clarity")]
     for col in 0..Tile::WIDTH as usize {
         for row in 0..Tile::HEIGHT as usize {
             let py = (strip_y as usize + row) as f32;
