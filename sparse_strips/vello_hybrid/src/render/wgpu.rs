@@ -1157,10 +1157,10 @@ impl Programs {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Strip Pipeline Layout"),
                 bind_group_layouts: &[
-                    &strip_bind_group_layout,
-                    &atlas_bind_group_layout,
-                    &encoded_paints_bind_group_layout,
-                    &gradient_bind_group_layout,
+                    Some(&strip_bind_group_layout),
+                    Some(&atlas_bind_group_layout),
+                    Some(&encoded_paints_bind_group_layout),
+                    Some(&gradient_bind_group_layout),
                 ],
                 immediate_size: 0,
             });
@@ -1168,7 +1168,7 @@ impl Programs {
         let clear_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Clear Slots Pipeline Layout"),
-                bind_group_layouts: &[&clear_bind_group_layout],
+                bind_group_layouts: &[Some(&clear_bind_group_layout)],
                 immediate_size: 0,
             });
 
@@ -1217,8 +1217,8 @@ impl Programs {
 
         let depth_stencil = |depth_write_enabled| wgpu::DepthStencilState {
             format: depth_format,
-            depth_write_enabled,
-            depth_compare: wgpu::CompareFunction::LessEqual,
+            depth_write_enabled: Some(depth_write_enabled),
+            depth_compare: Some(wgpu::CompareFunction::LessEqual),
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         };
@@ -1367,9 +1367,9 @@ impl Programs {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Filter Pipeline Layout"),
                 bind_group_layouts: &[
-                    &filter_bind_group_layout,
-                    &filter_input_bind_group_layouts[0],
-                    &filter_input_bind_group_layouts[1],
+                    Some(&filter_bind_group_layout),
+                    Some(&filter_input_bind_group_layouts[0]),
+                    Some(&filter_input_bind_group_layouts[1]),
                 ],
                 immediate_size: 0,
             });
@@ -2389,11 +2389,15 @@ impl Programs {
         let total = opaque_bytes + alpha_bytes;
         self.resources.strips_buffer = Self::create_strips_buffer(device, total);
         // TODO: Consider using a staging belt to avoid an extra staging buffer allocation.
-        let mut buffer = queue
+        let mut buffer_view = queue
             .write_buffer_with(&self.resources.strips_buffer, 0, total.try_into().unwrap())
             .expect("Capacity handled in creation");
-        buffer[..opaque_bytes as usize].copy_from_slice(bytemuck::cast_slice(opaque_strips));
-        buffer[opaque_bytes as usize..].copy_from_slice(bytemuck::cast_slice(alpha_strips));
+        buffer_view
+            .slice(..opaque_bytes as usize)
+            .copy_from_slice(bytemuck::cast_slice(opaque_strips));
+        buffer_view
+            .slice(opaque_bytes as usize..)
+            .copy_from_slice(bytemuck::cast_slice(alpha_strips));
     }
 }
 

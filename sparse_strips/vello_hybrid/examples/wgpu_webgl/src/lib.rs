@@ -20,6 +20,18 @@ use vello_example_scenes::{AnyScene, image::ImageScene};
 use vello_hybrid::{AtlasConfig, Pixmap, RenderSettings, RenderTargetConfig, Renderer, Scene};
 use wasm_bindgen::prelude::*;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
+use wgpu::{
+    CurrentSurfaceTexture,
+    rwh::{DisplayHandle, HandleError, HasDisplayHandle},
+};
+
+#[derive(Debug)]
+struct OurDisplayHandle;
+impl HasDisplayHandle for OurDisplayHandle {
+    fn display_handle(&self) -> Result<DisplayHandle<'_>, HandleError> {
+        Ok(DisplayHandle::web())
+    }
+}
 
 struct RendererWrapper {
     renderer: Renderer,
@@ -32,9 +44,9 @@ impl RendererWrapper {
     async fn new(canvas: HtmlCanvasElement) -> Self {
         let width = canvas.width();
         let height = canvas.height();
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::GL,
-            ..Default::default()
+            ..wgpu::InstanceDescriptor::new_with_display_handle(Box::new(OurDisplayHandle))
         });
         let surface = instance
             .create_surface(wgpu::SurfaceTarget::Canvas(canvas.clone()))
@@ -177,7 +189,19 @@ impl AppState {
             height: self.height,
         };
 
-        let surface_texture = self.renderer_wrapper.surface.get_current_texture().unwrap();
+        let surface_texture = match self.renderer_wrapper.surface.get_current_texture() {
+            CurrentSurfaceTexture::Success(surface_texture) => surface_texture,
+            CurrentSurfaceTexture::Occluded
+            | CurrentSurfaceTexture::Timeout
+            | CurrentSurfaceTexture::Outdated
+            | CurrentSurfaceTexture::Suboptimal(_) => {
+                return;
+            }
+            CurrentSurfaceTexture::Lost => panic!("Surface was lost"),
+            CurrentSurfaceTexture::Validation => {
+                panic!("Validation error getting surface")
+            }
+        };
         let surface_texture_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -586,7 +610,10 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
         width: width as u32,
         height: height as u32,
     };
-    let surface_texture = surface.get_current_texture().unwrap();
+    let surface_texture = match surface.get_current_texture() {
+        CurrentSurfaceTexture::Success(surface_texture) => surface_texture,
+        _ => panic!("Error getting surface"),
+    };
     let surface_texture_view = surface_texture
         .texture
         .create_view(&wgpu::TextureViewDescriptor::default());

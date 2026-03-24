@@ -15,6 +15,7 @@ use vello_common::paint::ImageSource;
 use vello_example_scenes::image::ImageScene;
 use vello_example_scenes::{AnyScene, get_example_scenes};
 use vello_hybrid::{Pixmap, RenderSize, Renderer, Scene};
+use wgpu::CurrentSurfaceTexture;
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
@@ -348,10 +349,22 @@ impl ApplicationHandler for App<'_> {
                     height: surface.config.height,
                 };
 
-                let surface_texture = surface
-                    .surface
-                    .get_current_texture()
-                    .expect("failed to get surface texture");
+                let surface_texture = match surface.surface.get_current_texture() {
+                    CurrentSurfaceTexture::Success(surface_texture) => surface_texture,
+                    CurrentSurfaceTexture::Outdated | CurrentSurfaceTexture::Suboptimal(_) => {
+                        self.context.configure_surface(surface);
+                        window.request_redraw();
+                        return;
+                    }
+                    CurrentSurfaceTexture::Occluded | CurrentSurfaceTexture::Timeout => {
+                        window.request_redraw();
+                        return;
+                    }
+                    CurrentSurfaceTexture::Lost => panic!("Surface was lost"),
+                    CurrentSurfaceTexture::Validation => {
+                        panic!("Validation error getting surface")
+                    }
+                };
 
                 let texture_view = surface_texture
                     .texture
