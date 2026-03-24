@@ -21,7 +21,7 @@ pub fn render(level: Level, rect: Rect, strip_buf: &mut Vec<Strip>, alpha_buf: &
     dispatch!(level, simd => render_impl(simd, rect, strip_buf, alpha_buf));
 }
 
-/// Generates strip data for a pixel-aligned rectangle.
+/// Generates strip data for an axis-aligned rectangle.
 ///
 /// # Strip layout strategy
 ///
@@ -30,7 +30,7 @@ pub fn render(level: Level, rect: Rect, strip_buf: &mut Vec<Strip>, alpha_buf: &
 /// - **Edge rows** (top/bottom of rect): the rect boundary crosses partway
 ///   through the tile vertically, so individual pixels need per-cell alpha.
 ///   We emit a *single wide strip* spanning all tile columns, with alpha =
-///   `x_mask & y_mask` (each is 0x00 or 0xFF, so AND gives the intersection).
+///   `x_alpha` * `y_alpha` (so the intersection of the alpha mask in each direction).
 ///
 /// - **Interior rows**: every pixel in the tile has full vertical coverage,
 ///   so we only need to handle the left and right partial-column edges.
