@@ -288,6 +288,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
         let cache_enabled = self.atlas_cache_enabled
             && hinted_size <= self.glyph_atlas.config().max_cached_font_size;
 
+        let stroked = matches!(style, Style::Stroke);
         let render_glyph: fn(&mut R, PreparedGlyph<'_>, &mut C, &mut ImageCache) = match style {
             Style::Fill => R::fill_glyph,
             Style::Stroke => R::stroke_glyph,
@@ -318,6 +319,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
                     glyph.id,
                     hinted_size,
                     hinted,
+                    stroked,
                     fractional_x,
                     BLACK,
                     BLACK_PACKED,
@@ -355,6 +357,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
                     glyph_id: glyph.id,
                     size_bits: hinted_size.to_bits(),
                     hinted: false,
+                    stroked: false,
                     subpixel_x: 0,
                     context_color,
                     context_color_packed,
@@ -434,6 +437,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
                     glyph_id: glyph.id,
                     size_bits: bitmap_ppem.to_bits(),
                     hinted: false,
+                    stroked: false,
                     subpixel_x: 0,
                     context_color: BLACK,
                     context_color_packed: BLACK_PACKED,

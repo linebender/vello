@@ -57,6 +57,8 @@ pub enum AtlasCommand {
     SetPaintTransform(Affine),
     /// Fill a path with the current paint and transform.
     FillPath(Arc<BezPath>),
+    /// Stroke a path with the current paint and transform.
+    StrokePath(Arc<BezPath>),
     /// Fill a rectangle with the current paint and transform.
     FillRect(Rect),
     /// Push a clip layer defined by a path.
@@ -135,6 +137,12 @@ impl AtlasCommandRecorder {
     #[inline]
     pub fn fill_path(&mut self, path: &Arc<BezPath>) {
         self.commands.push(AtlasCommand::FillPath(Arc::clone(path)));
+    }
+
+    /// Stroke a path with the current paint and transform.
+    #[inline]
+    pub fn stroke_path(&mut self, path: &Arc<BezPath>) {
+        self.commands.push(AtlasCommand::StrokePath(Arc::clone(path)));
     }
 
     /// Fill a rectangle with the current paint and transform.
