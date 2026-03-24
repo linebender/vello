@@ -540,7 +540,7 @@ impl Scene {
     ) -> crate::text::GlyphRunBuilder<'a> {
         crate::text::GlyphRunBuilder {
             inner: parley_draw::GlyphRunBuilder::new(font.clone(), self.render_state.transform)
-                .atlas_cache(true),
+                .atlas_cache(false),
             scene: self,
             resources,
         }
