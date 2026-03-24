@@ -4,8 +4,12 @@
 //! Tests for GitHub issues.
 
 use crate::renderer::Renderer;
+use crate::util::stops_blue_green_red_yellow;
 use std::sync::Arc;
+use vello_api::peniko::GradientKind::Radial;
 use vello_api::peniko::color::palette::css::{PURPLE, ROYAL_BLUE, TOMATO};
+use vello_api::peniko::kurbo::Point;
+use vello_api::peniko::{ColorStops, RadialGradientPosition};
 use vello_common::color::PremulRgba8;
 use vello_common::color::palette::css::{DARK_BLUE, LIME, REBECCA_PURPLE};
 use vello_common::filter_effects::{Filter, FilterPrimitive};

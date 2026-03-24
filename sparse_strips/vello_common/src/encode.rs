@@ -222,6 +222,7 @@ impl EncodeExt for Gradient {
             stops: self.stops.clone(),
             interpolation_cs: self.interpolation_cs,
             hue_direction: self.hue_direction,
+            has_undefined: kind.has_undefined(),
         });
 
         let encoded = EncodedGradient {
@@ -773,6 +774,8 @@ pub struct GradientCacheKey {
     pub interpolation_cs: ColorSpaceTag,
     /// Hue direction used for interpolation.
     pub hue_direction: HueDirection,
+    /// Whether the gradient itself can have undefined
+    pub has_undefined: bool,
 }
 
 impl BitHash for GradientCacheKey {
@@ -780,6 +783,7 @@ impl BitHash for GradientCacheKey {
         self.stops.bit_hash(state);
         core::mem::discriminant(&self.interpolation_cs).hash(state);
         core::mem::discriminant(&self.hue_direction).hash(state);
+        self.has_undefined.hash(state);
     }
 }
 
