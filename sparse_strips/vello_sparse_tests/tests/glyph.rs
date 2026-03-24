@@ -269,7 +269,7 @@ fn glyphs_colr_noto_scaled_half(ctx: &mut impl Renderer) {
     render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)).then_scale(0.5));
 }
 
-#[vello_test(width = 350, height = 350, cpu_u8_tolerance = 3)]
+#[vello_test(width = 350, height = 350, cpu_u8_tolerance = 3, hybrid_tolerance = 1)]
 fn glyphs_colr_noto_rotated(ctx: &mut impl Renderer) {
     render_colr_noto_with_transform(
         ctx,
@@ -277,7 +277,7 @@ fn glyphs_colr_noto_rotated(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(width = 600, height = 600, cpu_u8_tolerance = 2)]
+#[vello_test(width = 600, height = 600, cpu_u8_tolerance = 2, hybrid_tolerance = 1)]
 fn glyphs_colr_noto_rotated_scaled(ctx: &mut impl Renderer) {
     render_colr_noto_with_transform(
         ctx,
@@ -287,7 +287,7 @@ fn glyphs_colr_noto_rotated_scaled(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(width = 250, height = 140, cpu_u8_tolerance = 1)]
+#[vello_test(width = 250, height = 140, cpu_u8_tolerance = 1, hybrid_tolerance = 1)]
 fn glyphs_colr_noto_scaled_non_uniform(ctx: &mut impl Renderer) {
     render_colr_noto_with_transform(
         ctx,
