@@ -1430,7 +1430,7 @@ fn filter_clip_with_constrained_blur(ctx: &mut impl Renderer) {
 #[vello_test(skip_multithreaded)]
 fn filter_and_clip_combined_layer(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 5.0, dy: 5.0 });
-    let clip = Rect::new(15.0, 15.0, 85.0, 85.0).to_path(0.1);
+    let clip = Rect::new(25.0, 25.0, 75.0, 75.0).to_path(0.1);
 
     ctx.push_layer(Some(&clip), None, None, None, Some(filter));
     ctx.set_paint(BLUE);
