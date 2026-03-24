@@ -792,6 +792,7 @@ impl FilterContext {
                     x_advance: Vec2::new(1.0, 0.0),
                     y_advance: Vec2::new(0.0, 1.0),
                     tint: None,
+                    custom: 0,
                 });
 
                 let idx = encoded_paints.len();
