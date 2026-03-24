@@ -212,8 +212,10 @@ impl RenderContext {
         self.with_optional_filter(|ctx| {
             let paint = ctx.encode_current_paint();
 
-            // Fast path: Use optimized rect filling if we have no skew in the path transform.
-            if is_axis_aligned(&ctx.state.transform) {
+            // Fast path: Use optimized rect filling if we have no skew in the path transform
+            // and anti-aliasing is enabled.
+            // TODO: Maybe also support no anti-aliasing in the fast path
+            if is_axis_aligned(&ctx.state.transform) && ctx.aliasing_threshold.is_none() {
                 // Transform the rect to screen coordinates.
                 let transformed_rect = ctx.state.transform.transform_rect_bbox(*rect);
                 ctx.dispatcher.fill_rect_fast(
