@@ -174,6 +174,11 @@ impl GlyphCache for CpuGlyphAtlas {
     }
 
     #[inline]
+    fn has_pending_bitmap_uploads(&self) -> bool {
+        self.inner.has_pending_bitmap_uploads()
+    }
+
+    #[inline]
     fn drain_pending_uploads(&mut self) -> impl Iterator<Item = PendingBitmapUpload> + '_ {
         self.inner.drain_pending_uploads()
     }
@@ -471,6 +476,11 @@ impl AtlasReplayTarget for RenderContext {
     #[inline]
     fn fill_path(&mut self, path: &BezPath) {
         Self::fill_path(self, path);
+    }
+
+    #[inline]
+    fn stroke_path(&mut self, path: &BezPath) {
+        Self::stroke_path(self, path);
     }
 
     #[inline]

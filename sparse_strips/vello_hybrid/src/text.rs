@@ -20,6 +20,7 @@ use parley_draw::GlyphCaches;
 use parley_draw::colr::{ColrPainter, ColrRenderer};
 use parley_draw::glyph::{CachedGlyphType, GlyphBitmap, GlyphColr, GlyphRenderer, PreparedGlyph};
 use crate::Scene;
+use crate::resources::SceneResources;
 use alloc::sync::Arc;
 use vello_common::kurbo::{Affine, BezPath, Rect};
 use vello_common::peniko::color::palette::css::BLACK;
@@ -96,6 +97,11 @@ impl GlyphCache for GpuGlyphAtlas {
         atlas_slot: AtlasSlot,
     ) {
         self.inner.push_pending_upload(image_id, pixmap, atlas_slot);
+    }
+
+    #[inline]
+    fn has_pending_bitmap_uploads(&self) -> bool {
+        self.inner.has_pending_bitmap_uploads()
     }
 
     #[inline]
@@ -387,8 +393,10 @@ impl ColrRenderer for Scene {
 pub struct GlyphRunBuilder<'a> {
     /// The inner parley_draw builder.
     pub(crate) inner: parley_draw::GlyphRunBuilder<'a>,
-    /// The scene (owns the glyph caches).
+    /// The scene to render into.
     pub(crate) scene: &'a mut Scene,
+    /// Shared resources (image cache + glyph caches).
+    pub(crate) resources: &'a mut SceneResources,
 }
 
 impl<'a> GlyphRunBuilder<'a> {
@@ -424,30 +432,16 @@ impl<'a> GlyphRunBuilder<'a> {
 
     /// Consumes the builder and fills the glyphs.
     pub fn fill_glyphs(self, glyphs: impl Iterator<Item = parley_draw::Glyph> + Clone) {
-        let mut caches = self.scene.glyph_caches.take().unwrap();
-        let mut image_cache = core::mem::replace(
-            &mut self.scene.glyph_image_cache,
-            ImageCache::new_with_config(Default::default()),
-        );
         self.inner
-            .build(glyphs, &mut caches, &mut image_cache)
+            .build(glyphs, &mut self.resources.glyph_caches, &mut self.resources.image_cache)
             .fill_glyphs(self.scene);
-        self.scene.glyph_caches = Some(caches);
-        self.scene.glyph_image_cache = image_cache;
     }
 
     /// Consumes the builder and strokes the glyphs.
     pub fn stroke_glyphs(self, glyphs: impl Iterator<Item = parley_draw::Glyph> + Clone) {
-        let mut caches = self.scene.glyph_caches.take().unwrap();
-        let mut image_cache = core::mem::replace(
-            &mut self.scene.glyph_image_cache,
-            ImageCache::new_with_config(Default::default()),
-        );
         self.inner
-            .build(glyphs, &mut caches, &mut image_cache)
+            .build(glyphs, &mut self.resources.glyph_caches, &mut self.resources.image_cache)
             .stroke_glyphs(self.scene);
-        self.scene.glyph_caches = Some(caches);
-        self.scene.glyph_image_cache = image_cache;
     }
 }
 
@@ -477,6 +471,11 @@ impl AtlasReplayTarget for Scene {
     #[inline]
     fn fill_path(&mut self, path: &BezPath) {
         Self::fill_path(self, path);
+    }
+
+    #[inline]
+    fn stroke_path(&mut self, path: &BezPath) {
+        Self::stroke_path(self, path);
     }
 
     #[inline]

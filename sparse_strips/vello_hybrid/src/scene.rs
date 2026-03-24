@@ -23,6 +23,7 @@ use vello_common::recording::{
 use vello_common::render_graph::{RenderGraph, RenderNodeKind};
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
+use crate::resources::SceneResources;
 
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
@@ -211,12 +212,6 @@ pub struct Scene {
     pub(crate) strip_generator: StripGenerator,
     /// Storage for generated strips and alpha values.
     pub(crate) strip_storage: RefCell<StripStorage>,
-    /// Cache for rasterized glyphs to improve text rendering performance.
-    #[cfg(feature = "text")]
-    pub(crate) glyph_caches: Option<crate::text::GpuGlyphCaches>,
-    /// Atlas allocator for glyph caching.
-    #[cfg(feature = "text")]
-    pub(crate) glyph_image_cache: parley_draw::ImageCache,
     /// Counter for generating unique layer IDs.
     layer_id_next: u32,
     /// Dependency graph for managing layer rendering order and filter effects.
@@ -311,10 +306,6 @@ impl Scene {
             strip_generator: StripGenerator::new(width, height, settings.level),
             // Start strip storage in `Append` mode since we enable the fast path by default.
             strip_storage: RefCell::new(StripStorage::new(GenerationMode::Append)),
-            #[cfg(feature = "text")]
-            glyph_caches: Some(crate::text::GpuGlyphCaches::default()),
-            #[cfg(feature = "text")]
-            glyph_image_cache: parley_draw::ImageCache::new_with_config(Default::default()),
             layer_id_next: 0,
             render_graph,
             filter: None,
@@ -542,13 +533,16 @@ impl Scene {
 
     /// Creates a builder for drawing a run of glyphs that have the same attributes.
     #[cfg(feature = "text")]
-    pub fn glyph_run(
-        &mut self,
+    pub fn glyph_run<'a>(
+        &'a mut self,
+        resources: &'a mut SceneResources,
         font: &vello_common::peniko::FontData,
-    ) -> crate::text::GlyphRunBuilder<'_> {
+    ) -> crate::text::GlyphRunBuilder<'a> {
         crate::text::GlyphRunBuilder {
-            inner: parley_draw::GlyphRunBuilder::new(font.clone(), self.render_state.transform),
+            inner: parley_draw::GlyphRunBuilder::new(font.clone(), self.render_state.transform)
+                .atlas_cache(true),
             scene: self,
+            resources,
         }
     }
 
@@ -820,8 +814,6 @@ impl Scene {
 
         self.render_state.reset();
 
-        #[cfg(feature = "text")]
-        self.glyph_caches.as_mut().unwrap().maintain(&mut self.glyph_image_cache);
         self.fast_strips_buffer.clear();
         self.strip_path_mode = StripPathMode::FastOnly;
         self.coarse_batch_splits.clear();

@@ -270,6 +270,7 @@ impl Renderer for RenderContext {
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 pub(crate) struct HybridRenderer {
     scene: Scene,
+    resources: RefCell<vello_hybrid::SceneResources>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     texture: wgpu::Texture,
@@ -314,6 +315,8 @@ impl HybridRenderer {
         #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+        let resources = vello_hybrid::SceneResources::new();
+
         // Create renderer and render the scene to the texture
         let renderer = vello_hybrid::Renderer::new(
             &device,
@@ -322,10 +325,12 @@ impl HybridRenderer {
                 width: width.into(),
                 height: height.into(),
             },
+            &resources,
         );
 
         Self {
             scene,
+            resources: RefCell::new(resources),
             device,
             queue,
             texture,
@@ -381,7 +386,7 @@ impl Renderer for HybridRenderer {
     }
 
     fn glyph_run(&mut self, font: &FontData) -> Self::GlyphRunBuilder<'_> {
-        self.scene.glyph_run(font)
+        self.scene.glyph_run(self.resources.get_mut(), font)
     }
 
     fn push_layer(
@@ -513,6 +518,7 @@ impl Renderer for HybridRenderer {
             .borrow_mut()
             .render(
                 &self.scene,
+                &mut self.resources.borrow_mut(),
                 &self.device,
                 &self.queue,
                 &mut encoder,
@@ -598,6 +604,7 @@ impl Renderer for HybridRenderer {
 
         // Upload image to cache and atlas in one step!
         let image_id = self.renderer.borrow_mut().upload_image(
+            self.resources.get_mut(),
             &self.device,
             &self.queue,
             &mut encoder,
@@ -617,6 +624,7 @@ impl Renderer for HybridRenderer {
             });
 
         let image_id = self.renderer.borrow_mut().upload_image(
+            self.resources.get_mut(),
             &self.device,
             &self.queue,
             &mut encoder,

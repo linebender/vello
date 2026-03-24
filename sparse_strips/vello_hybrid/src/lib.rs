@@ -48,6 +48,7 @@ extern crate alloc;
 pub(crate) mod filter;
 mod gradient_cache;
 mod render;
+mod resources;
 mod scene;
 #[cfg(feature = "text")]
 pub(crate) mod text;
@@ -62,6 +63,7 @@ pub use render::{AtlasWriter, RenderTargetConfig, Renderer};
 pub use render::{Config, GpuStrip, RenderSize};
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 pub use render::{WebGlAtlasWriter, WebGlRenderer, WebGlTextureWithDimensions};
+pub use resources::SceneResources;
 pub use scene::{RenderSettings, Scene, SceneConstraints};
 pub use util::DimensionConstraints;
 pub use vello_common::multi_atlas::{AllocationStrategy, AtlasConfig, AtlasId};

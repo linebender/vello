@@ -102,6 +102,9 @@ pub trait GlyphCache {
         atlas_slot: AtlasSlot,
     );
 
+    /// Returns `true` if there are pending bitmap uploads.
+    fn has_pending_bitmap_uploads(&self) -> bool;
+
     /// Drain all pending bitmap uploads, keeping the allocation for reuse.
     fn drain_pending_uploads(&mut self) -> impl Iterator<Item = PendingBitmapUpload> + '_;
 
@@ -335,6 +338,11 @@ impl GlyphAtlas {
         self.entry_count += 1;
 
         Some((page_index, atlas_slot.x, atlas_slot.y, atlas_slot))
+    }
+
+    /// Returns `true` if there are pending bitmap uploads.
+    pub fn has_pending_bitmap_uploads(&self) -> bool {
+        !self.pending_uploads.is_empty()
     }
 
     /// Drain all pending bitmap uploads, keeping the allocation for reuse.
