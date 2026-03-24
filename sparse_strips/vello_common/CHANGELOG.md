@@ -8,10 +8,14 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 # Changelog
 
-The latest published vello_common release is [0.0.6](#006---2026-01-15) which was released on 2026-01-15.
-You can find its changes [documented below](#006---2026-01-15).
+The latest published vello_common release is [0.0.7](#007---2026-03-24) which was released on 2026-03-24.
+You can find its changes [documented below](#007---2026-03-24).
 
 ## [Unreleased]
+
+This release has an [MSRV][] of 1.92.
+
+## [0.0.7][] - 2026-03-24
 
 This release has an [MSRV][] of 1.92.
 
@@ -181,7 +185,8 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1484]: https://github.com/linebender/vello/pull/1484
 [#1486]: https://github.com/linebender/vello/pull/1486
 
-[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.6...HEAD
+[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.7...HEAD
+[0.0.7]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.6...sparse-strips-v0.0.7
 [0.0.6]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.5...sparse-strips-v0.0.6
 [0.0.5]: https://github.com/linebender/vello/compare/sparse-stips-v0.0.4...sparse-strips-v0.0.5
 [0.0.4]: https://github.com/linebender/vello/compare/sparse-stips-v0.0.3...sparse-strips-v0.0.4

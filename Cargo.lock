@@ -3961,7 +3961,7 @@ dependencies = [
 
 [[package]]
 name = "vello_api"
-version = "0.8.0"
+version = "0.0.7"
 dependencies = [
  "bytemuck",
  "peniko 0.6.0",
@@ -3985,7 +3985,7 @@ dependencies = [
 
 [[package]]
 name = "vello_common"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "bytemuck",
  "fearless_simd",
@@ -4003,7 +4003,7 @@ dependencies = [
 
 [[package]]
 name = "vello_cpu"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "bytemuck",
  "crossbeam-channel",
@@ -4068,7 +4068,7 @@ version = "0.8.0"
 
 [[package]]
 name = "vello_hybrid"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "bytemuck",
  "hashbrown 0.16.1",
@@ -4110,7 +4110,7 @@ dependencies = [
 
 [[package]]
 name = "vello_sparse_shaders"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "naga",
 ]
