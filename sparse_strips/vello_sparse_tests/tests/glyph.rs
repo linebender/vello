@@ -254,22 +254,22 @@ fn glyphs_bitmap_noto(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 250, height = 70, skip_hybrid, cpu_u8_tolerance = 1)]
+#[vello_test(width = 250, height = 70, cpu_u8_tolerance = 1)]
 fn glyphs_colr_noto(ctx: &mut impl Renderer) {
     render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)));
 }
 
-#[vello_test(width = 500, height = 140, skip_hybrid, cpu_u8_tolerance = 1)]
+#[vello_test(width = 500, height = 140, cpu_u8_tolerance = 1)]
 fn glyphs_colr_noto_scaled_2x(ctx: &mut impl Renderer) {
     render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)).then_scale(2.0));
 }
 
-#[vello_test(width = 125, height = 35, skip_hybrid, cpu_u8_tolerance = 1)]
+#[vello_test(width = 125, height = 35, cpu_u8_tolerance = 1)]
 fn glyphs_colr_noto_scaled_half(ctx: &mut impl Renderer) {
     render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)).then_scale(0.5));
 }
 
-#[vello_test(width = 350, height = 350, skip_hybrid, cpu_u8_tolerance = 3)]
+#[vello_test(width = 350, height = 350, cpu_u8_tolerance = 3)]
 fn glyphs_colr_noto_rotated(ctx: &mut impl Renderer) {
     render_colr_noto_with_transform(
         ctx,
@@ -277,7 +277,7 @@ fn glyphs_colr_noto_rotated(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(width = 600, height = 600, skip_hybrid, cpu_u8_tolerance = 2)]
+#[vello_test(width = 600, height = 600, cpu_u8_tolerance = 2)]
 fn glyphs_colr_noto_rotated_scaled(ctx: &mut impl Renderer) {
     render_colr_noto_with_transform(
         ctx,
@@ -287,7 +287,7 @@ fn glyphs_colr_noto_rotated_scaled(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(width = 250, height = 140, skip_hybrid, cpu_u8_tolerance = 1)]
+#[vello_test(width = 250, height = 140, cpu_u8_tolerance = 1)]
 fn glyphs_colr_noto_scaled_non_uniform(ctx: &mut impl Renderer) {
     render_colr_noto_with_transform(
         ctx,
@@ -295,7 +295,7 @@ fn glyphs_colr_noto_scaled_non_uniform(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(width = 300, height = 300, skip_hybrid, cpu_u8_tolerance = 2)]
+#[vello_test(width = 300, height = 300, cpu_u8_tolerance = 2)]
 fn glyphs_colr_noto_rotated_scaled_non_uniform(ctx: &mut impl Renderer) {
     render_colr_noto_with_transform(
         ctx,
@@ -317,7 +317,7 @@ fn glyphs_bitmap_apple(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 400, height = 960, skip_hybrid, diff_pixels = 50)]
+#[vello_test(width = 400, height = 960, diff_pixels = 50)]
 fn glyphs_colr_test_glyphs(ctx: &mut impl Renderer) {
     const TEST_FONT: &[u8] =
         include_bytes!("../../../examples/assets/colr_test_glyphs/test_glyphs-glyf_colr_1.ttf");
