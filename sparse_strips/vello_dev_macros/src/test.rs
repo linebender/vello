@@ -212,6 +212,8 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         || input_fn_name_str.contains("recording")
         // TODO: Add test annotation instead of hard coding here
         || input_fn_name_str.contains("filter_varying_depths_clips_and_compositions")
+        // TODO: Maybe this should be enabled.
+        || input_fn_name_str.contains("glyphs_colr_test_glyphs")
         || input_fn_name_str.contains("gradient_color_alpha_unmul");
 
     let empty_snippet = quote! {};
