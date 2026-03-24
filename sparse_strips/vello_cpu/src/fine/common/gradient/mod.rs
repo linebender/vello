@@ -17,14 +17,13 @@ pub(crate) fn calculate_t_vals<S: Simd, U: SimdGradientKind<S>>(
     kind: U,
     buf: &mut [f32],
     gradient: &EncodedGradient,
-    start_x: u16,
-    start_y: u16,
+    start_x: f64,
+    start_y: f64,
 ) {
     simd.vectorize(
         #[inline(always)]
         || {
-            let mut cur_pos =
-                gradient.transform * Point::new(f64::from(start_x), f64::from(start_y));
+            let mut cur_pos = gradient.transform * Point::new(start_x, start_y);
             let x_advances = (gradient.x_advance.x as f32, gradient.x_advance.y as f32);
             let y_advances = (gradient.y_advance.x as f32, gradient.y_advance.y as f32);
 

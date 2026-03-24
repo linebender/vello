@@ -26,10 +26,10 @@ impl<S: Simd> BlurredRoundedRectFiller<S> {
     pub(crate) fn new(
         simd: S,
         rect: &EncodedBlurredRoundedRectangle,
-        start_x: u16,
-        start_y: u16,
+        start_x: f64,
+        start_y: f64,
     ) -> Self {
-        let start_pos = rect.transform * Point::new(f64::from(start_x), f64::from(start_y));
+        let start_pos = rect.transform * Point::new(start_x, start_y);
         let color_components = rect.color.as_premul_f32().components;
         let r = f32x8::splat(simd, color_components[0]);
         let g = f32x8::splat(simd, color_components[1]);
@@ -137,14 +137,12 @@ impl<S: Simd> Iterator for AlphaCalculator<S> {
         );
         let r = &self.r;
 
-        // Equivalent to j + r.v1 - r.v1 * r.height
-        let y = j - r.v1.mul_sub(r.height, r.v1);
+        let y = j - r.v1 * r.height;
         // Equivalent to r.r1 + y.abs() - (r.h * r.v1)
         let y0 = r.r1 - r.h.mul_sub(r.v1, y.abs());
         let y1 = y0.max(r.v0);
 
-        // Equivalent to i + r.v1 - r.v1 * r.width
-        let x = i - r.v1.mul_sub(r.width, r.v1);
+        let x = i - r.v1 * r.width;
         // Equivalent to r.r1 + x.abs() - (r.w * r.v1)
         let x0 = r.r1 - r.w.mul_sub(r.v1, x.abs());
         let x1 = x0.max(r.v0);

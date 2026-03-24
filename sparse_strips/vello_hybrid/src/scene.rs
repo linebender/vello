@@ -330,6 +330,10 @@ impl Scene {
     /// a `Paint` that references that data. The combined transform (geometry + paint)
     /// is applied during encoding.
     fn encode_current_paint(&mut self) -> Paint {
+        // Note: In vello_cpu, during fine rasterization we apply a 0.5 offset to the location
+        // to account for the fact that we want to sample the pixel center instead of the top-left
+        // corner. For vello_hybrid, we don't need this, because the GPU itself already applies
+        // this shift automatically.
         match self.render_state.paint.clone() {
             PaintType::Solid(s) => s.into(),
             PaintType::Gradient(g) => g.encode_into(
