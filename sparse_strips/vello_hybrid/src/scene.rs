@@ -516,7 +516,6 @@ impl Scene {
             return false;
         }
 
-        let paint = self.encode_current_paint();
         let transformed_rect = self.render_state.transform.transform_rect_bbox(*rect);
 
         let x0 = transformed_rect.x0.max(0.0).min(f64::from(self.width));
@@ -528,6 +527,8 @@ impl Scene {
         if x1 <= x0 || y1 <= y0 {
             return false;
         }
+
+        let paint = self.encode_current_paint();
 
         self.fast_strips_buffer
             .commands
