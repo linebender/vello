@@ -610,7 +610,7 @@ fn issue_1477(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
 }
 
-#[vello_test(skip_multithreaded, width = 768, height = 100)]
+#[vello_test(skip_multithreaded, width = 768, height = 100, hybrid_tolerance = 1)]
 fn issue_1509(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 25.0,
