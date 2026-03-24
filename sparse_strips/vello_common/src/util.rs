@@ -7,9 +7,9 @@ use crate::math::FloatExt;
 use fearless_simd::{
     Bytes, Simd, SimdBase, SimdFloat, f32x16, u8x16, u8x32, u16x16, u16x32, u32x16,
 };
+use peniko::kurbo::Affine;
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
-use peniko::kurbo::{Affine, Rect};
 
 /// Convert f32x16 to u8x16.
 #[inline(always)]
@@ -76,17 +76,11 @@ pub fn is_integer_translation(transform: &Affine) -> bool {
         && (e - e.round()).is_nearly_zero()
         && (f - f.round()).is_nearly_zero()
 }
-
-/// Check if rect coordinates are all integers (no fractional parts).
-///
-/// The optimized rect path doesn't handle anti-aliasing for fractional edges,
-/// so non-integer coordinates require path-based rendering.
+/// Check if an affine transform has no skewing (i.e. preserves axis alignment).
 #[inline]
-pub fn is_integer_rect(rect: &Rect) -> bool {
-    (rect.x0 - rect.x0.round()).is_nearly_zero()
-        && (rect.y0 - rect.y0.round()).is_nearly_zero()
-        && (rect.x1 - rect.x1.round()).is_nearly_zero()
-        && (rect.y1 - rect.y1.round()).is_nearly_zero()
+pub fn is_axis_aligned(transform: &Affine) -> bool {
+    let [_, b, c, ..] = transform.as_coeffs();
+    b.is_nearly_zero() && c.is_nearly_zero()
 }
 
 /// Extract scale factors from an affine transform using singular value decomposition.
