@@ -1777,128 +1777,34 @@ fn generate_gpu_strips_for_fast_path(
     }
 }
 
-/// Split a rectangle into up to 5 GPU strips: a large inner rect with frac=0
-/// (no AA computation in the shader) plus up to 4 one-pixel edge strips that
-/// carry the fractional coverage for anti-aliasing.
+/// Snap rectangle to nearest pixel boundaries and emit a single GPU strip (no AA).
 fn pack_rectangle_into_gpu(
     rect: &FastPathRect,
     encoded_paints: &[EncodedPaint],
     paint_idxs: &[u32],
     out: &mut Vec<GpuStrip>,
 ) {
-    let sx0 = rect.x0.floor();
-    let sy0 = rect.y0.floor();
-    let sx1 = rect.x1.ceil();
-    let sy1 = rect.y1.ceil();
-
-    let x = sx0 as u16;
-    let y = sy0 as u16;
-    let full_w = (sx1 - sx0) as u16;
-    let full_h = (sy1 - sy0) as u16;
-
-    let (payload, paint_packed) =
-        Scheduler::process_paint(&rect.paint, encoded_paints, (x, y), paint_idxs);
-    let flag = paint_packed | RECT_STRIP_FLAG;
-
-    let frac_x0 = rect.x0 - sx0;
-    let frac_y0 = rect.y0 - sy0;
-    let frac_x1 = sx1 - rect.x1;
-    let frac_y1 = sy1 - rect.y1;
-
-    let has_left = frac_x0 > 0.0;
-    let has_top = frac_y0 > 0.0;
-    let has_right = frac_x1 > 0.0;
-    let has_bottom = frac_y1 > 0.0;
-
-    if !has_left && !has_top && !has_right && !has_bottom {
-        // Pixel-aligned: single strip, no AA.
-        out.push(GpuStrip {
-            x,
-            y,
-            width: full_w,
-            dense_width_or_rect_height: full_h,
-            col_idx_or_rect_frac: 0,
-            payload,
-            paint_and_rect_flag: flag,
-        });
+    let x = rect.x0.round() as u16;
+    let y = rect.y0.round() as u16;
+    let x1 = rect.x1.round() as u16;
+    let y1 = rect.y1.round() as u16;
+    let width = x1.saturating_sub(x);
+    let height = y1.saturating_sub(y);
+    if width == 0 || height == 0 {
         return;
     }
 
-    // Inner rect: shrink by 1px on each AA edge.
-    let inner_x = x + has_left as u16;
-    let inner_y = y + has_top as u16;
-    let inner_w = full_w - has_left as u16 - has_right as u16;
-    let inner_h = full_h - has_top as u16 - has_bottom as u16;
+    let (payload, paint_packed) =
+        Scheduler::process_paint(&rect.paint, encoded_paints, (x, y), paint_idxs);
 
-    if inner_w > 0 && inner_h > 0 {
-        out.push(GpuStrip {
-            x: inner_x,
-            y: inner_y,
-            width: inner_w,
-            dense_width_or_rect_height: inner_h,
-            col_idx_or_rect_frac: 0,
-            payload,
-            paint_and_rect_flag: flag,
-        });
-    }
-
-    // Left edge: 1px wide, full height. AA on left edge only.
-    if has_left {
-        out.push(GpuStrip {
-            x,
-            y,
-            width: 1,
-            dense_width_or_rect_height: full_h,
-            col_idx_or_rect_frac: pack_unorm4x8([frac_x0, frac_y0, 0.0, frac_y1]),
-            payload,
-            paint_and_rect_flag: flag,
-        });
-    }
-
-    // Right edge: 1px wide, full height. AA on right edge only.
-    if has_right {
-        out.push(GpuStrip {
-            x: x + full_w - 1,
-            y,
-            width: 1,
-            dense_width_or_rect_height: full_h,
-            col_idx_or_rect_frac: pack_unorm4x8([0.0, frac_y0, frac_x1, frac_y1]),
-            payload,
-            paint_and_rect_flag: flag,
-        });
-    }
-
-    // Top edge: spans inner width, 1px tall. AA on top edge only.
-    if has_top && inner_w > 0 {
-        out.push(GpuStrip {
-            x: inner_x,
-            y,
-            width: inner_w,
-            dense_width_or_rect_height: 1,
-            col_idx_or_rect_frac: pack_unorm4x8([0.0, frac_y0, 0.0, 0.0]),
-            payload,
-            paint_and_rect_flag: flag,
-        });
-    }
-
-    // Bottom edge: spans inner width, 1px tall. AA on bottom edge only.
-    if has_bottom && inner_w > 0 {
-        out.push(GpuStrip {
-            x: inner_x,
-            y: y + full_h - 1,
-            width: inner_w,
-            dense_width_or_rect_height: 1,
-            col_idx_or_rect_frac: pack_unorm4x8([0.0, 0.0, 0.0, frac_y1]),
-            payload,
-            paint_and_rect_flag: flag,
-        });
-    }
+    out.push(GpuStrip {
+        x,
+        y,
+        width,
+        dense_width_or_rect_height: height,
+        col_idx_or_rect_frac: 0,
+        payload,
+        paint_and_rect_flag: paint_packed | RECT_STRIP_FLAG,
+    });
 }
 
-fn pack_unorm4x8(v: [f32; 4]) -> u32 {
-    let q = |f: f32| -> u8 { (f * 255.0 + 0.5) as u8 };
-    u32::from(q(v[0]))
-        | (u32::from(q(v[1])) << 8)
-        | (u32::from(q(v[2])) << 16)
-        | (u32::from(q(v[3])) << 24)
-}

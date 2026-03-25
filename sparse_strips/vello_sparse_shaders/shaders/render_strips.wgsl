@@ -154,22 +154,9 @@ struct StripInstance {
 }
 
 struct VertexOutput {
-    // Render type for the strip
     @location(0) @interpolate(flat) paint_and_rect_flag: u32,
-    // Texture coordinates for the current fragment
-    @location(1) tex_coord: vec2<f32>,
-    // UV coordinates for the current fragment, used for image sampling
-    @location(2) sample_xy: vec2<f32>,
-    // For normal strips: ending x-position of the dense (alpha) region.
-    // For rect strips: packed dimensions (width | height << 16).
-    @location(3) @interpolate(flat) dense_end_or_rect_size: u32,
-    // Color value or slot index when alpha is 0
-    @location(4) @interpolate(flat) payload: u32,
-    // Packed fractional edge offsets for rectangles.
-    // Bits 0-7: x0, 8-15: y0, 16-23: x1, 24-31: y1.
-    // Zero for normal strips.
-    @location(5) @interpolate(flat) rect_frac: u32,
-    // Normalized device coordinates (NDC) for the current vertex
+    @location(1) sample_xy: vec2<f32>,
+    @location(2) @interpolate(flat) payload: u32,
     @builtin(position) position: vec4<f32>,
 };
 
@@ -192,54 +179,32 @@ fn vs_main(
     instance: StripInstance,
 ) -> VertexOutput {
     var out: VertexOutput;
-    // Map vertex_index (0-3) to quad corners:
-    // 0 → (0,0), 1 → (1,0), 2 → (0,1), 3 → (1,1)
     let x = f32(in_vertex_index & 1u);
     let y = f32(in_vertex_index >> 1u);
-    // Unpack the x and y coordinates from the packed u32 instance.xy
+
     let x0 = instance.xy & 0xffffu;
     let y0 = instance.xy >> 16u;
     let width = instance.widths_or_rect_height & 0xffffu;
-    let dense_width = instance.widths_or_rect_height >> 16u;
+    let height = instance.widths_or_rect_height >> 16u;
 
-    let is_rect = (instance.paint_and_rect_flag & RECT_STRIP_FLAG) != 0u;
-    var height = config.strip_height;
-    if is_rect {
-        height = dense_width;
-        out.dense_end_or_rect_size = width | (dense_width << 16u);
-        out.rect_frac = instance.col_idx_or_rect_frac;
-    } else {
-        out.dense_end_or_rect_size = instance.col_idx_or_rect_frac + dense_width;
-        out.rect_frac = 0u;
-    }
-    // Calculate the pixel coordinates of the current vertex within the strip.
-    // Don't forget to apply the strip offset!
     let pix_x = f32(i32(x0) + config.strip_offset_x) + x * f32(width);
     let pix_y = f32(i32(y0) + config.strip_offset_y) + y * f32(height);
-    // Convert pixel coordinates to normalized device coordinates (NDC)
-    // NDC ranges from -1 to 1, with (0,0) at the center of the viewport
     let ndc_x = pix_x * 2.0 / f32(config.width) - 1.0;
     let ndc_y = 1.0 - pix_y * 2.0 / f32(config.height);
 
     let color_source = (instance.paint_and_rect_flag >> 29u) & 0x3u;
     if color_source == COLOR_SOURCE_PAYLOAD {
         let paint_type = (instance.paint_and_rect_flag >> 26u) & 0x7u;
-        // Unpack view coordinates for image sampling and gradient calculations
-        let scene_strip_x = instance.payload & 0xffffu;
-        let scene_strip_y = instance.payload >> 16u;
-
         if paint_type == PAINT_TYPE_IMAGE {
+            let scene_strip_x = instance.payload & 0xffffu;
+            let scene_strip_y = instance.payload >> 16u;
             let paint_tex_idx = instance.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
             let encoded_image = unpack_encoded_image(paint_tex_idx);
             let pos = vec2<f32>(f32(scene_strip_x) + x * f32(width), f32(scene_strip_y) + y * f32(height));
-            // Compute atlas coords and normalize to [0,1] for textureSample (bilinear fast path).
             let atlas_xy = encoded_image.translate + encoded_image.image_offset + encoded_image.transform * pos;
             out.sample_xy = atlas_xy / vec2<f32>(textureDimensions(atlas_texture_array));
         }
     }
-
-    let col_offset = select(f32(instance.col_idx_or_rect_frac), 0.0, is_rect);
-    out.tex_coord = vec2<f32>(col_offset + x * f32(width), y * f32(height));
 
     out.position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
     out.payload = instance.payload;
@@ -250,45 +215,23 @@ fn vs_main(
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    var alpha = 1.0;
-    let is_rect = (in.paint_and_rect_flag & RECT_STRIP_FLAG) != 0u;
-    // TODO: Explore doing these calculations only for rectangle parts that actually need anti-aliasing. See
-    // https://github.com/linebender/vello/pull/1482#discussion_r2861311034
-    if is_rect && in.rect_frac != 0u {
-        let frac = unpack4x8unorm(in.rect_frac);
-        // Calculate how much of the pixel is actually covered by the rect.
-        // We do this by simply calculating the fractions in the x and y direction, and
-        // then multiplying them.
-        // For (maybe?) better performance, we calculate the x and y dimension in a single
-        // pass by packing everything into a vec2.
-        let rect_size = vec2<f32>(f32(in.dense_end_or_rect_size & 0xFFFFu), f32(in.dense_end_or_rect_size >> 16u));
-        let tc = in.tex_coord;
-        // + 0.5 and -0.5 since the fragment shader positions the coordinates in the center of the pixel.
-        let bottom_and_right = min(tc + 0.5, rect_size - frac.zw);
-        let top_and_left = max(tc - 0.5, frac.xy);
-        let a = clamp(bottom_and_right - top_and_left, vec2(0.0), vec2(1.0));
-        alpha = a.x * a.y;
-    }
-    // Apply the alpha value to the unpacked RGBA color or slot index
     let color_source = (in.paint_and_rect_flag >> 29u) & 0x3u;
     var final_color: vec4<f32>;
 
     if color_source == COLOR_SOURCE_PAYLOAD {
         let paint_type = (in.paint_and_rect_flag >> 26u) & 0x7u;
 
-        // in.payload encodes a color for PAINT_TYPE_SOLID or sample_xy for PAINT_TYPE_IMAGE
         if paint_type == PAINT_TYPE_SOLID {
-            final_color = alpha * unpack4x8unorm(in.payload);
+            final_color = unpack4x8unorm(in.payload);
         } else if paint_type == PAINT_TYPE_IMAGE {
             let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
             let encoded_image = unpack_encoded_image(paint_tex_idx);
-            let sample_color = textureSample(
+            final_color = textureSample(
                 atlas_texture_array,
                 atlas_sampler,
                 in.sample_xy,
                 i32(encoded_image.atlas_index),
             );
-            final_color = alpha * sample_color;
         }
     }
     return final_color;
