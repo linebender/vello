@@ -44,7 +44,7 @@ fn render_impl<S: Simd>(s: S, rect: Rect, strip_buf: &mut Vec<Strip>, alpha_buf:
     if rect.is_zero_area() {
         return;
     }
-    
+
     let rect_x0 = rect.x0 as f32;
     let rect_y0 = rect.y0 as f32;
     let rect_x1 = rect.x1 as f32;
