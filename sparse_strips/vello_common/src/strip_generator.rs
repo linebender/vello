@@ -196,10 +196,6 @@ impl StripGenerator {
         let viewport = Rect::new(0.0, 0.0, self.width as f64, self.height as f64);
 
         let clamped = rect.intersect(viewport);
-        
-        if clamped.is_zero_area() {
-            return;
-        }
 
         let level = self.level;
         render_with_clip(
