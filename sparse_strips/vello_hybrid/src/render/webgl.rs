@@ -663,8 +663,6 @@ struct StripUniforms {
     config_vs_block_index: u32,
     /// Config uniform block index for fragment shader.
     config_fs_block_index: u32,
-    /// Alphas texture location.
-    alphas_texture: WebGlUniformLocation,
     /// Atlas texture location for fragment shader.
     atlas_texture_array_fs: WebGlUniformLocation,
     /// Atlas texture location for vertex shader.
@@ -1614,7 +1612,6 @@ fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> St
     gl.uniform_block_binding(program, config_fs_block_index, 0);
 
     // Get texture uniform locations.
-    let alphas_texture_name = render_strips::fragment::ALPHAS_TEXTURE;
     let atlas_texture_array_fs_name = render_strips::fragment::ATLAS_TEXTURE_ARRAY;
     let atlas_texture_array_vs_name = render_strips::vertex::ATLAS_TEXTURE_ARRAY;
     let encoded_paints_texture_fs_name = render_strips::fragment::ENCODED_PAINTS_TEXTURE;
@@ -1622,9 +1619,6 @@ fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> St
     StripUniforms {
         config_vs_block_index,
         config_fs_block_index,
-        alphas_texture: gl
-            .get_uniform_location(program, alphas_texture_name)
-            .unwrap(),
         atlas_texture_array_fs: gl
             .get_uniform_location(program, atlas_texture_array_fs_name)
             .unwrap(),
@@ -2199,14 +2193,6 @@ impl WebGlRendererContext<'_> {
             .bind_vertex_array(Some(&self.programs.resources.strip_vao));
 
         // Bind textures.
-        self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-        self.gl.bind_texture(
-            WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.alphas_texture),
-        );
-        self.gl
-            .uniform1i(Some(&self.programs.strip_uniforms.alphas_texture), 0);
-
         // Bind atlas texture array for image rendering
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);
         self.gl.bind_texture(
