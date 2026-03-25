@@ -622,3 +622,12 @@ fn issue_flush_fast_path_with_blending(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect2);
     ctx.pop_layer();
 }
+
+// This tests an issue where the rectangle fast path could produce strips below the viewport,
+// resulting in a triggered assertion in later parts of the pipeline that assume everything
+// below the viewport has been culled away.
+#[vello_test(width = 100, height = 100, no_ref)]
+fn issue_rect_at_bottom_of_viewport(ctx: &mut impl Renderer) {
+    ctx.set_transform(Affine::IDENTITY);
+    ctx.fill_rect(&Rect::new(25.0, 101.0, 200.0, 130.0));
+}
