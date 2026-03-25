@@ -195,13 +195,11 @@ impl StripGenerator {
     ) {
         let viewport = Rect::new(0.0, 0.0, self.width as f64, self.height as f64);
 
-        // `intersect` will still return a (negative) rectangle even if they don't overlap,
-        // so first check whether they do overlap in the first place.
-        if !rect.overlaps(viewport) {
+        let clamped = rect.intersect(viewport);
+        
+        if clamped.is_zero_area() {
             return;
         }
-
-        let clamped = rect.intersect(viewport);
 
         let level = self.level;
         render_with_clip(
