@@ -209,6 +209,13 @@ impl Tile {
     /// most-significant part of the number and `packed_winding_line_idx` the least significant.
     #[inline(always)]
     const fn to_bits(self) -> u64 {
+        // Note that for correct rendering, tiles only need to be sorted on `(y, x)`. Sorting on
+        // the line index in addition to the coordinate improves data locality in strip rendering.
+        // This is trading off increased sorting time for decreased strip rendering time. How the
+        // trade-off falls is scene-dependent.
+        //
+        // This operation compiles to a no-op: `Tile`'s field order is such that this is exactly
+        // the in-memory representation.
         ((self.y as u64) << 48) | ((self.x as u64) << 32) | self.packed_winding_line_idx as u64
     }
 }
