@@ -5,10 +5,13 @@
 //! well as some code that was copied from kurbo, which is needed to reimplement the
 //! full `flatten` method.
 
-use crate::flatten::{SQRT_TOL, TOL, TOL_2};
 #[cfg(not(feature = "std"))]
 use crate::kurbo::common::FloatFuncs as _;
 use crate::kurbo::{CubicBez, Line, ParamCurve, ParamCurveNearest, PathEl, Point, QuadBez};
+use crate::{
+    flatten::{SQRT_TOL, TOL, TOL_2},
+    tile::Tile,
+};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use fearless_simd::*;
@@ -50,8 +53,20 @@ pub(crate) fn flatten<S: Simd>(
 ) {
     flatten_ctx.flattened_cubics.clear();
 
+    // For the culling performed here to be correct, the top y coordinate of the cull bbox must be
+    // aligned to strip row boundaries. Consider the alternative: for example, a strip row starting
+    // at y=8, a cull bbox starting at y=10, and (nearly) horizontal geometry at y=9 that does not
+    // cross into the cull bbox and does not extend above y=8 (and note this is all in a y-down
+    // coordinate space).
+    //
+    // The culling performed here would remove that geometry. However, as it does not extend above
+    // the strip row, it does not add coarse winding to the strip. Yet, if this is the top part of,
+    // say, a rectangle, this geometry (or coarse winding) is necessary in later stages for the
+    // bottom part of the strip to get filled.
+    //
+    // Therefore, we align `top` to strip row boundaries.
     let left = cull_bbox[0] as f64;
-    let top = cull_bbox[1] as f64;
+    let top = (cull_bbox[1] / Tile::HEIGHT * Tile::HEIGHT) as f64;
     let right = cull_bbox[2] as f64;
     let bottom = cull_bbox[3] as f64;
 
