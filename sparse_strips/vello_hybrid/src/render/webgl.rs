@@ -665,8 +665,6 @@ struct StripUniforms {
     config_fs_block_index: u32,
     /// Alphas texture location.
     alphas_texture: WebGlUniformLocation,
-    /// Clip input texture location.
-    clip_input_texture: WebGlUniformLocation,
     /// Atlas texture location for fragment shader.
     atlas_texture_array_fs: WebGlUniformLocation,
     /// Atlas texture location for vertex shader.
@@ -1619,7 +1617,6 @@ fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> St
 
     // Get texture uniform locations.
     let alphas_texture_name = render_strips::fragment::ALPHAS_TEXTURE;
-    let clip_input_texture_name = render_strips::fragment::CLIP_INPUT_TEXTURE;
     let atlas_texture_array_fs_name = render_strips::fragment::ATLAS_TEXTURE_ARRAY;
     let atlas_texture_array_vs_name = render_strips::vertex::ATLAS_TEXTURE_ARRAY;
     let encoded_paints_texture_fs_name = render_strips::fragment::ENCODED_PAINTS_TEXTURE;
@@ -1631,9 +1628,6 @@ fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> St
         config_fs_block_index,
         alphas_texture: gl
             .get_uniform_location(program, alphas_texture_name)
-            .unwrap(),
-        clip_input_texture: gl
-            .get_uniform_location(program, clip_input_texture_name)
             .unwrap(),
         atlas_texture_array_fs: gl
             .get_uniform_location(program, atlas_texture_array_fs_name)
@@ -2219,18 +2213,6 @@ impl WebGlRendererContext<'_> {
         );
         self.gl
             .uniform1i(Some(&self.programs.strip_uniforms.alphas_texture), 0);
-
-        let clip_texture_idx = match &target {
-            StripPassRenderTarget::SlotTexture(1) => 0,
-            _ => 1,
-        };
-        self.gl.active_texture(WebGl2RenderingContext::TEXTURE1);
-        self.gl.bind_texture(
-            WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.slot_textures[clip_texture_idx]),
-        );
-        self.gl
-            .uniform1i(Some(&self.programs.strip_uniforms.clip_input_texture), 1);
 
         // Bind atlas texture array for image rendering
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);

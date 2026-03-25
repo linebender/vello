@@ -28,7 +28,6 @@
 // Use payload (color or image coordinates)
 const COLOR_SOURCE_PAYLOAD: u32 = 0u;
 // Sample from clip texture slot
-const COLOR_SOURCE_SLOT: u32 = 1u;
 // Paint types
 const PAINT_TYPE_SOLID: u32 = 0u;  
 const PAINT_TYPE_IMAGE: u32 = 1u;
@@ -293,9 +292,6 @@ fn vs_main(
 @group(0) @binding(0)
 var alphas_texture: texture_2d<u32>;
 
-@group(0) @binding(2)
-var clip_input_texture: texture_2d<f32>;
-
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var alpha = 1.0;
@@ -498,23 +494,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             );
             final_color = alpha * gradient_color;
         }
-    } else if color_source == COLOR_SOURCE_SLOT {
-        // in.payload encodes a slot in the source clip texture.
-        // This is a bit finicky: When copying from a texture slot, we already
-        // know which slot to choose and where that slot is located. Therefore, we now
-        // only need to determine the pixel within the slot to sample. However, this
-        // position should not be affected by the global strip offset. For example, if the
-        // strip offset is (2, 2), then the pixel (2, 2) should still map to (0, 0)
-        // within the wide tile slot! Therefore, we need to subtract the strip
-        // offset here.
-        let clip_x = u32(i32(in.position.x) - config.strip_offset_x) & 0xFFu;
-        let clip_y = (u32(i32(in.position.y) - config.strip_offset_y) & 3u) + in.payload * config.strip_height;
-        let clip_in_color = textureLoad(clip_input_texture, vec2(clip_x, clip_y), 0);
-
-        // Extract opacity from first 8 bits (quantized from [0, 255])
-        let opacity = f32(in.paint_and_rect_flag & 0xFFu) * (1.0 / 255.0);
-
-        final_color = alpha * opacity * clip_in_color;
     }
     return final_color;
 }
