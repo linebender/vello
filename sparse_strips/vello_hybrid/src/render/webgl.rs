@@ -673,8 +673,6 @@ struct StripUniforms {
     encoded_paints_texture_fs: WebGlUniformLocation,
     /// Encoded paints texture location for vertex shader.
     encoded_paints_texture_vs: WebGlUniformLocation,
-    /// Gradient texture location.
-    gradient_texture: WebGlUniformLocation,
 }
 
 /// Uniform locations for `clear_program`.
@@ -1621,8 +1619,6 @@ fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> St
     let atlas_texture_array_vs_name = render_strips::vertex::ATLAS_TEXTURE_ARRAY;
     let encoded_paints_texture_fs_name = render_strips::fragment::ENCODED_PAINTS_TEXTURE;
     let encoded_paints_texture_vs_name = render_strips::vertex::ENCODED_PAINTS_TEXTURE;
-    let gradient_texture_name = render_strips::fragment::GRADIENT_TEXTURE;
-
     StripUniforms {
         config_vs_block_index,
         config_fs_block_index,
@@ -1640,9 +1636,6 @@ fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> St
             .unwrap(),
         encoded_paints_texture_vs: gl
             .get_uniform_location(program, encoded_paints_texture_vs_name)
-            .unwrap(),
-        gradient_texture: gl
-            .get_uniform_location(program, gradient_texture_name)
             .unwrap(),
     }
 }
@@ -2243,15 +2236,6 @@ impl WebGlRendererContext<'_> {
             Some(&self.programs.strip_uniforms.encoded_paints_texture_vs),
             3,
         );
-
-        // Bind gradient texture for gradient rendering
-        self.gl.active_texture(WebGl2RenderingContext::TEXTURE4);
-        self.gl.bind_texture(
-            WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.gradient_texture),
-        );
-        self.gl
-            .uniform1i(Some(&self.programs.strip_uniforms.gradient_texture), 4);
 
         // Draw.
         self.gl.draw_arrays_instanced(
