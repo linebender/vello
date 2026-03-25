@@ -205,6 +205,8 @@ pub struct Scene {
     pub(crate) wide: Wide<MODE_HYBRID>,
     clip_context: ClipContext,
     pub(crate) render_state: RenderState,
+    /// Root transform prepended to every user transform (e.g. Y-flip for WebGL).
+    root_transform: Affine,
     pub(crate) aliasing_threshold: Option<u8>,
     // The reason we use `RefCell` here is that during `render`, we need
     // mutable access so we can store additional encoded paints for filtered layers,
@@ -322,7 +324,15 @@ impl Scene {
             fast_strips_buffer: FastStripsBuffer::default(),
             strip_path_mode: StripPathMode::FastOnly,
             coarse_batch_splits: Vec::new(),
+            root_transform: Affine::IDENTITY,
         }
+    }
+
+    /// Set the root transform that is prepended to every user transform.
+    ///
+    /// This is useful for coordinate system adjustments (e.g. Y-flip for WebGL).
+    pub fn set_root_transform(&mut self, transform: Affine) {
+        self.root_transform = transform;
     }
 
     /// Encode the current paint into a `Paint` that can be used for rendering.
@@ -823,12 +833,12 @@ impl Scene {
 
     /// Set the transform for subsequent rendering operations.
     pub fn set_transform(&mut self, transform: Affine) {
-        self.render_state.transform = transform;
+        self.render_state.transform = self.root_transform * transform;
     }
 
     /// Reset the transform to identity.
     pub fn reset_transform(&mut self) {
-        self.render_state.transform = Affine::IDENTITY;
+        self.render_state.transform = self.root_transform;
     }
 
     /// Apply filter to the current paint (affects next drawn element).
@@ -868,6 +878,7 @@ impl Scene {
         self.encoded_paints.borrow_mut().clear();
 
         self.render_state.reset();
+        self.render_state.transform = self.root_transform;
 
         #[cfg(feature = "text")]
         self.glyph_caches.as_mut().unwrap().maintain();

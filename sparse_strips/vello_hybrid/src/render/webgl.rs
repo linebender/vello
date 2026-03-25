@@ -187,64 +187,6 @@ impl WebGlRenderer {
         );
 
         self.render_scene(scene, render_size, true)?;
-
-        // Blit the view framebuffer to the default framebuffer (canvas element), reflecting the
-        // image along the Y axis to complete the WebGPU to WebGL2 coordinate transform.
-        self.gl.bind_framebuffer(
-            WebGl2RenderingContext::READ_FRAMEBUFFER,
-            Some(&self.programs.resources.view_framebuffer),
-        );
-        #[cfg(debug_assertions)]
-        {
-            let status = self
-                .gl
-                .check_framebuffer_status(WebGl2RenderingContext::READ_FRAMEBUFFER);
-            debug_assert_eq!(
-                status,
-                WebGl2RenderingContext::FRAMEBUFFER_COMPLETE,
-                "read framebuffer not complete"
-            );
-        }
-
-        self.gl
-            .bind_framebuffer(WebGl2RenderingContext::DRAW_FRAMEBUFFER, None);
-
-        #[cfg(debug_assertions)]
-        {
-            let status = self
-                .gl
-                .check_framebuffer_status(WebGl2RenderingContext::DRAW_FRAMEBUFFER);
-            debug_assert_eq!(
-                status,
-                WebGl2RenderingContext::FRAMEBUFFER_COMPLETE,
-                "write framebuffer not complete"
-            );
-        }
-
-        self.gl.blit_framebuffer(
-            0,
-            render_size.height as i32,
-            render_size.width as i32,
-            0,
-            0,
-            0,
-            render_size.width as i32,
-            render_size.height as i32,
-            WebGl2RenderingContext::COLOR_BUFFER_BIT,
-            WebGl2RenderingContext::LINEAR,
-        );
-
-        #[cfg(debug_assertions)]
-        {
-            // `get_error` cause synchronous stalls on the calling thread. It's best practice in
-            // release to omit this call.
-            // Reference:
-            //   https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#avoid_blocking_api_calls_in_production
-            let error = self.gl.get_error();
-            if error != WebGl2RenderingContext::NO_ERROR {
-                panic!("WebGL error {error}");
-            }
-        }
         Ok(())
     }
 
@@ -1392,10 +1334,7 @@ impl WebGlPrograms {
     /// Clear the view framebuffer.
     // TODO: Investigate adding tests for the clear_view behavior.
     fn clear_view_framebuffer(&mut self, gl: &WebGl2RenderingContext) {
-        gl.bind_framebuffer(
-            WebGl2RenderingContext::FRAMEBUFFER,
-            Some(&self.resources.view_framebuffer),
-        );
+        gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, None);
         gl.clear_color(0.0, 0.0, 0.0, 0.0);
         gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
     }
@@ -2214,10 +2153,8 @@ impl WebGlRendererContext<'_> {
                 );
             }
             StripPassRenderTarget::Output(OutputTarget::FinalView) => {
-                self.gl.bind_framebuffer(
-                    WebGl2RenderingContext::FRAMEBUFFER,
-                    Some(&self.programs.resources.view_framebuffer),
-                );
+                self.gl
+                    .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, None);
                 let width = self.programs.render_size.width;
                 let height = self.programs.render_size.height;
                 self.gl.viewport(0, 0, width as i32, height as i32);
