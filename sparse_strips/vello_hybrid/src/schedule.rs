@@ -761,9 +761,7 @@ impl Scheduler {
                     );
                 }
                 FastStripCommand::Rect(r) => {
-                    let strip = pack_rectangle_into_gpu(r, encoded_paints, paint_idxs);
-
-                    draw.0.push(strip);
+                    pack_rectangle_into_gpu(r, encoded_paints, paint_idxs, &mut draw.0);
                 }
             }
         }
@@ -1779,11 +1777,15 @@ fn generate_gpu_strips_for_fast_path(
     }
 }
 
+/// Split a rectangle into up to 5 GPU strips: a large inner rect with frac=0
+/// (no AA computation in the shader) plus up to 4 one-pixel edge strips that
+/// carry the fractional coverage for anti-aliasing.
 fn pack_rectangle_into_gpu(
     rect: &FastPathRect,
     encoded_paints: &[EncodedPaint],
     paint_idxs: &[u32],
-) -> GpuStrip {
+    out: &mut Vec<GpuStrip>,
+) {
     let sx0 = rect.x0.floor();
     let sy0 = rect.y0.floor();
     let sx1 = rect.x1.ceil();
@@ -1791,25 +1793,105 @@ fn pack_rectangle_into_gpu(
 
     let x = sx0 as u16;
     let y = sy0 as u16;
-    // Are guaranteed to be > 0 since we rejected negative rectangles.
-    let width = (sx1 - sx0) as u16;
-    let height = (sy1 - sy0) as u16;
+    let full_w = (sx1 - sx0) as u16;
+    let full_h = (sy1 - sy0) as u16;
 
     let (payload, paint_packed) =
         Scheduler::process_paint(&rect.paint, encoded_paints, (x, y), paint_idxs);
+    let flag = paint_packed | RECT_STRIP_FLAG;
 
-    // Determine the fractional offsets for anti-aliasing and quantize so it
-    // fits into u8.
-    let frac = pack_unorm4x8([rect.x0 - sx0, rect.y0 - sy0, sx1 - rect.x1, sy1 - rect.y1]);
+    let frac_x0 = rect.x0 - sx0;
+    let frac_y0 = rect.y0 - sy0;
+    let frac_x1 = sx1 - rect.x1;
+    let frac_y1 = sy1 - rect.y1;
 
-    GpuStrip {
-        x,
-        y,
-        width,
-        dense_width_or_rect_height: height,
-        col_idx_or_rect_frac: frac,
-        payload,
-        paint_and_rect_flag: paint_packed | RECT_STRIP_FLAG,
+    let has_left = frac_x0 > 0.0;
+    let has_top = frac_y0 > 0.0;
+    let has_right = frac_x1 > 0.0;
+    let has_bottom = frac_y1 > 0.0;
+
+    if !has_left && !has_top && !has_right && !has_bottom {
+        // Pixel-aligned: single strip, no AA.
+        out.push(GpuStrip {
+            x,
+            y,
+            width: full_w,
+            dense_width_or_rect_height: full_h,
+            col_idx_or_rect_frac: 0,
+            payload,
+            paint_and_rect_flag: flag,
+        });
+        return;
+    }
+
+    // Inner rect: shrink by 1px on each AA edge.
+    let inner_x = x + has_left as u16;
+    let inner_y = y + has_top as u16;
+    let inner_w = full_w - has_left as u16 - has_right as u16;
+    let inner_h = full_h - has_top as u16 - has_bottom as u16;
+
+    if inner_w > 0 && inner_h > 0 {
+        out.push(GpuStrip {
+            x: inner_x,
+            y: inner_y,
+            width: inner_w,
+            dense_width_or_rect_height: inner_h,
+            col_idx_or_rect_frac: 0,
+            payload,
+            paint_and_rect_flag: flag,
+        });
+    }
+
+    // Left edge: 1px wide, full height. AA on left edge only.
+    if has_left {
+        out.push(GpuStrip {
+            x,
+            y,
+            width: 1,
+            dense_width_or_rect_height: full_h,
+            col_idx_or_rect_frac: pack_unorm4x8([frac_x0, frac_y0, 0.0, frac_y1]),
+            payload,
+            paint_and_rect_flag: flag,
+        });
+    }
+
+    // Right edge: 1px wide, full height. AA on right edge only.
+    if has_right {
+        out.push(GpuStrip {
+            x: x + full_w - 1,
+            y,
+            width: 1,
+            dense_width_or_rect_height: full_h,
+            col_idx_or_rect_frac: pack_unorm4x8([0.0, frac_y0, frac_x1, frac_y1]),
+            payload,
+            paint_and_rect_flag: flag,
+        });
+    }
+
+    // Top edge: spans inner width, 1px tall. AA on top edge only.
+    if has_top && inner_w > 0 {
+        out.push(GpuStrip {
+            x: inner_x,
+            y,
+            width: inner_w,
+            dense_width_or_rect_height: 1,
+            col_idx_or_rect_frac: pack_unorm4x8([0.0, frac_y0, 0.0, 0.0]),
+            payload,
+            paint_and_rect_flag: flag,
+        });
+    }
+
+    // Bottom edge: spans inner width, 1px tall. AA on bottom edge only.
+    if has_bottom && inner_w > 0 {
+        out.push(GpuStrip {
+            x: inner_x,
+            y: y + full_h - 1,
+            width: inner_w,
+            dense_width_or_rect_height: 1,
+            col_idx_or_rect_frac: pack_unorm4x8([0.0, 0.0, 0.0, frac_y1]),
+            payload,
+            paint_and_rect_flag: flag,
+        });
     }
 }
 
