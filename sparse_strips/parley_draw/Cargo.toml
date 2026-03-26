@@ -29,7 +29,7 @@ workspace = true
 [dependencies]
 bytemuck = { workspace = true }
 foldhash = { workspace = true }
-log = { version = "0.4", default-features = false }
+log = { workspace = true }
 hashbrown = { workspace = true }
 peniko = { workspace = true }
 skrifa = { workspace = true }
@@ -37,5 +37,5 @@ smallvec = { workspace = true }
 vello_common = { workspace = true }
 vello_cpu = { workspace = true, optional = true, features = ["u8_pipeline", "text"] }
 vello_hybrid = { workspace = true, optional = true, features = ["text"] }
-png = { version = "0.17", optional = true }
-core_maths = { version = "0.1.1", optional = true }
+png = { workspace = true, optional = true }
+core_maths = { workspace = true, optional = true }
