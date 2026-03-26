@@ -167,6 +167,41 @@ fn clip_rectangle_and_circle(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
+#[vello_test(width = 100, height = 60)]
+fn clip_rect_cull_alignment(ctx: &mut impl Renderer) {
+    const {
+        assert!(
+            Tile::HEIGHT >= 4 && Tile::HEIGHT <= 16,
+            "This test only shows regressions if the tile height remains between 4 and 16 inclusive"
+        );
+    }
+
+    const Y: f64 = Tile::HEIGHT as f64;
+
+    let clip_rect = Rect::new(18.0, Y + 2., 78.0, 48.0);
+    ctx.set_paint(DARK_GREEN.with_alpha(0.1));
+    ctx.fill_rect(&clip_rect);
+
+    // Draw a near-rectangle with a slightly curved top edge to hit interesting flattening paths.
+    //
+    // The shape's top segment is outside and above the clip path, so it may end up being culled.
+    // However, the shape does not extend above the strip *row*, so the vertical segments of the
+    // shape that connect to the horizontal segment do not contribute coarse winding. Therefore,
+    // the horizontal segment cannot be ignored, as winding between the two vertical segments in
+    // its strip row needs to be correctly accounted.
+    let mut path = BezPath::new();
+    let top_y = Y + 1.;
+    path.move_to((30.0, 40.0));
+    path.line_to((30.0, top_y));
+    path.curve_to((45.0, top_y - 0.5), (55.0, top_y - 0.5), (70.0, top_y));
+    path.line_to((70.0, 40.0));
+    path.close_path();
+    ctx.push_clip_path(&clip_rect.to_path(0.1));
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_path(&path);
+    ctx.pop_clip_path();
+}
+
 #[vello_test]
 fn clip_with_translation(ctx: &mut impl Renderer) {
     // Apply a translation transform
