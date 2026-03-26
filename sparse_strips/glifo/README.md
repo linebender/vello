@@ -1,10 +1,10 @@
-## Parley Draw 
+## Glifo 
 
-Parley Draw provides APIs for efficiently rendering glyphs and paint styles like underline.
+Glifo provides APIs for efficiently rendering glyphs and paint styles like underline.
 
 ### Goals
 
-Parley Draw is under rapid development. Consider it experimental for now. Its goals are to:
+Glifo is under rapid development. Consider it experimental for now. Its goals are to:
 
 - Provide an API surface that accepts glyphs and their positions and renders them to a surface.
 - Cache those glyphs so that repeated renders of a glyph are fast.
@@ -13,14 +13,14 @@ Parley Draw is under rapid development. Consider it experimental for now. Its go
 
 ## Minimum supported Rust Version (MSRV)
 
-This version of Parley has been verified to compile with **Rust 1.88** and later.
+This version of Glifo has been verified to compile with **Rust 1.88** and later.
 
-Future versions of Parley might increase the Rust version requirement.
+Future versions of Glifo might increase the Rust version requirement.
 It will not be treated as a breaking change and as such can even happen with small patch releases.
 
 ## Community
 
-Discussion of Parley development happens in the [Linebender Zulip](https://xi.zulipchat.com/), specifically the [#parley channel](https://xi.zulipchat.com/#narrow/channel/205635-parley).
+Discussion of Glifo development happens in the [Linebender Zulip](https://xi.zulipchat.com/), specifically the [#parley channel](https://xi.zulipchat.com/#narrow/channel/205635-parley).
 All public content can be read without logging in.
 
 Contributions are welcome by pull request. The [Rust code of conduct] applies.

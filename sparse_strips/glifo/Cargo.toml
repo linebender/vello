@@ -1,7 +1,7 @@
 [package]
-name = "parley_draw"
+name = "glifo"
 version = "0.0.0"
-description = "Parley Draw provides APIs for efficiently rendering text."
+description = "Glifo provides APIs for efficiently rendering text."
 keywords = ["text", "layout"]
 categories = ["gui", "graphics"]
 edition.workspace = true

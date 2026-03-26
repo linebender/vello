@@ -1292,6 +1292,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "glifo"
+version = "0.0.0"
+dependencies = [
+ "bytemuck",
+ "core_maths",
+ "foldhash 0.1.5",
+ "hashbrown 0.16.1",
+ "log",
+ "peniko 0.6.0",
+ "png",
+ "skrifa 0.40.0",
+ "smallvec",
+ "vello_common",
+ "vello_cpu",
+ "vello_hybrid",
+]
+
+[[package]]
 name = "glow"
 version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2655,24 +2673,6 @@ dependencies = [
  "peniko 0.4.1",
  "skrifa 0.31.3",
  "swash",
-]
-
-[[package]]
-name = "parley_draw"
-version = "0.0.0"
-dependencies = [
- "bytemuck",
- "core_maths",
- "foldhash 0.1.5",
- "hashbrown 0.16.1",
- "log",
- "peniko 0.6.0",
- "png",
- "skrifa 0.40.0",
- "smallvec",
- "vello_common",
- "vello_cpu",
- "vello_hybrid",
 ]
 
 [[package]]

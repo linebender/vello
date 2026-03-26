@@ -27,7 +27,7 @@ impl CpuGlyphAtlas {
     pub fn save_atlas_pages(&self) {
         for (i, pixmap) in self.pixmaps.iter().enumerate() {
             let mut path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            path.pop(); // up from parley_draw to workspace root
+            path.pop(); // up from glifo to workspace root
             path.push("examples");
             path.push("_output");
             let _ = std::fs::create_dir_all(&path);
