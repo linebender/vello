@@ -3,8 +3,8 @@
 
 //! Using gradients and patterns paints using Vello CPU.
 
-use std::path::Path;
 use std::sync::Arc;
+use std::{io::Cursor, path::Path};
 use vello_cpu::{
     Image, ImageSource, Pixmap, RenderContext,
     color::palette::css::{BLUE, CYAN, DEEP_PINK, MAGENTA, NAVY, ORANGE, PURPLE, WHITE, YELLOW},
@@ -118,7 +118,7 @@ fn pattern() -> Image {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../vello_sparse_tests/tests/assets/rgb_image_2x2.png");
     let file = std::fs::read(path).unwrap();
-    let pixmap = Pixmap::from_png(file.as_slice()).unwrap();
+    let pixmap = Pixmap::from_png(Cursor::new(file)).unwrap();
 
     Image {
         // Note that only ImageSource::Pixmap is currently supported. Don't

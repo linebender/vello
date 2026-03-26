@@ -3,13 +3,15 @@
 
 //! Processing and drawing glyphs.
 
-use crate::kurbo::{Affine, BezPath, Vec2};
-use crate::peniko::FontData;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::fmt::{Debug, Formatter};
+#[cfg(feature = "png")]
+use std::io::Cursor;
+
 use hashbrown::hash_map::{Entry, RawEntryMut};
 use hashbrown::{Equivalent, HashMap};
+use skrifa::bitmap::{BitmapData, BitmapFormat, BitmapStrikes, Origin};
 use skrifa::instance::{LocationRef, Size};
 use skrifa::outline::{DrawSettings, OutlineGlyphFormat};
 use skrifa::raw::TableProvider;
@@ -21,12 +23,12 @@ use skrifa::{
 
 use crate::colr::convert_bounding_box;
 use crate::encode::x_y_advances;
-use crate::kurbo::Rect;
+use crate::kurbo::{Affine, BezPath, Rect, Vec2};
+use crate::peniko::FontData;
 use crate::pixmap::Pixmap;
-use skrifa::bitmap::{BitmapData, BitmapFormat, BitmapStrikes, Origin};
 
 #[cfg(not(feature = "std"))]
-use peniko::kurbo::common::FloatFuncs as _;
+use crate::peniko::kurbo::common::FloatFuncs as _;
 
 /// Positioned glyph.
 #[derive(Copy, Clone, Default, Debug)]
@@ -218,7 +220,9 @@ impl<'a, T: GlyphRenderer + 'a> GlyphRunBuilder<'a, T> {
                 .glyph_for_size(Size::new(self.run.font_size), GlyphId::new(glyph.id))
                 .and_then(|g| match g.data {
                     #[cfg(feature = "png")]
-                    BitmapData::Png(data) => Pixmap::from_png(data).ok().map(|d| (g, d)),
+                    BitmapData::Png(data) => {
+                        Pixmap::from_png(Cursor::new(data)).ok().map(|d| (g, d))
+                    }
                     #[cfg(not(feature = "png"))]
                     BitmapData::Png(_) => None,
                     // The others are not worth implementing for now (unless we can find a test case),

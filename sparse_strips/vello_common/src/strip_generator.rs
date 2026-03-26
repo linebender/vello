@@ -103,6 +103,18 @@ impl StripGenerator {
         }
     }
 
+    /// Get this strip generator's viewport width.
+    #[inline(always)]
+    pub fn width(&self) -> u16 {
+        self.width
+    }
+
+    /// Get this strip generator's viewport height.
+    #[inline(always)]
+    pub fn height(&self) -> u16 {
+        self.height
+    }
+
     /// Generate the strips for a filled path.
     pub fn generate_filled_path(
         &mut self,
@@ -113,14 +125,17 @@ impl StripGenerator {
         strip_storage: &mut StripStorage,
         clip_path: Option<PathDataRef<'_>>,
     ) {
+        let cull_bbox =
+            clip_path
+                .map(|clip_path| clip_path.bbox)
+                .unwrap_or([0, 0, self.width, self.height]);
         flatten::fill(
             self.level,
             path,
             transform,
             &mut self.line_buf,
             &mut self.flatten_ctx,
-            self.width,
-            self.height,
+            cull_bbox,
         );
 
         self.generate_with_clip(aliasing_threshold, strip_storage, fill_rule, clip_path);
@@ -136,6 +151,10 @@ impl StripGenerator {
         strip_storage: &mut StripStorage,
         clip_path: Option<PathDataRef<'_>>,
     ) {
+        let cull_bbox =
+            clip_path
+                .map(|clip_path| clip_path.bbox)
+                .unwrap_or([0, 0, self.width, self.height]);
         flatten::stroke(
             self.level,
             path,
@@ -144,8 +163,7 @@ impl StripGenerator {
             &mut self.line_buf,
             &mut self.flatten_ctx,
             &mut self.stroke_ctx,
-            self.width,
-            self.height,
+            cull_bbox,
         );
         self.generate_with_clip(aliasing_threshold, strip_storage, Fill::NonZero, clip_path);
     }
@@ -194,6 +212,7 @@ impl StripGenerator {
         clip_path: Option<PathDataRef<'_>>,
     ) {
         let viewport = Rect::new(0.0, 0.0, self.width as f64, self.height as f64);
+
         let clamped = rect.intersect(viewport);
 
         let level = self.level;
@@ -242,6 +261,7 @@ fn render_with_clip(
         let path_data = PathDataRef {
             strips: &temp_storage.strips,
             alphas: &temp_storage.alphas,
+            bbox: [0, 0, u16::MAX, u16::MAX],
         };
         intersect(level, clip_path, path_data, strip_storage);
     } else {
@@ -251,6 +271,8 @@ fn render_with_clip(
 
 #[cfg(test)]
 mod tests {
+    use alloc::format;
+
     use crate::fearless_simd::Level;
     use crate::kurbo::{Affine, Rect, Shape};
     use crate::peniko::Fill;
@@ -282,7 +304,7 @@ mod tests {
     }
 
     /// Assert that `generate_filled_rect_fast` produces the same strips as the
-    /// path-based pipeline for the given pixel-aligned rectangle.
+    /// path-based pipeline for the given rectangle.
     fn assert_rect_fast_eq_path(rect: Rect, test_name: &str) {
         let mut generator = StripGenerator::new(100, 100, Level::baseline());
         let mut storage_path = StripStorage::default();
@@ -343,5 +365,60 @@ mod tests {
     #[test]
     fn rect_one_pixel_tall() {
         assert_rect_fast_eq_path(Rect::new(2.0, 5.0, 12.0, 6.0), "one_pixel_tall");
+    }
+
+    #[test]
+    fn rect_fractional_within_single_tile() {
+        let cases: &[(f64, f64, f64, f64)] = &[
+            (0.25, 0.75, 2.5, 3.5),
+            (1.2, 1.3, 1.8, 1.7),
+            (0.1, 0.1, 3.9, 3.9),
+            (2.5, 2.5, 2.6, 2.6),
+            (0.01, 0.99, 3.99, 3.01),
+        ];
+        for (i, &(x0, y0, x1, y1)) in cases.iter().enumerate() {
+            assert_rect_fast_eq_path(Rect::new(x0, y0, x1, y1), &format!("single_tile_{i}"));
+        }
+    }
+
+    #[test]
+    fn rect_fractional_multi_tile() {
+        let cases: &[(f64, f64, f64, f64)] = &[
+            (1.5, 2.3, 10.7, 8.9),
+            (0.5, 0.5, 8.5, 8.5),
+            (2.3, 5.1, 15.7, 5.9),
+            (5.1, 2.3, 5.9, 15.7),
+            (0.25, 0.25, 12.75, 12.75),
+            (1.0 / 3.0, 2.0 / 3.0, 10.33, 8.67),
+            (1.99, 2.01, 9.01, 7.99),
+            (3.9, 3.9, 8.1, 8.1),
+            (3.2, 6.3, 14.8, 6.7),
+            (6.3, 3.2, 6.7, 14.8),
+            (0.1, 0.9, 49.9, 49.1),
+            (4.0, 2.7, 12.0, 9.3),
+            (2.7, 4.0, 9.3, 12.0),
+            (1.5, 1.2, 10.5, 2.8),
+            (1.5, 2.5, 14.5, 18.5),
+            (0.7, 0.3, 30.2, 25.8),
+            (7.9, 7.9, 8.1, 8.1),
+            (3.5, 0.5, 4.5, 0.9),
+            (0.01, 0.01, 99.99, 99.99),
+            (10.0, 10.0, 10.1, 10.1),
+        ];
+        for (i, &(x0, y0, x1, y1)) in cases.iter().enumerate() {
+            assert_rect_fast_eq_path(Rect::new(x0, y0, x1, y1), &format!("multi_tile_{i}"));
+        }
+    }
+
+    #[test]
+    fn rect_fractional_exhaustive() {
+        for xi in 0..100_u32 {
+            for yi in 0..100_u32 {
+                let dx = xi as f64 * 0.01;
+                let dy = yi as f64 * 0.01;
+                let rect = Rect::new(dx, dy, 50.0 + dx, 50.0 + dy);
+                assert_rect_fast_eq_path(rect, &format!("exhaustive_{dx}_{dy}"));
+            }
+        }
     }
 }

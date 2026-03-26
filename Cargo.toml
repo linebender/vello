@@ -38,7 +38,7 @@ members = [
 # NOTE: When bumping this, remember to also bump the aforementioned other packages'
 #       version in the dependencies section at the bottom of this file.
 #       Additionally, bump the Vello dependency version in the 'simple' example.
-version = "0.7.0"
+version = "0.8.0"
 
 edition = "2024"
 # Keep in sync with RUST_MIN_VER in .github/workflows/ci.yml, with the relevant README.md files
@@ -95,9 +95,9 @@ clippy.wildcard_dependencies = "warn"
 # END LINEBENDER LINT SET
 
 [workspace.dependencies]
-vello = { version = "0.7.0", path = "vello" }
-vello_encoding = { version = "0.7.0", path = "vello_encoding" }
-vello_shaders = { version = "0.7.0", path = "vello_shaders" }
+vello = { version = "0.8.0", path = "vello" }
+vello_encoding = { version = "0.8.0", path = "vello_encoding" }
+vello_shaders = { version = "0.8.0", path = "vello_shaders" }
 bytemuck = { version = "1.25.0", features = ["derive"] }
 skrifa = { version = "0.40.0", default-features = false, features = ["autohint_shaping"] }
 # The version of kurbo used below should be kept in sync
@@ -106,12 +106,13 @@ peniko = { version = "0.6.0", default-features = false }
 # FIXME: This can be removed once peniko supports the schemars feature.
 kurbo = { version = "0.13.0", default-features = false }
 futures-intrusive = "0.5.0"
+guillotiere = { version = "0.7.0", default-features = false }
 hashbrown = { version = "0.16.1", default-features = false, features = ["default-hasher"] }
 smallvec = "1.15.1"
 static_assertions = "1.1.0"
 thiserror = { version = "2.0.18", default-features = false }
-oxipng = { version = "9.1.5", default-features = false }
-png = "0.17.16"
+oxipng = { version = "10.1.0", default-features = false }
+png = "0.18.1"
 rayon = { version = "1.11.0" }
 thread_local = "1.1.9"
 crossbeam-channel = "0.5.15"
@@ -119,11 +120,11 @@ ordered-channel = { version = "1.2.0", features = ["crossbeam-channel"] }
 fearless_simd = { version = "0.4.0", default-features = false }
 
 # The below crates are experimental!
-vello_api = { path = "sparse_strips/vello_api", default-features = false }
-vello_common = { version = "0.0.6", path = "sparse_strips/vello_common", default-features = false }
-vello_cpu = { version = "0.0.6", path = "sparse_strips/vello_cpu" }
-vello_hybrid = { version = "0.0.6", path = "sparse_strips/vello_hybrid" }
-vello_sparse_shaders = { version = "0.0.6", path = "sparse_strips/vello_sparse_shaders" }
+vello_api = { version = "0.0.7", path = "sparse_strips/vello_api", default-features = false }
+vello_common = { version = "0.0.7", path = "sparse_strips/vello_common", default-features = false }
+vello_cpu = { version = "0.0.7", path = "sparse_strips/vello_cpu" }
+vello_hybrid = { version = "0.0.7", path = "sparse_strips/vello_hybrid" }
+vello_sparse_shaders = { version = "0.0.7", path = "sparse_strips/vello_sparse_shaders" }
 vello_example_scenes = { path = "sparse_strips/vello_example_scenes" }
 vello_dev_macros = { path = "sparse_strips/vello_dev_macros" }
 

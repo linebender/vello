@@ -1,6 +1,6 @@
 [package]
 name = "vello_api"
-version.workspace = true
+version = "0.0.7"
 description = "Defines the public API types for Vello, providing a stable interface for CPU and Hybrid rendering implementations."
 categories = ["rendering", "graphics"]
 keywords = ["2d", "vector-graphics"]
@@ -8,8 +8,6 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-# Prevent accidental publishing until the initial release
-publish = false
 
 [dependencies]
 bytemuck = { workspace = true, features = [] }

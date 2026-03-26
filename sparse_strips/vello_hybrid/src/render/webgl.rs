@@ -51,7 +51,6 @@ use vello_common::render_graph::LayerId;
 use vello_common::{
     coarse::WideTile,
     encode::{EncodedGradient, EncodedKind, EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind},
-    kurbo::Affine,
     paint::ImageSource,
     peniko,
     pixmap::Pixmap,
@@ -581,8 +580,7 @@ impl WebGlRenderer {
         image: &vello_common::encode::EncodedImage,
         image_resource: &ImageResource,
     ) -> GpuEncodedPaint {
-        let image_transform = image.transform * Affine::translate((-0.5, -0.5));
-        let transform = image_transform.as_coeffs().map(|x| x as f32);
+        let transform = image.transform.as_coeffs().map(|x| x as f32);
         let image_size = pack_image_size(image_resource.width, image_resource.height);
         let image_offset = pack_image_offset(image_resource.offset[0], image_resource.offset[1]);
         let image_params = pack_image_params(
@@ -610,8 +608,7 @@ impl WebGlRenderer {
         gradient_width: u32,
         gradient_start: u32,
     ) -> GpuEncodedPaint {
-        let gradient_transform = gradient.transform * Affine::translate((-0.5, -0.5));
-        let transform = gradient_transform.as_coeffs().map(|x| x as f32);
+        let transform = gradient.transform.as_coeffs().map(|x| x as f32);
         let extend_mode = match gradient.extend {
             peniko::Extend::Pad => 0,
             peniko::Extend::Repeat => 1,

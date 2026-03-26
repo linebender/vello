@@ -35,8 +35,6 @@ use peniko::kurbo::common::FloatFuncs as _;
 
 const DEGENERATE_THRESHOLD: f32 = 1.0e-6;
 const NUDGE_VAL: f32 = 1.0e-7;
-const PIXEL_CENTER_OFFSET: f64 = 0.5;
-
 #[cfg(feature = "std")]
 fn exp(val: f32) -> f32 {
     val.exp()
@@ -196,13 +194,9 @@ impl EncodeExt for Gradient {
         // This represents the transform that needs to be applied to the starting point of a
         // command before starting with the rendering.
         // First we need to account for the base transform of the shader, then
-        // we account for the fact that we sample in the center of a pixel and not in the corner by
-        // adding `PIXEL_CENTER_OFFSET`.
-        // Finally, we need to apply the _inverse_ paint transform to the point so that we can account
+        // we need to apply the _inverse_ paint transform to the point so that we can account
         // for the paint transform of the render context.
-        let transform = base_transform
-            * transform.inverse()
-            * Affine::translate((PIXEL_CENTER_OFFSET, PIXEL_CENTER_OFFSET));
+        let transform = base_transform * transform.inverse();
 
         // One possible approach of calculating the positions would be to apply the above
         // transform to _each_ pixel that we render in the wide tile. However, a much better
@@ -506,10 +500,7 @@ impl EncodeExt for Image {
             sampler.quality = ImageQuality::Low;
         }
 
-        // Similarly to gradients, apply the `PIXEL_CENTER_OFFSET` offset so we sample at the center of
-        // a pixel.
-        let transform =
-            transform.inverse() * Affine::translate((PIXEL_CENTER_OFFSET, PIXEL_CENTER_OFFSET));
+        let transform = transform.inverse();
 
         let (x_advance, y_advance) = x_y_advances(&transform);
 

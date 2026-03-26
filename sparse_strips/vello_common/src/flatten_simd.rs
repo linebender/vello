@@ -5,10 +5,13 @@
 //! well as some code that was copied from kurbo, which is needed to reimplement the
 //! full `flatten` method.
 
-use crate::flatten::{SQRT_TOL, TOL, TOL_2};
 #[cfg(not(feature = "std"))]
 use crate::kurbo::common::FloatFuncs as _;
 use crate::kurbo::{CubicBez, Line, ParamCurve, ParamCurveNearest, PathEl, Point, QuadBez};
+use crate::{
+    flatten::{SQRT_TOL, TOL, TOL_2},
+    tile::Tile,
+};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use fearless_simd::*;
@@ -46,13 +49,34 @@ pub(crate) fn flatten<S: Simd>(
     path: impl IntoIterator<Item = PathEl>,
     callback: &mut impl Callback,
     flatten_ctx: &mut FlattenCtx,
-    width: u16,
-    height: u16,
+    cull_bbox: [u16; 4],
 ) {
     flatten_ctx.flattened_cubics.clear();
 
-    let width = width as f64;
-    let height = height as f64;
+    // For the culling performed here to be correct, the top y coordinate of the cull bbox must be
+    // aligned to strip row boundaries. Consider the alternative: for example, a strip row starting
+    // at y=8, a cull bbox starting at y=10, and (nearly) horizontal geometry at y=9 that does not
+    // cross into the cull bbox and does not extend above y=8 (and note this is all in a y-down
+    // coordinate space).
+    //
+    // The culling performed here would remove that geometry. However, as it does not extend above
+    // the strip row, it does not add coarse winding to the strip, and does not produce a sparse
+    // fill. Yet, if this is the top part of, say, a rectangle that is partially visible, the
+    // geometry is necessary for tiling to emit intermediate tiles that are necessary for the
+    // bottom part of the strip to get filled.
+    //
+    // Therefore, we align `top` to strip row boundaries, such that all intermediate tiles are
+    // produced.
+    //
+    // This is not necessary for the bottom. Consider a path where a segment extends just below the
+    // cull bbox, but remains in the same strip row. The path is closed, so if anything is to be
+    // rendered at all, there will be other geometry above that edge of the cull bbox. If that
+    // geometry extends above the row, there will be coarse winding for a sparse fill. If not, it
+    // there will be geometry to generate the intermediate tiles.
+    let left = cull_bbox[0] as f64;
+    let top = ((cull_bbox[1] / Tile::HEIGHT) * Tile::HEIGHT) as f64;
+    let right = cull_bbox[2] as f64;
+    let bottom = cull_bbox[3] as f64;
 
     let mut closed = true;
     let mut start_pt = Point::ZERO;
@@ -78,19 +102,19 @@ pub(crate) fn flatten<S: Simd>(
                 debug_assert!(!closed, "Expected a `MoveTo` before a `QuadTo`");
                 let p0 = last_pt;
                 let line = Line::new(p0, p2);
-                // If the quadratic Bézier is fully to the right, top, or bottom of the viewport,
-                // it does not impact pixel coverage or winding. We can ignore it. The following
-                // checks that conservatively by checking whether the bounding box of the Bézier's
-                // control points is fully to the right, top, or bottom of the viewport.
-                if [p0, p1, p2].into_iter().all(|p| p.x > width)
-                    || [p0, p1, p2].into_iter().all(|p| p.y < 0.)
-                    || [p0, p1, p2].into_iter().all(|p| p.y > height)
+                // If the quadratic Bézier is fully to the right, top, or bottom of the culling
+                // bbox, it does not impact pixel coverage or winding. We can ignore it. The
+                // following checks that conservatively by checking whether the bounding box of the
+                // Bézier's control points is fully outside the culling bbox.
+                if [p0, p1, p2].into_iter().all(|p| p.x > right)
+                    || [p0, p1, p2].into_iter().all(|p| p.y < top)
+                    || [p0, p1, p2].into_iter().all(|p| p.y > bottom)
                 {
                     callback.callback(LinePathEl::MoveTo(p2));
                 }
                 // The following checks two things. First, if the quadratic Bézier is fully to the
-                // left of the viewport, it may affect pixel coverage and winding, but its exact
-                // shape does not matter. It can be emitted as a line segment [p0, p2].
+                // left of the culling bbox, it may affect pixel coverage and winding, but its
+                // exact shape does not matter. It can be emitted as a line segment [p0, p2].
                 //
                 // Second, an upper bound on the shortest distance of any point on the quadratic
                 // Bézier curve to the line segment [p0, p2] is 1/2 of the control-point-to-line-segment
@@ -108,7 +132,7 @@ pub(crate) fn flatten<S: Simd>(
                 //
                 // The following takes the square to elide the square root of the Euclidean
                 // distance.
-                else if [p0, p1, p2].into_iter().all(|p| p.x < 0.)
+                else if [p0, p1, p2].into_iter().all(|p| p.x < left)
                     || line.nearest(p1, 0.).distance_sq <= 4. * TOL_2
                 {
                     callback.callback(LinePathEl::LineTo(p2));
@@ -131,18 +155,18 @@ pub(crate) fn flatten<S: Simd>(
                 debug_assert!(!closed, "Expected a `MoveTo` before a `CurveTo`");
                 let p0 = last_pt;
                 let line = Line::new(p0, p3);
-                // If the cubic Bézier is fully to the right, top, or bottom of the viewport, it
-                // does not impact pixel coverage or winding. We can ignore it. The following
+                // If the cubic Bézier is fully to the right, top, or bottom of the culling bbox,
+                // it does not impact pixel coverage or winding. We can ignore it. The following
                 // checks that conservatively by checking whether the bounding box of the Bézier's
-                // control points is fully to the right, top, or bottom of the viewport.
-                if [p0, p1, p2, p3].into_iter().all(|p| p.x > width)
-                    || [p0, p1, p2, p3].into_iter().all(|p| p.y < 0.)
-                    || [p0, p1, p2, p3].into_iter().all(|p| p.y > height)
+                // control points is fully outside the culling bbox.
+                if [p0, p1, p2, p3].into_iter().all(|p| p.x > right)
+                    || [p0, p1, p2, p3].into_iter().all(|p| p.y < top)
+                    || [p0, p1, p2, p3].into_iter().all(|p| p.y > bottom)
                 {
                     callback.callback(LinePathEl::MoveTo(p3));
                 }
-                // The following checks two things. First, if the cubic Bézier is fully to the
-                // left of the viewport, it may affect pixel coverage and winding, but its exact
+                // The following checks two things. First, if the cubic Bézier is fully to the left
+                // of the culling bbox, it may affect pixel coverage and winding, but its exact
                 // shape does not matter. It can be emitted as a line segment [p0, p3].
                 //
                 // Second, an upper bound on the shortest distance of any point on the cubic Bézier
@@ -164,7 +188,7 @@ pub(crate) fn flatten<S: Simd>(
                 //
                 // The following takes the square to elide the square root of the Euclidean
                 // distance.
-                else if [p0, p1, p2, p3].into_iter().all(|p| p.x < 0.)
+                else if [p0, p1, p2, p3].into_iter().all(|p| p.x < left)
                     || f64::max(
                         line.nearest(p1, 0.).distance_sq,
                         line.nearest(p2, 0.).distance_sq,
@@ -358,23 +382,6 @@ fn pt_splat_simd<S: Simd>(simd: S, pt: Point32) -> f32x8<S> {
 }
 
 #[inline(always)]
-fn eval_simd<S: Simd>(
-    p0: f32x8<S>,
-    p1: f32x8<S>,
-    p2: f32x8<S>,
-    p3: f32x8<S>,
-    t: f32x8<S>,
-) -> f32x8<S> {
-    let mt = 1.0 - t;
-    let im0 = p0 * mt * mt * mt;
-    let im1 = p1 * mt * mt * 3.0;
-    let im2 = p2 * mt * 3.0;
-    let im3 = p3.mul_add(t, im2) * t;
-
-    (im1 + im3).mul_add(t, im0)
-}
-
-#[inline(always)]
 fn eval_cubics_simd<S: Simd>(simd: S, c: &CubicBez, n: usize, result: &mut FlattenCtx) {
     result.n_quads = n;
     let dt = 0.5 / n as f32;
@@ -403,6 +410,15 @@ fn eval_cubics_simd<S: Simd>(simd: S, c: &CubicBez, n: usize, result: &mut Flatt
     let (p0_128, p1_128) = split_single(p0p1);
     let (p2_128, p3_128) = split_single(p2p3);
 
+    // Use Horner's method to evaluate p(t) as ((a*t + b)*t + c)*t + d. This allows hoisting
+    // coefficients out of the loop, and then evaluating as three sequential FMAs. Estrin's method
+    // would expose more ILP, but the increase in work on such small polynomials (cubic here and
+    // quad below) makes it a net slowdown.
+    let coeff_a = (p1_128 - p2_128).mul_add(3.0, p3_128 - p0_128);
+    let coeff_b = p1_128.mul_add(-2.0, p0_128 + p2_128) * 3.0;
+    let coeff_c = (p1_128 - p0_128) * 3.0;
+    let coeff_d = p0_128;
+
     let iota = f32x8::from_slice(simd, &[0.0, 0.0, 2.0, 2.0, 1.0, 1.0, 3.0, 3.0]);
     let step = iota * dt;
     let mut t = step;
@@ -412,7 +428,10 @@ fn eval_cubics_simd<S: Simd>(simd: S, c: &CubicBez, n: usize, result: &mut Flatt
     let odd_pts: &mut [f32] = bytemuck::cast_slice_mut(&mut result.odd_pts);
 
     for i in 0..n.div_ceil(2) {
-        let evaluated = eval_simd(p0_128, p1_128, p2_128, p3_128, t);
+        let evaluated = (coeff_a.mul_add(t, coeff_b))
+            .mul_add(t, coeff_c)
+            .mul_add(t, coeff_d);
+
         let (low, high) = simd.split_f32x8(evaluated);
 
         even_pts[i * 4..][..4].copy_from_slice(low.as_slice());
@@ -524,19 +543,20 @@ fn output_lines_simd<S: Simd>(
     let mut a = da.mul_add(x, f32x8::splat(simd, ctx.a0[i]));
     let a_inc = 4.0 * dx * da;
     let uscale = f32x8::splat(simd, ctx.uscale[i]);
+    let u0 = f32x8::splat(simd, ctx.u0[i]);
+
+    // See Horner comment above
+    let coeff_a = p1.mul_add(-2.0, p0) + p2;
+    let coeff_b = (p1 - p0) * 2.0;
+    let coeff_c = p0;
 
     let out: &mut [f32] = bytemuck::cast_slice_mut(&mut ctx.flattened_cubics[start_idx..]);
 
     for j in 0..n.div_ceil(4) {
         let u = approx_parabola_inv_integral_simd(a);
-        let t = u.mul_add(uscale, -ctx.u0[i] * uscale);
-        let mt = 1.0 - t;
-        let z = p0 * mt * mt;
-        let z1 = p1.mul_add(2.0 * t * mt, z);
-        let p = p2.mul_add(t * t, z1);
-
+        let t = (u - u0) * uscale;
+        let p = coeff_a.mul_add(t, coeff_b).mul_add(t, coeff_c);
         out[j * 8..][..8].copy_from_slice(p.as_slice());
-
         a += a_inc;
     }
 }

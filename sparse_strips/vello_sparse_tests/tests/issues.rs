@@ -7,12 +7,13 @@ use crate::renderer::Renderer;
 use std::sync::Arc;
 use vello_api::peniko::color::palette::css::{PURPLE, ROYAL_BLUE, TOMATO};
 use vello_common::color::PremulRgba8;
-use vello_common::color::palette::css::{DARK_BLUE, LIME, REBECCA_PURPLE};
+use vello_common::color::palette::css::{BLUE, DARK_BLUE, LIME, REBECCA_PURPLE};
 use vello_common::filter_effects::{Filter, FilterPrimitive};
 use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use vello_common::paint::Image;
 use vello_common::peniko::{
-    Color, ColorStop, Fill, Gradient, ImageQuality, ImageSampler, InterpolationAlphaSpace,
+    BlendMode, Color, ColorStop, Fill, Gradient, ImageQuality, ImageSampler,
+    InterpolationAlphaSpace, Mix,
 };
 use vello_common::pixmap::Pixmap;
 use vello_cpu::color::palette::css::{BLACK, RED};
@@ -607,4 +608,26 @@ fn issue_1477(ctx: &mut impl Renderer) {
 
     ctx.set_paint(BLACK);
     ctx.fill_rect(&rect);
+}
+
+// This test exists because blending wouldn't properly preserve anti-aliasing in `vello_hybrid`.
+#[vello_test(skip_multithreaded)]
+fn issue_flush_fast_path_with_blending(ctx: &mut impl Renderer) {
+    let rect1 = Rect::new(10.5, 10.5, 70.5, 70.5);
+    ctx.set_paint(BLUE.with_alpha(0.5));
+    ctx.fill_rect(&rect1);
+    ctx.push_blend_layer(BlendMode::new(Mix::SoftLight, Compose::SrcOver));
+    let rect2 = Rect::new(30.5, 30.5, 90.5, 90.5);
+    ctx.set_paint(LIME.with_alpha(0.5));
+    ctx.fill_rect(&rect2);
+    ctx.pop_layer();
+}
+
+// This tests an issue where the rectangle fast path could produce strips below the viewport,
+// resulting in a triggered assertion in later parts of the pipeline that assume everything
+// below the viewport has been culled away.
+#[vello_test(width = 100, height = 100, no_ref)]
+fn issue_rect_at_bottom_of_viewport(ctx: &mut impl Renderer) {
+    ctx.set_transform(Affine::IDENTITY);
+    ctx.fill_rect(&Rect::new(25.0, 101.0, 200.0, 130.0));
 }

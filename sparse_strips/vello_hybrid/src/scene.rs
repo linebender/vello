@@ -27,6 +27,7 @@ use vello_common::recording::{
 use vello_common::render_graph::{RenderGraph, RenderNodeKind};
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
+use vello_common::util::is_axis_aligned;
 
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
@@ -330,6 +331,10 @@ impl Scene {
     /// a `Paint` that references that data. The combined transform (geometry + paint)
     /// is applied during encoding.
     fn encode_current_paint(&mut self) -> Paint {
+        // Note: In vello_cpu, during fine rasterization we apply a 0.5 offset to the location
+        // to account for the fact that we want to sample the pixel center instead of the top-left
+        // corner. For vello_hybrid, we don't need this, because the GPU itself already applies
+        // this shift automatically.
         match self.render_state.paint.clone() {
             PaintType::Solid(s) => s.into(),
             PaintType::Gradient(g) => g.encode_into(
@@ -482,6 +487,7 @@ impl Scene {
             return;
         }
 
+        // TODO: Use a temporary storage for rect paths, like in `vello_cpu`.
         self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
     }
 
@@ -501,14 +507,15 @@ impl Scene {
             return false;
         }
 
+        // TODO: Either bail out or properly implement the case where `aliasing_threshold` is set.
+        // Also update the code in `flush_fast_path`.
+
         // We can't handle skewed rectangles.
-        let coeffs = self.render_state.transform.as_coeffs();
         // TODO: Maybe support rotated rectangles (https://github.com/linebender/vello/pull/1482#discussion_r2881223621)
-        if coeffs[1].abs() > 1e-5 || coeffs[2].abs() > 1e-5 {
+        if !is_axis_aligned(&self.render_state.transform) {
             return false;
         }
 
-        let paint = self.encode_current_paint();
         let transformed_rect = self.render_state.transform.transform_rect_bbox(*rect);
 
         let x0 = transformed_rect.x0.max(0.0).min(f64::from(self.width));
@@ -520,6 +527,8 @@ impl Scene {
         if x1 <= x0 || y1 <= y0 {
             return false;
         }
+
+        let paint = self.encode_current_paint();
 
         self.fast_strips_buffer
             .commands
@@ -1197,5 +1206,302 @@ impl Scene {
                 adjusted_strip
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::f64::consts::PI;
+    use vello_common::kurbo::{Affine, Point, Rect};
+    use vello_common::peniko::Color;
+
+    // These tests serve the purpose of ensuring that the logic for selecting fast paths
+    // works correctly.
+
+    fn make_scene(constraints: SceneConstraints) -> Scene {
+        Scene::new_with(
+            200,
+            200,
+            RenderSettings {
+                constraints,
+                ..Default::default()
+            },
+        )
+    }
+
+    fn unconstrained() -> Scene {
+        make_scene(SceneConstraints::new())
+    }
+
+    fn default_blending_only() -> Scene {
+        make_scene(SceneConstraints::new().default_blending_only())
+    }
+
+    fn small_rect() -> Rect {
+        Rect::new(10.0, 10.0, 50.0, 50.0)
+    }
+
+    fn triangle_path() -> BezPath {
+        let mut path = BezPath::new();
+        path.move_to((10.0, 10.0));
+        path.line_to((90.0, 50.0));
+        path.line_to((10.0, 90.0));
+        path.close_path();
+        path
+    }
+
+    fn is_rect(cmd: &FastStripCommand) -> bool {
+        matches!(cmd, FastStripCommand::Rect(_))
+    }
+
+    fn is_path(cmd: &FastStripCommand) -> bool {
+        matches!(cmd, FastStripCommand::Path(_))
+    }
+
+    #[test]
+    fn fast_only_single_rect() {
+        let mut scene = unconstrained();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.fill_rect(&small_rect());
+
+        assert_eq!(scene.strip_path_mode, StripPathMode::FastOnly);
+        assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
+        assert!(is_rect(&scene.fast_strips_buffer.commands[0]));
+    }
+
+    #[test]
+    fn fast_only_single_path() {
+        let mut scene = unconstrained();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.fill_path(&triangle_path());
+
+        assert_eq!(scene.strip_path_mode, StripPathMode::FastOnly);
+        assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
+        assert!(is_path(&scene.fast_strips_buffer.commands[0]));
+    }
+
+    #[test]
+    fn fast_only_mixed_commands() {
+        let mut scene = unconstrained();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.fill_rect(&small_rect());
+        scene.fill_path(&triangle_path());
+        scene.fill_rect(&Rect::new(60.0, 60.0, 90.0, 90.0));
+
+        assert_eq!(scene.strip_path_mode, StripPathMode::FastOnly);
+        let cmds = &scene.fast_strips_buffer.commands;
+        assert_eq!(cmds.len(), 3);
+        assert!(is_rect(&cmds[0]));
+        assert!(is_path(&cmds[1]));
+        assert!(is_rect(&cmds[2]));
+    }
+
+    #[test]
+    fn fast_only_stroke_is_path() {
+        let mut scene = unconstrained();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.set_stroke(Stroke::new(2.0));
+        scene.stroke_rect(&small_rect());
+
+        assert_eq!(scene.strip_path_mode, StripPathMode::FastOnly);
+        assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
+        assert!(is_path(&scene.fast_strips_buffer.commands[0]));
+    }
+
+    #[test]
+    fn rect_rejected_by_skew_transform() {
+        let mut scene = unconstrained();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.set_transform(Affine::new([1.0, 0.5, 0.0, 1.0, 0.0, 0.0]));
+        scene.fill_rect(&small_rect());
+
+        assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
+        assert!(is_path(&scene.fast_strips_buffer.commands[0]));
+    }
+
+    #[test]
+    fn rect_rejected_by_rotation() {
+        let mut scene = unconstrained();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.set_transform(Affine::rotate_about(
+            45.0 * PI / 180.0,
+            Point::new(30.0, 30.0),
+        ));
+        scene.fill_rect(&small_rect());
+
+        assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
+        assert!(is_path(&scene.fast_strips_buffer.commands[0]));
+    }
+
+    #[test]
+    fn rect_accepted_with_translation() {
+        let mut scene = unconstrained();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.set_transform(Affine::translate((5.0, 5.0)));
+        scene.fill_rect(&small_rect());
+
+        assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
+        assert!(is_rect(&scene.fast_strips_buffer.commands[0]));
+    }
+
+    #[test]
+    fn rect_accepted_with_scale() {
+        let mut scene = unconstrained();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.set_transform(Affine::scale(2.0));
+        scene.fill_rect(&Rect::new(5.0, 5.0, 20.0, 20.0));
+
+        assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
+        assert!(is_rect(&scene.fast_strips_buffer.commands[0]));
+    }
+
+    #[test]
+    fn rect_rejected_by_clip_path() {
+        let mut scene = unconstrained();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.push_clip_path(&triangle_path());
+        scene.fill_rect(&small_rect());
+
+        assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
+        assert!(is_path(&scene.fast_strips_buffer.commands[0]));
+    }
+
+    #[test]
+    fn rect_rejected_inside_layer() {
+        let mut scene = default_blending_only();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.push_layer(None, None, Some(0.5), None, None);
+        scene.fill_rect(&small_rect());
+        scene.pop_layer();
+
+        assert!(scene.fast_strips_buffer.commands.is_empty());
+    }
+
+    #[test]
+    fn coarse_only_on_push_layer_no_constraint() {
+        let mut scene = unconstrained();
+        scene.push_layer(None, None, Some(0.5), None, None);
+
+        assert_eq!(scene.strip_path_mode, StripPathMode::CoarseOnly);
+        assert!(scene.fast_strips_buffer.commands.is_empty());
+    }
+
+    #[test]
+    fn coarse_only_flushes_prior_fast_rects() {
+        let mut scene = unconstrained();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.fill_rect(&small_rect());
+        assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
+
+        scene.push_layer(None, None, Some(0.5), None, None);
+        assert_eq!(scene.strip_path_mode, StripPathMode::CoarseOnly);
+        assert!(scene.fast_strips_buffer.commands.is_empty());
+    }
+
+    #[test]
+    fn interleaved_on_push_layer_with_constraint() {
+        let mut scene = default_blending_only();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.push_layer(None, None, Some(0.5), None, None);
+
+        assert_eq!(scene.strip_path_mode, StripPathMode::Interleaved);
+    }
+
+    #[test]
+    fn interleaved_split_point_correct() {
+        let mut scene = default_blending_only();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.fill_rect(&small_rect());
+        scene.push_layer(None, None, Some(0.5), None, None);
+
+        assert_eq!(scene.strip_path_mode, StripPathMode::Interleaved);
+        assert_eq!(scene.coarse_batch_splits, vec![1]);
+    }
+
+    #[test]
+    fn interleaved_root_after_pop_uses_fast() {
+        let mut scene = default_blending_only();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.push_layer(None, None, Some(0.5), None, None);
+        scene.fill_rect(&small_rect());
+        scene.pop_layer();
+
+        scene.fill_rect(&Rect::new(60.0, 60.0, 90.0, 90.0));
+
+        assert_eq!(scene.strip_path_mode, StripPathMode::Interleaved);
+        assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
+        assert!(is_rect(&scene.fast_strips_buffer.commands[0]));
+    }
+
+    #[test]
+    fn interleaved_multiple_segments() {
+        let mut scene = default_blending_only();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+
+        scene.fill_rect(&small_rect());
+        scene.push_layer(None, None, Some(0.5), None, None);
+        scene.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+        scene.pop_layer();
+        scene.fill_rect(&Rect::new(60.0, 60.0, 90.0, 90.0));
+        scene.push_layer(None, None, Some(0.8), None, None);
+        scene.fill_rect(&Rect::new(0.0, 0.0, 50.0, 50.0));
+        scene.pop_layer();
+        scene.fill_rect(&Rect::new(20.0, 20.0, 40.0, 40.0));
+
+        assert_eq!(scene.strip_path_mode, StripPathMode::Interleaved);
+        assert_eq!(scene.coarse_batch_splits.len(), 2);
+        assert_eq!(scene.fast_strips_buffer.commands.len(), 3);
+        assert!(scene.fast_strips_buffer.commands.iter().all(is_rect));
+    }
+
+    #[test]
+    fn interleaved_nested_layers() {
+        let mut scene = default_blending_only();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.fill_rect(&small_rect());
+
+        scene.push_layer(None, None, Some(0.5), None, None);
+        scene.push_layer(None, None, Some(0.8), None, None);
+        scene.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+        scene.pop_layer();
+        scene.pop_layer();
+
+        scene.fill_rect(&Rect::new(60.0, 60.0, 90.0, 90.0));
+
+        assert_eq!(scene.strip_path_mode, StripPathMode::Interleaved);
+        assert_eq!(scene.coarse_batch_splits.len(), 1);
+        assert_eq!(scene.fast_strips_buffer.commands.len(), 2);
+    }
+
+    #[test]
+    fn reset_restores_fast_only() {
+        let mut scene = unconstrained();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.push_layer(None, None, Some(0.5), None, None);
+        assert_eq!(scene.strip_path_mode, StripPathMode::CoarseOnly);
+
+        scene.pop_layer();
+        scene.reset();
+
+        assert_eq!(scene.strip_path_mode, StripPathMode::FastOnly);
+        assert!(scene.fast_strips_buffer.commands.is_empty());
+        assert!(scene.coarse_batch_splits.is_empty());
+    }
+
+    #[test]
+    fn reset_then_rect_uses_fast_path() {
+        let mut scene = unconstrained();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.push_layer(None, None, Some(0.5), None, None);
+        scene.pop_layer();
+        scene.reset();
+
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.fill_rect(&small_rect());
+
+        assert_eq!(scene.strip_path_mode, StripPathMode::FastOnly);
+        assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
+        assert!(is_rect(&scene.fast_strips_buffer.commands[0]));
     }
 }

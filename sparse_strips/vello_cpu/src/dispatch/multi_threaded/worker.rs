@@ -53,6 +53,7 @@ impl Worker {
         let path_clip = render_task.clip_path.as_ref().map(|c| PathDataRef {
             strips: c.strips.as_ref(),
             alphas: c.alphas.as_ref(),
+            bbox: c.bbox,
         });
 
         for task in render_task

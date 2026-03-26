@@ -33,8 +33,7 @@ pub fn flatten(c: &mut Criterion) {
                             path.transform,
                             &mut temp_buf,
                             &mut flatten_ctx,
-                            $item.width,
-                            $item.height,
+                            [0, 0, $item.width, $item.height],
                         );
                         line_buf.extend(&temp_buf);
                     }
@@ -46,8 +45,7 @@ pub fn flatten(c: &mut Criterion) {
                             Affine::IDENTITY,
                             &mut temp_buf,
                             &mut flatten_ctx,
-                            $item.width,
-                            $item.height,
+                            [0, 0, $item.width, $item.height],
                         );
                         line_buf.extend(&temp_buf);
                     }

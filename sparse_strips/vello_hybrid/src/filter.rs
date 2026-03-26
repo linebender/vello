@@ -788,13 +788,7 @@ impl FilterContext {
                     transform: Affine::translate((
                         -(wtile_bbox.x0() as f64) * WideTile::WIDTH as f64,
                         -(wtile_bbox.y0() as f64) * Tile::HEIGHT as f64,
-                    ))
-                        // TODO: Come up with a more unified way of dealing with this shift.
-                        // The problem is that currently, in vello_common, we apply a (0.5, 0.5) shift
-                        // to images so that vello_cpu will sample from the pixel center. Since the fragment shader
-                        // already applies this shift, we undo it in our render backends: https://github.com/linebender/vello/blob/57a77091fa91bdd652fdacb73aff3d0d1c86285e/sparse_strips/vello_hybrid/src/render/wgpu.rs#L352
-                        // Therefore, we need to add the shift here as well, so that it cancels out.
-                        * Affine::translate((0.5, 0.5)),
+                    )),
                     x_advance: Vec2::new(1.0, 0.0),
                     y_advance: Vec2::new(0.0, 1.0),
                     tint: None,

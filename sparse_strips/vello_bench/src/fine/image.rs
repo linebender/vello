@@ -3,6 +3,7 @@
 
 use crate::fine::{default_blend, fill_single};
 use criterion::{Bencher, Criterion};
+use std::io::Cursor;
 use std::sync::Arc;
 use vello_common::coarse::WideTile;
 use vello_common::encode::EncodeExt;
@@ -147,7 +148,7 @@ mod transform {
 fn get_colr_image(extend: peniko::Extend, quality: ImageQuality) -> Image {
     let data = include_bytes!("../../../../vello_tests/snapshots/big_colr.png");
 
-    let pixmap = Pixmap::from_png(&data[..]).unwrap();
+    let pixmap = Pixmap::from_png(Cursor::new(data)).unwrap();
     Image {
         image: ImageSource::Pixmap(Arc::new(pixmap)),
         sampler: ImageSampler {
@@ -162,7 +163,7 @@ fn get_colr_image(extend: peniko::Extend, quality: ImageQuality) -> Image {
 fn get_small_image(extend: peniko::Extend, quality: ImageQuality) -> Image {
     let data = include_bytes!("../../../vello_sparse_tests/tests/assets/rgb_image_2x2.png");
 
-    let pixmap = Pixmap::from_png(&data[..]).unwrap();
+    let pixmap = Pixmap::from_png(Cursor::new(data)).unwrap();
     Image {
         image: ImageSource::Pixmap(Arc::new(pixmap)),
         sampler: ImageSampler {
