@@ -324,8 +324,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
                     normalized_coords,
                 )
             });
-            if let Some(ref key) = outline_cache_key {
-                if let Some(cached_slot) = self.glyph_atlas.get(key) {
+            if let Some(ref key) = outline_cache_key
+                && let Some(cached_slot) = self.glyph_atlas.get(key) {
                     renderer.render_cached_glyph(
                         cached_slot,
                         outline_transform,
@@ -333,7 +333,6 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
                     );
                     continue;
                 }
-            }
 
             // ── COLR Glyphs ───────────────────────────────────────────
             if let Some(color_glyph) = color_glyphs.get(glyph_id) {
@@ -361,8 +360,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
                     var_coords: SmallVec::from_slice(normalized_coords),
                 });
 
-                if let Some(ref key) = cache_key {
-                    if let Some(cached_slot) = self.glyph_atlas.get(key) {
+                if let Some(ref key) = cache_key
+                    && let Some(cached_slot) = self.glyph_atlas.get(key) {
                         // Use fractional scaled_bbox dimensions to preserve sub-pixel accuracy.
                         let area = Rect::new(
                             0.0,
@@ -377,7 +376,6 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
                         );
                         continue;
                     }
-                }
 
                 // Cache miss — rasterize the COLR glyph from scratch.
                 let glyph_type =
@@ -440,8 +438,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
                     var_coords: SmallVec::new(),
                 });
 
-                if let Some(ref key) = cache_key {
-                    if let Some(cached_slot) = self.glyph_atlas.get(key) {
+                if let Some(ref key) = cache_key
+                    && let Some(cached_slot) = self.glyph_atlas.get(key) {
                         renderer.render_cached_glyph(
                             cached_slot,
                             transform,
@@ -449,7 +447,6 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
                         );
                         continue;
                     }
-                }
 
                 // Cache miss — wrap the decoded pixmap for rendering.
                 let glyph_type = create_bitmap_glyph(pixmap);
@@ -1545,11 +1542,10 @@ impl OutlineCache {
         self.variable_map.retain(|_, map| {
             map.retain(|_, entry| {
                 if serial - entry.serial > MAX_ENTRY_AGE {
-                    if free_list.len() < MAX_FREE_LIST_SIZE {
-                        if let Some(path) = entry.take_path() {
+                    if free_list.len() < MAX_FREE_LIST_SIZE
+                        && let Some(path) = entry.take_path() {
                             free_list.push(path);
                         }
-                    }
                     self.cached_count -= 1;
                     false
                 } else {

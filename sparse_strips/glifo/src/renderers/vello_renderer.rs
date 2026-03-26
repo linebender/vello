@@ -118,8 +118,8 @@ pub(crate) fn fill_glyph<B: GlyphAtlasBackend>(
     match prepared_glyph.glyph_type {
         GlyphType::Outline(glyph) => {
             let tint_color = renderer.get_context_color();
-            if let Some(key) = cache_key.take() {
-                if let CacheResult::CachedAndRendered = insert_and_render_outline::<B>(
+            if let Some(key) = cache_key.take()
+                && let CacheResult::CachedAndRendered = insert_and_render_outline::<B>(
                     renderer,
                     &glyph.path,
                     transform,
@@ -130,13 +130,12 @@ pub(crate) fn fill_glyph<B: GlyphAtlasBackend>(
                 ) {
                     return;
                 }
-            }
 
             B::fill_outline_directly(renderer, &glyph.path, transform);
         }
         GlyphType::Bitmap(glyph) => {
-            if let Some(key) = cache_key.take() {
-                if let CacheResult::CachedAndRendered = insert_and_render_bitmap::<B>(
+            if let Some(key) = cache_key.take()
+                && let CacheResult::CachedAndRendered = insert_and_render_bitmap::<B>(
                     renderer,
                     &glyph,
                     transform,
@@ -146,13 +145,12 @@ pub(crate) fn fill_glyph<B: GlyphAtlasBackend>(
                 ) {
                     return;
                 }
-            }
 
             B::render_bitmap_directly(renderer, glyph, transform);
         }
         GlyphType::Colr(glyph) => {
-            if let Some(key) = cache_key.take() {
-                if let CacheResult::CachedAndRendered = insert_and_render_colr::<B>(
+            if let Some(key) = cache_key.take()
+                && let CacheResult::CachedAndRendered = insert_and_render_colr::<B>(
                     renderer,
                     &glyph,
                     transform,
@@ -162,7 +160,6 @@ pub(crate) fn fill_glyph<B: GlyphAtlasBackend>(
                 ) {
                     return;
                 }
-            }
 
             let context_color = renderer.get_context_color();
             B::render_colr_directly(renderer, &glyph, transform, context_color);
@@ -186,8 +183,8 @@ pub(crate) fn stroke_glyph<B: GlyphAtlasBackend>(
             let transform = prepared_glyph.transform;
             let tint_color = renderer.get_context_color();
 
-            if let Some(key) = cache_key.take() {
-                if let CacheResult::CachedAndRendered = insert_and_render_outline::<B>(
+            if let Some(key) = cache_key.take()
+                && let CacheResult::CachedAndRendered = insert_and_render_outline::<B>(
                     renderer,
                     &glyph.path,
                     transform,
@@ -198,7 +195,6 @@ pub(crate) fn stroke_glyph<B: GlyphAtlasBackend>(
                 ) {
                     return;
                 }
-            }
 
             B::stroke_outline_directly(renderer, &glyph.path, transform);
         }

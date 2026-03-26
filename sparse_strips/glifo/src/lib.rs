@@ -13,8 +13,6 @@
 //!
 //! At least one of `std` and `libm` is required.
 
-// TODO: Re-enable once we start proper work on glifo.
-#![allow(clippy::all, reason = "TODO: fix clippy lints")]
 // LINEBENDER LINT SET - lib.rs - v3
 // See https://linebender.org/wiki/canonical-lints/
 // These lints shouldn't apply to examples or tests.
