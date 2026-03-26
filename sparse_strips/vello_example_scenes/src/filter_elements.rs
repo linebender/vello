@@ -89,7 +89,7 @@ impl FilterElementsScene {
     /// Create a new `FilterElementsScene`.
     pub fn new() -> Self {
         let mut scene = Self {
-            rng: Rng::new(0xCAFE_BABE_DEAD_BEEF),
+            rng: Rng::new(0xCAFE_BABE),
             elements: Vec::new(),
         };
         scene.add_batch();
@@ -97,8 +97,8 @@ impl FilterElementsScene {
     }
 
     fn random_element(&mut self) -> Element {
-        let shape_idx = usize::try_from(self.rng.next_u64()).unwrap() % SHAPE_KINDS.len();
-        let filter_idx = usize::try_from(self.rng.next_u64()).unwrap() % 3;
+        let shape_idx = usize::try_from(self.rng.next_u32()).unwrap() % SHAPE_KINDS.len();
+        let filter_idx = usize::try_from(self.rng.next_u32()).unwrap() % 3;
         #[expect(
             clippy::cast_possible_truncation,
             reason = "std_deviation range is small and positive"
@@ -119,7 +119,7 @@ impl FilterElementsScene {
             ny: self.rng.range_f64(0.0, 1.0),
             size: self.rng.range_f64(80.0, 250.0),
             rotation: self.rng.range_f64(0.0, std::f64::consts::TAU),
-            color_idx: usize::try_from(self.rng.next_u64()).unwrap() % COLORS.len(),
+            color_idx: usize::try_from(self.rng.next_u32()).unwrap() % COLORS.len(),
         }
     }
 
@@ -247,25 +247,24 @@ fn star_path(cx: f64, cy: f64, outer_r: f64, inner_r: f64, points: usize) -> Bez
     path
 }
 
-struct Rng(u64);
+struct Rng(u32);
 
 impl Rng {
-    fn new(seed: u64) -> Self {
+    fn new(seed: u32) -> Self {
         Self(seed)
     }
 
-    fn next_u64(&mut self) -> u64 {
+    fn next_u32(&mut self) -> u32 {
         let mut x = self.0;
         x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
+        x ^= x >> 17;
+        x ^= x << 5;
         self.0 = x;
         x
     }
 
     fn range_f64(&mut self, lo: f64, hi: f64) -> f64 {
-        let t =
-            (self.next_u64() & 0x000F_FFFF_FFFF_FFFF) as f64 / (0x0010_0000_0000_0000_u64 as f64);
+        let t = (self.next_u32() >> 8) as f64 / ((1_u32 << 24) as f64);
         lo + t * (hi - lo)
     }
 }
