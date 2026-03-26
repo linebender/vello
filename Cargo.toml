@@ -28,7 +28,7 @@ members = [
     "sparse_strips/vello_toy",
     "sparse_strips/vello_dev_macros",
     "sparse_strips/vello_sparse_tests",
-    "sparse_strips/parley_draw",
+    "sparse_strips/glifo",
     "image_filters/vello_filters_cpu",
 ]
 
