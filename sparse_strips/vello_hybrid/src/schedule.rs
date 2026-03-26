@@ -1108,7 +1108,9 @@ impl Scheduler {
                             continue;
                         }
                         // Partial clip: push the clip buffer, then composite the filtered layer
-                        Some(Cmd::PushBuf(LayerKind::Clip(_), is_blend_dest)) => {
+                        Some(Cmd::PushBuf(LayerKind::Clip(id), is_blend_dest))
+                            if *id == *child_layer_id =>
+                        {
                             self.do_push_buf(state, renderer, *is_blend_dest)?;
                             cmd_idx += 1;
                             copy_from_filter_layer(self, state);

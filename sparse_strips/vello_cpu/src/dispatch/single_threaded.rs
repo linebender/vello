@@ -347,7 +347,7 @@ impl SingleThreadedDispatcher {
                     }
 
                     // Partial clip: push the clip buffer, then composite the filtered layer
-                    Some(Cmd::PushBuf(LayerKind::Clip(_), _)) => {
+                    Some(Cmd::PushBuf(LayerKind::Clip(id), _)) if *id == *child_layer_id => {
                         fine.run_cmd(
                             &wtile.cmds[cmd_idx + 1],
                             &self.strip_storage.alphas,
