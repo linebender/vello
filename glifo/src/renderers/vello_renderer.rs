@@ -127,9 +127,10 @@ pub(crate) fn fill_glyph<B: GlyphAtlasBackend>(
                     glyph_atlas,
                     image_cache,
                     tint_color,
-                ) {
-                    return;
-                }
+                )
+            {
+                return;
+            }
 
             B::fill_outline_directly(renderer, &glyph.path, transform);
         }
@@ -142,9 +143,10 @@ pub(crate) fn fill_glyph<B: GlyphAtlasBackend>(
                     key,
                     glyph_atlas,
                     image_cache,
-                ) {
-                    return;
-                }
+                )
+            {
+                return;
+            }
 
             B::render_bitmap_directly(renderer, glyph, transform);
         }
@@ -157,9 +159,10 @@ pub(crate) fn fill_glyph<B: GlyphAtlasBackend>(
                     key,
                     glyph_atlas,
                     image_cache,
-                ) {
-                    return;
-                }
+                )
+            {
+                return;
+            }
 
             let context_color = renderer.get_context_color();
             B::render_colr_directly(renderer, &glyph, transform, context_color);
@@ -192,9 +195,10 @@ pub(crate) fn stroke_glyph<B: GlyphAtlasBackend>(
                     glyph_atlas,
                     image_cache,
                     tint_color,
-                ) {
-                    return;
-                }
+                )
+            {
+                return;
+            }
 
             B::stroke_outline_directly(renderer, &glyph.path, transform);
         }

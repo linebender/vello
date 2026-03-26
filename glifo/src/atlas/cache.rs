@@ -368,10 +368,11 @@ impl GlyphAtlas {
     pub fn replay_pending_atlas_commands(&mut self, mut f: impl FnMut(&mut AtlasCommandRecorder)) {
         for slot in &mut self.pending_atlas_commands {
             if let Some(recorder) = slot.as_mut()
-                && !recorder.commands.is_empty() {
-                    f(recorder);
-                    recorder.commands.clear();
-                }
+                && !recorder.commands.is_empty()
+            {
+                f(recorder);
+                recorder.commands.clear();
+            }
         }
     }
 

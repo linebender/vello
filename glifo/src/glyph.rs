@@ -325,14 +325,15 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
                 )
             });
             if let Some(ref key) = outline_cache_key
-                && let Some(cached_slot) = self.glyph_atlas.get(key) {
-                    renderer.render_cached_glyph(
-                        cached_slot,
-                        outline_transform,
-                        CachedGlyphType::Outline,
-                    );
-                    continue;
-                }
+                && let Some(cached_slot) = self.glyph_atlas.get(key)
+            {
+                renderer.render_cached_glyph(
+                    cached_slot,
+                    outline_transform,
+                    CachedGlyphType::Outline,
+                );
+                continue;
+            }
 
             // ── COLR Glyphs ───────────────────────────────────────────
             if let Some(color_glyph) = color_glyphs.get(glyph_id) {
@@ -361,21 +362,22 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
                 });
 
                 if let Some(ref key) = cache_key
-                    && let Some(cached_slot) = self.glyph_atlas.get(key) {
-                        // Use fractional scaled_bbox dimensions to preserve sub-pixel accuracy.
-                        let area = Rect::new(
-                            0.0,
-                            0.0,
-                            metrics.scaled_bbox.width(),
-                            metrics.scaled_bbox.height(),
-                        );
-                        renderer.render_cached_glyph(
-                            cached_slot,
-                            transform,
-                            CachedGlyphType::Colr(area),
-                        );
-                        continue;
-                    }
+                    && let Some(cached_slot) = self.glyph_atlas.get(key)
+                {
+                    // Use fractional scaled_bbox dimensions to preserve sub-pixel accuracy.
+                    let area = Rect::new(
+                        0.0,
+                        0.0,
+                        metrics.scaled_bbox.width(),
+                        metrics.scaled_bbox.height(),
+                    );
+                    renderer.render_cached_glyph(
+                        cached_slot,
+                        transform,
+                        CachedGlyphType::Colr(area),
+                    );
+                    continue;
+                }
 
                 // Cache miss — rasterize the COLR glyph from scratch.
                 let glyph_type =
@@ -439,14 +441,11 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
                 });
 
                 if let Some(ref key) = cache_key
-                    && let Some(cached_slot) = self.glyph_atlas.get(key) {
-                        renderer.render_cached_glyph(
-                            cached_slot,
-                            transform,
-                            CachedGlyphType::Bitmap,
-                        );
-                        continue;
-                    }
+                    && let Some(cached_slot) = self.glyph_atlas.get(key)
+                {
+                    renderer.render_cached_glyph(cached_slot, transform, CachedGlyphType::Bitmap);
+                    continue;
+                }
 
                 // Cache miss — wrap the decoded pixmap for rendering.
                 let glyph_type = create_bitmap_glyph(pixmap);
@@ -1543,9 +1542,10 @@ impl OutlineCache {
             map.retain(|_, entry| {
                 if serial - entry.serial > MAX_ENTRY_AGE {
                     if free_list.len() < MAX_FREE_LIST_SIZE
-                        && let Some(path) = entry.take_path() {
-                            free_list.push(path);
-                        }
+                        && let Some(path) = entry.take_path()
+                    {
+                        free_list.push(path);
+                    }
                     self.cached_count -= 1;
                     false
                 } else {
