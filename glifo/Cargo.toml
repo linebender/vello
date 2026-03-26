@@ -9,7 +9,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
-publish = false
+publish = false # When enabling, add it to the MSRV package list in CI
 
 [package.metadata.docs.rs]
 all-features = true
