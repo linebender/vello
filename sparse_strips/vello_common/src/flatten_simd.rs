@@ -60,11 +60,19 @@ pub(crate) fn flatten<S: Simd>(
     // coordinate space).
     //
     // The culling performed here would remove that geometry. However, as it does not extend above
-    // the strip row, it does not add coarse winding to the strip. Yet, if this is the top part of,
-    // say, a rectangle, this geometry (or coarse winding) is necessary in later stages for the
+    // the strip row, it does not add coarse winding to the strip, and does not produce a sparse
+    // fill. Yet, if this is the top part of, say, a rectangle that is partially visible, the
+    // geometry is necessary for tiling to emit intermediate tiles that are necessary for the
     // bottom part of the strip to get filled.
     //
-    // Therefore, we align `top` to strip row boundaries.
+    // Therefore, we align `top` to strip row boundaries, such that all intermediate tiles are
+    // produced.
+    //
+    // This is not necessary for the bottom. Consider a path where a segment extends just below the
+    // cull bbox, but remains in the same strip row. The path is closed, so if anything is to be
+    // rendered at all, there will be other geometry above that edge of the cull bbox. If that
+    // geometry extends above the row, there will be coarse winding for a sparse fill. If not, it
+    // there will be geometry to generate the intermediate tiles.
     let left = cull_bbox[0] as f64;
     let top = ((cull_bbox[1] / Tile::HEIGHT) * Tile::HEIGHT) as f64;
     let right = cull_bbox[2] as f64;

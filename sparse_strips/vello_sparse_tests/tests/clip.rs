@@ -176,26 +176,37 @@ fn clip_rect_cull_alignment(ctx: &mut impl Renderer) {
         );
     }
 
-    const Y: f64 = Tile::HEIGHT as f64;
+    // A strip-aligned Y value.
+    const TOP_Y: f64 = Tile::HEIGHT as f64;
 
-    let clip_rect = Rect::new(18.0, Y + 2., 78.0, 48.0);
+    // Another strip-aligned Y value lower down.
+    const BOT_Y: f64 = (46. / Tile::HEIGHT as f64).ceil() * Tile::HEIGHT as f64;
+
+    let clip_rect = Rect::new(18.0, TOP_Y + 2., 78.0, BOT_Y - 2.);
     ctx.set_paint(DARK_GREEN.with_alpha(0.1));
     ctx.fill_rect(&clip_rect);
 
-    // Draw a near-rectangle with a slightly curved top edge to hit interesting flattening paths.
+    // Draw a near-rectangle with slightly curved top and bottom edges to hit interesting
+    // flattening paths.
     //
     // The shape's top segment is outside and above the clip path, so it may end up being culled.
     // However, the shape does not extend above the strip *row*, so the vertical segments of the
     // shape that connect to the horizontal segment do not contribute coarse winding. Therefore,
     // the horizontal segment cannot be ignored, as winding between the two vertical segments in
     // its strip row needs to be correctly accounted.
+    //
+    // The same holds for the bottom segment, except that that case is simpler in our pipeline:
+    // coarse winding is accounted when geometry of the path passes the strip's top edge, which
+    // means this strip row will either get a sparse fill, or will get dense tiles due to other
+    // unculled geometry existing.
     let mut path = BezPath::new();
-    let top_y = Y + 1.;
-    path.move_to((30.0, 40.0));
+    let top_y = TOP_Y + 1.;
+    let bot_y = BOT_Y - 1.;
+    path.move_to((30.0, bot_y));
     path.line_to((30.0, top_y));
     path.curve_to((45.0, top_y - 0.5), (55.0, top_y - 0.5), (70.0, top_y));
-    path.line_to((70.0, 40.0));
-    path.close_path();
+    path.line_to((70.0, bot_y));
+    path.curve_to((55.0, bot_y + 0.5), (45.0, bot_y + 0.5), (30.0, bot_y));
     ctx.push_clip_path(&clip_rect.to_path(0.1));
     ctx.set_paint(REBECCA_PURPLE);
     ctx.fill_path(&path);
