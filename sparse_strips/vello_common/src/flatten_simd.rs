@@ -185,6 +185,13 @@ pub(crate) fn flatten<S: Simd>(
                 closed = true;
                 if last_pt != start_pt {
                     callback.callback(LinePathEl::LineTo(start_pt));
+
+                    // Kurbo says: "If `quad_to` [or another drawing op] is called immediately
+                    // after `close_path` then the current subpath starts at the initial point of
+                    // the previous subpath."
+                    //
+                    // Hence, we set `last_pt` back to the just-closed subpath's `start_pt`.
+                    last_pt = start_pt;
                 }
             }
         }
