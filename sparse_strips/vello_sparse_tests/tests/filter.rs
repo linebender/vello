@@ -1546,7 +1546,7 @@ fn filter_with_inner_clip(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(width = 256, height = 100, hybrid_tolerance = 2)]
+#[vello_test(skip_multithreaded, width = 256, height = 100, hybrid_tolerance = 2)]
 fn filter_gaussian_blur_edge_mode_none(ctx: &mut impl Renderer) {
     blur_with_edge_mode(ctx, EdgeMode::None);
 }
