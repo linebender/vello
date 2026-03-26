@@ -66,7 +66,7 @@ pub(crate) fn flatten<S: Simd>(
     //
     // Therefore, we align `top` to strip row boundaries.
     let left = cull_bbox[0] as f64;
-    let top = (cull_bbox[1] / Tile::HEIGHT * Tile::HEIGHT) as f64;
+    let top = ((cull_bbox[1] / Tile::HEIGHT) * Tile::HEIGHT) as f64;
     let right = cull_bbox[2] as f64;
     let bottom = cull_bbox[3] as f64;
 
