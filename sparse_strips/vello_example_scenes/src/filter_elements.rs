@@ -264,7 +264,7 @@ impl Rng {
     }
 
     fn range_f64(&mut self, lo: f64, hi: f64) -> f64 {
-        let t = (self.next_u32() >> 8) as f64 / ((1u32 << 24) as f64);
+        let t = (self.next_u32() >> 8) as f64 / ((1_u32 << 24) as f64);
         lo + t * (hi - lo)
     }
 }
