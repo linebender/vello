@@ -356,7 +356,7 @@ impl Renderer {
         encoded_paints: &[EncodedPaint],
         clear: bool,
     ) -> Result<(), RenderError> {
-        self.prepare_gpu_encoded_paints(encoded_paints);
+        self.prepare_gpu_encoded_paints(encoded_paints)?;
         self.upload_pending_images(device, queue, encoder);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
@@ -589,7 +589,10 @@ impl Renderer {
         render_pass.draw(0..4, 0..1);
     }
 
-    fn prepare_gpu_encoded_paints(&mut self, encoded_paints: &[EncodedPaint]) {
+    fn prepare_gpu_encoded_paints(
+        &mut self,
+        encoded_paints: &[EncodedPaint],
+    ) -> Result<(), RenderError> {
         self.encoded_paints
             .resize_with(encoded_paints.len(), || GPU_PAINT_PLACEHOLDER);
         self.paint_idxs.resize(encoded_paints.len() + 1, 0);
@@ -601,29 +604,21 @@ impl Renderer {
                 EncodedPaint::Image(img) => {
                     let image_id = match &img.source {
                         ImageSource::OpaqueId { id, .. } => Some(*id),
-                        ImageSource::Pixmap(pixmap) => match self.pixmap_register.get(pixmap) {
-                            Some(id) => Some(id),
-                            None => {
-                                match self.image_cache.allocate(
-                                    pixmap.width().into(),
-                                    pixmap.height().into(),
+                        ImageSource::Pixmap(pixmap) => {
+                            let id = self.pixmap_register.get_or_insert_with(pixmap, || {
+                                let id = self.image_cache.allocate(
+                                    pixmap.width(),
+                                    pixmap.height(),
                                     0,
-                                ) {
-                                    Ok(id) => {
-                                        self.pixmap_register.insert(pixmap, id);
-                                        self.pending_uploads.push(PendingImageUpload {
-                                            image_id: id,
-                                            pixmap: pixmap.clone(),
-                                        });
-                                        Some(id)
-                                    }
-                                    Err(e) => {
-                                        log::warn!("Failed to allocate pixmap in atlas: {e:?}");
-                                        None
-                                    }
-                                }
-                            }
-                        },
+                                )?;
+                                self.pending_uploads.push(PendingImageUpload {
+                                    image_id: id,
+                                    pixmap: pixmap.clone(),
+                                });
+                                Ok::<_, AtlasError>(id)
+                            })?;
+                            Some(id)
+                        }
                     };
                     if let Some(image_id) = image_id
                         && let Some(image_resource) = self.image_cache.get(image_id)
@@ -656,6 +651,7 @@ impl Renderer {
             }
         }
         self.paint_idxs[encoded_paints.len()] = current_idx;
+        Ok(())
     }
 
     /// Upload any pixmaps that were allocated during [`Self::prepare_gpu_encoded_paints`]
@@ -666,15 +662,8 @@ impl Renderer {
         queue: &Queue,
         encoder: &mut CommandEncoder,
     ) {
-        let uploads: Vec<_> = self.pending_uploads.drain(..).collect();
-        for upload in uploads {
-            Programs::maybe_resize_atlas_texture_array(
-                device,
-                encoder,
-                &mut self.programs.resources,
-                &self.programs.atlas_bind_group_layout,
-                self.image_cache.atlas_count() as u32,
-            );
+        let mut uploads = core::mem::take(&mut self.pending_uploads);
+        for upload in uploads.drain(..) {
             self.write_to_atlas(
                 device,
                 queue,
@@ -684,6 +673,7 @@ impl Renderer {
                 None,
             );
         }
+        self.pending_uploads = uploads;
     }
 
     fn encode_image_paint(

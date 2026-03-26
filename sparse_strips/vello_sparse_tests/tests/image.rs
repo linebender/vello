@@ -673,8 +673,7 @@ fn image_spritesheet_tinted(ctx: &mut impl Renderer) {
 ///
 /// This exercises the hybrid renderer's `PixmapRegister` + `PendingImageUpload` path,
 /// where inline pixmaps are automatically allocated in the image cache and uploaded
-/// to the GPU atlas on demand. The same `Arc<Pixmap>` is used for two fills in
-/// different locations, verifying that deduplication works (only one atlas upload).
+/// to the GPU atlas on demand.
 #[vello_test]
 fn image_pixmap_source(ctx: &mut impl Renderer) {
     let pixmap = load_image!("rgb_image_2x2");

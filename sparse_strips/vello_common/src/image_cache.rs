@@ -8,10 +8,11 @@
 
 use crate::multi_atlas::{AllocId, AtlasConfig, AtlasError, AtlasId, MultiAtlasManager};
 use crate::paint::ImageId;
+use crate::pixmap::Pixmap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use hashbrown::HashMap;
-use crate::pixmap::Pixmap;
+use hashbrown::hash_map::Entry;
 
 /// Represents an image resource for rendering.
 #[derive(Debug)]
@@ -146,6 +147,28 @@ impl PixmapRegister {
                 serial: self.serial,
             },
         );
+    }
+
+    /// Look up a pixmap by pointer identity, or insert a new entry using
+    /// the provided closure if it hasn't been registered yet.
+    pub fn get_or_insert_with<E>(
+        &mut self,
+        pixmap: &Arc<Pixmap>,
+        f: impl FnOnce() -> Result<ImageId, E>,
+    ) -> Result<ImageId, E> {
+        let ptr_key = Arc::as_ptr(pixmap) as usize;
+        let serial = self.serial;
+        match self.map.entry(ptr_key) {
+            Entry::Occupied(mut entry) => {
+                entry.get_mut().serial = serial;
+                Ok(entry.get().image_id)
+            }
+            Entry::Vacant(entry) => {
+                let image_id = f()?;
+                entry.insert(PixmapEntry { image_id, serial });
+                Ok(image_id)
+            }
+        }
     }
 
     /// Advance the frame counter and potentially evict old entries.
@@ -446,6 +469,30 @@ mod tests {
         assert!(cache.get(id3).is_some());
         assert!(cache.get(id4).is_some());
         assert_eq!(cache.get(id4).unwrap().width, 80);
+    }
+
+    #[test]
+    fn test_pixmap_register_deduplication() {
+        let mut register = PixmapRegister::default();
+
+        let pixmap = Arc::new(Pixmap::new(2, 2));
+        let image_id = ImageId::new(42);
+
+        // First lookup should miss.
+        assert!(register.get(&pixmap).is_none());
+
+        register.insert(&pixmap, image_id);
+
+        // Same Arc should return the cached id.
+        assert_eq!(register.get(&pixmap).unwrap(), image_id);
+
+        // A clone of the Arc (same pointer) should also hit.
+        let cloned = pixmap.clone();
+        assert_eq!(register.get(&cloned).unwrap(), image_id);
+
+        // A *different* Arc with identical content should miss (pointer identity).
+        let different_pixmap = Arc::new(Pixmap::new(2, 2));
+        assert!(register.get(&different_pixmap).is_none());
     }
 
     #[test]

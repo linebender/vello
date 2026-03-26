@@ -46,7 +46,7 @@ use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use core::fmt::Debug;
 use vello_common::image_cache::{ImageCache, ImageResource, PendingImageUpload, PixmapRegister};
-use vello_common::multi_atlas::{AtlasConfig, AtlasId};
+use vello_common::multi_atlas::{AtlasConfig, AtlasError, AtlasId};
 use vello_common::render_graph::LayerId;
 use vello_common::{
     coarse::WideTile,
@@ -364,7 +364,7 @@ impl WebGlRenderer {
             &mut encoded_paints,
         )?;
 
-        self.prepare_gpu_encoded_paints(&encoded_paints);
+        self.prepare_gpu_encoded_paints(&encoded_paints)?;
         self.upload_pending_images();
 
         self.programs
@@ -544,7 +544,10 @@ impl WebGlRenderer {
         self.gl.delete_framebuffer(Some(&temp_framebuffer));
     }
 
-    fn prepare_gpu_encoded_paints(&mut self, encoded_paints: &[EncodedPaint]) {
+    fn prepare_gpu_encoded_paints(
+        &mut self,
+        encoded_paints: &[EncodedPaint],
+    ) -> Result<(), RenderError> {
         self.encoded_paints
             .resize_with(encoded_paints.len(), || GPU_PAINT_PLACEHOLDER);
         self.paint_idxs.resize(encoded_paints.len() + 1, 0);
@@ -556,29 +559,21 @@ impl WebGlRenderer {
                 EncodedPaint::Image(img) => {
                     let image_id = match &img.source {
                         ImageSource::OpaqueId { id, .. } => Some(*id),
-                        ImageSource::Pixmap(pixmap) => match self.pixmap_register.get(pixmap) {
-                            Some(id) => Some(id),
-                            None => {
-                                match self.image_cache.allocate(
-                                    pixmap.width().into(),
-                                    pixmap.height().into(),
+                        ImageSource::Pixmap(pixmap) => {
+                            let id = self.pixmap_register.get_or_insert_with(pixmap, || {
+                                let id = self.image_cache.allocate(
+                                    pixmap.width(),
+                                    pixmap.height(),
                                     0,
-                                ) {
-                                    Ok(id) => {
-                                        self.pixmap_register.insert(pixmap, id);
-                                        self.pending_uploads.push(PendingImageUpload {
-                                            image_id: id,
-                                            pixmap: pixmap.clone(),
-                                        });
-                                        Some(id)
-                                    }
-                                    Err(e) => {
-                                        log::warn!("Failed to allocate pixmap in atlas: {e:?}");
-                                        None
-                                    }
-                                }
-                            }
-                        },
+                                )?;
+                                self.pending_uploads.push(PendingImageUpload {
+                                    image_id: id,
+                                    pixmap: pixmap.clone(),
+                                });
+                                Ok::<_, AtlasError>(id)
+                            })?;
+                            Some(id)
+                        }
                     };
                     if let Some(image_id) = image_id
                         && let Some(image_resource) = self.image_cache.get(image_id)
@@ -611,17 +606,17 @@ impl WebGlRenderer {
             }
         }
         self.paint_idxs[encoded_paints.len()] = current_idx;
+        Ok(())
     }
 
     /// Upload any pixmaps that were allocated during [`Self::prepare_gpu_encoded_paints`]
     /// but haven't been written to the GPU atlas yet.
     fn upload_pending_images(&mut self) {
-        let uploads: Vec<_> = self.pending_uploads.drain(..).collect();
-        for upload in uploads {
-            self.programs
-                .maybe_resize_atlas_texture_array(&self.gl, self.image_cache.atlas_count() as u32);
+        let mut uploads = core::mem::take(&mut self.pending_uploads);
+        for upload in uploads.drain(..) {
             self.write_to_atlas(upload.image_id, &upload.pixmap, None);
         }
+        self.pending_uploads = uploads;
     }
 
     fn encode_image_paint(
