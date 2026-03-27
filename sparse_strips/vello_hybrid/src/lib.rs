@@ -47,6 +47,8 @@ extern crate alloc;
 
 pub(crate) mod filter;
 mod gradient_cache;
+#[cfg(feature = "wgpu")]
+pub(crate) mod gpu_winding;
 mod render;
 mod scene;
 #[cfg(any(all(target_arch = "wasm32", feature = "webgl"), feature = "wgpu"))]

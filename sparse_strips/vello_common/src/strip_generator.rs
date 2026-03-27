@@ -227,6 +227,59 @@ impl StripGenerator {
         );
     }
 
+    /// Flatten a filled path and generate sorted tiles, without computing strips or alpha data.
+    pub fn prepare_tiles_for_fill(
+        &mut self,
+        path: impl IntoIterator<Item = PathEl>,
+        transform: Affine,
+    ) {
+        let cull_bbox = [0, 0, self.width, self.height];
+        flatten::fill(
+            self.level,
+            path,
+            transform,
+            &mut self.line_buf,
+            &mut self.flatten_ctx,
+            cull_bbox,
+        );
+        self.tiles
+            .make_tiles_analytic_aa(&self.line_buf, self.width, self.height);
+        self.tiles.sort_tiles();
+    }
+
+    /// Flatten a stroked path and generate sorted tiles, without computing strips or alpha data.
+    pub fn prepare_tiles_for_stroke(
+        &mut self,
+        path: impl IntoIterator<Item = PathEl>,
+        stroke: &Stroke,
+        transform: Affine,
+    ) {
+        let cull_bbox = [0, 0, self.width, self.height];
+        flatten::stroke(
+            self.level,
+            path,
+            stroke,
+            transform,
+            &mut self.line_buf,
+            &mut self.flatten_ctx,
+            &mut self.stroke_ctx,
+            cull_bbox,
+        );
+        self.tiles
+            .make_tiles_analytic_aa(&self.line_buf, self.width, self.height);
+        self.tiles.sort_tiles();
+    }
+
+    /// Access the tiles from the last path preparation.
+    pub fn tiles(&self) -> &Tiles {
+        &self.tiles
+    }
+
+    /// Access the flattened line buffer from the last path preparation.
+    pub fn lines(&self) -> &[Line] {
+        &self.line_buf
+    }
+
     /// Reset the strip generator.
     pub fn reset(&mut self) {
         self.line_buf.clear();

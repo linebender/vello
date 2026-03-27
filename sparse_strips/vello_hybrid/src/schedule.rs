@@ -188,7 +188,7 @@ use vello_common::coarse::{
 };
 use vello_common::peniko::BlendMode;
 use vello_common::render_graph::{LayerId, RenderNodeKind};
-use vello_common::strip_generator::StripStorage;
+use vello_common::strip::Strip;
 use vello_common::{
     coarse::{Cmd, WideTile},
     encode::EncodedPaint,
@@ -743,7 +743,12 @@ impl Scheduler {
         paint_idxs: &[u32],
         encoded_paints: &[EncodedPaint],
     ) {
+        #[cfg(feature = "wgpu")]
+        let all_strips = &scene.fast_path.strips;
+        #[cfg(not(feature = "wgpu"))]
         let strip_storage = scene.strip_storage.borrow();
+        #[cfg(not(feature = "wgpu"))]
+        let all_strips = &strip_storage.strips;
         // Always choose the draw of the final surface, since direct strips are only ever
         // rendered to the final surface.
         let draw = self.draw_mut(self.round, 2);
@@ -753,7 +758,7 @@ impl Scheduler {
                 FastStripCommand::Path(path) => {
                     generate_gpu_strips_for_fast_path(
                         path,
-                        &strip_storage,
+                        all_strips,
                         scene,
                         encoded_paints,
                         paint_idxs,
@@ -1720,13 +1725,13 @@ fn has_non_zero_alpha(rgba: u32) -> bool {
 
 fn generate_gpu_strips_for_fast_path(
     path: &FastStripsPath,
-    strip_storage: &StripStorage,
+    all_strips: &[Strip],
     scene: &Scene,
     encoded_paints: &[EncodedPaint],
     paint_idxs: &[u32],
     gpu_strips: &mut Vec<GpuStrip>,
 ) {
-    let strips = &strip_storage.strips[path.strips.clone()];
+    let strips = &all_strips[path.strips.clone()];
 
     if strips.is_empty() {
         return;

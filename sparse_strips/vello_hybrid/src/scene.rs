@@ -7,6 +7,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::ops::Range;
+#[cfg(feature = "wgpu")]
+use crate::gpu_winding::{self, GpuTileLine};
 use vello_common::clip::ClipContext;
 use vello_common::coarse::{MODE_HYBRID, Wide, WideTilesBbox};
 use vello_common::encode::{EncodeExt, EncodedPaint};
@@ -94,8 +96,8 @@ pub(crate) enum FastStripCommand {
 /// A buffer that collects strips from paths that are rendered directly to the surface,
 /// bypassing coarse rasterization.
 ///
-/// Strip data itself lives in `strip_storage`. Each `FastStripsPath` records the range of strips
-/// for one path within that storage.
+/// On the `wgpu` fast path, strip data lives in `fast_path_strips`. Each `FastStripsPath`
+/// records the range of strips for one path within that storage.
 #[derive(Debug, Default)]
 pub(crate) struct FastStripsBuffer {
     /// All commands in the buffer.
@@ -106,6 +108,25 @@ impl FastStripsBuffer {
     #[inline(always)]
     fn clear(&mut self) {
         self.commands.clear();
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct WgpuFastPathData {
+    /// Fast-path strips, indexed by [`FastStripsPath::strips`].
+    pub(crate) strips: Vec<Strip>,
+    /// Tile-local winding inputs for the winding render pass.
+    pub(crate) tile_lines: Vec<GpuTileLine>,
+    /// Logical winding-value count, used as the strip alpha/address space.
+    pub(crate) winding_value_count: u32,
+}
+
+impl WgpuFastPathData {
+    #[inline(always)]
+    fn clear(&mut self) {
+        self.strips.clear();
+        self.tile_lines.clear();
+        self.winding_value_count = 0;
     }
 }
 
@@ -228,6 +249,9 @@ pub struct Scene {
     /// A buffer that stores the strips of path drawing calls that are rendered directly
     /// to the surface, bypassing coarse rasterization.
     pub(crate) fast_strips_buffer: FastStripsBuffer,
+    /// The `wgpu` fast-path payload.
+    #[cfg(feature = "wgpu")]
+    pub(crate) fast_path: WgpuFastPathData,
     /// The current strip rendering pipeline mode.
     pub(crate) strip_path_mode: StripPathMode,
     /// Split points in `fast_strips_buffer.paths` that mark boundaries where we must
@@ -319,6 +343,8 @@ impl Scene {
             render_graph,
             filter: None,
             fast_strips_buffer: FastStripsBuffer::default(),
+            #[cfg(feature = "wgpu")]
+            fast_path: WgpuFastPathData::default(),
             strip_path_mode: StripPathMode::FastOnly,
             coarse_batch_splits: Vec::new(),
         }
@@ -382,6 +408,30 @@ impl Scene {
         paint: Paint,
         aliasing_threshold: Option<u8>,
     ) {
+        #[cfg(feature = "wgpu")]
+        {
+            let _ = aliasing_threshold;
+            let strip_start = self.fast_path.strips.len();
+            self.strip_generator.prepare_tiles_for_fill(path, transform);
+            let output = gpu_winding::build_winding_output(
+                self.strip_generator.tiles(),
+                fill_rule,
+                self.strip_generator.lines(),
+                self.fast_path.winding_value_count,
+            );
+            self.fast_path.winding_value_count = output.winding_value_count;
+            self.fast_path.strips.extend(output.strips);
+            self.fast_path.tile_lines.extend(output.tile_lines);
+            self.fast_strips_buffer
+                .commands
+                .push(FastStripCommand::Path(FastStripsPath {
+                    strips: strip_start..self.fast_path.strips.len(),
+                    paint,
+                }));
+        }
+
+        #[cfg(not(feature = "wgpu"))]
+        {
         let strip_storage = &mut self.strip_storage.borrow_mut();
         let strip_start = strip_storage.strips.len();
         self.strip_generator.generate_filled_path(
@@ -394,6 +444,7 @@ impl Scene {
         );
 
         submit_strips!(self, strip_storage, strip_start, paint);
+        }
     }
 
     /// Push a new clip path to the clip stack.
@@ -401,6 +452,13 @@ impl Scene {
     /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
     /// example for how this method differs from `push_clip_layer`.
     pub fn push_clip_path(&mut self, path: &BezPath) {
+        #[cfg(feature = "wgpu")]
+        {
+            let _ = path;
+            unimplemented!("clip paths are unsupported in the wgpu GPU-winding fast path");
+        }
+
+        #[cfg(not(feature = "wgpu"))]
         self.clip_context.push_clip(
             path,
             &mut self.strip_generator,
@@ -415,6 +473,10 @@ impl Scene {
     /// Note that unlike `push_clip_layer`, it is permissible to have pending
     /// pushed clip paths before finishing the rendering operation.
     pub fn pop_clip_path(&mut self) {
+        #[cfg(feature = "wgpu")]
+        unimplemented!("clip paths are unsupported in the wgpu GPU-winding fast path");
+
+        #[cfg(not(feature = "wgpu"))]
         self.clip_context.pop_clip();
     }
 
@@ -448,6 +510,31 @@ impl Scene {
         paint: Paint,
         aliasing_threshold: Option<u8>,
     ) {
+        #[cfg(feature = "wgpu")]
+        {
+            let _ = aliasing_threshold;
+            let strip_start = self.fast_path.strips.len();
+            self.strip_generator
+                .prepare_tiles_for_stroke(path, &self.render_state.stroke, transform);
+            let output = gpu_winding::build_winding_output(
+                self.strip_generator.tiles(),
+                Fill::NonZero,
+                self.strip_generator.lines(),
+                self.fast_path.winding_value_count,
+            );
+            self.fast_path.winding_value_count = output.winding_value_count;
+            self.fast_path.strips.extend(output.strips);
+            self.fast_path.tile_lines.extend(output.tile_lines);
+            self.fast_strips_buffer
+                .commands
+                .push(FastStripCommand::Path(FastStripsPath {
+                    strips: strip_start..self.fast_path.strips.len(),
+                    paint,
+                }));
+        }
+
+        #[cfg(not(feature = "wgpu"))]
+        {
         let strip_storage = &mut self.strip_storage.borrow_mut();
         let strip_start = strip_storage.strips.len();
         self.strip_generator.generate_stroked_path(
@@ -460,6 +547,7 @@ impl Scene {
         );
 
         submit_strips!(self, strip_storage, strip_start, paint);
+        }
     }
 
     /// Set the aliasing threshold.
@@ -474,6 +562,11 @@ impl Scene {
     /// Note that there is no performance benefit to disabling anti-aliasing and
     /// this functionality is simply provided for compatibility.
     pub fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>) {
+        #[cfg(feature = "wgpu")]
+        if aliasing_threshold.is_some() {
+            unimplemented!("aliasing thresholds are unsupported in the wgpu GPU-winding fast path");
+        }
+
         self.aliasing_threshold = aliasing_threshold;
     }
 
@@ -561,6 +654,11 @@ impl Scene {
     ///
     /// After this call, `strip_storage` is switched back to `Replace` mode.
     fn flush_fast_path(&mut self) {
+        #[cfg(feature = "wgpu")]
+        unimplemented!("coarse fallback is unsupported in the wgpu GPU-winding fast path");
+
+        #[cfg(not(feature = "wgpu"))]
+        {
         if self.strip_path_mode == StripPathMode::CoarseOnly {
             return;
         }
@@ -602,6 +700,7 @@ impl Scene {
 
         strip_storage.set_generation_mode(GenerationMode::Replace);
         self.strip_path_mode = StripPathMode::CoarseOnly;
+        }
     }
 
     /// Push a new layer with the given properties.
@@ -613,6 +712,14 @@ impl Scene {
         mask: Option<Mask>,
         filter: Option<Filter>,
     ) {
+        #[cfg(feature = "wgpu")]
+        {
+            let _ = (clip_path, blend_mode, opacity, mask, filter);
+            unimplemented!("layers are unsupported in the wgpu GPU-winding fast path");
+        }
+
+        #[cfg(not(feature = "wgpu"))]
+        {
         let blend_mode_val = blend_mode.unwrap_or(DEFAULT_BLEND_MODE);
         self.constraints.assert_blend_mode(blend_mode_val);
 
@@ -669,6 +776,7 @@ impl Scene {
             &mut self.render_graph,
             0,
         );
+        }
     }
 
     /// Push a new clip layer.
@@ -705,6 +813,11 @@ impl Scene {
 
     /// Pop the last pushed layer.
     pub fn pop_layer(&mut self) {
+        #[cfg(feature = "wgpu")]
+        unimplemented!("layers are unsupported in the wgpu GPU-winding fast path");
+
+        #[cfg(not(feature = "wgpu"))]
+        {
         self.wide.pop_layer(&mut self.render_graph);
         if self.strip_path_mode == StripPathMode::Interleaved && !self.wide.has_layers() {
             self.wide.end_batch();
@@ -712,10 +825,16 @@ impl Scene {
                 .borrow_mut()
                 .set_generation_mode(GenerationMode::Append);
         }
+        }
     }
 
     /// Set the blend mode for subsequent rendering operations.
     pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
+        #[cfg(feature = "wgpu")]
+        if blend_mode != DEFAULT_BLEND_MODE {
+            unimplemented!("non-default blending is unsupported in the wgpu GPU-winding fast path");
+        }
+
         self.constraints.assert_blend_mode(blend_mode);
         self.render_state.blend_mode = blend_mode;
     }
@@ -771,6 +890,11 @@ impl Scene {
 
     /// Set the fill rule for subsequent fill operations.
     pub fn set_fill_rule(&mut self, fill_rule: Fill) {
+        #[cfg(feature = "wgpu")]
+        if fill_rule != Fill::NonZero {
+            unimplemented!("EvenOdd fill is unsupported in the wgpu GPU-winding fast path");
+        }
+
         self.render_state.fill_rule = fill_rule;
     }
 
@@ -786,7 +910,16 @@ impl Scene {
 
     /// Apply filter to the current paint (affects next drawn element).
     pub fn set_filter_effect(&mut self, filter: Filter) {
-        self.filter = Some(filter);
+        #[cfg(feature = "wgpu")]
+        {
+            let _ = filter;
+            unimplemented!("filters are unsupported in the wgpu GPU-winding fast path");
+        }
+
+        #[cfg(not(feature = "wgpu"))]
+        {
+            self.filter = Some(filter);
+        }
     }
 
     /// Reset the current filter effect.
@@ -825,6 +958,8 @@ impl Scene {
         #[cfg(feature = "text")]
         self.glyph_caches.as_mut().unwrap().maintain();
         self.fast_strips_buffer.clear();
+        #[cfg(feature = "wgpu")]
+        self.fast_path.clear();
         self.strip_path_mode = StripPathMode::FastOnly;
         self.coarse_batch_splits.clear();
 
@@ -932,13 +1067,30 @@ impl Recordable for Scene {
     }
 
     fn prepare_recording(&mut self, recording: &mut Recording) {
+        #[cfg(feature = "wgpu")]
+        {
+            let _ = recording;
+            unimplemented!("recordings are unsupported in the wgpu GPU-winding fast path");
+        }
+
+        #[cfg(not(feature = "wgpu"))]
+        {
         let buffers = recording.take_cached_strips();
         let (strip_storage, strip_start_indices) =
             self.generate_strips_from_commands(recording.commands(), buffers);
         recording.set_cached_strips(strip_storage, strip_start_indices);
+        }
     }
 
     fn execute_recording(&mut self, recording: &Recording) {
+        #[cfg(feature = "wgpu")]
+        {
+            let _ = recording;
+            unimplemented!("recordings are unsupported in the wgpu GPU-winding fast path");
+        }
+
+        #[cfg(not(feature = "wgpu"))]
+        {
         let (cached_strips, cached_alphas) = recording.get_cached_strips();
         let adjusted_strips = self.prepare_cached_strips(cached_strips, cached_alphas);
 
@@ -1015,6 +1167,7 @@ impl Recordable for Scene {
                     self.pop_layer();
                 }
             }
+        }
         }
     }
 }
@@ -1356,6 +1509,7 @@ mod tests {
         assert!(is_rect(&scene.fast_strips_buffer.commands[0]));
     }
 
+    #[cfg(not(feature = "wgpu"))]
     #[test]
     fn rect_rejected_by_clip_path() {
         let mut scene = unconstrained();
@@ -1367,6 +1521,7 @@ mod tests {
         assert!(is_path(&scene.fast_strips_buffer.commands[0]));
     }
 
+    #[cfg(not(feature = "wgpu"))]
     #[test]
     fn rect_rejected_inside_layer() {
         let mut scene = default_blending_only();
@@ -1378,6 +1533,7 @@ mod tests {
         assert!(scene.fast_strips_buffer.commands.is_empty());
     }
 
+    #[cfg(not(feature = "wgpu"))]
     #[test]
     fn coarse_only_on_push_layer_no_constraint() {
         let mut scene = unconstrained();
@@ -1387,6 +1543,7 @@ mod tests {
         assert!(scene.fast_strips_buffer.commands.is_empty());
     }
 
+    #[cfg(not(feature = "wgpu"))]
     #[test]
     fn coarse_only_flushes_prior_fast_rects() {
         let mut scene = unconstrained();
@@ -1399,6 +1556,7 @@ mod tests {
         assert!(scene.fast_strips_buffer.commands.is_empty());
     }
 
+    #[cfg(not(feature = "wgpu"))]
     #[test]
     fn interleaved_on_push_layer_with_constraint() {
         let mut scene = default_blending_only();
@@ -1408,6 +1566,7 @@ mod tests {
         assert_eq!(scene.strip_path_mode, StripPathMode::Interleaved);
     }
 
+    #[cfg(not(feature = "wgpu"))]
     #[test]
     fn interleaved_split_point_correct() {
         let mut scene = default_blending_only();
@@ -1419,6 +1578,7 @@ mod tests {
         assert_eq!(scene.coarse_batch_splits, vec![1]);
     }
 
+    #[cfg(not(feature = "wgpu"))]
     #[test]
     fn interleaved_root_after_pop_uses_fast() {
         let mut scene = default_blending_only();
@@ -1434,6 +1594,7 @@ mod tests {
         assert!(is_rect(&scene.fast_strips_buffer.commands[0]));
     }
 
+    #[cfg(not(feature = "wgpu"))]
     #[test]
     fn interleaved_multiple_segments() {
         let mut scene = default_blending_only();
@@ -1455,6 +1616,7 @@ mod tests {
         assert!(scene.fast_strips_buffer.commands.iter().all(is_rect));
     }
 
+    #[cfg(not(feature = "wgpu"))]
     #[test]
     fn interleaved_nested_layers() {
         let mut scene = default_blending_only();
@@ -1474,6 +1636,7 @@ mod tests {
         assert_eq!(scene.fast_strips_buffer.commands.len(), 2);
     }
 
+    #[cfg(not(feature = "wgpu"))]
     #[test]
     fn reset_restores_fast_only() {
         let mut scene = unconstrained();
@@ -1489,6 +1652,7 @@ mod tests {
         assert!(scene.coarse_batch_splits.is_empty());
     }
 
+    #[cfg(not(feature = "wgpu"))]
     #[test]
     fn reset_then_rect_uses_fast_path() {
         let mut scene = unconstrained();
@@ -1503,5 +1667,65 @@ mod tests {
         assert_eq!(scene.strip_path_mode, StripPathMode::FastOnly);
         assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
         assert!(is_rect(&scene.fast_strips_buffer.commands[0]));
+    }
+
+    #[cfg(feature = "wgpu")]
+    #[test]
+    #[should_panic(expected = "clip paths are unsupported")]
+    fn clip_paths_panic_on_wgpu_fast_path() {
+        let mut scene = unconstrained();
+        scene.push_clip_path(&triangle_path());
+    }
+
+    #[cfg(feature = "wgpu")]
+    #[test]
+    #[should_panic(expected = "layers are unsupported")]
+    fn layers_panic_on_wgpu_fast_path() {
+        let mut scene = unconstrained();
+        scene.push_layer(None, None, Some(0.5), None, None);
+    }
+
+    #[cfg(feature = "wgpu")]
+    #[test]
+    #[should_panic(expected = "EvenOdd fill is unsupported")]
+    fn even_odd_panic_on_wgpu_fast_path() {
+        let mut scene = unconstrained();
+        scene.set_fill_rule(Fill::EvenOdd);
+    }
+
+    #[cfg(feature = "wgpu")]
+    #[test]
+    #[should_panic(expected = "aliasing thresholds are unsupported")]
+    fn aliasing_threshold_panic_on_wgpu_fast_path() {
+        let mut scene = unconstrained();
+        scene.set_aliasing_threshold(Some(1));
+    }
+
+    #[cfg(feature = "wgpu")]
+    #[test]
+    #[should_panic(expected = "filters are unsupported")]
+    fn filters_panic_on_wgpu_fast_path() {
+        let mut scene = unconstrained();
+        scene.set_filter_effect(Filter::from_function(
+            vello_common::filter_effects::FilterFunction::Blur { radius: 1.0 },
+        ));
+    }
+
+    #[cfg(feature = "wgpu")]
+    #[test]
+    #[should_panic(expected = "recordings are unsupported")]
+    fn recording_prepare_panic_on_wgpu_fast_path() {
+        let mut scene = unconstrained();
+        let mut recording = Recording::new();
+        scene.prepare_recording(&mut recording);
+    }
+
+    #[cfg(feature = "wgpu")]
+    #[test]
+    #[should_panic(expected = "recordings are unsupported")]
+    fn recording_execute_panic_on_wgpu_fast_path() {
+        let mut scene = unconstrained();
+        let recording = Recording::new();
+        scene.execute_recording(&recording);
     }
 }
