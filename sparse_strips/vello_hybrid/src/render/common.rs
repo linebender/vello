@@ -51,8 +51,22 @@ pub struct Config {
     pub strip_offset_x: i32,
     /// A vertical offset to apply to strips.
     pub strip_offset_y: i32,
-    /// Padding to satisfy WebGL's 16-byte alignment requirement for uniform buffers.
-    pub _padding: u32,
+    /// Whether to flip the y-component of the NDC position.
+    ///
+    /// When transpiling a shader with naga, it applies a y-flip transform when
+    /// compiling to GLSL to account for the difference between the y-down
+    /// coordinate of WebGPU and the y-up coordinate system of WebGL framebuffers.
+    ///
+    /// However, for the native WebGL backend, we want to _avoid_ this transform so that we
+    /// can write directly into the user-provided framebuffer, but still ensure that the scene
+    /// is correctly flipped. Therefore, we optionally negate the coordinates in NDC.
+    /// (Note that naga provides a flag for disabling this behavior. However, the problem
+    /// is that many parts of Vello Hybrid's code (such as slot textures) also assume a
+    /// y-down coordinate system. Therefore, just disabling this flag causes complications in
+    /// other places. From my experiments, it's much easier to enable the flag by default
+    /// and just apply the second negation manually in case we render to the final output surface
+    /// in the WebGL backend.
+    pub negate_ndc: u32,
 }
 
 /// A GPU strip instance for rendering.

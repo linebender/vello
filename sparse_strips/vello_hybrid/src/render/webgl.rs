@@ -57,7 +57,7 @@ use vello_common::{
     tile::Tile,
 };
 use vello_sparse_shaders::{clear_slots, filters, render_strips};
-use web_sys::wasm_bindgen::{JsCast, JsValue};
+use web_sys::wasm_bindgen::JsCast;
 use web_sys::{
     WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlTexture,
     WebGlUniformLocation, WebGlVertexArrayObject,
@@ -113,41 +113,12 @@ impl WebGlRenderer {
     pub fn new_with(canvas: &web_sys::HtmlCanvasElement, settings: RenderSettings) -> Self {
         super::common::maybe_warn_about_webgl_feature_conflict();
 
-        // The WebGL context must be created with anti-aliasing disabled such that we can blit the
-        // view framebuffer onto the default framebuffer. This technique is required for the code
-        // that converts the WebGPU coordinate system into the WebGL coordinate system, adapted from
-        // the `wgpu` library. The coordinate space is fixed via two steps:
-        //   1. naga adds a coordinate transform to the glsl vertex shaders – however Y axis remains
-        //      flipped.
-        //   2. A view framebuffer is used as an intermediate render target. The final result is
-        //      blit onto the  default framebuffer reflected to fix the flipped Y axis.
-        // Anti-aliasing causes the blit operation to fail.
-        let context_options = js_sys::Object::new();
-        js_sys::Reflect::set(&context_options, &"antialias".into(), &JsValue::FALSE).unwrap();
-
         let gl = canvas
-            .get_context_with_context_options("webgl2", &context_options)
+            .get_context("webgl2")
             .expect("WebGL2 context to be available")
             .unwrap()
             .dyn_into::<WebGl2RenderingContext>()
             .expect("Context to be a WebGL2 context");
-
-        #[cfg(debug_assertions)]
-        {
-            // If a WebGL context already exists on this canvas, it will be returned instead of
-            // creating a new one with the correct context_options set. A cached context with
-            // antialias enabled will cause vello_hybrid to fail silently. This assertion catches
-            // that error early.
-            let context_attributes = gl.get_context_attributes().unwrap();
-            let antialias = js_sys::Reflect::get(&context_attributes, &"antialias".into())
-                .unwrap()
-                .as_bool()
-                .unwrap();
-            debug_assert!(
-                !antialias,
-                "WebGL context must be created with `antialias: false` for vello_hybrid to work correctly."
-            );
-        }
 
         let max_texture_dimension_2d = get_max_texture_dimension_2d(&gl);
         let total_slots: usize = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
@@ -187,64 +158,6 @@ impl WebGlRenderer {
         );
 
         self.render_scene(scene, render_size, true)?;
-
-        // Blit the view framebuffer to the default framebuffer (canvas element), reflecting the
-        // image along the Y axis to complete the WebGPU to WebGL2 coordinate transform.
-        self.gl.bind_framebuffer(
-            WebGl2RenderingContext::READ_FRAMEBUFFER,
-            Some(&self.programs.resources.view_framebuffer),
-        );
-        #[cfg(debug_assertions)]
-        {
-            let status = self
-                .gl
-                .check_framebuffer_status(WebGl2RenderingContext::READ_FRAMEBUFFER);
-            debug_assert_eq!(
-                status,
-                WebGl2RenderingContext::FRAMEBUFFER_COMPLETE,
-                "read framebuffer not complete"
-            );
-        }
-
-        self.gl
-            .bind_framebuffer(WebGl2RenderingContext::DRAW_FRAMEBUFFER, None);
-
-        #[cfg(debug_assertions)]
-        {
-            let status = self
-                .gl
-                .check_framebuffer_status(WebGl2RenderingContext::DRAW_FRAMEBUFFER);
-            debug_assert_eq!(
-                status,
-                WebGl2RenderingContext::FRAMEBUFFER_COMPLETE,
-                "write framebuffer not complete"
-            );
-        }
-
-        self.gl.blit_framebuffer(
-            0,
-            render_size.height as i32,
-            render_size.width as i32,
-            0,
-            0,
-            0,
-            render_size.width as i32,
-            render_size.height as i32,
-            WebGl2RenderingContext::COLOR_BUFFER_BIT,
-            WebGl2RenderingContext::LINEAR,
-        );
-
-        #[cfg(debug_assertions)]
-        {
-            // `get_error` cause synchronous stalls on the calling thread. It's best practice in
-            // release to omit this call.
-            // Reference:
-            //   https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#avoid_blocking_api_calls_in_production
-            let error = self.gl.get_error();
-            if error != WebGl2RenderingContext::NO_ERROR {
-                panic!("WebGL error {error}");
-            }
-        }
         Ok(())
     }
 
@@ -291,12 +204,9 @@ impl WebGlRenderer {
             atlas_id.as_u32() as i32,
         );
 
-        // Swap the view framebuffer and render size so the scheduler renders to the
-        // atlas layer instead of the normal view.
-        let saved_framebuffer = core::mem::replace(
-            &mut self.programs.resources.view_framebuffer,
-            atlas_framebuffer,
-        );
+        // Set the view framebuffer override so the scheduler renders to the
+        // atlas layer instead of the default framebuffer.
+        self.programs.resources.view_framebuffer_override = Some(atlas_framebuffer);
 
         // Swap in the stub atlas texture array to avoid binding the real atlas
         // texture as a shader input while it is also the render target.
@@ -313,12 +223,9 @@ impl WebGlRenderer {
             &mut self.programs.resources.stub_atlas_texture_array,
         );
 
-        // Restore the original view framebuffer and cache the atlas FBO for reuse.
-        let atlas_fb = core::mem::replace(
-            &mut self.programs.resources.view_framebuffer,
-            saved_framebuffer,
-        );
-        self.programs.resources.atlas_render_framebuffer = Some(atlas_fb);
+        // Restore the default view framebuffer and cache the atlas FBO for reuse.
+        self.programs.resources.atlas_render_framebuffer =
+            self.programs.resources.view_framebuffer_override.take();
 
         result
     }
@@ -768,10 +675,7 @@ struct WebGlResources {
     /// Config buffer for clear program.
     clear_config_buffer: WebGlBuffer,
 
-    /// Intermediate surface texture for the main view.
-    view_texture: WebGlTexture,
-    /// Framebuffer for the vfiew texture.
-    view_framebuffer: WebGlFramebuffer,
+    view_framebuffer_override: Option<WebGlFramebuffer>,
 
     /// Slot textures.
     slot_textures: [WebGlTexture; 2],
@@ -824,8 +728,8 @@ struct ClearSlotsConfig {
     pub slot_height: u32,
     /// Total height of the texture.
     pub texture_height: u32,
-    /// Padding for alignment.
-    pub _padding: u32,
+    /// See [`Config::ndc_y_negate`].
+    pub ndc_y_negate: u32,
 }
 
 impl WebGlPrograms {
@@ -1167,7 +1071,8 @@ impl WebGlPrograms {
                     encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                     strip_offset_x: 0,
                     strip_offset_y: 0,
-                    _padding: 0,
+                    // Only negate if we are rendering to the main frame buffer.
+                    negate_ndc: u32::from(self.resources.view_framebuffer_override.is_none()),
                 };
 
                 gl.bind_buffer(
@@ -1193,7 +1098,8 @@ impl WebGlPrograms {
                     encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                     strip_offset_x: 0,
                     strip_offset_y: 0,
-                    _padding: 0,
+                    // Always use y-down when rendering to slots.
+                    negate_ndc: 0,
                 };
 
                 gl.bind_buffer(
@@ -1215,7 +1121,7 @@ impl WebGlPrograms {
                     slot_width: u32::from(WideTile::WIDTH),
                     slot_height: u32::from(Tile::HEIGHT),
                     texture_height: u32::from(Tile::HEIGHT) * total_slots,
-                    _padding: 0,
+                    ndc_y_negate: 0,
                 };
 
                 gl.bind_buffer(
@@ -1227,51 +1133,6 @@ impl WebGlPrograms {
                     WebGl2RenderingContext::UNIFORM_BUFFER,
                     clear_config_data,
                     WebGl2RenderingContext::STATIC_DRAW,
-                );
-            }
-
-            // Resize the view texture.
-            gl.bind_texture(
-                WebGl2RenderingContext::TEXTURE_2D,
-                Some(&self.resources.view_texture),
-            );
-            gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
-                WebGl2RenderingContext::TEXTURE_2D,
-                0,
-                WebGl2RenderingContext::RGBA8 as i32,
-                new_render_size.width as i32,
-                new_render_size.height as i32,
-                0,
-                WebGl2RenderingContext::RGBA,
-                WebGl2RenderingContext::UNSIGNED_BYTE,
-                None,
-            )
-            .unwrap();
-
-            // Re-attach the texture to the framebuffer after reallocation. Some GPU
-            // drivers (notably Mali on low-end Android devices, accessed through
-            // ANGLE) cache framebuffer completeness and don't re-evaluate it when an
-            // attached texture's storage is reallocated via tex_image_2d while the
-            // framebuffer is not bound.
-            gl.bind_framebuffer(
-                WebGl2RenderingContext::FRAMEBUFFER,
-                Some(&self.resources.view_framebuffer),
-            );
-            gl.framebuffer_texture_2d(
-                WebGl2RenderingContext::FRAMEBUFFER,
-                WebGl2RenderingContext::COLOR_ATTACHMENT0,
-                WebGl2RenderingContext::TEXTURE_2D,
-                Some(&self.resources.view_texture),
-                0,
-            );
-
-            #[cfg(debug_assertions)]
-            {
-                let status = gl.check_framebuffer_status(WebGl2RenderingContext::FRAMEBUFFER);
-                debug_assert_eq!(
-                    status,
-                    WebGl2RenderingContext::FRAMEBUFFER_COMPLETE,
-                    "view framebuffer incomplete"
                 );
             }
 
@@ -1384,7 +1245,7 @@ impl WebGlPrograms {
     fn clear_view_framebuffer(&mut self, gl: &WebGl2RenderingContext) {
         gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
-            Some(&self.resources.view_framebuffer),
+            self.resources.view_framebuffer_override.as_ref(),
         );
         gl.clear_color(0.0, 0.0, 0.0, 0.0);
         gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
@@ -1902,11 +1763,6 @@ fn create_webgl_resources(
     // Create and configure gradient texture.
     let gradient_texture = create_texture(gl);
 
-    // Create and configure view texture.
-    let view_texture = create_texture(gl);
-    // Create framebuffer for the view texture.
-    let view_framebuffer = create_framebuffer_for_texture(gl, &view_texture);
-
     // Create slot textures and framebuffers.
     let slot_textures: [WebGlTexture; 2] = [
         create_slot_texture(gl, slot_count),
@@ -1945,8 +1801,7 @@ fn create_webgl_resources(
         clear_config_buffer,
         slot_textures,
         slot_framebuffers,
-        view_texture,
-        view_framebuffer,
+        view_framebuffer_override: None,
         max_texture_dimension_2d,
         stub_atlas_texture_array,
         atlas_render_framebuffer: None,
@@ -2151,7 +2006,7 @@ impl WebGlRendererContext<'_> {
                         .trailing_zeros(),
                     strip_offset_x,
                     strip_offset_y,
-                    _padding: 0,
+                    negate_ndc: 0,
                 };
                 let buf = &self.programs.resources.filter_config_buffer;
                 self.gl
@@ -2175,7 +2030,7 @@ impl WebGlRendererContext<'_> {
             StripPassRenderTarget::Output(OutputTarget::FinalView) => {
                 self.gl.bind_framebuffer(
                     WebGl2RenderingContext::FRAMEBUFFER,
-                    Some(&self.programs.resources.view_framebuffer),
+                    self.programs.resources.view_framebuffer_override.as_ref(),
                 );
                 let width = self.programs.render_size.width;
                 let height = self.programs.render_size.height;
