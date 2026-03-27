@@ -7,8 +7,9 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::ops::Range;
+use vello_common::TextureId;
 use vello_common::clip::ClipContext;
-use vello_common::coarse::{MODE_HYBRID, Wide, WideTilesBbox};
+use vello_common::coarse::{MODE_HYBRID, TextureRectAttrs, Wide, WideTilesBbox};
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::filter_effects::Filter;
@@ -21,8 +22,9 @@ use vello_common::paint::{Paint, PaintType, Tint};
 #[cfg(feature = "text")]
 use vello_common::peniko::FontData;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
+use vello_common::peniko::{Extend, ImageQuality};
 use vello_common::recording::{
-    PushLayerCommand, Recordable, Recorder, Recording, RenderCommand, RenderState,
+    PushLayerCommand, Recordable, Recorder, Recording, RenderCommand, RenderState, TextureRect,
 };
 use vello_common::render_graph::{RenderGraph, RenderNodeKind};
 use vello_common::strip::Strip;
@@ -89,6 +91,8 @@ pub(crate) enum FastStripCommand {
     Path(FastStripsPath),
     /// A rectangle.
     Rect(FastPathRect),
+    /// A sampled texture rectangle.
+    TextureRect(TextureRectAttrs),
 }
 
 /// A buffer that collects strips from paths that are rendered directly to the surface,
@@ -324,6 +328,49 @@ impl Scene {
         }
     }
 
+    /// Get the axis-aligned bounding box of the destination parallelogram of a texture-rect draw operation.
+    ///
+    /// See [`TextureRectAttrs`]'s fields for more information.
+    #[expect(clippy::cast_possible_truncation, reason = "Deliberate saturation")]
+    fn texture_rect_bbox(&self, cmd: &TextureRectAttrs) -> Option<WideTilesBbox> {
+        let width = f64::from(cmd.src_size[0]);
+        let height = f64::from(cmd.src_size[1]);
+        if width <= 0. || height <= 0. {
+            return None;
+        }
+
+        let transform = Affine::new(cmd.transform.map(f64::from));
+        let corners = [
+            transform * vello_common::kurbo::Point::new(0., 0.),
+            transform * vello_common::kurbo::Point::new(width, 0.),
+            transform * vello_common::kurbo::Point::new(0., height),
+            transform * vello_common::kurbo::Point::new(width, height),
+        ];
+        let mut bbox = Rect::new(
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+        );
+        for corner in corners {
+            bbox = bbox.union_pt(corner);
+        }
+        let viewport = Rect::new(0., 0., f64::from(self.width), f64::from(self.height));
+        let bbox = bbox.intersect(viewport);
+        if bbox.width() <= 0. || bbox.height() <= 0. {
+            return None;
+        }
+
+        Some(WideTilesBbox::new([
+            (bbox.x0.max(0.) as u16) / vello_common::coarse::WideTile::WIDTH,
+            (bbox.y0.max(0.) as u16) / vello_common::tile::Tile::HEIGHT,
+            ((bbox.x1.ceil().max(0.) as u16).div_ceil(vello_common::coarse::WideTile::WIDTH))
+                .min(self.wide.width_tiles()),
+            ((bbox.y1.ceil().max(0.) as u16).div_ceil(vello_common::tile::Tile::HEIGHT))
+                .min(self.wide.height_tiles()),
+        ]))
+    }
+
     /// Encode the current paint into a `Paint` that can be used for rendering.
     ///
     /// For solid colors, this is a simple conversion. For gradients and images,
@@ -491,6 +538,78 @@ impl Scene {
         self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
     }
 
+    /// Sample rectangular regions from an externally bound texture and draw them with the
+    /// corresponding transforms.
+    ///
+    /// The per-rect transforms are composed with the current
+    /// [scene transform][`Self::set_transform`]. This transform is relative to the local region
+    /// defined by each [`TextureRect`]: i.e., the origin of each [`TextureRect`] is used only to
+    /// determine the region to sample in the source [`TextureId`], and is ignored for determining
+    /// the destination.
+    pub fn fill_texture_rects(
+        &mut self,
+        texture_id: TextureId,
+        quality: ImageQuality,
+        x_extend: Extend,
+        y_extend: Extend,
+        rects: impl IntoIterator<Item = TextureRect>,
+    ) {
+        let mut rects = rects.into_iter().peekable();
+
+        if rects.peek().is_none() {
+            return;
+        }
+
+        self.with_optional_filter(move |ctx| {
+            let cmds: Vec<_> = rects
+                .filter_map(|rect| {
+                    ctx.build_texture_rect(texture_id, quality, x_extend, y_extend, &rect)
+                })
+                .collect();
+            if cmds.is_empty() {
+                return;
+            }
+
+            // First try whether we can schedule immediately rendering to the destination, else
+            // schedule the per-wide-tile work.
+            if !ctx.try_fast_texture_rects(&cmds) {
+                ctx.push_texture_rects_to_wide_tiles(&cmds);
+            }
+        });
+    }
+
+    /// Build a [`TextureRectAttrs`].
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "f64→f32 truncation is acceptable for pixel coordinates"
+    )]
+    fn build_texture_rect(
+        &self,
+        texture_id: TextureId,
+        quality: ImageQuality,
+        x_extend: Extend,
+        y_extend: Extend,
+        rect: &TextureRect,
+    ) -> Option<TextureRectAttrs> {
+        let width = rect.src.width();
+        let height = rect.src.height();
+        if width <= 0.0 || height <= 0.0 {
+            return None;
+        }
+
+        Some(TextureRectAttrs {
+            texture_id,
+            src_origin: [rect.src.x0 as f32, rect.src.y0 as f32],
+            src_size: [width as f32, height as f32],
+            transform: (self.render_state.transform * rect.transform)
+                .as_coeffs()
+                .map(|v| v as f32),
+            quality,
+            x_extend,
+            y_extend,
+        })
+    }
+
     #[expect(
         clippy::cast_possible_truncation,
         reason = "f64→f32 truncation is acceptable for pixel coordinates"
@@ -543,6 +662,23 @@ impl Scene {
         true
     }
 
+    /// We can forego all per-wide-tile work and immediately render to the destination when there
+    /// is no clipping, etc.
+    fn try_fast_texture_rects(&mut self, rects: &[TextureRectAttrs]) -> bool {
+        if self.strip_path_mode == StripPathMode::CoarseOnly
+            || self.wide.has_layers()
+            || self.filter.is_some()
+            || self.clip_context.get().is_some()
+        {
+            return false;
+        }
+
+        self.fast_strips_buffer
+            .commands
+            .extend(rects.iter().copied().map(FastStripCommand::TextureRect));
+        true
+    }
+
     /// Stroke a rectangle with the current paint and stroke settings.
     pub fn stroke_rect(&mut self, rect: &Rect) {
         self.stroke_path(&rect.to_path(DEFAULT_TOLERANCE));
@@ -565,6 +701,7 @@ impl Scene {
             return;
         }
 
+        let mut texture_rects = Vec::new();
         let mut strip_storage = self.strip_storage.borrow_mut();
         for cmd in self.fast_strips_buffer.commands.drain(..) {
             match cmd {
@@ -597,11 +734,17 @@ impl Scene {
                         &self.encoded_paints.borrow(),
                     );
                 }
+                FastStripCommand::TextureRect(r) => {
+                    texture_rects.push(r);
+                }
             }
         }
 
         strip_storage.set_generation_mode(GenerationMode::Replace);
         self.strip_path_mode = StripPathMode::CoarseOnly;
+        drop(strip_storage);
+
+        self.push_texture_rects_to_wide_tiles(&texture_rects);
     }
 
     /// Push a new layer with the given properties.
@@ -960,6 +1103,21 @@ impl Recordable for Scene {
                     );
                     range_index += 1;
                 }
+                RenderCommand::FillTextureRects {
+                    texture_id,
+                    quality,
+                    x_extend,
+                    y_extend,
+                    rects,
+                } => {
+                    self.fill_texture_rects(
+                        *texture_id,
+                        *quality,
+                        *x_extend,
+                        *y_extend,
+                        rects.iter().copied(),
+                    );
+                }
                 #[cfg(feature = "text")]
                 RenderCommand::FillOutlineGlyph(_) | RenderCommand::StrokeOutlineGlyph(_) => {
                     self.process_geometry_command(
@@ -1087,6 +1245,7 @@ impl Scene {
                     );
                     strip_start_indices.push(start_index);
                 }
+                RenderCommand::FillTextureRects { .. } => {}
                 #[cfg(feature = "text")]
                 RenderCommand::FillOutlineGlyph((path, glyph_transform)) => {
                     self.strip_generator.generate_filled_path(
@@ -1206,6 +1365,60 @@ impl Scene {
                 adjusted_strip
             })
             .collect()
+    }
+
+    // Schedule texture rect sampling for each wide tile intersecting the texture rects.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "Alphas length conversion is safe in this case"
+    )]
+    fn push_texture_rects_to_wide_tiles(&mut self, rects: &[TextureRectAttrs]) {
+        let rects: Vec<_> = rects
+            .iter()
+            .filter_map(|cmd| self.texture_rect_bbox(cmd).map(|bbox| (bbox, *cmd)))
+            .collect();
+        if rects.is_empty() {
+            return;
+        }
+
+        // As the texture rects are sampled on the GPU, if there is clipping, we need to explicitly
+        // push clip layers to the wide tiles.
+        let clip_data = self.clip_context.get().map(|clip| {
+            let mut strip_storage = self.strip_storage.borrow_mut();
+            let alpha_start = strip_storage.alphas.len() as u32;
+            strip_storage.alphas.extend_from_slice(clip.alphas);
+            let alpha_base = clip.strips.first().map(|s| s.alpha_idx()).unwrap_or(0);
+            let alpha_delta = alpha_start.wrapping_sub(alpha_base);
+            let mut strips = clip.strips.to_vec();
+            for strip in &mut strips {
+                strip.set_alpha_idx(strip.alpha_idx().wrapping_add(alpha_delta));
+            }
+            strips.into_boxed_slice()
+        });
+
+        if let Some(clip_path) = clip_data {
+            self.layer_id_next += 1;
+            let temp_layer_id = self.layer_id_next;
+            self.wide.push_layer(
+                temp_layer_id,
+                Some(clip_path),
+                DEFAULT_BLEND_MODE,
+                None,
+                1.0,
+                None,
+                Affine::IDENTITY,
+                &mut self.render_graph,
+                0,
+            );
+        }
+        let current_layer_id = self.wide.get_current_layer_id();
+        for (bbox, cmd) in rects {
+            self.wide.add_texture_rect(bbox, cmd, current_layer_id);
+        }
+
+        if self.clip_context.get().is_some() {
+            self.wide.pop_layer(&mut self.render_graph);
+        }
     }
 }
 
@@ -1432,6 +1645,46 @@ mod tests {
         assert_eq!(scene.strip_path_mode, StripPathMode::Interleaved);
         assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
         assert!(is_rect(&scene.fast_strips_buffer.commands[0]));
+    }
+
+    #[test]
+    fn texture_rect_at_root_uses_direct_buffer() {
+        let mut scene = unconstrained();
+
+        scene.fill_texture_rects(
+            TextureId(7),
+            ImageQuality::Medium,
+            Extend::Pad,
+            Extend::Repeat,
+            [TextureRect {
+                src: Rect::new(10.0, 12.0, 40.0, 36.0),
+                transform: Affine::IDENTITY,
+            }],
+        );
+
+        assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
+        assert!(scene.wide.attrs.texture_rect.is_empty());
+    }
+
+    #[test]
+    fn texture_rect_in_clip_layer_uses_wide_path() {
+        let mut scene = unconstrained();
+
+        scene.push_clip_layer(&triangle_path());
+        scene.fill_texture_rects(
+            TextureId(3),
+            ImageQuality::Low,
+            Extend::Pad,
+            Extend::Pad,
+            [TextureRect {
+                src: Rect::new(0.0, 0.0, 32.0, 16.0),
+                transform: Affine::IDENTITY,
+            }],
+        );
+        scene.pop_layer();
+
+        assert!(scene.fast_strips_buffer.commands.is_empty());
+        assert_eq!(scene.wide.attrs.texture_rect.len(), 1);
     }
 
     #[test]

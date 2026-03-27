@@ -657,6 +657,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 unreachable!();
             }
             Cmd::BatchEnd => {}
+            Cmd::TextureRect { .. } => todo!("Implement"),
         }
     }
 

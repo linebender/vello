@@ -63,3 +63,7 @@ workspace = true
 [[example]]
 name = "render_to_file"
 required-features = ["wgpu"]
+
+[[example]]
+name = "texture_rects"
+required-features = ["wgpu"]

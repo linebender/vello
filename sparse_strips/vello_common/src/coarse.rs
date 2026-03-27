@@ -3,13 +3,14 @@
 
 //! Generating and processing wide tiles.
 
+use crate::TextureId;
 use crate::color::palette::css::TRANSPARENT;
 use crate::encode::EncodedPaint;
 use crate::filter_effects::Filter;
 use crate::kurbo::{Affine, Rect};
 use crate::mask::Mask;
 use crate::paint::{Paint, PremulColor};
-use crate::peniko::{BlendMode, Compose, Mix};
+use crate::peniko::{BlendMode, Compose, Extend, ImageQuality, Mix};
 use crate::render_graph::{DependencyKind, LayerId, RenderGraph, RenderNodeKind};
 use crate::{strip::Strip, tile::Tile};
 use alloc::vec;
@@ -1583,6 +1584,28 @@ impl<const MODE: u8> WideTile<MODE> {
         }
     }
 
+    /// Sample from an external texture rectangle.
+    ///
+    /// Generates a texture sampling command unless the tile is in a zero-clip region (fully
+    /// clipped out). For clipped filter layers, commands are always generated since filters need
+    /// the full layer content rendered before applying the clip as a mask.
+    fn texture_rect(
+        &mut self,
+        batch_count: u32,
+        tile_idx: usize,
+        layers: &mut NeedsBufLayerStack,
+        attrs_idx: u32,
+        current_layer_id: LayerId,
+    ) {
+        if !self.is_zero_clip() || self.in_clipped_filter_layer {
+            self.ensure_layer_stack_bufs(tile_idx, layers, batch_count);
+
+            self.record_fill_cmd(current_layer_id, self.cmds.len());
+            self.cmds
+                .push(Cmd::TextureRect(CmdTextureRect { attrs_idx }));
+        }
+    }
+
     /// Adds a new clip region to the current wide tile.
     ///
     /// Pushes a clip buffer unless the tile is in a zero-clip region (fully clipped out).
@@ -1884,6 +1907,8 @@ pub enum Cmd {
     Fill(CmdFill),
     /// Fill a region with a paint, modulated by an alpha mask.
     AlphaFill(CmdAlphaFill),
+    /// Draw a sampled texture rectangle intersected with the current wide tile.
+    TextureRect(CmdTextureRect),
     /// Pushes a new buffer for drawing.
     /// Regular layers use the local `blend_buf` stack.
     /// Filtered layers are materialized in persistent layer storage.
@@ -1951,6 +1976,7 @@ impl Cmd {
         match self {
             Self::Fill(_) => "FillPath",
             Self::AlphaFill(_) => "AlphaFillPath",
+            Self::TextureRect(_) => "TextureRect",
             Self::PushBuf(layer_kind, needs_temp) => match (layer_kind, needs_temp) {
                 (LayerKind::Regular(_), false) => "PushBuf(Regular, false)",
                 (LayerKind::Regular(_), true) => "PushBuf(Regular, true)",
@@ -2000,6 +2026,7 @@ impl Cmd {
                     format!("AlphaFillPath(attrs_idx={})", cmd.attrs_idx)
                 }
             }
+            Self::TextureRect(cmd) => format!("TextureRect(attrs_idx={})", cmd.attrs_idx),
             _ => self.name().into(),
         }
     }
@@ -2092,6 +2119,8 @@ pub struct CommandAttrs {
     pub fill: Vec<FillAttrs>,
     /// Shared attributes for clip commands, indexed by `attrs_idx` in `CmdClipAlphaFill`.
     pub clip: Vec<ClipAttrs>,
+    /// Shared attributes for texture-rect commands.
+    pub texture_rect: Vec<TextureRectAttrs>,
 }
 
 impl CommandAttrs {
@@ -2099,7 +2128,31 @@ impl CommandAttrs {
     pub fn clear(&mut self) {
         self.fill.clear();
         self.clip.clear();
+        self.texture_rect.clear();
     }
+}
+
+/// Attributes for drawing a sampled texture rectangle.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextureRectAttrs {
+    /// User-provided texture binding.
+    pub texture_id: TextureId,
+
+    /// Source rectangle origin in texel coordinates.
+    pub src_origin: [f32; 2],
+    /// Source rectangle size in texel coordinates.
+    pub src_size: [f32; 2],
+    /// Destination transform mapping local rect coordinates to destination pixels.
+    ///
+    /// The *local* coordinates are `0..src_size.x` and `0..src_size.y`, i.e., with zero origin.
+    pub transform: [f32; 6],
+
+    /// Sampling quality.
+    pub quality: ImageQuality,
+    /// Extend mode for x coordinates.
+    pub x_extend: Extend,
+    /// Extend mode for y coordinates.
+    pub y_extend: Extend,
 }
 
 /// Fill a consecutive horizontal region of a wide tile.
@@ -2132,6 +2185,13 @@ pub struct CmdAlphaFill {
     /// Use `FillAttrs::alpha_idx(alpha_offset)` to compute the absolute index.
     pub alpha_offset: u32,
     /// Index into the command attributes array.
+    pub attrs_idx: u32,
+}
+
+/// Draw a sampled texture rectangle in a wide tile.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CmdTextureRect {
+    /// Index into the texture-rect attributes array.
     pub attrs_idx: u32,
 }
 
@@ -2207,6 +2267,39 @@ impl LayerCommandRanges {
     pub fn clear(&mut self) {
         self.full_range = 0..0;
         self.render_range = 0..0;
+    }
+}
+
+impl Wide<MODE_HYBRID> {
+    /// Add a sampled texture rectangle command to all intersected tiles.
+    pub fn add_texture_rect(
+        &mut self,
+        bbox: WideTilesBbox,
+        texture_rect: impl Into<TextureRectAttrs>,
+        current_layer_id: LayerId,
+    ) {
+        let bbox = bbox.intersect(self.active_bbox());
+        if bbox.is_empty() {
+            return;
+        }
+
+        let attrs_idx = self.attrs.texture_rect.len() as u32;
+        self.attrs.texture_rect.push(texture_rect.into());
+        let batch_count = self.batch_count;
+
+        for y in bbox.y0()..bbox.y1() {
+            for x in bbox.x0()..bbox.x1() {
+                let idx = self.get_idx(x, y);
+                self.update_current_layer_bbox(x, y);
+                self.tiles[idx].texture_rect(
+                    batch_count,
+                    idx,
+                    &mut self.layers_needing_buf_stack,
+                    attrs_idx,
+                    current_layer_id,
+                );
+            }
+        }
     }
 }
 

@@ -3,6 +3,7 @@
 
 //! Recording API for caching sparse strips
 
+use crate::TextureId;
 use crate::filter_effects::Filter;
 #[cfg(feature = "text")]
 use crate::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
@@ -105,6 +106,15 @@ pub struct PushLayerCommand {
     pub filter: Option<Filter>,
 }
 
+/// Attributes for one sampled texture rectangle draw.
+#[derive(Debug, Clone, Copy)]
+pub struct TextureRect {
+    /// Source rectangle in texture pixel coordinates.
+    pub src: Rect,
+    /// Local destination transform, composed with the current scene transform.
+    pub transform: Affine,
+}
+
 /// Individual rendering commands that can be recorded.
 #[derive(Debug)]
 pub enum RenderCommand {
@@ -116,6 +126,19 @@ pub enum RenderCommand {
     FillRect(Rect),
     /// Stroke a rectangle.
     StrokeRect(Rect),
+    /// Fill sampled texture rectangles.
+    FillTextureRects {
+        /// The runtime-bound texture to sample from.
+        texture_id: TextureId,
+        /// Sampling quality.
+        quality: peniko::ImageQuality,
+        /// Extend mode for x coordinates.
+        x_extend: peniko::Extend,
+        /// Extend mode for y coordinates.
+        y_extend: peniko::Extend,
+        /// Texture rectangles to draw.
+        rects: Vec<TextureRect>,
+    },
     /// Set the current transform.
     SetTransform(Affine),
     /// Set the fill rule.
@@ -369,6 +392,24 @@ impl<'a> Recorder<'a> {
     /// Fill a rectangle with current paint and fill rule.
     pub fn fill_rect(&mut self, rect: &Rect) {
         self.recording.add_command(RenderCommand::FillRect(*rect));
+    }
+
+    /// Fill sampled texture rectangles.
+    pub fn fill_texture_rects(
+        &mut self,
+        texture_id: TextureId,
+        quality: peniko::ImageQuality,
+        x_extend: peniko::Extend,
+        y_extend: peniko::Extend,
+        rects: impl IntoIterator<Item = TextureRect>,
+    ) {
+        self.recording.add_command(RenderCommand::FillTextureRects {
+            texture_id,
+            quality,
+            x_extend,
+            y_extend,
+            rects: rects.into_iter().collect(),
+        });
     }
 
     /// Stroke a rectangle with current paint and stroke settings.
