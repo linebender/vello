@@ -43,6 +43,8 @@ const PAINT_TYPE_BLURRED_ROUNDED_RECT: u32 = 5u;
 const PAINT_TEXTURE_INDEX_MASK: u32 = 0x03FFFFFFu;
 
 const RECT_STRIP_FLAG: u32 = 0x80000000u;
+const FILL_RULE_NON_ZERO: u32 = 0u;
+const FILL_RULE_EVEN_ODD: u32 = 1u;
 
 // Image quality
 const IMAGE_QUALITY_LOW = 0u;
@@ -220,6 +222,8 @@ struct StripInstance {
     @location(4) paint_and_rect_flag: u32,
     // Painter's-order index for z-depth computation.
     @location(5) depth_index: u32,
+    // Fill rule for sparse winding-based strips.
+    @location(6) fill_rule: u32,
 }
 
 struct VertexOutput {
@@ -238,6 +242,12 @@ struct VertexOutput {
     // Bits 0-7: x0, 8-15: y0, 16-23: x1, 24-31: y1.
     // Zero for normal strips.
     @location(5) @interpolate(flat) rect_frac: u32,
+    // Strip origin in strip space.
+    @location(6) @interpolate(flat) strip_xy: vec2<u32>,
+    // Base winding column for normal strips.
+    @location(7) @interpolate(flat) base_col: u32,
+    // Fill rule for sparse strips.
+    @location(8) @interpolate(flat) fill_rule: u32,
     // Normalized device coordinates (NDC) for the current vertex
     @builtin(position) position: vec4<f32>,
 };
@@ -277,6 +287,7 @@ fn vs_main(
 
     let is_rect = (instance.paint_and_rect_flag & RECT_STRIP_FLAG) != 0u;
     var height = config.strip_height;
+    out.base_col = instance.col_idx_or_rect_frac;
     if is_rect {
         height = dense_width;
         out.dense_end_or_rect_size = width | (dense_width << 16u);
@@ -331,12 +342,14 @@ fn vs_main(
     out.position = vec4<f32>(ndc_x, final_ndc_y, z, 1.0);
     out.payload = instance.payload;
     out.paint_and_rect_flag = instance.paint_and_rect_flag;
+    out.strip_xy = vec2<u32>(x0, y0);
+    out.fill_rule = instance.fill_rule;
 
     return out;
 }
 
 @group(0) @binding(0)
-var alphas_texture: texture_2d<u32>;
+var alphas_texture: texture_2d<f32>;
 
 @group(0) @binding(2)
 var clip_input_texture: texture_2d<f32>;
@@ -349,6 +362,9 @@ fn fs_main(
     @location(3) @interpolate(flat) dense_end_or_rect_size: u32,
     @location(4) @interpolate(flat) payload: u32,
     @location(5) @interpolate(flat) rect_frac: u32,
+    @location(6) @interpolate(flat) strip_xy: vec2<u32>,
+    @location(7) @interpolate(flat) base_col: u32,
+    @location(8) @interpolate(flat) fill_rule: u32,
     @builtin(position) position: vec4<f32>,
 ) -> @location(0) vec4<f32> {
     var alpha = 1.0;
@@ -370,31 +386,21 @@ fn fs_main(
         let a = clamp(bottom_and_right - top_and_left, vec2(0.0), vec2(1.0));
         alpha = a.x * a.y;
     } else if !is_rect && dense_end_or_rect_size != 0u {
-        let x = u32(floor(tex_coord.x));
-        let y = u32(floor(tex_coord.y));
-        // Retrieve alpha value from the texture. We store 16 1-byte alpha
-        // values per texel, with each color channel packing 4 alpha values.
-        // The code here assumes the strip height is 4, i.e., each color
-        // channel encodes the alpha values for a single column within a strip.
-        // Divide x by 4 to get the texel position.
-        let alphas_index = x;
-        let tex_dimensions = textureDimensions(alphas_texture);
-        let alphas_tex_width = tex_dimensions.x;
-        // Which texel contains the alpha values for this column
-        let texel_index = alphas_index / 4u;
-        // Which channel (R,G,B,A) in the texel contains the alpha values for this column
-        let channel_index = alphas_index % 4u;
-        // Calculate texel coordinates
-        let tex_x = texel_index & (alphas_tex_width - 1u);
-        let tex_y = texel_index >> config.alphas_tex_width_bits;
-
-        // Load all 4 channels from the texture
-        let rgba_values = textureLoad(alphas_texture, vec2<u32>(tex_x, tex_y), 0);
-
-        // Get the column's alphas from the appropriate RGBA channel based on the index
-        let alphas_u32 = unpack_alphas_from_channel(rgba_values, channel_index);
-        // Extract the alpha value for the current y-position from the packed u32 data
-        alpha = f32((alphas_u32 >> (y * 8u)) & 0xffu) * (1.0 / 255.0);
+        let pixel_x = u32(i32(position.x) - config.strip_offset_x) - strip_xy.x;
+        let row = u32(i32(position.y) - config.strip_offset_y) - strip_xy.y;
+        let col = base_col + pixel_x;
+        let tex_dims = textureDimensions(alphas_texture);
+        let tex_x = col % tex_dims.x;
+        let band = col / tex_dims.x;
+        let tex_y = band * config.strip_height + row;
+        let winding_sample = textureLoad(alphas_texture, vec2<u32>(tex_x, tex_y), 0);
+        let winding = winding_sample.r - winding_sample.g;
+        if fill_rule == FILL_RULE_EVEN_ODD {
+            let im1 = floor(winding * 0.5 + 0.5);
+            alpha = min(abs(winding - 2.0 * im1), 1.0);
+        } else {
+            alpha = min(abs(winding), 1.0);
+        }
     }
     // Apply the alpha value to the unpacked RGBA color or slot index
     let color_source = (paint_and_rect_flag >> 29u) & 0x3u;

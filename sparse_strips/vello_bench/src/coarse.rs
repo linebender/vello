@@ -9,7 +9,7 @@ use criterion::Criterion;
 use vello_common::coarse::{MODE_CPU, Wide};
 use vello_common::color::palette::css::PURPLE;
 use vello_common::paint::{Paint, PremulColor};
-use vello_common::peniko::BlendMode;
+use vello_common::peniko::{BlendMode, Fill};
 use vello_common::render_graph::RenderGraph;
 use vello_common::strip::Strip;
 
@@ -29,6 +29,7 @@ pub fn coarse(c: &mut Criterion) {
                 wide.generate(
                     &strip_buf,
                     Paint::Solid(PremulColor::from_alpha_color(PURPLE)),
+                    Fill::NonZero,
                     BlendMode::default(),
                     0,
                     None,
@@ -75,6 +76,7 @@ pub fn coarse_with_layer(c: &mut Criterion) {
                     wide.push_layer(
                         layer_id,
                         None::<&[Strip]>,
+                        Fill::NonZero,
                         BlendMode::default(),
                         None,
                         1.0,
@@ -89,6 +91,7 @@ pub fn coarse_with_layer(c: &mut Criterion) {
                 wide.generate(
                     &strip_buf,
                     Paint::Solid(PremulColor::from_alpha_color(PURPLE)),
+                    Fill::NonZero,
                     BlendMode::default(),
                     0,
                     None,
@@ -148,6 +151,7 @@ pub fn coarse_with_layer_large_viewport(c: &mut Criterion) {
                     wide.push_layer(
                         layer_id,
                         None::<&[Strip]>,
+                        Fill::NonZero,
                         BlendMode::default(),
                         None,
                         1.0,
@@ -163,6 +167,7 @@ pub fn coarse_with_layer_large_viewport(c: &mut Criterion) {
                 wide.generate(
                     &strip_buf,
                     Paint::Solid(PremulColor::from_alpha_color(PURPLE)),
+                    Fill::NonZero,
                     BlendMode::default(),
                     0,
                     None,

@@ -186,9 +186,9 @@ use vello_common::coarse::{
     CmdAlphaFill, CmdClipAlphaFill, CmdClipFill, CmdFill, CommandAttrs, LayerKind, MODE_HYBRID,
     Wide, WideTilesBbox,
 };
-use vello_common::peniko::BlendMode;
+use vello_common::peniko::{BlendMode, Fill};
 use vello_common::render_graph::{LayerId, RenderNodeKind};
-use vello_common::strip_generator::StripStorage;
+use vello_common::strip::Strip;
 use vello_common::{
     TextureId,
     coarse::{Cmd, WideTile},
@@ -208,6 +208,8 @@ const PAINT_TYPE_LINEAR_GRADIENT: u32 = 2;
 const PAINT_TYPE_RADIAL_GRADIENT: u32 = 3;
 const PAINT_TYPE_SWEEP_GRADIENT: u32 = 4;
 const PAINT_TYPE_BLURRED_ROUNDED_RECT: u32 = 5;
+const FILL_RULE_NON_ZERO: u32 = 0;
+const FILL_RULE_EVEN_ODD: u32 = 1;
 
 /// Bit 31 of [`GpuStrip::paint_and_rect_flag`] signals that the strip
 /// represents a full rectangle.
@@ -863,22 +865,26 @@ impl Scheduler {
         paint_idxs: &[u32],
         encoded_paints: &[EncodedPaint],
     ) {
+        #[cfg(feature = "wgpu")]
+        let all_strips = &scene.fast_path.strips;
+        #[cfg(not(feature = "wgpu"))]
         let strip_storage = scene.strip_storage.borrow();
+        #[cfg(not(feature = "wgpu"))]
+        let all_strips = &strip_storage.strips;
         // Always choose the draw of the final surface, since direct strips are only ever
         // rendered to the final surface.
         let mut depth = core::mem::take(&mut self.depth);
         // TODO: Also allow the split when rendering to an atlas layer.
         let allow_opaque_split = self.is_rendering_to_user_surface();
         let draw = self.draw_mut(round, 2);
-
-        for cmd in &scene.fast_strips_buffer.commands[range] {
+        for cmd in scene.fast_strips_buffer.commands[range].iter() {
             match cmd {
                 FastStripCommand::Path(path) => {
                     let is_opaque = Self::is_paint_opaque(&path.paint, encoded_paints);
                     let depth_index = depth.next(is_opaque && allow_opaque_split);
                     generate_gpu_strips_for_fast_path(
                         path,
-                        &strip_storage,
+                        all_strips,
                         scene,
                         encoded_paints,
                         paint_idxs,
@@ -1576,11 +1582,9 @@ impl Scheduler {
         };
 
         draw.push_alpha(
-            gpu_strip_builder.with_sparse(cmd.width, col_idx).paint(
-                processed.payload,
-                processed.paint,
-                depth_index,
-            ),
+            gpu_strip_builder
+                .with_sparse(cmd.width, col_idx, fill_attrs.fill_rule)
+                .paint(processed.payload, processed.paint, depth_index),
             processed.external_texture_id,
         );
     }
@@ -1801,7 +1805,7 @@ impl Scheduler {
 
         draw.push_alpha(
             gpu_strip_builder
-                .with_sparse(cmd.width, col_idx)
+                .with_sparse(cmd.width, col_idx, clip_attrs.fill_rule)
                 .copy_from_slot(tos.dest_slot.get_idx(), 0xFF, depth_index),
             None,
         );
@@ -1912,6 +1916,7 @@ struct GpuStripBuilder {
     width: u16,
     dense_width_or_rect_height: u16,
     col_idx_or_rect_frac: u32,
+    fill_rule: u32,
 }
 
 impl GpuStripBuilder {
@@ -1923,6 +1928,7 @@ impl GpuStripBuilder {
             width,
             dense_width_or_rect_height: 0,
             col_idx_or_rect_frac: 0,
+            fill_rule: FILL_RULE_NON_ZERO,
         }
     }
 
@@ -1934,13 +1940,18 @@ impl GpuStripBuilder {
             width,
             dense_width_or_rect_height: 0,
             col_idx_or_rect_frac: 0,
+            fill_rule: FILL_RULE_NON_ZERO,
         }
     }
 
     /// Add sparse strip parameters.
-    fn with_sparse(mut self, dense_width: u16, col_idx: u32) -> Self {
+    fn with_sparse(mut self, dense_width: u16, col_idx: u32, fill_rule: Fill) -> Self {
         self.dense_width_or_rect_height = dense_width;
         self.col_idx_or_rect_frac = col_idx;
+        self.fill_rule = match fill_rule {
+            Fill::NonZero => FILL_RULE_NON_ZERO,
+            Fill::EvenOdd => FILL_RULE_EVEN_ODD,
+        };
         self
     }
 
@@ -1955,6 +1966,7 @@ impl GpuStripBuilder {
             payload,
             paint_and_rect_flag: paint,
             depth_index,
+            fill_rule: self.fill_rule,
         }
     }
 
@@ -1969,6 +1981,7 @@ impl GpuStripBuilder {
             payload: u32::try_from(from_slot).unwrap(),
             paint_and_rect_flag: (COLOR_SOURCE_SLOT << 29) | (opacity as u32),
             depth_index,
+            fill_rule: self.fill_rule,
         }
     }
 
@@ -1995,6 +2008,7 @@ impl GpuStripBuilder {
                 | ((mix_mode as u32) << 8)
                 | (compose_mode as u32),
             depth_index,
+            fill_rule: self.fill_rule,
         }
     }
 }
@@ -2006,7 +2020,7 @@ fn has_non_zero_alpha(rgba: u32) -> bool {
 
 fn generate_gpu_strips_for_fast_path(
     path: &FastStripsPath,
-    strip_storage: &StripStorage,
+    all_strips: &[Strip],
     scene: &Scene,
     encoded_paints: &[EncodedPaint],
     paint_idxs: &[u32],
@@ -2014,7 +2028,7 @@ fn generate_gpu_strips_for_fast_path(
     is_opaque: bool,
     draw: &mut Draw,
 ) {
-    let strips = &strip_storage.strips[path.strips.clone()];
+    let strips = &all_strips[path.strips.clone()];
 
     if strips.is_empty() {
         return;
@@ -2044,7 +2058,7 @@ fn generate_gpu_strips_for_fast_path(
                 Scheduler::process_paint(&path.paint, encoded_paints, (x0, y), paint_idxs);
             draw.push_alpha(
                 GpuStripBuilder::at_surface(x0, y, strip_width)
-                    .with_sparse(strip_width, col)
+                    .with_sparse(strip_width, col, path.fill_rule)
                     .paint(processed.payload, processed.paint, depth_index),
                 processed.external_texture_id,
             );
@@ -2237,6 +2251,7 @@ fn make_gpu_rect(part: RectPart, payload: u32, paint_packed: u32, depth_index: u
         payload,
         paint_and_rect_flag: paint_packed | RECT_STRIP_FLAG,
         depth_index,
+        fill_rule: FILL_RULE_NON_ZERO,
     }
 }
 
@@ -2271,6 +2286,7 @@ mod tests {
         payload: 0,
         paint_and_rect_flag: 0,
         depth_index: 0,
+        fill_rule: 0,
     };
 
     #[test]

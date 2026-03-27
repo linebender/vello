@@ -5,6 +5,8 @@
 
 #[cfg(feature = "text")]
 use crate::Resources;
+#[cfg(feature = "wgpu")]
+use crate::gpu_winding::{self, GpuTileLine};
 use crate::sampling::SampleRect;
 #[cfg(feature = "text")]
 use crate::text::GlyphRunBuilder;
@@ -30,6 +32,7 @@ use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Extend, Fill, ImageQuality, ImageSampler, Mix};
 use vello_common::render_graph::{RenderGraph, RenderNodeKind};
 use vello_common::render_state::RenderState;
+use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use vello_common::util::is_axis_aligned;
 
@@ -72,6 +75,8 @@ pub(crate) enum StripPathMode {
 pub(crate) struct FastStripsPath {
     /// The range of strips for this path in the `strips` buffer.
     pub(crate) strips: Range<usize>,
+    /// Fill rule used when interpreting sampled winding values for this path.
+    pub(crate) fill_rule: Fill,
     /// The paint of the path.
     pub(crate) paint: Paint,
 }
@@ -98,8 +103,8 @@ pub(crate) enum FastStripCommand {
 /// A buffer that collects strips from paths that are rendered directly to the surface,
 /// bypassing coarse rasterization.
 ///
-/// Strip data itself lives in `strip_storage`. Each `FastStripsPath` records the range of strips
-/// for one path within that storage.
+/// On the `wgpu` fast path, strip data lives in `fast_path_strips`. Each `FastStripsPath`
+/// records the range of strips for one path within that storage.
 #[derive(Debug, Default)]
 pub(crate) struct FastStripsBuffer {
     /// All commands in the buffer.
@@ -110,6 +115,25 @@ impl FastStripsBuffer {
     #[inline(always)]
     fn clear(&mut self) {
         self.commands.clear();
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct WgpuFastPathData {
+    /// Fast-path strips, indexed by [`FastStripsPath::strips`].
+    pub(crate) strips: Vec<Strip>,
+    /// Tile-local winding inputs for the winding render pass.
+    pub(crate) tile_lines: Vec<GpuTileLine>,
+    /// Maximum logical winding-value count across all paths, used to size the winding texture.
+    pub(crate) winding_value_count: u32,
+}
+
+impl WgpuFastPathData {
+    #[inline(always)]
+    fn clear(&mut self) {
+        self.strips.clear();
+        self.tile_lines.clear();
+        self.winding_value_count = 0;
     }
 }
 
@@ -231,6 +255,9 @@ pub struct Scene {
     /// A buffer that stores the strips of path drawing calls that are rendered directly
     /// to the surface, bypassing coarse rasterization.
     pub(crate) fast_strips_buffer: FastStripsBuffer,
+    /// The `wgpu` fast-path payload.
+    #[cfg(feature = "wgpu")]
+    pub(crate) fast_path: WgpuFastPathData,
     /// The current strip rendering pipeline mode.
     pub(crate) strip_path_mode: StripPathMode,
     /// Split points in `fast_strips_buffer.paths` that mark boundaries where we must
@@ -239,6 +266,7 @@ pub struct Scene {
     pub(crate) coarse_batch_splits: Vec<usize>,
 }
 
+#[cfg(not(feature = "wgpu"))]
 // We use this macro instead of a method to avoid borrowing issues in the corresponding methods.
 //
 // When the fast path is active AND we're at the top level (no layers pushed),
@@ -249,13 +277,14 @@ pub struct Scene {
 // or `ReplaceAfter` mode where each generation starts with a clear/truncate, so the
 // relevant portion of the buffer is the current path's strips.
 macro_rules! submit_strips {
-    ($self:ident, $strip_storage:expr, $strip_start:expr, $paint:expr) => {
+    ($self:ident, $strip_storage:expr, $strip_start:expr, $fill_rule:expr, $paint:expr) => {
         if $self.strip_path_mode != StripPathMode::CoarseOnly && !$self.wide.has_layers() {
             $self
                 .fast_strips_buffer
                 .commands
                 .push(FastStripCommand::Path(FastStripsPath {
                     strips: $strip_start..$strip_storage.strips.len(),
+                    fill_rule: $fill_rule,
                     paint: $paint,
                 }));
         } else {
@@ -268,6 +297,7 @@ macro_rules! submit_strips {
             $self.wide.generate(
                 &$strip_storage.strips[coarse_start..],
                 $paint,
+                $fill_rule,
                 $self.render_state.blend_mode,
                 0,
                 None,
@@ -320,6 +350,8 @@ impl Scene {
             render_graph,
             filter: None,
             fast_strips_buffer: FastStripsBuffer::default(),
+            #[cfg(feature = "wgpu")]
+            fast_path: WgpuFastPathData::default(),
             strip_path_mode: StripPathMode::FastOnly,
             coarse_batch_splits: Vec::new(),
         }
@@ -413,18 +445,57 @@ impl Scene {
         paint: Paint,
         aliasing_threshold: Option<u8>,
     ) {
-        let strip_storage = &mut self.strip_storage.borrow_mut();
-        let strip_start = strip_storage.strips.len();
-        self.strip_generator.generate_filled_path(
-            path,
-            fill_rule,
-            transform,
-            aliasing_threshold,
-            strip_storage,
-            self.clip_context.get(),
-        );
+        #[cfg(feature = "wgpu")]
+        {
+            let _ = aliasing_threshold;
+            let strip_start = self.fast_path.strips.len();
+            self.strip_generator.prepare_tiles_for_fill(path, transform);
+            let winding_value_count = gpu_winding::build_winding_output(
+                self.strip_generator.level(),
+                self.strip_generator.tiles(),
+                fill_rule,
+                self.strip_generator.lines(),
+                self.fast_path.winding_value_count,
+                &mut self.fast_path.strips,
+                &mut self.fast_path.tile_lines,
+            );
+            self.fast_path.winding_value_count = winding_value_count;
+            if self.strip_path_mode != StripPathMode::CoarseOnly && !self.wide.has_layers() {
+                self.fast_strips_buffer
+                    .commands
+                    .push(FastStripCommand::Path(FastStripsPath {
+                        strips: strip_start..self.fast_path.strips.len(),
+                        fill_rule,
+                        paint,
+                    }));
+            } else {
+                self.wide.generate(
+                    &self.fast_path.strips[strip_start..],
+                    paint,
+                    fill_rule,
+                    self.render_state.blend_mode,
+                    0,
+                    None,
+                    &self.encoded_paints.borrow(),
+                );
+            }
+        }
 
-        submit_strips!(self, strip_storage, strip_start, paint);
+        #[cfg(not(feature = "wgpu"))]
+        {
+            let strip_storage = &mut self.strip_storage.borrow_mut();
+            let strip_start = strip_storage.strips.len();
+            self.strip_generator.generate_filled_path(
+                path,
+                fill_rule,
+                transform,
+                aliasing_threshold,
+                strip_storage,
+                self.clip_context.get(),
+            );
+
+            submit_strips!(self, strip_storage, strip_start, fill_rule, paint);
+        }
     }
 
     /// Push a new clip path to the clip stack.
@@ -432,6 +503,13 @@ impl Scene {
     /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
     /// example for how this method differs from `push_clip_layer`.
     pub fn push_clip_path(&mut self, path: &BezPath) {
+        #[cfg(feature = "wgpu")]
+        {
+            let _ = path;
+            unimplemented!("clip paths are unsupported in the wgpu GPU-winding fast path");
+        }
+
+        #[cfg(not(feature = "wgpu"))]
         self.clip_context.push_clip(
             path.iter(),
             &mut self.strip_generator,
@@ -446,6 +524,10 @@ impl Scene {
     /// Note that unlike `push_clip_layer`, it is permissible to have pending
     /// pushed clip paths before finishing the rendering operation.
     pub fn pop_clip_path(&mut self) {
+        #[cfg(feature = "wgpu")]
+        unimplemented!("clip paths are unsupported in the wgpu GPU-winding fast path");
+
+        #[cfg(not(feature = "wgpu"))]
         self.clip_context.pop_clip();
     }
 
@@ -479,18 +561,61 @@ impl Scene {
         paint: Paint,
         aliasing_threshold: Option<u8>,
     ) {
-        let strip_storage = &mut self.strip_storage.borrow_mut();
-        let strip_start = strip_storage.strips.len();
-        self.strip_generator.generate_stroked_path(
-            path,
-            &self.render_state.stroke,
-            transform,
-            aliasing_threshold,
-            strip_storage,
-            self.clip_context.get(),
-        );
+        #[cfg(feature = "wgpu")]
+        {
+            let _ = aliasing_threshold;
+            let strip_start = self.fast_path.strips.len();
+            self.strip_generator.prepare_tiles_for_stroke(
+                path,
+                &self.render_state.stroke,
+                transform,
+            );
+            let winding_value_count = gpu_winding::build_winding_output(
+                self.strip_generator.level(),
+                self.strip_generator.tiles(),
+                Fill::NonZero,
+                self.strip_generator.lines(),
+                self.fast_path.winding_value_count,
+                &mut self.fast_path.strips,
+                &mut self.fast_path.tile_lines,
+            );
+            self.fast_path.winding_value_count = winding_value_count;
+            if self.strip_path_mode != StripPathMode::CoarseOnly && !self.wide.has_layers() {
+                self.fast_strips_buffer
+                    .commands
+                    .push(FastStripCommand::Path(FastStripsPath {
+                        strips: strip_start..self.fast_path.strips.len(),
+                        fill_rule: Fill::NonZero,
+                        paint,
+                    }));
+            } else {
+                self.wide.generate(
+                    &self.fast_path.strips[strip_start..],
+                    paint,
+                    Fill::NonZero,
+                    self.render_state.blend_mode,
+                    0,
+                    None,
+                    &self.encoded_paints.borrow(),
+                );
+            }
+        }
 
-        submit_strips!(self, strip_storage, strip_start, paint);
+        #[cfg(not(feature = "wgpu"))]
+        {
+            let strip_storage = &mut self.strip_storage.borrow_mut();
+            let strip_start = strip_storage.strips.len();
+            self.strip_generator.generate_stroked_path(
+                path,
+                &self.render_state.stroke,
+                transform,
+                aliasing_threshold,
+                strip_storage,
+                self.clip_context.get(),
+            );
+
+            submit_strips!(self, strip_storage, strip_start, Fill::NonZero, paint);
+        }
     }
 
     /// Set the aliasing threshold.
@@ -505,6 +630,11 @@ impl Scene {
     /// Note that there is no performance benefit to disabling anti-aliasing and
     /// this functionality is simply provided for compatibility.
     pub fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>) {
+        #[cfg(feature = "wgpu")]
+        if aliasing_threshold.is_some() {
+            unimplemented!("aliasing thresholds are unsupported in the wgpu GPU-winding fast path");
+        }
+
         self.aliasing_threshold = aliasing_threshold;
     }
 
@@ -518,24 +648,34 @@ impl Scene {
             return;
         }
 
-        if is_axis_aligned(&self.render_state.transform) && self.aliasing_threshold.is_none() {
-            self.with_optional_filter(|ctx| {
-                let paint = ctx.encode_current_paint();
-                let transformed_rect = ctx.render_state.transform.transform_rect_bbox(*rect);
-                let strip_storage = &mut ctx.strip_storage.borrow_mut();
-                let strip_start = strip_storage.strips.len();
-                ctx.strip_generator.generate_filled_rect_fast(
-                    &transformed_rect,
-                    strip_storage,
-                    ctx.clip_context.get(),
-                );
+        #[cfg(not(feature = "wgpu"))]
+        {
+            if is_axis_aligned(&self.render_state.transform) && self.aliasing_threshold.is_none() {
+                self.with_optional_filter(|ctx| {
+                    let paint = ctx.encode_current_paint();
+                    let transformed_rect = ctx.render_state.transform.transform_rect_bbox(*rect);
+                    let strip_storage = &mut ctx.strip_storage.borrow_mut();
+                    let strip_start = strip_storage.strips.len();
+                    ctx.strip_generator.generate_filled_rect_fast(
+                        &transformed_rect,
+                        strip_storage,
+                        ctx.clip_context.get(),
+                    );
 
-                submit_strips!(ctx, strip_storage, strip_start, paint);
-            });
-        } else {
-            // TODO: Use a temporary storage for rect paths, like in `vello_cpu`.
-            self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
+                    submit_strips!(
+                        ctx,
+                        strip_storage,
+                        strip_start,
+                        ctx.render_state.fill_rule,
+                        paint
+                    );
+                });
+                return;
+            }
         }
+
+        // TODO: Use a temporary storage for rect paths, like in `vello_cpu`.
+        self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
     }
 
     fn try_fast_rect(&mut self, rect: &Rect) -> bool {
@@ -771,29 +911,34 @@ impl Scene {
                 return;
             }
 
-            if is_axis_aligned(&ctx.render_state.transform) && ctx.aliasing_threshold.is_none() {
-                let transformed_rect = ctx
-                    .render_state
-                    .transform
-                    .transform_rect_bbox(inflated_rect);
-                let strip_storage = &mut ctx.strip_storage.borrow_mut();
-                let strip_start = strip_storage.strips.len();
-                ctx.strip_generator.generate_filled_rect_fast(
-                    &transformed_rect,
-                    strip_storage,
-                    ctx.clip_context.get(),
-                );
+            #[cfg(not(feature = "wgpu"))]
+            {
+                if is_axis_aligned(&ctx.render_state.transform) && ctx.aliasing_threshold.is_none()
+                {
+                    let transformed_rect = ctx
+                        .render_state
+                        .transform
+                        .transform_rect_bbox(inflated_rect);
+                    let strip_storage = &mut ctx.strip_storage.borrow_mut();
+                    let strip_start = strip_storage.strips.len();
+                    ctx.strip_generator.generate_filled_rect_fast(
+                        &transformed_rect,
+                        strip_storage,
+                        ctx.clip_context.get(),
+                    );
 
-                submit_strips!(ctx, strip_storage, strip_start, paint);
-            } else {
-                ctx.fill_path_with(
-                    &inflated_rect.to_path(DEFAULT_TOLERANCE),
-                    ctx.render_state.transform,
-                    Fill::NonZero,
-                    paint,
-                    ctx.aliasing_threshold,
-                );
+                    submit_strips!(ctx, strip_storage, strip_start, Fill::NonZero, paint);
+                    return;
+                }
             }
+
+            ctx.fill_path_with(
+                &inflated_rect.to_path(DEFAULT_TOLERANCE),
+                ctx.render_state.transform,
+                Fill::NonZero,
+                paint,
+                ctx.aliasing_threshold,
+            );
         });
     }
 
@@ -827,43 +972,105 @@ impl Scene {
             return;
         }
 
-        let mut strip_storage = self.strip_storage.borrow_mut();
-        for cmd in self.fast_strips_buffer.commands.drain(..) {
-            match cmd {
-                FastStripCommand::Path(path) => {
-                    self.wide.generate(
-                        &strip_storage.strips[path.strips],
-                        path.paint,
-                        BlendMode::default(),
-                        0,
-                        None,
-                        &self.encoded_paints.borrow(),
-                    );
-                }
-                FastStripCommand::Rect(r) => {
-                    let rect = Rect::new(
-                        f64::from(r.x0),
-                        f64::from(r.y0),
-                        f64::from(r.x1),
-                        f64::from(r.y1),
-                    );
-                    let strip_start = strip_storage.strips.len();
-                    self.strip_generator
-                        .generate_filled_rect_fast(&rect, &mut strip_storage, None);
-                    self.wide.generate(
-                        &strip_storage.strips[strip_start..],
-                        r.paint,
-                        BlendMode::default(),
-                        0,
-                        None,
-                        &self.encoded_paints.borrow(),
-                    );
+        #[cfg(feature = "wgpu")]
+        {
+            for cmd in self.fast_strips_buffer.commands.drain(..) {
+                match cmd {
+                    FastStripCommand::Path(path) => {
+                        self.wide.generate(
+                            &self.fast_path.strips[path.strips],
+                            path.paint,
+                            path.fill_rule,
+                            BlendMode::default(),
+                            0,
+                            None,
+                            &self.encoded_paints.borrow(),
+                        );
+                    }
+                    FastStripCommand::Rect(r) => {
+                        let rect = Rect::new(
+                            f64::from(r.x0),
+                            f64::from(r.y0),
+                            f64::from(r.x1),
+                            f64::from(r.y1),
+                        );
+                        let strip_start = self.fast_path.strips.len();
+                        self.strip_generator.prepare_tiles_for_fill(
+                            &rect.to_path(DEFAULT_TOLERANCE),
+                            Affine::IDENTITY,
+                        );
+                        let winding_value_count = gpu_winding::build_winding_output(
+                            self.strip_generator.level(),
+                            self.strip_generator.tiles(),
+                            Fill::NonZero,
+                            self.strip_generator.lines(),
+                            self.fast_path.winding_value_count,
+                            &mut self.fast_path.strips,
+                            &mut self.fast_path.tile_lines,
+                        );
+                        self.fast_path.winding_value_count = winding_value_count;
+                        self.wide.generate(
+                            &self.fast_path.strips[strip_start..],
+                            r.paint,
+                            Fill::NonZero,
+                            BlendMode::default(),
+                            0,
+                            None,
+                            &self.encoded_paints.borrow(),
+                        );
+                    }
                 }
             }
+
+            self.strip_path_mode = StripPathMode::CoarseOnly;
+            return;
         }
 
-        strip_storage.set_generation_mode(GenerationMode::Replace);
-        self.strip_path_mode = StripPathMode::CoarseOnly;
+        #[cfg(not(feature = "wgpu"))]
+        {
+            let mut strip_storage = self.strip_storage.borrow_mut();
+            for cmd in self.fast_strips_buffer.commands.drain(..) {
+                match cmd {
+                    FastStripCommand::Path(path) => {
+                        self.wide.generate(
+                            &strip_storage.strips[path.strips],
+                            path.paint,
+                            path.fill_rule,
+                            BlendMode::default(),
+                            0,
+                            None,
+                            &self.encoded_paints.borrow(),
+                        );
+                    }
+                    FastStripCommand::Rect(r) => {
+                        let rect = Rect::new(
+                            f64::from(r.x0),
+                            f64::from(r.y0),
+                            f64::from(r.x1),
+                            f64::from(r.y1),
+                        );
+                        let strip_start = strip_storage.strips.len();
+                        self.strip_generator.generate_filled_rect_fast(
+                            &rect,
+                            &mut strip_storage,
+                            None,
+                        );
+                        self.wide.generate(
+                            &strip_storage.strips[strip_start..],
+                            r.paint,
+                            Fill::NonZero,
+                            BlendMode::default(),
+                            0,
+                            None,
+                            &self.encoded_paints.borrow(),
+                        );
+                    }
+                }
+            }
+
+            strip_storage.set_generation_mode(GenerationMode::Replace);
+            self.strip_path_mode = StripPathMode::CoarseOnly;
+        }
     }
 
     /// Push a new layer with the given properties.
@@ -881,57 +1088,102 @@ impl Scene {
 
         self.layer_id_next += 1;
 
-        let strip_offset;
-        if self.constraints.use_default_blending_only() {
-            // With default blending only we can keep fast path strips alive. Record a
-            // split point so the scheduler knows to process one coarse batch after
-            // processing fast path strips up to this point.
-            if !self.wide.has_layers() {
-                let split = self.fast_strips_buffer.commands.len();
-                self.coarse_batch_splits.push(split);
+        #[cfg(feature = "wgpu")]
+        {
+            if self.constraints.use_default_blending_only() {
+                if !self.wide.has_layers() {
+                    let split = self.fast_strips_buffer.commands.len();
+                    self.coarse_batch_splits.push(split);
+                }
+                self.strip_path_mode = StripPathMode::Interleaved;
+            } else {
+                self.flush_fast_path();
             }
-            let mut strip_storage = self.strip_storage.borrow_mut();
-            strip_offset = strip_storage.strips.len();
-            strip_storage.set_generation_mode(GenerationMode::ReplaceAfter(strip_offset));
-            self.strip_path_mode = StripPathMode::Interleaved;
-        } else {
-            strip_offset = 0;
-            self.flush_fast_path();
-        }
 
-        let mut strip_storage = self.strip_storage.borrow_mut();
+            let clip_start = self.fast_path.strips.len();
+            let clip = if let Some(c) = clip_path {
+                self.strip_generator
+                    .prepare_tiles_for_fill(c, self.render_state.transform);
+                let winding_value_count = gpu_winding::build_winding_output(
+                    self.strip_generator.level(),
+                    self.strip_generator.tiles(),
+                    self.render_state.fill_rule,
+                    self.strip_generator.lines(),
+                    self.fast_path.winding_value_count,
+                    &mut self.fast_path.strips,
+                    &mut self.fast_path.tile_lines,
+                );
+                self.fast_path.winding_value_count = winding_value_count;
+                Some(&self.fast_path.strips[clip_start..])
+            } else {
+                None
+            };
 
-        let clip = if let Some(c) = clip_path {
-            self.strip_generator.generate_filled_path(
-                c,
+            self.wide.push_layer(
+                self.layer_id_next,
+                clip,
                 self.render_state.fill_rule,
+                blend_mode_val,
+                mask,
+                opacity.unwrap_or(1.),
+                filter,
                 self.render_state.transform,
-                self.aliasing_threshold,
-                &mut strip_storage,
-                self.clip_context.get(),
+                &mut self.render_graph,
+                0,
             );
-
-            Some(&strip_storage.strips[strip_offset..])
-        } else {
-            None
-        };
-
-        // Mask is unsupported. Blend is partially supported.
-        if mask.is_some() {
-            unimplemented!()
+            return;
         }
 
-        self.wide.push_layer(
-            self.layer_id_next,
-            clip,
-            blend_mode_val,
-            None,
-            opacity.unwrap_or(1.),
-            filter,
-            self.render_state.transform,
-            &mut self.render_graph,
-            0,
-        );
+        #[cfg(not(feature = "wgpu"))]
+        {
+            let strip_offset;
+            if self.constraints.use_default_blending_only() {
+                // With default blending only we can keep fast path strips alive. Record a
+                // split point so the scheduler knows to process one coarse batch after
+                // processing fast path strips up to this point.
+                if !self.wide.has_layers() {
+                    let split = self.fast_strips_buffer.commands.len();
+                    self.coarse_batch_splits.push(split);
+                }
+                let mut strip_storage = self.strip_storage.borrow_mut();
+                strip_offset = strip_storage.strips.len();
+                strip_storage.set_generation_mode(GenerationMode::ReplaceAfter(strip_offset));
+                self.strip_path_mode = StripPathMode::Interleaved;
+            } else {
+                strip_offset = 0;
+                self.flush_fast_path();
+            }
+
+            let mut strip_storage = self.strip_storage.borrow_mut();
+
+            let clip = if let Some(c) = clip_path {
+                self.strip_generator.generate_filled_path(
+                    c,
+                    self.render_state.fill_rule,
+                    self.render_state.transform,
+                    self.aliasing_threshold,
+                    &mut strip_storage,
+                    self.clip_context.get(),
+                );
+
+                Some(&strip_storage.strips[strip_offset..])
+            } else {
+                None
+            };
+
+            self.wide.push_layer(
+                self.layer_id_next,
+                clip,
+                self.render_state.fill_rule,
+                blend_mode_val,
+                mask,
+                opacity.unwrap_or(1.),
+                filter,
+                self.render_state.transform,
+                &mut self.render_graph,
+                0,
+            );
+        }
     }
 
     /// Push a new clip layer.
@@ -971,6 +1223,8 @@ impl Scene {
         self.wide.pop_layer(&mut self.render_graph);
         if self.strip_path_mode == StripPathMode::Interleaved && !self.wide.has_layers() {
             self.wide.end_batch();
+
+            #[cfg(not(feature = "wgpu"))]
             self.strip_storage
                 .borrow_mut()
                 .set_generation_mode(GenerationMode::Append);
@@ -1098,6 +1352,8 @@ impl Scene {
         self.render_state.reset();
 
         self.fast_strips_buffer.clear();
+        #[cfg(feature = "wgpu")]
+        self.fast_path.clear();
         self.strip_path_mode = StripPathMode::FastOnly;
         self.coarse_batch_splits.clear();
 
@@ -1141,7 +1397,6 @@ impl Scene {
         self.set_paint_visible();
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1329,6 +1584,7 @@ mod tests {
         assert!(is_rect(&scene.fast_strips_buffer.commands[0]));
     }
 
+    #[cfg(not(feature = "wgpu"))]
     #[test]
     fn rect_rejected_by_clip_path() {
         let mut scene = unconstrained();
@@ -1492,5 +1748,46 @@ mod tests {
         assert_eq!(scene.strip_path_mode, StripPathMode::FastOnly);
         assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
         assert!(is_rect(&scene.fast_strips_buffer.commands[0]));
+    }
+
+    #[cfg(feature = "wgpu")]
+    #[test]
+    #[should_panic(expected = "clip paths are unsupported")]
+    fn clip_paths_panic_on_wgpu_fast_path() {
+        let mut scene = unconstrained();
+        scene.push_clip_path(&triangle_path());
+    }
+
+    #[cfg(feature = "wgpu")]
+    #[test]
+    fn even_odd_allowed_on_wgpu_fast_path() {
+        let mut scene = unconstrained();
+        scene.set_fill_rule(Fill::EvenOdd);
+        scene.fill_path(&triangle_path());
+
+        let FastStripCommand::Path(path) = &scene.fast_strips_buffer.commands[0] else {
+            panic!("expected path command");
+        };
+        assert_eq!(path.fill_rule, Fill::EvenOdd);
+    }
+
+    #[cfg(feature = "wgpu")]
+    #[test]
+    #[should_panic(expected = "aliasing thresholds are unsupported")]
+    fn aliasing_threshold_panic_on_wgpu_fast_path() {
+        let mut scene = unconstrained();
+        scene.set_aliasing_threshold(Some(1));
+    }
+
+    #[cfg(feature = "wgpu")]
+    #[test]
+    fn filters_use_layer_path_on_wgpu_fast_path() {
+        let mut scene = default_blending_only();
+        scene.set_filter_effect(Filter::from_function(
+            vello_common::filter_effects::FilterFunction::Blur { radius: 1.0 },
+        ));
+        scene.fill_rect(&small_rect());
+
+        assert_eq!(scene.strip_path_mode, StripPathMode::Interleaved);
     }
 }

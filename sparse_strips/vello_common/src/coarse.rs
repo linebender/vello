@@ -10,7 +10,7 @@ use crate::geometry::RectU16;
 use crate::kurbo::{Affine, Rect};
 use crate::mask::Mask;
 use crate::paint::{Paint, PremulColor};
-use crate::peniko::{BlendMode, Compose, Mix};
+use crate::peniko::{BlendMode, Compose, Fill, Mix};
 use crate::render_graph::{DependencyKind, LayerId, RenderGraph, RenderNodeKind};
 use crate::{strip::Strip, tile::Tile};
 use alloc::vec;
@@ -181,6 +181,8 @@ struct Clip {
     /// The index of the thread that owns the alpha buffer.
     /// Always 0 in single-threaded mode.
     pub thread_idx: u8,
+    /// Fill rule used to interpret winding values for this clip.
+    pub fill_rule: Fill,
 }
 
 /// An axis-aligned bounding box in wide tile coordinates.
@@ -498,6 +500,7 @@ impl<const MODE: u8> Wide<MODE> {
         &mut self,
         strip_buf: &[Strip],
         paint: Paint,
+        fill_rule: Fill,
         blend_mode: BlendMode,
         thread_idx: u8,
         mask: Option<Mask>,
@@ -515,6 +518,7 @@ impl<const MODE: u8> Wide<MODE> {
         self.attrs.fill.push(FillAttrs {
             thread_idx,
             paint,
+            fill_rule,
             blend_mode,
             mask,
             alpha_base_idx,
@@ -691,6 +695,7 @@ impl<const MODE: u8> Wide<MODE> {
         &mut self,
         layer_id: LayerId,
         clip_path: Option<impl Into<Box<[Strip]>>>,
+        clip_fill_rule: Fill,
         blend_mode: BlendMode,
         mask: Option<Mask>,
         opacity: f32,
@@ -826,7 +831,7 @@ impl<const MODE: u8> Wide<MODE> {
         // only then for clipping, otherwise we will use the empty clip buffer as the backdrop
         // for blending!
         if let Some(clip) = clip_path {
-            self.push_clip(clip, layer_id, thread_idx);
+            self.push_clip(clip, clip_fill_rule, layer_id, thread_idx);
         }
 
         self.layer_stack.push(layer);
@@ -964,7 +969,13 @@ impl<const MODE: u8> Wide<MODE> {
     ///    - If covered by zero winding: `push_zero_clip`
     ///    - If fully covered by non-zero winding: do nothing (clip is a no-op)
     ///    - If partially covered: `push_clip`
-    fn push_clip(&mut self, strips: impl Into<Box<[Strip]>>, layer_id: LayerId, thread_idx: u8) {
+    fn push_clip(
+        &mut self,
+        strips: impl Into<Box<[Strip]>>,
+        fill_rule: Fill,
+        layer_id: LayerId,
+        thread_idx: u8,
+    ) {
         let strips = strips.into();
         let n_strips = strips.len();
 
@@ -1088,6 +1099,7 @@ impl<const MODE: u8> Wide<MODE> {
             clip_bbox,
             strips,
             thread_idx,
+            fill_rule,
         });
     }
 
@@ -1128,6 +1140,7 @@ impl<const MODE: u8> Wide<MODE> {
             clip_bbox,
             strips,
             thread_idx,
+            fill_rule,
         } = self.clip_stack.pop().unwrap();
         let n_strips = strips.len();
 
@@ -1143,6 +1156,7 @@ impl<const MODE: u8> Wide<MODE> {
             alpha_base_idx = strips[0].alpha_idx();
             self.attrs.clip.push(ClipAttrs {
                 thread_idx,
+                fill_rule,
                 alpha_base_idx,
             });
         };
@@ -2060,6 +2074,8 @@ pub struct FillAttrs {
     // TODO: Store premultiplied colors as indexed paints as well, to reduce
     // memory overhead? Or get rid of indexed paints and inline all paints?
     pub paint: Paint,
+    /// Fill rule used when interpreting sampled winding values.
+    pub fill_rule: Fill,
     /// The blend mode to apply before drawing the contents.
     pub blend_mode: BlendMode,
     /// A mask to apply to the command.
@@ -2083,6 +2099,8 @@ pub struct ClipAttrs {
     /// containing the mask values at `alpha_idx`.
     /// Always 0 in single-threaded mode.
     pub thread_idx: u8,
+    /// Fill rule used when interpreting sampled winding values.
+    pub fill_rule: Fill,
     /// Base index into the alpha buffer for this clip path's commands.
     /// Commands store a relative offset that is added to this base.
     alpha_base_idx: u32,
@@ -2208,7 +2226,7 @@ mod tests {
     use crate::kurbo::Affine;
     use crate::paint::{Paint, PremulColor};
     use crate::peniko;
-    use crate::peniko::{BlendMode, Compose, Mix};
+    use crate::peniko::{BlendMode, Compose, Fill, Mix};
     use crate::render_graph::RenderGraph;
     use crate::strip::Strip;
     use alloc::{boxed::Box, vec};
@@ -2289,6 +2307,7 @@ mod tests {
         wide.push_layer(
             1,
             no_clip_path,
+            Fill::NonZero,
             BlendMode::default(),
             None,
             0.5,
@@ -2306,6 +2325,7 @@ mod tests {
         wide.push_layer(
             2,
             clip_path,
+            Fill::NonZero,
             BlendMode::default(),
             None,
             0.09,
@@ -2341,6 +2361,7 @@ mod tests {
             Paint::Solid(PremulColor::from_alpha_color(
                 peniko::color::palette::css::RED,
             )),
+            Fill::NonZero,
             BlendMode::default(),
             0,
             None,
@@ -2355,6 +2376,7 @@ mod tests {
         wide.push_layer(
             1,
             no_clip,
+            Fill::NonZero,
             BlendMode::default(),
             None,
             1.0,
@@ -2377,6 +2399,7 @@ mod tests {
             Paint::Solid(PremulColor::from_alpha_color(
                 peniko::color::palette::css::RED,
             )),
+            Fill::NonZero,
             BlendMode::default(),
             0,
             None,

@@ -46,6 +46,8 @@
 extern crate alloc;
 
 pub(crate) mod filter;
+#[cfg(feature = "wgpu")]
+pub(crate) mod gpu_winding;
 mod gradient_cache;
 mod render;
 mod resources;

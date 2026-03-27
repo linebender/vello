@@ -1,0 +1,561 @@
+// Copyright 2025 the Vello Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
+//! Hybrid fast-path strip topology and GPU winding payload generation.
+
+use alloc::vec::Vec;
+use bytemuck::{Pod, Zeroable};
+use vello_common::fearless_simd::{Level, Simd, SimdBase, SimdFloat, SimdFrom, dispatch, f32x4};
+use vello_common::flatten::Line;
+use vello_common::peniko::Fill;
+use vello_common::strip::Strip;
+use vello_common::tile::{Tile, Tiles};
+
+const TILE_Y_SHIFT: u32 = 16;
+const KIND_BIT: u32 = 1 << 31;
+
+/// A tile-local winding input for the GPU winding render pass.
+///
+/// Kind 0 instances represent analytic line segments.
+/// Kind 1 instances represent coarse per-row winding carry values.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+pub(crate) struct GpuTileLine {
+    /// Starting column in the winding texture.
+    pub winding_col: u32,
+    /// Packed tile x (bits 0..15), tile y (bits 16..30), kind (bit 31).
+    pub tile_xy_kind: u32,
+    /// Analytic line start or coarse rows 0-1.
+    pub p0: [f32; 2],
+    /// Analytic line end or coarse rows 2-3.
+    pub p1: [f32; 2],
+}
+
+#[inline(always)]
+fn pack_tile_xy_kind(tile_x: u16, tile_y: u16, kind: u32) -> u32 {
+    (tile_x as u32) | ((tile_y as u32) << TILE_Y_SHIFT) | (kind * KIND_BIT)
+}
+
+fn push_carry_winding(
+    tile_lines: &mut Vec<GpuTileLine>,
+    alpha_idx: u32,
+    tile_x: u16,
+    tile_y: u16,
+    winding: [f32; Tile::HEIGHT as usize],
+) {
+    if winding.iter().any(|value| *value != 0.0) {
+        tile_lines.push(GpuTileLine {
+            winding_col: alpha_idx / u32::from(Tile::HEIGHT),
+            tile_xy_kind: pack_tile_xy_kind(tile_x, tile_y, 1),
+            p0: [winding[0], winding[1]],
+            p1: [winding[2], winding[3]],
+        });
+    }
+}
+
+fn push_solid_winding_strip(
+    strips: &mut Vec<Strip>,
+    tile_lines: &mut Vec<GpuTileLine>,
+    next_alpha_idx: &mut u32,
+    x: u16,
+    y: u16,
+    winding: i32,
+) {
+    strips.push(Strip::new(
+        x * Tile::WIDTH,
+        y * Tile::HEIGHT,
+        *next_alpha_idx,
+        false,
+    ));
+    push_carry_winding(
+        tile_lines,
+        *next_alpha_idx,
+        x,
+        y,
+        [winding as f32; Tile::HEIGHT as usize],
+    );
+    *next_alpha_idx += u32::from(Tile::WIDTH) * u32::from(Tile::HEIGHT);
+}
+
+fn emit_culled_background<F>(
+    tiles: &Tiles,
+    start: u16,
+    end: u16,
+    strips: &mut Vec<Strip>,
+    tile_lines: &mut Vec<GpuTileLine>,
+    next_alpha_idx: &mut u32,
+    mut should_fill: F,
+) where
+    F: FnMut(i32) -> bool,
+{
+    tiles
+        .windings
+        .for_active_rows_in_range(start as usize, end as usize, |row| {
+            let winding = tiles.windings.coarse[row] as i32;
+            if should_fill(winding) {
+                let y = row as u16;
+                push_solid_winding_strip(strips, tile_lines, next_alpha_idx, 0, y, winding);
+                strips.push(Strip::new(
+                    u16::MAX,
+                    y * Tile::HEIGHT,
+                    *next_alpha_idx,
+                    true,
+                ));
+            }
+        });
+}
+
+/// Convert the logical winding-value count into physical texture dimensions.
+pub(crate) fn winding_texture_height(texture_width: u32, winding_value_count: u32) -> u32 {
+    let num_columns = winding_value_count.div_ceil(u32::from(Tile::HEIGHT));
+    let num_bands = num_columns.div_ceil(texture_width).max(1);
+    num_bands * u32::from(Tile::HEIGHT)
+}
+
+/// Generate strip topology plus winding pass inputs from sorted tiles.
+///
+/// This preserves the strip boundary semantics of `vello_common::strip::render`, but
+/// replaces CPU alpha generation with GPU winding inputs.
+pub(crate) fn build_winding_output(
+    level: Level,
+    tiles: &Tiles,
+    fill_rule: Fill,
+    lines: &[Line],
+    alpha_idx_offset: u32,
+    strips: &mut Vec<Strip>,
+    tile_lines: &mut Vec<GpuTileLine>,
+) -> u32 {
+    dispatch!(
+        level,
+        simd => build_winding_output_impl(
+            simd,
+            tiles,
+            fill_rule,
+            lines,
+            alpha_idx_offset,
+            strips,
+            tile_lines,
+        )
+    )
+}
+
+#[inline(always)]
+fn build_winding_output_impl<S: Simd>(
+    s: S,
+    tiles: &Tiles,
+    fill_rule: Fill,
+    lines: &[Line],
+    alpha_idx_offset: u32,
+    strips: &mut Vec<Strip>,
+    tile_lines: &mut Vec<GpuTileLine>,
+) -> u32 {
+    let row_windings = &tiles.windings.coarse;
+    let has_culled_tiles = tiles.has_culled_tiles();
+
+    if !has_culled_tiles && tiles.is_empty() {
+        return alpha_idx_offset;
+    }
+
+    let should_fill = |winding: i32| match fill_rule {
+        Fill::NonZero => winding != 0,
+        Fill::EvenOdd => winding % 2 != 0,
+    };
+
+    let mut next_alpha_idx = alpha_idx_offset;
+
+    if has_culled_tiles && tiles.is_empty() {
+        emit_culled_background(
+            tiles,
+            0,
+            row_windings.len() as u16,
+            strips,
+            tile_lines,
+            &mut next_alpha_idx,
+            should_fill,
+        );
+        return next_alpha_idx;
+    }
+
+    let emit_captive_strip = |y: u16,
+                              is_left_viewport: bool,
+                              strips: &mut Vec<Strip>,
+                              tile_lines: &mut Vec<GpuTileLine>,
+                              next_alpha_idx: &mut u32| {
+        let coarse_wd = tiles.windings.coarse[y as usize] as i32;
+
+        if should_fill(coarse_wd) && !is_left_viewport {
+            push_solid_winding_strip(strips, tile_lines, next_alpha_idx, 0, y, coarse_wd);
+        }
+
+        let mut accumulated_winding = [coarse_wd as f32; Tile::HEIGHT as usize];
+        if is_left_viewport {
+            let fine_winding = tiles.windings.partial[y as usize];
+            for idx in 0..Tile::HEIGHT as usize {
+                accumulated_winding[idx] += fine_winding[idx];
+            }
+        }
+
+        (coarse_wd, accumulated_winding)
+    };
+
+    let mut winding_delta: i32 = 0;
+    let mut accumulated_winding = [0.0f32; Tile::HEIGHT as usize];
+    let mut prev_tile = *tiles.get(0);
+    let mut location_winding_col = alpha_idx_offset / u32::from(Tile::HEIGHT);
+
+    const SENTINEL: Tile = Tile::new(u16::MAX, u16::MAX, 0, 0);
+
+    let left_viewport = prev_tile.x == 0;
+    if has_culled_tiles {
+        let row_max = prev_tile.y.min(row_windings.len() as u16);
+        emit_culled_background(
+            tiles,
+            0,
+            row_max,
+            strips,
+            tile_lines,
+            &mut next_alpha_idx,
+            should_fill,
+        );
+
+        let (wd, acc) = emit_captive_strip(
+            prev_tile.y,
+            left_viewport,
+            strips,
+            tile_lines,
+            &mut next_alpha_idx,
+        );
+        winding_delta = wd;
+        accumulated_winding = acc;
+    }
+
+    let mut current_strip = Strip::new(
+        prev_tile.x * Tile::WIDTH,
+        prev_tile.y * Tile::HEIGHT,
+        next_alpha_idx,
+        should_fill(winding_delta) && !left_viewport,
+    );
+
+    for (tile_idx, tile) in tiles.iter().copied().chain([SENTINEL]).enumerate() {
+        let line = lines[tile.line_idx() as usize];
+
+        if !prev_tile.same_loc(&tile) {
+            next_alpha_idx += u32::from(Tile::WIDTH) * u32::from(Tile::HEIGHT);
+        }
+
+        if !prev_tile.same_loc(&tile) && !prev_tile.prev_loc(&tile) {
+            strips.push(current_strip);
+
+            let is_sentinel = tile_idx == tiles.len() as usize;
+            if !prev_tile.same_row(&tile) {
+                if winding_delta != 0 || is_sentinel {
+                    strips.push(Strip::new(
+                        u16::MAX,
+                        prev_tile.y * Tile::HEIGHT,
+                        next_alpha_idx,
+                        should_fill(winding_delta),
+                    ));
+                }
+
+                let left_viewport = tile.x == 0;
+                if has_culled_tiles && !is_sentinel {
+                    emit_culled_background(
+                        tiles,
+                        prev_tile.y + 1,
+                        tile.y,
+                        strips,
+                        tile_lines,
+                        &mut next_alpha_idx,
+                        should_fill,
+                    );
+
+                    let (wd, acc) = emit_captive_strip(
+                        tile.y,
+                        left_viewport,
+                        strips,
+                        tile_lines,
+                        &mut next_alpha_idx,
+                    );
+                    winding_delta = wd;
+                    accumulated_winding = acc;
+                } else {
+                    winding_delta = 0;
+                    accumulated_winding = [0.0; Tile::HEIGHT as usize];
+                }
+            } else {
+                accumulated_winding = [winding_delta as f32; Tile::HEIGHT as usize];
+            }
+
+            if is_sentinel {
+                break;
+            }
+
+            current_strip = Strip::new(
+                tile.x * Tile::WIDTH,
+                tile.y * Tile::HEIGHT,
+                next_alpha_idx,
+                should_fill(winding_delta) && tile.x != 0,
+            );
+        }
+
+        if tile_idx == 0 || !prev_tile.same_loc(&tile) {
+            location_winding_col = next_alpha_idx / u32::from(Tile::HEIGHT);
+
+            push_carry_winding(
+                tile_lines,
+                next_alpha_idx,
+                tile.x,
+                tile.y,
+                accumulated_winding,
+            );
+        }
+
+        prev_tile = tile;
+
+        let tile_left_x = f32::from(tile.x) * f32::from(Tile::WIDTH);
+        let tile_top_y = f32::from(tile.y) * f32::from(Tile::HEIGHT);
+        let p0_x = line.p0.x - tile_left_x;
+        let p0_y = line.p0.y - tile_top_y;
+        let p1_x = line.p1.x - tile_left_x;
+        let p1_y = line.p1.y - tile_top_y;
+
+        if p0_y == p1_y {
+            continue;
+        }
+
+        let sign = (p0_y - p1_y).signum();
+        winding_delta += sign as i32 * i32::from(tile.winding());
+
+        let (line_left_x, line_left_y, line_right_x) = if p0_x < p1_x {
+            (p0_x, p0_y, p1_x)
+        } else {
+            (p1_x, p1_y, p0_x)
+        };
+
+        // Account for winding that enters from the left of the viewport.
+        if !has_culled_tiles && tile.x == 0 && line_left_x < 0.0 {
+            let (line_top_y, line_top_x, line_bottom_y) = if p0_y < p1_y {
+                (p0_y, p0_x, p1_y)
+            } else {
+                (p1_y, p1_x, p0_y)
+            };
+            let x_delta = if p0_y < p1_y {
+                p1_x - p0_x
+            } else {
+                p0_x - p1_x
+            };
+            let y_slope = (line_bottom_y - line_top_y) / x_delta;
+
+            let (viewport_ymin, viewport_ymax) = if line.p0.x == line.p1.x {
+                (line_top_y, line_bottom_y)
+            } else {
+                let line_viewport_left_y = (line_top_y - line_top_x * y_slope)
+                    .max(line_top_y)
+                    .min(line_bottom_y);
+                (
+                    f32::min(line_left_y, line_viewport_left_y),
+                    f32::max(line_left_y, line_viewport_left_y),
+                )
+            };
+
+            let left_winding = overlap_contribution(
+                s,
+                viewport_ymin,
+                viewport_ymax,
+                0.0,
+                sign,
+                &mut accumulated_winding,
+            );
+
+            if left_winding.iter().any(|value| *value != 0.0) {
+                tile_lines.push(GpuTileLine {
+                    winding_col: location_winding_col,
+                    tile_xy_kind: pack_tile_xy_kind(tile.x, tile.y, 1),
+                    p0: [left_winding[0], left_winding[1]],
+                    p1: [left_winding[2], left_winding[3]],
+                });
+            }
+
+            if line_right_x < 0.0 {
+                continue;
+            }
+        }
+
+        let global_top_y = line.p0.y.min(line.p1.y);
+        let global_bottom_y = line.p0.y.max(line.p1.y);
+
+        let dx = line.p1.x - line.p0.x;
+        let dy = line.p1.y - line.p0.y;
+        let tile_right_x = tile_left_x + f32::from(Tile::WIDTH);
+        let (segment_top_y, segment_bottom_y) = if dx.abs() < 1e-6 {
+            (global_top_y, global_bottom_y)
+        } else {
+            let slope = dy / dx;
+            let y_at_left = line.p0.y + (tile_left_x - line.p0.x) * slope;
+            let y_at_right = line.p0.y + (tile_right_x - line.p0.x) * slope;
+            (
+                y_at_left.min(y_at_right).max(global_top_y),
+                y_at_left.max(y_at_right).min(global_bottom_y),
+            )
+        };
+
+        let _ = overlap_contribution(
+            s,
+            segment_top_y,
+            segment_bottom_y,
+            tile_top_y,
+            sign,
+            &mut accumulated_winding,
+        );
+
+        tile_lines.push(GpuTileLine {
+            winding_col: location_winding_col,
+            tile_xy_kind: pack_tile_xy_kind(tile.x, tile.y, 0),
+            p0: [line.p0.x, line.p0.y],
+            p1: [line.p1.x, line.p1.y],
+        });
+    }
+
+    if has_culled_tiles {
+        emit_culled_background(
+            tiles,
+            (prev_tile.y + 1).min(row_windings.len() as u16),
+            row_windings.len() as u16,
+            strips,
+            tile_lines,
+            &mut next_alpha_idx,
+            should_fill,
+        );
+    }
+
+    next_alpha_idx
+}
+
+#[inline(always)]
+fn overlap_contribution<S: Simd>(
+    s: S,
+    ymin: f32,
+    ymax: f32,
+    row_origin: f32,
+    sign: f32,
+    accumulated_winding: &mut [f32; Tile::HEIGHT as usize],
+) -> [f32; Tile::HEIGHT as usize] {
+    let row_offsets = f32x4::simd_from(s, [0.0, 1.0, 2.0, 3.0]);
+    let row_top = f32x4::splat(s, row_origin) + row_offsets;
+    let row_bottom = row_top + f32x4::splat(s, 1.0);
+    let ymin = f32x4::splat(s, ymin);
+    let ymax = f32x4::splat(s, ymax);
+    let h = (row_bottom.min(ymax) - row_top.max(ymin)).max(0.0);
+    let contribution = h * f32x4::splat(s, sign);
+    let accumulated = f32x4::simd_from(s, *accumulated_winding);
+    let updated = h.mul_add(f32x4::splat(s, sign), accumulated);
+    let result = [
+        contribution[0],
+        contribution[1],
+        contribution[2],
+        contribution[3],
+    ];
+    *accumulated_winding = [updated[0], updated[1], updated[2], updated[3]];
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_winding_output, winding_texture_height};
+    use alloc::vec::Vec;
+    use vello_common::fearless_simd::Level;
+    use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
+    use vello_common::peniko::Fill;
+    use vello_common::strip;
+    use vello_common::strip_generator::StripGenerator;
+    use vello_common::tile::Tile;
+
+    fn make_generator() -> StripGenerator {
+        StripGenerator::new(128, 128, Level::baseline())
+    }
+
+    fn compare_fill(path: &BezPath) {
+        let mut generator = make_generator();
+        generator.prepare_tiles_for_fill(path, Affine::IDENTITY);
+        let mut strips = Vec::new();
+        let mut tile_lines = Vec::new();
+        let winding_value_count = build_winding_output(
+            Level::baseline(),
+            generator.tiles(),
+            Fill::NonZero,
+            generator.lines(),
+            0,
+            &mut strips,
+            &mut tile_lines,
+        );
+
+        let mut ref_strips = Vec::new();
+        let mut ref_alphas = Vec::new();
+        strip::render(
+            Level::baseline(),
+            generator.tiles(),
+            &mut ref_strips,
+            &mut ref_alphas,
+            Fill::NonZero,
+            None,
+            generator.lines(),
+        );
+
+        assert_eq!(strips, ref_strips);
+        assert_eq!(winding_value_count as usize, ref_alphas.len());
+    }
+
+    fn compare_stroke(path: &BezPath, stroke: &Stroke) {
+        let mut generator = make_generator();
+        generator.prepare_tiles_for_stroke(path, stroke, Affine::IDENTITY);
+        let mut strips = Vec::new();
+        let mut tile_lines = Vec::new();
+        let winding_value_count = build_winding_output(
+            Level::baseline(),
+            generator.tiles(),
+            Fill::NonZero,
+            generator.lines(),
+            0,
+            &mut strips,
+            &mut tile_lines,
+        );
+
+        let mut ref_strips = Vec::new();
+        let mut ref_alphas = Vec::new();
+        strip::render(
+            Level::baseline(),
+            generator.tiles(),
+            &mut ref_strips,
+            &mut ref_alphas,
+            Fill::NonZero,
+            None,
+            generator.lines(),
+        );
+
+        assert_eq!(strips, ref_strips);
+        assert_eq!(winding_value_count as usize, ref_alphas.len());
+    }
+
+    #[test]
+    fn strip_topology_matches_fill_render() {
+        let mut path = BezPath::new();
+        path.move_to((-10.0, 10.0));
+        path.line_to((70.0, 20.0));
+        path.line_to((30.0, 80.0));
+        path.close_path();
+        compare_fill(&path);
+    }
+
+    #[test]
+    fn strip_topology_matches_stroke_render() {
+        let rect = Rect::new(10.0, 12.0, 92.0, 76.0).to_path(0.1);
+        compare_stroke(&rect, &Stroke::new(3.5));
+    }
+
+    #[test]
+    fn winding_texture_height_wraps_by_strip_height() {
+        let width = 8;
+        let values = 9 * u32::from(Tile::HEIGHT);
+        assert_eq!(winding_texture_height(width, values), 8);
+    }
+}

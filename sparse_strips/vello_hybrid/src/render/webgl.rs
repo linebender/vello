@@ -2479,7 +2479,7 @@ fn create_framebuffer_for_texture(
 const STRIP_STRIDE: i32 = size_of::<GpuStrip>() as i32;
 const STRIP_ATTR_COUNT: i32 = STRIP_STRIDE / 4;
 const _: () = assert!(
-    STRIP_STRIDE == 24,
+    STRIP_STRIDE == 28,
     "GpuStrip layout must match strip vertex stride"
 );
 

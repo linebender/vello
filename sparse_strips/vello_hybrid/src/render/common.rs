@@ -156,6 +156,8 @@ pub struct GpuStrip {
     /// In other words, the back-most draw has index 0 and every additional draw in front
     /// has an incrementing index.
     pub depth_index: u32,
+    /// Fill rule for sparse winding-based strips.
+    pub fill_rule: u32,
 }
 
 /// Different types of GPU encoded paints.

@@ -128,7 +128,7 @@ fn repeatedly_compose_to_bottom_layer(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(width = 100, height = 100, transparent)]
+#[vello_test(width = 100, height = 100, transparent, hybrid_tolerance = 1)]
 fn complex_composed_layers(ctx: &mut impl Renderer) {
     ctx.push_blend_layer(BlendMode {
         mix: Mix::Normal,
