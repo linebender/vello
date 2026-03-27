@@ -101,6 +101,19 @@ pub struct PushLayerCommand {
     pub filter: Option<Filter>,
 }
 
+/// A rectangular region sampled from a texture, paired with a transform of the rectangle into the
+/// destination.
+#[derive(Debug, Clone, Copy)]
+pub struct TextureRect {
+    /// Source rectangle in texture coordinates.
+    pub src: Rect,
+    /// Transform mapping the local source-rect space to the destination.
+    ///
+    /// This maps from the *local* rectangle into the destination, ignoring the origin of
+    /// [`Self::src`].
+    pub transform: Affine,
+}
+
 /// Individual rendering commands that can be recorded.
 #[derive(Debug)]
 pub enum RenderCommand {

@@ -94,3 +94,10 @@ pub use fearless_simd;
 pub use peniko;
 pub use peniko::color;
 pub use peniko::kurbo;
+
+/// A handle to an external, user-provided texture.
+///
+/// This is resolved at render time by passing in a mapping of handles to textures, but is
+/// otherwise opaque to the renderer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TextureId(pub u64);

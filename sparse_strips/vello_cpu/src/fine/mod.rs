@@ -913,6 +913,9 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                             }
                         }
                     }
+                    EncodedPaint::ExternalTexture(_) => {
+                        unimplemented!("External textures are not supported by `vello_cpu`")
+                    }
                 }
             }
         }

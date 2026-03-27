@@ -3,10 +3,11 @@
 
 //! Paints for drawing shapes.
 
+use crate::TextureId;
 use crate::blurred_rounded_rect::BlurredRoundedRectangle;
 use crate::color::palette::css::BLACK;
 use crate::color::{ColorSpaceTag, HueDirection, Srgb, gradient};
-use crate::kurbo::{Affine, Point, Vec2};
+use crate::kurbo::{Affine, Point, Rect, Vec2};
 use crate::math::{FloatExt, compute_erf7};
 use crate::paint::{Image, ImageSource, IndexedPaint, Paint, PremulColor, Tint};
 use crate::peniko::{ColorStop, ColorStops, Extend, Gradient, GradientKind, ImageQuality};
@@ -540,6 +541,8 @@ pub enum EncodedPaint {
     Gradient(EncodedGradient),
     /// An encoded image.
     Image(EncodedImage),
+    /// An encoded external texture.
+    ExternalTexture(EncodedExternalTexture),
     /// A blurred, rounded rectangle.
     BlurredRoundedRect(EncodedBlurredRoundedRectangle),
 }
@@ -572,6 +575,26 @@ pub struct EncodedImage {
     /// The advance in image coordinates for one step in the y direction.
     pub y_advance: Vec2,
     /// Optional tint applied to the image.
+    pub tint: Option<Tint>,
+}
+
+/// An encoded external texture.
+///
+/// The texture must be bound by the user at render-time in order for us to be able to sample from
+/// it; it is not interned into the renderer.
+#[derive(Debug)]
+pub struct EncodedExternalTexture {
+    /// External texture handle.
+    pub texture_id: TextureId,
+    /// Source rectangle within the external texture.
+    pub src: Rect,
+    /// Sampler parameters.
+    pub sampler: ImageSampler,
+    /// Whether the sampled content may contain non-opaque pixels.
+    pub may_have_opacities: bool,
+    /// Inverse destination transform, mapping scene coordinates to local source-rect space.
+    pub transform: Affine,
+    /// Optional tint applied to the sampled color.
     pub tint: Option<Tint>,
 }
 

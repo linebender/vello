@@ -11,9 +11,10 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::ops::Range;
+use vello_common::TextureId;
 use vello_common::clip::ClipContext;
 use vello_common::coarse::{MODE_HYBRID, Wide, WideTilesBbox};
-use vello_common::encode::{EncodeExt, EncodedPaint};
+use vello_common::encode::{EncodeExt, EncodedExternalTexture, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
@@ -22,9 +23,9 @@ use vello_common::multi_atlas::AtlasConfig;
 use vello_common::paint::{Paint, PaintType, Tint};
 #[cfg(feature = "text")]
 use vello_common::peniko::FontData;
-use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
+use vello_common::peniko::{BlendMode, Compose, Extend, Fill, ImageQuality, ImageSampler, Mix};
 use vello_common::recording::{
-    PushLayerCommand, Recordable, Recorder, Recording, RenderCommand, RenderState,
+    PushLayerCommand, Recordable, Recorder, Recording, RenderCommand, RenderState, TextureRect,
 };
 use vello_common::render_graph::{RenderGraph, RenderNodeKind};
 use vello_common::strip::Strip;
@@ -349,6 +350,35 @@ impl Scene {
         }
     }
 
+    fn encode_external_texture_paint(
+        &mut self,
+        texture_id: TextureId,
+        src: Rect,
+        quality: ImageQuality,
+        x_extend: Extend,
+        y_extend: Extend,
+        transform: Affine,
+    ) -> Paint {
+        let idx = self.encoded_paints.borrow().len();
+        let encoded = EncodedExternalTexture {
+            texture_id,
+            src,
+            sampler: ImageSampler {
+                x_extend,
+                y_extend,
+                quality,
+                alpha: 1.0,
+            },
+            may_have_opacities: true,
+            transform: transform.inverse(),
+            tint: self.render_state.tint,
+        };
+        self.encoded_paints
+            .borrow_mut()
+            .push(EncodedPaint::ExternalTexture(encoded));
+        Paint::Indexed(vello_common::paint::IndexedPaint::new(idx))
+    }
+
     /// Fill a path with the current paint and fill rule.
     pub fn fill_path(&mut self, path: &BezPath) {
         if !self.paint_visible {
@@ -488,6 +518,116 @@ impl Scene {
 
         // TODO: Use a temporary storage for rect paths, like in `vello_cpu`.
         self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
+    }
+
+    /// Sample rectangular regions from an externally bound texture and draw them with the
+    /// corresponding transforms.
+    ///
+    /// The per-rect transforms are composed with the current
+    /// [scene transform][`Self::set_transform`]. This transform is relative to the local region
+    /// defined by each [`TextureRect`]: i.e., the origin of each [`TextureRect`] is used only to
+    /// determine the region to sample in the source [`TextureId`], and is ignored for determining
+    /// the destination.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "f64→f32 truncation is acceptable for pixel coordinates"
+    )]
+    pub fn draw_texture_rects(
+        &mut self,
+        texture_id: TextureId,
+        quality: ImageQuality,
+        rects: impl IntoIterator<Item = TextureRect>,
+    ) {
+        // This API currently doesn't take extend mode parameters: as of writing, the
+        // `render_strips.wgsl` shader does not use extend modes to sample across boundaries, i.e.,
+        // sampling near a boundary doesn't take extend modes into account when determining where
+        // the sample should be taken.
+        //
+        // Because in this API the destination drawn is always the transformed input rect, this
+        // means extend modes don't currently materially impact rendering. In general drawing with
+        // an external texture brush, extend modes would matter, so we still encode them.
+        let x_extend = Extend::Pad;
+        let y_extend = Extend::Pad;
+
+        let can_fast_path = self.strip_path_mode != StripPathMode::CoarseOnly
+            && !self.wide.has_layers()
+            && self.filter.is_none()
+            && self.clip_context.get().is_none();
+
+        if can_fast_path {
+            for rect in rects {
+                if rect.src.width() <= 0.0 || rect.src.height() <= 0.0 {
+                    continue;
+                }
+
+                let transform = self.render_state.transform * rect.transform;
+
+                if !is_axis_aligned(&transform) {
+                    // Non-axis-aligned rects fall back to the strip path (still
+                    // in the fast buffer since we checked the global conditions).
+                    let paint = self.encode_external_texture_paint(
+                        texture_id, rect.src, quality, x_extend, y_extend, transform,
+                    );
+                    let dst_rect = Rect::new(0.0, 0.0, rect.src.width(), rect.src.height());
+                    self.fill_path_with(
+                        &dst_rect.to_path(DEFAULT_TOLERANCE),
+                        transform,
+                        self.render_state.fill_rule,
+                        paint,
+                        self.aliasing_threshold,
+                    );
+                    continue;
+                }
+
+                let dst_rect = Rect::new(0.0, 0.0, rect.src.width(), rect.src.height());
+                let transformed_rect = transform.transform_rect_bbox(dst_rect);
+
+                let x0 = transformed_rect.x0.max(0.).min(f64::from(self.width));
+                let y0 = transformed_rect.y0.max(0.).min(f64::from(self.height));
+                let x1 = transformed_rect.x1.max(0.).min(f64::from(self.width));
+                let y1 = transformed_rect.y1.max(0.).min(f64::from(self.height));
+
+                // Skip mirrored or zero-sized rectangles.
+                if x1 <= x0 || y1 <= y0 {
+                    continue;
+                }
+
+                let paint = self.encode_external_texture_paint(
+                    texture_id, rect.src, quality, x_extend, y_extend, transform,
+                );
+
+                self.fast_strips_buffer
+                    .commands
+                    .push(FastStripCommand::Rect(FastPathRect {
+                        x0: x0 as f32,
+                        y0: y0 as f32,
+                        x1: x1 as f32,
+                        y1: y1 as f32,
+                        paint,
+                    }));
+            }
+        } else {
+            self.with_optional_filter(|ctx| {
+                for rect in rects {
+                    if rect.src.width() <= 0.0 || rect.src.height() <= 0.0 {
+                        continue;
+                    }
+
+                    let transform = ctx.render_state.transform * rect.transform;
+                    let paint = ctx.encode_external_texture_paint(
+                        texture_id, rect.src, quality, x_extend, y_extend, transform,
+                    );
+                    let dst_rect = Rect::new(0.0, 0.0, rect.src.width(), rect.src.height());
+                    ctx.fill_path_with(
+                        &dst_rect.to_path(DEFAULT_TOLERANCE),
+                        transform,
+                        ctx.render_state.fill_rule,
+                        paint,
+                        ctx.aliasing_threshold,
+                    );
+                }
+            });
+        }
     }
 
     #[expect(

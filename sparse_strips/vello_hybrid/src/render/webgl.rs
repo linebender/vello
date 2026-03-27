@@ -2369,6 +2369,7 @@ impl RendererBackend for WebGlRendererContext<'_> {
     fn render_strips(
         &mut self,
         strips: &[GpuStrip],
+        _external_texture_runs: &[crate::schedule::ExternalTextureRun],
         target: StripPassRenderTarget,
         load_op: LoadOp,
     ) {
