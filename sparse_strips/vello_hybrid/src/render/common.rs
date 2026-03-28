@@ -76,6 +76,8 @@ pub struct GpuStrip {
     pub payload: u32,
     /// See `StripInstance::paint_and_rect_flag` documentation in `render_strips.wgsl`.
     pub paint_and_rect_flag: u32,
+    /// Fill rule for sparse winding-based strips.
+    pub fill_rule: u32,
 }
 
 /// Different types of GPU encoded paints.

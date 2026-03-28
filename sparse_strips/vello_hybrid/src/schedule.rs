@@ -186,7 +186,7 @@ use vello_common::coarse::{
     CmdAlphaFill, CmdClipAlphaFill, CmdClipFill, CmdFill, CommandAttrs, LayerKind, MODE_HYBRID,
     Wide, WideTilesBbox,
 };
-use vello_common::peniko::BlendMode;
+use vello_common::peniko::{BlendMode, Fill};
 use vello_common::render_graph::{LayerId, RenderNodeKind};
 use vello_common::strip::Strip;
 use vello_common::{
@@ -206,6 +206,8 @@ const PAINT_TYPE_IMAGE: u32 = 1;
 const PAINT_TYPE_LINEAR_GRADIENT: u32 = 2;
 const PAINT_TYPE_RADIAL_GRADIENT: u32 = 3;
 const PAINT_TYPE_SWEEP_GRADIENT: u32 = 4;
+const FILL_RULE_NON_ZERO: u32 = 0;
+const FILL_RULE_EVEN_ODD: u32 = 1;
 
 /// Bit 31 of [`GpuStrip::paint_and_rect_flag`] signals that the strip
 /// represents a full rectangle.
@@ -1391,7 +1393,7 @@ impl Scheduler {
 
         draw.push(
             gpu_strip_builder
-                .with_sparse(cmd.width, col_idx)
+                .with_sparse(cmd.width, col_idx, fill_attrs.fill_rule)
                 .paint(payload, paint),
         );
     }
@@ -1553,7 +1555,7 @@ impl Scheduler {
 
         draw.push(
             gpu_strip_builder
-                .with_sparse(cmd.width, col_idx)
+                .with_sparse(cmd.width, col_idx, clip_attrs.fill_rule)
                 .copy_from_slot(tos.dest_slot.get_idx(), 0xFF),
         );
         let nos_ptr = state.tile_state.stack.len() - 2;
@@ -1634,6 +1636,7 @@ struct GpuStripBuilder {
     width: u16,
     dense_width_or_rect_height: u16,
     col_idx_or_rect_frac: u32,
+    fill_rule: u32,
 }
 
 impl GpuStripBuilder {
@@ -1645,6 +1648,7 @@ impl GpuStripBuilder {
             width,
             dense_width_or_rect_height: 0,
             col_idx_or_rect_frac: 0,
+            fill_rule: FILL_RULE_NON_ZERO,
         }
     }
 
@@ -1656,13 +1660,18 @@ impl GpuStripBuilder {
             width,
             dense_width_or_rect_height: 0,
             col_idx_or_rect_frac: 0,
+            fill_rule: FILL_RULE_NON_ZERO,
         }
     }
 
     /// Add sparse strip parameters.
-    fn with_sparse(mut self, dense_width: u16, col_idx: u32) -> Self {
+    fn with_sparse(mut self, dense_width: u16, col_idx: u32, fill_rule: Fill) -> Self {
         self.dense_width_or_rect_height = dense_width;
         self.col_idx_or_rect_frac = col_idx;
+        self.fill_rule = match fill_rule {
+            Fill::NonZero => FILL_RULE_NON_ZERO,
+            Fill::EvenOdd => FILL_RULE_EVEN_ODD,
+        };
         self
     }
 
@@ -1676,6 +1685,7 @@ impl GpuStripBuilder {
             col_idx_or_rect_frac: self.col_idx_or_rect_frac,
             payload,
             paint_and_rect_flag: paint,
+            fill_rule: self.fill_rule,
         }
     }
 
@@ -1689,6 +1699,7 @@ impl GpuStripBuilder {
             col_idx_or_rect_frac: self.col_idx_or_rect_frac,
             payload: u32::try_from(from_slot).unwrap(),
             paint_and_rect_flag: (COLOR_SOURCE_SLOT << 29) | (opacity as u32),
+            fill_rule: self.fill_rule,
         }
     }
 
@@ -1713,6 +1724,7 @@ impl GpuStripBuilder {
                 | ((opacity as u32) << 16)
                 | ((mix_mode as u32) << 8)
                 | (compose_mode as u32),
+            fill_rule: self.fill_rule,
         }
     }
 }
@@ -1762,7 +1774,7 @@ pub(crate) fn generate_gpu_strips_for_fast_path(
                 Scheduler::process_paint(&path.paint, encoded_paints, (x0, y), paint_idxs);
             gpu_strips.push(
                 GpuStripBuilder::at_surface(x0, y, strip_width)
-                    .with_sparse(strip_width, col)
+                    .with_sparse(strip_width, col, path.fill_rule)
                     .paint(payload, paint),
             );
         }
@@ -1816,6 +1828,7 @@ pub(crate) fn pack_rectangle_into_gpu(
         col_idx_or_rect_frac: frac,
         payload,
         paint_and_rect_flag: paint_packed | RECT_STRIP_FLAG,
+        fill_rule: FILL_RULE_NON_ZERO,
     }
 }
 

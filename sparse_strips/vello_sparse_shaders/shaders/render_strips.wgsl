@@ -42,6 +42,8 @@ const PAINT_TYPE_SWEEP_GRADIENT: u32 = 4u;
 const PAINT_TEXTURE_INDEX_MASK: u32 = 0x03FFFFFFu;
 
 const RECT_STRIP_FLAG: u32 = 0x80000000u;
+const FILL_RULE_NON_ZERO: u32 = 0u;
+const FILL_RULE_EVEN_ODD: u32 = 1u;
 
 // Image quality
 const IMAGE_QUALITY_LOW = 0u;
@@ -211,6 +213,8 @@ struct StripInstance {
     @location(3) payload: u32,
     // See StripInstance documentation above.
     @location(4) paint_and_rect_flag: u32,
+    // Fill rule for sparse winding-based strips.
+    @location(5) fill_rule: u32,
 }
 
 struct VertexOutput {
@@ -233,6 +237,8 @@ struct VertexOutput {
     @location(6) @interpolate(flat) strip_xy: vec2<u32>,
     // Base winding column for normal strips.
     @location(7) @interpolate(flat) base_col: u32,
+    // Fill rule for sparse strips.
+    @location(8) @interpolate(flat) fill_rule: u32,
     // Normalized device coordinates (NDC) for the current vertex
     @builtin(position) position: vec4<f32>,
 };
@@ -315,6 +321,7 @@ fn vs_main(
     out.payload = instance.payload;
     out.paint_and_rect_flag = instance.paint_and_rect_flag;
     out.strip_xy = vec2<u32>(x0, y0);
+    out.fill_rule = instance.fill_rule;
 
     return out;
 }
@@ -355,7 +362,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let tex_y = band * config.strip_height + row;
         let winding_sample = textureLoad(winding_texture, vec2<u32>(tex_x, tex_y), 0);
         let winding = winding_sample.r - winding_sample.g;
-        alpha = min(abs(winding), 1.0);
+        if in.fill_rule == FILL_RULE_EVEN_ODD {
+            let im1 = floor(winding * 0.5 + 0.5);
+            alpha = min(abs(winding - 2.0 * im1), 1.0);
+        } else {
+            alpha = min(abs(winding), 1.0);
+        }
     }
     // Apply the alpha value to the unpacked RGBA color or slot index
     let color_source = (in.paint_and_rect_flag >> 29u) & 0x3u;

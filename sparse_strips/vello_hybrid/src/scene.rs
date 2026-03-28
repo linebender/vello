@@ -72,6 +72,8 @@ pub(crate) enum StripPathMode {
 pub(crate) struct FastStripsPath {
     /// The range of strips for this path in the `strips` buffer.
     pub(crate) strips: Range<usize>,
+    /// Fill rule used when interpreting sampled winding values for this path.
+    pub(crate) fill_rule: Fill,
     /// The paint of the path.
     pub(crate) paint: Paint,
 }
@@ -273,13 +275,14 @@ pub struct Scene {
 // or `ReplaceAfter` mode where each generation starts with a clear/truncate, so the
 // relevant portion of the buffer is the current path's strips.
 macro_rules! submit_strips {
-    ($self:ident, $strip_storage:expr, $strip_start:expr, $paint:expr) => {
+    ($self:ident, $strip_storage:expr, $strip_start:expr, $fill_rule:expr, $paint:expr) => {
         if $self.strip_path_mode != StripPathMode::CoarseOnly && !$self.wide.has_layers() {
             $self
                 .fast_strips_buffer
                 .commands
                 .push(FastStripCommand::Path(FastStripsPath {
                     strips: $strip_start..$strip_storage.strips.len(),
+                    fill_rule: $fill_rule,
                     paint: $paint,
                 }));
         } else {
@@ -292,6 +295,7 @@ macro_rules! submit_strips {
             $self.wide.generate(
                 &$strip_storage.strips[coarse_start..],
                 $paint,
+                $fill_rule,
                 $self.render_state.blend_mode,
                 0,
                 None,
@@ -431,12 +435,14 @@ impl Scene {
                     .commands
                     .push(FastStripCommand::Path(FastStripsPath {
                         strips: strip_start..self.fast_path.strips.len(),
+                        fill_rule,
                         paint,
                     }));
             } else {
                 self.wide.generate(
                     &self.fast_path.strips[strip_start..],
                     paint,
+                    fill_rule,
                     self.render_state.blend_mode,
                     0,
                     None,
@@ -458,7 +464,7 @@ impl Scene {
             self.clip_context.get(),
         );
 
-        submit_strips!(self, strip_storage, strip_start, paint);
+        submit_strips!(self, strip_storage, strip_start, fill_rule, paint);
         }
     }
 
@@ -546,12 +552,14 @@ impl Scene {
                     .commands
                     .push(FastStripCommand::Path(FastStripsPath {
                         strips: strip_start..self.fast_path.strips.len(),
+                        fill_rule: Fill::NonZero,
                         paint,
                     }));
             } else {
                 self.wide.generate(
                     &self.fast_path.strips[strip_start..],
                     paint,
+                    Fill::NonZero,
                     self.render_state.blend_mode,
                     0,
                     None,
@@ -573,7 +581,7 @@ impl Scene {
             self.clip_context.get(),
         );
 
-        submit_strips!(self, strip_storage, strip_start, paint);
+        submit_strips!(self, strip_storage, strip_start, Fill::NonZero, paint);
         }
     }
 
@@ -693,6 +701,7 @@ impl Scene {
                         self.wide.generate(
                             &self.fast_path.strips[path.strips],
                             path.paint,
+                            path.fill_rule,
                             BlendMode::default(),
                             0,
                             None,
@@ -722,6 +731,7 @@ impl Scene {
                         self.wide.generate(
                             &self.fast_path.strips[strip_start..],
                             r.paint,
+                            Fill::NonZero,
                             BlendMode::default(),
                             0,
                             None,
@@ -744,6 +754,7 @@ impl Scene {
                     self.wide.generate(
                         &strip_storage.strips[path.strips],
                         path.paint,
+                        path.fill_rule,
                         BlendMode::default(),
                         0,
                         None,
@@ -763,6 +774,7 @@ impl Scene {
                     self.wide.generate(
                         &strip_storage.strips[strip_start..],
                         r.paint,
+                        Fill::NonZero,
                         BlendMode::default(),
                         0,
                         None,
@@ -824,6 +836,7 @@ impl Scene {
             self.wide.push_layer(
                 self.layer_id_next,
                 clip,
+                self.render_state.fill_rule,
                 blend_mode_val,
                 mask,
                 opacity.unwrap_or(1.),
@@ -875,6 +888,7 @@ impl Scene {
             self.wide.push_layer(
                 self.layer_id_next,
                 clip,
+                self.render_state.fill_rule,
                 blend_mode_val,
                 mask,
                 opacity.unwrap_or(1.),
@@ -993,11 +1007,6 @@ impl Scene {
 
     /// Set the fill rule for subsequent fill operations.
     pub fn set_fill_rule(&mut self, fill_rule: Fill) {
-        #[cfg(feature = "wgpu")]
-        if fill_rule != Fill::NonZero {
-            unimplemented!("EvenOdd fill is unsupported in the wgpu GPU-winding fast path");
-        }
-
         self.render_state.fill_rule = fill_rule;
     }
 
@@ -1417,12 +1426,14 @@ impl Scene {
                 .commands
                 .push(FastStripCommand::Path(FastStripsPath {
                     strips: strip_start..strip_storage.strips.len(),
+                    fill_rule: self.render_state.fill_rule,
                     paint,
                 }));
         } else {
             self.wide.generate(
                 &adjusted_strips[start..end],
                 paint,
+                self.render_state.fill_rule,
                 self.render_state.blend_mode,
                 0,
                 None,
@@ -1766,10 +1777,15 @@ mod tests {
 
     #[cfg(feature = "wgpu")]
     #[test]
-    #[should_panic(expected = "EvenOdd fill is unsupported")]
-    fn even_odd_panic_on_wgpu_fast_path() {
+    fn even_odd_allowed_on_wgpu_fast_path() {
         let mut scene = unconstrained();
         scene.set_fill_rule(Fill::EvenOdd);
+        scene.fill_path(&triangle_path());
+
+        let FastStripCommand::Path(path) = &scene.fast_strips_buffer.commands[0] else {
+            panic!("expected path command");
+        };
+        assert_eq!(path.fill_rule, Fill::EvenOdd);
     }
 
     #[cfg(feature = "wgpu")]

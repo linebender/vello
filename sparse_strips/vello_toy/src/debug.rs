@@ -93,6 +93,7 @@ fn main() {
         wide.generate(
             &strip_buf,
             BLACK.into(),
+            args.fill_rule,
             BlendMode::new(Mix::Normal, Compose::SrcOver),
             0,
             None,

@@ -311,6 +311,7 @@ impl MultiThreadedDispatcher {
                                 &task.allocation_group.strips
                                     [strip_range.start as usize..strip_range.end as usize],
                                 paint.clone(),
+                                Fill::NonZero,
                                 blend_mode,
                                 thread_id,
                                 mask,
@@ -325,6 +326,7 @@ impl MultiThreadedDispatcher {
                             } => self.wide.generate(
                                 &strips,
                                 paint.clone(),
+                                Fill::NonZero,
                                 blend_mode,
                                 thread_id,
                                 mask,
@@ -346,6 +348,7 @@ impl MultiThreadedDispatcher {
                                 self.wide.push_layer(
                                     0,
                                     clip_path,
+                                    Fill::NonZero,
                                     blend_mode,
                                     mask,
                                     opacity,

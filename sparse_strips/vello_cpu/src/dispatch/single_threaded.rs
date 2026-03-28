@@ -554,6 +554,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         wide.generate(
             &self.strip_storage.strips,
             paint,
+            fill_rule,
             blend_mode,
             0,
             mask,
@@ -588,6 +589,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         wide.generate(
             &self.strip_storage.strips,
             paint,
+            Fill::NonZero,
             blend_mode,
             0,
             mask,
@@ -616,6 +618,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         wide.generate(
             &self.strip_storage.strips,
             paint,
+            Fill::NonZero,
             blend_mode,
             0,
             mask,
@@ -657,6 +660,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         self.wide.push_layer(
             self.layer_id_next,
             clip,
+            fill_rule,
             blend_mode,
             mask,
             opacity,
@@ -853,7 +857,7 @@ impl Dispatcher for SingleThreadedDispatcher {
     ) {
         // Generate coarse-level commands from pre-computed strips (thread_idx 0 for single-threaded).
         self.wide
-            .generate(strip_buf, paint, blend_mode, 0, None, encoded_paints);
+            .generate(strip_buf, paint, Fill::NonZero, blend_mode, 0, None, encoded_paints);
     }
 
     fn strip_storage_mut(&mut self) -> &mut StripStorage {
