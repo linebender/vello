@@ -749,10 +749,7 @@ impl Scheduler {
         let strip_storage = scene.strip_storage.borrow();
         #[cfg(not(feature = "wgpu"))]
         let all_strips = &strip_storage.strips;
-        for (cmd_idx, cmd) in scene.fast_strips_buffer.commands[range].iter().enumerate() {
-            #[cfg(feature = "wgpu")]
-            let draw = self.draw_mut(self.round + cmd_idx, 2);
-            #[cfg(not(feature = "wgpu"))]
+        for cmd in scene.fast_strips_buffer.commands[range].iter() {
             let draw = self.draw_mut(self.round, 2);
 
             match cmd {
