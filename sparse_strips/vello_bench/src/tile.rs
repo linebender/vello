@@ -7,9 +7,9 @@ use vello_common::flatten::Line;
 use vello_common::tile::Tiles;
 use vello_cpu::Level;
 
-fn run_tile_benchmark<F>(c: &mut Criterion, group_name: &str, op: F)
+fn run_tile_benchmark<F>(c: &mut Criterion, group_name: &str, mut op: F)
 where
-    F: Fn(&mut Tiles, &[Line], u16, u16) + Copy,
+    F: FnMut(&mut Tiles, &[Line], u16, u16),
 {
     let mut g = c.benchmark_group(group_name);
     g.sample_size(50);
@@ -27,6 +27,19 @@ where
 }
 
 pub fn tile(c: &mut Criterion) {
-    run_tile_benchmark(c, "tile_aaa", Tiles::make_tiles_analytic_aa);
-    run_tile_benchmark(c, "tile_msaa", Tiles::make_tiles_msaa);
+    run_tile_benchmark(c, "tile_aaa", |tiler, lines, w, h| {
+        tiler.make_tiles_analytic_aa::<false>(
+            Level::new(),
+            lines,
+            w,
+            h,
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &mut Vec::new(),
+        );
+    });
+
+    run_tile_benchmark(c, "tile_msaa", |tiler, lines, w, h| {
+        tiler.make_tiles_msaa(lines, w, h);
+    });
 }
