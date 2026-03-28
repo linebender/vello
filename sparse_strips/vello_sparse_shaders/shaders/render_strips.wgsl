@@ -380,14 +380,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     // Apply the alpha value to the unpacked RGBA color or slot index
     let color_source = (in.paint_and_rect_flag >> 29u) & 0x3u;
-    var final_color: vec4<f32>;
 
     if color_source == COLOR_SOURCE_PAYLOAD {
         let paint_type = (in.paint_and_rect_flag >> 26u) & 0x7u;
 
         // in.payload encodes a color for PAINT_TYPE_SOLID or sample_xy for PAINT_TYPE_IMAGE
         if paint_type == PAINT_TYPE_SOLID {
-            final_color = alpha * unpack4x8unorm(in.payload);
+            return alpha * unpack4x8unorm(in.payload);
         } else if paint_type == PAINT_TYPE_IMAGE {
             let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
             let encoded_image = unpack_encoded_image(paint_tex_idx);
@@ -434,7 +433,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             //}
 
             let is_multiply = bool(encoded_image.tint_mode);
-            final_color = alpha * select(
+            return alpha * select(
                 encoded_image.tint * sample_color.a,
                 sample_color * encoded_image.tint,
                 is_multiply
@@ -456,7 +455,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 linear_gradient.texture_width,
                 true
             );
-            final_color = alpha * gradient_color;
+            return alpha * gradient_color;
         } else if paint_type == PAINT_TYPE_RADIAL_GRADIENT {
             let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
             let radial_gradient = unpack_radial_gradient(paint_tex_idx);
@@ -474,7 +473,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 radial_gradient.texture_width,
                 gradient_result.is_valid
             );
-            final_color = alpha * gradient_color;
+            return alpha * gradient_color;
         } else if paint_type == PAINT_TYPE_SWEEP_GRADIENT {
             let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
             let sweep_gradient = unpack_sweep_gradient(paint_tex_idx);
@@ -506,7 +505,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 sweep_gradient.texture_width,
                 true
             );
-            final_color = alpha * gradient_color;
+            return alpha * gradient_color;
         }
     } else if color_source == COLOR_SOURCE_SLOT {
         // in.payload encodes a slot in the source clip texture.
@@ -524,7 +523,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // Extract opacity from first 8 bits (quantized from [0, 255])
         let opacity = f32(in.paint_and_rect_flag & 0xFFu) * (1.0 / 255.0);
 
-        final_color = alpha * opacity * clip_in_color;
+        return alpha * opacity * clip_in_color;
     } else if color_source == COLOR_SOURCE_BLEND {
         let opacity = f32((in.paint_and_rect_flag >> 16u) & 0xFFu) * (1.0 / 255.0);
         let mix_mode = (in.paint_and_rect_flag >> 8u) & 0xFFu;
@@ -543,9 +542,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let dest_y = clip_y_in_strip + dest_slot * config.strip_height;
         let dest_color = textureLoad(clip_input_texture, vec2(clip_x, dest_y), 0);
 
-        final_color = blend_mix_compose(dest_color, src_color * opacity * alpha, compose_mode, mix_mode);
+        return blend_mix_compose(dest_color, src_color * opacity * alpha, compose_mode, mix_mode);
     }
-    return final_color;
+    return vec4<f32>(0);
 }
 
 // Apply color mixing and composition. Both input and output colors are premultiplied RGB.
