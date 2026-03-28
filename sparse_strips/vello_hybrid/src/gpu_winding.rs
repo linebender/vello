@@ -63,6 +63,7 @@ pub(crate) fn build_winding_output(
     let mut output = WindingOutput::default();
 
     if tiles.is_empty() {
+        output.winding_value_count = alpha_idx_offset;
         return output;
     }
 
