@@ -123,8 +123,9 @@ struct Config {
     // within the atlas where the filter layer will be rendered to.
     strip_offset_x: i32,
     strip_offset_y: i32,
-    // Padding to satisfy WebGL's 16-byte alignment requirement for uniform buffers.
-    _padding0: u32,
+    // log2 of the square atlas texture dimension, used to normalize pixel coordinates
+    // to UVs for textureSample without calling textureDimensions per pixel.
+    atlas_dim_bits: u32,
 }
 
 // A `StripInstance` can represent either a **normal strip** (representing a sparse fill or alpha fill of height
@@ -229,6 +230,10 @@ struct VertexOutput {
     // Bits 0-7: x0, 8-15: y0, 16-23: x1, 24-31: y1.
     // Zero for normal strips.
     @location(5) @interpolate(flat) rect_frac: u32,
+    // Pre-computed UV clamping bounds for bilinear image sampling.
+    // xy = uv_min, zw = uv_max (prevents atlas bleeding at image boundaries).
+    // Only meaningful for PAINT_TYPE_IMAGE with IMAGE_QUALITY_MEDIUM.
+    @location(6) @interpolate(flat) uv_bounds: vec4<f32>,
     // Normalized device coordinates (NDC) for the current vertex
     @builtin(position) position: vec4<f32>,
 };
@@ -297,6 +302,10 @@ fn vs_main(
             // Use view coordinates for image sampling (always in global view space)
             let pos = vec2<f32>(f32(scene_strip_x) + x * f32(width), f32(scene_strip_y) + y * f32(height));
             out.sample_xy = encoded_image.translate + encoded_image.image_offset + encoded_image.transform * pos;
+            let inv_atlas_dim = 1.0 / f32(1u << config.atlas_dim_bits);
+            let uv_min = (encoded_image.image_offset + 0.5) * inv_atlas_dim;
+            let uv_max = (encoded_image.image_offset + encoded_image.image_size - 0.5) * inv_atlas_dim;
+            out.uv_bounds = vec4(uv_min, uv_max);
         } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT || paint_type == PAINT_TYPE_RADIAL_GRADIENT || paint_type == PAINT_TYPE_SWEEP_GRADIENT {
             // Use view coordinates for gradient transform (always in global view space)
             out.sample_xy = vec2<f32>(
@@ -411,15 +420,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 );
             } else if encoded_image.quality == IMAGE_QUALITY_MEDIUM {
                 let final_xy = image_offset + extended_xy;
-                sample_color = bilinear_sample(
-                    atlas_texture_array,
-                    final_xy,
-                    i32(encoded_image.atlas_index),
-                    image_offset,
-                    image_size,
-                    encoded_image.extend_modes,
-                    encoded_image.image_padding,
-                );
+                let inv_atlas_dim = 1.0 / f32(1u << config.atlas_dim_bits);
+                let uv = clamp(final_xy * inv_atlas_dim, in.uv_bounds.xy, in.uv_bounds.zw);
+                sample_color = textureSample(atlas_texture_array, atlas_sampler, uv, i32(encoded_image.atlas_index));
             } else {
                 let final_xy = image_offset + extended_xy;
                 sample_color = textureLoad(
@@ -934,39 +937,6 @@ fn extend_mode_normalized(t: f32, mode: u32) -> f32 {
             return abs(t - 2.0 * round(0.5 * t));
         }
     }
-}
-
-// Convert atlas-space pixel coordinates to normalized UVs suitable for textureSample.
-//
-// To prevent bleeding from neighboring atlas images, we clamp the UVs so that the boundary
-// samples land on the CENTER of the boundary texels, not their edges. 
-//
-// The input `sample_xy` is in atlas pixel space (after extend-mode and offset are applied).
-fn atlas_to_normalized_uv(
-    sample_xy: vec2<f32>,
-    image_offset: vec2<f32>,
-    image_size: vec2<f32>,
-    extend_modes: vec2<u32>,
-) -> vec2<f32> {
-    let inv_atlas_dim = 1.0 / vec2<f32>(textureDimensions(atlas_texture_array));
-    let uv_min = (image_offset + 0.5) * inv_atlas_dim;
-    let uv_max = (image_offset + image_size - 0.5) * inv_atlas_dim;
-    let uv = sample_xy * inv_atlas_dim;
-    return clamp(uv, uv_min, uv_max);
-}
-
-// Bilinear filtering via hardware textureSample.
-fn bilinear_sample(
-    tex: texture_2d_array<f32>,
-    coords: vec2<f32>,
-    atlas_idx: i32,
-    image_offset: vec2<f32>,
-    image_size: vec2<f32>,
-    extend_modes: vec2<u32>,
-    image_padding: f32,
-) -> vec4<f32> {
-    let uv = atlas_to_normalized_uv(coords, image_offset, image_size, extend_modes);
-    return textureSample(tex, atlas_sampler, uv, atlas_idx);
 }
 
 // Bicubic filtering using Mitchell filter with B=1/3, C=1/3

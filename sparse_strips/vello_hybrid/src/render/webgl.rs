@@ -812,6 +812,9 @@ struct WebGlResources {
     filter_atlas_width: u32,
     /// Cached atlas height for creating new filter atlas textures.
     filter_atlas_height: u32,
+    /// log2 of the square atlas texture dimension, passed to the shader uniform
+    /// so it can normalize pixel coords to UVs without `textureDimensions`.
+    atlas_dim_bits: u32,
 }
 
 /// Config for the clear slots pipeline.
@@ -1167,7 +1170,7 @@ impl WebGlPrograms {
                     encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                     strip_offset_x: 0,
                     strip_offset_y: 0,
-                    _padding: 0,
+                    atlas_dim_bits: self.resources.atlas_dim_bits,
                 };
 
                 gl.bind_buffer(
@@ -1193,7 +1196,7 @@ impl WebGlPrograms {
                     encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                     strip_offset_x: 0,
                     strip_offset_y: 0,
-                    _padding: 0,
+                    atlas_dim_bits: self.resources.atlas_dim_bits,
                 };
 
                 gl.bind_buffer(
@@ -1918,6 +1921,11 @@ fn create_webgl_resources(
         initial_atlas_count,
         ..
     } = image_cache.atlas_manager().config();
+    debug_assert_eq!(
+        atlas_width, atlas_height,
+        "Atlas must be square for atlas_dim_bits to work"
+    );
+    let atlas_dim_bits = atlas_width.trailing_zeros();
     let atlas_texture_array =
         create_atlas_texture_array(gl, *atlas_width, *atlas_height, *initial_atlas_count as u32);
 
@@ -1989,6 +1997,7 @@ fn create_webgl_resources(
         filter_config_buffer,
         filter_atlas_width: *filter_atlas_width,
         filter_atlas_height: *filter_atlas_height,
+        atlas_dim_bits,
     }
 }
 
@@ -2180,7 +2189,7 @@ impl WebGlRendererContext<'_> {
                         .trailing_zeros(),
                     strip_offset_x,
                     strip_offset_y,
-                    _padding: 0,
+                    atlas_dim_bits: self.programs.resources.atlas_dim_bits,
                 };
                 let buf = &self.programs.resources.filter_config_buffer;
                 self.gl

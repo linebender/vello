@@ -883,6 +883,10 @@ struct GpuResources {
     /// Placeholder atlas bind group with a 1x1 dummy texture, used during
     /// `render_to_atlas` to avoid a read-write conflict on the real atlas texture.
     stub_atlas_bind_group: BindGroup,
+
+    /// log2 of the square atlas texture dimension, passed to the shader uniform
+    /// so it can normalize pixel coords to UVs without `textureDimensions`.
+    atlas_dim_bits: u32,
 }
 
 const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).unwrap();
@@ -1321,16 +1325,29 @@ impl Programs {
             slot_count as u64 * size_of::<u32>() as u64,
         );
 
+        let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
+
+        let AtlasConfig {
+            atlas_size: (atlas_width, atlas_height),
+            initial_atlas_count,
+            ..
+        } = image_cache.atlas_manager().config();
+        debug_assert_eq!(
+            atlas_width, atlas_height,
+            "Atlas must be square for atlas_dim_bits to work"
+        );
+        let atlas_dim_bits = atlas_width.trailing_zeros();
+
         let slot_config_buffer = Self::create_config_buffer(
             device,
             &RenderSize {
                 width: u32::from(WideTile::WIDTH),
                 height: u32::from(Tile::HEIGHT) * slot_count as u32,
             },
-            device.limits().max_texture_dimension_2d,
+            max_texture_dimension_2d,
+            atlas_dim_bits,
         );
 
-        let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
         const INITIAL_ALPHA_TEXTURE_HEIGHT: u32 = 1;
         let alphas_texture = Self::create_alphas_texture(
             device,
@@ -1344,13 +1361,8 @@ impl Programs {
                 height: render_target_config.height,
             },
             max_texture_dimension_2d,
+            atlas_dim_bits,
         );
-
-        let AtlasConfig {
-            atlas_size: (atlas_width, atlas_height),
-            initial_atlas_count,
-            ..
-        } = image_cache.atlas_manager().config();
         let (atlas_texture_array, atlas_texture_array_view) = Self::create_atlas_texture_array(
             device,
             *atlas_width,
@@ -1462,6 +1474,7 @@ impl Programs {
             filter_data_texture,
             filter_base_bind_group,
             view_config_buffer,
+            atlas_dim_bits,
         };
 
         Self {
@@ -1516,6 +1529,7 @@ impl Programs {
         device: &Device,
         render_size: &RenderSize,
         alpha_texture_width: u32,
+        atlas_dim_bits: u32,
     ) -> Buffer {
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Config Buffer"),
@@ -1527,7 +1541,7 @@ impl Programs {
                 encoded_paints_tex_width_bits: alpha_texture_width.trailing_zeros(),
                 strip_offset_x: 0,
                 strip_offset_y: 0,
-                _padding: 0,
+                atlas_dim_bits,
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         })
@@ -1985,7 +1999,7 @@ impl Programs {
                 encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                 strip_offset_x: 0,
                 strip_offset_y: 0,
-                _padding: 0,
+                atlas_dim_bits: self.resources.atlas_dim_bits,
             };
             let mut buffer = queue
                 .write_buffer_with(&self.resources.view_config_buffer, 0, SIZE_OF_CONFIG)
@@ -2325,7 +2339,7 @@ impl RendererContext<'_> {
                                     .trailing_zeros(),
                                 strip_offset_x,
                                 strip_offset_y,
-                                _padding: 0,
+                                atlas_dim_bits: self.programs.resources.atlas_dim_bits,
                             }),
                             usage: wgpu::BufferUsages::UNIFORM,
                         });
