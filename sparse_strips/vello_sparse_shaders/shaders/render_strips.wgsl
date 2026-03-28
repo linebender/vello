@@ -406,32 +406,32 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             // TODO: add a fast path for images where we are using bilinear sampling and want transparent pixels,
             // using GPU-native bilinear sampling
             
-            var sample_color: vec4<f32>;
-            if encoded_image.quality == IMAGE_QUALITY_HIGH {
-                let final_xy = image_offset + extended_xy;
-                sample_color = bicubic_sample(
-                    atlas_texture_array,
-                    final_xy,
-                    i32(encoded_image.atlas_index),
-                    image_offset,
-                    image_size,
-                    encoded_image.extend_modes,
-                    encoded_image.image_padding,
-                );
-            } else if encoded_image.quality == IMAGE_QUALITY_MEDIUM {
+            //var sample_color: vec4<f32>;
+            //if encoded_image.quality == IMAGE_QUALITY_HIGH {
+            //    let final_xy = image_offset + extended_xy;
+            //    sample_color = bicubic_sample(
+            //        atlas_texture_array,
+            //        final_xy,
+            //        i32(encoded_image.atlas_index),
+            //        image_offset,
+            //        image_size,
+            //        encoded_image.extend_modes,
+            //        encoded_image.image_padding,
+            //    );
+            //} else if encoded_image.quality == IMAGE_QUALITY_MEDIUM {
                 let final_xy = image_offset + extended_xy;
                 let inv_atlas_dim = 1.0 / f32(1u << config.atlas_dim_bits);
                 let uv = clamp(final_xy * inv_atlas_dim, in.uv_bounds.xy, in.uv_bounds.zw);
-                sample_color = textureSample(atlas_texture_array, atlas_sampler, uv, i32(encoded_image.atlas_index));
-            } else {
-                let final_xy = image_offset + extended_xy;
-                sample_color = textureLoad(
-                    atlas_texture_array,
-                    vec2<u32>(final_xy),
-                    i32(encoded_image.atlas_index),
-                    0,
-                );
-            }
+                let sample_color = textureSample(atlas_texture_array, atlas_sampler, uv, i32(encoded_image.atlas_index));
+            //} else {
+            //    let final_xy = image_offset + extended_xy;
+            //    sample_color = textureLoad(
+            //        atlas_texture_array,
+            //        vec2<u32>(final_xy),
+            //        i32(encoded_image.atlas_index),
+            //        0,
+            //    );
+            //}
 
             let is_multiply = bool(encoded_image.tint_mode);
             final_color = alpha * select(
