@@ -126,7 +126,6 @@ fn build_winding_output_impl<S: Simd>(
                 }
 
                 winding_delta = 0;
-                accumulated_winding = [0.0; Tile::HEIGHT as usize];
             }
 
             if is_sentinel {

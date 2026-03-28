@@ -1151,7 +1151,7 @@ impl Programs {
                 entry_point: Some("fs_main"),
                 targets: &[Some(ColorTargetState {
                     format: wgpu::TextureFormat::R16Float,
-                    blend: Some(wgpu::BlendState {
+                    blend: Some(BlendState {
                         color: wgpu::BlendComponent {
                             src_factor: wgpu::BlendFactor::One,
                             dst_factor: wgpu::BlendFactor::One,
