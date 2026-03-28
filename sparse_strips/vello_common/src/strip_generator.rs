@@ -109,6 +109,12 @@ impl StripGenerator {
         self.width
     }
 
+    /// Get this strip generator's SIMD level.
+    #[inline(always)]
+    pub fn level(&self) -> Level {
+        self.level
+    }
+
     /// Get this strip generator's viewport height.
     #[inline(always)]
     pub fn height(&self) -> u16 {

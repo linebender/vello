@@ -420,21 +420,22 @@ impl Scene {
             let strip_start = self.fast_path.strips.len();
             let tile_lines_start = self.fast_path.tile_lines.len();
             self.strip_generator.prepare_tiles_for_fill(path, transform);
-            let output = gpu_winding::build_winding_output(
+            let winding_value_count = gpu_winding::build_winding_output(
+                self.strip_generator.level(),
                 self.strip_generator.tiles(),
                 fill_rule,
                 self.strip_generator.lines(),
                 self.fast_path.winding_value_count,
+                &mut self.fast_path.strips,
+                &mut self.fast_path.tile_lines,
             );
-            self.fast_path.winding_value_count = output.winding_value_count;
-            self.fast_path.strips.extend(output.strips);
-            self.fast_path.tile_lines.extend(output.tile_lines);
+            self.fast_path.winding_value_count = winding_value_count;
             self.fast_strips_buffer
                 .commands
                 .push(FastStripCommand::Path(FastStripsPath {
                     strips: strip_start..self.fast_path.strips.len(),
                     tile_lines: tile_lines_start..self.fast_path.tile_lines.len(),
-                    winding_value_count: output.winding_value_count,
+                    winding_value_count,
                     paint,
                 }));
         }
@@ -526,21 +527,22 @@ impl Scene {
             let tile_lines_start = self.fast_path.tile_lines.len();
             self.strip_generator
                 .prepare_tiles_for_stroke(path, &self.render_state.stroke, transform);
-            let output = gpu_winding::build_winding_output(
+            let winding_value_count = gpu_winding::build_winding_output(
+                self.strip_generator.level(),
                 self.strip_generator.tiles(),
                 Fill::NonZero,
                 self.strip_generator.lines(),
                 self.fast_path.winding_value_count,
+                &mut self.fast_path.strips,
+                &mut self.fast_path.tile_lines,
             );
-            self.fast_path.winding_value_count = output.winding_value_count;
-            self.fast_path.strips.extend(output.strips);
-            self.fast_path.tile_lines.extend(output.tile_lines);
+            self.fast_path.winding_value_count = winding_value_count;
             self.fast_strips_buffer
                 .commands
                 .push(FastStripCommand::Path(FastStripsPath {
                     strips: strip_start..self.fast_path.strips.len(),
                     tile_lines: tile_lines_start..self.fast_path.tile_lines.len(),
-                    winding_value_count: output.winding_value_count,
+                    winding_value_count,
                     paint,
                 }));
         }
