@@ -749,11 +749,12 @@ impl Scheduler {
         let strip_storage = scene.strip_storage.borrow();
         #[cfg(not(feature = "wgpu"))]
         let all_strips = &strip_storage.strips;
-        // Always choose the draw of the final surface, since direct strips are only ever
-        // rendered to the final surface.
-        let draw = self.draw_mut(self.round, 2);
+        for (cmd_idx, cmd) in scene.fast_strips_buffer.commands[range].iter().enumerate() {
+            #[cfg(feature = "wgpu")]
+            let draw = self.draw_mut(self.round + cmd_idx, 2);
+            #[cfg(not(feature = "wgpu"))]
+            let draw = self.draw_mut(self.round, 2);
 
-        for cmd in &scene.fast_strips_buffer.commands[range] {
             match cmd {
                 FastStripCommand::Path(path) => {
                     generate_gpu_strips_for_fast_path(
@@ -762,6 +763,7 @@ impl Scheduler {
                         scene,
                         encoded_paints,
                         paint_idxs,
+                        0,
                         &mut draw.0,
                     );
                 }
@@ -1723,12 +1725,13 @@ fn has_non_zero_alpha(rgba: u32) -> bool {
     rgba >= 0x1_00_00_00
 }
 
-fn generate_gpu_strips_for_fast_path(
+pub(crate) fn generate_gpu_strips_for_fast_path(
     path: &FastStripsPath,
     all_strips: &[Strip],
     scene: &Scene,
     encoded_paints: &[EncodedPaint],
     paint_idxs: &[u32],
+    col_idx_offset: u32,
     gpu_strips: &mut Vec<GpuStrip>,
 ) {
     let strips = &all_strips[path.strips.clone()];
@@ -1749,8 +1752,9 @@ fn generate_gpu_strips_for_fast_path(
         }
 
         let next_strip = &strips[i + 1];
-        let col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
-        let next_col = next_strip.alpha_idx() / u32::from(Tile::HEIGHT);
+        let col = (strip.alpha_idx() / u32::from(Tile::HEIGHT)).saturating_sub(col_idx_offset);
+        let next_col =
+            (next_strip.alpha_idx() / u32::from(Tile::HEIGHT)).saturating_sub(col_idx_offset);
         let strip_width = next_col.saturating_sub(col) as u16;
         let x0 = strip.x;
         let y = strip.y;
@@ -1784,7 +1788,7 @@ fn generate_gpu_strips_for_fast_path(
     }
 }
 
-fn pack_rectangle_into_gpu(
+pub(crate) fn pack_rectangle_into_gpu(
     rect: &FastPathRect,
     encoded_paints: &[EncodedPaint],
     paint_idxs: &[u32],

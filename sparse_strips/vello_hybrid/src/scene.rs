@@ -70,6 +70,10 @@ pub(crate) enum StripPathMode {
 pub(crate) struct FastStripsPath {
     /// The range of strips for this path in the `strips` buffer.
     pub(crate) strips: Range<usize>,
+    /// The range of tile-line instances for this path in the `tile_lines` buffer.
+    pub(crate) tile_lines: Range<usize>,
+    /// The number of logical winding values required for this path.
+    pub(crate) winding_value_count: u32,
     /// The paint of the path.
     pub(crate) paint: Paint,
 }
@@ -117,7 +121,7 @@ pub(crate) struct WgpuFastPathData {
     pub(crate) strips: Vec<Strip>,
     /// Tile-local winding inputs for the winding render pass.
     pub(crate) tile_lines: Vec<GpuTileLine>,
-    /// Logical winding-value count, used as the strip alpha/address space.
+    /// Maximum logical winding-value count across all paths, used to size the winding texture.
     pub(crate) winding_value_count: u32,
 }
 
@@ -277,6 +281,8 @@ macro_rules! submit_strips {
                 .commands
                 .push(FastStripCommand::Path(FastStripsPath {
                     strips: $strip_start..$strip_storage.strips.len(),
+                    tile_lines: 0..0,
+                    winding_value_count: 0,
                     paint: $paint,
                 }));
         } else {
@@ -412,6 +418,7 @@ impl Scene {
         {
             let _ = aliasing_threshold;
             let strip_start = self.fast_path.strips.len();
+            let tile_lines_start = self.fast_path.tile_lines.len();
             self.strip_generator.prepare_tiles_for_fill(path, transform);
             let output = gpu_winding::build_winding_output(
                 self.strip_generator.tiles(),
@@ -426,6 +433,8 @@ impl Scene {
                 .commands
                 .push(FastStripCommand::Path(FastStripsPath {
                     strips: strip_start..self.fast_path.strips.len(),
+                    tile_lines: tile_lines_start..self.fast_path.tile_lines.len(),
+                    winding_value_count: output.winding_value_count,
                     paint,
                 }));
         }
@@ -514,6 +523,7 @@ impl Scene {
         {
             let _ = aliasing_threshold;
             let strip_start = self.fast_path.strips.len();
+            let tile_lines_start = self.fast_path.tile_lines.len();
             self.strip_generator
                 .prepare_tiles_for_stroke(path, &self.render_state.stroke, transform);
             let output = gpu_winding::build_winding_output(
@@ -529,6 +539,8 @@ impl Scene {
                 .commands
                 .push(FastStripCommand::Path(FastStripsPath {
                     strips: strip_start..self.fast_path.strips.len(),
+                    tile_lines: tile_lines_start..self.fast_path.tile_lines.len(),
+                    winding_value_count: output.winding_value_count,
                     paint,
                 }));
         }
@@ -1321,6 +1333,8 @@ impl Scene {
                 .commands
                 .push(FastStripCommand::Path(FastStripsPath {
                     strips: strip_start..strip_storage.strips.len(),
+                    tile_lines: 0..0,
+                    winding_value_count: 0,
                     paint,
                 }));
         } else {

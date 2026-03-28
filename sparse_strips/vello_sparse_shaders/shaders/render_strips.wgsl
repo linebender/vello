@@ -229,6 +229,10 @@ struct VertexOutput {
     // Bits 0-7: x0, 8-15: y0, 16-23: x1, 24-31: y1.
     // Zero for normal strips.
     @location(5) @interpolate(flat) rect_frac: u32,
+    // Strip origin in strip space.
+    @location(6) @interpolate(flat) strip_xy: vec2<u32>,
+    // Base winding column for normal strips.
+    @location(7) @interpolate(flat) base_col: u32,
     // Normalized device coordinates (NDC) for the current vertex
     @builtin(position) position: vec4<f32>,
 };
@@ -264,6 +268,7 @@ fn vs_main(
 
     let is_rect = (instance.paint_and_rect_flag & RECT_STRIP_FLAG) != 0u;
     var height = config.strip_height;
+    out.base_col = instance.col_idx_or_rect_frac;
     if is_rect {
         height = dense_width;
         out.dense_end_or_rect_size = width | (dense_width << 16u);
@@ -309,6 +314,7 @@ fn vs_main(
     out.position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
     out.payload = instance.payload;
     out.paint_and_rect_flag = instance.paint_and_rect_flag;
+    out.strip_xy = vec2<u32>(x0, y0);
 
     return out;
 }
@@ -340,13 +346,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let a = clamp(bottom_and_right - top_and_left, vec2(0.0), vec2(1.0));
         alpha = a.x * a.y;
     } else if !is_rect && in.dense_end_or_rect_size != 0u {
-        let col = u32(floor(in.tex_coord.x));
-        let row = u32(floor(in.tex_coord.y));
+        let pixel_x = u32(i32(in.position.x) - config.strip_offset_x) - in.strip_xy.x;
+        let row = u32(i32(in.position.y) - config.strip_offset_y) - in.strip_xy.y;
+        let col = in.base_col + pixel_x;
         let tex_dims = textureDimensions(winding_texture);
         let tex_x = col % tex_dims.x;
         let band = col / tex_dims.x;
         let tex_y = band * config.strip_height + row;
-        let winding = textureLoad(winding_texture, vec2<u32>(tex_x, tex_y), 0).r;
+        let winding_sample = textureLoad(winding_texture, vec2<u32>(tex_x, tex_y), 0);
+        let winding = winding_sample.r - winding_sample.g;
         alpha = min(abs(winding), 1.0);
     }
     // Apply the alpha value to the unpacked RGBA color or slot index

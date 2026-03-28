@@ -52,9 +52,9 @@ fn vs_main(
     let kind = packed & KIND_BIT;
     let tile_origin = vec2<f32>(f32(tile_x) * f32(TILE_SIZE), f32(tile_y) * f32(TILE_SIZE));
 
-    let col = instance.winding_col + u32(offset_x);
-    let band = col / config.winding_tex_width;
-    let tex_x = col % config.winding_tex_width;
+    let base_col = instance.winding_col;
+    let band = base_col / config.winding_tex_width;
+    let tex_x = (base_col % config.winding_tex_width) + u32(offset_x);
     let tex_y = band * TILE_SIZE + u32(offset_y);
 
     let ndc_x = f32(tex_x) * 2.0 / f32(config.winding_tex_width) - 1.0;
