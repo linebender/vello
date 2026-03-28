@@ -414,37 +414,39 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
 ) -> Box<[AnyScene<T>]> {
     let mut scenes = Vec::new();
 
-    // Create SVG scenes for each provided path.
-    if let Some(paths) = svg_paths {
-        for path in paths {
-            scenes.push(AnyScene::new(
-                svg::SvgScene::with_svg_file(path.into()).unwrap(),
-            ));
-        }
-    } else {
-        scenes.push(AnyScene::new(svg::SvgScene::tiger()));
-    }
+    scenes.push(AnyScene::new(svg::SvgScene::tiger()));
 
-    scenes.push(AnyScene::new(text::TextScene::new("Hello, Vello!")));
-    scenes.push(AnyScene::new(simple::SimpleScene::new()));
-    scenes.push(AnyScene::new(clip::ClipScene::new()));
-    scenes.push(AnyScene::new(filter::FilterScene::new()));
-    scenes.push(AnyScene::new(blend::BlendScene::new()));
-    let flower_source = img_sources[0].clone();
-    scenes.push(AnyScene::new(image::ImageScene::new(img_sources)));
-    scenes.push(AnyScene::new(multi_image::MultiImageScene::new(
-        flower_source,
-    )));
-    scenes.push(AnyScene::new(filter_elements::FilterElementsScene::new()));
-    scenes.push(AnyScene::new(gradient::GradientExtendScene::new()));
-    scenes.push(AnyScene::new(gradient::RadialScene::new()));
-    scenes.push(AnyScene::new(path::FillTypesScene::new()));
-    scenes.push(AnyScene::new(path::StrokeStylesScene::new()));
-    scenes.push(AnyScene::new(path::StrokeStylesScene::new_non_uniform()));
-    scenes.push(AnyScene::new(path::StrokeStylesScene::new_skew()));
-    scenes.push(AnyScene::new(path::TrickyStrokesScene::new()));
-    scenes.push(AnyScene::new(path::FunkyPathsScene::new()));
-    scenes.push(AnyScene::new(path::RobustPathsScene::new()));
+    // Create SVG scenes for each provided path.
+    // if let Some(paths) = svg_paths {
+    //     for path in paths {
+    //         scenes.push(AnyScene::new(
+    //             svg::SvgScene::with_svg_file(path.into()).unwrap(),
+    //         ));
+    //     }
+    // } else {
+    //     scenes.push(AnyScene::new(svg::SvgScene::tiger()));
+    // }
+    // 
+    // scenes.push(AnyScene::new(text::TextScene::new("Hello, Vello!")));
+    // scenes.push(AnyScene::new(simple::SimpleScene::new()));
+    // scenes.push(AnyScene::new(clip::ClipScene::new()));
+    // scenes.push(AnyScene::new(filter::FilterScene::new()));
+    // scenes.push(AnyScene::new(blend::BlendScene::new()));
+    // let flower_source = img_sources[0].clone();
+    // scenes.push(AnyScene::new(image::ImageScene::new(img_sources)));
+    // scenes.push(AnyScene::new(multi_image::MultiImageScene::new(
+    //     flower_source,
+    // )));
+    // scenes.push(AnyScene::new(filter_elements::FilterElementsScene::new()));
+    // scenes.push(AnyScene::new(gradient::GradientExtendScene::new()));
+    // scenes.push(AnyScene::new(gradient::RadialScene::new()));
+    // scenes.push(AnyScene::new(path::FillTypesScene::new()));
+    // scenes.push(AnyScene::new(path::StrokeStylesScene::new()));
+    // scenes.push(AnyScene::new(path::StrokeStylesScene::new_non_uniform()));
+    // scenes.push(AnyScene::new(path::StrokeStylesScene::new_skew()));
+    // scenes.push(AnyScene::new(path::TrickyStrokesScene::new()));
+    // scenes.push(AnyScene::new(path::FunkyPathsScene::new()));
+    // scenes.push(AnyScene::new(path::RobustPathsScene::new()));
 
     scenes.into_boxed_slice()
 }
