@@ -10,8 +10,9 @@ use crate::geometry::RectU16;
 use crate::kurbo::{Affine, PathEl, Rect, Stroke};
 use crate::peniko::Fill;
 use crate::strip::Strip;
-use crate::tile::Tiles;
+use crate::tile::{Tile, Tiles};
 use crate::{flatten, rect, strip};
+use alloc::vec;
 use alloc::vec::Vec;
 use peniko::kurbo::StrokeCtx;
 
@@ -87,11 +88,17 @@ pub struct StripGenerator {
     tiles: Tiles,
     width: u16,
     height: u16,
+    culled_tiles: bool,
+    partial_windings: Vec<[f32; Tile::HEIGHT as usize]>,
+    coarse_windings: Vec<i8>,
+    active_rows: Vec<u32>,
 }
 
 impl StripGenerator {
     /// Create a new strip generator.
     pub fn new(width: u16, height: u16, level: Level) -> Self {
+        let num_rows = (height.div_ceil(Tile::HEIGHT) + 1) as usize;
+        let num_bits = num_rows.div_ceil(u32::MAX.count_ones() as usize);
         Self {
             level,
             line_buf: Vec::new(),
@@ -101,6 +108,10 @@ impl StripGenerator {
             temp_storage: StripStorage::default(),
             width,
             height,
+            culled_tiles: true,
+            partial_windings: vec![[0.0; Tile::HEIGHT as usize]; num_rows],
+            coarse_windings: vec![0; num_rows],
+            active_rows: vec![0; num_bits],
         }
     }
 
@@ -174,8 +185,22 @@ impl StripGenerator {
         fill_rule: Fill,
         clip_path: Option<PathDataRef<'_>>,
     ) {
-        self.tiles
-            .make_tiles_analytic_aa(&self.line_buf, self.width, self.height);
+        if self.culled_tiles {
+            self.active_rows.fill(0);
+            self.partial_windings.fill([0.0; Tile::HEIGHT as usize]);
+            self.coarse_windings.fill(0);
+        }
+
+        self.culled_tiles = self.tiles.make_tiles_analytic_aa::<true>(
+            self.level,
+            &self.line_buf,
+            self.width,
+            self.height,
+            &mut self.partial_windings,
+            &mut self.coarse_windings,
+            &mut self.active_rows,
+        );
+
         self.tiles.sort_tiles();
 
         let level = self.level;
@@ -195,6 +220,10 @@ impl StripGenerator {
                     fill_rule,
                     aliasing_threshold,
                     line_buf,
+                    self.culled_tiles,
+                    &self.partial_windings,
+                    &self.coarse_windings,
+                    &self.active_rows,
                 );
             },
         );
