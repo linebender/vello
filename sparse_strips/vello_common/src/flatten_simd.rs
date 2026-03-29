@@ -54,8 +54,21 @@ pub(crate) fn flatten<S: Simd>(
     let width = width as f64;
     let height = height as f64;
 
-    let mut start_pt = Point::ZERO;
-    let mut last_pt = Point::ZERO;
+    let mut path = path.into_iter();
+    let Some(first_el) = path.next() else {
+        return;
+    };
+    let PathEl::MoveTo(start_pt) = first_el else {
+        debug_assert!(
+            matches!(first_el, PathEl::MoveTo(_)),
+            "Non-empty paths must begin with `PathEl::MoveTo`, got {first_el:?}"
+        );
+        return;
+    };
+
+    let mut start_pt = start_pt;
+    let mut last_pt = start_pt;
+    callback.callback(LinePathEl::MoveTo(start_pt));
 
     for el in path {
         match el {
