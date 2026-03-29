@@ -121,7 +121,9 @@ impl WebGlRenderer {
         let gl = canvas
             .get_context_with_context_options("webgl2", &context_options)
             .expect("WebGL2 context to be available")
-            .unwrap();
+            .unwrap()
+            .dyn_into::<WebGl2RenderingContext>()
+            .expect("Context to be a WebGL2 context");
 
         let max_texture_dimension_2d = get_max_texture_dimension_2d(&gl);
         let total_slots: usize = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
