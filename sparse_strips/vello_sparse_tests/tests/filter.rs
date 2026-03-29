@@ -1550,4 +1550,3 @@ fn filter_with_inner_clip(ctx: &mut impl Renderer) {
 fn filter_gaussian_blur_edge_mode_none(ctx: &mut impl Renderer) {
     blur_with_edge_mode(ctx, EdgeMode::None);
 }
-
