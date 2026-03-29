@@ -603,6 +603,8 @@ struct WebGlPrograms {
     resources: WebGlResources,
     /// Dimensions of the rendering target.
     render_size: RenderSize,
+    /// Whether the last config buffer upload had NDC Y negation enabled.
+    negate_ndc: bool,
     /// Scratch buffer for staging encoded paints texture data.
     encoded_paints_data: Vec<u8>,
     /// Scratch buffer for staging filter data texture data.
@@ -786,6 +788,7 @@ impl WebGlPrograms {
                 width: 0,
                 height: 0,
             },
+            negate_ndc: false,
             encoded_paints_data,
             filter_data: Vec::new(),
         }
@@ -1063,7 +1066,13 @@ impl WebGlPrograms {
         max_texture_dimension_2d: u32,
         new_render_size: &RenderSize,
     ) {
-        if self.render_size != *new_render_size {
+        // Only negate if we are rendering to the main frame buffer.
+        let negate_ndc = self.resources.view_framebuffer_override.is_none();
+
+        // TODO: Collect all attributes that influence the config buffer into a
+        // single struct and compare that, such that we cannot forget to update the
+        // condition in case we add new fields in the future.
+        if self.render_size != *new_render_size || self.negate_ndc != negate_ndc {
             // Update view config buffer
             {
                 let config = Config {
@@ -1074,8 +1083,7 @@ impl WebGlPrograms {
                     encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                     strip_offset_x: 0,
                     strip_offset_y: 0,
-                    // Only negate if we are rendering to the main frame buffer.
-                    negate_ndc: u32::from(self.resources.view_framebuffer_override.is_none()),
+                    negate_ndc: u32::from(negate_ndc),
                 };
 
                 gl.bind_buffer(
@@ -1140,6 +1148,7 @@ impl WebGlPrograms {
             }
 
             self.render_size = new_render_size.clone();
+            self.negate_ndc = negate_ndc;
         }
     }
 
