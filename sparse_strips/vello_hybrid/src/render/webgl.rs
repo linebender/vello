@@ -377,6 +377,7 @@ impl WebGlRenderer {
         if clear {
             self.programs.clear_view_framebuffer(&self.gl);
         }
+        self.programs.resources.depth_cleared_this_frame = false;
         let mut ctx = WebGlRendererContext {
             programs: &mut self.programs,
             gl: &self.gl,
@@ -793,6 +794,8 @@ struct WebGlResources {
     clear_config_buffer: WebGlBuffer,
 
     view_framebuffer_override: Option<WebGlFramebuffer>,
+    /// Whether the depth buffer has been cleared this frame.
+    depth_cleared_this_frame: bool,
 
     /// Slot textures.
     slot_textures: [WebGlTexture; 2],
@@ -1926,6 +1929,7 @@ fn create_webgl_resources(
         slot_textures,
         slot_framebuffers,
         view_framebuffer_override: None,
+        depth_cleared_this_frame: false,
         max_texture_dimension_2d,
         stub_atlas_texture_array,
         atlas_render_framebuffer: None,
@@ -2017,11 +2021,11 @@ fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
     );
 
     const STRIDE: i32 = size_of::<GpuStrip>() as i32;
-    const { assert!(STRIDE == 20, "expected stride of 20") };
+    const { assert!(STRIDE == 24, "expected stride of 24") };
     let stride = STRIDE;
 
     // Configure attributes.
-    for i in 0..5 {
+    for i in 0..6 {
         let location = i as u32;
         let offset = i * 4;
 
@@ -2079,14 +2083,14 @@ impl WebGlRendererContext<'_> {
     /// Render strips to the specified render target.
     fn do_strip_render_pass(
         &mut self,
-        strips: &[GpuStrip],
+        opaque_strips: &[GpuStrip],
+        alpha_strips: &[GpuStrip],
         target: StripPassRenderTarget,
         load: LoadOp,
     ) {
-        if strips.is_empty() {
+        if opaque_strips.is_empty() && alpha_strips.is_empty() {
             return;
         }
-        self.programs.upload_strips(self.gl, strips);
 
         let scissor_rect = match &target {
             StripPassRenderTarget::FilterLayer(layer_id) => {
@@ -2284,13 +2288,67 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.strip_uniforms.gradient_texture), 4);
 
-        // Draw.
-        self.gl.draw_arrays_instanced(
-            WebGl2RenderingContext::TRIANGLE_STRIP,
-            0,
-            4,
-            strips.len() as i32,
-        );
+        let is_final_view =
+            matches!(target, StripPassRenderTarget::Output(OutputTarget::FinalView));
+
+        if is_final_view {
+            // Clear depth buffer on first use per frame.
+            if !self.programs.resources.depth_cleared_this_frame {
+                self.programs.resources.depth_cleared_this_frame = true;
+                self.gl.clear_depth(1.0);
+                self.gl
+                    .clear(WebGl2RenderingContext::DEPTH_BUFFER_BIT);
+            }
+
+            self.gl.enable(WebGl2RenderingContext::DEPTH_TEST);
+            self.gl.depth_func(WebGl2RenderingContext::LEQUAL);
+
+            // Opaque pass: front-to-back, depth write ON, blend OFF.
+            if !opaque_strips.is_empty() {
+                self.programs.upload_strips(self.gl, opaque_strips);
+                self.gl.depth_mask(true);
+                self.gl.disable(WebGl2RenderingContext::BLEND);
+                self.gl.draw_arrays_instanced(
+                    WebGl2RenderingContext::TRIANGLE_STRIP,
+                    0,
+                    4,
+                    opaque_strips.len() as i32,
+                );
+            }
+
+            // Alpha pass: back-to-front, depth test ON, depth write OFF, blend ON.
+            if !alpha_strips.is_empty() {
+                self.programs.upload_strips(self.gl, alpha_strips);
+                self.gl.depth_mask(false);
+                self.gl.enable(WebGl2RenderingContext::BLEND);
+                self.gl.draw_arrays_instanced(
+                    WebGl2RenderingContext::TRIANGLE_STRIP,
+                    0,
+                    4,
+                    alpha_strips.len() as i32,
+                );
+            }
+
+            // Restore state.
+            self.gl.disable(WebGl2RenderingContext::DEPTH_TEST);
+            self.gl.depth_mask(true);
+            self.gl.enable(WebGl2RenderingContext::BLEND);
+        } else {
+            // Slot texture / intermediate: single draw with blending, no depth.
+            // Combine both lists for upload.
+            let all_strips: Vec<GpuStrip> = opaque_strips
+                .iter()
+                .chain(alpha_strips.iter())
+                .copied()
+                .collect();
+            self.programs.upload_strips(self.gl, &all_strips);
+            self.gl.draw_arrays_instanced(
+                WebGl2RenderingContext::TRIANGLE_STRIP,
+                0,
+                4,
+                all_strips.len() as i32,
+            );
+        }
 
         // Clean up.
         self.gl.bind_vertex_array(None);
@@ -2368,11 +2426,12 @@ impl RendererBackend for WebGlRendererContext<'_> {
     /// Execute a render pass for strips.
     fn render_strips(
         &mut self,
-        strips: &[GpuStrip],
+        opaque_strips: &[GpuStrip],
+        alpha_strips: &[GpuStrip],
         target: StripPassRenderTarget,
         load_op: LoadOp,
     ) {
-        self.do_strip_render_pass(strips, target, load_op);
+        self.do_strip_render_pass(opaque_strips, alpha_strips, target, load_op);
     }
 
     fn apply_filter(&mut self, layer_id: LayerId) {

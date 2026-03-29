@@ -211,6 +211,9 @@ struct StripInstance {
     @location(3) payload: u32,
     // See StripInstance documentation above.
     @location(4) paint_and_rect_flag: u32,
+    // Painter's-order index for z-depth computation (TBDR early-z).
+    // Monotonically increasing in back-to-front order within a frame.
+    @location(5) layer_index: u32,
 }
 
 struct VertexOutput {
@@ -306,9 +309,10 @@ fn vs_main(
     let col_offset = select(f32(instance.col_idx_or_rect_frac), 0.0, is_rect);
     out.tex_coord = vec2<f32>(col_offset + x * f32(width), y * f32(height));
 
+    let z = 1.0 - f32(instance.layer_index) / f32(1u << 24u);
     // Flip it based on the flag.
     let final_ndc_y = select(ndc_y, -ndc_y, config.ndc_y_negate != 0u);
-    out.position = vec4<f32>(ndc_x, final_ndc_y, 0.0, 1.0);
+    out.position = vec4<f32>(ndc_x, final_ndc_y, z, 1.0);
     out.payload = instance.payload;
     out.paint_and_rect_flag = instance.paint_and_rect_flag;
 

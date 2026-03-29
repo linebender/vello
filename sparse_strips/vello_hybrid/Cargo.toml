@@ -37,6 +37,7 @@ web-sys = { version = "0.3.91", features = [
     "WebGlShader",
     "WebGlTexture",
     "WebGlFramebuffer",
+    "WebGlRenderbuffer",
     "WebGlVertexArrayObject",
 ], optional = true }
 
