@@ -59,7 +59,10 @@ pub struct Config {
     ///
     /// However, for the native WebGL backend, we want to _avoid_ this transform so that we
     /// can write directly into the user-provided framebuffer, but still ensure that the scene
-    /// is correctly flipped. Therefore, we optionally negate the coordinates in NDC.
+    /// is correctly flipped. Otherwise, we would need to allocate another framebuffer,
+    /// render into that and then pay the cost for flipping it.
+    /// 
+    /// Therefore, we optionally negate the coordinates in NDC.
     /// (Note that naga provides a flag for disabling this behavior. However, the problem
     /// is that many parts of Vello Hybrid's code (such as slot textures) also assume a
     /// y-down coordinate system. Therefore, just disabling this flag causes complications in
