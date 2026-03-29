@@ -728,8 +728,8 @@ struct ClearSlotsConfig {
     pub slot_height: u32,
     /// Total height of the texture.
     pub texture_height: u32,
-    /// See [`Config::ndc_y_negate`].
-    pub ndc_y_negate: u32,
+    /// Padding for alignment.
+    pub _padding: u32,
 }
 
 impl WebGlPrograms {
@@ -1121,7 +1121,7 @@ impl WebGlPrograms {
                     slot_width: u32::from(WideTile::WIDTH),
                     slot_height: u32::from(Tile::HEIGHT),
                     texture_height: u32::from(Tile::HEIGHT) * total_slots,
-                    ndc_y_negate: 0,
+                    _padding: 0,
                 };
 
                 gl.bind_buffer(
