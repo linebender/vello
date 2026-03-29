@@ -1529,3 +1529,19 @@ fn filter_with_out_of_bounds_clip(ctx: &mut impl Renderer) {
     ctx.pop_layer();
     ctx.pop_layer();
 }
+
+#[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
+fn filter_with_inner_clip(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 5.0,
+        edge_mode: EdgeMode::None,
+    });
+    let clip = Rect::new(30.0, 30.0, 70.0, 70.0).to_path(0.1);
+
+    ctx.push_filter_layer(filter);
+    ctx.push_clip_layer(&clip);
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
