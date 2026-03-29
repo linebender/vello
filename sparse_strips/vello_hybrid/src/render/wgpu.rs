@@ -344,6 +344,7 @@ impl Renderer {
         encoded_paints: &[EncodedPaint],
         clear: bool,
     ) -> Result<(), RenderError> {
+        self.programs.depth_cleared_this_frame = false;
         self.prepare_gpu_encoded_paints(encoded_paints);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
@@ -722,10 +723,20 @@ impl Renderer {
 /// Defines the GPU resources and pipelines for rendering.
 #[derive(Debug)]
 struct Programs {
-    /// Pipelines for rendering strips.
+    /// Pipelines for rendering strips to slot textures (no depth, blending ON).
     /// The first pipeline should be used for color attachments in the native pixel format,
     /// the second for color attachments in RGBA8.
-    strip_pipelines: [RenderPipeline; 2],
+    slot_strip_pipelines: [RenderPipeline; 2],
+    /// Alpha pipelines for rendering strips to Output targets (depth test ON, depth write OFF, blending ON).
+    alpha_strip_pipelines: [RenderPipeline; 2],
+    /// Opaque pipelines for rendering strips to Output targets (depth test ON, depth write ON, blending OFF).
+    opaque_strip_pipelines: [RenderPipeline; 2],
+    /// Depth texture for early-z rejection on the Output target.
+    depth_texture: Texture,
+    /// View for the depth texture.
+    depth_texture_view: TextureView,
+    /// Whether the depth buffer has been cleared this frame.
+    depth_cleared_this_frame: bool,
     /// Bind group layout for strip draws
     strip_bind_group_layout: BindGroupLayout,
     /// Bind group layout for encoded paints
@@ -901,13 +912,14 @@ struct ClearSlotsConfig {
 
 impl GpuStrip {
     /// Vertex attributes for the strip
-    pub fn vertex_attributes() -> [wgpu::VertexAttribute; 5] {
+    pub fn vertex_attributes() -> [wgpu::VertexAttribute; 6] {
         wgpu::vertex_attr_array![
             0 => Uint32,
             1 => Uint32,
             2 => Uint32,
             3 => Uint32,
             4 => Uint32,
+            5 => Uint32,
         ]
     }
 }
@@ -1047,19 +1059,24 @@ impl Programs {
                 immediate_size: 0,
             });
 
+        let depth_format = wgpu::TextureFormat::Depth24Plus;
         let strip_formats = [render_target_config.format, wgpu::TextureFormat::Rgba8Unorm];
-        let strip_pipelines: [RenderPipeline; 2] = core::array::from_fn(|i| {
+
+        let strip_vertex_state = wgpu::VertexBufferLayout {
+            array_stride: size_of::<GpuStrip>() as u64,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &GpuStrip::vertex_attributes(),
+        };
+
+        // Slot pipelines: no depth, blending ON (for slot textures without depth attachment).
+        let slot_strip_pipelines: [RenderPipeline; 2] = core::array::from_fn(|i| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Strip Pipeline"),
+                label: Some("Strip Slot Pipeline"),
                 layout: Some(&strip_pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &strip_shader,
                     entry_point: Some("vs_main"),
-                    buffers: &[wgpu::VertexBufferLayout {
-                        array_stride: size_of::<GpuStrip>() as u64,
-                        step_mode: wgpu::VertexStepMode::Instance,
-                        attributes: &GpuStrip::vertex_attributes(),
-                    }],
+                    buffers: core::slice::from_ref(&strip_vertex_state),
                     compilation_options: PipelineCompilationOptions::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
@@ -1077,6 +1094,82 @@ impl Programs {
                     ..Default::default()
                 },
                 depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        });
+
+        // Alpha pipelines: blending ON, depth test ON (LessEqual), depth write OFF.
+        let alpha_strip_pipelines: [RenderPipeline; 2] = core::array::from_fn(|i| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Strip Alpha Pipeline"),
+                layout: Some(&strip_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &strip_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: core::slice::from_ref(&strip_vertex_state),
+                    compilation_options: PipelineCompilationOptions::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &strip_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(ColorTargetState {
+                        format: strip_formats[i],
+                        blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                        write_mask: ColorWrites::ALL,
+                    })],
+                    compilation_options: PipelineCompilationOptions::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleStrip,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: depth_format,
+                    depth_write_enabled: false,
+                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        });
+
+        // Opaque pipelines: blending OFF, depth test ON (LessEqual), depth write ON.
+        let opaque_strip_pipelines: [RenderPipeline; 2] = core::array::from_fn(|i| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Strip Opaque Pipeline"),
+                layout: Some(&strip_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &strip_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: core::slice::from_ref(&strip_vertex_state),
+                    compilation_options: PipelineCompilationOptions::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &strip_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(ColorTargetState {
+                        format: strip_formats[i],
+                        blend: None,
+                        write_mask: ColorWrites::ALL,
+                    })],
+                    compilation_options: PipelineCompilationOptions::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleStrip,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: depth_format,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
                 multisample: wgpu::MultisampleState::default(),
                 multiview_mask: None,
                 cache: None,
@@ -1441,8 +1534,20 @@ impl Programs {
             view_config_buffer,
         };
 
+        let depth_texture = Self::create_depth_texture(
+            device,
+            render_target_config.width,
+            render_target_config.height,
+        );
+        let depth_texture_view = depth_texture.create_view(&TextureViewDescriptor::default());
+
         Self {
-            strip_pipelines,
+            slot_strip_pipelines,
+            alpha_strip_pipelines,
+            opaque_strip_pipelines,
+            depth_texture,
+            depth_texture_view,
+            depth_cleared_this_frame: false,
             strip_bind_group_layout,
             encoded_paints_bind_group_layout,
             gradient_bind_group_layout,
@@ -1460,6 +1565,23 @@ impl Programs {
             clear_pipeline,
             atlas_clear_pipeline,
         }
+    }
+
+    fn create_depth_texture(device: &Device, width: u32, height: u32) -> Texture {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Depth Texture"),
+            size: Extent3d {
+                width: width.max(1),
+                height: height.max(1),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth24Plus,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        })
     }
 
     fn create_strips_buffer(device: &Device, required_strips_size: u64) -> Buffer {
@@ -1763,7 +1885,7 @@ impl Programs {
         self.maybe_resize_alphas_tex(device, max_texture_dimension_2d, alphas.len());
         self.maybe_resize_encoded_paints_tex(device, max_texture_dimension_2d, paint_idxs);
         self.maybe_resize_filter_tex(device, max_texture_dimension_2d, filter_context);
-        self.maybe_update_config_buffer(queue, max_texture_dimension_2d, new_render_size);
+        self.maybe_update_config_buffer(device, queue, max_texture_dimension_2d, new_render_size);
 
         self.upload_alpha_texture(queue, alphas);
         self.upload_encoded_paints_texture(queue, encoded_paints);
@@ -1942,6 +2064,7 @@ impl Programs {
     /// Update config buffer if dimensions changed.
     fn maybe_update_config_buffer(
         &mut self,
+        device: &Device,
         queue: &Queue,
         max_texture_dimension_2d: u32,
         new_render_size: &RenderSize,
@@ -1961,6 +2084,12 @@ impl Programs {
                 .write_buffer_with(&self.resources.view_config_buffer, 0, SIZE_OF_CONFIG)
                 .expect("Buffer only ever holds `Config`");
             buffer.copy_from_slice(bytemuck::bytes_of(&config));
+
+            self.depth_texture =
+                Self::create_depth_texture(device, new_render_size.width, new_render_size.height);
+            self.depth_texture_view =
+                self.depth_texture
+                    .create_view(&TextureViewDescriptor::default());
 
             self.render_size = new_render_size.clone();
         }
@@ -2216,16 +2345,21 @@ impl RendererContext<'_> {
     /// Render the strips to the specified render target.
     fn do_strip_render_pass(
         &mut self,
-        strips: &[GpuStrip],
+        opaque_strips: &[GpuStrip],
+        alpha_strips: &[GpuStrip],
         target: StripPassRenderTarget,
         load: wgpu::LoadOp<wgpu::Color>,
     ) {
-        if strips.is_empty() {
+        if opaque_strips.is_empty() && alpha_strips.is_empty() {
             return;
         }
-        // TODO: We currently allocate a new strips buffer for each render pass. A more efficient
-        // approach would be to re-use buffers or slices of a larger buffer.
-        self.programs.upload_strips(self.device, self.queue, strips);
+        // Upload all strips (opaque first, then alpha) into a single buffer.
+        let total_strips: Vec<GpuStrip> =
+            opaque_strips.iter().chain(alpha_strips.iter()).copied().collect();
+        self.programs
+            .upload_strips(self.device, self.queue, &total_strips);
+        let opaque_count = u32::try_from(opaque_strips.len()).unwrap();
+        let alpha_count = u32::try_from(alpha_strips.len()).unwrap();
 
         enum MaybeOwned<'a, T> {
             Borrowed(&'a T),
@@ -2342,6 +2476,28 @@ impl RendererContext<'_> {
             _ => 0,
         };
 
+        let is_final_view =
+            matches!(target, StripPassRenderTarget::Output(OutputTarget::FinalView));
+
+        let depth_stencil_attachment = if is_final_view {
+            let depth_load = if self.programs.depth_cleared_this_frame {
+                wgpu::LoadOp::Load
+            } else {
+                self.programs.depth_cleared_this_frame = true;
+                wgpu::LoadOp::Clear(1.0)
+            };
+            Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.programs.depth_texture_view,
+                depth_ops: Some(wgpu::Operations {
+                    load: depth_load,
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            })
+        } else {
+            None
+        };
+
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("Render to Texture Pass"),
             color_attachments: &[Some(RenderPassColorAttachment {
@@ -2353,18 +2509,34 @@ impl RendererContext<'_> {
                     store: wgpu::StoreOp::Store,
                 },
             })],
-            depth_stencil_attachment: None,
+            depth_stencil_attachment,
             occlusion_query_set: None,
             timestamp_writes: None,
             multiview_mask: None,
         });
-        render_pass.set_pipeline(&self.programs.strip_pipelines[pipeline_idx]);
+
         render_pass.set_bind_group(0, bind_group.as_ref(), &[]);
         render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
         render_pass.set_bind_group(2, &self.programs.resources.encoded_paints_bind_group, &[]);
         render_pass.set_bind_group(3, &self.programs.resources.gradient_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.programs.resources.strips_buffer.slice(..));
-        render_pass.draw(0..4, 0..u32::try_from(strips.len()).unwrap());
+
+        if is_final_view {
+            // Opaque pass: front-to-back, depth write ON, no blend.
+            if opaque_count > 0 {
+                render_pass.set_pipeline(&self.programs.opaque_strip_pipelines[pipeline_idx]);
+                render_pass.draw(0..4, 0..opaque_count);
+            }
+            // Alpha pass: back-to-front, depth test ON, depth write OFF, blend ON.
+            if alpha_count > 0 {
+                render_pass.set_pipeline(&self.programs.alpha_strip_pipelines[pipeline_idx]);
+                render_pass.draw(0..4, opaque_count..opaque_count + alpha_count);
+            }
+        } else {
+            // Slot texture / intermediate: single draw, no depth pipeline.
+            render_pass.set_pipeline(&self.programs.slot_strip_pipelines[pipeline_idx]);
+            render_pass.draw(0..4, 0..opaque_count + alpha_count);
+        }
     }
 
     /// Clear specific slots from a slot texture.
@@ -2426,7 +2598,8 @@ impl RendererBackend for RendererContext<'_> {
     /// Execute the render pass for rendering strips.
     fn render_strips(
         &mut self,
-        strips: &[GpuStrip],
+        opaque_strips: &[GpuStrip],
+        alpha_strips: &[GpuStrip],
         target: StripPassRenderTarget,
         load_op: LoadOp,
     ) {
@@ -2434,7 +2607,7 @@ impl RendererBackend for RendererContext<'_> {
             LoadOp::Load => wgpu::LoadOp::Load,
             LoadOp::Clear => wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
         };
-        self.do_strip_render_pass(strips, target, wgpu_load_op);
+        self.do_strip_render_pass(opaque_strips, alpha_strips, target, wgpu_load_op);
     }
 
     fn apply_filter(&mut self, layer_id: LayerId) {
