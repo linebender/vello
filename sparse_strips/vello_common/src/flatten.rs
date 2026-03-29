@@ -180,10 +180,9 @@ pub fn fill(
     affine: Affine,
     line_buf: &mut Vec<Line>,
     ctx: &mut FlattenCtx,
-    width: u16,
-    height: u16,
+    cull_bbox: [u16; 4],
 ) {
-    dispatch!(level, simd => fill_impl(simd, path, affine, line_buf, ctx, width, height));
+    dispatch!(level, simd => fill_impl(simd, path, affine, line_buf, ctx, cull_bbox));
 }
 
 /// Flatten a filled bezier path into line segments.
@@ -196,8 +195,7 @@ pub fn fill_impl<S: Simd>(
     affine: Affine,
     line_buf: &mut Vec<Line>,
     flatten_ctx: &mut FlattenCtx,
-    width: u16,
-    height: u16,
+    cull_bbox: [u16; 4],
 ) {
     line_buf.clear();
     let iter = path.into_iter().map(
@@ -212,7 +210,7 @@ pub fn fill_impl<S: Simd>(
         is_nan: false,
     };
 
-    crate::flatten_simd::flatten(simd, iter, &mut lb, flatten_ctx, width, height);
+    crate::flatten_simd::flatten(simd, iter, &mut lb, flatten_ctx, cull_bbox);
 
     // A path that contains NaN is ill-defined, so ignore it.
     if lb.is_nan {
@@ -232,8 +230,7 @@ pub fn stroke(
     line_buf: &mut Vec<Line>,
     flatten_ctx: &mut FlattenCtx,
     stroke_ctx: &mut StrokeCtx,
-    width: u16,
-    height: u16,
+    cull_bbox: [u16; 4],
 ) {
     // TODO: Temporary hack to ensure that strokes are scaled properly by the transform.
     let tolerance = TOL
@@ -249,8 +246,7 @@ pub fn stroke(
         affine,
         line_buf,
         flatten_ctx,
-        width,
-        height,
+        cull_bbox,
     );
 }
 

@@ -265,6 +265,7 @@ impl MultiThreadedDispatcher {
         let clip_path = self.clip_context.get().map(|c| OwnedClip {
             strips: c.strips.into(),
             alphas: c.alphas.into(),
+            bbox: c.bbox,
         });
         let task = RenderTask {
             idx: task_idx,
@@ -718,6 +719,11 @@ impl Debug for MultiThreadedDispatcher {
 pub(crate) struct OwnedClip {
     strips: Box<[Strip]>,
     alphas: Box<[u8]>,
+
+    /// A coarse bounding box of the clip path in pixel coordinates `[left, top, right, bottom]`.
+    ///
+    /// These bounds have already been intersected with the viewport.
+    bbox: [u16; 4],
 }
 
 /// A structure that allows storing and fetching existing allocations.

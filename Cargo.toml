@@ -28,6 +28,7 @@ members = [
     "sparse_strips/vello_toy",
     "sparse_strips/vello_dev_macros",
     "sparse_strips/vello_sparse_tests",
+    "glifo",
     "image_filters/vello_filters_cpu",
 ]
 
@@ -108,6 +109,8 @@ kurbo = { version = "0.13.0", default-features = false }
 futures-intrusive = "0.5.0"
 guillotiere = { version = "0.7.0", default-features = false }
 hashbrown = { version = "0.16.1", default-features = false, features = ["default-hasher"] }
+core_maths = "0.1.1"
+foldhash = "0.1.5"
 smallvec = "1.15.1"
 static_assertions = "1.1.0"
 thiserror = { version = "2.0.18", default-features = false }
@@ -125,6 +128,7 @@ vello_common = { version = "0.0.7", path = "sparse_strips/vello_common", default
 vello_cpu = { version = "0.0.7", path = "sparse_strips/vello_cpu" }
 vello_hybrid = { version = "0.0.7", path = "sparse_strips/vello_hybrid" }
 vello_sparse_shaders = { version = "0.0.7", path = "sparse_strips/vello_sparse_shaders" }
+glifo = { path = "glifo" }
 vello_example_scenes = { path = "sparse_strips/vello_example_scenes" }
 vello_dev_macros = { path = "sparse_strips/vello_dev_macros" }
 
