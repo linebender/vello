@@ -57,7 +57,7 @@ use vello_common::{
     tile::Tile,
 };
 use vello_sparse_shaders::{clear_slots, filters, render_strips};
-use web_sys::wasm_bindgen::JsCast;
+use web_sys::wasm_bindgen::{JsCast, JsValue};
 use web_sys::{
     WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlTexture,
     WebGlUniformLocation, WebGlVertexArrayObject,
@@ -113,12 +113,15 @@ impl WebGlRenderer {
     pub fn new_with(canvas: &web_sys::HtmlCanvasElement, settings: RenderSettings) -> Self {
         super::common::maybe_warn_about_webgl_feature_conflict();
 
+        // We do our own anti-aliasing, so no need to enable it in the WebGL
+        // context.
+        let context_options = js_sys::Object::new();
+        js_sys::Reflect::set(&context_options, &"antialias".into(), &JsValue::FALSE).unwrap();
+
         let gl = canvas
-            .get_context("webgl2")
+            .get_context_with_context_options("webgl2", &context_options)
             .expect("WebGL2 context to be available")
-            .unwrap()
-            .dyn_into::<WebGl2RenderingContext>()
-            .expect("Context to be a WebGL2 context");
+            .unwrap();
 
         let max_texture_dimension_2d = get_max_texture_dimension_2d(&gl);
         let total_slots: usize = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;

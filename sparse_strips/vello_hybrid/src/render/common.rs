@@ -61,7 +61,7 @@ pub struct Config {
     /// can write directly into the user-provided framebuffer, but still ensure that the scene
     /// is correctly flipped. Otherwise, we would need to allocate another framebuffer,
     /// render into that and then pay the cost for flipping it.
-    /// 
+    ///
     /// Therefore, we optionally negate the coordinates in NDC.
     /// (Note that naga provides a flag for disabling this behavior. However, the problem
     /// is that many parts of Vello Hybrid's code (such as slot textures) also assume a
