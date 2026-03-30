@@ -4024,8 +4024,10 @@ version = "0.0.7"
 dependencies = [
  "bytemuck",
  "crossbeam-channel",
+ "glifo",
  "hashbrown 0.16.1",
  "ordered-channel",
+ "png",
  "rayon",
  "thread_local",
  "vello_api",

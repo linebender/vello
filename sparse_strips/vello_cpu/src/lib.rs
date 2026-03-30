@@ -143,6 +143,10 @@ mod render;
 
 mod dispatch;
 mod filter;
+#[cfg(feature = "text")]
+mod text;
+#[cfg(all(feature = "text", feature = "debug_glyph_bounds"))]
+mod text_debug;
 mod util;
 
 pub mod api;
@@ -152,8 +156,6 @@ pub mod fine;
 pub mod layer_manager;
 #[doc(hidden)]
 pub mod region;
-#[cfg(feature = "vello_cpu")]
-mod text_debug;
 
 pub use render::{RenderContext, RenderSettings};
 pub use vello_common::fearless_simd::Level;

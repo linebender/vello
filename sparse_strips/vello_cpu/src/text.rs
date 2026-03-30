@@ -11,35 +11,34 @@
 //! [`Arc<Pixmap>`]s here, so the CPU renderer can read pixels directly without
 //! any GPU upload step.
 
-use super::vello_renderer;
-use crate::atlas::{
-    AtlasCommandRecorder, AtlasSlot, GlyphAtlas, GlyphCache, GlyphCacheConfig, GlyphCacheKey,
-    ImageCache, PendingBitmapUpload, PendingClearRect, RasterMetrics,
-};
-use crate::glyph::{HintCache, OutlineCache};
-use crate::renderers::vello_renderer::{AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale};
-use crate::{GlyphCaches, kurbo, peniko};
-use crate::{
-    Pixmap,
-    colr::{ColrPainter, ColrRenderer},
-    glyph::{CachedGlyphType, GlyphBitmap, GlyphColr, GlyphRenderer, PreparedGlyph},
-};
+use crate::{Image, ImageSource, PaintType, Pixmap, RenderContext, color, kurbo, peniko};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt::{Debug, Formatter};
+use glifo::atlas::{
+    AtlasCommandRecorder, AtlasSlot, GlyphAtlas, GlyphCache, GlyphCacheConfig, GlyphCacheKey,
+    ImageCache, PendingBitmapUpload, PendingClearRect, RasterMetrics,
+};
+use glifo::{
+    CachedGlyphType, ColrPainter, ColrRenderer, GlyphBitmap, GlyphCaches, GlyphColr,
+    GlyphRenderer, HintCache, OutlineCache, PreparedGlyph,
+};
+use glifo::renderers::vello_renderer::{
+    self, AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale,
+};
 use kurbo::{Affine, BezPath, Rect};
 use peniko::Extend;
 use peniko::color::{AlphaColor, Srgb};
 use peniko::{BlendMode, Gradient};
 use vello_common::paint::{ImageId, Tint};
-use vello_cpu::peniko::{ImageQuality, ImageSampler};
-use vello_cpu::{Image, ImageSource, PaintType, RenderContext, color::palette::css::BLACK};
+use color::palette::css::BLACK;
+use peniko::{ImageQuality, ImageSampler};
 
 /// CPU-side glyph atlas backed by per-page [`Pixmap`]s.
 ///
 /// Wraps the shared [`GlyphAtlas`] allocator and adds owned pixel storage
 /// so that glyphs can be rasterized directly into CPU-accessible memory.
-pub struct CpuGlyphAtlas {
+pub(crate) struct CpuGlyphAtlas {
     /// Shared cache data.
     pub(crate) inner: GlyphAtlas,
     /// One `Pixmap` per atlas page, grown on demand. Wrapped in `Arc` so
@@ -54,13 +53,13 @@ pub struct CpuGlyphAtlas {
 impl CpuGlyphAtlas {
     /// Creates a new atlas with the given page dimensions and default eviction settings.
     #[inline]
-    pub fn new(page_width: u16, page_height: u16) -> Self {
+    pub(crate) fn new(page_width: u16, page_height: u16) -> Self {
         Self::with_config(page_width, page_height, GlyphCacheConfig::default())
     }
 
     /// Creates a new atlas with custom page dimensions and eviction settings.
     #[inline]
-    pub fn with_config(
+    pub(crate) fn with_config(
         page_width: u16,
         page_height: u16,
         eviction_config: GlyphCacheConfig,
@@ -76,19 +75,19 @@ impl CpuGlyphAtlas {
     /// Returns a reference to the `Arc<Pixmap>` for `page_index`, allowing
     /// cheap `Arc::clone` when registering the page with a render context.
     #[inline]
-    pub fn page_pixmap(&self, page_index: usize) -> Option<&Arc<Pixmap>> {
+    pub(crate) fn page_pixmap(&self, page_index: usize) -> Option<&Arc<Pixmap>> {
         self.pixmaps.get(page_index)
     }
 
     /// Returns a mutable reference to the pixmap for `page_index`.
     #[inline]
-    pub fn page_pixmap_mut(&mut self, page_index: usize) -> Option<&mut Pixmap> {
+    pub(crate) fn page_pixmap_mut(&mut self, page_index: usize) -> Option<&mut Pixmap> {
         self.pixmaps.get_mut(page_index).and_then(Arc::get_mut)
     }
 
     /// Returns the number of atlas pages currently allocated.
     #[inline]
-    pub fn page_count(&self) -> usize {
+    pub(crate) fn page_count(&self) -> usize {
         self.pixmaps.len()
     }
 
@@ -97,7 +96,7 @@ impl CpuGlyphAtlas {
     /// The closure receives `(recorder, pixmaps)`, allowing the caller to
     /// composite into the target page pixmap without a borrow conflict.
     #[inline]
-    pub fn replay_pending_atlas_commands_with_pixmaps(
+    pub(crate) fn replay_pending_atlas_commands_with_pixmaps(
         &mut self,
         mut f: impl FnMut(&mut AtlasCommandRecorder, &mut Vec<Arc<Pixmap>>),
     ) {
@@ -233,32 +232,33 @@ impl GlyphCache for CpuGlyphAtlas {
     }
 }
 
-/// Convenience alias: all glyph caches needed by the CPU renderer.
-pub type CpuGlyphCaches = GlyphCaches<CpuGlyphAtlas>;
+/// All glyph caches needed by the CPU renderer.
+#[derive(Debug)]
+pub(crate) struct CpuGlyphCaches(pub GlyphCaches<CpuGlyphAtlas>);
 
 impl CpuGlyphCaches {
     /// Creates a new `CpuGlyphCaches` instance with the given atlas page size
     /// and default eviction settings.
-    pub fn new(page_width: u16, page_height: u16) -> Self {
+    pub(crate) fn new(page_width: u16, page_height: u16) -> Self {
         Self::with_config(page_width, page_height, GlyphCacheConfig::default())
     }
 
     /// Creates a new `CpuGlyphCaches` instance with custom page size and eviction settings.
-    pub fn with_config(
+    pub(crate) fn with_config(
         page_width: u16,
         page_height: u16,
         eviction_config: GlyphCacheConfig,
     ) -> Self {
-        Self {
+        Self(GlyphCaches {
             outline_cache: OutlineCache::default(),
             hinting_cache: HintCache::default(),
             underline_exclusions: Vec::new(),
             glyph_atlas: CpuGlyphAtlas::with_config(page_width, page_height, eviction_config),
-        }
+        })
     }
 }
 
-/// Bridges Parley's [`GlyphRenderer`] trait to the shared
+/// Bridges Glifo's [`GlyphRenderer`] trait to the shared
 /// [`vello_renderer`] cache orchestration for the CPU backend.
 impl GlyphRenderer<CpuGlyphAtlas> for RenderContext {
     #[inline]
@@ -470,7 +470,7 @@ impl ColrRenderer for RenderContext {
     }
 }
 
-/// Allows recorded [`AtlasCommand`](crate::atlas::commands::AtlasCommand)s
+/// Allows recorded [`AtlasCommand`](glifo::atlas::commands::AtlasCommand)s
 /// to be replayed into a CPU [`RenderContext`].
 impl AtlasReplayTarget for RenderContext {
     #[inline]
@@ -530,10 +530,10 @@ impl AtlasReplayTarget for RenderContext {
 mod debug {
     use core::sync::atomic::{AtomicUsize, Ordering};
 
-    use crate::atlas::RasterMetrics;
+    use crate::RenderContext;
     use crate::kurbo::{Affine, Rect};
     use crate::peniko;
-    use vello_cpu::RenderContext;
+    use glifo::atlas::RasterMetrics;
 
     static COLOR_INDEX: AtomicUsize = AtomicUsize::new(0);
 

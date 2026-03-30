@@ -48,7 +48,7 @@ enum CacheResult {
 /// and outline/COLR rendering into the [`AtlasCommandRecorder`] — are defined
 /// as trait methods.  The shared cache orchestration logic lives in the
 /// generic free functions [`fill_glyph`] and [`stroke_glyph`].
-pub(crate) trait GlyphAtlasBackend {
+pub trait GlyphAtlasBackend {
     /// The renderer type for this backend (e.g. `RenderContext` or `Scene`).
     type Renderer;
 
@@ -104,7 +104,7 @@ pub(crate) trait GlyphAtlasBackend {
 
 /// Fill a prepared glyph, using the glyph atlas when possible and falling
 /// back to direct rendering otherwise.
-pub(crate) fn fill_glyph<B: GlyphAtlasBackend>(
+pub fn fill_glyph<B: GlyphAtlasBackend>(
     renderer: &mut B::Renderer,
     prepared_glyph: PreparedGlyph<'_>,
     glyph_atlas: &mut B::Cache,
@@ -172,7 +172,7 @@ pub(crate) fn fill_glyph<B: GlyphAtlasBackend>(
 
 /// Stroke a prepared glyph, using the glyph atlas when possible and falling
 /// back to direct rendering otherwise.
-pub(crate) fn stroke_glyph<B: GlyphAtlasBackend>(
+pub fn stroke_glyph<B: GlyphAtlasBackend>(
     renderer: &mut B::Renderer,
     prepared_glyph: PreparedGlyph<'_>,
     glyph_atlas: &mut B::Cache,
@@ -389,7 +389,7 @@ fn insert_and_render_colr<B: GlyphAtlasBackend>(
 /// quality is always `Low` (nearest-neighbour) because the glyph was already
 /// rasterised at the target resolution.
 #[inline]
-pub(crate) fn render_outline_glyph_from_atlas<B: GlyphAtlasBackend>(
+pub fn render_outline_glyph_from_atlas<B: GlyphAtlasBackend>(
     renderer: &mut B::Renderer,
     atlas_slot: AtlasSlot,
     transform: Affine,
@@ -421,7 +421,7 @@ pub(crate) fn render_outline_glyph_from_atlas<B: GlyphAtlasBackend>(
 /// Called on the cache-hit fast path — no glyph preparation needed. Sampling
 /// quality adapts to the scale factor to avoid aliasing on downscaled glyphs.
 #[inline]
-pub(crate) fn render_bitmap_glyph_from_atlas<B: GlyphAtlasBackend>(
+pub fn render_bitmap_glyph_from_atlas<B: GlyphAtlasBackend>(
     renderer: &mut B::Renderer,
     atlas_slot: AtlasSlot,
     transform: Affine,
@@ -444,7 +444,7 @@ pub(crate) fn render_bitmap_glyph_from_atlas<B: GlyphAtlasBackend>(
 /// This version accepts a pre-calculated fractional area to preserve
 /// sub-pixel accuracy during rendering, avoiding scaling artifacts.
 #[inline]
-pub(crate) fn render_colr_glyph_from_atlas<B: GlyphAtlasBackend>(
+pub fn render_colr_glyph_from_atlas<B: GlyphAtlasBackend>(
     renderer: &mut B::Renderer,
     atlas_slot: AtlasSlot,
     transform: Affine,
@@ -514,7 +514,7 @@ pub(crate) fn has_skew(transform: &Affine) -> bool {
 /// Returns `High` when the transform scales below 50% (where aliasing is
 /// visible), `Medium` otherwise.
 #[inline]
-pub(crate) fn quality_for_scale(transform: &Affine) -> ImageQuality {
+pub fn quality_for_scale(transform: &Affine) -> ImageQuality {
     let [a, _, _, d, _, _] = transform.as_coeffs();
     if a < 0.5 || d < 0.5 {
         ImageQuality::High

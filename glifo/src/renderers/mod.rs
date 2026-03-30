@@ -6,7 +6,6 @@
 //! Shared orchestration logic lives in [`vello_renderer`]; backend-specific
 //! code is in [`vello_cpu`] and [`vello_hybrid`].
 
-#[cfg(any(feature = "vello_hybrid"))]
 pub mod vello_renderer;
 
 #[cfg(feature = "vello_hybrid")]

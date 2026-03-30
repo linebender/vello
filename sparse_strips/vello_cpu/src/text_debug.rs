@@ -5,18 +5,16 @@
 
 #[cfg(feature = "png")]
 use crate::Pixmap;
-use glifo::atlas::key::GlyphCacheKey;
-use glifo::atlas::cache::GlyphCacheStats;
-use crate::renderers::vello_cpu::CpuGlyphAtlas;
-#[cfg(feature = "png")]
-use crate::renderers::vello_cpu::CpuGlyphCaches;
+use crate::text::{CpuGlyphAtlas, CpuGlyphCaches};
+use glifo::GlyphCacheKey;
+use glifo::atlas::GlyphCacheStats;
 #[cfg(feature = "png")]
 use alloc::format;
 
 #[cfg(feature = "png")]
 impl CpuGlyphAtlas {
     /// Save every atlas page as `{path_prefix}_atlas_page_{index}.png`.
-    pub fn save_atlas_pages_to(&self, path_prefix: &str) {
+    pub(crate) fn save_atlas_pages_to(&self, path_prefix: &str) {
         for (i, pixmap) in self.pixmaps.iter().enumerate() {
             let path = format!("{path_prefix}_atlas_page_{i}.png");
             let _ = save_pixmap_to_png(pixmap, std::path::Path::new(&path));
@@ -24,11 +22,12 @@ impl CpuGlyphAtlas {
     }
 
     /// Save every atlas page under `examples/_output/vello_cpu_atlas_page_{index}.png`.
-    pub fn save_atlas_pages(&self) {
+    pub(crate) fn save_atlas_pages(&self) {
         for (i, pixmap) in self.pixmaps.iter().enumerate() {
             let mut path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            path.pop(); // up from glifo to workspace root
-            path.push("../../../examples");
+            path.pop(); // up from vello_cpu to sparse_strips
+            path.pop(); // up from sparse_strips to workspace root
+            path.push("examples");
             path.push("_output");
             let _ = std::fs::create_dir_all(&path);
             path.push(format!("vello_cpu_atlas_page_{i}.png"));
@@ -39,22 +38,22 @@ impl CpuGlyphAtlas {
 
 impl CpuGlyphAtlas {
     /// Get detailed statistics about cached glyphs.
-    pub fn stats(&self) -> GlyphCacheStats {
+    pub(crate) fn stats(&self) -> GlyphCacheStats {
         self.inner.stats(self.pixmaps.len())
     }
 
     /// Log detailed atlas statistics at info level.
-    pub fn log_atlas_stats(&self) {
+    pub(crate) fn log_atlas_stats(&self) {
         self.inner.log_atlas_stats(self.pixmaps.len());
     }
 
     /// Returns all cached glyph keys (for debugging).
-    pub fn all_keys(&self) -> impl Iterator<Item = &GlyphCacheKey> {
+    pub(crate) fn all_keys(&self) -> impl Iterator<Item = &GlyphCacheKey> {
         self.inner.all_keys()
     }
 
     /// Log all cached keys grouped by glyph ID at info level.
-    pub fn log_keys_grouped(&self) {
+    pub(crate) fn log_keys_grouped(&self) {
         self.inner.log_keys_grouped();
     }
 }
@@ -64,21 +63,24 @@ impl CpuGlyphCaches {
     /// Save all atlas pages to PNG files for debugging.
     ///
     /// Files are saved to `examples/_output/vello_cpu_atlas_page_{index}.png`.
-    pub fn save_atlas_pages(&self) {
-        self.glyph_atlas.save_atlas_pages();
+    pub(crate) fn save_atlas_pages(&self) {
+        self.0.glyph_atlas.save_atlas_pages();
     }
 
     /// Save all atlas pages to PNG files with a custom path prefix.
     ///
     /// Files are saved as `{path_prefix}_atlas_page_{index}.png`.
-    pub fn save_atlas_pages_to(&self, path_prefix: &str) {
-        self.glyph_atlas.save_atlas_pages_to(path_prefix);
+    pub(crate) fn save_atlas_pages_to(&self, path_prefix: &str) {
+        self.0.glyph_atlas.save_atlas_pages_to(path_prefix);
     }
 }
 
 /// Save a pixmap to a PNG file (diagnostic utility).
 #[cfg(feature = "png")]
-pub fn save_pixmap_to_png(pixmap: &Pixmap, path: &std::path::Path) -> std::io::Result<()> {
+pub(crate) fn save_pixmap_to_png(
+    pixmap: &Pixmap,
+    path: &std::path::Path,
+) -> std::io::Result<()> {
     use std::fs::File;
     use std::io::BufWriter;
 
