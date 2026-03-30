@@ -53,6 +53,3 @@ pub use glyph::{
     CachedGlyphType, Glyph, GlyphBitmap, GlyphCaches, GlyphColr, GlyphOutline, GlyphRenderer,
     GlyphRunBuilder, GlyphRunRenderer, GlyphType, HintCache, HintKey, OutlineCache, PreparedGlyph,
 };
-
-#[cfg(feature = "vello_hybrid")]
-pub use renderers::vello_hybrid::{GpuGlyphAtlas, GpuGlyphCaches};

@@ -1305,7 +1305,6 @@ dependencies = [
  "skrifa 0.40.0",
  "smallvec",
  "vello_common",
- "vello_hybrid",
 ]
 
 [[package]]

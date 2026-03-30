@@ -16,10 +16,9 @@ all-features = true
 
 [features]
 default = ["std"]
-std = ["vello_common/std", "skrifa/std", "vello_hybrid?/std"]
+std = ["vello_common/std", "skrifa/std"]
 libm = ["skrifa/libm", "vello_common/libm", "dep:core_maths"]
 png = ["std", "dep:png", "vello_common/png"]
-vello_hybrid = ["dep:vello_hybrid"]
 debug_glyph_bounds = []
 
 [lints]
@@ -34,6 +33,5 @@ peniko = { workspace = true }
 skrifa = { workspace = true }
 smallvec = { workspace = true }
 vello_common = { workspace = true }
-vello_hybrid = { workspace = true, optional = true, features = ["text"] }
 png = { workspace = true, optional = true }
 core_maths = { workspace = true, optional = true }
