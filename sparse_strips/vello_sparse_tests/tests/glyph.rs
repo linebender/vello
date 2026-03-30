@@ -15,8 +15,8 @@ use vello_common::kurbo::Affine;
 use vello_common::peniko::{Blob, FontData};
 use vello_dev_macros::vello_test;
 
-#[vello_test(width = 300, height = 70)]
-fn glyphs_filled(ctx: &mut impl Renderer) {
+#[vello_test(width = 300, height = 70, glyph)]
+fn glyphs_filled(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
 
@@ -24,12 +24,13 @@ fn glyphs_filled(ctx: &mut impl Renderer) {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.glyph_run(&font)
         .font_size(font_size)
+        .atlas_cache(enable_caching)
         .hint(true)
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 300, height = 70)]
-fn glyphs_filled_unhinted(ctx: &mut impl Renderer) {
+#[vello_test(width = 300, height = 70, glyph)]
+fn glyphs_filled_unhinted(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
 
@@ -37,12 +38,13 @@ fn glyphs_filled_unhinted(ctx: &mut impl Renderer) {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.glyph_run(&font)
         .font_size(font_size)
+        .atlas_cache(enable_caching)
         .hint(false)
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 300, height = 70)]
-fn glyphs_stroked(ctx: &mut impl Renderer) {
+#[vello_test(width = 300, height = 70, glyph)]
+fn glyphs_stroked(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
 
@@ -50,12 +52,13 @@ fn glyphs_stroked(ctx: &mut impl Renderer) {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.glyph_run(&font)
         .font_size(font_size)
+        .atlas_cache(enable_caching)
         .hint(true)
         .stroke_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 300, height = 70)]
-fn glyphs_stroked_unhinted(ctx: &mut impl Renderer) {
+#[vello_test(width = 300, height = 70, glyph)]
+fn glyphs_stroked_unhinted(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
 
@@ -63,12 +66,13 @@ fn glyphs_stroked_unhinted(ctx: &mut impl Renderer) {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.glyph_run(&font)
         .font_size(font_size)
+        .atlas_cache(enable_caching)
         .hint(false)
         .stroke_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 300, height = 70)]
-fn glyphs_skewed(ctx: &mut impl Renderer) {
+#[vello_test(width = 300, height = 70, glyph)]
+fn glyphs_skewed(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
 
@@ -76,13 +80,14 @@ fn glyphs_skewed(ctx: &mut impl Renderer) {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.glyph_run(&font)
         .font_size(font_size)
+        .atlas_cache(enable_caching)
         .glyph_transform(Affine::skew(-20_f64.to_radians().tan(), 0.))
         .hint(true)
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 300, height = 70)]
-fn glyphs_skewed_unhinted(ctx: &mut impl Renderer) {
+#[vello_test(width = 300, height = 70, glyph)]
+fn glyphs_skewed_unhinted(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
 
@@ -90,13 +95,14 @@ fn glyphs_skewed_unhinted(ctx: &mut impl Renderer) {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.glyph_run(&font)
         .font_size(font_size)
+        .atlas_cache(enable_caching)
         .glyph_transform(Affine::skew(-20_f64.to_radians().tan(), 0.))
         .hint(false)
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 250, height = 75)]
-fn glyphs_skewed_long(ctx: &mut impl Renderer) {
+#[vello_test(width = 250, height = 75, glyph)]
+fn glyphs_skewed_long(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 20_f32;
     let (font, glyphs) = layout_glyphs_roboto(
         "Lorem ipsum dolor sit amet,\nconsectetur adipiscing elit.\nSed ornare arcu lectus.",
@@ -107,13 +113,14 @@ fn glyphs_skewed_long(ctx: &mut impl Renderer) {
     ctx.set_paint(REBECCA_PURPLE);
     ctx.glyph_run(&font)
         .font_size(font_size)
+        .atlas_cache(enable_caching)
         .glyph_transform(Affine::skew(-10_f64.to_radians().tan(), 0.))
         .hint(true)
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 250, height = 75)]
-fn glyphs_skewed_long_unhinted(ctx: &mut impl Renderer) {
+#[vello_test(width = 250, height = 75, glyph)]
+fn glyphs_skewed_long_unhinted(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 20_f32;
     let (font, glyphs) = layout_glyphs_roboto(
         "Lorem ipsum dolor sit amet,\nconsectetur adipiscing elit.\nSed ornare arcu lectus.",
@@ -124,13 +131,14 @@ fn glyphs_skewed_long_unhinted(ctx: &mut impl Renderer) {
     ctx.set_paint(REBECCA_PURPLE);
     ctx.glyph_run(&font)
         .font_size(font_size)
+        .atlas_cache(enable_caching)
         .glyph_transform(Affine::skew(-10_f64.to_radians().tan(), 0.))
         .hint(false)
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 150, height = 125)]
-fn glyphs_skewed_unskewed(ctx: &mut impl Renderer) {
+#[vello_test(width = 150, height = 125, glyph)]
+fn glyphs_skewed_unskewed(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello,\nworld!", font_size);
 
@@ -141,13 +149,14 @@ fn glyphs_skewed_unskewed(ctx: &mut impl Renderer) {
     ctx.set_paint(REBECCA_PURPLE);
     ctx.glyph_run(&font)
         .font_size(font_size)
+        .atlas_cache(enable_caching)
         .glyph_transform(Affine::skew(20_f64.to_radians().tan(), 0.))
         .hint(true)
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 150, height = 125)]
-fn glyphs_skewed_unskewed_unhinted(ctx: &mut impl Renderer) {
+#[vello_test(width = 150, height = 125, glyph)]
+fn glyphs_skewed_unskewed_unhinted(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello,\nworld!", font_size);
 
@@ -158,13 +167,14 @@ fn glyphs_skewed_unskewed_unhinted(ctx: &mut impl Renderer) {
     ctx.set_paint(REBECCA_PURPLE);
     ctx.glyph_run(&font)
         .font_size(font_size)
+        .atlas_cache(enable_caching)
         .glyph_transform(Affine::skew(20_f64.to_radians().tan(), 0.))
         .hint(false)
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 150, height = 125)]
-fn glyphs_scaled(ctx: &mut impl Renderer) {
+#[vello_test(width = 150, height = 125, glyph)]
+fn glyphs_scaled(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 25_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello,\nworld!", font_size);
 
@@ -172,12 +182,14 @@ fn glyphs_scaled(ctx: &mut impl Renderer) {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.glyph_run(&font)
         .font_size(font_size)
+        .atlas_cache(enable_caching)
         .hint(true)
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 150, height = 125)]
-fn glyphs_scaled_unhinted(ctx: &mut impl Renderer) {
+// TODO: cached test is currently still wrong.
+#[vello_test(width = 150, height = 125, glyph)]
+fn glyphs_scaled_unhinted(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 25_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello,\nworld!", font_size);
 
@@ -185,12 +197,13 @@ fn glyphs_scaled_unhinted(ctx: &mut impl Renderer) {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.glyph_run(&font)
         .font_size(font_size)
+        .atlas_cache(enable_caching)
         .hint(false)
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 150, height = 125)]
-fn glyphs_glyph_transform(ctx: &mut impl Renderer) {
+#[vello_test(width = 150, height = 125, glyph)]
+fn glyphs_glyph_transform(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 25_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello,\nworld!", font_size);
 
@@ -198,13 +211,15 @@ fn glyphs_glyph_transform(ctx: &mut impl Renderer) {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.glyph_run(&font)
         .font_size(font_size)
+        .atlas_cache(enable_caching)
         .glyph_transform(Affine::translate((10., 10.)))
         .hint(true)
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 150, height = 125)]
-fn glyphs_glyph_transform_unhinted(ctx: &mut impl Renderer) {
+// TODO: cached test is currently still wrong.
+#[vello_test(width = 150, height = 125, glyph)]
+fn glyphs_glyph_transform_unhinted(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 25_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello,\nworld!", font_size);
 
@@ -212,13 +227,14 @@ fn glyphs_glyph_transform_unhinted(ctx: &mut impl Renderer) {
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.glyph_run(&font)
         .font_size(font_size)
+        .atlas_cache(enable_caching)
         .glyph_transform(Affine::translate((10., 10.)))
         .hint(false)
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 60, height = 12)]
-fn glyphs_small(ctx: &mut impl Renderer) {
+#[vello_test(width = 60, height = 12, glyph)]
+fn glyphs_small(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 10_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
 
@@ -226,12 +242,13 @@ fn glyphs_small(ctx: &mut impl Renderer) {
     ctx.set_paint(REBECCA_PURPLE);
     ctx.glyph_run(&font)
         .font_size(font_size)
+        .atlas_cache(enable_caching)
         .hint(true)
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 60, height = 12)]
-fn glyphs_small_unhinted(ctx: &mut impl Renderer) {
+#[vello_test(width = 60, height = 12, glyph)]
+fn glyphs_small_unhinted(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 10_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
 
@@ -239,87 +256,102 @@ fn glyphs_small_unhinted(ctx: &mut impl Renderer) {
     ctx.set_paint(REBECCA_PURPLE);
     ctx.glyph_run(&font)
         .font_size(font_size)
+        .atlas_cache(enable_caching)
         .hint(false)
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 250, height = 70, skip_hybrid)]
-fn glyphs_bitmap_noto(ctx: &mut impl Renderer) {
+#[vello_test(width = 250, height = 70, skip_hybrid, glyph)]
+fn glyphs_bitmap_noto(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_noto_cbtf("✅👀🎉🤠", font_size);
 
     ctx.set_transform(Affine::translate((0., f64::from(font_size))));
     ctx.glyph_run(&font)
         .font_size(font_size)
+        .atlas_cache(enable_caching)
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 250, height = 70, cpu_u8_tolerance = 1, hybrid_tolerance = 1)]
-fn glyphs_colr_noto(ctx: &mut impl Renderer) {
-    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)));
+#[vello_test(width = 250, height = 70, cpu_u8_tolerance = 1, hybrid_tolerance = 1, glyph)]
+fn glyphs_colr_noto(ctx: &mut impl Renderer, enable_caching: bool) {
+    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)), enable_caching);
 }
 
-#[vello_test(width = 500, height = 140, cpu_u8_tolerance = 1)]
-fn glyphs_colr_noto_scaled_2x(ctx: &mut impl Renderer) {
-    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)).then_scale(2.0));
-}
-
-#[vello_test(width = 125, height = 35, cpu_u8_tolerance = 1)]
-fn glyphs_colr_noto_scaled_half(ctx: &mut impl Renderer) {
-    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)).then_scale(0.5));
-}
-
-#[vello_test(width = 350, height = 350, cpu_u8_tolerance = 3, hybrid_tolerance = 1)]
-fn glyphs_colr_noto_rotated(ctx: &mut impl Renderer) {
+#[vello_test(width = 500, height = 140, cpu_u8_tolerance = 1, glyph)]
+fn glyphs_colr_noto_scaled_2x(ctx: &mut impl Renderer, enable_caching: bool) {
     render_colr_noto_with_transform(
         ctx,
-        Affine::translate((175., 100.)) * Affine::rotate(std::f64::consts::FRAC_PI_4),
+        Affine::translate((0., 50.)).then_scale(2.0),
+        enable_caching,
     );
 }
 
-#[vello_test(width = 600, height = 600, cpu_u8_tolerance = 2, hybrid_tolerance = 1)]
-fn glyphs_colr_noto_rotated_scaled(ctx: &mut impl Renderer) {
+#[vello_test(width = 125, height = 35, cpu_u8_tolerance = 1, glyph)]
+fn glyphs_colr_noto_scaled_half(ctx: &mut impl Renderer, enable_caching: bool) {
+    render_colr_noto_with_transform(
+        ctx,
+        Affine::translate((0., 50.)).then_scale(0.5),
+        enable_caching,
+    );
+}
+
+#[vello_test(width = 350, height = 350, cpu_u8_tolerance = 3, hybrid_tolerance = 1, glyph)]
+fn glyphs_colr_noto_rotated(ctx: &mut impl Renderer, enable_caching: bool) {
+    render_colr_noto_with_transform(
+        ctx,
+        Affine::translate((175., 100.)) * Affine::rotate(std::f64::consts::FRAC_PI_4),
+        enable_caching,
+    );
+}
+
+#[vello_test(width = 600, height = 600, cpu_u8_tolerance = 2, hybrid_tolerance = 1, glyph)]
+fn glyphs_colr_noto_rotated_scaled(ctx: &mut impl Renderer, enable_caching: bool) {
     render_colr_noto_with_transform(
         ctx,
         Affine::translate((300., 150.))
             * Affine::rotate(std::f64::consts::FRAC_PI_4)
             * Affine::scale(2.0),
+        enable_caching,
     );
 }
 
-#[vello_test(width = 250, height = 140, cpu_u8_tolerance = 1, hybrid_tolerance = 1)]
-fn glyphs_colr_noto_scaled_non_uniform(ctx: &mut impl Renderer) {
+#[vello_test(width = 250, height = 140, cpu_u8_tolerance = 1, hybrid_tolerance = 1, glyph)]
+fn glyphs_colr_noto_scaled_non_uniform(ctx: &mut impl Renderer, enable_caching: bool) {
     render_colr_noto_with_transform(
         ctx,
         Affine::translate((0., 50.)) * Affine::scale_non_uniform(1.0, 2.0),
+        enable_caching,
     );
 }
 
-#[vello_test(width = 300, height = 300, cpu_u8_tolerance = 2, hybrid_tolerance = 1)]
-fn glyphs_colr_noto_rotated_scaled_non_uniform(ctx: &mut impl Renderer) {
+#[vello_test(width = 300, height = 300, cpu_u8_tolerance = 2, hybrid_tolerance = 1, glyph)]
+fn glyphs_colr_noto_rotated_scaled_non_uniform(ctx: &mut impl Renderer, enable_caching: bool) {
     render_colr_noto_with_transform(
         ctx,
         Affine::translate((150., 150.))
             * Affine::rotate(std::f64::consts::FRAC_PI_4)
             * Affine::scale_non_uniform(1.0, 2.0),
+        enable_caching,
     );
 }
 
 #[cfg(target_os = "macos")]
-#[vello_test(width = 200, height = 70, skip_hybrid, cpu_u8_tolerance = 2)]
-fn glyphs_bitmap_apple(ctx: &mut impl Renderer) {
+#[vello_test(width = 200, height = 70, skip_hybrid, cpu_u8_tolerance = 2, glyph)]
+fn glyphs_bitmap_apple(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_apple_color_emoji("✅👀🎉🤠", font_size);
 
     ctx.set_transform(Affine::translate((0., f64::from(font_size))));
     ctx.glyph_run(&font)
         .font_size(font_size)
+        .atlas_cache(enable_caching)
         .fill_glyphs(glyphs.into_iter());
 }
 
 // In case anything changes here, compare to https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/web_tests/platform/linux/virtual/text-antialias/colrv1-expected.png
-#[vello_test(width = 400, height = 960, diff_pixels = 55)]
-fn glyphs_colr_test_glyphs(ctx: &mut impl Renderer) {
+#[vello_test(width = 400, height = 960, diff_pixels = 55, glyph)]
+fn glyphs_colr_test_glyphs(ctx: &mut impl Renderer, enable_caching: bool) {
     const TEST_FONT: &[u8] =
         include_bytes!("../../../examples/assets/colr_test_glyphs/test_glyphs-glyf_colr_1.ttf");
     let font = FontData::new(Blob::new(Arc::new(TEST_FONT)), 0);
@@ -354,6 +386,7 @@ fn glyphs_colr_test_glyphs(ctx: &mut impl Renderer) {
         ctx.set_transform(Affine::translate((cur_x, cur_y)));
         ctx.glyph_run(&font)
             .font_size(font_size as f32)
+            .atlas_cache(enable_caching)
             .fill_glyphs(glyph_iter);
 
         cur_x += font_size;
@@ -377,6 +410,7 @@ fn glyphs_colr_test_glyphs(ctx: &mut impl Renderer) {
             ctx.set_transform(Affine::translate((cur_x, cur_y)));
             ctx.glyph_run(&font)
                 .font_size(font_size as f32)
+                .atlas_cache(enable_caching)
                 .fill_glyphs(glyph_iter);
 
             cur_x += font_size;
@@ -385,13 +419,18 @@ fn glyphs_colr_test_glyphs(ctx: &mut impl Renderer) {
 }
 
 /// Hinting is disabled to preserve transforms passed to `prepare_colr_glyph`.
-fn render_colr_noto_with_transform(ctx: &mut impl Renderer, transform: Affine) {
+fn render_colr_noto_with_transform(
+    ctx: &mut impl Renderer,
+    transform: Affine,
+    enable_caching: bool,
+) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
 
     ctx.set_transform(transform);
     ctx.glyph_run(&font)
         .font_size(font_size)
+        .atlas_cache(enable_caching)
         .hint(false)
         .fill_glyphs(glyphs.into_iter());
 }

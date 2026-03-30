@@ -22,6 +22,7 @@ pub(crate) trait TestGlyphRunBuilder {
     fn font_size(self, size: f32) -> Self;
     fn glyph_transform(self, transform: Affine) -> Self;
     fn hint(self, hint: bool) -> Self;
+    fn atlas_cache(self, enabled: bool) -> Self;
     fn fill_glyphs(self, glyphs: impl Iterator<Item = Glyph> + Clone);
     fn stroke_glyphs(self, glyphs: impl Iterator<Item = Glyph> + Clone);
 }
@@ -37,6 +38,10 @@ impl<'a> TestGlyphRunBuilder for vello_cpu::GlyphRunBuilder<'a> {
 
     fn hint(self, hint: bool) -> Self {
         Self::hint(self, hint)
+    }
+
+    fn atlas_cache(self, enabled: bool) -> Self {
+        Self::atlas_cache(self, enabled)
     }
 
     fn fill_glyphs(self, glyphs: impl Iterator<Item = Glyph> + Clone) {
@@ -59,6 +64,10 @@ impl<'a> TestGlyphRunBuilder for vello_hybrid::GlyphRunBuilder<'a> {
 
     fn hint(self, hint: bool) -> Self {
         Self::hint(self, hint)
+    }
+
+    fn atlas_cache(self, enabled: bool) -> Self {
+        Self::atlas_cache(self, enabled)
     }
 
     fn fill_glyphs(self, glyphs: impl Iterator<Item = Glyph> + Clone) {
