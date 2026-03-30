@@ -19,6 +19,8 @@ use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::filter_effects::Filter;
+#[cfg(feature = "text")]
+use vello_common::image_cache::ImageCache;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
 #[cfg(feature = "text")]
@@ -69,6 +71,9 @@ pub struct RenderContext {
     dispatcher: Box<dyn Dispatcher>,
     #[cfg(feature = "text")]
     pub(crate) glyph_caches: Option<GlyphCaches>,
+    #[cfg(feature = "text")]
+    #[allow(dead_code, reason = "used by the upcoming glifo-based text pipeline")]
+    pub(crate) glyph_image_cache: ImageCache,
     /// Registry for resolving `ImageSource::OpaqueId` to pixmap data.
     image_registry: ImageRegistry,
 }
@@ -150,6 +155,8 @@ impl RenderContext {
             filter: None,
             #[cfg(feature = "text")]
             glyph_caches: Some(GlyphCaches::default()),
+            #[cfg(feature = "text")]
+            glyph_image_cache: ImageCache::new_with_config(Default::default()),
             image_registry: ImageRegistry::new(),
         }
     }
