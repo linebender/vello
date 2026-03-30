@@ -51,8 +51,10 @@ pub struct Config {
     pub strip_offset_x: i32,
     /// A vertical offset to apply to strips.
     pub strip_offset_y: i32,
-    /// Padding to satisfy WebGL's 16-byte alignment requirement for uniform buffers.
-    pub _padding: u32,
+    /// Number of trailing zeros in the atlas texture dimension (log2 of the square atlas size).
+    /// Used to normalize pixel coordinates to UVs for `textureSample` without calling
+    /// `textureDimensions` per pixel.
+    pub atlas_dim_bits: u32,
 }
 
 /// A GPU strip instance for rendering.

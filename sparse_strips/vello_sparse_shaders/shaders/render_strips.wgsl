@@ -123,8 +123,9 @@ struct Config {
     // within the atlas where the filter layer will be rendered to.
     strip_offset_x: i32,
     strip_offset_y: i32,
-    // Padding to satisfy WebGL's 16-byte alignment requirement for uniform buffers.
-    _padding0: u32,
+    // log2 of the square atlas texture dimension, used to normalize pixel coordinates
+    // to UVs for textureSample without calling textureDimensions per pixel.
+    atlas_dim_bits: u32,
 }
 
 // A `StripInstance` can represent either a **normal strip** (representing a sparse fill or alpha fill of height
@@ -229,6 +230,10 @@ struct VertexOutput {
     // Bits 0-7: x0, 8-15: y0, 16-23: x1, 24-31: y1.
     // Zero for normal strips.
     @location(5) @interpolate(flat) rect_frac: u32,
+    // Pre-computed UV clamping bounds for bilinear image sampling.
+    // xy = uv_min, zw = uv_max (prevents atlas bleeding at image boundaries).
+    // Only meaningful for PAINT_TYPE_IMAGE with IMAGE_QUALITY_MEDIUM.
+    @location(6) @interpolate(flat) uv_bounds: vec4<f32>,
     // Normalized device coordinates (NDC) for the current vertex
     @builtin(position) position: vec4<f32>,
 };
@@ -239,6 +244,9 @@ var<uniform> config: Config;
 
 @group(1) @binding(0)
 var atlas_texture_array: texture_2d_array<f32>;
+
+@group(1) @binding(1)
+var atlas_sampler: sampler;
 
 @group(2) @binding(0)
 var encoded_paints_texture: texture_2d<u32>;
@@ -294,6 +302,10 @@ fn vs_main(
             // Use view coordinates for image sampling (always in global view space)
             let pos = vec2<f32>(f32(scene_strip_x) + x * f32(width), f32(scene_strip_y) + y * f32(height));
             out.sample_xy = encoded_image.translate + encoded_image.image_offset + encoded_image.transform * pos;
+            let inv_atlas_dim = 1.0 / f32(1u << config.atlas_dim_bits);
+            let uv_min = (encoded_image.image_offset + 0.5) * inv_atlas_dim;
+            let uv_max = (encoded_image.image_offset + encoded_image.image_size - 0.5) * inv_atlas_dim;
+            out.uv_bounds = vec4(uv_min, uv_max);
         } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT || paint_type == PAINT_TYPE_RADIAL_GRADIENT || paint_type == PAINT_TYPE_SWEEP_GRADIENT {
             // Use view coordinates for gradient transform (always in global view space)
             out.sample_xy = vec2<f32>(
@@ -368,14 +380,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     // Apply the alpha value to the unpacked RGBA color or slot index
     let color_source = (in.paint_and_rect_flag >> 29u) & 0x3u;
-    var final_color: vec4<f32>;
 
     if color_source == COLOR_SOURCE_PAYLOAD {
         let paint_type = (in.paint_and_rect_flag >> 26u) & 0x7u;
 
         // in.payload encodes a color for PAINT_TYPE_SOLID or sample_xy for PAINT_TYPE_IMAGE
         if paint_type == PAINT_TYPE_SOLID {
-            final_color = alpha * unpack4x8unorm(in.payload);
+            return alpha * unpack4x8unorm(in.payload);
         } else if paint_type == PAINT_TYPE_IMAGE {
             let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
             let encoded_image = unpack_encoded_image(paint_tex_idx);
@@ -394,41 +405,35 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             // TODO: add a fast path for images where we are using bilinear sampling and want transparent pixels,
             // using GPU-native bilinear sampling
             
-            var sample_color: vec4<f32>;
-            if encoded_image.quality == IMAGE_QUALITY_HIGH {
+            //var sample_color: vec4<f32>;
+            //if encoded_image.quality == IMAGE_QUALITY_HIGH {
+            //    let final_xy = image_offset + extended_xy;
+            //    sample_color = bicubic_sample(
+            //        atlas_texture_array,
+            //        final_xy,
+            //        i32(encoded_image.atlas_index),
+            //        image_offset,
+            //        image_size,
+            //        encoded_image.extend_modes,
+            //        encoded_image.image_padding,
+            //    );
+            //} else if encoded_image.quality == IMAGE_QUALITY_MEDIUM {
                 let final_xy = image_offset + extended_xy;
-                sample_color = bicubic_sample(
-                    atlas_texture_array,
-                    final_xy,
-                    i32(encoded_image.atlas_index),
-                    image_offset,
-                    image_size,
-                    encoded_image.extend_modes,
-                    encoded_image.image_padding,
-                );
-            } else if encoded_image.quality == IMAGE_QUALITY_MEDIUM {
-                let final_xy = image_offset + extended_xy - vec2(0.5);
-                sample_color = bilinear_sample(
-                    atlas_texture_array,
-                    final_xy,
-                    i32(encoded_image.atlas_index),
-                    image_offset,
-                    image_size,
-                    encoded_image.extend_modes,
-                    encoded_image.image_padding,
-                );
-            } else {
-                let final_xy = image_offset + extended_xy;
-                sample_color = textureLoad(
-                    atlas_texture_array,
-                    vec2<u32>(final_xy),
-                    i32(encoded_image.atlas_index),
-                    0,
-                );
-            }
+                let inv_atlas_dim = 1.0 / f32(1u << config.atlas_dim_bits);
+                let uv = clamp(final_xy * inv_atlas_dim, in.uv_bounds.xy, in.uv_bounds.zw);
+                let sample_color = textureSample(atlas_texture_array, atlas_sampler, uv, i32(encoded_image.atlas_index));
+            //} else {
+            //    let final_xy = image_offset + extended_xy;
+            //    sample_color = textureLoad(
+            //        atlas_texture_array,
+            //        vec2<u32>(final_xy),
+            //        i32(encoded_image.atlas_index),
+            //        0,
+            //    );
+            //}
 
             let is_multiply = bool(encoded_image.tint_mode);
-            final_color = alpha * select(
+            return alpha * select(
                 encoded_image.tint * sample_color.a,
                 sample_color * encoded_image.tint,
                 is_multiply
@@ -450,7 +455,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 linear_gradient.texture_width,
                 true
             );
-            final_color = alpha * gradient_color;
+            return alpha * gradient_color;
         } else if paint_type == PAINT_TYPE_RADIAL_GRADIENT {
             let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
             let radial_gradient = unpack_radial_gradient(paint_tex_idx);
@@ -468,7 +473,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 radial_gradient.texture_width,
                 gradient_result.is_valid
             );
-            final_color = alpha * gradient_color;
+            return alpha * gradient_color;
         } else if paint_type == PAINT_TYPE_SWEEP_GRADIENT {
             let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
             let sweep_gradient = unpack_sweep_gradient(paint_tex_idx);
@@ -500,7 +505,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 sweep_gradient.texture_width,
                 true
             );
-            final_color = alpha * gradient_color;
+            return alpha * gradient_color;
         }
     } else if color_source == COLOR_SOURCE_SLOT {
         // in.payload encodes a slot in the source clip texture.
@@ -518,7 +523,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // Extract opacity from first 8 bits (quantized from [0, 255])
         let opacity = f32(in.paint_and_rect_flag & 0xFFu) * (1.0 / 255.0);
 
-        final_color = alpha * opacity * clip_in_color;
+        return alpha * opacity * clip_in_color;
     } else if color_source == COLOR_SOURCE_BLEND {
         let opacity = f32((in.paint_and_rect_flag >> 16u) & 0xFFu) * (1.0 / 255.0);
         let mix_mode = (in.paint_and_rect_flag >> 8u) & 0xFFu;
@@ -537,9 +542,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let dest_y = clip_y_in_strip + dest_slot * config.strip_height;
         let dest_color = textureLoad(clip_input_texture, vec2(clip_x, dest_y), 0);
 
-        final_color = blend_mix_compose(dest_color, src_color * opacity * alpha, compose_mode, mix_mode);
+        return blend_mix_compose(dest_color, src_color * opacity * alpha, compose_mode, mix_mode);
     }
-    return final_color;
+    return vec4<f32>(0);
 }
 
 // Apply color mixing and composition. Both input and output colors are premultiplied RGB.
@@ -931,30 +936,6 @@ fn extend_mode_normalized(t: f32, mode: u32) -> f32 {
             return abs(t - 2.0 * round(0.5 * t));
         }
     }
-}
-
-// Bilinear filtering
-//
-// Bilinear filtering consists of sampling the 4 surrounding pixels of the target point and
-// interpolating them with a bilinear filter.
-fn bilinear_sample(
-    tex: texture_2d_array<f32>,
-    coords: vec2<f32>,
-    atlas_idx: i32,
-    image_offset: vec2<f32>,
-    image_size: vec2<f32>,
-    extend_modes: vec2<u32>,
-    image_padding: f32,
-) -> vec4<f32> {
-    let atlas_max = image_offset + image_size - vec2(1.0);
-    let atlas_uv_clamped = clamp(coords, image_offset, atlas_max);
-    let uv_quad = vec4(floor(atlas_uv_clamped), ceil(atlas_uv_clamped));
-    let uv_frac = fract(coords);
-    let a = textureLoad(tex, vec2<i32>(uv_quad.xy), atlas_idx, 0);
-    let b = textureLoad(tex, vec2<i32>(uv_quad.xw), atlas_idx, 0);
-    let c = textureLoad(tex, vec2<i32>(uv_quad.zy), atlas_idx, 0);
-    let d = textureLoad(tex, vec2<i32>(uv_quad.zw), atlas_idx, 0);
-    return mix(mix(a, b, uv_frac.y), mix(c, d, uv_frac.y), uv_frac.x);
 }
 
 // Bicubic filtering using Mitchell filter with B=1/3, C=1/3
