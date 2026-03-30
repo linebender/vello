@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::sync::Arc;
 
 use vello_common::filter_effects::Filter;
-use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder};
+use vello_common::glyph::{Glyph, GlyphRenderer};
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageId, ImageSource, PaintType, Tint};
@@ -17,8 +17,62 @@ use vello_hybrid::{RenderSettings as HybridRenderSettings, Scene, SceneConstrain
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 use web_sys::WebGl2RenderingContext;
 
+pub(crate) trait TestGlyphRunBuilder {
+    fn font_size(self, size: f32) -> Self;
+    fn glyph_transform(self, transform: Affine) -> Self;
+    fn hint(self, hint: bool) -> Self;
+    fn fill_glyphs(self, glyphs: impl Iterator<Item = Glyph> + Clone);
+    fn stroke_glyphs(self, glyphs: impl Iterator<Item = Glyph> + Clone);
+}
+
+impl<'a, T: GlyphRenderer + 'a> TestGlyphRunBuilder for vello_common::glyph::GlyphRunBuilder<'a, T> {
+    fn font_size(self, size: f32) -> Self {
+        Self::font_size(self, size)
+    }
+
+    fn glyph_transform(self, transform: Affine) -> Self {
+        Self::glyph_transform(self, transform)
+    }
+
+    fn hint(self, hint: bool) -> Self {
+        Self::hint(self, hint)
+    }
+
+    fn fill_glyphs(self, glyphs: impl Iterator<Item = Glyph> + Clone) {
+        Self::fill_glyphs(self, glyphs)
+    }
+
+    fn stroke_glyphs(self, glyphs: impl Iterator<Item = Glyph> + Clone) {
+        Self::stroke_glyphs(self, glyphs)
+    }
+}
+
+impl<'a> TestGlyphRunBuilder for vello_cpu::GlyphRunBuilder<'a> {
+    fn font_size(self, size: f32) -> Self {
+        Self::font_size(self, size)
+    }
+
+    fn glyph_transform(self, transform: Affine) -> Self {
+        Self::glyph_transform(self, transform)
+    }
+
+    fn hint(self, hint: bool) -> Self {
+        Self::hint(self, hint)
+    }
+
+    fn fill_glyphs(self, glyphs: impl Iterator<Item = Glyph> + Clone) {
+        Self::fill_glyphs(self, glyphs)
+    }
+
+    fn stroke_glyphs(self, glyphs: impl Iterator<Item = Glyph> + Clone) {
+        Self::stroke_glyphs(self, glyphs)
+    }
+}
+
 pub(crate) trait Renderer: Sized {
-    type GlyphRenderer: GlyphRenderer;
+    type GlyphRunBuilder<'a>: TestGlyphRunBuilder
+    where
+        Self: 'a;
 
     fn new(
         width: u16,
@@ -33,7 +87,7 @@ pub(crate) trait Renderer: Sized {
     fn fill_rect(&mut self, rect: &Rect);
     fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32);
     fn stroke_rect(&mut self, rect: &Rect);
-    fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self::GlyphRenderer>;
+    fn glyph_run(&mut self, font: &FontData) -> Self::GlyphRunBuilder<'_>;
     fn push_layer(
         &mut self,
         clip_path: Option<&BezPath>,
@@ -73,7 +127,7 @@ pub(crate) trait Renderer: Sized {
 }
 
 impl Renderer for RenderContext {
-    type GlyphRenderer = Self;
+    type GlyphRunBuilder<'a> = vello_cpu::GlyphRunBuilder<'a>;
 
     fn new(
         width: u16,
@@ -112,7 +166,7 @@ impl Renderer for RenderContext {
         Self::stroke_rect(self, rect);
     }
 
-    fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self> {
+    fn glyph_run(&mut self, font: &FontData) -> Self::GlyphRunBuilder<'_> {
         Self::glyph_run(self, font)
     }
 
@@ -310,7 +364,7 @@ impl HybridRenderer {
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 impl Renderer for HybridRenderer {
-    type GlyphRenderer = Scene;
+    type GlyphRunBuilder<'a> = vello_common::glyph::GlyphRunBuilder<'a, Scene>;
 
     fn new(
         width: u16,
@@ -353,7 +407,7 @@ impl Renderer for HybridRenderer {
         self.scene.stroke_rect(rect);
     }
 
-    fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self::GlyphRenderer> {
+    fn glyph_run(&mut self, font: &FontData) -> Self::GlyphRunBuilder<'_> {
         self.scene.glyph_run(font)
     }
 
@@ -623,7 +677,7 @@ pub(crate) struct HybridRenderer {
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 impl Renderer for HybridRenderer {
-    type GlyphRenderer = Scene;
+    type GlyphRunBuilder<'a> = vello_common::glyph::GlyphRunBuilder<'a, Scene>;
 
     fn new(
         width: u16,
@@ -703,7 +757,7 @@ impl Renderer for HybridRenderer {
         self.scene.stroke_rect(rect);
     }
 
-    fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self::GlyphRenderer> {
+    fn glyph_run(&mut self, font: &FontData) -> Self::GlyphRunBuilder<'_> {
         self.scene.glyph_run(font)
     }
 
