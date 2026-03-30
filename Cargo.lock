@@ -4013,7 +4013,6 @@ dependencies = [
  "peniko 0.6.0",
  "png",
  "roxmltree",
- "skrifa 0.40.0",
  "smallvec",
  "thiserror 2.0.18",
 ]

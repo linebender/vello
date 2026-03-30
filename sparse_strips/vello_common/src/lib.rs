@@ -23,7 +23,7 @@
 //! - `png` (enabled by default): Allow loading [`Pixmap`][crate::pixmap::Pixmap]s from PNG images.
 //!   Also required for rendering glyphs with an embedded PNG.
 //!   Implies `std`.
-//! - `text` (enabled by default): Enables glyph rendering (see the [`glyph`][] module).
+//! - `text` (enabled by default): Enables shared text and glyph support.
 //!
 //! At least one of `std` and `libm` is required; `std` overrides `libm`.
 //!
@@ -67,8 +67,6 @@ extern crate std;
 pub mod blurred_rounded_rect;
 pub mod clip;
 pub mod coarse;
-#[cfg(feature = "text")]
-pub mod colr;
 pub mod encode;
 pub mod filter;
 pub mod filter_effects;
