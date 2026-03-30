@@ -5,8 +5,8 @@
 
 #[cfg(feature = "png")]
 use crate::Pixmap;
-use crate::atlas::GlyphCacheKey;
-use crate::atlas::GlyphCacheStats;
+use glifo::atlas::key::GlyphCacheKey;
+use glifo::atlas::cache::GlyphCacheStats;
 use crate::renderers::vello_cpu::CpuGlyphAtlas;
 #[cfg(feature = "png")]
 use crate::renderers::vello_cpu::CpuGlyphCaches;
@@ -28,7 +28,7 @@ impl CpuGlyphAtlas {
         for (i, pixmap) in self.pixmaps.iter().enumerate() {
             let mut path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
             path.pop(); // up from glifo to workspace root
-            path.push("examples");
+            path.push("../../../examples");
             path.push("_output");
             let _ = std::fs::create_dir_all(&path);
             path.push(format!("vello_cpu_atlas_page_{i}.png"));
@@ -78,7 +78,7 @@ impl CpuGlyphCaches {
 
 /// Save a pixmap to a PNG file (diagnostic utility).
 #[cfg(feature = "png")]
-pub(crate) fn save_pixmap_to_png(pixmap: &Pixmap, path: &std::path::Path) -> std::io::Result<()> {
+pub fn save_pixmap_to_png(pixmap: &Pixmap, path: &std::path::Path) -> std::io::Result<()> {
     use std::fs::File;
     use std::io::BufWriter;
 

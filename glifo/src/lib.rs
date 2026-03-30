@@ -54,8 +54,5 @@ pub use glyph::{
     GlyphRunBuilder, GlyphRunRenderer, GlyphType, HintCache, HintKey, OutlineCache, PreparedGlyph,
 };
 
-#[cfg(feature = "vello_cpu")]
-pub use renderers::vello_cpu::{CpuGlyphAtlas, CpuGlyphCaches};
-
 #[cfg(feature = "vello_hybrid")]
 pub use renderers::vello_hybrid::{GpuGlyphAtlas, GpuGlyphCaches};

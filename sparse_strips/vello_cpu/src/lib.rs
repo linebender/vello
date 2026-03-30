@@ -152,6 +152,8 @@ pub mod fine;
 pub mod layer_manager;
 #[doc(hidden)]
 pub mod region;
+#[cfg(feature = "vello_cpu")]
+mod text_debug;
 
 pub use render::{RenderContext, RenderSettings};
 pub use vello_common::fearless_simd::Level;
