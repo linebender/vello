@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use vello_common::filter_effects::Filter;
-use vello_common::glyph::{Glyph, GlyphRenderer};
+use vello_common::glyph::Glyph;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageId, ImageSource, PaintType, Tint};
@@ -24,28 +24,6 @@ pub(crate) trait TestGlyphRunBuilder {
     fn hint(self, hint: bool) -> Self;
     fn fill_glyphs(self, glyphs: impl Iterator<Item = Glyph> + Clone);
     fn stroke_glyphs(self, glyphs: impl Iterator<Item = Glyph> + Clone);
-}
-
-impl<'a, T: GlyphRenderer + 'a> TestGlyphRunBuilder for vello_common::glyph::GlyphRunBuilder<'a, T> {
-    fn font_size(self, size: f32) -> Self {
-        Self::font_size(self, size)
-    }
-
-    fn glyph_transform(self, transform: Affine) -> Self {
-        Self::glyph_transform(self, transform)
-    }
-
-    fn hint(self, hint: bool) -> Self {
-        Self::hint(self, hint)
-    }
-
-    fn fill_glyphs(self, glyphs: impl Iterator<Item = Glyph> + Clone) {
-        Self::fill_glyphs(self, glyphs)
-    }
-
-    fn stroke_glyphs(self, glyphs: impl Iterator<Item = Glyph> + Clone) {
-        Self::stroke_glyphs(self, glyphs)
-    }
 }
 
 impl<'a> TestGlyphRunBuilder for vello_cpu::GlyphRunBuilder<'a> {
