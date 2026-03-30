@@ -64,14 +64,14 @@ impl CpuGlyphCaches {
     ///
     /// Files are saved to `examples/_output/vello_cpu_atlas_page_{index}.png`.
     pub(crate) fn save_atlas_pages(&self) {
-        self.0.glyph_atlas.save_atlas_pages();
+        self.glifo.glyph_atlas.save_atlas_pages();
     }
 
     /// Save all atlas pages to PNG files with a custom path prefix.
     ///
     /// Files are saved as `{path_prefix}_atlas_page_{index}.png`.
     pub(crate) fn save_atlas_pages_to(&self, path_prefix: &str) {
-        self.0.glyph_atlas.save_atlas_pages_to(path_prefix);
+        self.glifo.glyph_atlas.save_atlas_pages_to(path_prefix);
     }
 }
 

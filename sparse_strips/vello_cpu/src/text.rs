@@ -33,6 +33,7 @@ use peniko::{BlendMode, Gradient};
 use vello_common::paint::{ImageId, Tint};
 use color::palette::css::BLACK;
 use peniko::{ImageQuality, ImageSampler};
+use vello_common::glyph::{Glyph as LegacyGlyph, NormalizedCoord};
 
 /// CPU-side glyph atlas backed by per-page [`Pixmap`]s.
 ///
@@ -234,7 +235,10 @@ impl GlyphCache for CpuGlyphAtlas {
 
 /// All glyph caches needed by the CPU renderer.
 #[derive(Debug)]
-pub(crate) struct CpuGlyphCaches(pub GlyphCaches<CpuGlyphAtlas>);
+pub(crate) struct CpuGlyphCaches {
+    pub(crate) glifo: GlyphCaches<CpuGlyphAtlas>,
+    pub(crate) image_cache: ImageCache,
+}
 
 impl CpuGlyphCaches {
     /// Creates a new `CpuGlyphCaches` instance with the given atlas page size
@@ -249,12 +253,103 @@ impl CpuGlyphCaches {
         page_height: u16,
         eviction_config: GlyphCacheConfig,
     ) -> Self {
-        Self(GlyphCaches {
-            outline_cache: OutlineCache::default(),
-            hinting_cache: HintCache::default(),
-            underline_exclusions: Vec::new(),
-            glyph_atlas: CpuGlyphAtlas::with_config(page_width, page_height, eviction_config),
-        })
+        Self {
+            glifo: GlyphCaches {
+                outline_cache: OutlineCache::default(),
+                hinting_cache: HintCache::default(),
+                underline_exclusions: Vec::new(),
+                glyph_atlas: CpuGlyphAtlas::with_config(page_width, page_height, eviction_config),
+            },
+            image_cache: ImageCache::new_with_config(Default::default()),
+        }
+    }
+
+    pub(crate) fn maintain(&mut self) {
+        self.glifo.maintain(&mut self.image_cache);
+    }
+}
+
+/// CPU-local wrapper around `glifo::GlyphRunBuilder`.
+#[must_use = "Methods on the builder don't do anything until `fill_glyphs` or `stroke_glyphs` is called."]
+pub struct GlyphRunBuilder<'a> {
+    pub(crate) inner: glifo::GlyphRunBuilder<'a>,
+    pub(crate) ctx: &'a mut RenderContext,
+}
+
+impl GlyphRunBuilder<'_> {
+    // TODO: Use glifo glyph everywhere.
+    fn convert_glyph(glyph: LegacyGlyph) -> glifo::Glyph {
+        glifo::Glyph {
+            id: glyph.id,
+            x: glyph.x,
+            y: glyph.y,
+        }
+    }
+}
+
+// TODO: Decide whether we can somehow reuse the glifo glyph run builder.
+impl<'a> GlyphRunBuilder<'a> {
+    pub(crate) fn new(font: peniko::FontData, transform: Affine, ctx: &'a mut RenderContext) -> Self {
+        Self {
+            inner: glifo::GlyphRunBuilder::new(font, transform),
+            ctx,
+        }
+    }
+
+    pub fn font_size(mut self, size: f32) -> Self {
+        self.inner = self.inner.font_size(size);
+        self
+    }
+
+    pub fn glyph_transform(mut self, transform: Affine) -> Self {
+        self.inner = self.inner.glyph_transform(transform);
+        self
+    }
+
+    pub fn hint(mut self, hint: bool) -> Self {
+        self.inner = self.inner.hint(hint);
+        self
+    }
+
+    pub fn normalized_coords(mut self, coords: &'a [NormalizedCoord]) -> Self {
+        self.inner = self.inner.normalized_coords(coords);
+        self
+    }
+
+    pub fn atlas_cache(mut self, enabled: bool) -> Self {
+        self.inner = self.inner.atlas_cache(enabled);
+        self
+    }
+
+    pub fn fill_glyphs<Glyphs>(self, glyphs: Glyphs)
+    where
+        Glyphs: Iterator<Item = LegacyGlyph> + Clone,
+    {
+        // TODO: Can we do better than the ugly take/restore?
+        let mut caches = self.ctx.glyph_caches.take().unwrap();
+        let glyphs = glyphs.map(Self::convert_glyph);
+        self.inner
+            .build(glyphs, &mut caches.glifo, &mut caches.image_cache)
+            .fill_glyphs(self.ctx);
+        self.ctx.glyph_caches = Some(caches);
+    }
+
+    pub fn stroke_glyphs<Glyphs>(self, glyphs: Glyphs)
+    where
+        Glyphs: Iterator<Item = LegacyGlyph> + Clone,
+    {
+        let mut caches = self.ctx.glyph_caches.take().unwrap();
+        let glyphs = glyphs.map(Self::convert_glyph);
+        self.inner
+            .build(glyphs, &mut caches.glifo, &mut caches.image_cache)
+            .stroke_glyphs(self.ctx);
+        self.ctx.glyph_caches = Some(caches);
+    }
+}
+
+impl Debug for GlyphRunBuilder<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "GlyphRunBuilder {{ .. }}")
     }
 }
 
