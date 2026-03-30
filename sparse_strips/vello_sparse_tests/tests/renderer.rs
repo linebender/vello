@@ -12,7 +12,9 @@ use vello_common::peniko::{BlendMode, Fill, FontData};
 use vello_common::pixmap::Pixmap;
 use vello_common::recording::{Recordable, Recorder, Recording};
 use vello_cpu::{Level, RenderContext, RenderMode, RenderSettings, Resources};
-use vello_hybrid::{RenderSettings as HybridRenderSettings, Scene, SceneConstraints};
+use vello_hybrid::{
+    RenderSettings as HybridRenderSettings, Resources as HybridResources, Scene, SceneConstraints,
+};
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 use web_sys::WebGl2RenderingContext;
 
@@ -47,6 +49,28 @@ impl<'a, T: GlyphRenderer + 'a> TestGlyphRunBuilder for vello_common::glyph::Gly
 }
 
 impl<'a> TestGlyphRunBuilder for vello_cpu::GlyphRunBuilder<'a> {
+    fn font_size(self, size: f32) -> Self {
+        Self::font_size(self, size)
+    }
+
+    fn glyph_transform(self, transform: Affine) -> Self {
+        Self::glyph_transform(self, transform)
+    }
+
+    fn hint(self, hint: bool) -> Self {
+        Self::hint(self, hint)
+    }
+
+    fn fill_glyphs(self, glyphs: impl Iterator<Item = Glyph> + Clone) {
+        Self::fill_glyphs(self, glyphs)
+    }
+
+    fn stroke_glyphs(self, glyphs: impl Iterator<Item = Glyph> + Clone) {
+        Self::stroke_glyphs(self, glyphs)
+    }
+}
+
+impl<'a> TestGlyphRunBuilder for vello_hybrid::GlyphRunBuilder<'a> {
     fn font_size(self, size: f32) -> Self {
         Self::font_size(self, size)
     }
@@ -290,21 +314,22 @@ impl Renderer for CpuRenderer {
     }
 
     fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
-        Recordable::record(&mut self.ctx, recording, f);
+        Recordable::record(&mut self.ctx, &mut self.resources, recording, f);
     }
 
     fn prepare_recording(&mut self, recording: &mut Recording) {
-        Recordable::prepare_recording(&mut self.ctx, recording);
+        Recordable::prepare_recording(&mut self.ctx, &mut self.resources, recording);
     }
 
     fn execute_recording(&mut self, recording: &Recording) {
-        Recordable::execute_recording(&mut self.ctx, recording);
+        Recordable::execute_recording(&mut self.ctx, &mut self.resources, recording);
     }
 }
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 pub(crate) struct HybridRenderer {
     scene: Scene,
+    resources: HybridResources,
     device: wgpu::Device,
     queue: wgpu::Queue,
     texture: wgpu::Texture,
@@ -343,7 +368,9 @@ impl HybridRenderer {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::STORAGE_BINDING,
+            usage: wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -359,6 +386,7 @@ impl HybridRenderer {
 
         Self {
             scene,
+            resources: HybridResources::new(),
             device,
             queue,
             texture,
@@ -370,7 +398,7 @@ impl HybridRenderer {
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 impl Renderer for HybridRenderer {
-    type GlyphRunBuilder<'a> = vello_common::glyph::GlyphRunBuilder<'a, Scene>;
+    type GlyphRunBuilder<'a> = vello_hybrid::GlyphRunBuilder<'a>;
 
     fn new(
         width: u16,
@@ -414,7 +442,7 @@ impl Renderer for HybridRenderer {
     }
 
     fn glyph_run(&mut self, font: &FontData) -> Self::GlyphRunBuilder<'_> {
-        self.scene.glyph_run(font)
+        self.scene.glyph_run(&mut self.resources, font)
     }
 
     fn push_layer(
@@ -625,28 +653,29 @@ impl Renderer for HybridRenderer {
     }
 
     fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
-        Recordable::record(&mut self.scene, recording, f);
+        Recordable::record(&mut self.scene, &mut self.resources, recording, f);
     }
 
     fn prepare_recording(&mut self, recording: &mut Recording) {
-        Recordable::prepare_recording(&mut self.scene, recording);
+        Recordable::prepare_recording(&mut self.scene, &mut self.resources, recording);
     }
 
     fn execute_recording(&mut self, recording: &Recording) {
-        Recordable::execute_recording(&mut self.scene, recording);
+        Recordable::execute_recording(&mut self.scene, &mut self.resources, recording);
     }
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 pub(crate) struct HybridRenderer {
     scene: Scene,
+    resources: HybridResources,
     renderer: vello_hybrid::WebGlRenderer,
     gl: WebGl2RenderingContext,
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 impl Renderer for HybridRenderer {
-    type GlyphRunBuilder<'a> = vello_common::glyph::GlyphRunBuilder<'a, Scene>;
+    type GlyphRunBuilder<'a> = vello_hybrid::GlyphRunBuilder<'a>;
 
     fn new(
         width: u16,
@@ -680,7 +709,12 @@ impl Renderer for HybridRenderer {
         canvas.set_height(height.into());
         let renderer = vello_hybrid::WebGlRenderer::new(&canvas);
         let gl = canvas.get_context("webgl2").unwrap().unwrap().dyn_into::<WebGl2RenderingContext>().unwrap();
-        Self { scene, renderer, gl }
+        Self {
+            scene,
+            resources: HybridResources::new(),
+            renderer,
+            gl,
+        }
     }
 
     fn fill_path(&mut self, path: &BezPath) {
@@ -704,7 +738,7 @@ impl Renderer for HybridRenderer {
     }
 
     fn glyph_run(&mut self, font: &FontData) -> Self::GlyphRunBuilder<'_> {
-        self.scene.glyph_run(font)
+        self.scene.glyph_run(&mut self.resources, font)
     }
 
     fn push_layer(
@@ -841,14 +875,14 @@ impl Renderer for HybridRenderer {
     }
 
     fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
-        self.scene.record(recording, f);
+        self.scene.record(&mut self.resources, recording, f);
     }
 
     fn prepare_recording(&mut self, recording: &mut Recording) {
-        self.scene.prepare_recording(recording);
+        self.scene.prepare_recording(&mut self.resources, recording);
     }
 
     fn execute_recording(&mut self, recording: &Recording) {
-        self.scene.execute_recording(recording);
+        self.scene.execute_recording(&mut self.resources, recording);
     }
 }

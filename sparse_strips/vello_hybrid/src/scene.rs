@@ -13,7 +13,7 @@ use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::filter_effects::Filter;
 #[cfg(feature = "text")]
-use vello_common::glyph::{GlyphCaches, GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
+use crate::text::{GlyphRunBuilder, Resources};
 use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::multi_atlas::AtlasConfig;
@@ -216,9 +216,6 @@ pub struct Scene {
     pub(crate) strip_generator: StripGenerator,
     /// Storage for generated strips and alpha values.
     pub(crate) strip_storage: RefCell<StripStorage>,
-    /// Cache for rasterized glyphs to improve text rendering performance.
-    #[cfg(feature = "text")]
-    pub(crate) glyph_caches: Option<GlyphCaches>,
     /// Counter for generating unique layer IDs.
     layer_id_next: u32,
     /// Dependency graph for managing layer rendering order and filter effects.
@@ -313,8 +310,6 @@ impl Scene {
             strip_generator: StripGenerator::new(width, height, settings.level),
             // Start strip storage in `Append` mode since we enable the fast path by default.
             strip_storage: RefCell::new(StripStorage::new(GenerationMode::Append)),
-            #[cfg(feature = "text")]
-            glyph_caches: Some(GlyphCaches::default()),
             layer_id_next: 0,
             render_graph,
             filter: None,
@@ -550,8 +545,12 @@ impl Scene {
 
     /// Creates a builder for drawing a run of glyphs that have the same attributes.
     #[cfg(feature = "text")]
-    pub fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self> {
-        GlyphRunBuilder::new(font.clone(), self.render_state.transform, self)
+    pub fn glyph_run<'a>(
+        &'a mut self,
+        resources: &'a mut Resources,
+        font: &FontData,
+    ) -> GlyphRunBuilder<'a> {
+        GlyphRunBuilder::new(font.clone(), self.render_state.transform, self, resources)
     }
 
     /// Flush the fast path buffer through the normal coarse rasterization pipeline.
@@ -822,8 +821,6 @@ impl Scene {
 
         self.render_state.reset();
 
-        #[cfg(feature = "text")]
-        self.glyph_caches.as_mut().unwrap().maintain();
         self.fast_strips_buffer.clear();
         self.strip_path_mode = StripPathMode::FastOnly;
         self.coarse_batch_splits.clear();
@@ -869,52 +866,10 @@ impl Scene {
     }
 }
 
-#[cfg(feature = "text")]
-impl GlyphRenderer for Scene {
-    fn fill_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
-        match prepared_glyph.glyph_type {
-            GlyphType::Outline(glyph) => {
-                let paint = self.encode_current_paint();
-                self.fill_path_with(
-                    glyph.path,
-                    prepared_glyph.transform,
-                    Fill::NonZero,
-                    paint,
-                    self.aliasing_threshold,
-                );
-            }
-            GlyphType::Bitmap(_) => {}
-            GlyphType::Colr(_) => {}
-        }
-    }
-
-    fn stroke_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
-        match prepared_glyph.glyph_type {
-            GlyphType::Outline(glyph) => {
-                let paint = self.encode_current_paint();
-                self.stroke_path_with(
-                    glyph.path,
-                    prepared_glyph.transform,
-                    paint,
-                    self.aliasing_threshold,
-                );
-            }
-            GlyphType::Bitmap(_) => {}
-            GlyphType::Colr(_) => {}
-        }
-    }
-
-    fn take_glyph_caches(&mut self) -> GlyphCaches {
-        self.glyph_caches.take().unwrap_or_default()
-    }
-
-    fn restore_glyph_caches(&mut self, cache: GlyphCaches) {
-        self.glyph_caches = Some(cache);
-    }
-}
-
 impl Recordable for Scene {
-    fn record<F>(&mut self, recording: &mut Recording, f: F)
+    type Resources = Resources;
+
+    fn record<F>(&mut self, _resources: &mut Self::Resources, recording: &mut Recording, f: F)
     where
         F: FnOnce(&mut Recorder<'_>),
     {
@@ -922,14 +877,14 @@ impl Recordable for Scene {
         f(&mut recorder);
     }
 
-    fn prepare_recording(&mut self, recording: &mut Recording) {
+    fn prepare_recording(&mut self, _resources: &mut Self::Resources, recording: &mut Recording) {
         let buffers = recording.take_cached_strips();
         let (strip_storage, strip_start_indices) =
             self.generate_strips_from_commands(recording.commands(), buffers);
         recording.set_cached_strips(strip_storage, strip_start_indices);
     }
 
-    fn execute_recording(&mut self, recording: &Recording) {
+    fn execute_recording(&mut self, resources: &mut Self::Resources, recording: &Recording) {
         let (cached_strips, cached_alphas) = recording.get_cached_strips();
         let adjusted_strips = self.prepare_cached_strips(cached_strips, cached_alphas);
 
@@ -963,21 +918,23 @@ impl Recordable for Scene {
                 #[cfg(feature = "text")]
                 RenderCommand::FillGlyphRun(run) => {
                     self
-                        .glyph_run(&run.font)
+                        .glyph_run(resources, &run.font)
                         .font_size(run.font_size)
                         .hint(run.hint)
                         .normalized_coords(&run.normalized_coords)
                         .glyph_transform(run.glyph_transform.unwrap_or(Affine::IDENTITY))
+                        .atlas_cache(run.atlas_cache)
                         .fill_glyphs(run.glyphs.iter().copied());
                 }
                 #[cfg(feature = "text")]
                 RenderCommand::StrokeGlyphRun(run) => {
                     self
-                        .glyph_run(&run.font)
+                        .glyph_run(resources, &run.font)
                         .font_size(run.font_size)
                         .hint(run.hint)
                         .normalized_coords(&run.normalized_coords)
                         .glyph_transform(run.glyph_transform.unwrap_or(Affine::IDENTITY))
+                        .atlas_cache(run.atlas_cache)
                         .stroke_glyphs(run.glyphs.iter().copied());
                 }
                 RenderCommand::SetPaint(paint) => {

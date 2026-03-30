@@ -19,12 +19,15 @@ use glifo::{
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use core::fmt::{Debug, Formatter};
 use glifo::atlas::{PendingBitmapUpload, PendingClearRect};
 use vello_common::kurbo::{Affine, BezPath, Rect};
 use peniko::color::palette::css::BLACK;
 use peniko::color::{AlphaColor, Srgb};
 use peniko::{BlendMode, Extend, Gradient, ImageQuality, ImageSampler};
 use vello_common::paint::{Image, ImageId, ImageSource, PaintType, Tint};
+use vello_common::glyph::{Glyph as LegacyGlyph, NormalizedCoord};
+use vello_common::peniko::FontData;
 use vello_common::peniko;
 use vello_common::pixmap::Pixmap;
 use crate::Scene;
@@ -35,7 +38,7 @@ use crate::Scene;
 /// but does not allocate any local pixel storage — the GPU renderer manages
 /// atlas textures itself via `Renderer::write_to_atlas`.
 #[derive(Debug, Default)]
-pub struct GpuGlyphAtlas {
+pub(crate) struct GpuGlyphAtlas {
     /// Shared allocator, LRU eviction state, and pending-command queues.
     inner: GlyphAtlas,
 }
@@ -161,13 +164,129 @@ pub(crate) struct GpuGlyphCaches(pub(crate) GlyphCaches<GpuGlyphAtlas>);
 
 impl GpuGlyphCaches {
     /// Creates a new `GpuGlyphCaches` instance with custom eviction settings.
-    pub fn with_config(eviction_config: GlyphCacheConfig) -> Self {
+    pub(crate) fn with_config(eviction_config: GlyphCacheConfig) -> Self {
         Self(GlyphCaches {
             outline_cache: OutlineCache::default(),
             hinting_cache: HintCache::default(),
             underline_exclusions: Vec::new(),
             glyph_atlas: GpuGlyphAtlas::with_config(eviction_config),
         })
+    }
+}
+
+/// Auxiliary hybrid glyph resources.
+#[derive(Debug)]
+pub struct Resources {
+    pub(crate) glyph_caches: GpuGlyphCaches,
+    pub(crate) image_cache: ImageCache,
+}
+
+impl Resources {
+    /// Create a new set of renderer resources.
+    pub fn new() -> Self {
+        Self {
+            glyph_caches: GpuGlyphCaches::with_config(GlyphCacheConfig::default()),
+            image_cache: ImageCache::new_with_config(Default::default()),
+        }
+    }
+}
+
+impl Default for Resources {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Hybrid-local wrapper around `glifo::GlyphRunBuilder`.
+#[must_use = "Methods on the builder don't do anything until `fill_glyphs` or `stroke_glyphs` is called."]
+pub struct GlyphRunBuilder<'a> {
+    pub(crate) inner: glifo::GlyphRunBuilder<'a>,
+    pub(crate) scene: &'a mut Scene,
+    pub(crate) resources: &'a mut Resources,
+}
+
+impl GlyphRunBuilder<'_> {
+    fn convert_glyph(glyph: LegacyGlyph) -> glifo::Glyph {
+        glifo::Glyph {
+            id: glyph.id,
+            x: glyph.x,
+            y: glyph.y,
+        }
+    }
+}
+
+impl<'a> GlyphRunBuilder<'a> {
+    pub(crate) fn new(
+        font: FontData,
+        transform: Affine,
+        scene: &'a mut Scene,
+        resources: &'a mut Resources,
+    ) -> Self {
+        Self {
+            inner: glifo::GlyphRunBuilder::new(font, transform)
+                .atlas_cache(false),
+            scene,
+            resources,
+        }
+    }
+
+    pub fn font_size(mut self, size: f32) -> Self {
+        self.inner = self.inner.font_size(size);
+        self
+    }
+
+    pub fn glyph_transform(mut self, transform: Affine) -> Self {
+        self.inner = self.inner.glyph_transform(transform);
+        self
+    }
+
+    pub fn hint(mut self, hint: bool) -> Self {
+        self.inner = self.inner.hint(hint);
+        self
+    }
+
+    pub fn normalized_coords(mut self, coords: &'a [NormalizedCoord]) -> Self {
+        self.inner = self.inner.normalized_coords(coords);
+        self
+    }
+
+    pub fn atlas_cache(mut self, enabled: bool) -> Self {
+        self.inner = self.inner.atlas_cache(enabled);
+        self
+    }
+
+    pub fn fill_glyphs<Glyphs>(self, glyphs: Glyphs)
+    where
+        Glyphs: Iterator<Item = LegacyGlyph> + Clone,
+    {
+        let glyphs = glyphs.map(Self::convert_glyph);
+        self.inner
+            .build(
+                glyphs,
+                &mut self.resources.glyph_caches.0,
+                &mut self.resources.image_cache,
+            )
+            .fill_glyphs(self.scene);
+    }
+
+    pub fn stroke_glyphs<Glyphs>(self, glyphs: Glyphs)
+    where
+        Glyphs: Iterator<Item = LegacyGlyph> + Clone,
+    {
+        let glyphs = glyphs.map(Self::convert_glyph);
+        self.inner
+            .build(
+                glyphs,
+                &mut self.resources.glyph_caches.0,
+                &mut self.resources.image_cache,
+            )
+            .stroke_glyphs(self.scene);
+    }
+}
+
+impl Debug for GlyphRunBuilder<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "GlyphRunBuilder {{ .. }}")
     }
 }
 

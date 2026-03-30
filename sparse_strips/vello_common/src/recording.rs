@@ -121,6 +121,8 @@ pub struct RecordedGlyphRun {
     pub hint: bool,
     /// Variable font coordinates.
     pub normalized_coords: SmallVec<[NormalizedCoord; 2]>,
+    /// Whether atlas caching is enabled for this run.
+    pub atlas_cache: bool,
     /// Positioned glyphs in the run.
     pub glyphs: Vec<Glyph>,
 }
@@ -291,6 +293,9 @@ impl Default for Recording {
 /// scene.execute_recording(&recording);
 /// ```
 pub trait Recordable {
+    /// Backend-specific resources needed for recording replay.
+    type Resources;
+
     /// Record rendering commands into a recording.
     ///
     /// This method allows you to capture a sequence of rendering operations
@@ -305,7 +310,7 @@ pub trait Recordable {
     ///     ctx.stroke_path(&some_path);
     /// });
     /// ```
-    fn record<F>(&mut self, recording: &mut Recording, f: F)
+    fn record<F>(&mut self, resources: &mut Self::Resources, recording: &mut Recording, f: F)
     where
         F: FnOnce(&mut Recorder<'_>);
 
@@ -325,7 +330,7 @@ pub trait Recordable {
     /// // Generate strips explicitly
     /// scene.prepare_recording(&mut recording);
     /// ```
-    fn prepare_recording(&mut self, recording: &mut Recording);
+    fn prepare_recording(&mut self, resources: &mut Self::Resources, recording: &mut Recording);
 
     /// Execute a recording directly without preparation.
     ///
@@ -350,7 +355,7 @@ pub trait Recordable {
     /// // Then execute with cached strips
     /// scene.execute_recording(&recording);
     /// ```
-    fn execute_recording(&mut self, recording: &Recording);
+    fn execute_recording(&mut self, resources: &mut Self::Resources, recording: &Recording);
 }
 
 /// Recorder context that captures commands.
@@ -503,6 +508,7 @@ impl<'a, 'r> RecorderGlyphRunBuilder<'a, 'r> {
                 glyph_transform: None,
                 hint: true,
                 normalized_coords: SmallVec::new(),
+                atlas_cache: false,
                 glyphs: Vec::new(),
             },
         }
@@ -525,6 +531,11 @@ impl<'a, 'r> RecorderGlyphRunBuilder<'a, 'r> {
 
     pub fn normalized_coords(mut self, coords: &[NormalizedCoord]) -> Self {
         self.run.normalized_coords = SmallVec::from_slice(coords);
+        self
+    }
+
+    pub fn atlas_cache(mut self, enabled: bool) -> Self {
+        self.run.atlas_cache = enabled;
         self
     }
 

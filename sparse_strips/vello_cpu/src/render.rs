@@ -771,7 +771,9 @@ impl RenderContext {
 }
 
 impl Recordable for RenderContext {
-    fn record<F>(&mut self, recording: &mut Recording, f: F)
+    type Resources = Resources;
+
+    fn record<F>(&mut self, _resources: &mut Self::Resources, recording: &mut Recording, f: F)
     where
         F: FnOnce(&mut Recorder<'_>),
     {
@@ -779,18 +781,16 @@ impl Recordable for RenderContext {
         f(&mut recorder);
     }
 
-    fn prepare_recording(&mut self, recording: &mut Recording) {
+    fn prepare_recording(&mut self, _resources: &mut Self::Resources, recording: &mut Recording) {
         let buffers = recording.take_cached_strips();
         let (strip_storage, strip_start_indices) =
             self.generate_strips_from_commands(recording.commands(), buffers);
         recording.set_cached_strips(strip_storage, strip_start_indices);
     }
 
-    fn execute_recording(&mut self, recording: &Recording) {
+    fn execute_recording(&mut self, resources: &mut Self::Resources, recording: &Recording) {
         let (cached_strips, cached_alphas) = recording.get_cached_strips();
         let adjusted_strips = self.prepare_cached_strips(cached_strips, cached_alphas);
-        #[cfg(feature = "text")]
-        let mut recording_resources = Resources::new();
 
         // Use pre-calculated strip start indices from when we generated the cache.
         let strip_start_indices = recording.get_strip_start_indices();
@@ -822,23 +822,23 @@ impl Recordable for RenderContext {
                 #[cfg(feature = "text")]
                 RenderCommand::FillGlyphRun(run) => {
                     self
-                        .glyph_run(&mut recording_resources, &run.font)
+                        .glyph_run(resources, &run.font)
                         .font_size(run.font_size)
                         .hint(run.hint)
                         .normalized_coords(&run.normalized_coords)
                         .glyph_transform(run.glyph_transform.unwrap_or(Affine::IDENTITY))
-                        .atlas_cache(false)
+                        .atlas_cache(run.atlas_cache)
                         .fill_glyphs(run.glyphs.iter().copied());
                 }
                 #[cfg(feature = "text")]
                 RenderCommand::StrokeGlyphRun(run) => {
                     self
-                        .glyph_run(&mut recording_resources, &run.font)
+                        .glyph_run(resources, &run.font)
                         .font_size(run.font_size)
                         .hint(run.hint)
                         .normalized_coords(&run.normalized_coords)
                         .glyph_transform(run.glyph_transform.unwrap_or(Affine::IDENTITY))
-                        .atlas_cache(false)
+                        .atlas_cache(run.atlas_cache)
                         .stroke_glyphs(run.glyphs.iter().copied());
                 }
                 RenderCommand::SetPaint(paint) => {
