@@ -587,12 +587,16 @@ impl Renderer for HybridRenderer {
         );
         self.queue.submit([encoder.finish()]);
         // Map the buffer for reading
-        texture_copy_buffer.slice(..).map_async(wgpu::MapMode::Read, move |result| {
-            if result.is_err() {
-                panic!("Failed to map texture for reading");
-            }
-        });
-        self.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        texture_copy_buffer
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| {
+                if result.is_err() {
+                    panic!("Failed to map texture for reading");
+                }
+            });
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
         // Read back the pixel data
         for (row, buf) in texture_copy_buffer
             .slice(..)
@@ -609,14 +613,22 @@ impl Renderer for HybridRenderer {
         texture_copy_buffer.unmap();
     }
 
-    fn width(&self) -> u16 { self.scene.width() }
-    fn height(&self) -> u16 { self.scene.height() }
+    fn width(&self) -> u16 {
+        self.scene.width()
+    }
+    fn height(&self) -> u16 {
+        self.scene.height()
+    }
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
         let mut encoder = self
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Upload Test Image") });
-        let image_id = self.renderer.upload_image(&self.device, &self.queue, &mut encoder, &pixmap);
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Upload Test Image"),
+            });
+        let image_id = self
+            .renderer
+            .upload_image(&self.device, &self.queue, &mut encoder, &pixmap);
         self.queue.submit([encoder.finish()]);
         ImageSource::opaque_id_with_opacity_hint(image_id, pixmap.may_have_opacities())
     }
@@ -624,8 +636,12 @@ impl Renderer for HybridRenderer {
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
         let mut encoder = self
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Register Test Image") });
-        let image_id = self.renderer.upload_image(&self.device, &self.queue, &mut encoder, &pixmap);
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Register Test Image"),
+            });
+        let image_id = self
+            .renderer
+            .upload_image(&self.device, &self.queue, &mut encoder, &pixmap);
         self.queue.submit([encoder.finish()]);
         image_id
     }
@@ -682,11 +698,20 @@ impl Renderer for HybridRenderer {
         // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
         // the pixmap for diff checking.
         let document = web_sys::window().unwrap().document().unwrap();
-        let canvas = document.create_element("canvas").unwrap().dyn_into::<HtmlCanvasElement>().unwrap();
+        let canvas = document
+            .create_element("canvas")
+            .unwrap()
+            .dyn_into::<HtmlCanvasElement>()
+            .unwrap();
         canvas.set_width(width.into());
         canvas.set_height(height.into());
         let renderer = vello_hybrid::WebGlRenderer::new(&canvas);
-        let gl = canvas.get_context("webgl2").unwrap().unwrap().dyn_into::<WebGl2RenderingContext>().unwrap();
+        let gl = canvas
+            .get_context("webgl2")
+            .unwrap()
+            .unwrap()
+            .dyn_into::<WebGl2RenderingContext>()
+            .unwrap();
         Self {
             scene,
             resources: HybridResources::new(),

@@ -11,32 +11,32 @@
 //! [`Arc<Pixmap>`]s here, so the CPU renderer can read pixels directly without
 //! any GPU upload step.
 
+use crate::render::DEFAULT_GLYPH_ATLAS_SIZE;
 use crate::{
     Image, ImageSource, PaintType, Pixmap, RenderContext, Resources, color, kurbo, peniko,
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use color::palette::css::BLACK;
 use core::fmt::{Debug, Formatter};
 use glifo::atlas::{
     AtlasCommandRecorder, AtlasSlot, GlyphAtlas, GlyphCache, GlyphCacheConfig, GlyphCacheKey,
     ImageCache, PendingBitmapUpload, PendingClearRect, RasterMetrics,
 };
-use glifo::{
-    CachedGlyphType, ColrPainter, ColrRenderer, GlyphBitmap, GlyphCaches, GlyphColr,
-    GlyphRenderer, HintCache, OutlineCache, PreparedGlyph,
-};
 use glifo::renderers::vello_renderer::{
     self, AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale,
+};
+use glifo::{
+    CachedGlyphType, ColrPainter, ColrRenderer, GlyphBitmap, GlyphCaches, GlyphColr, GlyphRenderer,
+    HintCache, OutlineCache, PreparedGlyph,
 };
 use kurbo::{Affine, BezPath, Rect};
 use peniko::Extend;
 use peniko::color::{AlphaColor, Srgb};
 use peniko::{BlendMode, Gradient};
-use vello_common::paint::{ImageId, Tint};
-use color::palette::css::BLACK;
 use peniko::{ImageQuality, ImageSampler};
 use vello_common::glyph::{Glyph, NormalizedCoord};
-use crate::render::DEFAULT_GLYPH_ATLAS_SIZE;
+use vello_common::paint::{ImageId, Tint};
 
 /// CPU-side glyph atlas backed by per-page [`Pixmap`]s.
 ///
@@ -286,7 +286,12 @@ impl Resources {
 
     fn sync_glyph_cache(&mut self, ctx: &RenderContext) {
         // TODO: Avoid allocation.
-        let uploads: Vec<_> = self.glyph_caches.glifo.glyph_atlas.drain_pending_uploads().collect();
+        let uploads: Vec<_> = self
+            .glyph_caches
+            .glifo
+            .glyph_atlas
+            .drain_pending_uploads()
+            .collect();
 
         // Upload all pending bitmap glyphs to the image atlas.
         for upload in uploads {
@@ -311,18 +316,18 @@ impl Resources {
         let glyph_renderer = self.glyph_renderer.as_mut();
         let glyph_atlas = &mut self.glyph_caches.glifo.glyph_atlas;
         glyph_atlas.replay_pending_atlas_commands_with_pixmaps(|recorder, pixmaps| {
-                let page = Arc::get_mut(
-                    pixmaps
-                        .get_mut(recorder.page_index as usize)
-                        .expect("atlas recorder refers to a missing page"),
-                )
-                .expect("atlas page pixmap must be uniquely owned during replay");
+            let page = Arc::get_mut(
+                pixmaps
+                    .get_mut(recorder.page_index as usize)
+                    .expect("atlas recorder refers to a missing page"),
+            )
+            .expect("atlas page pixmap must be uniquely owned during replay");
 
-                glyph_renderer.reset();
-                vello_renderer::replay_atlas_commands(&mut recorder.commands, glyph_renderer);
-                glyph_renderer.flush();
-                glyph_renderer.composite_to_pixmap_at_offset(page, 0, 0);
-            });
+            glyph_renderer.reset();
+            vello_renderer::replay_atlas_commands(&mut recorder.commands, glyph_renderer);
+            glyph_renderer.flush();
+            glyph_renderer.composite_to_pixmap_at_offset(page, 0, 0);
+        });
 
         let page_count = self.glyph_caches.glifo.glyph_atlas.page_count();
         for page_index in 0..page_count {
@@ -339,7 +344,12 @@ impl Resources {
 
     fn clear_evicted_glyph_atlas_regions(&mut self) {
         // TODO: Avoid allocation.
-        let clear_rects: Vec<_> = self.glyph_caches.glifo.glyph_atlas.drain_pending_clear_rects().collect();
+        let clear_rects: Vec<_> = self
+            .glyph_caches
+            .glifo
+            .glyph_atlas
+            .drain_pending_clear_rects()
+            .collect();
 
         for clear in clear_rects {
             let pixmap = self

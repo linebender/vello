@@ -3,6 +3,8 @@
 
 //! Basic render operations.
 
+#[cfg(feature = "text")]
+use crate::text::{GlyphRunBuilder, Resources};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
@@ -12,8 +14,6 @@ use vello_common::coarse::{MODE_HYBRID, Wide, WideTilesBbox};
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::filter_effects::Filter;
-#[cfg(feature = "text")]
-use crate::text::{GlyphRunBuilder, Resources};
 use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::multi_atlas::AtlasConfig;
@@ -917,8 +917,7 @@ impl Recordable for Scene {
                 }
                 #[cfg(feature = "text")]
                 RenderCommand::FillGlyphRun(run) => {
-                    self
-                        .glyph_run(resources, &run.font)
+                    self.glyph_run(resources, &run.font)
                         .font_size(run.font_size)
                         .hint(run.hint)
                         .normalized_coords(&run.normalized_coords)
@@ -928,8 +927,7 @@ impl Recordable for Scene {
                 }
                 #[cfg(feature = "text")]
                 RenderCommand::StrokeGlyphRun(run) => {
-                    self
-                        .glyph_run(resources, &run.font)
+                    self.glyph_run(resources, &run.font)
                         .font_size(run.font_size)
                         .hint(run.hint)
                         .normalized_coords(&run.normalized_coords)

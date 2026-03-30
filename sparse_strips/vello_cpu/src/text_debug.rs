@@ -6,10 +6,10 @@
 #[cfg(feature = "png")]
 use crate::Pixmap;
 use crate::text::{CpuGlyphAtlas, CpuGlyphCaches};
-use glifo::GlyphCacheKey;
-use glifo::atlas::GlyphCacheStats;
 #[cfg(feature = "png")]
 use alloc::format;
+use glifo::GlyphCacheKey;
+use glifo::atlas::GlyphCacheStats;
 
 #[cfg(feature = "png")]
 impl CpuGlyphAtlas {
@@ -77,10 +77,7 @@ impl CpuGlyphCaches {
 
 /// Save a pixmap to a PNG file (diagnostic utility).
 #[cfg(feature = "png")]
-pub(crate) fn save_pixmap_to_png(
-    pixmap: &Pixmap,
-    path: &std::path::Path,
-) -> std::io::Result<()> {
+pub(crate) fn save_pixmap_to_png(pixmap: &Pixmap, path: &std::path::Path) -> std::io::Result<()> {
     use std::fs::File;
     use std::io::BufWriter;
 

@@ -91,7 +91,9 @@ impl glifo::GlyphCache for NoOpGlyphCache {
     ) {
     }
 
-    fn drain_pending_uploads(&mut self) -> impl Iterator<Item = glifo::atlas::PendingBitmapUpload> + '_ {
+    fn drain_pending_uploads(
+        &mut self,
+    ) -> impl Iterator<Item = glifo::atlas::PendingBitmapUpload> + '_ {
         std::iter::empty()
     }
 
@@ -231,8 +233,10 @@ fn render_glyph_run(
         underline_exclusions: Default::default(),
         glyph_atlas: NoOpGlyphCache,
     };
-    let mut image_cache =
-        std::mem::replace(&mut renderer.image_cache, ImageCache::new_with_config(Default::default()));
+    let mut image_cache = std::mem::replace(
+        &mut renderer.image_cache,
+        ImageCache::new_with_config(Default::default()),
+    );
     GlyphBenchRenderer::glyph_run(run.font())
         .font_size(run.font_size())
         .hint(hint)

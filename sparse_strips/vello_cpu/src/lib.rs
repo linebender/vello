@@ -159,9 +159,9 @@ pub mod layer_manager;
 pub mod region;
 
 pub use render::{RenderContext, RenderSettings, Resources};
-pub use vello_common::fearless_simd::Level;
 #[cfg(feature = "text")]
 pub use text::GlyphRunBuilder;
+pub use vello_common::fearless_simd::Level;
 #[cfg(feature = "text")]
 pub use vello_common::glyph::Glyph;
 pub use vello_common::mask::Mask;

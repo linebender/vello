@@ -10,6 +10,11 @@
 //! GPU renderer owns atlas textures and receives pixel data through the
 //! pending-upload queue.
 
+use crate::Scene;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use core::fmt::{Debug, Formatter};
+use glifo::atlas::{PendingBitmapUpload, PendingClearRect};
 use glifo::renderers::vello_renderer;
 use glifo::renderers::vello_renderer::{AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale};
 use glifo::{
@@ -17,20 +22,15 @@ use glifo::{
     GlyphAtlas, GlyphBitmap, GlyphCache, GlyphCacheConfig, GlyphCacheKey, GlyphCaches, GlyphColr,
     GlyphRenderer, HintCache, ImageCache, OutlineCache, PreparedGlyph, RasterMetrics,
 };
-use alloc::sync::Arc;
-use alloc::vec::Vec;
-use core::fmt::{Debug, Formatter};
-use glifo::atlas::{PendingBitmapUpload, PendingClearRect};
-use vello_common::kurbo::{Affine, BezPath, Rect};
 use peniko::color::palette::css::BLACK;
 use peniko::color::{AlphaColor, Srgb};
 use peniko::{BlendMode, Extend, Gradient, ImageQuality, ImageSampler};
-use vello_common::paint::{Image, ImageId, ImageSource, PaintType, Tint};
 use vello_common::glyph::{Glyph, NormalizedCoord};
-use vello_common::peniko::FontData;
+use vello_common::kurbo::{Affine, BezPath, Rect};
+use vello_common::paint::{Image, ImageId, ImageSource, PaintType, Tint};
 use vello_common::peniko;
+use vello_common::peniko::FontData;
 use vello_common::pixmap::Pixmap;
-use crate::Scene;
 
 /// Glyph atlas cache for the hybrid (GPU) renderer.
 ///
@@ -213,8 +213,7 @@ impl<'a> GlyphRunBuilder<'a> {
         resources: &'a mut Resources,
     ) -> Self {
         Self {
-            inner: glifo::GlyphRunBuilder::new(font, transform)
-                .atlas_cache(false),
+            inner: glifo::GlyphRunBuilder::new(font, transform).atlas_cache(false),
             scene,
             resources,
         }

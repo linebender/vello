@@ -821,8 +821,7 @@ impl Recordable for RenderContext {
                 }
                 #[cfg(feature = "text")]
                 RenderCommand::FillGlyphRun(run) => {
-                    self
-                        .glyph_run(resources, &run.font)
+                    self.glyph_run(resources, &run.font)
                         .font_size(run.font_size)
                         .hint(run.hint)
                         .normalized_coords(&run.normalized_coords)
@@ -832,8 +831,7 @@ impl Recordable for RenderContext {
                 }
                 #[cfg(feature = "text")]
                 RenderCommand::StrokeGlyphRun(run) => {
-                    self
-                        .glyph_run(resources, &run.font)
+                    self.glyph_run(resources, &run.font)
                         .font_size(run.font_size)
                         .hint(run.hint)
                         .normalized_coords(&run.normalized_coords)

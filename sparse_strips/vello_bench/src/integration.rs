@@ -11,8 +11,8 @@ use vello_common::paint::{Image, ImageSource};
 use vello_common::peniko::ImageSampler;
 use vello_common::peniko::{Extend, ImageQuality};
 use vello_common::pixmap::Pixmap;
-use vello_cpu::{RenderContext, Resources};
 use vello_cpu::color::AlphaColor;
+use vello_cpu::{RenderContext, Resources};
 
 /// Image scene rendering benchmark.
 pub fn images(c: &mut Criterion) {
