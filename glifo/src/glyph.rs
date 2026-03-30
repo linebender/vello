@@ -41,6 +41,7 @@ use skrifa::raw::TableProvider;
 use skrifa::{FontRef, OutlineGlyphCollection};
 use skrifa::{GlyphId, MetadataProvider};
 use smallvec::SmallVec;
+pub use vello_common::glyph::Glyph;
 
 /// Pre-packed `BLACK` color as a `u32` for use in `GlyphCacheKey`.
 const BLACK_PACKED: u32 = PremulRgba8 {
@@ -50,20 +51,6 @@ const BLACK_PACKED: u32 = PremulRgba8 {
     a: 255,
 }
 .to_u32();
-
-/// Positioned glyph.
-#[derive(Copy, Clone, Default, Debug)]
-pub struct Glyph {
-    /// The font-specific identifier for this glyph.
-    ///
-    /// This ID is specific to the font being used and corresponds to the
-    /// glyph index within that font. It is *not* a Unicode code point.
-    pub id: u32,
-    /// X-offset in run, relative to transform.
-    pub x: f32,
-    /// Y-offset in run, relative to transform.
-    pub y: f32,
-}
 
 /// A type of glyph.
 #[derive(Debug)]

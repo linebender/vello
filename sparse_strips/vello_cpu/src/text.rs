@@ -35,7 +35,7 @@ use peniko::{BlendMode, Gradient};
 use vello_common::paint::{ImageId, Tint};
 use color::palette::css::BLACK;
 use peniko::{ImageQuality, ImageSampler};
-use vello_common::glyph::{Glyph as LegacyGlyph, NormalizedCoord};
+use vello_common::glyph::{Glyph, NormalizedCoord};
 use crate::render::DEFAULT_GLYPH_ATLAS_SIZE;
 
 /// CPU-side glyph atlas backed by per-page [`Pixmap`]s.
@@ -361,17 +361,6 @@ pub struct GlyphRunBuilder<'a> {
     pub(crate) resources: &'a mut Resources,
 }
 
-impl GlyphRunBuilder<'_> {
-    // TODO: Use glifo glyph everywhere.
-    fn convert_glyph(glyph: LegacyGlyph) -> glifo::Glyph {
-        glifo::Glyph {
-            id: glyph.id,
-            x: glyph.x,
-            y: glyph.y,
-        }
-    }
-}
-
 // TODO: Decide whether we can somehow reuse the glifo glyph run builder.
 impl<'a> GlyphRunBuilder<'a> {
     pub(crate) fn new(
@@ -416,9 +405,8 @@ impl<'a> GlyphRunBuilder<'a> {
 
     pub fn fill_glyphs<Glyphs>(self, glyphs: Glyphs)
     where
-        Glyphs: Iterator<Item = LegacyGlyph> + Clone,
+        Glyphs: Iterator<Item = Glyph> + Clone,
     {
-        let glyphs = glyphs.map(Self::convert_glyph);
         self.inner
             .build(
                 glyphs,
@@ -430,9 +418,8 @@ impl<'a> GlyphRunBuilder<'a> {
 
     pub fn stroke_glyphs<Glyphs>(self, glyphs: Glyphs)
     where
-        Glyphs: Iterator<Item = LegacyGlyph> + Clone,
+        Glyphs: Iterator<Item = Glyph> + Clone,
     {
-        let glyphs = glyphs.map(Self::convert_glyph);
         self.inner
             .build(
                 glyphs,

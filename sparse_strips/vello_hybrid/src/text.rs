@@ -26,7 +26,7 @@ use peniko::color::palette::css::BLACK;
 use peniko::color::{AlphaColor, Srgb};
 use peniko::{BlendMode, Extend, Gradient, ImageQuality, ImageSampler};
 use vello_common::paint::{Image, ImageId, ImageSource, PaintType, Tint};
-use vello_common::glyph::{Glyph as LegacyGlyph, NormalizedCoord};
+use vello_common::glyph::{Glyph, NormalizedCoord};
 use vello_common::peniko::FontData;
 use vello_common::peniko;
 use vello_common::pixmap::Pixmap;
@@ -205,16 +205,6 @@ pub struct GlyphRunBuilder<'a> {
     pub(crate) resources: &'a mut Resources,
 }
 
-impl GlyphRunBuilder<'_> {
-    fn convert_glyph(glyph: LegacyGlyph) -> glifo::Glyph {
-        glifo::Glyph {
-            id: glyph.id,
-            x: glyph.x,
-            y: glyph.y,
-        }
-    }
-}
-
 impl<'a> GlyphRunBuilder<'a> {
     pub(crate) fn new(
         font: FontData,
@@ -257,9 +247,8 @@ impl<'a> GlyphRunBuilder<'a> {
 
     pub fn fill_glyphs<Glyphs>(self, glyphs: Glyphs)
     where
-        Glyphs: Iterator<Item = LegacyGlyph> + Clone,
+        Glyphs: Iterator<Item = Glyph> + Clone,
     {
-        let glyphs = glyphs.map(Self::convert_glyph);
         self.inner
             .build(
                 glyphs,
@@ -271,9 +260,8 @@ impl<'a> GlyphRunBuilder<'a> {
 
     pub fn stroke_glyphs<Glyphs>(self, glyphs: Glyphs)
     where
-        Glyphs: Iterator<Item = LegacyGlyph> + Clone,
+        Glyphs: Iterator<Item = Glyph> + Clone,
     {
-        let glyphs = glyphs.map(Self::convert_glyph);
         self.inner
             .build(
                 glyphs,
