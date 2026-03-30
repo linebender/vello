@@ -668,3 +668,35 @@ fn image_spritesheet_tinted(ctx: &mut impl Renderer) {
         cursor_x += glyph.width;
     }
 }
+
+/// Test that `ImageSource::Pixmap` renders directly without Pixmap pre-uploading.
+///
+/// This exercises the hybrid renderer's `PixmapRegister` + `PendingImageUpload` path,
+/// where inline pixmaps are automatically allocated in the image cache and uploaded
+/// to the GPU atlas on demand.
+#[vello_test]
+fn image_pixmap_source(ctx: &mut impl Renderer) {
+    let pixmap = load_image!("rgb_image_2x2");
+    let image_source = ImageSource::Pixmap(pixmap);
+
+    let sampler = ImageSampler {
+        x_extend: Extend::Repeat,
+        y_extend: Extend::Repeat,
+        quality: ImageQuality::Low,
+        alpha: 1.0,
+    };
+
+    // First fill in the top-left quadrant.
+    ctx.set_paint(Image {
+        image: image_source.clone(),
+        sampler,
+    });
+    ctx.fill_rect(&Rect::new(5.0, 5.0, 45.0, 45.0));
+
+    // Second fill with the same pixmap in the bottom-right quadrant.
+    ctx.set_paint(Image {
+        image: image_source,
+        sampler,
+    });
+    ctx.fill_rect(&Rect::new(55.0, 55.0, 95.0, 95.0));
+}

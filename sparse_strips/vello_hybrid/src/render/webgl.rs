@@ -45,8 +45,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use core::fmt::Debug;
-use vello_common::image_cache::{ImageCache, ImageResource};
-use vello_common::multi_atlas::{AtlasConfig, AtlasId};
+use vello_common::image_cache::{ImageCache, ImageResource, PendingImageUpload, PixmapRegister};
+use vello_common::multi_atlas::{AtlasConfig, AtlasError, AtlasId};
 use vello_common::render_graph::LayerId;
 use vello_common::{
     coarse::WideTile,
@@ -101,6 +101,14 @@ pub struct WebGlRenderer {
     filter_context: FilterContext,
     /// State used for constructing filter passes.
     filter_pass_state: FilterPassState,
+    /// Registry mapping `Arc<Pixmap>` pointer addresses to allocated `ImageId`s.
+    ///
+    /// Persists across frames so that the same `Arc<Pixmap>` is only uploaded once.
+    pixmap_register: PixmapRegister,
+    /// Pixmaps allocated in the image cache but not yet uploaded to the GPU atlas.
+    ///
+    /// Drained and uploaded at the start of each render call, before scheduling.
+    pending_uploads: Vec<PendingImageUpload>,
 }
 
 impl WebGlRenderer {
@@ -170,6 +178,8 @@ impl WebGlRenderer {
             gradient_cache,
             filter_context,
             filter_pass_state: FilterPassState::default(),
+            pixmap_register: PixmapRegister::default(),
+            pending_uploads: Vec::new(),
         }
     }
 
@@ -187,6 +197,7 @@ impl WebGlRenderer {
         );
 
         self.render_scene(scene, render_size, true)?;
+        self.pixmap_register.maintain(&mut self.image_cache);
 
         // Blit the view framebuffer to the default framebuffer (canvas element), reflecting the
         // image along the Y axis to complete the WebGPU to WebGL2 coordinate transform.
@@ -306,6 +317,7 @@ impl WebGlRenderer {
         );
 
         let result = self.render_scene(scene, &atlas_render_size, false);
+        self.pixmap_register.maintain(&mut self.image_cache);
 
         // Restore the real atlas texture array.
         core::mem::swap(
@@ -352,7 +364,8 @@ impl WebGlRenderer {
             &mut encoded_paints,
         )?;
 
-        self.prepare_gpu_encoded_paints(&encoded_paints);
+        self.prepare_gpu_encoded_paints(&encoded_paints)?;
+        self.upload_pending_images();
 
         self.programs
             .maybe_resize_atlas_texture_array(&self.gl, self.image_cache.atlas_count() as u32);
@@ -531,7 +544,10 @@ impl WebGlRenderer {
         self.gl.delete_framebuffer(Some(&temp_framebuffer));
     }
 
-    fn prepare_gpu_encoded_paints(&mut self, encoded_paints: &[EncodedPaint]) {
+    fn prepare_gpu_encoded_paints(
+        &mut self,
+        encoded_paints: &[EncodedPaint],
+    ) -> Result<(), RenderError> {
         self.encoded_paints
             .resize_with(encoded_paints.len(), || GPU_PAINT_PLACEHOLDER);
         self.paint_idxs.resize(encoded_paints.len() + 1, 0);
@@ -541,13 +557,30 @@ impl WebGlRenderer {
             self.paint_idxs[encoded_paint_idx] = current_idx;
             match paint {
                 EncodedPaint::Image(img) => {
-                    if let ImageSource::OpaqueId { id: image_id, .. } = img.source {
-                        let image_resource: Option<&ImageResource> = self.image_cache.get(image_id);
-                        if let Some(image_resource) = image_resource {
-                            let gpu_image = self.encode_image_paint(img, image_resource);
-                            self.encoded_paints[encoded_paint_idx] = gpu_image;
-                            current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
+                    let image_id = match &img.source {
+                        ImageSource::OpaqueId { id, .. } => Some(*id),
+                        ImageSource::Pixmap(pixmap) => {
+                            let id = self.pixmap_register.get_or_insert_with(pixmap, || {
+                                let id = self.image_cache.allocate(
+                                    pixmap.width(),
+                                    pixmap.height(),
+                                    0,
+                                )?;
+                                self.pending_uploads.push(PendingImageUpload {
+                                    image_id: id,
+                                    pixmap: pixmap.clone(),
+                                });
+                                Ok::<_, AtlasError>(id)
+                            })?;
+                            Some(id)
                         }
+                    };
+                    if let Some(image_id) = image_id
+                        && let Some(image_resource) = self.image_cache.get(image_id)
+                    {
+                        let gpu_image = self.encode_image_paint(img, image_resource);
+                        self.encoded_paints[encoded_paint_idx] = gpu_image;
+                        current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
                     }
                 }
                 EncodedPaint::Gradient(gradient) => {
@@ -573,6 +606,17 @@ impl WebGlRenderer {
             }
         }
         self.paint_idxs[encoded_paints.len()] = current_idx;
+        Ok(())
+    }
+
+    /// Upload any pixmaps that were allocated during [`Self::prepare_gpu_encoded_paints`]
+    /// but haven't been written to the GPU atlas yet.
+    fn upload_pending_images(&mut self) {
+        let mut uploads = core::mem::take(&mut self.pending_uploads);
+        for upload in uploads.drain(..) {
+            self.write_to_atlas(upload.image_id, &upload.pixmap, None);
+        }
+        self.pending_uploads = uploads;
     }
 
     fn encode_image_paint(

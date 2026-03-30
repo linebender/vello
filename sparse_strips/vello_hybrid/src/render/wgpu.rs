@@ -42,7 +42,7 @@ use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
 use bytemuck::{Pod, Zeroable};
 use core::{fmt::Debug, num::NonZeroU64};
-use vello_common::image_cache::{ImageCache, ImageResource};
+use vello_common::image_cache::{ImageCache, ImageResource, PendingImageUpload, PixmapRegister};
 use vello_common::multi_atlas::{AtlasConfig, AtlasError, AtlasId};
 use vello_common::render_graph::LayerId;
 use vello_common::{
@@ -99,6 +99,14 @@ pub struct Renderer {
     filter_context: FilterContext,
     /// State used for constructing filter passes.
     filter_pass_state: FilterPassState,
+    /// Registry mapping `Arc<Pixmap>` pointer addresses to allocated `ImageId`s.
+    ///
+    /// Persists across frames so that the same `Arc<Pixmap>` is only uploaded once.
+    pixmap_register: PixmapRegister,
+    /// Pixmaps allocated in the image cache but not yet uploaded to the GPU atlas.
+    ///
+    /// Drained and uploaded at the start of each render call, before scheduling.
+    pending_uploads: Vec<PendingImageUpload>,
 }
 
 impl Renderer {
@@ -141,6 +149,8 @@ impl Renderer {
             paint_idxs: Vec::new(),
             filter_context,
             filter_pass_state: FilterPassState::default(),
+            pixmap_register: PixmapRegister::default(),
+            pending_uploads: Vec::new(),
         }
     }
 
@@ -227,6 +237,7 @@ impl Renderer {
             &encoded_paints,
             false,
         );
+        self.pixmap_register.maintain(&mut self.image_cache);
 
         encoded_paints.truncate(scene_paint_count);
         result
@@ -314,6 +325,7 @@ impl Renderer {
             &encoded_paints,
             false,
         );
+        self.pixmap_register.maintain(&mut self.image_cache);
 
         // Restore the real atlas bind group.
         core::mem::swap(
@@ -344,7 +356,8 @@ impl Renderer {
         encoded_paints: &[EncodedPaint],
         clear: bool,
     ) -> Result<(), RenderError> {
-        self.prepare_gpu_encoded_paints(encoded_paints);
+        self.prepare_gpu_encoded_paints(encoded_paints)?;
+        self.upload_pending_images(device, queue, encoder);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
@@ -576,7 +589,10 @@ impl Renderer {
         render_pass.draw(0..4, 0..1);
     }
 
-    fn prepare_gpu_encoded_paints(&mut self, encoded_paints: &[EncodedPaint]) {
+    fn prepare_gpu_encoded_paints(
+        &mut self,
+        encoded_paints: &[EncodedPaint],
+    ) -> Result<(), RenderError> {
         self.encoded_paints
             .resize_with(encoded_paints.len(), || GPU_PAINT_PLACEHOLDER);
         self.paint_idxs.resize(encoded_paints.len() + 1, 0);
@@ -586,13 +602,30 @@ impl Renderer {
             self.paint_idxs[encoded_paint_idx] = current_idx;
             match paint {
                 EncodedPaint::Image(img) => {
-                    if let ImageSource::OpaqueId { id: image_id, .. } = img.source {
-                        let image_resource: Option<&ImageResource> = self.image_cache.get(image_id);
-                        if let Some(image_resource) = image_resource {
-                            let image_paint = self.encode_image_paint(img, image_resource);
-                            self.encoded_paints[encoded_paint_idx] = image_paint;
-                            current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
+                    let image_id = match &img.source {
+                        ImageSource::OpaqueId { id, .. } => Some(*id),
+                        ImageSource::Pixmap(pixmap) => {
+                            let id = self.pixmap_register.get_or_insert_with(pixmap, || {
+                                let id = self.image_cache.allocate(
+                                    pixmap.width(),
+                                    pixmap.height(),
+                                    0,
+                                )?;
+                                self.pending_uploads.push(PendingImageUpload {
+                                    image_id: id,
+                                    pixmap: pixmap.clone(),
+                                });
+                                Ok::<_, AtlasError>(id)
+                            })?;
+                            Some(id)
                         }
+                    };
+                    if let Some(image_id) = image_id
+                        && let Some(image_resource) = self.image_cache.get(image_id)
+                    {
+                        let image_paint = self.encode_image_paint(img, image_resource);
+                        self.encoded_paints[encoded_paint_idx] = image_paint;
+                        current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
                     }
                 }
                 EncodedPaint::Gradient(gradient) => {
@@ -618,6 +651,29 @@ impl Renderer {
             }
         }
         self.paint_idxs[encoded_paints.len()] = current_idx;
+        Ok(())
+    }
+
+    /// Upload any pixmaps that were allocated during [`Self::prepare_gpu_encoded_paints`]
+    /// but haven't been written to the GPU atlas yet.
+    fn upload_pending_images(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+    ) {
+        let mut uploads = core::mem::take(&mut self.pending_uploads);
+        for upload in uploads.drain(..) {
+            self.write_to_atlas(
+                device,
+                queue,
+                encoder,
+                upload.image_id,
+                &upload.pixmap,
+                None,
+            );
+        }
+        self.pending_uploads = uploads;
     }
 
     fn encode_image_paint(
