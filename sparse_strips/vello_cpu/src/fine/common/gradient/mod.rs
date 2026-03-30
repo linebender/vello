@@ -72,20 +72,7 @@ impl<S: Simd> Iterator for GradientPainter<'_, S> {
         let pos = f32x8::from_slice(self.simd, self.t_vals.next()?);
         let t_vals = apply_extend(pos, extend);
 
-        let indices = (t_vals * self.scale_factor).to_int::<u32x8<S>>();
-
-        // Clear NaNs.
-        let indices = if let Some(transparent_index) = self.lut.transparent_index() {
-            self.simd.select_u32x8(
-                pos.simd_eq(pos),
-                indices,
-                u32x8::splat(self.simd, transparent_index as u32),
-            )
-        } else {
-            indices
-        };
-
-        Some(indices)
+        Some((t_vals * self.scale_factor).to_int::<u32x8<S>>())
     }
 }
 
@@ -135,6 +122,111 @@ impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
                     chunk[20..24].copy_from_slice(&self.lut.get(indices[5] as usize));
                     chunk[24..28].copy_from_slice(&self.lut.get(indices[6] as usize));
                     chunk[28..32].copy_from_slice(&self.lut.get(indices[7] as usize));
+                }
+            },
+        );
+    }
+}
+
+/// A gradient painter that handles undefined t-values (NaN) by outputting
+/// transparent pixels. Used for radial gradient configurations where some
+/// pixel positions have no valid t-value (e.g., strip or non-well-behaved
+/// focal gradients).
+#[derive(Debug)]
+pub(crate) struct MaskedGradientPainter<'a, S: Simd> {
+    gradient: &'a EncodedGradient,
+    lut: &'a GradientLut<f32>,
+    t_vals: ChunksExact<'a, f32>,
+    scale_factor: f32x8<S>,
+    simd: S,
+}
+
+impl<'a, S: Simd> MaskedGradientPainter<'a, S> {
+    pub(crate) fn new(simd: S, gradient: &'a EncodedGradient, t_vals: &'a [f32]) -> Self {
+        let lut = gradient.f32_lut(simd);
+        let scale_factor = f32x8::splat(simd, lut.scale_factor());
+
+        Self {
+            gradient,
+            scale_factor,
+            lut,
+            t_vals: t_vals.chunks_exact(8),
+            simd,
+        }
+    }
+
+    /// Compute LUT indices and a per-pixel validity mask.
+    /// NaN t-values get index 0 (harmless — the sampled value is discarded).
+    #[inline(always)]
+    fn next_masked(&mut self) -> Option<(u32x8<S>, [i32; 8])> {
+        let extend = self.gradient.extend;
+        let pos = f32x8::from_slice(self.simd, self.t_vals.next()?);
+        let is_defined: [i32; 8] = pos.simd_eq(pos).into();
+        let t_vals = apply_extend(pos, extend);
+        let indices = (t_vals * self.scale_factor).to_int::<u32x8<S>>();
+        let indices = self
+            .simd
+            .select_u32x8(pos.simd_eq(pos), indices, u32x8::splat(self.simd, 0));
+        Some((indices, is_defined))
+    }
+}
+
+impl<S: Simd> crate::fine::Painter for MaskedGradientPainter<'_, S> {
+    fn paint_u8(&mut self, buf: &mut [u8]) {
+        self.simd.vectorize(
+            #[inline(always)]
+            || {
+                let zero_f32x4 = f32x4::splat(self.simd, 0.0);
+                for chunk in buf.chunks_exact_mut(32) {
+                    let (indices, is_defined) = self.next_masked().unwrap();
+
+                    let rgbas_1: [f32x4<S>; 4] = core::array::from_fn(|i| {
+                        if is_defined[i] != 0 {
+                            f32x4::from_slice(self.simd, &self.lut.get(indices[i] as usize))
+                        } else {
+                            zero_f32x4
+                        }
+                    });
+                    let rgbas_1 = self.simd.combine_f32x8(
+                        self.simd.combine_f32x4(rgbas_1[0], rgbas_1[1]),
+                        self.simd.combine_f32x4(rgbas_1[2], rgbas_1[3]),
+                    );
+                    let rgbas_1 = u8x16::from_f32(self.simd, rgbas_1);
+                    chunk[..16].copy_from_slice(rgbas_1.as_slice());
+
+                    let rgbas_2: [f32x4<S>; 4] = core::array::from_fn(|i| {
+                        if is_defined[i + 4] != 0 {
+                            f32x4::from_slice(self.simd, &self.lut.get(indices[i + 4] as usize))
+                        } else {
+                            zero_f32x4
+                        }
+                    });
+                    let rgbas_2 = self.simd.combine_f32x8(
+                        self.simd.combine_f32x4(rgbas_2[0], rgbas_2[1]),
+                        self.simd.combine_f32x4(rgbas_2[2], rgbas_2[3]),
+                    );
+                    let rgbas_2 = u8x16::from_f32(self.simd, rgbas_2);
+                    chunk[16..].copy_from_slice(rgbas_2.as_slice());
+                }
+            },
+        );
+    }
+
+    fn paint_f32(&mut self, buf: &mut [f32]) {
+        self.simd.vectorize(
+            #[inline(always)]
+            || {
+                let zero = [0.0_f32; 4];
+                for chunk in buf.chunks_exact_mut(32) {
+                    let (indices, is_defined) = self.next_masked().unwrap();
+                    for i in 0..8 {
+                        let src = if is_defined[i] != 0 {
+                            self.lut.get(indices[i] as usize)
+                        } else {
+                            zero
+                        };
+                        chunk[i * 4..(i + 1) * 4].copy_from_slice(&src);
+                    }
                 }
             },
         );

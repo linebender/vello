@@ -1088,10 +1088,13 @@ fn xy_to_unit_angle(x: f32, y: f32) -> f32 {
 
 // Sample from the gradient texture at calculated position.
 fn sample_gradient_lut(t_value: f32, extend_mode: u32, gradient_start: u32, texture_width: u32, is_valid: bool) -> vec4<f32> {
+    if !is_valid {
+        return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    }
     // Apply extend mode to t_value
     let clamped_t = extend_mode_normalized(t_value, extend_mode);
     // Convert t_value to texture coordinate
-    let t_offset = select(texture_width, u32(clamped_t * f32(texture_width - 1u)), is_valid);
+    let t_offset = u32(clamped_t * f32(texture_width - 1u));
     // Calculate absolute position in flat gradient texture
     let flat_coord = gradient_start + t_offset;
     // Convert flat coordinate to 2D texture coordinate

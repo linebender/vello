@@ -14,7 +14,7 @@ mod lowp;
 use crate::fine::common::gradient::linear::SimdLinearKind;
 use crate::fine::common::gradient::radial::SimdRadialKind;
 use crate::fine::common::gradient::sweep::SimdSweepKind;
-use crate::fine::common::gradient::{GradientPainter, calculate_t_vals};
+use crate::fine::common::gradient::{GradientPainter, MaskedGradientPainter, calculate_t_vals};
 use crate::fine::common::image::{FilteredImagePainter, NNImagePainter, PlainNNImagePainter};
 use crate::fine::common::rounded_blurred_rect::BlurredRoundedRectFiller;
 use crate::layer_manager::LayerManager;
@@ -277,11 +277,8 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
 
     /// Create a painter for rendering gradients with undefined region support.
     ///
-    /// Similar to `gradient_painter`, but with support for masking undefined locations
-    /// (used for radial gradients that may have mathematically undefined regions).
-    ///
-    /// This is intentionally a duplicate of the default [`FineKernel::gradient_painter`]
-    /// implementation--the `U8Kernel` overrides that method, but not this one.
+    /// Uses [`MaskedGradientPainter`] which outputs transparent for pixels where
+    /// the t-value is undefined (NaN), instead of sampling the LUT.
     fn gradient_painter_with_undefined<'a>(
         simd: S,
         gradient: &'a EncodedGradient,
@@ -289,7 +286,7 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     ) -> impl Painter + 'a {
         simd.vectorize(
             #[inline(always)]
-            || GradientPainter::new(simd, gradient, t_vals),
+            || MaskedGradientPainter::new(simd, gradient, t_vals),
         )
     }
     /// Create a painter for rendering axis-aligned nearest-neighbor images.

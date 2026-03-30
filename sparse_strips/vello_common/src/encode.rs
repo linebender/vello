@@ -216,7 +216,6 @@ impl EncodeExt for Gradient {
             stops: self.stops.clone(),
             interpolation_cs: self.interpolation_cs,
             hue_direction: self.hue_direction,
-            has_undefined: kind.has_undefined(),
         });
 
         let encoded = EncodedGradient {
@@ -709,16 +708,6 @@ pub enum EncodedKind {
     Sweep(SweepKind),
 }
 
-impl EncodedKind {
-    /// Whether the gradient is undefined at any location.
-    fn has_undefined(&self) -> bool {
-        match self {
-            Self::Radial(radial_kind) => radial_kind.has_undefined(),
-            _ => false,
-        }
-    }
-}
-
 /// An encoded gradient.
 #[derive(Debug)]
 pub struct EncodedGradient {
@@ -746,13 +735,13 @@ impl EncodedGradient {
     /// Get the lookup table for sampling u8-based gradient values.
     pub fn u8_lut<S: Simd>(&self, simd: S) -> &GradientLut<u8> {
         self.u8_lut
-            .get_or_init(|| GradientLut::new(simd, &self.ranges, self.kind.has_undefined()))
+            .get_or_init(|| GradientLut::new(simd, &self.ranges))
     }
 
     /// Get the lookup table for sampling f32-based gradient values.
     pub fn f32_lut<S: Simd>(&self, simd: S) -> &GradientLut<f32> {
         self.f32_lut
-            .get_or_init(|| GradientLut::new(simd, &self.ranges, self.kind.has_undefined()))
+            .get_or_init(|| GradientLut::new(simd, &self.ranges))
     }
 }
 
@@ -765,8 +754,6 @@ pub struct GradientCacheKey {
     pub interpolation_cs: ColorSpaceTag,
     /// Hue direction used for interpolation.
     pub hue_direction: HueDirection,
-    /// Whether the gradient itself can have undefined
-    pub has_undefined: bool,
 }
 
 impl BitHash for GradientCacheKey {
@@ -774,7 +761,6 @@ impl BitHash for GradientCacheKey {
         self.stops.bit_hash(state);
         core::mem::discriminant(&self.interpolation_cs).hash(state);
         core::mem::discriminant(&self.hue_direction).hash(state);
-        self.has_undefined.hash(state);
     }
 }
 
@@ -980,19 +966,13 @@ impl FromF32Color for u8 {
 pub struct GradientLut<T: FromF32Color> {
     lut: Vec<[T; 4]>,
     scale: f32,
-    has_undefined: bool,
 }
 
 impl<T: FromF32Color> GradientLut<T> {
     /// Create a new lookup table.
-    fn new<S: Simd>(simd: S, ranges: &[GradientRange], has_undefined: bool) -> Self {
+    fn new<S: Simd>(simd: S, ranges: &[GradientRange]) -> Self {
         let lut_size = determine_lut_size(ranges);
-
-        // If the gradient's t value is undefined at some pixels, we store an extra transparent
-        // color at the end. An undefined t value can later be mapped to that LUT index, allowing
-        // for uniform control flow.
-        let padded_lut_size = lut_size + has_undefined as usize;
-        let mut lut = vec![[T::ZERO; 4]; padded_lut_size];
+        let mut lut = vec![[T::ZERO; 4]; lut_size];
 
         // Calculate how many indices are covered by each range.
         let ramps = {
@@ -1044,18 +1024,12 @@ impl<T: FromF32Color> GradientLut<T> {
                 let (r3, r4) = simd.split_f32x8(im2);
                 let rs = [r1, r2, r3, r4].map(T::from_f32);
 
-                // Make sure not to overwrite any extra transparent color at the end (it's not
-                // counted in `lut_size`)
                 let lut = &mut lut[idx..(idx + 4).min(lut_size)];
                 lut.copy_from_slice(&rs[..lut.len()]);
             });
         }
 
-        Self {
-            lut,
-            scale,
-            has_undefined,
-        }
+        Self { lut, scale }
     }
 
     /// Get the sample value at a specific index.
@@ -1070,24 +1044,10 @@ impl<T: FromF32Color> GradientLut<T> {
         &self.lut
     }
 
-    /// Return the index of the transparent color stored at the end of the table, used if a
-    /// gradient's t value is undefined. Only exists if the gradient is of a type that can have
-    /// undefined t values.
-    #[inline(always)]
-    pub fn transparent_index(&self) -> Option<usize> {
-        self.has_undefined.then(|| self.lut.len() - 1)
-    }
-
-    /// Return the number of normal entries in the lookup table. This does not include any potential
-    /// transparent color stored at the end of the table, which is used for gradients that can have
-    /// undefined t values.
+    /// Return the number of entries in the lookup table.
     #[inline(always)]
     pub fn width(&self) -> usize {
-        if self.has_undefined {
-            self.lut.len() - 1
-        } else {
-            self.lut.len()
-        }
+        self.lut.len()
     }
 
     /// Get the scale factor by which to scale the parametric value to
