@@ -260,7 +260,7 @@ fn validate(gradient: &Gradient) -> Result<(), Paint> {
         let n = stops[1];
 
         // Offsets must be between 0 and 1, and not NaN.
-        if f.offset > 1.0 || f.offset < 0.0 || f.offset.is_nan() {
+        if !(0.0..=1.0).contains(&f.offset) {
             return first;
         }
 
@@ -272,7 +272,7 @@ fn validate(gradient: &Gradient) -> Result<(), Paint> {
 
     // Check the last stop as well.
     let last = gradient.stops.last().unwrap();
-    if last.offset > 1.0 || last.offset < 0.0 || last.offset.is_nan() {
+    if !(0.0..=1.0).contains(&last.offset) {
         return first;
     }
 
