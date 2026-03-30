@@ -30,18 +30,24 @@ impl fmt::Debug for SvgScene {
 }
 
 impl ExampleScene for SvgScene {
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+    fn render<T: RenderingContext>(
+        &mut self,
+        ctx: &mut T,
+        resources: &mut T::Resources,
+        root_transform: Affine,
+    ) {
         let current_transform = root_transform * self.transform;
 
         if self.recording_enabled {
             // Try to reuse existing recording if possible
-            let render_result = try_reuse_recording(ctx, &mut self.recording, current_transform);
+            let render_result =
+                try_reuse_recording(ctx, resources, &mut self.recording, current_transform);
             if render_result.is_reused {
                 return;
             }
 
             // If we get here, we need to record fresh
-            record_fresh(self, ctx, current_transform);
+            record_fresh(self, ctx, resources, current_transform);
         } else {
             // Direct rendering mode (no recording/caching)
             #[cfg(not(target_arch = "wasm32"))]
@@ -91,8 +97,9 @@ impl CachedRecording {
 }
 
 /// Try to reuse an existing recording, either directly (TODO: or with translation)
-fn try_reuse_recording(
-    ctx: &mut impl RenderingContext,
+fn try_reuse_recording<T: RenderingContext>(
+    ctx: &mut T,
+    resources: &mut T::Resources,
     recording: &mut CachedRecording,
     current_transform: Affine,
 ) -> RenderResult {
@@ -104,7 +111,7 @@ fn try_reuse_recording(
     let start = std::time::Instant::now();
     // Case 1: Identical transforms - can reuse directly
     if transforms_are_identical(recording_transform, current_transform) {
-        ctx.execute_recording(&recording.recording);
+        ctx.execute_recording(resources, &recording.recording);
         #[cfg(not(target_arch = "wasm32"))]
         print_render_stats("Identical ", start.elapsed(), &recording.recording);
         return RenderResult { is_reused: true };
@@ -117,9 +124,10 @@ fn try_reuse_recording(
 }
 
 /// Record a fresh scene from scratch
-fn record_fresh(
+fn record_fresh<T: RenderingContext>(
     scene_obj: &mut SvgScene,
-    ctx: &mut impl RenderingContext,
+    ctx: &mut T,
+    resources: &mut T::Resources,
     current_transform: Affine,
 ) {
     #[cfg(not(target_arch = "wasm32"))]
@@ -127,11 +135,11 @@ fn record_fresh(
     scene_obj.recording.transform_key = Some(current_transform);
     let new_recording = &mut scene_obj.recording.recording;
     new_recording.clear();
-    ctx.record(new_recording, |recorder| {
+    ctx.record(resources, new_recording, |recorder| {
         render_svg_record(recorder, &scene_obj.svg.items, current_transform);
     });
-    ctx.prepare_recording(new_recording);
-    ctx.execute_recording(new_recording);
+    ctx.prepare_recording(resources, new_recording);
+    ctx.execute_recording(resources, new_recording);
     #[cfg(not(target_arch = "wasm32"))]
     print_render_stats("Fresh     ", start.elapsed(), new_recording);
 }

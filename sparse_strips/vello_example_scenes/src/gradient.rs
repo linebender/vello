@@ -28,7 +28,12 @@ impl GradientExtendScene {
 }
 
 impl ExampleScene for GradientExtendScene {
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+    fn render<T: RenderingContext>(
+        &mut self,
+        ctx: &mut T,
+        _resources: &mut T::Resources,
+        root_transform: Affine,
+    ) {
         enum Kind {
             Linear,
             Radial,
@@ -148,7 +153,12 @@ impl RadialScene {
 }
 
 impl ExampleScene for RadialScene {
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+    fn render<T: RenderingContext>(
+        &mut self,
+        ctx: &mut T,
+        _resources: &mut T::Resources,
+        root_transform: Affine,
+    ) {
         /// Helper function to create color stops
         fn create_color_stops(colors: &[Color]) -> ColorStops {
             ColorStops(smallvec![

@@ -15,7 +15,7 @@ use vello_common::glyph::Glyph;
 use vello_common::kurbo::Affine;
 use vello_common::recording::{Recorder, Recording};
 
-use crate::{ExampleScene, RenderingContext};
+use crate::{ExampleScene, GlyphRunBuilderLike, RenderingContext};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct ColorBrush {
@@ -48,22 +48,28 @@ impl fmt::Debug for TextScene {
 }
 
 impl ExampleScene for TextScene {
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+    fn render<T: RenderingContext>(
+        &mut self,
+        ctx: &mut T,
+        resources: &mut T::Resources,
+        root_transform: Affine,
+    ) {
         if self.recording_enabled {
             // Try to reuse existing recording if possible
-            let render_result = try_reuse_recording(ctx, &mut self.recording, root_transform);
+            let render_result =
+                try_reuse_recording(ctx, resources, &mut self.recording, root_transform);
             if render_result.is_reused {
                 return;
             }
 
             // If we get here, we need to record fresh
-            record_fresh(self, ctx, root_transform);
+            record_fresh(self, ctx, resources, root_transform);
         } else {
             // Direct rendering mode (no recording/caching)
             #[cfg(not(target_arch = "wasm32"))]
             let start = std::time::Instant::now();
             ctx.set_transform(root_transform);
-            render_text(self, ctx);
+            render_text(self, ctx, resources);
             #[cfg(not(target_arch = "wasm32"))]
             {
                 let elapsed = start.elapsed();
@@ -152,8 +158,9 @@ impl CachedRecording {
 }
 
 /// Try to reuse an existing recording, either directly (TODO: or with translation)
-fn try_reuse_recording(
-    ctx: &mut impl RenderingContext,
+fn try_reuse_recording<T: RenderingContext>(
+    ctx: &mut T,
+    resources: &mut T::Resources,
     recording: &mut CachedRecording,
     current_transform: Affine,
 ) -> RenderResult {
@@ -166,7 +173,7 @@ fn try_reuse_recording(
 
     // Case 1: Identical transforms - can reuse directly
     if transforms_are_identical(recording_transform, current_transform) {
-        ctx.execute_recording(&recording.recording);
+        ctx.execute_recording(resources, &recording.recording);
         #[cfg(not(target_arch = "wasm32"))]
         print_render_stats("Identical ", start.elapsed(), &recording.recording);
         return RenderResult { is_reused: true };
@@ -179,9 +186,10 @@ fn try_reuse_recording(
 }
 
 /// Record a fresh scene from scratch
-fn record_fresh(
+fn record_fresh<T: RenderingContext>(
     scene_obj: &mut TextScene,
-    ctx: &mut impl RenderingContext,
+    ctx: &mut T,
+    resources: &mut T::Resources,
     current_transform: Affine,
 ) {
     #[cfg(not(target_arch = "wasm32"))]
@@ -189,11 +197,11 @@ fn record_fresh(
     scene_obj.recording.transform_key = Some(current_transform);
     let recording = &mut scene_obj.recording.recording;
     recording.clear();
-    ctx.record(recording, |recorder| {
+    ctx.record(resources, recording, |recorder| {
         render_text_record(&mut scene_obj.layout, recorder, current_transform);
     });
-    ctx.prepare_recording(recording);
-    ctx.execute_recording(recording);
+    ctx.prepare_recording(resources, recording);
+    ctx.execute_recording(resources, recording);
     #[cfg(not(target_arch = "wasm32"))]
     print_render_stats("Fresh     ", start.elapsed(), recording);
 }
@@ -233,11 +241,15 @@ impl TextScene {
     }
 }
 
-fn render_text(state: &mut TextScene, ctx: &mut impl RenderingContext) {
+fn render_text<T: RenderingContext>(
+    state: &mut TextScene,
+    ctx: &mut T,
+    resources: &mut T::Resources,
+) {
     for line in state.layout.lines() {
         for item in line.items() {
             if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
-                render_glyph_run(ctx, &glyph_run, 30);
+                render_glyph_run(ctx, resources, &glyph_run, 30);
             }
         }
     }
@@ -255,14 +267,15 @@ fn render_text_record(layout: &mut Layout<ColorBrush>, ctx: &mut Recorder<'_>, t
     }
 }
 
-fn render_glyph_run(
-    ctx: &mut impl RenderingContext,
+fn render_glyph_run<T: RenderingContext>(
+    ctx: &mut T,
+    resources: &mut T::Resources,
     glyph_run: &GlyphRun<'_, ColorBrush>,
     padding: u32,
 ) {
     let mut run_x = glyph_run.offset();
     let run_y = glyph_run.baseline();
-    let glyphs = glyph_run.glyphs().map(|glyph| {
+    let glyphs: Vec<_> = glyph_run.glyphs().map(|glyph| {
         let glyph_x = run_x + glyph.x + padding as f32;
         let glyph_y = run_y - glyph.y + padding as f32;
         run_x += glyph.advance;
@@ -272,20 +285,18 @@ fn render_glyph_run(
             x: glyph_x,
             y: glyph_y,
         }
-    });
+    }).collect();
 
     let run = glyph_run.run();
     let font = run.font();
     let font_size = run.font_size();
-    let normalized_coords = bytemuck::cast_slice(run.normalized_coords());
-
     let style = glyph_run.style();
     ctx.set_paint(style.brush.color);
-    ctx.glyph_run(font)
+    ctx.glyph_run(resources, font)
         .font_size(font_size)
-        .normalized_coords(normalized_coords)
         .hint(true)
-        .fill_glyphs(glyphs);
+        // TODO: Re-add normalized coords
+        .fill_glyphs(glyphs.into_iter());
 }
 
 fn render_glyph_run_record(

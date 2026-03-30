@@ -18,7 +18,12 @@ use vello_common::peniko::{BlendMode, Compose, Mix};
 pub struct FilterScene {}
 
 impl ExampleScene for FilterScene {
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+    fn render<T: RenderingContext>(
+        &mut self,
+        ctx: &mut T,
+        _resources: &mut T::Resources,
+        root_transform: Affine,
+    ) {
         ctx.set_transform(root_transform);
 
         let filter_drop_shadow = Filter::from_primitive(FilterPrimitive::DropShadow {

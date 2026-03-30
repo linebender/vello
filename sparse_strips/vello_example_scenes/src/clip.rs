@@ -24,7 +24,12 @@ pub struct ClipScene {
 }
 
 impl ExampleScene for ClipScene {
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+    fn render<T: RenderingContext>(
+        &mut self,
+        ctx: &mut T,
+        _resources: &mut T::Resources,
+        root_transform: Affine,
+    ) {
         render(ctx, root_transform, self.use_clip_path, self.num_circles);
     }
 

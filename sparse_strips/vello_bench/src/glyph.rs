@@ -4,13 +4,12 @@
 use std::time::{Duration, Instant};
 
 use criterion::Criterion;
+use glifo::{Glyph, GlyphRenderer, GlyphRunBuilder, GlyphType, ImageCache};
 use parley::{
     Alignment, AlignmentOptions, Font, FontContext, FontFamily, GlyphRun, Layout, LayoutContext,
     PositionedLayoutItem,
 };
 use vello_common::fearless_simd::Level;
-use vello_common::glyph::{Glyph, GlyphCaches, GlyphRunBuilder};
-use vello_common::glyph::{GlyphRenderer, GlyphType};
 use vello_common::kurbo::Affine;
 use vello_common::peniko::Fill;
 use vello_common::strip_generator::{StripGenerator, StripStorage};
@@ -28,7 +27,7 @@ pub fn glyph(c: &mut Criterion) {
             Level::try_detect().unwrap_or(Level::baseline()),
         ),
         strip_storage: StripStorage::default(),
-        glyph_caches: None,
+        image_cache: ImageCache::new_with_config(Default::default()),
     };
 
     const TEXT: &str = "The quick brown fox jumps over the lazy dog 0123456789";
@@ -46,32 +45,12 @@ pub fn glyph(c: &mut Criterion) {
     };
 
     for (hint_name, hint) in [("hinted", true), ("unhinted", false)] {
-        g.bench_function(format!("cached_{hint_name}"), |b| {
-            let layout = layout_for(TEXT, 1.0);
-            render_layout(&mut renderer, &layout, hint);
-
-            b.iter_custom(|iters| {
-                let mut total_time = Duration::from_nanos(0);
-                for _ in 0..iters {
-                    // Don't include `clear` time in the benchmark.
-                    renderer.strip_storage.clear();
-
-                    let start = Instant::now();
-                    render_layout(&mut renderer, &layout, hint);
-                    total_time += start.elapsed();
-                }
-                total_time
-            });
-        });
-
-        g.bench_function(format!("uncached_{hint_name}"), |b| {
+        g.bench_function(format!("direct_{hint_name}"), |b| {
             let layout = layout_for(TEXT, 1.0);
 
             b.iter_custom(|iters| {
                 let mut total_time = Duration::from_nanos(0);
                 for _ in 0..iters {
-                    // Don't include `clear` time in the benchmark.
-                    renderer.glyph_caches.as_mut().unwrap().clear();
                     renderer.strip_storage.clear();
 
                     let start = Instant::now();
@@ -82,52 +61,101 @@ pub fn glyph(c: &mut Criterion) {
             });
         });
     }
-
-    g.bench_function("maintain", |b| {
-        let layouts = (0..10)
-            .map(|i| layout_for(TEXT, 1.0 + i as f32 * 0.1))
-            .collect::<Vec<_>>();
-
-        b.iter_custom(|iters| {
-            let mut total_time = Duration::from_nanos(0);
-            for _ in 0..iters {
-                // Prepopulate cache with enough glyphs to overflow cache bounds.
-                // Don't include prepopulate time in the benchmark.
-                for layout in layouts.iter() {
-                    render_layout(&mut renderer, layout, true);
-                }
-
-                let start = Instant::now();
-                renderer.glyph_caches.as_mut().unwrap().maintain();
-                total_time += start.elapsed();
-            }
-            total_time
-        });
-    });
 }
 
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
 struct Brush {}
 
-struct GlyphBenchRenderer {
-    strip_generator: StripGenerator,
-    strip_storage: StripStorage,
-    glyph_caches: Option<GlyphCaches>,
-}
+#[derive(Default)]
+struct NoOpGlyphCache;
 
-impl GlyphBenchRenderer {
-    /// Creates a builder for drawing a run of glyphs that have the same attributes.
-    fn glyph_run(&mut self, font: &Font) -> GlyphRunBuilder<'_, Self> {
-        GlyphRunBuilder::new(font.clone(), Affine::IDENTITY, self)
+impl glifo::GlyphCache for NoOpGlyphCache {
+    fn get(&mut self, _key: &glifo::GlyphCacheKey) -> Option<glifo::AtlasSlot> {
+        None
+    }
+
+    fn insert(
+        &mut self,
+        _image_cache: &mut ImageCache,
+        _key: glifo::GlyphCacheKey,
+        _raster_metrics: glifo::RasterMetrics,
+    ) -> Option<(u16, u16, glifo::AtlasSlot, &mut glifo::AtlasCommandRecorder)> {
+        unreachable!("atlas cache is disabled in direct glyph benchmarks")
+    }
+
+    fn push_pending_upload(
+        &mut self,
+        _image_id: vello_common::paint::ImageId,
+        _pixmap: std::sync::Arc<vello_common::pixmap::Pixmap>,
+        _atlas_slot: glifo::AtlasSlot,
+    ) {
+    }
+
+    fn drain_pending_uploads(&mut self) -> impl Iterator<Item = glifo::atlas::PendingBitmapUpload> + '_ {
+        std::iter::empty()
+    }
+
+    fn replay_pending_atlas_commands(&mut self, _f: impl FnMut(&mut glifo::AtlasCommandRecorder)) {}
+
+    fn drain_pending_clear_rects(&mut self) -> impl Iterator<Item = glifo::PendingClearRect> + '_ {
+        std::iter::empty()
+    }
+
+    fn maintain(&mut self, _image_cache: &mut ImageCache) {}
+
+    fn clear(&mut self) {}
+
+    fn len(&self) -> usize {
+        0
+    }
+
+    fn is_empty(&self) -> bool {
+        true
+    }
+
+    fn cache_hits(&self) -> u64 {
+        0
+    }
+
+    fn cache_misses(&self) -> u64 {
+        0
+    }
+
+    fn clear_stats(&mut self) {}
+
+    fn config(&self) -> &glifo::GlyphCacheConfig {
+        static CONFIG: glifo::GlyphCacheConfig = glifo::GlyphCacheConfig {
+            max_entry_age: 64,
+            eviction_frequency: 64,
+            max_cached_font_size: 128.0,
+        };
+        &CONFIG
     }
 }
 
-impl GlyphRenderer for GlyphBenchRenderer {
-    fn fill_glyph(&mut self, glyph: vello_common::glyph::PreparedGlyph<'_>) {
+struct GlyphBenchRenderer {
+    strip_generator: StripGenerator,
+    strip_storage: StripStorage,
+    image_cache: ImageCache,
+}
+
+impl GlyphBenchRenderer {
+    fn glyph_run(font: &Font) -> GlyphRunBuilder<'_> {
+        GlyphRunBuilder::new(font.clone(), Affine::IDENTITY).atlas_cache(false)
+    }
+}
+
+impl GlyphRenderer<NoOpGlyphCache> for GlyphBenchRenderer {
+    fn fill_glyph(
+        &mut self,
+        glyph: glifo::PreparedGlyph<'_>,
+        _glyph_atlas: &mut NoOpGlyphCache,
+        _image_cache: &mut ImageCache,
+    ) {
         match glyph.glyph_type {
             GlyphType::Outline(outline_glyph) => {
                 self.strip_generator.generate_filled_path(
-                    outline_glyph.path,
+                    outline_glyph.path.elements().iter().copied(),
                     Fill::NonZero,
                     glyph.transform,
                     Some(128),
@@ -140,16 +168,27 @@ impl GlyphRenderer for GlyphBenchRenderer {
         }
     }
 
-    fn stroke_glyph(&mut self, _glyph: vello_common::glyph::PreparedGlyph<'_>) {
-        // We only care about filled glyphs for now.
+    fn stroke_glyph(
+        &mut self,
+        _glyph: glifo::PreparedGlyph<'_>,
+        _glyph_atlas: &mut NoOpGlyphCache,
+        _image_cache: &mut ImageCache,
+    ) {
         unimplemented!()
     }
 
-    fn take_glyph_caches(&mut self) -> GlyphCaches {
-        self.glyph_caches.take().unwrap_or_default()
+    fn render_cached_glyph(
+        &mut self,
+        _cached_slot: glifo::AtlasSlot,
+        _transform: Affine,
+        _glyph_type: glifo::CachedGlyphType,
+    ) {
     }
-    fn restore_glyph_caches(&mut self, cache: GlyphCaches) {
-        self.glyph_caches = Some(cache);
+
+    fn fill_rect(&mut self, _rect: vello_common::kurbo::Rect) {}
+
+    fn get_context_color(&self) -> vello_common::color::AlphaColor<vello_common::color::Srgb> {
+        vello_common::peniko::color::palette::css::BLACK
     }
 }
 
@@ -170,22 +209,34 @@ fn render_glyph_run(
 ) {
     let mut run_x = glyph_run.offset();
     let run_y = glyph_run.baseline();
-    let glyphs = glyph_run.glyphs().map(|glyph| {
-        let glyph_x = run_x + glyph.x;
-        let glyph_y = run_y - glyph.y;
-        run_x += glyph.advance;
+    let glyphs: Vec<_> = glyph_run
+        .glyphs()
+        .map(|glyph| {
+            let glyph_x = run_x + glyph.x;
+            let glyph_y = run_y - glyph.y;
+            run_x += glyph.advance;
 
-        Glyph {
-            id: glyph.id as u32,
-            x: glyph_x,
-            y: glyph_y,
-        }
-    });
+            Glyph {
+                id: glyph.id as u32,
+                x: glyph_x,
+                y: glyph_y,
+            }
+        })
+        .collect();
 
     let run = glyph_run.run();
-    renderer
-        .glyph_run(run.font())
+    let mut glyph_caches = glifo::GlyphCaches {
+        hinting_cache: Default::default(),
+        outline_cache: Default::default(),
+        underline_exclusions: Default::default(),
+        glyph_atlas: NoOpGlyphCache,
+    };
+    let mut image_cache =
+        std::mem::replace(&mut renderer.image_cache, ImageCache::new_with_config(Default::default()));
+    GlyphBenchRenderer::glyph_run(run.font())
         .font_size(run.font_size())
         .hint(hint)
-        .fill_glyphs(glyphs);
+        .build(glyphs.into_iter(), &mut glyph_caches, &mut image_cache)
+        .fill_glyphs(renderer);
+    renderer.image_cache = image_cache;
 }

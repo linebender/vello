@@ -3989,6 +3989,7 @@ name = "vello_bench"
 version = "0.0.0"
 dependencies = [
  "criterion",
+ "glifo",
  "image",
  "parley",
  "rand",
