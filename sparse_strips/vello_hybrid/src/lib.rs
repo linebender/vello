@@ -51,6 +51,8 @@ mod render;
 mod scene;
 #[cfg(any(all(target_arch = "wasm32", feature = "webgl"), feature = "wgpu"))]
 mod schedule;
+#[cfg(feature = "text")]
+mod text;
 
 pub mod api;
 pub mod util;

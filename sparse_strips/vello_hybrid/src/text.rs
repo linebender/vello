@@ -10,26 +10,24 @@
 //! GPU renderer owns atlas textures and receives pixel data through the
 //! pending-upload queue.
 
-use super::vello_renderer;
-use crate::atlas::{
-    AtlasCommandRecorder, AtlasSlot, GLYPH_PADDING, GlyphAtlas, GlyphCache, GlyphCacheConfig,
-    GlyphCacheKey, ImageCache, PendingBitmapUpload, PendingClearRect, RasterMetrics,
-};
-use crate::renderers::vello_renderer::{AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale};
-use crate::{GlyphCaches, HintCache, OutlineCache, kurbo, peniko};
-use crate::{
-    Pixmap,
-    colr::{ColrPainter, ColrRenderer},
-    glyph::{CachedGlyphType, GlyphBitmap, GlyphColr, GlyphRenderer, PreparedGlyph},
+use glifo::renderers::vello_renderer;
+use glifo::renderers::vello_renderer::{AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale};
+use glifo::{
+    AtlasCommandRecorder, AtlasSlot, CachedGlyphType, ColrPainter, ColrRenderer, GLYPH_PADDING,
+    GlyphAtlas, GlyphBitmap, GlyphCache, GlyphCacheConfig, GlyphCacheKey, GlyphCaches, GlyphColr,
+    GlyphRenderer, HintCache, ImageCache, OutlineCache, PreparedGlyph, RasterMetrics,
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use kurbo::{Affine, BezPath, Rect};
+use glifo::atlas::{PendingBitmapUpload, PendingClearRect};
+use vello_common::kurbo::{Affine, BezPath, Rect};
 use peniko::color::palette::css::BLACK;
 use peniko::color::{AlphaColor, Srgb};
 use peniko::{BlendMode, Extend, Gradient, ImageQuality, ImageSampler};
 use vello_common::paint::{Image, ImageId, ImageSource, PaintType, Tint};
-use vello_hybrid::Scene;
+use vello_common::peniko;
+use vello_common::pixmap::Pixmap;
+use crate::Scene;
 
 /// Glyph atlas cache for the hybrid (GPU) renderer.
 ///
@@ -157,18 +155,19 @@ impl GlyphCache for GpuGlyphAtlas {
     }
 }
 
-/// Convenience alias: all glyph caches needed by the hybrid (GPU) renderer.
-pub type GpuGlyphCaches = GlyphCaches<GpuGlyphAtlas>;
+/// All glyph caches needed by the hybrid (GPU) renderer.
+#[derive(Debug)]
+pub(crate) struct GpuGlyphCaches(pub(crate) GlyphCaches<GpuGlyphAtlas>);
 
 impl GpuGlyphCaches {
     /// Creates a new `GpuGlyphCaches` instance with custom eviction settings.
     pub fn with_config(eviction_config: GlyphCacheConfig) -> Self {
-        Self {
+        Self(GlyphCaches {
             outline_cache: OutlineCache::default(),
             hinting_cache: HintCache::default(),
             underline_exclusions: Vec::new(),
             glyph_atlas: GpuGlyphAtlas::with_config(eviction_config),
-        }
+        })
     }
 }
 
