@@ -56,6 +56,8 @@ pub struct GlyphCacheKey {
     pub size_bits: u32,
     /// Whether hinting was applied.
     pub hinted: bool,
+    /// Whether this is a stroked glyph (as opposed to filled).
+    pub stroked: bool,
     /// Horizontal subpixel position (0 to SUBPIXEL_BUCKETS-1 for outlines),
     /// or a sentinel (`SUBPIXEL_COLR` / `SUBPIXEL_BITMAP`) for non-outline glyphs.
     pub subpixel_x: u8,
@@ -79,6 +81,7 @@ impl GlyphCacheKey {
         glyph_id: u32,
         size: f32,
         hinted: bool,
+        stroked: bool,
         fractional_x: f32,
         context_color: AlphaColor<Srgb>,
         context_color_packed: u32,
@@ -90,6 +93,7 @@ impl GlyphCacheKey {
             glyph_id,
             size_bits: size.to_bits(),
             hinted,
+            stroked,
             subpixel_x: quantize_subpixel(fractional_x),
             context_color,
             context_color_packed,
@@ -110,6 +114,7 @@ impl Hash for GlyphCacheKey {
         self.glyph_id.hash(state);
         self.size_bits.hash(state);
         self.hinted.hash(state);
+        self.stroked.hash(state);
         self.subpixel_x.hash(state);
         self.context_color_packed.hash(state);
     }
@@ -124,6 +129,7 @@ impl PartialEq for GlyphCacheKey {
             && self.font_index == other.font_index
             && self.size_bits == other.size_bits
             && self.hinted == other.hinted
+            && self.stroked == other.stroked
             && self.context_color_packed == other.context_color_packed
     }
 }
@@ -196,21 +202,22 @@ mod tests {
     #[test]
     fn test_key_equality() {
         let packed = pack_color(BLACK);
-        let key1 = GlyphCacheKey::new(1, 0, 42, 16.0, true, 0.3, BLACK, packed, &[]);
-        let key2 = GlyphCacheKey::new(1, 0, 42, 16.0, true, 0.3, BLACK, packed, &[]);
+        let key1 = GlyphCacheKey::new(1, 0, 42, 16.0, true, false, 0.3, BLACK, packed, &[]);
+        let key2 = GlyphCacheKey::new(1, 0, 42, 16.0, true, false, 0.3, BLACK, packed, &[]);
         assert_eq!(key1, key2);
     }
 
     #[test]
     fn test_outline_colr_bitmap_keys_never_collide() {
         let packed = pack_color(BLACK);
-        let outline_key = GlyphCacheKey::new(1, 0, 42, 16.0, false, 0.0, BLACK, packed, &[]);
+        let outline_key = GlyphCacheKey::new(1, 0, 42, 16.0, false, false, 0.0, BLACK, packed, &[]);
         let colr_key = GlyphCacheKey {
             font_id: 1,
             font_index: 0,
             glyph_id: 42,
             size_bits: 16.0_f32.to_bits(),
             hinted: false,
+            stroked: false,
             subpixel_x: SUBPIXEL_COLR,
             context_color: BLACK,
             context_color_packed: packed,
@@ -222,6 +229,7 @@ mod tests {
             glyph_id: 42,
             size_bits: 16.0_f32.to_bits(),
             hinted: false,
+            stroked: false,
             subpixel_x: SUBPIXEL_BITMAP,
             context_color: BLACK,
             context_color_packed: packed,
@@ -246,13 +254,14 @@ mod tests {
         let packed = pack_color(BLACK);
         // var_coords is excluded from Hash/Eq (two-level map handles it),
         // so keys differing only in var_coords are considered equal.
-        let key1 = GlyphCacheKey::new(1, 0, 42, 16.0, true, 0.3, BLACK, packed, &[]);
+        let key1 = GlyphCacheKey::new(1, 0, 42, 16.0, true, false, 0.3, BLACK, packed, &[]);
         let key2 = GlyphCacheKey::new(
             1,
             0,
             42,
             16.0,
             true,
+            false,
             0.3,
             BLACK,
             packed,

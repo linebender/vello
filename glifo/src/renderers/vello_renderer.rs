@@ -214,6 +214,7 @@ pub fn stroke_glyph<B: GlyphAtlasBackend>(
 fn render_outline_to_atlas(
     path: &Arc<BezPath>,
     subpixel_offset: f32,
+    stroked: bool,
     recorder: &mut AtlasCommandRecorder,
     dst_x: u16,
     dst_y: u16,
@@ -225,7 +226,11 @@ fn render_outline_to_atlas(
     ));
     recorder.set_transform(outline_transform);
     recorder.set_paint(BLACK);
-    recorder.fill_path(path);
+    if stroked {
+        recorder.stroke_path(path);
+    } else {
+        recorder.fill_path(path);
+    }
 }
 
 /// Record COLR glyph draw commands into the atlas command recorder.
@@ -264,6 +269,7 @@ fn insert_and_render_outline<B: GlyphAtlasBackend>(
     let raster_metrics = calculate_raster_metrics(&bounds);
 
     let subpixel_offset = subpixel_offset(cache_key.subpixel_x);
+    let stroked = cache_key.stroked;
 
     let Some((dst_x, dst_y, atlas_slot, recorder)) =
         glyph_atlas.insert(image_cache, cache_key, raster_metrics)
@@ -274,6 +280,7 @@ fn insert_and_render_outline<B: GlyphAtlasBackend>(
     render_outline_to_atlas(
         path,
         subpixel_offset,
+        stroked,
         recorder,
         dst_x,
         dst_y,
@@ -552,6 +559,8 @@ pub trait AtlasReplayTarget {
     fn set_paint_transform(&mut self, t: Affine);
     /// Fill a path with the current paint and transform.
     fn fill_path(&mut self, path: &BezPath);
+    /// Stroke a path with the current paint and transform.
+    fn stroke_path(&mut self, path: &BezPath);
     /// Fill a rectangle with the current paint and transform.
     fn fill_rect(&mut self, rect: &Rect);
     /// Push a clip layer defined by a path.
@@ -576,6 +585,7 @@ pub fn replay_atlas_commands(
             AtlasCommand::SetPaint(AtlasPaint::Gradient(g)) => target.set_paint_gradient(g),
             AtlasCommand::SetPaintTransform(t) => target.set_paint_transform(t),
             AtlasCommand::FillPath(p) => target.fill_path(&p),
+            AtlasCommand::StrokePath(p) => target.stroke_path(&p),
             AtlasCommand::FillRect(r) => target.fill_rect(&r),
             AtlasCommand::PushClipLayer(c) => target.push_clip_layer(&c),
             AtlasCommand::PushBlendLayer(m) => target.push_blend_layer(m),
