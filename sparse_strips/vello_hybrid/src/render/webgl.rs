@@ -59,8 +59,8 @@ use vello_common::{
 use vello_sparse_shaders::{clear_slots, filters, render_strips};
 use web_sys::wasm_bindgen::{JsCast, JsValue};
 use web_sys::{
-    WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlTexture,
-    WebGlUniformLocation, WebGlVertexArrayObject,
+    WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlRenderbuffer,
+    WebGlTexture, WebGlUniformLocation, WebGlVertexArrayObject,
 };
 
 /// Placeholder value for uninitialized GPU encoded paints.
@@ -377,6 +377,7 @@ impl WebGlRenderer {
         if clear {
             self.programs.clear_view_framebuffer(&self.gl);
         }
+        self.programs.resources.depth_cleared_this_frame = false;
         let mut ctx = WebGlRendererContext {
             programs: &mut self.programs,
             gl: &self.gl,
@@ -770,8 +771,12 @@ struct WebGlResources {
 
     /// Intermediate surface texture for the main view.
     view_texture: WebGlTexture,
-    /// Framebuffer for the vfiew texture.
+    /// Framebuffer for the view texture.
     view_framebuffer: WebGlFramebuffer,
+    /// Depth renderbuffer attached to the view framebuffer for TBDR early-z.
+    view_depth_renderbuffer: WebGlRenderbuffer,
+    /// Whether the depth buffer has been cleared this frame.
+    depth_cleared_this_frame: bool,
 
     /// Slot textures.
     slot_textures: [WebGlTexture; 2],
@@ -1263,6 +1268,24 @@ impl WebGlPrograms {
                 WebGl2RenderingContext::TEXTURE_2D,
                 Some(&self.resources.view_texture),
                 0,
+            );
+
+            // Resize the depth renderbuffer to match.
+            gl.bind_renderbuffer(
+                WebGl2RenderingContext::RENDERBUFFER,
+                Some(&self.resources.view_depth_renderbuffer),
+            );
+            gl.renderbuffer_storage(
+                WebGl2RenderingContext::RENDERBUFFER,
+                WebGl2RenderingContext::DEPTH_COMPONENT24,
+                new_render_size.width as i32,
+                new_render_size.height as i32,
+            );
+            gl.framebuffer_renderbuffer(
+                WebGl2RenderingContext::FRAMEBUFFER,
+                WebGl2RenderingContext::DEPTH_ATTACHMENT,
+                WebGl2RenderingContext::RENDERBUFFER,
+                Some(&self.resources.view_depth_renderbuffer),
             );
 
             #[cfg(debug_assertions)]
@@ -1904,8 +1927,31 @@ fn create_webgl_resources(
 
     // Create and configure view texture.
     let view_texture = create_texture(gl);
-    // Create framebuffer for the view texture.
+    // Create framebuffer for the view texture with depth attachment.
     let view_framebuffer = create_framebuffer_for_texture(gl, &view_texture);
+    let view_depth_renderbuffer = gl.create_renderbuffer().unwrap();
+    gl.bind_framebuffer(
+        WebGl2RenderingContext::FRAMEBUFFER,
+        Some(&view_framebuffer),
+    );
+    gl.bind_renderbuffer(
+        WebGl2RenderingContext::RENDERBUFFER,
+        Some(&view_depth_renderbuffer),
+    );
+    // Allocate with 1x1 initial size; resized in prepare().
+    gl.renderbuffer_storage(
+        WebGl2RenderingContext::RENDERBUFFER,
+        WebGl2RenderingContext::DEPTH_COMPONENT24,
+        1,
+        1,
+    );
+    gl.framebuffer_renderbuffer(
+        WebGl2RenderingContext::FRAMEBUFFER,
+        WebGl2RenderingContext::DEPTH_ATTACHMENT,
+        WebGl2RenderingContext::RENDERBUFFER,
+        Some(&view_depth_renderbuffer),
+    );
+    gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, None);
 
     // Create slot textures and framebuffers.
     let slot_textures: [WebGlTexture; 2] = [
@@ -1947,6 +1993,8 @@ fn create_webgl_resources(
         slot_framebuffers,
         view_texture,
         view_framebuffer,
+        view_depth_renderbuffer,
+        depth_cleared_this_frame: false,
         max_texture_dimension_2d,
         stub_atlas_texture_array,
         atlas_render_framebuffer: None,
@@ -2038,11 +2086,11 @@ fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
     );
 
     const STRIDE: i32 = size_of::<GpuStrip>() as i32;
-    const { assert!(STRIDE == 20, "expected stride of 20") };
+    const { assert!(STRIDE == 24, "expected stride of 24") };
     let stride = STRIDE;
 
     // Configure attributes.
-    for i in 0..5 {
+    for i in 0..6 {
         let location = i as u32;
         let offset = i * 4;
 
@@ -2100,14 +2148,14 @@ impl WebGlRendererContext<'_> {
     /// Render strips to the specified render target.
     fn do_strip_render_pass(
         &mut self,
-        strips: &[GpuStrip],
+        opaque_strips: &[GpuStrip],
+        alpha_strips: &[GpuStrip],
         target: StripPassRenderTarget,
         load: LoadOp,
     ) {
-        if strips.is_empty() {
+        if opaque_strips.is_empty() && alpha_strips.is_empty() {
             return;
         }
-        self.programs.upload_strips(self.gl, strips);
 
         match &target {
             StripPassRenderTarget::Output(OutputTarget::IntermediateTexture(layer_id)) => {
@@ -2287,13 +2335,67 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.strip_uniforms.gradient_texture), 4);
 
-        // Draw.
-        self.gl.draw_arrays_instanced(
-            WebGl2RenderingContext::TRIANGLE_STRIP,
-            0,
-            4,
-            strips.len() as i32,
-        );
+        let is_final_view =
+            matches!(target, StripPassRenderTarget::Output(OutputTarget::FinalView));
+
+        if is_final_view {
+            // Clear depth buffer on first use per frame.
+            if !self.programs.resources.depth_cleared_this_frame {
+                self.programs.resources.depth_cleared_this_frame = true;
+                self.gl.clear_depth(1.0);
+                self.gl
+                    .clear(WebGl2RenderingContext::DEPTH_BUFFER_BIT);
+            }
+
+            self.gl.enable(WebGl2RenderingContext::DEPTH_TEST);
+            self.gl.depth_func(WebGl2RenderingContext::LEQUAL);
+
+            // Opaque pass: front-to-back, depth write ON, blend OFF.
+            if !opaque_strips.is_empty() {
+                self.programs.upload_strips(self.gl, opaque_strips);
+                self.gl.depth_mask(true);
+                self.gl.disable(WebGl2RenderingContext::BLEND);
+                self.gl.draw_arrays_instanced(
+                    WebGl2RenderingContext::TRIANGLE_STRIP,
+                    0,
+                    4,
+                    opaque_strips.len() as i32,
+                );
+            }
+
+            // Alpha pass: back-to-front, depth test ON, depth write OFF, blend ON.
+            if !alpha_strips.is_empty() {
+                self.programs.upload_strips(self.gl, alpha_strips);
+                self.gl.depth_mask(false);
+                self.gl.enable(WebGl2RenderingContext::BLEND);
+                self.gl.draw_arrays_instanced(
+                    WebGl2RenderingContext::TRIANGLE_STRIP,
+                    0,
+                    4,
+                    alpha_strips.len() as i32,
+                );
+            }
+
+            // Restore state.
+            self.gl.disable(WebGl2RenderingContext::DEPTH_TEST);
+            self.gl.depth_mask(true);
+            self.gl.enable(WebGl2RenderingContext::BLEND);
+        } else {
+            // Slot texture / intermediate: single draw with blending, no depth.
+            // Combine both lists for upload.
+            let all_strips: Vec<GpuStrip> = opaque_strips
+                .iter()
+                .chain(alpha_strips.iter())
+                .copied()
+                .collect();
+            self.programs.upload_strips(self.gl, &all_strips);
+            self.gl.draw_arrays_instanced(
+                WebGl2RenderingContext::TRIANGLE_STRIP,
+                0,
+                4,
+                all_strips.len() as i32,
+            );
+        }
 
         // Clean up.
         self.gl.bind_vertex_array(None);
@@ -2371,11 +2473,12 @@ impl RendererBackend for WebGlRendererContext<'_> {
     /// Execute a render pass for strips.
     fn render_strips(
         &mut self,
-        strips: &[GpuStrip],
+        opaque_strips: &[GpuStrip],
+        alpha_strips: &[GpuStrip],
         target: StripPassRenderTarget,
         load_op: LoadOp,
     ) {
-        self.do_strip_render_pass(strips, target, load_op);
+        self.do_strip_render_pass(opaque_strips, alpha_strips, target, load_op);
     }
 
     fn apply_filter(&mut self, layer_id: LayerId) {
