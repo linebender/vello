@@ -918,17 +918,8 @@ impl Recordable for Scene {
     where
         F: FnOnce(&mut Recorder<'_>),
     {
-        let mut recorder = Recorder::new(
-            recording,
-            self.render_state.transform,
-            #[cfg(feature = "text")]
-            self.take_glyph_caches(),
-        );
+        let mut recorder = Recorder::new(recording, self.render_state.transform);
         f(&mut recorder);
-        #[cfg(feature = "text")]
-        {
-            self.glyph_caches = Some(recorder.take_glyph_caches());
-        }
     }
 
     fn prepare_recording(&mut self, recording: &mut Recording) {
@@ -968,6 +959,26 @@ impl Recordable for Scene {
                         &adjusted_strips,
                     );
                     range_index += 1;
+                }
+                #[cfg(feature = "text")]
+                RenderCommand::FillGlyphRun(run) => {
+                    self
+                        .glyph_run(&run.font)
+                        .font_size(run.font_size)
+                        .hint(run.hint)
+                        .normalized_coords(&run.normalized_coords)
+                        .glyph_transform(run.glyph_transform.unwrap_or(Affine::IDENTITY))
+                        .fill_glyphs(run.glyphs.iter().copied());
+                }
+                #[cfg(feature = "text")]
+                RenderCommand::StrokeGlyphRun(run) => {
+                    self
+                        .glyph_run(&run.font)
+                        .font_size(run.font_size)
+                        .hint(run.hint)
+                        .normalized_coords(&run.normalized_coords)
+                        .glyph_transform(run.glyph_transform.unwrap_or(Affine::IDENTITY))
+                        .stroke_glyphs(run.glyphs.iter().copied());
                 }
                 RenderCommand::SetPaint(paint) => {
                     self.set_paint(paint.clone());

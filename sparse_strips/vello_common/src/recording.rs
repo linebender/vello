@@ -5,7 +5,7 @@
 
 use crate::filter_effects::Filter;
 #[cfg(feature = "text")]
-use crate::glyph::{GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
+use crate::glyph::{Glyph, NormalizedCoord};
 use crate::kurbo::{Affine, BezPath, Cap, Join, Rect, Stroke};
 use crate::mask::Mask;
 use crate::paint::{PaintType, Tint};
@@ -16,6 +16,8 @@ use crate::peniko::{BlendMode, Compose, Fill, Mix};
 use crate::strip::Strip;
 use crate::strip_generator::StripStorage;
 use alloc::vec::Vec;
+#[cfg(feature = "text")]
+use smallvec::SmallVec;
 
 /// Cached sparse strip data.
 #[derive(Debug, Default)]
@@ -105,6 +107,24 @@ pub struct PushLayerCommand {
     pub filter: Option<Filter>,
 }
 
+/// A recorded glyph run.
+#[cfg(feature = "text")]
+#[derive(Debug, Clone)]
+pub struct RecordedGlyphRun {
+    /// Font used for the run.
+    pub font: FontData,
+    /// Font size in pixels per em.
+    pub font_size: f32,
+    /// Optional per-glyph transform.
+    pub glyph_transform: Option<Affine>,
+    /// Whether hinting is enabled.
+    pub hint: bool,
+    /// Variable font coordinates.
+    pub normalized_coords: SmallVec<[NormalizedCoord; 2]>,
+    /// Positioned glyphs in the run.
+    pub glyphs: Vec<Glyph>,
+}
+
 /// Individual rendering commands that can be recorded.
 #[derive(Debug)]
 pub enum RenderCommand {
@@ -144,6 +164,12 @@ pub enum RenderCommand {
     /// Render a stroke outline glyph.
     #[cfg(feature = "text")]
     StrokeOutlineGlyph((BezPath, Affine)),
+    /// Render a fill glyph run.
+    #[cfg(feature = "text")]
+    FillGlyphRun(RecordedGlyphRun),
+    /// Render a stroke glyph run.
+    #[cfg(feature = "text")]
+    StrokeGlyphRun(RecordedGlyphRun),
 }
 
 impl Recording {
@@ -332,23 +358,12 @@ pub trait Recordable {
 pub struct Recorder<'a> {
     /// The recording to capture commands into.
     recording: &'a mut Recording,
-
-    #[cfg(feature = "text")]
-    glyph_caches: Option<crate::glyph::GlyphCaches>,
 }
 
 impl<'a> Recorder<'a> {
     /// Create a new recorder for the given recording.
-    pub fn new(
-        recording: &'a mut Recording,
-        transform: Affine,
-        #[cfg(feature = "text")] glyph_caches: crate::glyph::GlyphCaches,
-    ) -> Self {
-        let mut s = Self {
-            recording,
-            #[cfg(feature = "text")]
-            glyph_caches: Some(glyph_caches),
-        };
+    pub fn new(recording: &'a mut Recording, transform: Affine) -> Self {
+        let mut s = Self { recording };
         // Ensure that the initial transform is saved on the recording.
         s.set_transform(transform);
         s
@@ -466,52 +481,65 @@ impl<'a> Recorder<'a> {
 
     /// Creates a builder for drawing a run of glyphs that have the same attributes.
     #[cfg(feature = "text")]
-    pub fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self> {
-        GlyphRunBuilder::new(font.clone(), self.recording.transform, self)
+    pub fn glyph_run<'b>(&'b mut self, font: &FontData) -> RecorderGlyphRunBuilder<'b, 'a> {
+        RecorderGlyphRunBuilder::new(self, font.clone())
     }
 }
 
 #[cfg(feature = "text")]
-impl GlyphRenderer for Recorder<'_> {
-    fn fill_glyph(&mut self, glyph: PreparedGlyph<'_>) {
-        match glyph.glyph_type {
-            GlyphType::Outline(outline_glyph) => {
-                if !outline_glyph.path.is_empty() {
-                    self.recording.add_command(RenderCommand::FillOutlineGlyph((
-                        outline_glyph.path.clone(),
-                        glyph.transform,
-                    )));
-                }
-            }
+pub struct RecorderGlyphRunBuilder<'a, 'r> {
+    recorder: &'a mut Recorder<'r>,
+    run: RecordedGlyphRun,
+}
 
-            _ => {
-                unimplemented!("Recording glyphs of type {:?}", glyph.glyph_type);
-            }
+#[cfg(feature = "text")]
+impl<'a, 'r> RecorderGlyphRunBuilder<'a, 'r> {
+    fn new(recorder: &'a mut Recorder<'r>, font: FontData) -> Self {
+        Self {
+            recorder,
+            run: RecordedGlyphRun {
+                font,
+                font_size: 16.0,
+                glyph_transform: None,
+                hint: true,
+                normalized_coords: SmallVec::new(),
+                glyphs: Vec::new(),
+            },
         }
     }
 
-    fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>) {
-        match glyph.glyph_type {
-            GlyphType::Outline(outline_glyph) => {
-                if !outline_glyph.path.is_empty() {
-                    self.recording
-                        .add_command(RenderCommand::StrokeOutlineGlyph((
-                            outline_glyph.path.clone(),
-                            glyph.transform,
-                        )));
-                }
-            }
-            _ => {
-                unimplemented!("Recording glyphs of type {:?}", glyph.glyph_type);
-            }
-        }
+    pub fn font_size(mut self, size: f32) -> Self {
+        self.run.font_size = size;
+        self
     }
 
-    fn restore_glyph_caches(&mut self, caches: crate::glyph::GlyphCaches) {
-        self.glyph_caches = Some(caches);
+    pub fn glyph_transform(mut self, transform: Affine) -> Self {
+        self.run.glyph_transform = Some(transform);
+        self
     }
-    fn take_glyph_caches(&mut self) -> crate::glyph::GlyphCaches {
-        self.glyph_caches.take().unwrap_or_default()
+
+    pub fn hint(mut self, hint: bool) -> Self {
+        self.run.hint = hint;
+        self
+    }
+
+    pub fn normalized_coords(mut self, coords: &[NormalizedCoord]) -> Self {
+        self.run.normalized_coords = SmallVec::from_slice(coords);
+        self
+    }
+
+    pub fn fill_glyphs(mut self, glyphs: impl Iterator<Item = Glyph>) {
+        self.run.glyphs.extend(glyphs);
+        self.recorder
+            .recording
+            .add_command(RenderCommand::FillGlyphRun(self.run));
+    }
+
+    pub fn stroke_glyphs(mut self, glyphs: impl Iterator<Item = Glyph>) {
+        self.run.glyphs.extend(glyphs);
+        self.recorder
+            .recording
+            .add_command(RenderCommand::StrokeGlyphRun(self.run));
     }
 }
 
