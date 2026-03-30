@@ -21,11 +21,12 @@
 //! - Render it to an image using [`RenderContext::render_to_pixmap`][].
 //!
 //! ```rust
-//! use vello_cpu::{RenderContext, Pixmap, RenderMode};
+//! use vello_cpu::{RenderContext, Resources, Pixmap, RenderMode};
 //! use vello_cpu::{color::{palette::css, PremulRgba8}, kurbo::Rect};
 //! let width = 10;
 //! let height = 5;
 //! let mut context = RenderContext::new(width, height);
+//! let mut resources = Resources::new();
 //! context.set_paint(css::MAGENTA);
 //! context.fill_rect(&Rect::from_points((3., 1.), (7., 4.)));
 //!
@@ -33,7 +34,7 @@
 //! // While calling `flush` is only strictly necessary if you are rendering using
 //! // multiple threads, it is recommended to always do this.
 //! context.flush();
-//! context.render_to_pixmap(&mut target);
+//! context.render_to_pixmap(&mut resources, &mut target);
 //!
 //! let expected_render = b"\
 //!     0000000000\
@@ -157,7 +158,7 @@ pub mod layer_manager;
 #[doc(hidden)]
 pub mod region;
 
-pub use render::{RenderContext, RenderSettings};
+pub use render::{RenderContext, RenderSettings, Resources};
 pub use vello_common::fearless_simd::Level;
 #[cfg(feature = "text")]
 pub use text::GlyphRunBuilder;

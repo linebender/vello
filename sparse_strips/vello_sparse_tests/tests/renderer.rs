@@ -1,7 +1,6 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use std::cell::RefCell;
 use std::sync::Arc;
 
 use vello_common::filter_effects::Filter;
@@ -12,7 +11,7 @@ use vello_common::paint::{ImageId, ImageSource, PaintType, Tint};
 use vello_common::peniko::{BlendMode, Fill, FontData};
 use vello_common::pixmap::Pixmap;
 use vello_common::recording::{Recordable, Recorder, Recording};
-use vello_cpu::{Level, RenderContext, RenderMode, RenderSettings};
+use vello_cpu::{Level, RenderContext, RenderMode, RenderSettings, Resources};
 use vello_hybrid::{RenderSettings as HybridRenderSettings, Scene, SceneConstraints};
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 use web_sys::WebGl2RenderingContext;
@@ -116,7 +115,7 @@ pub(crate) trait Renderer: Sized {
     fn set_blend_mode(&mut self, blend_mode: BlendMode);
     fn set_filter_effect(&mut self, filter: Filter);
     fn reset_filter_effect(&mut self);
-    fn render_to_pixmap(&self, pixmap: &mut Pixmap);
+    fn render_to_pixmap(&mut self, pixmap: &mut Pixmap);
     fn width(&self) -> u16;
     fn height(&self) -> u16;
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource;
@@ -126,7 +125,12 @@ pub(crate) trait Renderer: Sized {
     fn execute_recording(&mut self, recording: &Recording);
 }
 
-impl Renderer for RenderContext {
+pub(crate) struct CpuRenderer {
+    ctx: RenderContext,
+    resources: Resources,
+}
+
+impl Renderer for CpuRenderer {
     type GlyphRunBuilder<'a> = vello_cpu::GlyphRunBuilder<'a>;
 
     fn new(
@@ -142,32 +146,34 @@ impl Renderer for RenderContext {
             num_threads,
             render_mode,
         };
-
-        Self::new_with(width, height, settings)
+        Self {
+            ctx: RenderContext::new_with(width, height, settings),
+            resources: Resources::new(),
+        }
     }
 
     fn fill_path(&mut self, path: &BezPath) {
-        Self::fill_path(self, path);
+        self.ctx.fill_path(path);
     }
 
     fn stroke_path(&mut self, path: &BezPath) {
-        Self::stroke_path(self, path);
+        self.ctx.stroke_path(path);
     }
 
     fn fill_rect(&mut self, rect: &Rect) {
-        Self::fill_rect(self, rect);
+        self.ctx.fill_rect(rect);
     }
 
     fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
-        Self::fill_blurred_rounded_rect(self, rect, radius, std_dev);
+        self.ctx.fill_blurred_rounded_rect(rect, radius, std_dev);
     }
 
     fn stroke_rect(&mut self, rect: &Rect) {
-        Self::stroke_rect(self, rect);
+        self.ctx.stroke_rect(rect);
     }
 
     fn glyph_run(&mut self, font: &FontData) -> Self::GlyphRunBuilder<'_> {
-        Self::glyph_run(self, font)
+        self.ctx.glyph_run(&mut self.resources, font)
     }
 
     fn push_layer(
@@ -178,119 +184,121 @@ impl Renderer for RenderContext {
         mask: Option<Mask>,
         filter: Option<Filter>,
     ) {
-        Self::push_layer(self, clip_path, blend_mode, opacity, mask, filter);
+        self.ctx
+            .push_layer(clip_path, blend_mode, opacity, mask, filter);
     }
 
     fn flush(&mut self) {
-        Self::flush(self);
+        self.ctx.flush();
     }
 
     fn push_clip_layer(&mut self, path: &BezPath) {
-        Self::push_clip_layer(self, path);
+        self.ctx.push_clip_layer(path);
     }
 
     fn push_clip_path(&mut self, path: &BezPath) {
-        Self::push_clip_path(self, path);
+        self.ctx.push_clip_path(path);
     }
 
     fn push_blend_layer(&mut self, blend_mode: BlendMode) {
-        Self::push_blend_layer(self, blend_mode);
+        self.ctx.push_blend_layer(blend_mode);
     }
 
     fn push_opacity_layer(&mut self, opacity: f32) {
-        Self::push_opacity_layer(self, opacity);
+        self.ctx.push_opacity_layer(opacity);
     }
 
     fn push_mask_layer(&mut self, mask: Mask) {
-        Self::push_mask_layer(self, mask);
+        self.ctx.push_mask_layer(mask);
     }
 
     fn push_filter_layer(&mut self, filter: Filter) {
-        Self::push_filter_layer(self, filter);
+        self.ctx.push_filter_layer(filter);
     }
 
     fn pop_layer(&mut self) {
-        Self::pop_layer(self);
+        self.ctx.pop_layer();
     }
 
     fn pop_clip_path(&mut self) {
-        Self::pop_clip_path(self);
+        self.ctx.pop_clip_path();
     }
 
     fn set_stroke(&mut self, stroke: Stroke) {
-        Self::set_stroke(self, stroke);
+        self.ctx.set_stroke(stroke);
     }
 
     fn set_mask(&mut self, mask: Mask) {
-        Self::set_mask(self, mask);
+        self.ctx.set_mask(mask);
     }
 
     fn set_paint(&mut self, paint: impl Into<PaintType>) {
-        Self::set_paint(self, paint);
+        self.ctx.set_paint(paint);
     }
 
     fn set_tint(&mut self, tint: Option<Tint>) {
-        Self::set_tint(self, tint);
+        self.ctx.set_tint(tint);
     }
 
     fn set_paint_transform(&mut self, affine: Affine) {
-        Self::set_paint_transform(self, affine);
+        self.ctx.set_paint_transform(affine);
     }
 
     fn set_fill_rule(&mut self, fill_rule: Fill) {
-        Self::set_fill_rule(self, fill_rule);
+        self.ctx.set_fill_rule(fill_rule);
     }
 
     fn set_transform(&mut self, transform: Affine) {
-        Self::set_transform(self, transform);
+        self.ctx.set_transform(transform);
     }
 
     fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>) {
-        Self::set_aliasing_threshold(self, aliasing_threshold);
+        self.ctx.set_aliasing_threshold(aliasing_threshold);
     }
 
     fn set_blend_mode(&mut self, blend_mode: BlendMode) {
-        Self::set_blend_mode(self, blend_mode);
+        self.ctx.set_blend_mode(blend_mode);
     }
 
     fn set_filter_effect(&mut self, filter: Filter) {
-        Self::set_filter_effect(self, filter);
+        self.ctx.set_filter_effect(filter);
     }
 
     fn reset_filter_effect(&mut self) {
-        Self::reset_filter_effect(self);
+        self.ctx.reset_filter_effect();
     }
 
-    fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
-        Self::render_to_pixmap(self, pixmap);
+    fn render_to_pixmap(&mut self, pixmap: &mut Pixmap) {
+        self.ctx.render_to_pixmap(&mut self.resources, pixmap);
     }
 
     fn width(&self) -> u16 {
-        Self::width(self)
+        self.ctx.width()
     }
 
     fn height(&self) -> u16 {
-        Self::height(self)
+        self.ctx.height()
     }
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
-        ImageSource::Pixmap(pixmap)
+        let id = self.ctx.register_image(Arc::clone(&pixmap));
+        ImageSource::opaque_id_with_opacity_hint(id, pixmap.may_have_opacities())
     }
 
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
-        Self::register_image(self, pixmap)
+        self.ctx.register_image(pixmap)
     }
 
     fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
-        Recordable::record(self, recording, f);
+        Recordable::record(&mut self.ctx, recording, f);
     }
 
     fn prepare_recording(&mut self, recording: &mut Recording) {
-        Recordable::prepare_recording(self, recording);
+        Recordable::prepare_recording(&mut self.ctx, recording);
     }
 
     fn execute_recording(&mut self, recording: &Recording) {
-        Recordable::execute_recording(self, recording);
+        Recordable::execute_recording(&mut self.ctx, recording);
     }
 }
 
@@ -301,7 +309,7 @@ pub(crate) struct HybridRenderer {
     queue: wgpu::Queue,
     texture: wgpu::Texture,
     texture_view: wgpu::TextureView,
-    renderer: RefCell<vello_hybrid::Renderer>,
+    renderer: vello_hybrid::Renderer,
 }
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
@@ -335,12 +343,10 @@ impl HybridRenderer {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::STORAGE_BINDING,
             view_formats: &[],
         });
-        #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-
         // Create renderer and render the scene to the texture
         let renderer = vello_hybrid::Renderer::new(
             &device,
@@ -357,7 +363,7 @@ impl HybridRenderer {
             queue,
             texture,
             texture_view,
-            renderer: RefCell::new(renderer),
+            renderer,
         }
     }
 }
@@ -442,8 +448,8 @@ impl Renderer for HybridRenderer {
         self.scene.push_layer(None, None, Some(opacity), None, None);
     }
 
-    fn push_mask_layer(&mut self, _: Mask) {
-        unimplemented!()
+    fn push_mask_layer(&mut self, mask: Mask) {
+        self.scene.push_mask_layer(mask);
     }
 
     fn push_filter_layer(&mut self, filter: Filter) {
@@ -505,7 +511,7 @@ impl Renderer for HybridRenderer {
     // This method creates device resources every time it is called. This does not matter much for
     // testing, but should not be used as a basis for implementing something real. This would be a
     // very bad example for that.
-    fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
+    fn render_to_pixmap(&mut self, pixmap: &mut Pixmap) {
         // On some platforms using `cargo test` triggers segmentation faults in wgpu when the GPU
         // tests are run in parallel (likely related to the number of device resources being
         // requested simultaneously). This is "fixed" by putting a mutex around this method,
@@ -523,21 +529,16 @@ impl Renderer for HybridRenderer {
 
         let width = self.scene.width();
         let height = self.scene.height();
-
-        // for image in image_cache.images {}
-
         let render_size = vello_hybrid::RenderSize {
             width: width.into(),
             height: height.into(),
         };
-        // Copy texture to buffer
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Vello Render To Buffer"),
             });
         self.renderer
-            .borrow_mut()
             .render(
                 &self.scene,
                 &self.device,
@@ -579,19 +580,13 @@ impl Renderer for HybridRenderer {
             },
         );
         self.queue.submit([encoder.finish()]);
-
         // Map the buffer for reading
-        texture_copy_buffer
-            .slice(..)
-            .map_async(wgpu::MapMode::Read, move |result| {
-                if result.is_err() {
-                    panic!("Failed to map texture for reading");
-                }
-            });
-        self.device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .unwrap();
-
+        texture_copy_buffer.slice(..).map_async(wgpu::MapMode::Read, move |result| {
+            if result.is_err() {
+                panic!("Failed to map texture for reading");
+            }
+        });
+        self.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
         // Read back the pixel data
         for (row, buf) in texture_copy_buffer
             .slice(..)
@@ -608,50 +603,24 @@ impl Renderer for HybridRenderer {
         texture_copy_buffer.unmap();
     }
 
-    fn width(&self) -> u16 {
-        self.scene.width()
-    }
-
-    fn height(&self) -> u16 {
-        self.scene.height()
-    }
+    fn width(&self) -> u16 { self.scene.width() }
+    fn height(&self) -> u16 { self.scene.height() }
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
         let mut encoder = self
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Upload Test Image"),
-            });
-
-        // Upload image to cache and atlas in one step!
-        let image_id = self.renderer.borrow_mut().upload_image(
-            &self.device,
-            &self.queue,
-            &mut encoder,
-            &pixmap,
-        );
-
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Upload Test Image") });
+        let image_id = self.renderer.upload_image(&self.device, &self.queue, &mut encoder, &pixmap);
         self.queue.submit([encoder.finish()]);
-
         ImageSource::opaque_id_with_opacity_hint(image_id, pixmap.may_have_opacities())
     }
 
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
         let mut encoder = self
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Register Test Image"),
-            });
-
-        let image_id = self.renderer.borrow_mut().upload_image(
-            &self.device,
-            &self.queue,
-            &mut encoder,
-            &pixmap,
-        );
-
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Register Test Image") });
+        let image_id = self.renderer.upload_image(&self.device, &self.queue, &mut encoder, &pixmap);
         self.queue.submit([encoder.finish()]);
-
         image_id
     }
 
@@ -671,7 +640,7 @@ impl Renderer for HybridRenderer {
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 pub(crate) struct HybridRenderer {
     scene: Scene,
-    renderer: RefCell<vello_hybrid::WebGlRenderer>,
+    renderer: vello_hybrid::WebGlRenderer,
     gl: WebGl2RenderingContext,
 }
 
@@ -703,42 +672,19 @@ impl Renderer for HybridRenderer {
             settings.constraints = SceneConstraints::new().default_blending_only();
         }
         let scene = Scene::new_with(width, height, settings);
-
         // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
         // the pixmap for diff checking.
         let document = web_sys::window().unwrap().document().unwrap();
-
-        let canvas = document
-            .create_element("canvas")
-            .unwrap()
-            .dyn_into::<HtmlCanvasElement>()
-            .unwrap();
-
+        let canvas = document.create_element("canvas").unwrap().dyn_into::<HtmlCanvasElement>().unwrap();
         canvas.set_width(width.into());
         canvas.set_height(height.into());
-
         let renderer = vello_hybrid::WebGlRenderer::new(&canvas);
-
-        let gl = canvas
-            .get_context("webgl2")
-            .unwrap()
-            .unwrap()
-            .dyn_into::<WebGl2RenderingContext>()
-            .unwrap();
-
-        Self {
-            scene,
-            renderer: RefCell::new(renderer),
-            gl,
-        }
+        let gl = canvas.get_context("webgl2").unwrap().unwrap().dyn_into::<WebGl2RenderingContext>().unwrap();
+        Self { scene, renderer, gl }
     }
 
     fn fill_path(&mut self, path: &BezPath) {
         self.scene.fill_path(path);
-    }
-
-    fn set_blend_mode(&mut self, _: BlendMode) {
-        unimplemented!()
     }
 
     fn stroke_path(&mut self, path: &BezPath) {
@@ -761,10 +707,6 @@ impl Renderer for HybridRenderer {
         self.scene.glyph_run(font)
     }
 
-    fn push_clip_path(&mut self, path: &BezPath) {
-        self.scene.push_clip_path(path);
-    }
-
     fn push_layer(
         &mut self,
         clip: Option<&BezPath>,
@@ -781,6 +723,10 @@ impl Renderer for HybridRenderer {
 
     fn push_clip_layer(&mut self, path: &BezPath) {
         self.scene.push_clip_layer(path);
+    }
+
+    fn push_clip_path(&mut self, path: &BezPath) {
+        self.scene.push_clip_path(path);
     }
 
     fn push_blend_layer(&mut self, mode: BlendMode) {
@@ -839,6 +785,10 @@ impl Renderer for HybridRenderer {
         self.scene.set_aliasing_threshold(aliasing_threshold);
     }
 
+    fn set_blend_mode(&mut self, _: BlendMode) {
+        unimplemented!()
+    }
+
     fn set_filter_effect(&mut self, filter: Filter) {
         self.scene.set_filter_effect(filter);
     }
@@ -848,21 +798,15 @@ impl Renderer for HybridRenderer {
     }
 
     // vello_hybrid WebGL renderer backend.
-    fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
+    fn render_to_pixmap(&mut self, pixmap: &mut Pixmap) {
         use web_sys::WebGl2RenderingContext;
-
         let width = self.scene.width();
         let height = self.scene.height();
-
         let render_size = vello_hybrid::RenderSize {
             width: width.into(),
             height: height.into(),
         };
-        self.renderer
-            .borrow_mut()
-            .render(&self.scene, &render_size)
-            .unwrap();
-
+        self.renderer.render(&self.scene, &render_size).unwrap();
         let mut pixels = vec![0_u8; (width as usize) * (height as usize) * 4];
         self.gl
             .read_pixels_with_opt_u8_array(
@@ -888,12 +832,12 @@ impl Renderer for HybridRenderer {
     }
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
-        let image_id = self.renderer.borrow_mut().upload_image(&pixmap);
+        let image_id = self.renderer.upload_image(&pixmap);
         ImageSource::opaque_id_with_opacity_hint(image_id, pixmap.may_have_opacities())
     }
 
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
-        self.renderer.borrow_mut().upload_image(&pixmap)
+        self.renderer.upload_image(&pixmap)
     }
 
     fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {

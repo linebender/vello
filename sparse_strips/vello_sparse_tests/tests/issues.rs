@@ -418,14 +418,15 @@ fn multi_threading_oob_access() {
         render_mode: RenderMode::OptimizeQuality,
     };
     let mut ctx = RenderContext::new_with(100, 100, settings);
+    let mut resources = vello_cpu::Resources::new();
     let mut pixmap = Pixmap::new(100, 100);
 
     ctx.fill_path(&Rect::new(0.0, 0.0, 50.0, 50.0).to_path(0.1));
     ctx.flush();
-    ctx.render_to_pixmap(&mut pixmap);
+    ctx.render_to_pixmap(&mut resources, &mut pixmap);
     ctx.fill_path(&Rect::new(50.0, 50.0, 100.0, 100.0).to_path(0.1));
     ctx.flush();
-    ctx.render_to_pixmap(&mut pixmap);
+    ctx.render_to_pixmap(&mut resources, &mut pixmap);
 }
 
 /// See <https://github.com/linebender/vello/issues/1181>.

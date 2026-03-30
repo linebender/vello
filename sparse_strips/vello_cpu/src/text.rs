@@ -11,7 +11,9 @@
 //! [`Arc<Pixmap>`]s here, so the CPU renderer can read pixels directly without
 //! any GPU upload step.
 
-use crate::{Image, ImageSource, PaintType, Pixmap, RenderContext, color, kurbo, peniko};
+use crate::{
+    Image, ImageSource, PaintType, Pixmap, RenderContext, Resources, color, kurbo, peniko,
+};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt::{Debug, Formatter};
@@ -34,6 +36,7 @@ use vello_common::paint::{ImageId, Tint};
 use color::palette::css::BLACK;
 use peniko::{ImageQuality, ImageSampler};
 use vello_common::glyph::{Glyph as LegacyGlyph, NormalizedCoord};
+use crate::render::DEFAULT_GLYPH_ATLAS_SIZE;
 
 /// CPU-side glyph atlas backed by per-page [`Pixmap`]s.
 ///
@@ -55,6 +58,7 @@ impl CpuGlyphAtlas {
     /// Creates a new atlas with the given page dimensions and default eviction settings.
     #[inline]
     pub(crate) fn new(page_width: u16, page_height: u16) -> Self {
+        // TODO: Make glyph cache config configurable by user?
         Self::with_config(page_width, page_height, GlyphCacheConfig::default())
     }
 
@@ -108,7 +112,7 @@ impl CpuGlyphAtlas {
 
 impl Default for CpuGlyphAtlas {
     fn default() -> Self {
-        Self::new(256, 256)
+        Self::new(DEFAULT_GLYPH_ATLAS_SIZE, DEFAULT_GLYPH_ATLAS_SIZE)
     }
 }
 
@@ -269,11 +273,92 @@ impl CpuGlyphCaches {
     }
 }
 
+impl Resources {
+    pub(crate) fn before_render_text(&mut self, ctx: &RenderContext) {
+        self.sync_glyph_cache(ctx);
+    }
+
+    pub(crate) fn after_render_text(&mut self, ctx: &RenderContext) {
+        ctx.clear_images();
+        self.glyph_caches.maintain();
+        self.clear_evicted_glyph_atlas_regions();
+    }
+
+    fn sync_glyph_cache(&mut self, ctx: &RenderContext) {
+        // TODO: Avoid allocation.
+        let uploads: Vec<_> = self.glyph_caches.glifo.glyph_atlas.drain_pending_uploads().collect();
+
+        // Upload all pending bitmap glyphs to the image atlas.
+        for upload in uploads {
+            let pixmap = self
+                .glyph_caches
+                .glifo
+                .glyph_atlas
+                .page_pixmap_mut(upload.atlas_slot.page_index as usize)
+                .expect("atlas upload refers to a missing page");
+            copy_pixmap_to_atlas(
+                &upload.pixmap,
+                pixmap,
+                upload.atlas_slot.x,
+                upload.atlas_slot.y,
+                upload.atlas_slot.width,
+                upload.atlas_slot.height,
+            );
+        }
+
+        // Draw all new COLR/outline glyphs into the render context, and then composite them into the
+        // existing atlas page.
+        let glyph_renderer = self.glyph_renderer.as_mut();
+        let glyph_atlas = &mut self.glyph_caches.glifo.glyph_atlas;
+        glyph_atlas.replay_pending_atlas_commands_with_pixmaps(|recorder, pixmaps| {
+                let page = Arc::get_mut(
+                    pixmaps
+                        .get_mut(recorder.page_index as usize)
+                        .expect("atlas recorder refers to a missing page"),
+                )
+                .expect("atlas page pixmap must be uniquely owned during replay");
+
+                glyph_renderer.reset();
+                vello_renderer::replay_atlas_commands(&mut recorder.commands, glyph_renderer);
+                glyph_renderer.flush();
+                glyph_renderer.composite_to_pixmap_at_offset(page, 0, 0);
+            });
+
+        let page_count = self.glyph_caches.glifo.glyph_atlas.page_count();
+        for page_index in 0..page_count {
+            if let Some(pixmap) = self.glyph_caches.glifo.glyph_atlas.page_pixmap(page_index) {
+                let image_id = ctx.register_image(Arc::clone(pixmap));
+
+                // Note: This is currently an assumption that is baked into the code: Since we don't
+                // use the image registry for anything else, the page index within the atlas should
+                // always equal the image ID.
+                assert_eq!(image_id.as_u32(), page_index as u32);
+            }
+        }
+    }
+
+    fn clear_evicted_glyph_atlas_regions(&mut self) {
+        // TODO: Avoid allocation.
+        let clear_rects: Vec<_> = self.glyph_caches.glifo.glyph_atlas.drain_pending_clear_rects().collect();
+
+        for clear in clear_rects {
+            let pixmap = self
+                .glyph_caches
+                .glifo
+                .glyph_atlas
+                .page_pixmap_mut(clear.page_index as usize)
+                .expect("atlas clear rect refers to a missing page");
+            clear_pixmap_region(pixmap, &clear);
+        }
+    }
+}
+
 /// CPU-local wrapper around `glifo::GlyphRunBuilder`.
 #[must_use = "Methods on the builder don't do anything until `fill_glyphs` or `stroke_glyphs` is called."]
 pub struct GlyphRunBuilder<'a> {
     pub(crate) inner: glifo::GlyphRunBuilder<'a>,
     pub(crate) ctx: &'a mut RenderContext,
+    pub(crate) resources: &'a mut Resources,
 }
 
 impl GlyphRunBuilder<'_> {
@@ -289,10 +374,18 @@ impl GlyphRunBuilder<'_> {
 
 // TODO: Decide whether we can somehow reuse the glifo glyph run builder.
 impl<'a> GlyphRunBuilder<'a> {
-    pub(crate) fn new(font: peniko::FontData, transform: Affine, ctx: &'a mut RenderContext) -> Self {
+    pub(crate) fn new(
+        font: peniko::FontData,
+        transform: Affine,
+        ctx: &'a mut RenderContext,
+        resources: &'a mut Resources,
+    ) -> Self {
         Self {
-            inner: glifo::GlyphRunBuilder::new(font, transform),
+            inner: glifo::GlyphRunBuilder::new(font, transform)
+                // TODO: Make configurable
+                .atlas_cache(false),
             ctx,
+            resources,
         }
     }
 
@@ -325,31 +418,78 @@ impl<'a> GlyphRunBuilder<'a> {
     where
         Glyphs: Iterator<Item = LegacyGlyph> + Clone,
     {
-        // TODO: Can we do better than the ugly take/restore?
-        let mut caches = self.ctx.glyph_caches.take().unwrap();
         let glyphs = glyphs.map(Self::convert_glyph);
         self.inner
-            .build(glyphs, &mut caches.glifo, &mut caches.image_cache)
+            .build(
+                glyphs,
+                &mut self.resources.glyph_caches.glifo,
+                &mut self.resources.glyph_caches.image_cache,
+            )
             .fill_glyphs(self.ctx);
-        self.ctx.glyph_caches = Some(caches);
     }
 
     pub fn stroke_glyphs<Glyphs>(self, glyphs: Glyphs)
     where
         Glyphs: Iterator<Item = LegacyGlyph> + Clone,
     {
-        let mut caches = self.ctx.glyph_caches.take().unwrap();
         let glyphs = glyphs.map(Self::convert_glyph);
         self.inner
-            .build(glyphs, &mut caches.glifo, &mut caches.image_cache)
+            .build(
+                glyphs,
+                &mut self.resources.glyph_caches.glifo,
+                &mut self.resources.glyph_caches.image_cache,
+            )
             .stroke_glyphs(self.ctx);
-        self.ctx.glyph_caches = Some(caches);
     }
 }
 
 impl Debug for GlyphRunBuilder<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         write!(f, "GlyphRunBuilder {{ .. }}")
+    }
+}
+
+/// Zero out a rectangular region in the atlas pixmap.
+///
+/// Necessary because `composite_to_pixmap_at_offset` uses `SrcOver` blending,
+/// so stale pixels from evicted glyphs would bleed through if not cleared.
+fn clear_pixmap_region(dst: &mut Pixmap, rect: &PendingClearRect) {
+    let dst_stride = dst.width() as usize;
+    let dst_data = dst.data_as_u8_slice_mut();
+    let clear_width = rect.width as usize;
+    let clear_height = rect.height as usize;
+
+    for y in 0..clear_height {
+        let row_start = ((rect.y as usize + y) * dst_stride + rect.x as usize) * 4;
+        let row_end = row_start + clear_width * 4;
+        dst_data[row_start..row_end].fill(0);
+    }
+}
+
+/// Copy bitmap glyph pixels into a rectangular region of an atlas page.
+fn copy_pixmap_to_atlas(
+    src: &Pixmap,
+    dst: &mut Pixmap,
+    dst_x: u16,
+    dst_y: u16,
+    width: u16,
+    height: u16,
+) {
+    let copy_width = width as usize;
+    let copy_height = height as usize;
+    let src_stride = src.width() as usize;
+    let dst_stride = dst.width() as usize;
+
+    let src_data = src.data_as_u8_slice();
+    let dst_data = dst.data_as_u8_slice_mut();
+
+    for y in 0..copy_height {
+        let src_row_start = y * src_stride * 4;
+        let src_row_end = src_row_start + copy_width * 4;
+        let dst_row_start = ((dst_y as usize + y) * dst_stride + dst_x as usize) * 4;
+        let dst_row_end = dst_row_start + copy_width * 4;
+
+        dst_data[dst_row_start..dst_row_end].copy_from_slice(&src_data[src_row_start..src_row_end]);
     }
 }
 

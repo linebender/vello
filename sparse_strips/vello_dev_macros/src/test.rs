@@ -275,13 +275,14 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                 use crate::util::{
                     check_ref, get_ctx
                 };
-                use vello_cpu::{RenderContext, RenderMode};
+                use crate::renderer::CpuRenderer;
+                use vello_cpu::RenderMode;
 
-                let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent, #num_threads, #level, #render_mode, false);
+                let mut ctx = get_ctx::<CpuRenderer>(#width, #height, #transparent, #num_threads, #level, #render_mode, false);
                 #input_fn_name(&mut ctx);
                 ctx.flush();
                 if !#no_ref {
-                    check_ref(&ctx, #input_fn_name_str, #fn_name_str, #tolerance, #diff_pixels, #is_reference, #reference_image_name);
+                    check_ref(&mut ctx, #input_fn_name_str, #fn_name_str, #tolerance, #diff_pixels, #is_reference, #reference_image_name);
                 }
             }
         }
@@ -467,7 +468,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             #input_fn_name(&mut ctx);
             ctx.flush();
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
+                check_ref(&mut ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
             }
         }
 
@@ -485,7 +486,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             #input_fn_name(&mut ctx);
             ctx.flush();
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #hybrid_constrained_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
+                check_ref(&mut ctx, #input_fn_name_str, #hybrid_constrained_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
             }
         }
 
@@ -503,7 +504,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             #input_fn_name(&mut ctx);
             ctx.flush();
             if !#no_ref {
-                check_ref(&ctx, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
+                check_ref(&mut ctx, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
             }
         }
     };

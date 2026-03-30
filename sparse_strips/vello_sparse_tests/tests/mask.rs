@@ -22,6 +22,7 @@ pub(crate) fn example_mask(alpha_mask: bool) -> Mask {
         render_mode: RenderMode::OptimizeSpeed,
     };
     let mut mask_ctx = RenderContext::new_with(100, 100, settings);
+    let mut resources = vello_cpu::Resources::new();
 
     let grad = Gradient {
         kind: LinearGradientPosition {
@@ -48,7 +49,7 @@ pub(crate) fn example_mask(alpha_mask: bool) -> Mask {
 
     mask_ctx.set_paint(grad);
     mask_ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
-    mask_ctx.render_to_pixmap(&mut mask_pix);
+    mask_ctx.render_to_pixmap(&mut resources, &mut mask_pix);
 
     if alpha_mask {
         Mask::new_alpha(&mask_pix)

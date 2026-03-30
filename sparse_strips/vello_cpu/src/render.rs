@@ -7,6 +7,7 @@ use crate::RenderMode;
 use crate::dispatch::Dispatcher;
 #[cfg(feature = "text")]
 use crate::text::{CpuGlyphCaches, GlyphRunBuilder};
+use core::cell::RefCell;
 
 #[cfg(feature = "multithreading")]
 use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
@@ -34,6 +35,61 @@ use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use vello_common::util::is_axis_aligned;
 
+pub(crate) const DEFAULT_GLYPH_ATLAS_SIZE: u16 = 4096;
+
+/// Auxiliary renderer state required during draw and rasterization.
+#[derive(Debug)]
+pub struct Resources {
+    #[cfg(feature = "text")]
+    pub(crate) glyph_caches: CpuGlyphCaches,
+    #[cfg(feature = "text")]
+    pub(crate) glyph_renderer: Box<RenderContext>,
+}
+
+impl Resources {
+    /// Create a new set of renderer resources.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn before_render(&mut self, ctx: &RenderContext) {
+        #[cfg(feature = "text")]
+        self.before_render_text(ctx);
+    }
+
+    pub(crate) fn after_render(&mut self, ctx: &RenderContext) {
+        #[cfg(feature = "text")]
+        self.after_render_text(ctx);
+    }
+}
+
+impl Default for Resources {
+    fn default() -> Self {
+        Self {
+            #[cfg(feature = "text")]
+            glyph_caches: CpuGlyphCaches::new(DEFAULT_GLYPH_ATLAS_SIZE, DEFAULT_GLYPH_ATLAS_SIZE),
+            #[cfg(feature = "text")]
+            glyph_renderer: Box::new(RenderContext {
+                width: DEFAULT_GLYPH_ATLAS_SIZE,
+                height: DEFAULT_GLYPH_ATLAS_SIZE,
+                state: RenderState::default(),
+                mask: None,
+                temp_path: BezPath::new(),
+                aliasing_threshold: None,
+                encoded_paints: vec![],
+                filter: None,
+                render_settings: RenderSettings::default(),
+                image_registry: RefCell::new(ImageRegistry::new()),
+                dispatcher: Box::new(SingleThreadedDispatcher::new(
+                    DEFAULT_GLYPH_ATLAS_SIZE,
+                    DEFAULT_GLYPH_ATLAS_SIZE,
+                    Level::try_detect().unwrap_or(Level::baseline()),
+                )),
+            }),
+        }
+    }
+}
+
 /// A render context for CPU-based 2D graphics rendering.
 ///
 /// This is the main entry point for drawing operations. It maintains the current
@@ -60,11 +116,8 @@ pub struct RenderContext {
         allow(dead_code, reason = "used when the `text` feature is enabled")
     )]
     pub(crate) render_settings: RenderSettings,
+    pub(crate) image_registry: RefCell<ImageRegistry>,
     dispatcher: Box<dyn Dispatcher>,
-    #[cfg(feature = "text")]
-    pub(crate) glyph_caches: Option<CpuGlyphCaches>,
-    /// Registry for resolving `ImageSource::OpaqueId` to pixmap data.
-    image_registry: ImageRegistry,
 }
 
 /// Settings to apply to the render context.
@@ -142,12 +195,7 @@ impl RenderContext {
             temp_path,
             encoded_paints,
             filter: None,
-            // TODO: Allow disabling glyph cache, saving the necessary
-            // memory allocations
-            // TODO: Make the size configurable?
-            #[cfg(feature = "text")]
-            glyph_caches: Some(CpuGlyphCaches::new(4096, 4096)),
-            image_registry: ImageRegistry::new(),
+            image_registry: RefCell::new(ImageRegistry::new()),
         }
     }
 
@@ -313,8 +361,12 @@ impl RenderContext {
 
     /// Creates a builder for drawing a run of glyphs that have the same attributes.
     #[cfg(feature = "text")]
-    pub fn glyph_run(&mut self, font: &crate::peniko::FontData) -> GlyphRunBuilder<'_> {
-        GlyphRunBuilder::new(font.clone(), self.state.transform, self)
+    pub fn glyph_run<'a>(
+        &'a mut self,
+        resources: &'a mut Resources,
+        font: &crate::peniko::FontData,
+    ) -> GlyphRunBuilder<'a> {
+        GlyphRunBuilder::new(font.clone(), self.state.transform, self, resources)
     }
 
     /// Push a new layer with the given properties.
@@ -532,9 +584,6 @@ impl RenderContext {
         self.encoded_paints.clear();
         self.mask = None;
         self.state.reset();
-        #[cfg(feature = "text")]
-        self.glyph_caches.as_mut().unwrap().maintain();
-        self.clear_images();
     }
 
     /// Push a new clip path to the clip stack.
@@ -571,6 +620,7 @@ impl RenderContext {
     /// The buffer is expected to be in premultiplied RGBA8 format with length `width * height * 4`
     pub fn render_to_buffer(
         &self,
+        resources: &mut Resources,
         buffer: &mut [u8],
         width: u16,
         height: u16,
@@ -588,21 +638,28 @@ impl RenderContext {
             buffer.len(),
         );
 
+        resources.before_render(self);
+        let image_registry = self.image_registry.borrow();
+
         self.dispatcher.rasterize(
             buffer,
             render_mode,
             width,
             height,
             &self.encoded_paints,
-            &self.image_registry,
+            &*image_registry,
         );
+
+        drop(image_registry);
+        resources.after_render(self);
     }
 
     /// Render the current context into a pixmap.
-    pub fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
+    pub fn render_to_pixmap(&self, resources: &mut Resources, pixmap: &mut Pixmap) {
         let width = pixmap.width();
         let height = pixmap.height();
         self.render_to_buffer(
+            resources,
             pixmap.data_as_u8_slice_mut(),
             width,
             height,
@@ -630,6 +687,7 @@ impl RenderContext {
     pub fn composite_to_pixmap_at_offset(&self, pixmap: &mut Pixmap, dst_x: u16, dst_y: u16) {
         let dst_buffer_width = pixmap.width();
         let dst_buffer_height = pixmap.height();
+        let image_registry = self.image_registry.borrow();
         self.dispatcher.composite_at_offset(
             pixmap.data_as_u8_slice_mut(),
             self.width,
@@ -640,7 +698,7 @@ impl RenderContext {
             dst_buffer_height,
             self.render_settings.render_mode,
             &self.encoded_paints,
-            &self.image_registry,
+            &*image_registry,
         );
     }
 
@@ -692,23 +750,23 @@ impl RenderContext {
 /// Image registry implementation.
 impl RenderContext {
     /// Register a pixmap in the image registry and return its [`ImageId`].
-    pub fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
-        self.image_registry.register(pixmap)
+    pub fn register_image(&self, pixmap: Arc<Pixmap>) -> ImageId {
+        self.image_registry.borrow_mut().register(pixmap)
     }
 
     /// Remove an image from the registry.
-    pub fn destroy_image(&mut self, id: ImageId) -> bool {
-        self.image_registry.destroy(id)
+    pub fn destroy_image(&self, id: ImageId) -> bool {
+        self.image_registry.borrow_mut().destroy(id)
     }
 
     /// Resolve an `ImageId` to its pixmap data.
     pub fn resolve_image(&self, id: ImageId) -> Option<Arc<Pixmap>> {
-        self.image_registry.resolve(id)
+        self.image_registry.borrow().resolve(id)
     }
 
     /// Clear the image registry.
-    pub fn clear_images(&mut self) {
-        self.image_registry.clear();
+    pub fn clear_images(&self) {
+        self.image_registry.borrow_mut().clear();
     }
 }
 
@@ -823,7 +881,7 @@ impl Recordable for RenderContext {
 ///
 /// Used by [`RenderContext`] to resolve `ImageSource::OpaqueId` at rasterization time.
 #[derive(Debug)]
-struct ImageRegistry {
+pub(crate) struct ImageRegistry {
     images: HashMap<u32, Arc<Pixmap>>,
     next_id: u32,
 }
@@ -846,7 +904,6 @@ impl ImageRegistry {
     fn destroy(&mut self, id: ImageId) -> bool {
         self.images.remove(&id.as_u32()).is_some()
     }
-
     fn resolve(&self, id: ImageId) -> Option<Arc<Pixmap>> {
         self.images.get(&id.as_u32()).cloned()
     }
