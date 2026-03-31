@@ -11,6 +11,7 @@ pub mod gradient;
 pub mod image;
 pub mod multi_image;
 pub mod path;
+pub mod random_text;
 pub mod simple;
 pub mod svg;
 pub mod text;
@@ -34,6 +35,7 @@ pub use vello_common::glyph::Glyph;
 pub trait GlyphRunBuilderLike {
     fn font_size(self, size: f32) -> Self;
     fn hint(self, hint: bool) -> Self;
+    fn atlas_cache(self, enabled: bool) -> Self;
     fn fill_glyphs(self, glyphs: impl Iterator<Item = Glyph> + Clone);
 }
 
@@ -45,6 +47,10 @@ impl<'a> GlyphRunBuilderLike for vello_cpu::GlyphRunBuilder<'a> {
 
     fn hint(self, hint: bool) -> Self {
         Self::hint(self, hint)
+    }
+
+    fn atlas_cache(self, enabled: bool) -> Self {
+        Self::atlas_cache(self, enabled)
     }
 
     fn fill_glyphs(self, glyphs: impl Iterator<Item = Glyph> + Clone) {
@@ -59,6 +65,10 @@ impl<'a> GlyphRunBuilderLike for vello_hybrid::GlyphRunBuilder<'a> {
 
     fn hint(self, hint: bool) -> Self {
         Self::hint(self, hint)
+    }
+
+    fn atlas_cache(self, enabled: bool) -> Self {
+        Self::atlas_cache(self, enabled)
     }
 
     fn fill_glyphs(self, glyphs: impl Iterator<Item = Glyph> + Clone) {
@@ -461,6 +471,11 @@ where
         (self.status_fn)()
     }
 
+    /// Access the scene-owned resources.
+    pub fn resources_mut(&mut self) -> &mut T::Resources {
+        &mut self.resources
+    }
+
     /// Toggle the tile grid overlay.
     pub fn toggle_tile_grid(&mut self) {
         self.show_widetile_columns = !self.show_widetile_columns;
@@ -509,6 +524,7 @@ where
     }
 
     scenes.push(AnyScene::new(text::TextScene::new("Hello, Vello!")));
+    scenes.push(AnyScene::new(random_text::RandomTextScene::new()));
     scenes.push(AnyScene::new(simple::SimpleScene::new()));
     scenes.push(AnyScene::new(clip::ClipScene::new()));
     scenes.push(AnyScene::new(filter::FilterScene::new()));
@@ -543,6 +559,7 @@ where
     let scenes = vec![
         AnyScene::new(svg::SvgScene::tiger()),
         AnyScene::new(text::TextScene::new("Hello, Vello!")),
+        AnyScene::new(random_text::RandomTextScene::new()),
         AnyScene::new(simple::SimpleScene::new()),
         AnyScene::new(filter::FilterScene::new()),
         AnyScene::new(clip::ClipScene::new()),

@@ -172,6 +172,8 @@ impl ApplicationHandler for App<'_> {
             return;
         }
 
+        let dev_id = surface.dev_id;
+
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {
@@ -190,38 +192,46 @@ impl ApplicationHandler for App<'_> {
                         ..
                     },
                 ..
-            } => match logical_key {
-                Key::Named(NamedKey::ArrowRight) => {
-                    self.current_scene = (self.current_scene + 1) % self.scenes.len();
-                    self.transform = Affine::IDENTITY;
-                    window.request_redraw();
-                }
-                Key::Named(NamedKey::ArrowLeft) => {
-                    self.current_scene = if self.current_scene == 0 {
-                        self.scenes.len() - 1
-                    } else {
-                        self.current_scene - 1
-                    };
-                    self.transform = Affine::IDENTITY;
-                    window.request_redraw();
-                }
-                Key::Named(NamedKey::Space) => {
-                    // Reset transform on spacebar
-                    self.transform = Affine::IDENTITY;
-                    window.request_redraw();
-                }
-                Key::Named(NamedKey::Escape) => {
-                    event_loop.exit();
-                }
-                Key::Character(ch) => {
-                    if let Some(scene) = self.scenes.get_mut(self.current_scene)
-                        && scene.handle_key(ch.as_str())
-                    {
+            } => {
+                let mut upload_images = false;
+                match logical_key {
+                    Key::Named(NamedKey::ArrowRight) => {
+                        self.current_scene = (self.current_scene + 1) % self.scenes.len();
+                        self.transform = Affine::IDENTITY;
+                        upload_images = true;
                         window.request_redraw();
                     }
+                    Key::Named(NamedKey::ArrowLeft) => {
+                        self.current_scene = if self.current_scene == 0 {
+                            self.scenes.len() - 1
+                        } else {
+                            self.current_scene - 1
+                        };
+                        self.transform = Affine::IDENTITY;
+                        upload_images = true;
+                        window.request_redraw();
+                    }
+                    Key::Named(NamedKey::Space) => {
+                        // Reset transform on spacebar
+                        self.transform = Affine::IDENTITY;
+                        window.request_redraw();
+                    }
+                    Key::Named(NamedKey::Escape) => {
+                        event_loop.exit();
+                    }
+                    Key::Character(ch) => {
+                        if let Some(scene) = self.scenes.get_mut(self.current_scene)
+                            && scene.handle_key(ch.as_str())
+                        {
+                            window.request_redraw();
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
-            },
+                if upload_images {
+                    self.upload_images_to_atlas(dev_id);
+                }
+            }
             WindowEvent::MouseInput { state, button, .. } => {
                 if button == MouseButton::Left {
                     self.mouse_down = state == ElementState::Pressed;
@@ -346,6 +356,7 @@ impl ApplicationHandler for App<'_> {
                     .unwrap()
                     .render(
                         &self.scene,
+                        self.scenes[self.current_scene].resources_mut(),
                         &device_handle.device,
                         &device_handle.queue,
                         &mut encoder,
@@ -382,6 +393,7 @@ impl App<'_> {
         // 1st example — uploading pixmap directly
         let pixmap1 = ImageScene::read_flower_image();
         self.renderers[device_id].as_mut().unwrap().upload_image(
+            self.scenes[self.current_scene].resources_mut(),
             &device_handle.device,
             &device_handle.queue,
             &mut encoder,
@@ -393,6 +405,7 @@ impl App<'_> {
         let texture2 =
             self.upload_image_to_texture(&device_handle.device, &device_handle.queue, &pixmap2);
         self.renderers[device_id].as_mut().unwrap().upload_image(
+            self.scenes[self.current_scene].resources_mut(),
             &device_handle.device,
             &device_handle.queue,
             &mut encoder,
