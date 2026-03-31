@@ -92,7 +92,7 @@ impl<S: Simd> Iterator for GradientPainter<'_, S> {
 
 impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
     fn paint_u8(&mut self, buf: &mut [u8]) {
-        let max_index = self.lut.len() as u32 - 1;
+        let max_index = self.lut.width() as u32 - 1;
         let mut masked_iter = self.has_undefined.then_some(self.clone());
 
         self.simd.vectorize(
@@ -169,7 +169,7 @@ impl<S: Simd> crate::fine::Painter for GradientPainter<'_, S> {
         self.simd.vectorize(
             #[inline(always)]
             || {
-                let max_index = self.lut.len() as u32 - 1;
+                let max_index = self.lut.width() as u32 - 1;
                 let max_index = u32x8::splat(self.simd, max_index);
 
                 for chunk in buf.chunks_exact_mut(32) {

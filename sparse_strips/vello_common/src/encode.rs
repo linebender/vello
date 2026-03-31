@@ -1063,7 +1063,7 @@ impl<T: FromF32Color> GradientLut<T> {
 
     /// Return the number of entries in the lookup table.
     #[inline(always)]
-    pub fn len(&self) -> usize {
+    pub fn width(&self) -> usize {
         self.lut.len()
     }
 
