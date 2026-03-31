@@ -30,7 +30,7 @@ impl Default for ColorBrush {
 #[cfg(target_arch = "wasm32")]
 const ROBOTO_FONT: &[u8] = include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");
 
-const INITIAL_SEGMENT_COUNT: usize = 100;
+const INITIAL_SEGMENT_COUNT: usize = 500;
 const BATCH_SIZE: usize = 10;
 const SEGMENT_MIN_LEN: usize = 4;
 const SEGMENT_MAX_LEN: usize = 12;
@@ -87,6 +87,8 @@ impl Lcg {
 pub struct RandomTextScene {
     segments: Vec<Segment>,
     rng: Lcg,
+    layout_cx: LayoutContext<ColorBrush>,
+    font_cx: FontContext,
     glyph_caching_enabled: bool,
     hinting_enabled: bool,
 }
@@ -108,8 +110,10 @@ impl RandomTextScene {
         let mut scene = Self {
             segments: Vec::new(),
             rng: Lcg::new(0x5eed_cafe_d00d_f00d),
-            glyph_caching_enabled: true,
-            hinting_enabled: true,
+            layout_cx: LayoutContext::new(),
+            font_cx: new_font_context(),
+            glyph_caching_enabled: false,
+            hinting_enabled: false,
         };
         scene.add_segments(INITIAL_SEGMENT_COUNT);
         scene
@@ -117,7 +121,11 @@ impl RandomTextScene {
 
     fn add_segments(&mut self, count: usize) {
         for _ in 0..count {
-            self.segments.push(build_segment(&mut self.rng));
+            self.segments.push(build_segment(
+                &mut self.rng,
+                &mut self.layout_cx,
+                &mut self.font_cx,
+            ));
         }
     }
 
@@ -185,27 +193,34 @@ impl ExampleScene for RandomTextScene {
     }
 }
 
-fn build_segment(rng: &mut Lcg) -> Segment {
-    let text = random_text(rng);
-    let color = random_color(rng);
-    let font_size = rng.range_f32(18.0, 42.0);
-    let x = rng.range_f32(10.0, 1500.0);
-    let y = rng.range_f32(20.0, 1000.0);
-
-    let mut layout_cx = LayoutContext::new();
-
+fn new_font_context() -> FontContext {
     #[cfg(not(target_arch = "wasm32"))]
-    let mut font_cx = FontContext::new();
+    {
+        FontContext::new()
+    }
+
     #[cfg(target_arch = "wasm32")]
-    let mut font_cx = {
+    {
         let mut font_cx = FontContext::new();
         font_cx
             .collection
             .register_fonts(ROBOTO_FONT.to_vec().into(), None);
         font_cx
-    };
+    }
+}
 
-    let mut builder = layout_cx.ranged_builder(&mut font_cx, &text, 1.0, true);
+fn build_segment(
+    rng: &mut Lcg,
+    layout_cx: &mut LayoutContext<ColorBrush>,
+    font_cx: &mut FontContext,
+) -> Segment {
+    let text = random_text(rng);
+    let color = random_color(rng);
+    let font_size = rng.range_f32(9.0, 18.0);
+    let x = rng.range_f32(10.0, 1500.0);
+    let y = rng.range_f32(20.0, 1000.0);
+
+    let mut builder = layout_cx.ranged_builder(font_cx, &text, 1.0, true);
     builder.push_default(FontFamily::parse("Roboto").unwrap());
     builder.push_default(StyleProperty::FontSize(font_size));
     builder.push_default(StyleProperty::Brush(ColorBrush { color }));
