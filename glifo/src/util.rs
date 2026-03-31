@@ -1,9 +1,10 @@
 // Copyright 2025 the Vello Authors and the Parley Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Mathematical helper functions.
+//! Utility helper functions.
 
 use core::ops::Sub;
+use peniko::kurbo::Affine;
 
 // From <https://github.com/linebender/tiny-skia/blob/68b198a7210a6bbf752b43d6bc4db62445730313/path/src/scalar.rs#L12>
 const SCALAR_NEARLY_ZERO: f32 = 1.0 / (1 << 12) as f32;
@@ -25,5 +26,38 @@ impl FloatExt for f32 {
         debug_assert!(tolerance >= 0.0, "tolerance must be positive");
 
         self.abs() <= tolerance
+    }
+}
+
+pub(crate) trait AffineExt {
+    fn has_skew(&self) -> bool;
+    fn has_non_unit_scale(&self) -> bool;
+    fn has_positive_uniform_scale(&self) -> bool;
+    fn has_vertical_skew(&self) -> bool;
+}
+
+impl AffineExt for Affine {
+    #[inline]
+    fn has_skew(&self) -> bool {
+        let [_, b, c, _, _, _] = self.as_coeffs();
+        b.abs() > 1e-6 || c.abs() > 1e-6
+    }
+
+    #[inline]
+    fn has_non_unit_scale(&self) -> bool {
+        let [a, _, _, d, _, _] = self.as_coeffs();
+        (a.abs() - 1.0).abs() > 1e-6 || (d.abs() - 1.0).abs() > 1e-6
+    }
+
+    #[inline]
+    fn has_positive_uniform_scale(&self) -> bool {
+        let [a, _, _, d, _, _] = self.as_coeffs();
+        (a - d).abs() <= 1e-6 && a > 0.0 && d > 0.0
+    }
+
+    #[inline]
+    fn has_vertical_skew(&self) -> bool {
+        let [_, b, _, _, _, _] = self.as_coeffs();
+        b.abs() > 1e-6
     }
 }

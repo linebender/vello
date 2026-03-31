@@ -34,7 +34,7 @@ hashbrown = { workspace = true }
 peniko = { workspace = true }
 skrifa = { workspace = true }
 smallvec = { workspace = true }
-vello_common = { workspace = true }
+vello_common = { workspace = true, features = ["text"] }
 vello_cpu = { workspace = true, optional = true, features = ["u8_pipeline", "text"] }
 vello_hybrid = { workspace = true, optional = true, features = ["text"] }
 png = { workspace = true, optional = true }
