@@ -572,11 +572,12 @@ impl Renderer for HybridRenderer {
             label: Some("Vello Render To Buffer"),
         });
         self.renderer
-            .render_text(
+            .render(
                 &self.scene,
                 &mut self.resources,
                 &self.device,
                 &self.queue,
+                &mut encoder,
                 &render_size,
                 &self.texture_view,
             )
@@ -853,7 +854,7 @@ impl Renderer for HybridRenderer {
             height: height.into(),
         };
         self.renderer
-            .render_text(&self.scene, &mut self.resources, &render_size)
+            .render(&self.scene, &mut self.resources, &render_size)
             .unwrap();
         let mut pixels = vec![0_u8; (width as usize) * (height as usize) * 4];
         self.gl

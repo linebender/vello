@@ -192,7 +192,36 @@ impl WebGlRenderer {
             "Render size must match drawing buffer size"
         );
 
+        #[cfg(feature = "text")]
+        {
+            let atlas_count = resources.atlas_count();
+            let atlas_config = resources.atlas_config();
+            resources.replay_pending_atlas_commands(|glyph_renderer, atlas_id| {
+                self.render_to_atlas(glyph_renderer, atlas_count, atlas_config, atlas_id)
+                    .expect("Failed to render glyphs to atlas");
+            });
+
+            let padding = u32::from(GLYPH_PADDING);
+            for upload in resources.take_pending_uploads() {
+                let resource = resources.image_cache.get(upload.image_id).unwrap();
+                let dst_x = resource.offset[0] as u32 + padding;
+                let dst_y = resource.offset[1] as u32 + padding;
+                self.write_to_atlas(
+                    &resources.image_cache,
+                    upload.image_id,
+                    &upload.pixmap,
+                    Some([dst_x, dst_y]),
+                );
+            }
+        }
+
         self.render_scene(scene, &mut resources.image_cache, render_size, true)?;
+
+        #[cfg(feature = "text")]
+        {
+            let rects = resources.maintain_and_take_pending_clear_rects();
+            clear_atlas_regions_webgl(self, rects.into_iter());
+        }
 
         // Blit the view framebuffer to the default framebuffer (canvas element), reflecting the
         // image along the Y axis to complete the WebGPU to WebGL2 coordinate transform.
@@ -252,42 +281,6 @@ impl WebGlRenderer {
             }
         }
         Ok(())
-    }
-
-    #[cfg(feature = "text")]
-    #[doc(hidden)]
-    pub fn render_text(
-        &mut self,
-        scene: &Scene,
-        resources: &mut Resources,
-        render_size: &RenderSize,
-    ) -> Result<(), RenderError> {
-        let atlas_count = resources.atlas_count();
-        let atlas_config = resources.atlas_config();
-        resources.replay_pending_atlas_commands(|glyph_renderer, atlas_id| {
-            self.render_to_atlas(glyph_renderer, atlas_count, atlas_config, atlas_id)
-                .expect("Failed to render glyphs to atlas");
-        });
-
-        let padding = u32::from(GLYPH_PADDING);
-        for upload in resources.take_pending_uploads() {
-            let resource = resources.image_cache.get(upload.image_id).unwrap();
-            let dst_x = resource.offset[0] as u32 + padding;
-            let dst_y = resource.offset[1] as u32 + padding;
-            self.write_to_atlas(
-                &resources.image_cache,
-                upload.image_id,
-                &upload.pixmap,
-                Some([dst_x, dst_y]),
-            );
-        }
-
-        let result = self.render(scene, resources, render_size);
-        if result.is_ok() {
-            let rects = resources.maintain_and_take_pending_clear_rects();
-            clear_atlas_regions_webgl(self, rects.into_iter());
-        }
-        result
     }
 
     /// Render a `scene` directly into an atlas layer.

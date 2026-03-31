@@ -344,13 +344,13 @@ impl ApplicationHandler for App<'_> {
                 let texture_view = surface_texture
                     .texture
                     .create_view(&wgpu::TextureViewDescriptor::default());
-
                 let mut encoder =
                     device_handle
                         .device
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                             label: Some("Vello Render to Surface pass"),
                         });
+
                 self.renderers[surface.dev_id]
                     .as_mut()
                     .unwrap()
@@ -364,7 +364,6 @@ impl ApplicationHandler for App<'_> {
                         &texture_view,
                     )
                     .unwrap();
-
                 device_handle.queue.submit([encoder.finish()]);
                 surface_texture.present();
 

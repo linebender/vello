@@ -212,6 +212,39 @@ impl Renderer {
         render_size: &RenderSize,
         view: &TextureView,
     ) -> Result<(), RenderError> {
+        #[cfg(feature = "text")]
+        {
+            let atlas_count = resources.atlas_count();
+            let atlas_config = resources.atlas_config();
+            resources.replay_pending_atlas_commands(|glyph_renderer, atlas_id| {
+                self.render_to_atlas(
+                    glyph_renderer,
+                    atlas_count,
+                    atlas_config,
+                    device,
+                    queue,
+                    atlas_id,
+                )
+                .expect("Failed to render glyphs to atlas");
+            });
+
+            let padding = u32::from(GLYPH_PADDING);
+            for upload in resources.take_pending_uploads() {
+                let resource = resources.image_cache.get(upload.image_id).unwrap();
+                let dst_x = resource.offset[0] as u32 + padding;
+                let dst_y = resource.offset[1] as u32 + padding;
+                self.write_to_atlas(
+                    &resources.image_cache,
+                    device,
+                    queue,
+                    encoder,
+                    upload.image_id,
+                    &upload.pixmap,
+                    Some([dst_x, dst_y]),
+                );
+            }
+        }
+
         let mut encoded_paints = scene.encoded_paints.borrow_mut();
         let scene_paint_count = encoded_paints.len();
 
@@ -236,51 +269,11 @@ impl Renderer {
             &resources.image_cache,
             &encoded_paints,
             false,
+            false,
         );
 
         encoded_paints.truncate(scene_paint_count);
-        result
-    }
-
-    #[cfg(feature = "text")]
-    #[doc(hidden)]
-    pub fn render_text(
-        &mut self,
-        scene: &Scene,
-        resources: &mut Resources,
-        device: &Device,
-        queue: &Queue,
-        render_size: &RenderSize,
-        view: &TextureView,
-    ) -> Result<(), RenderError> {
-        let atlas_count = resources.atlas_count();
-        let atlas_config = resources.atlas_config();
-        resources.replay_pending_atlas_commands(|glyph_renderer, atlas_id| {
-            self.render_to_atlas(glyph_renderer, atlas_count, atlas_config, device, queue, atlas_id)
-                .expect("Failed to render glyphs to atlas");
-        });
-
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Vello Hybrid Render"),
-        });
-        let padding = u32::from(GLYPH_PADDING);
-        for upload in resources.take_pending_uploads() {
-            let resource = resources.image_cache.get(upload.image_id).unwrap();
-            let dst_x = resource.offset[0] as u32 + padding;
-            let dst_y = resource.offset[1] as u32 + padding;
-            self.write_to_atlas(
-                &resources.image_cache,
-                device,
-                queue,
-                &mut encoder,
-                upload.image_id,
-                &upload.pixmap,
-                Some([dst_x, dst_y]),
-            );
-        }
-
-        let result = self.render(scene, resources, device, queue, &mut encoder, render_size, view);
-        queue.submit([encoder.finish()]);
+        #[cfg(feature = "text")]
         if result.is_ok() {
             let rects = resources.maintain_and_take_pending_clear_rects();
             clear_atlas_regions_wgpu(queue, self, rects.into_iter());
@@ -370,6 +363,7 @@ impl Renderer {
             &scratch_image_cache,
             &encoded_paints,
             false,
+            true,
         );
 
         // Restore the real atlas bind group.
@@ -401,6 +395,7 @@ impl Renderer {
         image_cache: &ImageCache,
         encoded_paints: &[EncodedPaint],
         clear: bool,
+        use_rgba_strip_pipeline: bool,
     ) -> Result<(), RenderError> {
         self.prepare_gpu_encoded_paints(encoded_paints, image_cache);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
@@ -429,6 +424,7 @@ impl Renderer {
             image_cache,
             filter_context: &self.filter_context,
             filter_pass_state: &mut self.filter_pass_state,
+            use_rgba_strip_pipeline,
         };
         self.scheduler.do_scene(
             &mut self.scheduler_state,
@@ -2314,6 +2310,7 @@ struct RendererContext<'a> {
     image_cache: &'a ImageCache,
     filter_context: &'a FilterContext,
     filter_pass_state: &'a mut FilterPassState,
+    use_rgba_strip_pipeline: bool,
 }
 
 impl RendererContext<'_> {
@@ -2441,9 +2438,12 @@ impl RendererContext<'_> {
             ),
         };
 
-        let pipeline_idx = match target {
-            StripPassRenderTarget::Output(OutputTarget::IntermediateTexture(_)) => 1,
-            _ => 0,
+        let pipeline_idx = if self.use_rgba_strip_pipeline
+            || matches!(target, StripPassRenderTarget::Output(OutputTarget::IntermediateTexture(_)))
+        {
+            1
+        } else {
+            0
         };
 
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
