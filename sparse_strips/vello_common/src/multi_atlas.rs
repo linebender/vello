@@ -487,7 +487,7 @@ impl Default for AtlasConfig {
             //
             // @see https://github.com/gfx-rs/wgpu/blob/61e5124eb9530d3b3865556a7da4fd320d03ddc5/wgpu-hal/src/gles/mod.rs#L470-L517
             initial_atlas_count: 1,
-            max_atlases: 8,
+            max_atlases: 128,
             atlas_size: (4096, 4096),
             auto_grow: true,
             allocation_strategy: AllocationStrategy::FirstFit,
