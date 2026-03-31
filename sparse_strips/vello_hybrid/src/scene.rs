@@ -794,9 +794,9 @@ impl Scene {
         self.filter = None;
     }
 
-    fn with_optional_filter<F>(&mut self, mut f: F)
+    fn with_optional_filter<F>(&mut self, f: F)
     where
-        F: FnMut(&mut Self),
+        F: FnOnce(&mut Self),
     {
         if let Some(filter) = self.filter.clone() {
             self.push_filter_layer(filter);
