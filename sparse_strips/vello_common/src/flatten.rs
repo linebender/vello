@@ -288,3 +288,53 @@ impl Callback for FlattenerCallback<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{FlattenCtx, FlattenerCallback, Point};
+    use crate::kurbo::{Affine, BezPath};
+    use alloc::vec::Vec;
+    use fearless_simd::{Level, dispatch};
+
+    /// Flatten a pathological cubic Bézier with a control point at an extreme order of magnitude.
+    ///
+    /// This is a tricky case, as the amount of line segments required to approximate a curve
+    /// scales as the square root of the scale of the curve (bread crumb:
+    /// <https://en.wikipedia.org/wiki/Sagitta_(geometry)>).
+    ///
+    /// Nearly all of those line segments fall outside the viewport, however.
+    #[test]
+    fn extreme_cubic() {
+        let mut path = BezPath::new();
+        path.move_to((10.0, 10.0));
+        path.curve_to((1.0e20, 20.0), (80.0, 80.0), (90.0, 10.0));
+        path.line_to((10.0, 10.0));
+        path.close_path();
+
+        let mut line_buf = Vec::new();
+        let mut flatten_ctx = FlattenCtx::default();
+        let mut callback = FlattenerCallback {
+            line_buf: &mut line_buf,
+            start: Point::ZERO,
+            p0: Point::ZERO,
+            is_nan: false,
+        };
+        let iter = (&path).into_iter().map(|el| Affine::IDENTITY * el);
+        let level = Level::try_detect().unwrap_or(Level::baseline());
+        dispatch!(level, simd => crate::flatten_simd::flatten(
+            simd,
+            iter,
+            &mut callback,
+            &mut flatten_ctx,
+            100,
+            100,
+        ));
+
+        let max_reasonable_lines = 1_000;
+        assert!(
+            line_buf.len() < max_reasonable_lines,
+            "flattened into {} lines",
+            line_buf.len()
+        );
+    }
+}
