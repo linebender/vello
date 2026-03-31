@@ -11,7 +11,7 @@ use std::iter;
 use std::sync::Arc;
 use vello_common::color::palette::css::{BLACK, BLUE, GREEN, REBECCA_PURPLE};
 use vello_common::glyph::Glyph;
-use vello_common::kurbo::Affine;
+use vello_common::kurbo::{Affine, Stroke};
 use vello_common::peniko::{Blob, FontData};
 use vello_dev_macros::vello_test;
 
@@ -64,6 +64,22 @@ fn glyphs_stroked_unhinted(ctx: &mut impl Renderer) {
     ctx.glyph_run(&font)
         .font_size(font_size)
         .hint(false)
+        .stroke_glyphs(glyphs.into_iter());
+}
+
+#[vello_test(width = 300, height = 70)]
+fn glyphs_large_stroke_width(ctx: &mut impl Renderer) {
+    let font_size: f32 = 50_f32;
+    let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
+
+    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
+    ctx.set_stroke(Stroke {
+        width: 5.0,
+        ..Stroke::default()
+    });
+    ctx.glyph_run(&font)
+        .font_size(font_size)
         .stroke_glyphs(glyphs.into_iter());
 }
 
@@ -256,17 +272,22 @@ fn glyphs_bitmap_noto(ctx: &mut impl Renderer) {
 
 #[vello_test(width = 250, height = 70, skip_hybrid, cpu_u8_tolerance = 1)]
 fn glyphs_colr_noto(ctx: &mut impl Renderer) {
-    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)));
+    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)), false);
+}
+
+#[vello_test(width = 250, height = 70, skip_hybrid, cpu_u8_tolerance = 1)]
+fn glyphs_colr_noto_stroked(ctx: &mut impl Renderer) {
+    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)), true);
 }
 
 #[vello_test(width = 500, height = 140, skip_hybrid, cpu_u8_tolerance = 1)]
 fn glyphs_colr_noto_scaled_2x(ctx: &mut impl Renderer) {
-    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)).then_scale(2.0));
+    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)).then_scale(2.0), false);
 }
 
 #[vello_test(width = 125, height = 35, skip_hybrid, cpu_u8_tolerance = 1)]
 fn glyphs_colr_noto_scaled_half(ctx: &mut impl Renderer) {
-    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)).then_scale(0.5));
+    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)).then_scale(0.5), false);
 }
 
 #[vello_test(width = 350, height = 350, skip_hybrid, cpu_u8_tolerance = 3)]
@@ -274,6 +295,7 @@ fn glyphs_colr_noto_rotated(ctx: &mut impl Renderer) {
     render_colr_noto_with_transform(
         ctx,
         Affine::translate((175., 100.)) * Affine::rotate(std::f64::consts::FRAC_PI_4),
+        false,
     );
 }
 
@@ -284,6 +306,7 @@ fn glyphs_colr_noto_rotated_scaled(ctx: &mut impl Renderer) {
         Affine::translate((300., 150.))
             * Affine::rotate(std::f64::consts::FRAC_PI_4)
             * Affine::scale(2.0),
+        false,
     );
 }
 
@@ -292,6 +315,7 @@ fn glyphs_colr_noto_scaled_non_uniform(ctx: &mut impl Renderer) {
     render_colr_noto_with_transform(
         ctx,
         Affine::translate((0., 50.)) * Affine::scale_non_uniform(1.0, 2.0),
+        false,
     );
 }
 
@@ -302,7 +326,19 @@ fn glyphs_colr_noto_rotated_scaled_non_uniform(ctx: &mut impl Renderer) {
         Affine::translate((150., 150.))
             * Affine::rotate(std::f64::consts::FRAC_PI_4)
             * Affine::scale_non_uniform(1.0, 2.0),
+        false,
     );
+}
+
+#[vello_test(width = 250, height = 70, skip_hybrid)]
+fn glyphs_bitmap_noto_stroked(ctx: &mut impl Renderer) {
+    let font_size: f32 = 50_f32;
+    let (font, glyphs) = layout_glyphs_noto_cbtf("✅👀🎉🤠", font_size);
+
+    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .stroke_glyphs(glyphs.into_iter());
 }
 
 #[cfg(target_os = "macos")]
@@ -385,13 +421,16 @@ fn glyphs_colr_test_glyphs(ctx: &mut impl Renderer) {
 }
 
 /// Hinting is disabled to preserve transforms passed to `prepare_colr_glyph`.
-fn render_colr_noto_with_transform(ctx: &mut impl Renderer, transform: Affine) {
+fn render_colr_noto_with_transform(ctx: &mut impl Renderer, transform: Affine, stroke: bool) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
 
     ctx.set_transform(transform);
-    ctx.glyph_run(&font)
-        .font_size(font_size)
-        .hint(false)
-        .fill_glyphs(glyphs.into_iter());
+    let run = ctx.glyph_run(&font).font_size(font_size).hint(false);
+
+    if stroke {
+        run.stroke_glyphs(glyphs.into_iter());
+    } else {
+        run.fill_glyphs(glyphs.into_iter());
+    }
 }
