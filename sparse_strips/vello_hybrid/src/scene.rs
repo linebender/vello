@@ -324,6 +324,10 @@ impl Scene {
         }
     }
 
+    pub fn paint_transform(&self) -> &Affine {
+        &self.render_state.paint_transform
+    }
+
     /// Encode the current paint into a `Paint` that can be used for rendering.
     ///
     /// For solid colors, this is a simple conversion. For gradients and images,

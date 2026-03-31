@@ -854,6 +854,8 @@ struct GpuResources {
     atlas_texture_array: Texture,
     /// View for atlas texture array
     atlas_texture_array_view: TextureView,
+    /// Bilinear sampler for GPU-native image sampling
+    atlas_sampler: Sampler,
     /// Bind group for atlas textures (as texture array)
     atlas_bind_group: BindGroup,
     /// Filter atlas textures and their associated views/bind groups.
@@ -892,6 +894,10 @@ struct GpuResources {
     /// Placeholder atlas bind group with a 1x1 dummy texture, used during
     /// `render_to_atlas` to avoid a read-write conflict on the real atlas texture.
     stub_atlas_bind_group: BindGroup,
+
+    /// log2 of the square atlas texture dimension, passed to the shader uniform
+    /// so it can normalize pixel coords to UVs without `textureDimensions`.
+    atlas_dim_bits: u32,
 }
 
 const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).unwrap();
@@ -972,17 +978,32 @@ impl Programs {
         let atlas_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Atlas Texture Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2Array,
-                        multisampled: false,
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
+                            multisampled: false,
+                        },
+                        count: None,
                     },
-                    count: None,
-                }],
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
             });
+
+        let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Atlas Bilinear Sampler"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
 
         let encoded_paints_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1397,16 +1418,29 @@ impl Programs {
             slot_count as u64 * size_of::<u32>() as u64,
         );
 
+        let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
+
+        let AtlasConfig {
+            atlas_size: (atlas_width, atlas_height),
+            initial_atlas_count,
+            ..
+        } = image_cache.atlas_manager().config();
+        debug_assert_eq!(
+            atlas_width, atlas_height,
+            "Atlas must be square for atlas_dim_bits to work"
+        );
+        let atlas_dim_bits = atlas_width.trailing_zeros();
+
         let slot_config_buffer = Self::create_config_buffer(
             device,
             &RenderSize {
                 width: u32::from(WideTile::WIDTH),
                 height: u32::from(Tile::HEIGHT) * slot_count as u32,
             },
-            device.limits().max_texture_dimension_2d,
+            max_texture_dimension_2d,
+            atlas_dim_bits,
         );
 
-        let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
         const INITIAL_ALPHA_TEXTURE_HEIGHT: u32 = 1;
         let alphas_texture = Self::create_alphas_texture(
             device,
@@ -1420,13 +1454,8 @@ impl Programs {
                 height: render_target_config.height,
             },
             max_texture_dimension_2d,
+            atlas_dim_bits,
         );
-
-        let AtlasConfig {
-            atlas_size: (atlas_width, atlas_height),
-            initial_atlas_count,
-            ..
-        } = image_cache.atlas_manager().config();
         let (atlas_texture_array, atlas_texture_array_view) = Self::create_atlas_texture_array(
             device,
             *atlas_width,
@@ -1437,6 +1466,7 @@ impl Programs {
             device,
             &atlas_bind_group_layout,
             &atlas_texture_array_view,
+            &atlas_sampler,
         );
 
         // Create a 1x1 stub atlas texture array for use during render_to_atlas.
@@ -1444,8 +1474,12 @@ impl Programs {
         // a shader input (bind group) and render target in the same pass.
         let (_stub_atlas_texture, stub_atlas_view) =
             Self::create_atlas_texture_array(device, 1, 1, 1);
-        let stub_atlas_bind_group =
-            Self::create_atlas_bind_group(device, &atlas_bind_group_layout, &stub_atlas_view);
+        let stub_atlas_bind_group = Self::create_atlas_bind_group(
+            device,
+            &atlas_bind_group_layout,
+            &stub_atlas_view,
+            &atlas_sampler,
+        );
 
         const INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT: u32 = 1;
         let encoded_paints_data = vec![
@@ -1522,6 +1556,7 @@ impl Programs {
             alphas_texture,
             atlas_texture_array,
             atlas_texture_array_view,
+            atlas_sampler,
             atlas_bind_group,
             filter_atlas,
             stub_atlas_bind_group,
@@ -1532,6 +1567,7 @@ impl Programs {
             filter_data_texture,
             filter_base_bind_group,
             view_config_buffer,
+            atlas_dim_bits,
         };
 
         let depth_texture = Self::create_depth_texture(
@@ -1615,6 +1651,7 @@ impl Programs {
         device: &Device,
         render_size: &RenderSize,
         alpha_texture_width: u32,
+        atlas_dim_bits: u32,
     ) -> Buffer {
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Config Buffer"),
@@ -1626,7 +1663,7 @@ impl Programs {
                 encoded_paints_tex_width_bits: alpha_texture_width.trailing_zeros(),
                 strip_offset_x: 0,
                 strip_offset_y: 0,
-                _padding: 0,
+                atlas_dim_bits,
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         })
@@ -1731,14 +1768,21 @@ impl Programs {
         device: &Device,
         atlas_bind_group_layout: &BindGroupLayout,
         atlas_texture_array_view: &TextureView,
+        atlas_sampler: &Sampler,
     ) -> BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Atlas Bind Group"),
             layout: atlas_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(atlas_texture_array_view),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(atlas_texture_array_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(atlas_sampler),
+                },
+            ],
         })
     }
 
@@ -2078,7 +2122,7 @@ impl Programs {
                 encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                 strip_offset_x: 0,
                 strip_offset_y: 0,
-                _padding: 0,
+                atlas_dim_bits: self.resources.atlas_dim_bits,
             };
             let mut buffer = queue
                 .write_buffer_with(&self.resources.view_config_buffer, 0, SIZE_OF_CONFIG)
@@ -2128,6 +2172,7 @@ impl Programs {
                 device,
                 atlas_bind_group_layout,
                 &new_atlas_texture_array_view,
+                &resources.atlas_sampler,
             );
 
             // Replace the old resources
@@ -2428,7 +2473,7 @@ impl RendererContext<'_> {
                                     .trailing_zeros(),
                                 strip_offset_x,
                                 strip_offset_y,
-                                _padding: 0,
+                                atlas_dim_bits: self.programs.resources.atlas_dim_bits,
                             }),
                             usage: wgpu::BufferUsages::UNIFORM,
                         });
