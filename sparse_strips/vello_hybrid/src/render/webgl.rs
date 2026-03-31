@@ -56,7 +56,7 @@ use vello_common::{
     pixmap::Pixmap,
     tile::Tile,
 };
-use vello_sparse_shaders::{clear_slots, filters, render_strips};
+use vello_sparse_shaders::{clear_slots, filters, render_strips, render_strips_opaque};
 use web_sys::wasm_bindgen::{JsCast, JsValue};
 use web_sys::{
     WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlRenderbuffer,
@@ -678,10 +678,14 @@ impl WebGlRenderer {
 /// Contains the WebGL programs and resources for rendering.
 #[derive(Debug)]
 struct WebGlPrograms {
-    /// Program for rendering wide tile commands.
+    /// Program for rendering wide tile commands (alpha pass and slot passes).
     strip_program: WebGlProgram,
-    /// Uniform locations for the strip program
+    /// Uniform locations for the strip program.
     strip_uniforms: StripUniforms,
+    /// Lightweight program for opaque strip pass (no alpha/blend/clip code).
+    opaque_strip_program: WebGlProgram,
+    /// Uniform locations for the opaque strip program.
+    opaque_strip_uniforms: OpaqueStripUniforms,
     /// Program for clearing slots in slot textures.
     clear_program: WebGlProgram,
     /// Uniform locations for the `clear_program`.
@@ -725,6 +729,19 @@ struct StripUniforms {
     /// Encoded paints texture location for vertex shader.
     encoded_paints_texture_vs: WebGlUniformLocation,
     /// Gradient texture location.
+    gradient_texture: WebGlUniformLocation,
+}
+
+/// Uniform locations for `opaque_strip_program`.
+/// This shader omits alpha texture and clip input texture since opaque strips
+/// never need coverage sampling or clip slot reads.
+#[derive(Debug)]
+struct OpaqueStripUniforms {
+    config_vs_block_index: u32,
+    config_fs_block_index: u32,
+    atlas_texture_array: WebGlUniformLocation,
+    encoded_paints_texture_fs: WebGlUniformLocation,
+    encoded_paints_texture_vs: WebGlUniformLocation,
     gradient_texture: WebGlUniformLocation,
 }
 
@@ -849,6 +866,11 @@ impl WebGlPrograms {
             render_strips::VERTEX_SOURCE,
             render_strips::FRAGMENT_SOURCE,
         );
+        let opaque_strip_program = create_shader_program(
+            &gl,
+            render_strips_opaque::VERTEX_SOURCE,
+            render_strips_opaque::FRAGMENT_SOURCE,
+        );
         let clear_program = create_shader_program(
             &gl,
             clear_slots::VERTEX_SOURCE,
@@ -859,6 +881,7 @@ impl WebGlPrograms {
         let filter_uniforms = get_filter_pass_uniforms(&gl, &filter_program);
 
         let strip_uniforms = get_strip_uniforms(&gl, &strip_program);
+        let opaque_strip_uniforms = get_opaque_strip_uniforms(&gl, &opaque_strip_program);
         let clear_uniforms = get_clear_uniforms(&gl, &clear_program);
 
         let resources = create_webgl_resources(&gl, image_cache, filter_context, slot_count);
@@ -869,6 +892,24 @@ impl WebGlPrograms {
 
         let encoded_paints_data = vec![0; (resources.max_texture_dimension_2d << 4) as usize];
 
+        // Set texture unit assignments once per program. These are per-program
+        // persistent state in WebGL2 and never need to be re-set.
+        gl.use_program(Some(&strip_program));
+        gl.uniform1i(Some(&strip_uniforms.alphas_texture), 0);
+        gl.uniform1i(Some(&strip_uniforms.clip_input_texture), 1);
+        gl.uniform1i(Some(&strip_uniforms.atlas_texture_array), 2);
+        gl.uniform1i(Some(&strip_uniforms.encoded_paints_texture_fs), 3);
+        gl.uniform1i(Some(&strip_uniforms.encoded_paints_texture_vs), 3);
+        gl.uniform1i(Some(&strip_uniforms.gradient_texture), 4);
+
+        gl.use_program(Some(&opaque_strip_program));
+        gl.uniform1i(Some(&opaque_strip_uniforms.atlas_texture_array), 2);
+        gl.uniform1i(Some(&opaque_strip_uniforms.encoded_paints_texture_fs), 3);
+        gl.uniform1i(Some(&opaque_strip_uniforms.encoded_paints_texture_vs), 3);
+        gl.uniform1i(Some(&opaque_strip_uniforms.gradient_texture), 4);
+
+        gl.use_program(None);
+
         gl.enable(WebGl2RenderingContext::BLEND);
         gl.blend_func(
             WebGl2RenderingContext::ONE,
@@ -877,10 +918,12 @@ impl WebGlPrograms {
 
         Self {
             strip_program,
+            opaque_strip_program,
             clear_program,
             filter_program,
             filter_uniforms,
             strip_uniforms,
+            opaque_strip_uniforms,
             clear_uniforms,
             resources,
             render_size: RenderSize {
@@ -1726,6 +1769,54 @@ fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> St
     }
 }
 
+/// Get the uniform locations for the `render_strips_opaque` program.
+fn get_opaque_strip_uniforms(
+    gl: &WebGl2RenderingContext,
+    program: &WebGlProgram,
+) -> OpaqueStripUniforms {
+    let config_vs_name = render_strips_opaque::vertex::CONFIG;
+    let config_vs_block_index = gl.get_uniform_block_index(program, config_vs_name);
+
+    let config_fs_name = render_strips_opaque::fragment::CONFIG;
+    let config_fs_block_index = gl.get_uniform_block_index(program, config_fs_name);
+
+    debug_assert_ne!(
+        config_vs_block_index,
+        WebGl2RenderingContext::INVALID_INDEX,
+        "invalid uniform index"
+    );
+    debug_assert_ne!(
+        config_fs_block_index,
+        WebGl2RenderingContext::INVALID_INDEX,
+        "invalid uniform index"
+    );
+
+    gl.uniform_block_binding(program, config_vs_block_index, 0);
+    gl.uniform_block_binding(program, config_fs_block_index, 0);
+
+    let atlas_texture_array_name = render_strips_opaque::fragment::ATLAS_TEXTURE_ARRAY;
+    let encoded_paints_texture_fs_name = render_strips_opaque::fragment::ENCODED_PAINTS_TEXTURE;
+    let encoded_paints_texture_vs_name = render_strips_opaque::vertex::ENCODED_PAINTS_TEXTURE;
+    let gradient_texture_name = render_strips_opaque::fragment::GRADIENT_TEXTURE;
+
+    OpaqueStripUniforms {
+        config_vs_block_index,
+        config_fs_block_index,
+        atlas_texture_array: gl
+            .get_uniform_location(program, atlas_texture_array_name)
+            .unwrap(),
+        encoded_paints_texture_fs: gl
+            .get_uniform_location(program, encoded_paints_texture_fs_name)
+            .unwrap(),
+        encoded_paints_texture_vs: gl
+            .get_uniform_location(program, encoded_paints_texture_vs_name)
+            .unwrap(),
+        gradient_texture: gl
+            .get_uniform_location(program, gradient_texture_name)
+            .unwrap(),
+    }
+}
+
 /// Get the uniform locations for the `clear_slots` program.
 fn get_clear_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> ClearUniforms {
     let config_name = clear_slots::vertex::CONFIG;
@@ -2312,21 +2403,16 @@ impl WebGlRendererContext<'_> {
             self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
         }
 
-        // Use the strip program.
-        self.gl.use_program(Some(&self.programs.strip_program));
-
         // Set up attributes.
         self.gl
             .bind_vertex_array(Some(&self.programs.resources.strip_vao));
 
-        // Bind textures.
+        // Bind textures to texture units (shared GL context state).
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
             Some(&self.programs.resources.alphas_texture),
         );
-        self.gl
-            .uniform1i(Some(&self.programs.strip_uniforms.alphas_texture), 0);
 
         let clip_texture_idx = match &target {
             StripPassRenderTarget::SlotTexture(1) => 0,
@@ -2337,41 +2423,24 @@ impl WebGlRendererContext<'_> {
             WebGl2RenderingContext::TEXTURE_2D,
             Some(&self.programs.resources.slot_textures[clip_texture_idx]),
         );
-        self.gl
-            .uniform1i(Some(&self.programs.strip_uniforms.clip_input_texture), 1);
 
-        // Bind atlas texture array for image rendering
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D_ARRAY,
             Some(&self.programs.resources.atlas_texture_array.texture),
         );
-        self.gl
-            .uniform1i(Some(&self.programs.strip_uniforms.atlas_texture_array), 2);
 
-        // Bind encoded paints texture for image metadata
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE3);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
             Some(&self.programs.resources.encoded_paints_texture),
         );
-        self.gl.uniform1i(
-            Some(&self.programs.strip_uniforms.encoded_paints_texture_fs),
-            3,
-        );
-        self.gl.uniform1i(
-            Some(&self.programs.strip_uniforms.encoded_paints_texture_vs),
-            3,
-        );
 
-        // Bind gradient texture for gradient rendering
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE4);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
             Some(&self.programs.resources.gradient_texture),
         );
-        self.gl
-            .uniform1i(Some(&self.programs.strip_uniforms.gradient_texture), 4);
 
         let is_final_view =
             matches!(target, StripPassRenderTarget::Output(OutputTarget::FinalView));
@@ -2388,6 +2457,24 @@ impl WebGlRendererContext<'_> {
             self.gl.enable(WebGl2RenderingContext::DEPTH_TEST);
             self.gl.depth_func(WebGl2RenderingContext::LEQUAL);
 
+            // Only pay the use_program switch to the opaque shader when the
+            // opaque list contains image or gradient strips that benefit from
+            // reduced register pressure. For all-solid-color opaque lists
+            // (the common case for text/SVG), the uber-shader's first branch
+            // is already trivially fast and the program switch costs more than
+            // it saves.
+            const PAINT_TYPE_MASK: u32 = 0x7 << 26;
+            let use_opaque_shader = opaque_strips
+                .iter()
+                .any(|s| s.paint_and_rect_flag & PAINT_TYPE_MASK != 0);
+
+            if use_opaque_shader {
+                self.gl
+                    .use_program(Some(&self.programs.opaque_strip_program));
+            } else {
+                self.gl.use_program(Some(&self.programs.strip_program));
+            }
+
             // Opaque pass: front-to-back, depth write ON, blend OFF.
             if !opaque_strips.is_empty() {
                 self.programs.upload_strips(self.gl, opaque_strips);
@@ -2403,6 +2490,11 @@ impl WebGlRendererContext<'_> {
 
             // Alpha pass: back-to-front, depth test ON, depth write OFF, blend ON.
             if !alpha_strips.is_empty() {
+                // Switch back to the full shader only if we used the opaque
+                // shader above; otherwise we're already on strip_program.
+                if use_opaque_shader {
+                    self.gl.use_program(Some(&self.programs.strip_program));
+                }
                 self.programs.upload_strips(self.gl, alpha_strips);
                 self.gl.depth_mask(false);
                 self.gl.enable(WebGl2RenderingContext::BLEND);
@@ -2420,6 +2512,8 @@ impl WebGlRendererContext<'_> {
             self.gl.enable(WebGl2RenderingContext::BLEND);
         } else {
             // Slot texture / intermediate: single draw with blending, no depth.
+            self.gl.use_program(Some(&self.programs.strip_program));
+
             // Combine both lists for upload.
             let all_strips: Vec<GpuStrip> = opaque_strips
                 .iter()

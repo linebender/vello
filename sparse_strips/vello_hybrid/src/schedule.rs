@@ -1534,7 +1534,7 @@ impl Scheduler {
                     Some(EncodedPaint::Image(img)) => {
                         !img.may_have_opacities
                             && img.sampler.alpha == 1.0
-                            && img.tint.is_none_or(|t| t.color.components[3] >= 1.0)
+                            && img.tint.is_none()
                     }
                     _ => false,
                 }

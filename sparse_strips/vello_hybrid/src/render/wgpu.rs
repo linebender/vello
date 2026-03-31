@@ -1172,7 +1172,7 @@ impl Programs {
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &strip_shader,
-                    entry_point: Some("fs_main"),
+                    entry_point: Some("fs_opaque"),
                     targets: &[Some(ColorTargetState {
                         format: strip_formats[i],
                         blend: None,

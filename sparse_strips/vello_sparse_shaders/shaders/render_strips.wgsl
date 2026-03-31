@@ -551,6 +551,79 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     return vec4<f32>(0);
 }
 
+// Lightweight fragment shader for the opaque pass. Opaque strips are always
+// COLOR_SOURCE_PAYLOAD with fully opaque paint and never carry alpha-texture
+// coverage, rect-edge AA fractions, clip-slot reads, or blend compositing.
+// Keeping this as a separate entry point avoids compiling blend/clip/alpha
+// code into the opaque pipeline, reducing register pressure on low-tier GPUs.
+@fragment
+fn fs_opaque(in: VertexOutput) -> @location(0) vec4<f32> {
+    let paint_type = (in.paint_and_rect_flag >> 26u) & 0x7u;
+
+    if paint_type == PAINT_TYPE_SOLID {
+        return unpack4x8unorm(in.payload);
+    } else if paint_type == PAINT_TYPE_IMAGE {
+        let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
+        let encoded_image = unpack_encoded_image(paint_tex_idx);
+        let image_offset = encoded_image.image_offset;
+        let image_size = encoded_image.image_size;
+        let local_xy = in.sample_xy - image_offset;
+        let offset = 0.00001;
+        let extended_xy = vec2<f32>(
+            extend_mode(local_xy.x + offset, encoded_image.extend_modes.x, image_size.x),
+            extend_mode(local_xy.y + offset, encoded_image.extend_modes.y, image_size.y)
+        );
+
+        let final_xy = image_offset + extended_xy;
+        let inv_atlas_dim = 1.0 / f32(1u << config.atlas_dim_bits);
+        let uv = clamp(final_xy * inv_atlas_dim, in.uv_bounds.xy, in.uv_bounds.zw);
+        return textureSample(atlas_texture_array, atlas_sampler, uv, i32(encoded_image.atlas_index));
+    } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT {
+        let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
+        let linear_gradient = unpack_linear_gradient(paint_tex_idx);
+        let fragment_pos = in.sample_xy;
+        let grad_pos = linear_gradient.transform * fragment_pos + linear_gradient.translate;
+        let t_value = grad_pos.x + 0.00001;
+        return sample_gradient_lut(
+            t_value,
+            linear_gradient.extend_mode,
+            linear_gradient.gradient_start,
+            linear_gradient.texture_width,
+            true
+        );
+    } else if paint_type == PAINT_TYPE_RADIAL_GRADIENT {
+        let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
+        let radial_gradient = unpack_radial_gradient(paint_tex_idx);
+        let fragment_pos = in.sample_xy;
+        let grad_pos = radial_gradient.transform * fragment_pos + radial_gradient.translate;
+        let gradient_result = calculate_radial_gradient(grad_pos, radial_gradient);
+        return sample_gradient_lut(
+            gradient_result.t_value,
+            radial_gradient.extend_mode,
+            radial_gradient.gradient_start,
+            radial_gradient.texture_width,
+            gradient_result.is_valid
+        );
+    } else if paint_type == PAINT_TYPE_SWEEP_GRADIENT {
+        let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
+        let sweep_gradient = unpack_sweep_gradient(paint_tex_idx);
+        let fragment_pos = in.sample_xy;
+        var grad_pos = sweep_gradient.transform * fragment_pos + sweep_gradient.translate;
+        grad_pos = select(grad_pos, vec2(0.0), abs(grad_pos) < vec2(NEARLY_ZERO_TOLERANCE));
+        let unit_angle = xy_to_unit_angle(grad_pos.x, grad_pos.y);
+        let angle = unit_angle * TWO_PI;
+        let t_value = (angle - sweep_gradient.start_angle) * sweep_gradient.inv_angle_delta;
+        return sample_gradient_lut(
+            t_value,
+            sweep_gradient.extend_mode,
+            sweep_gradient.gradient_start,
+            sweep_gradient.texture_width,
+            true
+        );
+    }
+    return vec4<f32>(0);
+}
+
 // Apply color mixing and composition. Both input and output colors are premultiplied RGB.
 // Referenced from:
 //   <https://github.com/linebender/vello/blob/b0e2e598ac62c7b3d04d8660e7b1b7659b596970/vello_shaders/shader/shared/blend.wgsl#L288-L310>

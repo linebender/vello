@@ -89,6 +89,15 @@ fn generate_compiled_shaders_module(buf: &mut String, shader_infos: &[(String, S
 
             let generated_code = compiled.to_generated_code(shader_name);
             writeln!(buf, "{generated_code}").unwrap();
+
+            // Compile the opaque variant of render_strips with the fs_opaque entry point.
+            if shader_name == "render_strips" {
+                let compiled_opaque =
+                    compile_wgsl_shader(shader_source, "vs_main", "fs_opaque");
+                let generated_opaque =
+                    compiled_opaque.to_generated_code("render_strips_opaque");
+                writeln!(buf, "{generated_opaque}").unwrap();
+            }
         }
     }
 }
