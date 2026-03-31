@@ -282,7 +282,7 @@ fn generate_gradient_lut_impl<S: Simd>(
     let bytes: &[u8] = bytemuck::cast_slice(lut.lut());
     output.reserve(bytes.len());
     output.extend_from_slice(bytes);
-    lut.width()
+    lut.len()
 }
 
 #[cfg(test)]

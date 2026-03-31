@@ -636,7 +636,6 @@ fn issue_rect_at_bottom_of_viewport(ctx: &mut impl Renderer) {
     ctx.fill_rect(&Rect::new(25.0, 101.0, 200.0, 130.0));
 }
 
-
 #[vello_test]
 fn issue_1528(ctx: &mut impl Renderer) {
     use smallvec::smallvec;
