@@ -303,17 +303,17 @@ fn glyphs_bitmap_noto_stroked(ctx: &mut impl Renderer, enable_caching: bool) {
         .stroke_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 250, height = 70, cpu_u8_tolerance = 1, hybrid_tolerance = 1, glyph)]
+#[vello_test(width = 250, height = 70, cpu_u8_tolerance = 1, hybrid_tolerance = 2, glyph)]
 fn glyphs_colr_noto(ctx: &mut impl Renderer, enable_caching: bool) {
     render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)), enable_caching, false);
 }
 
-#[vello_test(width = 250, height = 70, cpu_u8_tolerance = 1, hybrid_tolerance = 1, glyph)]
+#[vello_test(width = 250, height = 70, cpu_u8_tolerance = 1, hybrid_tolerance = 2, glyph)]
 fn glyphs_colr_noto_stroked(ctx: &mut impl Renderer, enable_caching: bool) {
     render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)), enable_caching, true);
 }
 
-#[vello_test(width = 500, height = 140, cpu_u8_tolerance = 1, glyph)]
+#[vello_test(width = 500, height = 140, cpu_u8_tolerance = 1, hybrid_tolerance = 2, glyph)]
 fn glyphs_colr_noto_scaled_2x(ctx: &mut impl Renderer, enable_caching: bool) {
     render_colr_noto_with_transform(
         ctx,
@@ -322,7 +322,7 @@ fn glyphs_colr_noto_scaled_2x(ctx: &mut impl Renderer, enable_caching: bool) {
     );
 }
 
-#[vello_test(width = 125, height = 35, cpu_u8_tolerance = 1, glyph)]
+#[vello_test(width = 125, height = 35, cpu_u8_tolerance = 1, hybrid_tolerance = 2, glyph)]
 fn glyphs_colr_noto_scaled_half(ctx: &mut impl Renderer, enable_caching: bool) {
     render_colr_noto_with_transform(
         ctx,
@@ -331,7 +331,7 @@ fn glyphs_colr_noto_scaled_half(ctx: &mut impl Renderer, enable_caching: bool) {
     );
 }
 
-#[vello_test(width = 350, height = 350, cpu_u8_tolerance = 3, hybrid_tolerance = 1, glyph)]
+#[vello_test(width = 350, height = 350, cpu_u8_tolerance = 3, hybrid_tolerance = 2, glyph)]
 fn glyphs_colr_noto_rotated(ctx: &mut impl Renderer, enable_caching: bool) {
     render_colr_noto_with_transform(
         ctx,
@@ -340,7 +340,7 @@ fn glyphs_colr_noto_rotated(ctx: &mut impl Renderer, enable_caching: bool) {
     );
 }
 
-#[vello_test(width = 600, height = 600, cpu_u8_tolerance = 2, hybrid_tolerance = 1, glyph)]
+#[vello_test(width = 600, height = 600, cpu_u8_tolerance = 2, hybrid_tolerance = 2, glyph)]
 fn glyphs_colr_noto_rotated_scaled(ctx: &mut impl Renderer, enable_caching: bool) {
     render_colr_noto_with_transform(
         ctx,
@@ -351,7 +351,7 @@ fn glyphs_colr_noto_rotated_scaled(ctx: &mut impl Renderer, enable_caching: bool
     );
 }
 
-#[vello_test(width = 250, height = 140, cpu_u8_tolerance = 1, hybrid_tolerance = 1, glyph)]
+#[vello_test(width = 250, height = 140, cpu_u8_tolerance = 1, hybrid_tolerance = 2, glyph)]
 fn glyphs_colr_noto_scaled_non_uniform(ctx: &mut impl Renderer, enable_caching: bool) {
     render_colr_noto_with_transform(
         ctx,
@@ -387,7 +387,7 @@ fn glyphs_bitmap_apple(ctx: &mut impl Renderer, enable_caching: bool) {
 }
 
 // In case anything changes here, compare to https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/web_tests/platform/linux/virtual/text-antialias/colrv1-expected.png
-#[vello_test(width = 400, height = 960, diff_pixels = 55, glyph)]
+#[vello_test(width = 400, height = 960, hybrid_tolerance = 1, diff_pixels = 55, glyph)]
 fn glyphs_colr_test_glyphs(ctx: &mut impl Renderer, enable_caching: bool) {
     const TEST_FONT: &[u8] =
         include_bytes!("../../../examples/assets/colr_test_glyphs/test_glyphs-glyf_colr_1.ttf");

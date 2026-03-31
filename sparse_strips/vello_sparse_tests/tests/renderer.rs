@@ -381,6 +381,17 @@ impl HybridRenderer {
             renderer,
         }
     }
+
+    fn upload_image_with_resources(&mut self, pixmap: &Arc<Pixmap>, label: &'static str) -> ImageId {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(label) });
+        let image_id = self
+            .renderer
+            .upload_image(&mut self.resources, &self.device, &self.queue, &mut encoder, pixmap);
+        self.queue.submit([encoder.finish()]);
+        image_id
+    }
 }
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
@@ -548,23 +559,6 @@ impl Renderer for HybridRenderer {
             width: width.into(),
             height: height.into(),
         };
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Vello Render To Buffer"),
-            });
-        self.renderer
-            .render(
-                &self.scene,
-                &self.device,
-                &self.queue,
-                &mut encoder,
-                &render_size,
-                &self.texture_view,
-            )
-            .unwrap();
-
-        // Create a buffer to copy the texture data
         let bytes_per_row = (u32::from(width) * 4).next_multiple_of(256);
         let texture_copy_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Output Buffer"),
@@ -572,6 +566,21 @@ impl Renderer for HybridRenderer {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Vello Render To Buffer"),
+        });
+        self.renderer
+            .render_text(
+                &self.scene,
+                &mut self.resources,
+                &self.device,
+                &self.queue,
+                &render_size,
+                &self.texture_view,
+            )
+            .unwrap();
 
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
@@ -594,6 +603,7 @@ impl Renderer for HybridRenderer {
                 depth_or_array_layers: 1,
             },
         );
+
         self.queue.submit([encoder.finish()]);
         // Map the buffer for reading
         texture_copy_buffer
@@ -630,29 +640,12 @@ impl Renderer for HybridRenderer {
     }
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Upload Test Image"),
-            });
-        let image_id = self
-            .renderer
-            .upload_image(&self.device, &self.queue, &mut encoder, &pixmap);
-        self.queue.submit([encoder.finish()]);
+        let image_id = self.upload_image_with_resources(&pixmap, "Upload Test Image");
         ImageSource::opaque_id_with_opacity_hint(image_id, pixmap.may_have_opacities())
     }
 
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Register Test Image"),
-            });
-        let image_id = self
-            .renderer
-            .upload_image(&self.device, &self.queue, &mut encoder, &pixmap);
-        self.queue.submit([encoder.finish()]);
-        image_id
+        self.upload_image_with_resources(&pixmap, "Register Test Image")
     }
 
     fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
@@ -674,6 +667,13 @@ pub(crate) struct HybridRenderer {
     resources: HybridResources,
     renderer: vello_hybrid::WebGlRenderer,
     gl: WebGl2RenderingContext,
+}
+
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+impl HybridRenderer {
+    fn upload_image(&mut self, pixmap: &Arc<Pixmap>) -> ImageId {
+        self.renderer.upload_image(&mut self.resources, pixmap)
+    }
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
@@ -852,7 +852,9 @@ impl Renderer for HybridRenderer {
             width: width.into(),
             height: height.into(),
         };
-        self.renderer.render(&self.scene, &render_size).unwrap();
+        self.renderer
+            .render_text(&self.scene, &mut self.resources, &render_size)
+            .unwrap();
         let mut pixels = vec![0_u8; (width as usize) * (height as usize) * 4];
         self.gl
             .read_pixels_with_opt_u8_array(
@@ -878,12 +880,12 @@ impl Renderer for HybridRenderer {
     }
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
-        let image_id = self.renderer.upload_image(&pixmap);
+        let image_id = self.upload_image(&pixmap);
         ImageSource::opaque_id_with_opacity_hint(image_id, pixmap.may_have_opacities())
     }
 
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
-        self.renderer.upload_image(&pixmap)
+        self.upload_image(&pixmap)
     }
 
     fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {

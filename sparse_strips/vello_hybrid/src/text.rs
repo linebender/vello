@@ -16,6 +16,7 @@ use alloc::vec::Vec;
 use core::fmt::{Debug, Formatter};
 use glifo::atlas::{PendingBitmapUpload, PendingClearRect};
 use glifo::renderers::vello_renderer;
+use glifo::renderers::vello_renderer::replay_atlas_commands;
 use glifo::renderers::vello_renderer::{AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale};
 use glifo::{
     AtlasCommandRecorder, AtlasSlot, CachedGlyphType, ColrPainter, ColrRenderer, GLYPH_PADDING,
@@ -31,6 +32,8 @@ use vello_common::paint::{Image, ImageId, ImageSource, PaintType, Tint};
 use vello_common::peniko;
 use vello_common::peniko::FontData;
 use vello_common::pixmap::Pixmap;
+use crate::AtlasId;
+use vello_common::multi_atlas::AtlasConfig;
 
 /// Glyph atlas cache for the hybrid (GPU) renderer.
 ///
@@ -179,14 +182,18 @@ impl GpuGlyphCaches {
 pub struct Resources {
     pub(crate) glyph_caches: GpuGlyphCaches,
     pub(crate) image_cache: ImageCache,
+    pub(crate) glyph_renderer: Scene,
 }
 
 impl Resources {
     /// Create a new set of renderer resources.
     pub fn new() -> Self {
+        let image_cache = ImageCache::new_with_config(Default::default());
+        let (atlas_width, atlas_height) = image_cache.atlas_manager().config().atlas_size;
         Self {
             glyph_caches: GpuGlyphCaches::with_config(GlyphCacheConfig::default()),
-            image_cache: ImageCache::new_with_config(Default::default()),
+            image_cache,
+            glyph_renderer: Scene::new(atlas_width as u16, atlas_height as u16),
         }
     }
 }
@@ -194,6 +201,56 @@ impl Resources {
 impl Default for Resources {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Resources {
+    #[doc(hidden)]
+    pub fn atlas_config(&self) -> AtlasConfig {
+        self.image_cache.atlas_manager().config().clone()
+    }
+
+    #[doc(hidden)]
+    pub fn atlas_count(&self) -> u32 {
+        self.image_cache.atlas_count() as u32
+    }
+
+    #[doc(hidden)]
+    pub fn replay_pending_atlas_commands(&mut self, mut f: impl FnMut(&Scene, AtlasId)) {
+        self.glyph_caches
+            .0
+            .glyph_atlas
+            .replay_pending_atlas_commands(|recorder| {
+                self.glyph_renderer.reset();
+                replay_atlas_commands(&mut recorder.commands, &mut self.glyph_renderer);
+                f(&self.glyph_renderer, AtlasId::new(recorder.page_index));
+            });
+    }
+
+    #[doc(hidden)]
+    pub fn drain_pending_uploads(&mut self) -> impl Iterator<Item = PendingBitmapUpload> + '_ {
+        self.glyph_caches.0.glyph_atlas.drain_pending_uploads()
+    }
+
+    #[doc(hidden)]
+    pub fn take_pending_uploads(&mut self) -> Vec<PendingBitmapUpload> {
+        self.glyph_caches.0.glyph_atlas.drain_pending_uploads().collect()
+    }
+
+    #[doc(hidden)]
+    pub fn maintain(&mut self, image_cache: &mut ImageCache) {
+        self.glyph_caches.0.maintain(image_cache);
+    }
+
+    #[doc(hidden)]
+    pub fn drain_pending_clear_rects(&mut self) -> impl Iterator<Item = PendingClearRect> + '_ {
+        self.glyph_caches.0.glyph_atlas.drain_pending_clear_rects()
+    }
+
+    #[doc(hidden)]
+    pub fn maintain_and_take_pending_clear_rects(&mut self) -> Vec<PendingClearRect> {
+        self.glyph_caches.0.maintain(&mut self.image_cache);
+        self.glyph_caches.0.glyph_atlas.drain_pending_clear_rects().collect()
     }
 }
 
