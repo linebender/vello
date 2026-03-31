@@ -272,8 +272,12 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
         let font_index = self.prepared_run.font.index;
         let hinted = hinting_instance.is_some();
 
-        let cache_enabled = self.atlas_cache_enabled
+        let colr_bitmap_cache_enabled = self.atlas_cache_enabled
             && hinted_size <= self.glyph_atlas.config().max_cached_font_size;
+        let outline_cache_enabled = colr_bitmap_cache_enabled
+            // We don't cache stroked outlines because the stroke parameters would blow up
+            // the cache key. For COLR and bitmap, it doesn't matter because those are filled anyway.
+            && style == Style::Fill;
 
         let render_glyph: fn(&mut R, PreparedGlyph<'_>, &mut C, &mut ImageCache) = match style {
             Style::Fill => R::fill_glyph,
@@ -297,7 +301,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
                 self.prepared_run.run_transform,
                 hinting_instance,
             );
-            let outline_cache_key = cache_enabled.then(|| {
+            let outline_cache_key = outline_cache_enabled.then(|| {
                 let fractional_x = outline_transform.translation().x.fract() as f32;
                 GlyphCacheKey::new(
                     font_id,
@@ -336,7 +340,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
 
                 // COLR glyphs are never hinted and have no sub-pixel offset;
                 // context_color is part of the key because it affects painted layers.
-                let cache_key = cache_enabled.then(|| GlyphCacheKey {
+                let cache_key = colr_bitmap_cache_enabled.then(|| GlyphCacheKey {
                     font_id,
                     font_index,
                     glyph_id: glyph.id,
@@ -415,7 +419,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
 
                 // Bitmaps are not hinted and have no sub-pixel offset or
                 // context color; variation coords are irrelevant for fixed strikes.
-                let cache_key = cache_enabled.then(|| GlyphCacheKey {
+                let cache_key = colr_bitmap_cache_enabled.then(|| GlyphCacheKey {
                     font_id,
                     font_index,
                     glyph_id: glyph.id,
