@@ -731,11 +731,6 @@ impl AtlasReplayTarget for RenderContext {
     }
 
     #[inline]
-    fn stroke_path(&mut self, path: &BezPath) {
-        Self::stroke_path(self, path);
-    }
-
-    #[inline]
     fn fill_rect(&mut self, rect: &Rect) {
         Self::fill_rect(self, rect);
     }
