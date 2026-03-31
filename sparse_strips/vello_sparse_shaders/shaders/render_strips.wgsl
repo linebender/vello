@@ -47,6 +47,7 @@ const RECT_STRIP_FLAG: u32 = 0x80000000u;
 const IMAGE_QUALITY_LOW = 0u;
 const IMAGE_QUALITY_MEDIUM = 1u;
 const IMAGE_QUALITY_HIGH = 2u;
+const IMAGE_QUALITY_GPU_FAST_PATH = 3u;
 
 // Gradient types.
 const GRADIENT_TYPE_LINEAR: u32 = 0u;
@@ -65,6 +66,8 @@ const TWO_PI: f32 = 2.0 * PI;
 // Note: This must match SCALAR_NEARLY_ZERO in vello_common/src/math.rs
 // @see {@link https://github.com/linebender/vello/blob/748ba4c7a8973f642f778591b09658d8ee6e1132/sparse_strips/vello_common/src/math.rs#L21}
 const NEARLY_ZERO_TOLERANCE: f32 = 1.0 / 4096.0;
+
+const PIXEL_CENTER_NUDGE: f32 = 0.00001;
 
 // Composite modes.
 const COMPOSE_CLEAR: u32 = 0u;
@@ -240,6 +243,9 @@ var<uniform> config: Config;
 @group(1) @binding(0)
 var atlas_texture_array: texture_2d_array<f32>;
 
+@group(1) @binding(1)
+var atlas_sampler: sampler;
+
 @group(2) @binding(0)
 var encoded_paints_texture: texture_2d<u32>;
 
@@ -294,6 +300,13 @@ fn vs_main(
             // Use view coordinates for image sampling (always in global view space)
             let pos = vec2<f32>(f32(scene_strip_x) + x * f32(width), f32(scene_strip_y) + y * f32(height));
             out.sample_xy = encoded_image.translate + encoded_image.image_offset + encoded_image.transform * pos;
+
+            // In the fast path, for native bilinear sampling, coordinates need to be normalized to [0, 1]
+            // since we use `textureSample` instead of `textureLoad`.
+            if encoded_image.quality == IMAGE_QUALITY_GPU_FAST_PATH && encoded_image.extend_modes.x == 1 {
+                let atlas_dims = vec2<f32>(textureDimensions(atlas_texture_array));
+                out.sample_xy = out.sample_xy / atlas_dims;
+            }
         } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT || paint_type == PAINT_TYPE_RADIAL_GRADIENT || paint_type == PAINT_TYPE_SWEEP_GRADIENT {
             // Use view coordinates for gradient transform (always in global view space)
             out.sample_xy = vec2<f32>(
@@ -381,52 +394,71 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         } else if paint_type == PAINT_TYPE_IMAGE {
             let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
             let encoded_image = unpack_encoded_image(paint_tex_idx);
-            let image_offset = encoded_image.image_offset;
-            let image_size = encoded_image.image_size;
-            let local_xy = in.sample_xy - image_offset;
-            // This offset doesn't exist in vello_cpu, and we use it because 45 degree skewing seems to cause
-            // artifacts on the GPU. We have something similar in place for gradients. It might be worth revisiting
-            // this to see whether a better approach is possible.
-            let offset = 0.00001;
-            let extended_xy = vec2<f32>(
-                extend_mode(local_xy.x + offset, encoded_image.extend_modes.x, image_size.x),
-                extend_mode(local_xy.y + offset, encoded_image.extend_modes.y, image_size.y)
-            );
-
-            // TODO: add a fast path for images where we are using bilinear sampling and want transparent pixels,
-            // using GPU-native bilinear sampling
-            
             var sample_color: vec4<f32>;
-            if encoded_image.quality == IMAGE_QUALITY_HIGH {
-                let final_xy = image_offset + extended_xy;
-                sample_color = bicubic_sample(
-                    atlas_texture_array,
-                    final_xy,
-                    i32(encoded_image.atlas_index),
-                    image_offset,
-                    image_size,
-                    encoded_image.extend_modes,
-                    encoded_image.image_padding,
-                );
-            } else if encoded_image.quality == IMAGE_QUALITY_MEDIUM {
-                let final_xy = image_offset + extended_xy - vec2(0.5);
-                sample_color = bilinear_sample(
-                    atlas_texture_array,
-                    final_xy,
-                    i32(encoded_image.atlas_index),
-                    image_offset,
-                    image_size,
-                    encoded_image.extend_modes,
-                    encoded_image.image_padding,
-                );
+
+            if encoded_image.quality == IMAGE_QUALITY_GPU_FAST_PATH {
+                if encoded_image.extend_modes.x == 1 {
+                    // Bilinear sampling.
+                    sample_color = textureSample(
+                        atlas_texture_array,
+                        atlas_sampler,
+                        in.sample_xy,
+                        i32(encoded_image.atlas_index),
+                    );
+                } else {
+                    sample_color = textureLoad(
+                        atlas_texture_array,
+                        // See the comment in the else branch for why we have this nudge.
+                        vec2<i32>(in.sample_xy + PIXEL_CENTER_NUDGE),
+                        i32(encoded_image.atlas_index),
+                        0,
+                    );
+                }
             } else {
-                let final_xy = image_offset + extended_xy;
-                sample_color = textureLoad(
-                    atlas_texture_array,
-                    vec2<u32>(final_xy),
-                    i32(encoded_image.atlas_index),
-                    0,
+                let image_offset = encoded_image.image_offset;
+                let image_size = encoded_image.image_size;
+                let local_xy = in.sample_xy - image_offset;
+                // This offset doesn't exist in vello_cpu, and we use it because 45 degree skewing seems to cause
+                // artifacts on the GPU. We have something similar in place for gradients. It might be worth revisiting
+                // this to see whether a better approach is possible.
+                // TODO: This is only really needed for nearest-neighbor sampling, not bilinear/bicubic.
+                let offset = PIXEL_CENTER_NUDGE;
+                let extended_xy = vec2<f32>(
+                    extend_mode(local_xy.x + offset, encoded_image.extend_modes.x, image_size.x),
+                    extend_mode(local_xy.y + offset, encoded_image.extend_modes.y, image_size.y)
                 );
+
+                if encoded_image.quality == IMAGE_QUALITY_HIGH {
+                    let final_xy = image_offset + extended_xy;
+                    sample_color = bicubic_sample(
+                        atlas_texture_array,
+                        final_xy,
+                        i32(encoded_image.atlas_index),
+                        image_offset,
+                        image_size,
+                        encoded_image.extend_modes,
+                        encoded_image.image_padding,
+                    );
+                } else if encoded_image.quality == IMAGE_QUALITY_MEDIUM {
+                    let final_xy = image_offset + extended_xy - vec2(0.5);
+                    sample_color = bilinear_sample(
+                        atlas_texture_array,
+                        final_xy,
+                        i32(encoded_image.atlas_index),
+                        image_offset,
+                        image_size,
+                        encoded_image.extend_modes,
+                        encoded_image.image_padding,
+                    );
+                } else {
+                    let final_xy = image_offset + extended_xy;
+                    sample_color = textureLoad(
+                        atlas_texture_array,
+                        vec2<u32>(final_xy),
+                        i32(encoded_image.atlas_index),
+                        0,
+                    );
+                }
             }
 
             let is_multiply = bool(encoded_image.tint_mode);
@@ -444,7 +476,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let grad_pos = linear_gradient.transform * fragment_pos + linear_gradient.translate;
             
             // For linear gradient, t-value is just the x coordinate in gradient space
-            let t_value = grad_pos.x + 0.00001;
+            let t_value = grad_pos.x + PIXEL_CENTER_NUDGE;
             let gradient_color = sample_gradient_lut(
                 t_value,
                 linear_gradient.extend_mode,
@@ -887,7 +919,7 @@ fn unpack_encoded_image(paint_tex_idx: u32) -> EncodedImage {
     let image_padding = f32(texel2.w);
 
     return EncodedImage(
-        quality, 
+        quality,
         vec2<u32>(extend_x, extend_y),
         image_size,
         image_offset,
@@ -1188,7 +1220,7 @@ fn unpack_linear_gradient(paint_tex_idx: u32) -> LinearGradient {
         vec2<f32>(bitcast<f32>(texel1.x), bitcast<f32>(texel1.y))
     );
     let translate = vec2<f32>(bitcast<f32>(texel1.z), bitcast<f32>(texel1.w));
-    
+
     return LinearGradient(
         extend_mode, gradient_start, texture_width, transform, translate
     );
@@ -1305,7 +1337,7 @@ fn unpack_radial_gradient(paint_tex_idx: u32) -> RadialGradient {
         vec2<f32>(bitcast<f32>(texel1.x), bitcast<f32>(texel1.y))
     );
     let translate = vec2<f32>(bitcast<f32>(texel1.z), bitcast<f32>(texel1.w));
-    
+
     let kind_and_swapped = unpack_radial_kind_and_swapped(texel2.x);
     let kind = kind_and_swapped.x;
     let f_is_swapped = kind_and_swapped.y;
@@ -1339,7 +1371,7 @@ fn unpack_sweep_gradient(paint_tex_idx: u32) -> SweepGradient {
         vec2<f32>(bitcast<f32>(texel1.x), bitcast<f32>(texel1.y))
     );
     let translate = vec2<f32>(bitcast<f32>(texel1.z), bitcast<f32>(texel1.w));
-    
+
     let start_angle = bitcast<f32>(texel2.x);
     let inv_angle_delta = bitcast<f32>(texel2.y);
 

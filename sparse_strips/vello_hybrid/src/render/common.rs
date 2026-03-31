@@ -18,9 +18,10 @@ pub(crate) const GPU_RADIAL_GRADIENT_SIZE_TEXELS: u32 =
     (size_of::<GpuRadialGradient>() / 16) as u32;
 pub(crate) const GPU_SWEEP_GRADIENT_SIZE_TEXELS: u32 = (size_of::<GpuSweepGradient>() / 16) as u32;
 
-// TODO: If we want to use native bilinear sampling for uploaded images,
-// we can pass 1 instead of 0 here.
-pub(crate) const IMAGE_PADDING: u16 = 0;
+// One pixel padding to account for bilinear filtering.
+pub(crate) const IMAGE_PADDING: u16 = 1;
+
+pub(crate) const IMAGE_QUALITY_GPU_FAST_PATH: u32 = 3;
 
 /// Dimensions of the rendering target.
 #[derive(Debug, PartialEq, Eq, Clone)]
