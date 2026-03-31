@@ -39,7 +39,7 @@ use vello_common::pixmap::Pixmap;
 pub mod atlas;
 mod colr;
 mod glyph;
-mod math;
+mod util;
 
 pub mod renderers;
 

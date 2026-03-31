@@ -32,6 +32,6 @@ hashbrown = { workspace = true }
 peniko = { workspace = true }
 skrifa = { workspace = true }
 smallvec = { workspace = true }
-vello_common = { workspace = true }
+vello_common = { workspace = true, features = ["text"] }
 png = { workspace = true, optional = true }
 core_maths = { workspace = true, optional = true }

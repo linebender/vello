@@ -3,6 +3,7 @@
 
 //! Tests for glyph rendering.
 
+use std::f64::consts::FRAC_PI_4;
 use crate::renderer::{Renderer, TestGlyphRunBuilder};
 #[cfg(target_os = "macos")]
 use crate::util::layout_glyphs_apple_color_emoji;
@@ -14,6 +15,68 @@ use vello_common::glyph::Glyph;
 use vello_common::kurbo::{Affine, Stroke};
 use vello_common::peniko::{Blob, FontData};
 use vello_dev_macros::vello_test;
+
+fn render_transform_composition_rows(
+    ctx: &mut impl Renderer,
+    enable_caching: bool,
+    hint: bool,
+    paint: impl Into<vello_common::paint::PaintType>,
+    layout: impl Fn(f32) -> (FontData, Vec<Glyph>),
+) {
+    let rows = [
+        (Affine::IDENTITY, 20.0_f32, Affine::IDENTITY),
+        (Affine::scale(20.0), 1.0_f32, Affine::IDENTITY),
+        (Affine::IDENTITY, 10.0_f32, Affine::scale(2.0)),
+        (Affine::scale(2.0), 5.0_f32, Affine::scale(2.0)),
+        (Affine::translate((-4.0, 0.0)), 20.0_f32, Affine::translate((4.0, 0.0))),
+        (
+            Affine::translate((-4.0, 0.0)) * Affine::scale(4.0),
+            5.0_f32,
+            Affine::translate((1.0, 0.0)),
+        ),
+        (
+            Affine::translate((-1.0, 0.0)),
+            40.0_f32,
+            Affine::scale(0.5) * Affine::translate((2.0, 0.0)),
+        ),
+        (
+            Affine::IDENTITY,
+            20.0_f32,
+            Affine::translate((10.0, -10.0))
+                * Affine::rotate(FRAC_PI_4)
+                * Affine::translate((-10.0, 10.0)),
+        ),
+        (
+            Affine::IDENTITY,
+            20.0_f32,
+            Affine::translate((10.0, -10.0))
+                * Affine::skew(0.35, 0.0)
+                * Affine::translate((-10.0, 10.0)),
+        ),
+        (
+            Affine::IDENTITY,
+            20.0_f32,
+            Affine::translate((10.0, -10.0))
+                * Affine::skew(0.0, 0.2)
+                * Affine::translate((-10.0, 10.0)),
+        ),
+    ];
+
+    ctx.set_paint(paint);
+
+    let mut y = 28.0;
+    for (run_scale_transform, font_size, glyph_transform) in rows {
+        let (font, glyphs) = layout(font_size);
+        ctx.set_transform(Affine::translate((16.0, y)) * run_scale_transform);
+        ctx.glyph_run(&font)
+            .font_size(font_size)
+            .atlas_cache(enable_caching)
+            .glyph_transform(glyph_transform)
+            .hint(hint)
+            .fill_glyphs(glyphs.into_iter());
+        y += 30.0;
+    }
+}
 
 #[vello_test(width = 300, height = 70, glyph)]
 fn glyphs_filled(ctx: &mut impl Renderer, enable_caching: bool) {
@@ -251,6 +314,65 @@ fn glyphs_glyph_transform_unhinted(ctx: &mut impl Renderer, enable_caching: bool
         .fill_glyphs(glyphs.into_iter());
 }
 
+#[vello_test(width = 110, height = 320, glyph)]
+fn glyphs_transform_composition_rows_outline(ctx: &mut impl Renderer, enable_caching: bool) {
+    render_transform_composition_rows(
+        ctx,
+        enable_caching,
+        false,
+        REBECCA_PURPLE.with_alpha(0.5),
+        |font_size| layout_glyphs_roboto("Hello", font_size),
+    );
+}
+
+#[vello_test(width = 110, height = 320, glyph)]
+fn glyphs_transform_composition_rows_outline_hinted(ctx: &mut impl Renderer, enable_caching: bool) {
+    render_transform_composition_rows(
+        ctx,
+        enable_caching,
+        true,
+        REBECCA_PURPLE.with_alpha(0.5),
+        |font_size| layout_glyphs_roboto("Hello", font_size),
+    );
+}
+
+// Next two tests require high tolerance on CPU likely due to having to use bicubic interpolation, since
+// we downscale a lot.
+
+#[vello_test(width = 210, height = 320, skip_hybrid, glyph, cpu_u8_tolerance = 3)]
+fn glyphs_transform_composition_rows_bitmap(ctx: &mut impl Renderer, enable_caching: bool) {
+    render_transform_composition_rows(ctx, enable_caching, false, BLACK, |font_size| {
+        layout_glyphs_noto_cbtf("✅👀🎉🤠", font_size)
+    });
+}
+
+#[vello_test(width = 210, height = 320, skip_hybrid, glyph, cpu_u8_tolerance = 3)]
+fn glyphs_transform_composition_rows_bitmap_hinted(
+    ctx: &mut impl Renderer,
+    enable_caching: bool,
+) {
+    render_transform_composition_rows(ctx, enable_caching, true, BLACK, |font_size| {
+        layout_glyphs_noto_cbtf("✅👀🎉🤠", font_size)
+    });
+}
+
+#[vello_test(width = 210, height = 320, cpu_u8_tolerance = 1, hybrid_tolerance = 3, glyph)]
+fn glyphs_transform_composition_rows_colr(ctx: &mut impl Renderer, enable_caching: bool) {
+    render_transform_composition_rows(ctx, enable_caching, false, BLACK, |font_size| {
+        layout_glyphs_noto_colr("✅👀🎉🤠", font_size)
+    });
+}
+
+#[vello_test(width = 210, height = 320, cpu_u8_tolerance = 1, hybrid_tolerance = 3, glyph)]
+fn glyphs_transform_composition_rows_colr_hinted(
+    ctx: &mut impl Renderer,
+    enable_caching: bool,
+) {
+    render_transform_composition_rows(ctx, enable_caching, true, BLACK, |font_size| {
+        layout_glyphs_noto_colr("✅👀🎉🤠", font_size)
+    });
+}
+
 #[vello_test(width = 60, height = 12, glyph)]
 fn glyphs_small(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 10_f32;
@@ -335,7 +457,7 @@ fn glyphs_colr_noto_scaled_half(ctx: &mut impl Renderer, enable_caching: bool) {
 fn glyphs_colr_noto_rotated(ctx: &mut impl Renderer, enable_caching: bool) {
     render_colr_noto_with_transform(
         ctx,
-        Affine::translate((175., 100.)) * Affine::rotate(std::f64::consts::FRAC_PI_4),
+        Affine::translate((175., 100.)) * Affine::rotate(FRAC_PI_4),
         enable_caching, false
     );
 }
@@ -345,7 +467,7 @@ fn glyphs_colr_noto_rotated_scaled(ctx: &mut impl Renderer, enable_caching: bool
     render_colr_noto_with_transform(
         ctx,
         Affine::translate((300., 150.))
-            * Affine::rotate(std::f64::consts::FRAC_PI_4)
+            * Affine::rotate(FRAC_PI_4)
             * Affine::scale(2.0),
         enable_caching, false
     );
@@ -366,7 +488,7 @@ fn glyphs_colr_noto_rotated_scaled_non_uniform(ctx: &mut impl Renderer, enable_c
     render_colr_noto_with_transform(
         ctx,
         Affine::translate((150., 150.))
-            * Affine::rotate(std::f64::consts::FRAC_PI_4)
+            * Affine::rotate(FRAC_PI_4)
             * Affine::scale_non_uniform(1.0, 2.0),
         enable_caching,
         false
