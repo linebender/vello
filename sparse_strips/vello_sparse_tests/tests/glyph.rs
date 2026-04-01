@@ -83,6 +83,52 @@ fn glyphs_large_stroke_width(ctx: &mut impl Renderer) {
         .stroke_glyphs(glyphs.into_iter());
 }
 
+#[vello_test(width = 300, height = 120)]
+fn glyphs_stroked_then_filled(ctx: &mut impl Renderer) {
+    let font_size: f32 = 50_f32;
+    let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
+
+    render_roboto_with_mode(
+        ctx,
+        &font,
+        font_size,
+        glyphs.iter().copied(),
+        Affine::translate((0., f64::from(font_size))),
+        DrawMode::Stroke,
+    );
+    render_roboto_with_mode(
+        ctx,
+        &font,
+        font_size,
+        glyphs.into_iter(),
+        Affine::translate((0., f64::from(font_size * 2.0))),
+        DrawMode::Fill,
+    );
+}
+
+#[vello_test(width = 300, height = 120)]
+fn glyphs_filled_then_stroked(ctx: &mut impl Renderer) {
+    let font_size: f32 = 50_f32;
+    let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
+
+    render_roboto_with_mode(
+        ctx,
+        &font,
+        font_size,
+        glyphs.iter().copied(),
+        Affine::translate((0., f64::from(font_size))),
+        DrawMode::Fill,
+    );
+    render_roboto_with_mode(
+        ctx,
+        &font,
+        font_size,
+        glyphs.into_iter(),
+        Affine::translate((0., f64::from(font_size * 2.0))),
+        DrawMode::Stroke,
+    );
+}
+
 #[vello_test(width = 300, height = 70)]
 fn glyphs_skewed(ctx: &mut impl Renderer) {
     let font_size: f32 = 50_f32;
@@ -274,6 +320,32 @@ fn glyphs_bitmap_noto(ctx: &mut impl Renderer) {
 enum DrawMode {
     Fill,
     Stroke,
+}
+
+fn render_roboto_with_mode(
+    ctx: &mut impl Renderer,
+    font: &FontData,
+    font_size: f32,
+    glyphs: impl Iterator<Item = Glyph>,
+    transform: Affine,
+    mode: DrawMode,
+) {
+    ctx.set_transform(transform);
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.set_stroke(Stroke {
+        width: 3.0,
+        ..Stroke::default()
+    });
+    let builder = ctx.glyph_run(font).font_size(font_size);
+
+    match mode {
+        DrawMode::Fill => {
+            builder.fill_glyphs(glyphs);
+        }
+        DrawMode::Stroke => {
+            builder.stroke_glyphs(glyphs);
+        }
+    }
 }
 
 #[vello_test(width = 250, height = 70, skip_hybrid, cpu_u8_tolerance = 1)]
