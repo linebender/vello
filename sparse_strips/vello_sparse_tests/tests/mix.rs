@@ -6,7 +6,7 @@ use crate::renderer::Renderer;
 use smallvec::smallvec;
 use vello_common::color::palette::css::{BLUE, LIME, MAGENTA, ORANGE, RED, YELLOW};
 use vello_common::color::{AlphaColor, DynamicColor, Srgb};
-use vello_common::kurbo::{Affine, Point, Rect};
+use vello_common::kurbo::{Affine, Point, Rect, Shape};
 use vello_common::paint::{Image, ImageSource};
 use vello_common::peniko::{
     BlendMode, Color, ColorStop, ColorStops, Compose, Extend, Gradient, ImageQuality, Mix,
@@ -296,4 +296,23 @@ fn mix_non_isolated_soft_light(ctx: &mut impl Renderer) {
 #[vello_test]
 fn mix_non_isolated_color_dodge(ctx: &mut impl Renderer) {
     mix_non_isolated(ctx, Mix::ColorDodge);
+}
+
+#[vello_test]
+fn mix_in_inner_layer(ctx: &mut impl Renderer) {
+    let clip = Rect::new(0.0, 0.0, 100.0, 100.0);
+    // We don't really need the clip here, but vello currently treat layers with all parameters
+    // set to `None` as a no-op, hence why we add a clip path here that doesn't actually do
+    // anything.
+    ctx.push_clip_layer(&clip.to_path(0.1));
+
+    ctx.set_paint(BLUE.with_alpha(0.5));
+    ctx.fill_rect(&Rect::new(10.5, 10.5, 70.5, 70.5));
+
+    ctx.push_blend_layer(BlendMode::new(Mix::Multiply, Compose::SrcOver));
+    ctx.set_paint(LIME.with_alpha(0.5));
+    ctx.fill_rect(&Rect::new(30.5, 30.5, 90.5, 90.5));
+    ctx.pop_layer();
+
+    ctx.pop_layer();
 }
