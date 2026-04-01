@@ -53,6 +53,7 @@ use vello_common::{
     pixmap::Pixmap,
     tile::Tile,
 };
+use vello_sparse_shaders::ShaderConstants;
 use wgpu::{
     BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, CommandEncoder,
     Device, Extent3d, PipelineCompilationOptions, Queue, RenderPassColorAttachment,
@@ -1018,9 +1019,19 @@ impl Programs {
                 }],
             });
 
+        let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
+        let shader_constants = ShaderConstants {
+            strip_height: Tile::HEIGHT.into(),
+            alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+            encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+            gradient_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+        };
+
         let strip_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Strip Shader"),
-            source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::RENDER_STRIPS.into()),
+            source: wgpu::ShaderSource::Wgsl(
+                vello_sparse_shaders::wgsl::render_strips(&shader_constants).into(),
+            ),
         });
 
         let clear_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -1310,10 +1321,8 @@ impl Programs {
                 width: u32::from(WideTile::WIDTH),
                 height: u32::from(Tile::HEIGHT) * slot_count as u32,
             },
-            device.limits().max_texture_dimension_2d,
         );
 
-        let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
         const INITIAL_ALPHA_TEXTURE_HEIGHT: u32 = 1;
         let alphas_texture = Self::create_alphas_texture(
             device,
@@ -1326,7 +1335,6 @@ impl Programs {
                 width: render_target_config.width,
                 height: render_target_config.height,
             },
-            max_texture_dimension_2d,
         );
 
         let AtlasConfig {
@@ -1489,22 +1497,16 @@ impl Programs {
         })
     }
 
-    fn create_config_buffer(
-        device: &Device,
-        render_size: &RenderSize,
-        alpha_texture_width: u32,
-    ) -> Buffer {
+    fn create_config_buffer(device: &Device, render_size: &RenderSize) -> Buffer {
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Config Buffer"),
             contents: bytemuck::bytes_of(&Config {
                 width: render_size.width,
                 height: render_size.height,
-                strip_height: Tile::HEIGHT.into(),
-                alphas_tex_width_bits: alpha_texture_width.trailing_zeros(),
-                encoded_paints_tex_width_bits: alpha_texture_width.trailing_zeros(),
                 strip_offset_x: 0,
                 strip_offset_y: 0,
                 negate_ndc: 0,
+                ..Config::zeroed()
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         })
@@ -1763,7 +1765,7 @@ impl Programs {
         self.maybe_resize_alphas_tex(device, max_texture_dimension_2d, alphas.len());
         self.maybe_resize_encoded_paints_tex(device, max_texture_dimension_2d, paint_idxs);
         self.maybe_resize_filter_tex(device, max_texture_dimension_2d, filter_context);
-        self.maybe_update_config_buffer(queue, max_texture_dimension_2d, new_render_size);
+        self.maybe_update_config_buffer(queue, new_render_size);
 
         self.upload_alpha_texture(queue, alphas);
         self.upload_encoded_paints_texture(queue, encoded_paints);
@@ -1943,19 +1945,16 @@ impl Programs {
     fn maybe_update_config_buffer(
         &mut self,
         queue: &Queue,
-        max_texture_dimension_2d: u32,
         new_render_size: &RenderSize,
     ) {
         if self.render_size != *new_render_size {
             let config = Config {
                 width: new_render_size.width,
                 height: new_render_size.height,
-                strip_height: Tile::HEIGHT.into(),
-                alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
-                encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                 strip_offset_x: 0,
                 strip_offset_y: 0,
                 negate_ndc: 0,
+                ..Config::zeroed()
             };
             let mut buffer = queue
                 .write_buffer_with(&self.resources.view_config_buffer, 0, SIZE_OF_CONFIG)
@@ -2277,24 +2276,10 @@ impl RendererContext<'_> {
                             contents: bytemuck::bytes_of(&Config {
                                 width: atlas_size.width,
                                 height: atlas_size.height,
-                                strip_height: Tile::HEIGHT.into(),
-                                alphas_tex_width_bits: self
-                                    .programs
-                                    .resources
-                                    .alphas_texture
-                                    .size()
-                                    .width
-                                    .trailing_zeros(),
-                                encoded_paints_tex_width_bits: self
-                                    .programs
-                                    .resources
-                                    .alphas_texture
-                                    .size()
-                                    .width
-                                    .trailing_zeros(),
                                 strip_offset_x,
                                 strip_offset_y,
                                 negate_ndc: 0,
+                                ..Config::zeroed()
                             }),
                             usage: wgpu::BufferUsages::UNIFORM,
                         });

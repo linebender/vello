@@ -105,16 +105,6 @@ struct Config {
     width: u32,
     // Height of the rendering target
     height: u32,
-    // Height of a strip in the rendering
-    // CAUTION: When changing this value, you must also update the fragment shader's
-    // logic to handle the new strip height.
-    strip_height: u32,
-    // Number of trailing zeros in alphas_tex_width (log2 of width).
-    // Pre-calculated on CPU since WebGL2 doesn't support `firstTrailingBit`.
-    alphas_tex_width_bits: u32,
-    // Number of trailing zeros in encoded_paints_tex_width (log2 of width).
-    // Pre-calculated on CPU since WebGL2 doesn't support `firstTrailingBit`.
-    encoded_paints_tex_width_bits: u32,
     // An offset to apply to the strip.
     //
     // In most cases, these will be zero. However,
@@ -126,6 +116,17 @@ struct Config {
     // Whether to flip the y-component of the NDC coordinates.
     ndc_y_negate: u32,
 }
+
+// Shader-lifetime constants whose placeholder values (0u / 1u) are replaced
+// with device-specific literals at renderer init time via string substitution.
+//
+// NOTE: Since we transpile this shader to GLES at build-time, we cannot use WGPU
+// shader constants because, to transpile a shader of that type to GLES, requires
+// Naga, which we want to avoid adding to the binary.
+const STRIP_HEIGHT: u32 = 0u;
+const ALPHAS_TEX_WIDTH_BITS: u32 = 0u;
+const ENCODED_PAINTS_TEX_WIDTH_BITS: u32 = 0u;
+const GRADIENT_TEX_WIDTH_BITS: u32 = 0u;
 
 // A `StripInstance` can represent either a **normal strip** (representing a sparse fill or alpha fill of height
 // Tile::HEIGHT) or a **rect strip** (an entire rectangle rendered as a single quad, with anti-aliasing support).
@@ -263,7 +264,7 @@ fn vs_main(
     let dense_width = instance.widths_or_rect_height >> 16u;
 
     let is_rect = (instance.paint_and_rect_flag & RECT_STRIP_FLAG) != 0u;
-    var height = config.strip_height;
+    var height = STRIP_HEIGHT;
     if is_rect {
         height = dense_width;
         out.dense_end_or_rect_size = width | (dense_width << 16u);
@@ -350,15 +351,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // channel encodes the alpha values for a single column within a strip.
         // Divide x by 4 to get the texel position.
         let alphas_index = x;
-        let tex_dimensions = textureDimensions(alphas_texture);
-        let alphas_tex_width = tex_dimensions.x;
         // Which texel contains the alpha values for this column
         let texel_index = alphas_index / 4u;
         // Which channel (R,G,B,A) in the texel contains the alpha values for this column
         let channel_index = alphas_index % 4u;
         // Calculate texel coordinates
-        let tex_x = texel_index & (alphas_tex_width - 1u);
-        let tex_y = texel_index >> config.alphas_tex_width_bits;
+        let tex_x = texel_index & ((1u << ALPHAS_TEX_WIDTH_BITS) - 1u);
+        let tex_y = texel_index >> ALPHAS_TEX_WIDTH_BITS;
 
         // Load all 4 channels from the texture
         let rgba_values = textureLoad(alphas_texture, vec2<u32>(tex_x, tex_y), 0);
@@ -520,7 +519,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // within the wide tile slot! Therefore, we need to subtract the strip
         // offset here.
         let clip_x = u32(i32(in.position.x) - config.strip_offset_x) & 0xFFu;
-        let clip_y = (u32(i32(sample_y) - config.strip_offset_y) & 3u) + in.payload * config.strip_height;
+        let clip_y = (u32(i32(sample_y) - config.strip_offset_y) & 3u) + in.payload * STRIP_HEIGHT;
         let clip_in_color = textureLoad(clip_input_texture, vec2(clip_x, clip_y), 0);
 
         // Extract opacity from first 8 bits (quantized from [0, 255])
@@ -540,11 +539,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // See the comment above for why we need to subtract the strip offset.
         let clip_x = u32(i32(in.position.x) - config.strip_offset_x) & 0xFFu;
         let clip_y_in_strip = u32(i32(sample_y) - config.strip_offset_y) & 3u;
-        let src_y = clip_y_in_strip + src_slot * config.strip_height;
+        let src_y = clip_y_in_strip + src_slot * STRIP_HEIGHT;
         let src_color = textureLoad(clip_input_texture, vec2(clip_x, src_y), 0);
 
         // Read destination color from slot
-        let dest_y = clip_y_in_strip + dest_slot * config.strip_height;
+        let dest_y = clip_y_in_strip + dest_slot * STRIP_HEIGHT;
         let dest_color = textureLoad(clip_input_texture, vec2(clip_x, dest_y), 0);
 
         final_color = blend_mix_compose(dest_color, src_color * opacity * alpha, compose_mode, mix_mode);
@@ -856,8 +855,8 @@ struct EncodedImage {
 // Convert a flat texel index to 2D texture coordinates for the encoded paints texture.
 fn encoded_paint_coord(flat_idx: u32) -> vec2<u32> {
     return vec2<u32>(
-        flat_idx & ((1u << config.encoded_paints_tex_width_bits) - 1u),
-        flat_idx >> config.encoded_paints_tex_width_bits
+        flat_idx & ((1u << ENCODED_PAINTS_TEX_WIDTH_BITS) - 1u),
+        flat_idx >> ENCODED_PAINTS_TEX_WIDTH_BITS
     );
 }
 
@@ -1105,9 +1104,8 @@ fn sample_gradient_lut(t_value: f32, extend_mode: u32, gradient_start: u32, text
     // Calculate absolute position in flat gradient texture
     let flat_coord = gradient_start + t_offset;
     // Convert flat coordinate to 2D texture coordinate
-    let gradient_tex_width = textureDimensions(gradient_texture).x;
-    let tex_x = flat_coord % gradient_tex_width;
-    let tex_y = flat_coord / gradient_tex_width;
+    let tex_x = flat_coord & ((1u << GRADIENT_TEX_WIDTH_BITS) - 1u);
+    let tex_y = flat_coord >> GRADIENT_TEX_WIDTH_BITS;
     // Sample from the gradient texture at calculated position
     let gradient_color = textureLoad(gradient_texture, vec2<u32>(tex_x, tex_y), 0);
     return gradient_color;

@@ -39,14 +39,6 @@ pub struct Config {
     pub width: u32,
     /// Height of the rendering target.
     pub height: u32,
-    /// Height of a strip in the rendering.
-    pub strip_height: u32,
-    /// Number of trailing zeros in `alphas_tex_width` (log2 of width).
-    /// Pre-calculated on CPU since downlevel targets do not support `firstTrailingBit`.
-    pub alphas_tex_width_bits: u32,
-    /// Number of trailing zeros in the encoded paints texture width (log2 of width).
-    /// Pre-calculated on CPU since downlevel targets do not support `firstTrailingBit`.
-    pub encoded_paints_tex_width_bits: u32,
     /// A horizontal offset to apply to strips.
     pub strip_offset_x: i32,
     /// A vertical offset to apply to strips.
@@ -70,6 +62,8 @@ pub struct Config {
     /// and just apply the second negation manually in case we render to the final output surface
     /// in the WebGL backend.
     pub negate_ndc: u32,
+    /// Padding to ensure 16-byte alignment.
+    pub _padding: [u32; 3],
 }
 
 /// A GPU strip instance for rendering.

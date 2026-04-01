@@ -31,8 +31,8 @@ use crate::{
             GPU_ENCODED_IMAGE_SIZE_TEXELS, GPU_LINEAR_GRADIENT_SIZE_TEXELS,
             GPU_RADIAL_GRADIENT_SIZE_TEXELS, GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuEncodedImage,
             GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
-            pack_image_offset, pack_image_params, pack_image_size, pack_radial_kind_and_swapped,
-            pack_texture_width_and_extend_mode, pack_tint,
+            pack_image_offset, pack_image_params, pack_image_size,
+            pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode, pack_tint,
         },
     },
     scene::Scene,
@@ -56,7 +56,8 @@ use vello_common::{
     pixmap::Pixmap,
     tile::Tile,
 };
-use vello_sparse_shaders::{clear_slots, filters, render_strips};
+use vello_sparse_shaders::ShaderConstants;
+use vello_sparse_shaders::gles::{clear_slots, filters, render_strips};
 use web_sys::wasm_bindgen::{JsCast, JsValue};
 use web_sys::{
     WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlTexture,
@@ -764,11 +765,17 @@ impl WebGlPrograms {
         filter_context: &FilterContext,
         slot_count: usize,
     ) -> Self {
-        let strip_program = create_shader_program(
-            &gl,
-            render_strips::VERTEX_SOURCE,
-            render_strips::FRAGMENT_SOURCE,
-        );
+        let max_texture_dimension_2d = get_max_texture_dimension_2d(&gl);
+        let shader_constants = ShaderConstants {
+            strip_height: u32::from(Tile::HEIGHT),
+            alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+            encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+            gradient_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+        };
+
+        let vs_source = render_strips::vertex_source(&shader_constants);
+        let fs_source = render_strips::fragment_source(&shader_constants);
+        let strip_program = create_shader_program(&gl, &vs_source, &fs_source);
         let clear_program = create_shader_program(
             &gl,
             clear_slots::VERTEX_SOURCE,
@@ -1097,12 +1104,10 @@ impl WebGlPrograms {
                 let config = Config {
                     width: new_render_size.width,
                     height: new_render_size.height,
-                    strip_height: u32::from(Tile::HEIGHT),
-                    alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
-                    encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                     strip_offset_x: 0,
                     strip_offset_y: 0,
                     negate_ndc: u32::from(negate_ndc),
+                    ..Config::zeroed()
                 };
 
                 gl.bind_buffer(
@@ -1123,13 +1128,11 @@ impl WebGlPrograms {
                 let slot_config = Config {
                     width: u32::from(WideTile::WIDTH),
                     height: u32::from(Tile::HEIGHT) * total_slots,
-                    strip_height: u32::from(Tile::HEIGHT),
-                    alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
-                    encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                     strip_offset_x: 0,
                     strip_offset_y: 0,
                     // Always use y-down when rendering to slots.
                     negate_ndc: 0,
+                    ..Config::zeroed()
                 };
 
                 gl.bind_buffer(
@@ -2024,20 +2027,10 @@ impl WebGlRendererContext<'_> {
                 let config = Config {
                     width: atlas_width,
                     height: atlas_height,
-                    strip_height: u32::from(Tile::HEIGHT),
-                    alphas_tex_width_bits: self
-                        .programs
-                        .resources
-                        .max_texture_dimension_2d
-                        .trailing_zeros(),
-                    encoded_paints_tex_width_bits: self
-                        .programs
-                        .resources
-                        .max_texture_dimension_2d
-                        .trailing_zeros(),
                     strip_offset_x,
                     strip_offset_y,
                     negate_ndc: 0,
+                    ..Config::zeroed()
                 };
                 let buf = &self.programs.resources.filter_config_buffer;
                 self.gl

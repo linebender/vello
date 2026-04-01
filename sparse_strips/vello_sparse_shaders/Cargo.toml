@@ -2,7 +2,7 @@
 name = "vello_sparse_shaders"
 # When updating, also update the version in the workspace dependency in the root Cargo.toml
 version = "0.0.7"
-description = "Provide compilation of wgsl to glsl to support the WebGL `vello_hybrid` backend."
+description = "Provide compilation of wgsl to glsl es to support the WebGL `vello_hybrid` backend."
 categories = ["rendering", "graphics"]
 keywords = ["2d", "vector-graphics"]
 edition.workspace = true
@@ -23,7 +23,7 @@ naga = { workspace = true, features = ["wgsl-in", "glsl-out"], optional = true }
 naga = { workspace = true, features = ["wgsl-in", "glsl-out"], optional = true }
 
 [features]
-glsl = ["dep:naga"]
+gles = ["dep:naga"]
 
 [lints]
 workspace = true

@@ -9,15 +9,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 #[allow(warnings)]
-#[cfg(feature = "glsl")]
+#[cfg(feature = "gles")]
 #[path = "src/compile.rs"]
 mod compile;
 #[allow(warnings)]
-#[cfg(feature = "glsl")]
+#[cfg(feature = "gles")]
 #[path = "src/types.rs"]
 mod types;
 
-#[cfg(feature = "glsl")]
+#[cfg(feature = "gles")]
 use compile::compile_wgsl_shader;
 
 // TODO: Format the generated code via `rustfmt`.
@@ -76,13 +76,10 @@ fn generate_compiled_shaders_module(buf: &mut String, shader_infos: &[(String, S
 
     // Implementation for creating a CompiledGlsl struct per shader assuming the standard entry
     // names of `vs_main` and `fs_main`.
-    #[cfg(feature = "glsl")]
+    #[cfg(feature = "gles")]
     {
-        writeln!(
-            buf,
-            "/// Build time GLSL shaders derived from wgsl shaders."
-        )
-        .unwrap();
+        writeln!(buf, "/// Build-time GLSL ES shaders derived from WGSL shaders.").unwrap();
+        writeln!(buf, "pub mod gles {{").unwrap();
 
         for (shader_name, shader_source) in shader_infos {
             let compiled = compile_wgsl_shader(shader_source, "vs_main", "fs_main");
@@ -90,6 +87,8 @@ fn generate_compiled_shaders_module(buf: &mut String, shader_infos: &[(String, S
             let generated_code = compiled.to_generated_code(shader_name);
             writeln!(buf, "{generated_code}").unwrap();
         }
+
+        writeln!(buf, "}}").unwrap();
     }
 }
 
