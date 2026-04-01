@@ -504,8 +504,14 @@ impl GlyphAtlasBackend for HybridBackend {
         let state = renderer.save_current_state();
         renderer.set_transform(transform);
 
+        // See this PR for a bit more context on why we wrap everything in another
+        // layer: https://github.com/linebender/vello/pull/1554
+        // In short, we need to do this so that we can enable the `default_blending_only`
+        // scene constraint when rendering glyphs for better performance.
+        renderer.push_layer(None, None, None, None, None);
         let mut colr_painter = ColrPainter::new(glyph, context_color, renderer);
         colr_painter.paint();
+        renderer.pop_layer();
 
         renderer.restore_state(state);
     }

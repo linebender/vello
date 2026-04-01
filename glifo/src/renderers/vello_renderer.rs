@@ -239,8 +239,13 @@ fn render_colr_to_atlas(
 ) {
     recorder.set_transform(Affine::translate((dst_x as f64, dst_y as f64)));
 
+    // See the comment in `render_colr_directly` for why we push a layer here.
+    // It's strictly speaking only required for the GPU backend, but to keep it simple
+    // we just do it for both renderers here.
+    recorder.push_blend_layer(BlendMode::default());
     let mut colr_painter = ColrPainter::new(glyph, context_color, recorder);
     colr_painter.paint();
+    recorder.pop_layer();
 }
 
 /// Insert an outline glyph into the atlas and render it from there.
