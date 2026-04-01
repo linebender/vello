@@ -696,3 +696,18 @@ fn issue_1528(ctx: &mut impl Renderer) {
     ctx.set_paint(grad3);
     ctx.fill_rect(&Rect::new(-250.0, -250.0, -150.0, -150.0));
 }
+
+#[vello_test]
+fn issue_fast_path_strips_in_later_round(ctx: &mut impl Renderer) {
+    ctx.push_layer(None, None, None, None, None);
+    ctx.push_layer(None, None, None, None, None);
+    ctx.push_layer(None, None, None, None, None);
+    ctx.set_paint(Color::from_rgba8(0, 0, 255, 255));
+    ctx.fill_rect(&Rect::new(10.0, 10.0, 70.0, 70.0));
+    ctx.pop_layer();
+    ctx.pop_layer();
+    ctx.pop_layer();
+
+    ctx.set_paint(Color::from_rgba8(255, 0, 0, 255));
+    ctx.fill_rect(&Rect::new(30.0, 30.0, 90.0, 90.0));
+}
