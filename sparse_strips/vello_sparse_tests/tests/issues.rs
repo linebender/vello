@@ -4,8 +4,12 @@
 //! Tests for GitHub issues.
 
 use crate::renderer::Renderer;
+use crate::util::stops_blue_green_red_yellow;
 use std::sync::Arc;
+use vello_api::peniko::GradientKind::Radial;
 use vello_api::peniko::color::palette::css::{PURPLE, ROYAL_BLUE, TOMATO};
+use vello_api::peniko::kurbo::Point;
+use vello_api::peniko::{ColorStops, RadialGradientPosition};
 use vello_common::color::PremulRgba8;
 use vello_common::color::palette::css::{BLUE, DARK_BLUE, LIME, REBECCA_PURPLE};
 use vello_common::filter_effects::{Filter, FilterPrimitive};
@@ -630,4 +634,65 @@ fn issue_flush_fast_path_with_blending(ctx: &mut impl Renderer) {
 fn issue_rect_at_bottom_of_viewport(ctx: &mut impl Renderer) {
     ctx.set_transform(Affine::IDENTITY);
     ctx.fill_rect(&Rect::new(25.0, 101.0, 200.0, 130.0));
+}
+
+#[vello_test]
+fn issue_1528(ctx: &mut impl Renderer) {
+    use smallvec::smallvec;
+    use vello_common::color::{DynamicColor, palette::css::PURPLE};
+
+    // 1) This first draw op will put the gradient into the cache.
+    let grad1 = Gradient {
+        kind: Radial(RadialGradientPosition {
+            start_center: Point::new(-200.0, -200.0),
+            start_radius: 5.0,
+            end_center: Point::new(-200.0, -200.0),
+            end_radius: 35.0,
+        }),
+        stops: stops_blue_green_red_yellow(),
+        ..Default::default()
+    };
+    ctx.set_paint(grad1);
+    ctx.fill_rect(&Rect::new(-250.0, -250.0, -150.0, -150.0));
+
+    // 2) This second draw op should _not_ result in a cache hit, because the gradient
+    // can have undefined locations. Therefore, a different LUT will be generated which adds a
+    // final transparent stop. Therefore, this gradient must be treated differently
+    // than the first one.
+    let grad2 = Gradient {
+        kind: Radial(RadialGradientPosition {
+            start_center: Point::new(30.0, 50.0),
+            start_radius: 5.0,
+            end_center: Point::new(70.0, 50.0),
+            end_radius: 20.0,
+        }),
+        stops: stops_blue_green_red_yellow(),
+        ..Default::default()
+    };
+    ctx.set_paint(grad2);
+    ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
+
+    // 3) In case 2) was not fulfilled, the transparent pixel will instead land on the first
+    // LUT entry of this gradient, which is purple.
+    let grad3 = Gradient {
+        kind: Radial(RadialGradientPosition {
+            start_center: Point::new(-200.0, -200.0),
+            start_radius: 5.0,
+            end_center: Point::new(-200.0, -200.0),
+            end_radius: 35.0,
+        }),
+        stops: ColorStops(smallvec![
+            ColorStop {
+                offset: 0.0,
+                color: DynamicColor::from_alpha_color(PURPLE)
+            },
+            ColorStop {
+                offset: 1.0,
+                color: DynamicColor::from_alpha_color(PURPLE)
+            },
+        ]),
+        ..Default::default()
+    };
+    ctx.set_paint(grad3);
+    ctx.fill_rect(&Rect::new(-250.0, -250.0, -150.0, -150.0));
 }
