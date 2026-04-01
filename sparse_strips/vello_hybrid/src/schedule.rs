@@ -340,6 +340,11 @@ impl Round {
 pub(crate) struct SchedulerState {
     /// The state of the current wide tile that is being processed.
     tile_state: TileState,
+    /// The maximum round that has been allocated for any drawing operation
+    /// in any wide tile for the current filter/root layer.
+    ///
+    /// This value should be reset to the base round every time a new layer is processed.
+    max_round: usize,
 }
 
 impl SchedulerState {
@@ -593,6 +598,9 @@ impl Scheduler {
         let rows = wide.height_tiles();
         let cols = wide.width_tiles();
         let num_tiles = (rows * cols) as usize;
+        // If we processed any filter layers previously, there maximum round should not leak
+        // into the root node.
+        state.max_round = self.round;
 
         // A bit hacky, but we need this since we still need mutable access to
         // self when processing everything.
@@ -606,6 +614,7 @@ impl Scheduler {
                 self.push_direct_strips(
                     scene,
                     0..scene.fast_strips_buffer.commands.len(),
+                    state.max_round,
                     paint_idxs,
                     encoded_paints,
                 );
@@ -634,6 +643,7 @@ impl Scheduler {
                         self.push_direct_strips(
                             scene,
                             prev_split..split,
+                            state.max_round,
                             paint_idxs,
                             encoded_paints,
                         );
@@ -662,6 +672,7 @@ impl Scheduler {
                     self.push_direct_strips(
                         scene,
                         prev_split..tail_end,
+                        state.max_round,
                         paint_idxs,
                         encoded_paints,
                     );
@@ -687,6 +698,10 @@ impl Scheduler {
         filter_context: &FilterContext,
         encoded_paints: &[EncodedPaint],
     ) -> Result<(), RenderError> {
+        // The maximum layer of other filter nodes should not leak into new filter nodes, hence
+        // we need to reset it.
+        state.max_round = self.round;
+
         for y in wtile_bbox.y0()..wtile_bbox.y1() {
             for x in wtile_bbox.x0()..wtile_bbox.x1() {
                 let wide_tile = scene.wide.get(x, y);
@@ -740,13 +755,14 @@ impl Scheduler {
         &mut self,
         scene: &Scene,
         range: Range<usize>,
+        round: usize,
         paint_idxs: &[u32],
         encoded_paints: &[EncodedPaint],
     ) {
         let strip_storage = scene.strip_storage.borrow();
         // Always choose the draw of the final surface, since direct strips are only ever
         // rendered to the final surface.
-        let draw = self.draw_mut(self.round, 2);
+        let draw = self.draw_mut(round, 2);
 
         for cmd in &scene.fast_strips_buffer.commands[range] {
             match cmd {
@@ -834,6 +850,8 @@ impl Scheduler {
 
                 // Advance past the `BatchEnd` marker (if present).
                 cmd_offsets[idx] = (end + 1).min(tile.cmds.len());
+
+                state.max_round = state.max_round.max(state.tile_state.stack[0].round);
             }
         }
 
