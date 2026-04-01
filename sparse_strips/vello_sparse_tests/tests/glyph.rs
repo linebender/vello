@@ -270,24 +270,30 @@ fn glyphs_bitmap_noto(ctx: &mut impl Renderer) {
         .fill_glyphs(glyphs.into_iter());
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DrawMode {
+    Fill,
+    Stroke
+}
+
 #[vello_test(width = 250, height = 70, skip_hybrid, cpu_u8_tolerance = 1)]
 fn glyphs_colr_noto(ctx: &mut impl Renderer) {
-    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)), false);
+    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)), DrawMode::Fill);
 }
 
 #[vello_test(width = 250, height = 70, skip_hybrid, cpu_u8_tolerance = 1)]
 fn glyphs_colr_noto_stroked(ctx: &mut impl Renderer) {
-    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)), true);
+    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)), DrawMode::Stroke);
 }
 
 #[vello_test(width = 500, height = 140, skip_hybrid, cpu_u8_tolerance = 1)]
 fn glyphs_colr_noto_scaled_2x(ctx: &mut impl Renderer) {
-    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)).then_scale(2.0), false);
+    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)).then_scale(2.0), DrawMode::Fill);
 }
 
 #[vello_test(width = 125, height = 35, skip_hybrid, cpu_u8_tolerance = 1)]
 fn glyphs_colr_noto_scaled_half(ctx: &mut impl Renderer) {
-    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)).then_scale(0.5), false);
+    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)).then_scale(0.5), DrawMode::Fill);
 }
 
 #[vello_test(width = 350, height = 350, skip_hybrid, cpu_u8_tolerance = 3)]
@@ -295,7 +301,7 @@ fn glyphs_colr_noto_rotated(ctx: &mut impl Renderer) {
     render_colr_noto_with_transform(
         ctx,
         Affine::translate((175., 100.)) * Affine::rotate(std::f64::consts::FRAC_PI_4),
-        false,
+        DrawMode::Fill,
     );
 }
 
@@ -306,7 +312,7 @@ fn glyphs_colr_noto_rotated_scaled(ctx: &mut impl Renderer) {
         Affine::translate((300., 150.))
             * Affine::rotate(std::f64::consts::FRAC_PI_4)
             * Affine::scale(2.0),
-        false,
+        DrawMode::Fill,
     );
 }
 
@@ -315,7 +321,7 @@ fn glyphs_colr_noto_scaled_non_uniform(ctx: &mut impl Renderer) {
     render_colr_noto_with_transform(
         ctx,
         Affine::translate((0., 50.)) * Affine::scale_non_uniform(1.0, 2.0),
-        false,
+        DrawMode::Fill,
     );
 }
 
@@ -326,7 +332,7 @@ fn glyphs_colr_noto_rotated_scaled_non_uniform(ctx: &mut impl Renderer) {
         Affine::translate((150., 150.))
             * Affine::rotate(std::f64::consts::FRAC_PI_4)
             * Affine::scale_non_uniform(1.0, 2.0),
-        false,
+        DrawMode::Fill,
     );
 }
 
@@ -421,14 +427,14 @@ fn glyphs_colr_test_glyphs(ctx: &mut impl Renderer) {
 }
 
 /// Hinting is disabled to preserve transforms passed to `prepare_colr_glyph`.
-fn render_colr_noto_with_transform(ctx: &mut impl Renderer, transform: Affine, stroke: bool) {
+fn render_colr_noto_with_transform(ctx: &mut impl Renderer, transform: Affine, mode: DrawMode) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
 
     ctx.set_transform(transform);
     let run = ctx.glyph_run(&font).font_size(font_size).hint(false);
 
-    if stroke {
+    if mode == DrawMode::Stroke {
         run.stroke_glyphs(glyphs.into_iter());
     } else {
         run.fill_glyphs(glyphs.into_iter());
