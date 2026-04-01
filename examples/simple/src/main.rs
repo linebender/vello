@@ -16,7 +16,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::Window;
 
-use vello::wgpu;
+use vello::wgpu::{self, CurrentSurfaceTexture};
 
 #[derive(Debug)]
 enum RenderState {
@@ -95,12 +95,12 @@ impl ApplicationHandler for SimpleVelloApp {
         event: WindowEvent,
     ) {
         // Only process events for our window, and only when we have a surface.
-        let (surface, valid_surface) = match &mut self.state {
+        let (surface, valid_surface, window) = match &mut self.state {
             RenderState::Active {
                 surface,
                 valid_surface,
                 window,
-            } if window.id() == window_id => (surface, valid_surface),
+            } if window.id() == window_id => (surface, valid_surface, window),
             _ => return,
         };
 
@@ -158,10 +158,22 @@ impl ApplicationHandler for SimpleVelloApp {
                     .expect("failed to render to surface");
 
                 // Get the surface's texture
-                let surface_texture = surface
-                    .surface
-                    .get_current_texture()
-                    .expect("failed to get surface texture");
+                let surface_texture = match surface.surface.get_current_texture() {
+                    CurrentSurfaceTexture::Success(surface_texture) => surface_texture,
+                    CurrentSurfaceTexture::Outdated | CurrentSurfaceTexture::Suboptimal(_) => {
+                        self.context.configure_surface(surface);
+                        window.request_redraw();
+                        return;
+                    }
+                    CurrentSurfaceTexture::Occluded | CurrentSurfaceTexture::Timeout => {
+                        window.request_redraw();
+                        return;
+                    }
+                    CurrentSurfaceTexture::Lost => panic!("Surface was lost"),
+                    CurrentSurfaceTexture::Validation => {
+                        panic!("Valdidation error getting surface")
+                    }
+                };
 
                 // Perform the copy
                 let mut encoder =

@@ -1032,10 +1032,10 @@ impl Programs {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Strip Pipeline Layout"),
                 bind_group_layouts: &[
-                    &strip_bind_group_layout,
-                    &atlas_bind_group_layout,
-                    &encoded_paints_bind_group_layout,
-                    &gradient_bind_group_layout,
+                    Some(&strip_bind_group_layout),
+                    Some(&atlas_bind_group_layout),
+                    Some(&encoded_paints_bind_group_layout),
+                    Some(&gradient_bind_group_layout),
                 ],
                 immediate_size: 0,
             });
@@ -1043,7 +1043,7 @@ impl Programs {
         let clear_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Clear Slots Pipeline Layout"),
-                bind_group_layouts: &[&clear_bind_group_layout],
+                bind_group_layouts: &[Some(&clear_bind_group_layout)],
                 immediate_size: 0,
             });
 
@@ -1211,9 +1211,9 @@ impl Programs {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Filter Pipeline Layout"),
                 bind_group_layouts: &[
-                    &filter_bind_group_layout,
-                    &filter_input_bind_group_layouts[0],
-                    &filter_input_bind_group_layouts[1],
+                    Some(&filter_bind_group_layout),
+                    Some(&filter_input_bind_group_layouts[0]),
+                    Some(&filter_input_bind_group_layouts[1]),
                 ],
                 immediate_size: 0,
             });
