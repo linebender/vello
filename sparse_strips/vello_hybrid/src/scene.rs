@@ -135,7 +135,7 @@ impl SceneConstraints {
     ///
     /// # Panics
     ///
-    /// The renderer will panic if a non-default blend mode is used.
+    /// The renderer will panic if a non-default blend mode is used in the root layer.
     #[inline(always)]
     pub fn default_blending_only(self) -> Self {
         Self(self.0 | Self::DEFAULT_BLENDING_ONLY)
@@ -147,8 +147,8 @@ impl SceneConstraints {
     }
 
     #[inline(always)]
-    fn assert_blend_mode(&self, blend_mode: BlendMode) {
-        if self.use_default_blending_only() {
+    fn assert_blend_mode(&self, blend_mode: BlendMode, nested_layer: bool) {
+        if self.use_default_blending_only() && !nested_layer {
             assert!(
                 blend_mode == DEFAULT_BLEND_MODE,
                 "scene constrained to default blending"
@@ -614,7 +614,8 @@ impl Scene {
         filter: Option<Filter>,
     ) {
         let blend_mode_val = blend_mode.unwrap_or(DEFAULT_BLEND_MODE);
-        self.constraints.assert_blend_mode(blend_mode_val);
+        self.constraints
+            .assert_blend_mode(blend_mode_val, self.wide.has_layers());
 
         self.layer_id_next += 1;
 
@@ -716,7 +717,8 @@ impl Scene {
 
     /// Set the blend mode for subsequent rendering operations.
     pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
-        self.constraints.assert_blend_mode(blend_mode);
+        self.constraints
+            .assert_blend_mode(blend_mode, self.wide.has_layers());
         self.render_state.blend_mode = blend_mode;
     }
 
@@ -1472,6 +1474,22 @@ mod tests {
         assert_eq!(scene.strip_path_mode, StripPathMode::Interleaved);
         assert_eq!(scene.coarse_batch_splits.len(), 1);
         assert_eq!(scene.fast_strips_buffer.commands.len(), 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "scene constrained to default blending")]
+    fn default_blending_only_rejects_root_blend_layer() {
+        let mut scene = default_blending_only();
+        scene.push_blend_layer(BlendMode::new(Mix::Multiply, Compose::SrcOver));
+    }
+
+    #[test]
+    fn default_blending_only_allows_nested_blend_layer() {
+        let mut scene = default_blending_only();
+        scene.push_layer(None, None, Some(0.5), None, None);
+        scene.push_blend_layer(BlendMode::new(Mix::Multiply, Compose::SrcOver));
+
+        assert!(scene.wide.has_layers());
     }
 
     #[test]

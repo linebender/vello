@@ -205,7 +205,10 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
 
     // Tests that use non-default blend modes will panic with `default_blending_only`.
     skip_hybrid_constrained |= skip_hybrid
-        || input_fn_name_str.contains("mix")
+        || (input_fn_name_str.contains("mix")
+            // This test is supposed to specifically show even with scene constraints enabled,
+            // blending will work fine as long as it doesn't happen on the root layer.
+            && !input_fn_name_str.contains("mix_in_inner_layer"))
         || input_fn_name_str.contains("compose")
         || (input_fn_name_str.contains("blend")
             && !input_fn_name_str.contains("default_blending_only"))
