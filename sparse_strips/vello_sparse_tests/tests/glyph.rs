@@ -75,7 +75,7 @@ fn glyphs_large_stroke_width(ctx: &mut impl Renderer) {
     ctx.set_transform(Affine::translate((0., f64::from(font_size))));
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.set_stroke(Stroke {
-        width: 5.0,
+        width: 3.0,
         ..Stroke::default()
     });
     ctx.glyph_run(&font)
@@ -273,7 +273,7 @@ fn glyphs_bitmap_noto(ctx: &mut impl Renderer) {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DrawMode {
     Fill,
-    Stroke
+    Stroke,
 }
 
 #[vello_test(width = 250, height = 70, skip_hybrid, cpu_u8_tolerance = 1)]
@@ -288,12 +288,20 @@ fn glyphs_colr_noto_stroked(ctx: &mut impl Renderer) {
 
 #[vello_test(width = 500, height = 140, skip_hybrid, cpu_u8_tolerance = 1)]
 fn glyphs_colr_noto_scaled_2x(ctx: &mut impl Renderer) {
-    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)).then_scale(2.0), DrawMode::Fill);
+    render_colr_noto_with_transform(
+        ctx,
+        Affine::translate((0., 50.)).then_scale(2.0),
+        DrawMode::Fill,
+    );
 }
 
 #[vello_test(width = 125, height = 35, skip_hybrid, cpu_u8_tolerance = 1)]
 fn glyphs_colr_noto_scaled_half(ctx: &mut impl Renderer) {
-    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)).then_scale(0.5), DrawMode::Fill);
+    render_colr_noto_with_transform(
+        ctx,
+        Affine::translate((0., 50.)).then_scale(0.5),
+        DrawMode::Fill,
+    );
 }
 
 #[vello_test(width = 350, height = 350, skip_hybrid, cpu_u8_tolerance = 3)]
