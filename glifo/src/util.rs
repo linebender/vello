@@ -31,6 +31,7 @@ impl FloatExt for f32 {
 
 pub(crate) trait AffineExt {
     fn has_skew(&self) -> bool;
+    #[cfg(any(feature = "vello_cpu", feature = "vello_hybrid"))]
     fn has_non_unit_scale(&self) -> bool;
     fn has_positive_uniform_scale(&self) -> bool;
     fn has_vertical_skew(&self) -> bool;
@@ -45,6 +46,7 @@ impl AffineExt for Affine {
     }
 
     /// Whether the transform has a scaling factor not equal to 1 or -1.
+    #[cfg(any(feature = "vello_cpu", feature = "vello_hybrid"))]
     #[inline]
     fn has_non_unit_scale(&self) -> bool {
         let [a, _, _, d, _, _] = self.as_coeffs();
