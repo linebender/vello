@@ -462,17 +462,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             
             // For radial gradient, calculate distance from center
             let gradient_result = calculate_radial_gradient(grad_pos, radial_gradient);
-            if gradient_result.is_valid {
-                let gradient_color = sample_gradient_lut(
-                    gradient_result.t_value, 
-                    radial_gradient.extend_mode, 
-                    radial_gradient.gradient_start, 
-                    radial_gradient.texture_width
-                );
-                final_color = alpha * gradient_color;
-            } else {
-                final_color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
-            }
+            let gradient_color = sample_gradient_lut(
+                gradient_result.t_value, 
+                radial_gradient.extend_mode, 
+                radial_gradient.gradient_start, 
+                radial_gradient.texture_width
+            );
+            final_color = select(
+                vec4<f32>(0.0, 0.0, 0.0, 0.0),
+                alpha * gradient_color,
+                gradient_result.is_valid
+            );
         } else if paint_type == PAINT_TYPE_SWEEP_GRADIENT {
             let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
             let sweep_gradient = unpack_sweep_gradient(paint_tex_idx);
