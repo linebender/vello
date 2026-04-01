@@ -177,19 +177,22 @@ only break in edge cases, and some of them are also only related to conversions 
 )]
 
 use crate::filter::FilterContext;
+use crate::render::common::GpuTextureRect;
 use crate::scene::{FastPathRect, FastStripCommand, FastStripsPath, StripPathMode};
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::collections::VecDeque;
+use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Range;
 use vello_common::coarse::{
-    CmdAlphaFill, CmdClipAlphaFill, CmdClipFill, CmdFill, CommandAttrs, LayerKind, MODE_HYBRID,
-    Wide, WideTilesBbox,
+    CmdAlphaFill, CmdClipAlphaFill, CmdClipFill, CmdFill, CmdTextureRect, CommandAttrs, LayerKind,
+    MODE_HYBRID, Wide, WideTilesBbox,
 };
-use vello_common::peniko::BlendMode;
+use vello_common::peniko::{BlendMode, Extend, ImageQuality};
 use vello_common::render_graph::{LayerId, RenderNodeKind};
 use vello_common::strip_generator::StripStorage;
 use vello_common::{
+    TextureId,
     coarse::{Cmd, WideTile},
     encode::EncodedPaint,
     paint::{ImageSource, Paint},
@@ -239,13 +242,13 @@ pub(crate) trait RendererBackend {
     /// Clear specific slots in a texture.
     fn clear_slots(&mut self, texture_index: usize, slots: &[u32]);
 
-    /// Execute a render pass for strips.
-    fn render_strips(
+    /// Execute all draw operations targeting the same attachment in a single render pass.
+    fn render_draw_ops(
         &mut self,
-        strips: &[GpuStrip],
+        draw: &Draw,
         target: StripPassRenderTarget,
         load_op: LoadOp,
-    );
+    ) -> Result<(), RenderError>;
 
     /// Apply filter effects for the given layer after its content has been rendered.
     fn apply_filter(&mut self, layer_id: LayerId);
@@ -255,7 +258,7 @@ pub(crate) trait RendererBackend {
 /// start of a render pass:
 ///  - `LoadOp::Load` is equivalent to `wgpu::LoadOp::Load`
 ///  - `LoadOp::Clear` is equivalent `wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)`
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub(crate) enum LoadOp {
     Load,
     Clear,
@@ -431,16 +434,68 @@ impl TileEl {
 }
 
 #[derive(Debug, Default)]
-struct Draw(Vec<GpuStrip>);
+pub(crate) struct Draw(Vec<PassOp>);
+
+#[derive(Debug)]
+pub(crate) enum PassOp {
+    Strips(Vec<GpuStrip>),
+    TextureRects(TextureRectDraw),
+}
+
+#[derive(Debug)]
+pub(crate) struct TextureRectDraw {
+    pub(crate) texture_id: TextureId,
+    pub(crate) quality: ImageQuality,
+    pub(crate) x_extend: Extend,
+    pub(crate) y_extend: Extend,
+    pub(crate) rects: Vec<GpuTextureRect>,
+}
 
 impl Draw {
-    #[inline(always)]
-    fn push(&mut self, gpu_strip: GpuStrip) {
-        self.0.push(gpu_strip);
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub(crate) fn ops(&self) -> &[PassOp] {
+        &self.0
     }
 
     fn clear(&mut self) {
         self.0.clear();
+    }
+
+    fn push_strip(&mut self, gpu_strip: GpuStrip) {
+        match self.0.last_mut() {
+            Some(PassOp::Strips(strips)) => strips.push(gpu_strip),
+            _ => self.0.push(PassOp::Strips(vec![gpu_strip])),
+        }
+    }
+
+    fn push_texture_rect(
+        &mut self,
+        texture_id: TextureId,
+        quality: ImageQuality,
+        x_extend: Extend,
+        y_extend: Extend,
+        rect: GpuTextureRect,
+    ) {
+        match self.0.last_mut() {
+            Some(PassOp::TextureRects(draw))
+                if draw.texture_id == texture_id
+                    && draw.quality == quality
+                    && draw.x_extend == x_extend
+                    && draw.y_extend == y_extend =>
+            {
+                draw.rects.push(rect);
+            }
+            _ => self.0.push(PassOp::TextureRects(TextureRectDraw {
+                texture_id,
+                quality,
+                x_extend,
+                y_extend,
+                rects: vec![rect],
+            })),
+        }
     }
 }
 
@@ -469,7 +524,7 @@ impl Scheduler {
             if self.rounds_queue.is_empty() {
                 return Err(RenderError::SlotsExhausted);
             }
-            self.flush(renderer);
+            self.flush(renderer)?;
         }
 
         let slot_ix = self.free[texture].pop().unwrap();
@@ -539,7 +594,7 @@ impl Scheduler {
             }
 
             while !self.rounds_queue.is_empty() {
-                self.flush(renderer);
+                self.flush(renderer)?;
             }
 
             // This will actually apply the filter and store the filtered texture in the image
@@ -730,7 +785,6 @@ impl Scheduler {
                 )?;
             }
         }
-
         Ok(())
     }
 
@@ -757,13 +811,32 @@ impl Scheduler {
                         scene,
                         encoded_paints,
                         paint_idxs,
-                        &mut draw.0,
+                        draw,
                     );
                 }
                 FastStripCommand::Rect(r) => {
                     let strip = pack_rectangle_into_gpu(r, encoded_paints, paint_idxs);
 
-                    draw.0.push(strip);
+                    draw.push_strip(strip);
+                }
+                FastStripCommand::TextureRect(r) => {
+                    let rect = GpuTextureRect {
+                        src_origin: r.src_origin,
+                        src_size: r.src_size,
+                        transform_ab: [r.transform[0], r.transform[1]],
+                        transform_cd: [r.transform[2], r.transform[3]],
+                        transform_txty: [r.transform[4], r.transform[5]],
+                        flags: texture_rect_flags(r.x_extend, r.y_extend),
+                        clip_origin: [0., 0.],
+                        clip_size: [scene.width.into(), scene.height().into()],
+                    };
+                    draw.push_texture_rect(
+                        r.texture_id,
+                        normalize_texture_quality(r.quality),
+                        r.x_extend,
+                        r.y_extend,
+                        rect,
+                    );
                 }
             }
         }
@@ -843,7 +916,7 @@ impl Scheduler {
     /// Flush one round.
     ///
     /// The rounds queue must not be empty.
-    fn flush<R: RendererBackend>(&mut self, renderer: &mut R) {
+    fn flush<R: RendererBackend>(&mut self, renderer: &mut R) -> Result<(), RenderError> {
         let round = self.rounds_queue.pop_front().unwrap();
         for (i, draw) in round.draws.iter().enumerate() {
             #[cfg(debug_assertions)]
@@ -881,7 +954,7 @@ impl Scheduler {
                 }
             };
 
-            if draw.0.is_empty() {
+            if draw.is_empty() {
                 if load == LoadOp::Clear {
                     // There are no strips to render, so `render_strips` will not run and won't clear
                     // the texture. We still have slots to clear this round so explicitly clear
@@ -891,7 +964,7 @@ impl Scheduler {
                 continue;
             }
 
-            renderer.render_strips(&draw.0, target, load);
+            renderer.render_draw_ops(draw, target, load)?;
         }
         for i in 0..2 {
             self.free[i].extend(&round.free[i]);
@@ -899,6 +972,7 @@ impl Scheduler {
         self.round += 1;
 
         self.round_pool.return_to_pool(round);
+        Ok(())
     }
 
     // Find the appropriate draw call for rendering.
@@ -939,7 +1013,7 @@ impl Scheduler {
             );
 
             let draw = self.draw_mut(self.round, 2);
-            draw.push(
+            draw.push_strip(
                 GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
                     .paint(payload, paint),
             );
@@ -1041,6 +1115,9 @@ impl Scheduler {
                         wide_tile_y,
                         attrs,
                     );
+                }
+                Cmd::TextureRect(texture_rect) => {
+                    self.do_texture_rect(state, texture_rect, wide_tile_x, wide_tile_y, attrs);
                 }
                 // This is roughly equivalent to `process_layer_tile` in vello_cpu.
                 Cmd::PushBuf(LayerKind::Filtered(child_layer_id), _) => {
@@ -1192,7 +1269,7 @@ impl Scheduler {
                 let next_round = depth.is_multiple_of(2);
                 let el_round = tos.round + usize::from(next_round);
                 let draw = self.draw_mut(el_round, temp_slot.get_texture());
-                draw.push(
+                draw.push_strip(
                     GpuStripBuilder::at_slot(temp_slot.get_idx(), 0, WideTile::WIDTH)
                         .copy_from_slot(tos.dest_slot.get_idx(), 0xFF),
                 );
@@ -1321,7 +1398,7 @@ impl Scheduler {
             let mix_mode = mode.mix as u8;
             let compose_mode = mode.compose as u8;
 
-            draw.push(gpu_strip_builder.blend(
+            draw.push_strip(gpu_strip_builder.blend(
                 tos.dest_slot.get_idx(),
                 temp_slot.get_idx(),
                 opacity_u8,
@@ -1344,7 +1421,7 @@ impl Scheduler {
             // `BlendState::PREMULTIPLIED_ALPHA_BLENDING`). This is the whole reason
             // why for default blend modes, we don't need to rely on temporary slots
             // to achieve blending.
-            draw.push(
+            draw.push_strip(
                 gpu_strip_builder
                     .copy_from_slot(tos.dest_slot.get_idx(), (tos.opacity * 255.0) as u8),
             );
@@ -1389,7 +1466,7 @@ impl Scheduler {
             GpuStripBuilder::at_slot(slot_idx, cmd.x, cmd.width)
         };
 
-        draw.push(
+        draw.push_strip(
             gpu_strip_builder
                 .with_sparse(cmd.width, col_idx)
                 .paint(payload, paint),
@@ -1445,7 +1522,67 @@ impl Scheduler {
             GpuStripBuilder::at_slot(slot_idx, cmd.x, cmd.width)
         };
 
-        draw.push(gpu_strip_builder.paint(payload, paint));
+        draw.push_strip(gpu_strip_builder.paint(payload, paint));
+    }
+
+    fn do_texture_rect(
+        &mut self,
+        state: &mut SchedulerState,
+        cmd: &CmdTextureRect,
+        wide_tile_x: u16,
+        wide_tile_y: u16,
+        attrs: &CommandAttrs,
+    ) {
+        let depth = state.tile_state.stack.len();
+        let el = state.tile_state.stack.last_mut().unwrap();
+        let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
+        let attrs = &attrs.texture_rect[cmd.attrs_idx as usize];
+
+        if depth == 1 {
+            draw.push_texture_rect(
+                attrs.texture_id,
+                normalize_texture_quality(attrs.quality),
+                attrs.x_extend,
+                attrs.y_extend,
+                GpuTextureRect {
+                    src_origin: attrs.src_origin,
+                    src_size: attrs.src_size,
+                    transform_ab: [attrs.transform[0], attrs.transform[1]],
+                    transform_cd: [attrs.transform[2], attrs.transform[3]],
+                    transform_txty: [attrs.transform[4], attrs.transform[5]],
+                    flags: texture_rect_flags(attrs.x_extend, attrs.y_extend),
+                    clip_origin: [f32::from(wide_tile_x), f32::from(wide_tile_y)],
+                    clip_size: [f32::from(WideTile::WIDTH), f32::from(Tile::HEIGHT)],
+                },
+            );
+        } else {
+            let slot_idx = if let TemporarySlot::Valid(temp_slot) = el.temporary_slot {
+                temp_slot.get_idx()
+            } else {
+                el.dest_slot.get_idx()
+            };
+            let slot_y = (slot_idx as f32) * f32::from(Tile::HEIGHT);
+            let mut transform = attrs.transform;
+            transform[4] += -(wide_tile_x as f32);
+            transform[5] += slot_y - (wide_tile_y as f32);
+
+            draw.push_texture_rect(
+                attrs.texture_id,
+                normalize_texture_quality(attrs.quality),
+                attrs.x_extend,
+                attrs.y_extend,
+                GpuTextureRect {
+                    src_origin: attrs.src_origin,
+                    src_size: attrs.src_size,
+                    transform_ab: [transform[0], transform[1]],
+                    transform_cd: [transform[2], transform[3]],
+                    transform_txty: [transform[4], transform[5]],
+                    flags: texture_rect_flags(attrs.x_extend, attrs.y_extend),
+                    clip_origin: [0.0, slot_y],
+                    clip_size: [f32::from(WideTile::WIDTH), f32::from(Tile::HEIGHT)],
+                },
+            );
+        }
     }
 
     #[inline]
@@ -1484,7 +1621,7 @@ impl Scheduler {
         let round = nos.round.max(tos.round + usize::from(next_round));
         if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
             let draw = self.draw_mut(round, nos.dest_slot.get_texture());
-            draw.push(
+            draw.push_strip(
                 GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
                     .copy_from_slot(temp_slot.get_idx(), 0xFF),
             );
@@ -1503,7 +1640,7 @@ impl Scheduler {
         } else {
             GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), cmd.x, cmd.width)
         };
-        draw.push(gpu_strip_builder.copy_from_slot(tos.dest_slot.get_idx(), 0xFF));
+        draw.push_strip(gpu_strip_builder.copy_from_slot(tos.dest_slot.get_idx(), 0xFF));
 
         let nos_ptr = state.tile_state.stack.len() - 2;
         state.tile_state.stack[nos_ptr].temporary_slot.invalidate();
@@ -1527,7 +1664,7 @@ impl Scheduler {
         // If nos has a temporary slot, copy it to `dest_slot` first
         if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
             let draw = self.draw_mut(round, nos.dest_slot.get_texture());
-            draw.push(
+            draw.push_strip(
                 GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
                     .copy_from_slot(temp_slot.get_idx(), 0xFF),
             );
@@ -1551,7 +1688,7 @@ impl Scheduler {
         let alpha_idx = clip_attrs.alpha_idx(cmd.alpha_offset);
         let col_idx = alpha_idx / u32::from(Tile::HEIGHT);
 
-        draw.push(
+        draw.push_strip(
             gpu_strip_builder
                 .with_sparse(cmd.width, col_idx)
                 .copy_from_slot(tos.dest_slot.get_idx(), 0xFF),
@@ -1722,13 +1859,26 @@ fn has_non_zero_alpha(rgba: u32) -> bool {
     rgba >= 0x1_00_00_00
 }
 
+/// The texture rect sampling pipeline only supports nearest-neighbor and bilinear sampling.
+fn normalize_texture_quality(quality: ImageQuality) -> ImageQuality {
+    match quality {
+        ImageQuality::High => ImageQuality::Medium,
+        _ => quality,
+    }
+}
+
+#[inline]
+fn texture_rect_flags(x_extend: Extend, y_extend: Extend) -> u32 {
+    ((x_extend as u32) << 2) | ((y_extend as u32) << 4)
+}
+
 fn generate_gpu_strips_for_fast_path(
     path: &FastStripsPath,
     strip_storage: &StripStorage,
     scene: &Scene,
     encoded_paints: &[EncodedPaint],
     paint_idxs: &[u32],
-    gpu_strips: &mut Vec<GpuStrip>,
+    draw: &mut Draw,
 ) {
     let strips = &strip_storage.strips[path.strips.clone()];
 
@@ -1758,7 +1908,7 @@ fn generate_gpu_strips_for_fast_path(
         if strip_width > 0 {
             let (payload, paint) =
                 Scheduler::process_paint(&path.paint, encoded_paints, (x0, y), paint_idxs);
-            gpu_strips.push(
+            draw.push_strip(
                 GpuStripBuilder::at_surface(x0, y, strip_width)
                     .with_sparse(strip_width, col)
                     .paint(payload, paint),
@@ -1777,7 +1927,7 @@ fn generate_gpu_strips_for_fast_path(
             if x2 > x1 {
                 let (payload, paint) =
                     Scheduler::process_paint(&path.paint, encoded_paints, (x1, y), paint_idxs);
-                gpu_strips.push(GpuStripBuilder::at_surface(x1, y, x2 - x1).paint(payload, paint));
+                draw.push_strip(GpuStripBuilder::at_surface(x1, y, x2 - x1).paint(payload, paint));
             }
         }
     }

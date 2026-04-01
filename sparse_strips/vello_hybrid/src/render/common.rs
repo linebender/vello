@@ -95,6 +95,36 @@ pub struct GpuStrip {
     pub paint_and_rect_flag: u32,
 }
 
+/// A GPU texture-rect instance for rendering sampled parallelograms.
+///
+/// This struct corresponds to the `TextureRectInstance` in the `draw_texture_rects.wgsl` shader.
+/// Also see [`vello_common::coarse::TextureRectAttrs`].
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+pub(crate) struct GpuTextureRect {
+    /// Source rectangle origin in texel coordinates.
+    pub src_origin: [f32; 2],
+    /// Source rectangle size in texel coordinates.
+    pub src_size: [f32; 2],
+    /// Destination transform mapping local rect coordinates to destination pixels.
+    ///
+    /// The *local* coordinates are `0..src_size.x` and `0..src_size.y`, i.e., with zero origin.
+    ///
+    /// First affine transform column.
+    pub transform_ab: [f32; 2],
+    /// Second affine transform column.
+    pub transform_cd: [f32; 2],
+    /// Affine translation.
+    pub transform_txty: [f32; 2],
+
+    /// Packed extend mode flags consumed by the shader.
+    pub flags: u32,
+    /// Clip rectangle origin in the same coordinate space as the transformed destination.
+    pub clip_origin: [f32; 2],
+    /// Clip rectangle size.
+    pub clip_size: [f32; 2],
+}
+
 /// Different types of GPU encoded paints.
 #[derive(Debug)]
 pub(crate) enum GpuEncodedPaint {

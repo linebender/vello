@@ -37,7 +37,8 @@ use crate::{
     },
     scene::Scene,
     schedule::{
-        LoadOp, OutputTarget, RendererBackend, Scheduler, SchedulerState, StripPassRenderTarget,
+        Draw, LoadOp, OutputTarget, PassOp, RendererBackend, Scheduler, SchedulerState,
+        StripPassRenderTarget,
     },
 };
 use alloc::sync::Arc;
@@ -2254,14 +2255,26 @@ impl RendererBackend for WebGlRendererContext<'_> {
         self.do_clear_slots_render_pass(texture_index, slots);
     }
 
-    /// Execute a render pass for strips.
-    fn render_strips(
+    fn render_draw_ops(
         &mut self,
-        strips: &[GpuStrip],
+        draw: &Draw,
         target: StripPassRenderTarget,
         load_op: LoadOp,
-    ) {
-        self.do_strip_render_pass(strips, target, load_op);
+    ) -> Result<(), RenderError> {
+        let mut first = true;
+        for op in draw.ops() {
+            let op_load = if first { load_op } else { LoadOp::Load };
+            first = false;
+            match op {
+                PassOp::Strips(strips) => {
+                    self.do_strip_render_pass(strips, target, op_load);
+                }
+                PassOp::TextureRects(_texture_rects) => {
+                    // Texture rects are not yet supported by the WebGL backend.
+                }
+            }
+        }
+        Ok(())
     }
 
     fn apply_filter(&mut self, layer_id: LayerId) {

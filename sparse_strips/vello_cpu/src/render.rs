@@ -1008,6 +1008,7 @@ impl Recordable for RenderContext {
                 RenderCommand::PopLayer => {
                     self.pop_layer();
                 }
+                RenderCommand::FillTextureRects { .. } => todo!("Implement"),
             }
         }
     }
