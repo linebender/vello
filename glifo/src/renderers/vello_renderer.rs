@@ -39,7 +39,7 @@ enum CacheResult {
     AtlasFull,
 }
 
-/// Abstracts the differences between CPU and Hybrid rendering backends.
+/// Abstracts the differences between different rendering backends.
 ///
 /// Backend-specific operations — atlas image construction, paint transforms,
 /// and outline/COLR rendering into the [`AtlasCommandRecorder`] — are defined

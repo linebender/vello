@@ -142,7 +142,7 @@ impl Debug for GlyphColr<'_> {
 /// Trait for types that can render glyphs.
 ///
 /// Generic over `C: GlyphCache` so that different renderers can use different
-/// cache backends (e.g., CPU pixmap-backed vs hybrid GPU-backed).
+/// cache backends.
 ///
 /// Renderers that want to implement glyph caching should use the `cache_info`
 /// field in `PreparedGlyph` to build cache keys appropriate for their caching
