@@ -222,7 +222,8 @@ impl Resources {
             .glyph_atlas
             .replay_pending_atlas_commands(|recorder| {
                 self.glyph_renderer.reset();
-                replay_atlas_commands(&mut recorder.commands, &mut self.glyph_renderer);
+                let mut replay_target = ColrSceneWrapper::new(&mut self.glyph_renderer);
+                replay_atlas_commands(&mut recorder.commands, &mut replay_target);
                 f(&self.glyph_renderer, AtlasId::new(recorder.page_index));
             });
     }
@@ -251,6 +252,54 @@ impl Resources {
     pub fn maintain_and_take_pending_clear_rects(&mut self) -> Vec<PendingClearRect> {
         self.glyph_caches.0.maintain(&mut self.image_cache);
         self.glyph_caches.0.glyph_atlas.drain_pending_clear_rects().collect()
+    }
+}
+
+// See this PR for a bit more context on why we have this.
+// layer: https://github.com/linebender/vello/pull/1554
+// In short, we want to ensure that COLR rendering works even when the
+// `default_blending_only` scene constraint is enabled. In order to do so,
+// we need to ensure that we don't use non-default blending to blend into
+// the root layer.
+struct ColrSceneWrapper<'a> {
+    scene: &'a mut Scene,
+    layer_depth: usize,
+    inserted_root_wrapper: bool,
+}
+
+impl<'a> ColrSceneWrapper<'a> {
+    fn new(scene: &'a mut Scene) -> Self {
+        Self {
+            scene,
+            layer_depth: 0,
+            inserted_root_wrapper: false,
+        }
+    }
+
+    fn push_clip_layer_impl(&mut self, clip: &BezPath) {
+        self.scene.push_layer(Some(clip), None, None, None, None);
+        self.layer_depth += 1;
+    }
+
+    fn push_blend_layer_impl(&mut self, blend_mode: BlendMode) {
+        if self.layer_depth == 0 && blend_mode != BlendMode::default() {
+            self.scene.push_layer(None, None, None, None, None);
+            self.inserted_root_wrapper = true;
+        }
+
+        self.scene
+            .push_layer(None, Some(blend_mode), None, None, None);
+        self.layer_depth += 1;
+    }
+
+    fn pop_layer_impl(&mut self) {
+        self.scene.pop_layer();
+        self.layer_depth -= 1;
+
+        if self.layer_depth == 0 && self.inserted_root_wrapper {
+            self.scene.pop_layer();
+            self.inserted_root_wrapper = false;
+        }
     }
 }
 
@@ -504,14 +553,9 @@ impl GlyphAtlasBackend for HybridBackend {
         let state = renderer.save_current_state();
         renderer.set_transform(transform);
 
-        // See this PR for a bit more context on why we wrap everything in another
-        // layer: https://github.com/linebender/vello/pull/1554
-        // In short, we need to do this so that we can enable the `default_blending_only`
-        // scene constraint when rendering glyphs for better performance.
-        renderer.push_layer(None, None, None, None, None);
-        let mut colr_painter = ColrPainter::new(glyph, context_color, renderer);
+        let mut target = ColrSceneWrapper::new(renderer);
+        let mut colr_painter = ColrPainter::new(glyph, context_color, &mut target);
         colr_painter.paint();
-        renderer.pop_layer();
 
         renderer.restore_state(state);
     }
@@ -521,92 +565,92 @@ impl GlyphAtlasBackend for HybridBackend {
 ///
 /// `fill_solid` and `fill_gradient` fill the entire surface because COLR
 /// compositing relies on clip layers to restrict the painted region.
-impl ColrRenderer for Scene {
+impl ColrRenderer for ColrSceneWrapper<'_> {
     // TODO: Use `push_clip_path` instead of `push_layer` to take advantage of
     // Vello Hybrid fast paths. This requires tracking blend layers vs clip paths
     // separately in `colr.rs`.
     fn push_clip_layer(&mut self, clip: BezPath) {
-        self.push_layer(Some(&clip), None, None, None, None);
+        self.push_clip_layer_impl(&clip);
     }
 
     fn push_blend_layer(&mut self, blend_mode: BlendMode) {
-        self.push_layer(None, Some(blend_mode), None, None, None);
+        self.push_blend_layer_impl(blend_mode);
     }
 
     fn fill_solid(&mut self, color: AlphaColor<Srgb>) {
-        self.set_paint(color);
-        self.fill_rect(&Rect::new(
+        self.scene.set_paint(color);
+        self.scene.fill_rect(&Rect::new(
             0.0,
             0.0,
-            f64::from(self.width()),
-            f64::from(self.height()),
+            f64::from(self.scene.width()),
+            f64::from(self.scene.height()),
         ));
     }
 
     fn fill_gradient(&mut self, gradient: Gradient) {
-        self.set_paint(gradient);
-        self.fill_rect(&Rect::new(
+        self.scene.set_paint(gradient);
+        self.scene.fill_rect(&Rect::new(
             0.0,
             0.0,
-            f64::from(self.width()),
-            f64::from(self.height()),
+            f64::from(self.scene.width()),
+            f64::from(self.scene.height()),
         ));
     }
 
     fn set_paint_transform(&mut self, affine: Affine) {
-        Self::set_paint_transform(self, affine);
+        self.scene.set_paint_transform(affine);
     }
 
     fn pop_layer(&mut self) {
-        Self::pop_layer(self);
+        self.pop_layer_impl();
     }
 }
 
 /// Allows recorded [`AtlasCommand`](crate::atlas::commands::AtlasCommand)s
 /// to be replayed into a hybrid [`Scene`].
-impl AtlasReplayTarget for Scene {
+impl AtlasReplayTarget for ColrSceneWrapper<'_> {
     #[inline]
     fn set_transform(&mut self, t: Affine) {
-        Self::set_transform(self, t);
+        self.scene.set_transform(t);
     }
 
     #[inline]
     fn set_paint_solid(&mut self, color: AlphaColor<Srgb>) {
-        self.set_paint(color);
+        self.scene.set_paint(color);
     }
 
     #[inline]
     fn set_paint_gradient(&mut self, gradient: Gradient) {
-        self.set_paint(gradient);
+        self.scene.set_paint(gradient);
     }
 
     #[inline]
     fn set_paint_transform(&mut self, t: Affine) {
-        Self::set_paint_transform(self, t);
+        self.scene.set_paint_transform(t);
     }
 
     #[inline]
     fn fill_path(&mut self, path: &BezPath) {
-        Self::fill_path(self, path);
+        self.scene.fill_path(path);
     }
 
     #[inline]
     fn fill_rect(&mut self, rect: &Rect) {
-        Self::fill_rect(self, rect);
+        self.scene.fill_rect(rect);
     }
 
     #[inline]
     fn push_clip_layer(&mut self, clip: &BezPath) {
-        self.push_layer(Some(clip), None, None, None, None);
+        self.push_clip_layer_impl(clip);
     }
 
     #[inline]
     fn push_blend_layer(&mut self, blend_mode: BlendMode) {
-        self.push_layer(None, Some(blend_mode), None, None, None);
+        self.push_blend_layer_impl(blend_mode);
     }
 
     #[inline]
     fn pop_layer(&mut self) {
-        Self::pop_layer(self);
+        self.pop_layer_impl();
     }
 }
