@@ -36,7 +36,10 @@ pub(crate) trait Renderer: Sized {
     fn fill_rect(&mut self, rect: &Rect);
     fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32);
     fn stroke_rect(&mut self, rect: &Rect);
-    fn glyph_run(&mut self, font: &FontData) -> glifo::GlyphRunBuilder<'_, Self::GlyphRunBackend<'_>>;
+    fn glyph_run(
+        &mut self,
+        font: &FontData,
+    ) -> glifo::GlyphRunBuilder<'_, Self::GlyphRunBackend<'_>>;
     fn push_layer(
         &mut self,
         clip_path: Option<&BezPath>,
@@ -122,7 +125,10 @@ impl Renderer for CpuRenderer {
         self.ctx.stroke_rect(rect);
     }
 
-    fn glyph_run(&mut self, font: &FontData) -> glifo::GlyphRunBuilder<'_, Self::GlyphRunBackend<'_>> {
+    fn glyph_run(
+        &mut self,
+        font: &FontData,
+    ) -> glifo::GlyphRunBuilder<'_, Self::GlyphRunBackend<'_>> {
         self.ctx.glyph_run(&mut self.resources, font)
     }
 
@@ -386,7 +392,10 @@ impl Renderer for HybridRenderer {
         self.scene.stroke_rect(rect);
     }
 
-    fn glyph_run(&mut self, font: &FontData) -> glifo::GlyphRunBuilder<'_, Self::GlyphRunBackend<'_>> {
+    fn glyph_run(
+        &mut self,
+        font: &FontData,
+    ) -> glifo::GlyphRunBuilder<'_, Self::GlyphRunBackend<'_>> {
         self.scene.glyph_run(&mut self.resources, font)
     }
 
@@ -697,7 +706,10 @@ impl Renderer for HybridRenderer {
         self.scene.stroke_rect(rect);
     }
 
-    fn glyph_run(&mut self, font: &FontData) -> glifo::GlyphRunBuilder<'_, Self::GlyphRunBackend<'_>> {
+    fn glyph_run(
+        &mut self,
+        font: &FontData,
+    ) -> glifo::GlyphRunBuilder<'_, Self::GlyphRunBackend<'_>> {
         self.scene.glyph_run(&mut self.resources, font)
     }
 
