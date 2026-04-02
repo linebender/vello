@@ -826,6 +826,8 @@ impl Recordable for RenderContext {
                     );
                     range_index += 1;
                 }
+                // TODO: Note that recordings for glyph runs are kind of pointless with this design, because
+                // we are not caching the rendered strips of glyphs.
                 #[cfg(feature = "text")]
                 RenderCommand::FillGlyphRun(run) => {
                     self.glyph_run(resources, &run.font)
@@ -923,6 +925,7 @@ impl ImageRegistry {
     fn destroy(&mut self, id: ImageId) -> bool {
         self.images.remove(&id.as_u32()).is_some()
     }
+
     fn resolve(&self, id: ImageId) -> Option<Arc<Pixmap>> {
         self.images.get(&id.as_u32()).cloned()
     }

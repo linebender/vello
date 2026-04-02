@@ -506,6 +506,7 @@ impl<'a, 'r> RecorderGlyphRunBuilder<'a, 'r> {
     fn new(recorder: &'a mut Recorder<'r>, font: FontData) -> Self {
         Self {
             recorder,
+            // Note: This needs to be kept in sync with the default in glifo!
             run: RecordedGlyphRun {
                 font,
                 font_size: 16.0,
