@@ -3989,7 +3989,6 @@ name = "vello_bench"
 version = "0.0.0"
 dependencies = [
  "criterion",
- "glifo",
  "image",
  "parley",
  "rand",
@@ -4071,6 +4070,7 @@ dependencies = [
  "bytemuck",
  "console_error_panic_hook",
  "console_log",
+ "glifo",
  "image",
  "log",
  "parley",

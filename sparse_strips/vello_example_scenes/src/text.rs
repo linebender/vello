@@ -15,7 +15,7 @@ use vello_common::glyph::Glyph;
 use vello_common::kurbo::Affine;
 use vello_common::recording::{Recorder, Recording};
 
-use crate::{ExampleScene, GlyphRunBuilderLike, RenderingContext};
+use crate::{ExampleScene, RenderingContext};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct ColorBrush {

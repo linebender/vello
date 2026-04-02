@@ -352,7 +352,7 @@ impl Renderer {
         // fix from the filters/native-format pipeline work when available.
 
         let encoded_paints = scene.encoded_paints.borrow();
-        let mut scratch_image_cache = ImageCache::new_with_config(atlas_config);
+        let scratch_image_cache = ImageCache::new_with_config(atlas_config);
         let result = self.render_scene(
             scene,
             device,
@@ -814,7 +814,7 @@ fn clear_atlas_regions_wgpu(
                 bytes_per_row: Some(rect.width as u32 * 4),
                 rows_per_image: None,
             },
-            wgpu::Extent3d {
+            Extent3d {
                 width: rect.width as u32,
                 height: rect.height as u32,
                 depth_or_array_layers: 1,

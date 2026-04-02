@@ -494,6 +494,8 @@ impl<'a> Recorder<'a> {
 }
 
 #[cfg(feature = "text")]
+#[derive(Debug)]
+/// Builder for recording a glyph run into a [`Recording`].
 pub struct RecorderGlyphRunBuilder<'a, 'r> {
     recorder: &'a mut Recorder<'r>,
     run: RecordedGlyphRun,
@@ -516,31 +518,37 @@ impl<'a, 'r> RecorderGlyphRunBuilder<'a, 'r> {
         }
     }
 
+    /// Set the font size in pixels per em.
     pub fn font_size(mut self, size: f32) -> Self {
         self.run.font_size = size;
         self
     }
 
+    /// Set the per-glyph transform.
     pub fn glyph_transform(mut self, transform: Affine) -> Self {
         self.run.glyph_transform = Some(transform);
         self
     }
 
+    /// Set whether font hinting is enabled.
     pub fn hint(mut self, hint: bool) -> Self {
         self.run.hint = hint;
         self
     }
 
+    /// Set normalized variation coordinates for variable fonts.
     pub fn normalized_coords(mut self, coords: &[NormalizedCoord]) -> Self {
         self.run.normalized_coords = SmallVec::from_slice(coords);
         self
     }
 
+    /// Enable or disable atlas caching for the recorded glyph run.
     pub fn atlas_cache(mut self, enabled: bool) -> Self {
         self.run.atlas_cache = enabled;
         self
     }
 
+    /// Record a filled glyph run.
     pub fn fill_glyphs(mut self, glyphs: impl Iterator<Item = Glyph>) {
         self.run.glyphs.extend(glyphs);
         self.recorder
@@ -548,6 +556,7 @@ impl<'a, 'r> RecorderGlyphRunBuilder<'a, 'r> {
             .add_command(RenderCommand::FillGlyphRun(self.run));
     }
 
+    /// Record a stroked glyph run.
     pub fn stroke_glyphs(mut self, glyphs: impl Iterator<Item = Glyph>) {
         self.run.glyphs.extend(glyphs);
         self.recorder

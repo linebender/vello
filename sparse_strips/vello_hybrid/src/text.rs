@@ -46,17 +46,9 @@ pub(crate) struct GpuGlyphAtlas {
 }
 
 impl GpuGlyphAtlas {
-    /// Creates a new hybrid glyph atlas cache with default eviction settings.
-    #[inline]
-    pub fn new() -> Self {
-        Self {
-            inner: GlyphAtlas::new(),
-        }
-    }
-
     /// Creates a new hybrid glyph atlas cache with custom eviction settings.
     #[inline]
-    pub fn with_config(eviction_config: GlyphCacheConfig) -> Self {
+    pub(crate) fn with_config(eviction_config: GlyphCacheConfig) -> Self {
         Self {
             inner: GlyphAtlas::with_config(eviction_config),
         }

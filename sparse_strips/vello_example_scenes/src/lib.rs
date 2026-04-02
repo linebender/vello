@@ -20,6 +20,7 @@ use vello_common::coarse::WideTile;
 use vello_common::color::palette::css::WHITE;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::Affine;
+use glifo::GlyphRunBackend;
 pub use vello_common::kurbo::{BezPath, Rect, Shape, Stroke};
 pub use vello_common::mask::Mask;
 use vello_common::paint::ImageSource;
@@ -32,54 +33,12 @@ use vello_hybrid::{Resources as HybridResources, Scene};
 
 pub use vello_common::glyph::Glyph;
 
-pub trait GlyphRunBuilderLike {
-    fn font_size(self, size: f32) -> Self;
-    fn hint(self, hint: bool) -> Self;
-    fn atlas_cache(self, enabled: bool) -> Self;
-    fn fill_glyphs(self, glyphs: impl Iterator<Item = Glyph> + Clone);
-}
-
-#[cfg(feature = "cpu")]
-impl<'a> GlyphRunBuilderLike for vello_cpu::GlyphRunBuilder<'a> {
-    fn font_size(self, size: f32) -> Self {
-        Self::font_size(self, size)
-    }
-
-    fn hint(self, hint: bool) -> Self {
-        Self::hint(self, hint)
-    }
-
-    fn atlas_cache(self, enabled: bool) -> Self {
-        Self::atlas_cache(self, enabled)
-    }
-
-    fn fill_glyphs(self, glyphs: impl Iterator<Item = Glyph> + Clone) {
-        Self::fill_glyphs(self, glyphs)
-    }
-}
-
-impl<'a> GlyphRunBuilderLike for vello_hybrid::GlyphRunBuilder<'a> {
-    fn font_size(self, size: f32) -> Self {
-        Self::font_size(self, size)
-    }
-
-    fn hint(self, hint: bool) -> Self {
-        Self::hint(self, hint)
-    }
-
-    fn atlas_cache(self, enabled: bool) -> Self {
-        Self::atlas_cache(self, enabled)
-    }
-
-    fn fill_glyphs(self, glyphs: impl Iterator<Item = Glyph> + Clone) {
-        Self::fill_glyphs(self, glyphs)
-    }
-}
-
 /// A generic rendering context.
 pub trait RenderingContext: Sized {
+    /// Backend-specific resource bundle required during rendering.
     type Resources;
-    type GlyphRunBuilder<'a>: GlyphRunBuilderLike
+    /// Backend-specific glyph backend used by [`glifo::GlyphRunBuilder`].
+    type GlyphRunBackend<'a>: GlyphRunBackend<'a>
     where
         Self: 'a;
 
@@ -115,7 +74,7 @@ pub trait RenderingContext: Sized {
         &'a mut self,
         resources: &'a mut Self::Resources,
         font: &FontData,
-    ) -> Self::GlyphRunBuilder<'a>;
+    ) -> glifo::GlyphRunBuilder<'a, Self::GlyphRunBackend<'a>>;
     /// Push a clip layer.
     fn push_clip_layer(&mut self, path: &BezPath);
     /// Push a clip path.
@@ -149,7 +108,7 @@ pub trait RenderingContext: Sized {
 #[cfg(feature = "cpu")]
 impl RenderingContext for RenderContext {
     type Resources = CpuResources;
-    type GlyphRunBuilder<'a> = vello_cpu::GlyphRunBuilder<'a>;
+    type GlyphRunBackend<'a> = vello_cpu::CpuGlyphRunBackend<'a>;
 
     fn width(&self) -> u16 {
         self.width()
@@ -207,7 +166,7 @@ impl RenderingContext for RenderContext {
         &'a mut self,
         resources: &'a mut Self::Resources,
         font: &FontData,
-    ) -> Self::GlyphRunBuilder<'a> {
+    ) -> glifo::GlyphRunBuilder<'a, Self::GlyphRunBackend<'a>> {
         self.glyph_run(resources, font)
     }
 
@@ -258,7 +217,7 @@ impl RenderingContext for RenderContext {
 
 impl RenderingContext for Scene {
     type Resources = HybridResources;
-    type GlyphRunBuilder<'a> = vello_hybrid::GlyphRunBuilder<'a>;
+    type GlyphRunBackend<'a> = vello_hybrid::HybridGlyphRunBackend<'a>;
 
     fn width(&self) -> u16 {
         self.width()
@@ -316,7 +275,7 @@ impl RenderingContext for Scene {
         &'a mut self,
         resources: &'a mut Self::Resources,
         font: &FontData,
-    ) -> Self::GlyphRunBuilder<'a> {
+    ) -> glifo::GlyphRunBuilder<'a, Self::GlyphRunBackend<'a>> {
         self.glyph_run(resources, font)
     }
 

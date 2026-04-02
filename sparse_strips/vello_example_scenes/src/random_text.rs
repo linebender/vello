@@ -14,7 +14,7 @@ use vello_common::color::{AlphaColor, Srgb};
 use vello_common::glyph::Glyph;
 use vello_common::kurbo::Affine;
 
-use crate::{ExampleScene, GlyphRunBuilderLike, RenderingContext};
+use crate::{ExampleScene, RenderingContext};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct ColorBrush {
@@ -84,6 +84,7 @@ impl Lcg {
     }
 }
 
+/// Stress-test scene that renders many randomly generated text segments.
 pub struct RandomTextScene {
     segments: Vec<Segment>,
     rng: Lcg,
@@ -106,6 +107,7 @@ impl Default for RandomTextScene {
 }
 
 impl RandomTextScene {
+    /// Create a random-text scene with an initial set of generated segments.
     pub fn new() -> Self {
         let mut scene = Self {
             segments: Vec::new(),
