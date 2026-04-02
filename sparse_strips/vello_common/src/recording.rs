@@ -115,6 +115,8 @@ pub struct RecordedGlyphRun {
     pub font: FontData,
     /// Font size in pixels per em.
     pub font_size: f32,
+    // TODO: We really should replace this with just `Affine`, and use the identity
+    // transform for the `None` case. Same in glifo.
     /// Optional per-glyph transform.
     pub glyph_transform: Option<Affine>,
     /// Whether hinting is enabled.
