@@ -10,10 +10,10 @@
 //! GPU renderer owns atlas textures and receives pixel data through the
 //! pending-upload queue.
 
+use crate::AtlasId;
 use crate::Scene;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use core::fmt::{Debug, Formatter};
 use glifo::atlas::{PendingBitmapUpload, PendingClearRect};
 use glifo::renderers::vello_renderer;
 use glifo::renderers::vello_renderer::replay_atlas_commands;
@@ -21,19 +21,18 @@ use glifo::renderers::vello_renderer::{AtlasReplayTarget, GlyphAtlasBackend, qua
 use glifo::{
     AtlasCommandRecorder, AtlasSlot, CachedGlyphType, ColrPainter, ColrRenderer, GLYPH_PADDING,
     GlyphAtlas, GlyphBitmap, GlyphCache, GlyphCacheConfig, GlyphCacheKey, GlyphCaches, GlyphColr,
-    GlyphRenderer, HintCache, ImageCache, OutlineCache, PreparedGlyph, RasterMetrics,
+    GlyphRenderer, GlyphRunBackend, HintCache, ImageCache, OutlineCache, PreparedGlyph,
+    RasterMetrics,
 };
 use peniko::color::palette::css::BLACK;
 use peniko::color::{AlphaColor, Srgb};
 use peniko::{BlendMode, Extend, Gradient, ImageQuality, ImageSampler};
-use vello_common::glyph::{Glyph, NormalizedCoord};
+use vello_common::glyph::Glyph;
 use vello_common::kurbo::{Affine, BezPath, Rect};
+use vello_common::multi_atlas::AtlasConfig;
 use vello_common::paint::{Image, ImageId, ImageSource, PaintType, Tint};
 use vello_common::peniko;
-use vello_common::peniko::FontData;
 use vello_common::pixmap::Pixmap;
-use crate::AtlasId;
-use vello_common::multi_atlas::AtlasConfig;
 
 /// Glyph atlas cache for the hybrid (GPU) renderer.
 ///
@@ -235,7 +234,11 @@ impl Resources {
 
     #[doc(hidden)]
     pub fn take_pending_uploads(&mut self) -> Vec<PendingBitmapUpload> {
-        self.glyph_caches.0.glyph_atlas.drain_pending_uploads().collect()
+        self.glyph_caches
+            .0
+            .glyph_atlas
+            .drain_pending_uploads()
+            .collect()
     }
 
     #[doc(hidden)]
@@ -251,7 +254,11 @@ impl Resources {
     #[doc(hidden)]
     pub fn maintain_and_take_pending_clear_rects(&mut self) -> Vec<PendingClearRect> {
         self.glyph_caches.0.maintain(&mut self.image_cache);
-        self.glyph_caches.0.glyph_atlas.drain_pending_clear_rects().collect()
+        self.glyph_caches
+            .0
+            .glyph_atlas
+            .drain_pending_clear_rects()
+            .collect()
     }
 }
 
@@ -303,58 +310,19 @@ impl<'a> ColrSceneWrapper<'a> {
     }
 }
 
-/// Hybrid-local wrapper around `glifo::GlyphRunBuilder`.
-#[must_use = "Methods on the builder don't do anything until `fill_glyphs` or `stroke_glyphs` is called."]
-pub struct GlyphRunBuilder<'a> {
-    pub(crate) inner: glifo::GlyphRunBuilder<'a>,
-    pub(crate) scene: &'a mut Scene,
-    pub(crate) resources: &'a mut Resources,
+#[doc(hidden)]
+#[derive(Debug)]
+pub struct HybridGlyphRunBackend<'a> {
+    pub scene: &'a mut Scene,
+    pub resources: &'a mut Resources,
 }
 
-impl<'a> GlyphRunBuilder<'a> {
-    pub(crate) fn new(
-        font: FontData,
-        transform: Affine,
-        scene: &'a mut Scene,
-        resources: &'a mut Resources,
-    ) -> Self {
-        Self {
-            inner: glifo::GlyphRunBuilder::new(font, transform).atlas_cache(false),
-            scene,
-            resources,
-        }
-    }
-
-    pub fn font_size(mut self, size: f32) -> Self {
-        self.inner = self.inner.font_size(size);
-        self
-    }
-
-    pub fn glyph_transform(mut self, transform: Affine) -> Self {
-        self.inner = self.inner.glyph_transform(transform);
-        self
-    }
-
-    pub fn hint(mut self, hint: bool) -> Self {
-        self.inner = self.inner.hint(hint);
-        self
-    }
-
-    pub fn normalized_coords(mut self, coords: &'a [NormalizedCoord]) -> Self {
-        self.inner = self.inner.normalized_coords(coords);
-        self
-    }
-
-    pub fn atlas_cache(mut self, enabled: bool) -> Self {
-        self.inner = self.inner.atlas_cache(enabled);
-        self
-    }
-
-    pub fn fill_glyphs<Glyphs>(self, glyphs: Glyphs)
+impl<'a> GlyphRunBackend<'a> for HybridGlyphRunBackend<'a> {
+    fn fill_glyphs<Glyphs>(self, builder: glifo::GlyphRunBuilder<'a>, glyphs: Glyphs)
     where
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
-        self.inner
+        builder
             .build(
                 glyphs,
                 &mut self.resources.glyph_caches.0,
@@ -363,11 +331,11 @@ impl<'a> GlyphRunBuilder<'a> {
             .fill_glyphs(self.scene);
     }
 
-    pub fn stroke_glyphs<Glyphs>(self, glyphs: Glyphs)
+    fn stroke_glyphs<Glyphs>(self, builder: glifo::GlyphRunBuilder<'a>, glyphs: Glyphs)
     where
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
-        self.inner
+        builder
             .build(
                 glyphs,
                 &mut self.resources.glyph_caches.0,
@@ -377,11 +345,8 @@ impl<'a> GlyphRunBuilder<'a> {
     }
 }
 
-impl Debug for GlyphRunBuilder<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        write!(f, "GlyphRunBuilder {{ .. }}")
-    }
-}
+/// A glyph run builder.
+pub type GlyphRunBuilder<'a> = glifo::GlyphRunBuilder<'a, HybridGlyphRunBackend<'a>>;
 
 /// Bridges Parley's [`GlyphRenderer`] trait to the shared
 /// [`vello_renderer`] cache orchestration for the hybrid backend.

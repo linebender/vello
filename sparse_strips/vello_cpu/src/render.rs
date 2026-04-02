@@ -366,7 +366,14 @@ impl RenderContext {
         resources: &'a mut Resources,
         font: &crate::peniko::FontData,
     ) -> GlyphRunBuilder<'a> {
-        GlyphRunBuilder::new(font.clone(), self.state.transform, self, resources)
+        glifo::GlyphRunBuilder::new(
+            font.clone(),
+            self.state.transform,
+            crate::text::CpuGlyphRunBackend {
+                ctx: self,
+                resources,
+            },
+        )
     }
 
     /// Push a new layer with the given properties.

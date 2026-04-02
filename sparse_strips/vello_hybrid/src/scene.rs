@@ -550,7 +550,14 @@ impl Scene {
         resources: &'a mut Resources,
         font: &FontData,
     ) -> GlyphRunBuilder<'a> {
-        GlyphRunBuilder::new(font.clone(), self.render_state.transform, self, resources)
+        glifo::GlyphRunBuilder::new(
+            font.clone(),
+            self.render_state.transform,
+            crate::text::HybridGlyphRunBackend {
+                scene: self,
+                resources,
+            },
+        )
     }
 
     /// Flush the fast path buffer through the normal coarse rasterization pipeline.

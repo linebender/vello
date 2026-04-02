@@ -28,14 +28,14 @@ use glifo::renderers::vello_renderer::{
 };
 use glifo::{
     CachedGlyphType, ColrPainter, ColrRenderer, GlyphBitmap, GlyphCaches, GlyphColr, GlyphRenderer,
-    HintCache, OutlineCache, PreparedGlyph,
+    GlyphRunBackend, HintCache, OutlineCache, PreparedGlyph,
 };
 use kurbo::{Affine, BezPath, Rect};
 use peniko::Extend;
 use peniko::color::{AlphaColor, Srgb};
 use peniko::{BlendMode, Gradient};
 use peniko::{ImageQuality, ImageSampler};
-use vello_common::glyph::{Glyph, NormalizedCoord};
+use vello_common::glyph::Glyph;
 use vello_common::paint::{ImageId, Tint};
 
 /// CPU-side glyph atlas backed by per-page [`Pixmap`]s.
@@ -363,61 +363,19 @@ impl Resources {
     }
 }
 
-/// CPU-local wrapper around `glifo::GlyphRunBuilder`.
-#[must_use = "Methods on the builder don't do anything until `fill_glyphs` or `stroke_glyphs` is called."]
-pub struct GlyphRunBuilder<'a> {
-    pub(crate) inner: glifo::GlyphRunBuilder<'a>,
-    pub(crate) ctx: &'a mut RenderContext,
-    pub(crate) resources: &'a mut Resources,
+#[doc(hidden)]
+#[derive(Debug)]
+pub struct CpuGlyphRunBackend<'a> {
+    pub ctx: &'a mut RenderContext,
+    pub resources: &'a mut Resources,
 }
 
-// TODO: Decide whether we can somehow reuse the glifo glyph run builder.
-impl<'a> GlyphRunBuilder<'a> {
-    pub(crate) fn new(
-        font: peniko::FontData,
-        transform: Affine,
-        ctx: &'a mut RenderContext,
-        resources: &'a mut Resources,
-    ) -> Self {
-        Self {
-            inner: glifo::GlyphRunBuilder::new(font, transform)
-                // TODO: Make configurable
-                .atlas_cache(false),
-            ctx,
-            resources,
-        }
-    }
-
-    pub fn font_size(mut self, size: f32) -> Self {
-        self.inner = self.inner.font_size(size);
-        self
-    }
-
-    pub fn glyph_transform(mut self, transform: Affine) -> Self {
-        self.inner = self.inner.glyph_transform(transform);
-        self
-    }
-
-    pub fn hint(mut self, hint: bool) -> Self {
-        self.inner = self.inner.hint(hint);
-        self
-    }
-
-    pub fn normalized_coords(mut self, coords: &'a [NormalizedCoord]) -> Self {
-        self.inner = self.inner.normalized_coords(coords);
-        self
-    }
-
-    pub fn atlas_cache(mut self, enabled: bool) -> Self {
-        self.inner = self.inner.atlas_cache(enabled);
-        self
-    }
-
-    pub fn fill_glyphs<Glyphs>(self, glyphs: Glyphs)
+impl<'a> GlyphRunBackend<'a> for CpuGlyphRunBackend<'a> {
+    fn fill_glyphs<Glyphs>(self, builder: glifo::GlyphRunBuilder<'a>, glyphs: Glyphs)
     where
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
-        self.inner
+        builder
             .build(
                 glyphs,
                 &mut self.resources.glyph_caches.glifo,
@@ -426,11 +384,11 @@ impl<'a> GlyphRunBuilder<'a> {
             .fill_glyphs(self.ctx);
     }
 
-    pub fn stroke_glyphs<Glyphs>(self, glyphs: Glyphs)
+    fn stroke_glyphs<Glyphs>(self, builder: glifo::GlyphRunBuilder<'a>, glyphs: Glyphs)
     where
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
-        self.inner
+        builder
             .build(
                 glyphs,
                 &mut self.resources.glyph_caches.glifo,
@@ -440,11 +398,8 @@ impl<'a> GlyphRunBuilder<'a> {
     }
 }
 
-impl Debug for GlyphRunBuilder<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        write!(f, "GlyphRunBuilder {{ .. }}")
-    }
-}
+/// A glyph run builder.
+pub type GlyphRunBuilder<'a> = glifo::GlyphRunBuilder<'a, CpuGlyphRunBackend<'a>>;
 
 /// Zero out a rectangular region in the atlas pixmap.
 ///

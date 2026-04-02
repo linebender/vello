@@ -209,6 +209,19 @@ pub trait GlyphRenderer<C: GlyphCache> {
     fn get_context_color(&self) -> AlphaColor<Srgb>;
 }
 
+/// A backend for glyph run builders.
+pub trait GlyphRunBackend<'a> {
+    /// Fill the given glyph sequence using the configured builder state.
+    fn fill_glyphs<Glyphs>(self, builder: GlyphRunBuilder<'a>, glyphs: Glyphs)
+    where
+        Glyphs: Iterator<Item = Glyph> + Clone;
+
+    /// Stroke the given glyph sequence using the configured builder state.
+    fn stroke_glyphs<Glyphs>(self, builder: GlyphRunBuilder<'a>, glyphs: Glyphs)
+    where
+        Glyphs: Iterator<Item = Glyph> + Clone;
+}
+
 /// Helper struct for rendering a prepared glyph run.
 #[derive(Debug)]
 pub struct GlyphRunRenderer<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache> {
@@ -638,13 +651,14 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
 /// A builder for configuring and drawing glyphs.
 #[derive(Debug)]
 #[must_use = "Methods on the builder don't do anything until `render` is called."]
-pub struct GlyphRunBuilder<'a> {
+pub struct GlyphRunBuilder<'a, B = ()> {
     run: GlyphRun<'a>,
+    backend: B,
 }
 
-impl<'a> GlyphRunBuilder<'a> {
-    /// Creates a new builder for drawing glyphs.
-    pub fn new(font: FontData, transform: Affine) -> Self {
+impl<'a, B> GlyphRunBuilder<'a, B> {
+    /// Creates a new builder for drawing glyphs with a pre-bound backend.
+    pub fn new(font: FontData, transform: Affine, backend: B) -> Self {
         Self {
             run: GlyphRun {
                 font,
@@ -655,6 +669,7 @@ impl<'a> GlyphRunBuilder<'a> {
                 normalized_coords: &[],
                 atlas_cache_enabled: false,
             },
+            backend,
         }
     }
 
@@ -701,7 +716,9 @@ impl<'a> GlyphRunBuilder<'a> {
         self.run.atlas_cache_enabled = enabled;
         self
     }
+}
 
+impl<'a> GlyphRunBuilder<'a> {
     /// Consumes the builder and returns a renderer that can fill, stroke, and decorate a glyph run.
     ///
     /// `image_cache` is the allocator backing `glyph_atlas` for atlas region
@@ -724,6 +741,29 @@ impl<'a> GlyphRunBuilder<'a> {
             image_cache,
             atlas_cache_enabled,
         }
+    }
+}
+
+impl<'a, B> GlyphRunBuilder<'a, B>
+where
+    B: GlyphRunBackend<'a>,
+{
+    /// Fill the glyphs using the current settings.
+    pub fn fill_glyphs<Glyphs>(self, glyphs: Glyphs)
+    where
+        Glyphs: Iterator<Item = Glyph> + Clone,
+    {
+        let GlyphRunBuilder { run, backend } = self;
+        backend.fill_glyphs(GlyphRunBuilder { run, backend: () }, glyphs);
+    }
+
+    /// Stroke the glyphs using the current settings.
+    pub fn stroke_glyphs<Glyphs>(self, glyphs: Glyphs)
+    where
+        Glyphs: Iterator<Item = Glyph> + Clone,
+    {
+        let GlyphRunBuilder { run, backend } = self;
+        backend.stroke_glyphs(GlyphRunBuilder { run, backend: () }, glyphs);
     }
 }
 

@@ -64,7 +64,7 @@ pub use render::{Config, GpuStrip, RenderSize};
 pub use render::{WebGlAtlasWriter, WebGlRenderer, WebGlTextureWithDimensions};
 pub use scene::{RenderSettings, Scene, SceneConstraints};
 #[cfg(feature = "text")]
-pub use text::{GlyphRunBuilder, Resources};
+pub use text::{GlyphRunBuilder, HybridGlyphRunBackend, Resources};
 pub use util::DimensionConstraints;
 pub use vello_common::multi_atlas::{AllocationStrategy, AtlasConfig, AtlasId};
 pub use vello_common::pixmap::Pixmap;

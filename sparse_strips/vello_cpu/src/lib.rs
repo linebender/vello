@@ -160,7 +160,7 @@ pub mod region;
 
 pub use render::{RenderContext, RenderSettings, Resources};
 #[cfg(feature = "text")]
-pub use text::GlyphRunBuilder;
+pub use text::{CpuGlyphRunBackend, GlyphRunBuilder};
 pub use vello_common::fearless_simd::Level;
 #[cfg(feature = "text")]
 pub use vello_common::glyph::Glyph;
