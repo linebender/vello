@@ -1410,8 +1410,7 @@ mod tests {
 /// Caches used for glyph rendering.
 ///
 /// Generic over `C: GlyphCache` so that different renderers can use different
-/// glyph atlas backends. Use [`CpuGlyphCaches`](crate::renderers::vello_cpu::CpuGlyphCaches) for CPU rendering and
-/// [`GpuGlyphCaches`](crate::renderers::vello_hybrid::GpuGlyphCaches) for hybrid (GPU) rendering.
+/// glyph atlas backends.
 ///
 /// This contains renderer-agnostic caches (outline paths, hinting instances)
 /// alongside the renderer-specific glyph atlas cache.

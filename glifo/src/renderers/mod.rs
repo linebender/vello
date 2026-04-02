@@ -1,9 +1,6 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Renderer backends for Vello CPU and Vello Hybrid (GPU).
-//!
-//! Shared orchestration logic lives in [`vello_renderer`]; backend-specific
-//! code is in [`vello_cpu`] and [`vello_hybrid`].
+//! An abstraction for rendering glyphs in a backend-agnostic way.
 
 pub mod vello_renderer;

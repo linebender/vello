@@ -7,10 +7,6 @@
 //! utility functions, the `GlyphAtlasBackend` trait, the
 //! `AtlasReplayTarget` trait, and the generic cache orchestration functions
 //! (`fill_glyph`, `stroke_glyph`).
-//!
-//! Backend-specific implementations live in the sibling
-//! [`vello_cpu`](super::vello_cpu) and [`vello_hybrid`](super::vello_hybrid)
-//! modules.
 
 use crate::atlas::commands::{AtlasCommand, AtlasCommandRecorder, AtlasPaint};
 use crate::atlas::key::subpixel_offset;

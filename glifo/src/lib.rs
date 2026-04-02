@@ -1,14 +1,13 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Glifo provides APIs for efficiently rendering glyphs and paint styles like underline.
+//! Glifo provides APIs for rendering and caching glyphs in a backend-agnostic way.
 //!
 //! ## Features
 //!
 //! - `std` (enabled by default): Get floating point functions from the standard library
 //!   (likely using your target's libc).
 //! - `libm`: Use floating point implementations from `libm`.
-//! - `vello_cpu` (enabled by default): Implements `GlyphRenderer` for Vello CPU's `RenderContext`.
 //! - `png`: Enables PNG support for drawing bitmap glyphs.
 //!
 //! At least one of `std` and `libm` is required.

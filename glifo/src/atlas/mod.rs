@@ -11,12 +11,8 @@
 //! - Implements simple age-based eviction
 //!
 //! The cache is split into a common trait ([`GlyphCache`]) with shared logic
-//! in [`GlyphAtlas`], and concrete implementations in the renderer
-//! modules:
-//! - [`CpuGlyphAtlas`](crate::renderers::vello_cpu::CpuGlyphAtlas) — owns `Pixmap`
-//!   storage for CPU rendering
-//! - [`GpuGlyphAtlas`](crate::renderers::vello_hybrid::GpuGlyphAtlas) — no
-//!   local pixel storage (GPU manages textures)
+//! in [`GlyphAtlas`], plus backend-specific wrapper types implemented by the
+//! consuming renderer crates.
 
 pub mod cache;
 pub mod commands;

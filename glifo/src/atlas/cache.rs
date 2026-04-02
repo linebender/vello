@@ -188,7 +188,7 @@ pub struct PendingClearRect {
 ///
 /// Contains the cache entries, LRU tracking, pending uploads, and statistics.
 /// Does **not** own any pixel storage — that responsibility belongs to the
-/// concrete wrapper types ([`CpuGlyphAtlas`](crate::renderers::vello_cpu::CpuGlyphAtlas), [`GpuGlyphAtlas`](crate::renderers::vello_hybrid::GpuGlyphAtlas)).
+/// concrete wrapper types provided by the integrating renderer crate.
 pub struct GlyphAtlas {
     /// Eviction configuration.
     eviction_config: GlyphCacheConfig,
