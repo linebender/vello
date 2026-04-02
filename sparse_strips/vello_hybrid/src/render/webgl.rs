@@ -2106,6 +2106,27 @@ impl WebGlRendererContext<'_> {
             }
         }
 
+        let use_dest_over = matches!(
+            target,
+            StripPassRenderTarget::Output(OutputTarget::FinalView)
+        );
+
+        // For the surface pass, switch to dest-over blending for front-to-back
+        // rendering. The `(1 - dst.a)` factor naturally zeroes out source
+        // contributions behind opaque destination pixels.
+        //
+        // NOTE: Unlike the wgpu backend, we do NOT enable depth testing here
+        // because the WebGL GLSL shader is compiled from `fs_main` (not
+        // `fs_main_depth`) and thus does not write `gl_FragDepth`. Without
+        // per-pixel depth control, the vertex z would cause transparent front
+        // pixels to incorrectly block opaque back pixels.
+        if use_dest_over {
+            self.gl.blend_func(
+                WebGl2RenderingContext::ONE_MINUS_DST_ALPHA,
+                WebGl2RenderingContext::ONE,
+            );
+        }
+
         // Clear framebuffer if requested.
         if matches!(load, LoadOp::Clear) {
             self.gl.clear_color(0.0, 0.0, 0.0, 0.0);
@@ -2180,6 +2201,14 @@ impl WebGlRendererContext<'_> {
             4,
             strips.len() as i32,
         );
+
+        // Restore src-over blend state after dest-over surface pass.
+        if use_dest_over {
+            self.gl.blend_func(
+                WebGl2RenderingContext::ONE,
+                WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA,
+            );
+        }
 
         // Clean up.
         self.gl.bind_vertex_array(None);

@@ -858,8 +858,8 @@ impl Scheduler {
     ///
     /// The rounds queue must not be empty.
     fn flush<R: RendererBackend>(&mut self, renderer: &mut R) {
-        let round = self.rounds_queue.pop_front().unwrap();
-        for (i, draw) in round.draws.iter().enumerate() {
+        let mut round = self.rounds_queue.pop_front().unwrap();
+        for (i, draw) in round.draws.iter_mut().enumerate() {
             #[cfg(debug_assertions)]
             {
                 // This is an expensive O(n²) debug only check that enforces that there are no
@@ -903,6 +903,14 @@ impl Scheduler {
                     renderer.clear_slots(i, round.clear[i].as_slice());
                 }
                 continue;
+            }
+
+            // Reverse the surface draw (i == 2) for front-to-back ordering.
+            // The scheduler appends strips in scene traversal order
+            // (back-to-front). Reversing gives front-to-back, which is
+            // required for the dest-over blending + depth buffer strategy.
+            if i == 2 {
+                draw.0.reverse();
             }
 
             renderer.render_strips(&draw.0, target, load);

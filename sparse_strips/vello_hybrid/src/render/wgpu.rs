@@ -371,6 +371,7 @@ impl Renderer {
             image_cache: &self.image_cache,
             filter_context: &self.filter_context,
             filter_pass_state: &mut self.filter_pass_state,
+            depth_cleared: false,
         };
         self.scheduler.do_scene(
             &mut self.scheduler_state,
@@ -719,13 +720,19 @@ impl Renderer {
     }
 }
 
+/// Depth format used for the dest-over surface pass.
+const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+
 /// Defines the GPU resources and pipelines for rendering.
 #[derive(Debug)]
 struct Programs {
-    /// Pipelines for rendering strips.
+    /// Pipelines for rendering strips (src-over, no depth).
     /// The first pipeline should be used for color attachments in the native pixel format,
     /// the second for color attachments in RGBA8.
     strip_pipelines: [RenderPipeline; 2],
+    /// Pipeline for dest-over front-to-back rendering with depth buffer.
+    /// Uses `fs_main_depth` entry point which writes `frag_depth`.
+    strip_pipeline_dest_over: RenderPipeline,
     /// Bind group layout for strip draws
     strip_bind_group_layout: BindGroupLayout,
     /// Bind group layout for encoded paints
@@ -881,6 +888,13 @@ struct GpuResources {
     /// Placeholder atlas bind group with a 1x1 dummy texture, used during
     /// `render_to_atlas` to avoid a read-write conflict on the real atlas texture.
     stub_atlas_bind_group: BindGroup,
+
+    /// Depth texture for dest-over front-to-back rendering. Opaque fragments
+    /// write their interpolated depth so that later (farther) fragments are
+    /// rejected by the Late-Z test, saving the framebuffer read-modify-write.
+    depth_texture: Texture,
+    /// View into `depth_texture`.
+    depth_texture_view: TextureView,
 }
 
 const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).unwrap();
@@ -1082,6 +1096,59 @@ impl Programs {
                 cache: None,
             })
         });
+
+        let dest_over_blend = BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::OneMinusDstAlpha,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::OneMinusDstAlpha,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+        };
+
+        let strip_pipeline_dest_over =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Strip Pipeline (Dest-Over + Depth)"),
+                layout: Some(&strip_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &strip_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[wgpu::VertexBufferLayout {
+                        array_stride: size_of::<GpuStrip>() as u64,
+                        step_mode: wgpu::VertexStepMode::Instance,
+                        attributes: &GpuStrip::vertex_attributes(),
+                    }],
+                    compilation_options: PipelineCompilationOptions::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &strip_shader,
+                    entry_point: Some("fs_main_depth"),
+                    targets: &[Some(ColorTargetState {
+                        format: render_target_config.format,
+                        blend: Some(dest_over_blend),
+                        write_mask: ColorWrites::ALL,
+                    })],
+                    compilation_options: PipelineCompilationOptions::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleStrip,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            });
 
         let clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Clear Slots Pipeline"),
@@ -1415,6 +1482,12 @@ impl Programs {
             &slot_texture_views,
         );
 
+        let (depth_texture, depth_texture_view) = Self::create_depth_texture(
+            device,
+            render_target_config.width,
+            render_target_config.height,
+        );
+
         let resources = GpuResources {
             strips_buffer: Self::create_strips_buffer(device, 0),
             clear_slot_indices_buffer,
@@ -1439,10 +1512,13 @@ impl Programs {
             filter_data_texture,
             filter_base_bind_group,
             view_config_buffer,
+            depth_texture,
+            depth_texture_view,
         };
 
         Self {
             strip_pipelines,
+            strip_pipeline_dest_over,
             strip_bind_group_layout,
             encoded_paints_bind_group_layout,
             gradient_bind_group_layout,
@@ -1460,6 +1536,27 @@ impl Programs {
             clear_pipeline,
             atlas_clear_pipeline,
         }
+    }
+
+    fn create_depth_texture(device: &Device, width: u32, height: u32) -> (Texture, TextureView) {
+        let w = width.max(1);
+        let h = height.max(1);
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Depth Texture"),
+            size: Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: DEPTH_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&TextureViewDescriptor::default());
+        (texture, view)
     }
 
     fn create_strips_buffer(device: &Device, required_strips_size: u64) -> Buffer {
@@ -1763,7 +1860,7 @@ impl Programs {
         self.maybe_resize_alphas_tex(device, max_texture_dimension_2d, alphas.len());
         self.maybe_resize_encoded_paints_tex(device, max_texture_dimension_2d, paint_idxs);
         self.maybe_resize_filter_tex(device, max_texture_dimension_2d, filter_context);
-        self.maybe_update_config_buffer(queue, max_texture_dimension_2d, new_render_size);
+        self.maybe_update_config_buffer(device, queue, max_texture_dimension_2d, new_render_size);
 
         self.upload_alpha_texture(queue, alphas);
         self.upload_encoded_paints_texture(queue, encoded_paints);
@@ -1942,6 +2039,7 @@ impl Programs {
     /// Update config buffer if dimensions changed.
     fn maybe_update_config_buffer(
         &mut self,
+        device: &Device,
         queue: &Queue,
         max_texture_dimension_2d: u32,
         new_render_size: &RenderSize,
@@ -1961,6 +2059,11 @@ impl Programs {
                 .write_buffer_with(&self.resources.view_config_buffer, 0, SIZE_OF_CONFIG)
                 .expect("Buffer only ever holds `Config`");
             buffer.copy_from_slice(bytemuck::bytes_of(&config));
+
+            let (depth_texture, depth_texture_view) =
+                Self::create_depth_texture(device, new_render_size.width, new_render_size.height);
+            self.resources.depth_texture = depth_texture;
+            self.resources.depth_texture_view = depth_texture_view;
 
             self.render_size = new_render_size.clone();
         }
@@ -2210,6 +2313,10 @@ struct RendererContext<'a> {
     image_cache: &'a ImageCache,
     filter_context: &'a FilterContext,
     filter_pass_state: &'a mut FilterPassState,
+    /// Whether the depth buffer has been cleared this frame. Reset to `false`
+    /// at the start of each `render_scene`; set to `true` after the first
+    /// surface pass clears depth to 1.0.
+    depth_cleared: bool,
 }
 
 impl RendererContext<'_> {
@@ -2337,9 +2444,36 @@ impl RendererContext<'_> {
             ),
         };
 
-        let pipeline_idx = match target {
-            StripPassRenderTarget::Output(OutputTarget::IntermediateTexture(_)) => 1,
-            _ => 0,
+        let use_dest_over =
+            matches!(target, StripPassRenderTarget::Output(OutputTarget::FinalView));
+
+        let depth_stencil_attachment = if use_dest_over {
+            let depth_load = if self.depth_cleared {
+                wgpu::LoadOp::Load
+            } else {
+                self.depth_cleared = true;
+                wgpu::LoadOp::Clear(1.0)
+            };
+            Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.programs.resources.depth_texture_view,
+                depth_ops: Some(wgpu::Operations {
+                    load: depth_load,
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            })
+        } else {
+            None
+        };
+
+        let pipeline = if use_dest_over {
+            &self.programs.strip_pipeline_dest_over
+        } else {
+            let idx = match target {
+                StripPassRenderTarget::Output(OutputTarget::IntermediateTexture(_)) => 1,
+                _ => 0,
+            };
+            &self.programs.strip_pipelines[idx]
         };
 
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
@@ -2353,12 +2487,12 @@ impl RendererContext<'_> {
                     store: wgpu::StoreOp::Store,
                 },
             })],
-            depth_stencil_attachment: None,
+            depth_stencil_attachment,
             occlusion_query_set: None,
             timestamp_writes: None,
             multiview_mask: None,
         });
-        render_pass.set_pipeline(&self.programs.strip_pipelines[pipeline_idx]);
+        render_pass.set_pipeline(pipeline);
         render_pass.set_bind_group(0, bind_group.as_ref(), &[]);
         render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
         render_pass.set_bind_group(2, &self.programs.resources.encoded_paints_bind_group, &[]);

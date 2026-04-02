@@ -249,6 +249,7 @@ var gradient_texture: texture_2d<f32>;
 @vertex
 fn vs_main(
     @builtin(vertex_index) in_vertex_index: u32,
+    @builtin(instance_index) instance_idx: u32,
     instance: StripInstance,
 ) -> VertexOutput {
     var out: VertexOutput;
@@ -308,7 +309,11 @@ fn vs_main(
 
     // Flip it based on the flag.
     let final_ndc_y = select(ndc_y, -ndc_y, config.ndc_y_negate != 0u);
-    out.position = vec4<f32>(ndc_x, final_ndc_y, 0.0, 1.0);
+    // Assign monotonically increasing depth per instance for front-to-back
+    // depth testing with dest-over blending. Front strips (low index) get
+    // small z; back strips get large z. 65536.0 provides ample headroom.
+    let z = f32(instance_idx) / 65536.0;
+    out.position = vec4<f32>(ndc_x, final_ndc_y, z, 1.0);
     out.payload = instance.payload;
     out.paint_and_rect_flag = instance.paint_and_rect_flag;
 
@@ -321,8 +326,7 @@ var alphas_texture: texture_2d<u32>;
 @group(0) @binding(2)
 var clip_input_texture: texture_2d<f32>;
 
-@fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+fn compute_strip_color(in: VertexOutput) -> vec4<f32> {
     var alpha = 1.0;
     let is_rect = (in.paint_and_rect_flag & RECT_STRIP_FLAG) != 0u;
     // TODO: Explore doing these calculations only for rectangle parts that actually need anti-aliasing. See
@@ -550,6 +554,30 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         final_color = blend_mix_compose(dest_color, src_color * opacity * alpha, compose_mode, mix_mode);
     }
     return final_color;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    return compute_strip_color(in);
+}
+
+struct FragOutputWithDepth {
+    @location(0) color: vec4<f32>,
+    @builtin(frag_depth) depth: f32,
+}
+
+// Fragment entry point for the dest-over surface pass with depth buffer.
+// Opaque pixels write their interpolated depth to seed the depth buffer so
+// that later (higher-z) fragments are rejected by Late-Z, saving the
+// framebuffer read-modify-write. Transparent pixels write depth = 1.0
+// (far plane) so they never occlude anything behind them.
+@fragment
+fn fs_main_depth(in: VertexOutput) -> FragOutputWithDepth {
+    let color = compute_strip_color(in);
+    var out: FragOutputWithDepth;
+    out.color = color;
+    out.depth = select(1.0, in.position.z, color.a >= 1.0);
+    return out;
 }
 
 // Apply color mixing and composition. Both input and output colors are premultiplied RGB.
