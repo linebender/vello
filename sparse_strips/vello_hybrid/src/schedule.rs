@@ -714,6 +714,7 @@ impl Scheduler {
                     wide_tile,
                     wide_tile_x,
                     wide_tile_y,
+                    self.round,
                     encoded_paints,
                     paint_idxs,
                     // Background is only ever applied in the root layer.
@@ -830,6 +831,7 @@ impl Scheduler {
                     tile,
                     tile_x,
                     tile_y,
+                    state.max_round,
                     encoded_paints,
                     paint_idxs,
                     paint_bg,
@@ -970,6 +972,7 @@ impl Scheduler {
         tile: &WideTile<MODE_HYBRID>,
         wide_tile_x: u16,
         wide_tile_y: u16,
+        initial_round: usize,
         encoded_paints: &[EncodedPaint],
         idxs: &[u32],
         paint_bg: bool,
@@ -981,7 +984,7 @@ impl Scheduler {
             // we just need to put _something_ there.
             dest_slot: ClaimedSlot::Texture0(SENTINEL_SLOT_IDX),
             temporary_slot: TemporarySlot::None,
-            round: self.round,
+            round: initial_round,
             opacity: 1.,
         });
 

@@ -712,3 +712,40 @@ fn issue_fast_path_strips_in_later_round(ctx: &mut impl Renderer) {
     ctx.set_paint(Color::from_rgba8(255, 0, 0, 255));
     ctx.fill_rect(&Rect::new(30.0, 30.0, 90.0, 90.0));
 }
+
+#[vello_test]
+fn issue_coarse_batch_in_later_round(ctx: &mut impl Renderer) {
+    ctx.push_layer(None, None, None, None, None);
+    ctx.push_layer(None, None, None, None, None);
+    ctx.push_layer(None, None, None, None, None);
+    ctx.set_paint(Color::from_rgba8(0, 0, 255, 255));
+    ctx.fill_rect(&Rect::new(10.0, 10.0, 70.0, 70.0));
+    ctx.pop_layer();
+    ctx.pop_layer();
+    ctx.pop_layer();
+
+    ctx.push_layer(None, None, None, None, None);
+    ctx.set_paint(Color::from_rgba8(255, 0, 0, 255));
+    ctx.fill_rect(&Rect::new(30.0, 30.0, 90.0, 90.0));
+    ctx.pop_layer();
+}
+
+#[vello_test]
+fn issue_fast_path_strips_and_coarse_batch_in_later_round(ctx: &mut impl Renderer) {
+    ctx.push_layer(None, None, None, None, None);
+    ctx.push_layer(None, None, None, None, None);
+    ctx.push_layer(None, None, None, None, None);
+    ctx.set_paint(Color::from_rgba8(0, 0, 255, 255));
+    ctx.fill_rect(&Rect::new(25.0, 10.0, 75.0, 60.0));
+    ctx.pop_layer();
+    ctx.pop_layer();
+    ctx.pop_layer();
+
+    ctx.set_paint(Color::from_rgba8(0, 255, 0, 255));
+    ctx.fill_rect(&Rect::new(10.0, 40.0, 60.0, 90.0));
+
+    ctx.push_layer(None, None, None, None, None);
+    ctx.set_paint(Color::from_rgba8(255, 0, 0, 255));
+    ctx.fill_rect(&Rect::new(40.0, 40.0, 90.0, 90.0));
+    ctx.pop_layer();
+}
