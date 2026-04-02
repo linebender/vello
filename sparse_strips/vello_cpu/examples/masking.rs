@@ -5,7 +5,7 @@
 
 use vello_cpu::color::palette::css::{BLUE, RED, WHITE};
 use vello_cpu::kurbo::Rect;
-use vello_cpu::{Mask, Pixmap, RenderContext};
+use vello_cpu::{Mask, Pixmap, RenderContext, Resources};
 
 const SIZE: u16 = 200;
 
@@ -19,12 +19,13 @@ fn main() {
         // dimensions of the final mask need to match the dimensions of our
         // original render context!
         let mut mask_ctx = RenderContext::new(SIZE, SIZE);
+        let mut mask_resources = Resources::new();
         let mut pixmap = Pixmap::new(SIZE, SIZE);
 
         mask_ctx.set_paint(RED);
         mask_ctx.fill_rect(&Rect::new(30.0, 30.0, 170.0, 170.0));
         mask_ctx.flush();
-        mask_ctx.render_to_pixmap(&mut pixmap);
+        mask_ctx.render_to_pixmap(&mut mask_resources, &mut pixmap);
 
         Mask::new_luminance(&pixmap)
     };
@@ -91,8 +92,9 @@ fn main() {
 }
 
 fn save_pixmap(ctx: &RenderContext, filename: &str) {
+    let mut resources = Resources::new();
     let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
-    ctx.render_to_pixmap(&mut pixmap);
+    ctx.render_to_pixmap(&mut resources, &mut pixmap);
     let png = pixmap.into_png().unwrap();
     std::fs::write(format!("{filename}.png"), png).unwrap();
 }

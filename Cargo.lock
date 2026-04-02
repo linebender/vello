@@ -4140,6 +4140,7 @@ version = "0.0.0"
 dependencies = [
  "bytemuck",
  "fearless_simd",
+ "glifo",
  "image",
  "oxipng 10.1.0",
  "pollster",

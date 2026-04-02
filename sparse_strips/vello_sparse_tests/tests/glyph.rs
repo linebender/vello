@@ -3,7 +3,7 @@
 
 //! Tests for glyph rendering.
 
-use crate::renderer::{Renderer, TestGlyphRunBuilder};
+use crate::renderer::Renderer;
 #[cfg(target_os = "macos")]
 use crate::util::layout_glyphs_apple_color_emoji;
 use crate::util::{layout_glyphs_noto_cbtf, layout_glyphs_noto_colr, layout_glyphs_roboto};

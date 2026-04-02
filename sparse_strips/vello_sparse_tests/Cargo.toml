@@ -15,6 +15,7 @@ name = "tests"
 path = "tests/mod.rs"
 
 [dependencies]
+glifo = { workspace = true }
 vello_api = { workspace = true }
 vello_common = { workspace = true, features = ["std"] }
 vello_cpu = { workspace = true, features = ["multithreading", "std", "f32_pipeline"] }

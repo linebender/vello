@@ -3,8 +3,8 @@
 
 use std::sync::Arc;
 
+use glifo::GlyphRunBackend;
 use vello_common::filter_effects::Filter;
-use vello_common::glyph::Glyph;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageId, ImageSource, PaintType, Tint};
@@ -19,7 +19,7 @@ use vello_hybrid::{
 use web_sys::WebGl2RenderingContext;
 
 pub(crate) trait Renderer: Sized {
-    type GlyphRunBackend<'a>: glifo::GlyphRunBackend<'a>
+    type GlyphRunBackend<'a>: GlyphRunBackend<'a>
     where
         Self: 'a;
 

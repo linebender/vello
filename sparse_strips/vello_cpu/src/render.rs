@@ -37,6 +37,7 @@ use vello_common::util::is_axis_aligned;
 
 pub(crate) const DEFAULT_GLYPH_ATLAS_SIZE: u16 = 4096;
 
+// TODO: Lazily initialize!!
 /// Auxiliary renderer state required during draw and rasterization.
 #[derive(Debug)]
 pub struct Resources {
@@ -1122,7 +1123,7 @@ impl RenderContext {
 
 #[cfg(test)]
 mod tests {
-    use crate::RenderContext;
+    use crate::{RenderContext, Resources};
     use vello_common::kurbo::{Rect, Shape};
     use vello_common::tile::Tile;
 
@@ -1152,12 +1153,13 @@ mod tests {
             render_mode: RenderMode::OptimizeQuality,
         };
 
+        let mut resources = Resources::new();
         let mut ctx = RenderContext::new_with(200, 200, settings);
         ctx.reset();
         ctx.fill_path(&Rect::new(0.0, 0.0, 100.0, 100.0).to_path(0.1));
         ctx.flush();
-        ctx.render_to_pixmap(&mut pixmap);
+        ctx.render_to_pixmap(&mut resources, &mut pixmap);
         ctx.flush();
-        ctx.render_to_pixmap(&mut pixmap);
+        ctx.render_to_pixmap(&mut resources, &mut pixmap);
     }
 }
