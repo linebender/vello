@@ -291,20 +291,17 @@ fn render_glyph_run<T: RenderingContext>(
 ) {
     let mut run_x = glyph_run.offset();
     let run_y = glyph_run.baseline();
-    let glyphs: Vec<_> = glyph_run
-        .glyphs()
-        .map(|glyph| {
-            let glyph_x = offset_x + run_x + glyph.x;
-            let glyph_y = offset_y + run_y - glyph.y;
-            run_x += glyph.advance;
+    let glyphs = glyph_run.glyphs().map(move |glyph| {
+        let glyph_x = offset_x + run_x + glyph.x;
+        let glyph_y = offset_y + run_y - glyph.y;
+        run_x += glyph.advance;
 
-            Glyph {
-                id: glyph.id as u32,
-                x: glyph_x,
-                y: glyph_y,
-            }
-        })
-        .collect();
+        Glyph {
+            id: glyph.id as u32,
+            x: glyph_x,
+            y: glyph_y,
+        }
+    });
 
     let run = glyph_run.run();
     let style = glyph_run.style();
@@ -313,5 +310,5 @@ fn render_glyph_run<T: RenderingContext>(
         .font_size(run.font_size())
         .hint(hinting_enabled)
         .atlas_cache(glyph_caching_enabled)
-        .fill_glyphs(glyphs.into_iter());
+        .fill_glyphs(glyphs);
 }

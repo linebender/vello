@@ -45,6 +45,7 @@ pub fn glyph(c: &mut Criterion) {
             b.iter_custom(|iters| {
                 let mut total_time = Duration::from_nanos(0);
                 for _ in 0..iters {
+                    // Don't include `reset` time in the benchmark.
                     renderer.reset();
 
                     let start = Instant::now();
@@ -127,20 +128,17 @@ fn render_glyph_run(
 ) {
     let mut run_x = glyph_run.offset();
     let run_y = glyph_run.baseline();
-    let glyphs: Vec<_> = glyph_run
-        .glyphs()
-        .map(|glyph| {
-            let glyph_x = run_x + glyph.x;
-            let glyph_y = run_y - glyph.y;
-            run_x += glyph.advance;
+    let glyphs = glyph_run.glyphs().map(move |glyph| {
+        let glyph_x = run_x + glyph.x;
+        let glyph_y = run_y - glyph.y;
+        run_x += glyph.advance;
 
-            Glyph {
-                id: glyph.id as u32,
-                x: glyph_x,
-                y: glyph_y,
-            }
-        })
-        .collect();
+        Glyph {
+            id: glyph.id as u32,
+            x: glyph_x,
+            y: glyph_y,
+        }
+    });
 
     let run = glyph_run.run();
     renderer
@@ -149,5 +147,5 @@ fn render_glyph_run(
         .font_size(run.font_size())
         .hint(hint)
         .atlas_cache(atlas_cache)
-        .fill_glyphs(glyphs.into_iter());
+        .fill_glyphs(glyphs);
 }

@@ -275,20 +275,17 @@ fn render_glyph_run<T: RenderingContext>(
 ) {
     let mut run_x = glyph_run.offset();
     let run_y = glyph_run.baseline();
-    let glyphs: Vec<_> = glyph_run
-        .glyphs()
-        .map(|glyph| {
-            let glyph_x = run_x + glyph.x + padding as f32;
-            let glyph_y = run_y - glyph.y + padding as f32;
-            run_x += glyph.advance;
+    let glyphs = glyph_run.glyphs().map(move |glyph| {
+        let glyph_x = run_x + glyph.x + padding as f32;
+        let glyph_y = run_y - glyph.y + padding as f32;
+        run_x += glyph.advance;
 
-            Glyph {
-                id: glyph.id as u32,
-                x: glyph_x,
-                y: glyph_y,
-            }
-        })
-        .collect();
+        Glyph {
+            id: glyph.id as u32,
+            x: glyph_x,
+            y: glyph_y,
+        }
+    });
 
     let run = glyph_run.run();
     let font = run.font();
@@ -299,7 +296,7 @@ fn render_glyph_run<T: RenderingContext>(
         .font_size(font_size)
         .hint(true)
         // TODO: Re-add normalized coords
-        .fill_glyphs(glyphs.into_iter());
+        .fill_glyphs(glyphs);
 }
 
 fn render_glyph_run_record(
