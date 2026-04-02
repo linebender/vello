@@ -234,8 +234,7 @@ fn build_segment(
 }
 
 fn random_text(rng: &mut Lcg) -> String {
-    const ALPHABET: &[u8] =
-        b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let len = rng.range_usize(SEGMENT_MIN_LEN, SEGMENT_MAX_LEN);
     let mut text = String::with_capacity(len);
     for _ in 0..len {

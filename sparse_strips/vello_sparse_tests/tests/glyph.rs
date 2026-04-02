@@ -3,11 +3,11 @@
 
 //! Tests for glyph rendering.
 
-use std::f64::consts::FRAC_PI_4;
 use crate::renderer::{Renderer, TestGlyphRunBuilder};
 #[cfg(target_os = "macos")]
 use crate::util::layout_glyphs_apple_color_emoji;
 use crate::util::{layout_glyphs_noto_cbtf, layout_glyphs_noto_colr, layout_glyphs_roboto};
+use std::f64::consts::FRAC_PI_4;
 use std::iter;
 use std::sync::Arc;
 use vello_common::color::palette::css::{BLACK, BLUE, GREEN, REBECCA_PURPLE};
@@ -28,7 +28,11 @@ fn render_transform_composition_rows(
         (Affine::scale(20.0), 1.0_f32, Affine::IDENTITY),
         (Affine::IDENTITY, 10.0_f32, Affine::scale(2.0)),
         (Affine::scale(2.0), 5.0_f32, Affine::scale(2.0)),
-        (Affine::translate((-4.0, 0.0)), 20.0_f32, Affine::translate((4.0, 0.0))),
+        (
+            Affine::translate((-4.0, 0.0)),
+            20.0_f32,
+            Affine::translate((4.0, 0.0)),
+        ),
         (
             Affine::translate((-4.0, 0.0)) * Affine::scale(4.0),
             5.0_f32,
@@ -347,27 +351,33 @@ fn glyphs_transform_composition_rows_bitmap(ctx: &mut impl Renderer, enable_cach
 }
 
 #[vello_test(width = 210, height = 320, skip_hybrid, glyph, cpu_u8_tolerance = 3)]
-fn glyphs_transform_composition_rows_bitmap_hinted(
-    ctx: &mut impl Renderer,
-    enable_caching: bool,
-) {
+fn glyphs_transform_composition_rows_bitmap_hinted(ctx: &mut impl Renderer, enable_caching: bool) {
     render_transform_composition_rows(ctx, enable_caching, true, BLACK, |font_size| {
         layout_glyphs_noto_cbtf("✅👀🎉🤠", font_size)
     });
 }
 
-#[vello_test(width = 210, height = 320, cpu_u8_tolerance = 1, hybrid_tolerance = 3, glyph)]
+#[vello_test(
+    width = 210,
+    height = 320,
+    cpu_u8_tolerance = 1,
+    hybrid_tolerance = 3,
+    glyph
+)]
 fn glyphs_transform_composition_rows_colr(ctx: &mut impl Renderer, enable_caching: bool) {
     render_transform_composition_rows(ctx, enable_caching, false, BLACK, |font_size| {
         layout_glyphs_noto_colr("✅👀🎉🤠", font_size)
     });
 }
 
-#[vello_test(width = 210, height = 320, cpu_u8_tolerance = 1, hybrid_tolerance = 3, glyph)]
-fn glyphs_transform_composition_rows_colr_hinted(
-    ctx: &mut impl Renderer,
-    enable_caching: bool,
-) {
+#[vello_test(
+    width = 210,
+    height = 320,
+    cpu_u8_tolerance = 1,
+    hybrid_tolerance = 3,
+    glyph
+)]
+fn glyphs_transform_composition_rows_colr_hinted(ctx: &mut impl Renderer, enable_caching: bool) {
     render_transform_composition_rows(ctx, enable_caching, true, BLACK, |font_size| {
         layout_glyphs_noto_colr("✅👀🎉🤠", font_size)
     });
@@ -425,65 +435,115 @@ fn glyphs_bitmap_noto_stroked(ctx: &mut impl Renderer, enable_caching: bool) {
         .stroke_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 250, height = 70, cpu_u8_tolerance = 1, hybrid_tolerance = 2, glyph)]
+#[vello_test(
+    width = 250,
+    height = 70,
+    cpu_u8_tolerance = 1,
+    hybrid_tolerance = 2,
+    glyph
+)]
 fn glyphs_colr_noto(ctx: &mut impl Renderer, enable_caching: bool) {
     render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)), enable_caching, false);
 }
 
-#[vello_test(width = 250, height = 70, cpu_u8_tolerance = 1, hybrid_tolerance = 2, glyph)]
+#[vello_test(
+    width = 250,
+    height = 70,
+    cpu_u8_tolerance = 1,
+    hybrid_tolerance = 2,
+    glyph
+)]
 fn glyphs_colr_noto_stroked(ctx: &mut impl Renderer, enable_caching: bool) {
     render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)), enable_caching, true);
 }
 
-#[vello_test(width = 500, height = 140, cpu_u8_tolerance = 1, hybrid_tolerance = 2, glyph)]
+#[vello_test(
+    width = 500,
+    height = 140,
+    cpu_u8_tolerance = 1,
+    hybrid_tolerance = 2,
+    glyph
+)]
 fn glyphs_colr_noto_scaled_2x(ctx: &mut impl Renderer, enable_caching: bool) {
     render_colr_noto_with_transform(
         ctx,
         Affine::translate((0., 50.)).then_scale(2.0),
-        enable_caching, false
+        enable_caching,
+        false,
     );
 }
 
-#[vello_test(width = 125, height = 35, cpu_u8_tolerance = 1, hybrid_tolerance = 2, glyph)]
+#[vello_test(
+    width = 125,
+    height = 35,
+    cpu_u8_tolerance = 1,
+    hybrid_tolerance = 2,
+    glyph
+)]
 fn glyphs_colr_noto_scaled_half(ctx: &mut impl Renderer, enable_caching: bool) {
     render_colr_noto_with_transform(
         ctx,
         Affine::translate((0., 50.)).then_scale(0.5),
-        enable_caching, false
+        enable_caching,
+        false,
     );
 }
 
-#[vello_test(width = 350, height = 350, cpu_u8_tolerance = 3, hybrid_tolerance = 2, glyph)]
+#[vello_test(
+    width = 350,
+    height = 350,
+    cpu_u8_tolerance = 3,
+    hybrid_tolerance = 2,
+    glyph
+)]
 fn glyphs_colr_noto_rotated(ctx: &mut impl Renderer, enable_caching: bool) {
     render_colr_noto_with_transform(
         ctx,
         Affine::translate((175., 100.)) * Affine::rotate(FRAC_PI_4),
-        enable_caching, false
+        enable_caching,
+        false,
     );
 }
 
-#[vello_test(width = 600, height = 600, cpu_u8_tolerance = 2, hybrid_tolerance = 2, glyph)]
+#[vello_test(
+    width = 600,
+    height = 600,
+    cpu_u8_tolerance = 2,
+    hybrid_tolerance = 2,
+    glyph
+)]
 fn glyphs_colr_noto_rotated_scaled(ctx: &mut impl Renderer, enable_caching: bool) {
     render_colr_noto_with_transform(
         ctx,
-        Affine::translate((300., 150.))
-            * Affine::rotate(FRAC_PI_4)
-            * Affine::scale(2.0),
-        enable_caching, false
+        Affine::translate((300., 150.)) * Affine::rotate(FRAC_PI_4) * Affine::scale(2.0),
+        enable_caching,
+        false,
     );
 }
 
-#[vello_test(width = 250, height = 140, cpu_u8_tolerance = 1, hybrid_tolerance = 2, glyph)]
+#[vello_test(
+    width = 250,
+    height = 140,
+    cpu_u8_tolerance = 1,
+    hybrid_tolerance = 2,
+    glyph
+)]
 fn glyphs_colr_noto_scaled_non_uniform(ctx: &mut impl Renderer, enable_caching: bool) {
     render_colr_noto_with_transform(
         ctx,
         Affine::translate((0., 50.)) * Affine::scale_non_uniform(1.0, 2.0),
         enable_caching,
-        false
+        false,
     );
 }
 
-#[vello_test(width = 300, height = 300, cpu_u8_tolerance = 2, hybrid_tolerance = 1, glyph)]
+#[vello_test(
+    width = 300,
+    height = 300,
+    cpu_u8_tolerance = 2,
+    hybrid_tolerance = 1,
+    glyph
+)]
 fn glyphs_colr_noto_rotated_scaled_non_uniform(ctx: &mut impl Renderer, enable_caching: bool) {
     render_colr_noto_with_transform(
         ctx,
@@ -491,7 +551,7 @@ fn glyphs_colr_noto_rotated_scaled_non_uniform(ctx: &mut impl Renderer, enable_c
             * Affine::rotate(FRAC_PI_4)
             * Affine::scale_non_uniform(1.0, 2.0),
         enable_caching,
-        false
+        false,
     );
 }
 
@@ -509,7 +569,13 @@ fn glyphs_bitmap_apple(ctx: &mut impl Renderer, enable_caching: bool) {
 }
 
 // In case anything changes here, compare to https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/web_tests/platform/linux/virtual/text-antialias/colrv1-expected.png
-#[vello_test(width = 400, height = 960, hybrid_tolerance = 1, diff_pixels = 55, glyph)]
+#[vello_test(
+    width = 400,
+    height = 960,
+    hybrid_tolerance = 1,
+    diff_pixels = 55,
+    glyph
+)]
 fn glyphs_colr_test_glyphs(ctx: &mut impl Renderer, enable_caching: bool) {
     const TEST_FONT: &[u8] =
         include_bytes!("../../../examples/assets/colr_test_glyphs/test_glyphs-glyf_colr_1.ttf");
@@ -582,20 +648,21 @@ fn render_colr_noto_with_transform(
     ctx: &mut impl Renderer,
     transform: Affine,
     enable_caching: bool,
-    stroke: bool
+    stroke: bool,
 ) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);
 
     ctx.set_transform(transform);
-    let run = ctx.glyph_run(&font)
+    let run = ctx
+        .glyph_run(&font)
         .font_size(font_size)
         .atlas_cache(enable_caching)
         .hint(false);
 
     if stroke {
         run.stroke_glyphs(glyphs.into_iter());
-    }   else {
+    } else {
         run.fill_glyphs(glyphs.into_iter());
     }
 }

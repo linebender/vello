@@ -389,11 +389,8 @@ impl WebGlRenderer {
         let mut encoded_paints = scene.encoded_paints.borrow_mut();
         let original_scene_paint_count = encoded_paints.len();
 
-        self.filter_context.prepare(
-            &scene.render_graph,
-            image_cache,
-            &mut encoded_paints,
-        )?;
+        self.filter_context
+            .prepare(&scene.render_graph, image_cache, &mut encoded_paints)?;
 
         self.prepare_gpu_encoded_paints(&encoded_paints, image_cache);
 

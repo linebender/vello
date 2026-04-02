@@ -638,7 +638,11 @@ impl Renderer {
         render_pass.draw(0..4, 0..1);
     }
 
-    fn prepare_gpu_encoded_paints(&mut self, encoded_paints: &[EncodedPaint], image_cache: &ImageCache) {
+    fn prepare_gpu_encoded_paints(
+        &mut self,
+        encoded_paints: &[EncodedPaint],
+        image_cache: &ImageCache,
+    ) {
         self.encoded_paints
             .resize_with(encoded_paints.len(), || GPU_PAINT_PLACEHOLDER);
         self.paint_idxs.resize(encoded_paints.len() + 1, 0);
@@ -2439,8 +2443,10 @@ impl RendererContext<'_> {
         };
 
         let pipeline_idx = if self.use_rgba_strip_pipeline
-            || matches!(target, StripPassRenderTarget::Output(OutputTarget::IntermediateTexture(_)))
-        {
+            || matches!(
+                target,
+                StripPassRenderTarget::Output(OutputTarget::IntermediateTexture(_))
+            ) {
             1
         } else {
             0

@@ -170,7 +170,9 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         (true, 2) => quote! { #input_fn_name(&mut ctx, false); },
         (true, 1) => panic!("glyph tests must take `(&mut impl Renderer, bool)`"),
         (false, 2) => panic!("non-glyph tests must not take an `enable_caching` parameter"),
-        _ => panic!("test functions must take either one renderer argument or renderer + enable_caching"),
+        _ => panic!(
+            "test functions must take either one renderer argument or renderer + enable_caching"
+        ),
     };
     let invoke_cached_test = if glyph {
         quote! { #input_fn_name(&mut ctx, true); }
@@ -479,8 +481,10 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         input_fn_name.span(),
     );
     let cached_cpu_f32_fn_name_str = cached_cpu_f32_fn_name.to_string();
-    let cached_hybrid_fn_name =
-        Ident::new(&format!("{input_fn_name}_hybrid_cached"), input_fn_name.span());
+    let cached_hybrid_fn_name = Ident::new(
+        &format!("{input_fn_name}_hybrid_cached"),
+        input_fn_name.span(),
+    );
     let cached_hybrid_fn_name_str = cached_hybrid_fn_name.to_string();
     let cached_hybrid_constrained_fn_name = Ident::new(
         &format!("{input_fn_name}_hybrid_constrained_cached"),

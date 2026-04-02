@@ -382,13 +382,21 @@ impl HybridRenderer {
         }
     }
 
-    fn upload_image_with_resources(&mut self, pixmap: &Arc<Pixmap>, label: &'static str) -> ImageId {
+    fn upload_image_with_resources(
+        &mut self,
+        pixmap: &Arc<Pixmap>,
+        label: &'static str,
+    ) -> ImageId {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(label) });
-        let image_id = self
-            .renderer
-            .upload_image(&mut self.resources, &self.device, &self.queue, &mut encoder, pixmap);
+        let image_id = self.renderer.upload_image(
+            &mut self.resources,
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            pixmap,
+        );
         self.queue.submit([encoder.finish()]);
         image_id
     }
@@ -569,8 +577,8 @@ impl Renderer for HybridRenderer {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Vello Render To Buffer"),
-        });
+                label: Some("Vello Render To Buffer"),
+            });
         self.renderer
             .render(
                 &self.scene,
