@@ -24,6 +24,7 @@ use crate::kurbo::{Affine, BezPath};
 use crate::kurbo::{Line, ParamCurve as _, PathSeg};
 use crate::peniko::FontData;
 use crate::peniko::color::{AlphaColor, Srgb};
+use crate::util::AffineExt;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -266,27 +267,19 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
             VarLookupKey(self.prepared_run.normalized_coords),
         );
         let PreparedGlyphRun {
-            total_transform: initial_transform,
-            hinted_size,
+            draw_props,
+            run_size: _,
             normalized_coords,
             hinting_instance,
             ..
         } = self.prepared_run;
 
-        // COLR/bitmap glyphs are never hinted. `prepare_glyph_run` may absorb
-        // the scale into the font size, so we keep the original transform for
-        // their metric calculations.
-        let unhinted_transform = self.prepared_run.run_transform
-            * self
-                .prepared_run
-                .glyph_transform
-                .unwrap_or(Affine::IDENTITY);
         let font_id = self.prepared_run.font.data.id();
         let font_index = self.prepared_run.font.index;
         let hinted = hinting_instance.is_some();
 
         let colr_bitmap_cache_enabled = self.atlas_cache_enabled
-            && hinted_size <= self.glyph_atlas.config().max_cached_font_size;
+            && draw_props.font_size <= self.glyph_atlas.config().max_cached_font_size;
         let outline_cache_enabled = colr_bitmap_cache_enabled
             // Due to the various parameters that would need to be considered in the cache key,
             // we never cache stroked outlines for now. For COLR and bitmap, this doesn't matter
@@ -309,19 +302,15 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
             // pure arithmetic, so we probe the cache before the expensive
             // color_glyphs.get() / bitmaps.glyph_for_size() font-table lookups.
             // On a miss we keep both for reuse in the outline branch below.
-            let outline_transform = calculate_outline_transform(
-                glyph,
-                initial_transform,
-                self.prepared_run.run_transform,
-                hinting_instance,
-            );
+            let outline_transform =
+                calculate_outline_transform(glyph, draw_props, hinting_instance);
             let outline_cache_key = outline_cache_enabled.then(|| {
                 let fractional_x = outline_transform.translation().x.fract() as f32;
                 GlyphCacheKey::new(
                     font_id,
                     font_index,
                     glyph.id,
-                    hinted_size,
+                    draw_props.font_size,
                     hinted,
                     fractional_x,
                     BLACK,
@@ -343,11 +332,10 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
             // ── COLR Glyphs ───────────────────────────────────────────
             if let Some(color_glyph) = color_glyphs.get(glyph_id) {
                 let metrics = calculate_colr_metrics(
-                    self.prepared_run.font_size,
+                    draw_props.font_size,
                     upem,
-                    unhinted_transform,
-                    glyph.x,
-                    glyph.y,
+                    draw_props,
+                    glyph,
                     &color_glyph,
                 );
                 let transform = calculate_colr_transform(&metrics);
@@ -358,7 +346,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
                     font_id,
                     font_index,
                     glyph_id: glyph.id,
-                    size_bits: hinted_size.to_bits(),
+                    size_bits: draw_props.font_size.to_bits(),
                     hinted: false,
                     subpixel_x: SUBPIXEL_COLR,
                     context_color,
@@ -403,7 +391,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
 
             // ── Bitmap Glyphs ────────────────────────────────────────────
             let bitmap_data: Option<(skrifa::bitmap::BitmapGlyph<'_>, Pixmap)> = bitmaps
-                .glyph_for_size(Size::new(self.prepared_run.font_size), glyph_id)
+                .glyph_for_size(Size::new(draw_props.font_size), glyph_id)
                 .and_then(|g| match g.data {
                     #[cfg(feature = "png")]
                     BitmapData::Png(data) => Pixmap::from_png(std::io::Cursor::new(data))
@@ -424,8 +412,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
                 let transform = calculate_bitmap_transform(
                     glyph,
                     &pixmap,
-                    unhinted_transform,
-                    self.prepared_run.font_size,
+                    draw_props,
+                    draw_props.font_size,
                     upem,
                     &bitmap_glyph,
                     &bitmaps,
@@ -483,7 +471,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
                 font_id,
                 font_index,
                 &mut outline_cache_session,
-                hinted_size,
+                draw_props.font_size,
                 &outline,
                 hinting_instance,
                 normalized_coords,
@@ -537,7 +525,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
         let outlines = font_ref.outline_glyphs();
 
         let PreparedGlyphRun {
-            hinted_size,
+            draw_props,
             hinting_instance,
             ..
         } = self.prepared_run;
@@ -545,11 +533,11 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
         // The glyph_transform (e.g. skew for fake italics) affects where the outline points end up. We apply it along
         // with the Y flip to transform from font space (Y up) to layout space (Y down).
         //
-        // When hinting is enabled, the scale from run.transform is absorbed into font_size, so outlines are larger. We
-        // scale them back down to the nominal coordinate space. When not hinting (or hinting without scale), this is
-        // 1.0 and has no effect. The glyph-drawing path handles this by simply drawing in global space, but we need to
-        // invert it for drawing decorations.
-        let outline_to_nominal_scale = f64::from(self.prepared_run.font_size / hinted_size);
+        // During the preparation of the glyph run, the transform of the run may be absorbed into
+        // `draw_props.font_size`, outlines are generated in that scaled coordinate space. We scale them back
+        // to the nominal coordinate space. The glyph-drawing path handles this by
+        // simply drawing in global space, but we need to invert it for drawing decorations.
+        let outline_to_nominal_scale = f64::from(self.prepared_run.run_size / draw_props.font_size);
         let outline_transform = self
             .prepared_run
             .glyph_transform
@@ -588,7 +576,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
                 glyph.id,
                 self.prepared_run.font.data.id(),
                 self.prepared_run.font.index,
-                hinted_size,
+                draw_props.font_size,
                 var_key,
                 &outline,
                 hinting_instance,
@@ -894,33 +882,16 @@ fn create_outline_glyph<'a>(
 ///
 /// This computes the final positioning transform for an outline glyph, taking into account:
 /// - Glyph position within the run
-/// - Run and per-glyph transforms
+/// - Run-space glyph positioning
 /// - Y-axis flip (fonts use upside-down coordinate system)
 /// - Hinting adjustments (snap y-offset to integer)
 fn calculate_outline_transform(
     glyph: Glyph,
-    initial_transform: Affine,
-    run_transform: Affine,
+    draw_props: DrawProps,
     hinting_instance: Option<&HintingInstance>,
 ) -> Affine {
-    // Calculate the global glyph translation based on the glyph's local position within
-    // the run and the run's global transform.
-    //
-    // This is a partial affine matrix multiplication, calculating only the translation
-    // component that we need. It is added below to calculate the total transform of this
-    // glyph.
-    let [a, b, c, d, _, _] = run_transform.as_coeffs();
-    let translation = Vec2::new(
-        a * f64::from(glyph.x) + c * f64::from(glyph.y),
-        b * f64::from(glyph.x) + d * f64::from(glyph.y),
-    );
-
-    // When hinting, ensure the y-offset is integer. The x-offset doesn't matter, as we
-    // perform vertical-only hinting.
-    let mut final_transform = initial_transform
-        .then_translate(translation)
-        // Account for the fact that the coordinate system of fonts
-        // is upside down.
+    let mut final_transform = draw_props
+        .positioned_transform(glyph)
         .pre_scale_non_uniform(1.0, -1.0)
         .as_coeffs();
 
@@ -962,7 +933,7 @@ fn create_bitmap_glyph(pixmap: Pixmap) -> GlyphType<'static> {
 fn calculate_bitmap_transform(
     glyph: Glyph,
     pixmap: &Pixmap,
-    initial_transform: Affine,
+    draw_props: DrawProps,
     font_size: f32,
     upem: f32,
     bitmap_glyph: &skrifa::bitmap::BitmapGlyph<'_>,
@@ -992,8 +963,8 @@ fn calculate_bitmap_transform(
         },
     };
 
-    initial_transform
-        .pre_translate(Vec2::new(glyph.x.into(), glyph.y.into()))
+    draw_props
+        .positioned_transform(glyph)
         // Apply outer bearings.
         .pre_translate(Vec2 {
             x: (-bitmap_glyph.bearing_x * font_units_to_size).into(),
@@ -1030,15 +1001,13 @@ struct ColrMetrics {
 fn calculate_colr_metrics(
     font_size: f32,
     upem: f32,
-    run_transform: Affine,
-    glyph_x: f32,
-    glyph_y: f32,
+    draw_props: DrawProps,
+    glyph: Glyph,
     color_glyph: &skrifa::color::ColorGlyph<'_>,
 ) -> ColrMetrics {
     // The scale factor we need to apply to scale from font units to our font size.
     let font_size_scale = (font_size / upem) as f64;
-
-    let transform = run_transform.pre_translate(Vec2::new(glyph_x.into(), glyph_y.into()));
+    let transform = draw_props.positioned_transform(glyph);
 
     // Estimate the size of the intermediate pixmap. Ideally, the intermediate bitmap should have
     // exactly one pixel (or more) per device pixel, to ensure that no quality is lost. Therefore,
@@ -1188,20 +1157,69 @@ struct GlyphRun<'a> {
 struct PreparedGlyphRun<'a> {
     /// The underlying font data.
     font: FontData,
-    /// The font size, prior to any scaling.
-    font_size: f32,
-    /// The run transform.
-    run_transform: Affine,
-    /// The per-glyph transform.
+    // The fact that we store `run_size` and `glyph_transform` here, as well
+    // as having more transforms and an effective font size inside of the `draw_props` field is pretty
+    // confusing, so here is a brief explanation:
+    // Basically, the reason why we need the first two fields here is that
+    // we need to store some of the original metadata in scene space for certain functionality
+    // (for example handling of underlines).
+    /// The original run size supplied by the caller.
+    run_size: f32,
+    /// The original per-glyph transform supplied by the caller.
     glyph_transform: Option<Affine>,
-    /// The total transform (`run_transform * glyph_transform`), not accounting for glyph
-    /// translation.
-    total_transform: Affine,
-    /// The font size to generate glyph outlines for. May not be equal to [`Self::font_size`] if there is a glyph
-    /// transform.
-    hinted_size: f32,
+    // Continuing the above comment, the problem is that we also need to precalculate data
+    // that is needed specifically for glyph rendering. This includes:
+    // 1) We need to concatenate run transform and glyph transform to compute the final transform
+    // for the glyph outline.
+    // 2) Whenever possible, we need to try to _absorb_ the font size into the draw transform,
+    // such that we can just use the font size to uniquely identify a glyph cache hit (for example,
+    // if we draw a glyph at font size 12 with scale 2, it's the same as drawing the glyph at font size 24).
+    // While it would make things easier to just use the cache key in the transform and accept less
+    // caching potential for easier code, we would still need scaling absorption to implement proper
+    // hinting. Hence, it makes sense to just generalize the whole absorption procedure.
+    // In any case, since we do scaling absorption, we cannot use `run_size`, `run_transform` and
+    // `glyph_transform` for glyph drawing purposes anymore. In particular, it can easily happen
+    // that
+    // 1) `run_size` != `draw_props.font_size`
+    // 2) `run_transform` * `glyph_transform` != `draw_props.draw_transform`.
+    // Therefore, we need to track a separate set of fields for glyph-drawing operations.
+    /// Properties for turning glyph-local positions into final draw transforms.
+    draw_props: DrawProps,
     normalized_coords: &'a [skrifa::instance::NormalizedCoord],
     hinting_instance: Option<&'a HintingInstance>,
+}
+
+/// Properties for easily calculating the transform of a positioned glyph.
+#[derive(Clone, Copy, Debug)]
+struct DrawProps {
+    // Why do we need two separate transforms? Fundamentally, the problem is that the order
+    // of application should be:
+    // `run_transform` * `glyph_position` * `glyph_transform`.
+    // Since we more or less "merged" `run_transform` and `glyph_transform` into
+    // `draw_transform`, we cannot fully replicate this with just the single transform,
+    // and need this workaround.
+    /// A positioning transform for the glyph.
+    positioning_transform: Affine,
+    /// A transform to apply to the glyph after positioning.
+    draw_transform: Affine,
+    /// The actual font size that should be assumed for drawing and caching
+    /// purposes.
+    font_size: f32,
+}
+
+impl DrawProps {
+    #[inline]
+    fn positioned_transform(self, glyph: Glyph) -> Affine {
+        // First, determine the "coarse" location of the glyph by applying the scaling/skewing
+        // of the original run transform to the glyph position. Note that `positioning_transform`
+        // has a translation factor of zero (since it has been absorbed into `draw_transform`), so
+        // only the skewing and scaling factors are relevant.
+        let translation = self.positioning_transform * Point::new(glyph.x as f64, glyph.y as f64);
+
+        // Now, apply the final draw transform on top of that, which will also consider
+        // the original glyph transform.
+        Affine::translate(translation.to_vec2()) * self.draw_transform
+    }
 }
 
 impl Debug for PreparedGlyphRun<'_> {
@@ -1209,88 +1227,101 @@ impl Debug for PreparedGlyphRun<'_> {
         // HintingInstance doesn't implement Debug so we have to do this manually :(
         f.debug_struct("PreparedGlyphRun")
             .field("font", &self.font)
-            .field("font_size", &self.font_size)
-            .field("run_transform", &self.run_transform)
+            .field("run_size", &self.run_size)
             .field("glyph_transform", &self.glyph_transform)
-            .field("total_transform", &self.total_transform)
-            .field("hinted_size", &self.hinted_size)
+            .field("transforms", &self.draw_props)
             .field("normalized_coords", &self.normalized_coords)
             .finish()
     }
 }
 
 /// Prepare a glyph run for rendering.
-///
-/// This function calculates the appropriate transform, size, and scaling parameters
-/// for proper font hinting when enabled and possible.
 fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> PreparedGlyphRun<'a> {
-    let total_transform = run.transform * run.glyph_transform.unwrap_or(Affine::IDENTITY);
-    if !run.hint {
-        return PreparedGlyphRun {
-            font: run.font,
-            font_size: run.font_size,
-            run_transform: run.transform,
-            glyph_transform: run.glyph_transform,
-            total_transform,
-            hinted_size: run.font_size,
-            normalized_coords: run.normalized_coords,
-            hinting_instance: None,
-        };
+    let logical_transform = run.transform * run.glyph_transform.unwrap_or(Affine::IDENTITY);
+    let [_, _, t_c, t_d, t_e, t_f] = logical_transform.as_coeffs();
+
+    #[derive(Clone, Copy, Debug)]
+    enum PreparedGlyphRunMode {
+        Direct,
+        AbsorbScaleUnhinted,
+        AbsorbScaleHinted,
     }
 
-    let font_ref = run.font.as_skrifa();
-    let outlines = font_ref.outline_glyphs();
-
-    // We perform vertical-only hinting.
-    //
-    // Hinting doesn't make sense if we later scale the glyphs via some transform. So we extract
-    // the scale from the global transform and glyph transform and apply it to the font size for
-    // hinting. We do require the scaling to be uniform: simply using the vertical scale as font
-    // size and then transforming by the relative horizontal scale can cause, e.g., overlapping
-    // glyphs. Note that this extracted scale should be later applied to the glyph's position.
-    //
-    // As the hinting is vertical-only, we can handle horizontal skew, but not vertical skew or
-    // rotations.
-    let [t_a, t_b, t_c, t_d, t_e, t_f] = total_transform.as_coeffs();
-
-    let uniform_scale = t_a == t_d;
-    let vertically_uniform = t_b == 0.;
-
-    if uniform_scale && vertically_uniform {
-        let vertical_font_size = run.font_size * t_d as f32;
-
-        let hinting_instance = hint_cache.get(&HintKey {
-            font_id: run.font.data.id(),
-            font_index: run.font.index,
-            outlines: &outlines,
-            size: vertical_font_size,
-            coords: run.normalized_coords,
-        });
-
-        PreparedGlyphRun {
-            font: run.font,
-            font_size: run.font_size,
-            run_transform: run.transform,
-            glyph_transform: run.glyph_transform,
-            // The scale has been absorbed into the font size, so we need to remove it from the skew coefficient (t_c)
-            // as well. Otherwise the skew would be applied twice: once via the larger outline, once via the transform.
-            // The translation (t_e, t_f) stays as-is since it positions the run in scene coordinates.
-            total_transform: Affine::new([1., 0., t_c / t_d, 1., t_e, t_f]),
-            hinted_size: vertical_font_size,
-            normalized_coords: run.normalized_coords,
-            hinting_instance,
+    let mode = if !run.hint {
+        // TODO: We could explore generalizing this by decomposing the transform, such that
+        // we always absorb it, even if there is a skewing factor in the transform. This won't
+        // automatically make them eligible for caching because any skewing factor is currently
+        // rejected for caching, but it might make the code a bit more consistent.
+        if logical_transform.has_positive_uniform_scale() && !logical_transform.has_skew() {
+            PreparedGlyphRunMode::AbsorbScaleUnhinted
+        } else {
+            PreparedGlyphRunMode::Direct
         }
     } else {
-        PreparedGlyphRun {
-            font: run.font,
-            font_size: run.font_size,
-            run_transform: run.transform,
-            glyph_transform: run.glyph_transform,
-            total_transform,
-            hinted_size: run.font_size,
-            normalized_coords: run.normalized_coords,
-            hinting_instance: None,
+        // We perform vertical-only hinting.
+        //
+        // Hinting doesn't make sense if we later scale the glyphs via some transform. So, similarly to
+        // normal glyph runs, we try to extract the scale. As is currently done for unhinted glyph runs, we
+        // also expect the scale to be uniform: Simply using the vertical scale as font
+        // size and then transforming by the relative horizontal scale can cause, e.g., overlapping
+        // glyphs. Note that this extracted scale should be later applied to the glyph's position.
+        //
+        // As the hinting is vertical-only, we can handle horizontal skew, but not vertical skew or
+        // rotations.
+        if logical_transform.has_positive_uniform_scale() && !logical_transform.has_vertical_skew()
+        {
+            PreparedGlyphRunMode::AbsorbScaleHinted
+        } else {
+            PreparedGlyphRunMode::Direct
         }
+    };
+
+    let (draw_transform, draw_font_size, hinting_instance) = match mode {
+        PreparedGlyphRunMode::Direct => (logical_transform, run.font_size, None),
+        PreparedGlyphRunMode::AbsorbScaleUnhinted => (
+            Affine::new([1., 0., 0., 1., t_e, t_f]),
+            run.font_size * t_d as f32,
+            None,
+        ),
+        PreparedGlyphRunMode::AbsorbScaleHinted => {
+            let vertical_font_size = run.font_size * t_d as f32;
+            let font_ref = run.font.as_skrifa();
+            let outlines = font_ref.outline_glyphs();
+            let hinting_instance = hint_cache.get(&HintKey {
+                font_id: run.font.data.id(),
+                font_index: run.font.index,
+                outlines: &outlines,
+                size: vertical_font_size,
+                coords: run.normalized_coords,
+            });
+
+            (
+                // The scale has been absorbed into the font size, so we need to remove it from the skew
+                // coefficient (t_c) as well. Otherwise the skew would be applied twice: once via the
+                // larger outline, once via the transform. The translation (t_e, t_f) stays as-is since
+                // it positions the run in scene coordinates.
+                Affine::new([1., 0., t_c / t_d, 1., t_e, t_f]),
+                vertical_font_size,
+                hinting_instance,
+            )
+        }
+    };
+
+    PreparedGlyphRun {
+        font: run.font,
+        run_size: run.font_size,
+        glyph_transform: run.glyph_transform,
+        draw_props: DrawProps {
+            positioning_transform: run
+                .transform
+                // Translation factor is already considered in `draw_transform`, so we need to remove
+                // it here.
+                .with_translation(Vec2::ZERO),
+            draw_transform,
+            font_size: draw_font_size,
+        },
+        normalized_coords: run.normalized_coords,
+        hinting_instance,
     }
 }
 

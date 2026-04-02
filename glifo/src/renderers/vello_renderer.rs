@@ -17,6 +17,7 @@ use crate::atlas::key::subpixel_offset;
 use crate::atlas::{AtlasSlot, GlyphCache, GlyphCacheKey, ImageCache, RasterMetrics};
 use crate::colr::ColrPainter;
 use crate::glyph::{GlyphBitmap, GlyphColr, GlyphRenderer, GlyphType, PreparedGlyph};
+use crate::util::AffineExt;
 use crate::{kurbo, peniko};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -36,7 +37,7 @@ enum CacheResult {
     CachedAndRendered,
     /// Transform contains rotation or skew — cannot be cached at a single
     /// raster resolution, so the caller must render directly.
-    NotAxisAligned,
+    UnsupportedTransform,
     /// Atlas allocator could not fit the glyph (page full, eviction didn't
     /// free enough space, or the glyph exceeds the page dimensions).
     AtlasFull,
@@ -256,8 +257,8 @@ fn insert_and_render_outline<B: GlyphAtlasBackend>(
     image_cache: &mut ImageCache,
     tint_color: AlphaColor<Srgb>,
 ) -> CacheResult {
-    if !is_axis_aligned(&transform) {
-        return CacheResult::NotAxisAligned;
+    if !supports_atlas_caching(&transform) {
+        return CacheResult::UnsupportedTransform;
     }
 
     let bounds = path.bounding_box();
@@ -493,22 +494,6 @@ pub(crate) fn calculate_raster_metrics(bounds: &Rect) -> RasterMetrics {
     }
 }
 
-/// Returns `true` if the transform is axis-aligned (no rotation or skew).
-///
-/// Axis-aligned transforms can be cached in the atlas; rotated/skewed glyphs
-/// fall back to direct rendering.
-#[inline]
-pub(crate) fn is_axis_aligned(transform: &Affine) -> bool {
-    !has_skew(transform)
-}
-
-/// Returns `true` if the transform has any rotation or skew component.
-#[inline]
-pub(crate) fn has_skew(transform: &Affine) -> bool {
-    let [_, b, c, _, _, _] = transform.as_coeffs();
-    b.abs() > 1e-6 || c.abs() > 1e-6
-}
-
 /// Choose image sampling quality based on downscale factor.
 ///
 /// Returns `High` when the transform scales below 50% (where aliasing is
@@ -530,7 +515,7 @@ pub(crate) fn quality_for_scale(transform: &Affine) -> ImageQuality {
 /// rasterized at pixel boundaries.
 #[inline]
 pub(crate) fn quality_for_skew(transform: &Affine) -> ImageQuality {
-    if has_skew(transform) {
+    if transform.has_skew() {
         ImageQuality::Medium
     } else {
         ImageQuality::Low
@@ -581,5 +566,47 @@ pub fn replay_atlas_commands(
             AtlasCommand::PushBlendLayer(m) => target.push_blend_layer(m),
             AtlasCommand::PopLayer => target.pop_layer(),
         }
+    }
+}
+
+/// Returns `true` if the transform is safe for atlas-cached outline rendering.
+#[inline]
+pub(crate) fn supports_atlas_caching(transform: &Affine) -> bool {
+    // TODO: Add test cases to see how caching + flipping transforms interact with each other!
+    !transform.has_skew() && !transform.has_non_unit_scale()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::supports_atlas_caching;
+    use peniko::kurbo::Affine;
+
+    #[test]
+    fn supports_atlas_caching_for_identity_and_translation() {
+        assert!(supports_atlas_caching(&Affine::IDENTITY));
+        assert!(supports_atlas_caching(&Affine::translate((12.0, -3.5))));
+    }
+
+    #[test]
+    fn rejects_skewed_transforms() {
+        assert!(!supports_atlas_caching(&Affine::skew(0.2, 0.0)));
+        assert!(!supports_atlas_caching(&Affine::new([
+            1.0, 0.1, 0.0, 1.0, 0.0, 0.0
+        ])));
+    }
+
+    #[test]
+    fn rejects_scaled_transforms() {
+        assert!(!supports_atlas_caching(&Affine::scale(2.0)));
+        assert!(!supports_atlas_caching(&Affine::scale_non_uniform(
+            1.0, 0.5
+        )));
+    }
+
+    #[test]
+    fn allows_axis_flip() {
+        assert!(supports_atlas_caching(&Affine::scale_non_uniform(
+            1.0, -1.0
+        )));
     }
 }
