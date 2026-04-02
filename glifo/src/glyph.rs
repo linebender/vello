@@ -640,7 +640,6 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
 #[must_use = "Methods on the builder don't do anything until `render` is called."]
 pub struct GlyphRunBuilder<'a> {
     run: GlyphRun<'a>,
-    atlas_cache_enabled: bool,
 }
 
 impl<'a> GlyphRunBuilder<'a> {
@@ -654,8 +653,8 @@ impl<'a> GlyphRunBuilder<'a> {
                 glyph_transform: None,
                 hint: true,
                 normalized_coords: &[],
+                atlas_cache_enabled: false,
             },
-            atlas_cache_enabled: false,
         }
     }
 
@@ -699,7 +698,7 @@ impl<'a> GlyphRunBuilder<'a> {
     /// - Debugging rendering issues
     /// - Benchmarking direct vs cached rendering
     pub fn atlas_cache(mut self, enabled: bool) -> Self {
-        self.atlas_cache_enabled = enabled;
+        self.run.atlas_cache_enabled = enabled;
         self
     }
 
@@ -714,6 +713,7 @@ impl<'a> GlyphRunBuilder<'a> {
         caches: &'b mut GlyphCaches<C>,
         image_cache: &'b mut ImageCache,
     ) -> GlyphRunRenderer<'a, 'b, Glyphs, C> {
+        let atlas_cache_enabled = self.run.atlas_cache_enabled;
         let prepared_run = prepare_glyph_run(self.run, &mut caches.hinting_cache);
         GlyphRunRenderer {
             prepared_run,
@@ -722,7 +722,7 @@ impl<'a> GlyphRunBuilder<'a> {
             underline_span_cache: &mut caches.underline_exclusions,
             glyph_atlas: &mut caches.glyph_atlas,
             image_cache,
-            atlas_cache_enabled: self.atlas_cache_enabled,
+            atlas_cache_enabled,
         }
     }
 }
@@ -1137,6 +1137,8 @@ struct GlyphRun<'a> {
     normalized_coords: &'a [skrifa::instance::NormalizedCoord],
     /// Controls whether font hinting is enabled.
     hint: bool,
+    /// Whether atlas caching is enabled for this run.
+    atlas_cache_enabled: bool,
 }
 
 struct PreparedGlyphRun<'a> {
