@@ -1142,16 +1142,14 @@ struct GlyphRun<'a> {
 struct PreparedGlyphRun<'a> {
     /// The underlying font data.
     font: FontData,
-    // The fact that we have store `run_size`, `run_transform` and `glyph_transform` here, as well
+    // The fact that we store `run_size` and `glyph_transform` here, as well
     // as having more transforms and an effective font size inside of the `draw_props` field is pretty
     // confusing, so here is a brief explanation:
-    // Basically, the reason why we need the first three fields here is that
+    // Basically, the reason why we need the first two fields here is that
     // we need to store some of the original metadata in scene space for certain functionality
-    // (for example ink skipping).
+    // (for example handling of underlines).
     /// The original run size supplied by the caller.
     run_size: f32,
-    /// The original run transform supplied by the caller.
-    run_transform: Affine,
     /// The original per-glyph transform supplied by the caller.
     glyph_transform: Option<Affine>,
     // Continuing the above comment, the problem is that we also need to precalculate data
@@ -1168,7 +1166,7 @@ struct PreparedGlyphRun<'a> {
     // `glyph_transform` for glyph drawing purposes anymore. In particular, it can easily happen
     // that
     // 1) `run_size` != `draw_props.font_size`
-    // 2) `run_transform` * `glyph_transform` != `draw_transform`.
+    // 2) `run_transform` * `glyph_transform` != `draw_props.draw_transform`.
     // Therefore, we need to track a separate set of fields for glyph-drawing operations.
     /// Properties for turning glyph-local positions into final draw transforms.
     draw_props: DrawProps,
@@ -1198,7 +1196,9 @@ impl DrawProps {
     #[inline]
     fn positioned_transform(self, glyph: Glyph) -> Affine {
         // First, determine the "coarse" location of the glyph by applying the scaling/skewing
-        // of the original run transform to the glyph position.
+        // of the original run transform to the glyph position. Note that `positioning_transform`
+        // has a translation factor of zero (since it has been absorbed into `draw_transform`), so
+        // only the skewing and scaling factors are relevant.
         let translation = self.positioning_transform * Point::new(glyph.x as f64, glyph.y as f64);
 
         // Now, apply the final draw transform on top of that, which will also consider
@@ -1213,7 +1213,6 @@ impl Debug for PreparedGlyphRun<'_> {
         f.debug_struct("PreparedGlyphRun")
             .field("font", &self.font)
             .field("run_size", &self.run_size)
-            .field("run_transform", &self.run_transform)
             .field("glyph_transform", &self.glyph_transform)
             .field("transforms", &self.draw_props)
             .field("normalized_coords", &self.normalized_coords)
@@ -1296,7 +1295,6 @@ fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> Pr
     PreparedGlyphRun {
         font: run.font,
         run_size: run.font_size,
-        run_transform: run.transform,
         glyph_transform: run.glyph_transform,
         draw_props: DrawProps {
             positioning_transform: run
