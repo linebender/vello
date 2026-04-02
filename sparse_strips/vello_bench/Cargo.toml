@@ -10,7 +10,6 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-glifo = { workspace = true, default-features = false, features = ["std"] }
 vello_common = { workspace = true }
 vello_cpu = { workspace = true, features = ["png"] }
 vello_dev_macros = { workspace = true }
