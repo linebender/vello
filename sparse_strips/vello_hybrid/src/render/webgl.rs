@@ -1718,7 +1718,36 @@ fn create_texture(gl: &WebGl2RenderingContext) -> WebGlTexture {
 /// Create a texture array with nearest neighbor sampling and
 /// clamp-to-edge wrapping.
 fn create_texture_array(gl: &WebGl2RenderingContext) -> WebGlTexture {
-    create_texture_inner(gl, WebGl2RenderingContext::TEXTURE_2D_ARRAY)
+    let target = WebGl2RenderingContext::TEXTURE_2D_ARRAY;
+    let texture = gl.create_texture().unwrap();
+    gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+    gl.bind_texture(target, Some(&texture));
+    // The filter and wrap modes are irrelevant because the shader
+    // (`render_strips.wgsl`) exclusively uses `textureLoad`, which bypasses
+    // the sampler entirely.
+    gl.tex_parameteri(
+        target,
+        WebGl2RenderingContext::TEXTURE_MIN_FILTER,
+        WebGl2RenderingContext::LINEAR as i32,
+    );
+    gl.tex_parameteri(
+        target,
+        WebGl2RenderingContext::TEXTURE_MAG_FILTER,
+        WebGl2RenderingContext::LINEAR as i32,
+    );
+    gl.tex_parameteri(
+        target,
+        WebGl2RenderingContext::TEXTURE_WRAP_S,
+        WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+    );
+    gl.tex_parameteri(
+        target,
+        WebGl2RenderingContext::TEXTURE_WRAP_T,
+        WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+    );
+    gl.tex_parameteri(target, WebGl2RenderingContext::TEXTURE_MAX_LEVEL, 0);
+
+    texture
 }
 
 fn create_texture_inner(gl: &WebGl2RenderingContext, target: u32) -> WebGlTexture {
