@@ -12,7 +12,7 @@ use crate::atlas::commands::{AtlasCommand, AtlasCommandRecorder, AtlasPaint};
 use crate::atlas::key::subpixel_offset;
 use crate::atlas::{AtlasSlot, GlyphCache, GlyphCacheKey, ImageCache, RasterMetrics};
 use crate::colr::ColrPainter;
-use crate::glyph::{GlyphBitmap, GlyphColr, GlyphRenderer, GlyphType, PreparedGlyph};
+use crate::glyph::{AtlasCacher, GlyphBitmap, GlyphColr, GlyphRenderer, GlyphType, PreparedGlyph};
 use crate::util::AffineExt;
 use crate::{kurbo, peniko};
 use alloc::sync::Arc;
@@ -104,11 +104,23 @@ pub trait GlyphAtlasBackend {
 pub fn fill_glyph<B: GlyphAtlasBackend>(
     renderer: &mut B::Renderer,
     prepared_glyph: PreparedGlyph<'_>,
-    glyph_atlas: &mut B::Cache,
-    image_cache: &mut ImageCache,
+    atlas_cacher: &mut AtlasCacher<'_, B::Cache>,
 ) where
     B::Renderer: GlyphRenderer<B::Cache>,
 {
+    let AtlasCacher::Enabled(glyph_atlas, image_cache) = atlas_cacher else {
+        let transform = prepared_glyph.transform;
+
+        return match prepared_glyph.glyph_type {
+            GlyphType::Outline(glyph) => B::fill_outline_directly(renderer, &glyph.path, transform),
+            GlyphType::Bitmap(glyph) => B::render_bitmap_directly(renderer, glyph, transform),
+            GlyphType::Colr(glyph) => {
+                let context_color = renderer.get_context_color();
+                B::render_colr_directly(renderer, &glyph, transform, context_color);
+            }
+        };
+    };
+
     let mut cache_key = prepared_glyph.cache_key;
     let transform = prepared_glyph.transform;
 
@@ -172,11 +184,23 @@ pub fn fill_glyph<B: GlyphAtlasBackend>(
 pub fn stroke_glyph<B: GlyphAtlasBackend>(
     renderer: &mut B::Renderer,
     prepared_glyph: PreparedGlyph<'_>,
-    glyph_atlas: &mut B::Cache,
-    image_cache: &mut ImageCache,
+    atlas_cacher: &mut AtlasCacher<'_, B::Cache>,
 ) where
     B::Renderer: GlyphRenderer<B::Cache>,
 {
+    let AtlasCacher::Enabled(glyph_atlas, image_cache) = atlas_cacher else {
+        let transform = prepared_glyph.transform;
+        return match prepared_glyph.glyph_type {
+            GlyphType::Outline(glyph) => {
+                B::stroke_outline_directly(renderer, &glyph.path, transform)
+            }
+            // See below, those glyphs can't meaningfully be stroked.
+            GlyphType::Bitmap(_) | GlyphType::Colr(_) => {
+                fill_glyph::<B>(renderer, prepared_glyph, atlas_cacher);
+            }
+        };
+    };
+
     match prepared_glyph.glyph_type {
         GlyphType::Outline(glyph) => {
             let mut cache_key = prepared_glyph.cache_key;
@@ -202,7 +226,9 @@ pub fn stroke_glyph<B: GlyphAtlasBackend>(
         GlyphType::Bitmap(_) | GlyphType::Colr(_) => {
             // The definitions of COLR and bitmap glyphs can't meaningfully support being stroked.
             // (COLR's imaging model only has fills)
-            fill_glyph::<B>(renderer, prepared_glyph, glyph_atlas, image_cache);
+            let mut atlas_cacher: AtlasCacher<'_, B::Cache> =
+                AtlasCacher::Enabled(glyph_atlas, image_cache);
+            fill_glyph::<B>(renderer, prepared_glyph, &mut atlas_cacher);
         }
     }
 }

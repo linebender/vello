@@ -19,10 +19,10 @@ use glifo::renderers::vello_renderer;
 use glifo::renderers::vello_renderer::replay_atlas_commands;
 use glifo::renderers::vello_renderer::{AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale};
 use glifo::{
-    AtlasCommandRecorder, AtlasSlot, CachedGlyphType, ColrPainter, ColrRenderer, GLYPH_PADDING,
-    GlyphAtlas, GlyphBitmap, GlyphCache, GlyphCacheConfig, GlyphCacheKey, GlyphCaches, GlyphColr,
-    GlyphRenderer, GlyphRunBackend, HintCache, ImageCache, OutlineCache, PreparedGlyph,
-    RasterMetrics,
+    AtlasCommandRecorder, AtlasSlot, AtlasCacher, CachedGlyphType, ColrPainter, ColrRenderer,
+    GLYPH_PADDING, GlyphAtlas, GlyphBitmap, GlyphCache, GlyphCacheConfig, GlyphCacheKey,
+    GlyphCaches, GlyphColr, GlyphPrepCache, GlyphRenderer, GlyphRunBackend, HintCache, ImageCache,
+    OutlineCache, PreparedGlyph, RasterMetrics,
 };
 use peniko::color::palette::css::BLACK;
 use peniko::color::{AlphaColor, Srgb};
@@ -307,9 +307,15 @@ impl<'a> ColrSceneWrapper<'a> {
 pub struct HybridGlyphRunBackend<'a> {
     pub scene: &'a mut Scene,
     pub resources: &'a mut Resources,
+    pub atlas_cache_enabled: bool,
 }
 
 impl<'a> GlyphRunBackend<'a> for HybridGlyphRunBackend<'a> {
+    fn atlas_cache(mut self, enabled: bool) -> Self {
+        self.atlas_cache_enabled = enabled;
+        self
+    }
+
     fn fill_glyphs<Glyphs>(self, builder: glifo::GlyphRunBuilder<'a>, glyphs: Glyphs)
     where
         Glyphs: Iterator<Item = Glyph> + Clone,
@@ -317,8 +323,19 @@ impl<'a> GlyphRunBackend<'a> for HybridGlyphRunBackend<'a> {
         builder
             .build(
                 glyphs,
-                &mut self.resources.glyph_caches.0,
-                &mut self.resources.image_cache,
+                GlyphPrepCache {
+                    outline_cache: &mut self.resources.glyph_caches.0.outline_cache,
+                    hinting_cache: &mut self.resources.glyph_caches.0.hinting_cache,
+                    underline_exclusions: &mut self.resources.glyph_caches.0.underline_exclusions,
+                },
+                if self.atlas_cache_enabled {
+                    AtlasCacher::Enabled(
+                        &mut self.resources.glyph_caches.0.glyph_atlas,
+                        &mut self.resources.image_cache,
+                    )
+                } else {
+                    AtlasCacher::Disabled
+                },
             )
             .fill_glyphs(self.scene);
     }
@@ -330,8 +347,19 @@ impl<'a> GlyphRunBackend<'a> for HybridGlyphRunBackend<'a> {
         builder
             .build(
                 glyphs,
-                &mut self.resources.glyph_caches.0,
-                &mut self.resources.image_cache,
+                GlyphPrepCache {
+                    outline_cache: &mut self.resources.glyph_caches.0.outline_cache,
+                    hinting_cache: &mut self.resources.glyph_caches.0.hinting_cache,
+                    underline_exclusions: &mut self.resources.glyph_caches.0.underline_exclusions,
+                },
+                if self.atlas_cache_enabled {
+                    AtlasCacher::Enabled(
+                        &mut self.resources.glyph_caches.0.glyph_atlas,
+                        &mut self.resources.image_cache,
+                    )
+                } else {
+                    AtlasCacher::Disabled
+                },
             )
             .stroke_glyphs(self.scene);
     }
@@ -347,25 +375,18 @@ impl GlyphRenderer<GpuGlyphAtlas> for Scene {
     fn fill_glyph(
         &mut self,
         prepared_glyph: PreparedGlyph<'_>,
-        glyph_atlas: &mut GpuGlyphAtlas,
-        image_cache: &mut ImageCache,
+        atlas_cacher: &mut AtlasCacher<'_, GpuGlyphAtlas>,
     ) {
-        vello_renderer::fill_glyph::<HybridBackend>(self, prepared_glyph, glyph_atlas, image_cache);
+        vello_renderer::fill_glyph::<HybridBackend>(self, prepared_glyph, atlas_cacher);
     }
 
     #[inline]
     fn stroke_glyph(
         &mut self,
         prepared_glyph: PreparedGlyph<'_>,
-        glyph_atlas: &mut GpuGlyphAtlas,
-        image_cache: &mut ImageCache,
+        atlas_cacher: &mut AtlasCacher<'_, GpuGlyphAtlas>,
     ) {
-        vello_renderer::stroke_glyph::<HybridBackend>(
-            self,
-            prepared_glyph,
-            glyph_atlas,
-            image_cache,
-        );
+        vello_renderer::stroke_glyph::<HybridBackend>(self, prepared_glyph, atlas_cacher);
     }
 
     #[inline]

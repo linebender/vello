@@ -556,6 +556,7 @@ impl Scene {
             crate::text::HybridGlyphRunBackend {
                 scene: self,
                 resources,
+                atlas_cache_enabled: false,
             },
         )
     }

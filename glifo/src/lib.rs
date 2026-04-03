@@ -49,7 +49,7 @@ pub use atlas::{
 };
 pub use colr::{ColrPainter, ColrRenderer};
 pub use glyph::{
-    CachedGlyphType, Glyph, GlyphBitmap, GlyphCaches, GlyphColr, GlyphOutline, GlyphRenderer,
-    GlyphRunBackend, GlyphRunBuilder, GlyphRunRenderer, GlyphType, HintCache, HintKey,
-    OutlineCache, PreparedGlyph,
+    AtlasCacher, CachedGlyphType, Glyph, GlyphBitmap, GlyphCaches, GlyphColr, GlyphOutline,
+    GlyphPrepCache, GlyphRenderer, GlyphRunBackend, GlyphRunBuilder, GlyphRunRenderer, GlyphType,
+    HintCache, HintKey, OutlineCache, PreparedGlyph,
 };

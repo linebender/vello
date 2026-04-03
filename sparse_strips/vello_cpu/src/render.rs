@@ -373,6 +373,7 @@ impl RenderContext {
             crate::text::CpuGlyphRunBackend {
                 ctx: self,
                 resources,
+                atlas_cache_enabled: false,
             },
         )
     }

@@ -161,8 +161,7 @@ pub trait GlyphRenderer<C: GlyphCache> {
     fn fill_glyph(
         &mut self,
         glyph: PreparedGlyph<'_>,
-        glyph_atlas: &mut C,
-        image_cache: &mut ImageCache,
+        atlas_cacher: &mut AtlasCacher<'_, C>,
     );
 
     /// Stroke glyphs with the current paint and stroke settings.
@@ -176,8 +175,7 @@ pub trait GlyphRenderer<C: GlyphCache> {
     fn stroke_glyph(
         &mut self,
         glyph: PreparedGlyph<'_>,
-        glyph_atlas: &mut C,
-        image_cache: &mut ImageCache,
+        atlas_cacher: &mut AtlasCacher<'_, C>,
     );
 
     /// Fill a rectangle with the current paint. Used for decorations, such as underlines.
@@ -209,8 +207,48 @@ pub trait GlyphRenderer<C: GlyphCache> {
     fn get_context_color(&self) -> AlphaColor<Srgb>;
 }
 
+/// Caches used for preparing glyph drawing.
+#[derive(Debug)]
+pub struct GlyphPrepCache<'a> {
+    /// Caches glyph outlines.
+    pub outline_cache: &'a mut OutlineCache,
+    /// Caches hinting instances .
+    pub hinting_cache: &'a mut HintCache,
+    /// Horizontal spans excluded from "ink-skipping" underlines.
+    pub underline_exclusions: &'a mut Vec<(f64, f64)>,
+}
+
+/// Determines whether atlas-backed glyph caching is available for a draw.
+#[derive(Debug)]
+pub enum AtlasCacher<'a, C: GlyphCache> {
+    /// Draw directly without using the atlas cache.
+    Disabled,
+    /// Enable atlas-backed caching using the provided glyph atlas and image
+    /// allocator.
+    Enabled(&'a mut C, &'a mut ImageCache),
+}
+
+impl<C: GlyphCache> AtlasCacher<'_, C> {
+    fn max_cached_font_size(&self) -> Option<f32> {
+        match self {
+            Self::Disabled => None,
+            Self::Enabled(glyph_atlas, _) => Some(glyph_atlas.config().max_cached_font_size),
+        }
+    }
+
+    fn get(&mut self, key: &GlyphCacheKey) -> Option<AtlasSlot> {
+        match self {
+            Self::Disabled => None,
+            Self::Enabled(glyph_atlas, _) => glyph_atlas.get(key),
+        }
+    }
+}
+
 /// A backend for glyph run builders.
-pub trait GlyphRunBackend<'a> {
+pub trait GlyphRunBackend<'a>: Sized {
+    /// Enable or disable atlas-backed glyph caching for the glyph run.
+    fn atlas_cache(self, enabled: bool) -> Self;
+
     /// Fill the given glyph sequence using the configured builder state.
     fn fill_glyphs<Glyphs>(self, builder: GlyphRunBuilder<'a>, glyphs: Glyphs)
     where
@@ -229,9 +267,7 @@ pub struct GlyphRunRenderer<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: G
     outline_cache: &'b mut OutlineCache,
     underline_span_cache: &'b mut Vec<(f64, f64)>,
     glyph_iterator: Glyphs,
-    glyph_atlas: &'b mut C,
-    image_cache: &'b mut ImageCache,
-    atlas_cache_enabled: bool,
+    atlas_cacher: AtlasCacher<'b, C>,
 }
 
 impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
@@ -278,17 +314,14 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
         let font_index = self.prepared_run.font.index;
         let hinted = hinting_instance.is_some();
 
-        let colr_bitmap_cache_enabled = self.atlas_cache_enabled
-            && draw_props.font_size <= self.glyph_atlas.config().max_cached_font_size;
+        let colr_bitmap_cache_enabled = self
+            .atlas_cacher
+            .max_cached_font_size()
+            .is_some_and(|max_size| draw_props.font_size <= max_size);
         let outline_cache_enabled = colr_bitmap_cache_enabled
             // We don't cache stroked outlines because the stroke parameters would blow up
             // the cache key. For COLR and bitmap, it doesn't matter because those are filled anyway.
             && style == Style::Fill;
-
-        let render_glyph: fn(&mut R, PreparedGlyph<'_>, &mut C, &mut ImageCache) = match style {
-            Style::Fill => R::fill_glyph,
-            Style::Stroke => R::stroke_glyph,
-        };
 
         let context_color = renderer.get_context_color();
         let context_color_packed = pack_color(context_color);
@@ -317,7 +350,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
                 )
             });
             if let Some(ref key) = outline_cache_key
-                && let Some(cached_slot) = self.glyph_atlas.get(key)
+                && let Some(cached_slot) = self.atlas_cacher.get(key)
             {
                 renderer.render_cached_glyph(
                     cached_slot,
@@ -353,7 +386,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
                 });
 
                 if let Some(ref key) = cache_key
-                    && let Some(cached_slot) = self.glyph_atlas.get(key)
+                    && let Some(cached_slot) = self.atlas_cacher.get(key)
                 {
                     // Use fractional scaled_bbox dimensions to preserve sub-pixel accuracy.
                     let area = Rect::new(
@@ -374,16 +407,15 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
                 let glyph_type =
                     create_colr_glyph(&font_ref, &metrics, color_glyph, normalized_coords);
 
-                render_glyph(
-                    renderer,
-                    PreparedGlyph {
-                        glyph_type,
-                        transform,
-                        cache_key,
-                    },
-                    self.glyph_atlas,
-                    self.image_cache,
-                );
+                let prepared_glyph = PreparedGlyph {
+                    glyph_type,
+                    transform,
+                    cache_key,
+                };
+                match style {
+                    Style::Fill => renderer.fill_glyph(prepared_glyph, &mut self.atlas_cacher),
+                    Style::Stroke => renderer.stroke_glyph(prepared_glyph, &mut self.atlas_cacher),
+                }
                 continue;
             }
 
@@ -432,7 +464,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
                 });
 
                 if let Some(ref key) = cache_key
-                    && let Some(cached_slot) = self.glyph_atlas.get(key)
+                    && let Some(cached_slot) = self.atlas_cacher.get(key)
                 {
                     renderer.render_cached_glyph(cached_slot, transform, CachedGlyphType::Bitmap);
                     continue;
@@ -441,16 +473,15 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
                 // Cache miss — wrap the decoded pixmap for rendering.
                 let glyph_type = create_bitmap_glyph(pixmap);
 
-                render_glyph(
-                    renderer,
-                    PreparedGlyph {
-                        glyph_type,
-                        transform,
-                        cache_key,
-                    },
-                    self.glyph_atlas,
-                    self.image_cache,
-                );
+                let prepared_glyph = PreparedGlyph {
+                    glyph_type,
+                    transform,
+                    cache_key,
+                };
+                match style {
+                    Style::Fill => renderer.fill_glyph(prepared_glyph, &mut self.atlas_cacher),
+                    Style::Stroke => renderer.stroke_glyph(prepared_glyph, &mut self.atlas_cacher),
+                }
                 continue;
             }
 
@@ -475,16 +506,15 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
                 normalized_coords,
             );
 
-            render_glyph(
-                renderer,
-                PreparedGlyph {
-                    glyph_type,
-                    transform: outline_transform,
-                    cache_key: outline_cache_key,
-                },
-                self.glyph_atlas,
-                self.image_cache,
-            );
+            let prepared_glyph = PreparedGlyph {
+                glyph_type,
+                transform: outline_transform,
+                cache_key: outline_cache_key,
+            };
+            match style {
+                Style::Fill => renderer.fill_glyph(prepared_glyph, &mut self.atlas_cacher),
+                Style::Stroke => renderer.stroke_glyph(prepared_glyph, &mut self.atlas_cacher),
+            }
         }
     }
 
@@ -668,7 +698,6 @@ impl<'a, B> GlyphRunBuilder<'a, B> {
                 glyph_transform: None,
                 hint: true,
                 normalized_coords: &[],
-                atlas_cache_enabled: false,
             },
             backend,
         }
@@ -702,45 +731,24 @@ impl<'a, B> GlyphRunBuilder<'a, B> {
         self
     }
 
-    /// Enable or disable the glyph atlas cache.
-    ///
-    /// When enabled, glyphs are rasterized once and cached in the atlas
-    /// for faster subsequent rendering. This improves performance for
-    /// repeated text but uses additional memory.
-    ///
-    /// Disable caching when:
-    /// - Rendering unique/one-off text that won't be repeated
-    /// - Memory is constrained
-    /// - Debugging rendering issues
-    /// - Benchmarking direct vs cached rendering
-    pub fn atlas_cache(mut self, enabled: bool) -> Self {
-        self.run.atlas_cache_enabled = enabled;
-        self
-    }
 }
 
 impl<'a> GlyphRunBuilder<'a> {
     /// Consumes the builder and returns a renderer that can fill, stroke, and decorate a glyph run.
     ///
-    /// `image_cache` is the allocator backing `glyph_atlas` for atlas region
-    /// allocation. It is a separate parameter so each renderer can supply its
-    /// own allocator.
     pub fn build<'b: 'a, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>(
         self,
         glyphs: Glyphs,
-        caches: &'b mut GlyphCaches<C>,
-        image_cache: &'b mut ImageCache,
+        prep_cache: GlyphPrepCache<'b>,
+        atlas_cacher: AtlasCacher<'b, C>,
     ) -> GlyphRunRenderer<'a, 'b, Glyphs, C> {
-        let atlas_cache_enabled = self.run.atlas_cache_enabled;
-        let prepared_run = prepare_glyph_run(self.run, &mut caches.hinting_cache);
+        let prepared_run = prepare_glyph_run(self.run, prep_cache.hinting_cache);
         GlyphRunRenderer {
             prepared_run,
             glyph_iterator: glyphs,
-            outline_cache: &mut caches.outline_cache,
-            underline_span_cache: &mut caches.underline_exclusions,
-            glyph_atlas: &mut caches.glyph_atlas,
-            image_cache,
-            atlas_cache_enabled,
+            outline_cache: prep_cache.outline_cache,
+            underline_span_cache: prep_cache.underline_exclusions,
+            atlas_cacher,
         }
     }
 }
@@ -749,6 +757,14 @@ impl<'a, B> GlyphRunBuilder<'a, B>
 where
     B: GlyphRunBackend<'a>,
 {
+    /// Enable or disable the glyph atlas cache.
+    pub fn atlas_cache(self, enabled: bool) -> Self {
+        Self {
+            run: self.run,
+            backend: self.backend.atlas_cache(enabled),
+        }
+    }
+
     /// Fill the glyphs using the current settings.
     pub fn fill_glyphs<Glyphs>(self, glyphs: Glyphs)
     where
@@ -1178,8 +1194,6 @@ struct GlyphRun<'a> {
     normalized_coords: &'a [skrifa::instance::NormalizedCoord],
     /// Controls whether font hinting is enabled.
     hint: bool,
-    /// Whether atlas caching is enabled for this run.
-    atlas_cache_enabled: bool,
 }
 
 struct PreparedGlyphRun<'a> {

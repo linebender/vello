@@ -27,8 +27,8 @@ use glifo::renderers::vello_renderer::{
     self, AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale,
 };
 use glifo::{
-    CachedGlyphType, ColrPainter, ColrRenderer, GlyphBitmap, GlyphCaches, GlyphColr, GlyphRenderer,
-    GlyphRunBackend, HintCache, OutlineCache, PreparedGlyph,
+    AtlasCacher, CachedGlyphType, ColrPainter, ColrRenderer, GlyphBitmap, GlyphCaches, GlyphColr,
+    GlyphPrepCache, GlyphRenderer, GlyphRunBackend, HintCache, OutlineCache, PreparedGlyph,
 };
 use kurbo::{Affine, BezPath, Rect};
 use peniko::Extend;
@@ -368,9 +368,15 @@ impl Resources {
 pub struct CpuGlyphRunBackend<'a> {
     pub ctx: &'a mut RenderContext,
     pub resources: &'a mut Resources,
+    pub atlas_cache_enabled: bool,
 }
 
 impl<'a> GlyphRunBackend<'a> for CpuGlyphRunBackend<'a> {
+    fn atlas_cache(mut self, enabled: bool) -> Self {
+        self.atlas_cache_enabled = enabled;
+        self
+    }
+
     fn fill_glyphs<Glyphs>(self, builder: glifo::GlyphRunBuilder<'a>, glyphs: Glyphs)
     where
         Glyphs: Iterator<Item = Glyph> + Clone,
@@ -378,8 +384,19 @@ impl<'a> GlyphRunBackend<'a> for CpuGlyphRunBackend<'a> {
         builder
             .build(
                 glyphs,
-                &mut self.resources.glyph_caches.glifo,
-                &mut self.resources.glyph_caches.image_cache,
+                GlyphPrepCache {
+                    outline_cache: &mut self.resources.glyph_caches.glifo.outline_cache,
+                    hinting_cache: &mut self.resources.glyph_caches.glifo.hinting_cache,
+                    underline_exclusions: &mut self.resources.glyph_caches.glifo.underline_exclusions,
+                },
+                if self.atlas_cache_enabled {
+                    AtlasCacher::Enabled(
+                        &mut self.resources.glyph_caches.glifo.glyph_atlas,
+                        &mut self.resources.glyph_caches.image_cache,
+                    )
+                } else {
+                    AtlasCacher::Disabled
+                },
             )
             .fill_glyphs(self.ctx);
     }
@@ -391,8 +408,19 @@ impl<'a> GlyphRunBackend<'a> for CpuGlyphRunBackend<'a> {
         builder
             .build(
                 glyphs,
-                &mut self.resources.glyph_caches.glifo,
-                &mut self.resources.glyph_caches.image_cache,
+                GlyphPrepCache {
+                    outline_cache: &mut self.resources.glyph_caches.glifo.outline_cache,
+                    hinting_cache: &mut self.resources.glyph_caches.glifo.hinting_cache,
+                    underline_exclusions: &mut self.resources.glyph_caches.glifo.underline_exclusions,
+                },
+                if self.atlas_cache_enabled {
+                    AtlasCacher::Enabled(
+                        &mut self.resources.glyph_caches.glifo.glyph_atlas,
+                        &mut self.resources.glyph_caches.image_cache,
+                    )
+                } else {
+                    AtlasCacher::Disabled
+                },
             )
             .stroke_glyphs(self.ctx);
     }
@@ -452,20 +480,18 @@ impl GlyphRenderer<CpuGlyphAtlas> for RenderContext {
     fn fill_glyph(
         &mut self,
         prepared_glyph: PreparedGlyph<'_>,
-        glyph_atlas: &mut CpuGlyphAtlas,
-        image_cache: &mut ImageCache,
+        atlas_cacher: &mut AtlasCacher<'_, CpuGlyphAtlas>,
     ) {
-        vello_renderer::fill_glyph::<CpuBackend>(self, prepared_glyph, glyph_atlas, image_cache);
+        vello_renderer::fill_glyph::<CpuBackend>(self, prepared_glyph, atlas_cacher);
     }
 
     #[inline]
     fn stroke_glyph(
         &mut self,
         prepared_glyph: PreparedGlyph<'_>,
-        glyph_atlas: &mut CpuGlyphAtlas,
-        image_cache: &mut ImageCache,
+        atlas_cacher: &mut AtlasCacher<'_, CpuGlyphAtlas>,
     ) {
-        vello_renderer::stroke_glyph::<CpuBackend>(self, prepared_glyph, glyph_atlas, image_cache);
+        vello_renderer::stroke_glyph::<CpuBackend>(self, prepared_glyph, atlas_cacher);
     }
 
     #[inline]
