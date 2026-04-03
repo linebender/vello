@@ -132,6 +132,14 @@ fn snapshot_image_sampling() {
 
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]
+fn snapshot_image_sampling_bicubic() {
+    let test_scene = test_scenes::image_sampling_bicubic();
+    let params = TestParams::new("image_sampling_bicubic", 520, 336);
+    snapshot_test_scene(test_scene, params);
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
 fn snapshot_image_extend_modes_bilinear() {
     let test_scene = test_scenes::image_extend_modes_bilinear();
     let params = TestParams::new("image_extend_modes_bilinear", 400, 400);
