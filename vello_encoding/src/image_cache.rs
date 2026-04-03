@@ -24,6 +24,7 @@ struct ResidentImage {
     alloc_id: AllocId,
     x: u32,
     y: u32,
+    dirty: bool,
     last_seen_generation: u64,
 }
 
@@ -34,7 +35,7 @@ pub(crate) struct ImageCache {
     evicted_in_resolve: usize,
     /// Map from image blob id to atlas residency.
     map: HashMap<u64, ResidentImage>,
-    /// Images referenced in the current resolve pass, with atlas locations.
+    /// Images that must be uploaded in the current resolve pass, with atlas locations.
     images: Vec<(ImageData, u32, u32)>,
 }
 
@@ -102,8 +103,10 @@ impl ImageCache {
                 let xy = (resident.x, resident.y);
                 if resident.last_seen_generation != self.generation {
                     resident.last_seen_generation = self.generation;
-                    self.images
-                        .push((resident.image.clone(), resident.x, resident.y));
+                    if resident.dirty {
+                        self.images
+                            .push((resident.image.clone(), resident.x, resident.y));
+                    }
                 }
                 Some(xy)
             }
@@ -118,11 +121,20 @@ impl ImageCache {
                     alloc_id: alloc.id,
                     x,
                     y,
+                    dirty: true,
                     last_seen_generation: self.generation,
                 };
                 self.images.push((image.clone(), x, y));
                 vacant.insert(resident);
                 Some((x, y))
+            }
+        }
+    }
+
+    pub(crate) fn finish_resolve(&mut self) {
+        for resident in self.map.values_mut() {
+            if resident.last_seen_generation == self.generation {
+                resident.dirty = false;
             }
         }
     }
@@ -167,6 +179,7 @@ impl ImageCache {
             resident.alloc_id = alloc.id;
             resident.x = alloc.rectangle.min.x as u32;
             resident.y = alloc.rectangle.min.y as u32;
+            resident.dirty = true;
             self.map.insert(id, resident);
         }
         self.atlas = atlas;
@@ -208,11 +221,12 @@ mod tests {
         cache.begin_resolve();
         let first = cache.get_or_insert(&image).unwrap();
         assert_eq!(cache.images.len(), 1);
+        cache.finish_resolve();
 
         cache.begin_resolve();
         let second = cache.get_or_insert(&image).unwrap();
         assert_eq!(first, second);
-        assert_eq!(cache.images.len(), 1);
+        assert_eq!(cache.images.len(), 0);
         assert_eq!(cache.map.len(), 1);
     }
 

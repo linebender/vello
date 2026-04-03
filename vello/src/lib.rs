@@ -330,6 +330,7 @@ pub struct Renderer {
     options: RendererOptions,
     engine: WgpuEngine,
     resolver: Resolver,
+    image_atlas: Option<recording::ImageProxy>,
     shaders: FullShaders,
     #[cfg(feature = "debug_layers")]
     debug: debug::DebugRenderer,
@@ -445,6 +446,7 @@ impl Renderer {
             options,
             engine,
             resolver: Resolver::new(),
+            image_atlas: None,
             shaders,
             #[cfg(feature = "debug_layers")]
             debug,
@@ -477,8 +479,13 @@ impl Renderer {
         texture: &TextureView,
         params: &RenderParams,
     ) -> Result<()> {
-        let (recording, target) =
-            render::render_full(scene, &mut self.resolver, &self.shaders, params);
+        let (recording, target) = render::render_full(
+            scene,
+            &mut self.resolver,
+            &self.shaders,
+            &mut self.image_atlas,
+            params,
+        );
         let external_resources = [ExternalResource::Image(
             *target.as_image().unwrap(),
             texture,
@@ -602,6 +609,7 @@ impl Renderer {
             return Err(error.into());
         }
         self.engine = engine;
+        self.image_atlas = None;
         self.shaders = shaders;
         #[cfg(feature = "debug_layers")]
         {
@@ -716,6 +724,7 @@ impl Renderer {
             encoding,
             &mut self.resolver,
             &self.shaders,
+            &mut self.image_atlas,
             params,
             robust,
         );
