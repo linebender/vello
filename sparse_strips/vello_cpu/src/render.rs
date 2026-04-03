@@ -39,11 +39,12 @@ use vello_common::util::is_axis_aligned;
 
 pub(crate) const DEFAULT_GLYPH_ATLAS_SIZE: u16 = 4096;
 
-/// Auxiliary renderer state required during draw and rasterization.
-#[derive(Debug)]
+/// Persistent resources required by Vello CPU for rendering.
+#[derive(Debug, Default)]
 pub struct Resources {
     #[cfg(feature = "text")]
     pub(crate) glyph_prep_cache: GlyphPrepCache,
+    // Will be initialized lazily on first use.
     #[cfg(feature = "text")]
     pub(crate) glyph_resources: Option<GlyphAtlasResources>,
 }
@@ -56,24 +57,12 @@ impl Resources {
 
     pub(crate) fn before_render(&mut self, ctx: &RenderContext) {
         #[cfg(feature = "text")]
-        self.before_render_text(ctx);
+        self.before_rasterization(ctx);
     }
 
     pub(crate) fn after_render(&mut self, ctx: &RenderContext) {
         #[cfg(feature = "text")]
-        self.after_render_text(ctx);
-    }
-}
-
-impl Default for Resources {
-    fn default() -> Self {
-        Self {
-            #[cfg(feature = "text")]
-            glyph_prep_cache: GlyphPrepCache::default(),
-            // Will be initialized lazily upon first usage.
-            #[cfg(feature = "text")]
-            glyph_resources: None,
-        }
+        self.after_rasterization(ctx);
     }
 }
 

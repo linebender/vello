@@ -81,6 +81,10 @@ fn main() {
     // Let's start by creating a new render context with a certain
     // width and height in pixels, as well as our render settings.
     let mut ctx = RenderContext::new_with(100, 100, settings);
+    // Vello CPU needs this to track certain resources (e.g. for glyph caching)
+    // across multiple frames. You need to make sure that you create on such struct
+    // for each render context you create, and then only use it in combination with that
+    // specific render context.
     let mut resources = Resources::new();
 
     // Vello CPU uses a Postscript-like API, where you can use methods like

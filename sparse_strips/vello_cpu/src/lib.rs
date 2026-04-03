@@ -159,6 +159,8 @@ pub mod layer_manager;
 pub mod region;
 
 pub use render::{RenderContext, RenderSettings, Resources};
+// Note: The first one is not something that should be
+// exposed, but is currently needed by vello_sparse_tests.
 #[cfg(feature = "text")]
 pub use text::{CpuGlyphRunBackend, GlyphRunBuilder};
 pub use vello_common::fearless_simd::Level;

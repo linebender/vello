@@ -276,13 +276,13 @@ impl GlyphAtlasResources {
 }
 
 impl Resources {
-    pub(crate) fn before_render_text(&mut self, ctx: &RenderContext) {
+    pub(crate) fn before_rasterization(&mut self, ctx: &RenderContext) {
         if self.glyph_resources.is_some() {
             self.sync_glyph_cache(ctx);
         }
     }
 
-    pub(crate) fn after_render_text(&mut self, ctx: &RenderContext) {
+    pub(crate) fn after_rasterization(&mut self, ctx: &RenderContext) {
         self.glyph_prep_cache.maintain();
 
         if self.glyph_resources.is_some() {
@@ -307,6 +307,7 @@ impl Resources {
         }
     }
 
+    /// Upload all pending bitmaps, rasterize pending outline/COLR glyphs, etc.
     fn sync_glyph_cache(&mut self, ctx: &RenderContext) {
         let glyph_resources = self
             .glyph_resources
@@ -359,7 +360,8 @@ impl Resources {
 
                 // Note: This is currently an assumption that is baked into the code: Since we don't
                 // use the image registry for anything else, the page index within the atlas should
-                // always equal the image ID.
+                // always equal the image ID. If this ever changes, we need to update the logic of
+                // how this is handled.
                 assert_eq!(image_id.as_u32(), page_index as u32);
             }
         }

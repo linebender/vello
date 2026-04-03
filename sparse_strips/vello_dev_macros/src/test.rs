@@ -168,8 +168,8 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let invoke_test = match (glyph, input_arity) {
         (false, 1) => quote! { #input_fn_name(&mut ctx); },
         (true, 2) => quote! { #input_fn_name(&mut ctx, false); },
-        (true, 1) => panic!("glyph tests must take `(&mut impl Renderer, bool)`"),
-        (false, 2) => panic!("non-glyph tests must not take an `enable_caching` parameter"),
+        (true, 1) => panic!("glyph tests must take two arguments"),
+        (false, 2) => panic!("method has unexpected second parameter"),
         _ => panic!(
             "test functions must take either one renderer argument or renderer + enable_caching"
         ),
