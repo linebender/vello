@@ -21,8 +21,8 @@ use glifo::renderers::vello_renderer::{AtlasReplayTarget, GlyphAtlasBackend, qua
 use glifo::{
     AtlasCommandRecorder, AtlasSlot, AtlasCacher, CachedGlyphType, ColrPainter, ColrRenderer,
     GLYPH_PADDING, GlyphAtlas, GlyphBitmap, GlyphCache, GlyphCacheConfig, GlyphCacheKey,
-    GlyphCaches, GlyphColr, GlyphPrepCache, GlyphRenderer, GlyphRunBackend, HintCache, ImageCache,
-    OutlineCache, PreparedGlyph, RasterMetrics,
+    GlyphColr, GlyphRenderer, GlyphRunBackend, ImageCache, OwnedGlyphPrepCache, PreparedGlyph,
+    RasterMetrics,
 };
 use peniko::color::palette::css::BLACK;
 use peniko::color::{AlphaColor, Srgb};
@@ -152,39 +152,45 @@ impl GlyphCache for GpuGlyphAtlas {
     }
 }
 
-/// All glyph caches needed by the hybrid (GPU) renderer.
 #[derive(Debug)]
-pub(crate) struct GpuGlyphCaches(pub(crate) GlyphCaches<GpuGlyphAtlas>);
+pub(crate) struct GlyphAtlasResources {
+    pub(crate) glyph_atlas: GpuGlyphAtlas,
+    pub(crate) glyph_renderer: Scene,
+}
 
-impl GpuGlyphCaches {
-    /// Creates a new `GpuGlyphCaches` instance with custom eviction settings.
-    pub(crate) fn with_config(eviction_config: GlyphCacheConfig) -> Self {
-        Self(GlyphCaches {
-            outline_cache: OutlineCache::default(),
-            hinting_cache: HintCache::default(),
-            underline_exclusions: Vec::new(),
+impl GlyphAtlasResources {
+    pub(crate) fn with_config(
+        atlas_width: u16,
+        atlas_height: u16,
+        eviction_config: GlyphCacheConfig,
+    ) -> Self {
+        Self {
             glyph_atlas: GpuGlyphAtlas::with_config(eviction_config),
-        })
+            glyph_renderer: Scene::new(atlas_width, atlas_height),
+        }
+    }
+
+    pub(crate) fn maintain(&mut self, image_cache: &mut ImageCache) {
+        self.glyph_atlas.maintain(image_cache);
     }
 }
 
 /// Auxiliary hybrid glyph resources.
 #[derive(Debug)]
 pub struct Resources {
-    pub(crate) glyph_caches: GpuGlyphCaches,
+    pub(crate) glyph_prep_cache: OwnedGlyphPrepCache,
     pub(crate) image_cache: ImageCache,
-    pub(crate) glyph_renderer: Scene,
+    pub(crate) glyph_resources: Option<GlyphAtlasResources>,
 }
 
 impl Resources {
     /// Create a new set of renderer resources.
     pub fn new() -> Self {
         let image_cache = ImageCache::new_with_config(Default::default());
-        let (atlas_width, atlas_height) = image_cache.atlas_manager().config().atlas_size;
         Self {
-            glyph_caches: GpuGlyphCaches::with_config(GlyphCacheConfig::default()),
+            glyph_prep_cache: OwnedGlyphPrepCache::default(),
             image_cache,
-            glyph_renderer: Scene::new(atlas_width as u16, atlas_height as u16),
+            glyph_resources: None,
         }
     }
 }
@@ -196,6 +202,24 @@ impl Default for Resources {
 }
 
 impl Resources {
+    fn ensure_glyph_resources(&mut self) {
+        if self.glyph_resources.is_none() {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "atlas dimensions are configured to fit in u16"
+            )]
+            let (atlas_width, atlas_height) = {
+                let (width, height) = self.image_cache.atlas_manager().config().atlas_size;
+                (width as u16, height as u16)
+            };
+            self.glyph_resources = Some(GlyphAtlasResources::with_config(
+                atlas_width,
+                atlas_height,
+                GlyphCacheConfig::default(),
+            ));
+        }
+    }
+
     #[doc(hidden)]
     pub fn atlas_config(&self) -> AtlasConfig {
         self.image_cache.atlas_manager().config().clone()
@@ -208,49 +232,58 @@ impl Resources {
 
     #[doc(hidden)]
     pub fn replay_pending_atlas_commands(&mut self, mut f: impl FnMut(&Scene, AtlasId)) {
-        self.glyph_caches
-            .0
-            .glyph_atlas
-            .replay_pending_atlas_commands(|recorder| {
-                self.glyph_renderer.reset();
-                let mut replay_target = ColrSceneWrapper::new(&mut self.glyph_renderer);
-                replay_atlas_commands(&mut recorder.commands, &mut replay_target);
-                f(&self.glyph_renderer, AtlasId::new(recorder.page_index));
-            });
+        if let Some(glyph_resources) = self.glyph_resources.as_mut() {
+            glyph_resources
+                .glyph_atlas
+                .replay_pending_atlas_commands(|recorder| {
+                    glyph_resources.glyph_renderer.reset();
+                    let mut replay_target =
+                        ColrSceneWrapper::new(&mut glyph_resources.glyph_renderer);
+                    replay_atlas_commands(&mut recorder.commands, &mut replay_target);
+                    f(&glyph_resources.glyph_renderer, AtlasId::new(recorder.page_index));
+                });
+        }
     }
 
     #[doc(hidden)]
     pub fn drain_pending_uploads(&mut self) -> impl Iterator<Item = PendingBitmapUpload> + '_ {
-        self.glyph_caches.0.glyph_atlas.drain_pending_uploads()
+        self.take_pending_uploads().into_iter()
     }
 
     #[doc(hidden)]
     pub fn take_pending_uploads(&mut self) -> Vec<PendingBitmapUpload> {
-        self.glyph_caches
-            .0
-            .glyph_atlas
-            .drain_pending_uploads()
-            .collect()
+        self.glyph_resources
+            .as_mut()
+            .map(|glyph_resources| glyph_resources.glyph_atlas.drain_pending_uploads().collect())
+            .unwrap_or_default()
     }
 
     #[doc(hidden)]
     pub fn maintain(&mut self, image_cache: &mut ImageCache) {
-        self.glyph_caches.0.maintain(image_cache);
+        self.glyph_prep_cache.maintain();
+        if let Some(glyph_resources) = self.glyph_resources.as_mut() {
+            glyph_resources.maintain(image_cache);
+        }
     }
 
     #[doc(hidden)]
     pub fn drain_pending_clear_rects(&mut self) -> impl Iterator<Item = PendingClearRect> + '_ {
-        self.glyph_caches.0.glyph_atlas.drain_pending_clear_rects()
+        self.maintain_and_take_pending_clear_rects().into_iter()
     }
 
     #[doc(hidden)]
     pub fn maintain_and_take_pending_clear_rects(&mut self) -> Vec<PendingClearRect> {
-        self.glyph_caches.0.maintain(&mut self.image_cache);
-        self.glyph_caches
-            .0
-            .glyph_atlas
-            .drain_pending_clear_rects()
-            .collect()
+        self.glyph_prep_cache.maintain();
+        self.glyph_resources
+            .as_mut()
+            .map(|glyph_resources| {
+                glyph_resources.maintain(&mut self.image_cache);
+                glyph_resources
+                    .glyph_atlas
+                    .drain_pending_clear_rects()
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 }
 
@@ -320,17 +353,22 @@ impl<'a> GlyphRunBackend<'a> for HybridGlyphRunBackend<'a> {
     where
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
+        if self.atlas_cache_enabled {
+            self.resources.ensure_glyph_resources();
+        }
+
         builder
             .build(
                 glyphs,
-                GlyphPrepCache {
-                    outline_cache: &mut self.resources.glyph_caches.0.outline_cache,
-                    hinting_cache: &mut self.resources.glyph_caches.0.hinting_cache,
-                    underline_exclusions: &mut self.resources.glyph_caches.0.underline_exclusions,
-                },
+                self.resources.glyph_prep_cache.as_mut(),
                 if self.atlas_cache_enabled {
+                    let glyph_resources = self
+                        .resources
+                        .glyph_resources
+                        .as_mut()
+                        .expect("glyph atlas resources must exist after initialization");
                     AtlasCacher::Enabled(
-                        &mut self.resources.glyph_caches.0.glyph_atlas,
+                        &mut glyph_resources.glyph_atlas,
                         &mut self.resources.image_cache,
                     )
                 } else {
@@ -344,17 +382,22 @@ impl<'a> GlyphRunBackend<'a> for HybridGlyphRunBackend<'a> {
     where
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
+        if self.atlas_cache_enabled {
+            self.resources.ensure_glyph_resources();
+        }
+
         builder
             .build(
                 glyphs,
-                GlyphPrepCache {
-                    outline_cache: &mut self.resources.glyph_caches.0.outline_cache,
-                    hinting_cache: &mut self.resources.glyph_caches.0.hinting_cache,
-                    underline_exclusions: &mut self.resources.glyph_caches.0.underline_exclusions,
-                },
+                self.resources.glyph_prep_cache.as_mut(),
                 if self.atlas_cache_enabled {
+                    let glyph_resources = self
+                        .resources
+                        .glyph_resources
+                        .as_mut()
+                        .expect("glyph atlas resources must exist after initialization");
                     AtlasCacher::Enabled(
-                        &mut self.resources.glyph_caches.0.glyph_atlas,
+                        &mut glyph_resources.glyph_atlas,
                         &mut self.resources.image_cache,
                     )
                 } else {

@@ -13,8 +13,10 @@
 
 use crate::render::DEFAULT_GLYPH_ATLAS_SIZE;
 use crate::{
-    Image, ImageSource, PaintType, Pixmap, RenderContext, Resources, color, kurbo, peniko,
+    Image, ImageSource, PaintType, Pixmap, RenderContext, RenderMode, RenderSettings, Resources,
+    color, kurbo, peniko,
 };
+use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use color::palette::css::BLACK;
@@ -27,8 +29,8 @@ use glifo::renderers::vello_renderer::{
     self, AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale,
 };
 use glifo::{
-    AtlasCacher, CachedGlyphType, ColrPainter, ColrRenderer, GlyphBitmap, GlyphCaches, GlyphColr,
-    GlyphPrepCache, GlyphRenderer, GlyphRunBackend, HintCache, OutlineCache, PreparedGlyph,
+    AtlasCacher, CachedGlyphType, ColrPainter, ColrRenderer, GlyphBitmap, GlyphColr,
+    GlyphRenderer, GlyphRunBackend, PreparedGlyph,
 };
 use kurbo::{Affine, BezPath, Rect};
 use peniko::Extend;
@@ -36,6 +38,7 @@ use peniko::color::{AlphaColor, Srgb};
 use peniko::{BlendMode, Gradient};
 use peniko::{ImageQuality, ImageSampler};
 use vello_common::glyph::Glyph;
+use vello_common::fearless_simd::Level;
 use vello_common::paint::{ImageId, Tint};
 
 /// CPU-side glyph atlas backed by per-page [`Pixmap`]s.
@@ -237,67 +240,84 @@ impl GlyphCache for CpuGlyphAtlas {
     }
 }
 
-/// All glyph caches needed by the CPU renderer.
 #[derive(Debug)]
-pub(crate) struct CpuGlyphCaches {
-    pub(crate) glifo: GlyphCaches<CpuGlyphAtlas>,
+pub(crate) struct GlyphAtlasResources {
+    pub(crate) glyph_atlas: CpuGlyphAtlas,
     pub(crate) image_cache: ImageCache,
+    pub(crate) glyph_renderer: Box<RenderContext>,
 }
 
-impl CpuGlyphCaches {
-    /// Creates a new `CpuGlyphCaches` instance with the given atlas page size
-    /// and default eviction settings.
-    pub(crate) fn new(page_width: u16, page_height: u16) -> Self {
-        Self::with_config(page_width, page_height, GlyphCacheConfig::default())
-    }
-
-    /// Creates a new `CpuGlyphCaches` instance with custom page size and eviction settings.
+impl GlyphAtlasResources {
     pub(crate) fn with_config(
         page_width: u16,
         page_height: u16,
+        level: Level,
+        render_mode: RenderMode,
         eviction_config: GlyphCacheConfig,
     ) -> Self {
         Self {
-            glifo: GlyphCaches {
-                outline_cache: OutlineCache::default(),
-                hinting_cache: HintCache::default(),
-                underline_exclusions: Vec::new(),
-                glyph_atlas: CpuGlyphAtlas::with_config(page_width, page_height, eviction_config),
-            },
+            glyph_atlas: CpuGlyphAtlas::with_config(page_width, page_height, eviction_config),
             image_cache: ImageCache::new_with_config(Default::default()),
+            glyph_renderer: Box::new(RenderContext::new_with(
+                page_width,
+                page_height,
+                RenderSettings {
+                    level,
+                    num_threads: 0,
+                    render_mode,
+                },
+            )),
         }
     }
 
     pub(crate) fn maintain(&mut self) {
-        self.glifo.maintain(&mut self.image_cache);
+        self.glyph_atlas.maintain(&mut self.image_cache);
     }
 }
 
 impl Resources {
     pub(crate) fn before_render_text(&mut self, ctx: &RenderContext) {
-        self.sync_glyph_cache(ctx);
+        if self.glyph_resources.is_some() {
+            self.sync_glyph_cache(ctx);
+        }
     }
 
     pub(crate) fn after_render_text(&mut self, ctx: &RenderContext) {
-        ctx.clear_images();
-        self.glyph_caches.maintain();
-        self.clear_evicted_glyph_atlas_regions();
+        self.glyph_prep_cache.maintain();
+
+        if self.glyph_resources.is_some() {
+            // TODO: We probably don't want to clear everything.
+            ctx.clear_images();
+            if let Some(glyph_resources) = self.glyph_resources.as_mut() {
+                glyph_resources.maintain();
+            }
+            self.clear_evicted_glyph_atlas_regions();
+        }
+    }
+
+    fn ensure_glyph_resources(&mut self, level: Level, render_mode: RenderMode) {
+        if self.glyph_resources.is_none() {
+            self.glyph_resources = Some(GlyphAtlasResources::with_config(
+                DEFAULT_GLYPH_ATLAS_SIZE,
+                DEFAULT_GLYPH_ATLAS_SIZE,
+                level,
+                render_mode,
+                GlyphCacheConfig::default(),
+            ));
+        }
     }
 
     fn sync_glyph_cache(&mut self, ctx: &RenderContext) {
+        let glyph_resources = self
+            .glyph_resources
+            .as_mut()
+            .expect("glyph atlas resources must exist before syncing");
         // TODO: Avoid allocation.
-        let uploads: Vec<_> = self
-            .glyph_caches
-            .glifo
-            .glyph_atlas
-            .drain_pending_uploads()
-            .collect();
+        let uploads: Vec<_> = glyph_resources.glyph_atlas.drain_pending_uploads().collect();
 
         // Upload all pending bitmap glyphs to the image atlas.
         for upload in uploads {
-            let pixmap = self
-                .glyph_caches
-                .glifo
+            let pixmap = glyph_resources
                 .glyph_atlas
                 .page_pixmap_mut(upload.atlas_slot.page_index as usize)
                 .expect("atlas upload refers to a missing page");
@@ -313,8 +333,8 @@ impl Resources {
 
         // Draw all new COLR/outline glyphs into the render context, and then composite them into the
         // existing atlas page.
-        let glyph_renderer = self.glyph_renderer.as_mut();
-        let glyph_atlas = &mut self.glyph_caches.glifo.glyph_atlas;
+        let glyph_renderer = glyph_resources.glyph_renderer.as_mut();
+        let glyph_atlas = &mut glyph_resources.glyph_atlas;
         glyph_atlas.replay_pending_atlas_commands_with_pixmaps(|recorder, pixmaps| {
             let page = Arc::get_mut(
                 pixmaps
@@ -329,9 +349,9 @@ impl Resources {
             glyph_renderer.composite_to_pixmap_at_offset(page, 0, 0);
         });
 
-        let page_count = self.glyph_caches.glifo.glyph_atlas.page_count();
+        let page_count = glyph_resources.glyph_atlas.page_count();
         for page_index in 0..page_count {
-            if let Some(pixmap) = self.glyph_caches.glifo.glyph_atlas.page_pixmap(page_index) {
+            if let Some(pixmap) = glyph_resources.glyph_atlas.page_pixmap(page_index) {
                 let image_id = ctx.register_image(Arc::clone(pixmap));
 
                 // Note: This is currently an assumption that is baked into the code: Since we don't
@@ -343,18 +363,15 @@ impl Resources {
     }
 
     fn clear_evicted_glyph_atlas_regions(&mut self) {
+        let glyph_resources = self
+            .glyph_resources
+            .as_mut()
+            .expect("glyph atlas resources must exist before clearing");
         // TODO: Avoid allocation.
-        let clear_rects: Vec<_> = self
-            .glyph_caches
-            .glifo
-            .glyph_atlas
-            .drain_pending_clear_rects()
-            .collect();
+        let clear_rects: Vec<_> = glyph_resources.glyph_atlas.drain_pending_clear_rects().collect();
 
         for clear in clear_rects {
-            let pixmap = self
-                .glyph_caches
-                .glifo
+            let pixmap = glyph_resources
                 .glyph_atlas
                 .page_pixmap_mut(clear.page_index as usize)
                 .expect("atlas clear rect refers to a missing page");
@@ -381,18 +398,24 @@ impl<'a> GlyphRunBackend<'a> for CpuGlyphRunBackend<'a> {
     where
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
+        if self.atlas_cache_enabled {
+            self.resources
+                .ensure_glyph_resources(self.ctx.render_settings.level, self.ctx.render_settings.render_mode);
+        }
+
         builder
             .build(
                 glyphs,
-                GlyphPrepCache {
-                    outline_cache: &mut self.resources.glyph_caches.glifo.outline_cache,
-                    hinting_cache: &mut self.resources.glyph_caches.glifo.hinting_cache,
-                    underline_exclusions: &mut self.resources.glyph_caches.glifo.underline_exclusions,
-                },
+                self.resources.glyph_prep_cache.as_mut(),
                 if self.atlas_cache_enabled {
+                    let glyph_resources = self
+                        .resources
+                        .glyph_resources
+                        .as_mut()
+                        .expect("glyph atlas resources must exist after initialization");
                     AtlasCacher::Enabled(
-                        &mut self.resources.glyph_caches.glifo.glyph_atlas,
-                        &mut self.resources.glyph_caches.image_cache,
+                        &mut glyph_resources.glyph_atlas,
+                        &mut glyph_resources.image_cache,
                     )
                 } else {
                     AtlasCacher::Disabled
@@ -405,18 +428,24 @@ impl<'a> GlyphRunBackend<'a> for CpuGlyphRunBackend<'a> {
     where
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
+        if self.atlas_cache_enabled {
+            self.resources
+                .ensure_glyph_resources(self.ctx.render_settings.level, self.ctx.render_settings.render_mode);
+        }
+
         builder
             .build(
                 glyphs,
-                GlyphPrepCache {
-                    outline_cache: &mut self.resources.glyph_caches.glifo.outline_cache,
-                    hinting_cache: &mut self.resources.glyph_caches.glifo.hinting_cache,
-                    underline_exclusions: &mut self.resources.glyph_caches.glifo.underline_exclusions,
-                },
+                self.resources.glyph_prep_cache.as_mut(),
                 if self.atlas_cache_enabled {
+                    let glyph_resources = self
+                        .resources
+                        .glyph_resources
+                        .as_mut()
+                        .expect("glyph atlas resources must exist after initialization");
                     AtlasCacher::Enabled(
-                        &mut self.resources.glyph_caches.glifo.glyph_atlas,
-                        &mut self.resources.glyph_caches.image_cache,
+                        &mut glyph_resources.glyph_atlas,
+                        &mut glyph_resources.image_cache,
                     )
                 } else {
                     AtlasCacher::Disabled

@@ -6,7 +6,9 @@
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
 #[cfg(feature = "text")]
-use crate::text::{CpuGlyphCaches, GlyphRunBuilder};
+use crate::text::{GlyphAtlasResources, GlyphRunBuilder};
+#[cfg(feature = "text")]
+use glifo::OwnedGlyphPrepCache;
 use core::cell::RefCell;
 
 #[cfg(feature = "multithreading")]
@@ -37,14 +39,13 @@ use vello_common::util::is_axis_aligned;
 
 pub(crate) const DEFAULT_GLYPH_ATLAS_SIZE: u16 = 4096;
 
-// TODO: Lazily initialize!!
 /// Auxiliary renderer state required during draw and rasterization.
 #[derive(Debug)]
 pub struct Resources {
     #[cfg(feature = "text")]
-    pub(crate) glyph_caches: CpuGlyphCaches,
+    pub(crate) glyph_prep_cache: OwnedGlyphPrepCache,
     #[cfg(feature = "text")]
-    pub(crate) glyph_renderer: Box<RenderContext>,
+    pub(crate) glyph_resources: Option<GlyphAtlasResources>,
 }
 
 impl Resources {
@@ -68,25 +69,10 @@ impl Default for Resources {
     fn default() -> Self {
         Self {
             #[cfg(feature = "text")]
-            glyph_caches: CpuGlyphCaches::new(DEFAULT_GLYPH_ATLAS_SIZE, DEFAULT_GLYPH_ATLAS_SIZE),
+            glyph_prep_cache: OwnedGlyphPrepCache::default(),
+            // Will be initialized lazily upon first usage.
             #[cfg(feature = "text")]
-            glyph_renderer: Box::new(RenderContext {
-                width: DEFAULT_GLYPH_ATLAS_SIZE,
-                height: DEFAULT_GLYPH_ATLAS_SIZE,
-                state: RenderState::default(),
-                mask: None,
-                temp_path: BezPath::new(),
-                aliasing_threshold: None,
-                encoded_paints: vec![],
-                filter: None,
-                render_settings: RenderSettings::default(),
-                image_registry: RefCell::new(ImageRegistry::new()),
-                dispatcher: Box::new(SingleThreadedDispatcher::new(
-                    DEFAULT_GLYPH_ATLAS_SIZE,
-                    DEFAULT_GLYPH_ATLAS_SIZE,
-                    Level::try_detect().unwrap_or(Level::baseline()),
-                )),
-            }),
+            glyph_resources: None,
         }
     }
 }
@@ -1125,6 +1111,12 @@ impl RenderContext {
 #[cfg(test)]
 mod tests {
     use crate::{RenderContext, Resources};
+    #[cfg(feature = "text")]
+    use crate::peniko::{Blob, FontData};
+    #[cfg(feature = "text")]
+    use alloc::sync::Arc;
+    #[cfg(feature = "text")]
+    use vello_common::glyph::Glyph;
     use vello_common::kurbo::{Rect, Shape};
     use vello_common::tile::Tile;
 
@@ -1162,5 +1154,35 @@ mod tests {
         ctx.render_to_pixmap(&mut resources, &mut pixmap);
         ctx.flush();
         ctx.render_to_pixmap(&mut resources, &mut pixmap);
+    }
+
+    #[cfg(feature = "text")]
+    #[test]
+    fn glyph_atlas_resources_are_lazy() {
+        const ROBOTO_FONT: &[u8] =
+            include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");
+
+        let font = FontData::new(Blob::new(Arc::new(ROBOTO_FONT)), 0);
+        let glyphs = [Glyph {
+            id: 1,
+            x: 0.0,
+            y: 0.0,
+        }];
+
+        let mut resources = Resources::new();
+        let mut ctx = RenderContext::new(100, 100);
+
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 10.0, 10.0));
+        ctx.fill_path(&Rect::new(10.0, 10.0, 20.0, 20.0).to_path(0.1));
+        ctx.glyph_run(&mut resources, &font)
+            .fill_glyphs(glyphs.into_iter());
+
+        assert!(resources.glyph_resources.is_none());
+
+        ctx.glyph_run(&mut resources, &font)
+            .atlas_cache(true)
+            .fill_glyphs(glyphs.into_iter());
+
+        assert!(resources.glyph_resources.is_some());
     }
 }

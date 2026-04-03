@@ -1188,8 +1188,16 @@ impl Scene {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "text")]
+    use crate::text::Resources;
+    #[cfg(feature = "text")]
+    use alloc::sync::Arc;
     use core::f64::consts::PI;
+    #[cfg(feature = "text")]
+    use vello_common::glyph::Glyph;
     use vello_common::kurbo::{Affine, Point, Rect};
+    #[cfg(feature = "text")]
+    use vello_common::peniko::{Blob, FontData};
     use vello_common::peniko::Color;
 
     // These tests serve the purpose of ensuring that the logic for selecting fast paths
@@ -1271,6 +1279,38 @@ mod tests {
         assert!(is_rect(&cmds[0]));
         assert!(is_path(&cmds[1]));
         assert!(is_rect(&cmds[2]));
+    }
+
+    #[cfg(feature = "text")]
+    #[test]
+    fn glyph_atlas_resources_are_lazy() {
+        const ROBOTO_FONT: &[u8] =
+            include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");
+
+        let font = FontData::new(Blob::new(Arc::new(ROBOTO_FONT)), 0);
+        let glyphs = [Glyph {
+            id: 1,
+            x: 0.0,
+            y: 0.0,
+        }];
+
+        let mut scene = unconstrained();
+        let mut resources = Resources::new();
+
+        scene.fill_rect(&small_rect());
+        scene.fill_path(&triangle_path());
+        scene
+            .glyph_run(&mut resources, &font)
+            .fill_glyphs(glyphs.into_iter());
+
+        assert!(resources.glyph_resources.is_none());
+
+        scene
+            .glyph_run(&mut resources, &font)
+            .atlas_cache(true)
+            .fill_glyphs(glyphs.into_iter());
+
+        assert!(resources.glyph_resources.is_some());
     }
 
     #[test]

@@ -218,6 +218,40 @@ pub struct GlyphPrepCache<'a> {
     pub underline_exclusions: &'a mut Vec<(f64, f64)>,
 }
 
+/// Owned caches used for preparing glyph drawing.
+#[derive(Debug, Default)]
+pub struct OwnedGlyphPrepCache {
+    /// Caches glyph outlines.
+    pub outline_cache: OutlineCache,
+    /// Caches hinting instances.
+    pub hinting_cache: HintCache,
+    /// Horizontal spans excluded from "ink-skipping" underlines.
+    pub underline_exclusions: Vec<(f64, f64)>,
+}
+
+impl OwnedGlyphPrepCache {
+    /// Borrow this cache bundle mutable for glyph run construction.
+    pub fn as_mut(&mut self) -> GlyphPrepCache<'_> {
+        GlyphPrepCache {
+            outline_cache: &mut self.outline_cache,
+            hinting_cache: &mut self.hinting_cache,
+            underline_exclusions: &mut self.underline_exclusions,
+        }
+    }
+
+    /// Clear the glyph preparation caches.
+    pub fn clear(&mut self) {
+        self.outline_cache.clear();
+        self.hinting_cache.clear();
+        self.underline_exclusions.clear();
+    }
+
+    /// Maintain the glyph preparation caches.
+    pub fn maintain(&mut self) {
+        self.outline_cache.maintain();
+    }
+}
+
 /// Determines whether atlas-backed glyph caching is available for a draw.
 #[derive(Debug)]
 pub enum AtlasCacher<'a, C: GlyphCache> {
