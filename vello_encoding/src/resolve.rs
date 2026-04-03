@@ -390,7 +390,7 @@ impl Resolver {
         self.ramp_cache.maintain();
         self.glyphs.clear();
         self.glyph_cache.maintain();
-        self.image_cache.clear();
+        self.image_cache.begin_resolve();
         self.pending_images.clear();
         self.patches.clear();
         let mut sizes = StreamOffsets::default();
@@ -487,13 +487,21 @@ impl Resolver {
     }
 
     fn resolve_pending_images(&mut self) {
-        self.image_cache.clear();
         'outer: loop {
+            self.image_cache.restart_resolve_pass();
+            for pending_image in &mut self.pending_images {
+                pending_image.xy = None;
+            }
             // Loop over the images, attempting to allocate them all into the atlas.
             for pending_image in &mut self.pending_images {
                 if let Some(xy) = self.image_cache.get_or_insert(&pending_image.image) {
                     pending_image.xy = Some(xy);
                 } else {
+                    if self.image_cache.can_fit_image(&pending_image.image)
+                        && self.image_cache.evict_stale_entries()
+                    {
+                        continue 'outer;
+                    }
                     // We failed to allocate. Try to bump the atlas size.
                     if self.image_cache.bump_size() {
                         // We were able to increase the atlas size. Restart the outer loop.
