@@ -31,8 +31,6 @@ use vello_common::recording::{Recordable, Recorder, Recording};
 use vello_cpu::{RenderContext, Resources as CpuResources};
 use vello_hybrid::{Resources as HybridResources, Scene};
 
-pub use vello_common::glyph::Glyph;
-
 /// A generic rendering context.
 pub trait RenderingContext: Sized {
     /// Backend-specific resource bundle required during rendering.
