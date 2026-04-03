@@ -720,19 +720,22 @@ impl Renderer {
     }
 }
 
-/// Depth format used for the dest-over surface pass.
+/// Depth format used for dest-over rendering with Late-Z rejection.
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
 /// Defines the GPU resources and pipelines for rendering.
 #[derive(Debug)]
 struct Programs {
-    /// Pipelines for rendering strips (src-over, no depth).
-    /// The first pipeline should be used for color attachments in the native pixel format,
-    /// the second for color attachments in RGBA8.
-    strip_pipelines: [RenderPipeline; 2],
-    /// Pipeline for dest-over front-to-back rendering with depth buffer.
-    /// Uses `fs_main_depth` entry point which writes `frag_depth`.
+    /// Dest-over pipeline for the surface pass (front-to-back with depth).
+    /// Uses `frag_depth` output with `LessEqual` depth test and writes
+    /// enabled so opaque fragments seed the depth buffer.
     strip_pipeline_dest_over: RenderPipeline,
+    /// Src-over pipelines for slot and intermediate texture passes.
+    /// Index 0 targets the native pixel format (slot textures),
+    /// index 1 targets RGBA8 (filter intermediate textures).
+    /// Depth is attached (required by `frag_depth` output) but configured
+    /// as a no-op (`Always` compare, writes disabled).
+    strip_pipelines_src_over: [RenderPipeline; 2],
     /// Bind group layout for strip draws
     strip_bind_group_layout: BindGroupLayout,
     /// Bind group layout for encoded paints
@@ -769,6 +772,9 @@ struct FilterAtlasState {
     original_bind_groups: Vec<BindGroup>,
     sampler: Sampler,
     atlas_size: (u32, u32),
+    /// Shared depth texture view for filter intermediate strip passes.
+    /// Lazily created on first filter atlas allocation.
+    depth_view: Option<TextureView>,
 }
 
 impl FilterAtlasState {
@@ -787,6 +793,7 @@ impl FilterAtlasState {
             original_bind_groups: Vec::new(),
             sampler,
             atlas_size,
+            depth_view: None,
         }
     }
 
@@ -803,6 +810,10 @@ impl FilterAtlasState {
             return;
         }
         let (width, height) = self.atlas_size;
+
+        if self.depth_view.is_none() {
+            self.depth_view = Some(Programs::create_depth_texture(device, width, height).1);
+        }
 
         for _ in current_count..required_count {
             let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -889,12 +900,14 @@ struct GpuResources {
     /// `render_to_atlas` to avoid a read-write conflict on the real atlas texture.
     stub_atlas_bind_group: BindGroup,
 
-    /// Depth texture for dest-over front-to-back rendering. Opaque fragments
-    /// write their interpolated depth so that later (farther) fragments are
-    /// rejected by the Late-Z test, saving the framebuffer read-modify-write.
+    /// Depth texture for the surface (FinalView) pass.
     depth_texture: Texture,
     /// View into `depth_texture`.
     depth_texture_view: TextureView,
+
+    /// Depth texture shared by both slot texture passes (they render
+    /// sequentially within a round). Sized to slot texture dimensions.
+    slot_depth_texture_view: TextureView,
 }
 
 const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).unwrap();
@@ -1061,42 +1074,6 @@ impl Programs {
                 immediate_size: 0,
             });
 
-        let strip_formats = [render_target_config.format, wgpu::TextureFormat::Rgba8Unorm];
-        let strip_pipelines: [RenderPipeline; 2] = core::array::from_fn(|i| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Strip Pipeline"),
-                layout: Some(&strip_pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &strip_shader,
-                    entry_point: Some("vs_main"),
-                    buffers: &[wgpu::VertexBufferLayout {
-                        array_stride: size_of::<GpuStrip>() as u64,
-                        step_mode: wgpu::VertexStepMode::Instance,
-                        attributes: &GpuStrip::vertex_attributes(),
-                    }],
-                    compilation_options: PipelineCompilationOptions::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &strip_shader,
-                    entry_point: Some("fs_main"),
-                    targets: &[Some(ColorTargetState {
-                        format: strip_formats[i],
-                        blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                        write_mask: ColorWrites::ALL,
-                    })],
-                    compilation_options: PipelineCompilationOptions::default(),
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleStrip,
-                    ..Default::default()
-                },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview_mask: None,
-                cache: None,
-            })
-        });
-
         let dest_over_blend = BlendState {
             color: wgpu::BlendComponent {
                 src_factor: wgpu::BlendFactor::OneMinusDstAlpha,
@@ -1110,23 +1087,30 @@ impl Programs {
             },
         };
 
+        let strip_vertex_state = wgpu::VertexState {
+            module: &strip_shader,
+            entry_point: Some("vs_main"),
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: size_of::<GpuStrip>() as u64,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes: &GpuStrip::vertex_attributes(),
+            }],
+            compilation_options: PipelineCompilationOptions::default(),
+        };
+
+        let strip_primitive = wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleStrip,
+            ..Default::default()
+        };
+
         let strip_pipeline_dest_over =
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("Strip Pipeline (Dest-Over + Depth)"),
                 layout: Some(&strip_pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &strip_shader,
-                    entry_point: Some("vs_main"),
-                    buffers: &[wgpu::VertexBufferLayout {
-                        array_stride: size_of::<GpuStrip>() as u64,
-                        step_mode: wgpu::VertexStepMode::Instance,
-                        attributes: &GpuStrip::vertex_attributes(),
-                    }],
-                    compilation_options: PipelineCompilationOptions::default(),
-                },
+                vertex: strip_vertex_state.clone(),
                 fragment: Some(wgpu::FragmentState {
                     module: &strip_shader,
-                    entry_point: Some("fs_main_depth"),
+                    entry_point: Some("fs_main"),
                     targets: &[Some(ColorTargetState {
                         format: render_target_config.format,
                         blend: Some(dest_over_blend),
@@ -1134,10 +1118,7 @@ impl Programs {
                     })],
                     compilation_options: PipelineCompilationOptions::default(),
                 }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleStrip,
-                    ..Default::default()
-                },
+                primitive: strip_primitive,
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: DEPTH_FORMAT,
                     depth_write_enabled: true,
@@ -1149,6 +1130,40 @@ impl Programs {
                 multiview_mask: None,
                 cache: None,
             });
+
+        // Depth attached as a no-op (Always compare, writes OFF) to satisfy
+        // the `frag_depth` output requirement in the unified fragment shader.
+        let depth_noop = wgpu::DepthStencilState {
+            format: DEPTH_FORMAT,
+            depth_write_enabled: false,
+            depth_compare: wgpu::CompareFunction::Always,
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        };
+
+        let strip_formats = [render_target_config.format, wgpu::TextureFormat::Rgba8Unorm];
+        let strip_pipelines_src_over: [RenderPipeline; 2] = core::array::from_fn(|i| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Strip Pipeline (Src-Over)"),
+                layout: Some(&strip_pipeline_layout),
+                vertex: strip_vertex_state.clone(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &strip_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(ColorTargetState {
+                        format: strip_formats[i],
+                        blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                        write_mask: ColorWrites::ALL,
+                    })],
+                    compilation_options: PipelineCompilationOptions::default(),
+                }),
+                primitive: strip_primitive,
+                depth_stencil: Some(depth_noop.clone()),
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        });
 
         let clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Clear Slots Pipeline"),
@@ -1488,6 +1503,13 @@ impl Programs {
             render_target_config.height,
         );
 
+        let slot_depth_texture_view = Self::create_depth_texture(
+            device,
+            u32::from(WideTile::WIDTH),
+            u32::from(Tile::HEIGHT) * slot_count as u32,
+        )
+        .1;
+
         let resources = GpuResources {
             strips_buffer: Self::create_strips_buffer(device, 0),
             clear_slot_indices_buffer,
@@ -1514,11 +1536,12 @@ impl Programs {
             view_config_buffer,
             depth_texture,
             depth_texture_view,
+            slot_depth_texture_view,
         };
 
         Self {
-            strip_pipelines,
             strip_pipeline_dest_over,
+            strip_pipelines_src_over,
             strip_bind_group_layout,
             encoded_paints_bind_group_layout,
             gradient_bind_group_layout,
@@ -2444,36 +2467,48 @@ impl RendererContext<'_> {
             ),
         };
 
-        let use_dest_over =
-            matches!(target, StripPassRenderTarget::Output(OutputTarget::FinalView));
-
-        let depth_stencil_attachment = if use_dest_over {
-            let depth_load = if self.depth_cleared {
-                wgpu::LoadOp::Load
-            } else {
-                self.depth_cleared = true;
-                wgpu::LoadOp::Clear(1.0)
-            };
-            Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &self.programs.resources.depth_texture_view,
-                depth_ops: Some(wgpu::Operations {
-                    load: depth_load,
-                    store: wgpu::StoreOp::Store,
-                }),
-                stencil_ops: None,
-            })
-        } else {
-            None
+        let (depth_view, depth_load) = match target {
+            StripPassRenderTarget::Output(OutputTarget::FinalView) => {
+                let load = if self.depth_cleared {
+                    wgpu::LoadOp::Load
+                } else {
+                    self.depth_cleared = true;
+                    wgpu::LoadOp::Clear(1.0)
+                };
+                (&self.programs.resources.depth_texture_view, load)
+            }
+            StripPassRenderTarget::SlotTexture(_) => (
+                &self.programs.resources.slot_depth_texture_view,
+                wgpu::LoadOp::Clear(1.0),
+            ),
+            StripPassRenderTarget::Output(OutputTarget::IntermediateTexture(_)) => (
+                self.programs
+                    .resources
+                    .filter_atlas
+                    .depth_view
+                    .as_ref()
+                    .expect("filter atlas depth view must exist when rendering to intermediate"),
+                wgpu::LoadOp::Clear(1.0),
+            ),
         };
 
-        let pipeline = if use_dest_over {
-            &self.programs.strip_pipeline_dest_over
-        } else {
-            let idx = match target {
-                StripPassRenderTarget::Output(OutputTarget::IntermediateTexture(_)) => 1,
-                _ => 0,
-            };
-            &self.programs.strip_pipelines[idx]
+        let depth_stencil_attachment = Some(wgpu::RenderPassDepthStencilAttachment {
+            view: depth_view,
+            depth_ops: Some(wgpu::Operations {
+                load: depth_load,
+                store: wgpu::StoreOp::Store,
+            }),
+            stencil_ops: None,
+        });
+
+        let pipeline = match target {
+            StripPassRenderTarget::Output(OutputTarget::FinalView) => {
+                &self.programs.strip_pipeline_dest_over
+            }
+            StripPassRenderTarget::Output(OutputTarget::IntermediateTexture(_)) => {
+                &self.programs.strip_pipelines_src_over[1]
+            }
+            StripPassRenderTarget::SlotTexture(_) => &self.programs.strip_pipelines_src_over[0],
         };
 
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {

@@ -908,7 +908,9 @@ impl Scheduler {
             // Reverse the surface draw (i == 2) for front-to-back ordering.
             // The scheduler appends strips in scene traversal order
             // (back-to-front). Reversing gives front-to-back, which is
-            // required for the dest-over blending + depth buffer strategy.
+            // required for the dest-over blending + depth buffer strategy on
+            // the surface pass. Slot texture draws (i == 0, 1) keep their
+            // original order with src-over blending.
             if i == 2 {
                 draw.0.reverse();
             }

@@ -556,25 +556,19 @@ fn compute_strip_color(in: VertexOutput) -> vec4<f32> {
     return final_color;
 }
 
-@fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return compute_strip_color(in);
-}
-
-struct FragOutputWithDepth {
+struct FragOutput {
     @location(0) color: vec4<f32>,
     @builtin(frag_depth) depth: f32,
 }
 
-// Fragment entry point for the dest-over surface pass with depth buffer.
 // Opaque pixels write their interpolated depth to seed the depth buffer so
 // that later (higher-z) fragments are rejected by Late-Z, saving the
 // framebuffer read-modify-write. Transparent pixels write depth = 1.0
 // (far plane) so they never occlude anything behind them.
 @fragment
-fn fs_main_depth(in: VertexOutput) -> FragOutputWithDepth {
+fn fs_main(in: VertexOutput) -> FragOutput {
     let color = compute_strip_color(in);
-    var out: FragOutputWithDepth;
+    var out: FragOutput;
     out.color = color;
     out.depth = select(1.0, in.position.z, color.a >= 1.0);
     return out;

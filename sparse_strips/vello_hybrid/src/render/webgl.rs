@@ -117,6 +117,7 @@ impl WebGlRenderer {
         // context.
         let context_options = js_sys::Object::new();
         js_sys::Reflect::set(&context_options, &"antialias".into(), &JsValue::FALSE).unwrap();
+        js_sys::Reflect::set(&context_options, &"depth".into(), &JsValue::TRUE).unwrap();
 
         let gl = canvas
             .get_context_with_context_options("webgl2", &context_options)
@@ -312,6 +313,7 @@ impl WebGlRenderer {
             image_cache: &self.image_cache,
             filter_context: &self.filter_context,
             filter_pass_state: &mut self.filter_pass_state,
+            depth_cleared: false,
         };
         self.scheduler.do_scene(
             &mut self.scheduler_state,
@@ -967,7 +969,7 @@ impl WebGlPrograms {
             let height = self.resources.filter_atlas_height;
             for _ in current_count..required_count {
                 let tex = create_filter_atlas_texture(gl, width, height);
-                let fb = create_framebuffer_for_texture(gl, &tex);
+                let fb = create_framebuffer_for_texture(gl, &tex, width as i32, height as i32);
                 self.resources.filter_atlas_textures.push(tex);
                 self.resources.filter_atlas_framebuffers.push(fb);
             }
@@ -1279,7 +1281,10 @@ impl WebGlPrograms {
             self.resources.view_framebuffer_override.as_ref(),
         );
         gl.clear_color(0.0, 0.0, 0.0, 0.0);
-        gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
+        gl.clear_depth(1.0);
+        gl.clear(
+            WebGl2RenderingContext::COLOR_BUFFER_BIT | WebGl2RenderingContext::DEPTH_BUFFER_BIT,
+        );
     }
 
     /// Upload strip data to GPU.
@@ -1800,9 +1805,11 @@ fn create_webgl_resources(
         create_slot_texture(gl, slot_count),
     ];
 
+    let slot_width = u32::from(WideTile::WIDTH) as i32;
+    let slot_height = (u32::from(Tile::HEIGHT) * slot_count as u32) as i32;
     let slot_framebuffers: [WebGlFramebuffer; 2] = [
-        create_framebuffer_for_texture(gl, &slot_textures[0]),
-        create_framebuffer_for_texture(gl, &slot_textures[1]),
+        create_framebuffer_for_texture(gl, &slot_textures[0], slot_width, slot_height),
+        create_framebuffer_for_texture(gl, &slot_textures[1], slot_width, slot_height),
     ];
 
     let max_texture_dimension_2d = get_max_texture_dimension_2d(gl);
@@ -1896,10 +1903,12 @@ fn create_slot_texture(gl: &WebGl2RenderingContext, slot_count: usize) -> WebGlT
     texture
 }
 
-/// Create a framebuffer for a texture.
+/// Create a framebuffer for a texture with an attached depth renderbuffer.
 fn create_framebuffer_for_texture(
     gl: &WebGl2RenderingContext,
     texture: &WebGlTexture,
+    width: i32,
+    height: i32,
 ) -> WebGlFramebuffer {
     let framebuffer = gl.create_framebuffer().unwrap();
     gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&framebuffer));
@@ -1910,6 +1919,21 @@ fn create_framebuffer_for_texture(
         WebGl2RenderingContext::TEXTURE_2D,
         Some(texture),
         0,
+    );
+
+    let depth_rb = gl.create_renderbuffer().unwrap();
+    gl.bind_renderbuffer(WebGl2RenderingContext::RENDERBUFFER, Some(&depth_rb));
+    gl.renderbuffer_storage(
+        WebGl2RenderingContext::RENDERBUFFER,
+        WebGl2RenderingContext::DEPTH_COMPONENT24,
+        width,
+        height,
+    );
+    gl.framebuffer_renderbuffer(
+        WebGl2RenderingContext::FRAMEBUFFER,
+        WebGl2RenderingContext::DEPTH_ATTACHMENT,
+        WebGl2RenderingContext::RENDERBUFFER,
+        Some(&depth_rb),
     );
 
     framebuffer
@@ -1980,6 +2004,8 @@ struct WebGlRendererContext<'a> {
     image_cache: &'a ImageCache,
     filter_context: &'a FilterContext,
     filter_pass_state: &'a mut FilterPassState,
+    /// Whether the surface depth buffer has been cleared this frame.
+    depth_cleared: bool,
 }
 
 impl WebGlRendererContext<'_> {
@@ -2106,31 +2132,33 @@ impl WebGlRendererContext<'_> {
             }
         }
 
-        let use_dest_over = matches!(
+        let is_surface = matches!(
             target,
             StripPassRenderTarget::Output(OutputTarget::FinalView)
         );
 
-        // For the surface pass, switch to dest-over blending for front-to-back
-        // rendering. The `(1 - dst.a)` factor naturally zeroes out source
-        // contributions behind opaque destination pixels.
-        //
-        // NOTE: Unlike the wgpu backend, we do NOT enable depth testing here
-        // because the WebGL GLSL shader is compiled from `fs_main` (not
-        // `fs_main_depth`) and thus does not write `gl_FragDepth`. Without
-        // per-pixel depth control, the vertex z would cause transparent front
-        // pixels to incorrectly block opaque back pixels.
-        if use_dest_over {
+        // Surface pass: dest-over blend + depth testing (front-to-back).
+        if is_surface {
+            self.gl.enable(WebGl2RenderingContext::DEPTH_TEST);
+            self.gl.depth_func(WebGl2RenderingContext::LEQUAL);
+            self.gl.depth_mask(true);
             self.gl.blend_func(
                 WebGl2RenderingContext::ONE_MINUS_DST_ALPHA,
                 WebGl2RenderingContext::ONE,
             );
         }
 
-        // Clear framebuffer if requested.
         if matches!(load, LoadOp::Clear) {
             self.gl.clear_color(0.0, 0.0, 0.0, 0.0);
             self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
+        }
+
+        // Clear depth on first surface pass of the frame.
+        if is_surface && !self.depth_cleared {
+            self.depth_cleared = true;
+            self.gl.clear_depth(1.0);
+            self.gl
+                .clear(WebGl2RenderingContext::DEPTH_BUFFER_BIT);
         }
 
         // Use the strip program.
@@ -2202,8 +2230,9 @@ impl WebGlRendererContext<'_> {
             strips.len() as i32,
         );
 
-        // Restore src-over blend state after dest-over surface pass.
-        if use_dest_over {
+        // Restore src-over + no depth for subsequent slot/intermediate passes.
+        if is_surface {
+            self.gl.disable(WebGl2RenderingContext::DEPTH_TEST);
             self.gl.blend_func(
                 WebGl2RenderingContext::ONE,
                 WebGl2RenderingContext::ONE_MINUS_SRC_ALPHA,
@@ -2220,8 +2249,8 @@ impl WebGlRendererContext<'_> {
             return;
         }
 
-        // No blending needed for clearing: we want to completely overwrite existing slot data
-        // (matches wgpu implementation)
+        // No blending for clearing: we want to completely overwrite existing
+        // slot data (matches wgpu implementation).
         self.gl.disable(WebGl2RenderingContext::BLEND);
 
         // Upload slot indices.
