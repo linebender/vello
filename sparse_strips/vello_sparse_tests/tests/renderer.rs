@@ -237,12 +237,12 @@ impl Renderer for CpuRenderer {
     }
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
-        let id = self.ctx.register_image(Arc::clone(&pixmap));
+        let id = self.resources.register_image(Arc::clone(&pixmap));
         ImageSource::opaque_id_with_opacity_hint(id, pixmap.may_have_opacities())
     }
 
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
-        self.ctx.register_image(pixmap)
+        self.resources.register_image(pixmap)
     }
 
     fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {

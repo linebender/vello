@@ -11,7 +11,7 @@
 //! [`Arc<Pixmap>`]s here, so the CPU renderer can read pixels directly without
 //! any GPU upload step.
 
-use crate::render::DEFAULT_GLYPH_ATLAS_SIZE;
+use crate::render::{ATLAS_IMAGE_ID_BASE, DEFAULT_GLYPH_ATLAS_SIZE};
 use crate::{
     Image, ImageSource, PaintType, Pixmap, RenderContext, RenderMode, RenderSettings, Resources,
     color, kurbo, peniko,
@@ -41,6 +41,10 @@ use vello_common::fearless_simd::Level;
 use vello_common::glyph::Glyph;
 use vello_common::paint::{ImageId, Tint};
 
+fn atlas_page_image_id(page_index: u32) -> ImageId {
+    ImageId::new(ATLAS_IMAGE_ID_BASE + page_index)
+}
+
 /// CPU-side glyph atlas backed by per-page [`Pixmap`]s.
 ///
 /// Wraps the shared [`GlyphAtlas`] allocator and adds owned pixel storage
@@ -48,8 +52,15 @@ use vello_common::paint::{ImageId, Tint};
 pub(crate) struct CpuGlyphAtlas {
     /// Shared cache data.
     pub(crate) inner: GlyphAtlas,
-    /// One `Pixmap` per atlas page, grown on demand. Wrapped in `Arc` so
-    /// callers can cheaply share a page with a render context.
+    /// One `Pixmap` per atlas page, grown on demand. 
+    // It's a bit annoying to have this in an `Arc`, but it needs to be this way. During fine
+    // rasterization, we need to be able to easily clone the atlas page so that it can be shared
+    // across multiple threads. However, we also need to be able to mutate the pixmap to 
+    // sync new glyphs. The way this is achieved is by calling `Arc::make_mut` when syncing
+    // (at this point, the pixmap isn't shared anywhere else). Before fine rasterization, we
+    // then share it with the image registry such that it can easily be fetched and cloned during
+    // fine rasterization. After that, we remove it from the image registry, such that it's uniquely
+    // owned again and can be mutated in the next frame.
     pub(crate) pixmaps: Vec<Arc<Pixmap>>,
     /// Width of each atlas page in pixels.
     page_width: u16,
@@ -78,13 +89,6 @@ impl CpuGlyphAtlas {
             page_width,
             page_height,
         }
-    }
-
-    /// Returns a reference to the `Arc<Pixmap>` for `page_index`, allowing
-    /// cheap `Arc::clone` when registering the page with a render context.
-    #[inline]
-    pub(crate) fn page_pixmap(&self, page_index: usize) -> Option<&Arc<Pixmap>> {
-        self.pixmaps.get(page_index)
     }
 
     /// Returns a mutable reference to the pixmap for `page_index`.
@@ -276,20 +280,21 @@ impl GlyphAtlasResources {
 }
 
 impl Resources {
-    pub(crate) fn before_rasterization(&mut self, ctx: &RenderContext) {
+    pub(crate) fn prepare_glyph_cache(&mut self) {
         if self.glyph_resources.is_some() {
-            self.sync_glyph_cache(ctx);
+            self.sync_glyph_cache();
         }
     }
 
-    pub(crate) fn after_rasterization(&mut self, ctx: &RenderContext) {
+    pub(crate) fn maintain_glyph_cache(&mut self) {
         self.glyph_prep_cache.maintain();
 
-        if self.glyph_resources.is_some() {
-            // TODO: We probably don't want to clear everything.
-            ctx.clear_images();
-            if let Some(glyph_resources) = self.glyph_resources.as_mut() {
-                glyph_resources.maintain();
+        if let Some(glyph_resources) = self.glyph_resources.as_mut() {
+            glyph_resources.maintain();
+            // See the comment in `CpuGlyphAtlas`.
+            let page_count = glyph_resources.glyph_atlas.page_count();
+            for page_index in 0..page_count {
+                self.image_registry.destroy_atlas_page(page_index as u32);
             }
             self.clear_evicted_glyph_atlas_regions();
         }
@@ -308,7 +313,7 @@ impl Resources {
     }
 
     /// Upload all pending bitmaps, rasterize pending outline/COLR glyphs, etc.
-    fn sync_glyph_cache(&mut self, ctx: &RenderContext) {
+    fn sync_glyph_cache(&mut self) {
         let glyph_resources = self
             .glyph_resources
             .as_mut()
@@ -350,20 +355,16 @@ impl Resources {
             glyph_renderer.reset();
             vello_renderer::replay_atlas_commands(&mut recorder.commands, glyph_renderer);
             glyph_renderer.flush();
-            glyph_renderer.composite_to_pixmap_at_offset(page, 0, 0);
+            // Note: This method panics if multi-threading is enabled, but our glyph renderer is always
+            // single-threaded anyway, so this shouldn't ever panic, even if the main render context
+            // uses multi-threading.
+            glyph_renderer.composite_to_pixmap_at_offset(&Resources::default(), page, 0, 0);
         });
 
-        let page_count = glyph_resources.glyph_atlas.page_count();
-        for page_index in 0..page_count {
-            if let Some(pixmap) = glyph_resources.glyph_atlas.page_pixmap(page_index) {
-                let image_id = ctx.register_image(Arc::clone(pixmap));
-
-                // Note: This is currently an assumption that is baked into the code: Since we don't
-                // use the image registry for anything else, the page index within the atlas should
-                // always equal the image ID. If this ever changes, we need to update the logic of
-                // how this is handled.
-                assert_eq!(image_id.as_u32(), page_index as u32);
-            }
+        // See the comment in `CpuGlyphAtlas`.
+        for (page_index, pixmap) in glyph_resources.glyph_atlas.pixmaps.iter().enumerate() {
+            self.image_registry
+                .register_atlas_page(page_index as u32, Arc::clone(pixmap));
         }
     }
 
@@ -594,12 +595,8 @@ impl GlyphAtlasBackend for CpuBackend {
         paint_transform: Affine,
         tint: Option<Tint>,
     ) {
-        // CPU backend uses page_index as the opaque ImageId (one pixmap per page),
-        // resolved later via register_image(). The hybrid backend uses the
-        // image_cache-assigned ImageId instead.
-        // TODO: use the actual allocated ImageId similar to the hybrid?
         let image = Image {
-            image: ImageSource::opaque_id(ImageId::new(atlas_slot.page_index)),
+            image: ImageSource::opaque_id(atlas_page_image_id(atlas_slot.page_index)),
             sampler: ImageSampler {
                 x_extend: Extend::Pad,
                 y_extend: Extend::Pad,

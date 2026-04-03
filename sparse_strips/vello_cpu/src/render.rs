@@ -7,7 +7,6 @@ use crate::RenderMode;
 use crate::dispatch::Dispatcher;
 #[cfg(feature = "text")]
 use crate::text::{GlyphAtlasResources, GlyphRunBuilder};
-use core::cell::RefCell;
 #[cfg(feature = "text")]
 use glifo::GlyphPrepCache;
 
@@ -38,10 +37,14 @@ use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage
 use vello_common::util::is_axis_aligned;
 
 pub(crate) const DEFAULT_GLYPH_ATLAS_SIZE: u16 = 4096;
+// All IDs < than this value are reserved for normal images, all IDs >= this value are
+// reserved for atlas pages.
+pub(crate) const ATLAS_IMAGE_ID_BASE: u32 = u32::MAX / 2;
 
 /// Persistent resources required by Vello CPU for rendering.
 #[derive(Debug, Default)]
 pub struct Resources {
+    pub(crate) image_registry: ImageRegistry,
     #[cfg(feature = "text")]
     pub(crate) glyph_prep_cache: GlyphPrepCache,
     // Will be initialized lazily on first use.
@@ -55,14 +58,14 @@ impl Resources {
         Self::default()
     }
 
-    pub(crate) fn before_render(&mut self, ctx: &RenderContext) {
+    pub(crate) fn before_render(&mut self) {
         #[cfg(feature = "text")]
-        self.before_rasterization(ctx);
+        self.prepare_glyph_cache();
     }
 
-    pub(crate) fn after_render(&mut self, ctx: &RenderContext) {
+    pub(crate) fn after_render(&mut self) {
         #[cfg(feature = "text")]
-        self.after_rasterization(ctx);
+        self.maintain_glyph_cache();
     }
 }
 
@@ -92,7 +95,6 @@ pub struct RenderContext {
         allow(dead_code, reason = "used when the `text` feature is enabled")
     )]
     pub(crate) render_settings: RenderSettings,
-    pub(crate) image_registry: RefCell<ImageRegistry>,
     dispatcher: Box<dyn Dispatcher>,
 }
 
@@ -171,7 +173,6 @@ impl RenderContext {
             temp_path,
             encoded_paints,
             filter: None,
-            image_registry: RefCell::new(ImageRegistry::new()),
         }
     }
 
@@ -622,8 +623,7 @@ impl RenderContext {
             buffer.len(),
         );
 
-        resources.before_render(self);
-        let image_registry = self.image_registry.borrow();
+        resources.before_render();
 
         self.dispatcher.rasterize(
             buffer,
@@ -631,11 +631,9 @@ impl RenderContext {
             width,
             height,
             &self.encoded_paints,
-            &*image_registry,
+            &resources.image_registry,
         );
-
-        drop(image_registry);
-        resources.after_render(self);
+        resources.after_render();
     }
 
     /// Render the current context into a pixmap.
@@ -668,10 +666,15 @@ impl RenderContext {
     ///
     /// This method is only supported with the single-threaded dispatcher and will
     /// **panic** if called on a `RenderContext` using the multi-threaded dispatcher.
-    pub fn composite_to_pixmap_at_offset(&self, pixmap: &mut Pixmap, dst_x: u16, dst_y: u16) {
+    pub fn composite_to_pixmap_at_offset(
+        &self,
+        resources: &Resources,
+        pixmap: &mut Pixmap,
+        dst_x: u16,
+        dst_y: u16,
+    ) {
         let dst_buffer_width = pixmap.width();
         let dst_buffer_height = pixmap.height();
-        let image_registry = self.image_registry.borrow();
         self.dispatcher.composite_at_offset(
             pixmap.data_as_u8_slice_mut(),
             self.width,
@@ -682,7 +685,7 @@ impl RenderContext {
             dst_buffer_height,
             self.render_settings.render_mode,
             &self.encoded_paints,
-            &*image_registry,
+            &resources.image_registry,
         );
     }
 
@@ -732,25 +735,25 @@ impl RenderContext {
 }
 
 /// Image registry implementation.
-impl RenderContext {
+impl Resources {
     /// Register a pixmap in the image registry and return its [`ImageId`].
-    pub fn register_image(&self, pixmap: Arc<Pixmap>) -> ImageId {
-        self.image_registry.borrow_mut().register(pixmap)
+    pub fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
+        self.image_registry.register(pixmap)
     }
 
     /// Remove an image from the registry.
-    pub fn destroy_image(&self, id: ImageId) -> bool {
-        self.image_registry.borrow_mut().destroy(id)
+    pub fn destroy_image(&mut self, id: ImageId) -> bool {
+        self.image_registry.destroy(id)
     }
 
     /// Resolve an `ImageId` to its pixmap data.
     pub fn resolve_image(&self, id: ImageId) -> Option<Arc<Pixmap>> {
-        self.image_registry.borrow().resolve(id)
+        self.image_registry.resolve(id)
     }
 
     /// Clear the image registry.
-    pub fn clear_images(&self) {
-        self.image_registry.borrow_mut().clear();
+    pub fn clear_images(&mut self) {
+        self.image_registry.clear();
     }
 }
 
@@ -878,29 +881,35 @@ impl Recordable for RenderContext {
 /// Registry that maps opaque [`ImageId`]s to [`Pixmap`] data.
 ///
 /// Used by [`RenderContext`] to resolve `ImageSource::OpaqueId` at rasterization time.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct ImageRegistry {
     images: HashMap<u32, Arc<Pixmap>>,
     next_id: u32,
 }
 
 impl ImageRegistry {
-    fn new() -> Self {
-        Self {
-            images: HashMap::new(),
-            next_id: 0,
-        }
-    }
-
     fn register(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
         let id = self.next_id;
+        assert!(
+            id < ATLAS_IMAGE_ID_BASE,
+            "image registry exhausted non-atlas image IDs"
+        );
+
         self.next_id += 1;
         self.images.insert(id, pixmap);
         ImageId::new(id)
     }
 
-    fn destroy(&mut self, id: ImageId) -> bool {
+    pub(crate) fn register_atlas_page(&mut self, page_index: u32, pixmap: Arc<Pixmap>) {
+        self.images.insert(ImageId::new(ATLAS_IMAGE_ID_BASE + page_index).as_u32(), pixmap);
+    }
+
+    pub(crate) fn destroy(&mut self, id: ImageId) -> bool {
         self.images.remove(&id.as_u32()).is_some()
+    }
+
+    pub(crate) fn destroy_atlas_page(&mut self, page_index: u32) -> bool {
+        self.destroy(ImageId::new(ATLAS_IMAGE_ID_BASE + page_index))
     }
 
     fn resolve(&self, id: ImageId) -> Option<Arc<Pixmap>> {

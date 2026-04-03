@@ -502,7 +502,12 @@ fn composite_to_pixmap_at_offset() {
     let positions: [(u16, u16); 3] = [(15, 15), (30, 30), (0, 0)];
 
     for (dst_x, dst_y) in positions {
-        glyph_renderer.composite_to_pixmap_at_offset(&mut spritesheet, dst_x, dst_y);
+        glyph_renderer.composite_to_pixmap_at_offset(
+            &glyph_resources,
+            &mut spritesheet,
+            dst_x,
+            dst_y,
+        );
     }
 
     // Now render the glyphs directly at the same positions to a reference pixmap
