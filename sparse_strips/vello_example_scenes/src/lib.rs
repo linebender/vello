@@ -16,11 +16,11 @@ pub mod simple;
 pub mod svg;
 pub mod text;
 
+use glifo::GlyphRunBackend;
 use vello_common::coarse::WideTile;
 use vello_common::color::palette::css::WHITE;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::Affine;
-use glifo::GlyphRunBackend;
 pub use vello_common::kurbo::{BezPath, Rect, Shape, Stroke};
 pub use vello_common::mask::Mask;
 use vello_common::paint::ImageSource;

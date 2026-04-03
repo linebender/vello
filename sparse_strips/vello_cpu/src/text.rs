@@ -29,16 +29,16 @@ use glifo::renderers::vello_renderer::{
     self, AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale,
 };
 use glifo::{
-    AtlasCacher, CachedGlyphType, ColrPainter, ColrRenderer, GlyphBitmap, GlyphColr,
-    GlyphRenderer, GlyphRunBackend, PreparedGlyph,
+    AtlasCacher, CachedGlyphType, ColrPainter, ColrRenderer, GlyphBitmap, GlyphColr, GlyphRenderer,
+    GlyphRunBackend, PreparedGlyph,
 };
 use kurbo::{Affine, BezPath, Rect};
 use peniko::Extend;
 use peniko::color::{AlphaColor, Srgb};
 use peniko::{BlendMode, Gradient};
 use peniko::{ImageQuality, ImageSampler};
-use vello_common::glyph::Glyph;
 use vello_common::fearless_simd::Level;
+use vello_common::glyph::Glyph;
 use vello_common::paint::{ImageId, Tint};
 
 /// CPU-side glyph atlas backed by per-page [`Pixmap`]s.
@@ -313,7 +313,10 @@ impl Resources {
             .as_mut()
             .expect("glyph atlas resources must exist before syncing");
         // TODO: Avoid allocation.
-        let uploads: Vec<_> = glyph_resources.glyph_atlas.drain_pending_uploads().collect();
+        let uploads: Vec<_> = glyph_resources
+            .glyph_atlas
+            .drain_pending_uploads()
+            .collect();
 
         // Upload all pending bitmap glyphs to the image atlas.
         for upload in uploads {
@@ -368,7 +371,10 @@ impl Resources {
             .as_mut()
             .expect("glyph atlas resources must exist before clearing");
         // TODO: Avoid allocation.
-        let clear_rects: Vec<_> = glyph_resources.glyph_atlas.drain_pending_clear_rects().collect();
+        let clear_rects: Vec<_> = glyph_resources
+            .glyph_atlas
+            .drain_pending_clear_rects()
+            .collect();
 
         for clear in clear_rects {
             let pixmap = glyph_resources
@@ -399,8 +405,10 @@ impl<'a> GlyphRunBackend<'a> for CpuGlyphRunBackend<'a> {
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
         if self.atlas_cache_enabled {
-            self.resources
-                .ensure_glyph_resources(self.ctx.render_settings.level, self.ctx.render_settings.render_mode);
+            self.resources.ensure_glyph_resources(
+                self.ctx.render_settings.level,
+                self.ctx.render_settings.render_mode,
+            );
         }
 
         builder
@@ -429,8 +437,10 @@ impl<'a> GlyphRunBackend<'a> for CpuGlyphRunBackend<'a> {
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
         if self.atlas_cache_enabled {
-            self.resources
-                .ensure_glyph_resources(self.ctx.render_settings.level, self.ctx.render_settings.render_mode);
+            self.resources.ensure_glyph_resources(
+                self.ctx.render_settings.level,
+                self.ctx.render_settings.render_mode,
+            );
         }
 
         builder

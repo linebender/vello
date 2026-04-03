@@ -158,11 +158,7 @@ pub trait GlyphRenderer<C: GlyphCache> {
     ///
     /// Outline and COLR glyph draw commands are recorded into the glyph atlas's
     /// pending atlas commands queue for later replay into a glyph renderer.
-    fn fill_glyph(
-        &mut self,
-        glyph: PreparedGlyph<'_>,
-        atlas_cacher: &mut AtlasCacher<'_, C>,
-    );
+    fn fill_glyph(&mut self, glyph: PreparedGlyph<'_>, atlas_cacher: &mut AtlasCacher<'_, C>);
 
     /// Stroke glyphs with the current paint and stroke settings.
     ///
@@ -172,11 +168,7 @@ pub trait GlyphRenderer<C: GlyphCache> {
     ///
     /// Outline and COLR glyph draw commands are recorded into the glyph atlas's
     /// pending atlas commands queue for later replay into a glyph renderer.
-    fn stroke_glyph(
-        &mut self,
-        glyph: PreparedGlyph<'_>,
-        atlas_cacher: &mut AtlasCacher<'_, C>,
-    );
+    fn stroke_glyph(&mut self, glyph: PreparedGlyph<'_>, atlas_cacher: &mut AtlasCacher<'_, C>);
 
     /// Fill a rectangle with the current paint. Used for decorations, such as underlines.
     fn fill_rect(&mut self, rect: Rect);
@@ -764,7 +756,6 @@ impl<'a, B> GlyphRunBuilder<'a, B> {
         self.run.normalized_coords = bytemuck::cast_slice(coords);
         self
     }
-
 }
 
 impl<'a> GlyphRunBuilder<'a> {

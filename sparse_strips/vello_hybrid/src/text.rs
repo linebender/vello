@@ -19,10 +19,9 @@ use glifo::renderers::vello_renderer;
 use glifo::renderers::vello_renderer::replay_atlas_commands;
 use glifo::renderers::vello_renderer::{AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale};
 use glifo::{
-    AtlasCommandRecorder, AtlasSlot, AtlasCacher, CachedGlyphType, ColrPainter, ColrRenderer,
-    GLYPH_PADDING, GlyphAtlas, GlyphBitmap, GlyphCache, GlyphCacheConfig, GlyphCacheKey,
-    GlyphColr, GlyphRenderer, GlyphRunBackend, ImageCache, OwnedGlyphPrepCache, PreparedGlyph,
-    RasterMetrics,
+    AtlasCacher, AtlasCommandRecorder, AtlasSlot, CachedGlyphType, ColrPainter, ColrRenderer,
+    GLYPH_PADDING, GlyphAtlas, GlyphBitmap, GlyphCache, GlyphCacheConfig, GlyphCacheKey, GlyphColr,
+    GlyphRenderer, GlyphRunBackend, ImageCache, OwnedGlyphPrepCache, PreparedGlyph, RasterMetrics,
 };
 use peniko::color::palette::css::BLACK;
 use peniko::color::{AlphaColor, Srgb};
@@ -240,7 +239,10 @@ impl Resources {
                     let mut replay_target =
                         ColrSceneWrapper::new(&mut glyph_resources.glyph_renderer);
                     replay_atlas_commands(&mut recorder.commands, &mut replay_target);
-                    f(&glyph_resources.glyph_renderer, AtlasId::new(recorder.page_index));
+                    f(
+                        &glyph_resources.glyph_renderer,
+                        AtlasId::new(recorder.page_index),
+                    );
                 });
         }
     }
@@ -254,7 +256,12 @@ impl Resources {
     pub fn take_pending_uploads(&mut self) -> Vec<PendingBitmapUpload> {
         self.glyph_resources
             .as_mut()
-            .map(|glyph_resources| glyph_resources.glyph_atlas.drain_pending_uploads().collect())
+            .map(|glyph_resources| {
+                glyph_resources
+                    .glyph_atlas
+                    .drain_pending_uploads()
+                    .collect()
+            })
             .unwrap_or_default()
     }
 

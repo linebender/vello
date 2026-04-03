@@ -7,9 +7,9 @@ use crate::RenderMode;
 use crate::dispatch::Dispatcher;
 #[cfg(feature = "text")]
 use crate::text::{GlyphAtlasResources, GlyphRunBuilder};
+use core::cell::RefCell;
 #[cfg(feature = "text")]
 use glifo::OwnedGlyphPrepCache;
-use core::cell::RefCell;
 
 #[cfg(feature = "multithreading")]
 use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
@@ -1110,9 +1110,9 @@ impl RenderContext {
 
 #[cfg(test)]
 mod tests {
-    use crate::{RenderContext, Resources};
     #[cfg(feature = "text")]
     use crate::peniko::{Blob, FontData};
+    use crate::{RenderContext, Resources};
     #[cfg(feature = "text")]
     use alloc::sync::Arc;
     #[cfg(feature = "text")]

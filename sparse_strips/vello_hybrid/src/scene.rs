@@ -1196,9 +1196,9 @@ mod tests {
     #[cfg(feature = "text")]
     use vello_common::glyph::Glyph;
     use vello_common::kurbo::{Affine, Point, Rect};
+    use vello_common::peniko::Color;
     #[cfg(feature = "text")]
     use vello_common::peniko::{Blob, FontData};
-    use vello_common::peniko::Color;
 
     // These tests serve the purpose of ensuring that the logic for selecting fast paths
     // works correctly.
