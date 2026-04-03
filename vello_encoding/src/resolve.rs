@@ -184,6 +184,7 @@ impl Resolver {
         }
         let patch_sizes = self.resolve_patches(encoding);
         self.resolve_pending_images();
+        self.image_cache.finish_resolve();
         let data = packed;
         data.clear();
         let mut layout = Layout {
