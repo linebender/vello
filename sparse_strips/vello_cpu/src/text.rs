@@ -314,18 +314,16 @@ impl Resources {
 
     /// Upload all pending bitmaps, rasterize pending outline/COLR glyphs, etc.
     fn sync_glyph_cache(&mut self) {
+        self.pending_glyph_uploads_scratch.clear();
         let glyph_resources = self
             .glyph_resources
             .as_mut()
             .expect("glyph atlas resources must exist before syncing");
-        // TODO: Avoid allocation.
-        let uploads: Vec<_> = glyph_resources
-            .glyph_atlas
-            .drain_pending_uploads()
-            .collect();
+        self.pending_glyph_uploads_scratch
+            .extend(glyph_resources.glyph_atlas.drain_pending_uploads());
 
         // Upload all pending bitmap glyphs to the image atlas.
-        for upload in uploads {
+        for upload in &self.pending_glyph_uploads_scratch {
             let pixmap = glyph_resources
                 .glyph_atlas
                 .page_pixmap_mut(upload.atlas_slot.page_index as usize)
@@ -369,22 +367,20 @@ impl Resources {
     }
 
     fn clear_evicted_glyph_atlas_regions(&mut self) {
+        self.pending_glyph_clear_rects_scratch.clear();
         let glyph_resources = self
             .glyph_resources
             .as_mut()
             .expect("glyph atlas resources must exist before clearing");
-        // TODO: Avoid allocation.
-        let clear_rects: Vec<_> = glyph_resources
-            .glyph_atlas
-            .drain_pending_clear_rects()
-            .collect();
+        self.pending_glyph_clear_rects_scratch
+            .extend(glyph_resources.glyph_atlas.drain_pending_clear_rects());
 
-        for clear in clear_rects {
+        for clear in &self.pending_glyph_clear_rects_scratch {
             let pixmap = glyph_resources
                 .glyph_atlas
                 .page_pixmap_mut(clear.page_index as usize)
                 .expect("atlas clear rect refers to a missing page");
-            clear_pixmap_region(pixmap, &clear);
+            clear_pixmap_region(pixmap, clear);
         }
     }
 }
