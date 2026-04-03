@@ -405,29 +405,28 @@ impl<'a> CpuGlyphRunBackend<'a> {
     ) where
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
-        if self.atlas_cache_enabled {
+        let atlas_cacher = if self.atlas_cache_enabled {
             self.resources.ensure_glyph_resources(
                 self.ctx.render_settings.level,
                 self.ctx.render_settings.render_mode,
             );
-        }
+            let glyph_resources = self
+                .resources
+                .glyph_resources
+                .as_mut()
+                .expect("glyph atlas resources must exist after initialization");
+            AtlasCacher::Enabled(
+                &mut glyph_resources.glyph_atlas,
+                &mut glyph_resources.image_cache,
+            )
+        } else {
+            AtlasCacher::Disabled
+        };
 
         let mut glyph_run = run.build(
             glyphs,
             self.resources.glyph_prep_cache.as_mut(),
-            if self.atlas_cache_enabled {
-                let glyph_resources = self
-                    .resources
-                    .glyph_resources
-                    .as_mut()
-                    .expect("glyph atlas resources must exist after initialization");
-                AtlasCacher::Enabled(
-                    &mut glyph_resources.glyph_atlas,
-                    &mut glyph_resources.image_cache,
-                )
-            } else {
-                AtlasCacher::Disabled
-            },
+            atlas_cacher,
         );
         render(&mut glyph_run, self.ctx);
     }
