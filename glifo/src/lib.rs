@@ -50,6 +50,6 @@ pub use atlas::{
 pub use colr::{ColrPainter, ColrRenderer};
 pub use glyph::{
     AtlasCacher, CachedGlyphType, Glyph, GlyphBitmap, GlyphCaches, GlyphColr, GlyphOutline,
-    GlyphPrepCache, GlyphRenderer, GlyphRunBackend, GlyphRunBuilder, GlyphRunRenderer, GlyphType,
-    HintCache, HintKey, OutlineCache, OwnedGlyphPrepCache, PreparedGlyph,
+    GlyphPrepCache, GlyphPrepCacheMut, GlyphRenderer, GlyphRunBackend, GlyphRunBuilder,
+    GlyphRunRenderer, GlyphType, HintCache, HintKey, OutlineCache, PreparedGlyph,
 };

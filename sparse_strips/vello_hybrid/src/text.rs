@@ -21,7 +21,7 @@ use glifo::renderers::vello_renderer::{AtlasReplayTarget, GlyphAtlasBackend, qua
 use glifo::{
     AtlasCacher, AtlasCommandRecorder, AtlasSlot, CachedGlyphType, ColrPainter, ColrRenderer,
     GLYPH_PADDING, GlyphAtlas, GlyphBitmap, GlyphCache, GlyphCacheConfig, GlyphCacheKey, GlyphColr,
-    GlyphRenderer, GlyphRunBackend, ImageCache, OwnedGlyphPrepCache, PreparedGlyph, RasterMetrics,
+    GlyphPrepCache, GlyphRenderer, GlyphRunBackend, ImageCache, PreparedGlyph, RasterMetrics,
 };
 use peniko::color::palette::css::BLACK;
 use peniko::color::{AlphaColor, Srgb};
@@ -177,7 +177,7 @@ impl GlyphAtlasResources {
 /// Auxiliary hybrid glyph resources.
 #[derive(Debug)]
 pub struct Resources {
-    pub(crate) glyph_prep_cache: OwnedGlyphPrepCache,
+    pub(crate) glyph_prep_cache: GlyphPrepCache,
     pub(crate) image_cache: ImageCache,
     pub(crate) glyph_resources: Option<GlyphAtlasResources>,
 }
@@ -187,7 +187,7 @@ impl Resources {
     pub fn new() -> Self {
         let image_cache = ImageCache::new_with_config(Default::default());
         Self {
-            glyph_prep_cache: OwnedGlyphPrepCache::default(),
+            glyph_prep_cache: GlyphPrepCache::default(),
             image_cache,
             glyph_resources: None,
         }

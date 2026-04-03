@@ -9,7 +9,7 @@ use crate::dispatch::Dispatcher;
 use crate::text::{GlyphAtlasResources, GlyphRunBuilder};
 use core::cell::RefCell;
 #[cfg(feature = "text")]
-use glifo::OwnedGlyphPrepCache;
+use glifo::GlyphPrepCache;
 
 #[cfg(feature = "multithreading")]
 use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
@@ -43,7 +43,7 @@ pub(crate) const DEFAULT_GLYPH_ATLAS_SIZE: u16 = 4096;
 #[derive(Debug)]
 pub struct Resources {
     #[cfg(feature = "text")]
-    pub(crate) glyph_prep_cache: OwnedGlyphPrepCache,
+    pub(crate) glyph_prep_cache: GlyphPrepCache,
     #[cfg(feature = "text")]
     pub(crate) glyph_resources: Option<GlyphAtlasResources>,
 }
@@ -69,7 +69,7 @@ impl Default for Resources {
     fn default() -> Self {
         Self {
             #[cfg(feature = "text")]
-            glyph_prep_cache: OwnedGlyphPrepCache::default(),
+            glyph_prep_cache: GlyphPrepCache::default(),
             // Will be initialized lazily upon first usage.
             #[cfg(feature = "text")]
             glyph_resources: None,

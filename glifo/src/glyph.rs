@@ -200,19 +200,8 @@ pub trait GlyphRenderer<C: GlyphCache> {
 }
 
 /// Caches used for preparing glyph drawing.
-#[derive(Debug)]
-pub struct GlyphPrepCache<'a> {
-    /// Caches glyph outlines.
-    pub outline_cache: &'a mut OutlineCache,
-    /// Caches hinting instances .
-    pub hinting_cache: &'a mut HintCache,
-    /// Horizontal spans excluded from "ink-skipping" underlines.
-    pub underline_exclusions: &'a mut Vec<(f64, f64)>,
-}
-
-/// Owned caches used for preparing glyph drawing.
 #[derive(Debug, Default)]
-pub struct OwnedGlyphPrepCache {
+pub struct GlyphPrepCache {
     /// Caches glyph outlines.
     pub outline_cache: OutlineCache,
     /// Caches hinting instances.
@@ -221,10 +210,10 @@ pub struct OwnedGlyphPrepCache {
     pub underline_exclusions: Vec<(f64, f64)>,
 }
 
-impl OwnedGlyphPrepCache {
+impl GlyphPrepCache {
     /// Borrow this cache bundle mutable for glyph run construction.
-    pub fn as_mut(&mut self) -> GlyphPrepCache<'_> {
-        GlyphPrepCache {
+    pub fn as_mut(&mut self) -> GlyphPrepCacheMut<'_> {
+        GlyphPrepCacheMut {
             outline_cache: &mut self.outline_cache,
             hinting_cache: &mut self.hinting_cache,
             underline_exclusions: &mut self.underline_exclusions,
@@ -244,6 +233,17 @@ impl OwnedGlyphPrepCache {
     }
 }
 
+/// Mutably borrowed caches used for preparing glyph drawing.
+#[derive(Debug)]
+pub struct GlyphPrepCacheMut<'a> {
+    /// Caches glyph outlines.
+    pub outline_cache: &'a mut OutlineCache,
+    /// Caches hinting instances .
+    pub hinting_cache: &'a mut HintCache,
+    /// Horizontal spans excluded from "ink-skipping" underlines.
+    pub underline_exclusions: &'a mut Vec<(f64, f64)>,
+}
+
 /// Determines whether atlas-backed glyph caching is available for a draw.
 #[derive(Debug)]
 pub enum AtlasCacher<'a, C: GlyphCache> {
@@ -255,10 +255,10 @@ pub enum AtlasCacher<'a, C: GlyphCache> {
 }
 
 impl<C: GlyphCache> AtlasCacher<'_, C> {
-    fn max_cached_font_size(&self) -> Option<f32> {
+    fn config(&self) -> Option<&crate::atlas::GlyphCacheConfig> {
         match self {
             Self::Disabled => None,
-            Self::Enabled(glyph_atlas, _) => Some(glyph_atlas.config().max_cached_font_size),
+            Self::Enabled(glyph_atlas, _) => Some(glyph_atlas.config()),
         }
     }
 
@@ -342,8 +342,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
 
         let colr_bitmap_cache_enabled = self
             .atlas_cacher
-            .max_cached_font_size()
-            .is_some_and(|max_size| draw_props.font_size <= max_size);
+            .config()
+            .is_some_and(|config| draw_props.font_size <= config.max_cached_font_size);
         let outline_cache_enabled = colr_bitmap_cache_enabled
             // We don't cache stroked outlines because the stroke parameters would blow up
             // the cache key. For COLR and bitmap, it doesn't matter because those are filled anyway.
@@ -764,7 +764,7 @@ impl<'a> GlyphRunBuilder<'a> {
     pub fn build<'b: 'a, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>(
         self,
         glyphs: Glyphs,
-        prep_cache: GlyphPrepCache<'b>,
+        prep_cache: GlyphPrepCacheMut<'b>,
         atlas_cacher: AtlasCacher<'b, C>,
     ) -> GlyphRunRenderer<'a, 'b, Glyphs, C> {
         let prepared_run = prepare_glyph_run(self.run, prep_cache.hinting_cache);
