@@ -276,12 +276,12 @@ pub trait GlyphRunBackend<'a>: Sized {
     fn atlas_cache(self, enabled: bool) -> Self;
 
     /// Fill the given glyph sequence using the configured builder state.
-    fn fill_glyphs<Glyphs>(self, builder: GlyphRunBuilder<'a>, glyphs: Glyphs)
+    fn fill_glyphs<Glyphs>(self, run: GlyphRun<'a>, glyphs: Glyphs)
     where
         Glyphs: Iterator<Item = Glyph> + Clone;
 
     /// Stroke the given glyph sequence using the configured builder state.
-    fn stroke_glyphs<Glyphs>(self, builder: GlyphRunBuilder<'a>, glyphs: Glyphs)
+    fn stroke_glyphs<Glyphs>(self, run: GlyphRun<'a>, glyphs: Glyphs)
     where
         Glyphs: Iterator<Item = Glyph> + Clone;
 }
@@ -758,16 +758,20 @@ impl<'a, B> GlyphRunBuilder<'a, B> {
     }
 }
 
-impl<'a> GlyphRunBuilder<'a> {
-    /// Consumes the builder and returns a renderer that can fill, stroke, and decorate a glyph run.
-    ///
+impl<'a> GlyphRun<'a> {
+    // Note: Not sure if we should just remove that method and let each backend
+    // call `prepare_glyph_run` manually, it might allow us to reduce the number of
+    // generics we need to use. But for now, it seems nice to be able to abstract away
+    // the `prepare_glyph_run` method call.
+    /// Returns a renderer that can fill, stroke, and decorate this glyph run.
+    #[doc(hidden)]
     pub fn build<'b: 'a, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>(
         self,
         glyphs: Glyphs,
         prep_cache: GlyphPrepCacheMut<'b>,
         atlas_cacher: AtlasCacher<'b, C>,
     ) -> GlyphRunRenderer<'a, 'b, Glyphs, C> {
-        let prepared_run = prepare_glyph_run(self.run, prep_cache.hinting_cache);
+        let prepared_run = prepare_glyph_run(self, prep_cache.hinting_cache);
         GlyphRunRenderer {
             prepared_run,
             glyph_iterator: glyphs,
@@ -796,7 +800,7 @@ where
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
         let GlyphRunBuilder { run, backend } = self;
-        backend.fill_glyphs(GlyphRunBuilder { run, backend: () }, glyphs);
+        backend.fill_glyphs(run, glyphs);
     }
 
     /// Stroke the glyphs using the current settings.
@@ -805,7 +809,7 @@ where
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
         let GlyphRunBuilder { run, backend } = self;
-        backend.stroke_glyphs(GlyphRunBuilder { run, backend: () }, glyphs);
+        backend.stroke_glyphs(run, glyphs);
     }
 }
 
@@ -1205,7 +1209,7 @@ pub(crate) enum Style {
 
 /// A sequence of glyphs with shared rendering properties.
 #[derive(Clone, Debug)]
-struct GlyphRun<'a> {
+pub struct GlyphRun<'a> {
     /// Font for all glyphs in the run.
     font: FontData,
     /// Size of the font in pixels per em.

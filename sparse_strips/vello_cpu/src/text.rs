@@ -394,74 +394,64 @@ pub struct CpuGlyphRunBackend<'a> {
     pub atlas_cache_enabled: bool,
 }
 
+impl<'a> CpuGlyphRunBackend<'a> {
+    fn render_glyphs<Glyphs>(
+        self,
+        run: glifo::GlyphRun<'a>,
+        glyphs: Glyphs,
+        render: impl FnOnce(
+            &mut glifo::GlyphRunRenderer<'a, 'a, Glyphs, CpuGlyphAtlas>,
+            &mut RenderContext,
+        ),
+    ) where
+        Glyphs: Iterator<Item = Glyph> + Clone,
+    {
+        if self.atlas_cache_enabled {
+            self.resources.ensure_glyph_resources(
+                self.ctx.render_settings.level,
+                self.ctx.render_settings.render_mode,
+            );
+        }
+
+        let mut glyph_run = run.build(
+            glyphs,
+            self.resources.glyph_prep_cache.as_mut(),
+            if self.atlas_cache_enabled {
+                let glyph_resources = self
+                    .resources
+                    .glyph_resources
+                    .as_mut()
+                    .expect("glyph atlas resources must exist after initialization");
+                AtlasCacher::Enabled(
+                    &mut glyph_resources.glyph_atlas,
+                    &mut glyph_resources.image_cache,
+                )
+            } else {
+                AtlasCacher::Disabled
+            },
+        );
+        render(&mut glyph_run, self.ctx);
+    }
+}
+
 impl<'a> GlyphRunBackend<'a> for CpuGlyphRunBackend<'a> {
     fn atlas_cache(mut self, enabled: bool) -> Self {
         self.atlas_cache_enabled = enabled;
         self
     }
 
-    fn fill_glyphs<Glyphs>(self, builder: glifo::GlyphRunBuilder<'a>, glyphs: Glyphs)
+    fn fill_glyphs<Glyphs>(self, run: glifo::GlyphRun<'a>, glyphs: Glyphs)
     where
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
-        if self.atlas_cache_enabled {
-            self.resources.ensure_glyph_resources(
-                self.ctx.render_settings.level,
-                self.ctx.render_settings.render_mode,
-            );
-        }
-
-        builder
-            .build(
-                glyphs,
-                self.resources.glyph_prep_cache.as_mut(),
-                if self.atlas_cache_enabled {
-                    let glyph_resources = self
-                        .resources
-                        .glyph_resources
-                        .as_mut()
-                        .expect("glyph atlas resources must exist after initialization");
-                    AtlasCacher::Enabled(
-                        &mut glyph_resources.glyph_atlas,
-                        &mut glyph_resources.image_cache,
-                    )
-                } else {
-                    AtlasCacher::Disabled
-                },
-            )
-            .fill_glyphs(self.ctx);
+        self.render_glyphs(run, glyphs, |glyph_run, ctx| glyph_run.fill_glyphs(ctx));
     }
 
-    fn stroke_glyphs<Glyphs>(self, builder: glifo::GlyphRunBuilder<'a>, glyphs: Glyphs)
+    fn stroke_glyphs<Glyphs>(self, run: glifo::GlyphRun<'a>, glyphs: Glyphs)
     where
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
-        if self.atlas_cache_enabled {
-            self.resources.ensure_glyph_resources(
-                self.ctx.render_settings.level,
-                self.ctx.render_settings.render_mode,
-            );
-        }
-
-        builder
-            .build(
-                glyphs,
-                self.resources.glyph_prep_cache.as_mut(),
-                if self.atlas_cache_enabled {
-                    let glyph_resources = self
-                        .resources
-                        .glyph_resources
-                        .as_mut()
-                        .expect("glyph atlas resources must exist after initialization");
-                    AtlasCacher::Enabled(
-                        &mut glyph_resources.glyph_atlas,
-                        &mut glyph_resources.image_cache,
-                    )
-                } else {
-                    AtlasCacher::Disabled
-                },
-            )
-            .stroke_glyphs(self.ctx);
+        self.render_glyphs(run, glyphs, |glyph_run, ctx| glyph_run.stroke_glyphs(ctx));
     }
 }
 
