@@ -633,6 +633,11 @@ impl RenderContext {
             &self.encoded_paints,
             &resources.image_registry,
         );
+        // TODO: We need to figure something out here API-wise. At the moment, the user can
+        // theoretically rasterize the same `RenderContext` multiple times without resetting in-between.
+        // However, if glyph caching is enabled, this method call could now evict that were previously
+        // assumed to exist in `RenderContext`, meaning that if the user rasterizes the same `RenderContext`
+        // again without resetting it, some of the cached glyphs might be stale and not exist anymore.
         resources.after_render();
     }
 
@@ -760,7 +765,7 @@ impl Resources {
 impl Recordable for RenderContext {
     type Resources = Resources;
 
-    fn record<F>(&mut self, _resources: &mut Self::Resources, recording: &mut Recording, f: F)
+    fn record<F>(&mut self, recording: &mut Recording, f: F)
     where
         F: FnOnce(&mut Recorder<'_>),
     {
@@ -768,7 +773,7 @@ impl Recordable for RenderContext {
         f(&mut recorder);
     }
 
-    fn prepare_recording(&mut self, _resources: &mut Self::Resources, recording: &mut Recording) {
+    fn prepare_recording(&mut self, recording: &mut Recording) {
         let buffers = recording.take_cached_strips();
         let (strip_storage, strip_start_indices) =
             self.generate_strips_from_commands(recording.commands(), buffers);

@@ -93,12 +93,11 @@ pub trait RenderingContext: Sized {
     /// Record rendering commands into a recording.
     fn record(
         &mut self,
-        resources: &mut Self::Resources,
         recording: &mut Recording,
         f: impl FnOnce(&mut Recorder<'_>),
     );
     /// Generate sparse strips for a recording.
-    fn prepare_recording(&mut self, resources: &mut Self::Resources, recording: &mut Recording);
+    fn prepare_recording(&mut self, recording: &mut Recording);
     /// Execute a recording directly without preparation.
     fn execute_recording(&mut self, resources: &mut Self::Resources, recording: &Recording);
 }
@@ -189,15 +188,14 @@ impl RenderingContext for RenderContext {
 
     fn record(
         &mut self,
-        resources: &mut Self::Resources,
         recording: &mut Recording,
         f: impl FnOnce(&mut Recorder<'_>),
     ) {
-        Recordable::record(self, resources, recording, f);
+        Recordable::record(self, recording, f);
     }
 
-    fn prepare_recording(&mut self, resources: &mut Self::Resources, recording: &mut Recording) {
-        Recordable::prepare_recording(self, resources, recording);
+    fn prepare_recording(&mut self, recording: &mut Recording) {
+        Recordable::prepare_recording(self, recording);
     }
 
     fn execute_recording(&mut self, resources: &mut Self::Resources, recording: &Recording) {
@@ -298,15 +296,14 @@ impl RenderingContext for Scene {
 
     fn record(
         &mut self,
-        resources: &mut Self::Resources,
         recording: &mut Recording,
         f: impl FnOnce(&mut Recorder<'_>),
     ) {
-        Recordable::record(self, resources, recording, f);
+        Recordable::record(self, recording, f);
     }
 
-    fn prepare_recording(&mut self, resources: &mut Self::Resources, recording: &mut Recording) {
-        Recordable::prepare_recording(self, resources, recording);
+    fn prepare_recording(&mut self, recording: &mut Recording) {
+        Recordable::prepare_recording(self, recording);
     }
 
     fn execute_recording(&mut self, resources: &mut Self::Resources, recording: &Recording) {

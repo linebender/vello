@@ -135,10 +135,10 @@ fn record_fresh<T: RenderingContext>(
     scene_obj.recording.transform_key = Some(current_transform);
     let new_recording = &mut scene_obj.recording.recording;
     new_recording.clear();
-    ctx.record(resources, new_recording, |recorder| {
+    ctx.record(new_recording, |recorder| {
         render_svg_record(recorder, &scene_obj.svg.items, current_transform);
     });
-    ctx.prepare_recording(resources, new_recording);
+    ctx.prepare_recording(new_recording);
     ctx.execute_recording(resources, new_recording);
     #[cfg(not(target_arch = "wasm32"))]
     print_render_stats("Fresh     ", start.elapsed(), new_recording);

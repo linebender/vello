@@ -246,11 +246,11 @@ impl Renderer for CpuRenderer {
     }
 
     fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
-        Recordable::record(&mut self.ctx, &mut self.resources, recording, f);
+        Recordable::record(&mut self.ctx, recording, f);
     }
 
     fn prepare_recording(&mut self, recording: &mut Recording) {
-        Recordable::prepare_recording(&mut self.ctx, &mut self.resources, recording);
+        Recordable::prepare_recording(&mut self.ctx, recording);
     }
 
     fn execute_recording(&mut self, recording: &Recording) {
@@ -606,11 +606,11 @@ impl Renderer for HybridRenderer {
     }
 
     fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
-        Recordable::record(&mut self.scene, &mut self.resources, recording, f);
+        Recordable::record(&mut self.scene, recording, f);
     }
 
     fn prepare_recording(&mut self, recording: &mut Recording) {
-        Recordable::prepare_recording(&mut self.scene, &mut self.resources, recording);
+        Recordable::prepare_recording(&mut self.scene, recording);
     }
 
     fn execute_recording(&mut self, recording: &Recording) {

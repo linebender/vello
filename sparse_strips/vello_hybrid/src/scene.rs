@@ -879,7 +879,7 @@ impl Scene {
 impl Recordable for Scene {
     type Resources = Resources;
 
-    fn record<F>(&mut self, _resources: &mut Self::Resources, recording: &mut Recording, f: F)
+    fn record<F>(&mut self, recording: &mut Recording, f: F)
     where
         F: FnOnce(&mut Recorder<'_>),
     {
@@ -887,7 +887,7 @@ impl Recordable for Scene {
         f(&mut recorder);
     }
 
-    fn prepare_recording(&mut self, _resources: &mut Self::Resources, recording: &mut Recording) {
+    fn prepare_recording(&mut self, recording: &mut Recording) {
         let buffers = recording.take_cached_strips();
         let (strip_storage, strip_start_indices) =
             self.generate_strips_from_commands(recording.commands(), buffers);

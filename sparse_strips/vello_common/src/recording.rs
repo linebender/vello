@@ -312,7 +312,7 @@ pub trait Recordable {
     ///     ctx.stroke_path(&some_path);
     /// });
     /// ```
-    fn record<F>(&mut self, resources: &mut Self::Resources, recording: &mut Recording, f: F)
+    fn record<F>(&mut self, recording: &mut Recording, f: F)
     where
         F: FnOnce(&mut Recorder<'_>);
 
@@ -332,7 +332,7 @@ pub trait Recordable {
     /// // Generate strips explicitly
     /// scene.prepare_recording(&mut recording);
     /// ```
-    fn prepare_recording(&mut self, resources: &mut Self::Resources, recording: &mut Recording);
+    fn prepare_recording(&mut self, recording: &mut Recording);
 
     /// Execute a recording directly without preparation.
     ///
