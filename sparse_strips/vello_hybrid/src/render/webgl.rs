@@ -313,7 +313,7 @@ impl WebGlRenderer {
             image_cache: &self.image_cache,
             filter_context: &self.filter_context,
             filter_pass_state: &mut self.filter_pass_state,
-            depth_cleared: false,
+            first_surface_pass: true,
         };
         self.scheduler.do_scene(
             &mut self.scheduler_state,
@@ -2004,8 +2004,9 @@ struct WebGlRendererContext<'a> {
     image_cache: &'a ImageCache,
     filter_context: &'a FilterContext,
     filter_pass_state: &'a mut FilterPassState,
-    /// Whether the surface depth buffer has been cleared this frame.
-    depth_cleared: bool,
+    /// `true` until the first surface draw completes. Only the first surface
+    /// draw uses dest-over + depth; subsequent ones use src-over.
+    first_surface_pass: bool,
 }
 
 impl WebGlRendererContext<'_> {
@@ -2019,7 +2020,20 @@ impl WebGlRendererContext<'_> {
         if strips.is_empty() {
             return;
         }
-        self.programs.upload_strips(self.gl, strips);
+
+        let is_surface = matches!(
+            target,
+            StripPassRenderTarget::Output(OutputTarget::FinalView)
+        );
+        let will_use_dest_over = is_surface && self.first_surface_pass;
+
+        if will_use_dest_over {
+            let mut reversed = strips.to_vec();
+            reversed.reverse();
+            self.programs.upload_strips(self.gl, &reversed);
+        } else {
+            self.programs.upload_strips(self.gl, strips);
+        }
 
         match &target {
             StripPassRenderTarget::Output(OutputTarget::IntermediateTexture(layer_id)) => {
@@ -2132,13 +2146,14 @@ impl WebGlRendererContext<'_> {
             }
         }
 
-        let is_surface = matches!(
-            target,
-            StripPassRenderTarget::Output(OutputTarget::FinalView)
-        );
-
-        // Surface pass: dest-over blend + depth testing (front-to-back).
+        let use_dest_over = will_use_dest_over;
         if is_surface {
+            self.first_surface_pass = false;
+        }
+
+        // First surface pass: dest-over blend + depth (front-to-back).
+        // Subsequent surface passes: src-over (content goes on top).
+        if use_dest_over {
             self.gl.enable(WebGl2RenderingContext::DEPTH_TEST);
             self.gl.depth_func(WebGl2RenderingContext::LEQUAL);
             self.gl.depth_mask(true);
@@ -2153,9 +2168,7 @@ impl WebGlRendererContext<'_> {
             self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
         }
 
-        // Clear depth on first surface pass of the frame.
-        if is_surface && !self.depth_cleared {
-            self.depth_cleared = true;
+        if use_dest_over {
             self.gl.clear_depth(1.0);
             self.gl
                 .clear(WebGl2RenderingContext::DEPTH_BUFFER_BIT);
@@ -2230,8 +2243,8 @@ impl WebGlRendererContext<'_> {
             strips.len() as i32,
         );
 
-        // Restore src-over + no depth for subsequent slot/intermediate passes.
-        if is_surface {
+        // Restore src-over + no depth after dest-over surface pass.
+        if use_dest_over {
             self.gl.disable(WebGl2RenderingContext::DEPTH_TEST);
             self.gl.blend_func(
                 WebGl2RenderingContext::ONE,

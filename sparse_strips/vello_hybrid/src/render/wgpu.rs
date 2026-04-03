@@ -371,7 +371,7 @@ impl Renderer {
             image_cache: &self.image_cache,
             filter_context: &self.filter_context,
             filter_pass_state: &mut self.filter_pass_state,
-            depth_cleared: false,
+            first_surface_pass: true,
         };
         self.scheduler.do_scene(
             &mut self.scheduler_state,
@@ -2336,10 +2336,11 @@ struct RendererContext<'a> {
     image_cache: &'a ImageCache,
     filter_context: &'a FilterContext,
     filter_pass_state: &'a mut FilterPassState,
-    /// Whether the depth buffer has been cleared this frame. Reset to `false`
-    /// at the start of each `render_scene`; set to `true` after the first
-    /// surface pass clears depth to 1.0.
-    depth_cleared: bool,
+    /// `true` until the first surface draw completes. The first surface draw
+    /// uses dest-over + depth (front-to-back, reversed strips). Subsequent
+    /// surface draws use src-over so that later-round content composites on
+    /// top of earlier rounds.
+    first_surface_pass: bool,
 }
 
 impl RendererContext<'_> {
@@ -2353,9 +2354,32 @@ impl RendererContext<'_> {
         if strips.is_empty() {
             return;
         }
+        let use_dest_over = matches!(target, StripPassRenderTarget::Output(OutputTarget::FinalView))
+            && self.first_surface_pass;
+
+        // For the first surface pass, reverse strips for front-to-back
+        // dest-over rendering. Subsequent surface passes and all slot passes
+        // keep original back-to-front order with src-over.
+        let reversed;
+        let upload_strips = if use_dest_over {
+            reversed = {
+                let mut v = strips.to_vec();
+                v.reverse();
+                v
+            };
+            &reversed[..]
+        } else {
+            strips
+        };
+
+        if matches!(target, StripPassRenderTarget::Output(OutputTarget::FinalView)) {
+            self.first_surface_pass = false;
+        }
+
         // TODO: We currently allocate a new strips buffer for each render pass. A more efficient
         // approach would be to re-use buffers or slices of a larger buffer.
-        self.programs.upload_strips(self.device, self.queue, strips);
+        self.programs
+            .upload_strips(self.device, self.queue, upload_strips);
 
         enum MaybeOwned<'a, T> {
             Borrowed(&'a T),
@@ -2469,13 +2493,11 @@ impl RendererContext<'_> {
 
         let (depth_view, depth_load) = match target {
             StripPassRenderTarget::Output(OutputTarget::FinalView) => {
-                let load = if self.depth_cleared {
-                    wgpu::LoadOp::Load
-                } else {
-                    self.depth_cleared = true;
-                    wgpu::LoadOp::Clear(1.0)
-                };
-                (&self.programs.resources.depth_texture_view, load)
+                // Always clear depth for each surface pass. Round boundaries
+                // are determined by clip/blend dependency resolution, not by
+                // scene depth, so preserving depth across rounds would
+                // incorrectly cull content from later rounds.
+                (&self.programs.resources.depth_texture_view, wgpu::LoadOp::Clear(1.0))
             }
             StripPassRenderTarget::SlotTexture(_) => (
                 &self.programs.resources.slot_depth_texture_view,
@@ -2501,14 +2523,15 @@ impl RendererContext<'_> {
             stencil_ops: None,
         });
 
-        let pipeline = match target {
-            StripPassRenderTarget::Output(OutputTarget::FinalView) => {
-                &self.programs.strip_pipeline_dest_over
+        let pipeline = if use_dest_over {
+            &self.programs.strip_pipeline_dest_over
+        } else {
+            match target {
+                StripPassRenderTarget::Output(OutputTarget::IntermediateTexture(_)) => {
+                    &self.programs.strip_pipelines_src_over[1]
+                }
+                _ => &self.programs.strip_pipelines_src_over[0],
             }
-            StripPassRenderTarget::Output(OutputTarget::IntermediateTexture(_)) => {
-                &self.programs.strip_pipelines_src_over[1]
-            }
-            StripPassRenderTarget::SlotTexture(_) => &self.programs.strip_pipelines_src_over[0],
         };
 
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
