@@ -74,6 +74,7 @@ pub mod filter;
 pub mod filter_effects;
 pub mod flatten;
 pub(crate) mod flatten_simd;
+pub mod geometry;
 #[cfg(feature = "text")]
 pub mod glyph;
 pub mod image_cache;

@@ -26,6 +26,7 @@ use vello_common::coarse::{Cmd, MODE_CPU, Wide};
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, dispatch};
 use vello_common::filter_effects::Filter;
+use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
 use vello_common::render_graph::RenderGraph;
@@ -720,10 +721,10 @@ pub(crate) struct OwnedClip {
     strips: Box<[Strip]>,
     alphas: Box<[u8]>,
 
-    /// A coarse bounding box of the clip path in pixel coordinates `[left, top, right, bottom]`.
+    /// A coarse bounding box of the clip path in pixel coordinates.
     ///
     /// These bounds have already been intersected with the viewport.
-    bbox: [u16; 4],
+    bbox: RectU16,
 }
 
 /// A structure that allows storing and fetching existing allocations.

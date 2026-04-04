@@ -5,6 +5,7 @@ use crate::data::get_data_items;
 use criterion::Criterion;
 use vello_common::flatten;
 use vello_common::flatten::FlattenCtx;
+use vello_common::geometry::RectU16;
 use vello_common::kurbo::Stroke;
 use vello_common::kurbo::StrokeCtx;
 use vello_cpu::Level;
@@ -33,7 +34,7 @@ pub fn flatten(c: &mut Criterion) {
                             path.transform,
                             &mut temp_buf,
                             &mut flatten_ctx,
-                            [0, 0, $item.width, $item.height],
+                            RectU16::new(0, 0, $item.width, $item.height),
                         );
                         line_buf.extend(&temp_buf);
                     }
@@ -45,7 +46,7 @@ pub fn flatten(c: &mut Criterion) {
                             Affine::IDENTITY,
                             &mut temp_buf,
                             &mut flatten_ctx,
-                            [0, 0, $item.width, $item.height],
+                            RectU16::new(0, 0, $item.width, $item.height),
                         );
                         line_buf.extend(&temp_buf);
                     }
