@@ -59,12 +59,12 @@ pub fn coarse_with_layer(c: &mut Criterion) {
                 render_graph.clear();
 
                 // Add root node
-                let wtile_bbox = vello_common::coarse::WideTilesBbox::new([
+                let wtile_bbox = vello_common::coarse::WideTilesBbox::new(
                     0,
                     0,
                     wide.width_tiles(),
                     wide.height_tiles(),
-                ]);
+                );
                 render_graph.add_node(vello_common::render_graph::RenderNodeKind::RootLayer {
                     layer_id: 0,
                     wtile_bbox,
@@ -132,12 +132,12 @@ pub fn coarse_with_layer_large_viewport(c: &mut Criterion) {
                 wide.reset();
                 render_graph.clear();
 
-                let wtile_bbox = vello_common::coarse::WideTilesBbox::new([
+                let wtile_bbox = vello_common::coarse::WideTilesBbox::new(
                     0,
                     0,
                     wide.width_tiles(),
                     wide.height_tiles(),
-                ]);
+                );
                 render_graph.add_node(vello_common::render_graph::RenderNodeKind::RootLayer {
                     layer_id: 0,
                     wtile_bbox,

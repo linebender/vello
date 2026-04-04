@@ -3,6 +3,7 @@
 
 //! Managing clipping state.
 
+use crate::geometry::RectU16;
 use crate::kurbo::{Affine, BezPath, PathEl, Rect};
 use crate::strip::Strip;
 use crate::strip_generator::{GenerationMode, StripGenerator, StripStorage};
@@ -21,10 +22,10 @@ struct ClipData {
     alpha_start: u32,
     strip_start: u32,
 
-    /// A coarse bounding box of the clip path in pixel coordinates `[left, top, right, bottom]`.
+    /// A coarse bounding box of the clip path in pixel coordinates.
     ///
     /// These bounds have already been intersected with the viewport.
-    bbox: [u16; 4],
+    bbox: RectU16,
 }
 
 impl ClipData {
@@ -110,23 +111,20 @@ impl ClipContext {
         // could move this calculation into flattening (perhaps with a const-generic as to not
         // pessimize calls that don't require the bbox).
         let path_bbox = control_point_bbox(clip_path, transform);
-        let mut bbox = [
+        let mut bbox = RectU16::new(
             path_bbox.x0 as u16,
             path_bbox.y0 as u16,
             path_bbox.x1.ceil() as u16,
             path_bbox.y1.ceil() as u16,
-        ];
+        );
 
         // Intersect with the existing clip bounding box, or the viewport if this is the outermost
         // clip.
         if let Some(existing) = self.clip_stack.last() {
-            bbox[0] = bbox[0].max(existing.bbox[0]);
-            bbox[1] = bbox[1].max(existing.bbox[1]);
-            bbox[2] = bbox[2].min(existing.bbox[2]);
-            bbox[3] = bbox[3].min(existing.bbox[3]);
+            bbox = bbox.intersect(existing.bbox);
         } else {
-            bbox[2] = bbox[2].min(strip_generator.width());
-            bbox[3] = bbox[3].min(strip_generator.height());
+            bbox.x1 = bbox.x1.min(strip_generator.width());
+            bbox.y1 = bbox.y1.min(strip_generator.height());
         }
 
         let clip_data = ClipData {
@@ -203,10 +201,10 @@ pub struct PathDataRef<'a> {
     /// The alpha buffer.
     pub alphas: &'a [u8],
 
-    /// A coarse bounding box of the clip path in pixel coordinates `[left, top, right, bottom]`.
+    /// A coarse bounding box of the clip path in pixel coordinates.
     ///
     /// These bounds have already been intersected with the viewport.
-    pub bbox: [u16; 4],
+    pub bbox: RectU16,
 }
 
 /// Compute the sparse strips representation of a path that results
@@ -614,6 +612,7 @@ fn should_create_new_strip(
 #[cfg(test)]
 mod tests {
     use crate::clip::{PathDataRef, RowIterator, intersect};
+    use crate::geometry::RectU16;
     use crate::strip::Strip;
     use crate::strip_generator::StripStorage;
     use crate::tile::Tile;
@@ -712,7 +711,7 @@ mod tests {
         let path_ref = PathDataRef {
             strips: &path_1.strips,
             alphas: &path_1.alphas,
-            bbox: [0, 0, u16::MAX, u16::MAX],
+            bbox: RectU16::new(0, 0, u16::MAX, u16::MAX),
         };
 
         let mut idx = 0;
@@ -728,13 +727,13 @@ mod tests {
         let path_1 = PathDataRef {
             strips: &path_1.strips,
             alphas: &path_1.alphas,
-            bbox: [0, 0, u16::MAX, u16::MAX],
+            bbox: RectU16::new(0, 0, u16::MAX, u16::MAX),
         };
 
         let path_2 = PathDataRef {
             strips: &path_2.strips,
             alphas: &path_2.alphas,
-            bbox: [0, 0, u16::MAX, u16::MAX],
+            bbox: RectU16::new(0, 0, u16::MAX, u16::MAX),
         };
 
         intersect(Level::new(), path_1, path_2, &mut write_target);
