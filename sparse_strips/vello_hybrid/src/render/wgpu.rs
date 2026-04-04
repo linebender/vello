@@ -818,14 +818,9 @@ impl Renderer {
 
     fn encode_external_texture_paint(&self, image: &EncodedExternalTexture) -> GpuEncodedPaint {
         let transform = image.transform.as_coeffs().map(|x| x as f32);
-        let image_size = pack_image_size(
-            quantize_texture_coord(image.src.width()),
-            quantize_texture_coord(image.src.height()),
-        );
-        let image_offset = pack_image_offset(
-            quantize_texture_coord(image.src.x0),
-            quantize_texture_coord(image.src.y0),
-        );
+        let region = image.source_region;
+        let image_size = pack_image_size(region.width(), region.height());
+        let image_offset = pack_image_offset(region.x0, region.y0);
         let image_params = pack_image_params(
             image.sampler.quality as u32,
             image.sampler.x_extend as u32,
@@ -2921,18 +2916,6 @@ fn create_atlas_layer_view(atlas: &Texture, layer: u32) -> TextureView {
         array_layer_count: Some(1),
         usage: None,
     })
-}
-
-fn quantize_texture_coord(value: f64) -> u16 {
-    debug_assert!(
-        value >= 0.0 && value <= f64::from(u16::MAX),
-        "texture coordinates must fit in u16"
-    );
-    debug_assert!(
-        (value - value.round()).abs() <= f64::EPSILON,
-        "external texture source rectangles must currently be texel-aligned"
-    );
-    value as u16
 }
 
 /// Trait for types that can write image data directly to the atlas texture.

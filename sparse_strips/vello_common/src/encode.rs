@@ -7,7 +7,8 @@ use crate::TextureId;
 use crate::blurred_rounded_rect::BlurredRoundedRectangle;
 use crate::color::palette::css::BLACK;
 use crate::color::{ColorSpaceTag, HueDirection, Srgb, gradient};
-use crate::kurbo::{Affine, Point, Rect, Vec2};
+use crate::geometry::RectU16;
+use crate::kurbo::{Affine, Point, Vec2};
 use crate::math::{FloatExt, compute_erf7};
 use crate::paint::{Image, ImageSource, IndexedPaint, Paint, PremulColor, Tint};
 use crate::peniko::{ColorStop, ColorStops, Extend, Gradient, GradientKind, ImageQuality};
@@ -586,8 +587,8 @@ pub struct EncodedImage {
 pub struct EncodedExternalTexture {
     /// External texture handle.
     pub texture_id: TextureId,
-    /// Source rectangle within the external texture.
-    pub src: Rect,
+    /// Source region of the texture in texel coordinates.
+    pub source_region: RectU16,
     /// Sampler parameters.
     pub sampler: ImageSampler,
     /// Whether the sampled content may contain non-opaque pixels.

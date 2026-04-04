@@ -4,6 +4,7 @@
 //! Recording API for caching sparse strips
 
 use crate::filter_effects::Filter;
+use crate::geometry::RectU16;
 use crate::kurbo::{Affine, BezPath, Cap, Join, Rect, Stroke};
 use crate::mask::Mask;
 use crate::paint::{PaintType, Tint};
@@ -105,12 +106,12 @@ pub struct PushLayerCommand {
 /// destination.
 #[derive(Debug, Clone, Copy)]
 pub struct TextureRect {
-    /// Source rectangle in texture coordinates.
-    pub src: Rect,
-    /// Transform mapping the local source-rect space to the destination.
+    /// Source region of the texture in texel coordinates.
+    pub source_region: RectU16,
+    /// Transform mapping the local source-region space to the destination.
     ///
     /// This maps from the *local* rectangle into the destination, ignoring the origin of
-    /// [`Self::src`].
+    /// [`Self::source_region`].
     pub transform: Affine,
 }
 

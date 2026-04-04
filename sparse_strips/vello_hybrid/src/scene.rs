@@ -17,6 +17,7 @@ use vello_common::coarse::{MODE_HYBRID, Wide, WideTilesBbox};
 use vello_common::encode::{EncodeExt, EncodedExternalTexture, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::filter_effects::Filter;
+use vello_common::geometry::RectU16;
 use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::multi_atlas::AtlasConfig;
@@ -353,7 +354,7 @@ impl Scene {
     fn encode_external_texture_paint(
         &mut self,
         texture_id: TextureId,
-        src: Rect,
+        source_region: RectU16,
         quality: ImageQuality,
         x_extend: Extend,
         y_extend: Extend,
@@ -362,7 +363,7 @@ impl Scene {
         let idx = self.encoded_paints.borrow().len();
         let encoded = EncodedExternalTexture {
             texture_id,
-            src,
+            source_region,
             sampler: ImageSampler {
                 x_extend,
                 y_extend,
@@ -556,19 +557,26 @@ impl Scene {
 
         if can_fast_path {
             for rect in rects {
-                if rect.src.width() <= 0.0 || rect.src.height() <= 0.0 {
+                if rect.source_region.is_empty() {
                     continue;
                 }
 
+                let w = f64::from(rect.source_region.width());
+                let h = f64::from(rect.source_region.height());
                 let transform = self.render_state.transform * rect.transform;
 
                 if !is_axis_aligned(&transform) {
                     // Non-axis-aligned rects fall back to the strip path (still
                     // in the fast buffer since we checked the global conditions).
                     let paint = self.encode_external_texture_paint(
-                        texture_id, rect.src, quality, x_extend, y_extend, transform,
+                        texture_id,
+                        rect.source_region,
+                        quality,
+                        x_extend,
+                        y_extend,
+                        transform,
                     );
-                    let dst_rect = Rect::new(0.0, 0.0, rect.src.width(), rect.src.height());
+                    let dst_rect = Rect::new(0., 0., w, h);
                     self.fill_path_with(
                         &dst_rect.to_path(DEFAULT_TOLERANCE),
                         transform,
@@ -579,7 +587,7 @@ impl Scene {
                     continue;
                 }
 
-                let dst_rect = Rect::new(0.0, 0.0, rect.src.width(), rect.src.height());
+                let dst_rect = Rect::new(0., 0., w, h);
                 let transformed_rect = transform.transform_rect_bbox(dst_rect);
 
                 let x0 = transformed_rect.x0.max(0.).min(f64::from(self.width));
@@ -593,7 +601,12 @@ impl Scene {
                 }
 
                 let paint = self.encode_external_texture_paint(
-                    texture_id, rect.src, quality, x_extend, y_extend, transform,
+                    texture_id,
+                    rect.source_region,
+                    quality,
+                    x_extend,
+                    y_extend,
+                    transform,
                 );
 
                 self.fast_strips_buffer
@@ -609,15 +622,22 @@ impl Scene {
         } else {
             self.with_optional_filter(|ctx| {
                 for rect in rects {
-                    if rect.src.width() <= 0.0 || rect.src.height() <= 0.0 {
+                    if rect.source_region.is_empty() {
                         continue;
                     }
 
+                    let w = f64::from(rect.source_region.width());
+                    let h = f64::from(rect.source_region.height());
                     let transform = ctx.render_state.transform * rect.transform;
                     let paint = ctx.encode_external_texture_paint(
-                        texture_id, rect.src, quality, x_extend, y_extend, transform,
+                        texture_id,
+                        rect.source_region,
+                        quality,
+                        x_extend,
+                        y_extend,
+                        transform,
                     );
-                    let dst_rect = Rect::new(0.0, 0.0, rect.src.width(), rect.src.height());
+                    let dst_rect = Rect::new(0., 0., w, h);
                     ctx.fill_path_with(
                         &dst_rect.to_path(DEFAULT_TOLERANCE),
                         transform,
