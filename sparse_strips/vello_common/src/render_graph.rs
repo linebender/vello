@@ -611,6 +611,6 @@ mod tests {
     }
 
     fn dummy_bbox() -> WideTilesBbox {
-        WideTilesBbox::new([0, 0, 0, 0])
+        WideTilesBbox::ZERO
     }
 }
