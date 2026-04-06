@@ -237,7 +237,7 @@ pub(crate) enum StripPassRenderTarget {
     SlotTexture(u8),
 }
 
-/// Specificies a run of strips inside [`Draw`] that can be drawn with the same external texture
+/// Specifies a run of strips inside [`Draw`] that can be drawn with the same external texture
 /// binding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ExternalTextureRun {
