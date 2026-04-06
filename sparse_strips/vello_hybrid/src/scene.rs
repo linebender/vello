@@ -5,6 +5,7 @@
 
 #[cfg(feature = "text")]
 use crate::Resources;
+use crate::sampling::SampleRect;
 #[cfg(feature = "text")]
 use crate::text::GlyphRunBuilder;
 use alloc::vec;
@@ -26,7 +27,7 @@ use vello_common::paint::{Paint, PaintType, Tint};
 use vello_common::peniko::FontData;
 use vello_common::peniko::{BlendMode, Compose, Extend, Fill, ImageQuality, ImageSampler, Mix};
 use vello_common::recording::{
-    PushLayerCommand, Recordable, Recorder, Recording, RenderCommand, RenderState, TextureRect,
+    PushLayerCommand, Recordable, Recorder, Recording, RenderCommand, RenderState,
 };
 use vello_common::render_graph::{RenderGraph, RenderNodeKind};
 use vello_common::strip::Strip;
@@ -526,7 +527,7 @@ impl Scene {
     ///
     /// The per-rect transforms are composed with the current
     /// [scene transform][`Self::set_transform`]. This transform is relative to the local region
-    /// defined by each [`TextureRect`]: i.e., the origin of each [`TextureRect`] is used only to
+    /// defined by each [`SampleRect`]: i.e., the origin of each [`SampleRect`] is used only to
     /// determine the region to sample in the source [`TextureId`], and is ignored for determining
     /// the destination.
     #[expect(
@@ -537,7 +538,7 @@ impl Scene {
         &mut self,
         texture_id: TextureId,
         quality: ImageQuality,
-        rects: impl IntoIterator<Item = TextureRect>,
+        rects: impl IntoIterator<Item = SampleRect>,
     ) {
         // This API currently doesn't take extend mode parameters: as of writing, the
         // `render_strips.wgsl` shader does not use extend modes to sample across boundaries, i.e.,
