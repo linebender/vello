@@ -109,7 +109,7 @@ export_scenes!(
     fn mmark(crate::mmark::MMark::new(80_000), "mmark", false)
     fn many_draw_objects(many_draw_objects)
     fn blurred_rounded_rect(blurred_rounded_rect)
-    fn image_sampling(image_sampling)
+    fn image_sampling(impls::image_sampling(), "image_sampling", false)
     fn image_extend_modes_bilinear(impls::image_extend_modes(ImageQuality::Medium), "image_extend_modes (bilinear)", false)
     fn image_extend_modes_nearest_neighbor(impls::image_extend_modes(ImageQuality::Low), "image_extend_modes (nearest neighbor)", false)
     fn luminance_mask(luminance_mask)
@@ -134,6 +134,28 @@ mod impls {
     use vello::*;
 
     const FLOWER_IMAGE: &[u8] = include_bytes!("../../assets/splash-flower.jpg");
+
+    fn sample_image_data() -> ImageData {
+        let mut blob: Vec<u8> = Vec::new();
+        [
+            palette::css::RED,
+            palette::css::BLUE,
+            palette::css::CYAN,
+            palette::css::MAGENTA,
+        ]
+        .iter()
+        .for_each(|c| {
+            blob.extend(c.to_rgba8().to_u8_array());
+        });
+        let data = Blob::new(Arc::new(blob));
+        ImageData {
+            data,
+            format: ImageFormat::Rgba8,
+            width: 2,
+            height: 2,
+            alpha_type: ImageAlphaType::Alpha,
+        }
+    }
 
     pub(super) fn emoji(scene: &mut Scene, params: &mut SceneParams<'_>) {
         let text_size = 120. + 20. * (params.time * 2.).sin() as f32;
@@ -1914,84 +1936,49 @@ mod impls {
         );
     }
 
-    pub(super) fn image_sampling(scene: &mut Scene, params: &mut SceneParams<'_>) {
-        params.resolution = Some(Vec2::new(1100., 1100.));
-        params.base_color = Some(palette::css::WHITE);
-        let mut blob: Vec<u8> = Vec::new();
-        [
-            palette::css::RED,
-            palette::css::BLUE,
-            palette::css::CYAN,
-            palette::css::MAGENTA,
-        ]
-        .iter()
-        .for_each(|c| {
-            blob.extend(c.to_rgba8().to_u8_array());
-        });
-        let data = Blob::new(Arc::new(blob));
-        let image = ImageData {
-            data,
-            format: ImageFormat::Rgba8,
-            width: 2,
-            height: 2,
-            alpha_type: ImageAlphaType::Alpha,
-        };
+    pub(super) fn image_sampling() -> impl FnMut(&mut Scene, &mut SceneParams<'_>) {
+        let image = sample_image_data();
+        move |scene, params| {
+            params.resolution = Some(Vec2::new(1100., 1100.));
+            params.base_color = Some(palette::css::WHITE);
 
-        scene.draw_image(
-            &image,
-            Affine::scale(200.).then_translate((100., 100.).into()),
-        );
-        scene.draw_image(
-            &image,
-            Affine::translate((-1., -1.))
-                // 45° rotation
-                .then_rotate(PI / 4.)
-                .then_translate((1., 1.).into())
-                // So the major axis is sqrt(2.) larger
-                .then_scale(200. * FRAC_1_SQRT_2)
-                .then_translate((100., 600.0).into()),
-        );
-        scene.draw_image(
-            &image,
-            Affine::scale_non_uniform(100., 200.).then_translate((600.0, 100.0).into()),
-        );
-        scene.draw_image(
-            &image,
-            Affine::skew(0.1, 0.25)
-                .then_scale(200.0)
-                .then_translate((600.0, 600.0).into()),
-        );
+            scene.draw_image(
+                &image,
+                Affine::scale(200.).then_translate((100., 100.).into()),
+            );
+            scene.draw_image(
+                &image,
+                Affine::translate((-1., -1.))
+                    // 45° rotation
+                    .then_rotate(PI / 4.)
+                    .then_translate((1., 1.).into())
+                    // So the major axis is sqrt(2.) larger
+                    .then_scale(200. * FRAC_1_SQRT_2)
+                    .then_translate((100., 600.0).into()),
+            );
+            scene.draw_image(
+                &image,
+                Affine::scale_non_uniform(100., 200.).then_translate((600.0, 100.0).into()),
+            );
+            scene.draw_image(
+                &image,
+                Affine::skew(0.1, 0.25)
+                    .then_scale(200.0)
+                    .then_translate((600.0, 600.0).into()),
+            );
+        }
     }
 
     pub(super) fn image_extend_modes(
         quality: ImageQuality,
     ) -> impl FnMut(&mut Scene, &mut SceneParams<'_>) {
+        let image = ImageBrush::new(sample_image_data()).with_quality(quality);
         move |scene, params| {
             params.resolution = Some(Vec2::new(1500., 1500.));
             params.base_color = Some(palette::css::WHITE);
-            let mut blob: Vec<u8> = Vec::new();
-            [
-                palette::css::RED,
-                palette::css::BLUE,
-                palette::css::CYAN,
-                palette::css::MAGENTA,
-            ]
-            .iter()
-            .for_each(|c| {
-                blob.extend(c.to_rgba8().to_u8_array());
-            });
-            let data = Blob::new(Arc::new(blob));
-            let image = ImageBrush::new(ImageData {
-                data,
-                format: ImageFormat::Rgba8,
-                width: 2,
-                height: 2,
-                alpha_type: ImageAlphaType::Alpha,
-            })
-            .with_quality(quality);
             let brush_offset = Some(Affine::translate((2., 2.)));
             // Pad extend mode
-            let image = image.with_extend(Extend::Pad);
+            let image = image.clone().with_extend(Extend::Pad);
             scene.fill(
                 Fill::NonZero,
                 Affine::scale(100.).then_translate((100., 100.).into()),
