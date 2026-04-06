@@ -17,10 +17,14 @@
 // Paint texture id locates the encoded image data `EncodedImage` in `encoded_paints_texture`
 // More details in the `StripInstance` documentation below.
 //
-// `StripInstance::payload` field can either encode a color, [x, y] for image sampling or a slot index
+// `StripInstance::payload` field can either encode a color, [x, y] scene coordinates or a slot index.
 // - If color source is payload and the paint type is solid, the fragment shader uses the color directly.
-// - If color source is payload and the paint type is image, the fragment shader samples the image.
-// - Otherwise, the fragment shader samples the source clip texture using the given slot index.
+// - If color source is payload and the paint type is image, the vertex shader consumes the scene
+//   coordinates to compute sample_xy, then overwrites VertexOutput::payload with packed_tint for
+//   the fragment shader.
+// - If color source is payload and the paint type is a gradient, the vertex shader consumes the
+//   scene coordinates to compute sample_xy.
+// - Otherwise, the fragment shader uses the payload as a slot index.
 // More details in the `StripInstance` documentation below.
 
 
@@ -170,7 +174,8 @@ struct Config {
 // │   └── payload = [r, g, b, a] RGBA (packed as u8s)
 // │
 // ├── paint_type = 1 (PAINT_TYPE_IMAGE) - Image rendering
-// │   └── payload = packed image parameters
+// │   └── payload = [x, y] scene coordinates (packed as u16s, consumed by vertex shader)
+// │       (vertex overwrites VertexOutput::payload with packed_tint for fragment shader)
 // │
 // ├── paint_type = 2 (PAINT_TYPE_LINEAR_GRADIENT) - Linear gradient rendering
 // ├── paint_type = 3 (PAINT_TYPE_RADIAL_GRADIENT) - Radial gradient (with kind discriminator)
@@ -224,7 +229,7 @@ struct VertexOutput {
     // For normal strips: ending x-position of the dense (alpha) region.
     // For rect strips: packed dimensions (width | height << 16).
     @location(3) @interpolate(flat) dense_end_or_rect_size: u32,
-    // Color value or slot index when alpha is 0
+    // Color value, packed_tint (for IMAGE), or slot index.
     @location(4) @interpolate(flat) payload: u32,
     // Packed fractional edge offsets for rectangles.
     // Bits 0-7: x0, 8-15: y0, 16-23: x1, 24-31: y1.
@@ -234,6 +239,12 @@ struct VertexOutput {
     // xy = uv_min, zw = uv_max (prevents atlas bleeding at image boundaries).
     // Only meaningful for PAINT_TYPE_IMAGE with IMAGE_QUALITY_MEDIUM.
     @location(6) @interpolate(flat) uv_bounds: vec4<f32>,
+    // Forwarded image data (avoids redundant textureLoad in the fragment shader).
+    // x = (offset.x << 16) | offset.y,
+    // y = (size.x << 16) | size.y,
+    // z = atlas_index[0:7] | extend_x[8:9] | extend_y[10:11] | tint_mode[12].
+    // For IMAGE, packed_tint is forwarded via `payload` (unused by IMAGE fragments).
+    @location(7) @interpolate(flat) image_data: vec3<u32>,
     // Normalized device coordinates (NDC) for the current vertex
     @builtin(position) position: vec4<f32>,
 };
@@ -289,6 +300,9 @@ fn vs_main(
     let ndc_x = pix_x * 2.0 / f32(config.width) - 1.0;
     let ndc_y = 1.0 - pix_y * 2.0 / f32(config.height);
 
+    out.payload = instance.payload;
+    out.paint_and_rect_flag = instance.paint_and_rect_flag;
+
     let color_source = (instance.paint_and_rect_flag >> 29u) & 0x3u;
     if color_source == COLOR_SOURCE_PAYLOAD {
         let paint_type = (instance.paint_and_rect_flag >> 26u) & 0x7u;
@@ -306,6 +320,16 @@ fn vs_main(
             let uv_min = (encoded_image.image_offset + 0.5) * inv_atlas_dim;
             let uv_max = (encoded_image.image_offset + encoded_image.image_size - 0.5) * inv_atlas_dim;
             out.uv_bounds = vec4(uv_min, uv_max);
+            out.image_data = vec3<u32>(
+                (u32(encoded_image.image_offset.x) << 16u) | u32(encoded_image.image_offset.y),
+                (u32(encoded_image.image_size.x) << 16u) | u32(encoded_image.image_size.y),
+                encoded_image.atlas_index
+                    | (encoded_image.extend_modes.x << 8u)
+                    | (encoded_image.extend_modes.y << 10u)
+                    | (encoded_image.tint_mode << 12u)
+            );
+            // Reuse payload (not read by IMAGE fragments) to forward packed_tint.
+            out.payload = encoded_image.packed_tint;
         } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT || paint_type == PAINT_TYPE_RADIAL_GRADIENT || paint_type == PAINT_TYPE_SWEEP_GRADIENT {
             // Use view coordinates for gradient transform (always in global view space)
             out.sample_xy = vec2<f32>(
@@ -319,8 +343,6 @@ fn vs_main(
     out.tex_coord = vec2<f32>(col_offset + x * f32(width), y * f32(height));
 
     out.position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
-    out.payload = instance.payload;
-    out.paint_and_rect_flag = instance.paint_and_rect_flag;
 
     return out;
 }
@@ -384,22 +406,25 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if color_source == COLOR_SOURCE_PAYLOAD {
         let paint_type = (in.paint_and_rect_flag >> 26u) & 0x7u;
 
-        // in.payload encodes a color for PAINT_TYPE_SOLID or sample_xy for PAINT_TYPE_IMAGE
+        // in.payload encodes a color for PAINT_TYPE_SOLID, or packed_tint for PAINT_TYPE_IMAGE.
         if paint_type == PAINT_TYPE_SOLID {
             return alpha * unpack4x8unorm(in.payload);
         } else if paint_type == PAINT_TYPE_IMAGE {
-            let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
-            let encoded_image = unpack_encoded_image(paint_tex_idx);
-            let image_offset = encoded_image.image_offset;
-            let image_size = encoded_image.image_size;
+            let image_offset = vec2<f32>(f32(in.image_data.x >> 16u), f32(in.image_data.x & 0xFFFFu));
+            let image_size = vec2<f32>(f32(in.image_data.y >> 16u), f32(in.image_data.y & 0xFFFFu));
+            let atlas_index = in.image_data.z & 0xFFu;
+            let extend_x = (in.image_data.z >> 8u) & 0x3u;
+            let extend_y = (in.image_data.z >> 10u) & 0x3u;
+            let tint_mode = (in.image_data.z >> 12u) & 0x1u;
+
             let local_xy = in.sample_xy - image_offset;
             // This offset doesn't exist in vello_cpu, and we use it because 45 degree skewing seems to cause
             // artifacts on the GPU. We have something similar in place for gradients. It might be worth revisiting
             // this to see whether a better approach is possible.
             let offset = 0.00001;
             let extended_xy = vec2<f32>(
-                extend_mode(local_xy.x + offset, encoded_image.extend_modes.x, image_size.x),
-                extend_mode(local_xy.y + offset, encoded_image.extend_modes.y, image_size.y)
+                extend_mode(local_xy.x + offset, extend_x, image_size.x),
+                extend_mode(local_xy.y + offset, extend_y, image_size.y)
             );
 
             // TODO: add a fast path for images where we are using bilinear sampling and want transparent pixels,
@@ -411,31 +436,32 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             //    sample_color = bicubic_sample(
             //        atlas_texture_array,
             //        final_xy,
-            //        i32(encoded_image.atlas_index),
+            //        i32(atlas_index),
             //        image_offset,
             //        image_size,
-            //        encoded_image.extend_modes,
-            //        encoded_image.image_padding,
+            //        vec2<u32>(extend_x, extend_y),
+            //        image_padding,
             //    );
             //} else if encoded_image.quality == IMAGE_QUALITY_MEDIUM {
-                let final_xy = image_offset + extended_xy;
-                let inv_atlas_dim = 1.0 / f32(1u << config.atlas_dim_bits);
-                let uv = clamp(final_xy * inv_atlas_dim, in.uv_bounds.xy, in.uv_bounds.zw);
-                let sample_color = textureSample(atlas_texture_array, atlas_sampler, uv, i32(encoded_image.atlas_index));
+            let final_xy = image_offset + extended_xy;
+            let inv_atlas_dim = 1.0 / f32(1u << config.atlas_dim_bits);
+            let uv = clamp(final_xy * inv_atlas_dim, in.uv_bounds.xy, in.uv_bounds.zw);
+            let sample_color = textureSample(atlas_texture_array, atlas_sampler, uv, i32(atlas_index));
             //} else {
             //    let final_xy = image_offset + extended_xy;
             //    sample_color = textureLoad(
             //        atlas_texture_array,
             //        vec2<u32>(final_xy),
-            //        i32(encoded_image.atlas_index),
+            //        i32(atlas_index),
             //        0,
             //    );
             //}
 
-            let is_multiply = bool(encoded_image.tint_mode);
+            let tint = select(vec4<f32>(1.0), unpack4x8unorm(in.payload), in.payload != 0u);
+            let is_multiply = bool(tint_mode);
             return alpha * select(
-                encoded_image.tint * sample_color.a,
-                sample_color * encoded_image.tint,
+                tint * sample_color.a,
+                sample_color * tint,
                 is_multiply
             );
         } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT {
@@ -840,8 +866,8 @@ struct EncodedImage {
     transform: mat2x2<f32>,
     /// Translation part of the affine transform [tx, ty].
     translate: vec2<f32>,
-    /// Premultiplied tint color. Identity (vec4(1.0)) when no tint is set.
-    tint: vec4<f32>,
+    /// Raw packed tint color (4×8 unorm). Zero means no tint (identity).
+    packed_tint: u32,
     /// Tint mode: TINT_MODE_ALPHA_MASK (`0`) or TINT_MODE_MULTIPLY (`1`).
     tint_mode: u32,
     /// Number of transparent padding pixels around the image in the atlas.
@@ -875,10 +901,9 @@ fn unpack_encoded_image(paint_tex_idx: u32) -> EncodedImage {
         vec2<f32>(bitcast<f32>(texel1.y), bitcast<f32>(texel1.z))
     );
     let translate = vec2<f32>(bitcast<f32>(texel1.w), bitcast<f32>(texel2.x));
-    // When packed_tint is zero (no tint), use identity color vec4(1.0) with
-    // Multiply mode so the math reduces to sample_color * 1.0 = sample_color.
     let packed_tint = texel2.y;
-    let tint = select(vec4<f32>(1.0), unpack4x8unorm(packed_tint), packed_tint != 0u);
+    // When packed_tint is zero (no tint), force Multiply mode so the
+    // identity tint vec4(1.0) reduces to sample_color * 1.0 = sample_color.
     let tint_mode = select(TINT_MODE_MULTIPLY, texel2.z, packed_tint != 0u);
     let image_padding = f32(texel2.w);
 
@@ -890,7 +915,7 @@ fn unpack_encoded_image(paint_tex_idx: u32) -> EncodedImage {
         atlas_index,
         transform,
         translate,
-        tint,
+        packed_tint,
         tint_mode,
         image_padding
     );
