@@ -352,6 +352,7 @@ impl Scene {
         }
     }
 
+    /// Encode the current external texture into a [`Paint`] that can be used for rendering.
     fn encode_external_texture_paint(
         &mut self,
         texture_id: TextureId,
