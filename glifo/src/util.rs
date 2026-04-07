@@ -91,6 +91,8 @@ mod tests {
     fn detects_positive_uniform_scale_without_skew() {
         let transform = Affine::scale(2.0);
 
+        assert!(!transform.has_skew());
+        assert!(!transform.has_vertical_skew());
         assert!(transform.is_positive_uniform_scale_without_skew());
         assert!(transform.is_positive_uniform_scale_without_vertical_skew());
     }
