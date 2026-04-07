@@ -35,7 +35,7 @@ use crate::{
     },
     scene::Scene,
     schedule::{
-        LoadOp, OutputTarget, RendererBackend, Scheduler, SchedulerState, StripPassRenderTarget,
+        LoadOp, RendererBackend, RootRenderTarget, Scheduler, SchedulerState, StripPassRenderTarget,
     },
 };
 use alloc::vec::Vec;
@@ -99,10 +99,9 @@ pub struct Renderer {
     filter_context: FilterContext,
     /// State used for constructing filter passes.
     filter_pass_state: FilterPassState,
+    dummy_image_cache: Option<ImageCache>,
     #[cfg(feature = "text")]
     atlas_clear_scratch: Vec<u8>,
-    #[cfg(feature = "text")]
-    dummy_image_cache: Option<ImageCache>,
 }
 
 impl Renderer {
@@ -144,10 +143,9 @@ impl Renderer {
             paint_idxs: Vec::new(),
             filter_context,
             filter_pass_state: FilterPassState::default(),
+            dummy_image_cache: Some(ImageCache::new_dummy()),
             #[cfg(feature = "text")]
             atlas_clear_scratch: Vec::new(),
-            #[cfg(feature = "text")]
-            dummy_image_cache: Some(ImageCache::new_dummy()),
         }
     }
 
@@ -272,7 +270,7 @@ impl Renderer {
             &resources.image_cache,
             &encoded_paints,
             false,
-            false,
+            RootRenderTarget::UserSurface,
         );
 
         encoded_paints.truncate(scene_paint_count);
@@ -348,10 +346,6 @@ impl Renderer {
             &mut self.programs.resources.stub_atlas_bind_group,
         );
 
-        // TODO: The atlas is always RGBA8; when the surface uses a different format (e.g. BGRA on
-        // macOS), we may need a dedicated RGBA8 render pipeline for atlas rendering. Adopt the
-        // fix from the filters/native-format pipeline work when available.
-
         let encoded_paints = scene.encoded_paints.borrow();
         let dummy_image_cache = self
             .dummy_image_cache
@@ -367,7 +361,7 @@ impl Renderer {
             &dummy_image_cache,
             &encoded_paints,
             false,
-            true,
+            RootRenderTarget::AtlasLayer,
         );
         self.dummy_image_cache = Some(dummy_image_cache);
 
@@ -400,7 +394,7 @@ impl Renderer {
         image_cache: &ImageCache,
         encoded_paints: &[EncodedPaint],
         clear: bool,
-        use_rgba_strip_pipeline: bool,
+        root_output_target: RootRenderTarget,
     ) -> Result<(), RenderError> {
         self.prepare_gpu_encoded_paints(encoded_paints, image_cache);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
@@ -429,12 +423,12 @@ impl Renderer {
             image_cache,
             filter_context: &self.filter_context,
             filter_pass_state: &mut self.filter_pass_state,
-            use_rgba_strip_pipeline,
         };
         self.scheduler.do_scene(
             &mut self.scheduler_state,
             &mut ctx,
             scene,
+            root_output_target,
             &self.paint_idxs,
             &self.filter_context,
             encoded_paints,
@@ -2316,7 +2310,6 @@ struct RendererContext<'a> {
     image_cache: &'a ImageCache,
     filter_context: &'a FilterContext,
     filter_pass_state: &'a mut FilterPassState,
-    use_rgba_strip_pipeline: bool,
 }
 
 impl RendererContext<'_> {
@@ -2347,13 +2340,12 @@ impl RendererContext<'_> {
                 }
             }
         }
-
         let (view, bind_group): (&TextureView, MaybeOwned<'_, BindGroup>) = match target {
-            StripPassRenderTarget::Output(OutputTarget::FinalView) => (
+            StripPassRenderTarget::Root(_) => (
                 self.view,
                 MaybeOwned::Borrowed(&self.programs.resources.slot_bind_groups[2]),
             ),
-            StripPassRenderTarget::Output(OutputTarget::IntermediateTexture(layer_id)) => {
+            StripPassRenderTarget::FilterLayer(layer_id) => {
                 let image_id = self
                     .filter_context
                     .filter_textures
@@ -2433,10 +2425,7 @@ impl RendererContext<'_> {
                     ],
                 });
 
-                (
-                    &filter_atlas.views[atlas_idx],
-                    MaybeOwned::Owned(bind_group),
-                )
+                (&filter_atlas.views[atlas_idx], MaybeOwned::Owned(bind_group))
             }
             StripPassRenderTarget::SlotTexture(idx) => (
                 &self.programs.resources.slot_texture_views[idx as usize],
@@ -2444,11 +2433,11 @@ impl RendererContext<'_> {
             ),
         };
 
-        let pipeline_idx = if self.use_rgba_strip_pipeline
-            || matches!(
-                target,
-                StripPassRenderTarget::Output(OutputTarget::IntermediateTexture(_))
-            ) {
+        let pipeline_idx = if matches!(
+            target,
+            StripPassRenderTarget::Root(RootRenderTarget::AtlasLayer)
+                | StripPassRenderTarget::FilterLayer(_)
+        ) {
             1
         } else {
             0

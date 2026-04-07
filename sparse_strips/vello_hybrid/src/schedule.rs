@@ -214,22 +214,21 @@ const RECT_STRIP_FLAG: u32 = 1 << 31;
 // The sentinel tile index representing the surface.
 const SENTINEL_SLOT_IDX: usize = usize::MAX;
 
-/// The output target for the main rendering operations within a round.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum OutputTarget {
-    /// Render to the final, user-provided output view/surface.
-    FinalView,
-    // TODO: This should also be used in the `render_to_atlas` method so that it works
-    // on devices with no native RGBA8.
-    /// Render to the intermediate texture associated with the given filter layer.
-    IntermediateTexture(LayerId),
+pub(crate) enum RootRenderTarget {
+    /// The root render target is the user-provided surface.
+    UserSurface,
+    /// The root render target is an atlas layer.
+    AtlasLayer,
 }
 
 /// Specifies the target for a strip render pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StripPassRenderTarget {
-    /// Render to the current output target.
-    Output(OutputTarget),
+    /// Render to the root output target passed to the current `render_scene` call.
+    Root(RootRenderTarget),
+    /// Render to a layer in the filter atlas.
+    FilterLayer(LayerId),
     /// Render to one of the slot textures used for clipping/blending.
     SlotTexture(u8),
 }
@@ -277,7 +276,7 @@ pub(crate) struct Scheduler {
     /// the number of allocations.
     round_pool: RoundPool,
     /// The output target for the main rendering operations.
-    output_target: OutputTarget,
+    output_target: StripPassRenderTarget,
 }
 
 #[derive(Debug, Default)]
@@ -461,7 +460,7 @@ impl Scheduler {
             free,
             rounds_queue: VecDeque::new(),
             round_pool: RoundPool::default(),
-            output_target: OutputTarget::FinalView,
+            output_target: StripPassRenderTarget::Root(RootRenderTarget::UserSurface),
         }
     }
 
@@ -501,6 +500,7 @@ impl Scheduler {
         state: &mut SchedulerState,
         renderer: &mut R,
         scene: &Scene,
+        root_output_target: RootRenderTarget,
         paint_idxs: &[u32],
         filter_context: &FilterContext,
         encoded_paints: &[EncodedPaint],
@@ -518,7 +518,7 @@ impl Scheduler {
                     wtile_bbox,
                     ..
                 } => {
-                    self.output_target = OutputTarget::IntermediateTexture(*layer_id);
+                    self.output_target = StripPassRenderTarget::FilterLayer(*layer_id);
                     self.process_filter_node(
                         state,
                         renderer,
@@ -531,7 +531,7 @@ impl Scheduler {
                     )?;
                 }
                 RenderNodeKind::RootLayer { .. } => {
-                    self.output_target = OutputTarget::FinalView;
+                    self.output_target = StripPassRenderTarget::Root(root_output_target);
                     self.process_root_node(
                         state,
                         renderer,
@@ -549,7 +549,7 @@ impl Scheduler {
 
             // This will actually apply the filter and store the filtered texture in the image
             // atlas
-            if let OutputTarget::IntermediateTexture(layer_id) = self.output_target {
+            if let StripPassRenderTarget::FilterLayer(layer_id) = self.output_target {
                 renderer.apply_filter(layer_id);
             }
         }
@@ -881,7 +881,7 @@ impl Scheduler {
                 }
             }
             let target = if i == 2 {
-                StripPassRenderTarget::Output(self.output_target)
+                self.output_target
             } else {
                 StripPassRenderTarget::SlotTexture(i as u8)
             };

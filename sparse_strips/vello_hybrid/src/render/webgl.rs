@@ -37,7 +37,7 @@ use crate::{
     },
     scene::Scene,
     schedule::{
-        LoadOp, OutputTarget, RendererBackend, Scheduler, SchedulerState, StripPassRenderTarget,
+        LoadOp, RendererBackend, RootRenderTarget, Scheduler, SchedulerState, StripPassRenderTarget,
     },
 };
 use alloc::sync::Arc;
@@ -101,7 +101,6 @@ pub struct WebGlRenderer {
     filter_context: FilterContext,
     /// State used for constructing filter passes.
     filter_pass_state: FilterPassState,
-    #[cfg(feature = "text")]
     dummy_image_cache: Option<ImageCache>,
 }
 
@@ -171,7 +170,6 @@ impl WebGlRenderer {
             gradient_cache,
             filter_context,
             filter_pass_state: FilterPassState::default(),
-            #[cfg(feature = "text")]
             dummy_image_cache: Some(ImageCache::new_dummy()),
         }
     }
@@ -214,7 +212,13 @@ impl WebGlRenderer {
             );
         }
 
-        self.render_scene(scene, &mut resources.image_cache, render_size, true)?;
+        self.render_scene(
+            scene,
+            &mut resources.image_cache,
+            render_size,
+            true,
+            RootRenderTarget::UserSurface,
+        )?;
 
         #[cfg(feature = "text")]
         {
@@ -344,7 +348,7 @@ impl WebGlRenderer {
             &mut self.programs.resources.atlas_texture_array,
             &mut self.programs.resources.stub_atlas_texture_array,
         );
-
+        
         let mut dummy_image_cache = self
             .dummy_image_cache
             .take()
@@ -354,6 +358,7 @@ impl WebGlRenderer {
             &mut dummy_image_cache,
             &atlas_render_size,
             false,
+            RootRenderTarget::AtlasLayer,
         );
         self.dummy_image_cache = Some(dummy_image_cache);
 
@@ -386,6 +391,7 @@ impl WebGlRenderer {
         image_cache: &mut ImageCache,
         render_size: &RenderSize,
         clear: bool,
+        root_output_target: RootRenderTarget,
     ) -> Result<(), RenderError> {
         if !self.filter_context.filter_textures.is_empty() {
             self.programs.clear_filter_atlas_textures(&self.gl);
@@ -436,6 +442,7 @@ impl WebGlRenderer {
             &mut self.scheduler_state,
             &mut ctx,
             scene,
+            root_output_target,
             &self.paint_idxs,
             &self.filter_context,
             &encoded_paints,
@@ -734,6 +741,8 @@ fn clear_atlas_regions(
     renderer: &mut WebGlRenderer,
     rects: impl Iterator<Item = PendingClearRect>,
 ) {
+    // TODO: Similarly to wgpu, maybe this can be done in a more effective
+    // way?
     for rect in rects {
         let padding = u32::from(GLYPH_PADDING);
         let offset = [
@@ -2182,7 +2191,7 @@ impl WebGlRendererContext<'_> {
         self.programs.upload_strips(self.gl, strips);
 
         match &target {
-            StripPassRenderTarget::Output(OutputTarget::IntermediateTexture(layer_id)) => {
+            StripPassRenderTarget::FilterLayer(layer_id) => {
                 let image_id = self
                     .filter_context
                     .filter_textures
@@ -2244,7 +2253,7 @@ impl WebGlRendererContext<'_> {
                     Some(buf),
                 );
             }
-            StripPassRenderTarget::Output(OutputTarget::FinalView) => {
+            StripPassRenderTarget::Root(_) => {
                 self.gl.bind_framebuffer(
                     WebGl2RenderingContext::FRAMEBUFFER,
                     Some(&self.programs.resources.view_framebuffer),
