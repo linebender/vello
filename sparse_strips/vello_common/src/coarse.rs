@@ -1360,6 +1360,8 @@ pub struct WideTile<const MODE: u8 = MODE_CPU> {
     ///
     /// Only used in `HYBRID` mode.
     push_buf_indices: Vec<usize>,
+    /// Whether at least one filter layer has been pushed on this tile.
+    had_filter_layer: bool,
     /// Indicates whether the main target surface is used as a blend target for a non
     /// src-over blending operation.
     ///
@@ -1405,6 +1407,7 @@ impl<const MODE: u8> WideTile<MODE> {
             n_clip: 0,
             n_bufs: 0,
             in_clipped_filter_layer: false,
+            had_filter_layer: false,
             layer_cmd_ranges,
             layer_ids: vec![LayerKind::Regular(0)],
             push_buf_indices: vec![TARGET_SURFACE_PUSH_BUF_IDX],
@@ -1421,6 +1424,7 @@ impl<const MODE: u8> WideTile<MODE> {
         self.n_clip = 0;
         self.n_bufs = 0;
         self.in_clipped_filter_layer = false;
+        self.had_filter_layer = false;
         self.layer_ids.truncate(1);
         self.layer_cmd_ranges.clear();
         self.layer_cmd_ranges
@@ -1520,8 +1524,14 @@ impl<const MODE: u8> WideTile<MODE> {
             // However, the extra cost of tracking such optimizations may outweigh the
             // benefit, especially in hybrid mode with GPU painting.
 
-            let can_override =
-                x == 0 && width == WideTile::WIDTH && self.n_clip == 0 && self.n_bufs == 0;
+            let can_override = x == 0
+                && width == WideTile::WIDTH
+                && self.n_clip == 0
+                && self.n_bufs == 0
+                // TODO: Relax this condition to only trigger for filter graphs that contain at
+                // least 1 primitive filter that has non-local effects (see
+                // https://github.com/linebender/vello/pull/1526#discussion_r3007377869)
+                && !self.had_filter_layer;
 
             if can_override {
                 match fill_hint {
@@ -1760,6 +1770,7 @@ impl<const MODE: u8> WideTile<MODE> {
 
     /// Apply a filter effect to the whole buffer.
     pub fn filter(&mut self, layer_id: LayerId, filter: Filter) {
+        self.had_filter_layer = true;
         self.cmds.push(Cmd::Filter(layer_id, filter));
     }
 

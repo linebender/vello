@@ -12,7 +12,7 @@ use vello_api::peniko::kurbo::Point;
 use vello_api::peniko::{ColorStops, RadialGradientPosition};
 use vello_common::color::PremulRgba8;
 use vello_common::color::palette::css::{BLUE, DARK_BLUE, LIME, REBECCA_PURPLE};
-use vello_common::filter_effects::{Filter, FilterPrimitive};
+use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
 use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use vello_common::paint::Image;
 use vello_common::peniko::{
@@ -612,6 +612,23 @@ fn issue_1477(ctx: &mut impl Renderer) {
 
     ctx.set_paint(BLACK);
     ctx.fill_rect(&rect);
+}
+
+#[vello_test(skip_multithreaded, width = 768, height = 100, hybrid_tolerance = 3)]
+fn issue_1509(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 25.0,
+        edge_mode: EdgeMode::None,
+    });
+    let rect = Rect::new(100.0, 10.0, 668.0, 90.0);
+
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(ROYAL_BLUE);
+    ctx.fill_rect(&rect);
+    ctx.pop_layer();
+
+    ctx.set_paint(TOMATO);
+    ctx.fill_rect(&Rect::new(232.0, 30.0, 536.0, 70.0));
 }
 
 // This test exists because blending wouldn't properly preserve anti-aliasing in `vello_hybrid`.
