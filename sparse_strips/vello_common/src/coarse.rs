@@ -1528,6 +1528,9 @@ impl<const MODE: u8> WideTile<MODE> {
                 && width == WideTile::WIDTH
                 && self.n_clip == 0
                 && self.n_bufs == 0
+                // TODO: Relax this condition to only trigger for filter graphs that contain at
+                // least 1 primitive filter that has non-local effects (see
+                // https://github.com/linebender/vello/pull/1526#discussion_r3007377869)
                 && !self.had_filter_layer;
 
             if can_override {
