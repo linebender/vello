@@ -99,6 +99,8 @@ pub struct Renderer {
     filter_context: FilterContext,
     /// State used for constructing filter passes.
     filter_pass_state: FilterPassState,
+    #[cfg(feature = "text")]
+    atlas_clear_scratch: Vec<u8>,
 }
 
 impl Renderer {
@@ -140,6 +142,8 @@ impl Renderer {
             paint_idxs: Vec::new(),
             filter_context,
             filter_pass_state: FilterPassState::default(),
+            #[cfg(feature = "text")]
+            atlas_clear_scratch: Vec::new(),
         }
     }
 
@@ -270,7 +274,7 @@ impl Renderer {
         encoded_paints.truncate(scene_paint_count);
         #[cfg(feature = "text")]
         resources.process_pending_glyph_clears(self, |renderer, rects| {
-            clear_atlas_regions_wgpu(queue, renderer, rects.iter().cloned());
+            clear_atlas_regions(queue, renderer, rects.iter().cloned());
         });
         result
     }
@@ -778,20 +782,18 @@ impl Renderer {
 }
 
 #[cfg(feature = "text")]
-fn clear_atlas_regions_wgpu(
+fn clear_atlas_regions(
     queue: &Queue,
-    renderer: &Renderer,
+    renderer: &mut Renderer,
     rects: impl Iterator<Item = PendingClearRect>,
 ) {
-    let atlas_texture = renderer.atlas_texture();
-    let mut zeroed: Vec<u8> = Vec::new();
-
+    // TODO: Can we optimize this more?
     for rect in rects {
         let byte_count = rect.width as usize * rect.height as usize * 4;
-        zeroed.resize(byte_count, 0);
+        renderer.atlas_clear_scratch.resize(byte_count, 0);
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
-                texture: atlas_texture,
+                texture: renderer.atlas_texture(),
                 mip_level: 0,
                 origin: wgpu::Origin3d {
                     x: rect.x as u32,
@@ -800,7 +802,7 @@ fn clear_atlas_regions_wgpu(
                 },
                 aspect: wgpu::TextureAspect::All,
             },
-            &zeroed[..byte_count],
+            &renderer.atlas_clear_scratch[..byte_count],
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(rect.width as u32 * 4),
