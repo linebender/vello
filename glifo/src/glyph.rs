@@ -1252,7 +1252,7 @@ fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> Pr
         // we always absorb it, even if there is a skewing factor in the transform. This won't
         // automatically make them eligible for caching because any skewing factor is currently
         // rejected for caching, but it might make the code a bit more consistent.
-        if logical_transform.has_positive_uniform_scale() && !logical_transform.has_skew() {
+        if logical_transform.is_positive_uniform_scale_without_skew() {
             PreparedGlyphRunMode::AbsorbScaleUnhinted
         } else {
             PreparedGlyphRunMode::Direct
@@ -1268,8 +1268,7 @@ fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> Pr
         //
         // As the hinting is vertical-only, we can handle horizontal skew, but not vertical skew or
         // rotations.
-        if logical_transform.has_positive_uniform_scale() && !logical_transform.has_vertical_skew()
-        {
+        if logical_transform.is_positive_uniform_scale_without_vertical_skew() {
             PreparedGlyphRunMode::AbsorbScaleHinted
         } else {
             PreparedGlyphRunMode::Direct
