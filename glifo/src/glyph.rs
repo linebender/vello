@@ -1160,7 +1160,7 @@ struct PreparedGlyphRun<'a> {
     // The fact that we store `run_size` and `glyph_transform` here, as well
     // as having more transforms and an effective font size inside of the `draw_props` field is pretty
     // confusing, so here is a brief explanation:
-    // Basically, the reason why we need the first two fields here is that
+    // Basically, the reason why we need both `run_size` and `glyph_transform` here is that
     // we need to store some of the original metadata in scene space for certain functionality
     // (for example handling of underlines).
     /// The original run size supplied by the caller.
