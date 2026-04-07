@@ -1240,10 +1240,17 @@ fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> Pr
     let full_transform = run.transform * run.glyph_transform.unwrap_or(Affine::IDENTITY);
     let [_, _, t_c, t_d, t_e, t_f] = full_transform.as_coeffs();
 
+    /// The mode that should be used to handle transforms.
     #[derive(Clone, Copy, Debug)]
     enum PreparedGlyphRunMode {
+        /// No absorption has happened, the font size stays the same and the effective transform
+        /// is simply the concatenation of run transform and glyph transform.
+        ///
+        /// No hinting should be applied.
         Direct,
+        /// The scaling factor has been absorbed, and hinting should be applied.
         AbsorbScaleUnhinted,
+        /// The scaling factor has been absorbed, but not hinting should be applied.
         AbsorbScaleHinted,
     }
 
