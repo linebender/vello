@@ -215,7 +215,7 @@ impl WebGlRenderer {
         #[cfg(feature = "text")]
         {
             resources.process_pending_glyph_clears(self, |renderer, rects| {
-                clear_atlas_regions_webgl(renderer, rects.iter().cloned());
+                clear_atlas_regions(renderer, rects.iter().cloned());
             });
         }
 
@@ -717,7 +717,7 @@ impl WebGlRenderer {
 }
 
 #[cfg(feature = "text")]
-fn clear_atlas_regions_webgl(
+fn clear_atlas_regions(
     renderer: &mut WebGlRenderer,
     rects: impl Iterator<Item = PendingClearRect>,
 ) {
