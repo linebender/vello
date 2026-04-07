@@ -265,7 +265,6 @@ impl Resources {
                 .extend(glyph_resources.glyph_atlas.drain_pending_clear_rects());
         }
     }
-
 }
 
 // See this PR for a bit more context on why we have this.

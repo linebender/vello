@@ -52,10 +52,10 @@ fn atlas_page_image_id(page_index: u32) -> ImageId {
 pub(crate) struct GlyphAtlas {
     /// Shared cache data.
     pub(crate) inner: GlifoGlyphAtlas,
-    /// One `Pixmap` per atlas page, grown on demand. 
+    /// One `Pixmap` per atlas page, grown on demand.
     // It's a bit annoying to have this in an `Arc`, but it needs to be this way. During fine
     // rasterization, we need to be able to easily clone the atlas page so that it can be shared
-    // across multiple threads. However, we also need to be able to mutate the pixmap to 
+    // across multiple threads. However, we also need to be able to mutate the pixmap to
     // sync new glyphs. The way this is achieved is by calling `Arc::make_mut` when syncing
     // (at this point, the pixmap isn't shared anywhere else). Before fine rasterization, we
     // then share it with the image registry such that it can easily be fetched and cloned during

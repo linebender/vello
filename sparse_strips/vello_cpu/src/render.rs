@@ -8,9 +8,9 @@ use crate::dispatch::Dispatcher;
 #[cfg(feature = "text")]
 use crate::text::{GlyphAtlasResources, GlyphRunBuilder};
 #[cfg(feature = "text")]
-use glifo::atlas::{PendingBitmapUpload, PendingClearRect};
-#[cfg(feature = "text")]
 use glifo::GlyphPrepCache;
+#[cfg(feature = "text")]
+use glifo::atlas::{PendingBitmapUpload, PendingClearRect};
 
 #[cfg(feature = "multithreading")]
 use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
@@ -912,7 +912,10 @@ impl ImageRegistry {
     }
 
     pub(crate) fn register_atlas_page(&mut self, page_index: u32, pixmap: Arc<Pixmap>) {
-        self.images.insert(ImageId::new(ATLAS_IMAGE_ID_BASE + page_index).as_u32(), pixmap);
+        self.images.insert(
+            ImageId::new(ATLAS_IMAGE_ID_BASE + page_index).as_u32(),
+            pixmap,
+        );
     }
 
     pub(crate) fn destroy(&mut self, id: ImageId) -> bool {

@@ -22,8 +22,7 @@ only break in edge cases, and some of them are also only related to conversions 
 
 use crate::render::common::IMAGE_PADDING;
 use crate::{
-    Resources,
-    GpuStrip, RenderError, RenderSettings, RenderSize,
+    GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
     filter::{FilterContext, FilterInstanceData, FilterPassState, FilterPassTarget},
     gradient_cache::GradientRampCache,
     render::{
@@ -196,16 +195,17 @@ impl WebGlRenderer {
             resources.process_pending_glyph_work(
                 self,
                 |renderer, glyph_renderer, atlas_count, atlas_config, atlas_id| {
-                renderer.render_to_atlas(glyph_renderer, atlas_count, atlas_config, atlas_id)
-                    .expect("Failed to render glyphs to atlas");
+                    renderer
+                        .render_to_atlas(glyph_renderer, atlas_count, atlas_config, atlas_id)
+                        .expect("Failed to render glyphs to atlas");
                 },
                 |renderer, image_cache, upload, dst_x, dst_y| {
-                renderer.write_to_atlas(
-                    image_cache,
-                    upload.image_id,
-                    &upload.pixmap,
-                    Some([dst_x, dst_y]),
-                );
+                    renderer.write_to_atlas(
+                        image_cache,
+                        upload.image_id,
+                        &upload.pixmap,
+                        Some([dst_x, dst_y]),
+                    );
                 },
             );
         }
@@ -214,12 +214,9 @@ impl WebGlRenderer {
 
         #[cfg(feature = "text")]
         {
-            resources.process_pending_glyph_clears(
-                self,
-                |renderer, rects| {
-                    clear_atlas_regions_webgl(renderer, rects.iter().cloned());
-                },
-            );
+            resources.process_pending_glyph_clears(self, |renderer, rects| {
+                clear_atlas_regions_webgl(renderer, rects.iter().cloned());
+            });
         }
 
         // Blit the view framebuffer to the default framebuffer (canvas element), reflecting the

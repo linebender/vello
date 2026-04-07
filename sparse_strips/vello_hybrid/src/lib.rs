@@ -61,9 +61,9 @@ pub mod util;
 #[cfg(feature = "wgpu")]
 pub use render::{AtlasWriter, RenderTargetConfig, Renderer};
 pub use render::{Config, GpuStrip, RenderSize};
-pub use resources::Resources;
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 pub use render::{WebGlAtlasWriter, WebGlRenderer, WebGlTextureWithDimensions};
+pub use resources::Resources;
 pub use scene::{RenderSettings, Scene, SceneConstraints};
 #[cfg(feature = "text")]
 pub use text::{GlyphRunBuilder, HybridGlyphRunBackend};

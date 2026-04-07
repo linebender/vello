@@ -91,11 +91,7 @@ pub trait RenderingContext: Sized {
     /// Pop the last clip path.
     fn pop_clip_path(&mut self);
     /// Record rendering commands into a recording.
-    fn record(
-        &mut self,
-        recording: &mut Recording,
-        f: impl FnOnce(&mut Recorder<'_>),
-    );
+    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>));
     /// Generate sparse strips for a recording.
     fn prepare_recording(&mut self, recording: &mut Recording);
     /// Execute a recording directly without preparation.
@@ -186,11 +182,7 @@ impl RenderingContext for RenderContext {
         self.pop_layer();
     }
 
-    fn record(
-        &mut self,
-        recording: &mut Recording,
-        f: impl FnOnce(&mut Recorder<'_>),
-    ) {
+    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
         Recordable::record(self, recording, f);
     }
 
@@ -294,11 +286,7 @@ impl RenderingContext for Scene {
         self.pop_layer();
     }
 
-    fn record(
-        &mut self,
-        recording: &mut Recording,
-        f: impl FnOnce(&mut Recorder<'_>),
-    ) {
+    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
         Recordable::record(self, recording, f);
     }
 
