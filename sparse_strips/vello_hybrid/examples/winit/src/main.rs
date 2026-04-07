@@ -234,6 +234,8 @@ impl ApplicationHandler for App<'_> {
                     _ => {}
                 }
 
+                // Each scene has it's own resources struct, so in case the images
+                // haven't been uploaded previously, we need to do it now.
                 if upload_images {
                     self.upload_images_to_atlas(dev_id);
                 }
