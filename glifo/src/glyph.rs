@@ -1177,7 +1177,7 @@ struct PreparedGlyphRun<'a> {
     // While it would make things easier to just use the cache key in the transform and accept less
     // caching potential for easier code, we would still need scaling absorption to implement proper
     // hinting. Hence, it makes sense to just generalize the whole absorption procedure.
-    // In any case, since we do scaling absorption, we cannot use `run_size`, `run_transform` and
+    // In any case, since we do scaling absorption, we cannot use `run_size`, `GlyphRun::transform` and
     // `glyph_transform` for glyph drawing purposes anymore. In particular, it can easily happen
     // that
     // 1) `run_size` != `draw_props.font_size`
