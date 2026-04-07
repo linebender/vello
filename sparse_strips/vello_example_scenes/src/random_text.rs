@@ -50,6 +50,7 @@ impl fmt::Debug for Segment {
     }
 }
 
+// TODO: Create a single pseudo-random number generator in `lib.rs` and use that for all scenes.
 #[derive(Clone, Copy, Debug)]
 struct Lcg {
     state: u64,
