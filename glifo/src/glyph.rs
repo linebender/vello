@@ -1181,7 +1181,7 @@ struct PreparedGlyphRun<'a> {
     // `glyph_transform` for glyph drawing purposes anymore. In particular, it can easily happen
     // that
     // 1) `run_size` != `draw_props.font_size`
-    // 2) `run_transform` * `glyph_transform` != `draw_props.draw_transform`.
+    // 2) `run_transform` * `glyph_transform` != `draw_props.effective_transform`.
     // Therefore, we need to track a separate set of fields for glyph-drawing operations.
     /// Properties for turning glyph-local positions into final draw transforms.
     draw_props: DrawProps,
@@ -1196,12 +1196,12 @@ struct DrawProps {
     // of application should be:
     // `run_transform` * `glyph_position` * `glyph_transform`.
     // Since we more or less "merged" `run_transform` and `glyph_transform` into
-    // `draw_transform`, we cannot fully replicate this with just the single transform,
+    // `effective_transform`, we cannot fully replicate this with just the single transform,
     // and need this workaround.
     /// A positioning transform for the glyph.
     positioning_transform: Affine,
     /// A transform to apply to the glyph after positioning.
-    draw_transform: Affine,
+    effective_transform: Affine,
     /// The actual font size that should be assumed for drawing and caching
     /// purposes.
     font_size: f32,
@@ -1212,13 +1212,13 @@ impl DrawProps {
     fn positioned_transform(self, glyph: Glyph) -> Affine {
         // First, determine the "coarse" location of the glyph by applying the scaling/skewing
         // of the original run transform to the glyph position. Note that `positioning_transform`
-        // has a translation factor of zero (since it has been absorbed into `draw_transform`), so
+        // has a translation factor of zero (since it has been absorbed into `effective_transform`), so
         // only the skewing and scaling factors are relevant.
         let translation = self.positioning_transform * Point::new(glyph.x as f64, glyph.y as f64);
 
         // Now, apply the final draw transform on top of that, which will also consider
         // the original glyph transform.
-        Affine::translate(translation.to_vec2()) * self.draw_transform
+        Affine::translate(translation.to_vec2()) * self.effective_transform
     }
 }
 
@@ -1275,7 +1275,7 @@ fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> Pr
         }
     };
 
-    let (draw_transform, draw_font_size, hinting_instance) = match mode {
+    let (effective_transform, draw_font_size, hinting_instance) = match mode {
         PreparedGlyphRunMode::Direct => (full_transform, run.font_size, None),
         PreparedGlyphRunMode::AbsorbScaleUnhinted => (
             Affine::new([1., 0., 0., 1., t_e, t_f]),
@@ -1313,10 +1313,10 @@ fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> Pr
         draw_props: DrawProps {
             positioning_transform: run
                 .transform
-                // Translation factor is already considered in `draw_transform`, so we need to remove
+                // Translation factor is already considered in `effective_transform`, so we need to remove
                 // it here.
                 .with_translation(Vec2::ZERO),
-            draw_transform,
+            effective_transform,
             font_size: draw_font_size,
         },
         normalized_coords: run.normalized_coords,
