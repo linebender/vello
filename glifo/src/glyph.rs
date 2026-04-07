@@ -1194,10 +1194,13 @@ struct PreparedGlyphRun<'a> {
 struct DrawProps {
     // Why do we need two separate transforms? Fundamentally, the problem is that the order
     // of application should be:
-    // `run_transform` * `glyph_position` * `glyph_transform`.
-    // Since we more or less "merged" `run_transform` and `glyph_transform` into
-    // `effective_transform`, we cannot fully replicate this with just the single transform,
-    // and need this workaround.
+    // `run_transform` * `glyph_position` * `font_size` * `glyph_transform`.
+    // As part of absorption, we are only left with a potentially new `font_size` and a merged
+    // `effective_transform`. However, the translation that results form `glyph_position` logically
+    // needs to be applied after `run_transform` but before `glyph_transform`.
+    // Therefore, we need to store two separate transforms: One that is used only to transform
+    // the original glyph position, and another one that is used to actually transform the glyph
+    // outlines.
     /// A positioning transform for the glyph.
     positioning_transform: Affine,
     /// A transform to apply to the glyph after positioning.
