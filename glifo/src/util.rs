@@ -7,13 +7,14 @@ use core::ops::Sub;
 use peniko::kurbo::Affine;
 
 // From <https://github.com/linebender/tiny-skia/blob/68b198a7210a6bbf752b43d6bc4db62445730313/path/src/scalar.rs#L12>
-const SCALAR_NEARLY_ZERO: f32 = 1.0 / (1 << 12) as f32;
+const SCALAR_NEARLY_ZERO_F32: f32 = 1.0 / (1 << 12) as f32;
+const SCALAR_NEARLY_ZERO_F64: f64 = 1.0 / (1 << 12) as f64;
 
 /// A number of useful methods for f32 numbers.
 pub(crate) trait FloatExt: Sized + Sub<f32, Output = f32> {
     /// Whether the number is approximately 0.
     fn is_nearly_zero(&self) -> bool {
-        self.is_nearly_zero_within_tolerance(SCALAR_NEARLY_ZERO)
+        self.is_nearly_zero_within_tolerance(SCALAR_NEARLY_ZERO_F32)
     }
 
     /// Whether the number is approximately 0, with a given tolerance.
@@ -42,7 +43,7 @@ impl AffineExt for Affine {
     #[inline]
     fn has_skew(&self) -> bool {
         let [_, b, c, _, _, _] = self.as_coeffs();
-        b.abs() > 1e-6 || c.abs() > 1e-6
+        b.abs() > SCALAR_NEARLY_ZERO_F64 || c.abs() > SCALAR_NEARLY_ZERO_F64
     }
 
     /// Whether the transform has a scaling factor not equal to 1 or -1.
@@ -50,20 +51,20 @@ impl AffineExt for Affine {
     #[inline]
     fn has_non_unit_scale(&self) -> bool {
         let [a, _, _, d, _, _] = self.as_coeffs();
-        (a.abs() - 1.0).abs() > 1e-6 || (d.abs() - 1.0).abs() > 1e-6
+        (a.abs() - 1.0).abs() > SCALAR_NEARLY_ZERO_F64 || (d.abs() - 1.0).abs() > SCALAR_NEARLY_ZERO_F64
     }
 
     /// Whether the transform has positive, uniform scaling factors.
     #[inline]
     fn has_positive_uniform_scale(&self) -> bool {
         let [a, _, _, d, _, _] = self.as_coeffs();
-        (a - d).abs() <= 1e-6 && a > 0.0 && d > 0.0
+        (a - d).abs() <= SCALAR_NEARLY_ZERO_F64 && a > 0.0 && d > 0.0
     }
 
     /// Whether the transform has a vertical skew.
     #[inline]
     fn has_vertical_skew(&self) -> bool {
         let [_, b, _, _, _, _] = self.as_coeffs();
-        b.abs() > 1e-6
+        b.abs() > SCALAR_NEARLY_ZERO_F64
     }
 }
