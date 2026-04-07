@@ -3,7 +3,7 @@
 
 //! Vello CPU glyph rendering backend.
 //!
-//! Provides [`CpuGlyphAtlas`] (atlas backed by per-page [`Pixmap`]s) and the
+//! Provides [`GlyphAtlas`] (atlas backed by per-page [`Pixmap`]s) and the
 //! `CpuBackend` implementation of `GlyphAtlasBackend` that rasterises
 //! glyphs into CPU-accessible pixel buffers.
 //!
@@ -22,8 +22,8 @@ use alloc::vec::Vec;
 use color::palette::css::BLACK;
 use core::fmt::{Debug, Formatter};
 use glifo::atlas::{
-    AtlasCommandRecorder, AtlasSlot, GlyphAtlas, GlyphCache, GlyphCacheConfig, GlyphCacheKey,
-    ImageCache, PendingBitmapUpload, PendingClearRect, RasterMetrics,
+    AtlasCommandRecorder, AtlasSlot, GlyphAtlas as GlifoGlyphAtlas, GlyphCache, GlyphCacheConfig,
+    GlyphCacheKey, ImageCache, PendingBitmapUpload, PendingClearRect, RasterMetrics,
 };
 use glifo::renderers::vello_renderer::{
     self, AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale,
@@ -49,9 +49,9 @@ fn atlas_page_image_id(page_index: u32) -> ImageId {
 ///
 /// Wraps the shared [`GlyphAtlas`] allocator and adds owned pixel storage
 /// so that glyphs can be rasterized directly into CPU-accessible memory.
-pub(crate) struct CpuGlyphAtlas {
+pub(crate) struct GlyphAtlas {
     /// Shared cache data.
-    pub(crate) inner: GlyphAtlas,
+    pub(crate) inner: GlifoGlyphAtlas,
     /// One `Pixmap` per atlas page, grown on demand. 
     // It's a bit annoying to have this in an `Arc`, but it needs to be this way. During fine
     // rasterization, we need to be able to easily clone the atlas page so that it can be shared
@@ -68,7 +68,7 @@ pub(crate) struct CpuGlyphAtlas {
     page_height: u16,
 }
 
-impl CpuGlyphAtlas {
+impl GlyphAtlas {
     /// Creates a new atlas with the given page dimensions and default eviction settings.
     #[inline]
     pub(crate) fn new(page_width: u16, page_height: u16) -> Self {
@@ -84,7 +84,7 @@ impl CpuGlyphAtlas {
         eviction_config: GlyphCacheConfig,
     ) -> Self {
         Self {
-            inner: GlyphAtlas::with_config(eviction_config),
+            inner: GlifoGlyphAtlas::with_config(eviction_config),
             pixmaps: Vec::new(),
             page_width,
             page_height,
@@ -117,15 +117,15 @@ impl CpuGlyphAtlas {
     }
 }
 
-impl Default for CpuGlyphAtlas {
+impl Default for GlyphAtlas {
     fn default() -> Self {
         Self::new(DEFAULT_GLYPH_ATLAS_SIZE, DEFAULT_GLYPH_ATLAS_SIZE)
     }
 }
 
-impl Debug for CpuGlyphAtlas {
+impl Debug for GlyphAtlas {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("CpuGlyphAtlas")
+        f.debug_struct("GlyphAtlas")
             .field("inner", &self.inner)
             .field("page_count", &self.pixmaps.len())
             .field("page_width", &self.page_width)
@@ -136,7 +136,7 @@ impl Debug for CpuGlyphAtlas {
 
 /// Delegates to the inner [`GlyphAtlas`], additionally growing the `pixmaps`
 /// vector when `insert` opens a new atlas page.
-impl GlyphCache for CpuGlyphAtlas {
+impl GlyphCache for GlyphAtlas {
     #[inline(always)]
     fn get(&mut self, key: &GlyphCacheKey) -> Option<AtlasSlot> {
         self.inner.get(key)
@@ -246,7 +246,7 @@ impl GlyphCache for CpuGlyphAtlas {
 
 #[derive(Debug)]
 pub(crate) struct GlyphAtlasResources {
-    pub(crate) glyph_atlas: CpuGlyphAtlas,
+    pub(crate) glyph_atlas: GlyphAtlas,
     pub(crate) image_cache: ImageCache,
     pub(crate) glyph_renderer: Box<RenderContext>,
 }
@@ -260,7 +260,7 @@ impl GlyphAtlasResources {
         eviction_config: GlyphCacheConfig,
     ) -> Self {
         Self {
-            glyph_atlas: CpuGlyphAtlas::with_config(page_width, page_height, eviction_config),
+            glyph_atlas: GlyphAtlas::with_config(page_width, page_height, eviction_config),
             image_cache: ImageCache::new_with_config(Default::default()),
             glyph_renderer: Box::new(RenderContext::new_with(
                 page_width,
@@ -291,7 +291,7 @@ impl Resources {
 
         if let Some(glyph_resources) = self.glyph_resources.as_mut() {
             glyph_resources.maintain();
-            // See the comment in `CpuGlyphAtlas`.
+            // See the comment in `GlyphAtlas`.
             let page_count = glyph_resources.glyph_atlas.page_count();
             for page_index in 0..page_count {
                 self.image_registry.destroy_atlas_page(page_index as u32);
@@ -359,7 +359,7 @@ impl Resources {
             glyph_renderer.composite_to_pixmap_at_offset(&Resources::default(), page, 0, 0);
         });
 
-        // See the comment in `CpuGlyphAtlas`.
+        // See the comment in `GlyphAtlas`.
         for (page_index, pixmap) in glyph_resources.glyph_atlas.pixmaps.iter().enumerate() {
             self.image_registry
                 .register_atlas_page(page_index as u32, Arc::clone(pixmap));
@@ -399,7 +399,7 @@ impl<'a> CpuGlyphRunBackend<'a> {
         run: glifo::GlyphRun<'a>,
         glyphs: Glyphs,
         render: impl FnOnce(
-            &mut glifo::GlyphRunRenderer<'a, 'a, Glyphs, CpuGlyphAtlas>,
+            &mut glifo::GlyphRunRenderer<'a, 'a, Glyphs, GlyphAtlas>,
             &mut RenderContext,
         ),
     ) where
@@ -502,12 +502,12 @@ fn copy_pixmap_to_atlas(
 
 /// Bridges Glifo's [`GlyphRenderer`] trait to the shared
 /// [`vello_renderer`] cache orchestration for the CPU backend.
-impl GlyphRenderer<CpuGlyphAtlas> for RenderContext {
+impl GlyphRenderer<GlyphAtlas> for RenderContext {
     #[inline]
     fn fill_glyph(
         &mut self,
         prepared_glyph: PreparedGlyph<'_>,
-        atlas_cacher: &mut AtlasCacher<'_, CpuGlyphAtlas>,
+        atlas_cacher: &mut AtlasCacher<'_, GlyphAtlas>,
     ) {
         vello_renderer::fill_glyph::<CpuBackend>(self, prepared_glyph, atlas_cacher);
     }
@@ -516,7 +516,7 @@ impl GlyphRenderer<CpuGlyphAtlas> for RenderContext {
     fn stroke_glyph(
         &mut self,
         prepared_glyph: PreparedGlyph<'_>,
-        atlas_cacher: &mut AtlasCacher<'_, CpuGlyphAtlas>,
+        atlas_cacher: &mut AtlasCacher<'_, GlyphAtlas>,
     ) {
         vello_renderer::stroke_glyph::<CpuBackend>(self, prepared_glyph, atlas_cacher);
     }
@@ -579,7 +579,7 @@ pub(crate) struct CpuBackend;
 
 impl GlyphAtlasBackend for CpuBackend {
     type Renderer = RenderContext;
-    type Cache = CpuGlyphAtlas;
+    type Cache = GlyphAtlas;
 
     fn render_from_atlas(
         renderer: &mut RenderContext,

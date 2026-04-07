@@ -3,7 +3,7 @@
 
 //! Vello Hybrid (GPU) glyph rendering backend.
 //!
-//! Provides [`GpuGlyphAtlas`] and the `HybridBackend` implementation of
+//! Provides [`GlyphAtlas`] and the `HybridBackend` implementation of
 //! `GlyphAtlasBackend`.
 //!
 //! Unlike the CPU backend, no local `Pixmap` storage is allocated here — the
@@ -18,8 +18,9 @@ use glifo::renderers::vello_renderer::replay_atlas_commands;
 use glifo::renderers::vello_renderer::{AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale};
 use glifo::{
     AtlasCacher, AtlasCommandRecorder, AtlasSlot, CachedGlyphType, ColrPainter, ColrRenderer,
-    GLYPH_PADDING, GlyphAtlas, GlyphBitmap, GlyphCache, GlyphCacheConfig, GlyphCacheKey, GlyphColr,
-    GlyphRenderer, GlyphRunBackend, ImageCache, PreparedGlyph, RasterMetrics,
+    GLYPH_PADDING, GlyphAtlas as GlifoGlyphAtlas, GlyphBitmap, GlyphCache, GlyphCacheConfig,
+    GlyphCacheKey, GlyphColr, GlyphRenderer, GlyphRunBackend, ImageCache, PreparedGlyph,
+    RasterMetrics,
 };
 use peniko::color::palette::css::BLACK;
 use peniko::color::{AlphaColor, Srgb};
@@ -37,24 +38,24 @@ use vello_common::pixmap::Pixmap;
 /// but does not allocate any local pixel storage — the GPU renderer manages
 /// atlas textures itself via `Renderer::write_to_atlas`.
 #[derive(Debug, Default)]
-pub(crate) struct GpuGlyphAtlas {
+pub(crate) struct GlyphAtlas {
     /// Shared allocator, LRU eviction state, and pending-command queues.
-    inner: GlyphAtlas,
+    inner: GlifoGlyphAtlas,
 }
 
-impl GpuGlyphAtlas {
+impl GlyphAtlas {
     /// Creates a new hybrid glyph atlas cache with custom eviction settings.
     #[inline]
     pub(crate) fn with_config(eviction_config: GlyphCacheConfig) -> Self {
         Self {
-            inner: GlyphAtlas::with_config(eviction_config),
+            inner: GlifoGlyphAtlas::with_config(eviction_config),
         }
     }
 }
 
 /// Thin delegation to the inner [`GlyphAtlas`]. No page-level pixel storage
 /// to manage here — the GPU owns atlas textures.
-impl GlyphCache for GpuGlyphAtlas {
+impl GlyphCache for GlyphAtlas {
     #[inline(always)]
     fn get(&mut self, key: &GlyphCacheKey) -> Option<AtlasSlot> {
         self.inner.get(key)
@@ -151,7 +152,7 @@ impl GlyphCache for GpuGlyphAtlas {
 
 #[derive(Debug)]
 pub(crate) struct GlyphAtlasResources {
-    pub(crate) glyph_atlas: GpuGlyphAtlas,
+    pub(crate) glyph_atlas: GlyphAtlas,
     pub(crate) glyph_renderer: Scene,
 }
 
@@ -162,7 +163,7 @@ impl GlyphAtlasResources {
         eviction_config: GlyphCacheConfig,
     ) -> Self {
         Self {
-            glyph_atlas: GpuGlyphAtlas::with_config(eviction_config),
+            glyph_atlas: GlyphAtlas::with_config(eviction_config),
             glyph_renderer: Scene::new(atlas_width, atlas_height),
         }
     }
@@ -297,7 +298,7 @@ impl<'a> HybridGlyphRunBackend<'a> {
         self,
         run: glifo::GlyphRun<'a>,
         glyphs: Glyphs,
-        render: impl FnOnce(&mut glifo::GlyphRunRenderer<'a, 'a, Glyphs, GpuGlyphAtlas>, &mut Scene),
+        render: impl FnOnce(&mut glifo::GlyphRunRenderer<'a, 'a, Glyphs, GlyphAtlas>, &mut Scene),
     ) where
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
@@ -353,12 +354,12 @@ pub type GlyphRunBuilder<'a> = glifo::GlyphRunBuilder<'a, HybridGlyphRunBackend<
 
 /// Bridges Parley's [`GlyphRenderer`] trait to the shared
 /// [`vello_renderer`] cache orchestration for the hybrid backend.
-impl GlyphRenderer<GpuGlyphAtlas> for Scene {
+impl GlyphRenderer<GlyphAtlas> for Scene {
     #[inline]
     fn fill_glyph(
         &mut self,
         prepared_glyph: PreparedGlyph<'_>,
-        atlas_cacher: &mut AtlasCacher<'_, GpuGlyphAtlas>,
+        atlas_cacher: &mut AtlasCacher<'_, GlyphAtlas>,
     ) {
         vello_renderer::fill_glyph::<HybridBackend>(self, prepared_glyph, atlas_cacher);
     }
@@ -367,9 +368,14 @@ impl GlyphRenderer<GpuGlyphAtlas> for Scene {
     fn stroke_glyph(
         &mut self,
         prepared_glyph: PreparedGlyph<'_>,
-        atlas_cacher: &mut AtlasCacher<'_, GpuGlyphAtlas>,
+        atlas_cacher: &mut AtlasCacher<'_, GlyphAtlas>,
     ) {
         vello_renderer::stroke_glyph::<HybridBackend>(self, prepared_glyph, atlas_cacher);
+    }
+
+    #[inline]
+    fn fill_rect(&mut self, rect: Rect) {
+        self.fill_rect(&rect);
     }
 
     #[inline]
@@ -408,11 +414,6 @@ impl GlyphRenderer<GpuGlyphAtlas> for Scene {
     }
 
     #[inline]
-    fn fill_rect(&mut self, rect: Rect) {
-        self.fill_rect(&rect);
-    }
-
-    #[inline]
     fn get_context_color(&self) -> AlphaColor<Srgb> {
         // Non-solid paints (gradients, images) have no single color to
         // extract, so fall back to black — the CSS default for `currentColor`.
@@ -430,7 +431,7 @@ pub(crate) struct HybridBackend;
 
 impl GlyphAtlasBackend for HybridBackend {
     type Renderer = Scene;
-    type Cache = GpuGlyphAtlas;
+    type Cache = GlyphAtlas;
 
     fn render_from_atlas(
         renderer: &mut Scene,

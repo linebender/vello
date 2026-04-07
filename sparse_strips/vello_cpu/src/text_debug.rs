@@ -1,18 +1,18 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Debug helpers for [`CpuGlyphAtlas`] and [`CpuGlyphCaches`].
+//! Debug helpers for [`GlyphAtlas`] and [`CpuGlyphCaches`].
 
 #[cfg(feature = "png")]
 use crate::Pixmap;
-use crate::text::{CpuGlyphAtlas, CpuGlyphCaches};
+use crate::text::{CpuGlyphCaches, GlyphAtlas};
 #[cfg(feature = "png")]
 use alloc::format;
 use glifo::GlyphCacheKey;
 use glifo::atlas::GlyphCacheStats;
 
 #[cfg(feature = "png")]
-impl CpuGlyphAtlas {
+impl GlyphAtlas {
     /// Save every atlas page as `{path_prefix}_atlas_page_{index}.png`.
     pub(crate) fn save_atlas_pages_to(&self, path_prefix: &str) {
         for (i, pixmap) in self.pixmaps.iter().enumerate() {
@@ -36,7 +36,7 @@ impl CpuGlyphAtlas {
     }
 }
 
-impl CpuGlyphAtlas {
+impl GlyphAtlas {
     /// Get detailed statistics about cached glyphs.
     pub(crate) fn stats(&self) -> GlyphCacheStats {
         self.inner.stats(self.pixmaps.len())
