@@ -30,6 +30,7 @@ struct App<'s> {
     scenes: Box<[AnyScene<Scene>]>,
     current_scene: usize,
     renderers: Vec<Option<Renderer>>,
+    uploaded_scene_images: Vec<Vec<bool>>,
     render_state: RenderState<'s>,
     scene: Scene,
     transform: Affine,
@@ -86,6 +87,7 @@ fn main() {
     let mut app = App {
         context: RenderContext::new(),
         renderers: vec![],
+        uploaded_scene_images: vec![],
         scenes,
         current_scene: start_scene_index,
         render_state: RenderState::Suspended(None),
@@ -147,6 +149,8 @@ impl ApplicationHandler for App<'_> {
 
         self.renderers
             .resize_with(self.context.devices.len(), || None);
+        self.uploaded_scene_images
+            .resize_with(self.context.devices.len(), || vec![false; self.scenes.len()]);
         self.renderers[surface.dev_id]
             .get_or_insert_with(|| create_vello_renderer(&self.context, &surface));
 
@@ -383,6 +387,10 @@ impl ApplicationHandler for App<'_> {
 
 impl App<'_> {
     fn upload_images_to_atlas(&mut self, device_id: usize) {
+        if self.uploaded_scene_images[device_id][self.current_scene] {
+            return;
+        }
+
         let device_handle = &self.context.devices[device_id];
         let mut encoder =
             device_handle
@@ -414,6 +422,7 @@ impl App<'_> {
         );
 
         device_handle.queue.submit([encoder.finish()]);
+        self.uploaded_scene_images[device_id][self.current_scene] = true;
     }
 
     fn upload_image_to_texture(
