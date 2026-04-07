@@ -297,3 +297,18 @@ fn mix_non_isolated_soft_light(ctx: &mut impl Renderer) {
 fn mix_non_isolated_color_dodge(ctx: &mut impl Renderer) {
     mix_non_isolated(ctx, Mix::ColorDodge);
 }
+
+#[vello_test]
+fn mix_in_inner_layer(ctx: &mut impl Renderer) {
+    ctx.push_layer(None, None, None, None, None);
+
+    ctx.set_paint(BLUE.with_alpha(0.5));
+    ctx.fill_rect(&Rect::new(10.5, 10.5, 70.5, 70.5));
+
+    ctx.push_blend_layer(BlendMode::new(Mix::Multiply, Compose::SrcOver));
+    ctx.set_paint(LIME.with_alpha(0.5));
+    ctx.fill_rect(&Rect::new(30.5, 30.5, 90.5, 90.5));
+    ctx.pop_layer();
+
+    ctx.pop_layer();
+}
