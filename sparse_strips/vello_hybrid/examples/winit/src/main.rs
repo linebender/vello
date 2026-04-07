@@ -194,6 +194,7 @@ impl ApplicationHandler for App<'_> {
                 ..
             } => {
                 let mut upload_images = false;
+
                 match logical_key {
                     Key::Named(NamedKey::ArrowRight) => {
                         self.current_scene = (self.current_scene + 1) % self.scenes.len();
@@ -228,6 +229,7 @@ impl ApplicationHandler for App<'_> {
                     }
                     _ => {}
                 }
+
                 if upload_images {
                     self.upload_images_to_atlas(dev_id);
                 }
@@ -350,7 +352,6 @@ impl ApplicationHandler for App<'_> {
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                             label: Some("Vello Render to Surface pass"),
                         });
-
                 self.renderers[surface.dev_id]
                     .as_mut()
                     .unwrap()
@@ -364,6 +365,7 @@ impl ApplicationHandler for App<'_> {
                         &texture_view,
                     )
                     .unwrap();
+
                 device_handle.queue.submit([encoder.finish()]);
                 surface_texture.present();
 
