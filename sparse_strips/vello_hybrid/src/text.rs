@@ -10,10 +10,8 @@
 //! GPU renderer owns atlas textures and receives pixel data through the
 //! pending-upload queue.
 
-use crate::AtlasId;
-use crate::Scene;
+use crate::{AtlasId, Resources, Scene};
 use alloc::sync::Arc;
-use alloc::vec::Vec;
 use glifo::atlas::{PendingBitmapUpload, PendingClearRect};
 use glifo::renderers::vello_renderer;
 use glifo::renderers::vello_renderer::replay_atlas_commands;
@@ -21,7 +19,7 @@ use glifo::renderers::vello_renderer::{AtlasReplayTarget, GlyphAtlasBackend, qua
 use glifo::{
     AtlasCacher, AtlasCommandRecorder, AtlasSlot, CachedGlyphType, ColrPainter, ColrRenderer,
     GLYPH_PADDING, GlyphAtlas, GlyphBitmap, GlyphCache, GlyphCacheConfig, GlyphCacheKey, GlyphColr,
-    GlyphPrepCache, GlyphRenderer, GlyphRunBackend, ImageCache, PreparedGlyph, RasterMetrics,
+    GlyphRenderer, GlyphRunBackend, ImageCache, PreparedGlyph, RasterMetrics,
 };
 use peniko::color::palette::css::BLACK;
 use peniko::color::{AlphaColor, Srgb};
@@ -174,32 +172,6 @@ impl GlyphAtlasResources {
     }
 }
 
-/// Auxiliary hybrid glyph resources.
-#[derive(Debug)]
-pub struct Resources {
-    pub(crate) glyph_prep_cache: GlyphPrepCache,
-    pub(crate) image_cache: ImageCache,
-    pub(crate) glyph_resources: Option<GlyphAtlasResources>,
-}
-
-impl Resources {
-    /// Create a new set of renderer resources.
-    pub fn new() -> Self {
-        let image_cache = ImageCache::new_with_config(Default::default());
-        Self {
-            glyph_prep_cache: GlyphPrepCache::default(),
-            image_cache,
-            glyph_resources: None,
-        }
-    }
-}
-
-impl Default for Resources {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Resources {
     fn ensure_glyph_resources(&mut self) {
         if self.glyph_resources.is_none() {
@@ -219,18 +191,15 @@ impl Resources {
         }
     }
 
-    #[doc(hidden)]
-    pub fn atlas_config(&self) -> AtlasConfig {
+    pub(crate) fn atlas_config(&self) -> AtlasConfig {
         self.image_cache.atlas_manager().config().clone()
     }
 
-    #[doc(hidden)]
-    pub fn atlas_count(&self) -> u32 {
+    pub(crate) fn atlas_count(&self) -> u32 {
         self.image_cache.atlas_count() as u32
     }
 
-    #[doc(hidden)]
-    pub fn replay_pending_atlas_commands(&mut self, mut f: impl FnMut(&Scene, AtlasId)) {
+    pub(crate) fn replay_pending_atlas_commands(&mut self, mut f: impl FnMut(&Scene, AtlasId)) {
         if let Some(glyph_resources) = self.glyph_resources.as_mut() {
             glyph_resources
                 .glyph_atlas
@@ -247,51 +216,24 @@ impl Resources {
         }
     }
 
-    #[doc(hidden)]
-    pub fn drain_pending_uploads(&mut self) -> impl Iterator<Item = PendingBitmapUpload> + '_ {
-        self.take_pending_uploads().into_iter()
-    }
-
-    #[doc(hidden)]
-    pub fn take_pending_uploads(&mut self) -> Vec<PendingBitmapUpload> {
-        self.glyph_resources
-            .as_mut()
-            .map(|glyph_resources| {
-                glyph_resources
-                    .glyph_atlas
-                    .drain_pending_uploads()
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
-    #[doc(hidden)]
-    pub fn maintain(&mut self, image_cache: &mut ImageCache) {
-        self.glyph_prep_cache.maintain();
+    pub(crate) fn refresh_pending_glyph_uploads(&mut self) {
+        self.pending_glyph_uploads_scratch.clear();
         if let Some(glyph_resources) = self.glyph_resources.as_mut() {
-            glyph_resources.maintain(image_cache);
+            self.pending_glyph_uploads_scratch
+                .extend(glyph_resources.glyph_atlas.drain_pending_uploads());
         }
     }
 
-    #[doc(hidden)]
-    pub fn drain_pending_clear_rects(&mut self) -> impl Iterator<Item = PendingClearRect> + '_ {
-        self.maintain_and_take_pending_clear_rects().into_iter()
+    pub(crate) fn refresh_pending_glyph_clear_rects(&mut self) {
+        self.glyph_prep_cache.maintain();
+        self.pending_glyph_clear_rects_scratch.clear();
+        if let Some(glyph_resources) = self.glyph_resources.as_mut() {
+            glyph_resources.maintain(&mut self.image_cache);
+            self.pending_glyph_clear_rects_scratch
+                .extend(glyph_resources.glyph_atlas.drain_pending_clear_rects());
+        }
     }
 
-    #[doc(hidden)]
-    pub fn maintain_and_take_pending_clear_rects(&mut self) -> Vec<PendingClearRect> {
-        self.glyph_prep_cache.maintain();
-        self.glyph_resources
-            .as_mut()
-            .map(|glyph_resources| {
-                glyph_resources.maintain(&mut self.image_cache);
-                glyph_resources
-                    .glyph_atlas
-                    .drain_pending_clear_rects()
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
 }
 
 // See this PR for a bit more context on why we have this.
@@ -345,9 +287,9 @@ impl<'a> ColrSceneWrapper<'a> {
 #[doc(hidden)]
 #[derive(Debug)]
 pub struct HybridGlyphRunBackend<'a> {
-    pub scene: &'a mut Scene,
-    pub resources: &'a mut Resources,
-    pub atlas_cache_enabled: bool,
+    pub(crate) scene: &'a mut Scene,
+    pub(crate) resources: &'a mut Resources,
+    pub(crate) atlas_cache_enabled: bool,
 }
 
 impl<'a> HybridGlyphRunBackend<'a> {

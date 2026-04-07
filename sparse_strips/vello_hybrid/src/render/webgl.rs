@@ -21,9 +21,8 @@ only break in edge cases, and some of them are also only related to conversions 
 )]
 
 use crate::render::common::IMAGE_PADDING;
-#[cfg(feature = "text")]
-use crate::text::Resources;
 use crate::{
+    Resources,
     GpuStrip, RenderError, RenderSettings, RenderSize,
     filter::{FilterContext, FilterInstanceData, FilterPassState, FilterPassTarget},
     gradient_cache::GradientRampCache,
@@ -202,7 +201,8 @@ impl WebGlRenderer {
             });
 
             let padding = u32::from(GLYPH_PADDING);
-            for upload in resources.take_pending_uploads() {
+            resources.refresh_pending_glyph_uploads();
+            for upload in &resources.pending_glyph_uploads_scratch {
                 let resource = resources.image_cache.get(upload.image_id).unwrap();
                 let dst_x = resource.offset[0] as u32 + padding;
                 let dst_y = resource.offset[1] as u32 + padding;
@@ -219,8 +219,11 @@ impl WebGlRenderer {
 
         #[cfg(feature = "text")]
         {
-            let rects = resources.maintain_and_take_pending_clear_rects();
-            clear_atlas_regions_webgl(self, rects.into_iter());
+            resources.refresh_pending_glyph_clear_rects();
+            clear_atlas_regions_webgl(
+                self,
+                resources.pending_glyph_clear_rects_scratch.iter().cloned(),
+            );
         }
 
         // Blit the view framebuffer to the default framebuffer (canvas element), reflecting the
@@ -297,8 +300,7 @@ impl WebGlRenderer {
     /// ensuring atlas content is committed before any subsequent
     /// [`render`](Self::render) call (the two methods share GPU resources that
     /// are staged by `queue.write_*` and only applied on the next `queue.submit`).
-    #[doc(hidden)]
-    pub fn render_to_atlas(
+    pub(crate) fn render_to_atlas(
         &mut self,
         scene: &Scene,
         atlas_count: u32,
@@ -480,8 +482,7 @@ impl WebGlRenderer {
     ///
     /// If `offset_override` is `Some`, the provided offset is used instead of the
     /// allocator-assigned position. Pass `None` to use the default atlas offset.
-    #[doc(hidden)]
-    pub fn write_to_atlas<T: WebGlAtlasWriter>(
+    pub(crate) fn write_to_atlas<T: WebGlAtlasWriter>(
         &mut self,
         image_cache: &ImageCache,
         image_id: vello_common::paint::ImageId,

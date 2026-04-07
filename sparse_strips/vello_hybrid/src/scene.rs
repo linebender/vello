@@ -3,8 +3,9 @@
 
 //! Basic render operations.
 
+use crate::Resources;
 #[cfg(feature = "text")]
-use crate::text::{GlyphRunBuilder, Resources};
+use crate::text::GlyphRunBuilder;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;

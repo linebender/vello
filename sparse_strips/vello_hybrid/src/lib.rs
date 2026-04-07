@@ -48,6 +48,7 @@ extern crate alloc;
 pub(crate) mod filter;
 mod gradient_cache;
 mod render;
+mod resources;
 mod scene;
 #[cfg(any(all(target_arch = "wasm32", feature = "webgl"), feature = "wgpu"))]
 mod schedule;
@@ -60,11 +61,12 @@ pub mod util;
 #[cfg(feature = "wgpu")]
 pub use render::{AtlasWriter, RenderTargetConfig, Renderer};
 pub use render::{Config, GpuStrip, RenderSize};
+pub use resources::Resources;
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 pub use render::{WebGlAtlasWriter, WebGlRenderer, WebGlTextureWithDimensions};
 pub use scene::{RenderSettings, Scene, SceneConstraints};
 #[cfg(feature = "text")]
-pub use text::{GlyphRunBuilder, HybridGlyphRunBackend, Resources};
+pub use text::{GlyphRunBuilder, HybridGlyphRunBackend};
 pub use util::DimensionConstraints;
 pub use vello_common::multi_atlas::{AllocationStrategy, AtlasConfig, AtlasId};
 pub use vello_common::pixmap::Pixmap;
