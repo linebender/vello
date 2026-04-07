@@ -1237,8 +1237,8 @@ impl Debug for PreparedGlyphRun<'_> {
 
 /// Prepare a glyph run for rendering.
 fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> PreparedGlyphRun<'a> {
-    let logical_transform = run.transform * run.glyph_transform.unwrap_or(Affine::IDENTITY);
-    let [_, _, t_c, t_d, t_e, t_f] = logical_transform.as_coeffs();
+    let full_transform = run.transform * run.glyph_transform.unwrap_or(Affine::IDENTITY);
+    let [_, _, t_c, t_d, t_e, t_f] = full_transform.as_coeffs();
 
     #[derive(Clone, Copy, Debug)]
     enum PreparedGlyphRunMode {
@@ -1252,7 +1252,7 @@ fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> Pr
         // we always absorb it, even if there is a skewing factor in the transform. This won't
         // automatically make them eligible for caching because any skewing factor is currently
         // rejected for caching, but it might make the code a bit more consistent.
-        if logical_transform.is_positive_uniform_scale_without_skew() {
+        if full_transform.is_positive_uniform_scale_without_skew() {
             PreparedGlyphRunMode::AbsorbScaleUnhinted
         } else {
             PreparedGlyphRunMode::Direct
@@ -1268,7 +1268,7 @@ fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> Pr
         //
         // As the hinting is vertical-only, we can handle horizontal skew, but not vertical skew or
         // rotations.
-        if logical_transform.is_positive_uniform_scale_without_vertical_skew() {
+        if full_transform.is_positive_uniform_scale_without_vertical_skew() {
             PreparedGlyphRunMode::AbsorbScaleHinted
         } else {
             PreparedGlyphRunMode::Direct
@@ -1276,7 +1276,7 @@ fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> Pr
     };
 
     let (draw_transform, draw_font_size, hinting_instance) = match mode {
-        PreparedGlyphRunMode::Direct => (logical_transform, run.font_size, None),
+        PreparedGlyphRunMode::Direct => (full_transform, run.font_size, None),
         PreparedGlyphRunMode::AbsorbScaleUnhinted => (
             Affine::new([1., 0., 0., 1., t_e, t_f]),
             run.font_size * t_d as f32,
