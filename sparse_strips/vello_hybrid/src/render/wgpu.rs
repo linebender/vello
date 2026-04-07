@@ -44,7 +44,7 @@ use alloc::{sync::Arc, vec};
 use bytemuck::{Pod, Zeroable};
 use core::{fmt::Debug, num::NonZeroU64};
 #[cfg(feature = "text")]
-use glifo::{GLYPH_PADDING, PendingClearRect};
+use glifo::PendingClearRect;
 use vello_common::image_cache::{ImageCache, ImageResource};
 use vello_common::multi_atlas::{AtlasConfig, AtlasError, AtlasId};
 use vello_common::render_graph::LayerId;
@@ -213,10 +213,10 @@ impl Renderer {
     ) -> Result<(), RenderError> {
         #[cfg(feature = "text")]
         {
-            let atlas_count = resources.atlas_count();
-            let atlas_config = resources.atlas_config();
-            resources.replay_pending_atlas_commands(|glyph_renderer, atlas_id| {
-                self.render_to_atlas(
+            resources.process_pending_glyph_work(
+                self,
+                |renderer, glyph_renderer, atlas_count, atlas_config, atlas_id| {
+                renderer.render_to_atlas(
                     glyph_renderer,
                     atlas_count,
                     atlas_config,
@@ -225,16 +225,10 @@ impl Renderer {
                     atlas_id,
                 )
                 .expect("Failed to render glyphs to atlas");
-            });
-
-            let padding = u32::from(GLYPH_PADDING);
-            resources.refresh_pending_glyph_uploads();
-            for upload in &resources.pending_glyph_uploads_scratch {
-                let resource = resources.image_cache.get(upload.image_id).unwrap();
-                let dst_x = resource.offset[0] as u32 + padding;
-                let dst_y = resource.offset[1] as u32 + padding;
-                self.write_to_atlas(
-                    &resources.image_cache,
+                },
+                |renderer, image_cache, upload, dst_x, dst_y| {
+                renderer.write_to_atlas(
+                    image_cache,
                     device,
                     queue,
                     encoder,
@@ -242,7 +236,8 @@ impl Renderer {
                     &upload.pixmap,
                     Some([dst_x, dst_y]),
                 );
-            }
+                },
+            );
         }
 
         let mut encoded_paints = scene.encoded_paints.borrow_mut();
@@ -274,14 +269,16 @@ impl Renderer {
 
         encoded_paints.truncate(scene_paint_count);
         #[cfg(feature = "text")]
-        if result.is_ok() {
-            resources.refresh_pending_glyph_clear_rects();
-            clear_atlas_regions_wgpu(
-                queue,
-                self,
-                resources.pending_glyph_clear_rects_scratch.iter().cloned(),
-            );
-        }
+        resources.process_pending_glyph_clears(
+            self,
+            |renderer, rects| {
+                clear_atlas_regions_wgpu(
+                    queue,
+                    renderer,
+                    rects.iter().cloned(),
+                );
+            },
+        );
         result
     }
 

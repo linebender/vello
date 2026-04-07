@@ -193,36 +193,32 @@ impl WebGlRenderer {
 
         #[cfg(feature = "text")]
         {
-            let atlas_count = resources.atlas_count();
-            let atlas_config = resources.atlas_config();
-            resources.replay_pending_atlas_commands(|glyph_renderer, atlas_id| {
-                self.render_to_atlas(glyph_renderer, atlas_count, atlas_config, atlas_id)
+            resources.process_pending_glyph_work(
+                self,
+                |renderer, glyph_renderer, atlas_count, atlas_config, atlas_id| {
+                renderer.render_to_atlas(glyph_renderer, atlas_count, atlas_config, atlas_id)
                     .expect("Failed to render glyphs to atlas");
-            });
-
-            let padding = u32::from(GLYPH_PADDING);
-            resources.refresh_pending_glyph_uploads();
-            for upload in &resources.pending_glyph_uploads_scratch {
-                let resource = resources.image_cache.get(upload.image_id).unwrap();
-                let dst_x = resource.offset[0] as u32 + padding;
-                let dst_y = resource.offset[1] as u32 + padding;
-                self.write_to_atlas(
-                    &resources.image_cache,
+                },
+                |renderer, image_cache, upload, dst_x, dst_y| {
+                renderer.write_to_atlas(
+                    image_cache,
                     upload.image_id,
                     &upload.pixmap,
                     Some([dst_x, dst_y]),
                 );
-            }
+                },
+            );
         }
 
         self.render_scene(scene, &mut resources.image_cache, render_size, true)?;
 
         #[cfg(feature = "text")]
         {
-            resources.refresh_pending_glyph_clear_rects();
-            clear_atlas_regions_webgl(
+            resources.process_pending_glyph_clears(
                 self,
-                resources.pending_glyph_clear_rects_scratch.iter().cloned(),
+                |renderer, rects| {
+                    clear_atlas_regions_webgl(renderer, rects.iter().cloned());
+                },
             );
         }
 

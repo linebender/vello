@@ -192,15 +192,15 @@ impl Resources {
         }
     }
 
-    pub(crate) fn atlas_config(&self) -> AtlasConfig {
+    fn atlas_config(&self) -> AtlasConfig {
         self.image_cache.atlas_manager().config().clone()
     }
 
-    pub(crate) fn atlas_count(&self) -> u32 {
+    fn atlas_count(&self) -> u32 {
         self.image_cache.atlas_count() as u32
     }
 
-    pub(crate) fn replay_pending_atlas_commands(&mut self, mut f: impl FnMut(&Scene, AtlasId)) {
+    fn replay_pending_atlas_commands(&mut self, mut f: impl FnMut(&Scene, AtlasId)) {
         if let Some(glyph_resources) = self.glyph_resources.as_mut() {
             glyph_resources
                 .glyph_atlas
@@ -217,7 +217,38 @@ impl Resources {
         }
     }
 
-    pub(crate) fn refresh_pending_glyph_uploads(&mut self) {
+    pub(crate) fn process_pending_glyph_work<T>(
+        &mut self,
+        backend: &mut T,
+        mut render_to_atlas: impl FnMut(&mut T, &Scene, u32, AtlasConfig, AtlasId),
+        mut upload_to_atlas: impl FnMut(&mut T, &ImageCache, &PendingBitmapUpload, u32, u32),
+    ) {
+        let atlas_count = self.atlas_count();
+        let atlas_config = self.atlas_config();
+        self.replay_pending_atlas_commands(|glyph_renderer, atlas_id| {
+            render_to_atlas(backend, glyph_renderer, atlas_count, atlas_config, atlas_id);
+        });
+
+        let padding = u32::from(GLYPH_PADDING);
+        self.refresh_pending_glyph_uploads();
+        for upload in &self.pending_glyph_uploads_scratch {
+            let resource = self.image_cache.get(upload.image_id).unwrap();
+            let dst_x = resource.offset[0] as u32 + padding;
+            let dst_y = resource.offset[1] as u32 + padding;
+            upload_to_atlas(backend, &self.image_cache, upload, dst_x, dst_y);
+        }
+    }
+
+    pub(crate) fn process_pending_glyph_clears<T>(
+        &mut self,
+        backend: &mut T,
+        mut clear_rects: impl FnMut(&mut T, &[PendingClearRect]),
+    ) {
+        self.refresh_pending_glyph_clear_rects();
+        clear_rects(backend, &self.pending_glyph_clear_rects_scratch);
+    }
+
+    fn refresh_pending_glyph_uploads(&mut self) {
         self.pending_glyph_uploads_scratch.clear();
         if let Some(glyph_resources) = self.glyph_resources.as_mut() {
             self.pending_glyph_uploads_scratch
