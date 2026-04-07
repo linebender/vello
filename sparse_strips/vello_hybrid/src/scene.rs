@@ -132,8 +132,8 @@ impl SceneConstraints {
 
     /// Caller guarantees that the scene will only use the default (normal, source-over)
     /// blend mode in the root layer. In case you still want to use blending, you need to
-    /// make sure that you have pushed at least one "wrapper" layer, such that the blending
-    /// surface is not the root layer.
+    /// make sure that you have pushed at least one "wrapper" layer, such that the destination
+    /// of the blending operation is never the root layer.
     ///
     /// # Panics
     ///
