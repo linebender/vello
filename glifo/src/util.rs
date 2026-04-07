@@ -81,3 +81,48 @@ impl AffineExt for Affine {
         (a - d).abs() <= SCALAR_NEARLY_ZERO_F64 && a > 0.0 && d > 0.0 && !self.has_vertical_skew()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::AffineExt;
+    use peniko::kurbo::Affine;
+
+    #[test]
+    fn detects_positive_uniform_scale_without_skew() {
+        let transform = Affine::scale(2.0);
+
+        assert!(transform.is_positive_uniform_scale_without_skew());
+        assert!(transform.is_positive_uniform_scale_without_vertical_skew());
+    }
+
+    #[test]
+    fn rejects_positive_uniform_scale_without_skew_when_horizontally_skewed() {
+        let transform = Affine::new([2.0, 0.0, 0.25, 2.0, 0.0, 0.0]);
+
+        assert!(transform.has_skew());
+        assert!(!transform.has_vertical_skew());
+        assert!(!transform.is_positive_uniform_scale_without_skew());
+        assert!(transform.is_positive_uniform_scale_without_vertical_skew());
+    }
+
+    #[test]
+    fn rejects_positive_uniform_scale_without_vertical_skew_when_vertically_skewed() {
+        let transform = Affine::new([2.0, 0.25, 0.0, 2.0, 0.0, 0.0]);
+
+        assert!(transform.has_skew());
+        assert!(transform.has_vertical_skew());
+        assert!(!transform.is_positive_uniform_scale_without_skew());
+        assert!(!transform.is_positive_uniform_scale_without_vertical_skew());
+    }
+
+    #[test]
+    fn rejects_non_uniform_or_non_positive_scale() {
+        let non_uniform = Affine::new([2.0, 0.0, 0.0, 3.0, 0.0, 0.0]);
+        let flipped = Affine::new([-2.0, 0.0, 0.0, -2.0, 0.0, 0.0]);
+
+        assert!(!non_uniform.is_positive_uniform_scale_without_skew());
+        assert!(!non_uniform.is_positive_uniform_scale_without_vertical_skew());
+        assert!(!flipped.is_positive_uniform_scale_without_skew());
+        assert!(!flipped.is_positive_uniform_scale_without_vertical_skew());
+    }
+}
