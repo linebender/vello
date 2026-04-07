@@ -101,6 +101,8 @@ pub struct Renderer {
     filter_pass_state: FilterPassState,
     #[cfg(feature = "text")]
     atlas_clear_scratch: Vec<u8>,
+    #[cfg(feature = "text")]
+    dummy_image_cache: Option<ImageCache>,
 }
 
 impl Renderer {
@@ -144,6 +146,8 @@ impl Renderer {
             filter_pass_state: FilterPassState::default(),
             #[cfg(feature = "text")]
             atlas_clear_scratch: Vec::new(),
+            #[cfg(feature = "text")]
+            dummy_image_cache: Some(ImageCache::new_dummy()),
         }
     }
 
@@ -349,7 +353,10 @@ impl Renderer {
         // fix from the filters/native-format pipeline work when available.
 
         let encoded_paints = scene.encoded_paints.borrow();
-        let scratch_image_cache = ImageCache::new_with_config(atlas_config);
+        let dummy_image_cache = self
+            .dummy_image_cache
+            .take()
+            .expect("dummy image cache must exist");
         let result = self.render_scene(
             scene,
             device,
@@ -357,11 +364,12 @@ impl Renderer {
             &mut encoder,
             &atlas_render_size,
             &layer_view,
-            &scratch_image_cache,
+            &dummy_image_cache,
             &encoded_paints,
             false,
             true,
         );
+        self.dummy_image_cache = Some(dummy_image_cache);
 
         // Restore the real atlas bind group.
         core::mem::swap(

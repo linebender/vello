@@ -101,6 +101,8 @@ pub struct WebGlRenderer {
     filter_context: FilterContext,
     /// State used for constructing filter passes.
     filter_pass_state: FilterPassState,
+    #[cfg(feature = "text")]
+    dummy_image_cache: Option<ImageCache>,
 }
 
 impl WebGlRenderer {
@@ -169,6 +171,8 @@ impl WebGlRenderer {
             gradient_cache,
             filter_context,
             filter_pass_state: FilterPassState::default(),
+            #[cfg(feature = "text")]
+            dummy_image_cache: Some(ImageCache::new_dummy()),
         }
     }
 
@@ -341,8 +345,17 @@ impl WebGlRenderer {
             &mut self.programs.resources.stub_atlas_texture_array,
         );
 
-        let mut scratch_image_cache = ImageCache::new_with_config(atlas_config);
-        let result = self.render_scene(scene, &mut scratch_image_cache, &atlas_render_size, false);
+        let mut dummy_image_cache = self
+            .dummy_image_cache
+            .take()
+            .expect("dummy image cache must exist");
+        let result = self.render_scene(
+            scene,
+            &mut dummy_image_cache,
+            &atlas_render_size,
+            false,
+        );
+        self.dummy_image_cache = Some(dummy_image_cache);
 
         // Restore the real atlas texture array.
         core::mem::swap(
