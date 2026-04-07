@@ -131,7 +131,7 @@ impl SceneConstraints {
     }
 
     /// Caller guarantees that the scene will only use the default (normal, source-over)
-    /// blend mode.
+    /// blend mode in the root layer.
     ///
     /// # Panics
     ///
