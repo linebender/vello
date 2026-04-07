@@ -1190,7 +1190,7 @@ impl Scene {
 mod tests {
     use super::*;
     #[cfg(feature = "text")]
-    use crate::text::Resources;
+    use crate::resources::Resources;
     #[cfg(feature = "text")]
     use alloc::sync::Arc;
     use core::f64::consts::PI;
