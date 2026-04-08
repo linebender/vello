@@ -25,8 +25,6 @@
 #![no_std]
 
 extern crate alloc;
-#[cfg(feature = "libm")]
-use core_maths as _;
 #[cfg(feature = "png")]
 use png as _;
 #[cfg(feature = "std")]

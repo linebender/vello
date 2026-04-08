@@ -30,8 +30,6 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt::{Debug, Formatter};
 use core::ops::RangeInclusive;
-#[cfg(not(feature = "std"))]
-use core_maths::CoreFloat as _;
 use hashbrown::hash_map::{Entry, RawEntryMut};
 use hashbrown::{Equivalent, HashMap};
 use skrifa::bitmap::{BitmapData, BitmapFormat, BitmapStrikes, Origin};

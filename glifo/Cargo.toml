@@ -17,7 +17,7 @@ all-features = true
 [features]
 default = ["std"]
 std = ["vello_common/std", "skrifa/std"]
-libm = ["skrifa/libm", "vello_common/libm", "dep:core_maths"]
+libm = ["skrifa/libm", "vello_common/libm"]
 png = ["std", "dep:png", "vello_common/png"]
 debug_glyph_bounds = []
 
@@ -33,4 +33,3 @@ skrifa = { workspace = true }
 smallvec = { workspace = true }
 vello_common = { workspace = true, features = ["text"] }
 png = { workspace = true, optional = true }
-core_maths = { workspace = true, optional = true }
