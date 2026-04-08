@@ -531,6 +531,8 @@ impl GlyphCacheStats {
 impl GlyphAtlas {
     /// Get detailed statistics about cached glyphs.
     pub fn stats(&self, page_count: usize) -> GlyphCacheStats {
+        use std::collections::HashSet;
+        
         let mut unique_ids = HashSet::new();
         let mut subpixel_dist = [0; SUBPIXEL_BUCKETS as usize];
         let mut sizes = HashSet::new();
