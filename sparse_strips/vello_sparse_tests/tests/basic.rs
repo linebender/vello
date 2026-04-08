@@ -572,3 +572,34 @@ fn composite_to_pixmap_at_offset() {
         "composite_to_pixmap_at_offset result should match direct rendering"
     );
 }
+
+/// Ensure that fast path strips from the last frame don't leak into the next one.
+#[vello_test(transparent, frame_count = 2)]
+fn multi_frame_basic(ctx: &mut impl Renderer, frame: u32) {
+    let rect = Rect::new(15.0, 15.0, 85.0, 85.0);
+
+    if frame == 0 {
+        ctx.set_paint(RED.with_alpha(0.5));
+    } else {
+        ctx.set_paint(BLUE.with_alpha(0.5));
+    }
+
+    ctx.fill_rect(&rect);
+}
+
+/// Ensure that wide tiles are properly reset between two frames.
+#[vello_test(transparent, frame_count = 2)]
+fn multi_frame_with_clip_layer(ctx: &mut impl Renderer, frame: u32) {
+    let rect = Rect::new(15.0, 15.0, 85.0, 85.0);
+
+    ctx.push_clip_layer(&rect.to_path(0.1));
+
+    if frame == 0 {
+        ctx.set_paint(RED.with_alpha(0.5));
+    } else {
+        ctx.set_paint(BLUE.with_alpha(0.5));
+    }
+
+    ctx.fill_rect(&rect);
+    ctx.pop_layer();
+}

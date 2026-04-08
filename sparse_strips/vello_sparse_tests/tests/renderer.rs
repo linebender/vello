@@ -62,6 +62,7 @@ pub(crate) trait Renderer: Sized {
     fn set_blend_mode(&mut self, blend_mode: BlendMode);
     fn set_filter_effect(&mut self, filter: Filter);
     fn reset_filter_effect(&mut self);
+    fn reset(&mut self);
     fn render_to_pixmap(&self, pixmap: &mut Pixmap);
     fn width(&self) -> u16;
     fn height(&self) -> u16;
@@ -205,6 +206,10 @@ impl Renderer for RenderContext {
 
     fn reset_filter_effect(&mut self) {
         Self::reset_filter_effect(self);
+    }
+
+    fn reset(&mut self) {
+        Self::reset(self);
     }
 
     fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
@@ -446,6 +451,10 @@ impl Renderer for HybridRenderer {
 
     fn reset_filter_effect(&mut self) {
         self.scene.reset_filter_effect();
+    }
+
+    fn reset(&mut self) {
+        self.scene.reset();
     }
 
     // This method creates device resources every time it is called. This does not matter much for
@@ -791,6 +800,10 @@ impl Renderer for HybridRenderer {
 
     fn reset_filter_effect(&mut self) {
         self.scene.reset_filter_effect();
+    }
+
+    fn reset(&mut self) {
+        self.scene.reset();
     }
 
     // vello_hybrid WebGL renderer backend.

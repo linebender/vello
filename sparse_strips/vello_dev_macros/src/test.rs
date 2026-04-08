@@ -44,6 +44,11 @@ struct Arguments {
     no_ref: bool,
     /// A reason for ignoring a test.
     ignore_reason: Option<String>,
+    /// The number of frames to render. When greater than 1, the test function receives an
+    /// additional `u32` argument indicating the current frame index. The generated test will
+    /// loop `frame_count` times, resetting the context before each frame. Only the final
+    /// frame is checked against the reference image.
+    frame_count: u32,
 }
 
 impl Default for Arguments {
@@ -61,6 +66,7 @@ impl Default for Arguments {
             no_ref: false,
             diff_pixels: 0,
             ignore_reason: None,
+            frame_count: 1,
         }
     }
 }
@@ -158,7 +164,27 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         ignore_reason,
         no_ref,
         diff_pixels,
+        frame_count,
     } = parse_args(&attrs);
+
+    let has_frame_count = frame_count > 1;
+
+    let test_fn_call = if has_frame_count {
+        quote! { #input_fn_name(&mut ctx, frame); }
+    } else {
+        quote! { #input_fn_name(&mut ctx); }
+    };
+
+    let width_f64 = width as f64;
+    let height_f64 = height as f64;
+    let draw_bg_snippet = if !transparent {
+        quote! {
+            ctx.set_paint(vello_common::color::palette::css::WHITE);
+            ctx.fill_rect(&vello_common::kurbo::Rect::new(0.0, 0.0, #width_f64, #height_f64));
+        }
+    } else {
+        quote! {}
+    };
 
     // Wasm doesn't have access to the filesystem. For wasm, inline the snapshot bytes into the
     // binary.
@@ -280,9 +306,15 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                 };
                 use vello_cpu::{RenderContext, RenderMode};
 
-                let mut ctx = get_ctx::<RenderContext>(#width, #height, #transparent, #num_threads, #level, #render_mode, false);
-                #input_fn_name(&mut ctx);
-                ctx.flush();
+                let mut ctx = get_ctx::<RenderContext>(#width, #height, #num_threads, #level, #render_mode, false);
+                for frame in 0..#frame_count {
+                    if frame > 0 {
+                        ctx.reset();
+                    }
+                    #draw_bg_snippet
+                    #test_fn_call
+                    ctx.flush();
+                }
                 if !#no_ref {
                     check_ref(&ctx, #input_fn_name_str, #fn_name_str, #tolerance, #diff_pixels, #is_reference, #reference_image_name);
                 }
@@ -466,9 +498,15 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             use crate::renderer::HybridRenderer;
             use vello_cpu::RenderMode;
 
-            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed, false);
-            #input_fn_name(&mut ctx);
-            ctx.flush();
+            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, 0, "fallback", RenderMode::OptimizeSpeed, false);
+            for frame in 0..#frame_count {
+                if frame > 0 {
+                    ctx.reset()
+                }
+                #draw_bg_snippet
+                #test_fn_call
+                ctx.flush();
+            }
             if !#no_ref {
                 check_ref(&ctx, #input_fn_name_str, #hybrid_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
             }
@@ -484,9 +522,15 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             use crate::renderer::HybridRenderer;
             use vello_cpu::RenderMode;
 
-            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed, true);
-            #input_fn_name(&mut ctx);
-            ctx.flush();
+            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, 0, "fallback", RenderMode::OptimizeSpeed, true);
+            for frame in 0..#frame_count {
+                if frame > 0 {
+                    ctx.reset()
+                }
+                #draw_bg_snippet
+                #test_fn_call
+                ctx.flush();
+            }
             if !#no_ref {
                 check_ref(&ctx, #input_fn_name_str, #hybrid_constrained_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
             }
@@ -502,9 +546,15 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             use crate::renderer::HybridRenderer;
             use vello_cpu::RenderMode;
 
-            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed, false);
-            #input_fn_name(&mut ctx);
-            ctx.flush();
+            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, 0, "fallback", RenderMode::OptimizeSpeed, false);
+            for frame in 0..#frame_count {
+                if frame > 0 {
+                    ctx.reset()
+                }
+                #draw_bg_snippet
+                #test_fn_call
+                ctx.flush();
+            }
             if !#no_ref {
                 check_ref(&ctx, #input_fn_name_str, #webgl_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
             }
@@ -536,6 +586,9 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                     }
                     "hybrid_tolerance" => {
                         args.hybrid_tolerance = parse_int_lit::<u8>(expr, "hybrid_tolerance");
+                    }
+                    "frame_count" => {
+                        args.frame_count = parse_int_lit::<u32>(expr, "frame_count");
                     }
                     _ => panic!("unknown pair attribute {key_str}"),
                 }
