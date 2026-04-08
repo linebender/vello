@@ -595,7 +595,7 @@ pub fn replay_atlas_commands(
 #[inline]
 pub(crate) fn supports_atlas_caching(transform: &Affine) -> bool {
     // TODO: Add test cases to see how caching + flipping transforms interact with each other!
-    !transform.has_skew() && !transform.has_non_unit_scale()
+    transform.is_positive_uniform_scale_without_skew()
 }
 
 #[cfg(test)]

@@ -340,8 +340,10 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
         let font_index = self.prepared_run.font.index;
         let hinted = hinting_instance.is_some();
 
-        let colr_bitmap_cache_enabled = self.atlas_cache_enabled
-            && draw_props.font_size <= self.glyph_atlas.config().max_cached_font_size;
+        let colr_bitmap_cache_enabled = self
+            .atlas_cacher
+            .config()
+            .is_some_and(|config| draw_props.font_size <= config.max_cached_font_size);
         let outline_cache_enabled = colr_bitmap_cache_enabled
             // Due to the various parameters that would need to be considered in the cache key,
             // we never cache stroked outlines for now. For COLR and bitmap, this doesn't matter

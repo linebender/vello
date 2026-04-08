@@ -5,6 +5,7 @@
 
 use super::commands::AtlasCommandRecorder;
 use super::key::GlyphCacheKey;
+#[cfg(debug_assertions)]
 use super::key::SUBPIXEL_BUCKETS;
 use super::region::{AtlasSlot, RasterMetrics};
 use crate::Pixmap;
@@ -13,7 +14,6 @@ use alloc::vec::Vec;
 use core::fmt::{Debug, Formatter};
 use foldhash::fast::FixedState;
 use hashbrown::HashMap;
-use hashbrown::HashSet;
 use hashbrown::hash_map::RawEntryMut;
 use smallvec::SmallVec;
 pub use vello_common::image_cache::ImageCache;

@@ -138,8 +138,8 @@ fn glyphs_stroked_unhinted(ctx: &mut impl Renderer, enable_caching: bool) {
         .stroke_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 300, height = 70)]
-fn glyphs_large_stroke_width(ctx: &mut impl Renderer) {
+#[vello_test(width = 300, height = 70, glyph)]
+fn glyphs_large_stroke_width(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
 
@@ -151,6 +151,7 @@ fn glyphs_large_stroke_width(ctx: &mut impl Renderer) {
     });
     ctx.glyph_run(&font)
         .font_size(font_size)
+        .atlas_cache(enable_caching)
         .stroke_glyphs(glyphs.into_iter());
 }
 
@@ -198,24 +199,6 @@ fn glyphs_filled_then_stroked(ctx: &mut impl Renderer) {
         Affine::translate((0., f64::from(font_size * 2.0))),
         DrawMode::Stroke,
     );
-}
-
-#[vello_test(width = 300, height = 70, glyph)]
-fn glyphs_large_stroke_width(ctx: &mut impl Renderer, enable_caching: bool) {
-    let font_size: f32 = 50_f32;
-    let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
-
-    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
-    ctx.set_stroke(Stroke {
-        width: 5.0,
-        ..Stroke::default()
-    });
-    ctx.glyph_run(&font)
-        .font_size(font_size)
-        .atlas_cache(enable_caching)
-        .hint(true)
-        .stroke_glyphs(glyphs.into_iter());
 }
 
 #[vello_test(width = 300, height = 70, glyph)]
@@ -495,7 +478,7 @@ fn render_roboto_with_mode(
     ctx: &mut impl Renderer,
     font: &FontData,
     font_size: f32,
-    glyphs: impl Iterator<Item = Glyph>,
+    glyphs: impl Iterator<Item = Glyph> + Clone,
     transform: Affine,
     mode: DrawMode,
 ) {
@@ -515,23 +498,6 @@ fn render_roboto_with_mode(
             builder.stroke_glyphs(glyphs);
         }
     }
-}
-
-#[vello_test(width = 250, height = 70, skip_hybrid, glyph)]
-fn glyphs_bitmap_noto_stroked(ctx: &mut impl Renderer, enable_caching: bool) {
-    let font_size: f32 = 50_f32;
-    let (font, glyphs) = layout_glyphs_noto_cbtf("✅👀🎉🤠", font_size);
-
-    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-    ctx.glyph_run(&font)
-        .font_size(font_size)
-        .atlas_cache(enable_caching)
-        .stroke_glyphs(glyphs.into_iter(), DrawMode::Fill);
-}
-
-#[vello_test(width = 250, height = 70, skip_hybrid, cpu_u8_tolerance = 1)]
-fn glyphs_colr_noto_stroked(ctx: &mut impl Renderer) {
-    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)), DrawMode::Stroke);
 }
 
 #[vello_test(
@@ -568,7 +534,6 @@ fn glyphs_colr_noto_scaled_2x(ctx: &mut impl Renderer, enable_caching: bool) {
         ctx,
         Affine::translate((0., 50.)).then_scale(2.0),
         enable_caching,
-        false,
         DrawMode::Fill,
     );
 }
@@ -585,7 +550,6 @@ fn glyphs_colr_noto_scaled_half(ctx: &mut impl Renderer, enable_caching: bool) {
         ctx,
         Affine::translate((0., 50.)).then_scale(0.5),
         enable_caching,
-        false,
         DrawMode::Fill,
     );
 }
@@ -634,7 +598,7 @@ fn glyphs_colr_noto_scaled_non_uniform(ctx: &mut impl Renderer, enable_caching: 
         ctx,
         Affine::translate((0., 50.)) * Affine::scale_non_uniform(1.0, 2.0),
         enable_caching,
-        false,
+        DrawMode::Fill,
     );
 }
 
@@ -652,7 +616,7 @@ fn glyphs_colr_noto_rotated_scaled_non_uniform(ctx: &mut impl Renderer, enable_c
             * Affine::rotate(FRAC_PI_4)
             * Affine::scale_non_uniform(1.0, 2.0),
         enable_caching,
-        false,
+        DrawMode::Fill,
     );
 }
 

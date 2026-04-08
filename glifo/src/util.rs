@@ -34,10 +34,6 @@ pub(crate) trait AffineExt {
     /// Whether the transform has any skewing coefficient.
     fn has_skew(&self) -> bool;
 
-    /// Whether the transform has a scaling factor not equal to 1 or -1.
-    #[cfg(any(feature = "vello_cpu", feature = "vello_hybrid"))]
-    fn has_non_unit_scale(&self) -> bool;
-
     /// Whether the transform has a vertical skew.
     fn has_vertical_skew(&self) -> bool;
 
@@ -54,14 +50,6 @@ impl AffineExt for Affine {
     fn has_skew(&self) -> bool {
         let [_, b, c, _, _, _] = self.as_coeffs();
         b.abs() > SCALAR_NEARLY_ZERO_F64 || c.abs() > SCALAR_NEARLY_ZERO_F64
-    }
-
-    #[cfg(any(feature = "vello_cpu", feature = "vello_hybrid"))]
-    #[inline]
-    fn has_non_unit_scale(&self) -> bool {
-        let [a, _, _, d, _, _] = self.as_coeffs();
-        (a.abs() - 1.0).abs() > SCALAR_NEARLY_ZERO_F64
-            || (d.abs() - 1.0).abs() > SCALAR_NEARLY_ZERO_F64
     }
 
     /// Whether the transform has positive, uniform scaling factors.
