@@ -1,11 +1,12 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Debug helpers for [`GlyphAtlas`] and [`CpuGlyphCaches`].
+//! Debug helpers for [`GlyphAtlas`] and CPU text resources.
 
 #[cfg(feature = "png")]
 use crate::Pixmap;
-use crate::text::{CpuGlyphCaches, GlyphAtlas};
+use crate::render::Resources;
+use crate::text::{GlyphAtlas, GlyphAtlasResources};
 #[cfg(feature = "png")]
 use alloc::format;
 use glifo::GlyphCacheKey;
@@ -59,19 +60,40 @@ impl GlyphAtlas {
 }
 
 #[cfg(feature = "png")]
-impl CpuGlyphCaches {
+impl GlyphAtlasResources {
     /// Save all atlas pages to PNG files for debugging.
     ///
     /// Files are saved to `examples/_output/vello_cpu_atlas_page_{index}.png`.
     pub(crate) fn save_atlas_pages(&self) {
-        self.glifo.glyph_atlas.save_atlas_pages();
+        self.glyph_atlas.save_atlas_pages();
     }
 
     /// Save all atlas pages to PNG files with a custom path prefix.
     ///
     /// Files are saved as `{path_prefix}_atlas_page_{index}.png`.
     pub(crate) fn save_atlas_pages_to(&self, path_prefix: &str) {
-        self.glifo.glyph_atlas.save_atlas_pages_to(path_prefix);
+        self.glyph_atlas.save_atlas_pages_to(path_prefix);
+    }
+}
+
+#[cfg(feature = "png")]
+impl Resources {
+    /// Save all atlas pages to PNG files for debugging.
+    ///
+    /// Files are saved to `examples/_output/vello_cpu_atlas_page_{index}.png`.
+    pub(crate) fn save_glyph_atlas_pages(&self) {
+        if let Some(glyph_resources) = &self.glyph_resources {
+            glyph_resources.save_atlas_pages();
+        }
+    }
+
+    /// Save all atlas pages to PNG files with a custom path prefix.
+    ///
+    /// Files are saved as `{path_prefix}_atlas_page_{index}.png`.
+    pub(crate) fn save_glyph_atlas_pages_to(&self, path_prefix: &str) {
+        if let Some(glyph_resources) = &self.glyph_resources {
+            glyph_resources.save_atlas_pages_to(path_prefix);
+        }
     }
 }
 

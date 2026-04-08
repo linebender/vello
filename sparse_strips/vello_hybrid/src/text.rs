@@ -598,7 +598,7 @@ impl ColrRenderer for ColrSceneWrapper<'_> {
     }
 }
 
-/// Allows recorded [`AtlasCommand`](crate::atlas::commands::AtlasCommand)s
+/// Allows recorded [`AtlasCommand`](glifo::atlas::commands::AtlasCommand)s
 /// to be replayed into a hybrid [`Scene`].
 impl AtlasReplayTarget for ColrSceneWrapper<'_> {
     #[inline]
