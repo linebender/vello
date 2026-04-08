@@ -3,6 +3,8 @@
 
 //! Debug helpers for [`GlyphAtlas`] and CPU text resources.
 
+#![allow(dead_code, reason = "only used for debugging purposes")]
+
 #[cfg(feature = "png")]
 use crate::Pixmap;
 use crate::render::Resources;
