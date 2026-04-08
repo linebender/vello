@@ -192,7 +192,7 @@ pub fn stroke_glyph<B: GlyphAtlasBackend>(
         let transform = prepared_glyph.transform;
         return match prepared_glyph.glyph_type {
             GlyphType::Outline(glyph) => {
-                B::stroke_outline_directly(renderer, &glyph.path, transform)
+                B::stroke_outline_directly(renderer, &glyph.path, transform);
             }
             // See below, those glyphs can't meaningfully be stroked.
             GlyphType::Bitmap(_) | GlyphType::Colr(_) => {

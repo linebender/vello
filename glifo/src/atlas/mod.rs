@@ -19,7 +19,7 @@ pub mod commands;
 pub mod key;
 mod region;
 
-#[cfg(debug_assertions)]
+#[cfg(all(debug_assertions, feature = "std"))]
 pub use cache::GlyphCacheStats;
 pub use cache::{
     AtlasConfig, GLYPH_PADDING, GlyphAtlas, GlyphCache, GlyphCacheConfig, ImageCache,
