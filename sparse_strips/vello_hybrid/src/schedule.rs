@@ -347,12 +347,6 @@ pub(crate) struct SchedulerState {
     max_round: usize,
 }
 
-impl SchedulerState {
-    fn clear(&mut self) {
-        self.tile_state.clear();
-    }
-}
-
 /// State for a single wide tile.
 #[derive(Debug, Default)]
 struct TileState {
@@ -708,7 +702,7 @@ impl Scheduler {
                 let wide_tile_x = x * WideTile::WIDTH;
                 let wide_tile_y = y * Tile::HEIGHT;
 
-                state.clear();
+                state.tile_state.clear();
                 self.initialize_tile_state(
                     &mut state.tile_state,
                     wide_tile,
@@ -823,7 +817,7 @@ impl Scheduler {
                 // first time (i.e. the start offset is 0).
                 let paint_bg = start_offset == 0;
 
-                state.clear();
+                state.tile_state.clear();
 
                 // This will also paint the background, if necessary.
                 self.initialize_tile_state(
