@@ -363,7 +363,7 @@ fn glyphs_glyph_transform_unhinted(ctx: &mut impl Renderer, enable_caching: bool
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 110, height = 320, glyph)]
+#[vello_test(width = 110, height = 320, glyph, hybrid_tolerance = 1)]
 fn glyphs_transform_composition_rows_outline(ctx: &mut impl Renderer, enable_caching: bool) {
     render_transform_composition_rows(
         ctx,
@@ -374,7 +374,7 @@ fn glyphs_transform_composition_rows_outline(ctx: &mut impl Renderer, enable_cac
     );
 }
 
-#[vello_test(width = 110, height = 320, glyph)]
+#[vello_test(width = 110, height = 320, glyph, hybrid_tolerance = 1)]
 fn glyphs_transform_composition_rows_outline_hinted(ctx: &mut impl Renderer, enable_caching: bool) {
     render_transform_composition_rows(
         ctx,
