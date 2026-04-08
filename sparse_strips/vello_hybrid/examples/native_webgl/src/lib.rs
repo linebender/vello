@@ -469,5 +469,7 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
     };
     let mut resources = vello_hybrid::Resources::new();
 
-    renderer.render(&scene, &mut resources, &render_size).unwrap();
+    renderer
+        .render(&scene, &mut resources, &render_size)
+        .unwrap();
 }
