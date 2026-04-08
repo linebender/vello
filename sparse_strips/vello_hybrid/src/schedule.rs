@@ -1964,8 +1964,11 @@ fn emit_rect_strips(
     let interior_h = snapped_h.saturating_sub(top_inset + bottom_inset);
 
     const MIN_SPLIT_SIZE: u16 = 20;
-    if snapped_w < MIN_SPLIT_SIZE || snapped_h < MIN_SPLIT_SIZE
-        || interior_w == 0 || interior_h == 0
+    if snapped_w < MIN_SPLIT_SIZE
+        || snapped_h < MIN_SPLIT_SIZE
+        || interior_w == 0
+        || interior_h == 0
+        || !is_opaque
     {
         let frac = pack_unorm4x8([rect.x0 - sx0, rect.y0 - sy0, sx1 - rect.x1, sy1 - rect.y1]);
         let (payload, paint_packed) =
