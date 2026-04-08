@@ -42,21 +42,30 @@ pub(crate) trait AffineExt {
 
     /// Whether the transform has positive, uniform scaling factors and no vertical skew.
     fn is_positive_uniform_scale_without_vertical_skew(&self) -> bool;
+
+    /// Whether the transform has a non-default scale or skew.
+    fn has_non_identity_skew_or_scale(&self) -> bool;
 }
 
 impl AffineExt for Affine {
-    /// Whether the transform as any skewing coefficient.
     #[inline]
     fn has_skew(&self) -> bool {
         let [_, b, c, _, _, _] = self.as_coeffs();
         b.abs() > SCALAR_NEARLY_ZERO_F64 || c.abs() > SCALAR_NEARLY_ZERO_F64
     }
 
-    /// Whether the transform has positive, uniform scaling factors.
     #[inline]
     fn is_positive_uniform_scale_without_skew(&self) -> bool {
         let [a, _, _, d, _, _] = self.as_coeffs();
         (a - d).abs() <= SCALAR_NEARLY_ZERO_F64 && a > 0.0 && d > 0.0 && !self.has_skew()
+    }
+
+    #[inline]
+    fn has_non_identity_skew_or_scale(&self) -> bool {
+        let [a, _, _, d, _, _] = self.as_coeffs();
+        self.has_skew()
+            || (1.0 - a).abs() > SCALAR_NEARLY_ZERO_F64
+            || (1.0 - d).abs() > SCALAR_NEARLY_ZERO_F64
     }
 
     /// Whether the transform has a vertical skew.

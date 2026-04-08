@@ -594,8 +594,8 @@ pub fn replay_atlas_commands(
 /// Returns `true` if the transform is safe for atlas-cached outline rendering.
 #[inline]
 pub(crate) fn supports_atlas_caching(transform: &Affine) -> bool {
-    // TODO: Add test cases to see how caching + flipping transforms interact with each other!
-    transform.is_positive_uniform_scale_without_skew()
+    // TODO: Support y-flipping transforms?
+    !transform.has_non_identity_skew_or_scale()
 }
 
 #[cfg(test)]
@@ -626,8 +626,8 @@ mod tests {
     }
 
     #[test]
-    fn allows_axis_flip() {
-        assert!(supports_atlas_caching(&Affine::scale_non_uniform(
+    fn rejects_axis_flip() {
+        assert!(!supports_atlas_caching(&Affine::scale_non_uniform(
             1.0, -1.0
         )));
     }
