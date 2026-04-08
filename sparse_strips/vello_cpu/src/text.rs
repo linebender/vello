@@ -757,7 +757,7 @@ impl AtlasReplayTarget for RenderContext {
 }
 
 /// Debug utilities for visualizing glyph bounds during rasterization.
-#[cfg(feature = "debug_glyph_bounds")]
+#[cfg(debug_assertions)]
 #[allow(
     dead_code,
     unreachable_pub,
