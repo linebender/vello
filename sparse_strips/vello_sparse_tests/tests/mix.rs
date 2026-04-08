@@ -6,7 +6,7 @@ use crate::renderer::Renderer;
 use smallvec::smallvec;
 use vello_common::color::palette::css::{BLUE, LIME, MAGENTA, ORANGE, RED, YELLOW};
 use vello_common::color::{AlphaColor, DynamicColor, Srgb};
-use vello_common::kurbo::{Affine, Point, Rect, Shape};
+use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::paint::{Image, ImageSource};
 use vello_common::peniko::{
     BlendMode, Color, ColorStop, ColorStops, Compose, Extend, Gradient, ImageQuality, Mix,
