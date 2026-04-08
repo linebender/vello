@@ -24,6 +24,9 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![no_std]
 
+#[cfg(all(feature = "std", feature = "libm"))]
+use core_maths as _;
+
 extern crate alloc;
 // Currently used for debugging in `cache.rs`, but only in debug build.
 use log as _;
