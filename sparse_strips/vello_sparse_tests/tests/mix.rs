@@ -300,11 +300,7 @@ fn mix_non_isolated_color_dodge(ctx: &mut impl Renderer) {
 
 #[vello_test]
 fn mix_in_inner_layer(ctx: &mut impl Renderer) {
-    let clip = Rect::new(0.0, 0.0, 100.0, 100.0);
-    // We don't really need the clip here, but vello currently treat layers with all parameters
-    // set to `None` as a no-op, hence why we add a clip path here that doesn't actually do
-    // anything.
-    ctx.push_clip_layer(&clip.to_path(0.1));
+    ctx.push_layer(None, None, None, None, None);
 
     ctx.set_paint(BLUE.with_alpha(0.5));
     ctx.fill_rect(&Rect::new(10.5, 10.5, 70.5, 70.5));

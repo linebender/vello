@@ -827,6 +827,15 @@ impl Renderer for HybridRenderer {
                 Some(&mut pixels),
             )
             .unwrap();
+
+        // WebGL framebuffers are y-up, so we need to invert the rows.
+        let row_bytes = width as usize * 4;
+        let height = height as usize;
+        for y in 0..height / 2 {
+            let (a, b) = pixels.split_at_mut((height - 1 - y) * row_bytes);
+            a[y * row_bytes..(y + 1) * row_bytes].swap_with_slice(&mut b[..row_bytes]);
+        }
+
         let pixmap_data = pixmap.data_as_u8_slice_mut();
         pixmap_data.copy_from_slice(&pixels);
     }

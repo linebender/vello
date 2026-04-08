@@ -438,6 +438,31 @@ fn stroke_scaled(ctx: &mut impl Renderer) {
     ctx.stroke_path(&path);
 }
 
+// Subpaths without an explicit `MoveTo` after a `ClosePath` should start at the initial point of
+// the previous subpath, and unclosed subpaths should get correctly closed.
+#[vello_test(width = 30, height = 30)]
+fn implicit_subpaths(ctx: &mut impl Renderer) {
+    let mut path = BezPath::new();
+
+    path.move_to((15., 5.));
+    path.line_to((25., 5.));
+    path.line_to((25., 15.));
+    path.close_path();
+
+    // Second subpath: again starts at (10., 10.), as it doesn't have an initial `MoveTo`. We don't
+    // close it, instead we move to a new point. It should get automatically closed.
+    path.line_to((15., 15.));
+    path.line_to((5., 15.));
+
+    // Third subpath: it's closed implicitly.
+    path.move_to((5., 18.));
+    path.line_to((25., 18.));
+    path.line_to((25., 28.));
+
+    ctx.set_paint(LIME);
+    ctx.fill_path(&path);
+}
+
 // Just so we can more closely observe changes in their size.
 // We have this test here instead of in `vello_common` because
 // the vello_common tests seemingly are not run for 32-bit in CI.

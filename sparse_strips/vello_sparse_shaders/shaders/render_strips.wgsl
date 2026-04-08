@@ -123,8 +123,8 @@ struct Config {
     // within the atlas where the filter layer will be rendered to.
     strip_offset_x: i32,
     strip_offset_y: i32,
-    // Padding to satisfy WebGL's 16-byte alignment requirement for uniform buffers.
-    _padding0: u32,
+    // Whether to flip the y-component of the NDC coordinates.
+    ndc_y_negate: u32,
 }
 
 // A `StripInstance` can represent either a **normal strip** (representing a sparse fill or alpha fill of height
@@ -306,7 +306,9 @@ fn vs_main(
     let col_offset = select(f32(instance.col_idx_or_rect_frac), 0.0, is_rect);
     out.tex_coord = vec2<f32>(col_offset + x * f32(width), y * f32(height));
 
-    out.position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
+    // Flip it based on the flag.
+    let final_ndc_y = select(ndc_y, -ndc_y, config.ndc_y_negate != 0u);
+    out.position = vec4<f32>(ndc_x, final_ndc_y, 0.0, 1.0);
     out.payload = instance.payload;
     out.paint_and_rect_flag = instance.paint_and_rect_flag;
 
@@ -504,6 +506,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             final_color = alpha * gradient_color;
         }
     } else if color_source == COLOR_SOURCE_SLOT {
+        // Depending on the value of `ndc_y_negate`, the y position will have a value that either
+        // assumes a `y-up` or `y-down` coordinate system. However, for slot textures, we need the original
+        // coordinate in the `y-down` system. Therefore, we invert the y-position _again_ in case we are
+        // currently rendering to a y-up system, to get the original coordinate.
+        let sample_y = select(in.position.y, f32(config.height) - in.position.y, config.ndc_y_negate != 0u);
         // in.payload encodes a slot in the source clip texture.
         // This is a bit finicky: When copying from a texture slot, we already
         // know which slot to choose and where that slot is located. Therefore, we now
@@ -513,7 +520,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // within the wide tile slot! Therefore, we need to subtract the strip
         // offset here.
         let clip_x = u32(i32(in.position.x) - config.strip_offset_x) & 0xFFu;
-        let clip_y = (u32(i32(in.position.y) - config.strip_offset_y) & 3u) + in.payload * config.strip_height;
+        let clip_y = (u32(i32(sample_y) - config.strip_offset_y) & 3u) + in.payload * config.strip_height;
         let clip_in_color = textureLoad(clip_input_texture, vec2(clip_x, clip_y), 0);
 
         // Extract opacity from first 8 bits (quantized from [0, 255])
@@ -521,6 +528,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         final_color = alpha * opacity * clip_in_color;
     } else if color_source == COLOR_SOURCE_BLEND {
+        // See the comment above.
+        let sample_y = select(in.position.y, f32(config.height) - in.position.y, config.ndc_y_negate != 0u);
         let opacity = f32((in.paint_and_rect_flag >> 16u) & 0xFFu) * (1.0 / 255.0);
         let mix_mode = (in.paint_and_rect_flag >> 8u) & 0xFFu;
         let compose_mode = in.paint_and_rect_flag & 0xFFu;
@@ -530,7 +539,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let dest_slot = (in.payload >> 16u) & 0xFFFFu;
         // See the comment above for why we need to subtract the strip offset.
         let clip_x = u32(i32(in.position.x) - config.strip_offset_x) & 0xFFu;
-        let clip_y_in_strip = u32(i32(in.position.y) - config.strip_offset_y) & 3u;
+        let clip_y_in_strip = u32(i32(sample_y) - config.strip_offset_y) & 3u;
         let src_y = clip_y_in_strip + src_slot * config.strip_height;
         let src_color = textureLoad(clip_input_texture, vec2(clip_x, src_y), 0);
 

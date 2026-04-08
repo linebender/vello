@@ -346,12 +346,6 @@ pub(crate) struct SchedulerState {
     max_round: usize,
 }
 
-impl SchedulerState {
-    fn clear(&mut self) {
-        self.tile_state.clear();
-    }
-}
-
 /// State for a single wide tile.
 #[derive(Debug, Default)]
 struct TileState {
@@ -598,7 +592,7 @@ impl Scheduler {
         let rows = wide.height_tiles();
         let cols = wide.width_tiles();
         let num_tiles = (rows * cols) as usize;
-        // If we processed any filter layers previously, there maximum round should not leak
+        // If we processed any filter layers previously, their maximum round should not leak
         // into the root node.
         state.max_round = self.round;
 
@@ -708,7 +702,7 @@ impl Scheduler {
                 let wide_tile_x = x * WideTile::WIDTH;
                 let wide_tile_y = y * Tile::HEIGHT;
 
-                state.clear();
+                state.tile_state.clear();
                 self.initialize_tile_state(
                     &mut state.tile_state,
                     wide_tile,
@@ -823,7 +817,7 @@ impl Scheduler {
                 // first time (i.e. the start offset is 0).
                 let paint_bg = start_offset == 0;
 
-                state.clear();
+                state.tile_state.clear();
 
                 // This will also paint the background, if necessary.
                 self.initialize_tile_state(
@@ -1121,6 +1115,8 @@ impl Scheduler {
                         // The layer was already rendered for filtering, but we skip compositing
                         // since this tile is entirely clipped out.
                         // (PushZeroClip only appears for clipped filter layers)
+                        // See https://github.com/linebender/vello/pull/1541/ for why we
+                        // add the ID check.
                         Some(Cmd::PushZeroClip(id)) if *id == *child_layer_id => {
                             // If we have a zero-clip, it means that the whole layer should not be drawn.
                             // Therefore, we want to skip to the very end so that only `PopBuf` will
@@ -1129,7 +1125,9 @@ impl Scheduler {
                             continue;
                         }
                         // Partial clip: push the clip buffer, then composite the filtered layer
-                        Some(Cmd::PushBuf(LayerKind::Clip(_), is_blend_dest)) => {
+                        Some(Cmd::PushBuf(LayerKind::Clip(id), is_blend_dest))
+                            if *id == *child_layer_id =>
+                        {
                             self.do_push_buf(state, renderer, *is_blend_dest)?;
                             cmd_idx += 1;
                             copy_from_filter_layer(self, state);

@@ -78,28 +78,37 @@ pub(crate) fn flatten<S: Simd>(
     let right = cull_bbox[2] as f64;
     let bottom = cull_bbox[3] as f64;
 
-    let mut closed = true;
-    let mut start_pt = Point::ZERO;
-    let mut last_pt = Point::ZERO;
+    let mut path = path.into_iter();
+    let Some(first_el) = path.next() else {
+        return;
+    };
+    let PathEl::MoveTo(start_pt) = first_el else {
+        debug_assert!(
+            matches!(first_el, PathEl::MoveTo(_)),
+            "Non-empty paths must begin with `PathEl::MoveTo`, got {first_el:?}"
+        );
+        return;
+    };
+
+    let mut start_pt = start_pt;
+    let mut last_pt = start_pt;
+    callback.callback(LinePathEl::MoveTo(start_pt));
 
     for el in path {
         match el {
             PathEl::MoveTo(p) => {
-                if !closed && last_pt != start_pt {
+                if last_pt != start_pt {
                     callback.callback(LinePathEl::LineTo(start_pt));
                 }
-                closed = false;
                 last_pt = p;
                 start_pt = p;
                 callback.callback(LinePathEl::MoveTo(p));
             }
             PathEl::LineTo(p) => {
-                debug_assert!(!closed, "Expected a `MoveTo` before a `LineTo`");
                 last_pt = p;
                 callback.callback(LinePathEl::LineTo(p));
             }
             PathEl::QuadTo(p1, p2) => {
-                debug_assert!(!closed, "Expected a `MoveTo` before a `QuadTo`");
                 let p0 = last_pt;
                 let line = Line::new(p0, p2);
                 // If the quadratic Bézier is fully to the right, top, or bottom of the culling
@@ -152,7 +161,6 @@ pub(crate) fn flatten<S: Simd>(
                 last_pt = p2;
             }
             PathEl::CurveTo(p1, p2, p3) => {
-                debug_assert!(!closed, "Expected a `MoveTo` before a `CurveTo`");
                 let p0 = last_pt;
                 let line = Line::new(p0, p3);
                 // If the cubic Bézier is fully to the right, top, or bottom of the culling bbox,
@@ -206,15 +214,21 @@ pub(crate) fn flatten<S: Simd>(
                 last_pt = p3;
             }
             PathEl::ClosePath => {
-                closed = true;
                 if last_pt != start_pt {
                     callback.callback(LinePathEl::LineTo(start_pt));
+
+                    // Kurbo says: "If `quad_to` [or another drawing op] is called immediately
+                    // after `close_path` then the current subpath starts at the initial point of
+                    // the previous subpath."
+                    //
+                    // Hence, we set `last_pt` back to the just-closed subpath's `start_pt`.
+                    last_pt = start_pt;
                 }
             }
         }
     }
 
-    if !closed && last_pt != start_pt {
+    if last_pt != start_pt {
         callback.callback(LinePathEl::LineTo(start_pt));
     }
 }

@@ -262,8 +262,8 @@ fn validate(gradient: &Gradient) -> Result<(), Paint> {
         let f = stops[0];
         let n = stops[1];
 
-        // Offsets must be between 0 and 1.
-        if f.offset > 1.0 || f.offset < 0.0 {
+        // Offsets must be between 0 and 1, and not NaN.
+        if !(0.0..=1.0).contains(&f.offset) {
             return first;
         }
 
@@ -271,6 +271,12 @@ fn validate(gradient: &Gradient) -> Result<(), Paint> {
         if f.offset > n.offset {
             return first;
         }
+    }
+
+    // Check the last stop as well.
+    let last = gradient.stops.last().unwrap();
+    if !(0.0..=1.0).contains(&last.offset) {
+        return first;
     }
 
     let degenerate_point = |p1: &Point, p2: &Point| {
@@ -1225,6 +1231,66 @@ mod tests {
             ..Default::default()
         };
 
+        assert_eq!(
+            gradient.encode_into(&mut buf, Affine::IDENTITY, None),
+            GREEN.into()
+        );
+    }
+
+    #[test]
+    fn gradient_last_stop_with_infinity_offset() {
+        let mut buf = vec![];
+
+        let gradient = Gradient {
+            kind: LinearGradientPosition {
+                start: Point::new(0.0, 0.0),
+                end: Point::new(20.0, 0.0),
+            }
+            .into(),
+            stops: ColorStops(smallvec![
+                ColorStop {
+                    offset: 0.0,
+                    color: DynamicColor::from_alpha_color(GREEN),
+                },
+                ColorStop {
+                    offset: f32::INFINITY,
+                    color: DynamicColor::from_alpha_color(BLUE),
+                },
+            ]),
+            ..Default::default()
+        };
+
+        // Invalid gradient, so fall back to first color.
+        assert_eq!(
+            gradient.encode_into(&mut buf, Affine::IDENTITY, None),
+            GREEN.into()
+        );
+    }
+
+    #[test]
+    fn gradient_stop_with_nan_offset() {
+        let mut buf = vec![];
+
+        let gradient = Gradient {
+            kind: LinearGradientPosition {
+                start: Point::new(0.0, 0.0),
+                end: Point::new(20.0, 0.0),
+            }
+            .into(),
+            stops: ColorStops(smallvec![
+                ColorStop {
+                    offset: 0.0,
+                    color: DynamicColor::from_alpha_color(GREEN),
+                },
+                ColorStop {
+                    offset: f32::NAN,
+                    color: DynamicColor::from_alpha_color(BLUE),
+                },
+            ]),
+            ..Default::default()
+        };
+
+        // Invalid gradient, so fall back to first color.
         assert_eq!(
             gradient.encode_into(&mut buf, Affine::IDENTITY, None),
             GREEN.into()

@@ -340,13 +340,12 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
         let font_index = self.prepared_run.font.index;
         let hinted = hinting_instance.is_some();
 
-        let colr_bitmap_cache_enabled = self
-            .atlas_cacher
-            .config()
-            .is_some_and(|config| draw_props.font_size <= config.max_cached_font_size);
+        let colr_bitmap_cache_enabled = self.atlas_cache_enabled
+            && draw_props.font_size <= self.glyph_atlas.config().max_cached_font_size;
         let outline_cache_enabled = colr_bitmap_cache_enabled
-            // We don't cache stroked outlines because the stroke parameters would blow up
-            // the cache key. For COLR and bitmap, it doesn't matter because those are filled anyway.
+            // Due to the various parameters that would need to be considered in the cache key,
+            // we never cache stroked outlines for now. For COLR and bitmap, this doesn't matter
+            // because they are always filled anyway.
             && style == Style::Fill;
 
         let context_color = renderer.get_context_color();
@@ -1231,7 +1230,7 @@ struct PreparedGlyphRun<'a> {
     // The fact that we store `run_size` and `glyph_transform` here, as well
     // as having more transforms and an effective font size inside of the `draw_props` field is pretty
     // confusing, so here is a brief explanation:
-    // Basically, the reason why we need the first two fields here is that
+    // Basically, the reason why we need both `run_size` and `glyph_transform` here is that
     // we need to store some of the original metadata in scene space for certain functionality
     // (for example handling of underlines).
     /// The original run size supplied by the caller.
@@ -1248,11 +1247,11 @@ struct PreparedGlyphRun<'a> {
     // While it would make things easier to just use the cache key in the transform and accept less
     // caching potential for easier code, we would still need scaling absorption to implement proper
     // hinting. Hence, it makes sense to just generalize the whole absorption procedure.
-    // In any case, since we do scaling absorption, we cannot use `run_size`, `run_transform` and
+    // In any case, since we do scaling absorption, we cannot use `run_size`, `GlyphRun::transform` and
     // `glyph_transform` for glyph drawing purposes anymore. In particular, it can easily happen
     // that
     // 1) `run_size` != `draw_props.font_size`
-    // 2) `run_transform` * `glyph_transform` != `draw_props.draw_transform`.
+    // 2) `run_transform` * `glyph_transform` != `draw_props.effective_transform`.
     // Therefore, we need to track a separate set of fields for glyph-drawing operations.
     /// Properties for turning glyph-local positions into final draw transforms.
     draw_props: DrawProps,
@@ -1265,14 +1264,17 @@ struct PreparedGlyphRun<'a> {
 struct DrawProps {
     // Why do we need two separate transforms? Fundamentally, the problem is that the order
     // of application should be:
-    // `run_transform` * `glyph_position` * `glyph_transform`.
-    // Since we more or less "merged" `run_transform` and `glyph_transform` into
-    // `draw_transform`, we cannot fully replicate this with just the single transform,
-    // and need this workaround.
+    // `run_transform` * `glyph_position` * `font_size` * `glyph_transform`.
+    // As part of absorption, we are only left with a potentially new `font_size` and a merged
+    // `effective_transform`. However, the translation that results form `glyph_position` logically
+    // needs to be applied after `run_transform` but before `glyph_transform`.
+    // Therefore, we need to store two separate transforms: One that is used only to transform
+    // the original glyph position, and another one that is used to actually transform the glyph
+    // outlines.
     /// A positioning transform for the glyph.
     positioning_transform: Affine,
     /// A transform to apply to the glyph after positioning.
-    draw_transform: Affine,
+    effective_transform: Affine,
     /// The actual font size that should be assumed for drawing and caching
     /// purposes.
     font_size: f32,
@@ -1283,13 +1285,13 @@ impl DrawProps {
     fn positioned_transform(self, glyph: Glyph) -> Affine {
         // First, determine the "coarse" location of the glyph by applying the scaling/skewing
         // of the original run transform to the glyph position. Note that `positioning_transform`
-        // has a translation factor of zero (since it has been absorbed into `draw_transform`), so
+        // has a translation factor of zero (since it has been absorbed into `effective_transform`), so
         // only the skewing and scaling factors are relevant.
         let translation = self.positioning_transform * Point::new(glyph.x as f64, glyph.y as f64);
 
         // Now, apply the final draw transform on top of that, which will also consider
         // the original glyph transform.
-        Affine::translate(translation.to_vec2()) * self.draw_transform
+        Affine::translate(translation.to_vec2()) * self.effective_transform
     }
 }
 
@@ -1308,13 +1310,20 @@ impl Debug for PreparedGlyphRun<'_> {
 
 /// Prepare a glyph run for rendering.
 fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> PreparedGlyphRun<'a> {
-    let logical_transform = run.transform * run.glyph_transform.unwrap_or(Affine::IDENTITY);
-    let [_, _, t_c, t_d, t_e, t_f] = logical_transform.as_coeffs();
+    let full_transform = run.transform * run.glyph_transform.unwrap_or(Affine::IDENTITY);
+    let [_, _, t_c, t_d, t_e, t_f] = full_transform.as_coeffs();
 
+    /// The mode that should be used to handle transforms.
     #[derive(Clone, Copy, Debug)]
     enum PreparedGlyphRunMode {
+        /// No absorption has happened, the font size stays the same and the effective transform
+        /// is simply the concatenation of run transform and glyph transform.
+        ///
+        /// No hinting should be applied.
         Direct,
+        /// The scaling factor has been absorbed, and hinting should be applied.
         AbsorbScaleUnhinted,
+        /// The scaling factor has been absorbed, but not hinting should be applied.
         AbsorbScaleHinted,
     }
 
@@ -1323,7 +1332,7 @@ fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> Pr
         // we always absorb it, even if there is a skewing factor in the transform. This won't
         // automatically make them eligible for caching because any skewing factor is currently
         // rejected for caching, but it might make the code a bit more consistent.
-        if logical_transform.has_positive_uniform_scale() && !logical_transform.has_skew() {
+        if full_transform.is_positive_uniform_scale_without_skew() {
             PreparedGlyphRunMode::AbsorbScaleUnhinted
         } else {
             PreparedGlyphRunMode::Direct
@@ -1339,16 +1348,15 @@ fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> Pr
         //
         // As the hinting is vertical-only, we can handle horizontal skew, but not vertical skew or
         // rotations.
-        if logical_transform.has_positive_uniform_scale() && !logical_transform.has_vertical_skew()
-        {
+        if full_transform.is_positive_uniform_scale_without_vertical_skew() {
             PreparedGlyphRunMode::AbsorbScaleHinted
         } else {
             PreparedGlyphRunMode::Direct
         }
     };
 
-    let (draw_transform, draw_font_size, hinting_instance) = match mode {
-        PreparedGlyphRunMode::Direct => (logical_transform, run.font_size, None),
+    let (effective_transform, draw_font_size, hinting_instance) = match mode {
+        PreparedGlyphRunMode::Direct => (full_transform, run.font_size, None),
         PreparedGlyphRunMode::AbsorbScaleUnhinted => (
             Affine::new([1., 0., 0., 1., t_e, t_f]),
             run.font_size * t_d as f32,
@@ -1385,10 +1393,10 @@ fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> Pr
         draw_props: DrawProps {
             positioning_transform: run
                 .transform
-                // Translation factor is already considered in `draw_transform`, so we need to remove
+                // Translation factor is already considered in `effective_transform`, so we need to remove
                 // it here.
                 .with_translation(Vec2::ZERO),
-            draw_transform,
+            effective_transform,
             font_size: draw_font_size,
         },
         normalized_coords: run.normalized_coords,

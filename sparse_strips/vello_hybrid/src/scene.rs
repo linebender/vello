@@ -132,7 +132,9 @@ impl SceneConstraints {
     }
 
     /// Caller guarantees that the scene will only use the default (normal, source-over)
-    /// blend mode.
+    /// blend mode in the root layer. In case you still want to use blending, you need to
+    /// make sure that you have pushed at least one "wrapper" layer, such that the destination
+    /// of the blending operation is never the root layer.
     ///
     /// # Panics
     ///
@@ -804,9 +806,9 @@ impl Scene {
         self.filter = None;
     }
 
-    fn with_optional_filter<F>(&mut self, mut f: F)
+    fn with_optional_filter<F>(&mut self, f: F)
     where
-        F: FnMut(&mut Self),
+        F: FnOnce(&mut Self),
     {
         if let Some(filter) = self.filter.clone() {
             self.push_filter_layer(filter);

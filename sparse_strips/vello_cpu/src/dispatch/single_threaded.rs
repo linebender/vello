@@ -338,6 +338,8 @@ impl SingleThreadedDispatcher {
                     // The layer was already rendered for filtering, but we skip compositing
                     // since this tile is entirely clipped out.
                     // (PushZeroClip only appears for clipped filter layers)
+                    // See https://github.com/linebender/vello/pull/1541/ for why we
+                    // add the ID check.
                     Some(Cmd::PushZeroClip(id)) if *id == *child_layer_id => {
                         // If we have a zero-clip, it means that the whole layer should not be drawn.
                         // Therefore, we want to skip to the very end so that only `PopBuf` will
@@ -347,7 +349,7 @@ impl SingleThreadedDispatcher {
                     }
 
                     // Partial clip: push the clip buffer, then composite the filtered layer
-                    Some(Cmd::PushBuf(LayerKind::Clip(_), _)) => {
+                    Some(Cmd::PushBuf(LayerKind::Clip(id), _)) if *id == *child_layer_id => {
                         fine.run_cmd(
                             &wtile.cmds[cmd_idx + 1],
                             &self.strip_storage.alphas,
