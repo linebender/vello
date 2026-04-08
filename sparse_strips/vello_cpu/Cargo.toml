@@ -49,7 +49,7 @@ multithreading = [
 # Add support for text rendering
 text = ["vello_common/text", "dep:glifo"]
 # Enable glyph debugging helpers and bounds visualization.
-debug_glyph_bounds = ["dep:png", "glifo/debug_glyph_bounds"]
+debug_glyph_bounds = ["text", "dep:png", "glifo/debug_glyph_bounds"]
 
 # Speed focussed rendering using u8 math
 u8_pipeline = []

@@ -134,6 +134,8 @@
 
 extern crate alloc;
 extern crate core;
+#[cfg(any(feature = "png", feature = "debug_glyph_bounds"))]
+use png as _;
 #[cfg(feature = "std")]
 extern crate std;
 

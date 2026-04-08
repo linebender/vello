@@ -7,8 +7,11 @@
 
 #[cfg(feature = "png")]
 use crate::Pixmap;
+#[cfg(feature = "png")]
 use crate::render::Resources;
-use crate::text::{GlyphAtlas, GlyphAtlasResources};
+use crate::text::GlyphAtlas;
+#[cfg(feature = "png")]
+use crate::text::GlyphAtlasResources;
 #[cfg(feature = "png")]
 use alloc::format;
 use glifo::GlyphCacheKey;
