@@ -22,6 +22,6 @@ pub struct Glyph {
 /// In most cases, this can be [cast](bytemuck::cast_slice) from the
 /// normalised coords provided by your text layout library.
 ///
-/// Equivalent to [`skrifa::instance::NormalizedCoord`], but defined
+/// Equivalent to `skrifa::instance::NormalizedCoord`, but defined
 /// in Vello so that Skrifa is not part of Vello's public API.
 pub type NormalizedCoord = i16;

@@ -1542,7 +1542,7 @@ impl<C: GlyphCache> GlyphCaches<C> {
     /// Maintains the glyph caches by evicting unused cache entries.
     ///
     /// The `image_cache` must be the same allocator passed to
-    /// [`GlyphRunBuilder::build`] so that evicted entries are deallocated from
+    /// `GlyphRunBuilder::build` so that evicted entries are deallocated from
     /// the correct allocator.
     ///
     /// Should be called once per scene rendering.
