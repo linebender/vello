@@ -598,7 +598,7 @@ impl Scheduler {
         let rows = wide.height_tiles();
         let cols = wide.width_tiles();
         let num_tiles = (rows * cols) as usize;
-        // If we processed any filter layers previously, there maximum round should not leak
+        // If we processed any filter layers previously, their maximum round should not leak
         // into the root node.
         state.max_round = self.round;
 
