@@ -25,6 +25,8 @@
 #![no_std]
 
 extern crate alloc;
+// Currently used for debugging in `cache.rs`, but only in debug build.
+use log as _;
 #[cfg(feature = "png")]
 use png as _;
 #[cfg(feature = "std")]

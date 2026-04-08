@@ -565,38 +565,34 @@ impl GlyphAtlas {
 
     /// Log cache hit/miss statistics at debug level.
     pub fn log_hit_miss_stats(&self) {
-        use std::println;
-
         let total = self.cache_hits + self.cache_misses;
         let hit_rate = if total > 0 {
             (self.cache_hits as f64 / total as f64) * 100.0
         } else {
             0.0
         };
-        println!("=== Cache Hit/Miss Statistics ===");
-        println!("Cache hits:   {}", self.cache_hits);
-        println!("Cache misses: {}", self.cache_misses);
-        println!("Total lookups: {}", total);
-        println!("Hit rate:     {:.2}%", hit_rate);
+        log::debug!("=== Cache Hit/Miss Statistics ===");
+        log::debug!("Cache hits:   {}", self.cache_hits);
+        log::debug!("Cache misses: {}", self.cache_misses);
+        log::debug!("Total lookups: {}", total);
+        log::debug!("Hit rate:     {:.2}%", hit_rate);
     }
 
     /// Log detailed atlas statistics at debug level.
     pub fn log_atlas_stats(&self, page_count: usize) {
-        use std::println;
-
         let stats = self.stats(page_count);
-        println!("=== Glyph Atlas Statistics ===");
-        println!("Total cached glyphs: {}", stats.total_glyphs());
-        println!("Unique glyph IDs: {}", stats.unique_glyph_ids);
-        println!("Atlas pages: {}", stats.page_count);
-        println!("Static font glyphs: {}", stats.static_glyphs);
-        println!("Variable font glyphs: {}", stats.variable_glyphs);
-        println!("Subpixel distribution: {:?}", stats.subpixel_distribution);
-        println!("Font sizes: {:?}", stats.sizes_used);
+        log::debug!("=== Glyph Atlas Statistics ===");
+        log::debug!("Total cached glyphs: {}", stats.total_glyphs());
+        log::debug!("Unique glyph IDs: {}", stats.unique_glyph_ids);
+        log::debug!("Atlas pages: {}", stats.page_count);
+        log::debug!("Static font glyphs: {}", stats.static_glyphs);
+        log::debug!("Variable font glyphs: {}", stats.variable_glyphs);
+        log::debug!("Subpixel distribution: {:?}", stats.subpixel_distribution);
+        log::debug!("Font sizes: {:?}", stats.sizes_used);
 
         if stats.unique_glyph_ids > 0 {
             let ratio = stats.total_glyphs() as f32 / stats.unique_glyph_ids as f32;
-            println!("Avg entries per unique glyph: {:.2}", ratio);
+            log::debug!("Avg entries per unique glyph: {:.2}", ratio);
         }
     }
 
@@ -612,8 +608,6 @@ impl GlyphAtlas {
     /// This is useful for understanding why the same glyph appears multiple
     /// times in the atlas (e.g., different subpixel positions or sizes).
     pub fn log_keys_grouped(&self) {
-        use std::println;
-
         let mut by_glyph: HashMap<u32, Vec<(&GlyphCacheKey, &str)>> = HashMap::new();
 
         for key in self.static_entries.keys() {
@@ -631,7 +625,7 @@ impl GlyphAtlas {
             }
         }
 
-        println!(
+        log::debug!(
             "=== Glyph Keys Grouped by ID ({} unique) ===",
             by_glyph.len()
         );
@@ -642,9 +636,9 @@ impl GlyphAtlas {
         for glyph_id in ids {
             let keys = &by_glyph[&glyph_id];
             let suffix = if keys.len() == 1 { "entry" } else { "entries" };
-            println!("glyph_id {:4} ({} {}):", glyph_id, keys.len(), suffix);
+            log::debug!("glyph_id {:4} ({} {}):", glyph_id, keys.len(), suffix);
             for (k, source) in keys {
-                println!(
+                log::debug!(
                     "    [{}] subpx: {}, size: {:.2}, hinted: {}, font_id: {:016x}, font_index: {}",
                     source,
                     k.subpixel_x,

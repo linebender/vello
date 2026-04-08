@@ -30,6 +30,7 @@ foldhash = { workspace = true }
 # TODO: Consider just using libm via kurbo, but it doesn't seem to have a `fract` method.
 core_maths = { workspace = true, optional = true }
 hashbrown = { workspace = true }
+log = { workspace = true }
 peniko = { workspace = true }
 skrifa = { workspace = true }
 smallvec = { workspace = true }
