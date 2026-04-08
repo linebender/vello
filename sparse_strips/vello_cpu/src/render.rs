@@ -38,6 +38,7 @@ use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use vello_common::util::is_axis_aligned;
 
+#[cfg(feature = "text")]
 pub(crate) const DEFAULT_GLYPH_ATLAS_SIZE: u16 = 4096;
 // All IDs < than this value are reserved for normal images, all IDs >= this value are
 // reserved for atlas pages.
@@ -787,6 +788,9 @@ impl Recordable for RenderContext {
     }
 
     fn execute_recording(&mut self, resources: &mut Self::Resources, recording: &Recording) {
+        #[cfg(not(feature = "text"))]
+        let _ = resources;
+
         let (cached_strips, cached_alphas) = recording.get_cached_strips();
         let adjusted_strips = self.prepare_cached_strips(cached_strips, cached_alphas);
 
@@ -911,6 +915,7 @@ impl ImageRegistry {
         ImageId::new(id)
     }
 
+    #[cfg(feature = "text")]
     pub(crate) fn register_atlas_page(&mut self, page_index: u32, pixmap: Arc<Pixmap>) {
         self.images.insert(
             ImageId::new(ATLAS_IMAGE_ID_BASE + page_index).as_u32(),
@@ -922,6 +927,7 @@ impl ImageRegistry {
         self.images.remove(&id.as_u32()).is_some()
     }
 
+    #[cfg(feature = "text")]
     pub(crate) fn destroy_atlas_page(&mut self, page_index: u32) -> bool {
         self.destroy(ImageId::new(ATLAS_IMAGE_ID_BASE + page_index))
     }
