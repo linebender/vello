@@ -17,10 +17,11 @@ use vello_common::glyph::{GlyphCaches, GlyphRenderer, GlyphRunBuilder, GlyphType
 use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::multi_atlas::AtlasConfig;
-use vello_common::paint::{Paint, PaintType, Tint};
+use vello_common::paint::{Image, ImageSource, Paint, PaintType, Tint};
 #[cfg(feature = "text")]
 use vello_common::peniko::FontData;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
+use vello_common::peniko::{Extend, ImageQuality, ImageSampler};
 use vello_common::recording::{
     PushLayerCommand, Recordable, Recorder, Recording, RenderCommand, RenderState,
 };
@@ -493,6 +494,50 @@ impl Scene {
         self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
     }
 
+    /// Draw an image using nearest-neighbor or bilinear filtering.
+    ///
+    /// If you want more room for customization, you can also paint an image by setting
+    /// an image paint via `set_paint` and specifying parameters like extend and filtering quality
+    /// manually. However, if you only want to draw a simple image without bicubic filtering or
+    /// any special extend mode, it is recommended to use this method as it leverages GPU-native
+    /// capabilities and is therefore significantly faster.
+    ///
+    /// This method will respect the current affine transformation in place (set via [`Scene::set_transform`],
+    /// but is not affected by the current paint transform (set via [`Scene::set_paint_transform`] in place.
+    pub fn draw_image(&mut self, image: ImageSource, rect: &Rect, bilinear: bool) {
+        let old_paint_transform = core::mem::take(&mut self.render_state.paint_transform);
+        let old_paint = core::mem::take(&mut self.render_state.paint);
+
+        self.set_paint_transform(Affine::IDENTITY);
+        self.set_paint(Image {
+            image,
+            sampler: ImageSampler {
+                // For the fast path, we always sample transparent pixels outside,
+                // so the extend mode becomes irrelevant. We therefore repurpose the
+                // field to store whether to use bilinear or nearest-neighbor filtering.
+                x_extend: if bilinear {
+                    Extend::Repeat
+                } else {
+                    Extend::Pad
+                },
+                y_extend: Extend::Pad,
+                quality: ImageQuality::Medium,
+                alpha: 1.0,
+            },
+        });
+
+        let paint_idx = self.encoded_paints.borrow().len();
+        self.fill_rect(rect);
+
+        if let Some(EncodedPaint::Image(img)) = self.encoded_paints.borrow_mut().get_mut(paint_idx)
+        {
+            img.set_use_gpu_fast_path();
+        }
+
+        self.set_paint_transform(old_paint_transform);
+        self.set_paint(old_paint);
+    }
+
     #[expect(
         clippy::cast_possible_truncation,
         reason = "f64→f32 truncation is acceptable for pixel coordinates"
@@ -730,6 +775,8 @@ impl Scene {
     }
 
     /// Set the paint for subsequent rendering operations.
+    ///
+    /// For drawing images, see also the [`Scene::draw_image`] method.
     // TODO: This API is not final. Supporting images from a pixmap is explicitly out of scope.
     //       Instead images should be passed via a backend-agnostic opaque id, and be hydrated at
     //       render time into a texture usable by the renderer backend.
