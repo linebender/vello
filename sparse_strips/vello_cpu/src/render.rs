@@ -468,7 +468,7 @@ impl RenderContext {
     ///
     /// If the paint is an image with `ImageSource::OpaqueId`, it will be
     /// resolved to the corresponding pixmap at rasterization time.
-    /// Make sure to register images with [`register_image`](Self::register_image) first.
+    /// Make sure to register images with [`Resources::register_image`] first.
     pub fn set_paint(&mut self, paint: impl Into<PaintType>) {
         self.state.paint = paint.into();
     }

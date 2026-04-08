@@ -205,7 +205,13 @@ impl WebGlRenderer {
             );
         }
 
-        self.render_scene(scene, render_size, true)?;
+        self.render_scene(
+            scene,
+            &mut resources.image_cache,
+            render_size,
+            true,
+            RootRenderTarget::UserSurface,
+        )?;
 
         #[cfg(feature = "text")]
         {
