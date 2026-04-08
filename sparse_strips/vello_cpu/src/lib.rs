@@ -134,7 +134,9 @@
 
 extern crate alloc;
 extern crate core;
-#[cfg(any(feature = "png", feature = "debug_glyph_bounds"))]
+// Unused in release mode because it's only used directly in the `text_debug` module
+// (or transitively in vello_common).
+#[cfg(feature = "png")]
 use png as _;
 #[cfg(feature = "std")]
 extern crate std;
@@ -148,7 +150,7 @@ mod dispatch;
 mod filter;
 #[cfg(feature = "text")]
 mod text;
-#[cfg(all(feature = "text", feature = "debug_glyph_bounds"))]
+#[cfg(all(feature = "text", debug_assertions))]
 mod text_debug;
 mod util;
 

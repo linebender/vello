@@ -19,7 +19,6 @@ default = ["std"]
 std = ["foldhash/std", "vello_common/std", "skrifa/std"]
 libm = ["skrifa/libm", "vello_common/libm", "dep:core_maths"]
 png = ["std", "dep:png", "vello_common/png"]
-debug_glyph_bounds = []
 
 [lints]
 workspace = true
