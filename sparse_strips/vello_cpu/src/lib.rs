@@ -150,7 +150,7 @@ mod dispatch;
 mod filter;
 #[cfg(feature = "text")]
 mod text;
-#[cfg(all(feature = "text", debug_assertions))]
+#[cfg(all(feature = "text", feature = "std", debug_assertions))]
 mod text_debug;
 mod util;
 
