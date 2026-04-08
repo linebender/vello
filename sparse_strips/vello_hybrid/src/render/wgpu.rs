@@ -2425,7 +2425,10 @@ impl RendererContext<'_> {
                     ],
                 });
 
-                (&filter_atlas.views[atlas_idx], MaybeOwned::Owned(bind_group))
+                (
+                    &filter_atlas.views[atlas_idx],
+                    MaybeOwned::Owned(bind_group),
+                )
             }
             StripPassRenderTarget::SlotTexture(idx) => (
                 &self.programs.resources.slot_texture_views[idx as usize],

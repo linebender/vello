@@ -184,7 +184,7 @@ impl WebGlRenderer {
             *render_size,
             "Render size must match drawing buffer size"
         );
-        
+
         #[cfg(feature = "text")]
         {
             resources.process_pending_glyph_work(
@@ -206,14 +206,14 @@ impl WebGlRenderer {
         }
 
         self.render_scene(scene, render_size, true)?;
-        
+
         #[cfg(feature = "text")]
         {
             resources.process_pending_glyph_clears(self, |renderer, rects| {
                 clear_atlas_regions(renderer, rects.iter().cloned());
             });
         }
-        
+
         Ok(())
     }
 
@@ -275,7 +275,7 @@ impl WebGlRenderer {
             &mut self.programs.resources.atlas_texture_array,
             &mut self.programs.resources.stub_atlas_texture_array,
         );
-        
+
         let mut dummy_image_cache = self
             .dummy_image_cache
             .take()

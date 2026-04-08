@@ -508,7 +508,12 @@ fn render_roboto_with_mode(
     glyph
 )]
 fn glyphs_colr_noto(ctx: &mut impl Renderer, enable_caching: bool) {
-    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)), enable_caching, DrawMode::Fill);
+    render_colr_noto_with_transform(
+        ctx,
+        Affine::translate((0., 50.)),
+        enable_caching,
+        DrawMode::Fill,
+    );
 }
 
 #[vello_test(
@@ -519,7 +524,12 @@ fn glyphs_colr_noto(ctx: &mut impl Renderer, enable_caching: bool) {
     glyph
 )]
 fn glyphs_colr_noto_stroked(ctx: &mut impl Renderer, enable_caching: bool) {
-    render_colr_noto_with_transform(ctx, Affine::translate((0., 50.)), enable_caching, DrawMode::Fill);
+    render_colr_noto_with_transform(
+        ctx,
+        Affine::translate((0., 50.)),
+        enable_caching,
+        DrawMode::Fill,
+    );
 }
 
 #[vello_test(
@@ -724,7 +734,7 @@ fn render_colr_noto_with_transform(
     ctx: &mut impl Renderer,
     transform: Affine,
     enable_caching: bool,
-    mode: DrawMode
+    mode: DrawMode,
 ) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_noto_colr("✅👀🎉🤠", font_size);

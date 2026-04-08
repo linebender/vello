@@ -150,7 +150,9 @@ impl ApplicationHandler for App<'_> {
         self.renderers
             .resize_with(self.context.devices.len(), || None);
         self.uploaded_scene_images
-            .resize_with(self.context.devices.len(), || vec![false; self.scenes.len()]);
+            .resize_with(self.context.devices.len(), || {
+                vec![false; self.scenes.len()]
+            });
         self.renderers[surface.dev_id]
             .get_or_insert_with(|| create_vello_renderer(&self.context, &surface));
 
