@@ -27,7 +27,6 @@ workspace = true
 [dependencies]
 bytemuck = { workspace = true }
 foldhash = { workspace = true }
-log = { workspace = true }
 hashbrown = { workspace = true }
 peniko = { workspace = true }
 skrifa = { workspace = true }
