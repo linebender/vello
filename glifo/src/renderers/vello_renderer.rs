@@ -17,6 +17,8 @@ use crate::util::AffineExt;
 use crate::{kurbo, peniko};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+#[cfg(feature = "libm")]
+use core_maths::CoreFloat as _;
 use kurbo::{Affine, BezPath, Rect, Shape};
 use peniko::color::palette::css::BLACK;
 use peniko::color::{AlphaColor, Srgb};

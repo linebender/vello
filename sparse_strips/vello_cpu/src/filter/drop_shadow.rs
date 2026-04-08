@@ -21,6 +21,8 @@ use vello_common::color::{AlphaColor, Srgb};
 use vello_common::filter::drop_shadow::DropShadow;
 use vello_common::filter_effects::EdgeMode;
 use vello_common::peniko::color::PremulRgba8;
+#[cfg(not(feature = "std"))]
+use vello_common::peniko::kurbo::common::FloatFuncs as _;
 use vello_common::pixmap::Pixmap;
 
 impl FilterEffect for DropShadow {

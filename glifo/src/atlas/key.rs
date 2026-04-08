@@ -10,6 +10,8 @@
 
 use crate::color::{AlphaColor, Srgb};
 use core::hash::{Hash, Hasher};
+#[cfg(feature = "libm")]
+use core_maths::CoreFloat as _;
 use skrifa::instance::NormalizedCoord;
 use smallvec::SmallVec;
 

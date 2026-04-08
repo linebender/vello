@@ -110,7 +110,7 @@ futures-intrusive = "0.5.0"
 guillotiere = { version = "0.7.0", default-features = false }
 hashbrown = { version = "0.16.1", default-features = false, features = ["default-hasher"] }
 core_maths = "0.1.1"
-foldhash = "0.1.5"
+foldhash = { version = "0.1.5", default-features = false }
 smallvec = "1.15.1"
 static_assertions = "1.1.0"
 thiserror = { version = "2.0.18", default-features = false }

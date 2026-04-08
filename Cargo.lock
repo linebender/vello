@@ -1296,6 +1296,7 @@ name = "glifo"
 version = "0.0.0"
 dependencies = [
  "bytemuck",
+ "core_maths",
  "foldhash 0.1.5",
  "hashbrown 0.16.1",
  "peniko 0.6.0",

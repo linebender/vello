@@ -22,8 +22,9 @@ use alloc::vec::Vec;
 use color::palette::css::BLACK;
 use core::fmt::{Debug, Formatter};
 use glifo::atlas::{
-    AtlasCommandRecorder, AtlasSlot, GlyphAtlas as GlifoGlyphAtlas, GlyphCache, GlyphCacheConfig,
-    GlyphCacheKey, ImageCache, PendingBitmapUpload, PendingClearRect, RasterMetrics,
+    AtlasCommandRecorder, AtlasConfig, AtlasSlot, GlyphAtlas as GlifoGlyphAtlas, GlyphCache,
+    GlyphCacheConfig, GlyphCacheKey, ImageCache, PendingBitmapUpload, PendingClearRect,
+    RasterMetrics,
 };
 use glifo::renderers::vello_renderer::{
     self, AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale,
@@ -261,7 +262,7 @@ impl GlyphAtlasResources {
     ) -> Self {
         Self {
             glyph_atlas: GlyphAtlas::with_config(page_width, page_height, eviction_config),
-            image_cache: ImageCache::new_with_config(Default::default()),
+            image_cache: ImageCache::new_with_config(AtlasConfig::default()),
             glyph_renderer: Box::new(RenderContext::new_with(
                 page_width,
                 page_height,
@@ -356,7 +357,7 @@ impl Resources {
             // Note: This method panics if multi-threading is enabled, but our glyph renderer is always
             // single-threaded anyway, so this shouldn't ever panic, even if the main render context
             // uses multi-threading.
-            glyph_renderer.composite_to_pixmap_at_offset(&Resources::default(), page, 0, 0);
+            glyph_renderer.composite_to_pixmap_at_offset(&Self::default(), page, 0, 0);
         });
 
         // See the comment in `GlyphAtlas`.
@@ -380,7 +381,7 @@ impl Resources {
                 .glyph_atlas
                 .page_pixmap_mut(clear.page_index as usize)
                 .expect("atlas clear rect refers to a missing page");
-            clear_pixmap_region(pixmap, clear);
+            clear_pixmap_region(pixmap, *clear);
         }
     }
 }
@@ -460,7 +461,7 @@ pub type GlyphRunBuilder<'a> = glifo::GlyphRunBuilder<'a, CpuGlyphRunBackend<'a>
 ///
 /// Necessary because `composite_to_pixmap_at_offset` uses `SrcOver` blending,
 /// so stale pixels from evicted glyphs would bleed through if not cleared.
-fn clear_pixmap_region(dst: &mut Pixmap, rect: &PendingClearRect) {
+fn clear_pixmap_region(dst: &mut Pixmap, rect: PendingClearRect) {
     let dst_stride = dst.width() as usize;
     let dst_data = dst.data_as_u8_slice_mut();
     let clear_width = rect.width as usize;
