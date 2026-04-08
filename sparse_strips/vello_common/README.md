@@ -47,7 +47,7 @@ Vello does not use this crate.
 - `png` (enabled by default): Allow loading [`Pixmap`][crate::pixmap::Pixmap]s from PNG images.
   Also required for rendering glyphs with an embedded PNG.
   Implies `std`.
-- `text` (enabled by default): Enables glyph rendering (see the [`glyph`][] module).
+- `text` (enabled by default): Enables shared text and glyph support.
 
 At least one of `std` and `libm` is required; `std` overrides `libm`.
 
