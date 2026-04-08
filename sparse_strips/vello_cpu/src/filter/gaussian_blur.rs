@@ -23,8 +23,6 @@ use crate::layer_manager::LayerManager;
 use vello_common::filter::gaussian_blur::{DecimationSizer, GaussianBlur};
 use vello_common::filter_effects::EdgeMode;
 use vello_common::peniko::color::PremulRgba8;
-#[cfg(not(feature = "std"))]
-use vello_common::peniko::kurbo::common::FloatFuncs as _;
 use vello_common::pixmap::Pixmap;
 
 impl FilterEffect for GaussianBlur {

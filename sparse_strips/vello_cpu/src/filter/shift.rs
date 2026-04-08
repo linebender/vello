@@ -4,8 +4,6 @@
 //! Shared helpers for pixel-space filter operations.
 
 use vello_common::color::palette::css::TRANSPARENT;
-#[cfg(not(feature = "std"))]
-use vello_common::kurbo::common::FloatFuncs as _;
 use vello_common::peniko::color::PremulRgba8;
 use vello_common::pixmap::Pixmap;
 
