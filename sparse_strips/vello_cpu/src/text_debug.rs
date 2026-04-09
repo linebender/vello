@@ -83,18 +83,12 @@ impl GlyphAtlasResources {
 
 #[cfg(feature = "png")]
 impl Resources {
-    /// Save all atlas pages to PNG files for debugging.
-    ///
-    /// Files are saved to `examples/_output/vello_cpu_atlas_page_{index}.png`.
     pub(crate) fn save_glyph_atlas_pages(&self) {
         if let Some(glyph_resources) = &self.glyph_resources {
             glyph_resources.save_atlas_pages();
         }
     }
 
-    /// Save all atlas pages to PNG files with a custom path prefix.
-    ///
-    /// Files are saved as `{path_prefix}_atlas_page_{index}.png`.
     pub(crate) fn save_glyph_atlas_pages_to(&self, path_prefix: &str) {
         if let Some(glyph_resources) = &self.glyph_resources {
             glyph_resources.save_atlas_pages_to(path_prefix);
