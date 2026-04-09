@@ -225,7 +225,7 @@ pub(crate) enum RootRenderTarget {
 /// Specifies the target for a strip render pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StripPassRenderTarget {
-    /// Render to the root output target passed to the current `render_scene` call.
+    /// Render to the root output target.
     Root(RootRenderTarget),
     /// Render to a layer in the filter atlas.
     FilterLayer(LayerId),
