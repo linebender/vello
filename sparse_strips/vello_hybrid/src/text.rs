@@ -184,6 +184,7 @@ impl Resources {
                 let (width, height) = self.image_cache.atlas_manager().config().atlas_size;
                 (width as u16, height as u16)
             };
+            // TODO: Use a config optionally provided by the user!
             self.glyph_resources = Some(GlyphAtlasResources::with_config(
                 atlas_width,
                 atlas_height,
