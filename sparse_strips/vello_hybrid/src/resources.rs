@@ -13,6 +13,7 @@ use glifo::GlyphPrepCache;
 #[cfg(feature = "text")]
 use glifo::atlas::{PendingBitmapUpload, PendingClearRect};
 use vello_common::image_cache::ImageCache;
+use vello_common::multi_atlas::AtlasConfig;
 
 /// Persistent resources required by Vello Hybrid for rendering.
 #[derive(Debug)]
@@ -32,7 +33,7 @@ impl Resources {
     /// Create a new set of renderer resources.
     pub fn new() -> Self {
         Self {
-            image_cache: ImageCache::new_with_config(Default::default()),
+            image_cache: ImageCache::new_with_config(AtlasConfig::default()),
             #[cfg(feature = "text")]
             glyph_prep_cache: GlyphPrepCache::default(),
             #[cfg(feature = "text")]

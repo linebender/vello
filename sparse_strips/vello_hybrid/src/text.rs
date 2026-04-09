@@ -193,11 +193,11 @@ impl Resources {
     }
 
     fn atlas_config(&self) -> AtlasConfig {
-        self.image_cache.atlas_manager().config().clone()
+        *self.image_cache.atlas_manager().config()
     }
 
     fn atlas_count(&self) -> u32 {
-        self.image_cache.atlas_count() as u32
+        u32::try_from(self.image_cache.atlas_count()).unwrap()
     }
 
     fn replay_pending_atlas_commands(&mut self, mut f: impl FnMut(&Scene, AtlasId)) {
@@ -374,7 +374,7 @@ impl<'a> GlyphRunBackend<'a> for HybridGlyphRunBackend<'a> {
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
         self.render_glyphs(run, glyphs, |glyph_run, scene| {
-            glyph_run.stroke_glyphs(scene)
+            glyph_run.stroke_glyphs(scene);
         });
     }
 }
