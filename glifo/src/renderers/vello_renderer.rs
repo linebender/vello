@@ -617,8 +617,9 @@ pub(crate) fn supports_atlas_caching(transform: &Affine, glyph_type: CachedGlyph
         // For bitmap glyphs, we need to relax the condition a bit, since bitmap glyphs already have a fixed
         // size and thus might not correspond 100% to the font size. Therefore, they likely don't have a unit
         // transform.
-        CachedGlyphType::Bitmap => !transform.has_skew() && a.is_sign_positive() && d.is_sign_positive(),
-
+        CachedGlyphType::Bitmap => {
+            !transform.has_skew() && a.is_sign_positive() && d.is_sign_positive()
+        }
     }
 }
 

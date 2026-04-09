@@ -65,9 +65,21 @@ fn render_transform_composition_rows(
                 * Affine::skew(0.0, 0.2)
                 * Affine::translate((-10.0, 10.0)),
         ),
-        (Affine::scale_non_uniform(1.0, -1.0) * Affine::translate((0.0, 20.0)), 20.0_f32, Affine::IDENTITY),
-        (Affine::scale_non_uniform(-1.0, 1.0) * Affine::translate((-reverse_x_shift, 0.0)), 20.0_f32, Affine::IDENTITY),
-        (Affine::scale_non_uniform(-1.0, -1.0) * Affine::translate((-reverse_x_shift, 20.0)), 20.0_f32, Affine::IDENTITY),
+        (
+            Affine::scale_non_uniform(1.0, -1.0) * Affine::translate((0.0, 20.0)),
+            20.0_f32,
+            Affine::IDENTITY,
+        ),
+        (
+            Affine::scale_non_uniform(-1.0, 1.0) * Affine::translate((-reverse_x_shift, 0.0)),
+            20.0_f32,
+            Affine::IDENTITY,
+        ),
+        (
+            Affine::scale_non_uniform(-1.0, -1.0) * Affine::translate((-reverse_x_shift, 20.0)),
+            20.0_f32,
+            Affine::IDENTITY,
+        ),
     ];
 
     ctx.set_paint(paint);
