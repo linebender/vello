@@ -12,7 +12,9 @@ use crate::atlas::commands::{AtlasCommand, AtlasCommandRecorder, AtlasPaint};
 use crate::atlas::key::subpixel_offset;
 use crate::atlas::{AtlasSlot, GlyphCache, GlyphCacheKey, ImageCache, RasterMetrics};
 use crate::colr::ColrPainter;
-use crate::glyph::{AtlasCacher, GlyphBitmap, GlyphColr, GlyphRenderer, GlyphType, PreparedGlyph};
+use crate::glyph::{
+    AtlasCacher, CachedGlyphType, GlyphBitmap, GlyphColr, GlyphRenderer, GlyphType, PreparedGlyph,
+};
 use crate::util::AffineExt;
 use crate::{kurbo, peniko};
 use alloc::sync::Arc;
@@ -277,7 +279,7 @@ fn insert_and_render_outline<B: GlyphAtlasBackend>(
     image_cache: &mut ImageCache,
     tint_color: AlphaColor<Srgb>,
 ) -> CacheResult {
-    if !supports_atlas_caching(&transform, true) {
+    if !supports_atlas_caching(&transform, CachedGlyphType::Outline) {
         return CacheResult::UnsupportedTransform;
     }
 
@@ -318,11 +320,9 @@ fn insert_and_render_bitmap<B: GlyphAtlasBackend>(
     glyph_atlas: &mut B::Cache,
     image_cache: &mut ImageCache,
 ) -> CacheResult {
-    // TODO: It seems like bitmap glyphs currently do not always have unit scale, investigate
-    if !supports_atlas_caching(&transform, false) {
+    if !supports_atlas_caching(&transform, CachedGlyphType::Bitmap) {
         return CacheResult::UnsupportedTransform;
     }
-
 
     let width = glyph.pixmap.width();
     let height = glyph.pixmap.height();
@@ -373,7 +373,7 @@ fn insert_and_render_colr<B: GlyphAtlasBackend>(
     glyph_atlas: &mut B::Cache,
     image_cache: &mut ImageCache,
 ) -> CacheResult {
-    if !supports_atlas_caching(&transform, true) {
+    if !supports_atlas_caching(&transform, CachedGlyphType::Colr(Rect::ZERO)) {
         return CacheResult::UnsupportedTransform;
     }
 
@@ -601,65 +601,75 @@ pub fn replay_atlas_commands(
 
 /// Returns `true` if the transform is safe for atlas-cached glyph rendering.
 #[inline]
-pub(crate) fn supports_atlas_caching(transform: &Affine, expect_negative_y_scale: bool) -> bool {
+pub(crate) fn supports_atlas_caching(transform: &Affine, glyph_type: CachedGlyphType) -> bool {
     // TODO: Investigate whether we can support arbitrary mirroring. From some
     // initial experiments, allowing x-mirroring leads to slightly shifted glyphs, so
-    // we don't support this now.
-    //
-    // For outline and COLR glyphs, we expect a scaling factor of -1 vertically, while for bitmap glyphs
-    // we expect 1. Similarly to above, it would be nice to investigate whether we can support arbitrary
-    // signs, but it requires more experimentation.
-
-    // Reject any transform that has a skew or where the scale is not 1/-1.
-    if transform.has_non_unit_skew_or_scale() {
-        return false;
-    }
+    // we don't support this now. Y-mirroring also needs more consideration.
 
     let [a, _, _, d, _, _] = transform.as_coeffs();
 
-    // Only accept x-scaling of 1 and y-scaling of 1/-1 depending on the type of glyph we have.
-    a.is_sign_positive()
-        && if expect_negative_y_scale {
-            d.is_sign_negative()
-        } else {
-            d.is_sign_positive()
+    match glyph_type {
+        // For those glyphs, we expect any scaling factor to have been completely absorbed. Due to the fact
+        // that we had to apply a flip transform for outlines, the y-scaling factor is expected to be negative.
+        CachedGlyphType::Outline | CachedGlyphType::Colr(_) => {
+            !transform.has_non_unit_skew_or_scale() && a.is_sign_positive() && d.is_sign_negative()
         }
+        // For bitmap glyphs, we need to relax the condition a bit, since bitmap glyphs already have a fixed
+        // size and thus might not correspond 100% to the font size. Therefore, they likely don't have a unit
+        // transform.
+        CachedGlyphType::Bitmap => !transform.has_skew() && a.is_sign_positive() && d.is_sign_positive(),
+
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::supports_atlas_caching;
+    use crate::glyph::CachedGlyphType;
     use peniko::kurbo::Affine;
+    use peniko::kurbo::Rect;
 
     #[test]
-    fn supports_bitmap_and_colr_caching_for_identity_and_translation() {
-        assert!(supports_atlas_caching(&Affine::IDENTITY, false));
+    fn supports_bitmap_caching_for_identity_and_translation() {
+        assert!(supports_atlas_caching(
+            &Affine::IDENTITY,
+            CachedGlyphType::Bitmap
+        ));
         assert!(supports_atlas_caching(
             &Affine::translate((12.0, -3.5)),
-            false
+            CachedGlyphType::Bitmap
         ));
     }
 
     #[test]
     fn rejects_skewed_transforms() {
-        assert!(!supports_atlas_caching(&Affine::skew(0.2, 0.0), false));
         assert!(!supports_atlas_caching(
             &Affine::new([1.0, 0.1, 0.0, 1.0, 0.0, 0.0]),
-            false
+            CachedGlyphType::Bitmap
         ));
-        assert!(!supports_atlas_caching(&Affine::skew(0.2, 0.0), true));
+        assert!(!supports_atlas_caching(
+            &Affine::skew(0.2, 0.0),
+            CachedGlyphType::Outline
+        ));
+        assert!(!supports_atlas_caching(
+            &Affine::skew(0.2, 0.0),
+            CachedGlyphType::Colr(Rect::ZERO)
+        ));
     }
 
     #[test]
-    fn rejects_scaled_transforms() {
-        assert!(!supports_atlas_caching(&Affine::scale(2.0), false));
+    fn outline_and_colr_reject_non_unit_scales() {
         assert!(!supports_atlas_caching(
-            &Affine::scale_non_uniform(1.0, 0.5),
-            false
+            &Affine::scale(2.0),
+            CachedGlyphType::Outline
         ));
         assert!(!supports_atlas_caching(
             &Affine::scale_non_uniform(1.0, -0.5),
-            true
+            CachedGlyphType::Outline
+        ));
+        assert!(!supports_atlas_caching(
+            &Affine::scale(2.0),
+            CachedGlyphType::Colr(Rect::ZERO)
         ));
     }
 
@@ -667,31 +677,39 @@ mod tests {
     fn outline_and_colr_requires_negative_y_and_positive_x() {
         assert!(supports_atlas_caching(
             &Affine::scale_non_uniform(1.0, -1.0),
-            true
+            CachedGlyphType::Outline
+        ));
+        assert!(supports_atlas_caching(
+            &Affine::scale_non_uniform(1.0, -1.0),
+            CachedGlyphType::Colr(Rect::ZERO)
         ));
         assert!(!supports_atlas_caching(
             &Affine::scale_non_uniform(-1.0, -1.0),
-            true
+            CachedGlyphType::Outline
         ));
         assert!(!supports_atlas_caching(
             &Affine::scale_non_uniform(1.0, 1.0),
-            true
+            CachedGlyphType::Outline
         ));
     }
 
     #[test]
-    fn bitmap_require_positive_scales() {
+    fn bitmap_allows_positive_scales_only() {
         assert!(supports_atlas_caching(
             &Affine::scale_non_uniform(1.0, 1.0),
-            false
+            CachedGlyphType::Bitmap
+        ));
+        assert!(supports_atlas_caching(
+            &Affine::scale_non_uniform(2.0, 3.0),
+            CachedGlyphType::Bitmap
         ));
         assert!(!supports_atlas_caching(
             &Affine::scale_non_uniform(1.0, -1.0),
-            false
+            CachedGlyphType::Bitmap
         ));
         assert!(!supports_atlas_caching(
             &Affine::scale_non_uniform(-1.0, 1.0),
-            false
+            CachedGlyphType::Bitmap
         ));
     }
 }

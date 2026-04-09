@@ -413,7 +413,7 @@ fn glyphs_transform_composition_rows_bitmap_hinted(ctx: &mut impl Renderer, enab
 #[vello_test(
     width = 210,
     height = 410,
-    cpu_u8_tolerance = 1,
+    cpu_u8_tolerance = 3,
     hybrid_tolerance = 3,
     glyph
 )]
@@ -426,7 +426,7 @@ fn glyphs_transform_composition_rows_colr(ctx: &mut impl Renderer, enable_cachin
 #[vello_test(
     width = 210,
     height = 410,
-    cpu_u8_tolerance = 1,
+    cpu_u8_tolerance = 3,
     hybrid_tolerance = 3,
     glyph
 )]

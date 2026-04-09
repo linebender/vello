@@ -40,6 +40,12 @@ use vello_common::util::is_axis_aligned;
 
 #[cfg(feature = "text")]
 pub(crate) const DEFAULT_GLYPH_ATLAS_SIZE: u16 = 4096;
+// Why do we need this? The reason is that the way uploaded images work in Vello Hybrid
+// is different from how they work in Vello CPU.
+//
+// In Vello Hybrid, all images, regardless of whether it's user-uploaded images or cached glyphs,
+// are stored in an image atlas at a certain location. An image ID then uniquely resolves to an
+// atlas page index + a location on that page.
 // All IDs < than this value are reserved for normal images, all IDs >= this value are
 // reserved for atlas pages.
 pub(crate) const ATLAS_IMAGE_ID_BASE: u32 = u32::MAX / 2;
