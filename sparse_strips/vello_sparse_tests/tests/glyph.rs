@@ -333,7 +333,6 @@ fn glyphs_scaled(ctx: &mut impl Renderer, enable_caching: bool) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-// TODO: cached test is currently still wrong.
 #[vello_test(width = 150, height = 125, glyph)]
 fn glyphs_scaled_unhinted(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 25_f32;
@@ -363,7 +362,6 @@ fn glyphs_glyph_transform(ctx: &mut impl Renderer, enable_caching: bool) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-// TODO: cached test is currently still wrong.
 #[vello_test(width = 150, height = 125, glyph)]
 fn glyphs_glyph_transform_unhinted(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 25_f32;
