@@ -593,6 +593,7 @@ pub fn replay_atlas_commands(
 #[inline]
 pub(crate) fn supports_atlas_caching(transform: &Affine) -> bool {
     // TODO: Support y-flipping transforms?
+    // We also require identity scale, because any scale should have been absorbed into the font size.
     !transform.has_non_identity_skew_or_scale()
 }
 
