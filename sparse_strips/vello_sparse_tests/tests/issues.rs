@@ -778,6 +778,5 @@ fn issue_bicubic_filtering_clamping(ctx: &mut impl Renderer) {
     ctx.set_transform(Affine::translate((5.0, 19.0)));
     ctx.glyph_run(&font)
         .font_size(font_size)
-        .glyph_transform(Affine::scale(2.0))
         .fill_glyphs(glyphs.into_iter());
 }
