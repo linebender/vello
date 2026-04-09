@@ -20,6 +20,7 @@ fn render_transform_composition_rows(
     ctx: &mut impl Renderer,
     enable_caching: bool,
     hint: bool,
+    reverse_x_shift: f64,
     paint: impl Into<vello_common::paint::PaintType>,
     layout: impl Fn(f32) -> (FontData, Vec<Glyph>),
 ) {
@@ -64,11 +65,14 @@ fn render_transform_composition_rows(
                 * Affine::skew(0.0, 0.2)
                 * Affine::translate((-10.0, 10.0)),
         ),
+        (Affine::scale_non_uniform(1.0, -1.0) * Affine::translate((0.0, 20.0)), 20.0_f32, Affine::IDENTITY),
+        (Affine::scale_non_uniform(-1.0, 1.0) * Affine::translate((-reverse_x_shift, 0.0)), 20.0_f32, Affine::IDENTITY),
+        (Affine::scale_non_uniform(-1.0, -1.0) * Affine::translate((-reverse_x_shift, 20.0)), 20.0_f32, Affine::IDENTITY),
     ];
 
     ctx.set_paint(paint);
 
-    let mut y = 28.0;
+    let mut y = 28.35;
     for (run_scale_transform, font_size, glyph_transform) in rows {
         let (font, glyphs) = layout(font_size);
         ctx.set_transform(Affine::translate((16.0, y)) * run_scale_transform);
@@ -363,23 +367,25 @@ fn glyphs_glyph_transform_unhinted(ctx: &mut impl Renderer, enable_caching: bool
         .fill_glyphs(glyphs.into_iter());
 }
 
-#[vello_test(width = 110, height = 320, glyph, hybrid_tolerance = 1)]
+#[vello_test(width = 110, height = 410, glyph, hybrid_tolerance = 1)]
 fn glyphs_transform_composition_rows_outline(ctx: &mut impl Renderer, enable_caching: bool) {
     render_transform_composition_rows(
         ctx,
         enable_caching,
         false,
+        47.0,
         REBECCA_PURPLE.with_alpha(0.5),
         |font_size| layout_glyphs_roboto("Hello", font_size),
     );
 }
 
-#[vello_test(width = 110, height = 320, glyph, hybrid_tolerance = 1)]
+#[vello_test(width = 110, height = 410, glyph, hybrid_tolerance = 1)]
 fn glyphs_transform_composition_rows_outline_hinted(ctx: &mut impl Renderer, enable_caching: bool) {
     render_transform_composition_rows(
         ctx,
         enable_caching,
         true,
+        47.0,
         REBECCA_PURPLE.with_alpha(0.5),
         |font_size| layout_glyphs_roboto("Hello", font_size),
     );
@@ -388,42 +394,42 @@ fn glyphs_transform_composition_rows_outline_hinted(ctx: &mut impl Renderer, ena
 // Next two tests require high tolerance on CPU likely due to having to use bicubic interpolation, since
 // we downscale a lot.
 
-#[vello_test(width = 210, height = 320, skip_hybrid, glyph, cpu_u8_tolerance = 3)]
+#[vello_test(width = 210, height = 410, skip_hybrid, glyph, cpu_u8_tolerance = 3)]
 fn glyphs_transform_composition_rows_bitmap(ctx: &mut impl Renderer, enable_caching: bool) {
-    render_transform_composition_rows(ctx, enable_caching, false, BLACK, |font_size| {
+    render_transform_composition_rows(ctx, enable_caching, false, 100.0, BLACK, |font_size| {
         layout_glyphs_noto_cbtf("✅👀🎉🤠", font_size)
     });
 }
 
-#[vello_test(width = 210, height = 320, skip_hybrid, glyph, cpu_u8_tolerance = 3)]
+#[vello_test(width = 210, height = 410, skip_hybrid, glyph, cpu_u8_tolerance = 3)]
 fn glyphs_transform_composition_rows_bitmap_hinted(ctx: &mut impl Renderer, enable_caching: bool) {
-    render_transform_composition_rows(ctx, enable_caching, true, BLACK, |font_size| {
+    render_transform_composition_rows(ctx, enable_caching, true, 100.0, BLACK, |font_size| {
         layout_glyphs_noto_cbtf("✅👀🎉🤠", font_size)
     });
 }
 
 #[vello_test(
     width = 210,
-    height = 320,
+    height = 410,
     cpu_u8_tolerance = 1,
     hybrid_tolerance = 3,
     glyph
 )]
 fn glyphs_transform_composition_rows_colr(ctx: &mut impl Renderer, enable_caching: bool) {
-    render_transform_composition_rows(ctx, enable_caching, false, BLACK, |font_size| {
+    render_transform_composition_rows(ctx, enable_caching, false, 100.0, BLACK, |font_size| {
         layout_glyphs_noto_colr("✅👀🎉🤠", font_size)
     });
 }
 
 #[vello_test(
     width = 210,
-    height = 320,
+    height = 410,
     cpu_u8_tolerance = 1,
     hybrid_tolerance = 3,
     glyph
 )]
 fn glyphs_transform_composition_rows_colr_hinted(ctx: &mut impl Renderer, enable_caching: bool) {
-    render_transform_composition_rows(ctx, enable_caching, true, BLACK, |font_size| {
+    render_transform_composition_rows(ctx, enable_caching, true, 100.0, BLACK, |font_size| {
         layout_glyphs_noto_colr("✅👀🎉🤠", font_size)
     });
 }
