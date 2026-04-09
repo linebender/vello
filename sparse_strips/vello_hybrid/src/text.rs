@@ -269,7 +269,7 @@ impl Resources {
 }
 
 // See this PR for a bit more context on why we have this.
-// layer: https://github.com/linebender/vello/pull/1554
+// https://github.com/linebender/vello/pull/1554
 // In short, we want to ensure that COLR rendering works even when the
 // `default_blending_only` scene constraint is enabled. In order to do so,
 // we need to ensure that we don't use non-default blending to blend into
