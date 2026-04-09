@@ -300,12 +300,12 @@ impl HybridRenderer {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::COPY_SRC
-                | wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
+        #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
         // Create renderer and render the scene to the texture
         let renderer = vello_hybrid::Renderer::new(
             &device,
@@ -511,17 +511,13 @@ impl Renderer for HybridRenderer {
 
         let width = self.scene.width();
         let height = self.scene.height();
+
         let render_size = vello_hybrid::RenderSize {
             width: width.into(),
             height: height.into(),
         };
-        let bytes_per_row = (u32::from(width) * 4).next_multiple_of(256);
-        let texture_copy_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Output Buffer"),
-            size: u64::from(bytes_per_row) * u64::from(height),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
+
+        // Copy texture to buffer
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -538,6 +534,15 @@ impl Renderer for HybridRenderer {
                 &self.texture_view,
             )
             .unwrap();
+
+        // Create a buffer to copy the texture data
+        let bytes_per_row = (u32::from(width) * 4).next_multiple_of(256);
+        let texture_copy_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Output Buffer"),
+            size: u64::from(bytes_per_row) * u64::from(height),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
 
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
@@ -562,6 +567,7 @@ impl Renderer for HybridRenderer {
         );
 
         self.queue.submit([encoder.finish()]);
+
         // Map the buffer for reading
         texture_copy_buffer
             .slice(..)
@@ -573,6 +579,7 @@ impl Renderer for HybridRenderer {
         self.device
             .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
+
         // Read back the pixel data
         for (row, buf) in texture_copy_buffer
             .slice(..)
@@ -592,6 +599,7 @@ impl Renderer for HybridRenderer {
     fn width(&self) -> u16 {
         self.scene.width()
     }
+
     fn height(&self) -> u16 {
         self.scene.height()
     }
@@ -690,6 +698,10 @@ impl Renderer for HybridRenderer {
         self.scene.fill_path(path);
     }
 
+    fn set_blend_mode(&mut self, _: BlendMode) {
+        unimplemented!()
+    }
+
     fn stroke_path(&mut self, path: &BezPath) {
         self.scene.stroke_path(path);
     }
@@ -713,6 +725,10 @@ impl Renderer for HybridRenderer {
         self.scene.glyph_run(&mut self.resources, font)
     }
 
+    fn push_clip_path(&mut self, path: &BezPath) {
+        self.scene.push_clip_path(path);
+    }
+
     fn push_layer(
         &mut self,
         clip: Option<&BezPath>,
@@ -729,10 +745,6 @@ impl Renderer for HybridRenderer {
 
     fn push_clip_layer(&mut self, path: &BezPath) {
         self.scene.push_clip_layer(path);
-    }
-
-    fn push_clip_path(&mut self, path: &BezPath) {
-        self.scene.push_clip_path(path);
     }
 
     fn push_blend_layer(&mut self, mode: BlendMode) {
@@ -791,10 +803,6 @@ impl Renderer for HybridRenderer {
         self.scene.set_aliasing_threshold(aliasing_threshold);
     }
 
-    fn set_blend_mode(&mut self, _: BlendMode) {
-        unimplemented!()
-    }
-
     fn set_filter_effect(&mut self, filter: Filter) {
         self.scene.set_filter_effect(filter);
     }
@@ -806,8 +814,10 @@ impl Renderer for HybridRenderer {
     // vello_hybrid WebGL renderer backend.
     fn render_to_pixmap(&mut self, pixmap: &mut Pixmap) {
         use web_sys::WebGl2RenderingContext;
+
         let width = self.scene.width();
         let height = self.scene.height();
+
         let render_size = vello_hybrid::RenderSize {
             width: width.into(),
             height: height.into(),
