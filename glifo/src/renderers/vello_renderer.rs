@@ -226,9 +226,7 @@ pub fn stroke_glyph<B: GlyphAtlasBackend>(
         GlyphType::Bitmap(_) | GlyphType::Colr(_) => {
             // The definitions of COLR and bitmap glyphs can't meaningfully support being stroked.
             // (COLR's imaging model only has fills)
-            let mut atlas_cacher: AtlasCacher<'_, B::Cache> =
-                AtlasCacher::Enabled(glyph_atlas, image_cache);
-            fill_glyph::<B>(renderer, prepared_glyph, &mut atlas_cacher);
+            fill_glyph::<B>(renderer, prepared_glyph, atlas_cacher);
         }
     }
 }

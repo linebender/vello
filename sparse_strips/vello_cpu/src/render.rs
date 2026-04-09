@@ -1128,9 +1128,9 @@ impl RenderContext {
 
 #[cfg(test)]
 mod tests {
+    use crate::RenderContext;
     #[cfg(feature = "text")]
     use crate::peniko::{Blob, FontData};
-    use crate::RenderContext;
     #[cfg(feature = "text")]
     use alloc::sync::Arc;
     #[cfg(feature = "text")]
