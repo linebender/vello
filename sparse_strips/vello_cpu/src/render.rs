@@ -1130,7 +1130,7 @@ impl RenderContext {
 mod tests {
     #[cfg(feature = "text")]
     use crate::peniko::{Blob, FontData};
-    use crate::{RenderContext, Resources};
+    use crate::RenderContext;
     #[cfg(feature = "text")]
     use alloc::sync::Arc;
     #[cfg(feature = "text")]
@@ -1164,7 +1164,7 @@ mod tests {
             render_mode: RenderMode::OptimizeQuality,
         };
 
-        let mut resources = Resources::new();
+        let mut resources = crate::Resources::new();
         let mut ctx = RenderContext::new_with(200, 200, settings);
         ctx.reset();
         ctx.fill_path(&Rect::new(0.0, 0.0, 100.0, 100.0).to_path(0.1));
@@ -1187,7 +1187,7 @@ mod tests {
             y: 0.0,
         }];
 
-        let mut resources = Resources::new();
+        let mut resources = crate::Resources::new();
         let mut ctx = RenderContext::new(100, 100);
 
         ctx.fill_rect(&Rect::new(0.0, 0.0, 10.0, 10.0));
