@@ -12,6 +12,9 @@ use peniko::kurbo::Affine;
 use peniko::kurbo::common::FloatFuncs as _;
 
 /// Convert f32x16 to u8x16.
+///
+/// **Important note: The values need to be between 0.0 and 1.0, otherwise you might
+/// get inconsistent results across different platforms.**
 #[inline(always)]
 pub fn f32_to_u8<S: Simd>(val: f32x16<S>) -> u8x16<S> {
     let simd = val.simd;
