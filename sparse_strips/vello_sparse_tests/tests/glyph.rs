@@ -408,6 +408,8 @@ fn glyphs_transform_composition_rows_bitmap_hinted(ctx: &mut impl Renderer, enab
     });
 }
 
+// TODO: The cached versions of COLR glyphs seem to have a slight shift, investigate.
+
 #[vello_test(
     width = 210,
     height = 410,

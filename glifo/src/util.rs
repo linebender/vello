@@ -43,8 +43,10 @@ pub(crate) trait AffineExt {
     /// Whether the transform has positive, uniform scaling factors and no vertical skew.
     fn is_positive_uniform_scale_without_vertical_skew(&self) -> bool;
 
-    /// Whether the transform has a non-default scale or skew.
-    fn has_non_identity_skew_or_scale(&self) -> bool;
+    /// Whether the transform has non-unit scale or skew.
+    ///
+    /// Note that negative scales (i.e. -1.0) are explicitly allowed.
+    fn has_non_unit_skew_or_scale(&self) -> bool;
 }
 
 impl AffineExt for Affine {
@@ -61,11 +63,11 @@ impl AffineExt for Affine {
     }
 
     #[inline]
-    fn has_non_identity_skew_or_scale(&self) -> bool {
+    fn has_non_unit_skew_or_scale(&self) -> bool {
         let [a, _, _, d, _, _] = self.as_coeffs();
         self.has_skew()
-            || (1.0 - a).abs() > SCALAR_NEARLY_ZERO_F64
-            || (1.0 - d).abs() > SCALAR_NEARLY_ZERO_F64
+            || (1.0 - a.abs()).abs() > SCALAR_NEARLY_ZERO_F64
+            || (1.0 - d.abs()).abs() > SCALAR_NEARLY_ZERO_F64
     }
 
     /// Whether the transform has a vertical skew.
@@ -122,9 +124,22 @@ mod tests {
         let non_uniform = Affine::new([2.0, 0.0, 0.0, 3.0, 0.0, 0.0]);
         let flipped = Affine::new([-2.0, 0.0, 0.0, -2.0, 0.0, 0.0]);
 
+        assert!(non_uniform.has_non_unit_skew_or_scale());
         assert!(!non_uniform.is_positive_uniform_scale_without_skew());
         assert!(!non_uniform.is_positive_uniform_scale_without_vertical_skew());
+        assert!(flipped.has_non_unit_skew_or_scale());
         assert!(!flipped.is_positive_uniform_scale_without_skew());
         assert!(!flipped.is_positive_uniform_scale_without_vertical_skew());
+    }
+
+    #[test]
+    fn allows_unit_axis_flips() {
+        let flip_x = Affine::new([-1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+        let flip_y = Affine::new([1.0, 0.0, 0.0, -1.0, 0.0, 0.0]);
+        let flip_xy = Affine::new([-1.0, 0.0, 0.0, -1.0, 0.0, 0.0]);
+
+        assert!(!flip_x.has_non_unit_skew_or_scale());
+        assert!(!flip_y.has_non_unit_skew_or_scale());
+        assert!(!flip_xy.has_non_unit_skew_or_scale());
     }
 }
