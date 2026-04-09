@@ -237,7 +237,8 @@ impl WebGlRenderer {
     /// ensuring atlas content is committed before any subsequent
     /// [`render`](Self::render) call (the two methods share GPU resources that
     /// are staged by `queue.write_*` and only applied on the next `queue.submit`).
-    pub(crate) fn render_to_atlas(
+    #[doc(hidden)]
+    pub fn render_to_atlas(
         &mut self,
         scene: &Scene,
         atlas_count: u32,
