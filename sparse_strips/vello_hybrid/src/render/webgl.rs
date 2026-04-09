@@ -1378,9 +1378,15 @@ impl WebGlPrograms {
         gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
     }
 
-    /// Upload strip data to GPU.
-    fn upload_strips(&mut self, gl: &WebGl2RenderingContext, strips: &[GpuStrip]) {
-        if strips.is_empty() {
+    /// Upload two strip slices (opaque then alpha) into a single GPU buffer,
+    /// avoiding multiple `bufferData` calls.
+    fn upload_strip_pair(
+        &mut self,
+        gl: &WebGl2RenderingContext,
+        first: &[GpuStrip],
+        second: &[GpuStrip],
+    ) {
+        if first.is_empty() && second.is_empty() {
             return;
         }
 
@@ -1388,12 +1394,32 @@ impl WebGlPrograms {
             WebGl2RenderingContext::ARRAY_BUFFER,
             Some(&self.resources.strips_buffer),
         );
-        let strips_data = bytemuck::cast_slice(strips);
-        gl.buffer_data_with_u8_array(
+
+        let first_bytes: &[u8] = bytemuck::cast_slice(first);
+        let second_bytes: &[u8] = bytemuck::cast_slice(second);
+        let total_len = first_bytes.len() + second_bytes.len();
+
+        // Allocate buffer, then write both slices via bufferSubData to avoid
+        // a temporary concatenation Vec.
+        gl.buffer_data_with_i32(
             WebGl2RenderingContext::ARRAY_BUFFER,
-            strips_data,
+            total_len as i32,
             WebGl2RenderingContext::DYNAMIC_DRAW,
         );
+        if !first_bytes.is_empty() {
+            gl.buffer_sub_data_with_i32_and_u8_array(
+                WebGl2RenderingContext::ARRAY_BUFFER,
+                0,
+                first_bytes,
+            );
+        }
+        if !second_bytes.is_empty() {
+            gl.buffer_sub_data_with_i32_and_u8_array(
+                WebGl2RenderingContext::ARRAY_BUFFER,
+                first_bytes.len() as i32,
+                second_bytes,
+            );
+        }
     }
 }
 
@@ -2012,6 +2038,11 @@ fn create_framebuffer_for_texture(
     framebuffer
 }
 
+const STRIP_STRIDE: i32 = size_of::<GpuStrip>() as i32;
+const STRIP_ATTR_COUNT: i32 = STRIP_STRIDE / 4;
+const _: () = assert!(STRIP_STRIDE == 24, "expected stride of 24");
+const _: () = assert!(STRIP_ATTR_COUNT == 6);
+
 /// Initialize strip VAO.
 fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) {
     gl.bind_vertex_array(Some(&resources.strip_vao));
@@ -2020,12 +2051,7 @@ fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
         Some(&resources.strips_buffer),
     );
 
-    const STRIDE: i32 = size_of::<GpuStrip>() as i32;
-    const { assert!(STRIDE == 24, "expected stride of 24") };
-    let stride = STRIDE;
-
-    // Configure attributes.
-    for i in 0..6 {
+    for i in 0..STRIP_ATTR_COUNT {
         let location = i as u32;
         let offset = i * 4;
 
@@ -2034,7 +2060,7 @@ fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
             location,
             1,
             WebGl2RenderingContext::UNSIGNED_INT,
-            stride,
+            STRIP_STRIDE,
             offset,
         );
 
@@ -2291,6 +2317,13 @@ impl WebGlRendererContext<'_> {
         let is_final_view =
             matches!(target, StripPassRenderTarget::Output(OutputTarget::FinalView));
 
+        // Single upload for all strip data (opaque then alpha) to avoid
+        // multiple bufferData calls which are more expensive than attribute rebinding.
+        self.programs
+            .upload_strip_pair(self.gl, opaque_strips, alpha_strips);
+        let opaque_count = opaque_strips.len() as i32;
+        let alpha_count = alpha_strips.len() as i32;
+
         if is_final_view {
             // Clear depth buffer on first use per frame.
             if !self.programs.resources.depth_cleared_this_frame {
@@ -2304,29 +2337,51 @@ impl WebGlRendererContext<'_> {
             self.gl.depth_func(WebGl2RenderingContext::LEQUAL);
 
             // Opaque pass: front-to-back, depth write ON, blend OFF.
-            if !opaque_strips.is_empty() {
-                self.programs.upload_strips(self.gl, opaque_strips);
+            // Instances 0..opaque_count are already at offset 0 in the buffer.
+            if opaque_count > 0 {
                 self.gl.depth_mask(true);
                 self.gl.disable(WebGl2RenderingContext::BLEND);
                 self.gl.draw_arrays_instanced(
                     WebGl2RenderingContext::TRIANGLE_STRIP,
                     0,
                     4,
-                    opaque_strips.len() as i32,
+                    opaque_count,
                 );
             }
 
             // Alpha pass: back-to-front, depth test ON, depth write OFF, blend ON.
-            if !alpha_strips.is_empty() {
-                self.programs.upload_strips(self.gl, alpha_strips);
+            // Rebind attribute pointers with offset to start at the alpha portion.
+            if alpha_count > 0 {
+                let alpha_byte_offset = opaque_count * STRIP_STRIDE;
+                for i in 0..STRIP_ATTR_COUNT {
+                    self.gl.vertex_attrib_i_pointer_with_i32(
+                        i as u32,
+                        1,
+                        WebGl2RenderingContext::UNSIGNED_INT,
+                        STRIP_STRIDE,
+                        i as i32 * 4 + alpha_byte_offset,
+                    );
+                }
+
                 self.gl.depth_mask(false);
                 self.gl.enable(WebGl2RenderingContext::BLEND);
                 self.gl.draw_arrays_instanced(
                     WebGl2RenderingContext::TRIANGLE_STRIP,
                     0,
                     4,
-                    alpha_strips.len() as i32,
+                    alpha_count,
                 );
+
+                // Restore attribute offsets to base for subsequent passes.
+                for i in 0..STRIP_ATTR_COUNT {
+                    self.gl.vertex_attrib_i_pointer_with_i32(
+                        i as u32,
+                        1,
+                        WebGl2RenderingContext::UNSIGNED_INT,
+                        STRIP_STRIDE,
+                        i as i32 * 4,
+                    );
+                }
             }
 
             // Restore state.
@@ -2335,18 +2390,11 @@ impl WebGlRendererContext<'_> {
             self.gl.enable(WebGl2RenderingContext::BLEND);
         } else {
             // Slot texture / intermediate: single draw with blending, no depth.
-            // Combine both lists for upload.
-            let all_strips: Vec<GpuStrip> = opaque_strips
-                .iter()
-                .chain(alpha_strips.iter())
-                .copied()
-                .collect();
-            self.programs.upload_strips(self.gl, &all_strips);
             self.gl.draw_arrays_instanced(
                 WebGl2RenderingContext::TRIANGLE_STRIP,
                 0,
                 4,
-                all_strips.len() as i32,
+                opaque_count + alpha_count,
             );
         }
 
