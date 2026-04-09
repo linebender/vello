@@ -708,7 +708,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone, C: GlyphCache>
 /// A builder for configuring and drawing glyphs.
 #[derive(Debug)]
 #[must_use = "Methods on the builder don't do anything until `render` is called."]
-pub struct GlyphRunBuilder<'a, B = ()> {
+pub struct GlyphRunBuilder<'a, B> {
     run: GlyphRun<'a>,
     backend: B,
 }
