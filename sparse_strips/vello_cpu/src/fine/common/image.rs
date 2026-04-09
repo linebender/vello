@@ -314,9 +314,9 @@ impl<S: Simd, const QUALITY: u8> Iterator for FilteredImagePainter<'_, S, QUALIT
                 // compositing with u8-based values. Because of this, we need to clamp
                 // to the alpha value.
                 interpolated_color = interpolated_color
+                    .min(alphas)
                     .min(f32x16::splat(self.simd, 1.0))
-                    .max(f32x16::splat(self.simd, 0.0))
-                    .min(alphas);
+                    .max(f32x16::splat(self.simd, 0.0));
             }
             _ => panic!(
                 "Unknown value for `FilteredImagePainter`'s const-generic `QUALITY` parameter. Expected `1` for bilinear or `2` for bicubic, got: `{QUALITY}`."
