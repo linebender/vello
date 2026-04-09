@@ -71,6 +71,8 @@ impl Default for Arguments {
 pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attrs = parse_macro_input!(attr as AttributeInput);
 
+    // TODO: Refactor this method to have less duplication.
+
     let input_fn = parse_macro_input!(item as ItemFn);
     let input_arity = input_fn.sig.inputs.len();
 
