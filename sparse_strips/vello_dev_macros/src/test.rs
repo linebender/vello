@@ -181,7 +181,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     } else {
         quote! {}
     };
-    let cached_reference_test_name = format!("{input_fn_name}_cpu_f32_scalar_cached");
+    let cached_reference_test_name = format!("{input_fn_name}_cached");
 
     // Wasm doesn't have access to the filesystem. For wasm, inline the snapshot bytes into the
     // binary.
