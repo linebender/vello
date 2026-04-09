@@ -4,6 +4,7 @@
 //! Tests for GitHub issues.
 
 use crate::renderer::Renderer;
+use crate::util::layout_glyphs_noto_cbtf;
 use crate::util::stops_blue_green_red_yellow;
 use std::sync::Arc;
 use vello_api::peniko::GradientKind::Radial;
@@ -764,4 +765,19 @@ fn issue_fast_path_strips_and_coarse_batch_in_later_round(ctx: &mut impl Rendere
     ctx.set_paint(Color::from_rgba8(255, 0, 0, 255));
     ctx.fill_rect(&Rect::new(40.0, 40.0, 90.0, 90.0));
     ctx.pop_layer();
+}
+
+#[vello_test(width = 32, height = 32, skip_hybrid, cpu_u8_tolerance = 1)]
+fn issue_bicubic_filtering_clamping(ctx: &mut impl Renderer) {
+    let font_size = 10.0;
+    let (font, glyphs) = layout_glyphs_noto_cbtf("👀", font_size);
+
+    ctx.set_paint(BLACK);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 32.0, 32.0));
+
+    ctx.set_transform(Affine::translate((5.0, 19.0)));
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .glyph_transform(Affine::scale(2.0))
+        .fill_glyphs(glyphs.into_iter());
 }
