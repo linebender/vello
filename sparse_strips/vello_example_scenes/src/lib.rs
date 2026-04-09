@@ -372,7 +372,7 @@ where
 
         Self {
             render_fn: Box::new(move |s, resources, transform| {
-                scene.borrow_mut().render(s, resources, transform)
+                scene.borrow_mut().render(s, resources, transform);
             }),
             resources: T::Resources::default(),
             key_handler_fn: Box::new(move |key| scene_clone.borrow_mut().handle_key(key)),

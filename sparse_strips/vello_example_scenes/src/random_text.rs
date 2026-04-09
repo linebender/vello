@@ -46,7 +46,7 @@ impl fmt::Debug for Segment {
         f.debug_struct("Segment")
             .field("x", &self.x)
             .field("y", &self.y)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
