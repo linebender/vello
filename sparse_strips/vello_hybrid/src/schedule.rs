@@ -1007,8 +1007,11 @@ impl Scheduler {
             let layer_index = self.next_layer_index();
             let draw = self.draw_mut(self.round, 2);
             draw.push_opaque(
-                GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
-                    .paint(payload, paint, layer_index),
+                GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH).paint(
+                    payload,
+                    paint,
+                    layer_index,
+                ),
             );
         }
     }
@@ -1413,13 +1416,11 @@ impl Scheduler {
             // `BlendState::PREMULTIPLIED_ALPHA_BLENDING`). This is the whole reason
             // why for default blend modes, we don't need to rely on temporary slots
             // to achieve blending.
-            draw.push_alpha(
-                gpu_strip_builder.copy_from_slot(
-                    tos.dest_slot.get_idx(),
-                    (tos.opacity * 255.0) as u8,
-                    layer_index,
-                ),
-            );
+            draw.push_alpha(gpu_strip_builder.copy_from_slot(
+                tos.dest_slot.get_idx(),
+                (tos.opacity * 255.0) as u8,
+                layer_index,
+            ));
         }
     }
 
@@ -1465,11 +1466,11 @@ impl Scheduler {
         };
 
         let draw = self.draw_mut(el_round, draw_texture);
-        draw.push_alpha(
-            gpu_strip_builder
-                .with_sparse(cmd.width, col_idx)
-                .paint(payload, paint, layer_index),
-        );
+        draw.push_alpha(gpu_strip_builder.with_sparse(cmd.width, col_idx).paint(
+            payload,
+            paint,
+            layer_index,
+        ));
     }
 
     #[inline]
@@ -1553,6 +1554,7 @@ impl Scheduler {
                             && img.sampler.alpha == 1.0
                             && img.tint.is_none_or(|t| t.color.components[3] >= 1.0)
                     }
+                    Some(EncodedPaint::Gradient(g)) => !g.may_have_opacities,
                     _ => false,
                 }
             }
@@ -1616,9 +1618,11 @@ impl Scheduler {
         } else {
             GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), cmd.x, cmd.width)
         };
-        draw.push_alpha(
-            gpu_strip_builder.copy_from_slot(tos.dest_slot.get_idx(), 0xFF, layer_index),
-        );
+        draw.push_alpha(gpu_strip_builder.copy_from_slot(
+            tos.dest_slot.get_idx(),
+            0xFF,
+            layer_index,
+        ));
 
         let nos_ptr = state.tile_state.stack.len() - 2;
         state.tile_state.stack[nos_ptr].temporary_slot.invalidate();
@@ -2014,9 +2018,7 @@ fn emit_rect_strips(
     // Edge strips: 1px wide/tall strips carrying fractional coverage.
     // Top edge (full width, 1px tall).
     if has_top {
-        let frac = u32::from(frac_l)
-            | (u32::from(frac_t) << 8)
-            | (u32::from(frac_r) << 16);
+        let frac = u32::from(frac_l) | (u32::from(frac_t) << 8) | (u32::from(frac_r) << 16);
         let (payload, paint_packed) =
             Scheduler::process_paint(&rect.paint, encoded_paints, (base_x, base_y), paint_idxs);
         draw.push_alpha(GpuStrip {
@@ -2034,15 +2036,9 @@ fn emit_rect_strips(
     // Bottom edge (full width, 1px tall).
     if has_bottom {
         let bottom_y = base_y + snapped_h - 1;
-        let frac = u32::from(frac_l)
-            | (u32::from(frac_r) << 16)
-            | (u32::from(frac_b) << 24);
-        let (payload, paint_packed) = Scheduler::process_paint(
-            &rect.paint,
-            encoded_paints,
-            (base_x, bottom_y),
-            paint_idxs,
-        );
+        let frac = u32::from(frac_l) | (u32::from(frac_r) << 16) | (u32::from(frac_b) << 24);
+        let (payload, paint_packed) =
+            Scheduler::process_paint(&rect.paint, encoded_paints, (base_x, bottom_y), paint_idxs);
         draw.push_alpha(GpuStrip {
             x: base_x,
             y: bottom_y,

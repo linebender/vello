@@ -2312,19 +2312,28 @@ impl Programs {
         }
     }
 
-    /// Upload the strip data by creating and assigning a new `self.resources.strips_buffer`.
-    fn upload_strips(&mut self, device: &Device, queue: &Queue, strips: &[GpuStrip]) {
-        let required_strips_size = size_of_val(strips) as u64;
-        self.resources.strips_buffer = Self::create_strips_buffer(device, required_strips_size);
-        // TODO: Consider using a staging belt to avoid an extra staging buffer allocation.
+    /// Upload two strip slices (opaque then alpha) into a single GPU buffer,
+    /// avoiding an intermediate Vec allocation.
+    fn upload_strip_pair(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        first: &[GpuStrip],
+        second: &[GpuStrip],
+    ) {
+        let first_bytes = size_of_val(first) as u64;
+        let second_bytes = size_of_val(second) as u64;
+        let total = first_bytes + second_bytes;
+        self.resources.strips_buffer = Self::create_strips_buffer(device, total);
         let mut buffer = queue
             .write_buffer_with(
                 &self.resources.strips_buffer,
                 0,
-                required_strips_size.try_into().unwrap(),
+                total.try_into().unwrap(),
             )
             .expect("Capacity handled in creation");
-        buffer.copy_from_slice(bytemuck::cast_slice(strips));
+        buffer[..first_bytes as usize].copy_from_slice(bytemuck::cast_slice(first));
+        buffer[first_bytes as usize..].copy_from_slice(bytemuck::cast_slice(second));
     }
 }
 
@@ -2353,11 +2362,8 @@ impl RendererContext<'_> {
         if opaque_strips.is_empty() && alpha_strips.is_empty() {
             return;
         }
-        // Upload all strips (opaque first, then alpha) into a single buffer.
-        let total_strips: Vec<GpuStrip> =
-            opaque_strips.iter().chain(alpha_strips.iter()).copied().collect();
         self.programs
-            .upload_strips(self.device, self.queue, &total_strips);
+            .upload_strip_pair(self.device, self.queue, opaque_strips, alpha_strips);
         let opaque_count = u32::try_from(opaque_strips.len()).unwrap();
         let alpha_count = u32::try_from(alpha_strips.len()).unwrap();
 
