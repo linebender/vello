@@ -51,7 +51,7 @@ pub(crate) const DEFAULT_GLYPH_ATLAS_SIZE: u16 = 4096;
 // uploads an image, instead of blitting it into a bigger image atlas, we just store the user-provided
 // pixmap and associate an image ID with the whole pixmap. However, for glyph caching to work we need
 // the same semantics as in Vello Hybrid. Therefore, we use a marker to determine whether an image ID
-// refers to a normal uploaded image or a cached glyph.
+// refers to a normal uploaded image or a cached glyph and apply special handling based on that.
 //
 // All IDs < than this value are reserved for normal images, all IDs >= this value are
 // reserved for atlas pages.
