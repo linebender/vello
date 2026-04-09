@@ -218,7 +218,7 @@ impl Resources {
         }
     }
 
-    pub(crate) fn process_pending_glyph_work<T>(
+    pub(crate) fn before_render<T>(
         &mut self,
         backend: &mut T,
         mut render_to_atlas: impl FnMut(&mut T, &Scene, u32, AtlasConfig, AtlasId),
@@ -240,7 +240,7 @@ impl Resources {
         }
     }
 
-    pub(crate) fn process_pending_glyph_clears<T>(
+    pub(crate) fn after_render<T>(
         &mut self,
         backend: &mut T,
         mut clear_rects: impl FnMut(&mut T, &[PendingClearRect]),

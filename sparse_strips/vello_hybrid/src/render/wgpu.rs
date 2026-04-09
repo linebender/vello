@@ -218,7 +218,7 @@ impl Renderer {
     ) -> Result<(), RenderError> {
         #[cfg(feature = "text")]
         {
-            resources.process_pending_glyph_work(
+            resources.before_render(
                 self,
                 |renderer, glyph_renderer, atlas_count, atlas_config, atlas_id| {
                     renderer
@@ -275,7 +275,7 @@ impl Renderer {
 
         encoded_paints.truncate(scene_paint_count);
         #[cfg(feature = "text")]
-        resources.process_pending_glyph_clears(self, |renderer, rects| {
+        resources.after_render(self, |renderer, rects| {
             clear_atlas_regions(queue, renderer, rects.iter().cloned());
         });
         result
