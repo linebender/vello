@@ -2241,10 +2241,15 @@ impl RendererContext<'_> {
             }
         }
 
-        let (view, bind_group): (&TextureView, MaybeOwned<'_, BindGroup>) = match target {
+        let (view, bind_group, scissor_rect): (
+            &TextureView,
+            MaybeOwned<'_, BindGroup>,
+            Option<[u32; 4]>,
+        ) = match target {
             StripPassRenderTarget::Output(OutputTarget::FinalView) => (
                 self.view,
                 MaybeOwned::Borrowed(&self.programs.resources.slot_bind_groups[2]),
+                None,
             ),
             StripPassRenderTarget::Output(OutputTarget::IntermediateTexture(layer_id)) => {
                 let image_id = self
@@ -2329,11 +2334,18 @@ impl RendererContext<'_> {
                 (
                     &filter_atlas.views[atlas_idx],
                     MaybeOwned::Owned(bind_group),
+                    Some([
+                        resources.offset[0] as u32,
+                        resources.offset[1] as u32,
+                        resources.width as u32,
+                        resources.height as u32,
+                    ]),
                 )
             }
             StripPassRenderTarget::SlotTexture(idx) => (
                 &self.programs.resources.slot_texture_views[idx as usize],
                 MaybeOwned::Borrowed(&self.programs.resources.slot_bind_groups[idx as usize]),
+                None,
             ),
         };
 
@@ -2358,6 +2370,9 @@ impl RendererContext<'_> {
             timestamp_writes: None,
             multiview_mask: None,
         });
+        if let Some([x, y, width, height]) = scissor_rect {
+            render_pass.set_scissor_rect(x, y, width, height);
+        }
         render_pass.set_pipeline(&self.programs.strip_pipelines[pipeline_idx]);
         render_pass.set_bind_group(0, bind_group.as_ref(), &[]);
         render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
