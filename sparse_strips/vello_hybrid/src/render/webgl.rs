@@ -2287,6 +2287,7 @@ impl RendererBackend for WebGlRendererContext<'_> {
         }
 
         self.gl.disable(WebGl2RenderingContext::BLEND);
+        self.gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
 
         let instances = self.filter_pass_state.instances();
         self.programs.upload_filter_instances(self.gl, instances);
@@ -2317,13 +2318,14 @@ impl RendererBackend for WebGlRendererContext<'_> {
                 );
             }
 
-            match &pass.output {
+            let (target_width, target_height) = match &pass.output {
                 FilterPassTarget::FilterAtlas(idx) => {
                     let fb = &self.programs.resources.filter_atlas_framebuffers[*idx as usize];
                     self.gl
                         .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(fb));
                     self.gl
                         .viewport(0, 0, filter_atlas_width as i32, filter_atlas_height as i32);
+                    (filter_atlas_width as i32, filter_atlas_height as i32)
                 }
                 FilterPassTarget::MainAtlas(idx) => {
                     let fb = self
@@ -2340,14 +2342,18 @@ impl RendererBackend for WebGlRendererContext<'_> {
                         0,
                         *idx as i32,
                     );
-                    self.gl.viewport(
-                        0,
-                        0,
-                        self.programs.resources.atlas_texture_array.size.width as i32,
-                        self.programs.resources.atlas_texture_array.size.height as i32,
-                    );
+                    let width = self.programs.resources.atlas_texture_array.size.width as i32;
+                    let height = self.programs.resources.atlas_texture_array.size.height as i32;
+                    self.gl.viewport(0, 0, width, height);
+                    (width, height)
                 }
-            }
+            };
+
+            let instance = &instances[i];
+            let [x, y, width, height] =
+                instance.scissor_rect([target_width as u32, target_height as u32]);
+            self.gl
+                .scissor(x as i32, y as i32, width as i32, height as i32);
 
             let input_tex =
                 &self.programs.resources.filter_atlas_textures[pass.input_atlas_idx as usize];
@@ -2370,6 +2376,7 @@ impl RendererBackend for WebGlRendererContext<'_> {
                 .draw_arrays_instanced(WebGl2RenderingContext::TRIANGLE_STRIP, 0, 4, 1);
         }
         self.gl.bind_vertex_array(None);
+        self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
         self.gl.enable(WebGl2RenderingContext::BLEND);
     }
 }
