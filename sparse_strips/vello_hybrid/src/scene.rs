@@ -493,6 +493,10 @@ impl Scene {
         self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
     }
 
+    pub fn paint_transform(&self) -> &Affine {
+        &self.render_state.paint_transform
+    }
+
     #[expect(
         clippy::cast_possible_truncation,
         reason = "f64→f32 truncation is acceptable for pixel coordinates"
