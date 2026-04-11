@@ -400,6 +400,48 @@ pub(crate) struct FilterInstanceData {
     pub pass_kind: u32,
 }
 
+impl FilterInstanceData {
+    /// The scissor rect that should be applied when applying this filter
+    /// pass.
+    pub(crate) fn scissor_rect(&self, target_size: [u32; 2]) -> [u32; 4] {
+        // See the comment in `filters.wgsl`. In general, when applying a filter it's not enough
+        // to just cover the destination region of the (possibly downsized) filter area. We also
+        // need to include some padding such that stale border pixels are set back to a fully
+        // transparent color. In the shader, we always use the original size (e.g. if the original
+        // filter layer was 700x700 pixels but the downsized area only 15x15, we would still have fragment
+        // shader invocations for the whole 700x700 area, even if the vast majority just shortcut to
+        // yielding a transparent color).
+        //
+        // However, we can actually further reduce this area: In the bottom/right, we only need to
+        // cover as many additional pixels as are necessary for padding. So in the above case,
+        // we only need to cover (15 + FILTER_ATLAS_PADDING) in each direction. Therefore, when
+        // rendering filters we apply a scissor rect to further reduce the area to only the part
+        // that really needs to be cleared out. Experiments have shown that especially on low-tier
+        // devices, doing this leads to very huge speedups.
+        //
+        // Note that we never need to clear the top/left area, since the origin of a filter
+        // between each pass always stays the same; only the width/height can vary.
+        //
+        // TODO: Explore whether we can not use scissor rects and instead adjust the vertex shader
+        // to cover the reduced area. Unfortunately, this seemed to cause other non-obvious test
+        // failures, hence why we just use this approach for now.
+        let x = self.dest.offset.0[0];
+        let y = self.dest.offset.0[1];
+        let width = self.dest.size.0[0];
+        let height = self.dest.size.0[1];
+        let padding = u32::from(FILTER_ATLAS_PADDING);
+        let x1 = x
+            .saturating_add(width)
+            .saturating_add(padding)
+            .min(target_size[0]);
+        let y1 = y
+            .saturating_add(height)
+            .saturating_add(padding)
+            .min(target_size[1]);
+        [x, y, x1 - x, y1 - y]
+    }
+}
+
 /// Where a filter pass writes its output.
 #[derive(Debug)]
 pub(crate) enum FilterPassTarget {
