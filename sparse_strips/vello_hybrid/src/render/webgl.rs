@@ -2325,7 +2325,7 @@ impl RendererBackend for WebGlRendererContext<'_> {
                         .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(fb));
                     self.gl
                         .viewport(0, 0, filter_atlas_width as i32, filter_atlas_height as i32);
-                    (filter_atlas_width as i32, filter_atlas_height as i32)
+                    (filter_atlas_width, filter_atlas_height)
                 }
                 FilterPassTarget::MainAtlas(idx) => {
                     let fb = self
@@ -2342,16 +2342,15 @@ impl RendererBackend for WebGlRendererContext<'_> {
                         0,
                         *idx as i32,
                     );
-                    let width = self.programs.resources.atlas_texture_array.size.width as i32;
-                    let height = self.programs.resources.atlas_texture_array.size.height as i32;
-                    self.gl.viewport(0, 0, width, height);
+                    let width = self.programs.resources.atlas_texture_array.size.width;
+                    let height = self.programs.resources.atlas_texture_array.size.height;
+                    self.gl.viewport(0, 0, width as i32, height as i32);
                     (width, height)
                 }
             };
 
             let instance = &instances[i];
-            let [x, y, width, height] =
-                instance.scissor_rect([target_width as u32, target_height as u32]);
+            let [x, y, width, height] = instance.scissor_rect([target_width, target_height]);
             self.gl
                 .scissor(x as i32, y as i32, width as i32, height as i32);
 
