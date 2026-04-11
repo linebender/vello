@@ -423,7 +423,7 @@ impl FilterInstanceData {
         // between each pass always stays the same; only the width/height can vary.
         //
         // TODO: Explore whether we can not use scissor rects and instead adjust the vertex shader
-        // to cover the reduced area. Unfortunately, this seemed to caused other non-obvious test
+        // to cover the reduced area. Unfortunately, this seemed to cause other non-obvious test
         // failures, hence why we just use this approach for now.
         let x = self.dest.offset.0[0];
         let y = self.dest.offset.0[1];
