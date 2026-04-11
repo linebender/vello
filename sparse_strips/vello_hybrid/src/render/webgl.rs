@@ -1995,7 +1995,7 @@ impl WebGlRendererContext<'_> {
         }
         self.programs.upload_strips(self.gl, strips);
 
-        match &target {
+        let scissor_rect = match &target {
             StripPassRenderTarget::Output(OutputTarget::IntermediateTexture(layer_id)) => {
                 let image_id = self
                     .filter_context
@@ -2057,6 +2057,13 @@ impl WebGlRendererContext<'_> {
                     self.programs.strip_uniforms.config_fs_block_index,
                     Some(buf),
                 );
+
+                Some([
+                    resources.offset[0] as i32,
+                    resources.offset[1] as i32,
+                    resources.width as i32,
+                    resources.height as i32,
+                ])
             }
             StripPassRenderTarget::Output(OutputTarget::FinalView) => {
                 self.gl.bind_framebuffer(
@@ -2077,6 +2084,8 @@ impl WebGlRendererContext<'_> {
                     self.programs.strip_uniforms.config_fs_block_index,
                     Some(&self.programs.resources.view_config_buffer),
                 );
+
+                None
             }
             StripPassRenderTarget::SlotTexture(ix) => {
                 self.gl.bind_framebuffer(
@@ -2103,7 +2112,16 @@ impl WebGlRendererContext<'_> {
                     self.programs.strip_uniforms.config_fs_block_index,
                     Some(&self.programs.resources.slot_config_buffer),
                 );
+
+                None
             }
+        };
+
+        if let Some([x, y, width, height]) = scissor_rect {
+            self.gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
+            self.gl.scissor(x, y, width, height);
+        } else {
+            self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
         }
 
         // Clear framebuffer if requested.
