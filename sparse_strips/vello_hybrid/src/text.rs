@@ -122,19 +122,14 @@ impl Resources {
     pub(crate) fn after_render<T>(
         &mut self,
         backend: &mut T,
-        mut clear_rects: impl FnMut(&mut T, &[PendingClearRect]),
+        mut clear_rect: impl FnMut(&mut T, &PendingClearRect),
     ) {
-        self.refresh_pending_glyph_clear_rects();
-        clear_rects(backend, &self.pending_glyph_clear_rects_scratch);
-    }
-
-    pub(crate) fn refresh_pending_glyph_clear_rects(&mut self) {
         self.glyph_prep_cache.maintain();
-        self.pending_glyph_clear_rects_scratch.clear();
         if let Some(glyph_resources) = self.glyph_resources.as_mut() {
             glyph_resources.maintain(&mut self.image_cache);
-            self.pending_glyph_clear_rects_scratch
-                .extend(glyph_resources.glyph_atlas.drain_pending_clear_rects());
+            for rect in glyph_resources.glyph_atlas.drain_pending_clear_rects() {
+                clear_rect(backend, &rect);
+            }
         }
     }
 }

@@ -275,8 +275,8 @@ impl Renderer {
 
         encoded_paints.truncate(scene_paint_count);
         #[cfg(feature = "text")]
-        resources.after_render(self, |renderer, rects| {
-            clear_atlas_regions(queue, renderer, rects.iter().cloned());
+        resources.after_render(self, |renderer, rect| {
+            clear_atlas_region(queue, renderer, rect);
         });
         result
     }
@@ -785,39 +785,33 @@ impl Renderer {
 }
 
 #[cfg(feature = "text")]
-fn clear_atlas_regions(
-    queue: &Queue,
-    renderer: &mut Renderer,
-    rects: impl Iterator<Item = PendingClearRect>,
-) {
+fn clear_atlas_region(queue: &Queue, renderer: &mut Renderer, rect: &PendingClearRect) {
     // TODO: Can we optimize this more?
-    for rect in rects {
-        let byte_count = rect.width as usize * rect.height as usize * 4;
-        renderer.atlas_clear_scratch.resize(byte_count, 0);
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: renderer.atlas_texture(),
-                mip_level: 0,
-                origin: wgpu::Origin3d {
-                    x: rect.x as u32,
-                    y: rect.y as u32,
-                    z: rect.page_index,
-                },
-                aspect: wgpu::TextureAspect::All,
+    let byte_count = rect.width as usize * rect.height as usize * 4;
+    renderer.atlas_clear_scratch.resize(byte_count, 0);
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: renderer.atlas_texture(),
+            mip_level: 0,
+            origin: wgpu::Origin3d {
+                x: rect.x as u32,
+                y: rect.y as u32,
+                z: rect.page_index,
             },
-            &renderer.atlas_clear_scratch[..byte_count],
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(rect.width as u32 * 4),
-                rows_per_image: None,
-            },
-            Extent3d {
-                width: rect.width as u32,
-                height: rect.height as u32,
-                depth_or_array_layers: 1,
-            },
-        );
-    }
+            aspect: wgpu::TextureAspect::All,
+        },
+        &renderer.atlas_clear_scratch[..byte_count],
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(rect.width as u32 * 4),
+            rows_per_image: None,
+        },
+        Extent3d {
+            width: rect.width as u32,
+            height: rect.height as u32,
+            depth_or_array_layers: 1,
+        },
+    );
 }
 
 /// Defines the GPU resources and pipelines for rendering.
