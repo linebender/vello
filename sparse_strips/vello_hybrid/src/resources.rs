@@ -22,8 +22,6 @@ pub struct Resources {
     #[cfg(feature = "text")]
     pub(crate) glyph_prep_cache: GlyphPrepCache,
     #[cfg(feature = "text")]
-    pub(crate) pending_glyph_uploads_scratch: Vec<PendingBitmapUpload>,
-    #[cfg(feature = "text")]
     pub(crate) pending_glyph_clear_rects_scratch: Vec<PendingClearRect>,
     #[cfg(feature = "text")]
     pub(crate) glyph_resources: Option<GlyphAtlasResources>,
@@ -36,8 +34,6 @@ impl Resources {
             image_cache: ImageCache::new_with_config(AtlasConfig::default()),
             #[cfg(feature = "text")]
             glyph_prep_cache: GlyphPrepCache::default(),
-            #[cfg(feature = "text")]
-            pending_glyph_uploads_scratch: Vec::new(),
             #[cfg(feature = "text")]
             pending_glyph_clear_rects_scratch: Vec::new(),
             // Will be initialized lazily.
