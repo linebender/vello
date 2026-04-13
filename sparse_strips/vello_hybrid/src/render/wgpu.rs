@@ -2341,10 +2341,15 @@ impl RendererContext<'_> {
                 }
             }
         }
-        let (view, bind_group): (&TextureView, MaybeOwned<'_, BindGroup>) = match target {
+        let (view, bind_group, scissor_rect): (
+            &TextureView,
+            MaybeOwned<'_, BindGroup>,
+            Option<[u32; 4]>,
+        ) = match target {
             StripPassRenderTarget::Root(_) => (
                 self.view,
                 MaybeOwned::Borrowed(&self.programs.resources.slot_bind_groups[2]),
+                None,
             ),
             StripPassRenderTarget::FilterLayer(layer_id) => {
                 let image_id = self
@@ -2429,11 +2434,18 @@ impl RendererContext<'_> {
                 (
                     &filter_atlas.views[atlas_idx],
                     MaybeOwned::Owned(bind_group),
+                    Some([
+                        resources.offset[0] as u32,
+                        resources.offset[1] as u32,
+                        resources.width as u32,
+                        resources.height as u32,
+                    ]),
                 )
             }
             StripPassRenderTarget::SlotTexture(idx) => (
                 &self.programs.resources.slot_texture_views[idx as usize],
                 MaybeOwned::Borrowed(&self.programs.resources.slot_bind_groups[idx as usize]),
+                None,
             ),
         };
 
@@ -2463,6 +2475,9 @@ impl RendererContext<'_> {
             timestamp_writes: None,
             multiview_mask: None,
         });
+        if let Some([x, y, width, height]) = scissor_rect {
+            render_pass.set_scissor_rect(x, y, width, height);
+        }
         render_pass.set_pipeline(&self.programs.strip_pipelines[pipeline_idx]);
         render_pass.set_bind_group(0, bind_group.as_ref(), &[]);
         render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
@@ -2584,10 +2599,18 @@ impl RendererBackend for RendererContext<'_> {
             let original_idx = pass.original_atlas_idx.unwrap_or(pass.input_atlas_idx) as usize;
             let original_bg = &filter_atlas.original_bind_groups[original_idx];
 
-            let output_view = match &pass.output {
-                FilterPassTarget::FilterAtlas(idx) => &filter_atlas.views[*idx as usize],
+            let (output_view, target_width, target_height) = match &pass.output {
+                FilterPassTarget::FilterAtlas(idx) => {
+                    let size = filter_atlas.textures[*idx as usize].size();
+                    (&filter_atlas.views[*idx as usize], size.width, size.height)
+                }
                 FilterPassTarget::MainAtlas(idx) => {
-                    &create_atlas_layer_view(&programs.resources.atlas_texture_array, *idx)
+                    let size = programs.resources.atlas_texture_array.size();
+                    (
+                        &create_atlas_layer_view(&programs.resources.atlas_texture_array, *idx),
+                        size.width,
+                        size.height,
+                    )
                 }
             };
 
@@ -2607,6 +2630,9 @@ impl RendererBackend for RendererContext<'_> {
                 timestamp_writes: None,
                 multiview_mask: None,
             });
+            let instance = &instances[i];
+            let [x, y, width, height] = instance.scissor_rect([target_width, target_height]);
+            render_pass.set_scissor_rect(x, y, width, height);
             render_pass.set_pipeline(&programs.filter_pipeline);
             render_pass.set_bind_group(0, &programs.resources.filter_base_bind_group, &[]);
             render_pass.set_bind_group(1, input_bg, &[]);

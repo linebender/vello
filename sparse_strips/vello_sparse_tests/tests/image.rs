@@ -334,6 +334,23 @@ fn image_lumaa_image(ctx: &mut impl Renderer) {
     image_format(ctx, image_source);
 }
 
+#[vello_test]
+fn image_with_anti_aliasing(ctx: &mut impl Renderer) {
+    let rect = Rect::new(10.5, 10.5, 90.5, 90.5);
+    let image = Image {
+        image: rgb_img_10x10(ctx),
+        sampler: ImageSampler {
+            x_extend: Extend::Repeat,
+            y_extend: Extend::Repeat,
+            quality: ImageQuality::Low,
+            alpha: 1.0,
+        },
+    };
+
+    ctx.set_paint(image);
+    ctx.fill_rect(&rect);
+}
+
 fn quality(
     ctx: &mut impl Renderer,
     transform: Affine,
