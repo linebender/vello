@@ -9,6 +9,7 @@ use crate::RenderMode;
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use core::fmt::Debug;
+use vello_common::clip::PathDataRef;
 use vello_common::coarse::Wide;
 use vello_common::encode::EncodedPaint;
 use vello_common::filter_effects::Filter;
@@ -65,6 +66,7 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         aliasing_threshold: Option<u8>,
     );
     fn pop_clip_path(&mut self);
+    fn current_clip_path(&self) -> Option<PathDataRef<'_>>;
     fn push_layer(
         &mut self,
         clip_path: Option<&BezPath>,

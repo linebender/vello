@@ -1090,7 +1090,7 @@ impl RenderContext {
                         self.state.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        None,
+                        self.dispatcher.current_clip_path(),
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -1101,7 +1101,7 @@ impl RenderContext {
                         self.state.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        None,
+                        self.dispatcher.current_clip_path(),
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -1113,7 +1113,7 @@ impl RenderContext {
                         self.state.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        None,
+                        self.dispatcher.current_clip_path(),
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -1125,7 +1125,7 @@ impl RenderContext {
                         self.state.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        None,
+                        self.dispatcher.current_clip_path(),
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -1137,7 +1137,7 @@ impl RenderContext {
                         *glyph_transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        None,
+                        self.dispatcher.current_clip_path(),
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -1149,7 +1149,7 @@ impl RenderContext {
                         *glyph_transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        None,
+                        self.dispatcher.current_clip_path(),
                     );
                     strip_start_indices.push(start_index);
                 }

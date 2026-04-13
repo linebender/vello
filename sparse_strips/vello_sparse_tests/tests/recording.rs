@@ -267,3 +267,50 @@ fn recording_handles_completely_offscreen_content(ctx: &mut impl Renderer) {
     ctx.prepare_recording(&mut recording);
     ctx.execute_recording(&recording);
 }
+
+// Regression: `Scene::generate_strips_from_commands` (used by
+// `prepare_recording`) used to pass `None` for the `clip_path` argument
+// to the strip generator while the live draw paths all pass `self.clip_context.get()`.
+// The result was that any draw recorded inside an active `push_clip_path` scope produced UNCLIPPED strips,
+// and replaying such a recording would draw past the clip boundary
+//
+// This test exercises both `FillRect` and `FillPath` commands so we cover
+// both relevant arms of `generate_strips_from_commands`. The clip rect is
+// 50×50 in the centre of a 100×100 canvas; the recorded geometry covers
+// the full canvas. With the bug present the rendered output would extend
+// well outside the [25,25]–[75,75] window. With the fix in place strips
+// are clipped at generation time and only the intersection is visible.
+#[vello_test(width = 100, height = 100)]
+fn recording_inside_clip(ctx: &mut impl Renderer) {
+    // Build a 50×50 clip path centred in the 100×100 canvas.
+    let mut clip = BezPath::new();
+    clip.move_to((25.0, 25.0));
+    clip.line_to((75.0, 25.0));
+    clip.line_to((75.0, 75.0));
+    clip.line_to((25.0, 75.0));
+    clip.close_path();
+    ctx.push_clip_path(&clip);
+
+    let mut recording = Recording::new();
+    ctx.record(&mut recording, |ctx| {
+        // FillRect command path — fully covers the canvas, so the
+        // visible pixels after replay must be exactly the 50×50 clip.
+        ctx.set_paint(REBECCA_PURPLE);
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+
+        // FillPath command path — a triangle that crosses the clip
+        // boundary on every side so any clip-respect failure shows up
+        // as gold pixels poking out beyond the 50×50 window.
+        ctx.set_paint(GOLD);
+        let mut tri = BezPath::new();
+        tri.move_to((10.0, 90.0));
+        tri.line_to((90.0, 90.0));
+        tri.line_to((50.0, 10.0));
+        tri.close_path();
+        ctx.fill_path(&tri);
+    });
+    ctx.prepare_recording(&mut recording);
+    ctx.execute_recording(&recording);
+
+    ctx.pop_clip_path();
+}
