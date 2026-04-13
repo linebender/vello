@@ -420,6 +420,11 @@ impl<const MODE: u8> Wide<MODE> {
         !self.layer_stack.is_empty()
     }
 
+    /// The number of currently pushed layers.
+    pub fn layer_depth(&self) -> usize {
+        self.layer_stack.len()
+    }
+
     /// Reset all tiles in the container.
     pub fn reset(&mut self) {
         if self.tiles_dirty {

@@ -3,7 +3,8 @@
 
 //! Drawing COLR glyphs.
 
-use crate::AtlasCommandRecorder;
+use crate::atlas::commands::{AtlasCommand, AtlasCommandRecorder};
+use crate::draw_target::DrawTarget;
 use crate::color::Srgb;
 use crate::color::{AlphaColor, DynamicColor};
 use crate::glyph::{GlyphColr, OutlinePath};
@@ -21,28 +22,12 @@ use skrifa::raw::types::BoundingBox;
 use skrifa::{GlyphId, MetadataProvider};
 use smallvec::SmallVec;
 
-/// A trait for clients capable of rendering COLR glyphs.
-pub trait ColrRenderer {
-    /// Push a new clip layer.
-    fn push_clip_layer(&mut self, clip: BezPath);
-    /// Push a new blend layer.
-    fn push_blend_layer(&mut self, blend_mode: BlendMode);
-    /// Fill the current area with the given solid color.
-    fn fill_solid(&mut self, color: AlphaColor<Srgb>);
-    /// Fill the current area with the given gradient color.
-    fn fill_gradient(&mut self, gradient: Gradient);
-    /// Set the transform for paints.
-    fn set_paint_transform(&mut self, affine: Affine);
-    /// Pop the last clip/blend layer.
-    fn pop_layer(&mut self);
-}
-
 /// An abstraction for painting COLR glyphs.
 pub struct ColrPainter<'a> {
     transforms: Vec<Affine>,
     colr_glyph: &'a GlyphColr<'a>,
     context_color: AlphaColor<Srgb>,
-    painter: &'a mut dyn ColrRenderer,
+    painter: &'a mut dyn DrawTarget,
     layer_count: u32,
 }
 
@@ -57,7 +42,7 @@ impl<'a> ColrPainter<'a> {
     pub fn new(
         colr_glyph: &'a GlyphColr<'a>,
         context_color: AlphaColor<Srgb>,
-        painter: &'a mut impl ColrRenderer,
+        painter: &'a mut impl DrawTarget,
     ) -> Self {
         Self {
             transforms: vec![colr_glyph.draw_transform],
@@ -185,7 +170,7 @@ impl ColorPainter for ColrPainter<'_> {
         let finished = outline_builder.path;
         let transformed = self.cur_transform() * finished;
 
-        self.painter.push_clip_layer(transformed);
+        self.painter.push_clip_layer(&transformed);
         self.layer_count += 1;
     }
 
@@ -198,7 +183,7 @@ impl ColorPainter for ColrPainter<'_> {
         );
         let transformed = self.cur_transform() * rect.to_path(0.1);
 
-        self.painter.push_clip_layer(transformed);
+        self.painter.push_clip_layer(&transformed);
         self.layer_count += 1;
     }
 
@@ -399,46 +384,55 @@ pub(crate) fn convert_bounding_box(rect: BoundingBox<f32>) -> Rect {
     )
 }
 
-impl ColrRenderer for AtlasCommandRecorder {
+impl DrawTarget for AtlasCommandRecorder {
     #[inline]
-    fn push_clip_layer(&mut self, clip: BezPath) {
-        self.push_clip_layer(clip);
+    fn set_transform(&mut self, t: Affine) {
+        AtlasCommandRecorder::set_transform(self, t);
+    }
+
+    #[inline]
+    fn set_paint_solid(&mut self, color: AlphaColor<Srgb>) {
+        self.set_paint(color);
+    }
+
+    #[inline]
+    fn set_paint_gradient(&mut self, gradient: Gradient) {
+        self.set_paint(gradient);
+    }
+
+    #[inline]
+    fn set_paint_transform(&mut self, t: Affine) {
+        AtlasCommandRecorder::set_paint_transform(self, t);
+    }
+
+    #[inline]
+    fn fill_path(&mut self, path: &BezPath) {
+        self.commands
+            .push(AtlasCommand::FillPath(alloc::sync::Arc::new(path.clone())));
+    }
+
+    #[inline]
+    fn fill_rect(&mut self, rect: &Rect) {
+        AtlasCommandRecorder::fill_rect(self, rect);
+    }
+
+    #[inline]
+    fn push_clip_layer(&mut self, clip: &BezPath) {
+        AtlasCommandRecorder::push_clip_layer(self, clip.clone());
     }
 
     #[inline]
     fn push_blend_layer(&mut self, blend_mode: BlendMode) {
-        self.push_blend_layer(blend_mode);
-    }
-
-    #[inline]
-    fn fill_solid(&mut self, color: AlphaColor<Srgb>) {
-        self.set_paint(color);
-        self.fill_rect(&Rect::new(
-            0.0,
-            0.0,
-            f64::from(self.width()),
-            f64::from(self.height()),
-        ));
-    }
-
-    #[inline]
-    fn fill_gradient(&mut self, gradient: Gradient) {
-        self.set_paint(gradient);
-        self.fill_rect(&Rect::new(
-            0.0,
-            0.0,
-            f64::from(self.width()),
-            f64::from(self.height()),
-        ));
-    }
-
-    #[inline]
-    fn set_paint_transform(&mut self, affine: Affine) {
-        self.set_paint_transform(affine);
+        AtlasCommandRecorder::push_blend_layer(self, blend_mode);
     }
 
     #[inline]
     fn pop_layer(&mut self) {
-        self.pop_layer();
+        AtlasCommandRecorder::pop_layer(self);
+    }
+
+    #[inline]
+    fn surface_rect(&self) -> Rect {
+        Rect::new(0.0, 0.0, f64::from(self.width()), f64::from(self.height()))
     }
 }

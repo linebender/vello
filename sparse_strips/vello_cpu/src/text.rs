@@ -4,8 +4,8 @@
 //! Vello CPU glyph rendering backend.
 //!
 //! Provides [`GlyphAtlas`] (atlas backed by per-page [`Pixmap`]s) and the
-//! `CpuBackend` implementation of `GlyphAtlasBackend` that rasterises
-//! glyphs into CPU-accessible pixel buffers.
+//! [`Renderer`](glifo::Renderer) implementation for [`RenderContext`] that
+//! rasterises glyphs into CPU-accessible pixel buffers.
 //!
 //! The key difference from the hybrid backend is that atlas pages are owned as
 //! [`Arc<Pixmap>`]s here, so the CPU renderer can read pixels directly without
@@ -20,229 +20,19 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use color::palette::css::BLACK;
-use core::fmt::{Debug, Formatter};
-use glifo::atlas::{
-    AtlasCommandRecorder, AtlasConfig, AtlasSlot, GlyphAtlas as GlifoGlyphAtlas, GlyphCache,
-    GlyphCacheConfig, GlyphCacheKey, ImageCache, PendingBitmapUpload, PendingClearRect,
-    RasterMetrics,
-};
-use glifo::renderers::vello_renderer::{
-    self, AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale,
-};
-use glifo::{
-    AtlasCacher, CachedGlyphType, ColrPainter, ColrRenderer, GlyphBitmap, GlyphColr, GlyphRenderer,
-    GlyphRunBackend, PreparedGlyph,
-};
+use core::fmt::Debug;
+use glifo::atlas::{AtlasConfig, AtlasSlot, GlyphAtlas, GlyphCacheConfig, ImageCache, PendingClearRect};
+use glifo::renderers::vello_renderer;
+use glifo::{AtlasCacher, DrawTarget, GlyphRunBackend};
 use kurbo::{Affine, BezPath, Rect};
-use peniko::Extend;
 use peniko::color::{AlphaColor, Srgb};
 use peniko::{BlendMode, Gradient};
-use peniko::{ImageQuality, ImageSampler};
 use vello_common::fearless_simd::Level;
 use vello_common::glyph::Glyph;
-use vello_common::paint::{ImageId, Tint};
+use vello_common::paint::ImageId;
 
 fn atlas_page_image_id(page_index: u32) -> ImageId {
     ImageId::new(ATLAS_IMAGE_ID_BASE + page_index)
-}
-
-/// CPU-side glyph atlas backed by per-page [`Pixmap`]s.
-///
-/// Wraps the shared [`GlyphAtlas`] allocator and adds owned pixel storage
-/// so that glyphs can be rasterized directly into CPU-accessible memory.
-pub(crate) struct GlyphAtlas {
-    /// Shared cache data.
-    pub(crate) inner: GlifoGlyphAtlas,
-    /// One `Pixmap` per atlas page, grown on demand.
-    // It's a bit annoying to have this in an `Arc`, but it needs to be this way. During fine
-    // rasterization, we need to be able to easily clone the atlas page so that it can be shared
-    // across multiple threads. However, we also need to be able to mutate the pixmap to
-    // sync new glyphs. The way this is achieved is by calling `Arc::make_mut` when syncing
-    // (at this point, the pixmap isn't shared anywhere else). Before fine rasterization, we
-    // then share it with the image registry such that it can easily be fetched and cloned during
-    // fine rasterization. After that, we remove it from the image registry, such that it's uniquely
-    // owned again and can be mutated in the next frame.
-    pub(crate) pixmaps: Vec<Arc<Pixmap>>,
-    /// Width of each atlas page in pixels.
-    page_width: u16,
-    /// Height of each atlas page in pixels.
-    page_height: u16,
-}
-
-impl GlyphAtlas {
-    /// Creates a new atlas with the given page dimensions and default eviction settings.
-    #[inline]
-    pub(crate) fn new(page_width: u16, page_height: u16) -> Self {
-        // TODO: Make glyph cache config configurable by user?
-        Self::with_config(page_width, page_height, GlyphCacheConfig::default())
-    }
-
-    /// Creates a new atlas with custom page dimensions and eviction settings.
-    #[inline]
-    pub(crate) fn with_config(
-        page_width: u16,
-        page_height: u16,
-        eviction_config: GlyphCacheConfig,
-    ) -> Self {
-        Self {
-            inner: GlifoGlyphAtlas::with_config(eviction_config),
-            pixmaps: Vec::new(),
-            page_width,
-            page_height,
-        }
-    }
-
-    /// Returns a mutable reference to the pixmap for `page_index`.
-    #[inline]
-    pub(crate) fn page_pixmap_mut(&mut self, page_index: usize) -> Option<&mut Pixmap> {
-        self.pixmaps.get_mut(page_index).and_then(Arc::get_mut)
-    }
-
-    /// Returns the number of atlas pages currently allocated.
-    #[inline]
-    pub(crate) fn page_count(&self) -> usize {
-        self.pixmaps.len()
-    }
-
-    /// Replay pending atlas commands with access to the per-page pixmaps.
-    ///
-    /// The closure receives `(recorder, pixmaps)`, allowing the caller to
-    /// composite into the target page pixmap without a borrow conflict.
-    #[inline]
-    pub(crate) fn replay_pending_atlas_commands_with_pixmaps(
-        &mut self,
-        mut f: impl FnMut(&mut AtlasCommandRecorder, &mut Vec<Arc<Pixmap>>),
-    ) {
-        self.inner
-            .replay_pending_atlas_commands(|recorder| f(recorder, &mut self.pixmaps));
-    }
-}
-
-impl Default for GlyphAtlas {
-    fn default() -> Self {
-        Self::new(DEFAULT_GLYPH_ATLAS_SIZE, DEFAULT_GLYPH_ATLAS_SIZE)
-    }
-}
-
-impl Debug for GlyphAtlas {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("GlyphAtlas")
-            .field("inner", &self.inner)
-            .field("page_count", &self.pixmaps.len())
-            .field("page_width", &self.page_width)
-            .field("page_height", &self.page_height)
-            .finish()
-    }
-}
-
-/// Delegates to the inner [`GlyphAtlas`], additionally growing the `pixmaps`
-/// vector when `insert` opens a new atlas page.
-impl GlyphCache for GlyphAtlas {
-    #[inline(always)]
-    fn get(&mut self, key: &GlyphCacheKey) -> Option<AtlasSlot> {
-        self.inner.get(key)
-    }
-
-    #[inline]
-    fn insert(
-        &mut self,
-        image_cache: &mut ImageCache,
-        key: GlyphCacheKey,
-        raster_metrics: RasterMetrics,
-    ) -> Option<(u16, u16, AtlasSlot, &mut AtlasCommandRecorder)> {
-        let (page_index, x, y, atlas_slot) =
-            self.inner.insert_entry(image_cache, key, raster_metrics)?;
-
-        // Create a new pixmap if the allocator opened a new atlas page
-        if self.pixmaps.len() <= page_index {
-            debug_assert_eq!(
-                self.pixmaps.len(),
-                page_index,
-                "atlas page indices must be contiguous"
-            );
-            self.pixmaps
-                .push(Arc::new(Pixmap::new(self.page_width, self.page_height)));
-        }
-
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "atlas dimensions are configured to fit in u16"
-        )]
-        let (atlas_w, atlas_h) = {
-            let (w, h) = image_cache.atlas_manager().config().atlas_size;
-            (w as u16, h as u16)
-        };
-        let recorder = self
-            .inner
-            .recorder_for_page(atlas_slot.page_index, atlas_w, atlas_h);
-        Some((x, y, atlas_slot, recorder))
-    }
-
-    #[inline]
-    fn push_pending_upload(
-        &mut self,
-        image_id: ImageId,
-        pixmap: Arc<Pixmap>,
-        atlas_slot: AtlasSlot,
-    ) {
-        self.inner.push_pending_upload(image_id, pixmap, atlas_slot);
-    }
-
-    #[inline]
-    fn drain_pending_uploads(&mut self) -> impl Iterator<Item = PendingBitmapUpload> + '_ {
-        self.inner.drain_pending_uploads()
-    }
-
-    #[inline]
-    fn replay_pending_atlas_commands(&mut self, f: impl FnMut(&mut AtlasCommandRecorder)) {
-        self.inner.replay_pending_atlas_commands(f);
-    }
-
-    #[inline]
-    fn drain_pending_clear_rects(&mut self) -> impl Iterator<Item = PendingClearRect> + '_ {
-        self.inner.drain_pending_clear_rects()
-    }
-
-    #[inline]
-    fn maintain(&mut self, image_cache: &mut ImageCache) {
-        self.inner.maintain(image_cache);
-    }
-
-    #[inline]
-    fn clear(&mut self) {
-        self.inner.clear();
-        self.pixmaps.clear();
-    }
-
-    #[inline]
-    fn len(&self) -> usize {
-        self.inner.len()
-    }
-
-    #[inline]
-    fn is_empty(&self) -> bool {
-        self.inner.is_empty()
-    }
-
-    #[inline]
-    fn cache_hits(&self) -> u64 {
-        self.inner.cache_hits()
-    }
-
-    #[inline]
-    fn cache_misses(&self) -> u64 {
-        self.inner.cache_misses()
-    }
-
-    #[inline]
-    fn clear_stats(&mut self) {
-        self.inner.clear_stats();
-    }
-
-    #[inline]
-    fn config(&self) -> &GlyphCacheConfig {
-        self.inner.config()
-    }
 }
 
 #[derive(Debug)]
@@ -250,6 +40,13 @@ pub(crate) struct GlyphAtlasResources {
     pub(crate) glyph_atlas: GlyphAtlas,
     pub(crate) image_cache: ImageCache,
     pub(crate) glyph_renderer: Box<RenderContext>,
+    /// One `Pixmap` per atlas page, grown on demand during `sync_glyph_cache`.
+    // Wrapped in `Arc` so it can be cheaply shared with the image registry
+    // during fine rasterization while remaining uniquely owned for mutation
+    // during atlas sync.
+    pub(crate) pixmaps: Vec<Arc<Pixmap>>,
+    page_width: u16,
+    page_height: u16,
 }
 
 impl GlyphAtlasResources {
@@ -261,7 +58,7 @@ impl GlyphAtlasResources {
         eviction_config: GlyphCacheConfig,
     ) -> Self {
         Self {
-            glyph_atlas: GlyphAtlas::with_config(page_width, page_height, eviction_config),
+            glyph_atlas: GlyphAtlas::with_config(eviction_config),
             image_cache: ImageCache::new_with_config(AtlasConfig::default()),
             glyph_renderer: Box::new(RenderContext::new_with(
                 page_width,
@@ -272,11 +69,29 @@ impl GlyphAtlasResources {
                     render_mode,
                 },
             )),
+            pixmaps: Vec::new(),
+            page_width,
+            page_height,
         }
     }
 
     pub(crate) fn maintain(&mut self) {
         self.glyph_atlas.maintain(&mut self.image_cache);
+    }
+
+    /// Returns a mutable reference to the pixmap for `page_index`.
+    pub(crate) fn page_pixmap_mut(&mut self, page_index: usize) -> Option<&mut Pixmap> {
+        self.pixmaps
+            .get_mut(page_index)
+            .and_then(Arc::get_mut)
+    }
+
+    /// Ensure a pixmap exists for the given page, creating it if needed.
+    pub(crate) fn ensure_page(&mut self, page_index: usize) {
+        while self.pixmaps.len() <= page_index {
+            self.pixmaps
+                .push(Arc::new(Pixmap::new(self.page_width, self.page_height)));
+        }
     }
 }
 
@@ -292,8 +107,7 @@ impl Resources {
 
         if let Some(glyph_resources) = self.glyph_resources.as_mut() {
             glyph_resources.maintain();
-            // See the comment in `GlyphAtlas`.
-            let page_count = glyph_resources.glyph_atlas.page_count();
+            let page_count = glyph_resources.pixmaps.len();
             for page_index in 0..page_count {
                 self.image_registry.destroy_atlas_page(page_index as u32);
             }
@@ -325,8 +139,8 @@ impl Resources {
 
         // Upload all pending bitmap glyphs to the image atlas.
         for upload in &self.pending_glyph_uploads_scratch {
+            glyph_resources.ensure_page(upload.atlas_slot.page_index as usize);
             let pixmap = glyph_resources
-                .glyph_atlas
                 .page_pixmap_mut(upload.atlas_slot.page_index as usize)
                 .expect("atlas upload refers to a missing page");
             copy_pixmap_to_atlas(
@@ -342,26 +156,27 @@ impl Resources {
         // Draw all new COLR/outline glyphs into the render context, and then composite them into the
         // existing atlas page.
         let glyph_renderer = glyph_resources.glyph_renderer.as_mut();
-        let glyph_atlas = &mut glyph_resources.glyph_atlas;
-        glyph_atlas.replay_pending_atlas_commands_with_pixmaps(|recorder, pixmaps| {
-            let page = Arc::get_mut(
-                pixmaps
-                    .get_mut(recorder.page_index as usize)
-                    .expect("atlas recorder refers to a missing page"),
-            )
-            .expect("atlas page pixmap must be uniquely owned during replay");
+        glyph_resources
+            .glyph_atlas
+            .replay_pending_atlas_commands(|recorder| {
+                let page_index = recorder.page_index as usize;
+                // Ensure the page exists.
+                while glyph_resources.pixmaps.len() <= page_index {
+                    glyph_resources.pixmaps.push(Arc::new(Pixmap::new(
+                        glyph_resources.page_width,
+                        glyph_resources.page_height,
+                    )));
+                }
+                let page = Arc::get_mut(&mut glyph_resources.pixmaps[page_index])
+                    .expect("atlas page pixmap must be uniquely owned during replay");
 
-            glyph_renderer.reset();
-            vello_renderer::replay_atlas_commands(&mut recorder.commands, glyph_renderer);
-            glyph_renderer.flush();
-            // Note: This method panics if multi-threading is enabled, but our glyph renderer is always
-            // single-threaded anyway, so this shouldn't ever panic, even if the main render context
-            // uses multi-threading.
-            glyph_renderer.composite_to_pixmap_at_offset(&Self::default(), page, 0, 0);
-        });
+                glyph_renderer.reset();
+                vello_renderer::replay_atlas_commands(&mut recorder.commands, glyph_renderer);
+                glyph_renderer.flush();
+                glyph_renderer.composite_to_pixmap_at_offset(&Resources::default(), page, 0, 0);
+            });
 
-        // See the comment in `GlyphAtlas`.
-        for (page_index, pixmap) in glyph_resources.glyph_atlas.pixmaps.iter().enumerate() {
+        for (page_index, pixmap) in glyph_resources.pixmaps.iter().enumerate() {
             self.image_registry
                 .register_atlas_page(page_index as u32, Arc::clone(pixmap));
         }
@@ -378,7 +193,6 @@ impl Resources {
 
         for clear in &self.pending_glyph_clear_rects_scratch {
             let pixmap = glyph_resources
-                .glyph_atlas
                 .page_pixmap_mut(clear.page_index as usize)
                 .expect("atlas clear rect refers to a missing page");
             clear_pixmap_region(pixmap, *clear);
@@ -400,7 +214,7 @@ impl<'a> CpuGlyphRunBackend<'a> {
         run: glifo::GlyphRun<'a>,
         glyphs: Glyphs,
         render: impl FnOnce(
-            &mut glifo::GlyphRunRenderer<'a, 'a, Glyphs, GlyphAtlas>,
+            &mut glifo::GlyphRunRenderer<'a, 'a, Glyphs>,
             &mut RenderContext,
         ),
     ) where
@@ -501,215 +315,11 @@ fn copy_pixmap_to_atlas(
     }
 }
 
-/// Bridges Glifo's [`GlyphRenderer`] trait to the shared
-/// [`vello_renderer`] cache orchestration for the CPU backend.
-impl GlyphRenderer<GlyphAtlas> for RenderContext {
-    #[inline]
-    fn fill_glyph(
-        &mut self,
-        prepared_glyph: PreparedGlyph<'_>,
-        atlas_cacher: &mut AtlasCacher<'_, GlyphAtlas>,
-    ) {
-        vello_renderer::fill_glyph::<CpuBackend>(self, prepared_glyph, atlas_cacher);
-    }
-
-    #[inline]
-    fn stroke_glyph(
-        &mut self,
-        prepared_glyph: PreparedGlyph<'_>,
-        atlas_cacher: &mut AtlasCacher<'_, GlyphAtlas>,
-    ) {
-        vello_renderer::stroke_glyph::<CpuBackend>(self, prepared_glyph, atlas_cacher);
-    }
-
-    #[inline]
-    fn render_cached_glyph(
-        &mut self,
-        cached_slot: AtlasSlot,
-        transform: Affine,
-        glyph_type: CachedGlyphType,
-    ) {
-        match glyph_type {
-            CachedGlyphType::Outline => {
-                let tint = self.get_context_color();
-                vello_renderer::render_outline_glyph_from_atlas::<CpuBackend>(
-                    self,
-                    cached_slot,
-                    transform,
-                    tint,
-                );
-            }
-            CachedGlyphType::Bitmap => {
-                vello_renderer::render_bitmap_glyph_from_atlas::<CpuBackend>(
-                    self,
-                    cached_slot,
-                    transform,
-                );
-            }
-            CachedGlyphType::Colr(area) => {
-                vello_renderer::render_colr_glyph_from_atlas::<CpuBackend>(
-                    self,
-                    cached_slot,
-                    transform,
-                    area,
-                );
-            }
-        }
-    }
-
-    #[inline]
-    fn fill_rect(&mut self, rect: Rect) {
-        self.fill_rect(&rect);
-    }
-
-    #[inline]
-    fn get_context_color(&self) -> AlphaColor<Srgb> {
-        // Non-solid paints (gradients, images) have no single color to
-        // extract, so fall back to black — the CSS default for `currentColor`.
-        let paint = self.paint().clone();
-        match paint {
-            PaintType::Solid(s) => s,
-            _ => BLACK,
-        }
-    }
-}
-
-/// Zero-sized marker that selects the Vello CPU rendering backend
-/// in generic [`GlyphAtlasBackend`] code.
-pub(crate) struct CpuBackend;
-
-impl GlyphAtlasBackend for CpuBackend {
-    type Renderer = RenderContext;
-    type Cache = GlyphAtlas;
-
-    fn render_from_atlas(
-        renderer: &mut RenderContext,
-        atlas_slot: AtlasSlot,
-        rect_transform: Affine,
-        area: Rect,
-        quality: ImageQuality,
-        paint_transform: Affine,
-        tint: Option<Tint>,
-    ) {
-        let image = Image {
-            image: ImageSource::opaque_id(atlas_page_image_id(atlas_slot.page_index)),
-            sampler: ImageSampler {
-                x_extend: Extend::Pad,
-                y_extend: Extend::Pad,
-                quality,
-                alpha: 1.0,
-            },
-        };
-
-        let state = renderer.save_current_state();
-
-        renderer.set_tint(tint);
-        renderer.set_transform(rect_transform);
-        renderer.set_paint(image);
-        renderer.set_paint_transform(paint_transform);
-        renderer.fill_rect(&area);
-
-        renderer.reset_tint();
-        renderer.restore_state(state);
-    }
-
-    fn paint_transform(atlas_slot: &AtlasSlot) -> Affine {
-        // The CPU backend uses full-page pixmaps, so the paint origin must be
-        // shifted to the glyph's slot within the page. Contrast with the hybrid
-        // backend, which gets per-allocation origins from the image cache.
-        Affine::translate((-(atlas_slot.x as f64), -(atlas_slot.y as f64)))
-    }
-
-    fn fill_outline_directly(renderer: &mut RenderContext, path: &BezPath, transform: Affine) {
-        let state = renderer.save_current_state();
-        renderer.set_transform(transform);
-        renderer.fill_path(path);
-        renderer.restore_state(state);
-    }
-
-    fn stroke_outline_directly(renderer: &mut RenderContext, path: &BezPath, transform: Affine) {
-        let state = renderer.save_current_state();
-        renderer.set_transform(transform);
-        renderer.stroke_path(path);
-        renderer.restore_state(state);
-    }
-
-    fn render_bitmap_directly(renderer: &mut RenderContext, glyph: GlyphBitmap, transform: Affine) {
-        let image = Image {
-            image: ImageSource::Pixmap(glyph.pixmap),
-            sampler: ImageSampler {
-                x_extend: Extend::Pad,
-                y_extend: Extend::Pad,
-                quality: quality_for_scale(&transform),
-                alpha: 1.0,
-            },
-        };
-
-        let state = renderer.save_current_state();
-        renderer.set_paint(image);
-        renderer.set_transform(transform);
-        renderer.fill_rect(&glyph.area);
-        renderer.restore_state(state);
-    }
-
-    fn render_colr_directly(
-        renderer: &mut RenderContext,
-        glyph: &GlyphColr<'_>,
-        transform: Affine,
-        context_color: AlphaColor<Srgb>,
-    ) {
-        let state = renderer.save_current_state();
-        renderer.set_transform(transform);
-
-        let mut colr_painter = ColrPainter::new(glyph, context_color, renderer);
-        colr_painter.paint();
-
-        renderer.restore_state(state);
-    }
-}
-
-/// Maps COLR paint operations to Vello CPU draw calls.
-impl ColrRenderer for RenderContext {
-    fn push_clip_layer(&mut self, clip: BezPath) {
-        Self::push_clip_layer(self, &clip);
-    }
-
-    fn push_blend_layer(&mut self, blend_mode: BlendMode) {
-        Self::push_blend_layer(self, blend_mode);
-    }
-
-    fn fill_solid(&mut self, color: AlphaColor<Srgb>) {
-        self.set_paint(color);
-        self.fill_rect(&Rect::new(
-            0.0,
-            0.0,
-            f64::from(self.width()),
-            f64::from(self.height()),
-        ));
-    }
-
-    fn fill_gradient(&mut self, gradient: Gradient) {
-        self.set_paint(gradient);
-        self.fill_rect(&Rect::new(
-            0.0,
-            0.0,
-            f64::from(self.width()),
-            f64::from(self.height()),
-        ));
-    }
-
-    fn set_paint_transform(&mut self, affine: Affine) {
-        Self::set_paint_transform(self, affine);
-    }
-
-    fn pop_layer(&mut self) {
-        Self::pop_layer(self);
-    }
-}
-
-/// Allows recorded [`AtlasCommand`](glifo::atlas::commands::AtlasCommand)s
-/// to be replayed into a CPU [`RenderContext`].
-impl AtlasReplayTarget for RenderContext {
+/// Implements [`DrawTarget`] and [`Renderer`](glifo::Renderer) for the CPU
+/// renderer. `DrawTarget` is used by COLR painting and atlas command replay.
+/// `Renderer` extends it with state management, image painting, and atlas
+/// addressing so glifo can own all glyph rendering orchestration.
+impl DrawTarget for RenderContext {
     #[inline]
     fn set_transform(&mut self, t: Affine) {
         Self::set_transform(self, t);
@@ -753,6 +363,59 @@ impl AtlasReplayTarget for RenderContext {
     #[inline]
     fn pop_layer(&mut self) {
         Self::pop_layer(self);
+    }
+
+    #[inline]
+    fn surface_rect(&self) -> Rect {
+        Rect::new(0.0, 0.0, f64::from(self.width()), f64::from(self.height()))
+    }
+}
+
+impl glifo::Renderer for RenderContext {
+    type SavedState = vello_common::recording::RenderState;
+
+    #[inline]
+    fn save_state(&mut self) -> Self::SavedState {
+        self.save_current_state()
+    }
+
+    #[inline]
+    fn restore_state(&mut self, state: Self::SavedState) {
+        Self::restore_state(self, state);
+    }
+
+    #[inline]
+    fn stroke_path(&mut self, path: &BezPath) {
+        Self::stroke_path(self, path);
+    }
+
+    #[inline]
+    fn set_paint_image(&mut self, image: Image) {
+        self.set_paint(image);
+    }
+
+    #[inline]
+    fn set_tint(&mut self, tint: Option<vello_common::paint::Tint>) {
+        Self::set_tint(self, tint);
+    }
+
+    #[inline]
+    fn get_context_color(&self) -> AlphaColor<Srgb> {
+        let paint = self.paint().clone();
+        match paint {
+            PaintType::Solid(s) => s,
+            _ => BLACK,
+        }
+    }
+
+    #[inline]
+    fn atlas_image_source(&self, atlas_slot: &AtlasSlot) -> ImageSource {
+        ImageSource::opaque_id(atlas_page_image_id(atlas_slot.page_index))
+    }
+
+    #[inline]
+    fn atlas_paint_transform(&self, atlas_slot: &AtlasSlot) -> Affine {
+        Affine::translate((-(atlas_slot.x as f64), -(atlas_slot.y as f64)))
     }
 }
 

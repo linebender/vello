@@ -44,9 +44,9 @@ impl From<Gradient> for AtlasPaint {
 
 /// A single draw command recorded for deferred atlas rendering.
 ///
-/// The variants correspond 1:1 to the methods on [`AtlasReplayTarget`].
+/// The variants correspond 1:1 to the methods on [`DrawTarget`].
 ///
-/// [`AtlasReplayTarget`]: crate::renderers::vello_renderer::AtlasReplayTarget
+/// [`DrawTarget`]: crate::draw_target::DrawTarget
 #[derive(Clone, Debug)]
 pub enum AtlasCommand {
     /// Set the current transform.
@@ -70,10 +70,10 @@ pub enum AtlasCommand {
 /// Records atlas draw commands for a single atlas page.
 ///
 /// The recorder exposes the same method API as the actual renderers
-/// (`RenderContext`, `Scene`). It also implements [`ColrRenderer`] so
+/// (`RenderContext`, `Scene`). It also implements [`DrawTarget`] so
 /// that [`ColrPainter`] can write into it directly.
 ///
-/// [`ColrRenderer`]: crate::colr::ColrRenderer
+/// [`DrawTarget`]: crate::draw_target::DrawTarget
 /// [`ColrPainter`]: crate::colr::ColrPainter
 pub struct AtlasCommandRecorder {
     /// Which atlas page these commands target.

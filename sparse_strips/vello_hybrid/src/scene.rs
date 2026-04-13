@@ -234,6 +234,13 @@ pub struct Scene {
     /// process one coarse batch before processing another fast path strip batch.
     /// Only meaningful in [`StripPathMode::Interleaved`] mode.
     pub(crate) coarse_batch_splits: Vec<usize>,
+    /// Tracks how many auto-inserted identity wrapper layers are active.
+    ///
+    /// When `default_blending_only` is set and a non-default blend is pushed at
+    /// root level, we auto-insert an identity layer so the blend composites into
+    /// it rather than the root. This counter is incremented on auto-insert and
+    /// decremented when the corresponding pop returns to root.
+    auto_blend_wrapper_depth: u32,
 }
 
 // We use this macro instead of a method to avoid borrowing issues in the corresponding methods.
@@ -319,6 +326,7 @@ impl Scene {
             fast_strips_buffer: FastStripsBuffer::default(),
             strip_path_mode: StripPathMode::FastOnly,
             coarse_batch_splits: Vec::new(),
+            auto_blend_wrapper_depth: 0,
         }
     }
 
@@ -615,6 +623,11 @@ impl Scene {
     }
 
     /// Push a new layer with the given properties.
+    ///
+    /// When the `default_blending_only` constraint is active and a non-default
+    /// blend mode is pushed at root level, an identity wrapper layer is
+    /// automatically inserted so that the blend composites into it rather than
+    /// the root. The wrapper is removed automatically in [`pop_layer`].
     pub fn push_layer(
         &mut self,
         clip_path: Option<&BezPath>,
@@ -624,8 +637,17 @@ impl Scene {
         filter: Option<Filter>,
     ) {
         let blend_mode_val = blend_mode.unwrap_or(DEFAULT_BLEND_MODE);
-        self.constraints
-            .assert_blend_mode(blend_mode_val, self.wide.has_layers());
+
+        // Auto-wrap: instead of panicking when a non-default blend is pushed at
+        // root level with `default_blending_only`, insert an identity layer so
+        // the blend composites into it rather than the root surface.
+        if self.constraints.use_default_blending_only()
+            && !self.wide.has_layers()
+            && blend_mode_val != DEFAULT_BLEND_MODE
+        {
+            self.push_layer(None, None, None, None, None);
+            self.auto_blend_wrapper_depth += 1;
+        }
 
         self.layer_id_next += 1;
 
@@ -715,6 +737,9 @@ impl Scene {
     }
 
     /// Pop the last pushed layer.
+    ///
+    /// If the popped layer returns to an auto-inserted wrapper layer (see
+    /// [`push_layer`]), the wrapper is also popped automatically.
     pub fn pop_layer(&mut self) {
         self.wide.pop_layer(&mut self.render_graph);
         if self.strip_path_mode == StripPathMode::Interleaved && !self.wide.has_layers() {
@@ -722,6 +747,19 @@ impl Scene {
             self.strip_storage
                 .borrow_mut()
                 .set_generation_mode(GenerationMode::Append);
+        }
+
+        // If we auto-inserted a wrapper layer and we've returned to it (only
+        // the wrapper remains), pop it too.
+        if self.auto_blend_wrapper_depth > 0 && self.wide.layer_depth() == 1 {
+            self.wide.pop_layer(&mut self.render_graph);
+            self.auto_blend_wrapper_depth -= 1;
+            if self.strip_path_mode == StripPathMode::Interleaved && !self.wide.has_layers() {
+                self.wide.end_batch();
+                self.strip_storage
+                    .borrow_mut()
+                    .set_generation_mode(GenerationMode::Append);
+            }
         }
     }
 
@@ -837,6 +875,7 @@ impl Scene {
         self.fast_strips_buffer.clear();
         self.strip_path_mode = StripPathMode::FastOnly;
         self.coarse_batch_splits.clear();
+        self.auto_blend_wrapper_depth = 0;
 
         self.layer_id_next = 0;
         self.render_graph.clear();
@@ -1497,10 +1536,18 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "scene constrained to default blending")]
-    fn default_blending_only_rejects_root_blend_layer() {
+    fn default_blending_only_auto_wraps_root_blend_layer() {
         let mut scene = default_blending_only();
+        // Previously this would panic. Now Scene auto-inserts an identity
+        // wrapper layer so the non-default blend composites into it.
         scene.push_blend_layer(BlendMode::new(Mix::Multiply, Compose::SrcOver));
+        assert!(scene.wide.has_layers());
+        assert_eq!(scene.auto_blend_wrapper_depth, 1);
+
+        // Popping should also pop the auto-inserted wrapper.
+        scene.pop_layer();
+        assert!(!scene.wide.has_layers());
+        assert_eq!(scene.auto_blend_wrapper_depth, 0);
     }
 
     #[test]

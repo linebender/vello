@@ -71,79 +71,6 @@ impl Default for GlyphCacheConfig {
     }
 }
 
-/// Common interface for glyph atlas caches.
-///
-/// Rendering code is generic over this trait, so different backends can provide
-/// different storage strategies without duplicating orchestration logic.
-pub trait GlyphCache {
-    /// Look up a cached glyph.
-    ///
-    /// Returns `Some(AtlasSlot)` on cache hit (copy), `None` on miss.
-    /// Updates the entry's access time on hit.
-    fn get(&mut self, key: &GlyphCacheKey) -> Option<AtlasSlot>;
-
-    /// Insert a glyph entry and allocate space in the atlas.
-    ///
-    /// Returns `(dst_x, dst_y, atlas_slot, recorder)` if successful, `None`
-    /// if allocation failed (e.g., atlas is full).  The returned recorder
-    /// accumulates draw commands for the atlas page the glyph was placed on.
-    fn insert(
-        &mut self,
-        image_cache: &mut ImageCache,
-        key: GlyphCacheKey,
-        raster_metrics: RasterMetrics,
-    ) -> Option<(u16, u16, AtlasSlot, &mut AtlasCommandRecorder)>;
-
-    /// Queue a bitmap pixmap for later processing.
-    fn push_pending_upload(
-        &mut self,
-        image_id: ImageId,
-        pixmap: Arc<Pixmap>,
-        atlas_slot: AtlasSlot,
-    );
-
-    /// Drain all pending bitmap uploads, keeping the allocation for reuse.
-    fn drain_pending_uploads(&mut self) -> impl Iterator<Item = PendingBitmapUpload> + '_;
-
-    /// Replay all pending atlas command recorders (one per dirty page).
-    ///
-    /// The closure receives each non-empty recorder by mutable reference.
-    /// After the closure returns, the recorder's commands are cleared but
-    /// the allocation is kept for reuse next frame.
-    fn replay_pending_atlas_commands(&mut self, f: impl FnMut(&mut AtlasCommandRecorder));
-
-    /// Drain all pending clear rects, keeping the allocation for reuse.
-    ///
-    /// Each rect describes an atlas region that was freed during
-    /// [`maintain`](GlyphCache::maintain) and must be zeroed to transparent.
-    /// Drain these **after** calling `maintain`.
-    fn drain_pending_clear_rects(&mut self) -> impl Iterator<Item = PendingClearRect> + '_;
-
-    /// Advance the frame counter and potentially evict old entries.
-    fn maintain(&mut self, image_cache: &mut ImageCache);
-
-    /// Clear the entire cache.
-    fn clear(&mut self);
-
-    /// Get the number of cached glyphs.
-    fn len(&self) -> usize;
-
-    /// Returns `true` if the cache contains no entries.
-    fn is_empty(&self) -> bool;
-
-    /// Get the number of cache hits since last `clear_stats()`.
-    fn cache_hits(&self) -> u64;
-
-    /// Get the number of cache misses since last `clear_stats()`.
-    fn cache_misses(&self) -> u64;
-
-    /// Reset cache hit/miss counters without clearing the cache itself.
-    fn clear_stats(&mut self);
-
-    /// Returns the cache configuration.
-    fn config(&self) -> &GlyphCacheConfig;
-}
-
 /// A bitmap glyph pixmap awaiting GPU upload.
 ///
 /// Accumulated during glyph encoding when a bitmap glyph is inserted into the
@@ -334,6 +261,31 @@ impl GlyphAtlas {
         self.entry_count += 1;
 
         Some((page_index, atlas_slot.x, atlas_slot.y, atlas_slot))
+    }
+
+    /// Allocate atlas space, insert a cache entry, and return the page recorder.
+    ///
+    /// Combines [`insert_entry`](Self::insert_entry) +
+    /// [`recorder_for_page`](Self::recorder_for_page) into one call.
+    /// Returns `(dst_x, dst_y, atlas_slot, recorder)` on success.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "atlas dimensions are configured to fit in u16"
+    )]
+    pub fn insert(
+        &mut self,
+        image_cache: &mut ImageCache,
+        key: GlyphCacheKey,
+        raster_metrics: RasterMetrics,
+    ) -> Option<(u16, u16, AtlasSlot, &mut AtlasCommandRecorder)> {
+        let (_page_index, x, y, atlas_slot) =
+            self.insert_entry(image_cache, key, raster_metrics)?;
+        let (atlas_w, atlas_h) = {
+            let (w, h) = image_cache.atlas_manager().config().atlas_size;
+            (w as u16, h as u16)
+        };
+        let recorder = self.recorder_for_page(atlas_slot.page_index, atlas_w, atlas_h);
+        Some((x, y, atlas_slot, recorder))
     }
 
     /// Drain all pending bitmap uploads, keeping the allocation for reuse.
