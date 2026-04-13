@@ -43,15 +43,18 @@ pub(crate) const DEFAULT_GLYPH_ATLAS_SIZE: u16 = 4096;
 // Why do we need this? The reason is that the way uploaded images work in Vello Hybrid
 // is different from how they work in Vello CPU.
 //
-// In Vello Hybrid, all images, regardless of whether they are user-uploaded images or cached glyphs,
-// are stored in an image atlas at a certain location. An image ID then uniquely resolves to an
-// atlas page index + a location on that page. Whenever we want to cache a new glyph, we simply allocate a location in the image atlas and then return the image ID associated with that location.
+// In Vello Hybrid, all images, regardless of whether they are user-uploaded
+// images or cached glyphs, are stored in an image atlas at a certain location. An image ID then
+// uniquely resolves to an atlas page index + a location on that page. Whenever we want to
+// cache a new glyph, we simply allocate a location in the image atlas and then return the image
+// ID associated with that location.
 //
-// On Vello CPU, it works differently: An image ID is associated with a complete pixmap. If a user
-// uploads an image, instead of blitting it into a bigger image atlas, we just store the user-provided
-// pixmap and associate an image ID with the whole pixmap. However, for glyph caching to work we need
-// the same semantics as in Vello Hybrid. Therefore, we use a marker to determine whether an image ID
-// refers to a normal uploaded image or a cached glyph and apply special handling based on that.
+// On Vello CPU, it works differently: An image ID is associated with a complete pixmap.
+// If a user uploads an image, instead of blitting it into a bigger image atlas, we just
+// store the user-provided pixmap and associate an image ID with the whole pixmap. However,
+// for glyph caching to work we need the same semantics as in Vello Hybrid. Therefore, we
+// use a marker to determine whether an image ID refers to a normal uploaded image or a cached
+// glyph and apply special handling based on that.
 //
 // All IDs < than this value are reserved for normal images, all IDs >= this value are
 // reserved for atlas pages.
