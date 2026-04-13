@@ -23,6 +23,7 @@
 //! - `png` (enabled by default): Allow loading [`Pixmap`][crate::pixmap::Pixmap]s from PNG images.
 //!   Also required for rendering glyphs with an embedded PNG.
 //!   Implies `std`.
+//!
 //! At least one of `std` and `libm` is required; `std` overrides `libm`.
 //!
 //! # Contents
