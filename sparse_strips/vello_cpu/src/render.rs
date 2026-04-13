@@ -9,8 +9,6 @@ use crate::dispatch::Dispatcher;
 use crate::text::{GlyphAtlasResources, GlyphRunBuilder};
 #[cfg(feature = "text")]
 use glifo::GlyphPrepCache;
-#[cfg(feature = "text")]
-use glifo::atlas::{PendingBitmapUpload, PendingClearRect};
 
 #[cfg(feature = "multithreading")]
 use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
@@ -66,10 +64,6 @@ pub struct Resources {
     pub(crate) image_registry: ImageRegistry,
     #[cfg(feature = "text")]
     pub(crate) glyph_prep_cache: GlyphPrepCache,
-    #[cfg(feature = "text")]
-    pub(crate) pending_glyph_uploads_scratch: Vec<PendingBitmapUpload>,
-    #[cfg(feature = "text")]
-    pub(crate) pending_glyph_clear_rects_scratch: Vec<PendingClearRect>,
     // Will be initialized lazily on first use.
     #[cfg(feature = "text")]
     pub(crate) glyph_resources: Option<GlyphAtlasResources>,

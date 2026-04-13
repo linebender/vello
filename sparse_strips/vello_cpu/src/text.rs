@@ -86,14 +86,6 @@ impl GlyphAtlasResources {
     pub(crate) fn maintain(&mut self) {
         self.glyph_atlas.maintain(&mut self.image_cache);
     }
-
-    /// Returns a mutable reference to the pixmap for `page_index`.
-    pub(crate) fn page_pixmap_mut(&mut self, page_index: usize) -> Option<&mut Pixmap> {
-        self.pixmaps.get_mut(page_index).map(|p|
-            // This should never fail when this method is called, hence why we unwrap
-            // explicitly instead of using `and_then`.
-            Arc::get_mut(p).expect("pixmap isn't uniquely owned"))
-    }
 }
 
 /// Ensure a pixmap exists for the given page, creating it if needed.
@@ -142,24 +134,21 @@ impl Resources {
 
     /// Upload all pending bitmaps, rasterize pending outline/COLR glyphs, etc.
     fn sync_glyph_cache(&mut self) {
-        self.pending_glyph_uploads_scratch.clear();
         let glyph_resources = self
             .glyph_resources
             .as_mut()
             .expect("glyph atlas resources must exist before syncing");
-        self.pending_glyph_uploads_scratch
-            .extend(glyph_resources.glyph_atlas.drain_pending_uploads());
 
         // Upload all pending bitmap glyphs to the image atlas.
-        for upload in &self.pending_glyph_uploads_scratch {
+        for upload in glyph_resources.glyph_atlas.drain_pending_uploads() {
+            let page_index = upload.atlas_slot.page_index as usize;
             ensure_page(
                 &mut glyph_resources.pixmaps,
                 glyph_resources.page_width,
                 glyph_resources.page_height,
-                upload.atlas_slot.page_index as usize,
+                page_index,
             );
-            let pixmap = glyph_resources
-                .page_pixmap_mut(upload.atlas_slot.page_index as usize)
+            let pixmap = Arc::get_mut(&mut glyph_resources.pixmaps[page_index])
                 .expect("atlas upload refers to a missing page");
             copy_pixmap_to_atlas(
                 &upload.pixmap,
@@ -200,19 +189,14 @@ impl Resources {
     }
 
     fn clear_evicted_glyph_atlas_regions(&mut self) {
-        self.pending_glyph_clear_rects_scratch.clear();
         let glyph_resources = self
             .glyph_resources
             .as_mut()
             .expect("glyph atlas resources must exist before clearing");
-        self.pending_glyph_clear_rects_scratch
-            .extend(glyph_resources.glyph_atlas.drain_pending_clear_rects());
-
-        for clear in &self.pending_glyph_clear_rects_scratch {
-            let pixmap = glyph_resources
-                .page_pixmap_mut(clear.page_index as usize)
+        for clear in glyph_resources.glyph_atlas.drain_pending_clear_rects() {
+            let pixmap = Arc::get_mut(&mut glyph_resources.pixmaps[clear.page_index as usize])
                 .expect("atlas clear rect refers to a missing page");
-            clear_pixmap_region(pixmap, *clear);
+            clear_pixmap_region(pixmap, clear);
         }
     }
 }
