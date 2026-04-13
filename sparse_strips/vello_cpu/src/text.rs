@@ -94,7 +94,10 @@ impl GlyphAtlas {
     /// Returns a mutable reference to the pixmap for `page_index`.
     #[inline]
     pub(crate) fn page_pixmap_mut(&mut self, page_index: usize) -> Option<&mut Pixmap> {
-        self.pixmaps.get_mut(page_index).and_then(Arc::get_mut)
+        self.pixmaps.get_mut(page_index).map(|p|
+            // This should never fail when this method is called, hence why we unwrap
+            // explicitly instead of using `and_then`.
+            Arc::get_mut(p).expect("pixmap isn't uniquely owned"))
     }
 
     /// Returns the number of atlas pages currently allocated.
