@@ -254,7 +254,7 @@ impl Renderer for CpuRenderer {
     }
 
     fn execute_recording(&mut self, recording: &Recording) {
-        Recordable::execute_recording(&mut self.ctx, &mut self.resources, recording);
+        Recordable::execute_recording(&mut self.ctx, recording);
     }
 }
 
@@ -622,7 +622,7 @@ impl Renderer for HybridRenderer {
     }
 
     fn execute_recording(&mut self, recording: &Recording) {
-        Recordable::execute_recording(&mut self.scene, &mut self.resources, recording);
+        Recordable::execute_recording(&mut self.scene, recording);
     }
 }
 
@@ -876,6 +876,6 @@ impl Renderer for HybridRenderer {
     }
 
     fn execute_recording(&mut self, recording: &Recording) {
-        self.scene.execute_recording(&mut self.resources, recording);
+        self.scene.execute_recording(recording);
     }
 }

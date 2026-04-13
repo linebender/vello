@@ -4,20 +4,14 @@
 //! Recording API for caching sparse strips
 
 use crate::filter_effects::Filter;
-#[cfg(feature = "text")]
-use crate::glyph::{Glyph, NormalizedCoord};
 use crate::kurbo::{Affine, BezPath, Cap, Join, Rect, Stroke};
 use crate::mask::Mask;
 use crate::paint::{PaintType, Tint};
-#[cfg(feature = "text")]
-use crate::peniko::FontData;
 use crate::peniko::color::palette::css::BLACK;
 use crate::peniko::{BlendMode, Compose, Fill, Mix};
 use crate::strip::Strip;
 use crate::strip_generator::StripStorage;
 use alloc::vec::Vec;
-#[cfg(feature = "text")]
-use smallvec::SmallVec;
 
 /// Cached sparse strip data.
 #[derive(Debug, Default)]
@@ -107,28 +101,6 @@ pub struct PushLayerCommand {
     pub filter: Option<Filter>,
 }
 
-/// A recorded glyph run.
-#[cfg(feature = "text")]
-#[derive(Debug, Clone)]
-pub struct RecordedGlyphRun {
-    /// Font used for the run.
-    pub font: FontData,
-    /// Font size in pixels per em.
-    pub font_size: f32,
-    // TODO: We really should replace this with just `Affine`, and use the identity
-    // transform for the `None` case. Same in glifo.
-    /// Optional per-glyph transform.
-    pub glyph_transform: Option<Affine>,
-    /// Whether hinting is enabled.
-    pub hint: bool,
-    /// Variable font coordinates.
-    pub normalized_coords: SmallVec<[NormalizedCoord; 2]>,
-    /// Whether atlas caching is enabled for this run.
-    pub atlas_cache: bool,
-    /// Positioned glyphs in the run.
-    pub glyphs: Vec<Glyph>,
-}
-
 /// Individual rendering commands that can be recorded.
 #[derive(Debug)]
 pub enum RenderCommand {
@@ -168,12 +140,6 @@ pub enum RenderCommand {
     /// Render a stroke outline glyph.
     #[cfg(feature = "text")]
     StrokeOutlineGlyph((BezPath, Affine)),
-    /// Render a fill glyph run.
-    #[cfg(feature = "text")]
-    FillGlyphRun(RecordedGlyphRun),
-    /// Render a stroke glyph run.
-    #[cfg(feature = "text")]
-    StrokeGlyphRun(RecordedGlyphRun),
 }
 
 impl Recording {
@@ -295,9 +261,6 @@ impl Default for Recording {
 /// scene.execute_recording(&recording);
 /// ```
 pub trait Recordable {
-    /// Backend-specific resources needed for recording replay.
-    type Resources;
-
     /// Record rendering commands into a recording.
     ///
     /// This method allows you to capture a sequence of rendering operations
@@ -357,7 +320,7 @@ pub trait Recordable {
     /// // Then execute with cached strips
     /// scene.execute_recording(&recording);
     /// ```
-    fn execute_recording(&mut self, resources: &mut Self::Resources, recording: &Recording);
+    fn execute_recording(&mut self, recording: &Recording);
 }
 
 /// Recorder context that captures commands.
@@ -484,85 +447,6 @@ impl<'a> Recorder<'a> {
     /// Pop the last pushed layer.
     pub fn pop_layer(&mut self) {
         self.recording.add_command(RenderCommand::PopLayer);
-    }
-
-    /// Creates a builder for drawing a run of glyphs that have the same attributes.
-    #[cfg(feature = "text")]
-    pub fn glyph_run<'b>(&'b mut self, font: &FontData) -> RecorderGlyphRunBuilder<'b, 'a> {
-        RecorderGlyphRunBuilder::new(self, font.clone())
-    }
-}
-
-#[cfg(feature = "text")]
-#[derive(Debug)]
-/// Builder for recording a glyph run into a [`Recording`].
-pub struct RecorderGlyphRunBuilder<'a, 'r> {
-    recorder: &'a mut Recorder<'r>,
-    run: RecordedGlyphRun,
-}
-
-#[cfg(feature = "text")]
-impl<'a, 'r> RecorderGlyphRunBuilder<'a, 'r> {
-    fn new(recorder: &'a mut Recorder<'r>, font: FontData) -> Self {
-        Self {
-            recorder,
-            // Note: This needs to be kept in sync with the default in glifo!
-            run: RecordedGlyphRun {
-                font,
-                font_size: 16.0,
-                glyph_transform: None,
-                hint: true,
-                normalized_coords: SmallVec::new(),
-                atlas_cache: false,
-                glyphs: Vec::new(),
-            },
-        }
-    }
-
-    /// Set the font size in pixels per em.
-    pub fn font_size(mut self, size: f32) -> Self {
-        self.run.font_size = size;
-        self
-    }
-
-    /// Set the per-glyph transform.
-    pub fn glyph_transform(mut self, transform: Affine) -> Self {
-        self.run.glyph_transform = Some(transform);
-        self
-    }
-
-    /// Set whether font hinting is enabled.
-    pub fn hint(mut self, hint: bool) -> Self {
-        self.run.hint = hint;
-        self
-    }
-
-    /// Set normalized variation coordinates for variable fonts.
-    pub fn normalized_coords(mut self, coords: &[NormalizedCoord]) -> Self {
-        self.run.normalized_coords = SmallVec::from_slice(coords);
-        self
-    }
-
-    /// Enable or disable atlas caching for the recorded glyph run.
-    pub fn atlas_cache(mut self, enabled: bool) -> Self {
-        self.run.atlas_cache = enabled;
-        self
-    }
-
-    /// Record a filled glyph run.
-    pub fn fill_glyphs(mut self, glyphs: impl Iterator<Item = Glyph>) {
-        self.run.glyphs.extend(glyphs);
-        self.recorder
-            .recording
-            .add_command(RenderCommand::FillGlyphRun(self.run));
-    }
-
-    /// Record a stroked glyph run.
-    pub fn stroke_glyphs(mut self, glyphs: impl Iterator<Item = Glyph>) {
-        self.run.glyphs.extend(glyphs);
-        self.recorder
-            .recording
-            .add_command(RenderCommand::StrokeGlyphRun(self.run));
     }
 }
 

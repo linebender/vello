@@ -95,7 +95,7 @@ pub trait RenderingContext: Sized {
     /// Generate sparse strips for a recording.
     fn prepare_recording(&mut self, recording: &mut Recording);
     /// Execute a recording directly without preparation.
-    fn execute_recording(&mut self, resources: &mut Self::Resources, recording: &Recording);
+    fn execute_recording(&mut self, recording: &Recording);
 }
 
 #[cfg(feature = "cpu")]
@@ -190,8 +190,8 @@ impl RenderingContext for RenderContext {
         Recordable::prepare_recording(self, recording);
     }
 
-    fn execute_recording(&mut self, resources: &mut Self::Resources, recording: &Recording) {
-        Recordable::execute_recording(self, resources, recording);
+    fn execute_recording(&mut self, recording: &Recording) {
+        Recordable::execute_recording(self, recording);
     }
 
     fn push_clip_path(&mut self, path: &BezPath) {
@@ -294,8 +294,8 @@ impl RenderingContext for Scene {
         Recordable::prepare_recording(self, recording);
     }
 
-    fn execute_recording(&mut self, resources: &mut Self::Resources, recording: &Recording) {
-        Recordable::execute_recording(self, resources, recording);
+    fn execute_recording(&mut self, recording: &Recording) {
+        Recordable::execute_recording(self, recording);
     }
 
     fn push_clip_path(&mut self, path: &BezPath) {
