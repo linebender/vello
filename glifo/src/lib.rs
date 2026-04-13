@@ -41,17 +41,17 @@ use vello_common::pixmap::Pixmap;
 pub mod atlas;
 mod colr;
 mod glyph;
+mod interface;
 pub mod renderer;
 mod util;
 
 pub use atlas::{
     AtlasCommand, AtlasCommandRecorder, AtlasConfig, AtlasPaint, AtlasSlot, GLYPH_PADDING,
-    GlyphAtlas, GlyphCache, GlyphCacheConfig, GlyphCacheKey, ImageCache, PendingClearRect,
-    RasterMetrics,
+    GlyphAtlas, GlyphCacheConfig, GlyphCacheKey, ImageCache, PendingClearRect, RasterMetrics,
 };
-pub use colr::{ColrPainter, ColrRenderer};
 pub use glyph::{
-    AtlasCacher, CachedGlyphType, Glyph, GlyphBitmap, GlyphCaches, GlyphColr, GlyphOutline,
-    GlyphPrepCache, GlyphPrepCacheMut, GlyphRenderer, GlyphRun, GlyphRunBackend, GlyphRunBuilder,
-    GlyphRunRenderer, GlyphType, HintCache, HintKey, NormalizedCoord, OutlineCache, PreparedGlyph,
+    AtlasCacher, Glyph, GlyphCaches, GlyphColr, GlyphPrepCache, GlyphPrepCacheMut, GlyphRun,
+    GlyphRunBackend, GlyphRunBuilder, GlyphRunRenderer, HintCache, HintKey, NormalizedCoord,
+    OutlineCache,
 };
+pub use interface::{DrawSink, GlyphRenderer};

@@ -10,9 +10,8 @@
 //! - Supports multiple atlas pages for scalability
 //! - Implements simple age-based eviction
 //!
-//! The cache is split into a common trait ([`GlyphCache`]) with shared logic
-//! in [`GlyphAtlas`], plus backend-specific wrapper types implemented by the
-//! consuming renderer crates.
+//! The core type is [`GlyphAtlas`], which handles allocation, eviction,
+//! and pending-command queues.
 
 pub mod cache;
 pub mod commands;
@@ -22,8 +21,8 @@ mod region;
 #[cfg(all(debug_assertions, feature = "std"))]
 pub use cache::GlyphCacheStats;
 pub use cache::{
-    AtlasConfig, GLYPH_PADDING, GlyphAtlas, GlyphCache, GlyphCacheConfig, ImageCache,
-    PendingBitmapUpload, PendingClearRect,
+    AtlasConfig, GLYPH_PADDING, GlyphAtlas, GlyphCacheConfig, ImageCache, PendingBitmapUpload,
+    PendingClearRect,
 };
 pub use commands::{AtlasCommand, AtlasCommandRecorder, AtlasPaint};
 pub use key::GlyphCacheKey;

@@ -3,10 +3,11 @@
 
 //! Drawing COLR glyphs.
 
-use crate::AtlasCommandRecorder;
+use crate::atlas::commands::{AtlasCommand, AtlasCommandRecorder, AtlasPaint};
 use crate::color::Srgb;
 use crate::color::{AlphaColor, DynamicColor};
 use crate::glyph::{GlyphColr, OutlinePath};
+use crate::interface::DrawSink;
 use crate::kurbo::{Affine, BezPath, Point, Rect, Shape};
 use crate::peniko::{self, BlendMode, ColorStops, Compose, Extend, Gradient, Mix};
 use crate::util::FloatExt;
@@ -21,28 +22,30 @@ use skrifa::raw::types::BoundingBox;
 use skrifa::{GlyphId, MetadataProvider};
 use smallvec::SmallVec;
 
-/// A trait for clients capable of rendering COLR glyphs.
-pub trait ColrRenderer {
-    /// Push a new clip layer.
-    fn push_clip_layer(&mut self, clip: BezPath);
-    /// Push a new blend layer.
-    fn push_blend_layer(&mut self, blend_mode: BlendMode);
-    /// Fill the current area with the given solid color.
-    fn fill_solid(&mut self, color: AlphaColor<Srgb>);
-    /// Fill the current area with the given gradient color.
-    fn fill_gradient(&mut self, gradient: Gradient);
-    /// Set the transform for paints.
-    fn set_paint_transform(&mut self, affine: Affine);
-    /// Pop the last clip/blend layer.
-    fn pop_layer(&mut self);
+trait ColrDrawSinkExt: DrawSink {
+    fn fill_with_paint(&mut self, paint: AtlasPaint) {
+        let rect = Rect::new(0.0, 0.0, f64::from(self.width()), f64::from(self.height()));
+        self.set_paint(paint);
+        self.fill_rect(&rect);
+    }
+
+    fn fill_solid(&mut self, color: AlphaColor<Srgb>) {
+        self.fill_with_paint(AtlasPaint::Solid(color));
+    }
+
+    fn fill_gradient(&mut self, gradient: Gradient) {
+        self.fill_with_paint(AtlasPaint::Gradient(gradient));
+    }
 }
 
+impl<T: DrawSink + ?Sized> ColrDrawSinkExt for T {}
+
 /// An abstraction for painting COLR glyphs.
-pub struct ColrPainter<'a> {
+pub(crate) struct ColrPainter<'a> {
     transforms: Vec<Affine>,
     colr_glyph: &'a GlyphColr<'a>,
     context_color: AlphaColor<Srgb>,
-    painter: &'a mut dyn ColrRenderer,
+    painter: &'a mut dyn DrawSink,
     layer_count: u32,
 }
 
@@ -54,10 +57,10 @@ impl Debug for ColrPainter<'_> {
 
 impl<'a> ColrPainter<'a> {
     /// Create a new COLR painter.
-    pub fn new(
+    pub(crate) fn new(
         colr_glyph: &'a GlyphColr<'a>,
         context_color: AlphaColor<Srgb>,
-        painter: &'a mut impl ColrRenderer,
+        painter: &'a mut dyn DrawSink,
     ) -> Self {
         Self {
             transforms: vec![colr_glyph.draw_transform],
@@ -69,7 +72,7 @@ impl<'a> ColrPainter<'a> {
     }
 
     /// Paint the underlying glyph.
-    pub fn paint(&mut self) {
+    pub(crate) fn paint(&mut self) {
         let skrifa_glyph = self.colr_glyph.skrifa_glyph.clone();
         let location_ref = self.colr_glyph.location;
         // Ignore errors for now.
@@ -185,7 +188,7 @@ impl ColorPainter for ColrPainter<'_> {
         let finished = outline_builder.path;
         let transformed = self.cur_transform() * finished;
 
-        self.painter.push_clip_layer(transformed);
+        self.painter.push_clip_layer(&transformed);
         self.layer_count += 1;
     }
 
@@ -198,7 +201,7 @@ impl ColorPainter for ColrPainter<'_> {
         );
         let transformed = self.cur_transform() * rect.to_path(0.1);
 
-        self.painter.push_clip_layer(transformed);
+        self.painter.push_clip_layer(&transformed);
         self.layer_count += 1;
     }
 
@@ -399,46 +402,58 @@ pub(crate) fn convert_bounding_box(rect: BoundingBox<f32>) -> Rect {
     )
 }
 
-impl ColrRenderer for AtlasCommandRecorder {
+impl DrawSink for AtlasCommandRecorder {
     #[inline]
-    fn push_clip_layer(&mut self, clip: BezPath) {
-        self.push_clip_layer(clip);
+    fn set_transform(&mut self, t: Affine) {
+        self.commands.push(AtlasCommand::SetTransform(t));
+    }
+
+    #[inline]
+    fn set_paint(&mut self, paint: AtlasPaint) {
+        self.commands.push(AtlasCommand::SetPaint(paint));
+    }
+
+    #[inline]
+    fn set_paint_transform(&mut self, t: Affine) {
+        self.commands.push(AtlasCommand::SetPaintTransform(t));
+    }
+
+    #[inline]
+    fn fill_path(&mut self, path: &BezPath) {
+        self.commands
+            .push(AtlasCommand::FillPath(alloc::sync::Arc::new(path.clone())));
+    }
+
+    #[inline]
+    fn fill_rect(&mut self, rect: &Rect) {
+        self.commands.push(AtlasCommand::FillRect(*rect));
+    }
+
+    #[inline]
+    fn push_clip_layer(&mut self, clip: &BezPath) {
+        self.commands
+            .push(AtlasCommand::PushClipLayer(alloc::sync::Arc::new(
+                clip.clone(),
+            )));
     }
 
     #[inline]
     fn push_blend_layer(&mut self, blend_mode: BlendMode) {
-        self.push_blend_layer(blend_mode);
-    }
-
-    #[inline]
-    fn fill_solid(&mut self, color: AlphaColor<Srgb>) {
-        self.set_paint(color);
-        self.fill_rect(&Rect::new(
-            0.0,
-            0.0,
-            f64::from(self.width()),
-            f64::from(self.height()),
-        ));
-    }
-
-    #[inline]
-    fn fill_gradient(&mut self, gradient: Gradient) {
-        self.set_paint(gradient);
-        self.fill_rect(&Rect::new(
-            0.0,
-            0.0,
-            f64::from(self.width()),
-            f64::from(self.height()),
-        ));
-    }
-
-    #[inline]
-    fn set_paint_transform(&mut self, affine: Affine) {
-        self.set_paint_transform(affine);
+        self.commands.push(AtlasCommand::PushBlendLayer(blend_mode));
     }
 
     #[inline]
     fn pop_layer(&mut self) {
-        self.pop_layer();
+        self.commands.push(AtlasCommand::PopLayer);
+    }
+
+    #[inline]
+    fn width(&self) -> u16 {
+        self.width
+    }
+
+    #[inline]
+    fn height(&self) -> u16 {
+        self.height
     }
 }
