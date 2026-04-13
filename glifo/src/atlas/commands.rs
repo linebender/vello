@@ -46,7 +46,7 @@ impl From<Gradient> for AtlasPaint {
 ///
 /// The variants correspond 1:1 to the methods on [`AtlasReplayTarget`].
 ///
-/// [`AtlasReplayTarget`]: crate::renderers::vello_renderer::AtlasReplayTarget
+/// [`AtlasReplayTarget`]: crate::renderer::AtlasReplayTarget
 #[derive(Clone, Debug)]
 pub enum AtlasCommand {
     /// Set the current transform.

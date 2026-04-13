@@ -13,9 +13,9 @@
 use crate::{AtlasId, Resources, Scene};
 use alloc::sync::Arc;
 use glifo::atlas::{PendingBitmapUpload, PendingClearRect};
-use glifo::renderers::vello_renderer;
-use glifo::renderers::vello_renderer::replay_atlas_commands;
-use glifo::renderers::vello_renderer::{AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale};
+use glifo::renderer as vello_renderer;
+use glifo::renderer::replay_atlas_commands;
+use glifo::renderer::{AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale};
 use glifo::{
     AtlasCacher, AtlasCommandRecorder, AtlasSlot, CachedGlyphType, ColrPainter, ColrRenderer,
     GLYPH_PADDING, Glyph, GlyphAtlas as GlifoGlyphAtlas, GlyphBitmap, GlyphCache, GlyphCacheConfig,

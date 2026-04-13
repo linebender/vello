@@ -26,8 +26,8 @@ use glifo::atlas::{
     GlyphCacheConfig, GlyphCacheKey, ImageCache, PendingBitmapUpload, PendingClearRect,
     RasterMetrics,
 };
-use glifo::renderers::vello_renderer::{
-    self, AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale,
+use glifo::renderer::{
+    self as vello_renderer, AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale,
 };
 use glifo::{
     AtlasCacher, CachedGlyphType, ColrPainter, ColrRenderer, Glyph, GlyphBitmap, GlyphColr,

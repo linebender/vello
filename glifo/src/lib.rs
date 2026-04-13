@@ -41,9 +41,8 @@ use vello_common::pixmap::Pixmap;
 pub mod atlas;
 mod colr;
 mod glyph;
+pub mod renderer;
 mod util;
-
-pub mod renderers;
 
 pub use atlas::{
     AtlasCommand, AtlasCommandRecorder, AtlasConfig, AtlasPaint, AtlasSlot, GLYPH_PADDING,
