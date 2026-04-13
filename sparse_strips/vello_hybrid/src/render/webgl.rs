@@ -215,8 +215,8 @@ impl WebGlRenderer {
 
         #[cfg(feature = "text")]
         {
-            resources.after_render(self, |renderer, rects| {
-                clear_atlas_regions(renderer, rects);
+            resources.after_render(self, |renderer, rect| {
+                clear_atlas_region(renderer, rect);
             });
         }
 
@@ -668,22 +668,17 @@ impl WebGlRenderer {
 }
 
 #[cfg(feature = "text")]
-fn clear_atlas_regions(
-    renderer: &mut WebGlRenderer,
-    rects: &[PendingClearRect],
-) {
+fn clear_atlas_region(renderer: &mut WebGlRenderer, rect: &PendingClearRect) {
     // TODO: Similarly to wgpu, maybe this can be done in a more effective
     // way?
-    for rect in rects {
-        let padding = u32::from(GLYPH_PADDING);
-        let offset = [
-            u32::from(rect.x).saturating_sub(padding),
-            u32::from(rect.y).saturating_sub(padding),
-        ];
-        let width = u32::from(rect.width) + padding * 2;
-        let height = u32::from(rect.height) + padding * 2;
-        renderer.clear_atlas_region(AtlasId::new(rect.page_index), offset, width, height);
-    }
+    let padding = u32::from(GLYPH_PADDING);
+    let offset = [
+        u32::from(rect.x).saturating_sub(padding),
+        u32::from(rect.y).saturating_sub(padding),
+    ];
+    let width = u32::from(rect.width) + padding * 2;
+    let height = u32::from(rect.height) + padding * 2;
+    renderer.clear_atlas_region(AtlasId::new(rect.page_index), offset, width, height);
 }
 
 /// Contains the WebGL programs and resources for rendering.
