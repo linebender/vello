@@ -56,7 +56,7 @@ pub(crate) struct GlyphAtlas {
     // It's a bit annoying to have this in an `Arc`, but it needs to be this way. During fine
     // rasterization, we need to be able to easily clone the atlas page so that it can be shared
     // across multiple threads. However, we also need to be able to mutate the pixmap to
-    // sync new glyphs. The way this is achieved is by calling `Arc::make_mut` when syncing
+    // sync new glyphs. The way this is achieved is by calling `Arc::get_mut` when syncing
     // (at this point, the pixmap isn't shared anywhere else). Before fine rasterization, we
     // then share it with the image registry such that it can easily be fetched and cloned during
     // fine rasterization. After that, we remove it from the image registry, such that it's uniquely
