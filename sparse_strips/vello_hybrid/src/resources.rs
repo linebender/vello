@@ -4,14 +4,9 @@
 //! Persistent renderer resources shared across frames.
 
 #[cfg(feature = "text")]
-use alloc::vec::Vec;
-
-#[cfg(feature = "text")]
 use crate::text::GlyphAtlasResources;
 #[cfg(feature = "text")]
 use glifo::GlyphPrepCache;
-#[cfg(feature = "text")]
-use glifo::atlas::{PendingBitmapUpload, PendingClearRect};
 use vello_common::image_cache::ImageCache;
 use vello_common::multi_atlas::AtlasConfig;
 
@@ -21,8 +16,6 @@ pub struct Resources {
     pub(crate) image_cache: ImageCache,
     #[cfg(feature = "text")]
     pub(crate) glyph_prep_cache: GlyphPrepCache,
-    #[cfg(feature = "text")]
-    pub(crate) pending_glyph_clear_rects_scratch: Vec<PendingClearRect>,
     #[cfg(feature = "text")]
     pub(crate) glyph_resources: Option<GlyphAtlasResources>,
 }
@@ -34,8 +27,6 @@ impl Resources {
             image_cache: ImageCache::new_with_config(AtlasConfig::default()),
             #[cfg(feature = "text")]
             glyph_prep_cache: GlyphPrepCache::default(),
-            #[cfg(feature = "text")]
-            pending_glyph_clear_rects_scratch: Vec::new(),
             // Will be initialized lazily.
             #[cfg(feature = "text")]
             glyph_resources: None,
