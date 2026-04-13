@@ -3,6 +3,7 @@
 
 //! Basic render operations.
 
+#[cfg(feature = "text")]
 use crate::Resources;
 #[cfg(feature = "text")]
 use crate::text::GlyphRunBuilder;
