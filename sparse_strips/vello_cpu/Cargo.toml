@@ -47,7 +47,7 @@ multithreading = [
     "vello_common/multithreading",
 ]
 # Add support for text rendering
-text = ["vello_common/text", "dep:glifo"]
+text = ["dep:glifo"]
 
 # Speed focussed rendering using u8 math
 u8_pipeline = []

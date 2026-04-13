@@ -134,12 +134,6 @@ pub enum RenderCommand {
     SetFilterEffect(Filter),
     /// Reset the current filter effect.
     ResetFilterEffect,
-    /// Render a fill outline glyph.
-    #[cfg(feature = "text")]
-    FillOutlineGlyph((BezPath, Affine)),
-    /// Render a stroke outline glyph.
-    #[cfg(feature = "text")]
-    StrokeOutlineGlyph((BezPath, Affine)),
 }
 
 impl Recording {

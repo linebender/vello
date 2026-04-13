@@ -917,15 +917,6 @@ impl Recordable for Scene {
                     );
                     range_index += 1;
                 }
-                #[cfg(feature = "text")]
-                RenderCommand::FillOutlineGlyph(_) | RenderCommand::StrokeOutlineGlyph(_) => {
-                    self.process_geometry_command(
-                        strip_start_indices,
-                        range_index,
-                        &adjusted_strips,
-                    );
-                    range_index += 1;
-                }
                 RenderCommand::SetPaint(paint) => {
                     self.set_paint(paint.clone());
                 }
@@ -1044,30 +1035,6 @@ impl Scene {
                     );
                     strip_start_indices.push(start_index);
                 }
-                #[cfg(feature = "text")]
-                RenderCommand::FillOutlineGlyph((path, glyph_transform)) => {
-                    self.strip_generator.generate_filled_path(
-                        path,
-                        self.render_state.fill_rule,
-                        *glyph_transform,
-                        self.aliasing_threshold,
-                        &mut strip_storage,
-                        None,
-                    );
-                    strip_start_indices.push(start_index);
-                }
-                #[cfg(feature = "text")]
-                RenderCommand::StrokeOutlineGlyph((path, glyph_transform)) => {
-                    self.strip_generator.generate_stroked_path(
-                        path,
-                        &self.render_state.stroke,
-                        *glyph_transform,
-                        self.aliasing_threshold,
-                        &mut strip_storage,
-                        None,
-                    );
-                    strip_start_indices.push(start_index);
-                }
                 RenderCommand::SetTransform(transform) => {
                     self.render_state.transform = *transform;
                 }
@@ -1175,7 +1142,7 @@ mod tests {
     use alloc::sync::Arc;
     use core::f64::consts::PI;
     #[cfg(feature = "text")]
-    use vello_common::glyph::Glyph;
+    use glifo::Glyph;
     use vello_common::kurbo::{Affine, Point, Rect};
     use vello_common::peniko::Color;
     #[cfg(feature = "text")]

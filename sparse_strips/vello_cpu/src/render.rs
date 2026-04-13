@@ -820,15 +820,6 @@ impl Recordable for RenderContext {
                     );
                     range_index += 1;
                 }
-                #[cfg(feature = "text")]
-                RenderCommand::FillOutlineGlyph(_) | RenderCommand::StrokeOutlineGlyph(_) => {
-                    self.process_geometry_command(
-                        strip_start_indices,
-                        range_index,
-                        &adjusted_strips,
-                    );
-                    range_index += 1;
-                }
                 RenderCommand::SetPaint(paint) => {
                     self.set_paint(paint.clone());
                 }
@@ -1006,30 +997,6 @@ impl RenderContext {
                     );
                     strip_start_indices.push(start_index);
                 }
-                #[cfg(feature = "text")]
-                RenderCommand::FillOutlineGlyph((path, glyph_transform)) => {
-                    strip_generator.generate_filled_path(
-                        path,
-                        self.state.fill_rule,
-                        *glyph_transform,
-                        self.aliasing_threshold,
-                        &mut strip_storage,
-                        None,
-                    );
-                    strip_start_indices.push(start_index);
-                }
-                #[cfg(feature = "text")]
-                RenderCommand::StrokeOutlineGlyph((path, glyph_transform)) => {
-                    strip_generator.generate_stroked_path(
-                        path,
-                        &self.state.stroke,
-                        *glyph_transform,
-                        self.aliasing_threshold,
-                        &mut strip_storage,
-                        None,
-                    );
-                    strip_start_indices.push(start_index);
-                }
                 RenderCommand::SetTransform(transform) => {
                     self.state.transform = *transform;
                 }
@@ -1120,7 +1087,7 @@ mod tests {
     #[cfg(feature = "text")]
     use alloc::sync::Arc;
     #[cfg(feature = "text")]
-    use vello_common::glyph::Glyph;
+    use glifo::Glyph;
     use vello_common::kurbo::{Rect, Shape};
     use vello_common::tile::Tile;
 

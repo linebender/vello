@@ -4,6 +4,7 @@
 //! Random text stress scene.
 
 use core::fmt;
+use glifo::Glyph;
 use parley::FontFamily;
 use parley::{
     Alignment, AlignmentOptions, FontContext, GlyphRun, Layout, LayoutContext,
@@ -11,7 +12,6 @@ use parley::{
 };
 use vello_common::color::palette::css::{AQUA, GOLD, LIME, ORANGE, WHITE};
 use vello_common::color::{AlphaColor, Srgb};
-use vello_common::glyph::Glyph;
 use vello_common::kurbo::Affine;
 
 use crate::{ExampleScene, RenderingContext};

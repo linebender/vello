@@ -30,8 +30,8 @@ use glifo::renderers::vello_renderer::{
     self, AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale,
 };
 use glifo::{
-    AtlasCacher, CachedGlyphType, ColrPainter, ColrRenderer, GlyphBitmap, GlyphColr, GlyphRenderer,
-    GlyphRunBackend, PreparedGlyph,
+    AtlasCacher, CachedGlyphType, ColrPainter, ColrRenderer, Glyph, GlyphBitmap, GlyphColr,
+    GlyphRenderer, GlyphRunBackend, PreparedGlyph,
 };
 use kurbo::{Affine, BezPath, Rect};
 use peniko::Extend;
@@ -39,7 +39,6 @@ use peniko::color::{AlphaColor, Srgb};
 use peniko::{BlendMode, Gradient};
 use peniko::{ImageQuality, ImageSampler};
 use vello_common::fearless_simd::Level;
-use vello_common::glyph::Glyph;
 use vello_common::paint::{ImageId, Tint};
 
 fn atlas_page_image_id(page_index: u32) -> ImageId {

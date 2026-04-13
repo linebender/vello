@@ -33,5 +33,5 @@ log = { workspace = true }
 peniko = { workspace = true }
 skrifa = { workspace = true }
 smallvec = { workspace = true }
-vello_common = { workspace = true, features = ["text"] }
+vello_common = { workspace = true }
 png = { workspace = true, optional = true }

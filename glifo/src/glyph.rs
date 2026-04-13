@@ -42,7 +42,20 @@ use skrifa::raw::TableProvider;
 use skrifa::{FontRef, OutlineGlyphCollection};
 use skrifa::{GlyphId, MetadataProvider};
 use smallvec::SmallVec;
-pub use vello_common::glyph::Glyph;
+
+/// Positioned glyph.
+#[derive(Copy, Clone, Default, Debug)]
+pub struct Glyph {
+    /// The font-specific identifier for this glyph.
+    ///
+    /// This ID is specific to the font being used and corresponds to the
+    /// glyph index within that font. It is *not* a Unicode code point.
+    pub id: u32,
+    /// X-offset in run, relative to transform.
+    pub x: f32,
+    /// Y-offset in run, relative to transform.
+    pub y: f32,
+}
 
 /// Pre-packed `BLACK` color as a `u32` for use in `GlyphCacheKey`.
 const BLACK_PACKED: u32 = PremulRgba8 {
@@ -1488,10 +1501,10 @@ impl OutlinePen for OutlinePath {
 /// normalised coords provided by your text layout library.
 ///
 /// Equivalent to [`skrifa::instance::NormalizedCoord`], but defined
-/// in Vello so that Skrifa is not part of Vello's public API.
-/// This allows Vello to update its Skrifa in a patch release, and limits
+/// in Glifo so that Skrifa is not part of Glifo's public API.
+/// This allows Glifo to update its Skrifa in a patch release, and limits
 /// the need for updates only to align Skrifa versions.
-pub(crate) type NormalizedCoord = i16;
+pub type NormalizedCoord = i16;
 
 #[cfg(test)]
 mod tests {

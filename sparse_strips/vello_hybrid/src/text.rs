@@ -18,14 +18,13 @@ use glifo::renderers::vello_renderer::replay_atlas_commands;
 use glifo::renderers::vello_renderer::{AtlasReplayTarget, GlyphAtlasBackend, quality_for_scale};
 use glifo::{
     AtlasCacher, AtlasCommandRecorder, AtlasSlot, CachedGlyphType, ColrPainter, ColrRenderer,
-    GLYPH_PADDING, GlyphAtlas as GlifoGlyphAtlas, GlyphBitmap, GlyphCache, GlyphCacheConfig,
+    GLYPH_PADDING, Glyph, GlyphAtlas as GlifoGlyphAtlas, GlyphBitmap, GlyphCache, GlyphCacheConfig,
     GlyphCacheKey, GlyphColr, GlyphRenderer, GlyphRunBackend, ImageCache, PreparedGlyph,
     RasterMetrics,
 };
 use peniko::color::palette::css::BLACK;
 use peniko::color::{AlphaColor, Srgb};
 use peniko::{BlendMode, Extend, Gradient, ImageQuality, ImageSampler};
-use vello_common::glyph::Glyph;
 use vello_common::kurbo::{Affine, BezPath, Rect};
 use vello_common::multi_atlas::AtlasConfig;
 use vello_common::paint::{Image, ImageId, ImageSource, PaintType, Tint};
