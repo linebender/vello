@@ -75,7 +75,7 @@ impl Default for GlyphCacheConfig {
 ///
 /// Accumulated during glyph encoding when a bitmap glyph is inserted into the
 /// atlas cache. The application must drain these via
-/// [`GlyphCache::drain_pending_uploads`] and upload each pixmap to the
+/// [`GlyphAtlas::drain_pending_uploads`] and upload each pixmap to the
 /// GPU atlas at the position indicated by `image_id` (look up via
 /// `ImageCache::get` to obtain atlas layer and offset).
 #[derive(Debug)]
@@ -93,7 +93,7 @@ pub struct PendingBitmapUpload {
 ///
 /// Accumulated during eviction ([`GlyphAtlas::maintain`]) for every evicted
 /// glyph. The application must drain these via
-/// [`GlyphCache::drain_pending_clear_rects`] **after** calling `maintain` so
+/// [`GlyphAtlas::drain_pending_clear_rects`] **after** calling `maintain` so
 /// that freed atlas regions are zeroed before the slot is reused on a
 /// subsequent frame. This prevents stale pixel data from bleeding through
 /// when the renderer composites (`SrcOver`) onto the atlas.

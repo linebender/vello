@@ -190,7 +190,7 @@ impl Resources {
                 glyph_renderer.reset();
                 renderer::replay_atlas_commands(&mut recorder.commands, glyph_renderer);
                 glyph_renderer.flush();
-                glyph_renderer.composite_to_pixmap_at_offset(&Resources::default(), page, 0, 0);
+                glyph_renderer.composite_to_pixmap_at_offset(&Self::default(), page, 0, 0);
             });
 
         for (page_index, pixmap) in glyph_resources.pixmaps.iter().enumerate() {
@@ -337,7 +337,7 @@ impl DrawSink for RenderContext {
 
     #[inline]
     fn set_paint(&mut self, paint: glifo::AtlasPaint) {
-        RenderContext::set_paint(self, paint);
+        Self::set_paint(self, paint);
     }
 
     #[inline]
@@ -372,12 +372,12 @@ impl DrawSink for RenderContext {
 
     #[inline]
     fn width(&self) -> u16 {
-        RenderContext::width(self)
+        Self::width(self)
     }
 
     #[inline]
     fn height(&self) -> u16 {
-        RenderContext::height(self)
+        Self::height(self)
     }
 }
 

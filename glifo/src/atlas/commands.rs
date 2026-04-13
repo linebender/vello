@@ -81,10 +81,9 @@ pub enum AtlasCommand {
 ///
 /// The recorder exposes the same method API as the actual renderers
 /// (`RenderContext`, `Scene`). It also implements [`DrawSink`] so
-/// that [`ColrPainter`] can write into it directly.
+/// that the COLR glyph painter can write into it directly.
 ///
-/// [`DrawSink`]: crate::interface::DrawSink
-/// [`ColrPainter`]: crate::colr::ColrPainter
+/// [`DrawSink`]: crate::DrawSink
 pub struct AtlasCommandRecorder {
     /// Which atlas page these commands target.
     pub page_index: u32,

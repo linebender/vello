@@ -149,52 +149,52 @@ impl Resources {
 impl DrawSink for Scene {
     #[inline]
     fn set_transform(&mut self, t: Affine) {
-        Scene::set_transform(self, t);
+        Self::set_transform(self, t);
     }
 
     #[inline]
     fn set_paint(&mut self, paint: glifo::AtlasPaint) {
-        Scene::set_paint(self, paint);
+        Self::set_paint(self, paint);
     }
 
     #[inline]
     fn set_paint_transform(&mut self, t: Affine) {
-        Scene::set_paint_transform(self, t);
+        Self::set_paint_transform(self, t);
     }
 
     #[inline]
     fn fill_path(&mut self, path: &BezPath) {
-        Scene::fill_path(self, path);
+        Self::fill_path(self, path);
     }
 
     #[inline]
     fn fill_rect(&mut self, rect: &Rect) {
-        Scene::fill_rect(self, rect);
+        Self::fill_rect(self, rect);
     }
 
     #[inline]
     fn push_clip_layer(&mut self, clip: &BezPath) {
-        Scene::push_clip_layer(self, clip);
+        Self::push_clip_layer(self, clip);
     }
 
     #[inline]
     fn push_blend_layer(&mut self, blend_mode: BlendMode) {
-        Scene::push_blend_layer(self, blend_mode);
+        Self::push_blend_layer(self, blend_mode);
     }
 
     #[inline]
     fn pop_layer(&mut self) {
-        Scene::pop_layer(self);
+        Self::pop_layer(self);
     }
 
     #[inline]
     fn width(&self) -> u16 {
-        Scene::width(self)
+        Self::width(self)
     }
 
     #[inline]
     fn height(&self) -> u16 {
-        Scene::height(self)
+        Self::height(self)
     }
 
     #[inline]
@@ -280,12 +280,12 @@ impl glifo::GlyphRenderer for Scene {
 
     #[inline]
     fn restore_state(&mut self, state: Self::SavedState) {
-        Scene::restore_state(self, state);
+        Self::restore_state(self, state);
     }
 
     #[inline]
     fn stroke_path(&mut self, path: &BezPath) {
-        Scene::stroke_path(self, path);
+        Self::stroke_path(self, path);
     }
 
     #[inline]
@@ -295,7 +295,7 @@ impl glifo::GlyphRenderer for Scene {
 
     #[inline]
     fn set_tint(&mut self, tint: Option<vello_common::paint::Tint>) {
-        Scene::set_tint(self, tint);
+        Self::set_tint(self, tint);
     }
 
     #[inline]

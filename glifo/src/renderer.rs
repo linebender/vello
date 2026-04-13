@@ -49,7 +49,7 @@ pub(crate) fn fill_glyph(
 
         return match prepared_glyph.glyph_type {
             GlyphType::Outline(glyph) => {
-                fill_uncached_outline_glyph(renderer, &glyph.path, transform)
+                fill_uncached_outline_glyph(renderer, &glyph.path, transform);
             }
             GlyphType::Bitmap(glyph) => render_uncached_bitmap_glyph(renderer, glyph, transform),
             GlyphType::Colr(glyph) => {
