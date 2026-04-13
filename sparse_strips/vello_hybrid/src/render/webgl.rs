@@ -216,7 +216,7 @@ impl WebGlRenderer {
         #[cfg(feature = "text")]
         {
             resources.after_render(self, |renderer, rects| {
-                clear_atlas_regions(renderer, rects.iter().cloned());
+                clear_atlas_regions(renderer, rects);
             });
         }
 
@@ -670,7 +670,7 @@ impl WebGlRenderer {
 #[cfg(feature = "text")]
 fn clear_atlas_regions(
     renderer: &mut WebGlRenderer,
-    rects: impl Iterator<Item = PendingClearRect>,
+    rects: &[PendingClearRect],
 ) {
     // TODO: Similarly to wgpu, maybe this can be done in a more effective
     // way?
