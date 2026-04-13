@@ -170,6 +170,14 @@ pub struct Wide<const MODE: u8 = MODE_CPU> {
     tiles_dirty: bool,
 }
 
+/// Mutable replay handle for a single wide tile.
+#[derive(Debug)]
+pub struct WideReplayTile<'a, const MODE: u8> {
+    tile: &'a mut WideTile<MODE>,
+    tiles_dirty: &'a mut bool,
+    batch_count: u32,
+}
+
 /// A clip region.
 #[derive(Debug)]
 struct Clip {
@@ -383,6 +391,11 @@ impl Wide<MODE_HYBRID> {
 }
 
 impl<const MODE: u8> Wide<MODE> {
+    /// Whether this wide container uses background-overdraw elimination.
+    pub fn bg_optimization_enabled(&self) -> bool {
+        self.enable_bg_optimization
+    }
+
     /// Create a new container for wide tiles.
     fn new_internal(width: u16, height: u16, enable_bg_optimization: bool) -> Self {
         let width_tiles = width.div_ceil(WideTile::WIDTH);
@@ -468,6 +481,18 @@ impl<const MODE: u8> Wide<MODE> {
     pub fn get(&self, x: u16, y: u16) -> &WideTile<MODE> {
         let idx = self.get_idx(x, y);
         &self.tiles[idx]
+    }
+
+    /// Create a replay handle for the wide tile at the given coordinates.
+    ///
+    /// Panics if the coordinates are out-of-range.
+    pub fn replay_tile(&mut self, x: u16, y: u16) -> WideReplayTile<'_, MODE> {
+        let idx = self.get_idx(x, y);
+        WideReplayTile {
+            tile: &mut self.tiles[idx],
+            tiles_dirty: &mut self.tiles_dirty,
+            batch_count: self.batch_count,
+        }
     }
 
     /// Get mutable access to the wide tile at the given coordinates.
@@ -1437,6 +1462,75 @@ impl<const MODE: u8> WideTile<MODE> {
         self.last_batch_end = 0;
     }
 
+    #[inline]
+    fn current_content_layer_id(&self) -> LayerId {
+        self.layer_ids
+            .iter()
+            .rev()
+            .find_map(|kind| match kind {
+                LayerKind::Clip(_) => None,
+                LayerKind::Regular(id) | LayerKind::Filtered(id) => Some(*id),
+            })
+            .unwrap_or(0)
+    }
+
+    #[inline]
+    fn emit_pending_batch_ends(&mut self, batch_count: u32) {
+        if MODE == MODE_HYBRID && self.last_batch_end < batch_count {
+            let count = (batch_count - self.last_batch_end) as usize;
+            self.cmds.extend(core::iter::repeat_n(Cmd::BatchEnd, count));
+            self.last_batch_end = batch_count;
+        }
+    }
+
+    /// Replay a pre-generated command into this tile for the given coarse batch.
+    fn replay_cmd(&mut self, cmd: Cmd, batch_count: u32) {
+        if !matches!(cmd, Cmd::BatchEnd) {
+            self.emit_pending_batch_ends(batch_count);
+        }
+
+        match cmd {
+            Cmd::Fill(fill) => {
+                let layer_id = self.current_content_layer_id();
+                self.record_fill_cmd(layer_id, self.cmds.len());
+                self.cmds.push(Cmd::Fill(fill));
+            }
+            Cmd::AlphaFill(fill) => {
+                let layer_id = self.current_content_layer_id();
+                self.record_fill_cmd(layer_id, self.cmds.len());
+                self.cmds.push(Cmd::AlphaFill(fill));
+            }
+            Cmd::PushBuf(layer_kind, is_blend_target) => {
+                self.push_buf(layer_kind);
+                if is_blend_target {
+                    match self.cmds.last_mut() {
+                        Some(Cmd::PushBuf(_, target)) => *target = true,
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            Cmd::PopBuf => self.pop_buf(),
+            Cmd::ClipFill(fill) => self.clip_fill(fill.x, fill.width),
+            Cmd::ClipStrip(fill) => self.clip_strip(fill),
+            Cmd::PushZeroClip(layer_id) => {
+                self.cmds.push(Cmd::PushZeroClip(layer_id));
+                self.n_zero_clip += 1;
+            }
+            Cmd::PopZeroClip => {
+                self.cmds.push(Cmd::PopZeroClip);
+                self.n_zero_clip -= 1;
+            }
+            Cmd::Filter(layer_id, filter) => self.filter(layer_id, filter),
+            Cmd::Blend(mode) => self.blend(mode),
+            Cmd::Opacity(opacity) => self.opacity(opacity),
+            Cmd::Mask(mask) => self.mask(mask),
+            Cmd::BatchEnd => {
+                self.cmds.push(Cmd::BatchEnd);
+                self.last_batch_end += 1;
+            }
+        }
+    }
+
     /// Push all layer buffers that have not yet been pushed for this tile.
     /// Also emit `BatchEnd` commands in case we are in HYBRID mode.
     ///
@@ -1803,6 +1897,14 @@ impl<const MODE: u8> WideTile<MODE> {
         }
 
         self.cmds.push(Cmd::Blend(blend_mode));
+    }
+}
+
+impl<const MODE: u8> WideReplayTile<'_, MODE> {
+    /// Replay a pre-generated command into this tile.
+    pub fn replay_cmd(&mut self, cmd: Cmd) {
+        *self.tiles_dirty = true;
+        self.tile.replay_cmd(cmd, self.batch_count);
     }
 }
 

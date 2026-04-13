@@ -12,7 +12,7 @@ use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::ops::Range;
 use vello_common::clip::ClipContext;
-use vello_common::coarse::{MODE_HYBRID, Wide, WideTilesBbox};
+use vello_common::coarse::{Cmd, MODE_HYBRID, Wide, WideTile, WideTilesBbox};
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::filter_effects::Filter;
@@ -46,8 +46,8 @@ pub(crate) enum StripPathMode {
     /// `StripStorage` is in `Append` mode.
     #[default]
     FastOnly,
-    /// This mode is activated if there has been a `push_layer` call, but the user indicated
-    /// that they will only use src-over blending.
+    /// This mode is activated once we have a root-level layer while root compositing
+    /// still uses the default source-over blend mode.
     ///
     /// In this case, we will alternate between render fast strips and coarse-rasterized
     /// layers. Which of the two modes is active is dependent on whether `wide.has_layers()` is
@@ -56,10 +56,9 @@ pub(crate) enum StripPathMode {
     /// `StripStorage` alternates between `Append` (for the root level) and
     /// `ReplaceAfter(n)` (inside a layer).
     Interleaved,
-    /// This mode is activated if the user indicated not src-over blends might happen,
-    /// and there has been at least one `push_layer` call. All previous strips will be
-    /// retroactively coarse-rasterized, and from now on we always go through coarse
-    /// rasterization.
+    /// This mode is activated once a root-level non-default blend requires us to bail
+    /// out of the interleaved fast path. All previous strips are retroactively
+    /// coarse-rasterized, and from then on we always go through coarse rasterization.
     ///
     /// `StripStorage` is in `Replace` mode.
     CoarseOnly,
@@ -111,56 +110,6 @@ impl FastStripsBuffer {
     }
 }
 
-/// Constraints on a scene that the renderer can exploit for optimisation.
-///
-/// By default no constraints are active.
-#[derive(Copy, Clone, Debug)]
-pub struct SceneConstraints(u32);
-
-impl Default for SceneConstraints {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl SceneConstraints {
-    const DEFAULT_BLENDING_ONLY: u32 = 1 << 0;
-
-    /// Create a new, unconstrained set of scene constraints.
-    #[inline(always)]
-    pub fn new() -> Self {
-        Self(0)
-    }
-
-    /// Caller guarantees that the scene will only use the default (normal, source-over)
-    /// blend mode in the root layer. In case you still want to use blending, you need to
-    /// make sure that you have pushed at least one "wrapper" layer, such that the destination
-    /// of the blending operation is never the root layer.
-    ///
-    /// # Panics
-    ///
-    /// The renderer will panic if a non-default blend mode is used in the root layer.
-    #[inline(always)]
-    pub fn default_blending_only(self) -> Self {
-        Self(self.0 | Self::DEFAULT_BLENDING_ONLY)
-    }
-
-    #[inline(always)]
-    fn use_default_blending_only(&self) -> bool {
-        (self.0 & Self::DEFAULT_BLENDING_ONLY) != 0
-    }
-
-    #[inline(always)]
-    fn assert_blend_mode(&self, blend_mode: BlendMode, nested_layer: bool) {
-        if self.use_default_blending_only() && !nested_layer {
-            assert!(
-                blend_mode == DEFAULT_BLEND_MODE,
-                "scene constrained to default blending"
-            );
-        }
-    }
-}
-
 /// Settings to apply to the render context.
 #[derive(Copy, Clone, Debug)]
 pub struct RenderSettings {
@@ -178,8 +127,6 @@ pub struct RenderSettings {
     /// Adjusting these settings can affect memory usage and rendering performance
     /// depending on your application's image usage patterns.
     pub atlas_config: AtlasConfig,
-    /// Constraints on the scene that the renderer can exploit for optimisation.
-    pub constraints: SceneConstraints,
 }
 
 impl Default for RenderSettings {
@@ -187,7 +134,6 @@ impl Default for RenderSettings {
         Self {
             level: Level::try_detect().unwrap_or(Level::baseline()),
             atlas_config: AtlasConfig::default(),
-            constraints: SceneConstraints::new(),
         }
     }
 }
@@ -198,14 +144,15 @@ impl Default for RenderSettings {
 /// pipeline from paths to strips that can be rendered by the GPU.
 #[derive(Debug)]
 pub struct Scene {
-    /// Constraints on the scene that the renderer can exploit for optimisation.
-    constraints: SceneConstraints,
     /// Width of the rendering surface in pixels.
     pub(crate) width: u16,
     /// Height of the rendering surface in pixels.
     pub(crate) height: u16,
     /// Wide coarse rasterizer for generating binned draw commands.
     pub(crate) wide: Wide<MODE_HYBRID>,
+    /// A spare wide coarse rasterizer reused when switching between the
+    /// interleaved and coarse-only pipelines.
+    spare_wide: Option<Wide<MODE_HYBRID>>,
     clip_context: ClipContext,
     pub(crate) render_state: RenderState,
     pub(crate) aliasing_threshold: Option<u8>,
@@ -287,11 +234,7 @@ impl Scene {
     pub fn new_with(width: u16, height: u16, settings: RenderSettings) -> Self {
         let mut render_graph = RenderGraph::new();
 
-        // We use the fast path if only default blending is enabled. Therefore,
-        // we have to disable bg optimizations in that case.
-        let enable_bg_optimization = !settings.constraints.use_default_blending_only();
-
-        let wide = Wide::<MODE_HYBRID>::new(width, height, enable_bg_optimization);
+        let wide = Wide::<MODE_HYBRID>::new(width, height, false);
 
         // Create root node (layer_id 0) as the first node (will be node 0).
         // This ensures the root layer is always rendered last in the execution order.
@@ -302,10 +245,10 @@ impl Scene {
         });
 
         Self {
-            constraints: settings.constraints,
             width,
             height,
             wide,
+            spare_wide: None,
             clip_context: ClipContext::new(),
             render_state: RenderState::default(),
             aliasing_threshold: None,
@@ -321,6 +264,147 @@ impl Scene {
             strip_path_mode: StripPathMode::FastOnly,
             coarse_batch_splits: Vec::new(),
         }
+    }
+
+    fn take_or_create_spare_wide(&mut self, enable_bg_optimization: bool) -> Wide<MODE_HYBRID> {
+        if let Some(wide) = self.spare_wide.take() {
+            if wide.bg_optimization_enabled() == enable_bg_optimization {
+                return wide;
+            }
+            self.spare_wide = Some(wide);
+        }
+
+        Wide::<MODE_HYBRID>::new(self.width, self.height, enable_bg_optimization)
+    }
+
+    fn switch_active_wide(&mut self, enable_bg_optimization: bool) {
+        if self.wide.bg_optimization_enabled() == enable_bg_optimization {
+            return;
+        }
+
+        let mut target = self.take_or_create_spare_wide(enable_bg_optimization);
+        target.reset();
+        core::mem::swap(&mut self.wide, &mut target);
+        self.spare_wide = Some(target);
+    }
+
+    fn replay_fast_commands_into(
+        &mut self,
+        target: &mut Wide<MODE_HYBRID>,
+        range: Range<usize>,
+    ) {
+        let mut strip_storage = self.strip_storage.borrow_mut();
+
+        for cmd in &self.fast_strips_buffer.commands[range] {
+            match cmd {
+                FastStripCommand::Path(path) => {
+                    target.generate(
+                        &strip_storage.strips[path.strips.clone()],
+                        path.paint.clone(),
+                        DEFAULT_BLEND_MODE,
+                        0,
+                        None,
+                        &self.encoded_paints.borrow(),
+                    );
+                }
+                FastStripCommand::Rect(r) => {
+                    let rect = Rect::new(
+                        f64::from(r.x0),
+                        f64::from(r.y0),
+                        f64::from(r.x1),
+                        f64::from(r.y1),
+                    );
+                    let strip_start = strip_storage.strips.len();
+                    self.strip_generator
+                        .generate_filled_rect_fast(&rect, &mut strip_storage, None);
+                    target.generate(
+                        &strip_storage.strips[strip_start..],
+                        r.paint.clone(),
+                        DEFAULT_BLEND_MODE,
+                        0,
+                        None,
+                        &self.encoded_paints.borrow(),
+                    );
+                }
+            }
+        }
+    }
+
+    fn next_batch_end(tile: &WideTile<MODE_HYBRID>, start: usize) -> usize {
+        tile.cmds[start..]
+            .iter()
+            .position(|cmd| matches!(cmd, Cmd::BatchEnd))
+            .map_or(tile.cmds.len(), |offset| start + offset)
+    }
+
+    fn copy_coarse_batch_into(
+        &self,
+        target: &mut Wide<MODE_HYBRID>,
+        cmd_offsets: &mut [usize],
+    ) {
+        let rows = self.wide.height_tiles();
+        let cols = self.wide.width_tiles();
+
+        for row in 0..rows {
+            for col in 0..cols {
+                let idx = (row * cols + col) as usize;
+                let tile = self.wide.get(col, row);
+                let start = cmd_offsets[idx];
+                if start >= tile.cmds.len() {
+                    continue;
+                }
+
+                let end = Self::next_batch_end(tile, start);
+                let mut target_tile = target.replay_tile(col, row);
+                for cmd in tile.cmds[start..end].iter().cloned() {
+                    target_tile.replay_cmd(cmd);
+                }
+
+                cmd_offsets[idx] = if end < tile.cmds.len() {
+                    end + 1
+                } else {
+                    end
+                };
+            }
+        }
+    }
+
+    fn bail_out_interleaved_to_coarse(&mut self) {
+        debug_assert_eq!(self.strip_path_mode, StripPathMode::Interleaved);
+        debug_assert!(!self.wide.has_layers());
+
+        let mut rebuilt = self.take_or_create_spare_wide(true);
+        rebuilt.reset();
+        rebuilt.attrs = self.wide.attrs.clone();
+
+        let rows = self.wide.height_tiles();
+        let cols = self.wide.width_tiles();
+        let mut cmd_offsets = vec![0; (rows * cols) as usize];
+        let mut prev_split = 0;
+
+        let coarse_batch_splits = self.coarse_batch_splits.clone();
+        for split in coarse_batch_splits {
+            if prev_split < split {
+                self.replay_fast_commands_into(&mut rebuilt, prev_split..split);
+            }
+
+            self.copy_coarse_batch_into(&mut rebuilt, &mut cmd_offsets);
+            prev_split = split;
+        }
+
+        let tail_end = self.fast_strips_buffer.commands.len();
+        if prev_split < tail_end {
+            self.replay_fast_commands_into(&mut rebuilt, prev_split..tail_end);
+        }
+
+        core::mem::swap(&mut self.wide, &mut rebuilt);
+        self.spare_wide = Some(rebuilt);
+        self.fast_strips_buffer.clear();
+        self.coarse_batch_splits.clear();
+        self.strip_storage
+            .borrow_mut()
+            .set_generation_mode(GenerationMode::Replace);
+        self.strip_path_mode = StripPathMode::CoarseOnly;
     }
 
     /// Encode the current paint into a `Paint` that can be used for rendering.
@@ -576,14 +660,15 @@ impl Scene {
             return;
         }
 
+        let commands = core::mem::take(&mut self.fast_strips_buffer.commands);
         let mut strip_storage = self.strip_storage.borrow_mut();
-        for cmd in self.fast_strips_buffer.commands.drain(..) {
+        for cmd in commands {
             match cmd {
                 FastStripCommand::Path(path) => {
                     self.wide.generate(
                         &strip_storage.strips[path.strips],
                         path.paint,
-                        BlendMode::default(),
+                        DEFAULT_BLEND_MODE,
                         0,
                         None,
                         &self.encoded_paints.borrow(),
@@ -602,7 +687,7 @@ impl Scene {
                     self.wide.generate(
                         &strip_storage.strips[strip_start..],
                         r.paint,
-                        BlendMode::default(),
+                        DEFAULT_BLEND_MODE,
                         0,
                         None,
                         &self.encoded_paints.borrow(),
@@ -625,16 +710,19 @@ impl Scene {
         filter: Option<Filter>,
     ) {
         let blend_mode_val = blend_mode.unwrap_or(DEFAULT_BLEND_MODE);
-        self.constraints
-            .assert_blend_mode(blend_mode_val, self.wide.has_layers());
-
         self.layer_id_next += 1;
 
         let strip_offset;
-        if self.constraints.use_default_blending_only() {
-            // With default blending only we can keep fast path strips alive. Record a
-            // split point so the scheduler knows to process one coarse batch after
-            // processing fast path strips up to this point.
+        let root_non_default_blend = !self.wide.has_layers() && blend_mode_val != DEFAULT_BLEND_MODE;
+        if root_non_default_blend {
+            if self.strip_path_mode == StripPathMode::Interleaved {
+                self.bail_out_interleaved_to_coarse();
+            } else {
+                self.switch_active_wide(true);
+                self.flush_fast_path();
+            }
+            strip_offset = 0;
+        } else if self.strip_path_mode != StripPathMode::CoarseOnly {
             if !self.wide.has_layers() {
                 let split = self.fast_strips_buffer.commands.len();
                 self.coarse_batch_splits.push(split);
@@ -645,7 +733,6 @@ impl Scene {
             self.strip_path_mode = StripPathMode::Interleaved;
         } else {
             strip_offset = 0;
-            self.flush_fast_path();
         }
 
         let mut strip_storage = self.strip_storage.borrow_mut();
@@ -728,8 +815,14 @@ impl Scene {
 
     /// Set the blend mode for subsequent rendering operations.
     pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
-        self.constraints
-            .assert_blend_mode(blend_mode, self.wide.has_layers());
+        if !self.wide.has_layers() && blend_mode != DEFAULT_BLEND_MODE {
+            if self.strip_path_mode == StripPathMode::Interleaved {
+                self.bail_out_interleaved_to_coarse();
+            } else {
+                self.switch_active_wide(true);
+                self.flush_fast_path();
+            }
+        }
         self.render_state.blend_mode = blend_mode;
     }
 
@@ -822,7 +915,13 @@ impl Scene {
 
     /// Reset scene to default values.
     pub fn reset(&mut self) {
+        if self.wide.bg_optimization_enabled() {
+            self.switch_active_wide(false);
+        }
         self.wide.reset();
+        if let Some(spare_wide) = self.spare_wide.as_mut() {
+            spare_wide.reset();
+        }
         self.strip_generator.reset();
         self.clip_context.reset();
         // Set the strip storage back to `Append` mode since the fast path is re-enabled on reset.
@@ -1083,7 +1182,7 @@ impl Scene {
         );
         let paint = self.encode_current_paint();
 
-        if self.strip_path_mode != StripPathMode::CoarseOnly {
+        if self.strip_path_mode != StripPathMode::CoarseOnly && !self.wide.has_layers() {
             let mut strip_storage = self.strip_storage.borrow_mut();
             let strip_start = strip_storage.strips.len();
             strip_storage
@@ -1152,23 +1251,8 @@ mod tests {
     // These tests serve the purpose of ensuring that the logic for selecting fast paths
     // works correctly.
 
-    fn make_scene(constraints: SceneConstraints) -> Scene {
-        Scene::new_with(
-            200,
-            200,
-            RenderSettings {
-                constraints,
-                ..Default::default()
-            },
-        )
-    }
-
-    fn unconstrained() -> Scene {
-        make_scene(SceneConstraints::new())
-    }
-
-    fn default_blending_only() -> Scene {
-        make_scene(SceneConstraints::new().default_blending_only())
+    fn make_scene() -> Scene {
+        Scene::new(200, 200)
     }
 
     fn small_rect() -> Rect {
@@ -1194,7 +1278,7 @@ mod tests {
 
     #[test]
     fn fast_only_single_rect() {
-        let mut scene = unconstrained();
+        let mut scene = make_scene();
         scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
         scene.fill_rect(&small_rect());
 
@@ -1205,7 +1289,7 @@ mod tests {
 
     #[test]
     fn fast_only_single_path() {
-        let mut scene = unconstrained();
+        let mut scene = make_scene();
         scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
         scene.fill_path(&triangle_path());
 
@@ -1216,7 +1300,7 @@ mod tests {
 
     #[test]
     fn fast_only_mixed_commands() {
-        let mut scene = unconstrained();
+        let mut scene = make_scene();
         scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
         scene.fill_rect(&small_rect());
         scene.fill_path(&triangle_path());
@@ -1243,7 +1327,7 @@ mod tests {
             y: 0.0,
         }];
 
-        let mut scene = unconstrained();
+        let mut scene = make_scene();
         let mut resources = Resources::new();
 
         scene.fill_rect(&small_rect());
@@ -1264,7 +1348,7 @@ mod tests {
 
     #[test]
     fn fast_only_stroke_is_path() {
-        let mut scene = unconstrained();
+        let mut scene = make_scene();
         scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
         scene.set_stroke(Stroke::new(2.0));
         scene.stroke_rect(&small_rect());
@@ -1276,7 +1360,7 @@ mod tests {
 
     #[test]
     fn rect_rejected_by_skew_transform() {
-        let mut scene = unconstrained();
+        let mut scene = make_scene();
         scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
         scene.set_transform(Affine::new([1.0, 0.5, 0.0, 1.0, 0.0, 0.0]));
         scene.fill_rect(&small_rect());
@@ -1287,7 +1371,7 @@ mod tests {
 
     #[test]
     fn rect_rejected_by_rotation() {
-        let mut scene = unconstrained();
+        let mut scene = make_scene();
         scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
         scene.set_transform(Affine::rotate_about(
             45.0 * PI / 180.0,
@@ -1301,7 +1385,7 @@ mod tests {
 
     #[test]
     fn rect_accepted_with_translation() {
-        let mut scene = unconstrained();
+        let mut scene = make_scene();
         scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
         scene.set_transform(Affine::translate((5.0, 5.0)));
         scene.fill_rect(&small_rect());
@@ -1312,7 +1396,7 @@ mod tests {
 
     #[test]
     fn rect_accepted_with_scale() {
-        let mut scene = unconstrained();
+        let mut scene = make_scene();
         scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
         scene.set_transform(Affine::scale(2.0));
         scene.fill_rect(&Rect::new(5.0, 5.0, 20.0, 20.0));
@@ -1323,7 +1407,7 @@ mod tests {
 
     #[test]
     fn rect_rejected_by_clip_path() {
-        let mut scene = unconstrained();
+        let mut scene = make_scene();
         scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
         scene.push_clip_path(&triangle_path());
         scene.fill_rect(&small_rect());
@@ -1334,7 +1418,7 @@ mod tests {
 
     #[test]
     fn rect_rejected_inside_layer() {
-        let mut scene = default_blending_only();
+        let mut scene = make_scene();
         scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
         scene.push_layer(None, None, Some(0.5), None, None);
         scene.fill_rect(&small_rect());
@@ -1344,30 +1428,8 @@ mod tests {
     }
 
     #[test]
-    fn coarse_only_on_push_layer_no_constraint() {
-        let mut scene = unconstrained();
-        scene.push_layer(None, None, Some(0.5), None, None);
-
-        assert_eq!(scene.strip_path_mode, StripPathMode::CoarseOnly);
-        assert!(scene.fast_strips_buffer.commands.is_empty());
-    }
-
-    #[test]
-    fn coarse_only_flushes_prior_fast_rects() {
-        let mut scene = unconstrained();
-        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
-        scene.fill_rect(&small_rect());
-        assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
-
-        scene.push_layer(None, None, Some(0.5), None, None);
-        assert_eq!(scene.strip_path_mode, StripPathMode::CoarseOnly);
-        assert!(scene.fast_strips_buffer.commands.is_empty());
-    }
-
-    #[test]
-    fn interleaved_on_push_layer_with_constraint() {
-        let mut scene = default_blending_only();
-        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+    fn interleaved_on_push_layer_by_default() {
+        let mut scene = make_scene();
         scene.push_layer(None, None, Some(0.5), None, None);
 
         assert_eq!(scene.strip_path_mode, StripPathMode::Interleaved);
@@ -1375,7 +1437,7 @@ mod tests {
 
     #[test]
     fn interleaved_split_point_correct() {
-        let mut scene = default_blending_only();
+        let mut scene = make_scene();
         scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
         scene.fill_rect(&small_rect());
         scene.push_layer(None, None, Some(0.5), None, None);
@@ -1386,7 +1448,7 @@ mod tests {
 
     #[test]
     fn interleaved_root_after_pop_uses_fast() {
-        let mut scene = default_blending_only();
+        let mut scene = make_scene();
         scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
         scene.push_layer(None, None, Some(0.5), None, None);
         scene.fill_rect(&small_rect());
@@ -1401,7 +1463,7 @@ mod tests {
 
     #[test]
     fn interleaved_multiple_segments() {
-        let mut scene = default_blending_only();
+        let mut scene = make_scene();
         scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
 
         scene.fill_rect(&small_rect());
@@ -1422,7 +1484,7 @@ mod tests {
 
     #[test]
     fn interleaved_nested_layers() {
-        let mut scene = default_blending_only();
+        let mut scene = make_scene();
         scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
         scene.fill_rect(&small_rect());
 
@@ -1440,27 +1502,52 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "scene constrained to default blending")]
-    fn default_blending_only_rejects_root_blend_layer() {
-        let mut scene = default_blending_only();
+    fn root_blend_layer_bails_out_to_coarse() {
+        let mut scene = make_scene();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.fill_rect(&small_rect());
+        scene.push_layer(None, None, Some(0.5), None, None);
+        scene.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+        scene.pop_layer();
+
         scene.push_blend_layer(BlendMode::new(Mix::Multiply, Compose::SrcOver));
+
+        assert_eq!(scene.strip_path_mode, StripPathMode::CoarseOnly);
+        assert!(scene.fast_strips_buffer.commands.is_empty());
+        assert!(scene.coarse_batch_splits.is_empty());
     }
 
     #[test]
-    fn default_blending_only_allows_nested_blend_layer() {
-        let mut scene = default_blending_only();
+    fn nested_blend_layer_keeps_interleaved() {
+        let mut scene = make_scene();
         scene.push_layer(None, None, Some(0.5), None, None);
         scene.push_blend_layer(BlendMode::new(Mix::Multiply, Compose::SrcOver));
 
+        assert_eq!(scene.strip_path_mode, StripPathMode::Interleaved);
         assert!(scene.wide.has_layers());
     }
 
     #[test]
+    fn root_blend_mode_bails_out_to_coarse() {
+        let mut scene = make_scene();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.fill_rect(&small_rect());
+        scene.push_layer(None, None, Some(0.5), None, None);
+        scene.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+        scene.pop_layer();
+
+        scene.set_blend_mode(BlendMode::new(Mix::Multiply, Compose::SrcOver));
+
+        assert_eq!(scene.strip_path_mode, StripPathMode::CoarseOnly);
+        assert!(scene.fast_strips_buffer.commands.is_empty());
+    }
+
+    #[test]
     fn reset_restores_fast_only() {
-        let mut scene = unconstrained();
+        let mut scene = make_scene();
         scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
         scene.push_layer(None, None, Some(0.5), None, None);
-        assert_eq!(scene.strip_path_mode, StripPathMode::CoarseOnly);
+        assert_eq!(scene.strip_path_mode, StripPathMode::Interleaved);
 
         scene.pop_layer();
         scene.reset();
@@ -1472,7 +1559,7 @@ mod tests {
 
     #[test]
     fn reset_then_rect_uses_fast_path() {
-        let mut scene = unconstrained();
+        let mut scene = make_scene();
         scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
         scene.push_layer(None, None, Some(0.5), None, None);
         scene.pop_layer();
