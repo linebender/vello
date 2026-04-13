@@ -196,11 +196,6 @@ impl DrawSink for Scene {
     fn height(&self) -> u16 {
         Self::height(self)
     }
-
-    #[inline]
-    fn needs_root_blend_wrapper(&self) -> bool {
-        true
-    }
 }
 
 #[doc(hidden)]

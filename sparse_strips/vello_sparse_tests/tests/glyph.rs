@@ -673,7 +673,6 @@ fn glyphs_bitmap_apple(ctx: &mut impl Renderer, enable_caching: bool) {
 }
 
 // TODO: TEMPORARILY DISABLED, SEE https://github.com/linebender/vello/pull/1562#issuecomment-4206435802.
-// NEEDS TO BE RE-ENABLED BEFORE MERGING!
 // In case anything changes here, compare to https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/web_tests/platform/linux/virtual/text-antialias/colrv1-expected.png
 // TODO: The reference image for f32_scalar_cached is still wrong, see https://github.com/linebender/vello/pull/1562.
 #[vello_test(

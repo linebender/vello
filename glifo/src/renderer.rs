@@ -10,7 +10,7 @@ use crate::colr::ColrPainter;
 use crate::glyph::{
     AtlasCacher, CachedGlyphType, GlyphBitmap, GlyphColr, GlyphType, PreparedGlyph,
 };
-use crate::interface::{DrawSink, GlyphRenderer, RootBlendWrapper};
+use crate::interface::{DrawSink, GlyphRenderer};
 use crate::util::AffineExt;
 use crate::{kurbo, peniko};
 use alloc::sync::Arc;
@@ -20,7 +20,7 @@ use core_maths::CoreFloat as _;
 use kurbo::{Affine, BezPath, Rect, Shape};
 use peniko::color::palette::css::BLACK;
 use peniko::color::{AlphaColor, Srgb};
-use peniko::{Extend, ImageQuality, ImageSampler};
+use peniko::{BlendMode, Extend, ImageQuality, ImageSampler};
 use vello_common::paint::{Image, ImageSource, Tint, TintMode};
 
 /// Outcome of a cache-first render attempt.
@@ -216,10 +216,13 @@ fn render_uncached_colr_glyph(
 ) {
     let state = renderer.save_state();
     renderer.set_transform(transform);
+    // Wrap COLR glyphs in a layer, to make sure they are isolated and don't
+    // blend into the main surface.
+    renderer.push_blend_layer(BlendMode::default());
 
-    let mut target = RootBlendWrapper::new(renderer);
-    let mut colr_painter = ColrPainter::new(glyph, context_color, &mut target);
+    let mut colr_painter = ColrPainter::new(glyph, context_color, renderer);
     colr_painter.paint();
+    renderer.pop_layer();
 
     renderer.restore_state(state);
 }
@@ -304,9 +307,13 @@ fn render_colr_to_atlas(
         atlas_slot.x as f64,
         atlas_slot.y as f64,
     )));
+    // See the comment in `render_uncached_colr_glyph` for why we wrap COLR glyphs
+    // in a layer.
+    recorder.push_blend_layer(BlendMode::default());
 
     let mut colr_painter = ColrPainter::new(glyph, context_color, recorder);
     colr_painter.paint();
+    recorder.pop_layer();
 }
 
 /// Insert an outline glyph into the atlas and render it from there.
@@ -558,7 +565,6 @@ pub(crate) fn quality_for_skew(transform: &Affine) -> ImageQuality {
 ///
 /// The commands `Vec` is drained, freeing memory as each command is consumed.
 pub fn replay_atlas_commands(commands: &mut Vec<AtlasCommand>, target: &mut impl DrawSink) {
-    let mut target = RootBlendWrapper::new(target);
     for cmd in commands.drain(..) {
         match cmd {
             AtlasCommand::SetTransform(t) => target.set_transform(t),
