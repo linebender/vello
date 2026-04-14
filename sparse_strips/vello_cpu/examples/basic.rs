@@ -8,7 +8,7 @@
 use vello_cpu::color::palette::css::YELLOW;
 use vello_cpu::kurbo::Affine;
 use vello_cpu::{
-    Level, Pixmap, RenderContext, RenderMode, RenderSettings,
+    Level, Pixmap, RenderContext, RenderMode, RenderSettings, Resources,
     color::palette::css::{BLUE, GREEN, RED},
     kurbo::{Circle, Rect, Shape},
 };
@@ -81,6 +81,11 @@ fn main() {
     // Let's start by creating a new render context with a certain
     // width and height in pixels, as well as our render settings.
     let mut ctx = RenderContext::new_with(100, 100, settings);
+    // Vello CPU needs this to track certain resources (e.g. for glyph caching)
+    // across multiple frames. You need to make sure that you create on such struct
+    // for each render context you create, and then only use it in combination with that
+    // specific render context.
+    let mut resources = Resources::new();
 
     // Vello CPU uses a Postscript-like API, where you can use methods like
     // `set_paint` or `set_stroke` to update an internal state, and then
@@ -126,7 +131,7 @@ fn main() {
     let mut pixmap_1 = Pixmap::new(100, 100);
     // Now, simply extract the results from the render context into the
     // pixmap.
-    ctx.render_to_pixmap(&mut pixmap_1);
+    ctx.render_to_pixmap(&mut resources, &mut pixmap_1);
 
     // Now you can do whatever you want with the pixmap, which provides raw
     // access to the premultiplied RGBA pixels of the image. If you have enabled
@@ -154,7 +159,7 @@ fn main() {
     // discarded. In our case, we need to create a new one since our call
     // to `into_png` consumed the pixmap.
     let mut pixmap_2 = Pixmap::new(100, 100);
-    ctx.render_to_pixmap(&mut pixmap_2);
+    ctx.render_to_pixmap(&mut resources, &mut pixmap_2);
     let png_2 = pixmap_2.into_png().unwrap();
     std::fs::write("example_basic2.png", png_2).unwrap();
 }

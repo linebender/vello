@@ -18,6 +18,7 @@ use vello_common::coarse::{Cmd, MODE_CPU, Wide, WideTile};
 use vello_common::color::palette::css::BLACK;
 use vello_common::fearless_simd::Level;
 use vello_common::flatten::{FlattenCtx, Line};
+use vello_common::geometry::RectU16;
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Stroke, StrokeCtx};
 use vello_common::peniko::Fill;
 use vello_common::strip::Strip;
@@ -49,7 +50,7 @@ fn main() {
                 Affine::IDENTITY,
                 &mut line_buf,
                 &mut FlattenCtx::default(),
-                [0, 0, args.width, args.height],
+                RectU16::new(0, 0, args.width, args.height),
             );
         } else {
             let stroke = Stroke {
@@ -67,7 +68,7 @@ fn main() {
                 &mut line_buf,
                 &mut FlattenCtx::default(),
                 &mut StrokeCtx::default(),
-                [0, 0, args.width, args.height],
+                RectU16::new(0, 0, args.width, args.height),
             );
         }
     }

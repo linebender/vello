@@ -388,9 +388,13 @@ impl ApplicationHandler for App {
                     if now.duration_since(self.fps_update_time).as_secs_f64() >= 1.0 {
                         let avg_frame_time = self.accumulated_frame_time / self.frame_count as f64;
                         let avg_fps = 1000.0 / avg_frame_time;
-                        println!("Average FPS: {avg_fps:.1}");
+                        let status = self.scenes[self.current_scene]
+                            .status()
+                            .map(|s| format!(" - {s}"))
+                            .unwrap_or_default();
+                        println!("Average FPS: {avg_fps:.1}{status}");
                         window.set_title(&format!(
-                            "Vello CPU - Scene {} - {:.1} FPS ({:.2}ms avg)",
+                            "Vello CPU - Scene {} - {:.1} FPS ({:.2}ms avg){status}",
                             self.current_scene, avg_fps, avg_frame_time
                         ));
 
@@ -447,7 +451,10 @@ impl ApplicationHandler for App {
 
                 self.scenes[self.current_scene].render(&mut self.renderer, self.transform);
                 self.renderer.flush();
-                self.renderer.render_to_pixmap(&mut self.pixmap);
+                self.renderer.render_to_pixmap(
+                    self.scenes[self.current_scene].resources_mut(),
+                    &mut self.pixmap,
+                );
 
                 // Copy pixmap to window surface
                 let mut buffer = surface.buffer_mut().unwrap();

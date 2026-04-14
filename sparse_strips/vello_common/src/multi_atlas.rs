@@ -461,12 +461,18 @@ pub struct AtlasAllocation {
 }
 
 /// Configuration for multiple atlas support.
+///
+/// Note that any values provided here are recommendations and might not be fully
+/// honored depending on the capabilities of the backend. For example, if you define
+/// the atlas size to be 8192x8192 but the device only supports texture sizes up to 4096x4096,
+/// the backend will likely decide to instead use the value that is compatible with the device.
 #[derive(Debug, Clone, Copy)]
 pub struct AtlasConfig {
     /// Initial number of atlases to create.
     pub initial_atlas_count: usize,
     /// Maximum number of atlases to create.
     pub max_atlases: usize,
+    // TODO: Make those u16 instead?
     /// Size of each atlas texture.
     pub atlas_size: (u32, u32),
     /// Whether to automatically create new atlases when needed.
@@ -478,14 +484,6 @@ pub struct AtlasConfig {
 impl Default for AtlasConfig {
     fn default() -> Self {
         Self {
-            // NOTE: When targeting wasm32 with a WebGL/GLES backend, you may want to set
-            // `initial_atlas_count` to 2. In WGPU's GLES backend, heuristics are used to decide
-            // whether a texture should be treated as D2 or D2Array. However, this can cause a
-            // mismatch: when depth_or_array_layers == 1, the backend assumes the texture is D2,
-            // even if it was actually created as a D2Array. This issue only occurs with the GLES
-            // backend.
-            //
-            // @see https://github.com/gfx-rs/wgpu/blob/61e5124eb9530d3b3865556a7da4fd320d03ddc5/wgpu-hal/src/gles/mod.rs#L470-L517
             initial_atlas_count: 1,
             max_atlases: 8,
             atlas_size: (4096, 4096),

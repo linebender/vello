@@ -508,11 +508,12 @@ fn composite_to_pixmap_at_offset() {
     let max_glyph_size: u16 = 55;
     // Create a small `RenderContext` sized for the glyph
     let mut glyph_renderer = RenderContext::new_with(max_glyph_size, max_glyph_size, settings);
+    let mut glyph_resources = vello_cpu::Resources::new();
 
     glyph_renderer.set_transform(Affine::translate((0.0, f64::from(font_size))));
     glyph_renderer.set_paint(BLACK);
     glyph_renderer
-        .glyph_run(&font)
+        .glyph_run(&mut glyph_resources, &font)
         .font_size(font_size)
         .hint(true)
         .fill_glyphs(std::iter::once(Glyph {
@@ -526,13 +527,19 @@ fn composite_to_pixmap_at_offset() {
     let positions: [(u16, u16); 3] = [(15, 15), (30, 30), (0, 0)];
 
     for (dst_x, dst_y) in positions {
-        glyph_renderer.composite_to_pixmap_at_offset(&mut spritesheet, dst_x, dst_y);
+        glyph_renderer.composite_to_pixmap_at_offset(
+            &glyph_resources,
+            &mut spritesheet,
+            dst_x,
+            dst_y,
+        );
     }
 
     // Now render the glyphs directly at the same positions to a reference pixmap
     // to verify that the glyphs are rendered correctly at the same positions.
     let mut reference_renderer =
         RenderContext::new_with(spritesheet_width, spritesheet_height, settings);
+    let mut reference_resources = vello_cpu::Resources::new();
     reference_renderer.set_paint(BLACK);
 
     for (dst_x, dst_y) in positions {
@@ -544,7 +551,7 @@ fn composite_to_pixmap_at_offset() {
             f64::from(dst_y) + f64::from(font_size),
         )));
         reference_renderer
-            .glyph_run(&font)
+            .glyph_run(&mut reference_resources, &font)
             .font_size(font_size)
             .hint(true)
             .fill_glyphs(std::iter::once(Glyph {
@@ -556,7 +563,7 @@ fn composite_to_pixmap_at_offset() {
     reference_renderer.flush();
 
     let mut reference_pixmap = Pixmap::new(spritesheet_width, spritesheet_height);
-    reference_renderer.render_to_pixmap(&mut reference_pixmap);
+    reference_renderer.render_to_pixmap(&mut reference_resources, &mut reference_pixmap);
 
     // Uncomment to save the spritesheet as PNG for visual inspection
     // let diffs_path =

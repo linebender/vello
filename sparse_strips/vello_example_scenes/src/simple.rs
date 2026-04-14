@@ -13,7 +13,12 @@ use crate::{ExampleScene, RenderingContext};
 pub struct SimpleScene {}
 
 impl ExampleScene for SimpleScene {
-    fn render(&mut self, target: &mut impl RenderingContext, root_transform: Affine) {
+    fn render<T: RenderingContext>(
+        &mut self,
+        target: &mut T,
+        _resources: &mut T::Resources,
+        root_transform: Affine,
+    ) {
         render(target, root_transform);
     }
 }

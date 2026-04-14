@@ -15,13 +15,10 @@ publish = false # When enabling, add it to the MSRV package list in CI
 all-features = true
 
 [features]
-default = ["std", "vello_cpu"]
-std = ["vello_common/std", "skrifa/std", "vello_cpu?/std", "vello_hybrid?/std"]
-libm = ["skrifa/libm", "vello_common/libm", "vello_cpu?/libm", "dep:core_maths"]
-png = ["std", "dep:png", "vello_common/png", "vello_cpu?/png"]
-vello_cpu = ["dep:vello_cpu"]
-vello_hybrid = ["dep:vello_hybrid"]
-debug_glyph_bounds = []
+default = ["std"]
+std = ["foldhash/std", "vello_common/std", "skrifa/std"]
+libm = ["skrifa/libm", "vello_common/libm", "dep:core_maths"]
+png = ["std", "dep:png", "vello_common/png"]
 
 [lints]
 workspace = true
@@ -29,13 +26,12 @@ workspace = true
 [dependencies]
 bytemuck = { workspace = true }
 foldhash = { workspace = true }
-log = { workspace = true }
+# TODO: Consider just using libm via kurbo, but it doesn't seem to have a `fract` method.
+core_maths = { workspace = true, optional = true }
 hashbrown = { workspace = true }
+log = { workspace = true }
 peniko = { workspace = true }
 skrifa = { workspace = true }
 smallvec = { workspace = true }
 vello_common = { workspace = true }
-vello_cpu = { workspace = true, optional = true, features = ["u8_pipeline", "text"] }
-vello_hybrid = { workspace = true, optional = true, features = ["text"] }
 png = { workspace = true, optional = true }
-core_maths = { workspace = true, optional = true }

@@ -6,6 +6,7 @@
 use crate::color::palette::css::TRANSPARENT;
 use crate::encode::EncodedPaint;
 use crate::filter_effects::Filter;
+use crate::geometry::RectU16;
 use crate::kurbo::{Affine, Rect};
 use crate::mask::Mask;
 use crate::paint::{Paint, PremulColor};
@@ -182,56 +183,72 @@ struct Clip {
     pub thread_idx: u8,
 }
 
-/// An axis-aligned bounding box represented by top-left and bottom-right corners.
+/// An axis-aligned bounding box in wide tile coordinates.
 ///
-/// The coordinates are stored as `[x0, y0, x1, y1]` in wide tile coordinates,
-/// where `(x0, y0)` is the top-left corner and `(x1, y1)` is the bottom-right corner.
+/// This is a wrapper around [`RectU16`], adding some utilities useful for converting between
+/// wide-tile space and pixel-space. `(x0, y0)` is the top-left corner and `(x1, y1)` is the
+/// bottom-right corner, both in wide tile units.
 #[derive(Debug, Clone, Copy)]
 pub struct WideTilesBbox {
-    /// The bounding box coordinates.
-    pub bbox: [u16; 4],
+    /// The bounding box.
+    bbox: RectU16,
 }
 
 impl WideTilesBbox {
-    /// Create a new bounding box.
-    pub fn new(bbox: [u16; 4]) -> Self {
-        Self { bbox }
+    /// A empty rectangle with all coordinates set to zero.
+    pub const ZERO: Self = Self {
+        bbox: RectU16::ZERO,
+    };
+
+    /// An empty, maximally inverted rectangle, useful as a starting value for incremental union
+    /// operations.
+    ///
+    /// Has `(x0, y0) = (u16::MAX, u16::MAX)` and `(x1, y1) = (0, 0)`.
+    const INVERTED: Self = Self {
+        bbox: RectU16::INVERTED,
+    };
+
+    /// Create a new bounding box from wide tile coordinates.
+    pub fn new(x0: u16, y0: u16, x1: u16, y1: u16) -> Self {
+        Self {
+            bbox: RectU16::new(x0, y0, x1, y1),
+        }
     }
 
     /// Get the x0 coordinate of the bounding box.
     #[inline(always)]
     pub fn x0(&self) -> u16 {
-        self.bbox[0]
+        self.bbox.x0
     }
 
     /// Get the y0 coordinate of the bounding box.
     #[inline(always)]
     pub fn y0(&self) -> u16 {
-        self.bbox[1]
+        self.bbox.y0
     }
 
     /// Get the x1 coordinate of the bounding box.
     #[inline(always)]
     pub fn x1(&self) -> u16 {
-        self.bbox[2]
+        self.bbox.x1
     }
 
     /// Get the y1 coordinate of the bounding box.
     #[inline(always)]
     pub fn y1(&self) -> u16 {
-        self.bbox[3]
+        self.bbox.y1
     }
 
     /// Returns `true` if the bounding box has zero area.
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
-        self.x0() >= self.x1() || self.y0() >= self.y1()
+        self.bbox.is_empty()
     }
 
-    /// Get the width of the bounding box (x1 - x0).
+    /// Get the width of the bounding box in tiles (x1 - x0).
     #[inline(always)]
     pub fn width_tiles(&self) -> u16 {
-        self.x1().saturating_sub(self.x0())
+        self.bbox.width()
     }
 
     /// Get the width of the bounding box in pixels.
@@ -240,10 +257,10 @@ impl WideTilesBbox {
         self.width_tiles() * WideTile::WIDTH
     }
 
-    /// Get the height of the bounding box (y1 - y0).
+    /// Get the height of the bounding box in tiles (y1 - y0).
     #[inline(always)]
     pub fn height_tiles(&self) -> u16 {
-        self.y1().saturating_sub(self.y0())
+        self.bbox.height()
     }
 
     /// Get the height of the bounding box in pixels.
@@ -257,63 +274,30 @@ impl WideTilesBbox {
     /// Returns `true` if x0 <= x < x1 and y0 <= y < y1.
     #[inline(always)]
     pub fn contains(&self, x: u16, y: u16) -> bool {
-        let [x0, y0, x1, y1] = self.bbox;
-        (x >= x0) & (x < x1) & (y >= y0) & (y < y1)
-    }
-
-    /// Create an empty bounding box (zero area).
-    #[inline(always)]
-    pub(crate) fn empty() -> Self {
-        Self::new([0, 0, 0, 0])
+        self.bbox.contains(x, y)
     }
 
     /// Calculate the intersection of this bounding box with another.
     #[inline(always)]
     pub(crate) fn intersect(self, other: Self) -> Self {
-        Self::new([
-            self.x0().max(other.x0()),
-            self.y0().max(other.y0()),
-            self.x1().min(other.x1()),
-            self.y1().min(other.y1()),
-        ])
+        Self {
+            bbox: self.bbox.intersect(other.bbox),
+        }
     }
 
     /// Update this bounding box to include another bounding box (union in place).
     #[inline(always)]
     pub(crate) fn union(&mut self, other: Self) {
-        if !other.is_inverted() {
-            if self.is_inverted() {
-                // If self is empty, just copy other
-                self.bbox = other.bbox;
-            } else {
-                // Otherwise compute the union
-                self.bbox[0] = self.bbox[0].min(other.x0());
-                self.bbox[1] = self.bbox[1].min(other.y0());
-                self.bbox[2] = self.bbox[2].max(other.x1());
-                self.bbox[3] = self.bbox[3].max(other.y1());
-            }
-        }
-    }
-
-    /// Create an inverted bounding box for incremental updates.
-    #[inline(always)]
-    pub(crate) fn inverted() -> Self {
-        Self::new([u16::MAX, u16::MAX, 0, 0])
-    }
-
-    /// Check if the bbox is still in its inverted state (no updates yet).
-    #[inline(always)]
-    pub(crate) fn is_inverted(self) -> bool {
-        self.bbox[0] == u16::MAX && self.bbox[1] == u16::MAX
+        self.bbox.union(other.bbox);
     }
 
     /// Update the bbox to include the given tile coordinates.
     #[inline(always)]
     pub(crate) fn include_tile(&mut self, wtile_x: u16, wtile_y: u16) {
-        self.bbox[0] = self.bbox[0].min(wtile_x);
-        self.bbox[1] = self.bbox[1].min(wtile_y);
-        self.bbox[2] = self.bbox[2].max(wtile_x + 1);
-        self.bbox[3] = self.bbox[3].max(wtile_y + 1);
+        self.bbox.x0 = self.bbox.x0.min(wtile_x);
+        self.bbox.y0 = self.bbox.y0.min(wtile_y);
+        self.bbox.x1 = self.bbox.x1.max(wtile_x + 1);
+        self.bbox.y1 = self.bbox.y1.max(wtile_y + 1);
     }
 
     /// Scale this bounding box by the given scale factors.
@@ -350,12 +334,12 @@ impl WideTilesBbox {
         let right_tiles = right_px.div_ceil(WideTile::WIDTH);
         let bottom_tiles = bottom_px.div_ceil(Tile::HEIGHT);
 
-        Self::new([
+        Self::new(
             self.x0().saturating_sub(left_tiles),
             self.y0().saturating_sub(top_tiles),
             (self.x1() + right_tiles).min(max_x),
             (self.y1() + bottom_tiles).min(max_y),
-        ])
+        )
     }
 }
 
@@ -737,7 +721,7 @@ impl<const MODE: u8> Wide<MODE> {
                 layer_id,
                 filter: filter.clone(),
                 // Bounding box starts inverted and will be updated in pop_layer with actual bounds
-                wtile_bbox: WideTilesBbox::inverted(),
+                wtile_bbox: WideTilesBbox::INVERTED,
                 transform,
             });
 
@@ -782,7 +766,7 @@ impl<const MODE: u8> Wide<MODE> {
             opacity,
             mask,
             filter,
-            wtile_bbox: WideTilesBbox::inverted(),
+            wtile_bbox: WideTilesBbox::INVERTED,
         };
 
         // In case we do blending, masking, opacity, or filtering, push one buffer per wide tile.
@@ -848,7 +832,7 @@ impl<const MODE: u8> Wide<MODE> {
         let batch_count = self.batch_count;
 
         if let Some(filter) = &layer.filter {
-            let mut final_bbox = WideTilesBbox::inverted();
+            let mut final_bbox = WideTilesBbox::INVERTED;
 
             // Update render graph node with final bounding box
             if let Some(node_id) = self.filter_node_stack.pop() {
@@ -969,7 +953,7 @@ impl<const MODE: u8> Wide<MODE> {
 
         // Calculate the bounding box of the clip path in strip coordinates
         let path_bbox = if n_strips <= 1 {
-            WideTilesBbox::empty()
+            WideTilesBbox::ZERO
         } else {
             // Calculate the y range from first to last strip in wide tile coordinates
             let wtile_y0 = strips[0].strip_y();
@@ -987,7 +971,7 @@ impl<const MODE: u8> Wide<MODE> {
                 wtile_x0 = wtile_x0.min(x / WideTile::WIDTH);
                 wtile_x1 = wtile_x1.max((x + width).div_ceil(WideTile::WIDTH));
             }
-            WideTilesBbox::new([wtile_x0, wtile_y0, wtile_x1, wtile_y1])
+            WideTilesBbox::new(wtile_x0, wtile_y0, wtile_x1, wtile_y1)
         };
 
         let parent_bbox = self.active_bbox();
@@ -1106,7 +1090,7 @@ impl<const MODE: u8> Wide<MODE> {
 
     /// Returns the bounding box covering the entire viewport in wide tile coordinates.
     fn full_viewport_bbox(&self) -> WideTilesBbox {
-        WideTilesBbox::new([0, 0, self.width_tiles(), self.height_tiles()])
+        WideTilesBbox::new(0, 0, self.width_tiles(), self.height_tiles())
     }
 
     /// Removes the most recently added clip region.

@@ -873,6 +873,7 @@ impl Tiles {
 #[cfg(test)]
 mod tests {
     use crate::flatten::{FlattenCtx, Line, Point, fill};
+    use crate::geometry::RectU16;
     use crate::kurbo::{Affine, BezPath};
     use crate::tile::{B, L, R, T, Tile, Tiles, W};
     use fearless_simd::Level;
@@ -1269,7 +1270,7 @@ mod tests {
             Affine::IDENTITY,
             &mut line_buf,
             &mut FlattenCtx::default(),
-            [0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT],
+            RectU16::new(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT),
         );
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));

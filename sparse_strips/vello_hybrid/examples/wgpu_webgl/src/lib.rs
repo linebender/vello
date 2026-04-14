@@ -188,6 +188,7 @@ impl AppState {
             .renderer
             .render(
                 &self.scene,
+                self.scenes[self.current_scene].resources_mut(),
                 &self.renderer_wrapper.device,
                 &self.renderer_wrapper.queue,
                 &mut encoder,
@@ -285,6 +286,7 @@ impl AppState {
         // 1st example — uploading pixmap directly to WebGL atlas
         let pixmap1 = ImageScene::read_flower_image();
         self.renderer_wrapper.renderer.upload_image(
+            self.scenes[self.current_scene].resources_mut(),
             &self.renderer_wrapper.device,
             &self.renderer_wrapper.queue,
             &mut encoder,
@@ -299,6 +301,7 @@ impl AppState {
             &pixmap2,
         );
         self.renderer_wrapper.renderer.upload_image(
+            self.scenes[self.current_scene].resources_mut(),
             &self.renderer_wrapper.device,
             &self.renderer_wrapper.queue,
             &mut encoder,
@@ -580,10 +583,12 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
 
     let mut encoder =
         device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+    let mut resources = vello_hybrid::Resources::new();
 
     renderer
         .render(
             &scene,
+            &mut resources,
             &device,
             &queue,
             &mut encoder,

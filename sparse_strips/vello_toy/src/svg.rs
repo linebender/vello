@@ -20,7 +20,7 @@ use usvg::{Node, Paint, PaintOrder};
 use vello_cpu::color::AlphaColor;
 use vello_cpu::kurbo::{Affine, BezPath, Stroke};
 use vello_cpu::peniko::Fill;
-use vello_cpu::{Level, Pixmap, RenderContext, RenderMode, RenderSettings};
+use vello_cpu::{Level, Pixmap, RenderContext, RenderMode, RenderSettings, Resources};
 
 fn main() {
     let args = Args::parse();
@@ -39,6 +39,7 @@ fn main() {
         render_mode: RenderMode::OptimizeSpeed,
     };
     let mut ctx = RenderContext::new_with(width, height, settings);
+    let mut resources = Resources::new();
     let mut pixmap = Pixmap::new(width, height);
     let mut runtime = Duration::default();
 
@@ -50,7 +51,7 @@ fn main() {
 
         render_tree(&mut ctx, &mut sctx, &tree);
         ctx.flush();
-        ctx.render_to_pixmap(&mut pixmap);
+        ctx.render_to_pixmap(&mut resources, &mut pixmap);
 
         runtime += start.elapsed();
         num_iters += 1;

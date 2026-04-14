@@ -6,7 +6,9 @@
 //! This module provides an [`ImageCache`] that manages image resources across multiple texture
 //! atlases, supporting allocation, deallocation, and slot reuse.
 
-use crate::multi_atlas::{AllocId, AtlasConfig, AtlasError, AtlasId, MultiAtlasManager};
+use crate::multi_atlas::{
+    AllocId, AllocationStrategy, AtlasConfig, AtlasError, AtlasId, MultiAtlasManager,
+};
 use crate::paint::ImageId;
 use alloc::vec::Vec;
 
@@ -71,6 +73,17 @@ impl ImageCache {
             slots: Vec::new(),
             free_idxs: Vec::new(),
         }
+    }
+
+    /// Create a new dummy image atlas that is supposed to act as a stub.
+    pub fn new_dummy() -> Self {
+        Self::new_with_config(AtlasConfig {
+            initial_atlas_count: 1,
+            max_atlases: 1,
+            atlas_size: (1, 1),
+            auto_grow: false,
+            allocation_strategy: AllocationStrategy::FirstFit,
+        })
     }
 
     /// Get an image resource by its Id.

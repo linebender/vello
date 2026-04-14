@@ -30,6 +30,7 @@ struct App<'s> {
     scenes: Box<[AnyScene<Scene>]>,
     current_scene: usize,
     renderers: Vec<Option<Renderer>>,
+    uploaded_scene_images: Vec<Vec<bool>>,
     render_state: RenderState<'s>,
     scene: Scene,
     transform: Affine,
@@ -86,6 +87,7 @@ fn main() {
     let mut app = App {
         context: RenderContext::new(),
         renderers: vec![],
+        uploaded_scene_images: vec![],
         scenes,
         current_scene: start_scene_index,
         render_state: RenderState::Suspended(None),
@@ -147,6 +149,10 @@ impl ApplicationHandler for App<'_> {
 
         self.renderers
             .resize_with(self.context.devices.len(), || None);
+        self.uploaded_scene_images
+            .resize_with(self.context.devices.len(), || {
+                vec![false; self.scenes.len()]
+            });
         self.renderers[surface.dev_id]
             .get_or_insert_with(|| create_vello_renderer(&self.context, &surface));
 
@@ -172,6 +178,8 @@ impl ApplicationHandler for App<'_> {
             return;
         }
 
+        let dev_id = surface.dev_id;
+
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {
@@ -190,38 +198,50 @@ impl ApplicationHandler for App<'_> {
                         ..
                     },
                 ..
-            } => match logical_key {
-                Key::Named(NamedKey::ArrowRight) => {
-                    self.current_scene = (self.current_scene + 1) % self.scenes.len();
-                    self.transform = Affine::IDENTITY;
-                    window.request_redraw();
-                }
-                Key::Named(NamedKey::ArrowLeft) => {
-                    self.current_scene = if self.current_scene == 0 {
-                        self.scenes.len() - 1
-                    } else {
-                        self.current_scene - 1
-                    };
-                    self.transform = Affine::IDENTITY;
-                    window.request_redraw();
-                }
-                Key::Named(NamedKey::Space) => {
-                    // Reset transform on spacebar
-                    self.transform = Affine::IDENTITY;
-                    window.request_redraw();
-                }
-                Key::Named(NamedKey::Escape) => {
-                    event_loop.exit();
-                }
-                Key::Character(ch) => {
-                    if let Some(scene) = self.scenes.get_mut(self.current_scene)
-                        && scene.handle_key(ch.as_str())
-                    {
+            } => {
+                let mut upload_images = false;
+
+                match logical_key {
+                    Key::Named(NamedKey::ArrowRight) => {
+                        self.current_scene = (self.current_scene + 1) % self.scenes.len();
+                        self.transform = Affine::IDENTITY;
+                        upload_images = true;
                         window.request_redraw();
                     }
+                    Key::Named(NamedKey::ArrowLeft) => {
+                        self.current_scene = if self.current_scene == 0 {
+                            self.scenes.len() - 1
+                        } else {
+                            self.current_scene - 1
+                        };
+                        self.transform = Affine::IDENTITY;
+                        upload_images = true;
+                        window.request_redraw();
+                    }
+                    Key::Named(NamedKey::Space) => {
+                        // Reset transform on spacebar
+                        self.transform = Affine::IDENTITY;
+                        window.request_redraw();
+                    }
+                    Key::Named(NamedKey::Escape) => {
+                        event_loop.exit();
+                    }
+                    Key::Character(ch) => {
+                        if let Some(scene) = self.scenes.get_mut(self.current_scene)
+                            && scene.handle_key(ch.as_str())
+                        {
+                            window.request_redraw();
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
-            },
+
+                // Each scene has it's own resources struct, so in case the images
+                // haven't been uploaded previously, we need to do it now.
+                if upload_images {
+                    self.upload_images_to_atlas(dev_id);
+                }
+            }
             WindowEvent::MouseInput { state, button, .. } => {
                 if button == MouseButton::Left {
                     self.mouse_down = state == ElementState::Pressed;
@@ -334,7 +354,6 @@ impl ApplicationHandler for App<'_> {
                 let texture_view = surface_texture
                     .texture
                     .create_view(&wgpu::TextureViewDescriptor::default());
-
                 let mut encoder =
                     device_handle
                         .device
@@ -346,6 +365,7 @@ impl ApplicationHandler for App<'_> {
                     .unwrap()
                     .render(
                         &self.scene,
+                        self.scenes[self.current_scene].resources_mut(),
                         &device_handle.device,
                         &device_handle.queue,
                         &mut encoder,
@@ -371,6 +391,10 @@ impl ApplicationHandler for App<'_> {
 
 impl App<'_> {
     fn upload_images_to_atlas(&mut self, device_id: usize) {
+        if self.uploaded_scene_images[device_id][self.current_scene] {
+            return;
+        }
+
         let device_handle = &self.context.devices[device_id];
         let mut encoder =
             device_handle
@@ -382,6 +406,7 @@ impl App<'_> {
         // 1st example — uploading pixmap directly
         let pixmap1 = ImageScene::read_flower_image();
         self.renderers[device_id].as_mut().unwrap().upload_image(
+            self.scenes[self.current_scene].resources_mut(),
             &device_handle.device,
             &device_handle.queue,
             &mut encoder,
@@ -393,6 +418,7 @@ impl App<'_> {
         let texture2 =
             self.upload_image_to_texture(&device_handle.device, &device_handle.queue, &pixmap2);
         self.renderers[device_id].as_mut().unwrap().upload_image(
+            self.scenes[self.current_scene].resources_mut(),
             &device_handle.device,
             &device_handle.queue,
             &mut encoder,
@@ -400,6 +426,7 @@ impl App<'_> {
         );
 
         device_handle.queue.submit([encoder.finish()]);
+        self.uploaded_scene_images[device_id][self.current_scene] = true;
     }
 
     fn upload_image_to_texture(

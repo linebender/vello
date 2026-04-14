@@ -6,6 +6,7 @@
 use crate::clip::{PathDataRef, intersect};
 use crate::fearless_simd::Level;
 use crate::flatten::{FlattenCtx, Line};
+use crate::geometry::RectU16;
 use crate::kurbo::{Affine, PathEl, Rect, Stroke};
 use crate::peniko::Fill;
 use crate::strip::Strip;
@@ -125,10 +126,9 @@ impl StripGenerator {
         strip_storage: &mut StripStorage,
         clip_path: Option<PathDataRef<'_>>,
     ) {
-        let cull_bbox =
-            clip_path
-                .map(|clip_path| clip_path.bbox)
-                .unwrap_or([0, 0, self.width, self.height]);
+        let cull_bbox = clip_path
+            .map(|clip_path| clip_path.bbox)
+            .unwrap_or(RectU16::new(0, 0, self.width, self.height));
         flatten::fill(
             self.level,
             path,
@@ -151,10 +151,9 @@ impl StripGenerator {
         strip_storage: &mut StripStorage,
         clip_path: Option<PathDataRef<'_>>,
     ) {
-        let cull_bbox =
-            clip_path
-                .map(|clip_path| clip_path.bbox)
-                .unwrap_or([0, 0, self.width, self.height]);
+        let cull_bbox = clip_path
+            .map(|clip_path| clip_path.bbox)
+            .unwrap_or(RectU16::new(0, 0, self.width, self.height));
         flatten::stroke(
             self.level,
             path,
@@ -261,7 +260,7 @@ fn render_with_clip(
         let path_data = PathDataRef {
             strips: &temp_storage.strips,
             alphas: &temp_storage.alphas,
-            bbox: [0, 0, u16::MAX, u16::MAX],
+            bbox: RectU16::new(0, 0, u16::MAX, u16::MAX),
         };
         intersect(level, clip_path, path_data, strip_storage);
     } else {

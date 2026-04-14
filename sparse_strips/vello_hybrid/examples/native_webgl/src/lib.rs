@@ -92,7 +92,11 @@ impl AppState {
 
         self.renderer_wrapper
             .renderer
-            .render(&self.scene, &render_size)
+            .render(
+                &self.scene,
+                self.scenes[self.current_scene].resources_mut(),
+                &render_size,
+            )
             .unwrap();
         self.need_render = false;
     }
@@ -186,12 +190,16 @@ impl AppState {
     fn upload_images_to_atlas(&mut self) {
         // 1st example — uploading pixmap directly to WebGL atlas
         let pixmap1 = ImageScene::read_flower_image();
-        self.renderer_wrapper.renderer.upload_image(&pixmap1);
+        self.renderer_wrapper
+            .renderer
+            .upload_image(self.scenes[self.current_scene].resources_mut(), &pixmap1);
 
         // 2nd example — uploading from a WebGL texture
         let pixmap2 = ImageScene::read_cowboy_image();
         let texture2 = self.pixmap_to_webgl_texture(&pixmap2);
-        self.renderer_wrapper.renderer.upload_image(&texture2);
+        self.renderer_wrapper
+            .renderer
+            .upload_image(self.scenes[self.current_scene].resources_mut(), &texture2);
     }
 
     /// Convert a pixmap to WebGL texture
@@ -459,6 +467,9 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
         width: width as u32,
         height: height as u32,
     };
+    let mut resources = vello_hybrid::Resources::new();
 
-    renderer.render(&scene, &render_size).unwrap();
+    renderer
+        .render(&scene, &mut resources, &render_size)
+        .unwrap();
 }

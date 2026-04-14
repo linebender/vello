@@ -17,9 +17,11 @@
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
+use crate::DrawSink;
 use crate::color::{AlphaColor, Srgb};
 use crate::kurbo::{Affine, BezPath, Rect};
 use crate::peniko::{BlendMode, Gradient};
+use vello_common::paint::PaintType;
 
 /// Paint type for atlas commands.
 #[derive(Clone, Debug)]
@@ -42,11 +44,20 @@ impl From<Gradient> for AtlasPaint {
     }
 }
 
+impl From<AtlasPaint> for PaintType {
+    fn from(paint: AtlasPaint) -> Self {
+        match paint {
+            AtlasPaint::Solid(color) => Self::Solid(color),
+            AtlasPaint::Gradient(gradient) => Self::Gradient(gradient),
+        }
+    }
+}
+
 /// A single draw command recorded for deferred atlas rendering.
 ///
-/// The variants correspond 1:1 to the methods on [`AtlasReplayTarget`].
+/// The variants correspond 1:1 to the methods on [`DrawSink`].
 ///
-/// [`AtlasReplayTarget`]: crate::renderers::vello_renderer::AtlasReplayTarget
+/// [`DrawSink`]: crate::interface::DrawSink
 #[derive(Clone, Debug)]
 pub enum AtlasCommand {
     /// Set the current transform.
@@ -70,20 +81,19 @@ pub enum AtlasCommand {
 /// Records atlas draw commands for a single atlas page.
 ///
 /// The recorder exposes the same method API as the actual renderers
-/// (`RenderContext`, `Scene`). It also implements [`ColrRenderer`] so
-/// that [`ColrPainter`] can write into it directly.
+/// (`RenderContext`, `Scene`). It also implements [`DrawSink`] so
+/// that the COLR glyph painter can write into it directly.
 ///
-/// [`ColrRenderer`]: crate::colr::ColrRenderer
-/// [`ColrPainter`]: crate::colr::ColrPainter
+/// [`DrawSink`]: crate::DrawSink
 pub struct AtlasCommandRecorder {
     /// Which atlas page these commands target.
     pub page_index: u32,
     /// The recorded commands.
     pub commands: Vec<AtlasCommand>,
     /// Width of the glyph renderer / atlas page (pixels).
-    width: u16,
+    pub(crate) width: u16,
     /// Height of the glyph renderer / atlas page (pixels).
-    height: u16,
+    pub(crate) height: u16,
 }
 
 impl AtlasCommandRecorder {
@@ -100,69 +110,59 @@ impl AtlasCommandRecorder {
             height,
         }
     }
+}
 
-    /// Width of the atlas page in pixels.
+impl DrawSink for AtlasCommandRecorder {
     #[inline]
-    pub fn width(&self) -> u16 {
-        self.width
-    }
-
-    /// Height of the atlas page in pixels.
-    #[inline]
-    pub fn height(&self) -> u16 {
-        self.height
-    }
-
-    /// Set the current transform.
-    #[inline]
-    pub fn set_transform(&mut self, t: Affine) {
+    fn set_transform(&mut self, t: Affine) {
         self.commands.push(AtlasCommand::SetTransform(t));
     }
 
-    /// Set the current paint (accepts `AlphaColor<Srgb>` or `Gradient`).
     #[inline]
-    pub fn set_paint(&mut self, paint: impl Into<AtlasPaint>) {
-        self.commands.push(AtlasCommand::SetPaint(paint.into()));
+    fn set_paint(&mut self, paint: AtlasPaint) {
+        self.commands.push(AtlasCommand::SetPaint(paint));
     }
 
-    /// Set the paint transform.
     #[inline]
-    pub fn set_paint_transform(&mut self, t: Affine) {
+    fn set_paint_transform(&mut self, t: Affine) {
         self.commands.push(AtlasCommand::SetPaintTransform(t));
     }
 
-    /// Fill a path with the current paint and transform.
     #[inline]
-    pub fn fill_path(&mut self, path: &Arc<BezPath>) {
-        self.commands.push(AtlasCommand::FillPath(Arc::clone(path)));
+    fn fill_path(&mut self, path: &BezPath) {
+        self.commands
+            .push(AtlasCommand::FillPath(Arc::new(path.clone())));
     }
 
-    /// Fill a rectangle with the current paint and transform.
     #[inline]
-    pub fn fill_rect(&mut self, rect: &Rect) {
+    fn fill_rect(&mut self, rect: &Rect) {
         self.commands.push(AtlasCommand::FillRect(*rect));
     }
 
-    /// Push a clip layer defined by a path.
-    ///
-    /// Takes ownership of the `BezPath` and wraps it in `Arc`. COLR clip paths
-    /// are always freshly constructed, so this avoids any cloning.
     #[inline]
-    pub fn push_clip_layer(&mut self, clip: BezPath) {
+    fn push_clip_layer(&mut self, clip: &BezPath) {
         self.commands
-            .push(AtlasCommand::PushClipLayer(Arc::new(clip)));
+            .push(AtlasCommand::PushClipLayer(Arc::new(clip.clone())));
     }
 
-    /// Push a blend/compositing layer.
     #[inline]
-    pub fn push_blend_layer(&mut self, blend_mode: BlendMode) {
+    fn push_blend_layer(&mut self, blend_mode: BlendMode) {
         self.commands.push(AtlasCommand::PushBlendLayer(blend_mode));
     }
 
-    /// Pop the most recent clip or blend layer.
     #[inline]
-    pub fn pop_layer(&mut self) {
+    fn pop_layer(&mut self) {
         self.commands.push(AtlasCommand::PopLayer);
+    }
+
+    #[inline]
+    fn width(&self) -> u16 {
+        self.width
+    }
+
+    #[inline]
+    fn height(&self) -> u16 {
+        self.height
     }
 }
 

@@ -4,6 +4,7 @@
 //! Utility functions shared across different tests.
 
 use crate::renderer::Renderer;
+use glifo::Glyph;
 use image::{Rgba, RgbaImage, load_from_memory};
 use serde::Serializer;
 use skrifa::MetadataProvider;
@@ -13,7 +14,6 @@ use std::cmp::max;
 use std::sync::Arc;
 use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, WHITE, YELLOW};
-use vello_common::glyph::Glyph;
 use vello_common::kurbo::{BezPath, Join, Point, Rect, Shape, Stroke, Vec2};
 use vello_common::peniko::{Blob, ColorStop, ColorStops, FontData};
 use vello_common::pixmap::Pixmap;
@@ -165,7 +165,7 @@ pub(crate) fn get_ctx<T: Renderer>(
     ctx
 }
 
-pub(crate) fn render_pixmap(ctx: &impl Renderer) -> Pixmap {
+pub(crate) fn render_pixmap(ctx: &mut impl Renderer) -> Pixmap {
     let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
     ctx.render_to_pixmap(&mut pixmap);
     pixmap
@@ -338,7 +338,7 @@ pub(crate) fn stops_blue_green_red_yellow() -> ColorStops {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn check_ref(
-    ctx: &impl Renderer,
+    ctx: &mut impl Renderer,
     // The name of the test.
     test_name: &str,
     // The name of the specific instance of the test that is being run
@@ -428,7 +428,7 @@ pub(crate) fn check_ref(
 
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn check_ref(
-    ctx: &impl Renderer,
+    ctx: &mut impl Renderer,
     _test_name: &str,
     // The name of the specific instance of the test that is being run
     // (e.g. test_gpu, test_cpu_u8, etc.)

@@ -16,6 +16,7 @@ cpu = ["dep:vello_cpu"]
 [dependencies]
 bytemuck = { workspace = true, features = [] }
 smallvec = { workspace = true }
+glifo = { workspace = true }
 vello_hybrid = { workspace = true }
 vello_common = { workspace = true, features = ["pico_svg", "png"] }
 image = { workspace = true, features = ["jpeg"] }

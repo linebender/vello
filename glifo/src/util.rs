@@ -34,10 +34,6 @@ pub(crate) trait AffineExt {
     /// Whether the transform has any skewing coefficient.
     fn has_skew(&self) -> bool;
 
-    /// Whether the transform has a scaling factor not equal to 1 or -1.
-    #[cfg(any(feature = "vello_cpu", feature = "vello_hybrid"))]
-    fn has_non_unit_scale(&self) -> bool;
-
     /// Whether the transform has a vertical skew.
     fn has_vertical_skew(&self) -> bool;
 
@@ -46,6 +42,11 @@ pub(crate) trait AffineExt {
 
     /// Whether the transform has positive, uniform scaling factors and no vertical skew.
     fn is_positive_uniform_scale_without_vertical_skew(&self) -> bool;
+
+    /// Whether the transform has non-unit scale or skew.
+    ///
+    /// Note that negative scales (i.e. -1.0) are explicitly allowed.
+    fn has_non_unit_skew_or_scale(&self) -> bool;
 }
 
 impl AffineExt for Affine {
@@ -55,20 +56,21 @@ impl AffineExt for Affine {
         b.abs() > SCALAR_NEARLY_ZERO_F64 || c.abs() > SCALAR_NEARLY_ZERO_F64
     }
 
-    #[cfg(any(feature = "vello_cpu", feature = "vello_hybrid"))]
-    #[inline]
-    fn has_non_unit_scale(&self) -> bool {
-        let [a, _, _, d, _, _] = self.as_coeffs();
-        (a.abs() - 1.0).abs() > SCALAR_NEARLY_ZERO_F64
-            || (d.abs() - 1.0).abs() > SCALAR_NEARLY_ZERO_F64
-    }
-
     #[inline]
     fn is_positive_uniform_scale_without_skew(&self) -> bool {
         let [a, _, _, d, _, _] = self.as_coeffs();
         (a - d).abs() <= SCALAR_NEARLY_ZERO_F64 && a > 0.0 && d > 0.0 && !self.has_skew()
     }
 
+    #[inline]
+    fn has_non_unit_skew_or_scale(&self) -> bool {
+        let [a, _, _, d, _, _] = self.as_coeffs();
+        self.has_skew()
+            || (1.0 - a.abs()).abs() > SCALAR_NEARLY_ZERO_F64
+            || (1.0 - d.abs()).abs() > SCALAR_NEARLY_ZERO_F64
+    }
+
+    /// Whether the transform has a vertical skew.
     #[inline]
     fn has_vertical_skew(&self) -> bool {
         let [_, b, _, _, _, _] = self.as_coeffs();
@@ -122,9 +124,22 @@ mod tests {
         let non_uniform = Affine::new([2.0, 0.0, 0.0, 3.0, 0.0, 0.0]);
         let flipped = Affine::new([-2.0, 0.0, 0.0, -2.0, 0.0, 0.0]);
 
+        assert!(non_uniform.has_non_unit_skew_or_scale());
         assert!(!non_uniform.is_positive_uniform_scale_without_skew());
         assert!(!non_uniform.is_positive_uniform_scale_without_vertical_skew());
+        assert!(flipped.has_non_unit_skew_or_scale());
         assert!(!flipped.is_positive_uniform_scale_without_skew());
         assert!(!flipped.is_positive_uniform_scale_without_vertical_skew());
+    }
+
+    #[test]
+    fn allows_unit_axis_flips() {
+        let flip_x = Affine::new([-1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+        let flip_y = Affine::new([1.0, 0.0, 0.0, -1.0, 0.0, 0.0]);
+        let flip_xy = Affine::new([-1.0, 0.0, 0.0, -1.0, 0.0, 0.0]);
+
+        assert!(!flip_x.has_non_unit_skew_or_scale());
+        assert!(!flip_y.has_non_unit_skew_or_scale());
+        assert!(!flip_xy.has_non_unit_skew_or_scale());
     }
 }

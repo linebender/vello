@@ -5,6 +5,7 @@
 
 use vello_cpu::Pixmap;
 use vello_cpu::RenderContext;
+use vello_cpu::Resources;
 use vello_cpu::color::palette::css::{BLUE, RED, WHITE};
 use vello_cpu::kurbo::{Circle, Rect, Shape};
 
@@ -125,8 +126,9 @@ fn main() {
 }
 
 fn save_pixmap(ctx: &RenderContext, filename: &str) {
+    let mut resources = Resources::new();
     let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
-    ctx.render_to_pixmap(&mut pixmap);
+    ctx.render_to_pixmap(&mut resources, &mut pixmap);
     let png = pixmap.into_png().unwrap();
     std::fs::write(format!("{filename}.png"), png).unwrap();
 }

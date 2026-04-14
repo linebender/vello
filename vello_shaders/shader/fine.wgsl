@@ -892,6 +892,106 @@ fn extend_mode(t: f32, mode: u32, max: f32) -> f32 {
     }
 }
 
+// Cubic resampler logic borrowed from Skia (same as CPU cubic_resampler function)
+// Mitchell-Netravali cubic filter coefficients with parameters B=1/3 and C=1/3
+const MF: array<vec4<f32>, 4> = array<vec4<f32>, 4>(
+    vec4<f32>(
+        (1.0 / 6.0) / 3.0,
+        -(3.0 / 6.0) / 3.0 - 1.0 / 3.0,
+        (3.0 / 6.0) / 3.0 + 2.0 * 1.0 / 3.0,
+        -(1.0 / 6.0) / 3.0 - 1.0 / 3.0
+    ),
+    vec4<f32>(
+        1.0 - (2.0 / 6.0) / 3.0,
+        0.0,
+        -3.0 + (12.0 / 6.0) / 3.0 + 1.0 / 3.0,
+        2.0 - (9.0 / 6.0) / 3.0 - 1.0 / 3.0
+    ),
+    vec4<f32>(
+        (1.0 / 6.0) / 3.0,
+        (3.0 / 6.0) / 3.0 + 1.0 / 3.0,
+        3.0 - (15.0 / 6.0) / 3.0 - 2.0 * 1.0 / 3.0,
+        -2.0 + (9.0 / 6.0) / 3.0 + 1.0 / 3.0
+    ),
+    vec4<f32>(
+        0.0,
+        0.0,
+        -1.0 / 3.0,
+        (1.0 / 6.0) / 3.0 + 1.0 / 3.0
+    )
+);
+
+// Calculate the weights for a single fractional value (same as CPU weights function)
+fn cubic_weights(fract: f32) -> vec4<f32> {
+    return vec4<f32>(
+        single_weight(fract, MF[0][0], MF[0][1], MF[0][2], MF[0][3]),
+        single_weight(fract, MF[1][0], MF[1][1], MF[1][2], MF[1][3]),
+        single_weight(fract, MF[2][0], MF[2][1], MF[2][2], MF[2][3]),
+        single_weight(fract, MF[3][0], MF[3][1], MF[3][2], MF[3][3])
+    );
+}
+
+// Calculate a weight based on the fractional value t and the cubic coefficients
+// This matches the CPU implementation exactly
+fn single_weight(t: f32, a: f32, b: f32, c: f32, d: f32) -> f32 {
+    return t * (t * (t * d + c) + b) + a;
+}
+
+// Bicubic filtering using Mitchell filter with B=1/3, C=1/3
+//
+// Cubic resampling consists of sampling the 16 surrounding pixels of the target point and
+// interpolating them with a cubic filter. The generated matrix is 4x4 and represent the coefficients
+// of the cubic function used to calculate weights based on the `x_fract` and `y_fract` of the
+// location we are looking at.
+//
+// This is adapted from the sparse-strips shader for the main Vello image path:
+// - the atlas is a single `texture_2d`, not a texture array
+// - each tap is premultiplied before filtering, matching the existing bilinear path
+fn bicubic_sample(
+    coords: vec2<f32>,
+    atlas_offset: vec2<f32>,
+    atlas_max: vec2<f32>,
+    alpha_type: u32,
+) -> vec4<f32> {
+    let frac_coords = fract(coords + vec2(0.5));
+    // Get cubic weights for x and y directions
+    let cx = cubic_weights(frac_coords.x);
+    let cy = cubic_weights(frac_coords.y);
+
+    // Sample 4x4 grid around coords
+    let s00 = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(clamp(coords + vec2(-1.5, -1.5), atlas_offset, atlas_max)), 0), alpha_type);
+    let s10 = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(clamp(coords + vec2(-0.5, -1.5), atlas_offset, atlas_max)), 0), alpha_type);
+    let s20 = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(clamp(coords + vec2(0.5, -1.5), atlas_offset, atlas_max)), 0), alpha_type);
+    let s30 = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(clamp(coords + vec2(1.5, -1.5), atlas_offset, atlas_max)), 0), alpha_type);
+
+    let s01 = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(clamp(coords + vec2(-1.5, -0.5), atlas_offset, atlas_max)), 0), alpha_type);
+    let s11 = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(clamp(coords + vec2(-0.5, -0.5), atlas_offset, atlas_max)), 0), alpha_type);
+    let s21 = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(clamp(coords + vec2(0.5, -0.5), atlas_offset, atlas_max)), 0), alpha_type);
+    let s31 = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(clamp(coords + vec2(1.5, -0.5), atlas_offset, atlas_max)), 0), alpha_type);
+
+    let s02 = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(clamp(coords + vec2(-1.5, 0.5), atlas_offset, atlas_max)), 0), alpha_type);
+    let s12 = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(clamp(coords + vec2(-0.5, 0.5), atlas_offset, atlas_max)), 0), alpha_type);
+    let s22 = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(clamp(coords + vec2(0.5, 0.5), atlas_offset, atlas_max)), 0), alpha_type);
+    let s32 = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(clamp(coords + vec2(1.5, 0.5), atlas_offset, atlas_max)), 0), alpha_type);
+
+    let s03 = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(clamp(coords + vec2(-1.5, 1.5), atlas_offset, atlas_max)), 0), alpha_type);
+    let s13 = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(clamp(coords + vec2(-0.5, 1.5), atlas_offset, atlas_max)), 0), alpha_type);
+    let s23 = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(clamp(coords + vec2(0.5, 1.5), atlas_offset, atlas_max)), 0), alpha_type);
+    let s33 = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(clamp(coords + vec2(1.5, 1.5), atlas_offset, atlas_max)), 0), alpha_type);
+
+    // Interpolate in x direction for each row
+    let row0 = cx.x * s00 + cx.y * s10 + cx.z * s20 + cx.w * s30;
+    let row1 = cx.x * s01 + cx.y * s11 + cx.z * s21 + cx.w * s31;
+    let row2 = cx.x * s02 + cx.y * s12 + cx.z * s22 + cx.w * s32;
+    let row3 = cx.x * s03 + cx.y * s13 + cx.z * s23 + cx.w * s33;
+    // Interpolate in y direction
+    let result = cy.x * row0 + cy.y * row1 + cy.z * row2 + cy.w * row3;
+
+    // Clamp alpha first, then clamp premultiplied color channels against it.
+    let a = clamp(result.a, 0.0, 1.0);
+    return vec4<f32>(clamp(result.rgb, vec3(0.0), vec3(a)), a);
+}
+
 const PIXELS_PER_THREAD = 4u;
 
 #ifndef msaa
@@ -1235,7 +1335,6 @@ fn main(
                         }
                     }
                     case IMAGE_QUALITY_MEDIUM, default: {
-                        // We don't have an implementation for `IMAGE_QUALITY_HIGH` yet, just use the same as medium
                         for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
                             // We only need to load from the textures if the value will be used.
                             if area[i] != 0.0 {
@@ -1256,6 +1355,20 @@ fn main(
                                 let d = maybe_premul_alpha(textureLoad(image_atlas, vec2<i32>(uv_quad.zw), 0), image.alpha_type);
                                 // Bilinear sampling
                                 let fg_rgba = mix(mix(a, b, uv_frac.y), mix(c, d, uv_frac.y), uv_frac.x);
+                                let fg_i = pixel_format(fg_rgba * area[i] * image.alpha, image.format);
+                                rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
+                            }
+                        }
+                    }
+                    case IMAGE_QUALITY_HIGH: {
+                        for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
+                            if area[i] != 0.0 {
+                                let my_xy = vec2(xy.x + f32(i), xy.y);
+                                var atlas_uv = image.matrx.xy * my_xy.x + image.matrx.zw * my_xy.y + image.xlat;
+                                atlas_uv.x = extend_mode(atlas_uv.x, image.x_extend_mode, image.extents.x);
+                                atlas_uv.y = extend_mode(atlas_uv.y, image.y_extend_mode, image.extents.y);
+                                atlas_uv = atlas_uv + image.atlas_offset;
+                                let fg_rgba = bicubic_sample(atlas_uv, image.atlas_offset, atlas_max, image.alpha_type);
                                 let fg_i = pixel_format(fg_rgba * area[i] * image.alpha, image.format);
                                 rgba[i] = rgba[i] * (1.0 - fg_i.a) + fg_i;
                             }

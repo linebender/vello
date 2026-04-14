@@ -9,6 +9,7 @@
 )]
 
 use bytemuck::{Pod, Zeroable};
+use vello_common::multi_atlas::AtlasConfig;
 
 // GPU paint structure sizes in texels (1 texel = 16 bytes for RGBA32Uint texture format).
 pub(crate) const GPU_ENCODED_IMAGE_SIZE_TEXELS: u32 = (size_of::<GpuEncodedImage>() / 16) as u32;
@@ -21,6 +22,62 @@ pub(crate) const GPU_SWEEP_GRADIENT_SIZE_TEXELS: u32 = (size_of::<GpuSweepGradie
 // TODO: If we want to use native bilinear sampling for uploaded images,
 // we can pass 1 instead of 0 here.
 pub(crate) const IMAGE_PADDING: u16 = 0;
+
+pub(crate) fn normalize_atlas_config(
+    config: &mut AtlasConfig,
+    max_texture_dimension_2d: u32,
+    max_texture_array_layers: u32,
+    min_initial_atlas_count: usize,
+) {
+    config.atlas_size.0 = config.atlas_size.0.clamp(1, max_texture_dimension_2d);
+    config.atlas_size.1 = config.atlas_size.1.clamp(1, max_texture_dimension_2d);
+
+    let supported_max_atlases = (max_texture_array_layers as usize).max(min_initial_atlas_count);
+    config.max_atlases = config
+        .max_atlases
+        .clamp(min_initial_atlas_count, supported_max_atlases);
+    config.initial_atlas_count = config
+        .initial_atlas_count
+        .clamp(min_initial_atlas_count, config.max_atlases);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_atlas_config;
+    use vello_common::multi_atlas::AtlasConfig;
+
+    #[test]
+    fn normalize_atlas_config_clamps_to_backend_limits() {
+        let mut config = AtlasConfig {
+            initial_atlas_count: 8,
+            max_atlases: 16,
+            atlas_size: (8192, 2048),
+            ..Default::default()
+        };
+
+        normalize_atlas_config(&mut config, 4096, 4, 1);
+
+        assert_eq!(config.initial_atlas_count, 4);
+        assert_eq!(config.max_atlases, 4);
+        assert_eq!(config.atlas_size, (4096, 2048));
+    }
+
+    #[test]
+    fn normalize_atlas_config_enforces_minimum_initial_count() {
+        let mut config = AtlasConfig {
+            initial_atlas_count: 0,
+            max_atlases: 1,
+            atlas_size: (0, 0),
+            ..Default::default()
+        };
+
+        normalize_atlas_config(&mut config, 4096, 8, 2);
+
+        assert_eq!(config.initial_atlas_count, 2);
+        assert_eq!(config.max_atlases, 2);
+        assert_eq!(config.atlas_size, (1, 1));
+    }
+}
 
 /// Dimensions of the rendering target.
 #[derive(Debug, PartialEq, Eq, Clone)]
