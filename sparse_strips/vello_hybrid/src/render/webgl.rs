@@ -177,7 +177,8 @@ impl WebGlRenderer {
                 .unwrap()
                 .as_f64()
                 .unwrap()
-                >= 24.0
+                >= 24.0,
+            "Depth buffer must be at least 24 bits"
         );
         let image_cache = ImageCache::new_with_config(settings.atlas_config);
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
@@ -2081,8 +2082,10 @@ fn create_framebuffer_for_texture(
 
 const STRIP_STRIDE: i32 = size_of::<GpuStrip>() as i32;
 const STRIP_ATTR_COUNT: i32 = STRIP_STRIDE / 4;
-const _: () = assert!(STRIP_STRIDE == 24);
-const _: () = assert!(STRIP_ATTR_COUNT == 6);
+const _: () = assert!(
+    STRIP_STRIDE == 24,
+    "GpuStrip layout must match strip vertex stride"
+);
 
 /// Initialize strip VAO.
 fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) {
