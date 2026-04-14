@@ -205,3 +205,32 @@ fn recording_handles_completely_offscreen_content(ctx: &mut impl Renderer) {
     ctx.prepare_recording(&mut recording);
     ctx.execute_recording(&recording);
 }
+
+#[vello_test(width = 100, height = 100)]
+fn recording_inside_clip(ctx: &mut impl Renderer) {
+    let mut clip = BezPath::new();
+    clip.move_to((25.0, 25.0));
+    clip.line_to((75.0, 25.0));
+    clip.line_to((75.0, 75.0));
+    clip.line_to((25.0, 75.0));
+    clip.close_path();
+    ctx.push_clip_path(&clip);
+
+    let mut recording = Recording::new();
+    ctx.record(&mut recording, |ctx| {
+        ctx.set_paint(REBECCA_PURPLE);
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+
+        ctx.set_paint(GOLD);
+        let mut tri = BezPath::new();
+        tri.move_to((10.0, 90.0));
+        tri.line_to((90.0, 90.0));
+        tri.line_to((50.0, 10.0));
+        tri.close_path();
+        ctx.fill_path(&tri);
+    });
+    ctx.prepare_recording(&mut recording);
+    ctx.execute_recording(&recording);
+
+    ctx.pop_clip_path();
+}

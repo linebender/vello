@@ -708,6 +708,10 @@ impl Dispatcher for MultiThreadedDispatcher {
         self.flush_tasks();
         self.clip_context.pop_clip();
     }
+
+    fn current_clip_path(&self) -> Option<vello_common::clip::PathDataRef<'_>> {
+        self.clip_context.get()
+    }
 }
 
 impl Debug for MultiThreadedDispatcher {

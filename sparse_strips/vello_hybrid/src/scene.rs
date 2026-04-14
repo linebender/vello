@@ -999,7 +999,7 @@ impl Scene {
                         self.render_state.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        None,
+                        self.clip_context.get(),
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -1010,7 +1010,7 @@ impl Scene {
                         self.render_state.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        None,
+                        self.clip_context.get(),
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -1021,7 +1021,7 @@ impl Scene {
                         self.render_state.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        None,
+                        self.clip_context.get(),
                     );
                     strip_start_indices.push(start_index);
                 }
@@ -1032,7 +1032,7 @@ impl Scene {
                         self.render_state.transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
-                        None,
+                        self.clip_context.get(),
                     );
                     strip_start_indices.push(start_index);
                 }

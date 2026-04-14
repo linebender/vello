@@ -876,6 +876,10 @@ impl Dispatcher for SingleThreadedDispatcher {
     fn pop_clip_path(&mut self) {
         self.clip_context.pop_clip();
     }
+
+    fn current_clip_path(&self) -> Option<vello_common::clip::PathDataRef<'_>> {
+        self.clip_context.get()
+    }
 }
 
 /// Saves a filtered pixmap to disk for debugging purposes.
