@@ -191,7 +191,7 @@ struct Clip {
 #[derive(Debug, Clone, Copy)]
 pub struct WideTilesBbox {
     /// The bounding box.
-    pub bbox: RectU16,
+    bbox: RectU16,
 }
 
 impl WideTilesBbox {
