@@ -5,6 +5,7 @@
 
 use super::commands::AtlasCommandRecorder;
 use super::key::GlyphCacheKey;
+#[cfg(all(debug_assertions, feature = "std"))]
 use super::key::SUBPIXEL_BUCKETS;
 use super::region::{AtlasSlot, RasterMetrics};
 use crate::Pixmap;
@@ -13,7 +14,6 @@ use alloc::vec::Vec;
 use core::fmt::{Debug, Formatter};
 use foldhash::fast::FixedState;
 use hashbrown::HashMap;
-use hashbrown::HashSet;
 use hashbrown::hash_map::RawEntryMut;
 use smallvec::SmallVec;
 pub use vello_common::image_cache::ImageCache;
@@ -71,84 +71,11 @@ impl Default for GlyphCacheConfig {
     }
 }
 
-/// Common interface for glyph atlas caches.
-///
-/// Rendering code is generic over this trait, so different backends can provide
-/// different storage strategies without duplicating orchestration logic.
-pub trait GlyphCache {
-    /// Look up a cached glyph.
-    ///
-    /// Returns `Some(AtlasSlot)` on cache hit (copy), `None` on miss.
-    /// Updates the entry's access time on hit.
-    fn get(&mut self, key: &GlyphCacheKey) -> Option<AtlasSlot>;
-
-    /// Insert a glyph entry and allocate space in the atlas.
-    ///
-    /// Returns `(dst_x, dst_y, atlas_slot, recorder)` if successful, `None`
-    /// if allocation failed (e.g., atlas is full).  The returned recorder
-    /// accumulates draw commands for the atlas page the glyph was placed on.
-    fn insert(
-        &mut self,
-        image_cache: &mut ImageCache,
-        key: GlyphCacheKey,
-        raster_metrics: RasterMetrics,
-    ) -> Option<(u16, u16, AtlasSlot, &mut AtlasCommandRecorder)>;
-
-    /// Queue a bitmap pixmap for later processing.
-    fn push_pending_upload(
-        &mut self,
-        image_id: ImageId,
-        pixmap: Arc<Pixmap>,
-        atlas_slot: AtlasSlot,
-    );
-
-    /// Drain all pending bitmap uploads, keeping the allocation for reuse.
-    fn drain_pending_uploads(&mut self) -> impl Iterator<Item = PendingBitmapUpload> + '_;
-
-    /// Replay all pending atlas command recorders (one per dirty page).
-    ///
-    /// The closure receives each non-empty recorder by mutable reference.
-    /// After the closure returns, the recorder's commands are cleared but
-    /// the allocation is kept for reuse next frame.
-    fn replay_pending_atlas_commands(&mut self, f: impl FnMut(&mut AtlasCommandRecorder));
-
-    /// Drain all pending clear rects, keeping the allocation for reuse.
-    ///
-    /// Each rect describes an atlas region that was freed during
-    /// [`maintain`](GlyphCache::maintain) and must be zeroed to transparent.
-    /// Drain these **after** calling `maintain`.
-    fn drain_pending_clear_rects(&mut self) -> impl Iterator<Item = PendingClearRect> + '_;
-
-    /// Advance the frame counter and potentially evict old entries.
-    fn maintain(&mut self, image_cache: &mut ImageCache);
-
-    /// Clear the entire cache.
-    fn clear(&mut self);
-
-    /// Get the number of cached glyphs.
-    fn len(&self) -> usize;
-
-    /// Returns `true` if the cache contains no entries.
-    fn is_empty(&self) -> bool;
-
-    /// Get the number of cache hits since last `clear_stats()`.
-    fn cache_hits(&self) -> u64;
-
-    /// Get the number of cache misses since last `clear_stats()`.
-    fn cache_misses(&self) -> u64;
-
-    /// Reset cache hit/miss counters without clearing the cache itself.
-    fn clear_stats(&mut self);
-
-    /// Returns the cache configuration.
-    fn config(&self) -> &GlyphCacheConfig;
-}
-
 /// A bitmap glyph pixmap awaiting GPU upload.
 ///
 /// Accumulated during glyph encoding when a bitmap glyph is inserted into the
 /// atlas cache. The application must drain these via
-/// [`GlyphCache::drain_pending_uploads`] and upload each pixmap to the
+/// [`GlyphAtlas::drain_pending_uploads`] and upload each pixmap to the
 /// GPU atlas at the position indicated by `image_id` (look up via
 /// `ImageCache::get` to obtain atlas layer and offset).
 #[derive(Debug)]
@@ -166,7 +93,7 @@ pub struct PendingBitmapUpload {
 ///
 /// Accumulated during eviction ([`GlyphAtlas::maintain`]) for every evicted
 /// glyph. The application must drain these via
-/// [`GlyphCache::drain_pending_clear_rects`] **after** calling `maintain` so
+/// [`GlyphAtlas::drain_pending_clear_rects`] **after** calling `maintain` so
 /// that freed atlas regions are zeroed before the slot is reused on a
 /// subsequent frame. This prevents stale pixel data from bleeding through
 /// when the renderer composites (`SrcOver`) onto the atlas.
@@ -188,7 +115,7 @@ pub struct PendingClearRect {
 ///
 /// Contains the cache entries, LRU tracking, pending uploads, and statistics.
 /// Does **not** own any pixel storage — that responsibility belongs to the
-/// concrete wrapper types ([`CpuGlyphAtlas`](crate::renderers::vello_cpu::CpuGlyphAtlas), [`GpuGlyphAtlas`](crate::renderers::vello_hybrid::GpuGlyphAtlas)).
+/// concrete wrapper types provided by the integrating renderer crate.
 pub struct GlyphAtlas {
     /// Eviction configuration.
     eviction_config: GlyphCacheConfig,
@@ -278,9 +205,7 @@ impl GlyphAtlas {
 
     /// Allocate atlas space and insert a cache entry.
     ///
-    /// Returns `(page_index, dst_x, dst_y, atlas_slot)` on success. The caller is
-    /// responsible for ensuring the atlas page at `page_index` exists in its
-    /// storage backend.
+    /// Returns the allocated [`AtlasSlot`] on success.
     #[expect(
         clippy::cast_possible_truncation,
         reason = "atlas offsets fit in u16 at reasonable atlas sizes"
@@ -290,7 +215,7 @@ impl GlyphAtlas {
         image_cache: &mut ImageCache,
         key: GlyphCacheKey,
         raster_metrics: RasterMetrics,
-    ) -> Option<(usize, u16, u16, AtlasSlot)> {
+    ) -> Option<AtlasSlot> {
         let padded_w = u32::from(raster_metrics.width) + u32::from(GLYPH_PADDING) * 2;
         let padded_h = u32::from(raster_metrics.height) + u32::from(GLYPH_PADDING) * 2;
 
@@ -333,7 +258,27 @@ impl GlyphAtlas {
         entries.insert(key, entry);
         self.entry_count += 1;
 
-        Some((page_index, atlas_slot.x, atlas_slot.y, atlas_slot))
+        Some(atlas_slot)
+    }
+
+    /// Allocate atlas space, insert a cache entry, and return the page recorder.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "atlas dimensions are configured to fit in u16"
+    )]
+    pub fn insert(
+        &mut self,
+        image_cache: &mut ImageCache,
+        key: GlyphCacheKey,
+        raster_metrics: RasterMetrics,
+    ) -> Option<(AtlasSlot, &mut AtlasCommandRecorder)> {
+        let atlas_slot = self.insert_entry(image_cache, key, raster_metrics)?;
+        let (atlas_w, atlas_h) = {
+            let (w, h) = image_cache.atlas_manager().config().atlas_size;
+            (w as u16, h as u16)
+        };
+        let recorder = self.recorder_for_page(atlas_slot.page_index, atlas_w, atlas_h);
+        Some((atlas_slot, recorder))
     }
 
     /// Drain all pending bitmap uploads, keeping the allocation for reuse.
@@ -502,7 +447,7 @@ fn push_clear_rect_for_slot(pending: &mut Vec<PendingClearRect>, slot: &AtlasSlo
 }
 
 /// Statistics about cached glyphs.
-#[cfg(debug_assertions)]
+#[cfg(all(debug_assertions, feature = "std"))]
 #[derive(Debug)]
 pub struct GlyphCacheStats {
     /// Number of glyphs from static (non-variable) fonts.
@@ -519,7 +464,7 @@ pub struct GlyphCacheStats {
     pub sizes_used: Vec<f32>,
 }
 
-#[cfg(debug_assertions)]
+#[cfg(all(debug_assertions, feature = "std"))]
 impl GlyphCacheStats {
     /// Total number of cached glyph entries (static + variable).
     pub fn total_glyphs(&self) -> usize {
@@ -527,10 +472,12 @@ impl GlyphCacheStats {
     }
 }
 
-#[cfg(debug_assertions)]
+#[cfg(all(debug_assertions, feature = "std"))]
 impl GlyphAtlas {
     /// Get detailed statistics about cached glyphs.
     pub fn stats(&self, page_count: usize) -> GlyphCacheStats {
+        use std::collections::HashSet;
+
         let mut unique_ids = HashSet::new();
         let mut subpixel_dist = [0; SUBPIXEL_BUCKETS as usize];
         let mut sizes = HashSet::new();

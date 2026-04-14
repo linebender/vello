@@ -5,6 +5,10 @@
 
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
+#[cfg(feature = "text")]
+use crate::text::{GlyphAtlasResources, GlyphRunBuilder};
+#[cfg(feature = "text")]
+use glifo::GlyphPrepCache;
 
 #[cfg(feature = "multithreading")]
 use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
@@ -21,8 +25,6 @@ use vello_common::fearless_simd::Level;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
-#[cfg(feature = "text")]
-use vello_common::paint::{Image, ImageSource};
 use vello_common::paint::{ImageId, ImageResolver, Paint, PaintType, Tint};
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Fill};
@@ -33,12 +35,56 @@ use vello_common::recording::{
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use vello_common::util::is_axis_aligned;
+
 #[cfg(feature = "text")]
-use vello_common::{
-    color::{AlphaColor, Srgb},
-    colr::{ColrPainter, ColrRenderer},
-    glyph::{GlyphCaches, GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph},
-};
+pub(crate) const DEFAULT_GLYPH_ATLAS_SIZE: u16 = 4096;
+// Why do we need this? The reason is that the way uploaded images work in Vello Hybrid
+// is different from how they work in Vello CPU.
+//
+// In Vello Hybrid, all images, regardless of whether they are user-uploaded
+// images or cached glyphs, are stored in an image atlas at a certain location. An image ID then
+// uniquely resolves to an atlas page index + a location on that page. Whenever we want to
+// cache a new glyph, we simply allocate a location in the image atlas and then return the image
+// ID associated with that location.
+//
+// On Vello CPU, it works differently: An image ID is associated with a complete pixmap.
+// If a user uploads an image, instead of blitting it into a bigger image atlas, we just
+// store the user-provided pixmap and associate an image ID with the whole pixmap. However,
+// for glyph caching to work we need the same semantics as in Vello Hybrid. Therefore, we
+// use a marker to determine whether an image ID refers to a normal uploaded image or a cached
+// glyph and apply special handling based on that.
+//
+// All IDs < than this value are reserved for normal images, all IDs >= this value are
+// reserved for atlas pages.
+pub(crate) const ATLAS_IMAGE_ID_BASE: u32 = u32::MAX / 2;
+
+/// Persistent resources required by Vello CPU for rendering.
+#[derive(Debug, Default)]
+pub struct Resources {
+    pub(crate) image_registry: ImageRegistry,
+    #[cfg(feature = "text")]
+    pub(crate) glyph_prep_cache: GlyphPrepCache,
+    // Will be initialized lazily on first use.
+    #[cfg(feature = "text")]
+    pub(crate) glyph_resources: Option<GlyphAtlasResources>,
+}
+
+impl Resources {
+    /// Create a new set of renderer resources.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn before_render(&mut self) {
+        #[cfg(feature = "text")]
+        self.prepare_glyph_cache();
+    }
+
+    pub(crate) fn after_render(&mut self) {
+        #[cfg(feature = "text")]
+        self.maintain_glyph_cache();
+    }
+}
 
 /// A render context for CPU-based 2D graphics rendering.
 ///
@@ -67,10 +113,6 @@ pub struct RenderContext {
     )]
     pub(crate) render_settings: RenderSettings,
     dispatcher: Box<dyn Dispatcher>,
-    #[cfg(feature = "text")]
-    pub(crate) glyph_caches: Option<GlyphCaches>,
-    /// Registry for resolving `ImageSource::OpaqueId` to pixmap data.
-    image_registry: ImageRegistry,
 }
 
 /// Settings to apply to the render context.
@@ -148,9 +190,6 @@ impl RenderContext {
             temp_path,
             encoded_paints,
             filter: None,
-            #[cfg(feature = "text")]
-            glyph_caches: Some(GlyphCaches::default()),
-            image_registry: ImageRegistry::new(),
         }
     }
 
@@ -316,8 +355,20 @@ impl RenderContext {
 
     /// Creates a builder for drawing a run of glyphs that have the same attributes.
     #[cfg(feature = "text")]
-    pub fn glyph_run(&mut self, font: &crate::peniko::FontData) -> GlyphRunBuilder<'_, Self> {
-        GlyphRunBuilder::new(font.clone(), self.state.transform, self)
+    pub fn glyph_run<'a>(
+        &'a mut self,
+        resources: &'a mut Resources,
+        font: &crate::peniko::FontData,
+    ) -> GlyphRunBuilder<'a> {
+        glifo::GlyphRunBuilder::new(
+            font.clone(),
+            self.state.transform,
+            crate::text::CpuGlyphRunBackend {
+                ctx: self,
+                resources,
+                atlas_cache_enabled: false,
+            },
+        )
     }
 
     /// Push a new layer with the given properties.
@@ -427,7 +478,7 @@ impl RenderContext {
     ///
     /// If the paint is an image with `ImageSource::OpaqueId`, it will be
     /// resolved to the corresponding pixmap at rasterization time.
-    /// Make sure to register images with [`register_image`](Self::register_image) first.
+    /// Make sure to register images with [`Resources::register_image`] first.
     pub fn set_paint(&mut self, paint: impl Into<PaintType>) {
         self.state.paint = paint.into();
     }
@@ -535,9 +586,6 @@ impl RenderContext {
         self.encoded_paints.clear();
         self.mask = None;
         self.state.reset();
-        #[cfg(feature = "text")]
-        self.glyph_caches.as_mut().unwrap().maintain();
-        self.clear_images();
     }
 
     /// Push a new clip path to the clip stack.
@@ -574,6 +622,7 @@ impl RenderContext {
     /// The buffer is expected to be in premultiplied RGBA8 format with length `width * height * 4`
     pub fn render_to_buffer(
         &self,
+        resources: &mut Resources,
         buffer: &mut [u8],
         width: u16,
         height: u16,
@@ -591,21 +640,30 @@ impl RenderContext {
             buffer.len(),
         );
 
+        resources.before_render();
+
         self.dispatcher.rasterize(
             buffer,
             render_mode,
             width,
             height,
             &self.encoded_paints,
-            &self.image_registry,
+            &resources.image_registry,
         );
+        // TODO: We need to figure something out here API-wise. At the moment, the user can
+        // theoretically rasterize the same `RenderContext` multiple times without resetting in-between.
+        // However, if glyph caching is enabled, this method call could now evict that were previously
+        // assumed to exist in `RenderContext`, meaning that if the user rasterizes the same `RenderContext`
+        // again without resetting it, some of the cached glyphs might be stale and not exist anymore.
+        resources.after_render();
     }
 
     /// Render the current context into a pixmap.
-    pub fn render_to_pixmap(&self, pixmap: &mut Pixmap) {
+    pub fn render_to_pixmap(&self, resources: &mut Resources, pixmap: &mut Pixmap) {
         let width = pixmap.width();
         let height = pixmap.height();
         self.render_to_buffer(
+            resources,
             pixmap.data_as_u8_slice_mut(),
             width,
             height,
@@ -630,7 +688,13 @@ impl RenderContext {
     ///
     /// This method is only supported with the single-threaded dispatcher and will
     /// **panic** if called on a `RenderContext` using the multi-threaded dispatcher.
-    pub fn composite_to_pixmap_at_offset(&self, pixmap: &mut Pixmap, dst_x: u16, dst_y: u16) {
+    pub fn composite_to_pixmap_at_offset(
+        &self,
+        resources: &Resources,
+        pixmap: &mut Pixmap,
+        dst_x: u16,
+        dst_y: u16,
+    ) {
         let dst_buffer_width = pixmap.width();
         let dst_buffer_height = pixmap.height();
         self.dispatcher.composite_at_offset(
@@ -643,7 +707,7 @@ impl RenderContext {
             dst_buffer_height,
             self.render_settings.render_mode,
             &self.encoded_paints,
-            &self.image_registry,
+            &resources.image_registry,
         );
     }
 
@@ -693,7 +757,7 @@ impl RenderContext {
 }
 
 /// Image registry implementation.
-impl RenderContext {
+impl Resources {
     /// Register a pixmap in the image registry and return its [`ImageId`].
     pub fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
         self.image_registry.register(pixmap)
@@ -715,214 +779,13 @@ impl RenderContext {
     }
 }
 
-#[cfg(feature = "text")]
-impl GlyphRenderer for RenderContext {
-    fn fill_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
-        match prepared_glyph.glyph_type {
-            GlyphType::Outline(glyph) => {
-                let paint = self.encode_current_paint();
-                self.dispatcher.fill_path(
-                    glyph.path,
-                    Fill::NonZero,
-                    prepared_glyph.transform,
-                    paint,
-                    self.state.blend_mode,
-                    self.aliasing_threshold,
-                    self.mask.clone(),
-                    &self.encoded_paints,
-                );
-            }
-            GlyphType::Bitmap(glyph) => {
-                // We need to change the state of the render context
-                // to render the bitmap, but don't want to pollute the context,
-                // so simulate a `save` and `restore` operation.
-
-                use vello_common::peniko::ImageSampler;
-                let old_transform = self.state.transform;
-                let old_paint = self.state.paint.clone();
-
-                // If we scale down by a large factor, fall back to cubic scaling.
-                let quality = if prepared_glyph.transform.as_coeffs()[0] < 0.5
-                    || prepared_glyph.transform.as_coeffs()[3] < 0.5
-                {
-                    crate::peniko::ImageQuality::High
-                } else {
-                    crate::peniko::ImageQuality::Medium
-                };
-
-                let image = Image {
-                    image: ImageSource::Pixmap(Arc::new(glyph.pixmap)),
-                    sampler: ImageSampler {
-                        x_extend: crate::peniko::Extend::Pad,
-                        y_extend: crate::peniko::Extend::Pad,
-                        quality,
-                        alpha: 1.0,
-                    },
-                };
-
-                self.set_paint(image);
-                self.set_transform(prepared_glyph.transform);
-                self.fill_rect(&glyph.area);
-
-                // Restore the state.
-                self.set_paint(old_paint);
-                self.state.transform = old_transform;
-            }
-            GlyphType::Colr(glyph) => {
-                // Same as for bitmap glyphs, save the state and restore it later on.
-
-                use vello_common::peniko::ImageSampler;
-                let old_transform = self.state.transform;
-                let old_paint = self.state.paint.clone();
-                let context_color = match old_paint {
-                    PaintType::Solid(s) => s,
-                    _ => BLACK,
-                };
-
-                let area = glyph.area;
-
-                let glyph_pixmap = {
-                    let settings = RenderSettings {
-                        level: self.render_settings.level,
-                        render_mode: self.render_settings.render_mode,
-                        num_threads: 0,
-                    };
-
-                    let mut ctx = Self::new_with(glyph.pix_width, glyph.pix_height, settings);
-                    let mut pix = Pixmap::new(glyph.pix_width, glyph.pix_height);
-
-                    let mut colr_painter = ColrPainter::new(glyph, context_color, &mut ctx);
-                    colr_painter.paint();
-
-                    // Technically not necessary since we always render single-threaded, but just
-                    // to be safe.
-                    ctx.flush();
-                    ctx.render_to_pixmap(&mut pix);
-
-                    pix
-                };
-
-                let has_skew = prepared_glyph.transform.as_coeffs()[1] != 0.0
-                    || prepared_glyph.transform.as_coeffs()[2] != 0.0;
-
-                let image = Image {
-                    image: ImageSource::Pixmap(Arc::new(glyph_pixmap)),
-                    sampler: ImageSampler {
-                        x_extend: crate::peniko::Extend::Pad,
-                        y_extend: crate::peniko::Extend::Pad,
-
-                        quality: if has_skew {
-                            // Even though the pixmap has the "correct" size, the skewing
-                            // might cause aliasing artifacts since the pixels don't map
-                            // perfectly to the pixmap, so we use bilinear scaling here.
-                            crate::peniko::ImageQuality::Medium
-                        } else {
-                            // Since the pixmap will already have the correct size, no need to
-                            // use a different image quality here.
-                            crate::peniko::ImageQuality::Low
-                        },
-                        alpha: 1.0,
-                    },
-                };
-
-                self.set_paint(image);
-                self.set_transform(prepared_glyph.transform);
-                self.fill_rect(&area);
-
-                // Restore the state.
-                self.set_paint(old_paint);
-                self.state.transform = old_transform;
-            }
-        }
-    }
-
-    fn stroke_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
-        match prepared_glyph.glyph_type {
-            GlyphType::Outline(glyph) => {
-                let paint = self.encode_current_paint();
-                self.dispatcher.stroke_path(
-                    glyph.path,
-                    &self.state.stroke,
-                    prepared_glyph.transform,
-                    paint,
-                    self.state.blend_mode,
-                    self.aliasing_threshold,
-                    self.mask.clone(),
-                    &self.encoded_paints,
-                );
-            }
-            GlyphType::Bitmap(_) | GlyphType::Colr(_) => {
-                // The definitions of COLR and bitmap glyphs can't meaningfully support being stroked.
-                // (COLR's imaging model only has fills)
-                self.fill_glyph(prepared_glyph);
-            }
-        }
-    }
-
-    fn take_glyph_caches(&mut self) -> GlyphCaches {
-        self.glyph_caches.take().unwrap()
-    }
-
-    fn restore_glyph_caches(&mut self, cache: GlyphCaches) {
-        self.glyph_caches = Some(cache);
-    }
-}
-
-#[cfg(feature = "text")]
-impl ColrRenderer for RenderContext {
-    fn push_clip_layer(&mut self, clip: &BezPath) {
-        Self::push_clip_layer(self, clip);
-    }
-
-    fn push_blend_layer(&mut self, blend_mode: BlendMode) {
-        Self::push_blend_layer(self, blend_mode);
-    }
-
-    fn fill_solid(&mut self, color: AlphaColor<Srgb>) {
-        self.set_paint(color);
-        self.fill_rect(&Rect::new(
-            0.0,
-            0.0,
-            f64::from(self.width),
-            f64::from(self.height),
-        ));
-    }
-
-    fn fill_gradient(&mut self, gradient: crate::peniko::Gradient) {
-        self.set_paint(gradient);
-        self.fill_rect(&Rect::new(
-            0.0,
-            0.0,
-            f64::from(self.width),
-            f64::from(self.height),
-        ));
-    }
-
-    fn set_paint_transform(&mut self, affine: Affine) {
-        Self::set_paint_transform(self, affine);
-    }
-
-    fn pop_layer(&mut self) {
-        Self::pop_layer(self);
-    }
-}
-
 impl Recordable for RenderContext {
     fn record<F>(&mut self, recording: &mut Recording, f: F)
     where
         F: FnOnce(&mut Recorder<'_>),
     {
-        let mut recorder = Recorder::new(
-            recording,
-            self.state.transform,
-            #[cfg(feature = "text")]
-            self.take_glyph_caches(),
-        );
+        let mut recorder = Recorder::new(recording, self.state.transform);
         f(&mut recorder);
-        #[cfg(feature = "text")]
-        {
-            self.glyph_caches = Some(recorder.take_glyph_caches());
-        }
     }
 
     fn prepare_recording(&mut self, recording: &mut Recording) {
@@ -947,15 +810,6 @@ impl Recordable for RenderContext {
                 | RenderCommand::StrokePath(_)
                 | RenderCommand::FillRect(_)
                 | RenderCommand::StrokeRect(_) => {
-                    self.process_geometry_command(
-                        strip_start_indices,
-                        range_index,
-                        &adjusted_strips,
-                    );
-                    range_index += 1;
-                }
-                #[cfg(feature = "text")]
-                RenderCommand::FillOutlineGlyph(_) | RenderCommand::StrokeOutlineGlyph(_) => {
                     self.process_geometry_command(
                         strip_start_indices,
                         range_index,
@@ -1016,29 +870,40 @@ impl Recordable for RenderContext {
 /// Registry that maps opaque [`ImageId`]s to [`Pixmap`] data.
 ///
 /// Used by [`RenderContext`] to resolve `ImageSource::OpaqueId` at rasterization time.
-#[derive(Debug)]
-struct ImageRegistry {
+#[derive(Debug, Default)]
+pub(crate) struct ImageRegistry {
     images: HashMap<u32, Arc<Pixmap>>,
     next_id: u32,
 }
 
 impl ImageRegistry {
-    fn new() -> Self {
-        Self {
-            images: HashMap::new(),
-            next_id: 0,
-        }
-    }
-
     fn register(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
         let id = self.next_id;
+        assert!(
+            id < ATLAS_IMAGE_ID_BASE,
+            "image registry exhausted non-atlas image IDs"
+        );
+
         self.next_id += 1;
         self.images.insert(id, pixmap);
         ImageId::new(id)
     }
 
-    fn destroy(&mut self, id: ImageId) -> bool {
+    #[cfg(feature = "text")]
+    pub(crate) fn register_atlas_page(&mut self, page_index: u32, pixmap: Arc<Pixmap>) {
+        self.images.insert(
+            ImageId::new(ATLAS_IMAGE_ID_BASE + page_index).as_u32(),
+            pixmap,
+        );
+    }
+
+    pub(crate) fn destroy(&mut self, id: ImageId) -> bool {
         self.images.remove(&id.as_u32()).is_some()
+    }
+
+    #[cfg(feature = "text")]
+    pub(crate) fn destroy_atlas_page(&mut self, page_index: u32) -> bool {
+        self.destroy(ImageId::new(ATLAS_IMAGE_ID_BASE + page_index))
     }
 
     fn resolve(&self, id: ImageId) -> Option<Arc<Pixmap>> {
@@ -1123,30 +988,6 @@ impl RenderContext {
                         &self.temp_path,
                         &self.state.stroke,
                         self.state.transform,
-                        self.aliasing_threshold,
-                        &mut strip_storage,
-                        None,
-                    );
-                    strip_start_indices.push(start_index);
-                }
-                #[cfg(feature = "text")]
-                RenderCommand::FillOutlineGlyph((path, glyph_transform)) => {
-                    strip_generator.generate_filled_path(
-                        path,
-                        self.state.fill_rule,
-                        *glyph_transform,
-                        self.aliasing_threshold,
-                        &mut strip_storage,
-                        None,
-                    );
-                    strip_start_indices.push(start_index);
-                }
-                #[cfg(feature = "text")]
-                RenderCommand::StrokeOutlineGlyph((path, glyph_transform)) => {
-                    strip_generator.generate_stroked_path(
-                        path,
-                        &self.state.stroke,
-                        *glyph_transform,
                         self.aliasing_threshold,
                         &mut strip_storage,
                         None,
@@ -1238,6 +1079,12 @@ impl RenderContext {
 #[cfg(test)]
 mod tests {
     use crate::RenderContext;
+    #[cfg(feature = "text")]
+    use crate::peniko::{Blob, FontData};
+    #[cfg(feature = "text")]
+    use alloc::sync::Arc;
+    #[cfg(feature = "text")]
+    use glifo::Glyph;
     use vello_common::kurbo::{Rect, Shape};
     use vello_common::tile::Tile;
 
@@ -1267,12 +1114,43 @@ mod tests {
             render_mode: RenderMode::OptimizeQuality,
         };
 
+        let mut resources = crate::Resources::new();
         let mut ctx = RenderContext::new_with(200, 200, settings);
         ctx.reset();
         ctx.fill_path(&Rect::new(0.0, 0.0, 100.0, 100.0).to_path(0.1));
         ctx.flush();
-        ctx.render_to_pixmap(&mut pixmap);
+        ctx.render_to_pixmap(&mut resources, &mut pixmap);
         ctx.flush();
-        ctx.render_to_pixmap(&mut pixmap);
+        ctx.render_to_pixmap(&mut resources, &mut pixmap);
+    }
+
+    #[cfg(feature = "text")]
+    #[test]
+    fn glyph_atlas_resources_are_lazy() {
+        const ROBOTO_FONT: &[u8] =
+            include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");
+
+        let font = FontData::new(Blob::new(Arc::new(ROBOTO_FONT)), 0);
+        let glyphs = [Glyph {
+            id: 1,
+            x: 0.0,
+            y: 0.0,
+        }];
+
+        let mut resources = crate::Resources::new();
+        let mut ctx = RenderContext::new(100, 100);
+
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 10.0, 10.0));
+        ctx.fill_path(&Rect::new(10.0, 10.0, 20.0, 20.0).to_path(0.1));
+        ctx.glyph_run(&mut resources, &font)
+            .fill_glyphs(glyphs.into_iter());
+
+        assert!(resources.glyph_resources.is_none());
+
+        ctx.glyph_run(&mut resources, &font)
+            .atlas_cache(true)
+            .fill_glyphs(glyphs.into_iter());
+
+        assert!(resources.glyph_resources.is_some());
     }
 }

@@ -30,7 +30,12 @@ impl fmt::Debug for SvgScene {
 }
 
 impl ExampleScene for SvgScene {
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+    fn render<T: RenderingContext>(
+        &mut self,
+        ctx: &mut T,
+        _resources: &mut T::Resources,
+        root_transform: Affine,
+    ) {
         let current_transform = root_transform * self.transform;
 
         if self.recording_enabled {
@@ -91,8 +96,8 @@ impl CachedRecording {
 }
 
 /// Try to reuse an existing recording, either directly (TODO: or with translation)
-fn try_reuse_recording(
-    ctx: &mut impl RenderingContext,
+fn try_reuse_recording<T: RenderingContext>(
+    ctx: &mut T,
     recording: &mut CachedRecording,
     current_transform: Affine,
 ) -> RenderResult {
@@ -117,9 +122,9 @@ fn try_reuse_recording(
 }
 
 /// Record a fresh scene from scratch
-fn record_fresh(
+fn record_fresh<T: RenderingContext>(
     scene_obj: &mut SvgScene,
-    ctx: &mut impl RenderingContext,
+    ctx: &mut T,
     current_transform: Affine,
 ) {
     #[cfg(not(target_arch = "wasm32"))]

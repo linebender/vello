@@ -1,14 +1,13 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Glifo provides APIs for efficiently rendering glyphs and paint styles like underline.
+//! Glifo provides APIs for rendering and caching glyphs in a backend-agnostic way.
 //!
 //! ## Features
 //!
 //! - `std` (enabled by default): Get floating point functions from the standard library
 //!   (likely using your target's libc).
 //! - `libm`: Use floating point implementations from `libm`.
-//! - `vello_cpu` (enabled by default): Implements `GlyphRenderer` for Vello CPU's `RenderContext`.
 //! - `png`: Enables PNG support for drawing bitmap glyphs.
 //!
 //! At least one of `std` and `libm` is required.
@@ -26,8 +25,11 @@
 #![no_std]
 
 extern crate alloc;
-#[cfg(feature = "libm")]
+#[cfg(all(feature = "std", feature = "libm"))]
 use core_maths as _;
+
+// Currently used for debugging in `cache.rs`, but only in debug build.
+use log as _;
 #[cfg(feature = "png")]
 use png as _;
 #[cfg(feature = "std")]
@@ -39,23 +41,17 @@ use vello_common::pixmap::Pixmap;
 pub mod atlas;
 mod colr;
 mod glyph;
+mod interface;
+pub mod renderer;
 mod util;
-
-pub mod renderers;
 
 pub use atlas::{
     AtlasCommand, AtlasCommandRecorder, AtlasConfig, AtlasPaint, AtlasSlot, GLYPH_PADDING,
-    GlyphAtlas, GlyphCache, GlyphCacheConfig, GlyphCacheKey, ImageCache, PendingClearRect,
-    RasterMetrics,
+    GlyphAtlas, GlyphCacheConfig, GlyphCacheKey, ImageCache, PendingClearRect, RasterMetrics,
 };
-pub use colr::{ColrPainter, ColrRenderer};
 pub use glyph::{
-    CachedGlyphType, Glyph, GlyphBitmap, GlyphCaches, GlyphColr, GlyphOutline, GlyphRenderer,
-    GlyphRunBuilder, GlyphRunRenderer, GlyphType, HintCache, HintKey, OutlineCache, PreparedGlyph,
+    AtlasCacher, Glyph, GlyphCaches, GlyphColr, GlyphPrepCache, GlyphPrepCacheMut, GlyphRun,
+    GlyphRunBackend, GlyphRunBuilder, GlyphRunRenderer, HintCache, HintKey, NormalizedCoord,
+    OutlineCache,
 };
-
-#[cfg(feature = "vello_cpu")]
-pub use renderers::vello_cpu::{CpuGlyphAtlas, CpuGlyphCaches};
-
-#[cfg(feature = "vello_hybrid")]
-pub use renderers::vello_hybrid::{GpuGlyphAtlas, GpuGlyphCaches};
+pub use interface::{DrawSink, GlyphRenderer};

@@ -11,14 +11,15 @@ pub mod gradient;
 pub mod image;
 pub mod multi_image;
 pub mod path;
+pub mod random_text;
 pub mod simple;
 pub mod svg;
 pub mod text;
 
+use glifo::GlyphRunBackend;
 use vello_common::coarse::WideTile;
 use vello_common::color::palette::css::WHITE;
 use vello_common::filter_effects::Filter;
-pub use vello_common::glyph::{GlyphRenderer, GlyphRunBuilder};
 use vello_common::kurbo::Affine;
 pub use vello_common::kurbo::{BezPath, Rect, Shape, Stroke};
 pub use vello_common::mask::Mask;
@@ -27,13 +28,17 @@ pub use vello_common::paint::{Paint, PaintType};
 pub use vello_common::peniko::{BlendMode, Fill, FontData};
 use vello_common::recording::{Recordable, Recorder, Recording};
 #[cfg(feature = "cpu")]
-use vello_cpu::RenderContext;
-use vello_hybrid::Scene;
+use vello_cpu::{RenderContext, Resources as CpuResources};
+use vello_hybrid::{Resources as HybridResources, Scene};
 
 /// A generic rendering context.
 pub trait RenderingContext: Sized {
-    /// The glyph renderer type.
-    type GlyphRenderer: GlyphRenderer;
+    /// Backend-specific resource bundle required during rendering.
+    type Resources;
+    /// Backend-specific glyph backend used by [`glifo::GlyphRunBuilder`].
+    type GlyphRunBackend<'a>: GlyphRunBackend<'a>
+    where
+        Self: 'a;
 
     /// Width of the render target in pixels.
     fn width(&self) -> u16;
@@ -63,7 +68,11 @@ pub trait RenderingContext: Sized {
     /// Fill a rectangle with the current paint.
     fn fill_rect(&mut self, rect: &Rect);
     /// Create a glyph run builder for text rendering.
-    fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self::GlyphRenderer>;
+    fn glyph_run<'a>(
+        &'a mut self,
+        resources: &'a mut Self::Resources,
+        font: &FontData,
+    ) -> glifo::GlyphRunBuilder<'a, Self::GlyphRunBackend<'a>>;
     /// Push a clip layer.
     fn push_clip_layer(&mut self, path: &BezPath);
     /// Push a clip path.
@@ -91,7 +100,8 @@ pub trait RenderingContext: Sized {
 
 #[cfg(feature = "cpu")]
 impl RenderingContext for RenderContext {
-    type GlyphRenderer = Self;
+    type Resources = CpuResources;
+    type GlyphRunBackend<'a> = vello_cpu::CpuGlyphRunBackend<'a>;
 
     fn width(&self) -> u16 {
         self.width()
@@ -145,8 +155,12 @@ impl RenderingContext for RenderContext {
         self.fill_rect(rect);
     }
 
-    fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self> {
-        self.glyph_run(font)
+    fn glyph_run<'a>(
+        &'a mut self,
+        resources: &'a mut Self::Resources,
+        font: &FontData,
+    ) -> glifo::GlyphRunBuilder<'a, Self::GlyphRunBackend<'a>> {
+        self.glyph_run(resources, font)
     }
 
     fn push_clip_layer(&mut self, path: &BezPath) {
@@ -190,7 +204,8 @@ impl RenderingContext for RenderContext {
 }
 
 impl RenderingContext for Scene {
-    type GlyphRenderer = Self;
+    type Resources = HybridResources;
+    type GlyphRunBackend<'a> = vello_hybrid::HybridGlyphRunBackend<'a>;
 
     fn width(&self) -> u16 {
         self.width()
@@ -244,8 +259,12 @@ impl RenderingContext for Scene {
         self.fill_rect(rect);
     }
 
-    fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self> {
-        self.glyph_run(font)
+    fn glyph_run<'a>(
+        &'a mut self,
+        resources: &'a mut Self::Resources,
+        font: &FontData,
+    ) -> glifo::GlyphRunBuilder<'a, Self::GlyphRunBackend<'a>> {
+        self.glyph_run(resources, font)
     }
 
     fn push_clip_layer(&mut self, path: &BezPath) {
@@ -291,7 +310,12 @@ impl RenderingContext for Scene {
 /// Example scene that can maintain state between renders.
 pub trait ExampleScene {
     /// Render the scene using the current state.
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine);
+    fn render<T: RenderingContext>(
+        &mut self,
+        ctx: &mut T,
+        resources: &mut T::Resources,
+        root_transform: Affine,
+    );
 
     /// Handle key press events (optional).
     /// Returns true if the key was handled, false otherwise.
@@ -306,9 +330,10 @@ pub trait ExampleScene {
 }
 
 /// A type-erased example scene.
-pub struct AnyScene<T> {
+pub struct AnyScene<T: RenderingContext> {
     /// The render function that calls the wrapped scene's render method.
     render_fn: RenderFn<T>,
+    resources: T::Resources,
     /// The key handler function.
     key_handler_fn: KeyHandlerFn,
     /// The status query function.
@@ -318,7 +343,7 @@ pub struct AnyScene<T> {
 }
 
 /// A type-erased render function.
-type RenderFn<T> = Box<dyn FnMut(&mut T, Affine)>;
+type RenderFn<T> = Box<dyn FnMut(&mut T, &mut <T as RenderingContext>::Resources, Affine)>;
 
 /// A type-erased key handler function.
 type KeyHandlerFn = Box<dyn FnMut(&str) -> bool>;
@@ -326,7 +351,7 @@ type KeyHandlerFn = Box<dyn FnMut(&str) -> bool>;
 /// A type-erased status function.
 type StatusFn = Box<dyn Fn() -> Option<String>>;
 
-impl<T> std::fmt::Debug for AnyScene<T> {
+impl<T: RenderingContext> std::fmt::Debug for AnyScene<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AnyScene")
             .field("show_tile_grid", &self.show_widetile_columns)
@@ -334,7 +359,11 @@ impl<T> std::fmt::Debug for AnyScene<T> {
     }
 }
 
-impl<T: RenderingContext> AnyScene<T> {
+impl<T> AnyScene<T>
+where
+    T: RenderingContext,
+    T::Resources: Default,
+{
     /// Create a new `AnyScene` from any type that implements `ExampleScene`.
     pub fn new<S: ExampleScene + 'static>(scene: S) -> Self {
         let scene = std::rc::Rc::new(std::cell::RefCell::new(scene));
@@ -342,7 +371,10 @@ impl<T: RenderingContext> AnyScene<T> {
         let scene_status = scene.clone();
 
         Self {
-            render_fn: Box::new(move |s, transform| scene.borrow_mut().render(s, transform)),
+            render_fn: Box::new(move |s, resources, transform| {
+                scene.borrow_mut().render(s, resources, transform);
+            }),
+            resources: T::Resources::default(),
             key_handler_fn: Box::new(move |key| scene_clone.borrow_mut().handle_key(key)),
             status_fn: Box::new(move || scene_status.borrow().status()),
             show_widetile_columns: false,
@@ -352,7 +384,7 @@ impl<T: RenderingContext> AnyScene<T> {
     /// Render the scene.
     pub fn render(&mut self, ctx: &mut T, root_transform: Affine) {
         // Render the actual scene content
-        (self.render_fn)(ctx, root_transform);
+        (self.render_fn)(ctx, &mut self.resources, root_transform);
 
         // Draw tile grid overlay if enabled
         if self.show_widetile_columns {
@@ -379,6 +411,11 @@ impl<T: RenderingContext> AnyScene<T> {
     /// Get an optional status string from the scene.
     pub fn status(&self) -> Option<String> {
         (self.status_fn)()
+    }
+
+    /// Access the scene-owned resources.
+    pub fn resources_mut(&mut self) -> &mut T::Resources {
+        &mut self.resources
     }
 
     /// Toggle the tile grid overlay.
@@ -411,7 +448,10 @@ impl<T: RenderingContext> AnyScene<T> {
 pub fn get_example_scenes<T: RenderingContext + 'static>(
     svg_paths: Option<Vec<&str>>,
     img_sources: Vec<ImageSource>,
-) -> Box<[AnyScene<T>]> {
+) -> Box<[AnyScene<T>]>
+where
+    T::Resources: Default,
+{
     let mut scenes = Vec::new();
 
     // Create SVG scenes for each provided path.
@@ -426,6 +466,7 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
     }
 
     scenes.push(AnyScene::new(text::TextScene::new("Hello, Vello!")));
+    scenes.push(AnyScene::new(random_text::RandomTextScene::new()));
     scenes.push(AnyScene::new(simple::SimpleScene::new()));
     scenes.push(AnyScene::new(clip::ClipScene::new()));
     scenes.push(AnyScene::new(filter::FilterScene::new()));
@@ -453,10 +494,14 @@ pub fn get_example_scenes<T: RenderingContext + 'static>(
 #[cfg(target_arch = "wasm32")]
 pub fn get_example_scenes<T: RenderingContext + 'static>(
     img_sources: Vec<ImageSource>,
-) -> Box<[AnyScene<T>]> {
+) -> Box<[AnyScene<T>]>
+where
+    T::Resources: Default,
+{
     let scenes = vec![
         AnyScene::new(svg::SvgScene::tiger()),
         AnyScene::new(text::TextScene::new("Hello, Vello!")),
+        AnyScene::new(random_text::RandomTextScene::new()),
         AnyScene::new(simple::SimpleScene::new()),
         AnyScene::new(filter::FilterScene::new()),
         AnyScene::new(clip::ClipScene::new()),

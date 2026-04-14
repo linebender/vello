@@ -20,7 +20,7 @@ only break in edge cases, and some of them are also only related to conversions 
 
 use crate::render::common::IMAGE_PADDING;
 use crate::{
-    GpuStrip, RenderError, RenderSettings, RenderSize,
+    GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
     filter::{FilterContext, FilterInstanceData, FilterPassState, FilterPassTarget},
     gradient_cache::GradientRampCache,
     render::{
@@ -35,13 +35,15 @@ use crate::{
     },
     scene::Scene,
     schedule::{
-        LoadOp, OutputTarget, RendererBackend, Scheduler, SchedulerState, StripPassRenderTarget,
+        LoadOp, RendererBackend, RootRenderTarget, Scheduler, SchedulerState, StripPassRenderTarget,
     },
 };
 use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
 use bytemuck::{Pod, Zeroable};
 use core::{fmt::Debug, num::NonZeroU64};
+#[cfg(feature = "text")]
+use glifo::PendingClearRect;
 use vello_common::image_cache::{ImageCache, ImageResource};
 use vello_common::multi_atlas::{AtlasConfig, AtlasError, AtlasId};
 use vello_common::render_graph::LayerId;
@@ -87,8 +89,6 @@ pub struct Renderer {
     scheduler: Scheduler,
     /// The state used by the scheduler.
     scheduler_state: SchedulerState,
-    /// Image cache for storing images atlas allocations.
-    pub image_cache: ImageCache,
     /// Encoded paints for storing encoded paints.
     encoded_paints: Vec<GpuEncodedPaint>,
     /// Stores the index (offset) of the encoded paints in the encoded paints texture.
@@ -99,6 +99,9 @@ pub struct Renderer {
     filter_context: FilterContext,
     /// State used for constructing filter passes.
     filter_pass_state: FilterPassState,
+    dummy_image_cache: Option<ImageCache>,
+    #[cfg(feature = "text")]
+    atlas_clear_scratch: Vec<u8>,
 }
 
 impl Renderer {
@@ -156,12 +159,14 @@ impl Renderer {
             ),
             scheduler: Scheduler::new(total_slots),
             scheduler_state: SchedulerState::default(),
-            image_cache,
             gradient_cache,
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
             filter_context,
             filter_pass_state: FilterPassState::default(),
+            dummy_image_cache: Some(ImageCache::new_dummy()),
+            #[cfg(feature = "text")]
+            atlas_clear_scratch: Vec::new(),
         }
     }
 
@@ -170,6 +175,7 @@ impl Renderer {
         scene: &Scene,
         device: &Device,
         encoder: &mut CommandEncoder,
+        image_cache: &mut ImageCache,
         encoded_paints: &mut Vec<EncodedPaint>,
     ) -> Result<(), AtlasError> {
         // TODO: Maybe we can do the clear implicitly when using the textures for the first time.
@@ -195,17 +201,17 @@ impl Renderer {
         }
 
         self.filter_context
-            .deallocate_all_and_clear_context(&mut self.image_cache);
+            .deallocate_all_and_clear_context(image_cache);
 
         self.filter_context
-            .prepare(&scene.render_graph, &mut self.image_cache, encoded_paints)?;
+            .prepare(&scene.render_graph, image_cache, encoded_paints)?;
 
         Programs::maybe_resize_atlas_texture_array(
             device,
             encoder,
             &mut self.programs.resources,
             &self.programs.atlas_bind_group_layout,
-            self.image_cache.atlas_count() as u32,
+            image_cache.atlas_count() as u32,
         );
         self.programs.resources.filter_atlas.ensure_count(
             device,
@@ -224,16 +230,53 @@ impl Renderer {
     pub fn render(
         &mut self,
         scene: &Scene,
+        resources: &mut Resources,
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
         render_size: &RenderSize,
         view: &TextureView,
     ) -> Result<(), RenderError> {
+        #[cfg(feature = "text")]
+        {
+            resources.before_render(
+                self,
+                |renderer, glyph_renderer, atlas_count, atlas_config, atlas_id| {
+                    renderer
+                        .render_to_atlas(
+                            glyph_renderer,
+                            atlas_count,
+                            atlas_config,
+                            device,
+                            queue,
+                            atlas_id,
+                        )
+                        .expect("Failed to render glyphs to atlas");
+                },
+                |renderer, image_cache, upload, dst_x, dst_y| {
+                    renderer.write_to_atlas(
+                        image_cache,
+                        device,
+                        queue,
+                        encoder,
+                        upload.image_id,
+                        &upload.pixmap,
+                        Some([dst_x, dst_y]),
+                    );
+                },
+            );
+        }
+
         let mut encoded_paints = scene.encoded_paints.borrow_mut();
         let scene_paint_count = encoded_paints.len();
 
-        self.prepare_filter_textures(scene, device, encoder, &mut encoded_paints)?;
+        self.prepare_filter_textures(
+            scene,
+            device,
+            encoder,
+            &mut resources.image_cache,
+            &mut encoded_paints,
+        )?;
 
         // TODO: Passing `false` here because wgpu swapchain textures likely have
         // undefined initial content, making an explicit clear redundant in the common
@@ -245,11 +288,17 @@ impl Renderer {
             encoder,
             render_size,
             view,
+            &resources.image_cache,
             &encoded_paints,
             false,
+            RootRenderTarget::UserSurface,
         );
 
         encoded_paints.truncate(scene_paint_count);
+        #[cfg(feature = "text")]
+        resources.after_render(self, |renderer, rect| {
+            clear_atlas_region(queue, renderer, rect);
+        });
         result
     }
 
@@ -271,6 +320,8 @@ impl Renderer {
     pub fn render_to_atlas(
         &mut self,
         scene: &Scene,
+        atlas_count: u32,
+        atlas_config: AtlasConfig,
         device: &Device,
         queue: &Queue,
         atlas_id: AtlasId,
@@ -284,16 +335,13 @@ impl Renderer {
             &mut encoder,
             &mut self.programs.resources,
             &self.programs.atlas_bind_group_layout,
-            self.image_cache.atlas_count() as u32,
+            atlas_count,
         );
 
-        let AtlasConfig {
-            atlas_size: (atlas_width, atlas_height),
-            ..
-        } = self.image_cache.atlas_manager().config();
+        let (atlas_width, atlas_height) = atlas_config.atlas_size;
         let atlas_render_size = RenderSize {
-            width: *atlas_width,
-            height: *atlas_height,
+            width: atlas_width,
+            height: atlas_height,
         };
 
         let layer_view =
@@ -320,11 +368,11 @@ impl Renderer {
             &mut self.programs.resources.stub_atlas_bind_group,
         );
 
-        // TODO: The atlas is always RGBA8; when the surface uses a different format (e.g. BGRA on
-        // macOS), we may need a dedicated RGBA8 render pipeline for atlas rendering. Adopt the
-        // fix from the filters/native-format pipeline work when available.
-
         let encoded_paints = scene.encoded_paints.borrow();
+        let dummy_image_cache = self
+            .dummy_image_cache
+            .take()
+            .expect("dummy image cache must exist");
         let result = self.render_scene(
             scene,
             device,
@@ -332,9 +380,12 @@ impl Renderer {
             &mut encoder,
             &atlas_render_size,
             &layer_view,
+            &dummy_image_cache,
             &encoded_paints,
             false,
+            RootRenderTarget::AtlasLayer,
         );
+        self.dummy_image_cache = Some(dummy_image_cache);
 
         // Restore the real atlas bind group.
         core::mem::swap(
@@ -362,10 +413,12 @@ impl Renderer {
         encoder: &mut CommandEncoder,
         render_size: &RenderSize,
         view: &TextureView,
+        image_cache: &ImageCache,
         encoded_paints: &[EncodedPaint],
         clear: bool,
+        root_output_target: RootRenderTarget,
     ) -> Result<(), RenderError> {
-        self.prepare_gpu_encoded_paints(encoded_paints);
+        self.prepare_gpu_encoded_paints(encoded_paints, image_cache);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
@@ -389,7 +442,7 @@ impl Renderer {
             queue,
             encoder,
             view,
-            image_cache: &self.image_cache,
+            image_cache,
             filter_context: &self.filter_context,
             filter_pass_state: &mut self.filter_pass_state,
         };
@@ -397,6 +450,7 @@ impl Renderer {
             &mut self.scheduler_state,
             &mut ctx,
             scene,
+            root_output_target,
             &self.paint_idxs,
             &self.filter_context,
             encoded_paints,
@@ -437,16 +491,25 @@ impl Renderer {
     /// 3. Returns the `ImageId` for use in rendering
     pub fn upload_image<T: AtlasWriter>(
         &mut self,
+        resources: &mut Resources,
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
         writer: &T,
     ) -> vello_common::paint::ImageId {
-        self.upload_image_with(device, queue, encoder, writer, IMAGE_PADDING)
+        self.upload_image_with(
+            &mut resources.image_cache,
+            device,
+            queue,
+            encoder,
+            writer,
+            IMAGE_PADDING,
+        )
     }
 
     pub(crate) fn upload_image_with<T: AtlasWriter>(
         &mut self,
+        image_cache: &mut ImageCache,
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
@@ -455,8 +518,8 @@ impl Renderer {
     ) -> vello_common::paint::ImageId {
         let width = writer.width();
         let height = writer.height();
-        let image_id = self.image_cache.allocate(width, height, padding).unwrap();
-        self.write_to_atlas(device, queue, encoder, image_id, writer, None);
+        let image_id = image_cache.allocate(width, height, padding).unwrap();
+        self.write_to_atlas(image_cache, device, queue, encoder, image_id, writer, None);
         image_id
     }
 
@@ -469,9 +532,9 @@ impl Renderer {
     ///
     /// If `offset_override` is `Some`, the provided offset is used instead of the
     /// allocator-assigned position. Pass `None` to use the default atlas offset.
-    #[doc(hidden)]
-    pub fn write_to_atlas<T: AtlasWriter>(
+    pub(crate) fn write_to_atlas<T: AtlasWriter>(
         &mut self,
+        image_cache: &ImageCache,
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
@@ -479,17 +542,14 @@ impl Renderer {
         writer: &T,
         offset_override: Option<[u32; 2]>,
     ) {
-        let image_resource = self
-            .image_cache
-            .get(image_id)
-            .expect("Image resource not found");
+        let image_resource = image_cache.get(image_id).expect("Image resource not found");
 
         Programs::maybe_resize_atlas_texture_array(
             device,
             encoder,
             &mut self.programs.resources,
             &self.programs.atlas_bind_group_layout,
-            self.image_cache.atlas_count() as u32,
+            image_cache.atlas_count() as u32,
         );
         let offset = offset_override.unwrap_or([
             image_resource.offset[0] as u32,
@@ -510,12 +570,13 @@ impl Renderer {
     /// Destroy an image from the cache and clear the allocated slot in the atlas.
     pub fn destroy_image(
         &mut self,
+        image_cache: &mut ImageCache,
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
         image_id: vello_common::paint::ImageId,
     ) {
-        if let Some(image_resource) = self.image_cache.deallocate(image_id) {
+        if let Some(image_resource) = image_cache.deallocate(image_id) {
             let padding = image_resource.padding as u32;
 
             self.clear_atlas_region(
@@ -597,7 +658,11 @@ impl Renderer {
         render_pass.draw(0..4, 0..1);
     }
 
-    fn prepare_gpu_encoded_paints(&mut self, encoded_paints: &[EncodedPaint]) {
+    fn prepare_gpu_encoded_paints(
+        &mut self,
+        encoded_paints: &[EncodedPaint],
+        image_cache: &ImageCache,
+    ) {
         self.encoded_paints
             .resize_with(encoded_paints.len(), || GPU_PAINT_PLACEHOLDER);
         self.paint_idxs.resize(encoded_paints.len() + 1, 0);
@@ -608,7 +673,7 @@ impl Renderer {
             match paint {
                 EncodedPaint::Image(img) => {
                     if let ImageSource::OpaqueId { id: image_id, .. } = img.source {
-                        let image_resource: Option<&ImageResource> = self.image_cache.get(image_id);
+                        let image_resource: Option<&ImageResource> = image_cache.get(image_id);
                         if let Some(image_resource) = image_resource {
                             let image_paint = self.encode_image_paint(img, image_resource);
                             self.encoded_paints[encoded_paint_idx] = image_paint;
@@ -738,6 +803,36 @@ impl Renderer {
             }),
         }
     }
+}
+
+#[cfg(feature = "text")]
+fn clear_atlas_region(queue: &Queue, renderer: &mut Renderer, rect: &PendingClearRect) {
+    // TODO: Can we optimize this more?
+    let byte_count = rect.width as usize * rect.height as usize * 4;
+    renderer.atlas_clear_scratch.resize(byte_count, 0);
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: renderer.atlas_texture(),
+            mip_level: 0,
+            origin: wgpu::Origin3d {
+                x: rect.x as u32,
+                y: rect.y as u32,
+                z: rect.page_index,
+            },
+            aspect: wgpu::TextureAspect::All,
+        },
+        &renderer.atlas_clear_scratch[..byte_count],
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(rect.width as u32 * 4),
+            rows_per_image: None,
+        },
+        Extent3d {
+            width: rect.width as u32,
+            height: rect.height as u32,
+            depth_or_array_layers: 1,
+        },
+    );
 }
 
 /// Defines the GPU resources and pipelines for rendering.
@@ -2261,18 +2356,17 @@ impl RendererContext<'_> {
                 }
             }
         }
-
         let (view, bind_group, scissor_rect): (
             &TextureView,
             MaybeOwned<'_, BindGroup>,
             Option<[u32; 4]>,
         ) = match target {
-            StripPassRenderTarget::Output(OutputTarget::FinalView) => (
+            StripPassRenderTarget::Root(_) => (
                 self.view,
                 MaybeOwned::Borrowed(&self.programs.resources.slot_bind_groups[2]),
                 None,
             ),
-            StripPassRenderTarget::Output(OutputTarget::IntermediateTexture(layer_id)) => {
+            StripPassRenderTarget::FilterLayer(layer_id) => {
                 let image_id = self
                     .filter_context
                     .filter_textures
@@ -2370,9 +2464,14 @@ impl RendererContext<'_> {
             ),
         };
 
-        let pipeline_idx = match target {
-            StripPassRenderTarget::Output(OutputTarget::IntermediateTexture(_)) => 1,
-            _ => 0,
+        let pipeline_idx = if matches!(
+            target,
+            StripPassRenderTarget::Root(RootRenderTarget::AtlasLayer)
+                | StripPassRenderTarget::FilterLayer(_)
+        ) {
+            1
+        } else {
+            0
         };
 
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {

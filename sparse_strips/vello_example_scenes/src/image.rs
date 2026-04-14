@@ -32,7 +32,12 @@ impl ImageScene {
 }
 
 impl ExampleScene for ImageScene {
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+    fn render<T: RenderingContext>(
+        &mut self,
+        ctx: &mut T,
+        _resources: &mut T::Resources,
+        root_transform: Affine,
+    ) {
         let splash_flower_id = self.img_sources[0].clone();
         let cowboy_id = self.img_sources[1].clone();
 

@@ -1,7 +1,6 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::util::layout_glyphs_roboto;
 use vello_common::color::palette::css::{
     DARK_TURQUOISE, FUCHSIA, GOLD, GREEN, LIGHT_SALMON, ORANGE, ORCHID, PALE_VIOLET_RED, PURPLE,
     REBECCA_PURPLE,
@@ -79,46 +78,6 @@ fn recording_incremental_build(ctx: &mut impl Renderer) {
     ctx.execute_recording(&recording);
 }
 
-#[vello_test(width = 300, height = 70)]
-fn recording_glyphs(ctx: &mut impl Renderer) {
-    let font_size: f32 = 50_f32;
-    let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
-
-    let mut recording = Recording::new();
-    ctx.record(&mut recording, |ctx| {
-        ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-        ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
-        ctx.glyph_run(&font)
-            .font_size(font_size)
-            .hint(true)
-            .fill_glyphs(glyphs.into_iter());
-    });
-
-    ctx.prepare_recording(&mut recording);
-    ctx.execute_recording(&recording);
-}
-
-#[vello_test(width = 300, height = 70)]
-fn glyph_recording_outside_transform(ctx: &mut impl Renderer) {
-    let font_size: f32 = 50_f32;
-    let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
-
-    // Test differs from `recording_glyphs` as transform is set outside the recording context.
-    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
-
-    let mut recording = Recording::new();
-    ctx.record(&mut recording, |ctx| {
-        ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
-        ctx.glyph_run(&font)
-            .font_size(font_size)
-            .hint(true)
-            .fill_glyphs(glyphs.into_iter());
-    });
-
-    ctx.prepare_recording(&mut recording);
-    ctx.execute_recording(&recording);
-}
-
 #[vello_test(width = 50, height = 50)]
 fn recording_is_executed_at_recorded_transform(ctx: &mut impl Renderer) {
     ctx.set_transform(Affine::translate((10., 10.)));
@@ -149,18 +108,6 @@ fn recording_mixed_with_direct_drawing(ctx: &mut impl Renderer) {
     ctx.set_transform(Affine::IDENTITY);
     ctx.set_paint(LIGHT_SALMON);
     ctx.fill_rect(&Rect::new(120.0, 30.0, 180.0, 70.0));
-
-    // Record a glyph on the right.
-    let font_size: f32 = 40_f32;
-    let (font, glyphs) = layout_glyphs_roboto("A", font_size);
-    ctx.set_transform(Affine::translate((220.0, 60.0)));
-    ctx.record(&mut recording, |ctx| {
-        ctx.set_paint(ORANGE);
-        ctx.glyph_run(&font)
-            .font_size(font_size)
-            .hint(true)
-            .fill_glyphs(glyphs.into_iter());
-    });
 
     ctx.prepare_recording(&mut recording);
 
@@ -219,8 +166,6 @@ fn recording_can_be_cleared(ctx: &mut impl Renderer) {
 fn recording_is_executed_with_multiple_transforms(ctx: &mut impl Renderer) {
     ctx.set_transform(Affine::translate((15., 15.)));
 
-    let font_size: f32 = 10_f32;
-    let (font, glyphs) = layout_glyphs_roboto("A", font_size);
     let mut recording = Recording::new();
     ctx.record(&mut recording, |ctx| {
         ctx.set_paint(GOLD);
@@ -231,13 +176,6 @@ fn recording_is_executed_with_multiple_transforms(ctx: &mut impl Renderer) {
         ctx.set_paint(GREEN);
         ctx.set_transform(Affine::translate((25., 25.)));
         ctx.fill_rect(&Rect::new(0.0, 0.0, 5.0, 5.0));
-
-        ctx.set_transform(Affine::translate((5.0, 15.0)));
-        ctx.set_paint(ORANGE);
-        ctx.glyph_run(&font)
-            .font_size(font_size)
-            .hint(true)
-            .fill_glyphs(glyphs.into_iter());
     });
 
     ctx.set_transform(Affine::translate((30., 30.)));

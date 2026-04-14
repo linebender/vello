@@ -10,7 +10,7 @@ use std::io::BufWriter;
 use vello_common::kurbo::{Affine, Stroke};
 use vello_common::pico_svg::{Item, PicoSvg};
 use vello_common::pixmap::Pixmap;
-use vello_hybrid::{DimensionConstraints, Scene};
+use vello_hybrid::{DimensionConstraints, Resources, Scene};
 
 /// Main entry point for the headless rendering example.
 /// Takes two command line arguments:
@@ -82,6 +82,7 @@ async fn run() {
             height: height.into(),
         },
     );
+    let mut resources = Resources::new();
     let render_size = vello_hybrid::RenderSize {
         width: width.into(),
         height: height.into(),
@@ -93,6 +94,7 @@ async fn run() {
     renderer
         .render(
             &scene,
+            &mut resources,
             &device,
             &queue,
             &mut encoder,

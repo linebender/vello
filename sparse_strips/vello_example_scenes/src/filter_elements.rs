@@ -138,7 +138,12 @@ impl Default for FilterElementsScene {
 }
 
 impl ExampleScene for FilterElementsScene {
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+    fn render<T: RenderingContext>(
+        &mut self,
+        ctx: &mut T,
+        _resources: &mut T::Resources,
+        root_transform: Affine,
+    ) {
         let vw = ctx.width() as f64;
         let vh = ctx.height() as f64;
 

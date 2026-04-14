@@ -13,7 +13,12 @@ use vello_common::peniko::{BlendMode, Color, Compose, Mix};
 pub struct BlendScene {}
 
 impl ExampleScene for BlendScene {
-    fn render(&mut self, ctx: &mut impl RenderingContext, root_transform: Affine) {
+    fn render<T: RenderingContext>(
+        &mut self,
+        ctx: &mut T,
+        _resources: &mut T::Resources,
+        root_transform: Affine,
+    ) {
         render(ctx, root_transform);
     }
 }

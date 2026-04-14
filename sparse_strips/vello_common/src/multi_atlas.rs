@@ -472,6 +472,7 @@ pub struct AtlasConfig {
     pub initial_atlas_count: usize,
     /// Maximum number of atlases to create.
     pub max_atlases: usize,
+    // TODO: Make those u16 instead?
     /// Size of each atlas texture.
     pub atlas_size: (u32, u32),
     /// Whether to automatically create new atlases when needed.

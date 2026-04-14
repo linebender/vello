@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use std::{io::Cursor, path::Path};
 use vello_cpu::{
-    Image, ImageSource, Pixmap, RenderContext,
+    Image, ImageSource, Pixmap, RenderContext, Resources,
     color::palette::css::{BLUE, CYAN, DEEP_PINK, MAGENTA, NAVY, ORANGE, PURPLE, WHITE, YELLOW},
     kurbo::{Affine, Point, Rect},
     peniko::{
@@ -133,8 +133,9 @@ fn pattern() -> Image {
 }
 
 fn save_pixmap(ctx: &RenderContext, filename: &str) {
+    let mut resources = Resources::new();
     let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
-    ctx.render_to_pixmap(&mut pixmap);
+    ctx.render_to_pixmap(&mut resources, &mut pixmap);
     let png = pixmap.into_png().unwrap();
     std::fs::write(format!("{filename}.png"), png).unwrap();
 }

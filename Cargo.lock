@@ -1305,8 +1305,6 @@ dependencies = [
  "skrifa 0.40.0",
  "smallvec",
  "vello_common",
- "vello_cpu",
- "vello_hybrid",
 ]
 
 [[package]]
@@ -4014,7 +4012,6 @@ dependencies = [
  "peniko 0.6.0",
  "png",
  "roxmltree",
- "skrifa 0.40.0",
  "smallvec",
  "thiserror 2.0.18",
 ]
@@ -4025,8 +4022,10 @@ version = "0.0.7"
 dependencies = [
  "bytemuck",
  "crossbeam-channel",
+ "glifo",
  "hashbrown 0.16.1",
  "ordered-channel",
+ "png",
  "rayon",
  "thread_local",
  "vello_api",
@@ -4071,6 +4070,7 @@ dependencies = [
  "bytemuck",
  "console_error_panic_hook",
  "console_log",
+ "glifo",
  "image",
  "log",
  "parley",
@@ -4089,6 +4089,7 @@ name = "vello_hybrid"
 version = "0.0.7"
 dependencies = [
  "bytemuck",
+ "glifo",
  "hashbrown 0.16.1",
  "js-sys",
  "log",
@@ -4139,6 +4140,7 @@ version = "0.0.0"
 dependencies = [
  "bytemuck",
  "fearless_simd",
+ "glifo",
  "image",
  "oxipng 10.1.0",
  "pollster",

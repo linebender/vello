@@ -3,6 +3,10 @@
 
 //! Basic render operations.
 
+#[cfg(feature = "text")]
+use crate::Resources;
+#[cfg(feature = "text")]
+use crate::text::GlyphRunBuilder;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
@@ -12,8 +16,6 @@ use vello_common::coarse::{MODE_HYBRID, Wide, WideTilesBbox};
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::filter_effects::Filter;
-#[cfg(feature = "text")]
-use vello_common::glyph::{GlyphCaches, GlyphRenderer, GlyphRunBuilder, GlyphType, PreparedGlyph};
 use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::multi_atlas::AtlasConfig;
@@ -218,9 +220,6 @@ pub struct Scene {
     pub(crate) strip_generator: StripGenerator,
     /// Storage for generated strips and alpha values.
     pub(crate) strip_storage: RefCell<StripStorage>,
-    /// Cache for rasterized glyphs to improve text rendering performance.
-    #[cfg(feature = "text")]
-    pub(crate) glyph_caches: Option<GlyphCaches>,
     /// Counter for generating unique layer IDs.
     layer_id_next: u32,
     /// Dependency graph for managing layer rendering order and filter effects.
@@ -315,8 +314,6 @@ impl Scene {
             strip_generator: StripGenerator::new(width, height, settings.level),
             // Start strip storage in `Append` mode since we enable the fast path by default.
             strip_storage: RefCell::new(StripStorage::new(GenerationMode::Append)),
-            #[cfg(feature = "text")]
-            glyph_caches: Some(GlyphCaches::default()),
             layer_id_next: 0,
             render_graph,
             filter: None,
@@ -552,8 +549,20 @@ impl Scene {
 
     /// Creates a builder for drawing a run of glyphs that have the same attributes.
     #[cfg(feature = "text")]
-    pub fn glyph_run(&mut self, font: &FontData) -> GlyphRunBuilder<'_, Self> {
-        GlyphRunBuilder::new(font.clone(), self.render_state.transform, self)
+    pub fn glyph_run<'a>(
+        &'a mut self,
+        resources: &'a mut Resources,
+        font: &FontData,
+    ) -> GlyphRunBuilder<'a> {
+        glifo::GlyphRunBuilder::new(
+            font.clone(),
+            self.render_state.transform,
+            crate::text::HybridGlyphRunBackend {
+                scene: self,
+                resources,
+                atlas_cache_enabled: false,
+            },
+        )
     }
 
     /// Flush the fast path buffer through the normal coarse rasterization pipeline.
@@ -826,8 +835,6 @@ impl Scene {
 
         self.render_state.reset();
 
-        #[cfg(feature = "text")]
-        self.glyph_caches.as_mut().unwrap().maintain();
         self.fast_strips_buffer.clear();
         self.strip_path_mode = StripPathMode::FastOnly;
         self.coarse_batch_splits.clear();
@@ -873,66 +880,13 @@ impl Scene {
     }
 }
 
-#[cfg(feature = "text")]
-impl GlyphRenderer for Scene {
-    fn fill_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
-        match prepared_glyph.glyph_type {
-            GlyphType::Outline(glyph) => {
-                let paint = self.encode_current_paint();
-                self.fill_path_with(
-                    glyph.path,
-                    prepared_glyph.transform,
-                    Fill::NonZero,
-                    paint,
-                    self.aliasing_threshold,
-                );
-            }
-            GlyphType::Bitmap(_) => {}
-            GlyphType::Colr(_) => {}
-        }
-    }
-
-    fn stroke_glyph(&mut self, prepared_glyph: PreparedGlyph<'_>) {
-        match prepared_glyph.glyph_type {
-            GlyphType::Outline(glyph) => {
-                let paint = self.encode_current_paint();
-                self.stroke_path_with(
-                    glyph.path,
-                    prepared_glyph.transform,
-                    paint,
-                    self.aliasing_threshold,
-                );
-            }
-            GlyphType::Bitmap(_) => {}
-            GlyphType::Colr(_) => {}
-        }
-    }
-
-    fn take_glyph_caches(&mut self) -> GlyphCaches {
-        self.glyph_caches.take().unwrap_or_default()
-    }
-
-    fn restore_glyph_caches(&mut self, cache: GlyphCaches) {
-        self.glyph_caches = Some(cache);
-    }
-}
-
 impl Recordable for Scene {
     fn record<F>(&mut self, recording: &mut Recording, f: F)
     where
         F: FnOnce(&mut Recorder<'_>),
     {
-        let mut recorder = Recorder::new(
-            recording,
-            self.render_state.transform,
-            #[cfg(feature = "text")]
-            self.take_glyph_caches(),
-        );
+        let mut recorder = Recorder::new(recording, self.render_state.transform);
         f(&mut recorder);
-        #[cfg(feature = "text")]
-        {
-            self.glyph_caches = Some(recorder.take_glyph_caches());
-        }
     }
 
     fn prepare_recording(&mut self, recording: &mut Recording) {
@@ -957,15 +911,6 @@ impl Recordable for Scene {
                 | RenderCommand::StrokePath(_)
                 | RenderCommand::FillRect(_)
                 | RenderCommand::StrokeRect(_) => {
-                    self.process_geometry_command(
-                        strip_start_indices,
-                        range_index,
-                        &adjusted_strips,
-                    );
-                    range_index += 1;
-                }
-                #[cfg(feature = "text")]
-                RenderCommand::FillOutlineGlyph(_) | RenderCommand::StrokeOutlineGlyph(_) => {
                     self.process_geometry_command(
                         strip_start_indices,
                         range_index,
@@ -1091,30 +1036,6 @@ impl Scene {
                     );
                     strip_start_indices.push(start_index);
                 }
-                #[cfg(feature = "text")]
-                RenderCommand::FillOutlineGlyph((path, glyph_transform)) => {
-                    self.strip_generator.generate_filled_path(
-                        path,
-                        self.render_state.fill_rule,
-                        *glyph_transform,
-                        self.aliasing_threshold,
-                        &mut strip_storage,
-                        None,
-                    );
-                    strip_start_indices.push(start_index);
-                }
-                #[cfg(feature = "text")]
-                RenderCommand::StrokeOutlineGlyph((path, glyph_transform)) => {
-                    self.strip_generator.generate_stroked_path(
-                        path,
-                        &self.render_state.stroke,
-                        *glyph_transform,
-                        self.aliasing_threshold,
-                        &mut strip_storage,
-                        None,
-                    );
-                    strip_start_indices.push(start_index);
-                }
                 RenderCommand::SetTransform(transform) => {
                     self.render_state.transform = *transform;
                 }
@@ -1216,9 +1137,17 @@ impl Scene {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "text")]
+    use crate::resources::Resources;
+    #[cfg(feature = "text")]
+    use alloc::sync::Arc;
     use core::f64::consts::PI;
+    #[cfg(feature = "text")]
+    use glifo::Glyph;
     use vello_common::kurbo::{Affine, Point, Rect};
     use vello_common::peniko::Color;
+    #[cfg(feature = "text")]
+    use vello_common::peniko::{Blob, FontData};
 
     // These tests serve the purpose of ensuring that the logic for selecting fast paths
     // works correctly.
@@ -1299,6 +1228,38 @@ mod tests {
         assert!(is_rect(&cmds[0]));
         assert!(is_path(&cmds[1]));
         assert!(is_rect(&cmds[2]));
+    }
+
+    #[cfg(feature = "text")]
+    #[test]
+    fn glyph_atlas_resources_are_lazy() {
+        const ROBOTO_FONT: &[u8] =
+            include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");
+
+        let font = FontData::new(Blob::new(Arc::new(ROBOTO_FONT)), 0);
+        let glyphs = [Glyph {
+            id: 1,
+            x: 0.0,
+            y: 0.0,
+        }];
+
+        let mut scene = unconstrained();
+        let mut resources = Resources::new();
+
+        scene.fill_rect(&small_rect());
+        scene.fill_path(&triangle_path());
+        scene
+            .glyph_run(&mut resources, &font)
+            .fill_glyphs(glyphs.into_iter());
+
+        assert!(resources.glyph_resources.is_none());
+
+        scene
+            .glyph_run(&mut resources, &font)
+            .atlas_cache(true)
+            .fill_glyphs(glyphs.into_iter());
+
+        assert!(resources.glyph_resources.is_some());
     }
 
     #[test]
