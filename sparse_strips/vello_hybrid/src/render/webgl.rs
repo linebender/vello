@@ -283,6 +283,7 @@ impl WebGlRenderer {
             &mut self.programs.resources.stub_atlas_texture_array,
         );
 
+        // TODO: Explore using an option instead of a dummy image cache.
         let mut dummy_image_cache = self
             .dummy_image_cache
             .take()
