@@ -120,6 +120,7 @@ impl RendererWrapper {
 /// State that handles scene rendering and interactions
 struct AppState {
     scenes: Box<[AnyScene<Scene>]>,
+    uploaded_scene_images: Box<[bool]>,
     current_scene: usize,
     scene: Scene,
     transform: Affine,
@@ -136,11 +137,13 @@ impl AppState {
     async fn new(canvas: HtmlCanvasElement, scenes: Box<[AnyScene<Scene>]>) -> Self {
         let width = canvas.width();
         let height = canvas.height();
+        let uploaded_scene_images = vec![false; scenes.len()].into_boxed_slice();
 
         let renderer_wrapper = RendererWrapper::new(canvas.clone()).await;
 
         let mut app_state = Self {
             scenes,
+            uploaded_scene_images,
             current_scene: 0,
             scene: Scene::new(width as u16, height as u16),
             transform: Affine::IDENTITY,
@@ -217,6 +220,7 @@ impl AppState {
 
     fn next_scene(&mut self) {
         self.current_scene = (self.current_scene + 1) % self.scenes.len();
+        self.upload_images_to_atlas();
         self.transform = Affine::IDENTITY;
         self.need_render = true;
     }
@@ -227,6 +231,7 @@ impl AppState {
         } else {
             self.current_scene - 1
         };
+        self.upload_images_to_atlas();
         self.transform = Affine::IDENTITY;
         self.need_render = true;
     }
@@ -276,6 +281,10 @@ impl AppState {
     }
 
     fn upload_images_to_atlas(&mut self) {
+        if self.uploaded_scene_images[self.current_scene] {
+            return;
+        }
+
         let mut encoder =
             self.renderer_wrapper
                 .device
@@ -309,6 +318,7 @@ impl AppState {
         );
 
         self.renderer_wrapper.queue.submit([encoder.finish()]);
+        self.uploaded_scene_images[self.current_scene] = true;
     }
 
     fn upload_image_to_texture(

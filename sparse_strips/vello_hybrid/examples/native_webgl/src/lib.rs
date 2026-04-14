@@ -37,6 +37,7 @@ impl RendererWrapper {
 /// State that handles scene rendering and interactions
 struct AppState {
     scenes: Box<[AnyScene<Scene>]>,
+    uploaded_scene_images: Box<[bool]>,
     current_scene: usize,
     scene: Scene,
     transform: Affine,
@@ -53,11 +54,13 @@ impl AppState {
     fn new(canvas: HtmlCanvasElement, scenes: Box<[AnyScene<Scene>]>) -> Self {
         let width = canvas.width();
         let height = canvas.height();
+        let uploaded_scene_images = vec![false; scenes.len()].into_boxed_slice();
 
         let renderer_wrapper = RendererWrapper::new(canvas.clone());
 
         let mut app_state = Self {
             scenes,
+            uploaded_scene_images,
             current_scene: 0,
             scene: Scene::new(width as u16, height as u16),
             transform: Affine::IDENTITY,
@@ -114,6 +117,7 @@ impl AppState {
 
     fn next_scene(&mut self) {
         self.current_scene = (self.current_scene + 1) % self.scenes.len();
+        self.upload_images_to_atlas();
         self.transform = Affine::IDENTITY;
         self.need_render = true;
     }
@@ -124,6 +128,7 @@ impl AppState {
         } else {
             self.current_scene - 1
         };
+        self.upload_images_to_atlas();
         self.transform = Affine::IDENTITY;
         self.need_render = true;
     }
@@ -188,6 +193,10 @@ impl AppState {
     /// Upload images to the WebGL atlas texture
     /// This is the WebGL analogue of the winit example's `upload_images_to_atlas` function
     fn upload_images_to_atlas(&mut self) {
+        if self.uploaded_scene_images[self.current_scene] {
+            return;
+        }
+
         // 1st example — uploading pixmap directly to WebGL atlas
         let pixmap1 = ImageScene::read_flower_image();
         self.renderer_wrapper
@@ -200,6 +209,8 @@ impl AppState {
         self.renderer_wrapper
             .renderer
             .upload_image(self.scenes[self.current_scene].resources_mut(), &texture2);
+
+        self.uploaded_scene_images[self.current_scene] = true;
     }
 
     /// Convert a pixmap to WebGL texture
