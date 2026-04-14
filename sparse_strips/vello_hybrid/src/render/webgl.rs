@@ -575,6 +575,7 @@ impl WebGlRenderer {
                 EncodedPaint::ExternalTexture(_external_texture) => {
                     // TODO: External textures are not yet supported.
                     log::warn!("External texture are not yet supported in the WebGL backend");
+                    current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
                 }
                 EncodedPaint::BlurredRoundedRect(_blurred_rect) => {
                     // TODO: Blurred rounded rectangles are not yet supported
