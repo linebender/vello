@@ -10,6 +10,7 @@ use crate::kurbo::common::FloatFuncs as _;
 use crate::kurbo::{CubicBez, Line, ParamCurve, ParamCurveNearest, PathEl, Point, QuadBez};
 use crate::{
     flatten::{SQRT_TOL, TOL, TOL_2},
+    geometry::RectU16,
     tile::Tile,
 };
 use alloc::vec::Vec;
@@ -49,7 +50,7 @@ pub(crate) fn flatten<S: Simd>(
     path: impl IntoIterator<Item = PathEl>,
     callback: &mut impl Callback,
     flatten_ctx: &mut FlattenCtx,
-    cull_bbox: [u16; 4],
+    cull_bbox: RectU16,
 ) {
     flatten_ctx.flattened_cubics.clear();
 
@@ -73,10 +74,10 @@ pub(crate) fn flatten<S: Simd>(
     // rendered at all, there will be other geometry above that edge of the cull bbox. If that
     // geometry extends above the row, there will be coarse winding for a sparse fill. If not, it
     // there will be geometry to generate the intermediate tiles.
-    let left = cull_bbox[0] as f64;
-    let top = ((cull_bbox[1] / Tile::HEIGHT) * Tile::HEIGHT) as f64;
-    let right = cull_bbox[2] as f64;
-    let bottom = cull_bbox[3] as f64;
+    let left = cull_bbox.x0 as f64;
+    let top = ((cull_bbox.y0 / Tile::HEIGHT) * Tile::HEIGHT) as f64;
+    let right = cull_bbox.x1 as f64;
+    let bottom = cull_bbox.y1 as f64;
 
     let mut path = path.into_iter();
     let Some(first_el) = path.next() else {

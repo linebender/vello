@@ -4,6 +4,7 @@
 //! Flattening filled and stroked paths.
 
 use crate::flatten_simd::{Callback, LinePathEl};
+use crate::geometry::RectU16;
 use crate::kurbo::{self, Affine, PathEl, Stroke, StrokeCtx, StrokeOpts};
 use alloc::vec::Vec;
 use fearless_simd::{Level, Simd, dispatch};
@@ -180,7 +181,7 @@ pub fn fill(
     affine: Affine,
     line_buf: &mut Vec<Line>,
     ctx: &mut FlattenCtx,
-    cull_bbox: [u16; 4],
+    cull_bbox: RectU16,
 ) {
     dispatch!(level, simd => fill_impl(simd, path, affine, line_buf, ctx, cull_bbox));
 }
@@ -195,7 +196,7 @@ pub fn fill_impl<S: Simd>(
     affine: Affine,
     line_buf: &mut Vec<Line>,
     flatten_ctx: &mut FlattenCtx,
-    cull_bbox: [u16; 4],
+    cull_bbox: RectU16,
 ) {
     line_buf.clear();
     let iter = path.into_iter().map(
@@ -230,7 +231,7 @@ pub fn stroke(
     line_buf: &mut Vec<Line>,
     flatten_ctx: &mut FlattenCtx,
     stroke_ctx: &mut StrokeCtx,
-    cull_bbox: [u16; 4],
+    cull_bbox: RectU16,
 ) {
     // TODO: Temporary hack to ensure that strokes are scaled properly by the transform.
     let tolerance = TOL

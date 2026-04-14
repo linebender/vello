@@ -295,7 +295,7 @@ impl Scene {
 
         // Create root node (layer_id 0) as the first node (will be node 0).
         // This ensures the root layer is always rendered last in the execution order.
-        let wtile_bbox = WideTilesBbox::new([0, 0, wide.width_tiles(), wide.height_tiles()]);
+        let wtile_bbox = WideTilesBbox::new(0, 0, wide.width_tiles(), wide.height_tiles());
         let _ = render_graph.add_node(RenderNodeKind::RootLayer {
             layer_id: 0,
             wtile_bbox,
@@ -842,7 +842,7 @@ impl Scene {
         self.layer_id_next = 0;
         self.render_graph.clear();
         let wtile_bbox =
-            WideTilesBbox::new([0, 0, self.wide.width_tiles(), self.wide.height_tiles()]);
+            WideTilesBbox::new(0, 0, self.wide.width_tiles(), self.wide.height_tiles());
         self.render_graph.add_node(RenderNodeKind::RootLayer {
             layer_id: 0,
             wtile_bbox,
