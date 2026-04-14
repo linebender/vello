@@ -245,16 +245,16 @@ pub(crate) trait RendererBackend {
     ///
     /// For output targets, render the strips in opaque then alpha order with:
     ///
-    /// | Pass   | Depth Test     | Depth Write | Blend | Strip Ordering |
-    /// | ------ | -------------- | ----------- | ----- | -------------- |
-    /// | Opaque | ON (LessEqual) | ON          | OFF   | Front-to-back  |
-    /// | Alpha  | ON (LessEqual) | OFF         | ON    | Back-to-front  |
+    /// | Pass   | Depth Test       | Depth Write | Blend | Strip Ordering |
+    /// | ------ | ---------------- | ----------- | ----- | -------------- |
+    /// | Opaque | ON (`LessEqual`) | ON          | OFF   | Front-to-back  |
+    /// | Alpha  | ON (`LessEqual`) | OFF         | ON    | Back-to-front  |
     ///
     /// For slot textures, there are no opaque strips, so we only render the alpha strips with:
     ///
-    /// | Pass   | Depth Test     | Depth Write | Blend | Strip Ordering |
-    /// | ------ | -------------- | ----------- | ----- | -------------- |
-    /// | Alpha  | OFF            | OFF         | ON    | Back-to-front  |
+    /// | Pass   | Depth Test       | Depth Write | Blend | Strip Ordering |
+    /// | ------ | ---------------- | ----------- | ----- | -------------- |
+    /// | Alpha  | OFF              | OFF         | ON    | Back-to-front  |
     ///
     // TODO: Consider using opaque passes for non-output targets.
     fn render_strips(
@@ -963,7 +963,10 @@ impl Scheduler {
                 draw.opaque = opaque; // Return allocation for later reuse.
             } else {
                 // Slot textures: no depth optimization, everything in alpha list.
-                assert!(draw.opaque.is_empty());
+                assert!(
+                    draw.opaque.is_empty(),
+                    "opaque pass unsupported for slot textures"
+                );
                 renderer.render_strips(&[], &draw.alpha, target, load);
             }
         }
@@ -1960,11 +1963,9 @@ fn pack_rectangle_into_gpu(
         let (payload, paint_packed) =
             Scheduler::process_paint(&rect.paint, encoded_paints, (part.x, part.y), paint_idxs);
         let strip = make_gpu_rect(part, payload, paint_packed, layer_index);
-        if is_first && is_opaque {
-            assert!(part.frac == 0);
+        if is_first && is_opaque && part.frac == 0 {
             draw.push_opaque(strip);
         } else {
-            assert!(part.frac != 0);
             draw.push_alpha(strip);
         }
         is_first = false;
