@@ -464,6 +464,10 @@ impl Draw {
     #[inline(always)]
     fn push(&mut self, gpu_strip: GpuStrip, external_texture_id: Option<TextureId>) {
         if let Some(texture_id) = external_texture_id {
+            // Runs are consecutive `GpuStrip`s that can be rendered with a single external texture.
+            // If the external texture changes, a new run is created. The first external texture
+            // encountered creates the first run, which is "retroactively" set to start from the
+            // first `GpuStrip`, such that it can be applied within the same draw call.
             let needs_new_run = self
                 .external_texture_runs
                 .last()
