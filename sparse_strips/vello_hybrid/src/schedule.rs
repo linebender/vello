@@ -245,16 +245,18 @@ pub(crate) trait RendererBackend {
     /// 
     /// For output targets, render the strips in opaque then alpha order with:
     /// 
-    /// | Pass   | Depth Test     | Depth Write    | Blend | Strip Ordering |
-    /// | ------ | -------------- | -------------- | ----- | -------------- |
-    /// | Opaque | ON (LessEqual) | ON             | OFF   | Front-to-back  |
-    /// | Alpha  | OFF            | ON (LessEqual) | ON    | Back-to-front  |
+    /// | Pass   | Depth Test     | Depth Write | Blend | Strip Ordering |
+    /// | ------ | -------------- | ----------- | ----- | -------------- |
+    /// | Opaque | ON (LessEqual) | ON          | OFF   | Front-to-back  |
+    /// | Alpha  | ON (LessEqual) | OFF         | ON    | Back-to-front  |
     /// 
     /// For slot textures, there are no opaque strips, so we only render the alpha strips with:
     /// 
-    /// | Pass   | Depth Test     | Depth Write    | Blend | Strip Ordering |
-    /// | ------ | -------------- | -------------- | ----- | -------------- |
-    /// | Alpha  | OFF            | OFF            | ON    | Back-to-front  |
+    /// | Pass   | Depth Test     | Depth Write | Blend | Strip Ordering |
+    /// | ------ | -------------- | ----------- | ----- | -------------- |
+    /// | Alpha  | OFF            | OFF         | ON    | Back-to-front  |
+    /// 
+    // TODO: Consider using opaque passes for non-output targets.
     fn render_strips(
         &mut self,
         opaque_strips: &[GpuStrip],
@@ -813,7 +815,7 @@ impl Scheduler {
                     let layer_index = layer_counter;
                     layer_counter += 1;
                     let is_opaque = Self::is_paint_opaque(&r.paint, encoded_paints);
-                    emit_rect_strips(r, encoded_paints, paint_idxs, layer_index, is_opaque, draw);
+                    pack_rectangle_into_gpu(r, encoded_paints, paint_idxs, layer_index, is_opaque, draw);
                 }
             }
         }
@@ -951,12 +953,10 @@ impl Scheduler {
                 let mut opaque = core::mem::take(&mut draw.opaque);
                 opaque.reverse();
                 renderer.render_strips(&opaque, &draw.alpha, target, load);
+                draw.opaque = opaque; // Return allocation for later reuse.
             } else {
                 // Slot textures: no depth optimization, everything in alpha list.
-                debug_assert!(
-                    draw.opaque.is_empty(),
-                    "slot texture draws should not contain opaque strips"
-                );
+                assert!(draw.opaque.is_empty());
                 renderer.render_strips(&[], &draw.alpha, target, load);
             }
         }
@@ -994,7 +994,7 @@ impl Scheduler {
     }
 
     /// Render the tile's background color (set by overdraw elimination) to the
-    /// surface. Returns `true` if a strip was emitted.
+    /// surface.
     fn paint_tile_bg(
         &mut self,
         tile: &WideTile<MODE_HYBRID>,
@@ -1015,13 +1015,17 @@ impl Scheduler {
 
             let layer_index = self.next_layer_index();
             let draw = self.draw_mut(self.round, 2);
-            draw.push_opaque(
+            let strip =
                 GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH).paint(
                     payload,
                     paint,
                     layer_index,
-                ),
-            );
+                );
+            if tile.bg.is_opaque() {
+                draw.push_opaque(strip);
+            } else {
+                draw.push_alpha(strip);
+            }
         }
     }
 
@@ -1384,12 +1388,14 @@ impl Scheduler {
         let round = nos.round.max(tos.round + usize::from(next_round));
         let layer_index = self.next_layer_index();
 
-        let draw_texture = if depth <= 2 {
-            2
-        } else {
-            nos.dest_slot.get_texture()
-        };
-        let draw = self.draw_mut(round, draw_texture);
+        let draw = self.draw_mut(
+            round,
+            if depth <= 2 {
+                2
+            } else {
+                nos.dest_slot.get_texture()
+            },
+        );
 
         let gpu_strip_builder = if depth <= 2 {
             GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
@@ -1445,6 +1451,10 @@ impl Scheduler {
         attrs: &CommandAttrs,
     ) {
         let depth = state.tile_state.stack.len();
+        let layer_index = self.next_layer_index();
+
+        let el = state.tile_state.stack.last_mut().unwrap();
+        let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
 
         let fill_attrs = &attrs.fill[cmd.attrs_idx as usize];
         let alpha_idx = fill_attrs.alpha_idx(cmd.alpha_offset);
@@ -1457,12 +1467,9 @@ impl Scheduler {
             paint_idxs,
         );
 
-        let layer_index = self.next_layer_index();
-
         let gpu_strip_builder = if depth == 1 {
             GpuStripBuilder::at_surface(scene_strip_x, scene_strip_y, cmd.width)
         } else {
-            let el = state.tile_state.stack.last().unwrap();
             let slot_idx = if let TemporarySlot::Valid(temp_slot) = el.temporary_slot {
                 temp_slot.get_idx()
             } else {
@@ -1471,11 +1478,8 @@ impl Scheduler {
             GpuStripBuilder::at_slot(slot_idx, cmd.x, cmd.width)
         };
 
-        let el = state.tile_state.stack.last().unwrap();
-        let el_round = el.round;
-        let draw_texture = el.get_draw_texture(depth);
-        let draw = self.draw_mut(el_round, draw_texture);
-        draw.push_alpha(gpu_strip_builder.with_sparse(cmd.width, col_idx).paint(
+        draw.push_alpha(
+        gpu_strip_builder.with_sparse(cmd.width, col_idx).paint(
             payload,
             paint,
             layer_index,
@@ -1502,7 +1506,6 @@ impl Scheduler {
             paint_idxs,
         );
 
-        let is_opaque = Self::is_paint_opaque(&fill_attrs.paint, encoded_paints);
         self.do_fill_with(
             state,
             cmd,
@@ -1510,7 +1513,7 @@ impl Scheduler {
             scene_strip_y,
             payload,
             paint,
-            is_opaque,
+            Self::is_paint_opaque(&fill_attrs.paint, encoded_paints),
         );
     }
 
@@ -1891,10 +1894,13 @@ fn generate_gpu_strips_for_fast_path(
         let x0 = strip.x;
         let y = strip.y;
 
-        // Alpha fill for the strip's coverage region (always alpha — has AA).
+        // Since the components of a single strip are not overlapping, we can re-use the same
+        // layer index for all the components (alpha + fill) for a single strip.
+        let layer_index = *layer_counter;
+        *layer_counter += 1;
+
+        // Alpha fill for the strip's coverage region.
         if strip_width > 0 {
-            let layer_index = *layer_counter;
-            *layer_counter += 1;
             let (payload, paint) =
                 Scheduler::process_paint(&path.paint, encoded_paints, (x0, y), paint_idxs);
             draw.push_alpha(
@@ -1914,8 +1920,6 @@ fn generate_gpu_strips_for_fast_path(
                     .unwrap_or(u16::MAX),
             );
             if x2 > x1 {
-                let layer_index = *layer_counter;
-                *layer_counter += 1;
                 let (payload, paint) =
                     Scheduler::process_paint(&path.paint, encoded_paints, (x1, y), paint_idxs);
                 let strip =
@@ -1930,16 +1934,7 @@ fn generate_gpu_strips_for_fast_path(
     }
 }
 
-/// Decompose a rectangle into a pixel-aligned opaque interior plus thin AA edge
-/// strips. The interior has `rect_frac=0` so the fragment shader skips the AA
-/// coverage math entirely; when the paint is opaque this quad goes to the opaque
-/// draw list for TBDR early-z. The 1px edge strips carry fractional coverage and
-/// always go to the alpha list.
-///
-/// For small rects (under `LARGE_RECT_SPLIT_THRESHOLD` in either dimension),
-/// we fall back to a single rect instance with full AA fracs — the overhead
-/// of 5 draw instances outweighs the per-fragment savings at small sizes.
-fn emit_rect_strips(
+fn pack_rectangle_into_gpu(
     rect: &FastPathRect,
     encoded_paints: &[EncodedPaint],
     paint_idxs: &[u32],
@@ -1963,9 +1958,11 @@ fn emit_rect_strips(
         let (payload, paint_packed) =
             Scheduler::process_paint(&rect.paint, encoded_paints, (part.x, part.y), paint_idxs);
         let strip = make_gpu_rect(part, payload, paint_packed, layer_index);
-        if is_first && is_opaque && part.frac == 0 {
+        if is_first && is_opaque {
+            assert!(part.frac == 0);
             draw.push_opaque(strip);
         } else {
+            assert!(part.frac != 0);
             draw.push_alpha(strip);
         }
         is_first = false;
@@ -2113,7 +2110,7 @@ fn pack_unorm4x8(v: [f32; 4]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        Draw, RECT_STRIP_FLAG, RectPart, SplitRect, emit_rect_strips, pack_unorm4x8, split_rect,
+        Draw, RECT_STRIP_FLAG, RectPart, SplitRect, pack_rectangle_into_gpu, pack_unorm4x8, split_rect,
     };
     use crate::scene::FastPathRect;
     use alloc::vec;
@@ -2318,7 +2315,7 @@ mod tests {
         let rect = solid_rect(10.0, 20.5, 42.0, 53.0);
         let mut draw = Draw::default();
 
-        emit_rect_strips(&rect, &[], &[], 0, true, &mut draw);
+        pack_rectangle_into_gpu(&rect, &[], &[], 0, true, &mut draw);
 
         let out: Vec<_> = draw.opaque.iter().chain(draw.alpha.iter()).collect();
         assert_eq!(out.len(), 2);
@@ -2371,7 +2368,7 @@ mod tests {
         })];
         let mut draw = Draw::default();
 
-        emit_rect_strips(&rect, &encoded_paints, &[7], 0, true, &mut draw);
+        pack_rectangle_into_gpu(&rect, &encoded_paints, &[7], 0, true, &mut draw);
 
         let out: Vec<_> = draw.opaque.iter().chain(draw.alpha.iter()).collect();
         assert_eq!(out.len(), 5);

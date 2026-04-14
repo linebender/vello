@@ -125,6 +125,18 @@ impl WebGlRenderer {
         // context.
         let context_options = js_sys::Object::new();
         js_sys::Reflect::set(&context_options, &"antialias".into(), &JsValue::FALSE).unwrap();
+        // Vello only supports 24+ bit depth buffers. If the hardware falls back to a 16 bit depth buffer,
+        // correctness issues will arise. For all intents and purposes, a device manufactured in the past 10 years
+        // should support 24+ bit depth buffers (certainly those within the realm of what we consider "supported" devices)
+        // but:
+        //
+        // Relevant code for default depth buffer behaviour can be found here:
+        // - Chromium defaults to 24 bit with no fallback: https://github.com/chromium/chromium/blob/86bafb3aab8e999690d310b201d0b5489f512b08/third_party/blink/renderer/platform/graphics/gpu/drawing_buffer.cc#L1376-L1400
+        // - Firefox defaults to 24 bit with no fallback: https://github.com/mozilla/gecko-dev/blob/5836a062726f715fda621338a17b51aff30d0a8c/gfx/gl/MozFramebuffer.cpp#L155-L161
+        // - Safari defaults to 24 bit _with 16 bit_ fallback: https://github.com/WebKit/WebKit/blob/a6d6c154bbee0643f5ad1e55c071558c0df9aef7/Source/WebCore/platform/graphics/angle/GraphicsContextGLANGLE.cpp#L393-L416
+        //
+        // TODO: The above understanding is encoded in a below assertion, but this should be encapsulated within a
+        // "this device can run Vello correctly" check function.
         js_sys::Reflect::set(&context_options, &"depth".into(), &JsValue::TRUE).unwrap();
 
         let gl = canvas
@@ -160,6 +172,7 @@ impl WebGlRenderer {
             1,
         );
         let total_slots: usize = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
+        assert!(gl.get_parameter(WebGl2RenderingContext::DEPTH_BITS).unwrap().as_f64().unwrap() >= 24.0);
         let image_cache = ImageCache::new_with_config(settings.atlas_config);
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
         // and the maximum gradient LUT size - worst case scenario.
@@ -2337,7 +2350,8 @@ impl WebGlRendererContext<'_> {
             .uniform1i(Some(&self.programs.strip_uniforms.gradient_texture), 4);
 
         // TODO: Today, we only support early-z rejection on the final view. If we wanted to support
-        // intermediate layers, we would require separate depth buffers for each target.
+        // intermediate layers, we would require separate depth buffers for each target. We can explore
+        // that possibility in the future.
         let is_final_view =
             matches!(target, StripPassRenderTarget::Root(RootRenderTarget::UserSurface));
 
@@ -2358,7 +2372,7 @@ impl WebGlRendererContext<'_> {
             self.gl.enable(WebGl2RenderingContext::DEPTH_TEST);
             self.gl.depth_func(WebGl2RenderingContext::LEQUAL);
 
-            // Opaque pass: front-to-back, depth write ON, blend OFF.
+            // Opaque pass: front-to-back, depth test ON, depth write ON, blend OFF.
             if opaque_count > 0 {
                 self.gl.depth_mask(true);
                 self.gl.disable(WebGl2RenderingContext::BLEND);
@@ -2371,9 +2385,9 @@ impl WebGlRendererContext<'_> {
             }
 
             // Alpha pass: back-to-front, depth test ON, depth write OFF, blend ON.
-            // Rebind attribute pointers with offset to start at the alpha portion
-            // of the buffer.
             if alpha_count > 0 {
+                // Rebind attribute pointers with offset to start at the alpha portion
+                // of the buffer.
                 let alpha_byte_offset = opaque_count * STRIP_STRIDE;
                 for i in 0..STRIP_ATTR_COUNT {
                     self.gl.vertex_attrib_i_pointer_with_i32(

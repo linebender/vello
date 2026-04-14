@@ -1683,6 +1683,7 @@ impl Programs {
         }
     }
 
+    #[inline]
     fn create_depth_texture(device: &Device, width: u32, height: u32) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Depth Texture"),
@@ -2479,8 +2480,8 @@ impl RendererContext<'_> {
         }
         self.programs
             .upload_strip_pair(self.device, self.queue, opaque_strips, alpha_strips);
-        let opaque_count = u32::try_from(opaque_strips.len()).unwrap();
-        let alpha_count = u32::try_from(alpha_strips.len()).unwrap();
+        let opaque_count = opaque_strips.len() as u32;
+        let alpha_count = alpha_strips.len() as u32;
 
         enum MaybeOwned<'a, T> {
             Borrowed(&'a T),
