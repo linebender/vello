@@ -839,7 +839,7 @@ fn clear_atlas_region(queue: &Queue, renderer: &mut Renderer, rect: &PendingClea
 /// Defines the GPU resources and pipelines for rendering.
 #[derive(Debug)]
 struct Programs {
-    /// Pipelines for rendering strips to slot textures (no depth, blending ON).
+    /// Pipelines for rendering strips to slot textures (depth test OFF, depth write OFF, blending ON).
     /// The first pipeline should be used for color attachments in the native pixel format,
     /// the second for color attachments in RGBA8.
     slot_strip_pipelines: [RenderPipeline; 2],
@@ -1184,7 +1184,7 @@ impl Programs {
             attributes: &GpuStrip::vertex_attributes(),
         };
 
-        // Slot pipelines: no depth, blending ON (for slot textures without depth attachment).
+        // Slot pipelines: depth test OFF, depth write OFF, blending ON
         let slot_strip_pipelines: [RenderPipeline; 2] = core::array::from_fn(|i| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("Strip Slot Pipeline"),
@@ -1216,7 +1216,7 @@ impl Programs {
             })
         });
 
-        // Alpha pipelines: blending ON, depth test ON (LessEqual), depth write OFF.
+        // Alpha pipelines: depth test ON (LessEqual), depth write OFF, blending ON.
         let alpha_strip_pipelines: [RenderPipeline; 2] = core::array::from_fn(|i| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("Strip Alpha Pipeline"),
@@ -1254,7 +1254,7 @@ impl Programs {
             })
         });
 
-        // Opaque pipelines: blending OFF, depth test ON (LessEqual), depth write ON.
+        // Opaque pipelines: depth test ON (LessEqual), depth write ON, blending OFF.
         let opaque_strip_pipelines: [RenderPipeline; 2] = core::array::from_fn(|i| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("Strip Opaque Pipeline"),
@@ -2428,8 +2428,7 @@ impl Programs {
         }
     }
 
-    /// Upload two strip slices (opaque then alpha) into a single GPU buffer,
-    /// avoiding an intermediate Vec allocation.
+    /// Uploads two strip slices (opaque then alpha) into a single GPU buffer.
     fn upload_strip_pair(
         &mut self,
         device: &Device,
@@ -2663,18 +2662,18 @@ impl RendererContext<'_> {
         render_pass.set_vertex_buffer(0, self.programs.resources.strips_buffer.slice(..));
 
         if is_final_view {
-            // Opaque pass: front-to-back, depth write ON, no blend.
+            // Opaque pass
             if opaque_count > 0 {
                 render_pass.set_pipeline(&self.programs.opaque_strip_pipelines[pipeline_idx]);
                 render_pass.draw(0..4, 0..opaque_count);
             }
-            // Alpha pass: back-to-front, depth test ON, depth write OFF, blend ON.
+            // Alpha pass
             if alpha_count > 0 {
                 render_pass.set_pipeline(&self.programs.alpha_strip_pipelines[pipeline_idx]);
                 render_pass.draw(0..4, opaque_count..opaque_count + alpha_count);
             }
         } else {
-            // Slot texture / intermediate: single draw, no depth pipeline.
+            // Slot texture / intermediate
             render_pass.set_pipeline(&self.programs.slot_strip_pipelines[pipeline_idx]);
             render_pass.draw(0..4, 0..opaque_count + alpha_count);
         }

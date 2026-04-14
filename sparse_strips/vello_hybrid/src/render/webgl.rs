@@ -125,6 +125,7 @@ impl WebGlRenderer {
         // context.
         let context_options = js_sys::Object::new();
         js_sys::Reflect::set(&context_options, &"antialias".into(), &JsValue::FALSE).unwrap();
+        js_sys::Reflect::set(&context_options, &"depth".into(), &JsValue::TRUE).unwrap();
 
         let gl = canvas
             .get_context_with_context_options("webgl2", &context_options)
@@ -394,6 +395,22 @@ impl WebGlRenderer {
             &self.filter_context,
             &encoded_paints,
         )?;
+
+        // See: https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_invalidateframebuffer
+        // We want to indicate to the GPU driver that we won't read the depth buffer again
+        // until the next clear. This enables the GPU to avoid storing depth tiles back to VRAM.
+        if self.programs.resources.depth_cleared_this_frame {
+            self.gl.bind_framebuffer(
+                WebGl2RenderingContext::FRAMEBUFFER,
+                self.programs.resources.view_framebuffer_override.as_ref(),
+            );
+            self.gl
+                .invalidate_framebuffer(
+                    WebGl2RenderingContext::FRAMEBUFFER,
+                    &self.programs.resources.depth_attachment_array,
+                )
+                .unwrap();
+        }
 
         encoded_paints.truncate(original_scene_paint_count);
         self.gradient_cache.maintain();
@@ -796,6 +813,8 @@ struct WebGlResources {
     view_framebuffer_override: Option<WebGlFramebuffer>,
     /// Whether the depth buffer has been cleared this frame.
     depth_cleared_this_frame: bool,
+    /// Pre-allocated JS array for `invalidateFramebuffer` calls.
+    depth_attachment_array: js_sys::Array,
 
     /// Slot textures.
     slot_textures: [WebGlTexture; 2],
@@ -1378,8 +1397,7 @@ impl WebGlPrograms {
         gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
     }
 
-    /// Upload two strip slices (opaque then alpha) into a single GPU buffer,
-    /// avoiding multiple `bufferData` calls.
+    /// Uploads two strip slices (opaque then alpha) into a single GPU buffer.
     fn upload_strip_pair(
         &mut self,
         gl: &WebGl2RenderingContext,
@@ -1399,8 +1417,9 @@ impl WebGlPrograms {
         let second_bytes: &[u8] = bytemuck::cast_slice(second);
         let total_len = first_bytes.len() + second_bytes.len();
 
-        // Allocate buffer, then write both slices via bufferSubData to avoid
-        // a temporary concatenation Vec.
+        // Allocate buffer, then write both slices via bufferSubData.
+        // We don't want to pay for concatenating the two slices. It's better to
+        // simply write twice.
         gl.buffer_data_with_i32(
             WebGl2RenderingContext::ARRAY_BUFFER,
             total_len as i32,
@@ -1956,6 +1975,9 @@ fn create_webgl_resources(
         slot_framebuffers,
         view_framebuffer_override: None,
         depth_cleared_this_frame: false,
+        depth_attachment_array: js_sys::Array::of1(
+            &WebGl2RenderingContext::DEPTH_ATTACHMENT.into(),
+        ),
         max_texture_dimension_2d,
         stub_atlas_texture_array,
         atlas_render_framebuffer: None,
@@ -2040,7 +2062,7 @@ fn create_framebuffer_for_texture(
 
 const STRIP_STRIDE: i32 = size_of::<GpuStrip>() as i32;
 const STRIP_ATTR_COUNT: i32 = STRIP_STRIDE / 4;
-const _: () = assert!(STRIP_STRIDE == 24, "expected stride of 24");
+const _: () = assert!(STRIP_STRIDE == 24);
 const _: () = assert!(STRIP_ATTR_COUNT == 6);
 
 /// Initialize strip VAO.
@@ -2314,11 +2336,11 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.strip_uniforms.gradient_texture), 4);
 
+        // TODO: Today, we only support early-z rejection on the final view. If we wanted to support
+        // intermediate layers, we would require separate depth buffers for each target.
         let is_final_view =
-            matches!(target, StripPassRenderTarget::Output(OutputTarget::FinalView));
+            matches!(target, StripPassRenderTarget::Root(RootRenderTarget::UserSurface));
 
-        // Single upload for all strip data (opaque then alpha) to avoid
-        // multiple bufferData calls which are more expensive than attribute rebinding.
         self.programs
             .upload_strip_pair(self.gl, opaque_strips, alpha_strips);
         let opaque_count = opaque_strips.len() as i32;
@@ -2337,7 +2359,6 @@ impl WebGlRendererContext<'_> {
             self.gl.depth_func(WebGl2RenderingContext::LEQUAL);
 
             // Opaque pass: front-to-back, depth write ON, blend OFF.
-            // Instances 0..opaque_count are already at offset 0 in the buffer.
             if opaque_count > 0 {
                 self.gl.depth_mask(true);
                 self.gl.disable(WebGl2RenderingContext::BLEND);
@@ -2350,7 +2371,8 @@ impl WebGlRendererContext<'_> {
             }
 
             // Alpha pass: back-to-front, depth test ON, depth write OFF, blend ON.
-            // Rebind attribute pointers with offset to start at the alpha portion.
+            // Rebind attribute pointers with offset to start at the alpha portion
+            // of the buffer.
             if alpha_count > 0 {
                 let alpha_byte_offset = opaque_count * STRIP_STRIDE;
                 for i in 0..STRIP_ATTR_COUNT {
@@ -2359,7 +2381,7 @@ impl WebGlRendererContext<'_> {
                         1,
                         WebGl2RenderingContext::UNSIGNED_INT,
                         STRIP_STRIDE,
-                        i as i32 * 4 + alpha_byte_offset,
+                        i * 4 + alpha_byte_offset,
                     );
                 }
 
@@ -2379,7 +2401,7 @@ impl WebGlRendererContext<'_> {
                         1,
                         WebGl2RenderingContext::UNSIGNED_INT,
                         STRIP_STRIDE,
-                        i as i32 * 4,
+                        i * 4,
                     );
                 }
             }

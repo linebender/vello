@@ -241,11 +241,20 @@ pub(crate) trait RendererBackend {
     /// Clear specific slots in a texture.
     fn clear_slots(&mut self, texture_index: usize, slots: &[u32]);
 
-    /// Execute a render pass for strips, split into opaque and alpha sub-passes.
-    ///
-    /// For Output targets: `opaque_strips` are rendered front-to-back with depth writes
-    /// and no blending; `alpha_strips` are rendered back-to-front with depth testing
-    /// and alpha blending. For `SlotTexture` targets: only `alpha_strips` are used.
+    /// Execute a render pass for strips, split into opaque and alpha passes.
+    /// 
+    /// For output targets, render the strips in opaque then alpha order with:
+    /// 
+    /// | Pass   | Depth Test     | Depth Write    | Blend | Strip Ordering |
+    /// | ------ | -------------- | -------------- | ----- | -------------- |
+    /// | Opaque | ON (LessEqual) | ON             | OFF   | Front-to-back  |
+    /// | Alpha  | OFF            | ON (LessEqual) | ON    | Back-to-front  |
+    /// 
+    /// For slot textures, there are no opaque strips, so we only render the alpha strips with:
+    /// 
+    /// | Pass   | Depth Test     | Depth Write    | Blend | Strip Ordering |
+    /// | ------ | -------------- | -------------- | ----- | -------------- |
+    /// | Alpha  | OFF            | OFF            | ON    | Back-to-front  |
     fn render_strips(
         &mut self,
         opaque_strips: &[GpuStrip],
@@ -286,7 +295,6 @@ pub(crate) struct Scheduler {
     /// The output target for the main rendering operations.
     output_target: StripPassRenderTarget,
     /// Monotonically increasing counter for assigning `layer_index` to strips.
-    /// Drives z-depth computation for TBDR early-z rejection. Reset per frame.
     layer_counter: u32,
 }
 
@@ -441,11 +449,9 @@ impl TileEl {
 
 #[derive(Debug, Default)]
 struct Draw {
-    /// Opaque strips: interior fills with fully opaque paint at surface level.
-    /// Rendered front-to-back with depth writes and no blending for TBDR early-z.
+    /// Opaque strips: See `RendererBackend::render_strips` documentation.
     opaque: Vec<GpuStrip>,
-    /// Alpha strips: boundary strips, transparent paints, blend/clip ops.
-    /// Rendered back-to-front with depth testing and alpha blending.
+    /// Alpha strips: See `RendererBackend::render_strips` documentation.
     alpha: Vec<GpuStrip>,
 }
 

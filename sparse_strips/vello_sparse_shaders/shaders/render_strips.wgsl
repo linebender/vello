@@ -211,8 +211,7 @@ struct StripInstance {
     @location(3) payload: u32,
     // See StripInstance documentation above.
     @location(4) paint_and_rect_flag: u32,
-    // Painter's-order index for z-depth computation (TBDR early-z).
-    // Monotonically increasing in back-to-front order within a frame.
+    // Painter's-order index for z-depth computation.
     @location(5) layer_index: u32,
 }
 

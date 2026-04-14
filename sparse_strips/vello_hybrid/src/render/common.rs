@@ -150,8 +150,9 @@ pub struct GpuStrip {
     pub payload: u32,
     /// See `StripInstance::paint_and_rect_flag` documentation in `render_strips.wgsl`.
     pub paint_and_rect_flag: u32,
-    /// Painter's-order index used to compute z-depth for early-z rejection on TBDR GPUs.
-    /// Monotonically increasing in back-to-front order within a frame.
+    /// Painter's-order index used to compute z-depth for early-z rejection in shader.
+    /// In other words, the back-most layer has index 0 and every additional layer in front 
+    /// has an incrementing index.
     pub layer_index: u32,
 }
 
