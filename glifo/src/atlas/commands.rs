@@ -17,11 +17,11 @@
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
+use crate::DrawSink;
 use crate::color::{AlphaColor, Srgb};
 use crate::kurbo::{Affine, BezPath, Rect};
 use crate::peniko::{BlendMode, Gradient};
 use vello_common::paint::PaintType;
-use crate::DrawSink;
 
 /// Paint type for atlas commands.
 #[derive(Clone, Debug)]
