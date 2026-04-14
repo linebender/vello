@@ -531,6 +531,11 @@ impl Scene {
     /// defined by each [`SampleRect`]: i.e., the origin of each [`SampleRect`] is used only to
     /// determine the region to sample in the source [`TextureId`], and is ignored for determining
     /// the destination.
+    ///
+    /// A texture with the given [`TextureId`] must be supplied at render time. The given
+    /// [source regions][`SampleRect::source_region`] must be within bounds of that texture. The
+    /// texture is treated as premultiplied alpha in the render target's color space. See the
+    /// backend's binding type for more information on texture requirements.
     #[expect(
         clippy::cast_possible_truncation,
         reason = "f64→f32 truncation is acceptable for pixel coordinates"

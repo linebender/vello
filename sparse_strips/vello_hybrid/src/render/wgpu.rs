@@ -102,6 +102,25 @@ impl<'a> TextureBindings<'a> {
     }
 
     /// Insert or replace a texture binding.
+    ///
+    /// The [`TextureView`] must fit the following binding type.
+    ///
+    /// ```ignore
+    /// wgpu::BindGroupLayoutEntry {
+    ///     binding: 1,
+    ///     visibility: wgpu::ShaderStages::FRAGMENT,
+    ///     ty: wgpu::BindingType::Texture {
+    ///         sample_type: wgpu::TextureSampleType::Float { filterable: false },
+    ///         view_dimension: wgpu::TextureViewDimension::D2,
+    ///         multisampled: false,
+    ///     },
+    ///     count: None,
+    /// }
+    /// ```
+    ///
+    /// This means the view must be a non-array 2D view of a float-sampleable texture (e.g. integer
+    /// formats are rejected by wgpu at bind time), the underlying texture must include
+    /// [`wgpu::TextureUsages::TEXTURE_BINDING`], and only mip level 0 is read.
     #[inline]
     pub fn insert(&mut self, texture_id: TextureId, view: &'a TextureView) {
         self.views.insert(texture_id, view);
@@ -298,6 +317,10 @@ impl Renderer {
     /// Render `scene` with [externally bound textures](`TextureBindings`).
     ///
     /// See [`Self::render`] to render without externally bound textures.
+    ///
+    /// Every [`TextureId`] referenced by the scene must have a binding; this returns
+    /// [`RenderError::MissingTextureBinding`] otherwise. See [`TextureBindings::insert`] for the
+    /// requirements on the bound texture views.
     pub fn render_with_texture_bindings(
         &mut self,
         scene: &Scene,
