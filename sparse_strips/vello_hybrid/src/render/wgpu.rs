@@ -35,8 +35,8 @@ use crate::{
     },
     scene::Scene,
     schedule::{
-        ExternalTextureRun, LoadOp, OutputTarget, RendererBackend, RendererBackend, Scheduler,
-        SchedulerState, StripPassRenderTarget,
+        ExternalTextureRun, LoadOp, RendererBackend, RootRenderTarget, Scheduler, SchedulerState,
+        StripPassRenderTarget,
     },
 };
 use alloc::vec::Vec;
@@ -315,6 +315,7 @@ impl Renderer {
         let bindings = TextureBindings::new();
         self.render_with_texture_bindings(
             scene,
+            resources,
             device,
             queue,
             encoder,
@@ -330,6 +331,7 @@ impl Renderer {
     pub fn render_with_texture_bindings(
         &mut self,
         scene: &Scene,
+        resources: &mut Resources,
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
