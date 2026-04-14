@@ -149,7 +149,7 @@ impl Resources {
                 page_index,
             );
             let pixmap = Arc::get_mut(&mut glyph_resources.pixmaps[page_index])
-                .expect("atlas upload refers to a missing page");
+                .expect("atlas pixmap should be uniquely owned during bitmap upload");
             copy_pixmap_to_atlas(
                 &upload.pixmap,
                 pixmap,
@@ -195,7 +195,7 @@ impl Resources {
             .expect("glyph atlas resources must exist before clearing");
         for clear in glyph_resources.glyph_atlas.drain_pending_clear_rects() {
             let pixmap = Arc::get_mut(&mut glyph_resources.pixmaps[clear.page_index as usize])
-                .expect("atlas clear rect refers to a missing page");
+                .expect("atlas pixmap should be uniquely owned during region clearing");
             clear_pixmap_region(pixmap, clear);
         }
     }
