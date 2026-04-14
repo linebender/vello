@@ -5,6 +5,7 @@
 
 use crate::renderer::Renderer;
 use crate::util::layout_glyphs_noto_cbtf;
+use crate::util::render_pixmap;
 use crate::util::stops_blue_green_red_yellow;
 use std::sync::Arc;
 use vello_api::peniko::GradientKind::Radial;
@@ -371,6 +372,20 @@ fn clip_clear(ctx: &mut impl Renderer) {
         None,
     );
     ctx.pop_layer();
+}
+
+/// Reproduces stale pixels when the hybrid WGPU path reuses a render target without clearing it.
+#[vello_test(width = 64, height = 64, transparent)]
+fn render_target_cleared_between_frames(ctx: &mut impl Renderer) {
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 64.0, 64.0));
+    ctx.flush();
+    let _ = render_pixmap(ctx);
+
+    ctx.reset();
+
+    ctx.set_paint(LIME);
+    ctx.fill_rect(&Rect::new(16.0, 16.0, 48.0, 48.0));
 }
 
 /// <https://github.com/web-platform-tests/wpt/blob/18c64a74b1/html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.coloralpha.html>
