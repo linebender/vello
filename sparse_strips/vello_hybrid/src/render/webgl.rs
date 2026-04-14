@@ -172,7 +172,13 @@ impl WebGlRenderer {
             1,
         );
         let total_slots: usize = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
-        assert!(gl.get_parameter(WebGl2RenderingContext::DEPTH_BITS).unwrap().as_f64().unwrap() >= 24.0);
+        assert!(
+            gl.get_parameter(WebGl2RenderingContext::DEPTH_BITS)
+                .unwrap()
+                .as_f64()
+                .unwrap()
+                >= 24.0
+        );
         let image_cache = ImageCache::new_with_config(settings.atlas_config);
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
         // and the maximum gradient LUT size - worst case scenario.
@@ -2352,8 +2358,10 @@ impl WebGlRendererContext<'_> {
         // TODO: Today, we only support early-z rejection on the final view. If we wanted to support
         // intermediate layers, we would require separate depth buffers for each target. We can explore
         // that possibility in the future.
-        let is_final_view =
-            matches!(target, StripPassRenderTarget::Root(RootRenderTarget::UserSurface));
+        let is_final_view = matches!(
+            target,
+            StripPassRenderTarget::Root(RootRenderTarget::UserSurface)
+        );
 
         self.programs
             .upload_strip_pair(self.gl, opaque_strips, alpha_strips);
@@ -2365,8 +2373,7 @@ impl WebGlRendererContext<'_> {
             if !self.programs.resources.depth_cleared_this_frame {
                 self.programs.resources.depth_cleared_this_frame = true;
                 self.gl.clear_depth(1.0);
-                self.gl
-                    .clear(WebGl2RenderingContext::DEPTH_BUFFER_BIT);
+                self.gl.clear(WebGl2RenderingContext::DEPTH_BUFFER_BIT);
             }
 
             self.gl.enable(WebGl2RenderingContext::DEPTH_TEST);

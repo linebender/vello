@@ -2204,9 +2204,9 @@ impl Programs {
 
             self.depth_texture =
                 Self::create_depth_texture(device, new_render_size.width, new_render_size.height);
-            self.depth_texture_view =
-                self.depth_texture
-                    .create_view(&TextureViewDescriptor::default());
+            self.depth_texture_view = self
+                .depth_texture
+                .create_view(&TextureViewDescriptor::default());
 
             self.render_size = new_render_size.clone();
         }
@@ -2442,11 +2442,7 @@ impl Programs {
         let total = first_bytes + second_bytes;
         self.resources.strips_buffer = Self::create_strips_buffer(device, total);
         let mut buffer = queue
-            .write_buffer_with(
-                &self.resources.strips_buffer,
-                0,
-                total.try_into().unwrap(),
-            )
+            .write_buffer_with(&self.resources.strips_buffer, 0, total.try_into().unwrap())
             .expect("Capacity handled in creation");
         buffer[..first_bytes as usize].copy_from_slice(bytemuck::cast_slice(first));
         buffer[first_bytes as usize..].copy_from_slice(bytemuck::cast_slice(second));
@@ -2614,8 +2610,10 @@ impl RendererContext<'_> {
             0
         };
 
-        let is_final_view =
-            matches!(target, StripPassRenderTarget::Root(RootRenderTarget::UserSurface));
+        let is_final_view = matches!(
+            target,
+            StripPassRenderTarget::Root(RootRenderTarget::UserSurface)
+        );
 
         let depth_stencil_attachment = if is_final_view {
             let depth_load = if self.programs.depth_cleared_this_frame {
