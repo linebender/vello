@@ -282,6 +282,33 @@ impl Renderer {
         render_size: &RenderSize,
         view: &TextureView,
     ) -> Result<(), RenderError> {
+        let bindings = TextureBindings::new();
+        self.render_with_texture_bindings(
+            scene,
+            resources,
+            device,
+            queue,
+            encoder,
+            render_size,
+            view,
+            &bindings,
+        )
+    }
+
+    /// Render `scene` with [externally bound textures](`TextureBindings`).
+    ///
+    /// See [`Self::render`] to render without externally bound textures.
+    pub fn render_with_texture_bindings(
+        &mut self,
+        scene: &Scene,
+        resources: &mut Resources,
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+        render_size: &RenderSize,
+        view: &TextureView,
+        texture_bindings: &TextureBindings<'_>,
+    ) -> Result<(), RenderError> {
         #[cfg(feature = "text")]
         {
             resources.before_render(
@@ -312,33 +339,6 @@ impl Renderer {
             );
         }
 
-        let bindings = TextureBindings::new();
-        self.render_with_texture_bindings(
-            scene,
-            resources,
-            device,
-            queue,
-            encoder,
-            render_size,
-            view,
-            &bindings,
-        )
-    }
-
-    /// Render `scene` with [externally bound textures](`TextureBindings`).
-    ///
-    /// See [`Self::render`] to render without externally bound textures.
-    pub fn render_with_texture_bindings(
-        &mut self,
-        scene: &Scene,
-        resources: &mut Resources,
-        device: &Device,
-        queue: &Queue,
-        encoder: &mut CommandEncoder,
-        render_size: &RenderSize,
-        view: &TextureView,
-        texture_bindings: &TextureBindings<'_>,
-    ) -> Result<(), RenderError> {
         let mut encoded_paints = scene.encoded_paints.borrow_mut();
         let scene_paint_count = encoded_paints.len();
 
