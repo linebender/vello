@@ -131,7 +131,7 @@ impl DrawSink for AtlasCommandRecorder {
     #[inline]
     fn fill_path(&mut self, path: &BezPath) {
         self.commands
-            .push(AtlasCommand::FillPath(alloc::sync::Arc::new(path.clone())));
+            .push(AtlasCommand::FillPath(Arc::new(path.clone())));
     }
 
     #[inline]
@@ -142,9 +142,7 @@ impl DrawSink for AtlasCommandRecorder {
     #[inline]
     fn push_clip_layer(&mut self, clip: &BezPath) {
         self.commands
-            .push(AtlasCommand::PushClipLayer(alloc::sync::Arc::new(
-                clip.clone(),
-            )));
+            .push(AtlasCommand::PushClipLayer(Arc::new(clip.clone())));
     }
 
     #[inline]

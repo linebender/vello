@@ -3,12 +3,12 @@
 
 //! Drawing COLR glyphs.
 
-use crate::atlas::commands::{AtlasCommand, AtlasCommandRecorder, AtlasPaint};
+use crate::atlas::commands::AtlasPaint;
 use crate::color::Srgb;
 use crate::color::{AlphaColor, DynamicColor};
 use crate::glyph::{GlyphColr, OutlinePath};
 use crate::interface::DrawSink;
-use crate::kurbo::{Affine, BezPath, Point, Rect, Shape};
+use crate::kurbo::{Affine, Point, Rect, Shape};
 use crate::peniko::{self, BlendMode, ColorStops, Compose, Extend, Gradient, Mix};
 use crate::util::FloatExt;
 use alloc::vec;
