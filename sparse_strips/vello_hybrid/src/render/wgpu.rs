@@ -278,9 +278,6 @@ impl Renderer {
             &mut encoded_paints,
         )?;
 
-        // TODO: Passing `false` here because wgpu swapchain textures likely have
-        // undefined initial content, making an explicit clear redundant in the common
-        // case. Verify whether there are scenarios where wgpu would need a clear.
         let result = self.render_scene(
             scene,
             device,
@@ -290,7 +287,7 @@ impl Renderer {
             view,
             &resources.image_cache,
             &encoded_paints,
-            false,
+            true,
             RootRenderTarget::UserSurface,
         );
 
