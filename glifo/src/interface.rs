@@ -9,6 +9,8 @@ use crate::kurbo::{Affine, BezPath, Rect};
 use crate::peniko::BlendMode;
 use vello_common::paint::{Image, ImageSource, Tint};
 
+// TODO: This trait is only temporary and will hopefully be replaced once we have a better
+// unifying imaging API.
 /// A sink for low-level glyph drawing commands.
 pub trait DrawSink {
     /// Set the current transform.
