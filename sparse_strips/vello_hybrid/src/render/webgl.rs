@@ -31,8 +31,8 @@ use crate::{
             GPU_ENCODED_IMAGE_SIZE_TEXELS, GPU_LINEAR_GRADIENT_SIZE_TEXELS,
             GPU_RADIAL_GRADIENT_SIZE_TEXELS, GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuEncodedImage,
             GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
-            pack_image_offset, pack_image_params, pack_image_size, pack_radial_kind_and_swapped,
-            pack_texture_width_and_extend_mode, pack_tint,
+            normalize_atlas_config, pack_image_offset, pack_image_params, pack_image_size,
+            pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode, pack_tint,
         },
     },
     scene::Scene,
@@ -73,6 +73,13 @@ const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(G
 /// Query the WebGL context for the max texture size.
 fn get_max_texture_dimension_2d(gl: &WebGl2RenderingContext) -> u32 {
     gl.get_parameter(WebGl2RenderingContext::MAX_TEXTURE_SIZE)
+        .unwrap()
+        .as_f64()
+        .unwrap() as u32
+}
+
+fn get_max_texture_array_layers(gl: &WebGl2RenderingContext) -> u32 {
+    gl.get_parameter(WebGl2RenderingContext::MAX_ARRAY_TEXTURE_LAYERS)
         .unwrap()
         .as_f64()
         .unwrap() as u32
@@ -142,7 +149,14 @@ impl WebGlRenderer {
             );
         }
 
+        let mut settings = settings;
         let max_texture_dimension_2d = get_max_texture_dimension_2d(&gl);
+        normalize_atlas_config(
+            &mut settings.atlas_config,
+            max_texture_dimension_2d,
+            get_max_texture_array_layers(&gl),
+            1,
+        );
         let total_slots: usize = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
         let image_cache = ImageCache::new_with_config(settings.atlas_config);
         // Estimate the maximum number of gradient cache entries based on the max texture dimension

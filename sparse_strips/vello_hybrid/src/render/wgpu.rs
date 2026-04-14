@@ -29,8 +29,8 @@ use crate::{
             GPU_ENCODED_IMAGE_SIZE_TEXELS, GPU_LINEAR_GRADIENT_SIZE_TEXELS,
             GPU_RADIAL_GRADIENT_SIZE_TEXELS, GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuEncodedImage,
             GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
-            pack_image_offset, pack_image_params, pack_image_size, pack_radial_kind_and_swapped,
-            pack_texture_width_and_extend_mode, pack_tint,
+            normalize_atlas_config, pack_image_offset, pack_image_params, pack_image_size,
+            pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode, pack_tint,
         },
     },
     scene::Scene,
@@ -115,7 +115,28 @@ impl Renderer {
     ) -> Self {
         super::common::maybe_warn_about_webgl_feature_conflict();
 
+        let mut settings = settings;
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
+        // When targeting wasm32 with a WebGL/GLES backend, we need to set
+        // `initial_atlas_count` to 2. In WGPU's GLES backend, heuristics are used to decide
+        // whether a texture should be treated as D2 or D2Array. However, this can cause a
+        // mismatch: when depth_or_array_layers == 1, the backend assumes the texture is D2,
+        // even if it was actually created as a D2Array. This issue only occurs with the GLES
+        // backend.
+        //
+        // @see https://github.com/gfx-rs/wgpu/blob/61e5124eb9530d3b3865556a7da4fd320d03ddc5/wgpu-hal/src/gles/mod.rs#L470-L517
+        // TODO: Can we somehow dynamically detect whether the WebGL backend was chosen, so that the
+        // wgpu backend isn't affected by this?
+        #[cfg(target_arch = "wasm32")]
+        let min_initial_atlas_count = 2;
+        #[cfg(not(target_arch = "wasm32"))]
+        let min_initial_atlas_count = 1;
+        normalize_atlas_config(
+            &mut settings.atlas_config,
+            max_texture_dimension_2d,
+            device.limits().max_texture_array_layers,
+            min_initial_atlas_count,
+        );
         let total_slots = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
         let image_cache = ImageCache::new_with_config(settings.atlas_config);
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
@@ -1533,7 +1554,7 @@ impl Programs {
         height: u32,
         atlas_count: u32,
     ) -> (Texture, TextureView) {
-        // See the comment in `AtlasConfig::default`. On WASM, we need to set this to at
+        // See the comment in `Renderer::new_with`. On WASM, we need to set this to at
         // least 2 so it works with the wgpu WebGL backend.
         #[cfg(target_arch = "wasm32")]
         let depth_or_array_layers = atlas_count.max(2);
