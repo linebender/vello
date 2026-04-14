@@ -498,6 +498,18 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
         }
     }
 
+    /// Return the scaling factor that should be applied to the stroke width when stroking this
+    /// glyph run.
+    pub fn stroke_adjustment(&self) -> f64 {
+        let run_size = self.prepared_run.run_size;
+
+        if run_size == 0.0 {
+            1.0
+        } else {
+            f64::from(self.prepared_run.draw_props.font_size / run_size)
+        }
+    }
+
     /// Render a decoration (like an underline) that skips over glyph descenders.
     ///
     /// This implements `text-decoration-skip-ink`-like behavior, where the decoration line is interrupted where it

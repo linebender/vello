@@ -738,6 +738,17 @@ impl Scene {
         self.render_state.stroke = stroke;
     }
 
+    /// Get the current stroke.
+    pub fn stroke(&self) -> &Stroke {
+        &self.render_state.stroke
+    }
+
+    /// Get a mutable reference to the current stroke.
+    #[cfg(feature = "text")]
+    pub(crate) fn stroke_mut(&mut self) -> &mut Stroke {
+        &mut self.render_state.stroke
+    }
+
     /// Set the paint for subsequent rendering operations.
     // TODO: This API is not final. Supporting images from a pixmap is explicitly out of scope.
     //       Instead images should be passed via a backend-agnostic opaque id, and be hydrated at
