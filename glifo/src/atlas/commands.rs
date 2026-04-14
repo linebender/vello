@@ -21,6 +21,7 @@ use crate::color::{AlphaColor, Srgb};
 use crate::kurbo::{Affine, BezPath, Rect};
 use crate::peniko::{BlendMode, Gradient};
 use vello_common::paint::PaintType;
+use crate::DrawSink;
 
 /// Paint type for atlas commands.
 #[derive(Clone, Debug)]
@@ -108,6 +109,62 @@ impl AtlasCommandRecorder {
             width,
             height,
         }
+    }
+}
+
+impl DrawSink for AtlasCommandRecorder {
+    #[inline]
+    fn set_transform(&mut self, t: Affine) {
+        self.commands.push(AtlasCommand::SetTransform(t));
+    }
+
+    #[inline]
+    fn set_paint(&mut self, paint: AtlasPaint) {
+        self.commands.push(AtlasCommand::SetPaint(paint));
+    }
+
+    #[inline]
+    fn set_paint_transform(&mut self, t: Affine) {
+        self.commands.push(AtlasCommand::SetPaintTransform(t));
+    }
+
+    #[inline]
+    fn fill_path(&mut self, path: &BezPath) {
+        self.commands
+            .push(AtlasCommand::FillPath(alloc::sync::Arc::new(path.clone())));
+    }
+
+    #[inline]
+    fn fill_rect(&mut self, rect: &Rect) {
+        self.commands.push(AtlasCommand::FillRect(*rect));
+    }
+
+    #[inline]
+    fn push_clip_layer(&mut self, clip: &BezPath) {
+        self.commands
+            .push(AtlasCommand::PushClipLayer(alloc::sync::Arc::new(
+                clip.clone(),
+            )));
+    }
+
+    #[inline]
+    fn push_blend_layer(&mut self, blend_mode: BlendMode) {
+        self.commands.push(AtlasCommand::PushBlendLayer(blend_mode));
+    }
+
+    #[inline]
+    fn pop_layer(&mut self) {
+        self.commands.push(AtlasCommand::PopLayer);
+    }
+
+    #[inline]
+    fn width(&self) -> u16 {
+        self.width
+    }
+
+    #[inline]
+    fn height(&self) -> u16 {
+        self.height
     }
 }
 
