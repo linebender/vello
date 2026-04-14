@@ -322,6 +322,7 @@ impl Renderer {
                             device,
                             queue,
                             atlas_id,
+                            texture_bindings,
                         )
                         .expect("Failed to render glyphs to atlas");
                 },
@@ -386,6 +387,10 @@ impl Renderer {
     /// ensuring atlas content is committed before any subsequent
     /// [`render`](Self::render) call (the two methods share GPU resources that
     /// are staged by `queue.write_*` and only applied on the next `queue.submit`).
+    ///
+    /// `texture_bindings` provides [externally bound textures](`TextureBindings`)
+    /// referenced by the scene. Pass `&TextureBindings::new()` if the scene does
+    /// not use any.
     #[doc(hidden)]
     pub fn render_to_atlas(
         &mut self,
@@ -395,6 +400,7 @@ impl Renderer {
         device: &Device,
         queue: &Queue,
         atlas_id: AtlasId,
+        texture_bindings: &TextureBindings<'_>,
     ) -> Result<(), RenderError> {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render to Atlas Encoder"),
@@ -443,7 +449,6 @@ impl Renderer {
             .dummy_image_cache
             .take()
             .expect("dummy image cache must exist");
-        let bindings = TextureBindings::new();
         let result = self.render_scene(
             scene,
             device,
@@ -455,7 +460,7 @@ impl Renderer {
             &encoded_paints,
             false,
             RootRenderTarget::AtlasLayer,
-            &bindings,
+            texture_bindings,
         );
         self.dummy_image_cache = Some(dummy_image_cache);
 
