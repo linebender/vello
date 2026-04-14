@@ -2615,7 +2615,7 @@ impl RendererContext<'_> {
         };
 
         let is_final_view =
-            matches!(target, StripPassRenderTarget::Output(OutputTarget::FinalView));
+            matches!(target, StripPassRenderTarget::Root(RootRenderTarget::UserSurface));
 
         let depth_stencil_attachment = if is_final_view {
             let depth_load = if self.programs.depth_cleared_this_frame {
