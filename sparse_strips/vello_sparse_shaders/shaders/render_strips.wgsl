@@ -1098,13 +1098,9 @@ fn external_bicubic_sample(
     let row3 = cx.x * s03 + cx.y * s13 + cx.z * s23 + cx.w * s33;
     let result = cy.x * row0 + cy.y * row1 + cy.z * row2 + cy.w * row3;
 
-    // Clamp each component to [0,1] and ensure color components don't exceed alpha
-    return vec4<f32>(
-        min(clamp(result.r, 0.0, 1.0), result.a),
-        min(clamp(result.g, 0.0, 1.0), result.a),
-        min(clamp(result.b, 0.0, 1.0), result.a),
-        min(clamp(result.a, 0.0, 1.0), result.a)
-    );
+    // Clamp alpha first, then clamp premultiplied color channels against it.
+    let a = clamp(result.a, 0.0, 1.0);
+    return vec4<f32>(clamp(result.rgb, vec3(0.0), vec3(a)), a);
 }
 
 fn sample_external_image(
