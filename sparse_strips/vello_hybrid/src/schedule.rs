@@ -960,8 +960,9 @@ impl Scheduler {
                 // Output target: reverse opaque for front-to-back rendering.
                 // Alpha strips stay in natural back-to-front order.
                 let Draw {opaque, alpha} = draw;
+                // This leaves `opaque` in a dirty state, but it doesn't matter because we never use it again.
                 opaque.reverse();
-                renderer.render_strips(&opaque, &alpha, target, load);
+                renderer.render_strips(opaque, alpha, target, load);
             } else {
                 // Slot textures: no depth optimization, everything in alpha list.
                 assert!(
