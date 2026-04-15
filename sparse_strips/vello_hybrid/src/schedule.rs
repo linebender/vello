@@ -1571,7 +1571,8 @@ impl Scheduler {
                             && img.tint.is_none_or(|t| t.color.components[3] >= 1.0)
                     }
                     Some(EncodedPaint::Gradient(g)) => !g.may_have_opacities,
-                    _ => false,
+                    Some(EncodedPaint::BlurredRoundedRect(_)) => false,
+                    None => unreachable!("Paint must be in encoded paints"),
                 }
             }
         }
