@@ -570,13 +570,13 @@ impl Renderer {
     /// Destroy an image from the cache and clear the allocated slot in the atlas.
     pub fn destroy_image(
         &mut self,
-        image_cache: &mut ImageCache,
+        resources: &mut Resources,
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
         image_id: vello_common::paint::ImageId,
     ) {
-        if let Some(image_resource) = image_cache.deallocate(image_id) {
+        if let Some(image_resource) = resources.image_cache.deallocate(image_id) {
             let padding = image_resource.padding as u32;
 
             self.clear_atlas_region(
