@@ -799,10 +799,10 @@ impl Scheduler {
         let draw = self.draw_mut(round, 2);
 
         for cmd in &scene.fast_strips_buffer.commands[range] {
+            let layer_index = layer_counter;
+            layer_counter += 1;
             match cmd {
                 FastStripCommand::Path(path) => {
-                    let layer_index = layer_counter;
-                    layer_counter += 1;
                     generate_gpu_strips_for_fast_path(
                         path,
                         &strip_storage,
@@ -814,15 +814,12 @@ impl Scheduler {
                     );
                 }
                 FastStripCommand::Rect(r) => {
-                    let layer_index = layer_counter;
-                    layer_counter += 1;
-                    let is_opaque = Self::is_paint_opaque(&r.paint, encoded_paints);
                     pack_rectangle_into_gpu(
                         r,
                         encoded_paints,
                         paint_idxs,
                         layer_index,
-                        is_opaque,
+                        Self::is_paint_opaque(&r.paint, encoded_paints),
                         draw,
                     );
                 }
