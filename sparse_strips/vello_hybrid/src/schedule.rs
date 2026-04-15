@@ -801,13 +801,15 @@ impl Scheduler {
         for cmd in &scene.fast_strips_buffer.commands[range] {
             match cmd {
                 FastStripCommand::Path(path) => {
+                    let layer_index = layer_counter;
+                    layer_counter += 1;
                     generate_gpu_strips_for_fast_path(
                         path,
                         &strip_storage,
                         scene,
                         encoded_paints,
                         paint_idxs,
-                        &mut layer_counter,
+                        layer_index,
                         draw,
                     );
                 }
@@ -1870,7 +1872,7 @@ fn generate_gpu_strips_for_fast_path(
     scene: &Scene,
     encoded_paints: &[EncodedPaint],
     paint_idxs: &[u32],
-    layer_counter: &mut u32,
+    layer_index: u32,
     draw: &mut Draw,
 ) {
     let strips = &strip_storage.strips[path.strips.clone()];
@@ -1898,11 +1900,6 @@ fn generate_gpu_strips_for_fast_path(
         let strip_width = next_col.saturating_sub(col) as u16;
         let x0 = strip.x;
         let y = strip.y;
-
-        // Since the components of a single strip are not overlapping, we can re-use the same
-        // layer index for all the components (alpha + fill) for a single strip.
-        let layer_index = *layer_counter;
-        *layer_counter += 1;
 
         // Alpha fill for the strip's coverage region.
         if strip_width > 0 {
