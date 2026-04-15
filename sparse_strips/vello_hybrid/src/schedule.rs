@@ -296,8 +296,53 @@ pub(crate) struct Scheduler {
     round_pool: RoundPool,
     /// The output target for the main rendering operations.
     output_target: StripPassRenderTarget,
-    /// Monotonically increasing counter for assigning `layer_index` to strips.
-    layer_counter: u32,
+    /// See [`DepthCounter`].
+    depth: DepthCounter,
+}
+
+/// Assigns depth indices to GPU strips for early z rejection.
+#[derive(Debug, Default)]
+struct DepthCounter {
+    counter: u32,
+    coarse_offset: u32,
+}
+
+impl DepthCounter {
+    fn reset(&mut self) {
+        self.counter = 0;
+    }
+
+    #[inline(always)]
+    fn next(&mut self) -> u32 {
+        let idx = self.counter;
+        self.counter += 1;
+        idx
+    }
+
+    fn begin_coarse_batch(&mut self) {
+        // +1 to reserve a background slot.
+        self.coarse_offset = self.counter + 1;
+        self.counter = self.coarse_offset;
+    }
+
+    fn begin_filter_batch(&mut self) {
+        self.coarse_offset = self.counter;
+    }
+
+    /// Depth index for the tile background in the current coarse batch.
+    #[inline(always)]
+    fn coarse_bg(&self) -> u32 {
+        self.coarse_offset - 1
+    }
+
+    /// Depth index for a coarse alpha or opaque fill command with the 
+    /// given `attrs_idx`.
+    #[inline(always)]
+    fn fill(&mut self, attrs_idx: u32) -> u32 {
+        let idx = self.coarse_offset + attrs_idx;
+        self.counter = self.counter.max(idx + 1);
+        idx
+    }
 }
 
 #[derive(Debug, Default)]
@@ -491,7 +536,7 @@ impl Scheduler {
             rounds_queue: VecDeque::new(),
             round_pool: RoundPool::default(),
             output_target: StripPassRenderTarget::Root(RootRenderTarget::UserSurface),
-            layer_counter: 0,
+            depth: DepthCounter::default(),
         }
     }
 
@@ -536,7 +581,7 @@ impl Scheduler {
         filter_context: &FilterContext,
         encoded_paints: &[EncodedPaint],
     ) -> Result<(), RenderError> {
-        self.layer_counter = 0;
+        self.depth.reset();
         for node_id in scene.render_graph.execution_order() {
             let node = &scene.render_graph.nodes[node_id];
 
@@ -733,6 +778,7 @@ impl Scheduler {
         // The maximum layer of other filter nodes should not leak into new filter nodes, hence
         // we need to reset it.
         state.max_round = self.round;
+        self.depth.begin_filter_batch();
 
         for y in wtile_bbox.y0()..wtile_bbox.y1() {
             for x in wtile_bbox.x0()..wtile_bbox.x1() {
@@ -795,12 +841,12 @@ impl Scheduler {
         let strip_storage = scene.strip_storage.borrow();
         // Always choose the draw of the final surface, since direct strips are only ever
         // rendered to the final surface.
-        let mut layer_counter = self.layer_counter;
+        // Take a local copy of the counter to avoid borrow conflicts with `draw`.
+        let mut depth = core::mem::take(&mut self.depth);
         let draw = self.draw_mut(round, 2);
 
         for cmd in &scene.fast_strips_buffer.commands[range] {
-            let layer_index = layer_counter;
-            layer_counter += 1;
+            let layer_index = depth.next();
             match cmd {
                 FastStripCommand::Path(path) => {
                     generate_gpu_strips_for_fast_path(
@@ -825,7 +871,7 @@ impl Scheduler {
                 }
             }
         }
-        self.layer_counter = layer_counter;
+        self.depth = depth;
     }
 
     /// Process one batch of coarse-rasterized wide tile commands.
@@ -845,6 +891,7 @@ impl Scheduler {
         filter_context: &FilterContext,
         encoded_paints: &[EncodedPaint],
     ) -> Result<(), RenderError> {
+        self.depth.begin_coarse_batch();
         for row in 0..rows {
             for col in 0..cols {
                 let idx = (row * cols + col) as usize;
@@ -956,7 +1003,7 @@ impl Scheduler {
             if i == 2 {
                 // Output target: reverse opaque for front-to-back rendering.
                 // Alpha strips stay in natural back-to-front order.
-                let Draw {opaque, alpha} = draw;
+                let Draw { opaque, alpha } = draw;
                 // This leaves `opaque` in a dirty state, but it doesn't matter because we never use it again.
                 opaque.reverse();
                 renderer.render_strips(opaque, alpha, target, load);
@@ -975,14 +1022,6 @@ impl Scheduler {
         self.round += 1;
 
         self.round_pool.return_to_pool(round);
-    }
-
-    /// Allocate and return the next layer index for z-depth ordering.
-    #[inline(always)]
-    fn next_layer_index(&mut self) -> u32 {
-        let idx = self.layer_counter;
-        self.layer_counter += 1;
-        idx
     }
 
     // Find the appropriate draw call for rendering.
@@ -1022,10 +1061,10 @@ impl Scheduler {
                 idxs,
             );
 
-            let layer_index = self.next_layer_index();
+            let bg_layer_index = self.depth.coarse_bg();
             let draw = self.draw_mut(self.round, 2);
             let strip = GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
-                .paint(payload, paint, layer_index);
+                .paint(payload, paint, bg_layer_index);
             if tile.bg.is_opaque() {
                 draw.push_opaque(strip);
             } else {
@@ -1173,6 +1212,7 @@ impl Scheduler {
                                 wide_tile_x,
                                 wide_tile_y,
                             );
+                            let layer_index = scheduler.depth.next();
                             scheduler.do_fill_with(
                                 state,
                                 &cmd,
@@ -1181,6 +1221,7 @@ impl Scheduler {
                                 payload,
                                 paint,
                                 false,
+                                layer_index,
                             );
                         };
 
@@ -1281,7 +1322,7 @@ impl Scheduler {
             if let TemporarySlot::Invalid(temp_slot) = tos.temporary_slot {
                 let next_round = depth.is_multiple_of(2);
                 let el_round = tos.round + usize::from(next_round);
-                let layer_index = self.next_layer_index();
+                let layer_index = self.depth.next();
                 let draw = self.draw_mut(el_round, temp_slot.get_texture());
                 draw.push_alpha(
                     GpuStripBuilder::at_slot(temp_slot.get_idx(), 0, WideTile::WIDTH)
@@ -1391,7 +1432,7 @@ impl Scheduler {
 
         let next_round: bool = depth.is_multiple_of(2) && depth > 2;
         let round = nos.round.max(tos.round + usize::from(next_round));
-        let layer_index = self.next_layer_index();
+        let layer_index = self.depth.next();
 
         let draw = self.draw_mut(
             round,
@@ -1456,7 +1497,7 @@ impl Scheduler {
         attrs: &CommandAttrs,
     ) {
         let depth = state.tile_state.stack.len();
-        let layer_index = self.next_layer_index();
+        let layer_index = self.depth.fill(cmd.attrs_idx);
 
         let el = state.tile_state.stack.last_mut().unwrap();
         let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
@@ -1502,6 +1543,7 @@ impl Scheduler {
         attrs: &CommandAttrs,
     ) {
         let fill_attrs = &attrs.fill[cmd.attrs_idx as usize];
+        let layer_index = self.depth.fill(cmd.attrs_idx);
         let (scene_strip_x, scene_strip_y) = (wide_tile_x + cmd.x, wide_tile_y);
         let (payload, paint) = Self::process_paint(
             &fill_attrs.paint,
@@ -1518,6 +1560,7 @@ impl Scheduler {
             payload,
             paint,
             Self::is_paint_opaque(&fill_attrs.paint, encoded_paints),
+            layer_index,
         );
     }
 
@@ -1531,10 +1574,10 @@ impl Scheduler {
         payload: u32,
         paint: u32,
         is_opaque: bool,
+        layer_index: u32,
     ) {
         let depth = state.tile_state.stack.len();
 
-        let layer_index = self.next_layer_index();
         let el = state.tile_state.stack.last_mut().unwrap();
         let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
 
@@ -1612,7 +1655,7 @@ impl Scheduler {
         // enough "ping-ponging" to resolve all dependencies.
         let next_round = depth.is_multiple_of(2) && depth > 2;
         let round = nos.round.max(tos.round + usize::from(next_round));
-        let layer_index = self.next_layer_index();
+        let layer_index = self.depth.next();
         if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
             let draw = self.draw_mut(round, nos.dest_slot.get_texture());
             draw.push_alpha(
@@ -1621,7 +1664,7 @@ impl Scheduler {
             );
         }
 
-        let layer_index = self.next_layer_index();
+        let layer_index = self.depth.next();
         let draw = self.draw_mut(
             round,
             if (depth - 1) <= 1 {
@@ -1660,7 +1703,7 @@ impl Scheduler {
         let next_round = depth.is_multiple_of(2) && depth > 2;
         let round = nos.round.max(tos.round + usize::from(next_round));
 
-        let layer_index = self.next_layer_index();
+        let layer_index = self.depth.next();
         // If nos has a temporary slot, copy it to `dest_slot` first
         if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
             let draw = self.draw_mut(round, nos.dest_slot.get_texture());
@@ -1670,7 +1713,7 @@ impl Scheduler {
             );
         }
 
-        let layer_index = self.next_layer_index();
+        let layer_index = self.depth.next();
         let draw = self.draw_mut(
             round,
             if (depth - 1) <= 1 {
