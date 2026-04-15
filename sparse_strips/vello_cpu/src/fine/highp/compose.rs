@@ -16,6 +16,7 @@ pub(crate) trait ComposeExt {
 }
 
 impl ComposeExt for BlendMode {
+    #[inline(always)]
     fn compose<S: Simd>(
         &self,
         simd: S,
@@ -72,6 +73,7 @@ macro_rules! compose {
         struct $name;
 
         impl $name {
+            #[inline(always)]
             fn compose<S: Simd>(simd: S, src_c: f32x16<S>, bg_c: f32x16<S>) -> f32x16<S> {
                 let al_b = bg_c.splat_4th();
                 let al_s = src_c.splat_4th();
