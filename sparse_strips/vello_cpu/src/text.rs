@@ -262,7 +262,13 @@ impl<'a> GlyphRunBackend<'a> for CpuGlyphRunBackend<'a> {
     where
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
-        self.render_glyphs(run, glyphs, |glyph_run, ctx| glyph_run.stroke_glyphs(ctx));
+        self.render_glyphs(run, glyphs, |glyph_run, ctx| {
+            let stroke_adjustment = glyph_run.stroke_adjustment();
+            let original_width = ctx.stroke().width;
+            ctx.stroke_mut().width *= stroke_adjustment;
+            glyph_run.stroke_glyphs(ctx);
+            ctx.stroke_mut().width = original_width;
+        });
     }
 }
 

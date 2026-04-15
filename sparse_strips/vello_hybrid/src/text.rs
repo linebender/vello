@@ -251,7 +251,11 @@ impl<'a> GlyphRunBackend<'a> for HybridGlyphRunBackend<'a> {
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
         self.render_glyphs(run, glyphs, |glyph_run, scene| {
+            let stroke_adjustment = glyph_run.stroke_adjustment();
+            let original_width = scene.stroke().width;
+            scene.stroke_mut().width *= stroke_adjustment;
             glyph_run.stroke_glyphs(scene);
+            scene.stroke_mut().width = original_width;
         });
     }
 }

@@ -155,6 +155,24 @@ fn glyphs_stroked_unhinted(ctx: &mut impl Renderer, enable_caching: bool) {
 }
 
 #[vello_test(width = 300, height = 70, glyph)]
+fn glyphs_stroked_scaled_up(ctx: &mut impl Renderer, enable_caching: bool) {
+    let font_size: f32 = 5_f32;
+    let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
+
+    ctx.set_transform(Affine::translate((0., f64::from(font_size))).then_scale(10.0));
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
+    ctx.set_stroke(Stroke {
+        width: 0.3,
+        ..Stroke::default()
+    });
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .atlas_cache(enable_caching)
+        .hint(false)
+        .stroke_glyphs(glyphs.into_iter());
+}
+
+#[vello_test(width = 300, height = 70, glyph)]
 fn glyphs_large_stroke_width(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size: f32 = 50_f32;
     let (font, glyphs) = layout_glyphs_roboto("Hello, world!", font_size);
