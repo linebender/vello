@@ -308,6 +308,7 @@ impl MultiThreadedDispatcher {
                                 blend_mode,
                                 thread_id,
                                 mask,
+                                gamma_correction,
                             } => self.wide.generate(
                                 &task.allocation_group.strips
                                     [strip_range.start as usize..strip_range.end as usize],
@@ -316,6 +317,7 @@ impl MultiThreadedDispatcher {
                                 thread_id,
                                 mask,
                                 encoded_paints,
+                                gamma_correction,
                             ),
                             CoarseTaskType::RenderWideCommand {
                                 strips,
@@ -330,6 +332,7 @@ impl MultiThreadedDispatcher {
                                 thread_id,
                                 mask,
                                 encoded_paints,
+                                false,
                             ),
                             CoarseTaskType::PushLayer {
                                 thread_id,
@@ -441,6 +444,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
         _encoded_paints: &[EncodedPaint],
+        gamma_correction: bool,
     ) {
         let start = self.allocation_group.path.len() as u32;
         self.allocation_group.path.extend(path);
@@ -453,6 +457,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             blend_mode,
             aliasing_threshold,
             mask,
+            gamma_correction,
         });
     }
 
@@ -466,6 +471,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
         _encoded_paints: &[EncodedPaint],
+        gamma_correction: bool,
     ) {
         let start = self.allocation_group.path.len() as u32;
         self.allocation_group.path.extend(path);
@@ -478,6 +484,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             blend_mode,
             aliasing_threshold,
             mask,
+            gamma_correction,
         });
     }
 
@@ -488,6 +495,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         blend_mode: BlendMode,
         mask: Option<Mask>,
         _encoded_paints: &[EncodedPaint],
+        gamma_correction: bool,
     ) {
         // For multi-threaded, fall back to path-based rendering.
         // TODO: Implement optimized rect strip generation in worker threads.
@@ -508,6 +516,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             blend_mode,
             aliasing_threshold: None,
             mask,
+            gamma_correction,
         });
     }
 
@@ -834,6 +843,7 @@ pub(crate) enum RenderTaskType {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
+        gamma_correction: bool,
     },
     WideCommand {
         strip_buf: Box<[Strip]>,
@@ -849,6 +859,7 @@ pub(crate) enum RenderTaskType {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
+        gamma_correction: bool,
     },
     PushLayer {
         clip_path: Option<(Range<u32>, Affine)>,
@@ -873,6 +884,7 @@ pub(crate) enum CoarseTaskType {
         blend_mode: BlendMode,
         paint: Paint,
         mask: Option<Mask>,
+        gamma_correction: bool,
     },
     RenderWideCommand {
         thread_id: u8,
@@ -959,6 +971,7 @@ mod tests {
                 None,
                 None,
                 &[],
+                false,
             );
             dispatcher.flush(&[]);
         }

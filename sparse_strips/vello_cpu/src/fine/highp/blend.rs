@@ -6,18 +6,26 @@ use crate::util::Premultiply;
 use vello_common::fearless_simd::*;
 
 #[derive(Copy, Clone)]
-struct Channels<S: Simd> {
-    r: f32x4<S>,
-    g: f32x4<S>,
-    b: f32x4<S>,
+pub(crate) struct Channels<S: Simd> {
+    pub(crate) r: f32x4<S>,
+    pub(crate) g: f32x4<S>,
+    pub(crate) b: f32x4<S>,
 }
 
 impl<S: Simd> Channels<S> {
     #[inline(always)]
-    fn unpremultiply(mut self, a: f32x4<S>) -> Self {
+    pub(crate) fn unpremultiply(mut self, a: f32x4<S>) -> Self {
         self.r = self.r.unpremultiply(a);
         self.g = self.g.unpremultiply(a);
         self.b = self.b.unpremultiply(a);
+
+        self
+    }
+    #[inline(always)]
+    pub(crate) fn sqrt(mut self) -> Self {
+        self.r = self.r.sqrt();
+        self.g = self.g.sqrt();
+        self.b = self.b.sqrt();
 
         self
     }

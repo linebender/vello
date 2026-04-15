@@ -270,6 +270,7 @@ macro_rules! submit_strips {
                 0,
                 None,
                 &$self.encoded_paints.borrow(),
+                false,
             );
         }
     };
@@ -587,6 +588,7 @@ impl Scene {
                         0,
                         None,
                         &self.encoded_paints.borrow(),
+                        false,
                     );
                 }
                 FastStripCommand::Rect(r) => {
@@ -606,6 +608,7 @@ impl Scene {
                         0,
                         None,
                         &self.encoded_paints.borrow(),
+                        false,
                     );
                 }
             }
@@ -1103,6 +1106,7 @@ impl Scene {
                 0,
                 None,
                 &self.encoded_paints.borrow(),
+                false,
             );
         }
     }

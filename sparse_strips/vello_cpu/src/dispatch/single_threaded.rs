@@ -539,6 +539,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
         encoded_paints: &[EncodedPaint],
+        gamma_correction: bool,
     ) {
         let wide = &mut self.wide;
 
@@ -560,6 +561,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             0,
             mask,
             encoded_paints,
+            gamma_correction,
         );
     }
 
@@ -573,6 +575,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
         encoded_paints: &[EncodedPaint],
+        gamma_correction: bool,
     ) {
         let wide = &mut self.wide;
 
@@ -594,6 +597,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             0,
             mask,
             encoded_paints,
+            gamma_correction,
         );
     }
 
@@ -604,6 +608,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         blend_mode: BlendMode,
         mask: Option<Mask>,
         encoded_paints: &[EncodedPaint],
+        gamma_correction: bool,
     ) {
         let wide = &mut self.wide;
 
@@ -622,6 +627,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             0,
             mask,
             encoded_paints,
+            gamma_correction,
         );
     }
 
@@ -738,14 +744,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         {
             // This case never gets hit because there is a compile_error in the root.
             // But have this code disables some warnings and makes the compile error easier to read
-            let _ = (
-                buffer,
-                render_mode,
-                width,
-                height,
-                encoded_paints,
-                image_resolver,
-            );
+            let _ = (buffer, render_mode, width, height, encoded_paints, image_resolver);
         }
     }
 
@@ -827,16 +826,8 @@ impl Dispatcher for SingleThreadedDispatcher {
         #[cfg(all(not(feature = "u8_pipeline"), not(feature = "f32_pipeline")))]
         {
             let _ = (
-                buffer,
-                width,
-                height,
-                dst_x,
-                dst_y,
-                dst_buffer_width,
-                dst_buffer_height,
-                render_mode,
-                encoded_paints,
-                image_resolver,
+                buffer, width, height, dst_x, dst_y, dst_buffer_width, dst_buffer_height,
+                render_mode, encoded_paints, image_resolver,
             );
         }
     }
@@ -850,7 +841,7 @@ impl Dispatcher for SingleThreadedDispatcher {
     ) {
         // Generate coarse-level commands from pre-computed strips (thread_idx 0 for single-threaded).
         self.wide
-            .generate(strip_buf, paint, blend_mode, 0, None, encoded_paints);
+            .generate(strip_buf, paint, blend_mode, 0, None, encoded_paints, false);
     }
 
     fn strip_storage_mut(&mut self) -> &mut StripStorage {
@@ -927,6 +918,7 @@ mod tests {
             None,
             None,
             &[],
+            false,
         );
 
         // Ensure there is data to clear.

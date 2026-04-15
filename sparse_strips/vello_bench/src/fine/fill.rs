@@ -68,6 +68,7 @@ pub(crate) fn fill_single<S: Simd, N: FineKernel<S>>(
             &NoOpImageResolver,
             None,
             None,
+            false,
         );
 
         std::hint::black_box(&fine);

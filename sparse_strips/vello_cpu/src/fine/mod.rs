@@ -418,6 +418,23 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         alphas: Option<&[u8]>,
     );
 
+    /// Perform gamma-corrected alpha compositing with a solid color over the target buffer.
+    ///
+    /// Uses the formula from "Random-Access Rendering of General Vector Graphics"
+    /// (Nehab & Hoppe 2008) with a γ=2 approximation (sqrt/square):
+    /// `blend(c, f̃, o) = lerp(sRGB⁻¹(over(f̃, sRGB(c))), c, o)`
+    ///
+    /// This is currently only implemented for the `f32` pipeline, for expedience and .
+    /// The default will fall back to [`Self::alpha_composite_solid`]
+    fn alpha_composite_solid_hybrid_gamma(
+        simd: S,
+        target: &mut [Self::Numeric],
+        src: [Self::Numeric; 4],
+        alphas: Option<&[u8]>,
+    ) {
+        Self::alpha_composite_solid(simd, target, src, alphas);
+    }
+
     /// Perform alpha compositing with a source buffer over the destination buffer.
     ///
     /// Blends the source buffer contents over the destination using standard alpha compositing.
@@ -561,6 +578,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     image_resolver,
                     None,
                     fill_attrs.mask.as_ref(),
+                    fill_attrs.gamma_correction,
                 );
             }
             Cmd::AlphaFill(s) => {
@@ -575,6 +593,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     image_resolver,
                     Some(&alphas[alpha_idx..]),
                     fill_attrs.mask.as_ref(),
+                    fill_attrs.gamma_correction,
                 );
             }
             Cmd::Filter(_filter, _) => {
@@ -678,6 +697,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         image_resolver: &dyn ImageResolver,
         alphas: Option<&[u8]>,
         mask: Option<&Mask>,
+        gamma_correction: bool,
     ) {
         let blend_buf = &mut self.blend_buf.last_mut().unwrap()[x * TILE_HEIGHT_COMPONENTS..]
             [..TILE_HEIGHT_COMPONENTS * width];
@@ -700,7 +720,11 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 }
 
                 if default_blend && mask.is_none() {
-                    T::alpha_composite_solid(self.simd, blend_buf, color, alphas);
+                    if gamma_correction {
+                        T::alpha_composite_solid_hybrid_gamma(self.simd, blend_buf, color, alphas);
+                    } else {
+                        T::alpha_composite_solid(self.simd, blend_buf, color, alphas);
+                    }
                 } else {
                     let start_x = self.wide_coords.0 * WideTile::WIDTH + x as u16;
                     let start_y = self.wide_coords.1 * Tile::HEIGHT;

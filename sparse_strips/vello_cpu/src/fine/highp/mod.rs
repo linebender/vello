@@ -213,6 +213,30 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         }
     }
 
+    /// Implements the hybrid alpha blending from *Random-Access Rendering of General Vector Graphics*
+    /// (§4.1, Nehab and Hoppe, 2008, <https://hhoppe.com/ravg.pdf>), for solid colour paths.
+    ///
+    /// This currently uses a gamma of two for computation simplicity.
+    #[inline(always)]
+    fn alpha_composite_solid_hybrid_gamma(
+        simd: S,
+        dest: &mut [Self::Numeric],
+        src: [Self::Numeric; 4],
+        alphas: Option<&[u8]>,
+    ) {
+        if let Some(alphas) = alphas {
+            alpha_fill::alpha_composite_solid_hybrid_gamma(
+                simd,
+                dest,
+                src,
+                bytemuck::cast_slice::<u8, [u8; 4]>(alphas).iter().copied(),
+            );
+        } else {
+            // When the coverage is solid, this is the same as Porter-Duff over.
+            fill::alpha_composite_solid(simd, dest, src);
+        }
+    }
+
     /// Composites a source buffer onto a destination buffer using alpha blending.
     ///
     /// Dispatches to either the masked or unmasked implementation based on the
@@ -417,6 +441,7 @@ mod alpha_fill {
     //! (e.g., from anti-aliasing or clip masks) that modulates the source alpha.
 
     use crate::fine::Splat4thExt;
+    use crate::fine::highp::blend::Channels;
     use crate::fine::highp::compose::ComposeExt;
     use crate::fine::highp::{blend, extract_masks};
     use crate::peniko::BlendMode;
@@ -441,6 +466,107 @@ mod alpha_fill {
 
                 for (next_dest, next_mask) in dest.chunks_exact_mut(16).zip(alphas) {
                     alpha_composite_inner(s, next_dest, &next_mask, src_c, src_a, one);
+                }
+            },
+        );
+    }
+
+    /// Implements the hybrid alpha blending from *Random-Access Rendering of General Vector Graphics*
+    /// (§4.1, Nehab and Hoppe, 2008, <https://hhoppe.com/ravg.pdf>), for solid colour paths.
+    ///
+    /// This makes the blending due to partial coverage happen in a linear space, with colour blending
+    /// happening in sRGB.
+    /// This effectively implements gamma correction for path coverage.
+    ///
+    /// Note that this function uses a gamma of 2 to trade off correctness for simplicity; we should actually
+    /// use the sRGB transfer function directly, or the standard power approximation for sRGB.
+    #[inline(always)]
+    pub(super) fn alpha_composite_solid_hybrid_gamma<S: Simd>(
+        s: S,
+        dest: &mut [f32],
+        src: [f32; 4],
+        alphas: impl Iterator<Item = [u8; 4]>,
+    ) {
+        s.vectorize(
+            #[inline(always)]
+            || {
+                let src_a = f32x16::splat(s, src[3]);
+                let src_c = f32x16::block_splat(src.simd_into(s));
+                let one = f32x16::splat(s, 1.0);
+                let one_4 = f32x4::splat(s, 1.0);
+
+                for (next_dest, next_mask) in dest.chunks_exact_mut(16).zip(alphas) {
+                    let bg_c = f32x16::from_slice(s, next_dest);
+                    // 1 - src_a
+                    let inv_src_a = src_a.mul_add(-one, one);
+                    // Compute src over dst, which is the result which would be
+                    let src_over_dst = bg_c.mul_add(inv_src_a, src_c);
+
+                    // Copied from `blend`. Ideally, we'd make Channels a more thoughtful abstraction here.
+                    let split = {
+                        #[inline(always)]
+                        |input: f32x16<S>| {
+                            let mut storage = [0.0; 16];
+                            s.store_interleaved_128_f32x16(input, &mut storage);
+                            let input_v = f32x16::from_slice(s, &storage);
+
+                            let p1 = s.split_f32x16(input_v);
+                            let (r, g) = s.split_f32x8(p1.0);
+                            let (b, a) = s.split_f32x8(p1.1);
+
+                            (Channels { r, g, b }, a)
+                        }
+                    };
+
+                    // Convert the sRGB colour to linear, for the coverage based blending.
+                    let (src_over_dst_c, src_over_dst_a) = split(src_over_dst);
+                    let src_over_dst_straight = src_over_dst_c.unpremultiply(src_over_dst_a);
+                    let src_over_dst_linear = src_over_dst_straight.sqrt();
+
+                    let (bg_ch, bg_a) = split(bg_c);
+                    let bg_straight = bg_ch.unpremultiply(bg_a);
+                    let bg_linear = bg_straight.sqrt();
+
+                    // Get the sparse strip mask as f32x4.
+                    let mut mask_a: f32x4<S> = [
+                        next_mask[0] as f32,
+                        next_mask[1] as f32,
+                        next_mask[2] as f32,
+                        next_mask[3] as f32,
+                    ]
+                    .simd_into(s);
+                    mask_a *= f32x4::splat(s, 1.0 / 255.0);
+
+                    // 1-mask_a
+                    let inv_mask_a = mask_a.mul_add(-one_4, one_4);
+                    let lerp_channel_into_srgb = {
+                        #[inline(always)]
+                        |background_channel: f32x4<S>, src_over_dst_channel: f32x4<S>| {
+                            // Lerp between the channel values in linear space, based on the alpha mask.
+                            let res_linear = background_channel
+                                .mul_add(mask_a, src_over_dst_channel * inv_mask_a);
+                            // Convert this channel back into sRGB.
+                            res_linear * res_linear
+                        }
+                    };
+
+                    let res_straight_r = lerp_channel_into_srgb(bg_linear.r, src_over_dst_linear.r);
+                    let res_straight_b = lerp_channel_into_srgb(bg_linear.g, src_over_dst_linear.g);
+                    let res_straight_g = lerp_channel_into_srgb(bg_linear.b, src_over_dst_linear.b);
+
+                    // TODO: It might be better to combine, then multiply everything by src_over_dst_a (repeated 4x).
+                    let combined = s.combine_f32x8(
+                        s.combine_f32x4(
+                            res_straight_r * src_over_dst_a,
+                            res_straight_b * src_over_dst_a,
+                        ),
+                        s.combine_f32x4(res_straight_g * src_over_dst_a, mask_a * src_over_dst_a),
+                    );
+                    let mut storage = [0.0; 16];
+                    // re-interleave into four sRGB colours.
+                    s.store_interleaved_128_f32x16(combined, &mut storage);
+
+                    next_dest.copy_from_slice(storage.as_slice());
                 }
             },
         );
