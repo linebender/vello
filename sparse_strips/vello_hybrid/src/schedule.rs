@@ -959,10 +959,9 @@ impl Scheduler {
             if i == 2 {
                 // Output target: reverse opaque for front-to-back rendering.
                 // Alpha strips stay in natural back-to-front order.
-                let mut opaque = core::mem::take(&mut draw.opaque);
+                let Draw {opaque, alpha} = draw;
                 opaque.reverse();
-                renderer.render_strips(&opaque, &draw.alpha, target, load);
-                draw.opaque = opaque; // Return allocation for later reuse.
+                renderer.render_strips(&opaque, &alpha, target, load);
             } else {
                 // Slot textures: no depth optimization, everything in alpha list.
                 assert!(
