@@ -278,9 +278,6 @@ impl Renderer {
             &mut encoded_paints,
         )?;
 
-        // TODO: Passing `false` here because wgpu swapchain textures likely have
-        // undefined initial content, making an explicit clear redundant in the common
-        // case. Verify whether there are scenarios where wgpu would need a clear.
         let result = self.render_scene(
             scene,
             device,
@@ -290,7 +287,7 @@ impl Renderer {
             view,
             &resources.image_cache,
             &encoded_paints,
-            false,
+            true,
             RootRenderTarget::UserSurface,
         );
 
@@ -571,13 +568,13 @@ impl Renderer {
     /// Destroy an image from the cache and clear the allocated slot in the atlas.
     pub fn destroy_image(
         &mut self,
-        image_cache: &mut ImageCache,
+        resources: &mut Resources,
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
         image_id: vello_common::paint::ImageId,
     ) {
-        if let Some(image_resource) = image_cache.deallocate(image_id) {
+        if let Some(image_resource) = resources.image_cache.deallocate(image_id) {
             let padding = image_resource.padding as u32;
 
             self.clear_atlas_region(
