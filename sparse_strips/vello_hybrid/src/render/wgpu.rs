@@ -1184,113 +1184,63 @@ impl Programs {
             attributes: &GpuStrip::vertex_attributes(),
         };
 
-        // Slot pipelines: depth test OFF, depth write OFF, blending ON
-        let slot_strip_pipelines: [RenderPipeline; 2] = core::array::from_fn(|i| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Strip Slot Pipeline"),
-                layout: Some(&strip_pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &strip_shader,
-                    entry_point: Some("vs_main"),
-                    buffers: core::slice::from_ref(&strip_vertex_state),
-                    compilation_options: PipelineCompilationOptions::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &strip_shader,
-                    entry_point: Some("fs_main"),
-                    targets: &[Some(ColorTargetState {
-                        format: strip_formats[i],
-                        blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                        write_mask: ColorWrites::ALL,
-                    })],
-                    compilation_options: PipelineCompilationOptions::default(),
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleStrip,
-                    ..Default::default()
-                },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview_mask: None,
-                cache: None,
-            })
-        });
+        let create_strip_pipelines =
+            |label, blend, depth_stencil: Option<wgpu::DepthStencilState>| -> [RenderPipeline; 2] {
+                core::array::from_fn(|i| {
+                    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                        label: Some(label),
+                        layout: Some(&strip_pipeline_layout),
+                        vertex: wgpu::VertexState {
+                            module: &strip_shader,
+                            entry_point: Some("vs_main"),
+                            buffers: core::slice::from_ref(&strip_vertex_state),
+                            compilation_options: PipelineCompilationOptions::default(),
+                        },
+                        fragment: Some(wgpu::FragmentState {
+                            module: &strip_shader,
+                            entry_point: Some("fs_main"),
+                            targets: &[Some(ColorTargetState {
+                                format: strip_formats[i],
+                                blend,
+                                write_mask: ColorWrites::ALL,
+                            })],
+                            compilation_options: PipelineCompilationOptions::default(),
+                        }),
+                        primitive: wgpu::PrimitiveState {
+                            topology: wgpu::PrimitiveTopology::TriangleStrip,
+                            ..Default::default()
+                        },
+                        depth_stencil: depth_stencil.clone(),
+                        multisample: wgpu::MultisampleState::default(),
+                        multiview_mask: None,
+                        cache: None,
+                    })
+                })
+            };
 
+        let depth_stencil = |depth_write_enabled| wgpu::DepthStencilState {
+            format: depth_format,
+            depth_write_enabled,
+            depth_compare: wgpu::CompareFunction::LessEqual,
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        };
+
+        // Slot pipelines: depth test OFF, depth write OFF, blending ON.
+        let slot_strip_pipelines = create_strip_pipelines(
+            "Strip Slot Pipeline",
+            Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+            None,
+        );
         // Alpha pipelines: depth test ON (LessEqual), depth write OFF, blending ON.
-        let alpha_strip_pipelines: [RenderPipeline; 2] = core::array::from_fn(|i| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Strip Alpha Pipeline"),
-                layout: Some(&strip_pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &strip_shader,
-                    entry_point: Some("vs_main"),
-                    buffers: core::slice::from_ref(&strip_vertex_state),
-                    compilation_options: PipelineCompilationOptions::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &strip_shader,
-                    entry_point: Some("fs_main"),
-                    targets: &[Some(ColorTargetState {
-                        format: strip_formats[i],
-                        blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                        write_mask: ColorWrites::ALL,
-                    })],
-                    compilation_options: PipelineCompilationOptions::default(),
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleStrip,
-                    ..Default::default()
-                },
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: depth_format,
-                    depth_write_enabled: false,
-                    depth_compare: wgpu::CompareFunction::LessEqual,
-                    stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
-                }),
-                multisample: wgpu::MultisampleState::default(),
-                multiview_mask: None,
-                cache: None,
-            })
-        });
-
+        let alpha_strip_pipelines = create_strip_pipelines(
+            "Strip Alpha Pipeline",
+            Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+            Some(depth_stencil(false)),
+        );
         // Opaque pipelines: depth test ON (LessEqual), depth write ON, blending OFF.
-        let opaque_strip_pipelines: [RenderPipeline; 2] = core::array::from_fn(|i| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Strip Opaque Pipeline"),
-                layout: Some(&strip_pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &strip_shader,
-                    entry_point: Some("vs_main"),
-                    buffers: core::slice::from_ref(&strip_vertex_state),
-                    compilation_options: PipelineCompilationOptions::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &strip_shader,
-                    entry_point: Some("fs_main"),
-                    targets: &[Some(ColorTargetState {
-                        format: strip_formats[i],
-                        blend: None,
-                        write_mask: ColorWrites::ALL,
-                    })],
-                    compilation_options: PipelineCompilationOptions::default(),
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleStrip,
-                    ..Default::default()
-                },
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: depth_format,
-                    depth_write_enabled: true,
-                    depth_compare: wgpu::CompareFunction::LessEqual,
-                    stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
-                }),
-                multisample: wgpu::MultisampleState::default(),
-                multiview_mask: None,
-                cache: None,
-            })
-        });
+        let opaque_strip_pipelines =
+            create_strip_pipelines("Strip Opaque Pipeline", None, Some(depth_stencil(true)));
 
         let clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Clear Slots Pipeline"),
