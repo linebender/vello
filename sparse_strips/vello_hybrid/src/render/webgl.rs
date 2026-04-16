@@ -1995,9 +1995,7 @@ fn create_webgl_resources(
         slot_framebuffers,
         view_framebuffer_override: None,
         depth_cleared_this_frame: false,
-        depth_attachment_array: js_sys::Array::of1(
-            &WebGl2RenderingContext::DEPTH_ATTACHMENT.into(),
-        ),
+        depth_attachment_array: js_sys::Array::of1(&WebGl2RenderingContext::DEPTH.into()),
         max_texture_dimension_2d,
         stub_atlas_texture_array,
         atlas_render_framebuffer: None,
