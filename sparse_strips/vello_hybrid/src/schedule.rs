@@ -300,48 +300,28 @@ pub(crate) struct Scheduler {
     depth: DepthCounter,
 }
 
-/// Assigns depth indices to GPU strips for early z rejection.
+/// Assigns z depth indices to GPU strips for early z rejection.
+///
+/// Because only opaque strips write to the depth buffer, only opaque
+/// strips require unique z values (so z must be incremented for each opaque).
+/// Alpha strips, however, can re-use whatever was the last z index since the
+/// GPU does a LEQUAL test only.
 #[derive(Debug, Default)]
 struct DepthCounter {
-    counter: u32,
-    coarse_offset: u32,
+    count: u32,
 }
 
 impl DepthCounter {
+    #[inline(always)]
     fn reset(&mut self) {
-        self.counter = 0;
+        self.count = 0;
     }
 
+    /// Returns the next depth index for early z rejection.
     #[inline(always)]
-    fn next(&mut self) -> u32 {
-        let idx = self.counter;
-        self.counter += 1;
-        idx
-    }
-
-    fn begin_coarse_batch(&mut self) {
-        // +1 to reserve a background slot.
-        self.coarse_offset = self.counter + 1;
-        self.counter = self.coarse_offset;
-    }
-
-    fn begin_filter_batch(&mut self) {
-        self.coarse_offset = self.counter;
-    }
-
-    /// Depth index for the tile background in the current coarse batch.
-    #[inline(always)]
-    fn coarse_bg(&self) -> u32 {
-        self.coarse_offset - 1
-    }
-
-    /// Depth index for a coarse alpha or opaque fill command with the 
-    /// given `attrs_idx`.
-    #[inline(always)]
-    fn fill(&mut self, attrs_idx: u32) -> u32 {
-        let idx = self.coarse_offset + attrs_idx;
-        self.counter = self.counter.max(idx + 1);
-        idx
+    fn next(&mut self, opaque: bool) -> u32 {
+        self.count += opaque as u32;
+        self.count
     }
 }
 
@@ -778,7 +758,6 @@ impl Scheduler {
         // The maximum layer of other filter nodes should not leak into new filter nodes, hence
         // we need to reset it.
         state.max_round = self.round;
-        self.depth.begin_filter_batch();
 
         for y in wtile_bbox.y0()..wtile_bbox.y1() {
             for x in wtile_bbox.x0()..wtile_bbox.x1() {
@@ -841,31 +820,34 @@ impl Scheduler {
         let strip_storage = scene.strip_storage.borrow();
         // Always choose the draw of the final surface, since direct strips are only ever
         // rendered to the final surface.
-        // Take a local copy of the counter to avoid borrow conflicts with `draw`.
         let mut depth = core::mem::take(&mut self.depth);
         let draw = self.draw_mut(round, 2);
 
         for cmd in &scene.fast_strips_buffer.commands[range] {
-            let layer_index = depth.next();
             match cmd {
                 FastStripCommand::Path(path) => {
+                    let is_opaque = Self::is_paint_opaque(&path.paint, encoded_paints);
+                    let depth_index = depth.next(is_opaque);
                     generate_gpu_strips_for_fast_path(
                         path,
                         &strip_storage,
                         scene,
                         encoded_paints,
                         paint_idxs,
-                        layer_index,
+                        depth_index,
+                        is_opaque,
                         draw,
                     );
                 }
                 FastStripCommand::Rect(r) => {
+                    let is_opaque = Self::is_paint_opaque(&r.paint, encoded_paints);
+                    let depth_index = depth.next(is_opaque);
                     pack_rectangle_into_gpu(
                         r,
                         encoded_paints,
                         paint_idxs,
-                        layer_index,
-                        Self::is_paint_opaque(&r.paint, encoded_paints),
+                        depth_index,
+                        is_opaque,
                         draw,
                     );
                 }
@@ -891,7 +873,6 @@ impl Scheduler {
         filter_context: &FilterContext,
         encoded_paints: &[EncodedPaint],
     ) -> Result<(), RenderError> {
-        self.depth.begin_coarse_batch();
         for row in 0..rows {
             for col in 0..cols {
                 let idx = (row * cols + col) as usize;
@@ -1061,11 +1042,12 @@ impl Scheduler {
                 idxs,
             );
 
-            let bg_layer_index = self.depth.coarse_bg();
+            let is_opaque = tile.bg.is_opaque();
+            let bg_depth_index = self.depth.next(is_opaque);
             let draw = self.draw_mut(self.round, 2);
             let strip = GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
-                .paint(payload, paint, bg_layer_index);
-            if tile.bg.is_opaque() {
+                .paint(payload, paint, bg_depth_index);
+            if is_opaque {
                 draw.push_opaque(strip);
             } else {
                 draw.push_alpha(strip);
@@ -1212,7 +1194,7 @@ impl Scheduler {
                                 wide_tile_x,
                                 wide_tile_y,
                             );
-                            let layer_index = scheduler.depth.next();
+                            let depth_index = scheduler.depth.next(false);
                             scheduler.do_fill_with(
                                 state,
                                 &cmd,
@@ -1221,7 +1203,7 @@ impl Scheduler {
                                 payload,
                                 paint,
                                 false,
-                                layer_index,
+                                depth_index,
                             );
                         };
 
@@ -1322,11 +1304,11 @@ impl Scheduler {
             if let TemporarySlot::Invalid(temp_slot) = tos.temporary_slot {
                 let next_round = depth.is_multiple_of(2);
                 let el_round = tos.round + usize::from(next_round);
-                let layer_index = self.depth.next();
+                let depth_index = self.depth.next(false);
                 let draw = self.draw_mut(el_round, temp_slot.get_texture());
                 draw.push_alpha(
                     GpuStripBuilder::at_slot(temp_slot.get_idx(), 0, WideTile::WIDTH)
-                        .copy_from_slot(tos.dest_slot.get_idx(), 0xFF, layer_index),
+                        .copy_from_slot(tos.dest_slot.get_idx(), 0xFF, depth_index),
                 );
 
                 tos.temporary_slot = TemporarySlot::Valid(temp_slot);
@@ -1432,7 +1414,7 @@ impl Scheduler {
 
         let next_round: bool = depth.is_multiple_of(2) && depth > 2;
         let round = nos.round.max(tos.round + usize::from(next_round));
-        let layer_index = self.depth.next();
+        let depth_index = self.depth.next(false);
 
         let draw = self.draw_mut(
             round,
@@ -1459,7 +1441,7 @@ impl Scheduler {
                 opacity_u8,
                 mix_mode,
                 compose_mode,
-                layer_index,
+                depth_index,
             ));
             // Invalidate the temporary slot after use
             let nos_ptr = state.tile_state.stack.len() - 2;
@@ -1480,7 +1462,7 @@ impl Scheduler {
             draw.push_alpha(gpu_strip_builder.copy_from_slot(
                 tos.dest_slot.get_idx(),
                 (tos.opacity * 255.0) as u8,
-                layer_index,
+                depth_index,
             ));
         }
     }
@@ -1497,7 +1479,7 @@ impl Scheduler {
         attrs: &CommandAttrs,
     ) {
         let depth = state.tile_state.stack.len();
-        let layer_index = self.depth.fill(cmd.attrs_idx);
+        let depth_index = self.depth.next(false);
 
         let el = state.tile_state.stack.last_mut().unwrap();
         let draw = self.draw_mut(el.round, el.get_draw_texture(depth));
@@ -1527,7 +1509,7 @@ impl Scheduler {
         draw.push_alpha(gpu_strip_builder.with_sparse(cmd.width, col_idx).paint(
             payload,
             paint,
-            layer_index,
+            depth_index,
         ));
     }
 
@@ -1543,7 +1525,13 @@ impl Scheduler {
         attrs: &CommandAttrs,
     ) {
         let fill_attrs = &attrs.fill[cmd.attrs_idx as usize];
-        let layer_index = self.depth.fill(cmd.attrs_idx);
+        let is_opaque = Self::is_paint_opaque(&fill_attrs.paint, encoded_paints);
+        let stack_depth = state.tile_state.stack.len();
+        let depth_index = self.depth.next(
+            // We currently only support opaques that are drawn to the surface. See TODO in
+            // `RendererBackend::render_strips`.
+            stack_depth == 1 && is_opaque,
+        );
         let (scene_strip_x, scene_strip_y) = (wide_tile_x + cmd.x, wide_tile_y);
         let (payload, paint) = Self::process_paint(
             &fill_attrs.paint,
@@ -1559,8 +1547,8 @@ impl Scheduler {
             scene_strip_y,
             payload,
             paint,
-            Self::is_paint_opaque(&fill_attrs.paint, encoded_paints),
-            layer_index,
+            is_opaque,
+            depth_index,
         );
     }
 
@@ -1574,7 +1562,7 @@ impl Scheduler {
         payload: u32,
         paint: u32,
         is_opaque: bool,
-        layer_index: u32,
+        depth_index: u32,
     ) {
         let depth = state.tile_state.stack.len();
 
@@ -1592,7 +1580,7 @@ impl Scheduler {
             GpuStripBuilder::at_slot(slot_idx, cmd.x, cmd.width)
         };
 
-        let strip = gpu_strip_builder.paint(payload, paint, layer_index);
+        let strip = gpu_strip_builder.paint(payload, paint, depth_index);
         if depth == 1 && is_opaque {
             draw.push_opaque(strip);
         } else {
@@ -1655,16 +1643,16 @@ impl Scheduler {
         // enough "ping-ponging" to resolve all dependencies.
         let next_round = depth.is_multiple_of(2) && depth > 2;
         let round = nos.round.max(tos.round + usize::from(next_round));
-        let layer_index = self.depth.next();
+        let depth_index = self.depth.next(false);
         if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
             let draw = self.draw_mut(round, nos.dest_slot.get_texture());
             draw.push_alpha(
                 GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
-                    .copy_from_slot(temp_slot.get_idx(), 0xFF, layer_index),
+                    .copy_from_slot(temp_slot.get_idx(), 0xFF, depth_index),
             );
         }
 
-        let layer_index = self.depth.next();
+        let depth_index = self.depth.next(false);
         let draw = self.draw_mut(
             round,
             if (depth - 1) <= 1 {
@@ -1681,7 +1669,7 @@ impl Scheduler {
         draw.push_alpha(gpu_strip_builder.copy_from_slot(
             tos.dest_slot.get_idx(),
             0xFF,
-            layer_index,
+            depth_index,
         ));
 
         let nos_ptr = state.tile_state.stack.len() - 2;
@@ -1703,17 +1691,17 @@ impl Scheduler {
         let next_round = depth.is_multiple_of(2) && depth > 2;
         let round = nos.round.max(tos.round + usize::from(next_round));
 
-        let layer_index = self.depth.next();
+        let depth_index = self.depth.next(false);
         // If nos has a temporary slot, copy it to `dest_slot` first
         if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
             let draw = self.draw_mut(round, nos.dest_slot.get_texture());
             draw.push_alpha(
                 GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
-                    .copy_from_slot(temp_slot.get_idx(), 0xFF, layer_index),
+                    .copy_from_slot(temp_slot.get_idx(), 0xFF, depth_index),
             );
         }
 
-        let layer_index = self.depth.next();
+        let depth_index = self.depth.next(false);
         let draw = self.draw_mut(
             round,
             if (depth - 1) <= 1 {
@@ -1735,7 +1723,7 @@ impl Scheduler {
         draw.push_alpha(
             gpu_strip_builder
                 .with_sparse(cmd.width, col_idx)
-                .copy_from_slot(tos.dest_slot.get_idx(), 0xFF, layer_index),
+                .copy_from_slot(tos.dest_slot.get_idx(), 0xFF, depth_index),
         );
         let nos_ptr = state.tile_state.stack.len() - 2;
         state.tile_state.stack[nos_ptr].temporary_slot.invalidate();
@@ -1848,7 +1836,7 @@ impl GpuStripBuilder {
     }
 
     /// Paint into strip.
-    fn paint(self, payload: u32, paint: u32, layer_index: u32) -> GpuStrip {
+    fn paint(self, payload: u32, paint: u32, depth_index: u32) -> GpuStrip {
         GpuStrip {
             x: self.x,
             y: self.y,
@@ -1857,12 +1845,12 @@ impl GpuStripBuilder {
             col_idx_or_rect_frac: self.col_idx_or_rect_frac,
             payload,
             paint_and_rect_flag: paint,
-            layer_index,
+            depth_index,
         }
     }
 
     /// Copy from slot.
-    fn copy_from_slot(self, from_slot: usize, opacity: u8, layer_index: u32) -> GpuStrip {
+    fn copy_from_slot(self, from_slot: usize, opacity: u8, depth_index: u32) -> GpuStrip {
         GpuStrip {
             x: self.x,
             y: self.y,
@@ -1871,7 +1859,7 @@ impl GpuStripBuilder {
             col_idx_or_rect_frac: self.col_idx_or_rect_frac,
             payload: u32::try_from(from_slot).unwrap(),
             paint_and_rect_flag: (COLOR_SOURCE_SLOT << 29) | (opacity as u32),
-            layer_index,
+            depth_index,
         }
     }
 
@@ -1883,7 +1871,7 @@ impl GpuStripBuilder {
         opacity: u8,
         mix_mode: u8,
         compose_mode: u8,
-        layer_index: u32,
+        depth_index: u32,
     ) -> GpuStrip {
         GpuStrip {
             x: self.x,
@@ -1897,7 +1885,7 @@ impl GpuStripBuilder {
                 | ((opacity as u32) << 16)
                 | ((mix_mode as u32) << 8)
                 | (compose_mode as u32),
-            layer_index,
+            depth_index,
         }
     }
 }
@@ -1913,7 +1901,8 @@ fn generate_gpu_strips_for_fast_path(
     scene: &Scene,
     encoded_paints: &[EncodedPaint],
     paint_idxs: &[u32],
-    layer_index: u32,
+    depth_index: u32,
+    is_opaque: bool,
     draw: &mut Draw,
 ) {
     let strips = &strip_storage.strips[path.strips.clone()];
@@ -1921,8 +1910,6 @@ fn generate_gpu_strips_for_fast_path(
     if strips.is_empty() {
         return;
     }
-
-    let is_opaque = Scheduler::is_paint_opaque(&path.paint, encoded_paints);
 
     // Note: Some of this logic is similar to current coarse rasterization code, but
     // the coarse rasterization code is more complex due to clip paths and other factors.
@@ -1949,7 +1936,7 @@ fn generate_gpu_strips_for_fast_path(
             draw.push_alpha(
                 GpuStripBuilder::at_surface(x0, y, strip_width)
                     .with_sparse(strip_width, col)
-                    .paint(payload, paint, layer_index),
+                    .paint(payload, paint, depth_index),
             );
         }
 
@@ -1966,7 +1953,7 @@ fn generate_gpu_strips_for_fast_path(
                 let (payload, paint) =
                     Scheduler::process_paint(&path.paint, encoded_paints, (x1, y), paint_idxs);
                 let strip =
-                    GpuStripBuilder::at_surface(x1, y, x2 - x1).paint(payload, paint, layer_index);
+                    GpuStripBuilder::at_surface(x1, y, x2 - x1).paint(payload, paint, depth_index);
                 if is_opaque {
                     draw.push_opaque(strip);
                 } else {
@@ -1981,7 +1968,7 @@ fn pack_rectangle_into_gpu(
     rect: &FastPathRect,
     encoded_paints: &[EncodedPaint],
     paint_idxs: &[u32],
-    layer_index: u32,
+    depth_index: u32,
     is_opaque: bool,
     draw: &mut Draw,
 ) {
@@ -2000,7 +1987,7 @@ fn pack_rectangle_into_gpu(
     {
         let (payload, paint_packed) =
             Scheduler::process_paint(&rect.paint, encoded_paints, (part.x, part.y), paint_idxs);
-        let strip = make_gpu_rect(part, payload, paint_packed, layer_index);
+        let strip = make_gpu_rect(part, payload, paint_packed, depth_index);
         if is_first && is_opaque && part.frac == 0 {
             draw.push_opaque(strip);
         } else {
@@ -2127,7 +2114,7 @@ fn split_rect(rect: &FastPathRect) -> SplitRect {
     }
 }
 
-fn make_gpu_rect(part: RectPart, payload: u32, paint_packed: u32, layer_index: u32) -> GpuStrip {
+fn make_gpu_rect(part: RectPart, payload: u32, paint_packed: u32, depth_index: u32) -> GpuStrip {
     GpuStrip {
         x: part.x,
         y: part.y,
@@ -2136,7 +2123,7 @@ fn make_gpu_rect(part: RectPart, payload: u32, paint_packed: u32, layer_index: u
         col_idx_or_rect_frac: part.frac,
         payload,
         paint_and_rect_flag: paint_packed | RECT_STRIP_FLAG,
-        layer_index,
+        depth_index,
     }
 }
 

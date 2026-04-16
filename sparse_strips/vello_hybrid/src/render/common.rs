@@ -151,9 +151,9 @@ pub struct GpuStrip {
     /// See `StripInstance::paint_and_rect_flag` documentation in `render_strips.wgsl`.
     pub paint_and_rect_flag: u32,
     /// Painter's-order index used to compute z-depth for early-z rejection in shader.
-    /// In other words, the back-most layer has index 0 and every additional layer in front
+    /// In other words, the back-most draw has index 0 and every additional draw in front
     /// has an incrementing index.
-    pub layer_index: u32,
+    pub depth_index: u32,
 }
 
 /// Different types of GPU encoded paints.
