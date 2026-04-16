@@ -216,9 +216,12 @@ fn render_uncached_colr_glyph(
 ) {
     let state = renderer.save_state();
     renderer.set_transform(transform);
-    // Wrap COLR glyphs in a layer, to make sure they are isolated and don't
-    // blend into the main surface.
-    renderer.push_blend_layer(BlendMode::default());
+    // Two reasons why we wrap COLR glyphs in a clip layer:
+    // 1) We need to make sure they are isolated and don't blend into the main surface. Otherwise,
+    // blend modes that are part of the glyph could affect already drawn contents.
+    // 2) It's a temporary measure to allow the Vello renderers to get a bounding box
+    // of the glyph, necessary to keep the cost of blending operations to a minimum.
+    renderer.push_clip_layer(&glyph.area.to_path(0.1));
 
     let mut colr_painter = ColrPainter::new(glyph, context_color, renderer);
     colr_painter.paint();
@@ -308,7 +311,7 @@ fn render_colr_to_atlas(
         atlas_slot.y as f64,
     )));
     // See the comment in `render_uncached_colr_glyph` for why we wrap COLR glyphs
-    // in a layer.
+    // in a clip layer.
     recorder.push_blend_layer(BlendMode::default());
 
     let mut colr_painter = ColrPainter::new(glyph, context_color, recorder);

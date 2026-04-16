@@ -16,10 +16,11 @@ use alloc::vec::Vec;
 use core::fmt::Debug;
 use peniko::{LinearGradientPosition, RadialGradientPosition, SweepGradientPosition};
 use skrifa::color::{Brush, ColorPainter, ColorStop, CompositeMode, Transform};
-use skrifa::outline::DrawSettings;
+use skrifa::instance::LocationRef;
+use skrifa::outline::{DrawSettings, pen::ControlBoundsPen};
 use skrifa::raw::TableProvider;
 use skrifa::raw::types::BoundingBox;
-use skrifa::{GlyphId, MetadataProvider};
+use skrifa::{FontRef, GlyphId, MetadataProvider};
 use smallvec::SmallVec;
 
 trait ColrDrawSinkExt: DrawSink {
@@ -155,17 +156,65 @@ impl<'a> ColrPainter<'a> {
     }
 }
 
+pub(crate) fn get_colr_bbox<'a>(
+    font_ref: &'a FontRef<'a>,
+    color_glyph: &skrifa::color::ColorGlyph<'a>,
+    location: LocationRef<'a>,
+) -> Option<Rect> {
+    let mut analyzer = BboxExtractor::new(font_ref, location);
+    let _ = color_glyph.paint(location, &mut analyzer);
+    analyzer.finish()
+}
+
+struct BboxExtractor<'a> {
+    transforms: Vec<Affine>,
+    clip_stack: Vec<Rect>,
+    coarse_bbox: Option<Rect>,
+    font_ref: &'a FontRef<'a>,
+    location: LocationRef<'a>,
+}
+
+impl<'a> BboxExtractor<'a> {
+    fn new(font_ref: &'a FontRef<'a>, location: LocationRef<'a>) -> Self {
+        Self {
+            transforms: vec![Affine::IDENTITY],
+            clip_stack: Vec::new(),
+            coarse_bbox: None,
+            font_ref,
+            location,
+        }
+    }
+
+    fn cur_transform(&self) -> Affine {
+        self.transforms.last().copied().unwrap_or_default()
+    }
+
+    fn push_clip_bbox(&mut self, clip_bbox: Rect) {
+        let active = self
+            .clip_stack
+            .last()
+            .copied()
+            .map_or(clip_bbox, |parent| parent.intersect(clip_bbox));
+        self.coarse_bbox = Some(
+            self.coarse_bbox
+                .map_or(active, |coarse_bbox| coarse_bbox.union(active)),
+        );
+        self.clip_stack.push(active);
+    }
+
+    fn transform_rect(&self, rect: Rect) -> Rect {
+        (self.cur_transform() * rect.to_path(0.1)).bounding_box()
+    }
+
+    fn finish(self) -> Option<Rect> {
+        self.coarse_bbox
+    }
+}
+
 impl ColorPainter for ColrPainter<'_> {
     fn push_transform(&mut self, t: Transform) {
-        let affine = Affine::new([
-            f64::from(t.xx),
-            f64::from(t.yx),
-            f64::from(t.xy),
-            f64::from(t.yy),
-            f64::from(t.dx),
-            f64::from(t.dy),
-        ]);
-        self.transforms.push(self.cur_transform() * affine);
+        self.transforms
+            .push(self.cur_transform() * convert_affine(t));
     }
 
     fn pop_transform(&mut self) {
@@ -338,37 +387,7 @@ impl ColorPainter for ColrPainter<'_> {
     }
 
     fn push_layer(&mut self, composite_mode: CompositeMode) {
-        let blend_mode = match composite_mode {
-            CompositeMode::Clear => BlendMode::new(Mix::Normal, Compose::Clear),
-            CompositeMode::Src => BlendMode::new(Mix::Normal, Compose::Copy),
-            CompositeMode::Dest => BlendMode::new(Mix::Normal, Compose::Dest),
-            CompositeMode::SrcOver => BlendMode::new(Mix::Normal, Compose::SrcOver),
-            CompositeMode::DestOver => BlendMode::new(Mix::Normal, Compose::DestOver),
-            CompositeMode::SrcIn => BlendMode::new(Mix::Normal, Compose::SrcIn),
-            CompositeMode::DestIn => BlendMode::new(Mix::Normal, Compose::DestIn),
-            CompositeMode::SrcOut => BlendMode::new(Mix::Normal, Compose::SrcOut),
-            CompositeMode::DestOut => BlendMode::new(Mix::Normal, Compose::DestOut),
-            CompositeMode::SrcAtop => BlendMode::new(Mix::Normal, Compose::SrcAtop),
-            CompositeMode::DestAtop => BlendMode::new(Mix::Normal, Compose::DestAtop),
-            CompositeMode::Xor => BlendMode::new(Mix::Normal, Compose::Xor),
-            CompositeMode::Plus => BlendMode::new(Mix::Normal, Compose::Plus),
-            CompositeMode::Screen => BlendMode::new(Mix::Screen, Compose::SrcOver),
-            CompositeMode::Overlay => BlendMode::new(Mix::Overlay, Compose::SrcOver),
-            CompositeMode::Darken => BlendMode::new(Mix::Darken, Compose::SrcOver),
-            CompositeMode::Lighten => BlendMode::new(Mix::Lighten, Compose::SrcOver),
-            CompositeMode::ColorDodge => BlendMode::new(Mix::ColorDodge, Compose::SrcOver),
-            CompositeMode::ColorBurn => BlendMode::new(Mix::ColorBurn, Compose::SrcOver),
-            CompositeMode::HardLight => BlendMode::new(Mix::HardLight, Compose::SrcOver),
-            CompositeMode::SoftLight => BlendMode::new(Mix::SoftLight, Compose::SrcOver),
-            CompositeMode::Difference => BlendMode::new(Mix::Difference, Compose::SrcOver),
-            CompositeMode::Exclusion => BlendMode::new(Mix::Exclusion, Compose::SrcOver),
-            CompositeMode::Multiply => BlendMode::new(Mix::Multiply, Compose::SrcOver),
-            CompositeMode::HslHue => BlendMode::new(Mix::Hue, Compose::SrcOver),
-            CompositeMode::HslSaturation => BlendMode::new(Mix::Saturation, Compose::SrcOver),
-            CompositeMode::HslColor => BlendMode::new(Mix::Color, Compose::SrcOver),
-            CompositeMode::HslLuminosity => BlendMode::new(Mix::Luminosity, Compose::SrcOver),
-            CompositeMode::Unknown => BlendMode::new(Mix::Normal, Compose::SrcOver),
-        };
+        let blend_mode = convert_composite_mode(composite_mode);
 
         self.painter.push_blend_layer(blend_mode);
         self.layer_count += 1;
@@ -378,6 +397,96 @@ impl ColorPainter for ColrPainter<'_> {
         self.painter.pop_layer();
         self.layer_count -= 1;
     }
+}
+
+impl ColorPainter for BboxExtractor<'_> {
+    fn push_transform(&mut self, t: Transform) {
+        self.transforms
+            .push(self.cur_transform() * convert_affine(t));
+    }
+
+    fn pop_transform(&mut self) {
+        self.transforms.pop();
+    }
+
+    fn push_clip_glyph(&mut self, glyph_id: GlyphId) {
+        let mut outline_bbox = ControlBoundsPen::default();
+
+        let outline_glyphs = self.font_ref.outline_glyphs();
+        let Some(outline_glyph) = outline_glyphs.get(glyph_id) else {
+            return;
+        };
+
+        let _ = outline_glyph.draw(
+            DrawSettings::unhinted(skrifa::instance::Size::unscaled(), self.location),
+            &mut outline_bbox,
+        );
+
+        if let Some(outline_bbox) = outline_bbox.bounding_box().map(convert_bounding_box) {
+            self.push_clip_bbox(self.transform_rect(outline_bbox));
+        }
+    }
+
+    fn push_clip_box(&mut self, clip_box: BoundingBox<f32>) {
+        self.push_clip_bbox(self.transform_rect(convert_bounding_box(clip_box)));
+    }
+
+    fn pop_clip(&mut self) {
+        self.clip_stack.pop();
+    }
+
+    fn fill(&mut self, _brush: Brush<'_>) {}
+
+    fn push_layer(&mut self, composite_mode: CompositeMode) {
+        let _ = composite_mode;
+    }
+
+    fn pop_layer(&mut self) {}
+}
+
+fn convert_composite_mode(composite_mode: CompositeMode) -> BlendMode {
+    match composite_mode {
+        CompositeMode::Clear => BlendMode::new(Mix::Normal, Compose::Clear),
+        CompositeMode::Src => BlendMode::new(Mix::Normal, Compose::Copy),
+        CompositeMode::Dest => BlendMode::new(Mix::Normal, Compose::Dest),
+        CompositeMode::SrcOver => BlendMode::new(Mix::Normal, Compose::SrcOver),
+        CompositeMode::DestOver => BlendMode::new(Mix::Normal, Compose::DestOver),
+        CompositeMode::SrcIn => BlendMode::new(Mix::Normal, Compose::SrcIn),
+        CompositeMode::DestIn => BlendMode::new(Mix::Normal, Compose::DestIn),
+        CompositeMode::SrcOut => BlendMode::new(Mix::Normal, Compose::SrcOut),
+        CompositeMode::DestOut => BlendMode::new(Mix::Normal, Compose::DestOut),
+        CompositeMode::SrcAtop => BlendMode::new(Mix::Normal, Compose::SrcAtop),
+        CompositeMode::DestAtop => BlendMode::new(Mix::Normal, Compose::DestAtop),
+        CompositeMode::Xor => BlendMode::new(Mix::Normal, Compose::Xor),
+        CompositeMode::Plus => BlendMode::new(Mix::Normal, Compose::Plus),
+        CompositeMode::Screen => BlendMode::new(Mix::Screen, Compose::SrcOver),
+        CompositeMode::Overlay => BlendMode::new(Mix::Overlay, Compose::SrcOver),
+        CompositeMode::Darken => BlendMode::new(Mix::Darken, Compose::SrcOver),
+        CompositeMode::Lighten => BlendMode::new(Mix::Lighten, Compose::SrcOver),
+        CompositeMode::ColorDodge => BlendMode::new(Mix::ColorDodge, Compose::SrcOver),
+        CompositeMode::ColorBurn => BlendMode::new(Mix::ColorBurn, Compose::SrcOver),
+        CompositeMode::HardLight => BlendMode::new(Mix::HardLight, Compose::SrcOver),
+        CompositeMode::SoftLight => BlendMode::new(Mix::SoftLight, Compose::SrcOver),
+        CompositeMode::Difference => BlendMode::new(Mix::Difference, Compose::SrcOver),
+        CompositeMode::Exclusion => BlendMode::new(Mix::Exclusion, Compose::SrcOver),
+        CompositeMode::Multiply => BlendMode::new(Mix::Multiply, Compose::SrcOver),
+        CompositeMode::HslHue => BlendMode::new(Mix::Hue, Compose::SrcOver),
+        CompositeMode::HslSaturation => BlendMode::new(Mix::Saturation, Compose::SrcOver),
+        CompositeMode::HslColor => BlendMode::new(Mix::Color, Compose::SrcOver),
+        CompositeMode::HslLuminosity => BlendMode::new(Mix::Luminosity, Compose::SrcOver),
+        CompositeMode::Unknown => BlendMode::default(),
+    }
+}
+
+fn convert_affine(transform: Transform) -> Affine {
+    Affine::new([
+        f64::from(transform.xx),
+        f64::from(transform.yx),
+        f64::from(transform.xy),
+        f64::from(transform.yy),
+        f64::from(transform.dx),
+        f64::from(transform.dy),
+    ])
 }
 
 fn convert_extend(extend: skrifa::color::Extend) -> Extend {

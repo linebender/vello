@@ -16,7 +16,7 @@ use crate::atlas::key::{SUBPIXEL_BITMAP, SUBPIXEL_COLR, pack_color};
 use crate::atlas::{GlyphAtlas, ImageCache};
 use crate::color::PremulRgba8;
 use crate::color::palette::css::BLACK;
-use crate::colr::convert_bounding_box;
+use crate::colr::{convert_bounding_box, get_colr_bbox};
 use crate::kurbo::Point;
 use crate::kurbo::Rect;
 use crate::kurbo::Vec2;
@@ -341,12 +341,15 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
 
             // ── COLR Glyphs ───────────────────────────────────────────
             if let Some(color_glyph) = color_glyphs.get(glyph_id) {
+                let location = LocationRef::new(normalized_coords);
                 let metrics = calculate_colr_metrics(
                     draw_props.font_size,
                     upem,
                     draw_props,
                     glyph,
+                    &font_ref,
                     &color_glyph,
+                    location,
                 );
                 let transform = calculate_colr_transform(&metrics);
 
@@ -1040,7 +1043,9 @@ fn calculate_colr_metrics(
     upem: f32,
     draw_props: DrawProps,
     glyph: Glyph,
+    font_ref: &FontRef<'_>,
     color_glyph: &skrifa::color::ColorGlyph<'_>,
+    location: LocationRef<'_>,
 ) -> ColrMetrics {
     // The scale factor we need to apply to scale from font units to our font size.
     let font_size_scale = (font_size / upem) as f64;
@@ -1055,9 +1060,14 @@ fn calculate_colr_metrics(
     };
 
     let bbox = color_glyph
-        .bounding_box(LocationRef::default(), Size::unscaled())
+        // First try to get the clip bbox from the COLR table,
+        // as this one has the highest priority.
+        .bounding_box(location, Size::unscaled())
         .map(convert_bounding_box)
-        .unwrap_or(Rect::new(0.0, 0.0, f64::from(upem), f64::from(upem)));
+        // Only if none exists do we fall back to extracting the
+        // bbox ourselves.
+        .or(get_colr_bbox(font_ref, color_glyph, location))
+        .unwrap_or(Rect::ZERO);
 
     // Calculate the position of the rectangle that will contain the rendered pixmap in device
     // coordinates.

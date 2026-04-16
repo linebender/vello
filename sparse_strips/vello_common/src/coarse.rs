@@ -784,22 +784,31 @@ impl<const MODE: u8> Wide<MODE> {
 
             self.layers_needing_buf_stack.push(layer_kind);
 
-            // We eagerly push buffers for the entire viewport if this is a destructive blend
-            // or if we are (nested in) a clipped filter layer.
+            // We eagerly push buffers for the current active bbox if this is a destructive blend
+            // or the entire viewport if we are (nested in) a clipped filter layer.
             //
             // TODO: We may be able to do away with some or all of this eager pushing in the
             // future, but for now these types of layers need buffers for all wide tiles regardless
             // of whether they're drawn on.
             if layer.blend_mode.is_destructive() || self.clipped_filter_layer_depth > 0 {
-                for idx in 0..self.tiles.len() {
-                    self.tiles[idx].ensure_layer_stack_bufs(
-                        idx,
-                        &mut self.layers_needing_buf_stack,
-                        batch_count,
-                    );
-                    // Mark tiles that are in a clipped filter layer so they generate
-                    // explicit clip commands for proper filter processing.
-                    self.tiles[idx].in_clipped_filter_layer = in_clipped_filter_layer;
+                let active_bbox = if self.clipped_filter_layer_depth > 0 {
+                    self.full_viewport_bbox()
+                } else {
+                    self.active_bbox()
+                };
+
+                for y in active_bbox.y0()..active_bbox.y1() {
+                    for x in active_bbox.x0()..active_bbox.x1() {
+                        let idx = self.get_idx(x, y);
+                        self.tiles[idx].ensure_layer_stack_bufs(
+                            idx,
+                            &mut self.layers_needing_buf_stack,
+                            batch_count,
+                        );
+                        // Mark tiles that are in a clipped filter layer so they generate
+                        // explicit clip commands for proper filter processing.
+                        self.tiles[idx].in_clipped_filter_layer = in_clipped_filter_layer;
+                    }
                 }
             }
         }
