@@ -2434,19 +2434,19 @@ impl Programs {
         &mut self,
         device: &Device,
         queue: &Queue,
-        first: &[GpuStrip],
-        second: &[GpuStrip],
+        opaque_strips: &[GpuStrip],
+        alpha_strips: &[GpuStrip],
     ) {
-        let first_bytes = size_of_val(first) as u64;
-        let second_bytes = size_of_val(second) as u64;
-        let total = first_bytes + second_bytes;
+        let opaque_bytes = size_of_val(opaque_strips) as u64;
+        let alpha_bytes = size_of_val(alpha_strips) as u64;
+        let total = opaque_bytes + alpha_bytes;
         self.resources.strips_buffer = Self::create_strips_buffer(device, total);
         // TODO: Consider using a staging belt to avoid an extra staging buffer allocation.
         let mut buffer = queue
             .write_buffer_with(&self.resources.strips_buffer, 0, total.try_into().unwrap())
             .expect("Capacity handled in creation");
-        buffer[..first_bytes as usize].copy_from_slice(bytemuck::cast_slice(first));
-        buffer[first_bytes as usize..].copy_from_slice(bytemuck::cast_slice(second));
+        buffer[..opaque_bytes as usize].copy_from_slice(bytemuck::cast_slice(opaque_strips));
+        buffer[opaque_bytes as usize..].copy_from_slice(bytemuck::cast_slice(alpha_strips));
     }
 }
 

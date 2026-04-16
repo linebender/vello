@@ -1421,10 +1421,10 @@ impl WebGlPrograms {
     fn upload_strip_pair(
         &mut self,
         gl: &WebGl2RenderingContext,
-        first: &[GpuStrip],
-        second: &[GpuStrip],
+        opaque_strips: &[GpuStrip],
+        alpha_strips: &[GpuStrip],
     ) {
-        if first.is_empty() && second.is_empty() {
+        if opaque_strips.is_empty() && alpha_strips.is_empty() {
             return;
         }
 
@@ -1433,9 +1433,9 @@ impl WebGlPrograms {
             Some(&self.resources.strips_buffer),
         );
 
-        let first_bytes: &[u8] = bytemuck::cast_slice(first);
-        let second_bytes: &[u8] = bytemuck::cast_slice(second);
-        let total_len = first_bytes.len() + second_bytes.len();
+        let opaque_bytes: &[u8] = bytemuck::cast_slice(opaque_strips);
+        let alpha_bytes: &[u8] = bytemuck::cast_slice(alpha_strips);
+        let total_len = opaque_bytes.len() + alpha_bytes.len();
 
         // Allocate buffer, then write both slices via bufferSubData.
         // We don't want to pay for concatenating the two slices. It's better to
@@ -1445,18 +1445,18 @@ impl WebGlPrograms {
             total_len as i32,
             WebGl2RenderingContext::DYNAMIC_DRAW,
         );
-        if !first_bytes.is_empty() {
+        if !opaque_bytes.is_empty() {
             gl.buffer_sub_data_with_i32_and_u8_array(
                 WebGl2RenderingContext::ARRAY_BUFFER,
                 0,
-                first_bytes,
+                opaque_bytes,
             );
         }
-        if !second_bytes.is_empty() {
+        if !alpha_bytes.is_empty() {
             gl.buffer_sub_data_with_i32_and_u8_array(
                 WebGl2RenderingContext::ARRAY_BUFFER,
-                first_bytes.len() as i32,
-                second_bytes,
+                opaque_bytes.len() as i32,
+                alpha_bytes,
             );
         }
     }
@@ -2137,7 +2137,7 @@ fn initialize_clear_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
 
 /// Context for WebGL rendering operations.
 // TODO: Improve buffer management. Currently a single buffer is used per resource, which means that
-// the GPU must finish drawing before the next `upload_strips` can be executed (effectively pausing
+// the GPU must finish drawing before the next `upload_strip_pair` can be executed (effectively pausing
 // execution). Investigate a buffer pool or creating a new buffer per pass.
 struct WebGlRendererContext<'a> {
     programs: &'a mut WebGlPrograms,
