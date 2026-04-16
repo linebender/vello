@@ -2441,6 +2441,7 @@ impl Programs {
         let second_bytes = size_of_val(second) as u64;
         let total = first_bytes + second_bytes;
         self.resources.strips_buffer = Self::create_strips_buffer(device, total);
+        // TODO: Consider using a staging belt to avoid an extra staging buffer allocation.
         let mut buffer = queue
             .write_buffer_with(&self.resources.strips_buffer, 0, total.try_into().unwrap())
             .expect("Capacity handled in creation");
