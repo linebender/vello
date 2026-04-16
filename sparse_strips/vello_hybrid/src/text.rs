@@ -168,11 +168,6 @@ impl DrawSink for Scene {
 
     #[inline]
     fn push_blend_layer(&mut self, blend_mode: BlendMode) {
-        // TODO: See the comment for the `colr_test_glyphs` test.
-        if blend_mode != BlendMode::default() {
-            panic!("COLR emojis with non-default blending are not supported yet.")
-        }
-
         Self::push_blend_layer(self, blend_mode);
     }
 
