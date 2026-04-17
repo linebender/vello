@@ -395,6 +395,19 @@ impl Scene {
         submit_strips!(self, strip_storage, strip_start, paint);
     }
 
+    fn fill_rect_with(&mut self, rect: &Rect, transform: Affine, paint: Paint) {
+        let transformed_rect = transform.transform_rect_bbox(*rect);
+        let strip_storage = &mut self.strip_storage.borrow_mut();
+        let strip_start = strip_storage.strips.len();
+        self.strip_generator.generate_filled_rect_fast(
+            &transformed_rect,
+            strip_storage,
+            self.clip_context.get(),
+        );
+
+        submit_strips!(self, strip_storage, strip_start, paint);
+    }
+
     /// Push a new clip path to the clip stack.
     ///
     /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
@@ -486,8 +499,15 @@ impl Scene {
             return;
         }
 
-        // TODO: Use a temporary storage for rect paths, like in `vello_cpu`.
-        self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
+        if is_axis_aligned(&self.render_state.transform) && self.aliasing_threshold.is_none() {
+            self.with_optional_filter(|ctx| {
+                let paint = ctx.encode_current_paint();
+                ctx.fill_rect_with(rect, ctx.render_state.transform, paint);
+            });
+        } else {
+            // TODO: Use a temporary storage for rect paths, like in `vello_cpu`.
+            self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
+        }
     }
 
     #[expect(
