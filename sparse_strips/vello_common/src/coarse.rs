@@ -2352,6 +2352,7 @@ mod tests {
             0,
             None,
             &[],
+            false,
         );
         assert!(wide.tiles_dirty);
 
@@ -2388,6 +2389,7 @@ mod tests {
             0,
             None,
             &[],
+            false,
         );
         assert!(!wide.tiles_dirty);
     }

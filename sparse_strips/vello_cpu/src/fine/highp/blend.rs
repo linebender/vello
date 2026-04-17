@@ -22,10 +22,10 @@ impl<S: Simd> Channels<S> {
         self
     }
     #[inline(always)]
-    pub(crate) fn sqrt(mut self) -> Self {
-        self.r = self.r.sqrt();
-        self.g = self.g.sqrt();
-        self.b = self.b.sqrt();
+    pub(crate) fn square(mut self) -> Self {
+        self.r *= self.r;
+        self.g *= self.g;
+        self.b *= self.b;
 
         self
     }

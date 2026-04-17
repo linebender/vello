@@ -521,11 +521,11 @@ mod alpha_fill {
                     // Convert the sRGB colour to linear, for the coverage based blending.
                     let (src_over_dst_c, src_over_dst_a) = split(src_over_dst);
                     let src_over_dst_straight = src_over_dst_c.unpremultiply(src_over_dst_a);
-                    let src_over_dst_linear = src_over_dst_straight.sqrt();
+                    let src_over_dst_linear = src_over_dst_straight.square();
 
                     let (bg_ch, bg_a) = split(bg_c);
                     let bg_straight = bg_ch.unpremultiply(bg_a);
-                    let bg_linear = bg_straight.sqrt();
+                    let bg_linear = bg_straight.square();
 
                     // Get the sparse strip mask as f32x4.
                     let mut mask_a: f32x4<S> = [
@@ -543,24 +543,27 @@ mod alpha_fill {
                         #[inline(always)]
                         |background_channel: f32x4<S>, src_over_dst_channel: f32x4<S>| {
                             // Lerp between the channel values in linear space, based on the alpha mask.
-                            let res_linear = background_channel
-                                .mul_add(mask_a, src_over_dst_channel * inv_mask_a);
+                            let res_linear = src_over_dst_channel
+                                .mul_add(mask_a, background_channel * inv_mask_a);
                             // Convert this channel back into sRGB.
-                            res_linear * res_linear
+                            res_linear.sqrt()
                         }
                     };
 
                     let res_straight_r = lerp_channel_into_srgb(bg_linear.r, src_over_dst_linear.r);
-                    let res_straight_b = lerp_channel_into_srgb(bg_linear.g, src_over_dst_linear.g);
-                    let res_straight_g = lerp_channel_into_srgb(bg_linear.b, src_over_dst_linear.b);
+                    let res_straight_g = lerp_channel_into_srgb(bg_linear.g, src_over_dst_linear.g);
+                    let res_straight_b = lerp_channel_into_srgb(bg_linear.b, src_over_dst_linear.b);
 
-                    // TODO: It might be better to combine, then multiply everything by src_over_dst_a (repeated 4x).
+                    let src_a_4 = f32x4::splat(s, src[3]);
+                    let effective_src_a = src_a_4 * mask_a;
+                    let result_alpha = bg_a.mul_add(one_4 - effective_src_a, effective_src_a);
+
                     let combined = s.combine_f32x8(
                         s.combine_f32x4(
-                            res_straight_r * src_over_dst_a,
-                            res_straight_b * src_over_dst_a,
+                            res_straight_r * result_alpha,
+                            res_straight_g * result_alpha,
                         ),
-                        s.combine_f32x4(res_straight_g * src_over_dst_a, mask_a * src_over_dst_a),
+                        s.combine_f32x4(res_straight_b * result_alpha, result_alpha),
                     );
                     let mut storage = [0.0; 16];
                     // re-interleave into four sRGB colours.

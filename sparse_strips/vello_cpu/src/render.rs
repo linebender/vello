@@ -105,7 +105,7 @@ pub struct RenderContext {
     pub(crate) temp_path: BezPath,
     /// Optional threshold for aliasing.
     pub(crate) aliasing_threshold: Option<u8>,
-    /// Whether to use gamma-corrected compositing for solid color fills on the next draw call.
+    /// Whether to use gamma-corrected compositing for solid color fills.
     pub(crate) gamma_correction: bool,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
     pub(crate) filter: Option<Filter>,
