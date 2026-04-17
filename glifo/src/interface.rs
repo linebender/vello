@@ -30,6 +30,9 @@ pub trait DrawSink {
     /// This method _can_ be implemented in terms of `push_clip_layer` without losing correctness.
     /// However, clients are allowed to choose a more efficient clipping implementation that
     /// doesn't require pushing an isolated layer.
+    ///
+    /// When providing a custom implementation of this method, the `pop_clip_path` method also
+    /// needs to be overridden correspondingly.
     fn push_clip_path(&mut self, clip: &BezPath) {
         self.push_clip_layer(clip);
     }
@@ -38,6 +41,8 @@ pub trait DrawSink {
     /// Pop the most recent clip or blend layer.
     fn pop_layer(&mut self);
     /// Pop the most recent clip path.
+    ///
+    /// See the documentation for [`DrawSink::push_clip_path`].
     fn pop_clip_path(&mut self) {
         self.pop_layer();
     }
