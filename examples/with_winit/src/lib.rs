@@ -282,115 +282,112 @@ impl ApplicationHandler<UserEvent> for VelloApp {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::ModifiersChanged(m) => self.modifiers = m.state(),
-            WindowEvent::KeyboardInput { event, .. } => {
-                if event.state == ElementState::Pressed {
-                    match event.logical_key.as_ref() {
-                        Key::Named(NamedKey::ArrowLeft) => {
-                            self.scene_ix = self.scene_ix.saturating_sub(1);
-                        }
-                        Key::Named(NamedKey::ArrowRight) => {
-                            self.scene_ix = self.scene_ix.saturating_add(1);
-                        }
-                        Key::Named(NamedKey::ArrowUp) => self.complexity += 1,
-                        Key::Named(NamedKey::ArrowDown) => {
-                            self.complexity = self.complexity.saturating_sub(1);
-                        }
-                        Key::Named(NamedKey::Space) => {
-                            self.transform = Affine::IDENTITY;
-                        }
-                        Key::Character(char) => {
-                            // TODO: Have a more principled way of handling modifiers on keypress
-                            // see e.g. https://xi.zulipchat.com/#narrow/channel/351333-glazier/topic/Keyboard.20shortcuts/with/403538769
-                            let char = char.to_lowercase();
-                            match char.as_str() {
-                                "q" | "e" => {
-                                    if let Some(prior_position) = self.prior_position {
-                                        let is_clockwise = char == "e";
-                                        let angle = if is_clockwise { -0.05 } else { 0.05 };
-                                        self.transform =
-                                            self.transform.then_rotate_about(angle, prior_position);
-                                    }
+            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                match event.logical_key.as_ref() {
+                    Key::Named(NamedKey::ArrowLeft) => {
+                        self.scene_ix = self.scene_ix.saturating_sub(1);
+                    }
+                    Key::Named(NamedKey::ArrowRight) => {
+                        self.scene_ix = self.scene_ix.saturating_add(1);
+                    }
+                    Key::Named(NamedKey::ArrowUp) => self.complexity += 1,
+                    Key::Named(NamedKey::ArrowDown) => {
+                        self.complexity = self.complexity.saturating_sub(1);
+                    }
+                    Key::Named(NamedKey::Space) => {
+                        self.transform = Affine::IDENTITY;
+                    }
+                    Key::Character(char) => {
+                        // TODO: Have a more principled way of handling modifiers on keypress
+                        // see e.g. https://xi.zulipchat.com/#narrow/channel/351333-glazier/topic/Keyboard.20shortcuts/with/403538769
+                        let char = char.to_lowercase();
+                        match char.as_str() {
+                            "q" | "e" => {
+                                if let Some(prior_position) = self.prior_position {
+                                    let is_clockwise = char == "e";
+                                    let angle = if is_clockwise { -0.05 } else { 0.05 };
+                                    self.transform =
+                                        self.transform.then_rotate_about(angle, prior_position);
                                 }
-                                "s" => {
-                                    self.stats_shown = !self.stats_shown;
+                            }
+                            "s" => {
+                                self.stats_shown = !self.stats_shown;
+                            }
+                            "d" => {
+                                self.complexity_shown = !self.complexity_shown;
+                            }
+                            "c" => {
+                                self.stats.clear_min_and_max();
+                            }
+                            "m" => {
+                                self.aa_config_ix = if self.modifiers.shift_key() {
+                                    self.aa_config_ix.saturating_sub(1)
+                                } else {
+                                    self.aa_config_ix.saturating_add(1)
+                                };
+                            }
+                            #[cfg(feature = "wgpu-profiler")]
+                            "p" => {
+                                if let Some(renderer) = &self.renderers[render_state.surface.dev_id]
+                                {
+                                    store_profiling(renderer, &self.profile_stored);
                                 }
-                                "d" => {
-                                    self.complexity_shown = !self.complexity_shown;
+                            }
+                            #[cfg(feature = "wgpu-profiler")]
+                            "g" => {
+                                self.gpu_profiling_on = !self.gpu_profiling_on;
+                                if let Some(renderer) =
+                                    &mut self.renderers[render_state.surface.dev_id]
+                                {
+                                    renderer
+                                        .profiler
+                                        .change_settings(wgpu_profiler::GpuProfilerSettings {
+                                            enable_timer_queries: self.gpu_profiling_on,
+                                            enable_debug_groups: self.gpu_profiling_on,
+                                            ..Default::default()
+                                        })
+                                        .expect("Not setting max_num_pending_frames");
                                 }
-                                "c" => {
-                                    self.stats.clear_min_and_max();
-                                }
-                                "m" => {
-                                    self.aa_config_ix = if self.modifiers.shift_key() {
-                                        self.aa_config_ix.saturating_sub(1)
+                            }
+                            "v" => {
+                                self.vsync_on = !self.vsync_on;
+                                self.context.set_present_mode(
+                                    &mut render_state.surface,
+                                    if self.vsync_on {
+                                        wgpu::PresentMode::AutoVsync
                                     } else {
-                                        self.aa_config_ix.saturating_add(1)
-                                    };
-                                }
-                                #[cfg(feature = "wgpu-profiler")]
-                                "p" => {
-                                    if let Some(renderer) =
-                                        &self.renderers[render_state.surface.dev_id]
-                                    {
-                                        store_profiling(renderer, &self.profile_stored);
+                                        wgpu::PresentMode::AutoNoVsync
+                                    },
+                                );
+                            }
+                            debug_layer @ ("1" | "2" | "3" | "4") => {
+                                match debug_layer {
+                                    "1" => {
+                                        self.debug.toggle(DebugLayers::BOUNDING_BOXES);
                                     }
-                                }
-                                #[cfg(feature = "wgpu-profiler")]
-                                "g" => {
-                                    self.gpu_profiling_on = !self.gpu_profiling_on;
-                                    if let Some(renderer) =
-                                        &mut self.renderers[render_state.surface.dev_id]
-                                    {
-                                        renderer
-                                            .profiler
-                                            .change_settings(wgpu_profiler::GpuProfilerSettings {
-                                                enable_timer_queries: self.gpu_profiling_on,
-                                                enable_debug_groups: self.gpu_profiling_on,
-                                                ..Default::default()
-                                            })
-                                            .expect("Not setting max_num_pending_frames");
+                                    "2" => {
+                                        self.debug.toggle(DebugLayers::LINESOUP_SEGMENTS);
                                     }
+                                    "3" => {
+                                        self.debug.toggle(DebugLayers::LINESOUP_POINTS);
+                                    }
+                                    "4" => {
+                                        self.debug.toggle(DebugLayers::VALIDATION);
+                                    }
+                                    _ => unreachable!(),
                                 }
-                                "v" => {
-                                    self.vsync_on = !self.vsync_on;
-                                    self.context.set_present_mode(
-                                        &mut render_state.surface,
-                                        if self.vsync_on {
-                                            wgpu::PresentMode::AutoVsync
-                                        } else {
-                                            wgpu::PresentMode::AutoNoVsync
-                                        },
+                                if !self.debug.is_empty() && !self.async_pipeline {
+                                    log::warn!(
+                                        "Debug Layers won't work without using `--async-pipeline`. Requested {:?}",
+                                        self.debug
                                     );
                                 }
-                                debug_layer @ ("1" | "2" | "3" | "4") => {
-                                    match debug_layer {
-                                        "1" => {
-                                            self.debug.toggle(DebugLayers::BOUNDING_BOXES);
-                                        }
-                                        "2" => {
-                                            self.debug.toggle(DebugLayers::LINESOUP_SEGMENTS);
-                                        }
-                                        "3" => {
-                                            self.debug.toggle(DebugLayers::LINESOUP_POINTS);
-                                        }
-                                        "4" => {
-                                            self.debug.toggle(DebugLayers::VALIDATION);
-                                        }
-                                        _ => unreachable!(),
-                                    }
-                                    if !self.debug.is_empty() && !self.async_pipeline {
-                                        log::warn!(
-                                            "Debug Layers won't work without using `--async-pipeline`. Requested {:?}",
-                                            self.debug
-                                        );
-                                    }
-                                }
-                                _ => {}
                             }
+                            _ => {}
                         }
-                        Key::Named(NamedKey::Escape) => event_loop.exit(),
-                        _ => {}
                     }
+                    Key::Named(NamedKey::Escape) => event_loop.exit(),
+                    _ => {}
                 }
             }
             WindowEvent::Touch(touch) => {
@@ -450,10 +447,12 @@ impl ApplicationHandler<UserEvent> for VelloApp {
                     }
                 }
             }
-            WindowEvent::MouseInput { state, button, .. } => {
-                if button == MouseButton::Left {
-                    self.mouse_down = state == ElementState::Pressed;
-                }
+            WindowEvent::MouseInput {
+                state,
+                button: MouseButton::Left,
+                ..
+            } => {
+                self.mouse_down = state == ElementState::Pressed;
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 const BASE: f64 = 1.05;

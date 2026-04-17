@@ -242,13 +242,15 @@ impl ApplicationHandler for App<'_> {
                     self.upload_images_to_atlas(dev_id);
                 }
             }
-            WindowEvent::MouseInput { state, button, .. } => {
-                if button == MouseButton::Left {
-                    self.mouse_down = state == ElementState::Pressed;
-                    if !self.mouse_down {
-                        // Mouse button released
-                        self.last_cursor_position = None;
-                    }
+            WindowEvent::MouseInput {
+                state,
+                button: MouseButton::Left,
+                ..
+            } => {
+                self.mouse_down = state == ElementState::Pressed;
+                if !self.mouse_down {
+                    // Mouse button released
+                    self.last_cursor_position = None;
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
