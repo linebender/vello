@@ -389,6 +389,65 @@ fn clip_non_isolated_outside_canvas(ctx: &mut impl Renderer) {
 }
 
 #[vello_test]
+fn clip_non_isolated_with_rect(ctx: &mut impl Renderer) {
+    let clip_rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+    ctx.push_clip_path(&clip_rect.to_path(0.1));
+
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+    ctx.pop_clip_path();
+}
+
+#[vello_test]
+fn clip_non_isolated_with_rotated_rect(ctx: &mut impl Renderer) {
+    let clip_rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+    ctx.push_clip_path(&clip_rect.to_path(0.1));
+
+    ctx.set_transform(Affine::rotate_about(
+        25.0 * PI / 180.0,
+        Point::new(50.0, 50.0),
+    ));
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+    ctx.pop_clip_path();
+}
+
+#[vello_test]
+fn clip_non_isolated_with_scaled_rect(ctx: &mut impl Renderer) {
+    let clip_rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+    ctx.push_clip_path(&clip_rect.to_path(0.1));
+
+    ctx.set_transform(
+        Affine::translate((50.0, 50.0)) * Affine::scale(4.0) * Affine::translate((-50.0, -50.0)),
+    );
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(40.0, 40.0, 60.0, 60.0));
+    ctx.pop_clip_path();
+}
+
+#[vello_test]
+fn clip_non_isolated_with_aa_with_rect(ctx: &mut impl Renderer) {
+    let clip_rect = Rect::new(10.5, 10.5, 89.5, 89.5);
+    ctx.push_clip_path(&clip_rect.to_path(0.1));
+
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+    ctx.pop_clip_path();
+}
+
+#[vello_test]
+fn clip_non_isolated_with_aa_with_rect_aa(ctx: &mut impl Renderer) {
+    // In theory, anti-aliasing should be 50% here, but due to conflation artifacts it will be
+    // 25% instead.
+    let rect = Rect::new(10.5, 10.5, 89.5, 89.5);
+    ctx.push_clip_path(&rect.to_path(0.1));
+
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&rect);
+    ctx.pop_clip_path();
+}
+
+#[vello_test]
 fn clip_non_isolated_rectangle_with_star_evenodd(ctx: &mut impl Renderer) {
     let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
     let star_path = crossed_line_star();
