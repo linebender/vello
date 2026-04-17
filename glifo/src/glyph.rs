@@ -1068,6 +1068,7 @@ fn calculate_colr_metrics(
         // as this one has the highest priority.
         .bounding_box(location, Size::unscaled())
         .map(convert_bounding_box)
+        // Otherwise, we use the conservative bounding box we determined before.
         .or(colr_info.bbox)
         .unwrap_or(Rect::ZERO);
 
