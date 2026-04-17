@@ -47,8 +47,14 @@ pub(crate) struct ColrPainter<'a> {
     colr_glyph: &'a GlyphColr<'a>,
     context_color: AlphaColor<Srgb>,
     painter: &'a mut dyn DrawSink,
-    stack_depth: u32,
-    clip_paths_only: bool,
+    stack: Vec<ColrStackEntry>,
+    skip_blend_layers: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ColrStackEntry {
+    ClipPath,
+    BlendLayer,
 }
 
 impl Debug for ColrPainter<'_> {
@@ -69,11 +75,10 @@ impl<'a> ColrPainter<'a> {
             colr_glyph,
             context_color,
             painter,
-            stack_depth: 0,
-            // In case the emoji doesn't use non-default blending, we
-            // can apply an optimization where don't push any layers
-            // and use non-layer clipping, leading to faster rendering.
-            clip_paths_only: !colr_glyph.has_non_default_blend,
+            stack: Vec::new(),
+            // In case the emoji doesn't use non-default blending, we can ignore layers
+            // completely and use src-over compositing throughout.
+            skip_blend_layers: !colr_glyph.has_non_default_blend,
         }
     }
 
@@ -86,11 +91,10 @@ impl<'a> ColrPainter<'a> {
 
         // In certain malformed fonts (i.e. if there is a cycle), skrifa will not
         // ensure that the push/pop count is the same, so we pop the remaining ones here.
-        for _ in 0..self.stack_depth {
-            if self.clip_paths_only {
-                self.painter.pop_clip_path();
-            } else {
-                self.painter.pop_layer();
+        while let Some(entry) = self.stack.pop() {
+            match entry {
+                ColrStackEntry::ClipPath => self.painter.pop_clip_path(),
+                ColrStackEntry::BlendLayer => self.painter.pop_layer(),
             }
         }
     }
@@ -165,12 +169,17 @@ impl<'a> ColrPainter<'a> {
     }
 
     fn push_clip(&mut self, clip: &crate::kurbo::BezPath) {
-        if self.clip_paths_only {
-            self.painter.push_clip_path(clip);
+        self.painter.push_clip_path(clip);
+        self.stack.push(ColrStackEntry::ClipPath);
+    }
+
+    fn pop_stack_entry(&mut self, expected: ColrStackEntry) -> bool {
+        if self.stack.last().copied() == Some(expected) {
+            self.stack.pop();
+            true
         } else {
-            self.painter.push_clip_layer(clip);
+            false
         }
-        self.stack_depth += 1;
     }
 }
 
@@ -283,13 +292,8 @@ impl ColorPainter for ColrPainter<'_> {
     }
 
     fn pop_clip(&mut self) {
-        if self.stack_depth > 0 {
-            if self.clip_paths_only {
-                self.painter.pop_clip_path();
-            } else {
-                self.painter.pop_layer();
-            }
-            self.stack_depth -= 1;
+        if self.pop_stack_entry(ColrStackEntry::ClipPath) {
+            self.painter.pop_clip_path();
         }
     }
 
@@ -423,16 +427,15 @@ impl ColorPainter for ColrPainter<'_> {
     fn push_layer(&mut self, composite_mode: CompositeMode) {
         let blend_mode = convert_composite_mode(composite_mode);
 
-        if !self.clip_paths_only {
+        if !self.skip_blend_layers {
             self.painter.push_blend_layer(blend_mode);
-            self.stack_depth += 1;
+            self.stack.push(ColrStackEntry::BlendLayer);
         }
     }
 
     fn pop_layer(&mut self) {
-        if !self.clip_paths_only && self.stack_depth > 0 {
+        if !self.skip_blend_layers && self.pop_stack_entry(ColrStackEntry::BlendLayer) {
             self.painter.pop_layer();
-            self.stack_depth -= 1;
         }
     }
 }
