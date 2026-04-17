@@ -211,8 +211,19 @@ impl StripGenerator {
         clip_path: Option<PathDataRef<'_>>,
     ) {
         let viewport = Rect::new(0.0, 0.0, self.width as f64, self.height as f64);
-
-        let clamped = rect.intersect(viewport);
+        let clip_bbox = clip_path
+            .map(|clip| {
+                // Clip bbox is always guaranteed to be within viewport bounds, so no need to
+                // intersect again.
+                Rect::new(
+                    f64::from(clip.bbox.x0),
+                    f64::from(clip.bbox.y0),
+                    f64::from(clip.bbox.x1),
+                    f64::from(clip.bbox.y1),
+                )
+            })
+            .unwrap_or(viewport);
+        let clamped = rect.intersect(clip_bbox);
 
         let level = self.level;
         render_with_clip(
