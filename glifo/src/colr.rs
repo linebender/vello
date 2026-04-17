@@ -24,18 +24,17 @@ use skrifa::{FontRef, GlyphId, MetadataProvider};
 use smallvec::SmallVec;
 
 trait ColrDrawSinkExt: DrawSink {
-    fn fill_with_paint(&mut self, paint: AtlasPaint) {
-        let rect = Rect::new(0.0, 0.0, f64::from(self.width()), f64::from(self.height()));
+    fn fill_with_paint(&mut self, rect: &Rect, paint: AtlasPaint) {
         self.set_paint(paint);
-        self.fill_rect(&rect);
+        self.fill_rect(rect);
     }
 
-    fn fill_solid(&mut self, color: AlphaColor<Srgb>) {
-        self.fill_with_paint(AtlasPaint::Solid(color));
+    fn fill_solid(&mut self, rect: &Rect, color: AlphaColor<Srgb>) {
+        self.fill_with_paint(rect, AtlasPaint::Solid(color));
     }
 
-    fn fill_gradient(&mut self, gradient: Gradient) {
-        self.fill_with_paint(AtlasPaint::Gradient(gradient));
+    fn fill_gradient(&mut self, rect: &Rect, gradient: Gradient) {
+        self.fill_with_paint(rect, AtlasPaint::Gradient(gradient));
     }
 }
 
@@ -298,6 +297,10 @@ impl ColorPainter for ColrPainter<'_> {
     }
 
     fn fill(&mut self, brush: Brush<'_>) {
+        // Ceil so that we don't apply unnecessary anti-aliasing in case the
+        // glyph area is at a sub-pixel position.
+        let fill_rect = &self.colr_glyph.area.ceil();
+
         match brush {
             Brush::Solid {
                 palette_index,
@@ -307,7 +310,7 @@ impl ColorPainter for ColrPainter<'_> {
                     .palette_index_to_color(palette_index, alpha)
                     .unwrap_or(AlphaColor::BLACK);
 
-                self.painter.fill_solid(color);
+                self.painter.fill_solid(fill_rect, color);
             }
             Brush::LinearGradient {
                 p0,
@@ -321,7 +324,8 @@ impl ColorPainter for ColrPainter<'_> {
                 let stops = self.convert_stops(color_stops);
 
                 if stops.len() == 1 {
-                    self.painter.fill_solid(stops[0].color.to_alpha_color());
+                    self.painter
+                        .fill_solid(fill_rect, stops[0].color.to_alpha_color());
                 } else {
                     let grad = Gradient {
                         kind: LinearGradientPosition { start: p0, end: p1 }.into(),
@@ -330,7 +334,7 @@ impl ColorPainter for ColrPainter<'_> {
                         ..Default::default()
                     };
                     self.painter.set_paint_transform(self.cur_transform());
-                    self.painter.fill_gradient(grad);
+                    self.painter.fill_gradient(fill_rect, grad);
                 }
             }
             Brush::RadialGradient {
@@ -349,7 +353,8 @@ impl ColorPainter for ColrPainter<'_> {
                 let stops = self.convert_stops(color_stops);
 
                 if r1 <= 0.0 || stops.len() == 1 {
-                    self.painter.fill_solid(stops[0].color.to_alpha_color());
+                    self.painter
+                        .fill_solid(fill_rect, stops[0].color.to_alpha_color());
 
                     return;
                 }
@@ -368,7 +373,7 @@ impl ColorPainter for ColrPainter<'_> {
                 };
 
                 self.painter.set_paint_transform(self.cur_transform());
-                self.painter.fill_gradient(grad);
+                self.painter.fill_gradient(fill_rect, grad);
             }
             Brush::SweepGradient {
                 c0,
@@ -382,7 +387,8 @@ impl ColorPainter for ColrPainter<'_> {
                 let stops = self.convert_stops(color_stops);
 
                 if stops.len() == 1 {
-                    self.painter.fill_solid(stops[0].color.to_alpha_color());
+                    self.painter
+                        .fill_solid(fill_rect, stops[0].color.to_alpha_color());
 
                     return;
                 }
@@ -419,7 +425,7 @@ impl ColorPainter for ColrPainter<'_> {
                 let paint_transform = self.cur_transform() * Affine::scale_non_uniform(1.0, -1.0);
 
                 self.painter.set_paint_transform(paint_transform);
-                self.painter.fill_gradient(grad);
+                self.painter.fill_gradient(fill_rect, grad);
             }
         };
     }

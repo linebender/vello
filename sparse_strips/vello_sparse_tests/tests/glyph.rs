@@ -569,6 +569,29 @@ fn glyphs_colr_noto_stroked(ctx: &mut impl Renderer, enable_caching: bool) {
 }
 
 #[vello_test(
+    width = 100,
+    height = 100,
+    glyph
+)]
+fn glyphs_colr_noto_overflow_centered(ctx: &mut impl Renderer, enable_caching: bool) {
+    let font_size = 150.0;
+    let (font, mut glyphs) = layout_glyphs_noto_colr("✅", font_size);
+    let glyph = glyphs.pop().unwrap();
+
+    let centered_glyph = Glyph {
+        id: glyph.id,
+        x: -25.0,
+        y: 125.0,
+    };
+
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .atlas_cache(enable_caching)
+        .hint(false)
+        .fill_glyphs(iter::once(centered_glyph));
+}
+
+#[vello_test(
     width = 500,
     height = 140,
     cpu_u8_tolerance = 1,
