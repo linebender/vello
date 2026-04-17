@@ -47,7 +47,7 @@ pub(crate) struct ColrPainter<'a> {
     colr_glyph: &'a GlyphColr<'a>,
     context_color: AlphaColor<Srgb>,
     painter: &'a mut dyn DrawSink,
-    layer_count: u32,
+    stack_depth: u32,
     clip_paths_only: bool,
 }
 
@@ -69,7 +69,7 @@ impl<'a> ColrPainter<'a> {
             colr_glyph,
             context_color,
             painter,
-            layer_count: 0,
+            stack_depth: 0,
             // In case the emoji doesn't use non-default blending, we
             // can apply an optimization where don't push any layers
             // and use non-layer clipping, leading to faster rendering.
@@ -86,7 +86,7 @@ impl<'a> ColrPainter<'a> {
 
         // In certain malformed fonts (i.e. if there is a cycle), skrifa will not
         // ensure that the push/pop count is the same, so we pop the remaining ones here.
-        for _ in 0..self.layer_count {
+        for _ in 0..self.stack_depth {
             if self.clip_paths_only {
                 self.painter.pop_clip_path();
             } else {
@@ -170,7 +170,7 @@ impl<'a> ColrPainter<'a> {
         } else {
             self.painter.push_clip_layer(clip);
         }
-        self.layer_count += 1;
+        self.stack_depth += 1;
     }
 }
 
@@ -283,12 +283,14 @@ impl ColorPainter for ColrPainter<'_> {
     }
 
     fn pop_clip(&mut self) {
-        if self.clip_paths_only {
-            self.painter.pop_clip_path();
-        } else {
-            self.painter.pop_layer();
+        if self.stack_depth > 0 {
+            if self.clip_paths_only {
+                self.painter.pop_clip_path();
+            } else {
+                self.painter.pop_layer();
+            }
+            self.stack_depth -= 1;
         }
-        self.layer_count -= 1;
     }
 
     fn fill(&mut self, brush: Brush<'_>) {
@@ -423,14 +425,14 @@ impl ColorPainter for ColrPainter<'_> {
 
         if !self.clip_paths_only {
             self.painter.push_blend_layer(blend_mode);
-            self.layer_count += 1;
+            self.stack_depth += 1;
         }
     }
 
     fn pop_layer(&mut self) {
-        if !self.clip_paths_only {
+        if !self.clip_paths_only && self.stack_depth > 0 {
             self.painter.pop_layer();
-            self.layer_count -= 1;
+            self.stack_depth -= 1;
         }
     }
 }
