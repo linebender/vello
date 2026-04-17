@@ -230,7 +230,7 @@ impl<'a> GlyphInfoExtractor<'a> {
     }
 
     fn transform_rect(&self, rect: Rect) -> Rect {
-        (self.cur_transform() * rect.to_path(0.1)).bounding_box()
+        self.cur_transform().transform_rect_bbox(rect)
     }
 
     fn finish(self) -> ColrGlyphInfo {
