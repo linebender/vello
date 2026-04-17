@@ -594,8 +594,10 @@ pub fn replay_atlas_commands(commands: &mut Vec<AtlasCommand>, target: &mut impl
             AtlasCommand::FillPath(p) => target.fill_path(&p),
             AtlasCommand::FillRect(r) => target.fill_rect(&r),
             AtlasCommand::PushClipLayer(c) => target.push_clip_layer(&c),
+            AtlasCommand::PushClipPath(c) => target.push_clip_path(&c),
             AtlasCommand::PushBlendLayer(m) => target.push_blend_layer(m),
             AtlasCommand::PopLayer => target.pop_layer(),
+            AtlasCommand::PopClipPath => target.pop_clip_path(),
         }
     }
 }
