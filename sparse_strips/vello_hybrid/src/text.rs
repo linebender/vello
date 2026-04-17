@@ -167,6 +167,11 @@ impl DrawSink for Scene {
     }
 
     #[inline]
+    fn push_clip_path(&mut self, clip: &BezPath) {
+        Self::push_clip_path(self, clip);
+    }
+
+    #[inline]
     fn push_blend_layer(&mut self, blend_mode: BlendMode) {
         Self::push_blend_layer(self, blend_mode);
     }
@@ -174,6 +179,11 @@ impl DrawSink for Scene {
     #[inline]
     fn pop_layer(&mut self) {
         Self::pop_layer(self);
+    }
+
+    #[inline]
+    fn pop_clip_path(&mut self) {
+        Self::pop_clip_path(self);
     }
 
     #[inline]

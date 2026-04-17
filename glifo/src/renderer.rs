@@ -20,7 +20,7 @@ use core_maths::CoreFloat as _;
 use kurbo::{Affine, BezPath, Rect, Shape};
 use peniko::color::palette::css::BLACK;
 use peniko::color::{AlphaColor, Srgb};
-use peniko::{BlendMode, Extend, ImageQuality, ImageSampler};
+use peniko::{Extend, ImageQuality, ImageSampler};
 use vello_common::paint::{Image, ImageSource, Tint, TintMode};
 
 /// Outcome of a cache-first render attempt.
@@ -217,15 +217,24 @@ fn render_uncached_colr_glyph(
     let state = renderer.save_state();
     renderer.set_transform(transform);
     // Two reasons why we wrap COLR glyphs in a clip layer:
-    // 1) We need to make sure they are isolated and don't blend into the main surface. Otherwise,
-    // blend modes that are part of the glyph could affect already drawn contents.
+    // 1) We need to make sure they are isolated and don't blend into the main surface (unless
+    // the glyph is guaranteed to only use default blending, in which case we don't need this).
+    // Otherwise, blend modes that are part of the glyph could affect already drawn contents.
     // 2) It's a temporary measure to allow the Vello renderers to get a bounding box
     // of the glyph, necessary to keep the cost of blending operations to a minimum.
-    renderer.push_clip_layer(&glyph.area.to_path(0.1));
+    if glyph.has_non_default_blend {
+        renderer.push_clip_layer(&glyph.area.to_path(0.1));
+    } else {
+        renderer.push_clip_path(&glyph.area.to_path(0.1));
+    }
 
     let mut colr_painter = ColrPainter::new(glyph, context_color, renderer);
     colr_painter.paint();
-    renderer.pop_layer();
+    if glyph.has_non_default_blend {
+        renderer.pop_layer();
+    } else {
+        renderer.pop_clip_path();
+    }
 
     renderer.restore_state(state);
 }
@@ -312,11 +321,20 @@ fn render_colr_to_atlas(
     )));
     // See the comment in `render_uncached_colr_glyph` for why we wrap COLR glyphs
     // in a clip layer.
-    recorder.push_blend_layer(BlendMode::default());
+    if glyph.has_non_default_blend {
+        recorder.push_clip_layer(&glyph.area.to_path(0.1));
+    } else {
+        recorder.push_clip_path(&glyph.area.to_path(0.1));
+    }
 
     let mut colr_painter = ColrPainter::new(glyph, context_color, recorder);
     colr_painter.paint();
-    recorder.pop_layer();
+
+    if glyph.has_non_default_blend {
+        recorder.pop_layer();
+    } else {
+        recorder.pop_clip_path();
+    }
 }
 
 /// Insert an outline glyph into the atlas and render it from there.

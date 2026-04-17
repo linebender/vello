@@ -16,7 +16,7 @@ use crate::atlas::key::{SUBPIXEL_BITMAP, SUBPIXEL_COLR, pack_color};
 use crate::atlas::{GlyphAtlas, ImageCache};
 use crate::color::PremulRgba8;
 use crate::color::palette::css::BLACK;
-use crate::colr::{convert_bounding_box, get_colr_bbox};
+use crate::colr::{convert_bounding_box, get_colr_info};
 use crate::kurbo::Point;
 use crate::kurbo::Rect;
 use crate::kurbo::Vec2;
@@ -144,6 +144,8 @@ pub struct GlyphColr<'a> {
     pub pix_width: u16,
     /// The height of the pixmap/texture in pixels to which the glyph should be rendered to.
     pub pix_height: u16,
+    /// Whether the glyph paint graph uses a non-default blend mode.
+    pub has_non_default_blend: bool,
 }
 
 impl Debug for GlyphColr<'_> {
@@ -1032,6 +1034,7 @@ struct ColrMetrics {
     scale_factor_y: f64,
     /// Font size scale (`font_size` / `upem`).
     font_size_scale: f64,
+    has_non_default_blend: bool,
 }
 
 /// Calculate COLR glyph metrics (scale factors, bounding box, etc.).
@@ -1059,14 +1062,13 @@ fn calculate_colr_metrics(
         (x_vec.length(), y_vec.length())
     };
 
+    let colr_info = get_colr_info(font_ref, color_glyph, location);
     let bbox = color_glyph
         // First try to get the clip bbox from the COLR table,
         // as this one has the highest priority.
         .bounding_box(location, Size::unscaled())
         .map(convert_bounding_box)
-        // Only if none exists do we fall back to extracting the
-        // bbox ourselves.
-        .or(get_colr_bbox(font_ref, color_glyph, location))
+        .or(colr_info.bbox)
         .unwrap_or(Rect::ZERO);
 
     // Calculate the position of the rectangle that will contain the rendered pixmap in device
@@ -1084,6 +1086,7 @@ fn calculate_colr_metrics(
         scale_factor_x,
         scale_factor_y,
         font_size_scale,
+        has_non_default_blend: colr_info.has_non_default_blend,
     }
 }
 
@@ -1153,14 +1156,17 @@ fn create_colr_glyph<'a>(
         metrics.scaled_bbox.height(),
     );
 
+    let location = LocationRef::new(normalized_coords);
+
     GlyphType::Colr(Box::new(GlyphColr {
         skrifa_glyph: color_glyph,
         font_ref,
-        location: LocationRef::new(normalized_coords),
+        location,
         area,
         pix_width,
         pix_height,
         draw_transform,
+        has_non_default_blend: metrics.has_non_default_blend,
     }))
 }
 

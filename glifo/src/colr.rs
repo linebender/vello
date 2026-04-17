@@ -48,6 +48,7 @@ pub(crate) struct ColrPainter<'a> {
     context_color: AlphaColor<Srgb>,
     painter: &'a mut dyn DrawSink,
     layer_count: u32,
+    clip_paths_only: bool,
 }
 
 impl Debug for ColrPainter<'_> {
@@ -69,6 +70,10 @@ impl<'a> ColrPainter<'a> {
             context_color,
             painter,
             layer_count: 0,
+            // In case the emoji doesn't use non-default blending, we
+            // can apply an optimization where don't push any layers
+            // and use non-layer clipping, leading to faster rendering.
+            clip_paths_only: !colr_glyph.has_non_default_blend,
         }
     }
 
@@ -82,7 +87,11 @@ impl<'a> ColrPainter<'a> {
         // In certain malformed fonts (i.e. if there is a cycle), skrifa will not
         // ensure that the push/pop count is the same, so we pop the remaining ones here.
         for _ in 0..self.layer_count {
-            self.painter.pop_layer();
+            if self.clip_paths_only {
+                self.painter.pop_clip_path();
+            } else {
+                self.painter.pop_layer();
+            }
         }
     }
 
@@ -154,32 +163,50 @@ impl<'a> ColrPainter<'a> {
 
         ColorStops(stops)
     }
+
+    fn push_clip(&mut self, clip: &crate::kurbo::BezPath) {
+        if self.clip_paths_only {
+            self.painter.push_clip_path(clip);
+        } else {
+            self.painter.push_clip_layer(clip);
+        }
+        self.layer_count += 1;
+    }
 }
 
-pub(crate) fn get_colr_bbox<'a>(
+pub(crate) struct ColrGlyphInfo {
+    /// A conservative bounding box of the glyph.
+    pub(crate) bbox: Option<Rect>,
+    /// Whether the glyph uses any non-default blending.
+    pub(crate) has_non_default_blend: bool,
+}
+
+pub(crate) fn get_colr_info<'a>(
     font_ref: &'a FontRef<'a>,
     color_glyph: &skrifa::color::ColorGlyph<'a>,
     location: LocationRef<'a>,
-) -> Option<Rect> {
-    let mut analyzer = BboxExtractor::new(font_ref, location);
-    let _ = color_glyph.paint(location, &mut analyzer);
-    analyzer.finish()
+) -> ColrGlyphInfo {
+    let mut extractor = GlyphInfoExtractor::new(font_ref, location);
+    let _ = color_glyph.paint(location, &mut extractor);
+    extractor.finish()
 }
 
-struct BboxExtractor<'a> {
+struct GlyphInfoExtractor<'a> {
     transforms: Vec<Affine>,
     clip_stack: Vec<Rect>,
     coarse_bbox: Option<Rect>,
+    has_non_default_blend: bool,
     font_ref: &'a FontRef<'a>,
     location: LocationRef<'a>,
 }
 
-impl<'a> BboxExtractor<'a> {
+impl<'a> GlyphInfoExtractor<'a> {
     fn new(font_ref: &'a FontRef<'a>, location: LocationRef<'a>) -> Self {
         Self {
             transforms: vec![Affine::IDENTITY],
             clip_stack: Vec::new(),
             coarse_bbox: None,
+            has_non_default_blend: false,
             font_ref,
             location,
         }
@@ -206,8 +233,11 @@ impl<'a> BboxExtractor<'a> {
         (self.cur_transform() * rect.to_path(0.1)).bounding_box()
     }
 
-    fn finish(self) -> Option<Rect> {
-        self.coarse_bbox
+    fn finish(self) -> ColrGlyphInfo {
+        ColrGlyphInfo {
+            bbox: self.coarse_bbox,
+            has_non_default_blend: self.has_non_default_blend,
+        }
     }
 }
 
@@ -237,8 +267,7 @@ impl ColorPainter for ColrPainter<'_> {
         let finished = outline_builder.path;
         let transformed = self.cur_transform() * finished;
 
-        self.painter.push_clip_layer(&transformed);
-        self.layer_count += 1;
+        self.push_clip(&transformed);
     }
 
     fn push_clip_box(&mut self, clip_box: BoundingBox<f32>) {
@@ -250,12 +279,15 @@ impl ColorPainter for ColrPainter<'_> {
         );
         let transformed = self.cur_transform() * rect.to_path(0.1);
 
-        self.painter.push_clip_layer(&transformed);
-        self.layer_count += 1;
+        self.push_clip(&transformed);
     }
 
     fn pop_clip(&mut self) {
-        self.painter.pop_layer();
+        if self.clip_paths_only {
+            self.painter.pop_clip_path();
+        } else {
+            self.painter.pop_layer();
+        }
         self.layer_count -= 1;
     }
 
@@ -389,17 +421,21 @@ impl ColorPainter for ColrPainter<'_> {
     fn push_layer(&mut self, composite_mode: CompositeMode) {
         let blend_mode = convert_composite_mode(composite_mode);
 
-        self.painter.push_blend_layer(blend_mode);
-        self.layer_count += 1;
+        if !self.clip_paths_only {
+            self.painter.push_blend_layer(blend_mode);
+            self.layer_count += 1;
+        }
     }
 
     fn pop_layer(&mut self) {
-        self.painter.pop_layer();
-        self.layer_count -= 1;
+        if !self.clip_paths_only {
+            self.painter.pop_layer();
+            self.layer_count -= 1;
+        }
     }
 }
 
-impl ColorPainter for BboxExtractor<'_> {
+impl ColorPainter for GlyphInfoExtractor<'_> {
     fn push_transform(&mut self, t: Transform) {
         self.transforms
             .push(self.cur_transform() * convert_affine(t));
@@ -438,7 +474,8 @@ impl ColorPainter for BboxExtractor<'_> {
     fn fill(&mut self, _brush: Brush<'_>) {}
 
     fn push_layer(&mut self, composite_mode: CompositeMode) {
-        let _ = composite_mode;
+        self.has_non_default_blend |=
+            convert_composite_mode(composite_mode) != BlendMode::default();
     }
 
     fn pop_layer(&mut self) {}

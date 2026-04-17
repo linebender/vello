@@ -25,10 +25,22 @@ pub trait DrawSink {
     fn fill_rect(&mut self, rect: &Rect);
     /// Push a clip layer defined by a path.
     fn push_clip_layer(&mut self, clip: &BezPath);
+    /// Push a clip path.
+    ///
+    /// This method _can_ be implemented in terms of `push_clip_layer` without losing correctness.
+    /// However, clients are allowed to choose a more efficient clipping implementation that
+    /// doesn't require pushing an isolated layer.
+    fn push_clip_path(&mut self, clip: &BezPath) {
+        self.push_clip_layer(clip);
+    }
     /// Push a blend/compositing layer.
     fn push_blend_layer(&mut self, blend_mode: BlendMode);
     /// Pop the most recent clip or blend layer.
     fn pop_layer(&mut self);
+    /// Pop the most recent clip path.
+    fn pop_clip_path(&mut self) {
+        self.pop_layer();
+    }
     /// Width of the surface.
     fn width(&self) -> u16;
     /// Height of the surface.
