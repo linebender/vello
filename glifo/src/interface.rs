@@ -23,6 +23,9 @@ pub trait DrawSink {
     fn fill_path(&mut self, path: &BezPath);
     /// Fill a rectangle with the current paint and transform.
     fn fill_rect(&mut self, rect: &Rect);
+    // Note: `push/pop_clip_layer` are only needed temporarily for Vello renderers so the impact of
+    // destructive blend modes can be limited to a smaller area. Once the limitation is lifted,
+    // we can remove this method and just use `push_clip_path` and `push_blend_layer`.
     /// Push a clip layer defined by a path.
     fn push_clip_layer(&mut self, clip: &BezPath);
     /// Push a clip path.
