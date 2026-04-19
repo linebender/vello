@@ -114,8 +114,6 @@ impl Strip {
             return;
         }
 
-        // TODO (thomsmit): Perhaps default initialize the alpha buffer with a single solid alpha
-        // tile when early culling is enabled, but for now this should be sufficient.
         let mut push_strip = |y_pos: u16| {
             strips.push(Self::new(0, y_pos, alphas.len() as u32, false));
             alphas.extend([255_u8; Tile::HEIGHT as usize * Tile::WIDTH as usize]);
@@ -243,9 +241,9 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
     row_windings: &[i8],
     active_rows: &[u32],
 ) {
-    // If we're not early culling and the tile buffer is empty, we can exit no strips will be
-    // produced. If we *are* early culling, the tile buffer may be empty but there may be winding
-    // produced by culled geometry left of the viewport that must be checked for filling.
+    // If we're not early culling and the tile buffer is empty, we can simply exit. If we *are*
+    // early culling, the tile buffer may be empty but there may be winding produced by culled
+    // geometry left of the viewport that must be checked for filling.
     if !USE_EARLY_CULL && tiles.is_empty() {
         return;
     }
@@ -276,6 +274,7 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
     // next location, this is splatted to that location's starting winding.
     let mut accumulated_winding = f32x4::splat(s, 0.0);
 
+    let left_viewport = prev_tile.x == 0;
     if USE_EARLY_CULL {
         let row_max = prev_tile.y.min(row_windings.len() as u16);
         Strip::emit_culled_background(
@@ -289,7 +288,6 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
         );
         if !tiles.is_empty() {
             winding_delta = row_windings[prev_tile.y as usize] as i32;
-            let left_viewport = prev_tile.x == 0;
             if should_fill(winding_delta) && !left_viewport {
                 strip_buf.push(Strip::new(
                     0,
@@ -297,6 +295,7 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
                     alpha_buf.len() as u32,
                     false,
                 ));
+                alpha_buf.extend([255_u8; Tile::HEIGHT as usize * Tile::WIDTH as usize]);
             }
             accumulated_winding = f32x4::splat(s, winding_delta as f32);
             if left_viewport {
@@ -314,7 +313,7 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
         prev_tile.x * Tile::WIDTH,
         prev_tile.y * Tile::HEIGHT,
         alpha_buf.len() as u32,
-        should_fill(winding_delta),
+        should_fill(winding_delta) && !left_viewport,
     );
 
     for (tile_idx, tile) in tiles.iter().copied().chain([Tile::SENTINEL]).enumerate() {

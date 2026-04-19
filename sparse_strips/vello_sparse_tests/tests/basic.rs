@@ -686,7 +686,7 @@ fn left_cull_mask_cross_combined(ctx: &mut impl Renderer) {
         mask_ctx.pop_clip_path();
         mask_ctx.reset_transform();
         mask_ctx.flush();
-        mask_ctx.render_to_pixmap(&mut mask_pix);
+        mask_ctx.render_to_pixmap(&mut vello_cpu::Resources::new(), &mut mask_pix);
 
         Mask::new_luminance(&mask_pix)
     };
@@ -735,7 +735,7 @@ fn left_cull_mask_encloses_viewport(ctx: &mut impl Renderer) {
         mask_ctx.pop_clip_path();
         mask_ctx.reset_transform();
         mask_ctx.flush();
-        mask_ctx.render_to_pixmap(&mut mask_pix);
+        mask_ctx.render_to_pixmap(&mut vello_cpu::Resources::new(), &mut mask_pix);
 
         Mask::new_luminance(&mask_pix)
     };
