@@ -4157,7 +4157,6 @@ dependencies = [
  "serde_json",
  "skrifa 0.40.0",
  "smallvec",
- "vello_api",
  "vello_common",
  "vello_cpu",
  "vello_dev_macros",
