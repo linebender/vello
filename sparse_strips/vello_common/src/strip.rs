@@ -395,6 +395,7 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
             strip_buf.push(strip);
 
             let is_sentinel = tile_idx == tiles.len() as usize;
+            let left_viewport = tile.x == 0;
             if !prev_tile.same_row(&tile) {
                 // Emit a final strip in the row if there is non-zero winding for the sparse fill,
                 // or unconditionally if we've reached the sentinel tile to end the path (the
@@ -421,7 +422,6 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
                         should_fill,
                     );
                     winding_delta = row_windings[tile.y as usize] as i32;
-                    let left_viewport = tile.x == 0;
                     if should_fill(winding_delta) && !left_viewport {
                         strip_buf.push(Strip::new(
                             0,
@@ -429,6 +429,7 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
                             alpha_buf.len() as u32,
                             false,
                         ));
+                        alpha_buf.extend([255_u8; Tile::HEIGHT as usize * Tile::WIDTH as usize]);
                     }
 
                     accumulated_winding = f32x4::splat(s, winding_delta as f32);
@@ -459,7 +460,7 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
                 tile.x * Tile::WIDTH,
                 tile.y * Tile::HEIGHT,
                 alpha_buf.len() as u32,
-                should_fill(winding_delta),
+                should_fill(winding_delta) && !left_viewport,
             );
         }
         prev_tile = tile;
