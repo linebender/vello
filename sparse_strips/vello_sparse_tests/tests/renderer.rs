@@ -1,6 +1,8 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use glifo::GlyphRunBackend;
@@ -8,12 +10,13 @@ use vello_common::filter_effects::Filter;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageId, ImageSource, PaintType, Tint};
-use vello_common::peniko::{BlendMode, Fill, FontData};
+use vello_common::peniko::{BlendMode, Fill, FontData, ImageQuality};
 use vello_common::pixmap::Pixmap;
 use vello_common::recording::{Recordable, Recorder, Recording};
 use vello_cpu::{Level, RenderContext, RenderMode, RenderSettings, Resources};
 use vello_hybrid::{
-    RenderSettings as HybridRenderSettings, Resources as HybridResources, Scene, SceneConstraints,
+    RenderSettings as HybridRenderSettings, Resources as HybridResources, SampleRect, Scene,
+    SceneConstraints, TextureId,
 };
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 use web_sys::WebGl2RenderingContext;
@@ -72,6 +75,21 @@ pub(crate) trait Renderer: Sized {
     fn render_to_pixmap(&mut self, pixmap: &mut Pixmap);
     fn width(&self) -> u16;
     fn height(&self) -> u16;
+    #[allow(
+        dead_code,
+        reason = "external texture snapshot scaffolding is not enabled yet"
+    )]
+    fn register_external_texture(&mut self, pixmap: Arc<Pixmap>) -> TextureId;
+    #[allow(
+        dead_code,
+        reason = "external texture snapshot scaffolding is not enabled yet"
+    )]
+    fn draw_texture_rects(
+        &mut self,
+        texture_id: TextureId,
+        quality: ImageQuality,
+        rects: impl IntoIterator<Item = SampleRect>,
+    );
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource;
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId;
     fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>));
@@ -241,6 +259,19 @@ impl Renderer for CpuRenderer {
         self.ctx.height()
     }
 
+    fn register_external_texture(&mut self, _: Arc<Pixmap>) -> TextureId {
+        unimplemented!("external textures are only supported by hybrid renderer tests")
+    }
+
+    fn draw_texture_rects(
+        &mut self,
+        _: TextureId,
+        _: ImageQuality,
+        _: impl IntoIterator<Item = SampleRect>,
+    ) {
+        unimplemented!("external textures are only supported by hybrid renderer tests")
+    }
+
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
         let id = self.resources.register_image(Arc::clone(&pixmap));
         ImageSource::opaque_id_with_opacity_hint(id, pixmap.may_have_opacities())
@@ -272,6 +303,12 @@ pub(crate) struct HybridRenderer {
     texture: wgpu::Texture,
     texture_view: wgpu::TextureView,
     renderer: vello_hybrid::Renderer,
+    external_textures: HashMap<TextureId, wgpu::TextureView>,
+    #[allow(
+        dead_code,
+        reason = "external texture snapshot scaffolding is not enabled yet"
+    )]
+    next_external_texture_id: u64,
 }
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
@@ -329,6 +366,8 @@ impl HybridRenderer {
             texture,
             texture_view,
             renderer,
+            external_textures: HashMap::new(),
+            next_external_texture_id: 1,
         }
     }
 
@@ -526,6 +565,10 @@ impl Renderer for HybridRenderer {
             height: height.into(),
         };
 
+        let mut texture_bindings = vello_hybrid::TextureBindings::new();
+        for (texture_id, texture) in &self.external_textures {
+            texture_bindings.insert(*texture_id, texture);
+        }
         // Copy texture to buffer
         let mut encoder = self
             .device
@@ -533,7 +576,7 @@ impl Renderer for HybridRenderer {
                 label: Some("Vello Render To Buffer"),
             });
         self.renderer
-            .render(
+            .render_with_texture_bindings(
                 &self.scene,
                 &mut self.resources,
                 &self.device,
@@ -541,6 +584,7 @@ impl Renderer for HybridRenderer {
                 &mut encoder,
                 &render_size,
                 &self.texture_view,
+                &texture_bindings,
             )
             .unwrap();
 
@@ -611,6 +655,59 @@ impl Renderer for HybridRenderer {
 
     fn height(&self) -> u16 {
         self.scene.height()
+    }
+
+    fn register_external_texture(&mut self, pixmap: Arc<Pixmap>) -> TextureId {
+        let texture_id = TextureId(self.next_external_texture_id);
+        self.next_external_texture_id += 1;
+
+        let width = u32::from(pixmap.width());
+        let height = u32::from(pixmap.height());
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Test External Texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            pixmap.data_as_u8_slice(),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * 4),
+                rows_per_image: None,
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.external_textures.insert(texture_id, view);
+        texture_id
+    }
+
+    fn draw_texture_rects(
+        &mut self,
+        texture_id: TextureId,
+        quality: ImageQuality,
+        rects: impl IntoIterator<Item = SampleRect>,
+    ) {
+        self.scene.draw_texture_rects(texture_id, quality, rects);
     }
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
@@ -869,6 +966,19 @@ impl Renderer for HybridRenderer {
 
     fn height(&self) -> u16 {
         self.scene.height()
+    }
+
+    fn register_external_texture(&mut self, _: Arc<Pixmap>) -> TextureId {
+        unimplemented!("external textures are not wired up for the WebGL test backend")
+    }
+
+    fn draw_texture_rects(
+        &mut self,
+        _: TextureId,
+        _: ImageQuality,
+        _: impl IntoIterator<Item = SampleRect>,
+    ) {
+        unimplemented!("external textures are not wired up for the WebGL test backend")
     }
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {

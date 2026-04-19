@@ -572,6 +572,11 @@ impl WebGlRenderer {
                     self.encoded_paints[encoded_paint_idx] = gpu_gradient;
                     current_idx += gradient_size_texels;
                 }
+                EncodedPaint::ExternalTexture(_external_texture) => {
+                    // TODO: External textures are not yet supported.
+                    log::warn!("External texture are not yet supported in the WebGL backend");
+                    current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
+                }
                 EncodedPaint::BlurredRoundedRect(_blurred_rect) => {
                     // TODO: Blurred rounded rectangles are not yet supported
                     log::warn!(
@@ -749,6 +754,8 @@ struct StripUniforms {
     encoded_paints_texture_vs: WebGlUniformLocation,
     /// Gradient texture location.
     gradient_texture: WebGlUniformLocation,
+    /// External texture location.
+    external_texture: WebGlUniformLocation,
 }
 
 /// Uniform locations for `clear_program`.
@@ -777,6 +784,8 @@ struct WebGlResources {
     encoded_paints_texture_height: u32,
     /// Gradient texture for gradient ramp data.
     gradient_texture: WebGlTexture,
+    /// Placeholder texture bound to the strip shader's `external_texture` sampler.
+    placeholder_external_texture: WebGlTexture,
     /// Height of gradient texture.
     gradient_texture_height: u32,
 
@@ -1660,6 +1669,7 @@ fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> St
     let encoded_paints_texture_fs_name = render_strips::fragment::ENCODED_PAINTS_TEXTURE;
     let encoded_paints_texture_vs_name = render_strips::vertex::ENCODED_PAINTS_TEXTURE;
     let gradient_texture_name = render_strips::fragment::GRADIENT_TEXTURE;
+    let external_texture_name = render_strips::fragment::EXTERNAL_TEXTURE;
 
     StripUniforms {
         config_vs_block_index,
@@ -1681,6 +1691,9 @@ fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> St
             .unwrap(),
         gradient_texture: gl
             .get_uniform_location(program, gradient_texture_name)
+            .unwrap(),
+        external_texture: gl
+            .get_uniform_location(program, external_texture_name)
             .unwrap(),
     }
 }
@@ -1848,6 +1861,24 @@ fn create_texture_inner(gl: &WebGl2RenderingContext, target: u32) -> WebGlTextur
     texture
 }
 
+/// Create a 1x1 RGBA8 placeholder texture.
+fn create_placeholder_texture(gl: &WebGl2RenderingContext) -> WebGlTexture {
+    let texture = create_texture(gl);
+    gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
+        WebGl2RenderingContext::TEXTURE_2D,
+        0,
+        WebGl2RenderingContext::RGBA8 as i32,
+        1,
+        1,
+        0,
+        WebGl2RenderingContext::RGBA,
+        WebGl2RenderingContext::UNSIGNED_BYTE,
+        Some(&[0, 0, 0, 0]),
+    )
+    .unwrap();
+    texture
+}
+
 /// Create all WebGL resources needed for rendering.
 fn create_webgl_resources(
     gl: &WebGl2RenderingContext,
@@ -1886,6 +1917,7 @@ fn create_webgl_resources(
 
     // Create and configure gradient texture.
     let gradient_texture = create_texture(gl);
+    let placeholder_external_texture = create_placeholder_texture(gl);
 
     // Create slot textures and framebuffers.
     let slot_textures: [WebGlTexture; 2] = [
@@ -1917,6 +1949,7 @@ fn create_webgl_resources(
         encoded_paints_texture,
         encoded_paints_texture_height: 0,
         gradient_texture,
+        placeholder_external_texture,
         gradient_texture_height: 0,
         view_config_buffer,
         slot_config_buffer,
@@ -2284,6 +2317,14 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.strip_uniforms.gradient_texture), 4);
 
+        self.gl.active_texture(WebGl2RenderingContext::TEXTURE5);
+        self.gl.bind_texture(
+            WebGl2RenderingContext::TEXTURE_2D,
+            Some(&self.programs.resources.placeholder_external_texture),
+        );
+        self.gl
+            .uniform1i(Some(&self.programs.strip_uniforms.external_texture), 5);
+
         // Draw.
         self.gl.draw_arrays_instanced(
             WebGl2RenderingContext::TRIANGLE_STRIP,
@@ -2369,6 +2410,7 @@ impl RendererBackend for WebGlRendererContext<'_> {
     fn render_strips(
         &mut self,
         strips: &[GpuStrip],
+        _external_texture_runs: &[crate::schedule::ExternalTextureRun],
         target: StripPassRenderTarget,
         load_op: LoadOp,
     ) {

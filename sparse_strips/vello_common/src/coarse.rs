@@ -626,17 +626,23 @@ impl<const MODE: u8> Wide<MODE> {
                 let fill_hint = if fill_attrs.mask.is_none() && self.enable_bg_optimization {
                     match &fill_attrs.paint {
                         Paint::Solid(s) if s.is_opaque() => FillHint::OpaqueSolid(*s),
-                        Paint::Indexed(idx) => {
-                            if let Some(EncodedPaint::Image(img)) = encoded_paints.get(idx.index())
-                                && !img.may_have_opacities
-                                && img.sampler.alpha == 1.0
-                                && img.tint.is_none_or(|t| t.color.components[3] >= 1.0)
+                        Paint::Indexed(idx) => match encoded_paints.get(idx.index()) {
+                            Some(EncodedPaint::Image(img))
+                                if !img.may_have_opacities
+                                    && img.sampler.alpha == 1.0
+                                    && img.tint.is_none_or(|t| t.color.components[3] >= 1.0) =>
                             {
                                 FillHint::OpaqueImage
-                            } else {
-                                FillHint::None
                             }
-                        }
+                            Some(EncodedPaint::ExternalTexture(img))
+                                if !img.may_have_opacities
+                                    && img.sampler.alpha == 1.0
+                                    && img.tint.is_none_or(|t| t.color.components[3] >= 1.0) =>
+                            {
+                                FillHint::OpaqueImage
+                            }
+                            _ => FillHint::None,
+                        },
                         _ => FillHint::None,
                     }
                 } else {
@@ -2021,6 +2027,7 @@ fn paint_name(paint: &Paint, encoded_paints: &[EncodedPaint]) -> String {
                         crate::encode::EncodedKind::Sweep(_) => "SweepGradient",
                     },
                     EncodedPaint::Image(_) => "Image",
+                    EncodedPaint::ExternalTexture(_) => "ExternalTexture",
                     EncodedPaint::BlurredRoundedRect(_) => "BlurredRoundedRect",
                 };
                 format!("{}[{}]", kind, index)

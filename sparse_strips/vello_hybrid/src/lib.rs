@@ -49,6 +49,7 @@ pub(crate) mod filter;
 mod gradient_cache;
 mod render;
 mod resources;
+mod sampling;
 mod scene;
 #[cfg(any(all(target_arch = "wasm32", feature = "webgl"), feature = "wgpu"))]
 mod schedule;
@@ -59,15 +60,17 @@ pub mod api;
 pub mod util;
 
 #[cfg(feature = "wgpu")]
-pub use render::{AtlasWriter, RenderTargetConfig, Renderer};
+pub use render::{AtlasWriter, RenderTargetConfig, Renderer, TextureBindings};
 pub use render::{Config, GpuStrip, RenderSize};
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 pub use render::{WebGlAtlasWriter, WebGlRenderer, WebGlTextureWithDimensions};
 pub use resources::Resources;
+pub use sampling::SampleRect;
 pub use scene::{RenderSettings, Scene, SceneConstraints};
 #[cfg(feature = "text")]
 pub use text::{GlyphRunBuilder, HybridGlyphRunBackend};
 pub use util::DimensionConstraints;
+pub use vello_common::TextureId;
 pub use vello_common::multi_atlas::{AllocationStrategy, AtlasConfig, AtlasId};
 pub use vello_common::pixmap::Pixmap;
 
@@ -89,6 +92,9 @@ pub enum RenderError {
     /// storage.
     #[error("Filter atlas allocation failed: {0}")]
     AtlasError(#[from] vello_common::multi_atlas::AtlasError),
+    /// A draw referenced a [`TextureId`] that was not provided at render time.
+    #[error("Missing texture binding for {0:?}")]
+    MissingTextureBinding(TextureId),
     // TODO: Consider expanding `RenderError` to replace some `.unwrap` and `.expect`.
 }
 
