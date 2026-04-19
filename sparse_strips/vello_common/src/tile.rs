@@ -474,9 +474,8 @@ impl Tiles {
                 }};
             }
 
-            // Lines fully to the left of the viewport (line_right_x < 0) are invisible and do not
-            // generate intersection tiles. They use an explicit Start/Middle/End implementation
-            // to completely bypass the SIMD equations on Middle rows.
+            // Lines fully to the left of the viewport are not visible but still produce winding
+            // which we record here and forward to the rendering stage.
             if USE_EARLY_CULL && line_right_x < 0.0 {
                 let is_start_culled = line_top_y < 0.0;
                 if !is_start_culled {
