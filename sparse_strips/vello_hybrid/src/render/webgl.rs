@@ -45,8 +45,10 @@ use alloc::vec;
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use core::fmt::Debug;
+use core::ops::Deref;
 #[cfg(feature = "text")]
 use glifo::{GLYPH_PADDING, PendingClearRect};
+use resource::{Buffer, FragmentShader, Framebuffer, Program, Texture, VertexArray, VertexShader};
 use vello_common::image_cache::{ImageCache, ImageResource};
 use vello_common::multi_atlas::{AtlasConfig, AtlasId};
 use vello_common::render_graph::LayerId;
@@ -61,7 +63,7 @@ use vello_common::{
 use vello_sparse_shaders::{clear_slots, filters, render_strips};
 use web_sys::wasm_bindgen::{JsCast, JsValue};
 use web_sys::{
-    WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlTexture,
+    WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlShader, WebGlTexture,
     WebGlUniformLocation, WebGlVertexArrayObject,
 };
 
@@ -273,7 +275,7 @@ impl WebGlRenderer {
             .resources
             .atlas_render_framebuffer
             .take()
-            .unwrap_or_else(|| self.gl.create_framebuffer().unwrap());
+            .unwrap_or_else(|| Framebuffer::new(&self.gl));
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
             Some(&atlas_framebuffer),
@@ -498,7 +500,7 @@ impl WebGlRenderer {
     /// Clear a specific region of the atlas texture array.
     fn clear_atlas_region(&mut self, atlas_id: AtlasId, offset: [u32; 2], width: u32, height: u32) {
         let _state_guard = WebGlStateGuard::for_clear_atlas_region(&self.gl);
-        let temp_framebuffer = self.gl.create_framebuffer().unwrap();
+        let temp_framebuffer = Framebuffer::new(&self.gl);
 
         // Bind our temporary framebuffer
         self.gl
@@ -530,9 +532,6 @@ impl WebGlRenderer {
         // Clear the region to transparent (0, 0, 0, 0)
         self.gl.clear_color(0.0, 0.0, 0.0, 0.0);
         self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
-
-        // Clean up temporary framebuffer
-        self.gl.delete_framebuffer(Some(&temp_framebuffer));
     }
 
     fn prepare_gpu_encoded_paints(
@@ -700,15 +699,15 @@ fn clear_atlas_region(renderer: &mut WebGlRenderer, rect: &PendingClearRect) {
 #[derive(Debug)]
 struct WebGlPrograms {
     /// Program for rendering wide tile commands.
-    strip_program: WebGlProgram,
+    strip_program: Program,
     /// Uniform locations for the strip program
     strip_uniforms: StripUniforms,
     /// Program for clearing slots in slot textures.
-    clear_program: WebGlProgram,
+    clear_program: Program,
     /// Uniform locations for the `clear_program`.
     clear_uniforms: ClearUniforms,
     /// Program for filter passes.
-    filter_program: WebGlProgram,
+    filter_program: Program,
     /// Uniform locations for the filter program.
     filter_uniforms: FilterPassUniforms,
     /// WebGL resources for rendering.
@@ -762,42 +761,42 @@ struct ClearUniforms {
 #[derive(Debug)]
 struct WebGlResources {
     /// VAO for strip rendering.
-    strip_vao: WebGlVertexArrayObject,
+    strip_vao: VertexArray,
     /// Buffer for [`GpuStrip`] data.
-    strips_buffer: WebGlBuffer,
+    strips_buffer: Buffer,
     /// Texture for alpha values (used by both view and slot rendering).
-    alphas_texture: WebGlTexture,
+    alphas_texture: Texture,
     /// Height of alpha texture.
     alpha_texture_height: u32,
     /// Texture array for atlas data (multiple atlases supported)
     atlas_texture_array: WebGlTextureArray,
     /// Encoded paints texture for image metadata.
-    encoded_paints_texture: WebGlTexture,
+    encoded_paints_texture: Texture,
     /// Height of encoded paints texture.
     encoded_paints_texture_height: u32,
     /// Gradient texture for gradient ramp data.
-    gradient_texture: WebGlTexture,
+    gradient_texture: Texture,
     /// Height of gradient texture.
     gradient_texture_height: u32,
 
     /// Config buffer for rendering wide tile commands into the view texture.
-    view_config_buffer: WebGlBuffer,
+    view_config_buffer: Buffer,
     /// Config buffer for rendering wide tile commands into a slot texture.
-    slot_config_buffer: WebGlBuffer,
+    slot_config_buffer: Buffer,
 
     /// Buffer for slot indices used in `clear_slots`.
-    clear_slot_indices_buffer: WebGlBuffer,
+    clear_slot_indices_buffer: Buffer,
     /// VAO for clear slots program.
-    clear_vao: WebGlVertexArrayObject,
+    clear_vao: VertexArray,
     /// Config buffer for clear program.
-    clear_config_buffer: WebGlBuffer,
+    clear_config_buffer: Buffer,
 
-    view_framebuffer_override: Option<WebGlFramebuffer>,
+    view_framebuffer_override: Option<Framebuffer>,
 
     /// Slot textures.
-    slot_textures: [WebGlTexture; 2],
+    slot_textures: [Texture; 2],
     /// Framebuffers for slot textures.
-    slot_framebuffers: [WebGlFramebuffer; 2],
+    slot_framebuffers: [Framebuffer; 2],
 
     /// Cached result from querying `WebGl2RenderingContext::MAX_TEXTURE_SIZE` which is a blocking
     /// WebGL call.
@@ -809,26 +808,26 @@ struct WebGlResources {
 
     /// Cached framebuffer for rendering into an atlas layer in `render_to_atlas`.
     /// Reused to avoid create/delete overhead on every call.
-    atlas_render_framebuffer: Option<WebGlFramebuffer>,
+    atlas_render_framebuffer: Option<Framebuffer>,
 
     /// Cached framebuffer for filter passes that write back to the main atlas.
     /// Reused to avoid create/delete overhead on every filter application.
-    filter_main_atlas_framebuffer: Option<WebGlFramebuffer>,
+    filter_main_atlas_framebuffer: Option<Framebuffer>,
 
     /// Individual 2D textures for filter intermediate results.
-    filter_atlas_textures: Vec<WebGlTexture>,
+    filter_atlas_textures: Vec<Texture>,
     /// Framebuffers for each filter atlas texture.
-    filter_atlas_framebuffers: Vec<WebGlFramebuffer>,
+    filter_atlas_framebuffers: Vec<Framebuffer>,
     /// RGBA32UI texture storing filter parameters.
-    filter_data_texture: WebGlTexture,
+    filter_data_texture: Texture,
     /// Current height of filter data texture.
     filter_data_texture_height: u32,
     /// Per-instance vertex data buffer for filter draws.
-    filter_instance_buffer: WebGlBuffer,
+    filter_instance_buffer: Buffer,
     /// VAO for filter rendering.
-    filter_vao: WebGlVertexArrayObject,
+    filter_vao: VertexArray,
     /// Config buffer for rendering filter layers.
-    filter_config_buffer: WebGlBuffer,
+    filter_config_buffer: Buffer,
     /// Cached atlas width for creating new filter atlas textures.
     filter_atlas_width: u32,
     /// Cached atlas height for creating new filter atlas textures.
@@ -957,12 +956,8 @@ impl WebGlPrograms {
             // Replace the old resources
             self.resources.atlas_texture_array = new_atlas_texture_array;
             // Cached FBOs were attached to the old texture; drop them so we recreate on next use.
-            if let Some(fb) = self.resources.atlas_render_framebuffer.take() {
-                gl.delete_framebuffer(Some(&fb));
-            }
-            if let Some(fb) = self.resources.filter_main_atlas_framebuffer.take() {
-                gl.delete_framebuffer(Some(&fb));
-            }
+            let _ = self.resources.atlas_render_framebuffer.take();
+            let _ = self.resources.filter_main_atlas_framebuffer.take();
         }
     }
 
@@ -1369,7 +1364,10 @@ impl WebGlPrograms {
     fn clear_view_framebuffer(&mut self, gl: &WebGl2RenderingContext) {
         gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
-            self.resources.view_framebuffer_override.as_ref(),
+            self.resources
+                .view_framebuffer_override
+                .as_ref()
+                .map(|f| f.deref()),
         );
         gl.clear_color(0.0, 0.0, 0.0, 0.0);
         gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
@@ -1570,11 +1568,9 @@ fn create_shader_program(
     gl: &WebGl2RenderingContext,
     vertex_src: &str,
     fragment_src: &str,
-) -> WebGlProgram {
+) -> Program {
     // Compile vertex shader.
-    let vertex_shader = gl
-        .create_shader(WebGl2RenderingContext::VERTEX_SHADER)
-        .unwrap();
+    let vertex_shader = VertexShader::new(gl);
     gl.shader_source(&vertex_shader, vertex_src);
     gl.compile_shader(&vertex_shader);
 
@@ -1590,9 +1586,7 @@ fn create_shader_program(
     }
 
     // Compile fragment shader.
-    let fragment_shader = gl
-        .create_shader(WebGl2RenderingContext::FRAGMENT_SHADER)
-        .unwrap();
+    let fragment_shader = FragmentShader::new(gl);
     gl.shader_source(&fragment_shader, fragment_src);
     gl.compile_shader(&fragment_shader);
 
@@ -1608,7 +1602,7 @@ fn create_shader_program(
     }
 
     // Create and link the program.
-    let program = gl.create_program().unwrap();
+    let program = Program::new(gl);
     gl.attach_shader(&program, &vertex_shader);
     gl.attach_shader(&program, &fragment_shader);
     gl.link_program(&program);
@@ -1624,14 +1618,11 @@ fn create_shader_program(
         panic!("Failed to link program: {info}");
     }
 
-    gl.delete_shader(Some(&vertex_shader));
-    gl.delete_shader(Some(&fragment_shader));
-
     program
 }
 
 /// Get the  uniform locations for the `render_strips` program.
-fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> StripUniforms {
+fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &Program) -> StripUniforms {
     let config_vs_name = render_strips::vertex::CONFIG;
     let config_vs_block_index = gl.get_uniform_block_index(program, config_vs_name);
 
@@ -1686,7 +1677,7 @@ fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> St
 }
 
 /// Get the uniform locations for the `clear_slots` program.
-fn get_clear_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> ClearUniforms {
+fn get_clear_uniforms(gl: &WebGl2RenderingContext, program: &Program) -> ClearUniforms {
     let config_name = clear_slots::vertex::CONFIG;
     let config_block_index = gl.get_uniform_block_index(program, config_name);
 
@@ -1702,10 +1693,7 @@ fn get_clear_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> Cl
     ClearUniforms { config_block_index }
 }
 
-fn get_filter_pass_uniforms(
-    gl: &WebGl2RenderingContext,
-    program: &WebGlProgram,
-) -> FilterPassUniforms {
+fn get_filter_pass_uniforms(gl: &WebGl2RenderingContext, program: &Program) -> FilterPassUniforms {
     let filter_data = gl
         .get_uniform_location(program, filters::fragment::FILTER_DATA)
         .unwrap();
@@ -1722,12 +1710,8 @@ fn get_filter_pass_uniforms(
     }
 }
 
-fn create_filter_atlas_texture(
-    gl: &WebGl2RenderingContext,
-    width: u32,
-    height: u32,
-) -> WebGlTexture {
-    let texture = gl.create_texture().unwrap();
+fn create_filter_atlas_texture(gl: &WebGl2RenderingContext, width: u32, height: u32) -> Texture {
+    let texture = Texture::new(gl);
     gl.active_texture(WebGl2RenderingContext::TEXTURE0);
     gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&texture));
     gl.tex_parameteri(
@@ -1804,18 +1788,18 @@ fn initialize_filter_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources
 }
 
 /// Create a texture with nearest neighbor sampling and clamp-to-edge wrapping.
-fn create_texture(gl: &WebGl2RenderingContext) -> WebGlTexture {
+fn create_texture(gl: &WebGl2RenderingContext) -> Texture {
     create_texture_inner(gl, WebGl2RenderingContext::TEXTURE_2D)
 }
 
 /// Create a texture array with nearest neighbor sampling and
 /// clamp-to-edge wrapping.
-fn create_texture_array(gl: &WebGl2RenderingContext) -> WebGlTexture {
+fn create_texture_array(gl: &WebGl2RenderingContext) -> Texture {
     create_texture_inner(gl, WebGl2RenderingContext::TEXTURE_2D_ARRAY)
 }
 
-fn create_texture_inner(gl: &WebGl2RenderingContext, target: u32) -> WebGlTexture {
-    let texture = gl.create_texture().unwrap();
+fn create_texture_inner(gl: &WebGl2RenderingContext, target: u32) -> Texture {
+    let texture = Texture::new(gl);
     gl.active_texture(WebGl2RenderingContext::TEXTURE0);
     gl.bind_texture(target, Some(&texture));
     // The filter and wrap modes are irrelevant because the shader
@@ -1855,16 +1839,16 @@ fn create_webgl_resources(
     filter_context: &FilterContext,
     slot_count: usize,
 ) -> WebGlResources {
-    let strip_vao = gl.create_vertex_array().unwrap();
-    let clear_vao = gl.create_vertex_array().unwrap();
-    let filter_vao = gl.create_vertex_array().unwrap();
-    let filter_instance_buffer = gl.create_buffer().unwrap();
+    let strip_vao = VertexArray::new(gl);
+    let clear_vao = VertexArray::new(gl);
+    let filter_vao = VertexArray::new(gl);
+    let filter_instance_buffer = Buffer::new(gl);
 
-    let strips_buffer = gl.create_buffer().unwrap();
-    let view_config_buffer = gl.create_buffer().unwrap();
-    let slot_config_buffer = gl.create_buffer().unwrap();
-    let clear_slot_indices_buffer = gl.create_buffer().unwrap();
-    let clear_config_buffer = gl.create_buffer().unwrap();
+    let strips_buffer = Buffer::new(gl);
+    let view_config_buffer = Buffer::new(gl);
+    let slot_config_buffer = Buffer::new(gl);
+    let clear_slot_indices_buffer = Buffer::new(gl);
+    let clear_config_buffer = Buffer::new(gl);
 
     // Create and configure alpha texture.
     let alphas_texture = create_texture(gl);
@@ -1888,12 +1872,12 @@ fn create_webgl_resources(
     let gradient_texture = create_texture(gl);
 
     // Create slot textures and framebuffers.
-    let slot_textures: [WebGlTexture; 2] = [
+    let slot_textures: [Texture; 2] = [
         create_slot_texture(gl, slot_count),
         create_slot_texture(gl, slot_count),
     ];
 
-    let slot_framebuffers: [WebGlFramebuffer; 2] = [
+    let slot_framebuffers: [Framebuffer; 2] = [
         create_framebuffer_for_texture(gl, &slot_textures[0]),
         create_framebuffer_for_texture(gl, &slot_textures[1]),
     ];
@@ -1901,7 +1885,7 @@ fn create_webgl_resources(
     let max_texture_dimension_2d = get_max_texture_dimension_2d(gl);
 
     let filter_data_texture = create_texture(gl);
-    let filter_config_buffer = gl.create_buffer().unwrap();
+    let filter_config_buffer = Buffer::new(gl);
 
     let AtlasConfig {
         atlas_size: (filter_atlas_width, filter_atlas_height),
@@ -1970,7 +1954,7 @@ fn create_atlas_texture_array(
 }
 
 /// Create a texture for slot rendering.
-fn create_slot_texture(gl: &WebGl2RenderingContext, slot_count: usize) -> WebGlTexture {
+fn create_slot_texture(gl: &WebGl2RenderingContext, slot_count: usize) -> Texture {
     let texture = create_texture(gl);
 
     gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
@@ -1990,11 +1974,8 @@ fn create_slot_texture(gl: &WebGl2RenderingContext, slot_count: usize) -> WebGlT
 }
 
 /// Create a framebuffer for a texture.
-fn create_framebuffer_for_texture(
-    gl: &WebGl2RenderingContext,
-    texture: &WebGlTexture,
-) -> WebGlFramebuffer {
-    let framebuffer = gl.create_framebuffer().unwrap();
+fn create_framebuffer_for_texture(gl: &WebGl2RenderingContext, texture: &Texture) -> Framebuffer {
+    let framebuffer = Framebuffer::new(gl);
     gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&framebuffer));
 
     gl.framebuffer_texture_2d(
@@ -2161,7 +2142,7 @@ impl WebGlRendererContext<'_> {
             StripPassRenderTarget::Root(_) => {
                 self.gl.bind_framebuffer(
                     WebGl2RenderingContext::FRAMEBUFFER,
-                    self.programs.resources.view_framebuffer_override.as_ref(),
+                    self.programs.resources.view_framebuffer_override.as_deref(),
                 );
                 let width = self.programs.render_size.width;
                 let height = self.programs.render_size.height;
@@ -2443,9 +2424,9 @@ impl RendererBackend for WebGlRendererContext<'_> {
                         .programs
                         .resources
                         .filter_main_atlas_framebuffer
-                        .get_or_insert_with(|| self.gl.create_framebuffer().unwrap());
+                        .get_or_insert_with(|| Framebuffer::new(&self.gl));
                     self.gl
-                        .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(fb));
+                        .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&*fb));
                     self.gl.framebuffer_texture_layer(
                         WebGl2RenderingContext::FRAMEBUFFER,
                         WebGl2RenderingContext::COLOR_ATTACHMENT0,
@@ -2669,14 +2650,14 @@ impl WebGlAtlasWriter for WebGlTextureWithDimensions {
 #[derive(Debug)]
 struct WebGlTextureArray {
     /// The WebGL texture array.
-    texture: WebGlTexture,
+    texture: Texture,
     /// The size of the texture array.
     size: WebGlTextureSize,
 }
 
 impl WebGlTextureArray {
     /// Create a new WebGL texture array wrapper.
-    fn new(texture: WebGlTexture, width: u32, height: u32, depth_or_array_layers: u32) -> Self {
+    fn new(texture: Texture, width: u32, height: u32, depth_or_array_layers: u32) -> Self {
         Self {
             texture,
             size: WebGlTextureSize {
@@ -2714,7 +2695,7 @@ fn copy_to_texture_array_layer(
     copy_size: [u32; 2],
 ) {
     let _state_guard = WebGlStateGuard::for_texture_copy(gl);
-    let read_framebuffer = gl.create_framebuffer().unwrap();
+    let read_framebuffer = Framebuffer::new(gl);
 
     // Bind destination texture array
     gl.active_texture(WebGl2RenderingContext::TEXTURE0);
@@ -2744,9 +2725,6 @@ fn copy_to_texture_array_layer(
         copy_size[0] as i32,
         copy_size[1] as i32,
     );
-
-    // Clean up
-    gl.delete_framebuffer(Some(&read_framebuffer));
 }
 
 // Upload the data to the currently bound texture assuming a RGBA32UI format.
@@ -2788,4 +2766,174 @@ fn upload_data_to_rgba32_texture(
         Some(&packed_array),
     )
     .unwrap();
+}
+
+mod resource {
+    use core::ops::Deref;
+
+    use super::{
+        WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlShader,
+        WebGlTexture, WebGlVertexArrayObject,
+    };
+
+    pub(super) trait GlResource {
+        const LABEL: &'static str;
+
+        fn create(gl: &WebGl2RenderingContext) -> Option<Self>
+        where
+            Self: Sized;
+
+        fn delete(gl: &WebGl2RenderingContext, raw: &Self);
+    }
+
+    #[derive(Debug)]
+    pub(super) struct Resource<T: GlResource> {
+        gl: WebGl2RenderingContext,
+        raw: T,
+    }
+
+    impl<T: GlResource> Resource<T> {
+        pub(super) fn new(gl: &WebGl2RenderingContext) -> Self {
+            let raw =
+                T::create(gl).unwrap_or_else(|| panic!("failed to create WebGL {}", T::LABEL));
+            Self::from_raw(gl, raw)
+        }
+
+        pub(super) fn from_raw(gl: &WebGl2RenderingContext, raw: T) -> Self {
+            Self {
+                gl: gl.clone(),
+                raw,
+            }
+        }
+    }
+
+    impl<T: GlResource> Drop for Resource<T> {
+        fn drop(&mut self) {
+            T::delete(&self.gl, &self.raw);
+        }
+    }
+
+    impl<T: GlResource> Deref for Resource<T> {
+        type Target = T;
+
+        fn deref(&self) -> &Self::Target {
+            &self.raw
+        }
+    }
+
+    #[derive(Debug)]
+    pub(super) struct RawVertexShader(WebGlShader);
+
+    impl Deref for RawVertexShader {
+        type Target = WebGlShader;
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    #[derive(Debug)]
+    pub(super) struct RawFragmentShader(WebGlShader);
+
+    impl Deref for RawFragmentShader {
+        type Target = WebGlShader;
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    impl GlResource for WebGlTexture {
+        const LABEL: &'static str = "texture";
+
+        fn create(gl: &WebGl2RenderingContext) -> Option<Self> {
+            gl.create_texture()
+        }
+
+        fn delete(gl: &WebGl2RenderingContext, raw: &Self) {
+            gl.delete_texture(Some(raw));
+        }
+    }
+
+    impl GlResource for WebGlBuffer {
+        const LABEL: &'static str = "buffer";
+
+        fn create(gl: &WebGl2RenderingContext) -> Option<Self> {
+            gl.create_buffer()
+        }
+
+        fn delete(gl: &WebGl2RenderingContext, raw: &Self) {
+            gl.delete_buffer(Some(raw));
+        }
+    }
+
+    impl GlResource for WebGlFramebuffer {
+        const LABEL: &'static str = "framebuffer";
+
+        fn create(gl: &WebGl2RenderingContext) -> Option<Self> {
+            gl.create_framebuffer()
+        }
+
+        fn delete(gl: &WebGl2RenderingContext, raw: &Self) {
+            gl.delete_framebuffer(Some(raw));
+        }
+    }
+
+    impl GlResource for WebGlProgram {
+        const LABEL: &'static str = "program";
+
+        fn create(gl: &WebGl2RenderingContext) -> Option<Self> {
+            gl.create_program()
+        }
+
+        fn delete(gl: &WebGl2RenderingContext, raw: &Self) {
+            gl.delete_program(Some(raw));
+        }
+    }
+
+    impl GlResource for RawVertexShader {
+        const LABEL: &'static str = "vertex shader";
+
+        fn create(gl: &WebGl2RenderingContext) -> Option<Self> {
+            gl.create_shader(WebGl2RenderingContext::VERTEX_SHADER)
+                .map(Self)
+        }
+
+        fn delete(gl: &WebGl2RenderingContext, raw: &Self) {
+            gl.delete_shader(Some(raw));
+        }
+    }
+
+    impl GlResource for RawFragmentShader {
+        const LABEL: &'static str = "fragment shader";
+
+        fn create(gl: &WebGl2RenderingContext) -> Option<Self> {
+            gl.create_shader(WebGl2RenderingContext::FRAGMENT_SHADER)
+                .map(Self)
+        }
+
+        fn delete(gl: &WebGl2RenderingContext, raw: &Self) {
+            gl.delete_shader(Some(raw));
+        }
+    }
+
+    impl GlResource for WebGlVertexArrayObject {
+        const LABEL: &'static str = "vertex array";
+
+        fn create(gl: &WebGl2RenderingContext) -> Option<Self> {
+            gl.create_vertex_array()
+        }
+
+        fn delete(gl: &WebGl2RenderingContext, raw: &Self) {
+            gl.delete_vertex_array(Some(raw));
+        }
+    }
+
+    pub(super) type Texture = Resource<WebGlTexture>;
+    pub(super) type Buffer = Resource<WebGlBuffer>;
+    pub(super) type Framebuffer = Resource<WebGlFramebuffer>;
+    pub(super) type Program = Resource<WebGlProgram>;
+    pub(super) type VertexShader = Resource<RawVertexShader>;
+    pub(super) type FragmentShader = Resource<RawFragmentShader>;
+    pub(super) type VertexArray = Resource<WebGlVertexArrayObject>;
 }
