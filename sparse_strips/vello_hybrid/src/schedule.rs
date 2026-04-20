@@ -1588,7 +1588,7 @@ impl Scheduler {
         }
     }
 
-    /// Determine if a paint is fully opaque (no transparency).
+    /// Determine if a paint is fully opaque.
     #[inline]
     fn is_paint_opaque(paint: &Paint, encoded_paints: &[EncodedPaint]) -> bool {
         match paint {
