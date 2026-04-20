@@ -124,7 +124,7 @@ impl WebGlRenderer {
         // We do our own anti-aliasing, so no need to enable it in the WebGL
         // context.
         let context_options = js_sys::Object::new();
-        js_sys::Reflect::set(&context_options, &"antialias".into(), &JsValue::FALSE).unwrap();
+        js_sys::Reflect::set(&context_options, &"antialias".into(), &JsValue::TRUE).unwrap();
 
         let gl = canvas
             .get_context_with_context_options("webgl2", &context_options)
@@ -138,9 +138,9 @@ impl WebGlRenderer {
             .unwrap()
             .as_bool()
             .unwrap();
-        debug_assert!(
-            !antialias,
-            "WebGL context must be created with `antialias: false` for vello_hybrid to work correctly."
+        assert!(
+            antialias,
+            "To check whether tests work with anti-aliasing enabled."
         );
 
         let mut settings = settings;
