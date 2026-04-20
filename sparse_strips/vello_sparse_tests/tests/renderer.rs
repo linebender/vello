@@ -646,7 +646,9 @@ pub(crate) struct HybridRenderer {
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 impl HybridRenderer {
     fn upload_image(&mut self, pixmap: &Arc<Pixmap>) -> ImageId {
-        self.renderer.upload_image(&mut self.resources, pixmap)
+        self.renderer
+            .upload_image(&mut self.resources, pixmap)
+            .unwrap()
     }
 }
 
@@ -688,7 +690,7 @@ impl Renderer for HybridRenderer {
             .unwrap();
         canvas.set_width(width.into());
         canvas.set_height(height.into());
-        let renderer = vello_hybrid::WebGlRenderer::new(&canvas);
+        let renderer = vello_hybrid::WebGlRenderer::new(&canvas).unwrap();
         let gl = canvas
             .get_context("webgl2")
             .unwrap()

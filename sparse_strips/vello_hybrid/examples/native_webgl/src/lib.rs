@@ -28,7 +28,7 @@ struct RendererWrapper {
 
 impl RendererWrapper {
     fn new(canvas: HtmlCanvasElement) -> Self {
-        let renderer = vello_hybrid::WebGlRenderer::new(&canvas);
+        let renderer = vello_hybrid::WebGlRenderer::new(&canvas).unwrap();
 
         Self { renderer }
     }
@@ -201,14 +201,16 @@ impl AppState {
         let pixmap1 = ImageScene::read_flower_image();
         self.renderer_wrapper
             .renderer
-            .upload_image(self.scenes[self.current_scene].resources_mut(), &pixmap1);
+            .upload_image(self.scenes[self.current_scene].resources_mut(), &pixmap1)
+            .unwrap();
 
         // 2nd example — uploading from a WebGL texture
         let pixmap2 = ImageScene::read_cowboy_image();
         let texture2 = self.pixmap_to_webgl_texture(&pixmap2);
         self.renderer_wrapper
             .renderer
-            .upload_image(self.scenes[self.current_scene].resources_mut(), &texture2);
+            .upload_image(self.scenes[self.current_scene].resources_mut(), &texture2)
+            .unwrap();
 
         self.uploaded_scene_images[self.current_scene] = true;
     }
@@ -472,7 +474,7 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
         .append_child(&canvas)
         .unwrap();
 
-    let mut renderer = vello_hybrid::WebGlRenderer::new(&canvas);
+    let mut renderer = vello_hybrid::WebGlRenderer::new(&canvas).unwrap();
 
     let render_size = vello_hybrid::RenderSize {
         width: width as u32,

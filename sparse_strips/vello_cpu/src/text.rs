@@ -163,7 +163,7 @@ impl Resources {
         // Draw all new COLR/outline glyphs into the render context, and then composite them into the
         // existing atlas page.
         let glyph_renderer = glyph_resources.glyph_renderer.as_mut();
-        glyph_resources
+        let _: Result<(), core::convert::Infallible> = glyph_resources
             .glyph_atlas
             .replay_pending_atlas_commands(|recorder| {
                 let page_index = recorder.page_index as usize;
@@ -180,6 +180,8 @@ impl Resources {
                 renderer::replay_atlas_commands(&mut recorder.commands, glyph_renderer);
                 glyph_renderer.flush();
                 glyph_renderer.composite_to_pixmap_at_offset(&Self::default(), page, 0, 0);
+
+                Ok(())
             });
 
         for (page_index, pixmap) in glyph_resources.pixmaps.iter().enumerate() {
