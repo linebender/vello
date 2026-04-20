@@ -1995,6 +1995,9 @@ fn create_webgl_resources(
         slot_framebuffers,
         view_framebuffer_override: None,
         depth_cleared_this_frame: false,
+        // Note: we use DEPTH (not DEPTH_ATTACHMENT) because we render to the default
+        // framebuffer. If we ever support non-default framebuffers, this must change
+        // to DEPTH_ATTACHMENT.
         depth_attachment_array: js_sys::Array::of1(&WebGl2RenderingContext::DEPTH.into()),
         max_texture_dimension_2d,
         stub_atlas_texture_array,
