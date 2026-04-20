@@ -7,19 +7,19 @@ use crate::renderer::Renderer;
 use crate::util::stops_blue_green_red_yellow;
 use crate::util::{layout_glyphs_noto_cbtf, render_pixmap};
 use std::sync::Arc;
-use vello_common::peniko::GradientKind::Radial;
-use vello_common::peniko::color::palette::css::{PURPLE, ROYAL_BLUE, TOMATO};
-use vello_common::peniko::kurbo::Point;
-use vello_common::peniko::{ColorStops, RadialGradientPosition};
 use vello_common::color::PremulRgba8;
 use vello_common::color::palette::css::{BLUE, DARK_BLUE, LIME, REBECCA_PURPLE};
 use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
 use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use vello_common::paint::Image;
+use vello_common::peniko::GradientKind::Radial;
+use vello_common::peniko::color::palette::css::{PURPLE, ROYAL_BLUE, TOMATO};
+use vello_common::peniko::kurbo::Point;
 use vello_common::peniko::{
     BlendMode, Color, ColorStop, Fill, Gradient, ImageQuality, ImageSampler,
     InterpolationAlphaSpace, Mix,
 };
+use vello_common::peniko::{ColorStops, RadialGradientPosition};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::color::palette::css::{BLACK, RED};
 use vello_cpu::peniko::{Compose, Extend};
