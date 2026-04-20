@@ -1538,8 +1538,7 @@ impl Scheduler {
         let fill_attrs = &attrs.fill[cmd.attrs_idx as usize];
         let is_opaque = Self::is_paint_opaque(&fill_attrs.paint, encoded_paints);
         let stack_depth = state.tile_state.stack.len();
-        let is_root_opaque =
-            stack_depth == 1 && is_opaque && self.is_rendering_to_user_surface();
+        let is_root_opaque = stack_depth == 1 && is_opaque && self.is_rendering_to_user_surface();
         let depth_index = self.depth.next(
             // We currently only support opaques that are drawn to the user surface.
             // See TODO in `RendererBackend::render_strips`.
