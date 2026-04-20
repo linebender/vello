@@ -1005,6 +1005,16 @@ impl Scheduler {
         self.round_pool.return_to_pool(round);
     }
 
+    /// Whether the scheduler is currently rendering to the final user surface
+    /// (as opposed to a filter layer or slot texture).
+    #[inline(always)]
+    fn is_rendering_to_user_surface(&self) -> bool {
+        matches!(
+            self.output_target,
+            StripPassRenderTarget::Root(RootRenderTarget::UserSurface)
+        )
+    }
+
     // Find the appropriate draw call for rendering.
     #[inline(always)]
     fn draw_mut(&mut self, el_round: usize, texture_idx: usize) -> &mut Draw {
@@ -1043,11 +1053,12 @@ impl Scheduler {
             );
 
             let is_opaque = tile.bg.is_opaque();
-            let bg_depth_index = self.depth.next(is_opaque);
+            let is_user_surface = self.is_rendering_to_user_surface();
+            let bg_depth_index = self.depth.next(is_opaque && is_user_surface);
             let draw = self.draw_mut(self.round, 2);
             let strip = GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
                 .paint(payload, paint, bg_depth_index);
-            if is_opaque {
+            if is_opaque && is_user_surface {
                 draw.push_opaque(strip);
             } else {
                 draw.push_alpha(strip);
@@ -1527,10 +1538,12 @@ impl Scheduler {
         let fill_attrs = &attrs.fill[cmd.attrs_idx as usize];
         let is_opaque = Self::is_paint_opaque(&fill_attrs.paint, encoded_paints);
         let stack_depth = state.tile_state.stack.len();
+        let is_root_opaque =
+            stack_depth == 1 && is_opaque && self.is_rendering_to_user_surface();
         let depth_index = self.depth.next(
-            // We currently only support opaques that are drawn to the surface. See TODO in
-            // `RendererBackend::render_strips`.
-            stack_depth == 1 && is_opaque,
+            // We currently only support opaques that are drawn to the user surface.
+            // See TODO in `RendererBackend::render_strips`.
+            is_root_opaque,
         );
         let (scene_strip_x, scene_strip_y) = (wide_tile_x + cmd.x, wide_tile_y);
         let (payload, paint) = Self::process_paint(
@@ -1547,7 +1560,7 @@ impl Scheduler {
             scene_strip_y,
             payload,
             paint,
-            is_opaque,
+            is_root_opaque,
             depth_index,
         );
     }
@@ -1561,7 +1574,7 @@ impl Scheduler {
         scene_strip_y: u16,
         payload: u32,
         paint: u32,
-        is_opaque: bool,
+        is_root_opaque: bool,
         depth_index: u32,
     ) {
         let depth = state.tile_state.stack.len();
@@ -1581,7 +1594,7 @@ impl Scheduler {
         };
 
         let strip = gpu_strip_builder.paint(payload, paint, depth_index);
-        if depth == 1 && is_opaque {
+        if is_root_opaque {
             draw.push_opaque(strip);
         } else {
             draw.push_alpha(strip);
