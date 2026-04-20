@@ -242,16 +242,14 @@ impl Renderer {
             resources.before_render(
                 self,
                 |renderer, glyph_renderer, atlas_count, atlas_config, atlas_id| {
-                    renderer
-                        .render_to_atlas(
-                            glyph_renderer,
-                            atlas_count,
-                            atlas_config,
-                            device,
-                            queue,
-                            atlas_id,
-                        )
-                        .expect("Failed to render glyphs to atlas");
+                    renderer.render_to_atlas(
+                        glyph_renderer,
+                        atlas_count,
+                        atlas_config,
+                        device,
+                        queue,
+                        atlas_id,
+                    )
                 },
                 |renderer, image_cache, upload, dst_x, dst_y| {
                     renderer.write_to_atlas(
@@ -263,8 +261,9 @@ impl Renderer {
                         &upload.pixmap,
                         Some([dst_x, dst_y]),
                     );
+                    Ok(())
                 },
-            );
+            )?;
         }
 
         let mut encoded_paints = scene.encoded_paints.borrow_mut();
@@ -2569,7 +2568,7 @@ impl RendererBackend for RendererContext<'_> {
         self.do_strip_render_pass(strips, target, wgpu_load_op);
     }
 
-    fn apply_filter(&mut self, layer_id: LayerId) {
+    fn apply_filter(&mut self, layer_id: LayerId) -> Result<(), RenderError> {
         let filter_atlas = &self.programs.resources.filter_atlas;
         self.filter_context.build_filter_passes(
             self.filter_pass_state,
@@ -2587,7 +2586,7 @@ impl RendererBackend for RendererContext<'_> {
 
         let filter_passes = self.filter_pass_state.filter_passes();
         if filter_passes.is_empty() {
-            return;
+            return Ok(());
         }
 
         let instances = self.filter_pass_state.instances();
@@ -2658,6 +2657,8 @@ impl RendererBackend for RendererContext<'_> {
             );
             render_pass.draw(0..4, 0..1);
         }
+
+        Ok(())
     }
 }
 

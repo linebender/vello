@@ -310,15 +310,20 @@ impl GlyphAtlas {
     /// The closure receives each non-empty recorder by mutable reference.
     /// After the closure returns, the recorder's commands are cleared but
     /// the allocation is kept for reuse next frame.
-    pub fn replay_pending_atlas_commands(&mut self, mut f: impl FnMut(&mut AtlasCommandRecorder)) {
+    pub fn replay_pending_atlas_commands<E>(
+        &mut self,
+        mut f: impl FnMut(&mut AtlasCommandRecorder) -> Result<(), E>,
+    ) -> Result<(), E> {
         for slot in &mut self.pending_atlas_commands {
             if let Some(recorder) = slot.as_mut()
                 && !recorder.commands.is_empty()
             {
-                f(recorder);
+                f(recorder)?;
                 recorder.commands.clear();
             }
         }
+
+        Ok(())
     }
 
     /// Get (or create) the command recorder for the given atlas page.

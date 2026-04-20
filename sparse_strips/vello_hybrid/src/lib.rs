@@ -62,7 +62,10 @@ pub mod util;
 pub use render::{AtlasWriter, RenderTargetConfig, Renderer};
 pub use render::{Config, GpuStrip, RenderSize};
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
-pub use render::{WebGlAtlasWriter, WebGlRenderer, WebGlTextureWithDimensions};
+pub use render::{
+    WebGlAtlasWriter, WebGlError, WebGlInitError, WebGlRenderer, WebGlResourceType,
+    WebGlTextureWithDimensions,
+};
 pub use resources::Resources;
 pub use scene::{RenderSettings, Scene, SceneConstraints};
 #[cfg(feature = "text")]
@@ -84,12 +87,13 @@ pub enum RenderError {
     /// TODO: Consider supporting more than a single column of slots in slot textures.
     #[error("No slots available for rendering")]
     SlotsExhausted,
-    /// An allocation error occurred while trying to allocate a new image. This can happen
-    /// if the scene contains filter layers, which need space in the image atlas for intermediate
-    /// storage.
-    #[error("Filter atlas allocation failed: {0}")]
+    /// An allocation in an image atlas failed.
+    #[error("Atlas allocation failed: {0}")]
     AtlasError(#[from] vello_common::multi_atlas::AtlasError),
-    // TODO: Consider expanding `RenderError` to replace some `.unwrap` and `.expect`.
+    /// A WebGL operation failed during rendering.
+    #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+    #[error(transparent)]
+    WebGl(#[from] WebGlError),
 }
 
 #[cfg(test)]

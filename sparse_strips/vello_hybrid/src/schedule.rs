@@ -250,7 +250,7 @@ pub(crate) trait RendererBackend {
     );
 
     /// Apply filter effects for the given layer after its content has been rendered.
-    fn apply_filter(&mut self, layer_id: LayerId);
+    fn apply_filter(&mut self, layer_id: LayerId) -> Result<(), RenderError>;
 }
 
 /// Backend agnostic enum that specifies the operation to perform to the output attachment at the
@@ -470,7 +470,7 @@ impl Scheduler {
             if self.rounds_queue.is_empty() {
                 return Err(RenderError::SlotsExhausted);
             }
-            self.flush(renderer);
+            self.flush(renderer)?;
         }
 
         let slot_ix = self.free[texture].pop().unwrap();
@@ -541,13 +541,13 @@ impl Scheduler {
             }
 
             while !self.rounds_queue.is_empty() {
-                self.flush(renderer);
+                self.flush(renderer)?;
             }
 
             // This will actually apply the filter and store the filtered texture in the image
             // atlas
             if let StripPassRenderTarget::FilterLayer(layer_id) = self.output_target {
-                renderer.apply_filter(layer_id);
+                renderer.apply_filter(layer_id)?;
             }
         }
 
@@ -858,7 +858,7 @@ impl Scheduler {
     /// Flush one round.
     ///
     /// The rounds queue must not be empty.
-    fn flush<R: RendererBackend>(&mut self, renderer: &mut R) {
+    fn flush<R: RendererBackend>(&mut self, renderer: &mut R) -> Result<(), RenderError> {
         let round = self.rounds_queue.pop_front().unwrap();
         for (i, draw) in round.draws.iter().enumerate() {
             #[cfg(debug_assertions)]
@@ -914,6 +914,8 @@ impl Scheduler {
         self.round += 1;
 
         self.round_pool.return_to_pool(round);
+
+        Ok(())
     }
 
     // Find the appropriate draw call for rendering.

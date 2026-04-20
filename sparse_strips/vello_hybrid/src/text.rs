@@ -77,7 +77,10 @@ impl Resources {
         u32::try_from(self.image_cache.atlas_count()).unwrap()
     }
 
-    fn replay_pending_atlas_commands(&mut self, mut f: impl FnMut(&Scene, AtlasId)) {
+    fn replay_pending_atlas_commands<E>(
+        &mut self,
+        mut f: impl FnMut(&Scene, AtlasId) -> Result<(), E>,
+    ) -> Result<(), E> {
         if let Some(glyph_resources) = self.glyph_resources.as_mut() {
             glyph_resources
                 .glyph_atlas
@@ -90,22 +93,30 @@ impl Resources {
                     f(
                         &glyph_resources.glyph_renderer,
                         AtlasId::new(recorder.page_index),
-                    );
-                });
+                    )
+                })?;
         }
+
+        Ok(())
     }
 
-    pub(crate) fn before_render<T>(
+    pub(crate) fn before_render<T, E>(
         &mut self,
         backend: &mut T,
-        mut render_to_atlas: impl FnMut(&mut T, &Scene, u32, AtlasConfig, AtlasId),
-        mut upload_to_atlas: impl FnMut(&mut T, &ImageCache, &PendingBitmapUpload, u32, u32),
-    ) {
+        mut render_to_atlas: impl FnMut(&mut T, &Scene, u32, AtlasConfig, AtlasId) -> Result<(), E>,
+        mut upload_to_atlas: impl FnMut(
+            &mut T,
+            &ImageCache,
+            &PendingBitmapUpload,
+            u32,
+            u32,
+        ) -> Result<(), E>,
+    ) -> Result<(), E> {
         let atlas_count = self.atlas_count();
         let atlas_config = self.atlas_config();
         self.replay_pending_atlas_commands(|glyph_renderer, atlas_id| {
-            render_to_atlas(backend, glyph_renderer, atlas_count, atlas_config, atlas_id);
-        });
+            render_to_atlas(backend, glyph_renderer, atlas_count, atlas_config, atlas_id)
+        })?;
 
         const PADDING: u32 = GLYPH_PADDING as u32;
 
@@ -114,9 +125,11 @@ impl Resources {
                 let resource = self.image_cache.get(upload.image_id).unwrap();
                 let dst_x = resource.offset[0] as u32 + PADDING;
                 let dst_y = resource.offset[1] as u32 + PADDING;
-                upload_to_atlas(backend, &self.image_cache, &upload, dst_x, dst_y);
+                upload_to_atlas(backend, &self.image_cache, &upload, dst_x, dst_y)?;
             }
         }
+
+        Ok(())
     }
 
     pub(crate) fn after_render<T>(
