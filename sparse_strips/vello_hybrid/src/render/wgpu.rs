@@ -2422,6 +2422,8 @@ impl RendererContext<'_> {
         if opaque_strips.is_empty() && alpha_strips.is_empty() {
             return;
         }
+        // TODO: We currently allocate a new strips buffer for each render pass. A more efficient
+        // approach would be to re-use buffers or slices of a larger buffer.
         self.programs
             .upload_strip_pair(self.device, self.queue, opaque_strips, alpha_strips);
         let opaque_count = opaque_strips.len() as u32;
