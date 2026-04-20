@@ -2373,15 +2373,15 @@ impl WebGlRendererContext<'_> {
         let alpha_count = alpha_strips.len() as i32;
 
         if is_final_view {
+            self.gl.enable(WebGl2RenderingContext::DEPTH_TEST);
+            self.gl.depth_func(WebGl2RenderingContext::LEQUAL);
+
             // Clear depth buffer on first use per frame.
             if !self.programs.resources.depth_cleared_this_frame {
                 self.programs.resources.depth_cleared_this_frame = true;
                 self.gl.clear_depth(1.0);
                 self.gl.clear(WebGl2RenderingContext::DEPTH_BUFFER_BIT);
             }
-
-            self.gl.enable(WebGl2RenderingContext::DEPTH_TEST);
-            self.gl.depth_func(WebGl2RenderingContext::LEQUAL);
 
             // Opaque pass: front-to-back, depth test ON, depth write ON, blend OFF.
             if opaque_count > 0 {
