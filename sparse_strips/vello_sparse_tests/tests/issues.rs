@@ -796,3 +796,15 @@ fn issue_bicubic_filtering_clamping(ctx: &mut impl Renderer) {
         .font_size(font_size)
         .fill_glyphs(glyphs.into_iter());
 }
+
+#[vello_test(skip_multithreaded)]
+fn issue_filter_preserves_painter_order_for_opaque_and_alpha(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
+
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(Color::from_rgba8(0, 0, 255, 128));
+    ctx.fill_rect(&Rect::new(20.0, 20.0, 80.0, 80.0));
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(30.0, 30.0, 70.0, 70.0));
+    ctx.pop_layer();
+}
