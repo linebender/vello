@@ -223,7 +223,7 @@ impl StripGenerator {
                 )
             })
             .unwrap_or(viewport);
-        let clamped = rect.intersect(clip_bbox);
+        let clamped = rect.abs().intersect(clip_bbox);
 
         let level = self.level;
         render_with_clip(
@@ -430,5 +430,10 @@ mod tests {
                 assert_rect_fast_eq_path(rect, &format!("exhaustive_{dx}_{dy}"));
             }
         }
+    }
+
+    #[test]
+    fn rect_inverted_both_axes() {
+        assert_rect_fast_eq_path(Rect::new(18.0, 18.0, 2.0, 2.0), "inverted_both_axes");
     }
 }
