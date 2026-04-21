@@ -502,7 +502,16 @@ impl Scene {
         if is_axis_aligned(&self.render_state.transform) && self.aliasing_threshold.is_none() {
             self.with_optional_filter(|ctx| {
                 let paint = ctx.encode_current_paint();
-                ctx.fill_rect_with(rect, ctx.render_state.transform, paint);
+                let transformed_rect = ctx.render_state.transform.transform_rect_bbox(*rect);
+                let strip_storage = &mut ctx.strip_storage.borrow_mut();
+                let strip_start = strip_storage.strips.len();
+                ctx.strip_generator.generate_filled_rect_fast(
+                    &transformed_rect,
+                    strip_storage,
+                    ctx.clip_context.get(),
+                );
+
+                submit_strips!(ctx, strip_storage, strip_start, paint);
             });
         } else {
             // TODO: Use a temporary storage for rect paths, like in `vello_cpu`.

@@ -1297,8 +1297,8 @@ version = "0.0.0"
 dependencies = [
  "bytemuck",
  "core_maths",
- "foldhash 0.1.5",
- "hashbrown 0.16.1",
+ "foldhash 0.2.0",
+ "hashbrown 0.17.0",
  "log",
  "peniko 0.6.0",
  "png",
@@ -1407,6 +1407,15 @@ dependencies = [
  "foldhash 0.2.0",
  "serde",
  "serde_core",
+]
+
+[[package]]
+name = "hashbrown"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f467dd6dccf739c208452f8014c75c18bb8301b050ad1cfb27153803edb0f51"
+dependencies = [
+ "foldhash 0.2.0",
 ]
 
 [[package]]
@@ -4006,7 +4015,7 @@ dependencies = [
  "bytemuck",
  "fearless_simd",
  "guillotiere",
- "hashbrown 0.16.1",
+ "hashbrown 0.17.0",
  "libm",
  "log",
  "peniko 0.6.0",
@@ -4023,7 +4032,7 @@ dependencies = [
  "bytemuck",
  "crossbeam-channel",
  "glifo",
- "hashbrown 0.16.1",
+ "hashbrown 0.17.0",
  "ordered-channel",
  "png",
  "rayon",
@@ -4090,7 +4099,7 @@ version = "0.0.7"
 dependencies = [
  "bytemuck",
  "glifo",
- "hashbrown 0.16.1",
+ "hashbrown 0.17.0",
  "js-sys",
  "log",
  "png",
@@ -4148,7 +4157,6 @@ dependencies = [
  "serde_json",
  "skrifa 0.40.0",
  "smallvec",
- "vello_api",
  "vello_common",
  "vello_cpu",
  "vello_dev_macros",

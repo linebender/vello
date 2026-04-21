@@ -211,15 +211,19 @@ impl StripGenerator {
         clip_path: Option<PathDataRef<'_>>,
     ) {
         let viewport = Rect::new(0.0, 0.0, self.width as f64, self.height as f64);
-        let clip_bbox = clip_path.map(|clip| {
-            Rect::new(
-                f64::from(clip.bbox.x0),
-                f64::from(clip.bbox.y0),
-                f64::from(clip.bbox.x1),
-                f64::from(clip.bbox.y1),
-            )
-        });
-        let clamped = rect.intersect(clip_bbox.unwrap_or(viewport).intersect(viewport));
+        let clip_bbox = clip_path
+            .map(|clip| {
+                // Clip bbox is always guaranteed to be within viewport bounds, so no need to
+                // intersect again.
+                Rect::new(
+                    f64::from(clip.bbox.x0),
+                    f64::from(clip.bbox.y0),
+                    f64::from(clip.bbox.x1),
+                    f64::from(clip.bbox.y1),
+                )
+            })
+            .unwrap_or(viewport);
+        let clamped = rect.abs().intersect(clip_bbox);
 
         let level = self.level;
         render_with_clip(
@@ -426,5 +430,10 @@ mod tests {
                 assert_rect_fast_eq_path(rect, &format!("exhaustive_{dx}_{dy}"));
             }
         }
+    }
+
+    #[test]
+    fn rect_inverted_both_axes() {
+        assert_rect_fast_eq_path(Rect::new(18.0, 18.0, 2.0, 2.0), "inverted_both_axes");
     }
 }

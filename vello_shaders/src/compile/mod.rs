@@ -155,10 +155,8 @@ impl ShaderInfo {
             } else {
                 resource.ty = BindType::BufReadOnly;
                 match var.space {
-                    AddressSpace::Storage { access } => {
-                        if access.contains(StorageAccess::STORE) {
-                            resource.ty = BindType::Buffer;
-                        }
+                    AddressSpace::Storage { access } if access.contains(StorageAccess::STORE) => {
+                        resource.ty = BindType::Buffer;
                     }
                     AddressSpace::Uniform => {
                         resource.ty = BindType::Uniform;

@@ -125,6 +125,19 @@ impl WebGlRenderer {
         // context.
         let context_options = js_sys::Object::new();
         js_sys::Reflect::set(&context_options, &"antialias".into(), &JsValue::FALSE).unwrap();
+        // Vello only supports 24+ bit depth buffers. If the hardware falls back to a 16 bit depth buffer,
+        // correctness issues will arise. For all intents and purposes, a device manufactured in the past 10 years
+        // should support 24+ bit depth buffers (certainly those within the realm of what we consider "supported" devices)
+        // but:
+        //
+        // Relevant code for default depth buffer behaviour can be found here:
+        // - Chromium defaults to 24 bit with no fallback: https://github.com/chromium/chromium/blob/86bafb3aab8e999690d310b201d0b5489f512b08/third_party/blink/renderer/platform/graphics/gpu/drawing_buffer.cc#L1376-L1400
+        // - Firefox defaults to 24 bit with no fallback: https://github.com/mozilla/gecko-dev/blob/5836a062726f715fda621338a17b51aff30d0a8c/gfx/gl/MozFramebuffer.cpp#L155-L161
+        // - Safari defaults to 24 bit _with 16 bit_ fallback: https://github.com/WebKit/WebKit/blob/a6d6c154bbee0643f5ad1e55c071558c0df9aef7/Source/WebCore/platform/graphics/angle/GraphicsContextGLANGLE.cpp#L393-L416
+        //
+        // TODO: The above understanding is encoded in a below assertion, but this should be encapsulated within a
+        // "this device can run Vello correctly" check function.
+        js_sys::Reflect::set(&context_options, &"depth".into(), &JsValue::TRUE).unwrap();
 
         let gl = canvas
             .get_context_with_context_options("webgl2", &context_options)
@@ -159,6 +172,14 @@ impl WebGlRenderer {
             1,
         );
         let total_slots: usize = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
+        assert!(
+            gl.get_parameter(WebGl2RenderingContext::DEPTH_BITS)
+                .unwrap()
+                .as_f64()
+                .unwrap()
+                >= 24.0,
+            "Depth buffer must be at least 24 bits"
+        );
         let image_cache = ImageCache::new_with_config(settings.atlas_config);
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
         // and the maximum gradient LUT size - worst case scenario.
@@ -377,6 +398,7 @@ impl WebGlRenderer {
         if clear {
             self.programs.clear_view_framebuffer(&self.gl);
         }
+        self.programs.resources.depth_cleared_this_frame = false;
         let mut ctx = WebGlRendererContext {
             programs: &mut self.programs,
             gl: &self.gl,
@@ -393,6 +415,22 @@ impl WebGlRenderer {
             &self.filter_context,
             &encoded_paints,
         )?;
+
+        // See: https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_invalidateframebuffer
+        // We want to indicate to the GPU driver that we won't read the depth buffer again
+        // until the next clear. This enables the GPU to avoid storing depth tiles back to VRAM.
+        if self.programs.resources.depth_cleared_this_frame {
+            self.gl.bind_framebuffer(
+                WebGl2RenderingContext::FRAMEBUFFER,
+                self.programs.resources.view_framebuffer_override.as_ref(),
+            );
+            self.gl
+                .invalidate_framebuffer(
+                    WebGl2RenderingContext::FRAMEBUFFER,
+                    &self.programs.resources.depth_attachment_array,
+                )
+                .unwrap();
+        }
 
         encoded_paints.truncate(original_scene_paint_count);
         self.gradient_cache.maintain();
@@ -793,6 +831,10 @@ struct WebGlResources {
     clear_config_buffer: WebGlBuffer,
 
     view_framebuffer_override: Option<WebGlFramebuffer>,
+    /// Whether the depth buffer has been cleared this frame.
+    depth_cleared_this_frame: bool,
+    /// Pre-allocated JS array for `invalidateFramebuffer` calls.
+    depth_attachment_array: js_sys::Array,
 
     /// Slot textures.
     slot_textures: [WebGlTexture; 2],
@@ -1375,9 +1417,14 @@ impl WebGlPrograms {
         gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
     }
 
-    /// Upload strip data to GPU.
-    fn upload_strips(&mut self, gl: &WebGl2RenderingContext, strips: &[GpuStrip]) {
-        if strips.is_empty() {
+    /// Uploads two strip slices (opaque then alpha) into a single GPU buffer.
+    fn upload_strip_pair(
+        &mut self,
+        gl: &WebGl2RenderingContext,
+        opaque_strips: &[GpuStrip],
+        alpha_strips: &[GpuStrip],
+    ) {
+        if opaque_strips.is_empty() && alpha_strips.is_empty() {
             return;
         }
 
@@ -1385,12 +1432,33 @@ impl WebGlPrograms {
             WebGl2RenderingContext::ARRAY_BUFFER,
             Some(&self.resources.strips_buffer),
         );
-        let strips_data = bytemuck::cast_slice(strips);
-        gl.buffer_data_with_u8_array(
+
+        let opaque_bytes: &[u8] = bytemuck::cast_slice(opaque_strips);
+        let alpha_bytes: &[u8] = bytemuck::cast_slice(alpha_strips);
+        let total_len = opaque_bytes.len() + alpha_bytes.len();
+
+        // Allocate buffer, then write both slices via bufferSubData.
+        // We don't want to pay for concatenating the two slices. It's better to
+        // simply write twice.
+        gl.buffer_data_with_i32(
             WebGl2RenderingContext::ARRAY_BUFFER,
-            strips_data,
+            total_len as i32,
             WebGl2RenderingContext::DYNAMIC_DRAW,
         );
+        if !opaque_bytes.is_empty() {
+            gl.buffer_sub_data_with_i32_and_u8_array(
+                WebGl2RenderingContext::ARRAY_BUFFER,
+                0,
+                opaque_bytes,
+            );
+        }
+        if !alpha_bytes.is_empty() {
+            gl.buffer_sub_data_with_i32_and_u8_array(
+                WebGl2RenderingContext::ARRAY_BUFFER,
+                opaque_bytes.len() as i32,
+                alpha_bytes,
+            );
+        }
     }
 }
 
@@ -1926,6 +1994,11 @@ fn create_webgl_resources(
         slot_textures,
         slot_framebuffers,
         view_framebuffer_override: None,
+        depth_cleared_this_frame: false,
+        // Note: we use DEPTH (not DEPTH_ATTACHMENT) because we render to the default
+        // framebuffer. If we ever support non-default framebuffers, this must change
+        // to DEPTH_ATTACHMENT.
+        depth_attachment_array: js_sys::Array::of1(&WebGl2RenderingContext::DEPTH.into()),
         max_texture_dimension_2d,
         stub_atlas_texture_array,
         atlas_render_framebuffer: None,
@@ -2008,6 +2081,13 @@ fn create_framebuffer_for_texture(
     framebuffer
 }
 
+const STRIP_STRIDE: i32 = size_of::<GpuStrip>() as i32;
+const STRIP_ATTR_COUNT: i32 = STRIP_STRIDE / 4;
+const _: () = assert!(
+    STRIP_STRIDE == 24,
+    "GpuStrip layout must match strip vertex stride"
+);
+
 /// Initialize strip VAO.
 fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) {
     gl.bind_vertex_array(Some(&resources.strip_vao));
@@ -2016,12 +2096,7 @@ fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
         Some(&resources.strips_buffer),
     );
 
-    const STRIDE: i32 = size_of::<GpuStrip>() as i32;
-    const { assert!(STRIDE == 20, "expected stride of 20") };
-    let stride = STRIDE;
-
-    // Configure attributes.
-    for i in 0..5 {
+    for i in 0..STRIP_ATTR_COUNT {
         let location = i as u32;
         let offset = i * 4;
 
@@ -2030,7 +2105,7 @@ fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
             location,
             1,
             WebGl2RenderingContext::UNSIGNED_INT,
-            stride,
+            STRIP_STRIDE,
             offset,
         );
 
@@ -2065,7 +2140,7 @@ fn initialize_clear_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
 
 /// Context for WebGL rendering operations.
 // TODO: Improve buffer management. Currently a single buffer is used per resource, which means that
-// the GPU must finish drawing before the next `upload_strips` can be executed (effectively pausing
+// the GPU must finish drawing before the next `upload_strip_pair` can be executed (effectively pausing
 // execution). Investigate a buffer pool or creating a new buffer per pass.
 struct WebGlRendererContext<'a> {
     programs: &'a mut WebGlPrograms,
@@ -2079,14 +2154,14 @@ impl WebGlRendererContext<'_> {
     /// Render strips to the specified render target.
     fn do_strip_render_pass(
         &mut self,
-        strips: &[GpuStrip],
+        opaque_strips: &[GpuStrip],
+        alpha_strips: &[GpuStrip],
         target: StripPassRenderTarget,
         load: LoadOp,
     ) {
-        if strips.is_empty() {
+        if opaque_strips.is_empty() && alpha_strips.is_empty() {
             return;
         }
-        self.programs.upload_strips(self.gl, strips);
 
         let scissor_rect = match &target {
             StripPassRenderTarget::FilterLayer(layer_id) => {
@@ -2284,13 +2359,91 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.strip_uniforms.gradient_texture), 4);
 
-        // Draw.
-        self.gl.draw_arrays_instanced(
-            WebGl2RenderingContext::TRIANGLE_STRIP,
-            0,
-            4,
-            strips.len() as i32,
+        // TODO: Today, we only support early-z rejection on the final view. If we wanted to support
+        // intermediate layers, we would require separate depth buffers for each target. We can explore
+        // that possibility in the future.
+        let is_final_view = matches!(
+            target,
+            StripPassRenderTarget::Root(RootRenderTarget::UserSurface)
         );
+
+        self.programs
+            .upload_strip_pair(self.gl, opaque_strips, alpha_strips);
+        let opaque_count = opaque_strips.len() as i32;
+        let alpha_count = alpha_strips.len() as i32;
+
+        if is_final_view {
+            self.gl.enable(WebGl2RenderingContext::DEPTH_TEST);
+            self.gl.depth_func(WebGl2RenderingContext::LEQUAL);
+
+            // Clear depth buffer on first use per frame.
+            if !self.programs.resources.depth_cleared_this_frame {
+                self.programs.resources.depth_cleared_this_frame = true;
+                self.gl.clear_depth(1.0);
+                self.gl.clear(WebGl2RenderingContext::DEPTH_BUFFER_BIT);
+            }
+
+            // Opaque pass: front-to-back, depth test ON, depth write ON, blend OFF.
+            if opaque_count > 0 {
+                self.gl.depth_mask(true);
+                self.gl.disable(WebGl2RenderingContext::BLEND);
+                self.gl.draw_arrays_instanced(
+                    WebGl2RenderingContext::TRIANGLE_STRIP,
+                    0,
+                    4,
+                    opaque_count,
+                );
+            }
+
+            // Alpha pass: back-to-front, depth test ON, depth write OFF, blend ON.
+            if alpha_count > 0 {
+                // Rebind attribute pointers with offset to start at the alpha portion
+                // of the buffer.
+                let alpha_byte_offset = opaque_count * STRIP_STRIDE;
+                for i in 0..STRIP_ATTR_COUNT {
+                    self.gl.vertex_attrib_i_pointer_with_i32(
+                        i as u32,
+                        1,
+                        WebGl2RenderingContext::UNSIGNED_INT,
+                        STRIP_STRIDE,
+                        i * 4 + alpha_byte_offset,
+                    );
+                }
+
+                self.gl.depth_mask(false);
+                self.gl.enable(WebGl2RenderingContext::BLEND);
+                self.gl.draw_arrays_instanced(
+                    WebGl2RenderingContext::TRIANGLE_STRIP,
+                    0,
+                    4,
+                    alpha_count,
+                );
+
+                // Restore attribute offsets to base for subsequent passes.
+                for i in 0..STRIP_ATTR_COUNT {
+                    self.gl.vertex_attrib_i_pointer_with_i32(
+                        i as u32,
+                        1,
+                        WebGl2RenderingContext::UNSIGNED_INT,
+                        STRIP_STRIDE,
+                        i * 4,
+                    );
+                }
+            }
+
+            // Restore state.
+            self.gl.disable(WebGl2RenderingContext::DEPTH_TEST);
+            self.gl.depth_mask(true);
+            self.gl.enable(WebGl2RenderingContext::BLEND);
+        } else {
+            // Slot texture / intermediate: single draw with blending, no depth.
+            self.gl.draw_arrays_instanced(
+                WebGl2RenderingContext::TRIANGLE_STRIP,
+                0,
+                4,
+                opaque_count + alpha_count,
+            );
+        }
 
         // Clean up.
         self.gl.bind_vertex_array(None);
@@ -2368,11 +2521,12 @@ impl RendererBackend for WebGlRendererContext<'_> {
     /// Execute a render pass for strips.
     fn render_strips(
         &mut self,
-        strips: &[GpuStrip],
+        opaque_strips: &[GpuStrip],
+        alpha_strips: &[GpuStrip],
         target: StripPassRenderTarget,
         load_op: LoadOp,
     ) {
-        self.do_strip_render_pass(strips, target, load_op);
+        self.do_strip_render_pass(opaque_strips, alpha_strips, target, load_op);
     }
 
     fn apply_filter(&mut self, layer_id: LayerId) {

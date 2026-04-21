@@ -4,23 +4,22 @@
 //! Tests for GitHub issues.
 
 use crate::renderer::Renderer;
-use crate::util::layout_glyphs_noto_cbtf;
-use crate::util::render_pixmap;
 use crate::util::stops_blue_green_red_yellow;
+use crate::util::{layout_glyphs_noto_cbtf, render_pixmap};
 use std::sync::Arc;
-use vello_api::peniko::GradientKind::Radial;
-use vello_api::peniko::color::palette::css::{PURPLE, ROYAL_BLUE, TOMATO};
-use vello_api::peniko::kurbo::Point;
-use vello_api::peniko::{ColorStops, RadialGradientPosition};
 use vello_common::color::PremulRgba8;
 use vello_common::color::palette::css::{BLUE, DARK_BLUE, LIME, REBECCA_PURPLE};
 use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
 use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use vello_common::paint::Image;
+use vello_common::peniko::GradientKind::Radial;
+use vello_common::peniko::color::palette::css::{PURPLE, ROYAL_BLUE, TOMATO};
+use vello_common::peniko::kurbo::Point;
 use vello_common::peniko::{
     BlendMode, Color, ColorStop, Fill, Gradient, ImageQuality, ImageSampler,
     InterpolationAlphaSpace, Mix,
 };
+use vello_common::peniko::{ColorStops, RadialGradientPosition};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::color::palette::css::{BLACK, RED};
 use vello_cpu::peniko::{Compose, Extend};
@@ -795,4 +794,16 @@ fn issue_bicubic_filtering_clamping(ctx: &mut impl Renderer) {
     ctx.glyph_run(&font)
         .font_size(font_size)
         .fill_glyphs(glyphs.into_iter());
+}
+
+#[vello_test(skip_multithreaded)]
+fn issue_filter_preserves_painter_order_for_opaque_and_alpha(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
+
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(Color::from_rgba8(0, 0, 255, 128));
+    ctx.fill_rect(&Rect::new(20.0, 20.0, 80.0, 80.0));
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(30.0, 30.0, 70.0, 70.0));
+    ctx.pop_layer();
 }

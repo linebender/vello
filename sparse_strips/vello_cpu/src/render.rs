@@ -317,6 +317,7 @@ impl RenderContext {
     /// Note that this only works properly if the current paint is set to a solid color.
     /// If not, it will fall back to using black as the fill color.
     pub fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
+        let rect = rect.abs();
         let color = match self.state.paint {
             PaintType::Solid(s) => s,
             // Fallback to black when attempting to blur a rectangle with an image/gradient paint
@@ -324,7 +325,7 @@ impl RenderContext {
         };
 
         let blurred_rect = BlurredRoundedRectangle {
-            rect: *rect,
+            rect,
             color,
             radius,
             std_dev,
