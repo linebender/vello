@@ -301,6 +301,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             // because they are always filled anyway.
             && style == Style::Fill;
 
+        // test
         let context_color = renderer.get_context_color();
         let context_color_packed = pack_color(context_color);
         for glyph in self.glyph_iterator.clone() {
