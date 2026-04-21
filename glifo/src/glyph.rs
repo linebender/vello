@@ -237,6 +237,19 @@ pub trait GlyphRunBackend<'a>: Sized {
     fn stroke_glyphs<Glyphs>(self, run: GlyphRun<'a>, glyphs: Glyphs)
     where
         Glyphs: Iterator<Item = Glyph> + Clone;
+
+    /// Render a decoration (e.g. underline) with skip-ink behavior.
+    fn render_decoration<Glyphs>(
+        self,
+        run: GlyphRun<'a>,
+        glyphs: Glyphs,
+        x_range: RangeInclusive<f32>,
+        baseline_y: f32,
+        offset: f32,
+        size: f32,
+        buffer: f32,
+    ) where
+        Glyphs: Iterator<Item = Glyph> + Clone;
 }
 
 /// Helper struct for rendering a prepared glyph run.
@@ -776,6 +789,24 @@ where
     {
         let GlyphRunBuilder { run, backend } = self;
         backend.stroke_glyphs(run, glyphs);
+    }
+
+    /// Render a decoration (e.g. underline) with skip-ink behavior.
+    ///
+    /// See [`GlyphRunRenderer::render_decoration`].
+    pub fn render_decoration<Glyphs>(
+        self,
+        glyphs: Glyphs,
+        x_range: RangeInclusive<f32>,
+        baseline_y: f32,
+        offset: f32,
+        size: f32,
+        buffer: f32,
+    ) where
+        Glyphs: Iterator<Item = Glyph> + Clone,
+    {
+        let GlyphRunBuilder { run, backend } = self;
+        backend.render_decoration(run, glyphs, x_range, baseline_y, offset, size, buffer);
     }
 }
 

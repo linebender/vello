@@ -21,6 +21,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use color::palette::css::BLACK;
 use core::fmt::Debug;
+use core::ops::RangeInclusive;
 use glifo::atlas::{
     AtlasConfig, AtlasSlot, GlyphAtlas, GlyphCacheConfig, ImageCache, PendingClearRect,
 };
@@ -268,6 +269,23 @@ impl<'a> GlyphRunBackend<'a> for CpuGlyphRunBackend<'a> {
             ctx.stroke_mut().width *= stroke_adjustment;
             glyph_run.stroke_glyphs(ctx);
             ctx.stroke_mut().width = original_width;
+        });
+    }
+
+    fn render_decoration<Glyphs>(
+        self,
+        run: glifo::GlyphRun<'a>,
+        glyphs: Glyphs,
+        x_range: RangeInclusive<f32>,
+        baseline_y: f32,
+        offset: f32,
+        size: f32,
+        buffer: f32,
+    ) where
+        Glyphs: Iterator<Item = Glyph> + Clone,
+    {
+        self.render_glyphs(run, glyphs, |glyph_run, ctx| {
+            glyph_run.render_decoration(x_range, baseline_y, offset, size, buffer, ctx);
         });
     }
 }

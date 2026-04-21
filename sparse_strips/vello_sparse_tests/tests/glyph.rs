@@ -791,3 +791,89 @@ fn render_colr_noto_with_transform(
         run.fill_glyphs(glyphs.into_iter());
     }
 }
+
+fn render_decorated_text(
+    ctx: &mut impl Renderer,
+    text: &str,
+    font_size: f32,
+    enable_caching: bool,
+    glyph_transform: Option<Affine>,
+    offset: f32,
+    size: f32,
+    buffer: f32,
+) {
+    let (font, glyphs) = layout_glyphs_roboto(text, font_size);
+
+    ctx.set_paint(REBECCA_PURPLE);
+
+    let mut fill_builder = ctx
+        .glyph_run(&font)
+        .font_size(font_size)
+        .atlas_cache(enable_caching)
+        .hint(glyph_transform.is_none());
+    if let Some(gt) = glyph_transform {
+        fill_builder = fill_builder.glyph_transform(gt);
+    }
+    fill_builder.fill_glyphs(glyphs.iter().copied());
+
+    let x_end = glyphs.last().map_or(0.0, |g| g.x + font_size * 0.6);
+    let mut deco_builder = ctx
+        .glyph_run(&font)
+        .font_size(font_size)
+        .atlas_cache(enable_caching)
+        .hint(glyph_transform.is_none());
+    if let Some(gt) = glyph_transform {
+        deco_builder = deco_builder.glyph_transform(gt);
+    }
+    deco_builder.render_decoration(glyphs.into_iter(), 0.0..=x_end, 0.0, offset, size, buffer);
+}
+
+#[vello_test(width = 300, height = 180, glyph)]
+fn glyphs_decoration_offset_values(ctx: &mut impl Renderer, enable_caching: bool) {
+    let font_size = 30.0_f32;
+    for (i, offset) in [-6.0_f32, -2.0, 0.0, 8.0, 15.0].iter().enumerate() {
+        let y = 30.0 + (i as f64) * 32.0;
+        ctx.set_transform(Affine::translate((0., y)));
+        render_decorated_text(ctx, "Happy joyful", font_size, enable_caching, None, *offset, 1.5, 1.5);
+    }
+}
+
+#[vello_test(width = 300, height = 180, glyph)]
+fn glyphs_decoration_size_values(ctx: &mut impl Renderer, enable_caching: bool) {
+    let font_size = 30.0_f32;
+    for (i, size) in [0.5_f32, 1.0, 2.0, 4.0].iter().enumerate() {
+        let y = 30.0 + (i as f64) * 38.0;
+        ctx.set_transform(Affine::translate((0., y)));
+        render_decorated_text(ctx, "Happy joyful", font_size, enable_caching, None, -2.0, *size, 1.5);
+    }
+}
+
+#[vello_test(width = 300, height = 70, glyph)]
+fn glyphs_decoration_no_descenders(ctx: &mut impl Renderer, enable_caching: bool) {
+    ctx.set_transform(Affine::translate((0., 50.)));
+    render_decorated_text(ctx, "HELLO", 50.0, enable_caching, None, -2.0, 2.0, 1.5);
+}
+
+#[vello_test(width = 150, height = 100, glyph, hybrid_tolerance = 1)]
+fn glyphs_decoration_transformed(ctx: &mut impl Renderer, enable_caching: bool) {
+    let text = "Hpjy";
+    let rows: [(Affine, f32, Option<Affine>); 3] = [
+        // Run-level scale absorbs into font_size
+        (Affine::scale(20.0), 1.0, None),
+        // Glyph-level scale (affects skip-ink outline transform)
+        (Affine::IDENTITY, 10.0, Some(Affine::scale(2.0))),
+        // Y-flip (decoration should appear above the flipped text)
+        (
+            Affine::scale_non_uniform(1.0, -1.0) * Affine::translate((0.0, 20.0)),
+            20.0,
+            None,
+        ),
+    ];
+
+    let mut y = 28.35;
+    for (run_transform, font_size, glyph_transform) in rows {
+        ctx.set_transform(Affine::translate((16.0, y)) * run_transform);
+        render_decorated_text(ctx, text, font_size, enable_caching, glyph_transform, -1.0, 1.0, 1.0);
+        y += 30.0;
+    }
+}

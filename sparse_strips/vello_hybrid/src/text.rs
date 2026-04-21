@@ -10,6 +10,8 @@
 //! GPU renderer owns atlas textures and receives pixel data through the
 //! pending-upload queue.
 
+use core::ops::RangeInclusive;
+
 use crate::{AtlasId, Resources, Scene};
 use glifo::atlas::{PendingBitmapUpload, PendingClearRect};
 use glifo::renderer::replay_atlas_commands;
@@ -256,6 +258,23 @@ impl<'a> GlyphRunBackend<'a> for HybridGlyphRunBackend<'a> {
             scene.stroke_mut().width *= stroke_adjustment;
             glyph_run.stroke_glyphs(scene);
             scene.stroke_mut().width = original_width;
+        });
+    }
+
+    fn render_decoration<Glyphs>(
+        self,
+        run: glifo::GlyphRun<'a>,
+        glyphs: Glyphs,
+        x_range: RangeInclusive<f32>,
+        baseline_y: f32,
+        offset: f32,
+        size: f32,
+        buffer: f32,
+    ) where
+        Glyphs: Iterator<Item = Glyph> + Clone,
+    {
+        self.render_glyphs(run, glyphs, |glyph_run, scene| {
+            glyph_run.render_decoration(x_range, baseline_y, offset, size, buffer, scene);
         });
     }
 }
