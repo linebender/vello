@@ -1087,9 +1087,9 @@ dependencies = [
 
 [[package]]
 name = "font-types"
-version = "0.11.0"
+version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1e4d2d0cf79d38430cc9dc9aadec84774bff2e1ba30ae2bf6c16cfce9385a23"
+checksum = "5b38ad915f6dadd993ced50848a8291a543bd41ca62bc10740d5e64e2ab4cfd7"
 dependencies = [
  "bytemuck",
 ]
@@ -1302,7 +1302,7 @@ dependencies = [
  "log",
  "peniko 0.6.0",
  "png",
- "skrifa 0.40.0",
+ "skrifa 0.42.0",
  "smallvec",
  "vello_common",
 ]
@@ -3001,13 +3001,13 @@ dependencies = [
 
 [[package]]
 name = "read-fonts"
-version = "0.37.0"
+version = "0.39.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b634fabf032fab15307ffd272149b622260f55974d9fad689292a5d33df02e5"
+checksum = "32d7821ebf634094f5e5ae9d43c3109407f420f03a7a2e021d3a5d955a4f09fc"
 dependencies = [
  "bytemuck",
  "core_maths",
- "font-types 0.11.0",
+ "font-types 0.11.3",
 ]
 
 [[package]]
@@ -3188,7 +3188,7 @@ dependencies = [
  "image",
  "rand",
  "roxmltree",
- "skrifa 0.40.0",
+ "skrifa 0.42.0",
  "vello",
  "web-time",
 ]
@@ -3394,13 +3394,13 @@ dependencies = [
 
 [[package]]
 name = "skrifa"
-version = "0.40.0"
+version = "0.42.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7fbdfe3d2475fbd7ddd1f3e5cf8288a30eb3e5f95832829570cd88115a7434ac"
+checksum = "c844316c7318cf6ae9034ee45edd2c432076ef910fdc4bc598183b31f88d03c3"
 dependencies = [
  "bytemuck",
  "core_maths",
- "read-fonts 0.37.0",
+ "read-fonts 0.39.1",
 ]
 
 [[package]]
@@ -3975,7 +3975,7 @@ dependencies = [
  "log",
  "peniko 0.6.0",
  "png",
- "skrifa 0.40.0",
+ "skrifa 0.42.0",
  "static_assertions",
  "thiserror 2.0.18",
  "vello_encoding",
@@ -4068,7 +4068,7 @@ dependencies = [
  "bytemuck",
  "guillotiere",
  "peniko 0.6.0",
- "skrifa 0.40.0",
+ "skrifa 0.42.0",
  "smallvec",
 ]
 
@@ -4155,7 +4155,7 @@ dependencies = [
  "pollster",
  "serde",
  "serde_json",
- "skrifa 0.40.0",
+ "skrifa 0.42.0",
  "smallvec",
  "vello_common",
  "vello_cpu",
