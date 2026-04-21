@@ -568,11 +568,7 @@ fn glyphs_colr_noto_stroked(ctx: &mut impl Renderer, enable_caching: bool) {
     );
 }
 
-#[vello_test(
-    width = 100,
-    height = 100,
-    glyph
-)]
+#[vello_test(width = 100, height = 100, glyph)]
 fn glyphs_colr_noto_overflow_centered(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size = 150.0;
     let (font, mut glyphs) = layout_glyphs_noto_colr("✅", font_size);

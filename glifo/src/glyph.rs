@@ -307,7 +307,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
         let context_color_packed = pack_color(context_color);
         for glyph in self.glyph_iterator.clone() {
             // TODO: Add a mechanism such that glyphs that are completely outside of the viewport
-            // (especially for more expensive COLR glyphs), we don't do any processing in the 
+            // (especially for more expensive COLR glyphs), we don't do any processing in the
             // first place and cull them.
             let glyph_id = GlyphId::new(glyph.id);
 
