@@ -888,7 +888,7 @@ fn glyphs_decoration_transformed(ctx: &mut impl Renderer, enable_caching: bool) 
             10.0,
         ),
         // Rotated text
-        (Affine::rotate(f64::from(FRAC_PI_4)), 12.0, None, 40.0),
+        (Affine::rotate(FRAC_PI_4), 12.0, None, 40.0),
     ];
 
     let mut y = 30.0;
