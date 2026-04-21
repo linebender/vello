@@ -834,7 +834,16 @@ fn glyphs_decoration_offset_values(ctx: &mut impl Renderer, enable_caching: bool
     for (i, offset) in [-6.0_f32, -2.0, 0.0, 8.0, 15.0].iter().enumerate() {
         let y = 30.0 + (i as f64) * 32.0;
         ctx.set_transform(Affine::translate((0., y)));
-        render_decorated_text(ctx, "Happy joyful", font_size, enable_caching, None, *offset, 1.5, 1.5);
+        render_decorated_text(
+            ctx,
+            "Happy joyful",
+            font_size,
+            enable_caching,
+            None,
+            *offset,
+            1.5,
+            1.5,
+        );
     }
 }
 
@@ -844,7 +853,16 @@ fn glyphs_decoration_size_values(ctx: &mut impl Renderer, enable_caching: bool) 
     for (i, size) in [0.5_f32, 1.0, 2.0, 4.0].iter().enumerate() {
         let y = 30.0 + (i as f64) * 38.0;
         ctx.set_transform(Affine::translate((0., y)));
-        render_decorated_text(ctx, "Happy joyful", font_size, enable_caching, None, -2.0, *size, 1.5);
+        render_decorated_text(
+            ctx,
+            "Happy joyful",
+            font_size,
+            enable_caching,
+            None,
+            -2.0,
+            *size,
+            1.5,
+        );
     }
 }
 
@@ -873,7 +891,16 @@ fn glyphs_decoration_transformed(ctx: &mut impl Renderer, enable_caching: bool) 
     let mut y = 28.35;
     for (run_transform, font_size, glyph_transform) in rows {
         ctx.set_transform(Affine::translate((16.0, y)) * run_transform);
-        render_decorated_text(ctx, text, font_size, enable_caching, glyph_transform, -1.0, 1.0, 1.0);
+        render_decorated_text(
+            ctx,
+            text,
+            font_size,
+            enable_caching,
+            glyph_transform,
+            -1.0,
+            1.0,
+            1.0,
+        );
         y += 30.0;
     }
 }
