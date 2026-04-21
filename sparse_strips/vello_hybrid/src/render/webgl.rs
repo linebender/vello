@@ -133,6 +133,15 @@ impl WebGlRenderer {
             .dyn_into::<WebGl2RenderingContext>()
             .expect("Context to be a WebGL2 context");
 
+        // Note: It is not entirely clear whether we really _have_ to ensure anti-aliasing is disabled.
+        // This code is inherited from a similar snippet in wgpu
+        // (https://github.com/gfx-rs/wgpu/blob/56e4a389ddd02403e232beef3d3ff305625e6485/wgpu-hal/src/gles/web.rs#L101-L106),
+        // which itself seems to have been copied from the older `gfx` crate, where it was first introduced
+        // in https://github.com/gfx-rs/gfx/pull/2554/changes#diff-a47711d61df7a43fe6dd99c39b936d17ff817cbc2238d7e3ae6698ffde9b88f7R79,
+        // without any comment on why.
+        // From my (Laurenz) testing, tests seem to work even when anti-aliasing is enabled,
+        // but Andrew previously got errors similar to the ones outlined in
+        // https://github.com/gfx-rs/wgpu/issues/5263. Therefore, we just leave it as is for now.
         #[cfg(debug_assertions)]
         {
             // If a WebGL context already exists on this canvas, it will be returned instead of
