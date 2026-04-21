@@ -810,7 +810,7 @@ fn render_decorated_text(
         .glyph_run(&font)
         .font_size(font_size)
         .atlas_cache(enable_caching)
-        .hint(glyph_transform.is_none());
+        .hint(false);
     if let Some(gt) = glyph_transform {
         fill_builder = fill_builder.glyph_transform(gt);
     }
