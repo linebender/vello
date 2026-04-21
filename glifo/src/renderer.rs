@@ -217,11 +217,12 @@ fn render_uncached_colr_glyph(
     let state = renderer.save_state();
     renderer.set_transform(transform);
     // Two reasons why we wrap COLR glyphs in a clip layer:
-    // 1) We need to make sure they are isolated and don't blend into the main surface (unless
+    // 1) We need a layer to make sure they are isolated and don't blend into the main surface (unless
     // the glyph is guaranteed to only use default blending, in which case we don't need this).
     // Otherwise, blend modes that are part of the glyph could affect already drawn contents.
-    // 2) It's a temporary measure to allow the Vello renderers to get a bounding box
-    // of the glyph, necessary to keep the cost of blending operations to a minimum.
+    // 2) We do the clipping as a temporary measure to allow the Vello renderers to get a bounding box
+    // of the glyph, necessary to keep the cost of blending operations with
+    // destructive blend modes to a minimum.
     if glyph.has_non_default_blend {
         renderer.push_clip_layer(&glyph.area.to_path(0.1));
     } else {

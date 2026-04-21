@@ -260,6 +260,7 @@ impl ColorPainter for ColrPainter<'_> {
     }
 
     fn push_clip_glyph(&mut self, glyph_id: GlyphId) {
+        // TODO: Make it possible to use the outline cache for this.
         let mut outline_builder = OutlinePath::new();
 
         let outline_glyphs = self.colr_glyph.font_ref.outline_glyphs();
@@ -459,6 +460,7 @@ impl ColorPainter for GlyphInfoExtractor<'_> {
     fn push_clip_glyph(&mut self, glyph_id: GlyphId) {
         let mut outline_bbox = ControlBoundsPen::default();
 
+        // TODO: Make it possible to use the outline cache for this.
         let outline_glyphs = self.font_ref.outline_glyphs();
         let Some(outline_glyph) = outline_glyphs.get(glyph_id) else {
             return;

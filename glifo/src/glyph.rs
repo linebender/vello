@@ -306,6 +306,9 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
         let context_color = renderer.get_context_color();
         let context_color_packed = pack_color(context_color);
         for glyph in self.glyph_iterator.clone() {
+            // TODO: Add a mechanism such that glyphs that are completely outside of the viewport
+            // (especially for more expensive COLR glyphs), we don't do any processing in the 
+            // first place and cull them.
             let glyph_id = GlyphId::new(glyph.id);
 
             // ── Speculative outline cache check ─────────────────────────
@@ -1062,6 +1065,7 @@ fn calculate_colr_metrics(
         (x_vec.length(), y_vec.length())
     };
 
+    // TODO: Cache this across frames.
     let colr_info = get_colr_info(font_ref, color_glyph, location);
     let bbox = color_glyph
         // First try to get the clip bbox from the COLR table,
