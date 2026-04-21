@@ -48,21 +48,25 @@ use core::fmt::Debug;
 #[cfg(feature = "text")]
 use glifo::{GLYPH_PADDING, PendingClearRect};
 use vello_common::image_cache::{ImageCache, ImageResource};
+#[cfg(feature = "probe")]
+use vello_common::multi_atlas::AllocationStrategy;
 use vello_common::multi_atlas::{AtlasConfig, AtlasId};
+#[cfg(feature = "probe")]
+use vello_common::probe::Probe;
 use vello_common::render_graph::LayerId;
 use vello_common::{
     coarse::WideTile,
     encode::{EncodedGradient, EncodedKind, EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind},
-    paint::ImageSource,
-    peniko,
+    paint::{ImageId, ImageSource},
+    peniko::{self},
     pixmap::Pixmap,
     tile::Tile,
 };
 use vello_sparse_shaders::{clear_slots, filters, render_strips};
 use web_sys::wasm_bindgen::{JsCast, JsValue};
 use web_sys::{
-    WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlTexture,
-    WebGlUniformLocation, WebGlVertexArrayObject,
+    HtmlCanvasElement, WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram,
+    WebGlTexture, WebGlUniformLocation, WebGlVertexArrayObject,
 };
 
 /// Placeholder value for uninitialized GPU encoded paints.
@@ -113,12 +117,12 @@ pub struct WebGlRenderer {
 
 impl WebGlRenderer {
     /// Creates a new WebGL2 renderer
-    pub fn new(canvas: &web_sys::HtmlCanvasElement) -> Self {
+    pub fn new(canvas: &HtmlCanvasElement) -> Self {
         Self::new_with(canvas, RenderSettings::default())
     }
 
     /// Creates a new WebGL2 renderer with specific settings.
-    pub fn new_with(canvas: &web_sys::HtmlCanvasElement, settings: RenderSettings) -> Self {
+    pub fn new_with(canvas: &HtmlCanvasElement, settings: RenderSettings) -> Self {
         super::common::maybe_warn_about_webgl_feature_conflict();
 
         // We do our own anti-aliasing, so no need to enable it in the WebGL
@@ -354,6 +358,126 @@ impl WebGlRenderer {
         result
     }
 
+    /// Conduct a probing operation.
+    ///
+    /// The WebGL drivers of certain devices are known to be buggy and might therefore not work correctly
+    /// with Vello Hybrid. In the best case, it will simply result in a program crash, but in the worst
+    /// case it can instead result in a silent failure, meaning that no explicit error is
+    /// thrown, but the rendered contents of Vello Hybrid will either be completely empty or look glitchy.
+    ///
+    /// The purpose of this method is to run a sanity check to ensure that running Vello Hybrid on this
+    /// device actually results in visible and correct output. How this achieved is by drawing a selection
+    /// of small elements into a small canvas, and comparing the final output against a reference image.
+    ///
+    /// If certain pixels in the final output deviate too much from the expected image, an error result
+    /// will be returned, containing the expected image and the actual image. If probe rendering itself
+    /// fails, [`Probe::RenderError`] will be returned with the corresponding [`RenderError`]. Otherwise,
+    /// [`Probe::Success`] will be returned, indicating that the device seems to be compatible with
+    /// Vello Hybrid.
+    ///
+    /// **Important:** Note that this method can be expensive to call, as it performs a small rendering
+    /// operation and also does readback of the pixels to the CPU. Expect it to take anywhere from 10ms
+    /// to 100ms+. This should be taken into consideration when deciding when and how to call this method,
+    /// to prevent noticeable stalls on the main thread.
+    #[cfg(feature = "probe")]
+    pub fn probe(&mut self) -> Probe<RenderError> {
+        match self.probe_inner() {
+            Ok(actual) => Probe::from_actual(actual),
+            Err(error) => Probe::RenderError(error),
+        }
+    }
+
+    #[cfg(feature = "probe")]
+    fn probe_inner(&mut self) -> Result<Pixmap, RenderError> {
+        let (width, height) = vello_common::probe::canvas_size();
+        let render_size = RenderSize {
+            width: u32::from(width),
+            height: u32::from(height),
+        };
+
+        let probe_texture = create_texture(&self.gl);
+        self.gl
+            .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
+                WebGl2RenderingContext::TEXTURE_2D,
+                0,
+                WebGl2RenderingContext::RGBA8 as i32,
+                render_size.width as i32,
+                render_size.height as i32,
+                0,
+                WebGl2RenderingContext::RGBA,
+                WebGl2RenderingContext::UNSIGNED_BYTE,
+                None,
+            )
+            .unwrap();
+        let probe_framebuffer = create_framebuffer_for_texture(&self.gl, &probe_texture);
+
+        let atlas_config = AtlasConfig {
+            initial_atlas_count: 1,
+            // These should be large enough for the probe scene.
+            atlas_size: (256, 256),
+            max_atlases: 1,
+            auto_grow: true,
+            allocation_strategy: AllocationStrategy::FirstFit,
+        };
+        let (atlas_width, atlas_height) = atlas_config.atlas_size;
+
+        let mut probe_image_cache = ImageCache::new_with_config(atlas_config);
+        let mut probe_atlas_texture_array =
+            create_atlas_texture_array(&self.gl, atlas_width, atlas_height, 1);
+        core::mem::swap(
+            &mut self.programs.resources.atlas_texture_array,
+            &mut probe_atlas_texture_array,
+        );
+
+        let probe_image = Arc::new(vello_common::probe::probe_image_pixmap());
+        // Note: No need to destroy the image explicitly in the end, because we discard the image
+        // cache anyway.
+        let probe_image_id =
+            self.upload_image_with(&mut probe_image_cache, &probe_image, IMAGE_PADDING);
+        let mut scene = Scene::new(width, height);
+        vello_common::probe::draw_scene(
+            &mut scene,
+            ImageSource::opaque_id_with_opacity_hint(
+                probe_image_id,
+                probe_image.may_have_opacities(),
+            ),
+        );
+
+        let previous_view_framebuffer = self
+            .programs
+            .resources
+            .view_framebuffer_override
+            .replace(probe_framebuffer.clone());
+        let render_result = self.render_scene(
+            &scene,
+            &mut probe_image_cache,
+            &render_size,
+            true,
+            RootRenderTarget::UserSurface,
+        );
+        self.programs.resources.view_framebuffer_override = previous_view_framebuffer;
+
+        core::mem::swap(
+            &mut self.programs.resources.atlas_texture_array,
+            &mut probe_atlas_texture_array,
+        );
+        self.gl
+            .delete_texture(Some(&probe_atlas_texture_array.texture));
+
+        let pixels = match render_result {
+            Ok(()) => read_framebuffer_rgba8(&self.gl, &probe_framebuffer, width, height),
+            Err(error) => {
+                self.gl.delete_framebuffer(Some(&probe_framebuffer));
+                self.gl.delete_texture(Some(&probe_texture));
+                return Err(error);
+            }
+        };
+
+        self.gl.delete_framebuffer(Some(&probe_framebuffer));
+        self.gl.delete_texture(Some(&probe_texture));
+        Ok(pixels)
+    }
+
     /// Shared render pipeline: prepares GPU resources, runs the scheduler, and
     /// maintains caches.
     ///
@@ -462,7 +586,7 @@ impl WebGlRenderer {
         &mut self,
         resources: &mut Resources,
         writer: &T,
-    ) -> vello_common::paint::ImageId {
+    ) -> ImageId {
         self.upload_image_with(&mut resources.image_cache, writer, IMAGE_PADDING)
     }
 
@@ -471,7 +595,7 @@ impl WebGlRenderer {
         image_cache: &mut ImageCache,
         writer: &T,
         padding: u16,
-    ) -> vello_common::paint::ImageId {
+    ) -> ImageId {
         let width = writer.width();
         let height = writer.height();
         let image_id = image_cache.allocate(width, height, padding).unwrap();
@@ -491,7 +615,7 @@ impl WebGlRenderer {
     pub(crate) fn write_to_atlas<T: WebGlAtlasWriter>(
         &mut self,
         image_cache: &ImageCache,
-        image_id: vello_common::paint::ImageId,
+        image_id: ImageId,
         writer: &T,
         offset_override: Option<[u32; 2]>,
     ) {
@@ -514,11 +638,7 @@ impl WebGlRenderer {
     }
 
     /// Destroy an image from the cache and clear the allocated slot in the atlas.
-    pub fn destroy_image(
-        &mut self,
-        resources: &mut Resources,
-        image_id: vello_common::paint::ImageId,
-    ) {
+    pub fn destroy_image(&mut self, resources: &mut Resources, image_id: ImageId) {
         if let Some(image_resource) = resources.image_cache.deallocate(image_id) {
             let padding = image_resource.padding as u32;
             self.clear_atlas_region(
@@ -1640,6 +1760,37 @@ struct WebGlStateConfig {
     scissor: bool,
     /// Save/restore viewport
     viewport: bool,
+}
+
+#[cfg(feature = "probe")]
+fn read_framebuffer_rgba8(
+    gl: &WebGl2RenderingContext,
+    framebuffer: &WebGlFramebuffer,
+    width: u16,
+    height: u16,
+) -> Pixmap {
+    let _state_guard = WebGlStateGuard::with_config(
+        gl,
+        WebGlStateConfig {
+            framebuffer: true,
+            ..Default::default()
+        },
+    );
+
+    gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(framebuffer));
+    let mut pixmap = Pixmap::new(width, height);
+    gl.read_pixels_with_opt_u8_array(
+        0,
+        0,
+        i32::from(width),
+        i32::from(height),
+        WebGl2RenderingContext::RGBA,
+        WebGl2RenderingContext::UNSIGNED_BYTE,
+        Some(pixmap.data_as_u8_slice_mut()),
+    )
+    .unwrap();
+    pixmap.recompute_may_have_opacities();
+    pixmap
 }
 
 /// Create a WebGL shader program from vertex and fragment sources.

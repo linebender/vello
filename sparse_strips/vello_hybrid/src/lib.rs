@@ -61,6 +61,8 @@ pub mod util;
 #[cfg(feature = "wgpu")]
 pub use render::{AtlasWriter, RenderTargetConfig, Renderer};
 pub use render::{Config, GpuStrip, RenderSize};
+#[cfg(all(target_arch = "wasm32", feature = "webgl", feature = "probe"))]
+pub use render::{Probe, ProbeResult};
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 pub use render::{WebGlAtlasWriter, WebGlRenderer, WebGlTextureWithDimensions};
 pub use resources::Resources;
@@ -74,7 +76,7 @@ pub use vello_common::pixmap::Pixmap;
 use thiserror::Error;
 
 /// Errors that can occur during rendering.
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub enum RenderError {
     /// No slots available for rendering.
     ///

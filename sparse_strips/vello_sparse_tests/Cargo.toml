@@ -14,9 +14,13 @@ autotests = false
 name = "tests"
 path = "tests/mod.rs"
 
+[[bin]]
+name = "regenerate_probe_reference"
+path = "src/regenerate_probe_reference.rs"
+
 [dependencies]
 glifo = { workspace = true }
-vello_common = { workspace = true, features = ["std"] }
+vello_common = { workspace = true, features = ["std", "probe"] }
 vello_cpu = { workspace = true, features = ["multithreading", "std", "f32_pipeline"] }
 vello_hybrid = { workspace = true }
 fearless_simd = { workspace = true, features = [
@@ -56,7 +60,7 @@ wasm-bindgen-futures = "0.4.64"
 wasmparser = "0.235.0"
 
 [features]
-webgl = ["vello_hybrid/webgl"]
+webgl = ["vello_hybrid/webgl", "vello_hybrid/probe"]
 
 [lints]
 workspace = true

@@ -392,7 +392,7 @@ impl core::fmt::Debug for MultiAtlasManager {
 }
 
 /// Errors that can occur during atlas operations.
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum AtlasError {
     /// No space available in any atlas.
     #[error("No space available in any atlas")]
