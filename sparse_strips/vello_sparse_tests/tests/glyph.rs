@@ -847,7 +847,7 @@ fn glyphs_decoration_offset_values(ctx: &mut impl Renderer, enable_caching: bool
     }
 }
 
-#[vello_test(width = 300, height = 180, glyph)]
+#[vello_test(width = 180, height = 180, glyph)]
 fn glyphs_decoration_size_values(ctx: &mut impl Renderer, enable_caching: bool) {
     let font_size = 30.0_f32;
     for (i, size) in [0.5_f32, 1.0, 2.0, 4.0].iter().enumerate() {
@@ -866,7 +866,7 @@ fn glyphs_decoration_size_values(ctx: &mut impl Renderer, enable_caching: bool) 
     }
 }
 
-#[vello_test(width = 300, height = 70, glyph)]
+#[vello_test(width = 180, height = 70, glyph)]
 fn glyphs_decoration_no_descenders(ctx: &mut impl Renderer, enable_caching: bool) {
     ctx.set_transform(Affine::translate((0., 50.)));
     render_decorated_text(ctx, "HELLO", 50.0, enable_caching, None, -2.0, 2.0, 1.5);
