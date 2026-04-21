@@ -74,7 +74,6 @@ impl RenderContext {
         let memory_budget_thresholds = wgpu::MemoryBudgetThresholds::default();
         let backend_options = wgpu::BackendOptions::from_env_or_default();
         let instance = Instance::new(wgpu::InstanceDescriptor {
-            // TODO: consider allowing users to pass a display handle when constructing a RenderContext
             display: None,
             backends,
             flags,

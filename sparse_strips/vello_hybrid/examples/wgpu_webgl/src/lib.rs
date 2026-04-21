@@ -612,7 +612,7 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
     };
     let surface_texture = match surface.get_current_texture() {
         CurrentSurfaceTexture::Success(surface_texture) => surface_texture,
-        _ => panic!("Error getting surface"),
+        e => panic!("Error getting initial surface: {e:?}"),
     };
     let surface_texture_view = surface_texture
         .texture
