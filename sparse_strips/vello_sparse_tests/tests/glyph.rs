@@ -872,24 +872,27 @@ fn glyphs_decoration_no_descenders(ctx: &mut impl Renderer, enable_caching: bool
     render_decorated_text(ctx, "HELLO", 50.0, enable_caching, None, -2.0, 2.0, 1.5);
 }
 
-#[vello_test(width = 150, height = 100, glyph, hybrid_tolerance = 1)]
+#[vello_test(width = 100, height = 150, glyph, hybrid_tolerance = 1)]
 fn glyphs_decoration_transformed(ctx: &mut impl Renderer, enable_caching: bool) {
-    let text = "Hpjy";
-    let rows: [(Affine, f32, Option<Affine>); 3] = [
-        // Run-level scale absorbs into font_size
-        (Affine::scale(20.0), 1.0, None),
+    let text = "Happy";
+    let rows: [(Affine, f32, Option<Affine>, f64); 4] = [
+        // Run-level scale absorbs into font_size and underline scaled.
+        (Affine::scale(2.0), 12.0, None, 30.0),
         // Glyph-level scale (affects skip-ink outline transform)
-        (Affine::IDENTITY, 10.0, Some(Affine::scale(2.0))),
+        (Affine::IDENTITY, 10.0, Some(Affine::scale(1.2)), 40.0),
         // Y-flip (decoration should appear above the flipped text)
         (
             Affine::scale_non_uniform(1.0, -1.0) * Affine::translate((0.0, 20.0)),
             20.0,
             None,
+            10.0,
         ),
+        // Rotated text
+        (Affine::rotate(f64::from(FRAC_PI_4)), 12.0, None, 40.0),
     ];
 
-    let mut y = 28.35;
-    for (run_transform, font_size, glyph_transform) in rows {
+    let mut y = 30.0;
+    for (run_transform, font_size, glyph_transform, buffer) in rows {
         ctx.set_transform(Affine::translate((16.0, y)) * run_transform);
         render_decorated_text(
             ctx,
@@ -901,6 +904,6 @@ fn glyphs_decoration_transformed(ctx: &mut impl Renderer, enable_caching: bool) 
             1.0,
             1.0,
         );
-        y += 30.0;
+        y += buffer;
     }
 }
