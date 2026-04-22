@@ -21,12 +21,12 @@ fn main() {
     for shader_info in shader_infos {
         let shader = compile::compile_wgsl_shader(&shader_info.wgsl_source, "vs_main", "fs_main");
         std::fs::write(
-            vertex_snapshot_path(&snapshot_dir, &shader_info.name),
+            snapshot_dir.join(format!("{}.vert.glsl", shader_info.name)),
             shader.vertex.source,
         )
         .unwrap();
         std::fs::write(
-            fragment_snapshot_path(&snapshot_dir, &shader_info.name),
+            snapshot_dir.join(format!("{}.frag.glsl", shader_info.name)),
             shader.fragment.source,
         )
         .unwrap();
@@ -36,14 +36,4 @@ fn main() {
 #[cfg(not(feature = "glsl"))]
 fn main() {
     panic!("enable the `glsl` feature to regenerate WebGL shader snapshots");
-}
-
-#[cfg(feature = "glsl")]
-fn vertex_snapshot_path(snapshot_dir: &std::path::Path, shader_name: &str) -> std::path::PathBuf {
-    snapshot_dir.join(format!("{shader_name}.vert.glsl"))
-}
-
-#[cfg(feature = "glsl")]
-fn fragment_snapshot_path(snapshot_dir: &std::path::Path, shader_name: &str) -> std::path::PathBuf {
-    snapshot_dir.join(format!("{shader_name}.frag.glsl"))
 }
