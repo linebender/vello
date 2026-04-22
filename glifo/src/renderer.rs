@@ -229,6 +229,7 @@ fn render_uncached_colr_glyph(
         renderer.push_clip_path(&glyph.area.to_path(0.1));
     }
 
+    // TODO: Maybe ColrPainter can be reused across glyphs?
     let mut colr_painter = ColrPainter::new(glyph, context_color, renderer);
     colr_painter.paint();
     if glyph.has_non_default_blend {
@@ -328,6 +329,7 @@ fn render_colr_to_atlas(
         recorder.push_clip_path(&glyph.area.to_path(0.1));
     }
 
+    // TODO: Maybe ColrPainter can be reused across glyphs?
     let mut colr_painter = ColrPainter::new(glyph, context_color, recorder);
     colr_painter.paint();
 
