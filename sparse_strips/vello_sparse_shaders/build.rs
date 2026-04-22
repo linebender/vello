@@ -65,8 +65,7 @@ fn generate_compiled_shaders_module(shader_infos: &[shader_info::ShaderInfo]) ->
         for shader_info in shader_infos {
             let shader =
                 compile::compile_wgsl_shader(&shader_info.wgsl_source, "vs_main", "fs_main");
-            let shader_name = &shader_info.name;
-            let generated_code = shader.to_generated_code(&shader_name);
+            let generated_code = shader.to_generated_code(&shader_info.name);
             writeln!(buf, "{generated_code}").unwrap();
         }
     }
