@@ -17,7 +17,7 @@ use core::fmt::Debug;
 use peniko::{LinearGradientPosition, RadialGradientPosition, SweepGradientPosition};
 use skrifa::color::{Brush, ColorPainter, ColorStop, CompositeMode, Transform};
 use skrifa::instance::LocationRef;
-use skrifa::outline::{DrawSettings, pen::ControlBoundsPen};
+use skrifa::outline::{DrawSettings, OutlineGlyphCollection, pen::ControlBoundsPen};
 use skrifa::raw::TableProvider;
 use skrifa::raw::types::BoundingBox;
 use skrifa::{FontRef, GlyphId, MetadataProvider};
@@ -44,6 +44,8 @@ impl<T: DrawSink + ?Sized> ColrDrawSinkExt for T {}
 pub(crate) struct ColrPainter<'a> {
     transforms: Vec<Affine>,
     colr_glyph: &'a GlyphColr<'a>,
+    outline_glyphs: OutlineGlyphCollection<'a>,
+    clip_outline: OutlinePath,
     context_color: AlphaColor<Srgb>,
     painter: &'a mut dyn DrawSink,
     stack: Vec<ColrStackEntry>,
@@ -72,6 +74,8 @@ impl<'a> ColrPainter<'a> {
         Self {
             transforms: vec![colr_glyph.draw_transform],
             colr_glyph,
+            outline_glyphs: colr_glyph.font_ref.outline_glyphs(),
+            clip_outline: OutlinePath::new(),
             context_color,
             painter,
             stack: Vec::new(),
@@ -216,7 +220,7 @@ struct GlyphInfoExtractor<'a> {
     clip_stack: Vec<Rect>,
     coarse_bbox: Option<Rect>,
     has_non_default_blend: bool,
-    font_ref: &'a FontRef<'a>,
+    outline_glyphs: OutlineGlyphCollection<'a>,
     location: LocationRef<'a>,
 }
 
@@ -227,7 +231,7 @@ impl<'a> GlyphInfoExtractor<'a> {
             clip_stack: Vec::new(),
             coarse_bbox: None,
             has_non_default_blend: false,
-            font_ref,
+            outline_glyphs: font_ref.outline_glyphs(),
             location,
         }
     }
@@ -273,22 +277,19 @@ impl ColorPainter for ColrPainter<'_> {
 
     fn push_clip_glyph(&mut self, glyph_id: GlyphId) {
         // TODO: Make it possible to use the outline cache for this.
-        let mut outline_builder = OutlinePath::new();
-
-        let outline_glyphs = self.colr_glyph.font_ref.outline_glyphs();
-        let Some(outline_glyph) = outline_glyphs.get(glyph_id) else {
+        let Some(outline_glyph) = self.outline_glyphs.get(glyph_id) else {
             return;
         };
 
+        self.clip_outline.reuse();
         let _ = outline_glyph.draw(
             DrawSettings::unhinted(skrifa::instance::Size::unscaled(), self.colr_glyph.location),
-            &mut outline_builder,
+            &mut self.clip_outline,
         );
 
-        let finished = outline_builder.path;
-        let transformed = self.cur_transform() * finished;
-
-        self.push_clip(&transformed);
+        self.clip_outline.path.apply_affine(self.cur_transform());
+        self.painter.push_clip_path(&self.clip_outline.path);
+        self.stack.push(ColrStackEntry::ClipPath);
     }
 
     fn push_clip_box(&mut self, clip_box: BoundingBox<f32>) {
@@ -473,8 +474,7 @@ impl ColorPainter for GlyphInfoExtractor<'_> {
         let mut outline_bbox = ControlBoundsPen::default();
 
         // TODO: Make it possible to use the outline cache for this.
-        let outline_glyphs = self.font_ref.outline_glyphs();
-        let Some(outline_glyph) = outline_glyphs.get(glyph_id) else {
+        let Some(outline_glyph) = self.outline_glyphs.get(glyph_id) else {
             return;
         };
 

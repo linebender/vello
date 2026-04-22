@@ -1453,7 +1453,7 @@ impl OutlinePath {
         }
     }
 
-    fn reuse(&mut self) {
+    pub(crate) fn reuse(&mut self) {
         self.path.truncate(0);
         self.bbox = Rect {
             x0: f64::INFINITY,
