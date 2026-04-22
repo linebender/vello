@@ -16,25 +16,25 @@ use alloc::vec::Vec;
 use core::fmt::Debug;
 use peniko::{LinearGradientPosition, RadialGradientPosition, SweepGradientPosition};
 use skrifa::color::{Brush, ColorPainter, ColorStop, CompositeMode, Transform};
-use skrifa::outline::DrawSettings;
+use skrifa::instance::LocationRef;
+use skrifa::outline::{DrawSettings, pen::ControlBoundsPen};
 use skrifa::raw::TableProvider;
 use skrifa::raw::types::BoundingBox;
-use skrifa::{GlyphId, MetadataProvider};
+use skrifa::{FontRef, GlyphId, MetadataProvider};
 use smallvec::SmallVec;
 
 trait ColrDrawSinkExt: DrawSink {
-    fn fill_with_paint(&mut self, paint: AtlasPaint) {
-        let rect = Rect::new(0.0, 0.0, f64::from(self.width()), f64::from(self.height()));
+    fn fill_with_paint(&mut self, rect: &Rect, paint: AtlasPaint) {
         self.set_paint(paint);
-        self.fill_rect(&rect);
+        self.fill_rect(rect);
     }
 
-    fn fill_solid(&mut self, color: AlphaColor<Srgb>) {
-        self.fill_with_paint(AtlasPaint::Solid(color));
+    fn fill_solid(&mut self, rect: &Rect, color: AlphaColor<Srgb>) {
+        self.fill_with_paint(rect, AtlasPaint::Solid(color));
     }
 
-    fn fill_gradient(&mut self, gradient: Gradient) {
-        self.fill_with_paint(AtlasPaint::Gradient(gradient));
+    fn fill_gradient(&mut self, rect: &Rect, gradient: Gradient) {
+        self.fill_with_paint(rect, AtlasPaint::Gradient(gradient));
     }
 }
 
@@ -46,7 +46,14 @@ pub(crate) struct ColrPainter<'a> {
     colr_glyph: &'a GlyphColr<'a>,
     context_color: AlphaColor<Srgb>,
     painter: &'a mut dyn DrawSink,
-    layer_count: u32,
+    stack: Vec<ColrStackEntry>,
+    skip_blend_layers: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ColrStackEntry {
+    ClipPath,
+    BlendLayer,
 }
 
 impl Debug for ColrPainter<'_> {
@@ -67,7 +74,10 @@ impl<'a> ColrPainter<'a> {
             colr_glyph,
             context_color,
             painter,
-            layer_count: 0,
+            stack: Vec::new(),
+            // In case the emoji doesn't use non-default blending, we can ignore layers
+            // completely and use src-over compositing throughout.
+            skip_blend_layers: !colr_glyph.has_non_default_blend,
         }
     }
 
@@ -80,8 +90,11 @@ impl<'a> ColrPainter<'a> {
 
         // In certain malformed fonts (i.e. if there is a cycle), skrifa will not
         // ensure that the push/pop count is the same, so we pop the remaining ones here.
-        for _ in 0..self.layer_count {
-            self.painter.pop_layer();
+        while let Some(entry) = self.stack.pop() {
+            match entry {
+                ColrStackEntry::ClipPath => self.painter.pop_clip_path(),
+                ColrStackEntry::BlendLayer => self.painter.pop_layer(),
+            }
         }
     }
 
@@ -153,19 +166,105 @@ impl<'a> ColrPainter<'a> {
 
         ColorStops(stops)
     }
+
+    fn push_clip(&mut self, clip: &crate::kurbo::BezPath) {
+        self.painter.push_clip_path(clip);
+        self.stack.push(ColrStackEntry::ClipPath);
+    }
+
+    fn pop_stack_entry(&mut self, expected: ColrStackEntry) -> bool {
+        // This should only be false for malformed fonts. Assuming that our
+        // implementation is correct, this shouldn't ever be reached for valid fonts.
+        #[cfg(test)]
+        assert_eq!(
+            self.stack.last().copied(),
+            Some(expected),
+            "assertion should always be true for valid fonts"
+        );
+
+        if self.stack.last().copied() == Some(expected) {
+            self.stack.pop();
+
+            true
+        } else {
+            false
+        }
+    }
+}
+
+pub(crate) struct ColrGlyphInfo {
+    /// A conservative bounding box of the glyph.
+    ///
+    /// Is `None` in case the glyph is empty (i.e. doesn't contain any drawable content).
+    pub(crate) bbox: Option<Rect>,
+    /// Whether the glyph uses any non-default blending.
+    pub(crate) has_non_default_blend: bool,
+}
+
+pub(crate) fn get_colr_info<'a>(
+    font_ref: &'a FontRef<'a>,
+    color_glyph: &skrifa::color::ColorGlyph<'a>,
+    location: LocationRef<'a>,
+) -> ColrGlyphInfo {
+    let mut extractor = GlyphInfoExtractor::new(font_ref, location);
+    let _ = color_glyph.paint(location, &mut extractor);
+    extractor.finish()
+}
+
+struct GlyphInfoExtractor<'a> {
+    transforms: Vec<Affine>,
+    clip_stack: Vec<Rect>,
+    coarse_bbox: Option<Rect>,
+    has_non_default_blend: bool,
+    font_ref: &'a FontRef<'a>,
+    location: LocationRef<'a>,
+}
+
+impl<'a> GlyphInfoExtractor<'a> {
+    fn new(font_ref: &'a FontRef<'a>, location: LocationRef<'a>) -> Self {
+        Self {
+            transforms: vec![Affine::IDENTITY],
+            clip_stack: Vec::new(),
+            coarse_bbox: None,
+            has_non_default_blend: false,
+            font_ref,
+            location,
+        }
+    }
+
+    fn cur_transform(&self) -> Affine {
+        self.transforms.last().copied().unwrap_or_default()
+    }
+
+    fn push_clip_bbox(&mut self, clip_bbox: Rect) {
+        let active = self
+            .clip_stack
+            .last()
+            .copied()
+            .map_or(clip_bbox, |parent| parent.intersect(clip_bbox));
+        self.coarse_bbox = Some(
+            self.coarse_bbox
+                .map_or(active, |coarse_bbox| coarse_bbox.union(active)),
+        );
+        self.clip_stack.push(active);
+    }
+
+    fn transform_rect(&self, rect: Rect) -> Rect {
+        self.cur_transform().transform_rect_bbox(rect)
+    }
+
+    fn finish(self) -> ColrGlyphInfo {
+        ColrGlyphInfo {
+            bbox: self.coarse_bbox,
+            has_non_default_blend: self.has_non_default_blend,
+        }
+    }
 }
 
 impl ColorPainter for ColrPainter<'_> {
     fn push_transform(&mut self, t: Transform) {
-        let affine = Affine::new([
-            f64::from(t.xx),
-            f64::from(t.yx),
-            f64::from(t.xy),
-            f64::from(t.yy),
-            f64::from(t.dx),
-            f64::from(t.dy),
-        ]);
-        self.transforms.push(self.cur_transform() * affine);
+        self.transforms
+            .push(self.cur_transform() * convert_affine(t));
     }
 
     fn pop_transform(&mut self) {
@@ -173,6 +272,7 @@ impl ColorPainter for ColrPainter<'_> {
     }
 
     fn push_clip_glyph(&mut self, glyph_id: GlyphId) {
+        // TODO: Make it possible to use the outline cache for this.
         let mut outline_builder = OutlinePath::new();
 
         let outline_glyphs = self.colr_glyph.font_ref.outline_glyphs();
@@ -188,8 +288,7 @@ impl ColorPainter for ColrPainter<'_> {
         let finished = outline_builder.path;
         let transformed = self.cur_transform() * finished;
 
-        self.painter.push_clip_layer(&transformed);
-        self.layer_count += 1;
+        self.push_clip(&transformed);
     }
 
     fn push_clip_box(&mut self, clip_box: BoundingBox<f32>) {
@@ -201,16 +300,20 @@ impl ColorPainter for ColrPainter<'_> {
         );
         let transformed = self.cur_transform() * rect.to_path(0.1);
 
-        self.painter.push_clip_layer(&transformed);
-        self.layer_count += 1;
+        self.push_clip(&transformed);
     }
 
     fn pop_clip(&mut self) {
-        self.painter.pop_layer();
-        self.layer_count -= 1;
+        if self.pop_stack_entry(ColrStackEntry::ClipPath) {
+            self.painter.pop_clip_path();
+        }
     }
 
     fn fill(&mut self, brush: Brush<'_>) {
+        // Ceil so that we don't apply unnecessary anti-aliasing in case the
+        // glyph area is at a sub-pixel position.
+        let fill_rect = &self.colr_glyph.area.ceil();
+
         match brush {
             Brush::Solid {
                 palette_index,
@@ -220,7 +323,7 @@ impl ColorPainter for ColrPainter<'_> {
                     .palette_index_to_color(palette_index, alpha)
                     .unwrap_or(AlphaColor::BLACK);
 
-                self.painter.fill_solid(color);
+                self.painter.fill_solid(fill_rect, color);
             }
             Brush::LinearGradient {
                 p0,
@@ -234,7 +337,8 @@ impl ColorPainter for ColrPainter<'_> {
                 let stops = self.convert_stops(color_stops);
 
                 if stops.len() == 1 {
-                    self.painter.fill_solid(stops[0].color.to_alpha_color());
+                    self.painter
+                        .fill_solid(fill_rect, stops[0].color.to_alpha_color());
                 } else {
                     let grad = Gradient {
                         kind: LinearGradientPosition { start: p0, end: p1 }.into(),
@@ -243,7 +347,7 @@ impl ColorPainter for ColrPainter<'_> {
                         ..Default::default()
                     };
                     self.painter.set_paint_transform(self.cur_transform());
-                    self.painter.fill_gradient(grad);
+                    self.painter.fill_gradient(fill_rect, grad);
                 }
             }
             Brush::RadialGradient {
@@ -262,7 +366,8 @@ impl ColorPainter for ColrPainter<'_> {
                 let stops = self.convert_stops(color_stops);
 
                 if r1 <= 0.0 || stops.len() == 1 {
-                    self.painter.fill_solid(stops[0].color.to_alpha_color());
+                    self.painter
+                        .fill_solid(fill_rect, stops[0].color.to_alpha_color());
 
                     return;
                 }
@@ -281,7 +386,7 @@ impl ColorPainter for ColrPainter<'_> {
                 };
 
                 self.painter.set_paint_transform(self.cur_transform());
-                self.painter.fill_gradient(grad);
+                self.painter.fill_gradient(fill_rect, grad);
             }
             Brush::SweepGradient {
                 c0,
@@ -295,7 +400,8 @@ impl ColorPainter for ColrPainter<'_> {
                 let stops = self.convert_stops(color_stops);
 
                 if stops.len() == 1 {
-                    self.painter.fill_solid(stops[0].color.to_alpha_color());
+                    self.painter
+                        .fill_solid(fill_rect, stops[0].color.to_alpha_color());
 
                     return;
                 }
@@ -332,52 +438,117 @@ impl ColorPainter for ColrPainter<'_> {
                 let paint_transform = self.cur_transform() * Affine::scale_non_uniform(1.0, -1.0);
 
                 self.painter.set_paint_transform(paint_transform);
-                self.painter.fill_gradient(grad);
+                self.painter.fill_gradient(fill_rect, grad);
             }
         };
     }
 
     fn push_layer(&mut self, composite_mode: CompositeMode) {
-        let blend_mode = match composite_mode {
-            CompositeMode::Clear => BlendMode::new(Mix::Normal, Compose::Clear),
-            CompositeMode::Src => BlendMode::new(Mix::Normal, Compose::Copy),
-            CompositeMode::Dest => BlendMode::new(Mix::Normal, Compose::Dest),
-            CompositeMode::SrcOver => BlendMode::new(Mix::Normal, Compose::SrcOver),
-            CompositeMode::DestOver => BlendMode::new(Mix::Normal, Compose::DestOver),
-            CompositeMode::SrcIn => BlendMode::new(Mix::Normal, Compose::SrcIn),
-            CompositeMode::DestIn => BlendMode::new(Mix::Normal, Compose::DestIn),
-            CompositeMode::SrcOut => BlendMode::new(Mix::Normal, Compose::SrcOut),
-            CompositeMode::DestOut => BlendMode::new(Mix::Normal, Compose::DestOut),
-            CompositeMode::SrcAtop => BlendMode::new(Mix::Normal, Compose::SrcAtop),
-            CompositeMode::DestAtop => BlendMode::new(Mix::Normal, Compose::DestAtop),
-            CompositeMode::Xor => BlendMode::new(Mix::Normal, Compose::Xor),
-            CompositeMode::Plus => BlendMode::new(Mix::Normal, Compose::Plus),
-            CompositeMode::Screen => BlendMode::new(Mix::Screen, Compose::SrcOver),
-            CompositeMode::Overlay => BlendMode::new(Mix::Overlay, Compose::SrcOver),
-            CompositeMode::Darken => BlendMode::new(Mix::Darken, Compose::SrcOver),
-            CompositeMode::Lighten => BlendMode::new(Mix::Lighten, Compose::SrcOver),
-            CompositeMode::ColorDodge => BlendMode::new(Mix::ColorDodge, Compose::SrcOver),
-            CompositeMode::ColorBurn => BlendMode::new(Mix::ColorBurn, Compose::SrcOver),
-            CompositeMode::HardLight => BlendMode::new(Mix::HardLight, Compose::SrcOver),
-            CompositeMode::SoftLight => BlendMode::new(Mix::SoftLight, Compose::SrcOver),
-            CompositeMode::Difference => BlendMode::new(Mix::Difference, Compose::SrcOver),
-            CompositeMode::Exclusion => BlendMode::new(Mix::Exclusion, Compose::SrcOver),
-            CompositeMode::Multiply => BlendMode::new(Mix::Multiply, Compose::SrcOver),
-            CompositeMode::HslHue => BlendMode::new(Mix::Hue, Compose::SrcOver),
-            CompositeMode::HslSaturation => BlendMode::new(Mix::Saturation, Compose::SrcOver),
-            CompositeMode::HslColor => BlendMode::new(Mix::Color, Compose::SrcOver),
-            CompositeMode::HslLuminosity => BlendMode::new(Mix::Luminosity, Compose::SrcOver),
-            CompositeMode::Unknown => BlendMode::new(Mix::Normal, Compose::SrcOver),
-        };
+        let blend_mode = convert_composite_mode(composite_mode);
 
-        self.painter.push_blend_layer(blend_mode);
-        self.layer_count += 1;
+        if !self.skip_blend_layers {
+            self.painter.push_blend_layer(blend_mode);
+            self.stack.push(ColrStackEntry::BlendLayer);
+        }
     }
 
     fn pop_layer(&mut self) {
-        self.painter.pop_layer();
-        self.layer_count -= 1;
+        if !self.skip_blend_layers && self.pop_stack_entry(ColrStackEntry::BlendLayer) {
+            self.painter.pop_layer();
+        }
     }
+}
+
+impl ColorPainter for GlyphInfoExtractor<'_> {
+    fn push_transform(&mut self, t: Transform) {
+        self.transforms
+            .push(self.cur_transform() * convert_affine(t));
+    }
+
+    fn pop_transform(&mut self) {
+        self.transforms.pop();
+    }
+
+    fn push_clip_glyph(&mut self, glyph_id: GlyphId) {
+        let mut outline_bbox = ControlBoundsPen::default();
+
+        // TODO: Make it possible to use the outline cache for this.
+        let outline_glyphs = self.font_ref.outline_glyphs();
+        let Some(outline_glyph) = outline_glyphs.get(glyph_id) else {
+            return;
+        };
+
+        let _ = outline_glyph.draw(
+            DrawSettings::unhinted(skrifa::instance::Size::unscaled(), self.location),
+            &mut outline_bbox,
+        );
+
+        if let Some(outline_bbox) = outline_bbox.bounding_box().map(convert_bounding_box) {
+            self.push_clip_bbox(self.transform_rect(outline_bbox));
+        }
+    }
+
+    fn push_clip_box(&mut self, clip_box: BoundingBox<f32>) {
+        self.push_clip_bbox(self.transform_rect(convert_bounding_box(clip_box)));
+    }
+
+    fn pop_clip(&mut self) {
+        self.clip_stack.pop();
+    }
+
+    fn fill(&mut self, _brush: Brush<'_>) {}
+
+    fn push_layer(&mut self, composite_mode: CompositeMode) {
+        self.has_non_default_blend |=
+            convert_composite_mode(composite_mode) != BlendMode::default();
+    }
+
+    fn pop_layer(&mut self) {}
+}
+
+fn convert_composite_mode(composite_mode: CompositeMode) -> BlendMode {
+    match composite_mode {
+        CompositeMode::Clear => BlendMode::new(Mix::Normal, Compose::Clear),
+        CompositeMode::Src => BlendMode::new(Mix::Normal, Compose::Copy),
+        CompositeMode::Dest => BlendMode::new(Mix::Normal, Compose::Dest),
+        CompositeMode::SrcOver => BlendMode::new(Mix::Normal, Compose::SrcOver),
+        CompositeMode::DestOver => BlendMode::new(Mix::Normal, Compose::DestOver),
+        CompositeMode::SrcIn => BlendMode::new(Mix::Normal, Compose::SrcIn),
+        CompositeMode::DestIn => BlendMode::new(Mix::Normal, Compose::DestIn),
+        CompositeMode::SrcOut => BlendMode::new(Mix::Normal, Compose::SrcOut),
+        CompositeMode::DestOut => BlendMode::new(Mix::Normal, Compose::DestOut),
+        CompositeMode::SrcAtop => BlendMode::new(Mix::Normal, Compose::SrcAtop),
+        CompositeMode::DestAtop => BlendMode::new(Mix::Normal, Compose::DestAtop),
+        CompositeMode::Xor => BlendMode::new(Mix::Normal, Compose::Xor),
+        CompositeMode::Plus => BlendMode::new(Mix::Normal, Compose::Plus),
+        CompositeMode::Screen => BlendMode::new(Mix::Screen, Compose::SrcOver),
+        CompositeMode::Overlay => BlendMode::new(Mix::Overlay, Compose::SrcOver),
+        CompositeMode::Darken => BlendMode::new(Mix::Darken, Compose::SrcOver),
+        CompositeMode::Lighten => BlendMode::new(Mix::Lighten, Compose::SrcOver),
+        CompositeMode::ColorDodge => BlendMode::new(Mix::ColorDodge, Compose::SrcOver),
+        CompositeMode::ColorBurn => BlendMode::new(Mix::ColorBurn, Compose::SrcOver),
+        CompositeMode::HardLight => BlendMode::new(Mix::HardLight, Compose::SrcOver),
+        CompositeMode::SoftLight => BlendMode::new(Mix::SoftLight, Compose::SrcOver),
+        CompositeMode::Difference => BlendMode::new(Mix::Difference, Compose::SrcOver),
+        CompositeMode::Exclusion => BlendMode::new(Mix::Exclusion, Compose::SrcOver),
+        CompositeMode::Multiply => BlendMode::new(Mix::Multiply, Compose::SrcOver),
+        CompositeMode::HslHue => BlendMode::new(Mix::Hue, Compose::SrcOver),
+        CompositeMode::HslSaturation => BlendMode::new(Mix::Saturation, Compose::SrcOver),
+        CompositeMode::HslColor => BlendMode::new(Mix::Color, Compose::SrcOver),
+        CompositeMode::HslLuminosity => BlendMode::new(Mix::Luminosity, Compose::SrcOver),
+        CompositeMode::Unknown => BlendMode::default(),
+    }
+}
+
+fn convert_affine(transform: Transform) -> Affine {
+    Affine::new([
+        f64::from(transform.xx),
+        f64::from(transform.yx),
+        f64::from(transform.xy),
+        f64::from(transform.yy),
+        f64::from(transform.dx),
+        f64::from(transform.dy),
+    ])
 }
 
 fn convert_extend(extend: skrifa::color::Extend) -> Extend {

@@ -568,6 +568,25 @@ fn glyphs_colr_noto_stroked(ctx: &mut impl Renderer, enable_caching: bool) {
     );
 }
 
+#[vello_test(width = 100, height = 100, glyph)]
+fn glyphs_colr_noto_overflow_centered(ctx: &mut impl Renderer, enable_caching: bool) {
+    let font_size = 150.0;
+    let (font, mut glyphs) = layout_glyphs_noto_colr("✅", font_size);
+    let glyph = glyphs.pop().unwrap();
+
+    let centered_glyph = Glyph {
+        id: glyph.id,
+        x: -25.0,
+        y: 125.0,
+    };
+
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .atlas_cache(enable_caching)
+        .hint(false)
+        .fill_glyphs(iter::once(centered_glyph));
+}
+
 #[vello_test(
     width = 500,
     height = 140,
@@ -690,15 +709,12 @@ fn glyphs_bitmap_apple(ctx: &mut impl Renderer, enable_caching: bool) {
         .fill_glyphs(glyphs.into_iter());
 }
 
-// TODO: TEMPORARILY DISABLED, SEE https://github.com/linebender/vello/pull/1562#issuecomment-4206435802.
 // In case anything changes here, compare to https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/web_tests/platform/linux/virtual/text-antialias/colrv1-expected.png
-// TODO: The reference image for f32_scalar_cached is still wrong, see https://github.com/linebender/vello/pull/1562.
 #[vello_test(
     width = 400,
     height = 960,
     hybrid_tolerance = 1,
     diff_pixels = 55,
-    ignore,
     glyph
 )]
 fn glyphs_colr_test_glyphs(ctx: &mut impl Renderer, enable_caching: bool) {

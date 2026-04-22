@@ -169,18 +169,23 @@ impl DrawSink for Scene {
     }
 
     #[inline]
-    fn push_blend_layer(&mut self, blend_mode: BlendMode) {
-        // TODO: See the comment for the `colr_test_glyphs` test.
-        if blend_mode != BlendMode::default() {
-            panic!("COLR emojis with non-default blending are not supported yet.")
-        }
+    fn push_clip_path(&mut self, clip: &BezPath) {
+        Self::push_clip_path(self, clip);
+    }
 
+    #[inline]
+    fn push_blend_layer(&mut self, blend_mode: BlendMode) {
         Self::push_blend_layer(self, blend_mode);
     }
 
     #[inline]
     fn pop_layer(&mut self) {
         Self::pop_layer(self);
+    }
+
+    #[inline]
+    fn pop_clip_path(&mut self) {
+        Self::pop_clip_path(self);
     }
 
     #[inline]

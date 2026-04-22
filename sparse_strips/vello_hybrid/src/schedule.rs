@@ -821,13 +821,15 @@ impl Scheduler {
         // Always choose the draw of the final surface, since direct strips are only ever
         // rendered to the final surface.
         let mut depth = core::mem::take(&mut self.depth);
+        // TODO: Also allow the split when rendering to an atlas layer.
+        let allow_opaque_split = self.is_rendering_to_user_surface();
         let draw = self.draw_mut(round, 2);
 
         for cmd in &scene.fast_strips_buffer.commands[range] {
             match cmd {
                 FastStripCommand::Path(path) => {
                     let is_opaque = Self::is_paint_opaque(&path.paint, encoded_paints);
-                    let depth_index = depth.next(is_opaque);
+                    let depth_index = depth.next(is_opaque && allow_opaque_split);
                     generate_gpu_strips_for_fast_path(
                         path,
                         &strip_storage,
@@ -835,19 +837,19 @@ impl Scheduler {
                         encoded_paints,
                         paint_idxs,
                         depth_index,
-                        is_opaque,
+                        is_opaque && allow_opaque_split,
                         draw,
                     );
                 }
                 FastStripCommand::Rect(r) => {
                     let is_opaque = Self::is_paint_opaque(&r.paint, encoded_paints);
-                    let depth_index = depth.next(is_opaque);
+                    let depth_index = depth.next(is_opaque && allow_opaque_split);
                     pack_rectangle_into_gpu(
                         r,
                         encoded_paints,
                         paint_idxs,
                         depth_index,
-                        is_opaque,
+                        is_opaque && allow_opaque_split,
                         draw,
                     );
                 }

@@ -72,10 +72,14 @@ pub enum AtlasCommand {
     FillRect(Rect),
     /// Push a clip layer defined by a path.
     PushClipLayer(Arc<BezPath>),
+    /// Push a clip path.
+    PushClipPath(Arc<BezPath>),
     /// Push a blend/compositing layer.
     PushBlendLayer(BlendMode),
     /// Pop the most recent clip or blend layer.
     PopLayer,
+    /// Pop the most recent clip path.
+    PopClipPath,
 }
 
 /// Records atlas draw commands for a single atlas page.
@@ -146,6 +150,12 @@ impl DrawSink for AtlasCommandRecorder {
     }
 
     #[inline]
+    fn push_clip_path(&mut self, clip: &BezPath) {
+        self.commands
+            .push(AtlasCommand::PushClipPath(Arc::new(clip.clone())));
+    }
+
+    #[inline]
     fn push_blend_layer(&mut self, blend_mode: BlendMode) {
         self.commands.push(AtlasCommand::PushBlendLayer(blend_mode));
     }
@@ -153,6 +163,11 @@ impl DrawSink for AtlasCommandRecorder {
     #[inline]
     fn pop_layer(&mut self) {
         self.commands.push(AtlasCommand::PopLayer);
+    }
+
+    #[inline]
+    fn pop_clip_path(&mut self) {
+        self.commands.push(AtlasCommand::PopClipPath);
     }
 
     #[inline]
