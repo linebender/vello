@@ -20,6 +20,15 @@ Vello Hybrid renderer.
 This crate provides the WGSL programs and build step for GLSL programs that are used by the
 optimized hybrid rendering engine.
 
+Whenever the WGSL shaders are updated, the build script will automatically take care of
+regenerating the GLSL programs. However, in addition to that, a snapshot of the shaders is
+also stored in the `generated_glsl` folder, which is not updated automatically. Before opening
+a PR, you will have to update them. Please use the following command for doing so:
+
+```sh
+cargo run -p vello_sparse_shaders --features glsl
+```
+
 ## Minimum supported Rust Version (MSRV)
 
 This version of Vello Hybrid Shaders has been verified to compile with **Rust 1.92** and later.
