@@ -173,15 +173,20 @@ impl<'a> ColrPainter<'a> {
     }
 
     fn pop_stack_entry(&mut self, expected: ColrStackEntry) -> bool {
+        // This should only be false for malformed fonts. Assuming that our
+        // implementation is correct, this shouldn't ever be reached for valid fonts.
+        #[cfg(test)]
+        assert_eq!(
+            self.stack.last().copied(),
+            Some(expected),
+            "assertion should always be true for valid fonts"
+        );
+
         if self.stack.last().copied() == Some(expected) {
             self.stack.pop();
+
             true
         } else {
-            // This branch should only be reached for malformed fonts. Assuming that our
-            // implementation is correct, this shouldn't be reached for valid fonts.
-            #[cfg(test)]
-            panic!("this branch should not be reached for valid fonts");
-
             false
         }
     }
