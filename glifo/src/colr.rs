@@ -171,8 +171,8 @@ impl<'a> ColrPainter<'a> {
         ColorStops(stops)
     }
 
-    fn push_clip(&mut self, clip: &crate::kurbo::BezPath) {
-        self.painter.push_clip_path(clip);
+    fn push_clip(&mut self) {
+        self.painter.push_clip_path(&self.clip_outline.path);
         self.stack.push(ColrStackEntry::ClipPath);
     }
 
@@ -287,9 +287,9 @@ impl ColorPainter for ColrPainter<'_> {
             &mut self.clip_outline,
         );
 
+        // Note that the bbox will become stale, but we don't need it anyway here.
         self.clip_outline.path.apply_affine(self.cur_transform());
-        self.painter.push_clip_path(&self.clip_outline.path);
-        self.stack.push(ColrStackEntry::ClipPath);
+        self.push_clip();
     }
 
     fn push_clip_box(&mut self, clip_box: BoundingBox<f32>) {
@@ -299,9 +299,11 @@ impl ColorPainter for ColrPainter<'_> {
             f64::from(clip_box.x_max),
             f64::from(clip_box.y_max),
         );
-        let transformed = self.cur_transform() * rect.to_path(0.1);
-
-        self.push_clip(&transformed);
+        let transformed = self.cur_transform().transform_rect_bbox(rect);
+        self.clip_outline.reuse();
+        // Note that the bbox will become stale, but we don't need it anyway here.
+        self.clip_outline.path.extend(transformed.path_elements(0.1));
+        self.push_clip();
     }
 
     fn pop_clip(&mut self) {
