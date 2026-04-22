@@ -177,6 +177,11 @@ impl<'a> ColrPainter<'a> {
             self.stack.pop();
             true
         } else {
+            // This branch should only be reached for malformed fonts. Assuming that our
+            // implementation is correct, this shouldn't be reached for valid fonts.
+            #[cfg(test)]
+            panic!("this branch should not be reached for valid fonts");
+
             false
         }
     }
