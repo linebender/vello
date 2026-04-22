@@ -302,7 +302,9 @@ impl ColorPainter for ColrPainter<'_> {
         let transformed = self.cur_transform().transform_rect_bbox(rect);
         self.clip_outline.reuse();
         // Note that the bbox will become stale, but we don't need it anyway here.
-        self.clip_outline.path.extend(transformed.path_elements(0.1));
+        self.clip_outline
+            .path
+            .extend(transformed.path_elements(0.1));
         self.push_clip();
     }
 
