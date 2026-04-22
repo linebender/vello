@@ -59,51 +59,9 @@ fn webgl_probe_succeeds() {
     let mut renderer = vello_hybrid::WebGlRenderer::new(&canvas);
     match renderer.probe() {
         Probe::Success => {}
-        Probe::Error(result) => {
-            let expected = png_data_url(&result.expected);
-            let actual = png_data_url(&result.actual);
-            panic!(
-                "WebGlRenderer::probe() unexpectedly failed with a pixel mismatch\nexpected_png={expected}\nactual_png={actual}"
-            );
-        }
+        Probe::Error(_) => panic!("WebGlRenderer::probe() unexpectedly failed"),
         Probe::RenderError(error) => {
             panic!("WebGlRenderer::probe() failed to render: {error:?}");
         }
     }
-}
-
-#[cfg(feature = "webgl")]
-fn png_data_url(png: &[u8]) -> String {
-    let base64 = base64_encode(png);
-    format!("data:image/png;base64,{base64}")
-}
-
-#[cfg(feature = "webgl")]
-fn base64_encode(bytes: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-    let encoded_len = bytes.len().div_ceil(3) * 4;
-    let mut encoded = String::with_capacity(encoded_len);
-
-    for chunk in bytes.chunks(3) {
-        let b0 = chunk[0];
-        let b1 = *chunk.get(1).unwrap_or(&0);
-        let b2 = *chunk.get(2).unwrap_or(&0);
-        let word = (u32::from(b0) << 16) | (u32::from(b1) << 8) | u32::from(b2);
-
-        encoded.push(TABLE[((word >> 18) & 0x3f) as usize] as char);
-        encoded.push(TABLE[((word >> 12) & 0x3f) as usize] as char);
-        encoded.push(if chunk.len() > 1 {
-            TABLE[((word >> 6) & 0x3f) as usize] as char
-        } else {
-            '='
-        });
-        encoded.push(if chunk.len() > 2 {
-            TABLE[(word & 0x3f) as usize] as char
-        } else {
-            '='
-        });
-    }
-
-    encoded
 }
