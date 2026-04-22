@@ -453,7 +453,7 @@ impl WebGlRenderer {
             &mut probe_image_cache,
             &render_size,
             true,
-            RootRenderTarget::UserSurface,
+            RootRenderTarget::AtlasLayer,
         );
         self.programs.resources.view_framebuffer_override = previous_view_framebuffer;
 
