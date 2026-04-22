@@ -184,6 +184,8 @@ impl<'a> ColrPainter<'a> {
 
 pub(crate) struct ColrGlyphInfo {
     /// A conservative bounding box of the glyph.
+    ///
+    /// Is `None` in case the glyph is empty (i.e. doesn't contain any drawable content).
     pub(crate) bbox: Option<Rect>,
     /// Whether the glyph uses any non-default blending.
     pub(crate) has_non_default_blend: bool,
