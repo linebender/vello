@@ -20,7 +20,7 @@ void main() {
     if (mode == 1u) {
         out_color = texelFetch(
             _group_0_binding_2_fs,
-            ivec2(int(p.f1.x), int(p.f1.y)),
+            ivec2(10, 20),
             0
         );
     } else {
