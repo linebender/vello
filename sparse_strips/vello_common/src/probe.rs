@@ -10,12 +10,12 @@ use crate::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape};
 use crate::paint::{Image, ImageSource, PaintType};
 use crate::peniko::{
     BlendMode, ColorStop, ColorStops, Compose, Extend, Gradient, ImageQuality, ImageSampler,
-    LinearGradientPosition, Mix, color::PremulRgba8,
+    LinearGradientPosition, Mix,
 };
 use crate::pixmap::Pixmap;
 use alloc::vec::Vec;
 
-const REFERENCE_PNG: &[u8] = include_bytes!("../assets/probe.png");
+const REFERENCE_RGBA: &[u8] = include_bytes!("../assets/probe.rgba");
 
 const ELEMENTS_PER_ROW: usize = 3;
 const ELEMENT_MARGIN: f64 = 1.0;
@@ -54,9 +54,13 @@ pub enum Probe<E> {
 /// Probe failure output.
 #[derive(Debug, Clone)]
 pub struct ProbeResult {
-    /// The expected image, encoded as PNG.
+    /// Width of the probe image in pixels.
+    pub width: u16,
+    /// Height of the probe image in pixels.
+    pub height: u16,
+    /// The expected image as RGBA8 bytes.
     pub expected: Vec<u8>,
-    /// The actual image, encoded as PNG.
+    /// The actual image as RBGA8 bytes.
     pub actual: Vec<u8>,
 }
 
@@ -69,14 +73,19 @@ impl<E> Probe<E> {
     /// Construct a new probe result by inspecting the provided pixmap and comparing it
     /// against the reference output.
     pub fn from_actual(actual: Pixmap) -> Self {
-        let expected = Pixmap::from_png(std::io::Cursor::new(REFERENCE_PNG)).unwrap();
-        let matches_reference = expected.width() == actual.width()
-            && expected.height() == actual.height()
-            && expected
-                .data()
-                .iter()
-                .copied()
-                .zip(actual.data().iter().copied())
+        let (width, height) = canvas_size();
+        let expected_len = usize::from(width) * usize::from(height) * 4;
+        assert_eq!(
+            REFERENCE_RGBA.len(),
+            expected_len,
+            "probe reference asset size does not match probe canvas dimensions",
+        );
+
+        let actual = bytemuck::cast_slice(&actual.take_unpremultiplied()).to_vec();
+        let matches_reference = actual.len() == REFERENCE_RGBA.len()
+            && REFERENCE_RGBA
+                .chunks_exact(4)
+                .zip(actual.chunks_exact(4))
                 .all(|(expected, actual)| {
                     pixels_within_tolerance(expected, actual, CHANNEL_TOLERANCE)
                 });
@@ -85,8 +94,10 @@ impl<E> Probe<E> {
             Self::Success
         } else {
             Self::Error(ProbeResult {
-                expected: expected.into_png().unwrap(),
-                actual: actual.into_png().unwrap(),
+                width,
+                height,
+                expected: REFERENCE_RGBA.to_vec(),
+                actual,
             })
         }
     }
@@ -246,19 +257,15 @@ pub fn draw_scene<T: ProbeRenderer>(ctx: &mut T, image: ImageSource) {
     }
 }
 
-fn pixels_within_tolerance(
-    expected: PremulRgba8,
-    actual: PremulRgba8,
-    channel_tolerance: u8,
-) -> bool {
-    if expected.a == 0 && actual.a == 0 {
+fn pixels_within_tolerance(expected: &[u8], actual: &[u8], channel_tolerance: u8) -> bool {
+    if expected[3] == 0 && actual[3] == 0 {
         return true;
     }
 
-    [expected.r, expected.g, expected.b, expected.a]
-        .into_iter()
-        .zip([actual.r, actual.g, actual.b, actual.a])
-        .all(|(expected, actual)| expected.abs_diff(actual) <= channel_tolerance)
+    expected
+        .iter()
+        .zip(actual)
+        .all(|(expected, actual)| expected.abs_diff(*actual) <= channel_tolerance)
 }
 
 fn draw_probe_element(

@@ -1,8 +1,9 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Regenerate the probe reference PNG in `vello_common/assets`.
+//! Regenerate the probe reference assets in `vello_common/assets`.
 
+use bytemuck::cast_slice;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -58,7 +59,11 @@ impl ProbeRenderer for CpuProbeContext<'_> {
 }
 
 fn main() {
-    let output = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_common/assets/probe.png");
+    // The PNG output is only for easier inspection. The RGBA binary blob is what will actually
+    // be included in the probe result.
+    let png_output = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_common/assets/probe.png");
+    let rgba_output =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_common/assets/probe.rgba");
 
     let (width, height) = probe::canvas_size();
     let settings = RenderSettings {
@@ -78,8 +83,10 @@ fn main() {
     let mut pixmap = vello_common::pixmap::Pixmap::new(width, height);
     ctx.render_to_pixmap(&mut resources, &mut pixmap);
 
+    let rgba = pixmap.clone().take_unpremultiplied();
+    std::fs::write(rgba_output, cast_slice(&rgba)).unwrap();
     let png = pixmap.into_png().unwrap();
     #[cfg(not(target_arch = "wasm32"))]
     let png = oxipng::optimize_from_memory(&png, &Options::max_compression()).unwrap();
-    std::fs::write(output, png).unwrap();
+    std::fs::write(png_output, png).unwrap();
 }
