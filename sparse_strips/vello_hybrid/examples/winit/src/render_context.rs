@@ -73,7 +73,8 @@ impl RenderContext {
         let flags = wgpu::InstanceFlags::from_build_config().with_env();
         let memory_budget_thresholds = wgpu::MemoryBudgetThresholds::default();
         let backend_options = wgpu::BackendOptions::from_env_or_default();
-        let instance = Instance::new(&wgpu::InstanceDescriptor {
+        let instance = Instance::new(wgpu::InstanceDescriptor {
+            display: None,
             backends,
             flags,
             memory_budget_thresholds,
@@ -156,7 +157,7 @@ impl RenderContext {
         self.configure_surface(surface);
     }
 
-    fn configure_surface(&self, surface: &RenderSurface<'_>) {
+    pub(crate) fn configure_surface(&self, surface: &RenderSurface<'_>) {
         let device = &self.devices[surface.dev_id].device;
         surface.surface.configure(device, &surface.config);
     }

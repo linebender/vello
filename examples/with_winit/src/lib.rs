@@ -43,7 +43,7 @@ use winit::dpi::LogicalSize;
 use winit::event_loop::EventLoop;
 use winit::window::{Window, WindowAttributes};
 
-use vello::wgpu::{self, PipelineCache};
+use vello::wgpu::{self, CurrentSurfaceTexture, PipelineCache};
 
 #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
 mod hot_reload;
@@ -632,10 +632,22 @@ impl ApplicationHandler<UserEvent> for VelloApp {
                 drop(render_span);
 
                 let texture_span = tracing::trace_span!("Blitting to surface").entered();
-                let surface_texture = surface
-                    .surface
-                    .get_current_texture()
-                    .expect("failed to get surface texture");
+                let surface_texture = match surface.surface.get_current_texture() {
+                    CurrentSurfaceTexture::Success(surface_texture) => surface_texture,
+                    CurrentSurfaceTexture::Outdated | CurrentSurfaceTexture::Suboptimal(_) => {
+                        self.context.configure_surface(surface);
+                        window.request_redraw();
+                        return;
+                    }
+                    CurrentSurfaceTexture::Occluded | CurrentSurfaceTexture::Timeout => {
+                        window.request_redraw();
+                        return;
+                    }
+                    CurrentSurfaceTexture::Lost => panic!("Surface was lost"),
+                    CurrentSurfaceTexture::Validation => {
+                        panic!("Validation error getting surface")
+                    }
+                };
                 // Perform the copy
                 // (TODO: Does it improve throughput to acquire the surface after the previous texture render has happened?)
                 let mut encoder =

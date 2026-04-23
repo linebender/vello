@@ -180,9 +180,10 @@ fn clip_rect_cull_alignment(ctx: &mut impl Renderer) {
     const TOP_Y: f64 = Tile::HEIGHT as f64;
 
     // Another strip-aligned Y value lower down.
-    const BOT_Y: f64 = (46. / Tile::HEIGHT as f64).ceil() * Tile::HEIGHT as f64;
+    // FIXME: make const once MSRV >= 1.90
+    let bot_y: f64 = (46. / Tile::HEIGHT as f64).ceil() * Tile::HEIGHT as f64;
 
-    let clip_rect = Rect::new(18.0, TOP_Y + 2., 78.0, BOT_Y - 2.);
+    let clip_rect = Rect::new(18.0, TOP_Y + 2., 78.0, bot_y - 2.);
     ctx.set_paint(DARK_GREEN.with_alpha(0.1));
     ctx.fill_rect(&clip_rect);
 
@@ -201,7 +202,7 @@ fn clip_rect_cull_alignment(ctx: &mut impl Renderer) {
     // unculled geometry existing.
     let mut path = BezPath::new();
     let top_y = TOP_Y + 1.;
-    let bot_y = BOT_Y - 1.;
+    let bot_y = bot_y - 1.;
     path.move_to((30.0, bot_y));
     path.line_to((30.0, top_y));
     path.curve_to((45.0, top_y - 0.5), (55.0, top_y - 0.5), (70.0, top_y));
