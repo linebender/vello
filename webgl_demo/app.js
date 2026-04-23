@@ -26,9 +26,8 @@ const TESTS = [
     name: "Generated Render Strips",
     description:
       "Compiles the real generated render_strips vertex + fragment shaders and queries the same sampler uniform Vello unwraps.",
-    vertexPath: "/sparse_strips/vello_sparse_shaders/generated_glsl/render_strips.vert.glsl",
-    fragmentPath:
-      "/sparse_strips/vello_sparse_shaders/generated_glsl/render_strips.frag.glsl",
+    vertexPath: "./render_strips.vert.glsl",
+    fragmentPath: "./render_strips.frag.glsl",
     inspectUniforms: [
       "_group_0_binding_0_fs",
       "_group_0_binding_2_fs",

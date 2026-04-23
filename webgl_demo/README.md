@@ -1,4 +1,4 @@
-# WebGL Uniform Repro
+# WebGL Demo
 
 This folder contains a tiny static page that links a few WebGL2 programs and
 then inspects uniform locations.
@@ -19,7 +19,7 @@ python3 -m http.server
 Then open:
 
 ```text
-http://localhost:8000/webgl_constructor_repro/
+http://localhost:8000/webgl_demo/
 ```
 
 ## What it tests
