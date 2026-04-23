@@ -5,7 +5,7 @@ precision highp int;
 
 struct Pair {
     uint f0;
-    vec2 f1;
+    float f1;
 };
 
 uniform highp sampler2D _group_0_binding_2_fs;
@@ -14,7 +14,7 @@ flat in uint v0;
 layout(location = 0) out vec4 out_color;
 
 void main() {
-    Pair p = Pair(v0, vec2(0.5, 0.5));
+    Pair p = Pair(v0, 0.5);
     uint mode = p.f0 >> 29;
 
     if (mode == 1u) {
