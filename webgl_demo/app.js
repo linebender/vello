@@ -2,7 +2,6 @@ const canvas = document.getElementById("gl");
 const meta = document.getElementById("meta");
 const results = document.getElementById("results");
 const runAllButton = document.getElementById("run-all");
-const clearButton = document.getElementById("clear");
 
 const gl = canvas.getContext("webgl2", {
   alpha: false,
@@ -23,11 +22,53 @@ void main() {
 
 const TESTS = [
   {
+    name: "Baseline",
+    description:
+      "Only the config block, the clip sampler, and a tiny slot/blend branch remain.",
+    vertexPath: "./render_strips.vert.glsl",
+    fragmentPath: "./render_strips_minimal.frag.glsl",
+    inspectUniforms: [
+      "_group_0_binding_0_fs",
+      "_group_0_binding_2_fs",
+      "_group_1_binding_0_fs",
+      "_group_2_binding_0_fs",
+      "_group_3_binding_0_fs",
+    ],
+  },
+  {
+    name: "2 Fields",
+    description:
+      "paint_and_rect_flag + position",
+    vertexPath: "./render_strips.vert.glsl",
+    fragmentPath: "./render_strips_fields_2.frag.glsl",
+    inspectUniforms: [
+      "_group_0_binding_0_fs",
+      "_group_0_binding_2_fs",
+      "_group_1_binding_0_fs",
+      "_group_2_binding_0_fs",
+      "_group_3_binding_0_fs",
+    ],
+  },
+  {
     name: "Generated Render Strips",
     description:
       "Compiles the real generated render_strips vertex + fragment shaders and queries the same sampler uniform Vello unwraps.",
-    vertexPath: "./render_strips.vert.glsl",
-    fragmentPath: "./render_strips.frag.glsl",
+    vertexPath: "./render_strips_generated.vert.glsl",
+    fragmentPath: "./render_strips_generated.frag.glsl",
+    inspectUniforms: [
+      "_group_0_binding_0_fs",
+      "_group_0_binding_2_fs",
+      "_group_1_binding_0_fs",
+      "_group_2_binding_0_fs",
+      "_group_3_binding_0_fs",
+    ],
+  },
+  {
+    name: "Generated Patched",
+    description:
+      "Same generated fragment shader, but patched to avoid fragment-local VertexOutput reconstruction.",
+    vertexPath: "./render_strips_generated.vert.glsl",
+    fragmentPath: "./render_strips_generated_patched.frag.glsl",
     inspectUniforms: [
       "_group_0_binding_0_fs",
       "_group_0_binding_2_fs",
@@ -50,9 +91,6 @@ if (!gl) {
 runAllButton.addEventListener("click", () => {
   void runAllTests();
 });
-clearButton.addEventListener("click", () => {
-  results.innerHTML = "";
-});
 
 function renderMeta() {
   const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
@@ -68,9 +106,8 @@ function renderMeta() {
   meta.innerHTML = `
     <div><strong>Vendor:</strong> ${escapeHtml(String(vendor))}</div>
     <div><strong>Renderer:</strong> ${escapeHtml(String(renderer))}</div>
-    <div><strong>WebGL Version:</strong> ${escapeHtml(String(version))}</div>
-    <div><strong>GLSL Version:</strong> ${escapeHtml(String(shadingLanguageVersion))}</div>
-    <div><strong>Target Uniform:</strong> <code>${escapeHtml(TARGET_UNIFORM)}</code></div>
+    <div><strong>WebGL:</strong> ${escapeHtml(String(version))}</div>
+    <div><strong>GLSL:</strong> ${escapeHtml(String(shadingLanguageVersion))}</div>
   `;
 }
 
@@ -242,39 +279,22 @@ function renderResult(test, resolved, result) {
   const wrapper = document.createElement("article");
   wrapper.className = "result";
 
-  const statusClass = result.ok ? "pass" : "fail";
-  const statusText = result.ok ? "LINKED" : `FAIL (${result.stage})`;
-  const log = result.log.trim() || "No compiler or linker log.";
-  const uniformLocation =
-    result.uniformLocations[TARGET_UNIFORM] || "not queried";
-  const activeUniformText = result.activeUniforms.length
-    ? result.activeUniforms
-        .map((uniform) => `${uniform.name} (${uniform.type}, size ${uniform.size})`)
-        .join("\n")
-    : "No active uniforms reported.";
+  let statusClass = "fail";
+  let statusText = "missing";
+  if (resolved.loadError) {
+    statusText = "load error";
+  } else if (!result.ok) {
+    statusText = `compile/link error`;
+  } else if (result.uniformLocations[TARGET_UNIFORM] === "present") {
+    statusClass = "pass";
+    statusText = "present";
+  }
 
   wrapper.innerHTML = `
-    <h2>${escapeHtml(test.name)}</h2>
-    <div>${escapeHtml(test.description)}</div>
-    <div class="status ${statusClass}">${statusText}</div>
-    <pre>${escapeHtml(log)}</pre>
-    <pre>${escapeHtml(
-      `Target uniform ${TARGET_UNIFORM}: ${uniformLocation}\n\nQueried uniforms:\n${JSON.stringify(
-        result.uniformLocations,
-        null,
-        2,
-      )}\n\nActive uniforms:\n${activeUniformText}${
-        resolved.loadError ? `\n\nSource load error:\n${resolved.loadError}` : ""
-      }`,
-    )}</pre>
-    <details>
-      <summary>Vertex Shader</summary>
-      <pre>${escapeHtml(resolved.vertexSource)}</pre>
-    </details>
-    <details>
-      <summary>Fragment Shader</summary>
-      <pre>${escapeHtml(resolved.fragmentSource)}</pre>
-    </details>
+    <div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;">
+      <h2>${escapeHtml(test.name)}</h2>
+      <div class="status ${statusClass}">${escapeHtml(statusText)}</div>
+    </div>
   `;
 
   return wrapper;

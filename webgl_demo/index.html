@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>WebGL Uniform Repro</title>
+    <title>WebGL Uniform Variants</title>
     <style>
       :root {
         color-scheme: light;
@@ -34,20 +34,6 @@
         max-width: 980px;
         margin: 0 auto;
         padding: 32px 20px 48px;
-      }
-
-      h1 {
-        margin: 0 0 8px;
-        font-size: clamp(2rem, 4vw, 3.2rem);
-        line-height: 0.95;
-        letter-spacing: -0.03em;
-      }
-
-      p {
-        margin: 0;
-        color: var(--muted);
-        font-size: 1.05rem;
-        line-height: 1.5;
       }
 
       .controls,
@@ -111,8 +97,8 @@
       }
 
       .result h2 {
-        margin: 0 0 6px;
-        font-size: 1rem;
+        margin: 0;
+        font-size: 1.05rem;
       }
 
       .status {
@@ -127,17 +113,6 @@
         color: var(--fail);
       }
 
-      pre {
-        margin: 10px 0 0;
-        padding: 12px;
-        background: #f8f3ea;
-        border-radius: 10px;
-        overflow: auto;
-        white-space: pre-wrap;
-        word-break: break-word;
-        font-size: 0.85rem;
-      }
-
       canvas {
         width: 1px;
         height: 1px;
@@ -149,17 +124,8 @@
   </head>
   <body>
     <main>
-      <h1>WebGL Uniform Repro</h1>
-      <p>
-        This page links a few WebGL2 programs and then checks whether
-        <code>getUniformLocation</code> returns a real location for
-        <code>_group_0_binding_2_fs</code>, the clip-input sampler uniform used by
-        Vello's generated <code>render_strips</code> shader.
-      </p>
-
       <section class="controls">
-        <button id="run-all">Run All Tests</button>
-        <button id="clear" class="secondary">Clear Output</button>
+        <button id="run-all">Refresh</button>
       </section>
 
       <section class="panel meta" id="meta"></section>
