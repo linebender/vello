@@ -1,35 +1,29 @@
 # WebGL Demo
 
-This folder contains a tiny static page that links a few WebGL2 programs and
-then inspects uniform locations.
+This folder contains a minimal WebGL2 repro for the bug where a linked program
+reports `_group_0_binding_2_fs` as missing.
 
-It is intended to answer one question:
+The four fragment variants are:
 
-Does the device return `null` for Vello's clip-input sampler uniform even though
-the shader links successfully?
+- `Minimal Pass`
+- `Minimal Fail`
+- `Render-Like Fail`
+- `Render-Like Fixed`
+
+The only preserved Vello detail is the sampler name. Everything else is reduced
+to the minimum needed for the working vs failing comparisons.
 
 ## Run
 
-From the repo root:
+Serve from inside this folder:
 
 ```sh
+cd webgl_demo
 python3 -m http.server
 ```
 
 Then open:
 
 ```text
-http://localhost:8000/webgl_demo/
+http://localhost:8000/
 ```
-
-## What it tests
-
-- a tiny control shader with an unconditionally used sampler
-- a reduced branchy sampler-use shader
-- the real generated `render_strips.vert.glsl` + `render_strips.frag.glsl`
-
-For each linked program it reports:
-
-- the link log
-- the active uniform list
-- whether `getUniformLocation("_group_0_binding_2_fs")` is `present` or `null`

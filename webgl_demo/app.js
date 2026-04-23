@@ -12,77 +12,41 @@ const gl = canvas.getContext("webgl2", {
 
 const TARGET_UNIFORM = "_group_0_binding_2_fs";
 
-const SIMPLE_VERTEX_SHADER = `#version 300 es
+const SHARED_VERTEX_SHADER = `#version 300 es
 precision highp float;
+precision highp int;
+
 layout(location = 0) in vec2 a_position;
+
+flat out uint v0;
+out vec2 v1;
+out vec2 v2;
+flat out uint v3;
+flat out uint v4;
+flat out uint v5;
+
 void main() {
   gl_Position = vec4(a_position, 0.0, 1.0);
+  v0 = 1u << 29u;
+  v1 = vec2(0.25, 0.5);
+  v2 = vec2(0.75, 0.125);
+  v3 = 3u;
+  v4 = 1u;
+  v5 = 7u;
 }
 `;
 
 const TESTS = [
-  {
-    name: "Baseline",
-    description:
-      "Only the config block, the clip sampler, and a tiny slot/blend branch remain.",
-    vertexPath: "./render_strips.vert.glsl",
-    fragmentPath: "./render_strips_minimal.frag.glsl",
-    inspectUniforms: [
-      "_group_0_binding_0_fs",
-      "_group_0_binding_2_fs",
-      "_group_1_binding_0_fs",
-      "_group_2_binding_0_fs",
-      "_group_3_binding_0_fs",
-    ],
-  },
-  {
-    name: "2 Fields",
-    description:
-      "paint_and_rect_flag + position",
-    vertexPath: "./render_strips.vert.glsl",
-    fragmentPath: "./render_strips_fields_2.frag.glsl",
-    inspectUniforms: [
-      "_group_0_binding_0_fs",
-      "_group_0_binding_2_fs",
-      "_group_1_binding_0_fs",
-      "_group_2_binding_0_fs",
-      "_group_3_binding_0_fs",
-    ],
-  },
-  {
-    name: "Generated Render Strips",
-    description:
-      "Compiles the real generated render_strips vertex + fragment shaders and queries the same sampler uniform Vello unwraps.",
-    vertexPath: "./render_strips_generated.vert.glsl",
-    fragmentPath: "./render_strips_generated.frag.glsl",
-    inspectUniforms: [
-      "_group_0_binding_0_fs",
-      "_group_0_binding_2_fs",
-      "_group_1_binding_0_fs",
-      "_group_2_binding_0_fs",
-      "_group_3_binding_0_fs",
-    ],
-  },
-  {
-    name: "Generated Patched",
-    description:
-      "Same generated fragment shader, but patched to avoid fragment-local VertexOutput reconstruction.",
-    vertexPath: "./render_strips_generated.vert.glsl",
-    fragmentPath: "./render_strips_generated_patched.frag.glsl",
-    inspectUniforms: [
-      "_group_0_binding_0_fs",
-      "_group_0_binding_2_fs",
-      "_group_1_binding_0_fs",
-      "_group_2_binding_0_fs",
-      "_group_3_binding_0_fs",
-    ],
-  },
+  { name: "Minimal Pass", path: "./render_strips_min_pass.frag.glsl" },
+  { name: "Minimal Fail", path: "./render_strips_min_fail.frag.glsl" },
+  { name: "Render-Like Fail", path: "./render_strips_generated.frag.glsl" },
+  { name: "Render-Like Fixed", path: "./render_strips_generated_patched.frag.glsl" },
 ];
 
 if (!gl) {
   meta.innerHTML = `<div><strong>WebGL2:</strong> unavailable</div>`;
   results.innerHTML =
-    `<div class="result"><h2>No WebGL2 context</h2><pre>This browser or device did not provide a WebGL2 context, so the repro cannot run.</pre></div>`;
+    `<div class="result"><h2>No WebGL2 context</h2><pre>This browser or device did not provide a WebGL2 context.</pre></div>`;
 } else {
   renderMeta();
   void runAllTests();
@@ -94,20 +58,16 @@ runAllButton.addEventListener("click", () => {
 
 function renderMeta() {
   const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
-  const renderer = debugInfo
-    ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)
-    : gl.getParameter(gl.RENDERER);
   const vendor = debugInfo
     ? gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL)
     : gl.getParameter(gl.VENDOR);
-  const version = gl.getParameter(gl.VERSION);
-  const shadingLanguageVersion = gl.getParameter(gl.SHADING_LANGUAGE_VERSION);
+  const renderer = debugInfo
+    ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)
+    : gl.getParameter(gl.RENDERER);
 
   meta.innerHTML = `
     <div><strong>Vendor:</strong> ${escapeHtml(String(vendor))}</div>
     <div><strong>Renderer:</strong> ${escapeHtml(String(renderer))}</div>
-    <div><strong>WebGL:</strong> ${escapeHtml(String(version))}</div>
-    <div><strong>GLSL:</strong> ${escapeHtml(String(shadingLanguageVersion))}</div>
   `;
 }
 
@@ -115,85 +75,53 @@ async function runAllTests() {
   results.innerHTML = "";
 
   for (const test of TESTS) {
-    const resolved = await resolveSources(test);
-    const result = compileAndInspectProgram(
-      resolved.vertexSource,
-      resolved.fragmentSource,
-      test.inspectUniforms,
-    );
-    results.appendChild(renderResult(test, resolved, result));
+    const source = await loadFragmentSource(test.path);
+    const result = compileAndInspectProgram(SHARED_VERTEX_SHADER, source.text);
+    results.appendChild(renderResult(test.name, source.error, result));
 
-    console.group(`WebGL Uniform Repro: ${test.name}`);
-    console.log(test.description);
+    console.group(`WebGL struct repro: ${test.name}`);
+    if (source.error) {
+      console.error(source.error);
+    }
     console.log("Link success:", result.ok);
-    console.log("Target uniform:", TARGET_UNIFORM);
-    console.log("Target location:", result.uniformLocations[TARGET_UNIFORM]);
-    console.log("Active uniforms:", result.activeUniforms);
-    if (resolved.loadError) {
-      console.error("Source load error:", resolved.loadError);
-    }
+    console.log("Target location:", result.uniformLocation);
     if (result.log.trim()) {
-      console.log("Program log:", result.log);
-    }
-    if (!result.ok) {
-      console.error("Stage:", result.stage);
+      console.log("Log:", result.log);
     }
     console.groupEnd();
   }
 }
 
-async function resolveSources(test) {
-  if (test.vertexSource && test.fragmentSource) {
-    return {
-      vertexSource: test.vertexSource,
-      fragmentSource: test.fragmentSource,
-      loadError: "",
-    };
-  }
-
+async function loadFragmentSource(path) {
   try {
-    const [vertexSource, fragmentSource] = await Promise.all([
-      fetchText(test.vertexPath),
-      fetchText(test.fragmentPath),
-    ]);
-    return { vertexSource, fragmentSource, loadError: "" };
+    const response = await fetch(path, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch ${path}: HTTP ${response.status}`);
+    }
+    return { text: await response.text(), error: "" };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {
-      vertexSource: SIMPLE_VERTEX_SHADER,
-      fragmentSource: `#version 300 es
+      text: `#version 300 es
 precision highp float;
-out vec4 outColor;
-void main() { outColor = vec4(1.0, 0.0, 0.0, 1.0); }
+out vec4 out_color;
+void main() { out_color = vec4(1.0, 0.0, 0.0, 1.0); }
 `,
-      loadError: message,
+      error: message,
     };
   }
 }
 
-async function fetchText(path) {
-  const response = await fetch(path, { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error(`Failed to fetch ${path}: HTTP ${response.status}`);
-  }
-  return response.text();
-}
-
-function compileAndInspectProgram(vertexSource, fragmentSource, inspectUniforms) {
+function compileAndInspectProgram(vertexSource, fragmentSource) {
   const vertexShader = compileShader(gl.VERTEX_SHADER, vertexSource);
   if (!vertexShader.ok) {
-    return failedResult("vertex", vertexShader.log, vertexSource, fragmentSource);
+    return failedResult("vertex", vertexShader.log);
   }
 
   const fragmentShader = compileShader(gl.FRAGMENT_SHADER, fragmentSource);
   if (!fragmentShader.ok) {
     gl.deleteShader(vertexShader.shader);
-    return failedResult(
-      "fragment",
-      fragmentShader.log,
-      vertexSource,
-      fragmentSource,
-    );
+    return failedResult("fragment", fragmentShader.log);
   }
 
   const program = gl.createProgram();
@@ -203,34 +131,15 @@ function compileAndInspectProgram(vertexSource, fragmentSource, inspectUniforms)
 
   const ok = Boolean(gl.getProgramParameter(program, gl.LINK_STATUS));
   const log = gl.getProgramInfoLog(program) || "";
-  const activeUniforms = ok ? getActiveUniforms(program) : [];
-  const uniformLocations = ok ? getUniformLocations(program, inspectUniforms) : {};
+  const uniformLocation = ok
+    ? (gl.getUniformLocation(program, TARGET_UNIFORM) ? "present" : "null")
+    : "null";
 
   gl.deleteShader(vertexShader.shader);
   gl.deleteShader(fragmentShader.shader);
   gl.deleteProgram(program);
 
-  return {
-    ok,
-    stage: "link",
-    log,
-    vertexSource,
-    fragmentSource,
-    activeUniforms,
-    uniformLocations,
-  };
-}
-
-function failedResult(stage, log, vertexSource, fragmentSource) {
-  return {
-    ok: false,
-    stage,
-    log,
-    vertexSource,
-    fragmentSource,
-    activeUniforms: [],
-    uniformLocations: {},
-  };
+  return { ok, log, uniformLocation };
 }
 
 function compileShader(type, source) {
@@ -240,7 +149,6 @@ function compileShader(type, source) {
 
   const ok = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
   const log = gl.getShaderInfoLog(shader) || "";
-
   if (!ok) {
     gl.deleteShader(shader);
     return { ok: false, log };
@@ -249,73 +157,37 @@ function compileShader(type, source) {
   return { ok: true, shader, log };
 }
 
-function getActiveUniforms(program) {
-  const count = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS);
-  const uniforms = [];
-  for (let i = 0; i < count; i += 1) {
-    const info = gl.getActiveUniform(program, i);
-    if (!info) {
-      continue;
-    }
-    uniforms.push({
-      name: info.name,
-      size: info.size,
-      type: enumName(info.type),
-    });
-  }
-  return uniforms;
+function failedResult(stage, log) {
+  return {
+    ok: false,
+    log: `${stage}: ${log}`,
+    uniformLocation: "null",
+  };
 }
 
-function getUniformLocations(program, names) {
-  const locations = {};
-  for (const name of names) {
-    const location = gl.getUniformLocation(program, name);
-    locations[name] = location ? "present" : "null";
-  }
-  return locations;
-}
-
-function renderResult(test, resolved, result) {
+function renderResult(name, loadError, result) {
   const wrapper = document.createElement("article");
   wrapper.className = "result";
 
   let statusClass = "fail";
   let statusText = "missing";
-  if (resolved.loadError) {
+  if (loadError) {
     statusText = "load error";
   } else if (!result.ok) {
-    statusText = `compile/link error`;
-  } else if (result.uniformLocations[TARGET_UNIFORM] === "present") {
+    statusText = "compile/link error";
+  } else if (result.uniformLocation === "present") {
     statusClass = "pass";
     statusText = "present";
   }
 
   wrapper.innerHTML = `
     <div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;">
-      <h2>${escapeHtml(test.name)}</h2>
+      <h2>${escapeHtml(name)}</h2>
       <div class="status ${statusClass}">${escapeHtml(statusText)}</div>
     </div>
   `;
 
   return wrapper;
-}
-
-function enumName(value) {
-  const entries = [
-    ["SAMPLER_2D", gl.SAMPLER_2D],
-    ["SAMPLER_2D_ARRAY", gl.SAMPLER_2D_ARRAY],
-    ["SAMPLER_CUBE", gl.SAMPLER_CUBE],
-    ["INT_SAMPLER_2D", gl.INT_SAMPLER_2D],
-    ["UNSIGNED_INT_SAMPLER_2D", gl.UNSIGNED_INT_SAMPLER_2D],
-    ["UNSIGNED_INT", gl.UNSIGNED_INT],
-    ["FLOAT", gl.FLOAT],
-  ];
-  for (const [name, enumValue] of entries) {
-    if (enumValue === value) {
-      return name;
-    }
-  }
-  return `0x${value.toString(16)}`;
 }
 
 function escapeHtml(value) {
