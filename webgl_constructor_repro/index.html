@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WebGL Constructor Repro</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f4f0e8;
+        --panel: #fffaf2;
+        --ink: #1d1d1b;
+        --muted: #5b564d;
+        --accent: #0f6a64;
+        --fail: #b23a2b;
+        --ok: #1d7a3f;
+        --border: #d7cebf;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Iowan Old Style", "Palatino Linotype", serif;
+        background:
+          radial-gradient(circle at top left, #fffdf9 0, transparent 30%),
+          linear-gradient(180deg, #efe8da 0, var(--bg) 100%);
+        color: var(--ink);
+      }
+
+      main {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 32px 20px 48px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: clamp(2rem, 4vw, 3.2rem);
+        line-height: 0.95;
+        letter-spacing: -0.03em;
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 1.05rem;
+        line-height: 1.5;
+      }
+
+      .controls,
+      .panel,
+      .results {
+        margin-top: 20px;
+        padding: 18px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        box-shadow: 0 10px 24px rgba(65, 52, 28, 0.08);
+      }
+
+      .controls {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      button {
+        border: 0;
+        border-radius: 999px;
+        padding: 12px 18px;
+        font: inherit;
+        font-weight: 700;
+        background: var(--accent);
+        color: white;
+        cursor: pointer;
+      }
+
+      button.secondary {
+        background: #d8ccb7;
+        color: var(--ink);
+      }
+
+      .meta {
+        display: grid;
+        gap: 8px;
+      }
+
+      .meta div {
+        font-size: 0.95rem;
+      }
+
+      code,
+      pre {
+        font-family: "SFMono-Regular", "Menlo", monospace;
+      }
+
+      .results {
+        display: grid;
+        gap: 14px;
+      }
+
+      .result {
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 14px;
+        background: #fff;
+      }
+
+      .result h2 {
+        margin: 0 0 6px;
+        font-size: 1rem;
+      }
+
+      .status {
+        font-weight: 700;
+      }
+
+      .status.pass {
+        color: var(--ok);
+      }
+
+      .status.fail {
+        color: var(--fail);
+      }
+
+      pre {
+        margin: 10px 0 0;
+        padding: 12px;
+        background: #f8f3ea;
+        border-radius: 10px;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 0.85rem;
+      }
+
+      canvas {
+        width: 1px;
+        height: 1px;
+        opacity: 0;
+        position: absolute;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>WebGL Constructor Repro</h1>
+      <p>
+        This page compiles several tiny WebGL2 shaders that mirror the constructor
+        patterns emitted by <code>vello_sparse_shaders</code>. If the Vivo Y21
+        rejects one of them with <code>'constructor' : too many arguments</code>,
+        that narrows the failure to GLSL codegen portability.
+      </p>
+
+      <section class="controls">
+        <button id="run-all">Run All Tests</button>
+        <button id="clear" class="secondary">Clear Output</button>
+      </section>
+
+      <section class="panel meta" id="meta"></section>
+      <section class="results" id="results"></section>
+      <canvas id="gl"></canvas>
+    </main>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
