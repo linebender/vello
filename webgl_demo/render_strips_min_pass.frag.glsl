@@ -9,12 +9,12 @@ flat in uint v0;
 layout(location = 0) out vec4 out_color;
 
 void main() {
-    uint mode = (v0 >> 29u) & 3u;
+    uint mode = v0 >> 29;
 
     if (mode == 1u) {
         out_color = texelFetch(
             _group_0_binding_2_fs,
-            ivec2(int(gl_FragCoord.x), int(gl_FragCoord.y)),
+            ivec2(int(gl_FragCoord), int(gl_FragCoord)),
             0
         );
     } else {

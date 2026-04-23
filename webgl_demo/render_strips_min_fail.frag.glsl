@@ -15,7 +15,7 @@ layout(location = 0) out vec4 out_color;
 
 void main() {
     Pair p = Pair(v0, gl_FragCoord);
-    uint mode = p.f0 & 2u;
+    uint mode = p.f0 >> 29;
 
     if (mode == 1u) {
         out_color = texelFetch(
