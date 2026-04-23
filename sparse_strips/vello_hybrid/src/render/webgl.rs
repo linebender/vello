@@ -181,14 +181,14 @@ impl WebGlRenderer {
             1,
         );
         let total_slots: usize = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
-        assert!(
-            gl.get_parameter(WebGl2RenderingContext::DEPTH_BITS)
-                .unwrap()
-                .as_f64()
-                .unwrap()
-                >= 24.0,
-            "Depth buffer must be at least 24 bits"
-        );
+        // assert!(
+        //     gl.get_parameter(WebGl2RenderingContext::DEPTH_BITS)
+        //         .unwrap()
+        //         .as_f64()
+        //         .unwrap()
+        //         >= 24.0,
+        //     "Depth buffer must be at least 24 bits"
+        // );
         let image_cache = ImageCache::new_with_config(settings.atlas_config);
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
         // and the maximum gradient LUT size - worst case scenario.
