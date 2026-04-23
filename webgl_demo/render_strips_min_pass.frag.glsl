@@ -14,7 +14,7 @@ flat in uint v0;
 layout(location = 0) out vec4 out_color;
 
 void main() {
-    Pair p = Pair(v0, gl_FragCoord);
+    Pair p = Pair(v0, vec4(0.5, 0.5, 0.5, 0.5));
     uint mode = v0 >> 29;
 
     if (mode == 1u) {
