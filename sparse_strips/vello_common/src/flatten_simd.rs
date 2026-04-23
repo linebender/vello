@@ -11,6 +11,7 @@ use crate::kurbo::{CubicBez, Line, ParamCurve, ParamCurveNearest, PathEl, Point,
 use crate::{
     flatten::{SQRT_TOL, TOL, TOL_2},
     geometry::RectU16,
+    kurbo::Affine,
     tile::Tile,
 };
 use alloc::vec::Vec;
@@ -48,6 +49,11 @@ pub(crate) trait Callback {
 pub(crate) fn flatten<S: Simd>(
     simd: S,
     path: impl IntoIterator<Item = PathEl>,
+    // Note: we explicitly pass the `Affine` here instead of using `map` on
+    // the iterator because it seems like the `map` function isn't always inlined
+    // properly, even when annotating the closure with `#[inline(always)]`.
+    // See https://github.com/linebender/vello/pull/1600.
+    affine: Affine,
     callback: &mut impl Callback,
     flatten_ctx: &mut FlattenCtx,
     cull_bbox: RectU16,
@@ -83,6 +89,7 @@ pub(crate) fn flatten<S: Simd>(
     let Some(first_el) = path.next() else {
         return;
     };
+    let first_el = affine * first_el;
     let PathEl::MoveTo(start_pt) = first_el else {
         debug_assert!(
             matches!(first_el, PathEl::MoveTo(_)),
@@ -96,7 +103,7 @@ pub(crate) fn flatten<S: Simd>(
     callback.callback(LinePathEl::MoveTo(start_pt));
 
     for el in path {
-        match el {
+        match affine * el {
             PathEl::MoveTo(p) => {
                 if last_pt != start_pt {
                     callback.callback(LinePathEl::LineTo(start_pt));
