@@ -54,14 +54,21 @@ pub enum Probe<E> {
 /// Probe failure output.
 #[derive(Debug, Clone)]
 pub struct ProbeResult {
-    /// Width of the probe image in pixels.
+    /// The expected probe image.
+    pub expected: ProbeImage,
+    /// The actual probe image.
+    pub actual: ProbeImage,
+}
+
+/// A probe image stored as RGBA8 bytes.
+#[derive(Debug, Clone)]
+pub struct ProbeImage {
+    /// Width of the image in pixels.
     pub width: u16,
-    /// Height of the probe image in pixels.
+    /// Height of the image in pixels.
     pub height: u16,
-    /// The expected image as RGBA8 bytes.
-    pub expected: Vec<u8>,
-    /// The actual image as RBGA8 bytes.
-    pub actual: Vec<u8>,
+    /// The image data as RGBA8 bytes.
+    pub data: Vec<u8>,
 }
 
 impl<E> Probe<E> {
@@ -74,18 +81,19 @@ impl<E> Probe<E> {
     /// against the reference output.
     pub fn from_actual(actual: Pixmap) -> Self {
         let (width, height) = canvas_size();
-        let expected_len = usize::from(width) * usize::from(height) * 4;
-        assert_eq!(
-            REFERENCE_RGBA.len(),
-            expected_len,
-            "probe reference asset size does not match probe canvas dimensions",
-        );
-
-        let actual = bytemuck::cast_slice(&actual.take_unpremultiplied()).to_vec();
-        let matches_reference = actual.len() == REFERENCE_RGBA.len()
-            && REFERENCE_RGBA
+        let expected = ProbeImage {
+            width,
+            height,
+            data: REFERENCE_RGBA.to_vec(),
+        };
+        let actual = ProbeImage::from_pixmap(actual);
+        let matches_reference = expected.width == actual.width
+            && expected.height == actual.height
+            && expected.data.len() == actual.data.len()
+            && expected
+                .data
                 .chunks_exact(4)
-                .zip(actual.chunks_exact(4))
+                .zip(actual.data.chunks_exact(4))
                 .all(|(expected, actual)| {
                     pixels_within_tolerance(expected, actual, CHANNEL_TOLERANCE)
                 });
@@ -93,12 +101,17 @@ impl<E> Probe<E> {
         if matches_reference {
             Self::Success
         } else {
-            Self::Error(ProbeResult {
-                width,
-                height,
-                expected: REFERENCE_RGBA.to_vec(),
-                actual,
-            })
+            Self::Error(ProbeResult { expected, actual })
+        }
+    }
+}
+
+impl ProbeImage {
+    fn from_pixmap(pixmap: Pixmap) -> Self {
+        Self {
+            width: pixmap.width(),
+            height: pixmap.height(),
+            data: bytemuck::cast_slice(&pixmap.take_unpremultiplied()).to_vec(),
         }
     }
 }
