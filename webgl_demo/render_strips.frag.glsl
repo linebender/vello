@@ -891,83 +891,9 @@ void main() {
     }
     uint color_source = ((in_.paint_and_rect_flag >> 29u) & 3u);
     if ((color_source == COLOR_SOURCE_PAYLOAD)) {
-        uint paint_type = ((in_.paint_and_rect_flag >> 26u) & 7u);
-        if ((paint_type == PAINT_TYPE_SOLID)) {
-            float _e105 = alpha;
-            uint _e106 = in_.payload;
-            final_color = (_e105 * (vec4(_e106 & 0xFFu, _e106 >> 8 & 0xFFu, _e106 >> 16 & 0xFFu, _e106 >> 24) / 255.0));
-        } else {
-            if ((paint_type == PAINT_TYPE_IMAGE)) {
-                uint paint_tex_idx_4 = (in_.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK);
-                EncodedImage _e114 = unpack_encoded_image(paint_tex_idx_4);
-                vec2 image_offset_3 = _e114.image_offset;
-                vec2 image_size_3 = _e114.image_size;
-                vec2 local_xy = (in_.sample_xy - image_offset_3);
-                float _e125 = extend_mode((local_xy.x + 1e-5), _e114.extend_modes.x, image_size_3.x);
-                float _e131 = extend_mode((local_xy.y + 1e-5), _e114.extend_modes.y, image_size_3.y);
-                vec2 extended_xy = vec2(_e125, _e131);
-                if ((_e114.quality == IMAGE_QUALITY_HIGH)) {
-                    vec2 final_xy = (image_offset_3 + extended_xy);
-                    vec4 _e143 = bicubic_sample(_group_1_binding_0_fs, final_xy, int(_e114.atlas_index), image_offset_3, image_size_3, _e114.extend_modes, _e114.image_padding);
-                    sample_color = _e143;
-                } else {
-                    if ((_e114.quality == IMAGE_QUALITY_MEDIUM)) {
-                        vec2 final_xy_1 = ((image_offset_3 + extended_xy) - vec2(0.5));
-                        vec4 _e156 = bilinear_sample(_group_1_binding_0_fs, final_xy_1, int(_e114.atlas_index), image_offset_3, image_size_3, _e114.extend_modes, _e114.image_padding);
-                        sample_color = _e156;
-                    } else {
-                        vec2 final_xy_2 = (image_offset_3 + extended_xy);
-                        vec4 _e163 = texelFetch(_group_1_binding_0_fs, ivec3(uvec2(final_xy_2), int(_e114.atlas_index)), 0);
-                        sample_color = _e163;
-                    }
-                }
-                bool is_multiply = bool(_e114.tint_mode);
-                float _e166 = alpha;
-                float _e169 = sample_color.w;
-                vec4 _e171 = sample_color;
-                final_color = (_e166 * (is_multiply ? (_e171 * _e114.tint) : (_e114.tint * _e169)));
-            } else {
-                if ((paint_type == PAINT_TYPE_LINEAR_GRADIENT)) {
-                    uint paint_tex_idx_5 = (in_.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK);
-                    LinearGradient _e181 = unpack_linear_gradient(paint_tex_idx_5);
-                    vec2 fragment_pos = in_.sample_xy;
-                    vec2 grad_pos_2 = ((_e181.transform * fragment_pos) + _e181.translate);
-                    float t_value_2 = (grad_pos_2.x + 1e-5);
-                    vec4 _e193 = sample_gradient_lut(t_value_2, _e181.extend_mode, _e181.gradient_start, _e181.texture_width);
-                    float _e194 = alpha;
-                    final_color = (_e194 * _e193);
-                } else {
-                    if ((paint_type == PAINT_TYPE_RADIAL_GRADIENT)) {
-                        uint paint_tex_idx_6 = (in_.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK);
-                        RadialGradient _e201 = unpack_radial_gradient(paint_tex_idx_6);
-                        vec2 fragment_pos_1 = in_.sample_xy;
-                        vec2 grad_pos_3 = ((_e201.transform * fragment_pos_1) + _e201.translate);
-                        RadialGradientResult _e207 = calculate_radial_gradient(grad_pos_3, _e201);
-                        vec4 _e212 = sample_gradient_lut(_e207.t_value, _e201.extend_mode, _e201.gradient_start, _e201.texture_width);
-                        float _e218 = alpha;
-                        final_color = (_e207.is_valid ? (_e218 * _e212) : vec4(0.0, 0.0, 0.0, 0.0));
-                    } else {
-                        if ((paint_type == PAINT_TYPE_SWEEP_GRADIENT)) {
-                            uint paint_tex_idx_7 = (in_.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK);
-                            SweepGradient _e227 = unpack_sweep_gradient(paint_tex_idx_7);
-                            vec2 fragment_pos_2 = in_.sample_xy;
-                            grad_pos = ((_e227.transform * fragment_pos_2) + _e227.translate);
-                            vec2 _e234 = grad_pos;
-                            vec2 _e235 = grad_pos;
-                            grad_pos = mix(_e234, vec2(0.0), lessThan(abs(_e235), vec2(0.00024414063)));
-                            float _e244 = grad_pos.x;
-                            float _e246 = grad_pos.y;
-                            float _e247 = xy_to_unit_angle(_e244, _e246);
-                            float angle = (_e247 * TWO_PI);
-                            float t_value_3 = ((angle - _e227.start_angle) * _e227.inv_angle_delta);
-                            vec4 _e257 = sample_gradient_lut(t_value_3, _e227.extend_mode, _e227.gradient_start, _e227.texture_width);
-                            float _e258 = alpha;
-                            final_color = (_e258 * _e257);
-                        }
-                    }
-                }
-            }
-        }
+        float _e105 = alpha;
+        uint _e106 = in_.payload;
+        final_color = (_e105 * (vec4(_e106 & 0xFFu, _e106 >> 8 & 0xFFu, _e106 >> 16 & 0xFFu, _e106 >> 24) / 255.0));
     } else {
         if ((color_source == COLOR_SOURCE_SLOT)) {
             uint _e266 = _group_0_binding_1_fs.height;
@@ -1012,4 +938,3 @@ void main() {
     _fs2p_location0 = _e395;
     return;
 }
-
