@@ -3,18 +3,24 @@
 precision highp float;
 precision highp int;
 
+struct Pair {
+    uint f0;
+    vec4 f1;
+};
+
 uniform highp sampler2D _group_0_binding_2_fs;
 
 flat in uint v0;
 layout(location = 0) out vec4 out_color;
 
 void main() {
+    Pair p = Pair(v0, gl_FragCoord);
     uint mode = v0 >> 29;
 
     if (mode == 1u) {
         out_color = texelFetch(
             _group_0_binding_2_fs,
-            ivec2(int(gl_FragCoord), int(gl_FragCoord)),
+            ivec2(int(p.f1.x), int(p.f1.y)),
             0
         );
     } else {
