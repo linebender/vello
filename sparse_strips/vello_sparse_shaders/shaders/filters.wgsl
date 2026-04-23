@@ -50,8 +50,9 @@ struct FloodFilter {
 struct BlurParams {
     n_linear_taps: u32,
     center_weight: f32,
-    linear_weights: array<f32, MAX_TAPS_PER_SIDE>,
-    linear_offsets: array<f32, MAX_TAPS_PER_SIDE>,
+    // Note: This assumes that `MAX_TAPS_PER_SIDE` = 3.
+    linear_weights: vec3<f32>,
+    linear_offsets: vec3<f32>,
 }
 
 struct DropShadowFilter {
@@ -86,8 +87,8 @@ fn unpack_flood_filter(data: GpuFilterData) -> FloodFilter {
 fn unpack_blur_params(data: GpuFilterData) -> BlurParams {
     let n_linear_taps = unpack_header_n_linear_taps(data.data[0]);
     let center_weight = bitcast<f32>(data.data[1]);
-    var weights: array<f32, MAX_TAPS_PER_SIDE>;
-    var offsets: array<f32, MAX_TAPS_PER_SIDE>;
+    var weights = vec3<f32>(0.0);
+    var offsets = vec3<f32>(0.0);
 
     for (var i = 0u; i < MAX_TAPS_PER_SIDE; i++) {
         weights[i] = bitcast<f32>(data.data[2u + i]);
@@ -264,8 +265,8 @@ fn convolve(
     dir: vec2<f32>,
     n_linear_taps: u32,
     center_weight: f32,
-    weights: array<f32, 3>,
-    offsets: array<f32, 3>,
+    weights: vec3<f32>,
+    offsets: vec3<f32>,
 ) -> vec4<f32> {
     // See the description in `filter.rs` for a bit more information on how this works. For vello_cpu, we
     // precompute a kernel and then apply separate horizontal/vertical passes to achieve the blurring.
