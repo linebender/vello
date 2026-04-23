@@ -5,7 +5,6 @@ version = "0.0.7"
 description = "Provide compilation of wgsl to glsl to support the WebGL `vello_hybrid` backend."
 categories = ["rendering", "graphics"]
 keywords = ["2d", "vector-graphics"]
-exclude = ["generated_glsl/**"]
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
