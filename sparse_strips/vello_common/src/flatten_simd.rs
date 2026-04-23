@@ -49,6 +49,10 @@ pub(crate) trait Callback {
 pub(crate) fn flatten<S: Simd>(
     simd: S,
     path: impl IntoIterator<Item = PathEl>,
+    // Note: we explicitly pass the `Affine` here instead of using `map` on
+    // the iterator because it seems like the `map` function isn't always inlined
+    // properly, even when annotating the closure with `#[inline(always)]`.
+    // See https://github.com/linebender/vello/pull/1600.
     affine: Affine,
     callback: &mut impl Callback,
     flatten_ctx: &mut FlattenCtx,
