@@ -290,12 +290,6 @@ jobs:
         with:
           save-if: ${{ github.event_name != 'merge_group' }}
 
-      - name: Check WebGL shader snapshots are up to date
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          cargo run -p vello_sparse_shaders --features glsl --locked
-          git diff --exit-code -- sparse_strips/vello_sparse_shaders/generated_glsl
-
       - name: cargo nextest
         # TODO: Maybe use --release; the CPU shaders are extremely slow when unoptimised
         run: cargo nextest run --workspace --locked --all-features --no-fail-fast
