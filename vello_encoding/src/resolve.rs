@@ -490,18 +490,16 @@ impl Resolver {
     fn resolve_pending_images(&mut self) {
         'outer: loop {
             self.image_cache.restart_resolve_pass();
-            for pending_image in &mut self.pending_images {
-                pending_image.xy = None;
-            }
             // Loop over the images, attempting to allocate them all into the atlas.
             for pending_image in &mut self.pending_images {
-                if let Some(xy) = self.image_cache.get_or_insert(&pending_image.image) {
-                    pending_image.xy = Some(xy);
-                } else {
+                pending_image.xy = loop {
+                    if let Some(xy) = self.image_cache.get_or_insert(&pending_image.image) {
+                        break Some(xy);
+                    }
                     if self.image_cache.can_fit_image(&pending_image.image)
                         && self.image_cache.evict_stale_entries()
                     {
-                        continue 'outer;
+                        continue;
                     }
                     // We failed to allocate. Try to bump the atlas size.
                     if self.image_cache.bump_size() {
@@ -511,9 +509,9 @@ impl Resolver {
                         // If the atlas is already maximum size, there's nothing we can do. Set
                         // the xy field to None so this image isn't rendered and then carry on--
                         // other images might still fit.
-                        pending_image.xy = None;
+                        break None;
                     }
-                }
+                };
             }
             // If we made it here, we've either successfully allocated all images or we reached
             // the maximum atlas size.

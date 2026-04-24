@@ -12,9 +12,15 @@ const EVICT_AFTER_GENERATIONS: u64 = 2;
 
 #[derive(Default)]
 pub struct Images<'a> {
+    /// Width of the square image atlas texture.
     pub width: u32,
+    /// Height of the square image atlas texture.
     pub height: u32,
+    /// Number of resident images evicted during the current resolve pass.
+    ///
+    /// This is only used for renderer-side debug logging.
     pub evicted: usize,
+    /// Images that must be uploaded in the current resolve pass, with atlas locations.
     pub images: &'a [(ImageData, u32, u32)],
 }
 
@@ -25,13 +31,19 @@ struct ResidentImage {
     x: u32,
     y: u32,
     dirty: bool,
-    last_seen_generation: u64,
+    last_used_generation: u64,
 }
 
 pub(crate) struct ImageCache {
     atlas: AtlasAllocator,
+    /// Maximum side length for the square image atlas texture.
     max_size: i32,
+    /// Monotonic counter for resolve passes, used to track when resident images were last used.
     generation: u64,
+    /// Number of resident images evicted during the current resolve pass.
+    ///
+    /// This is exposed through [`Images::evicted`] for renderer-side debug logging, and also
+    /// prevents repeated stale-eviction scans during the same resolve pass.
     evicted_in_resolve: usize,
     /// Map from image blob id to atlas residency.
     map: HashMap<u64, ResidentImage>,
@@ -71,8 +83,8 @@ impl ImageCache {
         self.images.clear();
         let previous_generation = self.generation.wrapping_sub(1);
         for resident in self.map.values_mut() {
-            if resident.last_seen_generation == self.generation {
-                resident.last_seen_generation = previous_generation;
+            if resident.last_used_generation == self.generation {
+                resident.last_used_generation = previous_generation;
             }
         }
     }
@@ -87,13 +99,15 @@ impl ImageCache {
     }
 
     pub(crate) fn bump_size(&mut self) -> bool {
-        let new_size = self.atlas.size().width * 2;
-        if new_size > self.max_size {
-            return false;
+        let mut new_size = self.atlas.size().width * 2;
+        while new_size <= self.max_size {
+            if self.repack_to_size(new_size) {
+                self.images.clear();
+                return true;
+            }
+            new_size *= 2;
         }
-        self.repack_to_size(new_size);
-        self.images.clear();
-        true
+        false
     }
 
     pub(crate) fn get_or_insert(&mut self, image: &ImageData) -> Option<(u32, u32)> {
@@ -101,8 +115,8 @@ impl ImageCache {
             Entry::Occupied(mut occupied) => {
                 let resident = occupied.get_mut();
                 let xy = (resident.x, resident.y);
-                if resident.last_seen_generation != self.generation {
-                    resident.last_seen_generation = self.generation;
+                if resident.last_used_generation != self.generation {
+                    resident.last_used_generation = self.generation;
                     if resident.dirty {
                         self.images
                             .push((resident.image.clone(), resident.x, resident.y));
@@ -122,7 +136,7 @@ impl ImageCache {
                     x,
                     y,
                     dirty: true,
-                    last_seen_generation: self.generation,
+                    last_used_generation: self.generation,
                 };
                 self.images.push((image.clone(), x, y));
                 vacant.insert(resident);
@@ -133,7 +147,7 @@ impl ImageCache {
 
     pub(crate) fn finish_resolve(&mut self) {
         for resident in self.map.values_mut() {
-            if resident.last_seen_generation == self.generation {
+            if resident.last_used_generation == self.generation {
                 resident.dirty = false;
             }
         }
@@ -145,44 +159,43 @@ impl ImageCache {
     }
 
     pub(crate) fn evict_stale_entries(&mut self) -> bool {
+        if self.evicted_in_resolve != 0 {
+            return false;
+        }
         let Some(stale_before) = self.generation.checked_sub(EVICT_AFTER_GENERATIONS) else {
             return false;
         };
-        let stale_ids: Vec<_> = self
+        for (_id, resident) in self
             .map
-            .iter()
-            .filter_map(|(id, resident)| {
-                (resident.last_seen_generation < stale_before).then_some(*id)
-            })
-            .collect();
-        if stale_ids.is_empty() {
-            return false;
+            .extract_if(|_, resident| resident.last_used_generation < stale_before)
+        {
+            self.atlas.deallocate(resident.alloc_id);
+            self.evicted_in_resolve += 1;
         }
-        let evicted_count = stale_ids.len();
-        for id in stale_ids {
-            if let Some(resident) = self.map.remove(&id) {
-                self.atlas.deallocate(resident.alloc_id);
-            }
-        }
-        self.evicted_in_resolve += evicted_count;
-        true
+        self.evicted_in_resolve != 0
     }
 
-    fn repack_to_size(&mut self, size: i32) {
+    fn repack_to_size(&mut self, size: i32) -> bool {
         let mut atlas = AtlasAllocator::new(size2(size, size));
-        let mut entries: Vec<_> = self.map.drain().collect();
+        let mut entries: Vec<_> = self.map.iter().collect();
         entries.sort_by_key(|(id, _)| *id);
-        for (id, mut resident) in entries {
-            let alloc = atlas
-                .allocate(size2(resident.image.width as _, resident.image.height as _))
-                .expect("resident image must fit after atlas growth");
+        let mut map = HashMap::with_capacity(self.map.len());
+        for (id, resident) in entries {
+            let Some(alloc) =
+                atlas.allocate(size2(resident.image.width as _, resident.image.height as _))
+            else {
+                return false;
+            };
+            let mut resident = resident.clone();
             resident.alloc_id = alloc.id;
             resident.x = alloc.rectangle.min.x as u32;
             resident.y = alloc.rectangle.min.y as u32;
             resident.dirty = true;
-            self.map.insert(id, resident);
+            map.insert(*id, resident);
         }
         self.atlas = atlas;
+        self.map = map;
+        true
     }
 }
 
@@ -247,5 +260,41 @@ mod tests {
         assert!(cache.evict_stale_entries());
         assert!(cache.get_or_insert(&image_b).is_some());
         assert!(!cache.map.contains_key(&image_a.data.id()));
+    }
+
+    #[test]
+    fn stale_entries_are_evicted_at_most_once_per_resolve() {
+        let mut cache = ImageCache::new_with_sizes(32, 32);
+        let image_a = image(1, 8, 8);
+        let image_b = image(2, 8, 8);
+
+        cache.begin_resolve();
+        assert!(cache.get_or_insert(&image_a).is_some());
+        cache.finish_resolve();
+
+        cache.begin_resolve();
+        assert!(cache.get_or_insert(&image_b).is_some());
+        cache.finish_resolve();
+
+        cache.begin_resolve();
+        cache.begin_resolve();
+        cache.begin_resolve();
+
+        assert!(cache.evict_stale_entries());
+        assert!(!cache.evict_stale_entries());
+    }
+
+    #[test]
+    fn failed_repack_leaves_existing_residency_unchanged() {
+        let mut cache = ImageCache::new_with_sizes(16, 16);
+        let image = image(1, 12, 12);
+
+        cache.begin_resolve();
+        let xy = cache.get_or_insert(&image).unwrap();
+
+        assert!(!cache.repack_to_size(8));
+        assert_eq!(cache.atlas.size().width, 16);
+        assert_eq!(cache.get_or_insert(&image), Some(xy));
+        assert_eq!(cache.map.len(), 1);
     }
 }
