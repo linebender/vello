@@ -55,7 +55,6 @@ mod schedule;
 #[cfg(feature = "text")]
 mod text;
 
-pub mod api;
 pub mod util;
 
 #[cfg(feature = "wgpu")]
