@@ -154,7 +154,6 @@ mod text;
 mod text_debug;
 mod util;
 
-pub mod api;
 #[doc(hidden)]
 pub mod fine;
 #[doc(hidden)]

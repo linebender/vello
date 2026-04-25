@@ -4005,7 +4005,6 @@ dependencies = [
  "png",
  "rayon",
  "thread_local",
- "vello_api",
  "vello_common",
 ]
 
@@ -4074,7 +4073,6 @@ dependencies = [
  "pollster",
  "roxmltree",
  "thiserror 2.0.18",
- "vello_api",
  "vello_common",
  "vello_sparse_shaders",
  "web-sys",

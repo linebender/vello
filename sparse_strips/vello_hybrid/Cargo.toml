@@ -23,7 +23,6 @@ wgpu = { workspace = true, default-features = false, optional = true }
 vello_sparse_shaders = { workspace = true, optional = true }
 log = { workspace = true }
 hashbrown = { workspace = true }
-vello_api = { workspace = true, features = ["std"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = { version = "0.3.91", optional = true }
