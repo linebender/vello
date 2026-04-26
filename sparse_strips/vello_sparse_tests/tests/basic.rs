@@ -8,10 +8,9 @@ use crate::util::{circular_star, crossed_line_star, layout_glyphs_roboto, miter_
 use std::f64::consts::PI;
 use vello_common::coarse::Cmd;
 use vello_common::color::palette::css::{
-    BEIGE, BLUE, DARK_BLUE, GREEN, LIME, MAROON, REBECCA_PURPLE, RED, TRANSPARENT, WHITE,
+    BEIGE, BLUE, DARK_BLUE, GREEN, LIME, MAROON, REBECCA_PURPLE, RED, TRANSPARENT,
 };
 use vello_common::kurbo::{Affine, BezPath, Circle, Join, Point, Rect, Shape, Stroke};
-use vello_common::mask::Mask;
 use vello_common::peniko::Fill;
 use vello_cpu::color::palette::css::BLACK;
 use vello_cpu::{Glyph, Level, Pixmap, RenderContext, RenderMode, RenderSettings};
@@ -650,53 +649,32 @@ fn left_cull_mask_cross_combined(ctx: &mut impl Renderer) {
     clip_path.line_to((0.0, 0.0));
     clip_path.close_path();
 
-    let mask = {
-        let mut mask_clip = BezPath::new();
+    let mut mask_clip = BezPath::new();
 
-        mask_clip.move_to((-10.0, -10.0));
-        mask_clip.line_to((15.0, -10.0));
-        mask_clip.line_to((20.0, 25.0));
-        mask_clip.line_to((-15.0, 25.0));
-        mask_clip.close_path();
+    mask_clip.move_to((-10.0, -10.0));
+    mask_clip.line_to((15.0, -10.0));
+    mask_clip.line_to((20.0, 25.0));
+    mask_clip.line_to((-15.0, 25.0));
+    mask_clip.close_path();
 
-        mask_clip.move_to((-2.4334785, 31.524632));
-        mask_clip.line_to((12.338636, 34.129355));
-        mask_clip.line_to((6.0873017, 69.58243));
-        mask_clip.line_to((-8.6848135, 66.97771));
-        mask_clip.close_path();
+    mask_clip.move_to((-2.4334785, 31.524632));
+    mask_clip.line_to((12.338636, 34.129355));
+    mask_clip.line_to((6.0873017, 69.58243));
+    mask_clip.line_to((-8.6848135, 66.97771));
+    mask_clip.close_path();
 
-        mask_clip.move_to((-15.0, 75.0));
-        mask_clip.line_to((20.0, 75.0));
-        mask_clip.line_to((15.0, 115.0));
-        mask_clip.line_to((-10.0, 115.0));
-        mask_clip.close_path();
-
-        let mut mask_pix = Pixmap::new(30, 100);
-        let settings = RenderSettings {
-            level: Level::baseline(),
-            num_threads: 0,
-            render_mode: RenderMode::OptimizeSpeed,
-        };
-        let mut mask_ctx = RenderContext::new_with(30, 100, settings);
-
-        mask_ctx.push_clip_path(&mask_clip);
-        mask_ctx.set_paint(WHITE);
-        mask_ctx.set_transform(transform);
-        mask_ctx.fill_path(&rect_path);
-        mask_ctx.pop_clip_path();
-        mask_ctx.reset_transform();
-        mask_ctx.flush();
-        mask_ctx.render_to_pixmap(&mut vello_cpu::Resources::new(), &mut mask_pix);
-
-        Mask::new_luminance(&mask_pix)
-    };
+    mask_clip.move_to((-15.0, 75.0));
+    mask_clip.line_to((20.0, 75.0));
+    mask_clip.line_to((15.0, 115.0));
+    mask_clip.line_to((-10.0, 115.0));
+    mask_clip.close_path();
 
     ctx.push_clip_path(&clip_path);
-    ctx.push_layer(None, None, None, Some(mask), None);
+    ctx.push_clip_path(&mask_clip);
     ctx.set_paint(GREEN);
     ctx.set_transform(transform);
     ctx.fill_path(&rect_path);
-    ctx.pop_layer();
+    ctx.pop_clip_path();
     ctx.pop_clip_path();
 }
 
@@ -712,39 +690,18 @@ fn left_cull_mask_encloses_viewport(ctx: &mut impl Renderer) {
     clip_path.line_to((0.0, 0.0));
     clip_path.close_path();
 
-    let mask = {
-        let mut mask_clip = BezPath::new();
-        mask_clip.move_to((-40.0, -40.0));
-        mask_clip.line_to((70.0, -40.0));
-        mask_clip.line_to((70.0, 70.0));
-        mask_clip.line_to((-40.0, 70.0));
-        mask_clip.close_path();
-
-        let mut mask_pix = Pixmap::new(30, 30);
-        let settings = RenderSettings {
-            level: Level::baseline(),
-            num_threads: 0,
-            render_mode: RenderMode::OptimizeSpeed,
-        };
-        let mut mask_ctx = RenderContext::new_with(30, 30, settings);
-
-        mask_ctx.push_clip_path(&mask_clip);
-        mask_ctx.set_paint(WHITE);
-        mask_ctx.set_transform(transform);
-        mask_ctx.fill_path(&rect_path);
-        mask_ctx.pop_clip_path();
-        mask_ctx.reset_transform();
-        mask_ctx.flush();
-        mask_ctx.render_to_pixmap(&mut vello_cpu::Resources::new(), &mut mask_pix);
-
-        Mask::new_luminance(&mask_pix)
-    };
+    let mut mask_clip = BezPath::new();
+    mask_clip.move_to((-40.0, -40.0));
+    mask_clip.line_to((70.0, -40.0));
+    mask_clip.line_to((70.0, 70.0));
+    mask_clip.line_to((-40.0, 70.0));
+    mask_clip.close_path();
 
     ctx.push_clip_path(&clip_path);
-    ctx.push_layer(None, None, None, Some(mask), None);
+    ctx.push_clip_path(&mask_clip);
     ctx.set_paint(GREEN);
     ctx.set_transform(transform);
     ctx.fill_path(&rect_path);
-    ctx.pop_layer();
+    ctx.pop_clip_path();
     ctx.pop_clip_path();
 }

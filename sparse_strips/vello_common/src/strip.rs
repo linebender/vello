@@ -199,9 +199,6 @@ pub fn render(
     aliasing_threshold: Option<u8>,
     lines: &[Line],
     use_early_culling: bool,
-    partial_windings: &[[f32; Tile::HEIGHT as usize]],
-    coarse_windings: &[i8],
-    active_rows: &[u32],
 ) {
     if use_early_culling {
         dispatch!(level, simd => render_impl::<_, true>(simd,
@@ -210,10 +207,7 @@ pub fn render(
                                                         alpha_buf,
                                                         fill_rule,
                                                         aliasing_threshold,
-                                                        lines,
-                                                        partial_windings,
-                                                        coarse_windings,
-                                                        active_rows));
+                                                        lines));
     } else {
         dispatch!(level, simd => render_impl::<_, false>(simd,
                                                          tiles,
@@ -221,10 +215,7 @@ pub fn render(
                                                          alpha_buf,
                                                          fill_rule,
                                                          aliasing_threshold,
-                                                         lines,
-                                                         partial_windings,
-                                                         coarse_windings,
-                                                         active_rows));
+                                                         lines));
     }
 }
 
@@ -237,10 +228,11 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
     fill_rule: Fill,
     aliasing_threshold: Option<u8>,
     lines: &[Line],
-    partial_windings: &[[f32; Tile::HEIGHT as usize]],
-    row_windings: &[i8],
-    active_rows: &[u32],
 ) {
+    let partial_windings = &tiles.windings.partial;
+    let row_windings = &tiles.windings.coarse;
+    let active_rows = &tiles.windings.active;
+
     // If we're not early culling and the tile buffer is empty, we can simply exit. If we *are*
     // early culling, the tile buffer may be empty but there may be winding produced by culled
     // geometry left of the viewport that must be checked for filling.

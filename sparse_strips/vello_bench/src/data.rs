@@ -132,17 +132,9 @@ impl DataItem {
 
     /// Get the unsorted tiles.
     pub fn unsorted_tiles(&self) -> Tiles {
-        let mut tiles = Tiles::new(Level::new());
+        let mut tiles = Tiles::new(Level::new(), self.height);
         let lines = self.lines();
-        tiles.make_tiles_analytic_aa::<false>(
-            Level::new(),
-            &lines,
-            self.width,
-            self.height,
-            &mut Vec::new(),
-            &mut Vec::new(),
-            &mut Vec::new(),
-        );
+        tiles.make_tiles_analytic_aa::<false>(Level::new(), &lines, self.width, self.height);
 
         tiles
     }
@@ -171,9 +163,6 @@ impl DataItem {
             None,
             &lines,
             false,
-            &Vec::new(),
-            &Vec::new(),
-            &Vec::new(),
         );
 
         (alpha_buf, strip_buf)
