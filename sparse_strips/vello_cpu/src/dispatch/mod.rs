@@ -37,6 +37,7 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
         encoded_paints: &[EncodedPaint],
+        gamma_correction: bool,
     );
     fn stroke_path(
         &mut self,
@@ -48,6 +49,7 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
         encoded_paints: &[EncodedPaint],
+        gamma_correction: bool,
     );
     /// Fill a pixel-aligned rectangle with the current paint.
     fn fill_rect_fast(
@@ -57,6 +59,7 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         blend_mode: BlendMode,
         mask: Option<Mask>,
         encoded_paints: &[EncodedPaint],
+        gamma_correction: bool,
     );
     fn push_clip_path(
         &mut self,

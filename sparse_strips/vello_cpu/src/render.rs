@@ -105,6 +105,8 @@ pub struct RenderContext {
     pub(crate) temp_path: BezPath,
     /// Optional threshold for aliasing.
     pub(crate) aliasing_threshold: Option<u8>,
+    /// Whether to use gamma-corrected compositing for solid color fills.
+    pub(crate) gamma_correction: bool,
     pub(crate) encoded_paints: Vec<EncodedPaint>,
     pub(crate) filter: Option<Filter>,
     #[cfg_attr(
@@ -178,6 +180,7 @@ impl RenderContext {
         let encoded_paints = vec![];
         let temp_path = BezPath::new();
         let aliasing_threshold = None;
+        let gamma_correction = false;
 
         Self {
             width,
@@ -185,6 +188,7 @@ impl RenderContext {
             dispatcher,
             state: RenderState::default(),
             aliasing_threshold,
+            gamma_correction,
             render_settings: settings,
             mask: None,
             temp_path,
@@ -225,6 +229,7 @@ impl RenderContext {
                 ctx.aliasing_threshold,
                 ctx.mask.clone(),
                 &ctx.encoded_paints,
+                ctx.gamma_correction,
             );
         });
     }
@@ -242,6 +247,7 @@ impl RenderContext {
                 ctx.aliasing_threshold,
                 ctx.mask.clone(),
                 &ctx.encoded_paints,
+                ctx.gamma_correction,
             );
         });
     }
@@ -263,6 +269,7 @@ impl RenderContext {
                     ctx.state.blend_mode,
                     ctx.mask.clone(),
                     &ctx.encoded_paints,
+                    ctx.gamma_correction,
                 );
             } else {
                 // Fall back to path-based rendering for rotated/skewed transforms.
@@ -276,6 +283,7 @@ impl RenderContext {
                     ctx.aliasing_threshold,
                     ctx.mask.clone(),
                     &ctx.encoded_paints,
+                    ctx.gamma_correction,
                 );
             }
         });
@@ -295,6 +303,7 @@ impl RenderContext {
                 ctx.aliasing_threshold,
                 ctx.mask.clone(),
                 &ctx.encoded_paints,
+                ctx.gamma_correction,
             );
         });
     }
@@ -351,6 +360,7 @@ impl RenderContext {
             self.aliasing_threshold,
             self.mask.clone(),
             &self.encoded_paints,
+            self.gamma_correction,
         );
     }
 
@@ -458,6 +468,19 @@ impl RenderContext {
     /// this functionality is simply provided for compatibility.
     pub fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>) {
         self.aliasing_threshold = aliasing_threshold;
+    }
+
+    /// Set whether to use gamma-corrected compositing for solid color fills.
+    ///
+    /// When enabled, uses the formula from "Random-Access Rendering of General Vector Graphics"
+    /// (Nehab & Hoppe 2008): `blend(c, f̃, o) = lerp(sRGB⁻¹(over(f̃, sRGB(c))), c, o)`, using
+    /// sqrt/square as a γ=2 approximation of the sRGB transfer function.
+    ///
+    /// This only affects solid color fills rendered with the `f32` pipeline
+    /// (`OptimizeQuality` render mode). When using the `u8` pipeline (`OptimizeSpeed`),
+    /// gamma correction is silently ignored.
+    pub fn set_gamma_correction(&mut self, gamma_correction: bool) {
+        self.gamma_correction = gamma_correction;
     }
 
     /// Pop the last-pushed layer.
@@ -1129,6 +1152,75 @@ mod tests {
         ctx.render_to_pixmap(&mut resources, &mut pixmap);
         ctx.flush();
         ctx.render_to_pixmap(&mut resources, &mut pixmap);
+    }
+
+    /// Test that gamma-corrected compositing of a semi-transparent fill over an opaque white
+    /// background matches the expected formula:
+    /// `result = (sqrt(src_c * src_a) + sqrt(bg) * (1 - src_a))²`
+    ///
+    /// Semi-transparent red (alpha=0.5) over opaque white (r=g=b=a=1):
+    /// - Red:   sqrt(0.5*0.5) + sqrt(1)*0.5 = 0.5 + 0.5 = 1.0 → 1.0² = 1.0
+    /// - Green: sqrt(0*0.5)   + sqrt(1)*0.5 = 0.0 + 0.5 = 0.5 → 0.5² = 0.25
+    /// - Blue:  same as green = 0.25
+    /// - Alpha: sqrt(0.5*0.5) + sqrt(1)*0.5 = 0.5 + 0.5 = 1.0 → 1.0² = 1.0
+    #[cfg(feature = "f32_pipeline")]
+    #[test]
+    fn gamma_correction_semi_transparent() {
+        use crate::{RenderMode, RenderSettings};
+        use vello_common::color::palette::css::{RED, WHITE};
+        use vello_common::pixmap::Pixmap;
+
+        let width: u16 = 4;
+        let height: u16 = 4;
+
+        let settings = RenderSettings {
+            level: vello_common::fearless_simd::Level::new(),
+            num_threads: 0,
+            render_mode: RenderMode::OptimizeQuality,
+        };
+        let mut ctx = RenderContext::new_with(width, height, settings);
+        let mut resources = crate::Resources::new();
+
+        // First fill with opaque white (hits the copy_solid fast path, unaffected by gamma).
+        ctx.set_paint(WHITE);
+        ctx.fill_rect(&Rect::new(0.0, 0.0, f64::from(width), f64::from(height)));
+
+        // Then fill with 50% opaque red using gamma correction.
+        ctx.set_gamma_correction(true);
+        ctx.set_paint(RED.with_alpha(0.5));
+        ctx.fill_rect(&Rect::new(0.0, 0.0, f64::from(width), f64::from(height)));
+
+        let mut pixmap = Pixmap::new(width, height);
+        ctx.flush();
+        ctx.render_to_pixmap(&mut resources, &mut pixmap);
+
+        let expected_r = (1.00_f32 * 255.0 + 0.5) as u8; // 255
+        let expected_g = (0.25_f32 * 255.0 + 0.5) as u8; // 64
+        let expected_b = (0.25_f32 * 255.0 + 0.5) as u8; // 64
+        let expected_a = (1.00_f32 * 255.0 + 0.5) as u8; // 255
+
+        for pixel in pixmap.data() {
+            assert_eq!(
+                pixel.r, expected_r,
+                "red channel: got {}, expected {}",
+                pixel.r, expected_r
+            );
+            assert_eq!(
+                pixel.g, expected_g,
+                "green channel: got {}, expected {}",
+                pixel.g, expected_g
+            );
+            assert_eq!(
+                pixel.b, expected_b,
+                "blue channel: got {}, expected {}",
+                pixel.b, expected_b
+            );
+            assert_eq!(
+                pixel.a, expected_a,
+                "alpha channel: got {}, expected {}",
+                pixel.a, expected_a
+            );
+        }
     }
 
     #[cfg(feature = "text")]
