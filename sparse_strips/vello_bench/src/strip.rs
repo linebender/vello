@@ -10,7 +10,7 @@ use vello_common::peniko::Fill;
 use vello_common::strip_generator::{StripGenerator, StripStorage};
 use vello_common::tile::Tiles;
 
-fn shift_lines_50_percent(lines: &[Line]) -> Vec<Line> {
+pub fn shift_lines_50_percent(lines: &[Line]) -> Vec<Line> {
     if lines.is_empty() {
         return vec![];
     }
@@ -58,9 +58,6 @@ pub fn render_strips(c: &mut Criterion) {
                         None,
                         &lines,
                         false,
-                        &Vec::new(),
-                        &Vec::new(),
-                        &Vec::new(),
                     );
                     std::hint::black_box((&strip_buf, &alpha_buf));
                 })
@@ -91,20 +88,12 @@ pub fn render_strips_cull(c: &mut Criterion) {
 
         let shifted_lines = shift_lines_50_percent(&item.lines());
 
-        let rows = item.height.div_ceil(4) as usize;
-        let mut partial_windings = vec![[0.0; 4]; rows];
-        let mut coarse_windings = vec![0_i8; rows];
-        let mut active_rows = vec![0_u32; (rows >> 5) + 1];
-
-        let mut tiler = Tiles::new(simd_level);
+        let mut tiler = Tiles::new(simd_level, item.height);
         let is_culled = tiler.make_tiles_analytic_aa::<true>(
             simd_level,
             &shifted_lines,
             item.width,
             item.height,
-            &mut partial_windings,
-            &mut coarse_windings,
-            &mut active_rows,
         );
         tiler.sort_tiles();
 
@@ -125,9 +114,6 @@ pub fn render_strips_cull(c: &mut Criterion) {
                     None,
                     &shifted_lines,
                     is_culled,
-                    &partial_windings,
-                    &coarse_windings,
-                    &active_rows,
                 );
                 std::hint::black_box((&strip_buf, &alpha_buf));
             });
