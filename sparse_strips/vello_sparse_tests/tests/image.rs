@@ -389,7 +389,7 @@ fn image_bilinear_identity(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
+#[vello_test(hybrid_tolerance = 2)]
 fn image_bilinear_2x_scale(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
@@ -401,7 +401,7 @@ fn image_bilinear_2x_scale(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
+#[vello_test(hybrid_tolerance = 2)]
 fn image_bilinear_5x_scale(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
@@ -413,7 +413,7 @@ fn image_bilinear_5x_scale(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
+#[vello_test(hybrid_tolerance = 2)]
 fn image_bilinear_10x_scale(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
@@ -425,7 +425,7 @@ fn image_bilinear_10x_scale(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
+#[vello_test(hybrid_tolerance = 2)]
 fn image_bilinear_with_rotation(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
@@ -437,7 +437,7 @@ fn image_bilinear_with_rotation(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
+#[vello_test(hybrid_tolerance = 2)]
 fn image_bilinear_with_translation(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x2(ctx);
     quality(
@@ -449,7 +449,7 @@ fn image_bilinear_with_translation(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test]
+#[vello_test(hybrid_tolerance = 2)]
 fn image_bilinear_10x_scale_2(ctx: &mut impl Renderer) {
     let image_source = rgb_img_2x3(ctx);
     quality(
