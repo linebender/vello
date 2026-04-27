@@ -25,5 +25,10 @@ naga = { workspace = true, features = ["wgsl-in", "glsl-out"], optional = true }
 [features]
 glsl = ["dep:naga"]
 
+[[bin]]
+name = "vello_sparse_shaders"
+path = "src/main.rs"
+test = false
+
 [lints]
 workspace = true
