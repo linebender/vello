@@ -1,0 +1,1 @@
+../sparse_strips/vello_sparse_shaders/generated_glsl/render_strips.vert.glsl

@@ -283,8 +283,8 @@ fn vs_main(
     let ndc_x = pix_x * 2.0 / f32(config.width) - 1.0;
     let ndc_y = 1.0 - pix_y * 2.0 / f32(config.height);
 
-    let color_source = (instance.paint_and_rect_flag >> 29u) & 0x3u;
-    if color_source == COLOR_SOURCE_PAYLOAD {
+    let color_source = i32((instance.paint_and_rect_flag >> 29u) & 0x3u);
+    if color_source == i32(COLOR_SOURCE_PAYLOAD) {
         let paint_type = (instance.paint_and_rect_flag >> 26u) & 0x7u;
         // Unpack view coordinates for image sampling and gradient calculations
         let scene_strip_x = instance.payload & 0xffffu;
@@ -374,10 +374,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         alpha = f32((alphas_u32 >> (y * 8u)) & 0xffu) * (1.0 / 255.0);
     }
     // Apply the alpha value to the unpacked RGBA color or slot index
-    let color_source = (in.paint_and_rect_flag >> 29u) & 0x3u;
+    let color_source = i32((in.paint_and_rect_flag >> 29u) & 0x3u);
     var final_color: vec4<f32>;
 
-    if color_source == COLOR_SOURCE_PAYLOAD {
+    if color_source == i32(COLOR_SOURCE_PAYLOAD) {
         let paint_type = (in.paint_and_rect_flag >> 26u) & 0x7u;
 
         // in.payload encodes a color for PAINT_TYPE_SOLID or sample_xy for PAINT_TYPE_IMAGE
@@ -510,7 +510,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             );
             final_color = alpha * gradient_color;
         }
-    } else if color_source == COLOR_SOURCE_SLOT {
+    } else if color_source == i32(COLOR_SOURCE_SLOT) {
         // Depending on the value of `ndc_y_negate`, the y position will have a value that either
         // assumes a `y-up` or `y-down` coordinate system. However, for slot textures, we need the original
         // coordinate in the `y-down` system. Therefore, we invert the y-position _again_ in case we are
@@ -532,7 +532,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let opacity = f32(in.paint_and_rect_flag & 0xFFu) * (1.0 / 255.0);
 
         final_color = alpha * opacity * clip_in_color;
-    } else if color_source == COLOR_SOURCE_BLEND {
+    } else if color_source == i32(COLOR_SOURCE_BLEND) {
         // See the comment above.
         let sample_y = select(in.position.y, f32(config.height) - in.position.y, config.ndc_y_negate != 0u);
         let opacity = f32((in.paint_and_rect_flag >> 16u) & 0xFFu) * (1.0 / 255.0);
