@@ -65,3 +65,26 @@ fn webgl_probe_succeeds() {
         }
     }
 }
+
+// This test reproduces a bug where creating a renderer would leave a non-default framebuffer without
+// depth attachment bound, as a result of which `DEPTH_BITS` would return 0 when creating a second
+// renderer.
+#[cfg(feature = "webgl")]
+#[wasm_bindgen_test]
+fn webgl_create_renderer_twice() {
+    use vello_hybrid::WebGlRenderer;
+    use wasm_bindgen::JsCast;
+    use web_sys::HtmlCanvasElement;
+
+    let document = web_sys::window().unwrap().document().unwrap();
+    let canvas = document
+        .create_element("canvas")
+        .unwrap()
+        .dyn_into::<HtmlCanvasElement>()
+        .unwrap();
+    canvas.set_width(16);
+    canvas.set_height(16);
+
+    let _ = WebGlRenderer::new(&canvas);
+    let _ = WebGlRenderer::new(&canvas);
+}
