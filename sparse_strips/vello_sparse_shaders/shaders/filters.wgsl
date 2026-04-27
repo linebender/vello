@@ -11,6 +11,11 @@
 // for the drop shadow filter, we need to composite the original content on top of the shadow.
 @group(2) @binding(0) var original_tex: texture_2d<f32>;
 
+// VERY IMPORTANT NOTE: Whenever making use of structs in the fragment shader, 
+// make sure that any field could be interpreted using 16-bit precision and still work
+// correctly!! See <ISSUE> for more information.
+// If that's not possible, avoid using structs and make use of native types (like vectors) instead.
+
 // Keep these variables and structs in sync with the ones in `filter.rs`!
 
 const FILTER_SIZE_BYTES: u32 = 48;
@@ -33,32 +38,12 @@ const PASS_COMPOSITE_DROP_SHADOW: u32 = 7u;
 
 const MAX_TAPS_PER_SIDE: u32 = 3u;
 
-// A type erased instance of a filter containing the values of all parameters.
-struct GpuFilterData {
-    data: array<u32, FILTER_SIZE_U32>
-}
-
-struct OffsetFilter {
-    dx: f32,
-    dy: f32,
-}
-
-struct FloodFilter {
-    color: u32,
-}
-
 struct BlurParams {
     n_linear_taps: u32,
     center_weight: f32,
     // Note: This assumes that `MAX_TAPS_PER_SIDE` = 3.
     linear_weights: vec3<f32>,
     linear_offsets: vec3<f32>,
-}
-
-struct DropShadowFilter {
-    dx: f32,
-    dy: f32,
-    color: u32,
 }
 
 // The layout of the header:
@@ -68,53 +53,57 @@ struct DropShadowFilter {
 //   bits [11:12] = n_linear_taps (2 bits, only for blur filters)
 //   bits [13:32] = reserved for future use
 
-fn unpack_filter_type(data: GpuFilterData) -> u32 { return data.data[0] & 0x1Fu; }
+fn unpack_filter_type(data: array<u32, FILTER_SIZE_U32>) -> u32 { return data[0] & 0x1Fu; }
 fn unpack_header_n_linear_taps(header: u32) -> u32 { return (header >> 11u) & 0x3u; }
 
-fn unpack_offset_filter(data: GpuFilterData) -> OffsetFilter {
-    return OffsetFilter(
-        bitcast<f32>(data.data[1]),
-        bitcast<f32>(data.data[2])
+// Returns the filter offset as `(dx, dy)`.
+fn unpack_offset_filter(data: array<u32, FILTER_SIZE_U32>) -> vec2<f32> {
+    return vec2<f32>(
+        bitcast<f32>(data[1]),
+        bitcast<f32>(data[2])
     );
 }
 
-fn unpack_flood_filter(data: GpuFilterData) -> FloodFilter {
-    return FloodFilter(data.data[1]);
+// Returns the packed flood color as a packed u32.
+fn unpack_flood_filter(data: array<u32, FILTER_SIZE_U32>) -> u32 {
+    return data[1];
 }
 
 // Note that this assumes that the data is stored directly after the header,
 // which currently is the case for gaussian blur and drop shadow.
-fn unpack_blur_params(data: GpuFilterData) -> BlurParams {
-    let n_linear_taps = unpack_header_n_linear_taps(data.data[0]);
-    let center_weight = bitcast<f32>(data.data[1]);
+fn unpack_blur_params(data: array<u32, FILTER_SIZE_U32>) -> BlurParams {
+    let n_linear_taps = unpack_header_n_linear_taps(data[0]);
+    let center_weight = bitcast<f32>(data[1]);
     let weights = vec3<f32>(
-        bitcast<f32>(data.data[2u]),
-        bitcast<f32>(data.data[3u]),
-        bitcast<f32>(data.data[4u]),
+        bitcast<f32>(data[2u]),
+        bitcast<f32>(data[3u]),
+        bitcast<f32>(data[4u]),
     );
     let offsets = vec3<f32>(
-        bitcast<f32>(data.data[2u + MAX_TAPS_PER_SIDE]),
-        bitcast<f32>(data.data[3u + MAX_TAPS_PER_SIDE]),
-        bitcast<f32>(data.data[4u + MAX_TAPS_PER_SIDE]),
+        bitcast<f32>(data[2u + MAX_TAPS_PER_SIDE]),
+        bitcast<f32>(data[3u + MAX_TAPS_PER_SIDE]),
+        bitcast<f32>(data[4u + MAX_TAPS_PER_SIDE]),
     );
 
     return BlurParams(n_linear_taps, center_weight, weights, offsets);
 }
 
-fn unpack_drop_shadow_filter(data: GpuFilterData) -> DropShadowFilter {
-    return DropShadowFilter(
-        bitcast<f32>(data.data[8]),
-        bitcast<f32>(data.data[9]),
-        data.data[10],
+// Returns the drop shadow data as `(dx, dy, packed_color_bits_as_f32)`.
+// In order to extract the color, you need to bitcast the value back to u32.
+fn unpack_drop_shadow_filter(data: array<u32, FILTER_SIZE_U32>) -> vec3<f32> {
+    return vec3<f32>(
+        bitcast<f32>(data[8]),
+        bitcast<f32>(data[9]),
+        bitcast<f32>(data[10]),
     );
 }
 
-fn load_filter_data(texel_offset: u32) -> GpuFilterData {
+fn load_filter_data(texel_offset: u32) -> array<u32, FILTER_SIZE_U32> {
     let w = textureDimensions(filter_data).x;
     let t0 = textureLoad(filter_data, vec2((texel_offset     ) % w, (texel_offset     ) / w), 0);
     let t1 = textureLoad(filter_data, vec2((texel_offset + 1u) % w, (texel_offset + 1u) / w), 0);
     let t2 = textureLoad(filter_data, vec2((texel_offset + 2u) % w, (texel_offset + 2u) / w), 0);
-    return GpuFilterData(array(t0.x, t0.y, t0.z, t0.w, t1.x, t1.y, t1.z, t1.w, t2.x, t2.y, t2.z, t2.w));
+    return array(t0.x, t0.y, t0.z, t0.w, t1.x, t1.y, t1.z, t1.w, t2.x, t2.y, t2.z, t2.w);
 }
 
 struct FilterInstanceData {
@@ -183,27 +172,27 @@ fn vs_main(
 // Sample a pixel from the original texture.
 // Note: `rel_cord` needs to be positive and must not exceed the width/height of the image
 // that is to be sampled.
-fn sample_original(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
-    let src_coord = vec2<u32>(vec2<i32>(in.original_offset) + vec2<i32>(rel_coord));
+fn sample_original(original_offset: vec2<u32>, rel_coord: vec2<f32>) -> vec4<f32> {
+    let src_coord = vec2<u32>(vec2<i32>(original_offset) + vec2<i32>(rel_coord));
     return textureLoad(original_tex, src_coord, 0);
 }
 
 // Sample a pixel from the input texture.
 // Note: `rel_cord` needs to be positive and must not exceed the width/height of the image
 // that is to be sampled.
-fn sample_input(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
-    let src_coord = vec2<u32>(vec2<i32>(in.src_offset) + vec2<i32>(rel_coord));
+fn sample_input(src_offset: vec2<u32>, rel_coord: vec2<f32>) -> vec4<f32> {
+    let src_coord = vec2<u32>(vec2<i32>(src_offset) + vec2<i32>(rel_coord));
     return textureLoad(in_tex, src_coord, 0);
 }
 
 // Same as `sample_input`, but with bounds checking.
-fn sample_input_checked(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
-    if rel_coord.x < 0.0 || rel_coord.x >= f32(in.src_size.x) ||
-       rel_coord.y < 0.0 || rel_coord.y >= f32(in.src_size.y) {
+fn sample_input_checked(src_offset: vec2<u32>, src_size: vec2<u32>, rel_coord: vec2<f32>) -> vec4<f32> {
+    if rel_coord.x < 0.0 || rel_coord.x >= f32(src_size.x) ||
+       rel_coord.y < 0.0 || rel_coord.y >= f32(src_size.y) {
         return vec4<f32>(0.0);
     }
 
-    return sample_input(in, rel_coord);
+    return sample_input(src_offset, rel_coord);
 }
 
 // TODO: Add support for edge modes when blurring. This unfortunately will make it harder/impossible to perform
@@ -216,11 +205,11 @@ fn sample_input_checked(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f3
 // We need to use `textureSampleLevel` instead of `textureSample` for loops with dynamic
 // iteration count so that it works properly in the Direct3D backend.
 
-fn downscale(in: FilterVertexOutput) -> vec4<f32> {
-    let frag_coord = vec2<u32>(in.position.xy);
-    let rel = vec2<i32>(frag_coord - in.dest_offset);
+fn downscale(position: vec4<f32>, src_offset: vec2<u32>, dest_offset: vec2<u32>) -> vec4<f32> {
+    let frag_coord = vec2<u32>(position.xy);
+    let rel = vec2<i32>(frag_coord - dest_offset);
     let src_rel = vec2<f32>(rel * 2);
-    let src_texel = vec2<f32>(in.src_offset) + src_rel;
+    let src_texel = vec2<f32>(src_offset) + src_rel;
     let tex_size = vec2<f32>(textureDimensions(in_tex));
 
     // Overall, this follows the same approach that is used by the CPU, where a [1,3,3,1]/8 filter
@@ -244,11 +233,11 @@ fn downscale(in: FilterVertexOutput) -> vec4<f32> {
     return (s00 + s01 + s10 + s11) * 0.25;
 }
 
-fn upscale(in: FilterVertexOutput) -> vec4<f32> {
+fn upscale(position: vec4<f32>, src_offset: vec2<u32>, dest_offset: vec2<u32>) -> vec4<f32> {
     // Same story as for downscaling, but this time even simpler and we can get away with a single texture sample.
 
-    let frag_coord = vec2<u32>(in.position.xy);
-    let rel = vec2<i32>(frag_coord - in.dest_offset);
+    let frag_coord = vec2<u32>(position.xy);
+    let rel = vec2<i32>(frag_coord - dest_offset);
     let src_base = vec2<f32>(rel / 2);
     let phase = vec2<f32>(rel % 2);
     let tex_size = vec2<f32>(textureDimensions(in_tex));
@@ -256,14 +245,14 @@ fn upscale(in: FilterVertexOutput) -> vec4<f32> {
     // For even phases: 75% of current, 25% of top/left.
     // For odd phases: 75% of current, 25% of bottom/right.
     let sample_offset = select(vec2(-0.25), vec2(0.25), phase == vec2(1.0));
-    let src_texel = vec2<f32>(in.src_offset) + src_base + sample_offset;
+    let src_texel = vec2<f32>(src_offset) + src_base + sample_offset;
 
     // Yay, just a single sample!
     return textureSampleLevel(in_tex, linear_sampler, (src_texel + 0.5) / tex_size, 0.0);
 }
 
 fn convolve(
-    in: FilterVertexOutput,
+    src_offset: vec2<u32>,
     src_rel: vec2<f32>,
     dir: vec2<f32>,
     n_linear_taps: u32,
@@ -280,7 +269,7 @@ fn convolve(
     // TODO: Explore whether combining horizontal and vertical filtering is worth it. Likely not worth doing
     // since downscaling/upscaling forms the bottleneck for now.
 
-    let src_texel = vec2<f32>(in.src_offset) + src_rel;
+    let src_texel = vec2<f32>(src_offset) + src_rel;
     let tex_size = vec2<f32>(textureDimensions(in_tex));
 
     // First compute the color contribution of the center pixel.
@@ -306,65 +295,73 @@ const HORIZONTAL: vec2<f32> = vec2<f32>(1.0, 0.0);
 const VERTICAL: vec2<f32> = vec2<f32>(0.0, 1.0);
 
 @fragment
-fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
-    let frag_coord = vec2<u32>(in.position.xy);
-    let rel_coord = vec2<f32>(frag_coord - in.dest_offset);
+fn fs_main(
+    @builtin(position) position: vec4<f32>,
+    @location(0) @interpolate(flat) filter_offset: u32,
+    @location(1) @interpolate(flat) src_offset: vec2<u32>,
+    @location(2) @interpolate(flat) src_size: vec2<u32>,
+    @location(3) @interpolate(flat) dest_offset: vec2<u32>,
+    @location(4) @interpolate(flat) dest_size: vec2<u32>,
+    @location(6) @interpolate(flat) original_offset: vec2<u32>,
+    @location(7) @interpolate(flat) original_size: vec2<u32>,
+    @location(8) @interpolate(flat) pass_kind: u32,
+) -> @location(0) vec4<f32> {
+    let frag_coord = vec2<u32>(position.xy);
+    let rel_coord = vec2<f32>(frag_coord - dest_offset);
 
     // See the comment in `vs_main`.
-    if rel_coord.x >= f32(in.dest_size.x) || rel_coord.y >= f32(in.dest_size.y) {
+    if rel_coord.x >= f32(dest_size.x) || rel_coord.y >= f32(dest_size.y) {
         return vec4<f32>(0.0);
     }
 
-    switch in.pass_kind {
+    switch pass_kind {
         case PASS_COPY: {
-            return sample_input(in, rel_coord);
+            return sample_input(src_offset, rel_coord);
         }
         case PASS_FLOOD: {
-            let data = load_filter_data(in.filter_offset);
-            let flood = unpack_flood_filter(data);
-
-            return unpack4x8unorm(flood.color);
+            let data = load_filter_data(filter_offset);
+            let packed_color = unpack_flood_filter(data);
+            return unpack4x8unorm(packed_color);
         }
         case PASS_OFFSET: {
-            let data = load_filter_data(in.filter_offset);
+            let data = load_filter_data(filter_offset);
             let filter_type = unpack_filter_type(data);
             var dxdy: vec2<f32>;
 
             if filter_type == FILTER_TYPE_DROP_SHADOW {
                 let shadow = unpack_drop_shadow_filter(data);
-                dxdy = vec2<f32>(shadow.dx, shadow.dy);
+                dxdy = shadow.xy;
             } else {
-                let offset = unpack_offset_filter(data);
-                dxdy = vec2<f32>(offset.dx, offset.dy);
+                dxdy = unpack_offset_filter(data);
             }
 
             // CPU version uses normal round but WGSL round with ties even, so we use floor + 0.5 instead.
-            return sample_input_checked(in, rel_coord - floor(dxdy + 0.5));
+            return sample_input_checked(src_offset, src_size, rel_coord - floor(dxdy + 0.5));
         }
         case PASS_DOWNSCALE: {
-            return downscale(in);
+            return downscale(position, src_offset, dest_offset);
         }
         case PASS_BLUR_H: {
-            let data = load_filter_data(in.filter_offset);
+            let data = load_filter_data(filter_offset);
             let blur = unpack_blur_params(data);
-            return convolve(in, rel_coord, HORIZONTAL, blur.n_linear_taps, blur.center_weight, blur.linear_weights, blur.linear_offsets);
+            return convolve(src_offset, rel_coord, HORIZONTAL, blur.n_linear_taps, blur.center_weight, blur.linear_weights, blur.linear_offsets);
         }
         case PASS_BLUR_V: {
-            let data = load_filter_data(in.filter_offset);
+            let data = load_filter_data(filter_offset);
             let blur = unpack_blur_params(data);
-            return convolve(in, rel_coord, VERTICAL, blur.n_linear_taps, blur.center_weight, blur.linear_weights, blur.linear_offsets);
+            return convolve(src_offset, rel_coord, VERTICAL, blur.n_linear_taps, blur.center_weight, blur.linear_weights, blur.linear_offsets);
         }
         case PASS_UPSCALE: {
-            return upscale(in);
+            return upscale(position, src_offset, dest_offset);
         }
         case PASS_COMPOSITE_DROP_SHADOW: {
-            let data = load_filter_data(in.filter_offset);
+            let data = load_filter_data(filter_offset);
             // Drop shadow composite: colorize blurred result, composite original on top.
             let shadow = unpack_drop_shadow_filter(data);
-            let blurred = sample_input(in, rel_coord);
-            let shadow_color = unpack4x8unorm(shadow.color);
+            let blurred = sample_input(src_offset, rel_coord);
+            let shadow_color = unpack4x8unorm(bitcast<u32>(shadow.z));
             let shadow_result = shadow_color * blurred.a;
-            let original = sample_original(in, rel_coord);
+            let original = sample_original(original_offset, rel_coord);
 
             // Simple source-over compositing.
             return original + shadow_result * (1.0 - original.a);
