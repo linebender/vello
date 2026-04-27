@@ -15,6 +15,10 @@ You can find its changes [documented below](#080---2026-03-20).
 
 This release has an [MSRV][] of 1.88.
 
+### Fixed
+
+- Blurry image rendering due to incorrect half-pixel offset. ([#1606][] by [@Keavon][] and [@xStrom][])
+
 ## [0.8.0][] - 2026-03-20
 
 This release has an [MSRV][] of 1.92.
@@ -293,6 +297,7 @@ This release has an [MSRV][] of 1.75.
 [@DasLixou]: https://github.com/DasLixou
 [@dfrg]: https://github.com/drfg
 [@DJMcNab]: https://github.com/DJMcNab
+[@Keavon]: https://github.com/Keavon
 [@kmoon2437]: https://github.com/kmoon2437
 [@LaurenzV]: https://github.com/LaurenzV
 [@msiglreith]: https://github.com/msiglreith
@@ -405,6 +410,7 @@ This release has an [MSRV][] of 1.75.
 [#1342]: https://github.com/linebender/vello/pull/1342
 [#1349]: https://github.com/linebender/vello/pull/1349
 [#1492]: https://github.com/linebender/vello/pull/1492
+[#1606]: https://github.com/linebender/vello/pull/1606
 
 [Unreleased]: https://github.com/linebender/vello/compare/v0.8.0...HEAD
 [0.8.0]: https://github.com/linebender/vello/compare/v0.7.0...v0.8.0
