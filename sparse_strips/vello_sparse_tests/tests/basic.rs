@@ -628,3 +628,129 @@ fn composite_to_pixmap_at_offset() {
         "composite_to_pixmap_at_offset result should match direct rendering"
     );
 }
+
+#[vello_test(width = 30, height = 60)]
+fn left_cull_fully_left_combined(ctx: &mut impl Renderer) {
+    ctx.set_paint(REBECCA_PURPLE);
+
+    let rect_top = Rect::new(-40.0, -10.0, -10.0, 20.0);
+    ctx.set_transform(Affine::rotate_about(
+        15.0 * PI / 180.0,
+        Point::new(-25.0, 5.0),
+    ));
+    ctx.fill_rect(&rect_top);
+
+    let rect_bot = Rect::new(-40.0, 40.0, -10.0, 70.0);
+    ctx.set_transform(Affine::rotate_about(
+        -15.0 * PI / 180.0,
+        Point::new(-25.0, 55.0),
+    ));
+    ctx.fill_rect(&rect_bot);
+}
+
+#[vello_test(width = 30, height = 100)]
+fn left_cull_cross_left_combined(ctx: &mut impl Renderer) {
+    ctx.set_paint(REBECCA_PURPLE);
+
+    let rect_top = Rect::new(-15.0, -15.0, 15.0, 15.0);
+    ctx.set_transform(Affine::rotate_about(
+        10.0 * PI / 180.0,
+        Point::new(0.0, 0.0),
+    ));
+    ctx.fill_rect(&rect_top);
+
+    let rect_mid = Rect::new(-20.0, 35.0, 20.0, 55.0);
+    ctx.set_transform(Affine::rotate_about(
+        5.0 * PI / 180.0,
+        Point::new(0.0, 45.0),
+    ));
+    ctx.fill_rect(&rect_mid);
+
+    let rect_bot = Rect::new(-15.0, 75.0, 15.0, 105.0);
+    ctx.set_transform(Affine::rotate_about(
+        -10.0 * PI / 180.0,
+        Point::new(0.0, 90.0),
+    ));
+    ctx.fill_rect(&rect_bot);
+}
+
+#[vello_test(width = 30, height = 30)]
+fn left_cull_encloses_viewport(ctx: &mut impl Renderer) {
+    let rect = Rect::new(-50.0, -50.0, 80.0, 80.0);
+
+    ctx.set_transform(Affine::rotate_about(
+        7.0 * PI / 180.0,
+        Point::new(15.0, 15.0),
+    ));
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_rect(&rect);
+}
+
+#[vello_test(width = 30, height = 100)]
+fn left_cull_mask_cross_combined(ctx: &mut impl Renderer) {
+    let transform = Affine::new([0.9848077, 0.17364818, -0.17364818, 0.9848077, 0.0, 0.0]);
+    let rect_path = Rect::new(0.0, 0.0, 30.0, 100.0).to_path(0.1);
+
+    let mut clip_path = BezPath::new();
+    clip_path.move_to((0.0, 100.0));
+    clip_path.line_to((30.0, 100.0));
+    clip_path.line_to((30.0, 0.0));
+    clip_path.line_to((0.0, 0.0));
+    clip_path.close_path();
+
+    let mut mask_clip = BezPath::new();
+
+    mask_clip.move_to((-10.0, -10.0));
+    mask_clip.line_to((15.0, -10.0));
+    mask_clip.line_to((20.0, 25.0));
+    mask_clip.line_to((-15.0, 25.0));
+    mask_clip.close_path();
+
+    mask_clip.move_to((-2.4334785, 31.524632));
+    mask_clip.line_to((12.338636, 34.129355));
+    mask_clip.line_to((6.0873017, 69.58243));
+    mask_clip.line_to((-8.6848135, 66.97771));
+    mask_clip.close_path();
+
+    mask_clip.move_to((-15.0, 75.0));
+    mask_clip.line_to((20.0, 75.0));
+    mask_clip.line_to((15.0, 115.0));
+    mask_clip.line_to((-10.0, 115.0));
+    mask_clip.close_path();
+
+    ctx.push_clip_path(&clip_path);
+    ctx.push_clip_path(&mask_clip);
+    ctx.set_paint(GREEN);
+    ctx.set_transform(transform);
+    ctx.fill_path(&rect_path);
+    ctx.pop_clip_path();
+    ctx.pop_clip_path();
+}
+
+#[vello_test(width = 30, height = 30)]
+fn left_cull_mask_encloses_viewport(ctx: &mut impl Renderer) {
+    let transform = Affine::new([0.9848077, 0.17364818, -0.17364818, 0.9848077, 0.0, 0.0]);
+    let rect_path = Rect::new(-20.0, -20.0, 50.0, 50.0).to_path(0.1);
+
+    let mut clip_path = BezPath::new();
+    clip_path.move_to((0.0, 30.0));
+    clip_path.line_to((30.0, 30.0));
+    clip_path.line_to((30.0, 0.0));
+    clip_path.line_to((0.0, 0.0));
+    clip_path.close_path();
+
+    let mut mask_clip = BezPath::new();
+    mask_clip.move_to((-40.0, -40.0));
+    mask_clip.line_to((70.0, -40.0));
+    mask_clip.line_to((70.0, 70.0));
+    mask_clip.line_to((-40.0, 70.0));
+    mask_clip.close_path();
+
+    ctx.push_clip_path(&clip_path);
+    ctx.push_clip_path(&mask_clip);
+    ctx.set_paint(GREEN);
+    ctx.set_transform(transform);
+    ctx.fill_path(&rect_path);
+    ctx.pop_clip_path();
+    ctx.pop_clip_path();
+}

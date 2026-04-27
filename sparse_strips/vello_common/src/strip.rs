@@ -88,6 +88,105 @@ impl Strip {
         self.packed_alpha_idx_fill_gap =
             (self.packed_alpha_idx_fill_gap & !Self::FILL_GAP_MASK) | fill;
     }
+
+    /// When early culling is active, geometry fully to the left of the viewport creates no tiles.
+    /// However, if that geometry has a non-zero winding (e.g. a large shape surrounding the
+    /// viewport), the fill must persist.
+    ///
+    /// We reconstruct this "background" fill using `row_windings` (the winding at x=0) to emit solid
+    /// strips for:
+    ///      1. All rows vertically above the first visible tile.
+    ///      2. 'Captive' rows between two tile-containing rows.
+    ///      3. All rows vertically below the last visible tile.
+    #[inline(always)]
+    fn emit_culled_background<F>(
+        start: u16,
+        end: u16,
+        strips: &mut Vec<Self>,
+        alphas: &mut Vec<u8>,
+        active_rows: &[u32],
+        row_windings: &[i8],
+        should_fill: F,
+    ) where
+        F: Fn(i32) -> bool,
+    {
+        if start >= end {
+            return;
+        }
+
+        let mut push_strip = |y_pos: u16| {
+            strips.push(Self::new(0, y_pos, alphas.len() as u32, false));
+            alphas.extend([255_u8; Tile::HEIGHT as usize * Tile::WIDTH as usize]);
+            strips.push(Self::new(u16::MAX, y_pos, alphas.len() as u32, true));
+        };
+
+        let start_word = (start >> 5) as usize;
+        let end_word = ((end - 1) >> 5) as usize;
+
+        // Start Word
+        {
+            let mut word = active_rows[start_word];
+            let start_bit = start & 31;
+            word &= !((1 << start_bit) - 1);
+            if start_word == end_word {
+                let end_limit = ((end - 1) & 31) + 1;
+                if end_limit < 32 {
+                    word &= (1 << end_limit) - 1;
+                }
+            }
+
+            while word != 0 {
+                let bit = word.trailing_zeros();
+                word &= !(1 << bit);
+                let row = (start_word << 5) + bit as usize;
+                if should_fill(row_windings[row] as i32) {
+                    let y_pos = row as u16 * Tile::HEIGHT;
+                    push_strip(y_pos);
+                }
+            }
+        }
+
+        // Middle Words
+        if start_word < end_word {
+            for (word_idx, &word_val) in active_rows
+                .iter()
+                .enumerate()
+                .take(end_word)
+                .skip(start_word + 1)
+            {
+                let mut word = word_val;
+                while word != 0 {
+                    let bit = word.trailing_zeros();
+                    word &= !(1 << bit);
+
+                    let row = (word_idx << 5) + bit as usize;
+                    if should_fill(row_windings[row] as i32) {
+                        let y_pos = row as u16 * Tile::HEIGHT;
+                        push_strip(y_pos);
+                    }
+                }
+            }
+
+            // End Word
+            {
+                let mut word = active_rows[end_word];
+                let end_limit = ((end - 1) & 31) + 1;
+                if end_limit < 32 {
+                    word &= (1 << end_limit) - 1;
+                }
+
+                while word != 0 {
+                    let bit = word.trailing_zeros();
+                    word &= !(1 << bit);
+                    let row = (end_word << 5) + bit as usize;
+                    if should_fill(row_windings[row] as i32) {
+                        let y_pos = row as u16 * Tile::HEIGHT;
+                        push_strip(y_pos);
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Render the tiles stored in `tiles` into the strip and alpha buffer.
@@ -99,12 +198,29 @@ pub fn render(
     fill_rule: Fill,
     aliasing_threshold: Option<u8>,
     lines: &[Line],
+    use_early_culling: bool,
 ) {
-    dispatch!(level, simd => render_impl(simd, tiles, strip_buf, alpha_buf, fill_rule, aliasing_threshold, lines));
+    if use_early_culling {
+        dispatch!(level, simd => render_impl::<_, true>(simd,
+                                                        tiles,
+                                                        strip_buf,
+                                                        alpha_buf,
+                                                        fill_rule,
+                                                        aliasing_threshold,
+                                                        lines));
+    } else {
+        dispatch!(level, simd => render_impl::<_, false>(simd,
+                                                         tiles,
+                                                         strip_buf,
+                                                         alpha_buf,
+                                                         fill_rule,
+                                                         aliasing_threshold,
+                                                         lines));
+    }
 }
 
 #[inline(always)]
-fn render_impl<S: Simd>(
+fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
     s: S,
     tiles: &Tiles,
     strip_buf: &mut Vec<Strip>,
@@ -113,7 +229,14 @@ fn render_impl<S: Simd>(
     aliasing_threshold: Option<u8>,
     lines: &[Line],
 ) {
-    if tiles.is_empty() {
+    let partial_windings = &tiles.windings.partial;
+    let row_windings = &tiles.windings.coarse;
+    let active_rows = &tiles.windings.active;
+
+    // If we're not early culling and the tile buffer is empty, we can simply exit. If we *are*
+    // early culling, the tile buffer may be empty but there may be winding produced by culled
+    // geometry left of the viewport that must be checked for filling.
+    if !USE_EARLY_CULL && tiles.is_empty() {
         return;
     }
 
@@ -128,7 +251,12 @@ fn render_impl<S: Simd>(
     let mut winding_delta: i32 = 0;
 
     // The previous tile visited.
-    let mut prev_tile = *tiles.get(0);
+    let mut prev_tile = if USE_EARLY_CULL && tiles.is_empty() {
+        Tile::SENTINEL
+    } else {
+        *tiles.get(0)
+    };
+
     // The accumulated (fractional) winding of the tile-sized location we're currently at.
     // Note multiple tiles can be at the same location.
     // Note that we are also implicitly assuming here that the tile height exactly fits into a
@@ -138,18 +266,49 @@ fn render_impl<S: Simd>(
     // next location, this is splatted to that location's starting winding.
     let mut accumulated_winding = f32x4::splat(s, 0.0);
 
-    /// A special tile to keep the logic below simple.
-    const SENTINEL: Tile = Tile::new(u16::MAX, u16::MAX, 0, 0);
+    let left_viewport = prev_tile.x == 0;
+    if USE_EARLY_CULL {
+        let row_max = prev_tile.y.min(row_windings.len() as u16);
+        Strip::emit_culled_background(
+            0,
+            row_max,
+            strip_buf,
+            alpha_buf,
+            active_rows,
+            row_windings,
+            should_fill,
+        );
+        if !tiles.is_empty() {
+            winding_delta = row_windings[prev_tile.y as usize] as i32;
+            if should_fill(winding_delta) && !left_viewport {
+                strip_buf.push(Strip::new(
+                    0,
+                    prev_tile.y * Tile::HEIGHT,
+                    alpha_buf.len() as u32,
+                    false,
+                ));
+                alpha_buf.extend([255_u8; Tile::HEIGHT as usize * Tile::WIDTH as usize]);
+            }
+            accumulated_winding = f32x4::splat(s, winding_delta as f32);
+            if left_viewport {
+                let fine_winding: f32x4<_> = partial_windings[prev_tile.y as usize].simd_into(s);
+                accumulated_winding += fine_winding;
+            }
+            location_winding = [accumulated_winding; Tile::WIDTH as usize];
+        } else {
+            return;
+        }
+    }
 
     // The strip we're building.
     let mut strip = Strip::new(
         prev_tile.x * Tile::WIDTH,
         prev_tile.y * Tile::HEIGHT,
         alpha_buf.len() as u32,
-        false,
+        should_fill(winding_delta) && !left_viewport,
     );
 
-    for (tile_idx, tile) in tiles.iter().copied().chain([SENTINEL]).enumerate() {
+    for (tile_idx, tile) in tiles.iter().copied().chain([Tile::SENTINEL]).enumerate() {
         let line = lines[tile.line_idx() as usize];
         let tile_left_x = f32::from(tile.x) * f32::from(Tile::WIDTH);
         let tile_top_y = f32::from(tile.y) * f32::from(Tile::HEIGHT);
@@ -227,6 +386,7 @@ fn render_impl<S: Simd>(
             strip_buf.push(strip);
 
             let is_sentinel = tile_idx == tiles.len() as usize;
+            let left_viewport = tile.x == 0;
             if !prev_tile.same_row(&tile) {
                 // Emit a final strip in the row if there is non-zero winding for the sparse fill,
                 // or unconditionally if we've reached the sentinel tile to end the path (the
@@ -240,13 +400,47 @@ fn render_impl<S: Simd>(
                     ));
                 }
 
-                winding_delta = 0;
-                accumulated_winding = f32x4::splat(s, 0.0);
+                // Logic identical to the start (see above): fill any vertical gaps (empty rows)
+                // between the previous and current tile using the row windings.
+                if USE_EARLY_CULL && !is_sentinel {
+                    Strip::emit_culled_background(
+                        prev_tile.y + 1,
+                        tile.y,
+                        strip_buf,
+                        alpha_buf,
+                        active_rows,
+                        row_windings,
+                        should_fill,
+                    );
+                    winding_delta = row_windings[tile.y as usize] as i32;
+                    if should_fill(winding_delta) && !left_viewport {
+                        strip_buf.push(Strip::new(
+                            0,
+                            tile.y * Tile::HEIGHT,
+                            alpha_buf.len() as u32,
+                            false,
+                        ));
+                        alpha_buf.extend([255_u8; Tile::HEIGHT as usize * Tile::WIDTH as usize]);
+                    }
+
+                    accumulated_winding = f32x4::splat(s, winding_delta as f32);
+                    if left_viewport {
+                        let fine_winding: f32x4<_> = partial_windings[tile.y as usize].simd_into(s);
+                        accumulated_winding += fine_winding;
+                    }
+                } else {
+                    winding_delta = 0;
+                    accumulated_winding = f32x4::splat(s, 0.0);
+                };
 
                 #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
                 for x in 0..Tile::WIDTH as usize {
                     location_winding[x] = accumulated_winding;
                 }
+            } else {
+                // Note: this fill is mathematically not necessary. It provides a way to reduce
+                // accumulation of float rounding errors.
+                accumulated_winding = f32x4::splat(s, winding_delta as f32);
             }
 
             if is_sentinel {
@@ -257,11 +451,8 @@ fn render_impl<S: Simd>(
                 tile.x * Tile::WIDTH,
                 tile.y * Tile::HEIGHT,
                 alpha_buf.len() as u32,
-                should_fill(winding_delta),
+                should_fill(winding_delta) && !left_viewport,
             );
-            // Note: this fill is mathematically not necessary. It provides a way to reduce
-            // accumulation of float rounding errors.
-            accumulated_winding = f32x4::splat(s, winding_delta as f32);
         }
         prev_tile = tile;
 
@@ -311,53 +502,10 @@ fn render_impl<S: Simd>(
             (p1_y, p1_x, p0_y, p0_x)
         };
 
-        let (line_left_x, line_left_y, line_right_x) = if p0_x < p1_x {
-            (p0_x, p0_y, p1_x)
-        } else {
-            (p1_x, p1_y, p0_x)
-        };
-
         let y_slope = (line_bottom_y - line_top_y) / (line_bottom_x - line_top_x);
         let x_slope = 1. / y_slope;
 
         winding_delta += sign as i32 * i32::from(tile.winding());
-
-        // TODO: this should be removed when out-of-viewport tiles are culled at the
-        // tile-generation stage. That requires calculating and forwarding winding to strip
-        // generation.
-        if tile.x == 0 && line_left_x < 0. {
-            let (ymin, ymax) = if line.p0.x == line.p1.x {
-                (line_top_y, line_bottom_y)
-            } else {
-                let line_viewport_left_y = (line_top_y - line_top_x * y_slope)
-                    .max(line_top_y)
-                    .min(line_bottom_y);
-
-                (
-                    f32::min(line_left_y, line_viewport_left_y),
-                    f32::max(line_left_y, line_viewport_left_y),
-                )
-            };
-
-            let ymin: f32x4<_> = ymin.simd_into(s);
-            let ymax: f32x4<_> = ymax.simd_into(s);
-
-            let px_top_y: f32x4<_> = [0.0, 1.0, 2.0, 3.0].simd_into(s);
-            let px_bottom_y = 1.0 + px_top_y;
-            let ymin = px_top_y.max(ymin);
-            let ymax = px_bottom_y.min(ymax);
-            let h = (ymax - ymin).max(0.0);
-            accumulated_winding = h.mul_add(sign, accumulated_winding);
-            for x_idx in 0..Tile::WIDTH {
-                location_winding[x_idx as usize] =
-                    h.mul_add(sign, location_winding[x_idx as usize]);
-            }
-
-            if line_right_x < 0. {
-                // Early exit, as no part of the line is inside the tile.
-                continue;
-            }
-        }
 
         let line_top_y = f32x4::splat(s, line_top_y);
         let line_bottom_y = f32x4::splat(s, line_bottom_y);
@@ -457,5 +605,17 @@ fn render_impl<S: Simd>(
         }
 
         accumulated_winding += acc;
+    }
+
+    if USE_EARLY_CULL {
+        Strip::emit_culled_background(
+            (prev_tile.y + 1).min(row_windings.len() as u16),
+            row_windings.len() as u16,
+            strip_buf,
+            alpha_buf,
+            active_rows,
+            row_windings,
+            should_fill,
+        );
     }
 }
