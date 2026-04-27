@@ -150,6 +150,15 @@ impl WebGlRenderer {
             .dyn_into::<WebGl2RenderingContext>()
             .expect("Context to be a WebGL2 context");
 
+        let cloned_gl = gl.clone();
+        let _state_guard = WebGlStateGuard::with_config(
+            &cloned_gl,
+            WebGlStateConfig {
+                framebuffer: true,
+                ..Default::default()
+            },
+        );
+
         // Note: It is not entirely clear whether we really _have_ to ensure anti-aliasing is disabled.
         // This code is inherited from a similar snippet in wgpu
         // (https://github.com/gfx-rs/wgpu/blob/56e4a389ddd02403e232beef3d3ff305625e6485/wgpu-hal/src/gles/web.rs#L101-L106),
