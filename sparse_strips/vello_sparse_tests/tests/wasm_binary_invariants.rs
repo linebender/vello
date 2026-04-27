@@ -72,10 +72,10 @@ fn webgl_probe_succeeds() {
 #[cfg(feature = "webgl")]
 #[wasm_bindgen_test]
 fn webgl_create_renderer_twice() {
+    use vello_hybrid::WebGlRenderer;
     use wasm_bindgen::JsCast;
     use web_sys::HtmlCanvasElement;
-    use vello_hybrid::WebGlRenderer;
-    
+
     let document = web_sys::window().unwrap().document().unwrap();
     let canvas = document
         .create_element("canvas")
