@@ -1320,7 +1320,8 @@ fn main(
                         for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
                             // We only need to load from the textures if the value will be used.
                             if area[i] != 0.0 {
-                                let my_xy = vec2(xy.x + f32(i), xy.y);
+                                // Use pixel centers (+0.5) rather than pixel corners for correct sampling
+                                let my_xy = vec2(xy.x + f32(i) + 0.5, xy.y + 0.5);
                                 var atlas_uv = image.matrx.xy * my_xy.x + image.matrx.zw * my_xy.y + image.xlat;
                                 atlas_uv.x = extend_mode(atlas_uv.x, image.x_extend_mode, image.extents.x);
                                 atlas_uv.y = extend_mode(atlas_uv.y, image.y_extend_mode, image.extents.y);
@@ -1338,7 +1339,8 @@ fn main(
                         for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
                             // We only need to load from the textures if the value will be used.
                             if area[i] != 0.0 {
-                                let my_xy = vec2(xy.x + f32(i), xy.y);
+                                // Use pixel centers (+0.5) rather than pixel corners for correct sampling
+                                let my_xy = vec2(xy.x + f32(i) + 0.5, xy.y + 0.5);
                                 var atlas_uv = image.matrx.xy * my_xy.x + image.matrx.zw * my_xy.y + image.xlat;
                                 atlas_uv.x = extend_mode(atlas_uv.x, image.x_extend_mode, image.extents.x);
                                 atlas_uv.y = extend_mode(atlas_uv.y, image.y_extend_mode, image.extents.y);
@@ -1363,7 +1365,8 @@ fn main(
                     case IMAGE_QUALITY_HIGH: {
                         for (var i = 0u; i < PIXELS_PER_THREAD; i += 1u) {
                             if area[i] != 0.0 {
-                                let my_xy = vec2(xy.x + f32(i), xy.y);
+                                // Use pixel centers (+0.5) rather than pixel corners for correct sampling
+                                let my_xy = vec2(xy.x + f32(i) + 0.5, xy.y + 0.5);
                                 var atlas_uv = image.matrx.xy * my_xy.x + image.matrx.zw * my_xy.y + image.xlat;
                                 atlas_uv.x = extend_mode(atlas_uv.x, image.x_extend_mode, image.extents.x);
                                 atlas_uv.y = extend_mode(atlas_uv.y, image.y_extend_mode, image.extents.y);

@@ -12,12 +12,9 @@
     clippy::allow_attributes_without_reason
 )]
 
-use scenes::ImageCache;
-use vello::{
-    AaConfig, Scene,
-    kurbo::{Affine, Rect, Triangle},
-    peniko::{Color, ColorStop, Extend, Gradient, ImageFormat, ImageQuality, Mix, color::palette},
-};
+use vello::Scene;
+use vello::kurbo::{Affine, Rect, Triangle};
+use vello::peniko::{Color, ColorStop, Gradient, ImageFormat, Mix, color::palette};
 use vello_tests::{TestParams, smoke_snapshot_test_sync, snapshot_test_sync};
 
 /// A reproduction of <https://github.com/linebender/vello/issues/680>
@@ -105,58 +102,6 @@ fn test_layer_size() {
     );
     scene.pop_layer();
     let params = TestParams::new("layer_size", 60, 60);
-    smoke_snapshot_test_sync(scene, &params)
-        .unwrap()
-        .assert_mean_less_than(0.001);
-}
-
-const DATA_IMAGE_PNG: &[u8] = include_bytes!("../snapshots/smoke/data_image_roundtrip.png");
-
-/// Test for <https://github.com/linebender/vello/issues/972>
-#[test]
-#[ignore = "CI runs these tests on a CPU, leading to them having unrealistic precision"] // Uncomment below line when removing this.
-// #[cfg_attr(skip_gpu_tests, ignore)]
-#[should_panic]
-fn test_data_image_roundtrip_extend_reflect() {
-    let mut scene = Scene::new();
-    let mut images = ImageCache::new();
-    let image = images
-        .from_bytes(0, DATA_IMAGE_PNG)
-        .unwrap()
-        .with_quality(ImageQuality::Low)
-        .with_extend(Extend::Reflect);
-    scene.draw_image(&image, Affine::IDENTITY);
-    let mut params = TestParams::new(
-        "data_image_roundtrip",
-        image.image.width,
-        image.image.height,
-    );
-    params.anti_aliasing = AaConfig::Area;
-    smoke_snapshot_test_sync(scene, &params)
-        .unwrap()
-        .assert_mean_less_than(0.001);
-}
-
-/// Test for <https://github.com/linebender/vello/issues/972>
-#[test]
-#[ignore = "CI runs these tests on a CPU, leading to them having unrealistic precision"] // Uncomment below line when removing this.
-// #[cfg_attr(skip_gpu_tests, ignore)]
-#[should_panic]
-fn test_data_image_roundtrip_extend_repeat() {
-    let mut scene = Scene::new();
-    let mut images = ImageCache::new();
-    let image = images
-        .from_bytes(0, DATA_IMAGE_PNG)
-        .unwrap()
-        .with_quality(ImageQuality::Low)
-        .with_extend(Extend::Repeat);
-    scene.draw_image(&image, Affine::IDENTITY);
-    let mut params = TestParams::new(
-        "data_image_roundtrip",
-        image.image.width,
-        image.image.height,
-    );
-    params.anti_aliasing = AaConfig::Area;
     smoke_snapshot_test_sync(scene, &params)
         .unwrap()
         .assert_mean_less_than(0.001);
