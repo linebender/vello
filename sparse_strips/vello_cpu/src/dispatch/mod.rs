@@ -87,6 +87,10 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         render_mode: RenderMode,
         width: u16,
         height: u16,
+        dst_x: u16,
+        dst_y: u16,
+        dst_buffer_width: u16,
+        dst_buffer_height: u16,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     );
