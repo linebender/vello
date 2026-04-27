@@ -388,13 +388,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                 if let Some(ref key) = cache_key
                     && let Some(cached_slot) = self.atlas_cacher.get(key)
                 {
-                    // Use fractional scaled_bbox dimensions to preserve sub-pixel accuracy.
-                    let area = Rect::new(
-                        0.0,
-                        0.0,
-                        metrics.scaled_bbox.width(),
-                        metrics.scaled_bbox.height(),
-                    );
+                    let area = Rect::new(0.0, 0.0, metrics.bbox.width(), metrics.bbox.height());
                     render_cached_glyph(
                         renderer,
                         cached_slot,
@@ -1060,12 +1054,8 @@ fn calculate_bitmap_transform(
 struct ColrMetrics {
     /// Base transform with glyph position applied.
     transform: Affine,
-    /// Scaled bounding box in device coordinates.
-    scaled_bbox: Rect,
-    /// Scale factor for x-axis.
-    scale_factor_x: f64,
-    /// Scale factor for y-axis.
-    scale_factor_y: f64,
+    /// The bounding box of the COLR glyph.
+    bbox: Rect,
     /// Font size scale (`font_size` / `upem`).
     font_size_scale: f64,
     has_non_default_blend: bool,
@@ -1088,14 +1078,6 @@ fn calculate_colr_metrics(
     let font_size_scale = (font_size / upem) as f64;
     let transform = draw_props.positioned_transform(glyph);
 
-    // Estimate the size of the intermediate pixmap. Ideally, the intermediate bitmap should have
-    // exactly one pixel (or more) per device pixel, to ensure that no quality is lost. Therefore,
-    // we simply use the scaling/skewing factor to calculate how much to scale each axis by.
-    let (scale_factor_x, scale_factor_y) = {
-        let (x_vec, y_vec) = x_y_advances(&transform.pre_scale(font_size_scale));
-        (x_vec.length(), y_vec.length())
-    };
-
     // TODO: Cache this across frames.
     let colr_info = get_colr_info(font_ref, color_glyph, location);
     let bbox = color_glyph
@@ -1107,20 +1089,9 @@ fn calculate_colr_metrics(
         .or(colr_info.bbox)
         .unwrap_or(Rect::ZERO);
 
-    // Calculate the position of the rectangle that will contain the rendered pixmap in device
-    // coordinates.
-    let scaled_bbox = Rect {
-        x0: bbox.x0 * scale_factor_x,
-        y0: bbox.y0 * scale_factor_y,
-        x1: bbox.x1 * scale_factor_x,
-        y1: bbox.y1 * scale_factor_y,
-    };
-
     ColrMetrics {
         transform,
-        scaled_bbox,
-        scale_factor_x,
-        scale_factor_y,
+        bbox,
         font_size_scale,
         has_non_default_blend: colr_info.has_non_default_blend,
     }
@@ -1153,12 +1124,12 @@ fn calculate_colr_transform(metrics: &ColrMetrics) -> Affine {
         // Therefore, we apply another scale factor that unapplies the effect of the glyph run transform
         // and only retains the transform necessary to account for the size of the glyph.
         * Affine::scale_non_uniform(
-            metrics.font_size_scale / metrics.scale_factor_x,
-            metrics.font_size_scale / metrics.scale_factor_y,
+            metrics.font_size_scale,
+            metrics.font_size_scale,
         )
         // Shift the pixmap back so that the bbox aligns with the original position
         // of where the glyph should be placed.
-        * Affine::translate((metrics.scaled_bbox.x0, metrics.scaled_bbox.y0))
+        * Affine::translate((metrics.bbox.x0, metrics.bbox.y0))
 }
 
 /// Create COLR glyph data with intermediate texture parameters.
@@ -1172,25 +1143,18 @@ fn create_colr_glyph<'a>(
     normalized_coords: &'a [skrifa::instance::NormalizedCoord],
 ) -> GlyphType<'a> {
     let (pix_width, pix_height) = (
-        metrics.scaled_bbox.width().ceil() as u16,
-        metrics.scaled_bbox.height().ceil() as u16,
+        metrics.bbox.width().ceil() as u16,
+        metrics.bbox.height().ceil() as u16,
     );
 
     let draw_transform =
         // Shift everything so that the bbox starts at (0, 0) and the whole visible area of
-        // the glyph will be contained in the intermediate pixmap.
-        Affine::translate((-metrics.scaled_bbox.x0, -metrics.scaled_bbox.y0)) *
-        // Scale down to the actual size that the COLR glyph will have in device units.
-        Affine::scale_non_uniform(metrics.scale_factor_x, metrics.scale_factor_y);
+        // the glyph will be in the viewport.
+        Affine::translate((-metrics.bbox.x0, -metrics.bbox.y0));
 
     // The shift-back happens in `glyph_transform`, so here we can assume (0.0, 0.0) as the origin
     // of the area we want to draw to.
-    let area = Rect::new(
-        0.0,
-        0.0,
-        metrics.scaled_bbox.width(),
-        metrics.scaled_bbox.height(),
-    );
+    let area = Rect::new(0.0, 0.0, metrics.bbox.width(), metrics.bbox.height());
 
     let location = LocationRef::new(normalized_coords);
 
@@ -1915,19 +1879,4 @@ fn find_hint_entry(entries: &mut Vec<HintEntry>, key: &HintKey<'_>) -> Option<(u
     } else {
         Some((found_index, false))
     }
-}
-
-fn x_y_advances(transform: &Affine) -> (Vec2, Vec2) {
-    let scale_skew_transform = {
-        let c = transform.as_coeffs();
-        Affine::new([c[0], c[1], c[2], c[3], 0.0, 0.0])
-    };
-
-    let x_advance = scale_skew_transform * Point::new(1.0, 0.0);
-    let y_advance = scale_skew_transform * Point::new(0.0, 1.0);
-
-    (
-        Vec2::new(x_advance.x, x_advance.y),
-        Vec2::new(y_advance.x, y_advance.y),
-    )
 }
