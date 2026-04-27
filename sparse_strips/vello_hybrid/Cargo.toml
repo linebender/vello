@@ -57,6 +57,7 @@ wgpu = ["dep:wgpu", "dep:vello_sparse_shaders"]
 wgpu_default = ["wgpu", "wgpu/default"]
 # Add support for text rendering.
 text = ["dep:glifo", "glifo/std"]
+probe = ["vello_common/probe", "std"]
 webgl = ["dep:js-sys", "dep:web-sys", "dep:vello_sparse_shaders", "vello_sparse_shaders/glsl"]
 
 [lints]

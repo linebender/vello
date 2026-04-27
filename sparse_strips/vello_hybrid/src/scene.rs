@@ -1072,7 +1072,6 @@ impl Scene {
                 RenderCommand::SetStroke(stroke) => {
                     self.render_state.stroke = stroke.clone();
                 }
-
                 _ => {}
             }
         }

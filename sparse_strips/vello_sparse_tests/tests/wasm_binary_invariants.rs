@@ -39,3 +39,29 @@ async fn no_simd_instruction_inclusion() {
         "WebAssembly module contains unexpected SIMD instructions"
     );
 }
+
+#[cfg(feature = "webgl")]
+#[wasm_bindgen_test]
+fn webgl_probe_succeeds() {
+    use vello_hybrid::Probe;
+    use wasm_bindgen::JsCast;
+    use web_sys::HtmlCanvasElement;
+
+    let document = web_sys::window().unwrap().document().unwrap();
+    let canvas = document
+        .create_element("canvas")
+        .unwrap()
+        .dyn_into::<HtmlCanvasElement>()
+        .unwrap();
+    canvas.set_width(200);
+    canvas.set_height(200);
+
+    let mut renderer = vello_hybrid::WebGlRenderer::new(&canvas);
+    match renderer.probe() {
+        Probe::Success => {}
+        Probe::Error(_) => panic!("WebGlRenderer::probe() unexpectedly failed"),
+        Probe::RenderError(error) => {
+            panic!("WebGlRenderer::probe() failed to render: {error:?}");
+        }
+    }
+}
