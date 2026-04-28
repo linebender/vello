@@ -50,9 +50,8 @@ struct FloodFilter {
 struct BlurParams {
     n_linear_taps: u32,
     center_weight: f32,
-    // Note: This assumes that `MAX_TAPS_PER_SIDE` = 3.
-    linear_weights: vec3<f32>,
-    linear_offsets: vec3<f32>,
+    linear_weights: array<f32, MAX_TAPS_PER_SIDE>,
+    linear_offsets: array<f32, MAX_TAPS_PER_SIDE>,
 }
 
 struct DropShadowFilter {
@@ -87,16 +86,13 @@ fn unpack_flood_filter(data: GpuFilterData) -> FloodFilter {
 fn unpack_blur_params(data: GpuFilterData) -> BlurParams {
     let n_linear_taps = unpack_header_n_linear_taps(data.data[0]);
     let center_weight = bitcast<f32>(data.data[1]);
-    let weights = vec3<f32>(
-        bitcast<f32>(data.data[2u]),
-        bitcast<f32>(data.data[3u]),
-        bitcast<f32>(data.data[4u]),
-    );
-    let offsets = vec3<f32>(
-        bitcast<f32>(data.data[2u + MAX_TAPS_PER_SIDE]),
-        bitcast<f32>(data.data[3u + MAX_TAPS_PER_SIDE]),
-        bitcast<f32>(data.data[4u + MAX_TAPS_PER_SIDE]),
-    );
+    var weights: array<f32, MAX_TAPS_PER_SIDE>;
+    var offsets: array<f32, MAX_TAPS_PER_SIDE>;
+
+    for (var i = 0u; i < MAX_TAPS_PER_SIDE; i++) {
+        weights[i] = bitcast<f32>(data.data[2u + i]);
+        offsets[i] = bitcast<f32>(data.data[2u + MAX_TAPS_PER_SIDE + i]);
+    }
 
     return BlurParams(n_linear_taps, center_weight, weights, offsets);
 }
@@ -268,8 +264,8 @@ fn convolve(
     dir: vec2<f32>,
     n_linear_taps: u32,
     center_weight: f32,
-    weights: vec3<f32>,
-    offsets: vec3<f32>,
+    weights: array<f32, 3>,
+    offsets: array<f32, 3>,
 ) -> vec4<f32> {
     // See the description in `filter.rs` for a bit more information on how this works. For vello_cpu, we
     // precompute a kernel and then apply separate horizontal/vertical passes to achieve the blurring.
@@ -286,15 +282,10 @@ fn convolve(
     // First compute the color contribution of the center pixel.
     var color = textureSampleLevel(in_tex, linear_sampler, (src_texel + 0.5) / tex_size, 0.0) * center_weight;
 
-    // See https://github.com/linebender/vello/pull/1601#issuecomment-4323170395 for why we convert
-    // into array first.
-    let weights_arr = array<f32, 3>(weights.x, weights.y, weights.z);
-    let offsets_arr = array<f32, 3>(offsets.x, offsets.y, offsets.z);
-
     // Then, compute and sum the contributions of the adjacent pixels.
     for (var i = 0u; i < n_linear_taps; i++) {
-        let w = weights_arr[i];
-        let d = dir * offsets_arr[i];
+        let w = weights[i];
+        let d = dir * offsets[i];
         color += textureSampleLevel(in_tex, linear_sampler, (src_texel + d + 0.5) / tex_size, 0.0) * w;
         color += textureSampleLevel(in_tex, linear_sampler, (src_texel - d + 0.5) / tex_size, 0.0) * w;
     }
