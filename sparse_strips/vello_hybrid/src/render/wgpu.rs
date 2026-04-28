@@ -441,6 +441,8 @@ impl Renderer {
             encoder,
             view,
             image_cache,
+            encoded_paints,
+            paint_idxs: &self.paint_idxs,
             filter_context: &self.filter_context,
             filter_pass_state: &mut self.filter_pass_state,
         };
@@ -842,8 +844,14 @@ struct Programs {
     slot_strip_pipelines: [RenderPipeline; 2],
     /// Alpha pipelines for rendering strips to Output targets (depth test ON, depth write OFF, blending ON).
     alpha_strip_pipelines: [RenderPipeline; 2],
-    /// Opaque pipelines for rendering strips to Output targets (depth test ON, depth write ON, blending OFF).
-    opaque_strip_pipelines: [RenderPipeline; 2],
+    /// Opaque solid-color pipeline for the user surface (depth test ON, depth write ON, blending OFF).
+    opaque_solid_pipeline: RenderPipeline,
+    /// Opaque image pipeline for the user surface (depth test ON, depth write ON, blending OFF).
+    opaque_image_pipeline: RenderPipeline,
+    /// Opaque untinted image pipeline for the user surface (depth test ON, depth write ON, blending OFF).
+    opaque_image_untinted_pipeline: RenderPipeline,
+    /// Opaque gradient pipeline for the user surface (depth test ON, depth write ON, blending OFF).
+    opaque_gradient_pipeline: RenderPipeline,
     /// Depth texture for early-z rejection on the Output target.
     depth_texture: Texture,
     /// View for the depth texture.
@@ -1147,6 +1155,25 @@ impl Programs {
             label: Some("Strip Shader"),
             source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::RENDER_STRIPS.into()),
         });
+        let opaque_solid_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Opaque Solid Shader"),
+            source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::OPAQUE_SOLID.into()),
+        });
+        let opaque_image_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Opaque Image Shader"),
+            source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::OPAQUE_IMAGE.into()),
+        });
+        let opaque_image_untinted_shader =
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Opaque Untinted Image Shader"),
+                source: wgpu::ShaderSource::Wgsl(
+                    vello_sparse_shaders::wgsl::OPAQUE_IMAGE_UNTINTED.into(),
+                ),
+            });
+        let opaque_gradient_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Opaque Gradient Shader"),
+            source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::OPAQUE_GRADIENT.into()),
+        });
 
         let clear_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Clear Slots Shader"),
@@ -1235,9 +1262,46 @@ impl Programs {
             Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
             Some(depth_stencil(false)),
         );
-        // Opaque pipelines: depth test ON (LessEqual), depth write ON, blending OFF.
-        let opaque_strip_pipelines =
-            create_strip_pipelines("Strip Opaque Pipeline", None, Some(depth_stencil(true)));
+        let create_specialized_opaque_pipeline = |label: &str, module: &wgpu::ShaderModule| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&strip_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module,
+                    entry_point: Some("vs_main"),
+                    buffers: core::slice::from_ref(&strip_vertex_state),
+                    compilation_options: PipelineCompilationOptions::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(ColorTargetState {
+                        format: render_target_config.format,
+                        blend: None,
+                        write_mask: ColorWrites::ALL,
+                    })],
+                    compilation_options: PipelineCompilationOptions::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleStrip,
+                    ..Default::default()
+                },
+                depth_stencil: Some(depth_stencil(true)),
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let opaque_solid_pipeline =
+            create_specialized_opaque_pipeline("Opaque Solid Pipeline", &opaque_solid_shader);
+        let opaque_image_pipeline =
+            create_specialized_opaque_pipeline("Opaque Image Pipeline", &opaque_image_shader);
+        let opaque_image_untinted_pipeline = create_specialized_opaque_pipeline(
+            "Opaque Untinted Image Pipeline",
+            &opaque_image_untinted_shader,
+        );
+        let opaque_gradient_pipeline =
+            create_specialized_opaque_pipeline("Opaque Gradient Pipeline", &opaque_gradient_shader);
 
         let clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Clear Slots Pipeline"),
@@ -1607,7 +1671,10 @@ impl Programs {
         Self {
             slot_strip_pipelines,
             alpha_strip_pipelines,
-            opaque_strip_pipelines,
+            opaque_solid_pipeline,
+            opaque_image_pipeline,
+            opaque_image_untinted_pipeline,
+            opaque_gradient_pipeline,
             depth_texture,
             depth_texture_view,
             depth_cleared_this_frame: false,
@@ -2376,28 +2443,15 @@ impl Programs {
         }
     }
 
-    /// Uploads two strip slices (opaque then alpha) into a single GPU buffer.
-    fn upload_strip_pair(
-        &mut self,
-        device: &Device,
-        queue: &Queue,
-        opaque_strips: &[GpuStrip],
-        alpha_strips: &[GpuStrip],
-    ) {
-        let opaque_bytes = size_of_val(opaque_strips) as u64;
-        let alpha_bytes = size_of_val(alpha_strips) as u64;
-        let total = opaque_bytes + alpha_bytes;
+    /// Uploads a strip slice into a single GPU buffer.
+    fn upload_strips(&mut self, device: &Device, queue: &Queue, strips: &[GpuStrip]) {
+        let total = size_of_val(strips) as u64;
         self.resources.strips_buffer = Self::create_strips_buffer(device, total);
         // TODO: Consider using a staging belt to avoid an extra staging buffer allocation.
         let mut buffer_view = queue
             .write_buffer_with(&self.resources.strips_buffer, 0, total.try_into().unwrap())
             .expect("Capacity handled in creation");
-        buffer_view
-            .slice(..opaque_bytes as usize)
-            .copy_from_slice(bytemuck::cast_slice(opaque_strips));
-        buffer_view
-            .slice(opaque_bytes as usize..)
-            .copy_from_slice(bytemuck::cast_slice(alpha_strips));
+        buffer_view.copy_from_slice(bytemuck::cast_slice(strips));
     }
 }
 
@@ -2410,8 +2464,58 @@ struct RendererContext<'a> {
     encoder: &'a mut CommandEncoder,
     view: &'a TextureView,
     image_cache: &'a ImageCache,
+    encoded_paints: &'a [EncodedPaint],
+    paint_idxs: &'a [u32],
     filter_context: &'a FilterContext,
     filter_pass_state: &'a mut FilterPassState,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OpaqueBucket {
+    ImageUntinted,
+    ImageTinted,
+    Solid,
+    Gradient,
+}
+
+impl OpaqueBucket {
+    fn from_strip(strip: &GpuStrip, encoded_paints: &[EncodedPaint], paint_idxs: &[u32]) -> Self {
+        const COLOR_SOURCE_PAYLOAD: u32 = 0;
+        const PAINT_TYPE_SOLID: u32 = 0;
+        const PAINT_TYPE_IMAGE: u32 = 1;
+        const PAINT_TYPE_LINEAR_GRADIENT: u32 = 2;
+        const PAINT_TYPE_RADIAL_GRADIENT: u32 = 3;
+        const PAINT_TYPE_SWEEP_GRADIENT: u32 = 4;
+
+        let paint_and_rect_flag = strip.paint_and_rect_flag;
+        let color_source = (paint_and_rect_flag >> 29) & 0x3;
+        debug_assert_eq!(
+            color_source, COLOR_SOURCE_PAYLOAD,
+            "only payload-backed strips may be emitted as opaque"
+        );
+
+        match (paint_and_rect_flag >> 26) & 0x7 {
+            PAINT_TYPE_SOLID => Self::Solid,
+            PAINT_TYPE_IMAGE => {
+                let paint_tex_idx = paint_and_rect_flag & 0x03FF_FFFF;
+                let encoded_paint_idx = paint_idxs[..encoded_paints.len()]
+                    .binary_search(&paint_tex_idx)
+                    .expect("opaque image strip must reference a valid encoded paint");
+                let EncodedPaint::Image(img) = &encoded_paints[encoded_paint_idx] else {
+                    panic!("opaque image strip must reference an encoded image paint");
+                };
+                if img.tint.is_some() {
+                    Self::ImageTinted
+                } else {
+                    Self::ImageUntinted
+                }
+            }
+            PAINT_TYPE_LINEAR_GRADIENT | PAINT_TYPE_RADIAL_GRADIENT | PAINT_TYPE_SWEEP_GRADIENT => {
+                Self::Gradient
+            }
+            paint_type => panic!("unexpected opaque paint type {paint_type}"),
+        }
+    }
 }
 
 impl RendererContext<'_> {
@@ -2426,12 +2530,6 @@ impl RendererContext<'_> {
         if opaque_strips.is_empty() && alpha_strips.is_empty() {
             return;
         }
-        // TODO: We currently allocate a new strips buffer for each render pass. A more efficient
-        // approach would be to re-use buffers or slices of a larger buffer.
-        self.programs
-            .upload_strip_pair(self.device, self.queue, opaque_strips, alpha_strips);
-        let opaque_count = opaque_strips.len() as u32;
-        let alpha_count = alpha_strips.len() as u32;
 
         enum MaybeOwned<'a, T> {
             Borrowed(&'a T),
@@ -2446,6 +2544,80 @@ impl RendererContext<'_> {
                 }
             }
         }
+        let pipeline_idx = if matches!(
+            target,
+            StripPassRenderTarget::Root(RootRenderTarget::AtlasLayer)
+                | StripPassRenderTarget::FilterLayer(_)
+        ) {
+            1
+        } else {
+            0
+        };
+
+        let is_final_view = matches!(
+            target,
+            StripPassRenderTarget::Root(RootRenderTarget::UserSurface)
+        );
+
+        let mut image_untinted_opaque = Vec::new();
+        let mut image_tinted_opaque = Vec::new();
+        let mut solid_opaque = Vec::new();
+        let mut gradient_opaque = Vec::new();
+        let mut uploaded_strips = Vec::new();
+        let (image_untinted_range, image_tinted_range, solid_range, gradient_range, alpha_range) =
+            if is_final_view {
+                image_untinted_opaque.reserve(opaque_strips.len());
+                image_tinted_opaque.reserve(opaque_strips.len());
+                solid_opaque.reserve(opaque_strips.len());
+                gradient_opaque.reserve(opaque_strips.len());
+                for strip in opaque_strips {
+                    match OpaqueBucket::from_strip(strip, self.encoded_paints, self.paint_idxs) {
+                        OpaqueBucket::ImageUntinted => image_untinted_opaque.push(*strip),
+                        OpaqueBucket::ImageTinted => image_tinted_opaque.push(*strip),
+                        OpaqueBucket::Solid => solid_opaque.push(*strip),
+                        OpaqueBucket::Gradient => gradient_opaque.push(*strip),
+                    }
+                }
+
+                uploaded_strips.reserve(
+                    image_untinted_opaque.len()
+                        + image_tinted_opaque.len()
+                        + solid_opaque.len()
+                        + gradient_opaque.len()
+                        + alpha_strips.len(),
+                );
+                let image_untinted_start = 0u32;
+                uploaded_strips.extend_from_slice(&image_untinted_opaque);
+                let image_tinted_start = uploaded_strips.len() as u32;
+                uploaded_strips.extend_from_slice(&image_tinted_opaque);
+                let solid_start = uploaded_strips.len() as u32;
+                uploaded_strips.extend_from_slice(&solid_opaque);
+                let gradient_start = uploaded_strips.len() as u32;
+                uploaded_strips.extend_from_slice(&gradient_opaque);
+                let alpha_start = uploaded_strips.len() as u32;
+                uploaded_strips.extend_from_slice(alpha_strips);
+
+                (
+                    image_untinted_start..image_tinted_start,
+                    image_tinted_start..solid_start,
+                    solid_start..gradient_start,
+                    gradient_start..alpha_start,
+                    alpha_start..uploaded_strips.len() as u32,
+                )
+            } else {
+                debug_assert!(
+                    opaque_strips.is_empty(),
+                    "opaque strips should only be emitted for the user surface"
+                );
+                uploaded_strips.extend_from_slice(alpha_strips);
+                (0..0, 0..0, 0..0, 0..0, 0..uploaded_strips.len() as u32)
+            };
+
+        // TODO: We currently allocate a new strips buffer for each render pass. A more efficient
+        // approach would be to re-use buffers or slices of a larger buffer.
+        self.programs
+            .upload_strips(self.device, self.queue, &uploaded_strips);
+
         let (view, bind_group, scissor_rect): (
             &TextureView,
             MaybeOwned<'_, BindGroup>,
@@ -2471,15 +2643,11 @@ impl RendererContext<'_> {
                 let atlas_size = filter_atlas.textures[atlas_idx].size();
                 let filter_textures = self.filter_context.filter_textures.get(&layer_id).unwrap();
 
-                // Two offsets are needed:
-                // 1. Account for the intermediate texture living at an offset within its atlas.
-                // 2. Account for the filter layer bbox not starting at (0, 0).
                 let strip_offset_x = resources.offset[0] as i32
                     - (filter_textures.bbox.x0() * WideTile::WIDTH) as i32;
                 let strip_offset_y =
                     resources.offset[1] as i32 - (filter_textures.bbox.y0() * Tile::HEIGHT) as i32;
 
-                // TODO: Cache this and bind group? See https://github.com/linebender/vello/pull/1494#discussion_r2937895891.
                 let atlas_config_buffer =
                     self.device
                         .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -2554,21 +2722,6 @@ impl RendererContext<'_> {
             ),
         };
 
-        let pipeline_idx = if matches!(
-            target,
-            StripPassRenderTarget::Root(RootRenderTarget::AtlasLayer)
-                | StripPassRenderTarget::FilterLayer(_)
-        ) {
-            1
-        } else {
-            0
-        };
-
-        let is_final_view = matches!(
-            target,
-            StripPassRenderTarget::Root(RootRenderTarget::UserSurface)
-        );
-
         let depth_stencil_attachment = if is_final_view {
             let depth_load = if self.programs.depth_cleared_this_frame {
                 wgpu::LoadOp::Load
@@ -2615,20 +2768,30 @@ impl RendererContext<'_> {
         render_pass.set_vertex_buffer(0, self.programs.resources.strips_buffer.slice(..));
 
         if is_final_view {
-            // Opaque pass
-            if opaque_count > 0 {
-                render_pass.set_pipeline(&self.programs.opaque_strip_pipelines[pipeline_idx]);
-                render_pass.draw(0..4, 0..opaque_count);
+            if !image_untinted_range.is_empty() {
+                render_pass.set_pipeline(&self.programs.opaque_image_untinted_pipeline);
+                render_pass.draw(0..4, image_untinted_range);
             }
-            // Alpha pass
-            if alpha_count > 0 {
+            if !image_tinted_range.is_empty() {
+                render_pass.set_pipeline(&self.programs.opaque_image_pipeline);
+                render_pass.draw(0..4, image_tinted_range);
+            }
+            if !solid_range.is_empty() {
+                render_pass.set_pipeline(&self.programs.opaque_solid_pipeline);
+                render_pass.draw(0..4, solid_range);
+            }
+            if !gradient_range.is_empty() {
+                render_pass.set_pipeline(&self.programs.opaque_gradient_pipeline);
+                render_pass.draw(0..4, gradient_range);
+            }
+            if !alpha_range.is_empty() {
                 render_pass.set_pipeline(&self.programs.alpha_strip_pipelines[pipeline_idx]);
-                render_pass.draw(0..4, opaque_count..opaque_count + alpha_count);
+                render_pass.draw(0..4, alpha_range);
             }
         } else {
             // Slot texture / intermediate
             render_pass.set_pipeline(&self.programs.slot_strip_pipelines[pipeline_idx]);
-            render_pass.draw(0..4, 0..opaque_count + alpha_count);
+            render_pass.draw(0..4, alpha_range);
         }
     }
 
