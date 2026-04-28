@@ -26,8 +26,9 @@ use crate::{
     render::{
         Config,
         common::{
-            GPU_ENCODED_IMAGE_SIZE_TEXELS, GPU_LINEAR_GRADIENT_SIZE_TEXELS,
-            GPU_RADIAL_GRADIENT_SIZE_TEXELS, GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuEncodedImage,
+            GPU_BLURRED_ROUNDED_RECT_SIZE_TEXELS, GPU_ENCODED_IMAGE_SIZE_TEXELS,
+            GPU_LINEAR_GRADIENT_SIZE_TEXELS, GPU_RADIAL_GRADIENT_SIZE_TEXELS,
+            GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuBlurredRoundedRect, GpuEncodedImage,
             GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
             normalize_atlas_config, pack_image_offset, pack_image_params, pack_image_size,
             pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode, pack_tint,
@@ -49,7 +50,10 @@ use vello_common::multi_atlas::{AtlasConfig, AtlasError, AtlasId};
 use vello_common::render_graph::LayerId;
 use vello_common::{
     coarse::WideTile,
-    encode::{EncodedGradient, EncodedKind, EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind},
+    encode::{
+        EncodedBlurredRoundedRectangle, EncodedGradient, EncodedKind, EncodedPaint,
+        MAX_GRADIENT_LUT_SIZE, RadialKind,
+    },
     paint::ImageSource,
     peniko,
     pixmap::Pixmap,
@@ -693,11 +697,10 @@ impl Renderer {
                     self.encoded_paints[encoded_paint_idx] = gradient_paint;
                     current_idx += gradient_size_texels;
                 }
-                EncodedPaint::BlurredRoundedRect(_blurred_rect) => {
-                    // TODO: Blurred rounded rectangles are not yet supported
-                    log::warn!(
-                        "Blurred rounded rectangles are not yet supported in sparse strips hybrid renderer"
-                    );
+                EncodedPaint::BlurredRoundedRect(blurred_rect) => {
+                    self.encoded_paints[encoded_paint_idx] =
+                        Self::encode_blurred_rounded_rect_paint(blurred_rect);
+                    current_idx += GPU_BLURRED_ROUNDED_RECT_SIZE_TEXELS;
                 }
             }
         }
@@ -800,6 +803,23 @@ impl Renderer {
                 _padding: [0, 0],
             }),
         }
+    }
+
+    fn encode_blurred_rounded_rect_paint(rect: &EncodedBlurredRoundedRectangle) -> GpuEncodedPaint {
+        GpuEncodedPaint::BlurredRoundedRect(GpuBlurredRoundedRect {
+            transform: rect.transform.as_coeffs().map(|x| x as f32),
+            color: rect.color.as_premul_rgba8().to_u32(),
+            _padding0: 0,
+            params0: [
+                rect.exponent,
+                rect.recip_exponent,
+                rect.scale,
+                rect.std_dev_inv,
+            ],
+            params1: [rect.min_edge, rect.w, rect.h, rect.r1],
+            size: [rect.width, rect.height],
+            _padding1: [0, 0],
+        })
     }
 }
 
