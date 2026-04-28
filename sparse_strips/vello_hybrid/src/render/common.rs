@@ -18,6 +18,8 @@ pub(crate) const GPU_LINEAR_GRADIENT_SIZE_TEXELS: u32 =
 pub(crate) const GPU_RADIAL_GRADIENT_SIZE_TEXELS: u32 =
     (size_of::<GpuRadialGradient>() / 16) as u32;
 pub(crate) const GPU_SWEEP_GRADIENT_SIZE_TEXELS: u32 = (size_of::<GpuSweepGradient>() / 16) as u32;
+pub(crate) const GPU_BLURRED_ROUNDED_RECT_SIZE_TEXELS: u32 =
+    (size_of::<GpuBlurredRoundedRect>() / 16) as u32;
 
 // TODO: If we want to use native bilinear sampling for uploaded images,
 // we can pass 1 instead of 0 here.
@@ -167,6 +169,8 @@ pub(crate) enum GpuEncodedPaint {
     RadialGradient(GpuRadialGradient),
     /// An encoded sweep gradient.
     SweepGradient(GpuSweepGradient),
+    /// An encoded blurred rounded rectangle.
+    BlurredRoundedRect(GpuBlurredRoundedRect),
 }
 
 impl GpuEncodedPaint {
@@ -178,6 +182,7 @@ impl GpuEncodedPaint {
             Self::LinearGradient(paint) => bytemuck::bytes_of(paint),
             Self::RadialGradient(paint) => bytemuck::bytes_of(paint),
             Self::SweepGradient(paint) => bytemuck::bytes_of(paint),
+            Self::BlurredRoundedRect(paint) => bytemuck::bytes_of(paint),
         }
     }
 
@@ -218,6 +223,28 @@ pub(crate) struct GpuEncodedImage {
     pub tint_mode: u32,
     /// Number of transparent padding pixels around the image in the atlas.
     pub image_padding: u32,
+}
+
+/// GPU encoded blurred rounded rectangle data.
+/// Align to 16 bytes for `RGBA32Uint` alignment.
+#[repr(C, align(16))]
+#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[allow(dead_code, reason = "Clippy fails when --no-default-features")]
+pub(crate) struct GpuBlurredRoundedRect {
+    /// Transform matrix [a, b, c, d, tx, ty].
+    pub transform: [f32; 6],
+    /// Premultiplied color packed as RGBA8 unorm (`pack4x8unorm` layout).
+    pub color: u32,
+    /// Padding for 16-byte alignment.
+    pub _padding0: u32,
+    /// Blur parameters: exponent, reciprocal exponent, scale, and inverse standard deviation.
+    pub params0: [f32; 4],
+    /// Blur parameters: minimum edge length, adjusted width, adjusted height, and outer radius.
+    pub params1: [f32; 4],
+    /// Blur parameters [width, height].
+    pub size: [f32; 2],
+    /// Padding for 16-byte alignment.
+    pub _padding1: [u32; 2],
 }
 
 /// GPU encoded linear gradient data.
