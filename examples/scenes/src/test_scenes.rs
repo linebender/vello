@@ -111,6 +111,8 @@ export_scenes!(
     fn blurred_rounded_rect(blurred_rounded_rect)
     fn image_sampling(impls::image_sampling(), "image_sampling", false)
     fn image_sampling_bicubic(impls::image_sampling_bicubic(), "image_sampling_bicubic", false)
+    fn image_atlas_residency_demo(image_atlas_residency_demo: animated)
+    fn image_atlas_large_residency_demo(image_atlas_large_residency_demo: animated)
     fn image_extend_modes_bilinear(impls::image_extend_modes(ImageQuality::Medium), "image_extend_modes (bilinear)", false)
     fn image_extend_modes_nearest_neighbor(impls::image_extend_modes(ImageQuality::Low), "image_extend_modes (nearest neighbor)", false)
     fn luminance_mask(luminance_mask)
@@ -121,7 +123,7 @@ export_scenes!(
 /// In a module because the exported [`ExampleScene`] creation functions use the same names.
 mod impls {
     use std::f64::consts::{FRAC_1_SQRT_2, PI};
-    use std::sync::Arc;
+    use std::sync::{Arc, OnceLock};
 
     use crate::SceneParams;
     use kurbo::RoundedRect;
@@ -188,6 +190,83 @@ mod impls {
             height: 16,
             alpha_type: ImageAlphaType::Alpha,
         }
+    }
+
+    fn make_pattern_image(seed: u8, width: u32, height: u32, cell: u32) -> ImageData {
+        let mut data = Vec::with_capacity((width * height * 4) as usize);
+        for y in 0..height {
+            for x in 0..width {
+                let checker = ((x / cell) + (y / cell) + seed as u32).is_multiple_of(2);
+                let diagonal = ((x + y + seed as u32 * 7) % 19) < 4;
+                let cx = (width / 2) as i32;
+                let cy = (height / 2) as i32;
+                let radius = (width.min(height) / 4) as i32;
+                let ring = ((x as i32 - cx).pow(2) + (y as i32 - cy).pow(2)) < radius.pow(2);
+                let [r, g, b, a] = if diagonal {
+                    [
+                        240,
+                        48_u8.saturating_add(seed.saturating_mul(12)),
+                        32_u8.saturating_add(seed.saturating_mul(20)),
+                        255,
+                    ]
+                } else if ring {
+                    [
+                        32_u8.saturating_add(seed.saturating_mul(20)),
+                        120_u8.saturating_add(seed.saturating_mul(24)),
+                        255_u8.saturating_sub(seed.saturating_mul(16)),
+                        220,
+                    ]
+                } else if checker {
+                    [16, 16, 24_u8.saturating_add(seed.saturating_mul(12)), 255]
+                } else {
+                    [
+                        240_u8.saturating_sub(seed.saturating_mul(20)),
+                        240,
+                        248,
+                        255,
+                    ]
+                };
+                data.extend([r, g, b, a]);
+            }
+        }
+        ImageData {
+            data: Blob::new(Arc::new(data)),
+            format: ImageFormat::Rgba8,
+            width,
+            height,
+            alpha_type: ImageAlphaType::Alpha,
+        }
+    }
+
+    fn make_residency_demo_image(seed: u8) -> ImageData {
+        make_pattern_image(seed, 96, 96, 12)
+    }
+
+    fn residency_demo_images() -> &'static [ImageData] {
+        static IMAGES: OnceLock<Vec<ImageData>> = OnceLock::new();
+        IMAGES
+            .get_or_init(|| {
+                vec![
+                    make_residency_demo_image(1),
+                    make_residency_demo_image(5),
+                    make_residency_demo_image(9),
+                ]
+            })
+            .as_slice()
+    }
+
+    fn large_residency_demo_images() -> &'static [ImageData] {
+        static IMAGES: OnceLock<Vec<ImageData>> = OnceLock::new();
+        IMAGES
+            .get_or_init(|| {
+                vec![
+                    make_pattern_image(2, 2048, 2048, 96),
+                    make_pattern_image(4, 2048, 2048, 128),
+                    make_pattern_image(6, 2048, 2048, 160),
+                    make_pattern_image(8, 2048, 2048, 192),
+                ]
+            })
+            .as_slice()
     }
 
     pub(super) fn emoji(scene: &mut Scene, params: &mut SceneParams<'_>) {
@@ -2028,6 +2107,59 @@ mod impls {
                 scene.draw_image(&image_medium, transform.then_translate((420.0, 0.0).into()));
                 scene.draw_image(&image_high, transform.then_translate((840.0, 0.0).into()));
             }
+        }
+    }
+
+    pub(super) fn image_atlas_residency_demo(scene: &mut Scene, params: &mut SceneParams<'_>) {
+        params.resolution = Some(Vec2::new(1400., 900.));
+        params.base_color = Some(palette::css::WHITE);
+
+        let images = residency_demo_images();
+        let columns = 5;
+        let rows = 3;
+        for row in 0..rows {
+            for column in 0..columns {
+                let index = (row * columns + column) % images.len();
+                let image = &images[index];
+                let phase = params.time + (row * columns + column) as f64 * 0.35;
+                let center_x = 180.0 + column as f64 * 240.0 + phase.sin() * 45.0;
+                let center_y = 170.0 + row as f64 * 250.0 + (phase * 0.7).cos() * 30.0;
+                let rotation = (phase * 0.45).sin() * 0.5;
+                let scale = 1.1 + (phase * 1.3).cos() * 0.2;
+                let transform = Affine::translate((center_x, center_y))
+                    * Affine::rotate(rotation)
+                    * Affine::scale(scale)
+                    * Affine::translate((-48.0, -48.0));
+                scene.draw_image(image, transform);
+            }
+        }
+    }
+
+    pub(super) fn image_atlas_large_residency_demo(
+        scene: &mut Scene,
+        params: &mut SceneParams<'_>,
+    ) {
+        params.resolution = Some(Vec2::new(1700., 1100.));
+        params.base_color = Some(palette::css::WHITE);
+
+        let images = large_residency_demo_images();
+        let anchors = [
+            (430.0, 300.0),
+            (1270.0, 310.0),
+            (450.0, 800.0),
+            (1250.0, 780.0),
+        ];
+        for (index, (image, (anchor_x, anchor_y))) in images.iter().zip(anchors).enumerate() {
+            let phase = params.time + index as f64 * 0.8;
+            let offset_x = phase.sin() * 55.0;
+            let offset_y = (phase * 0.7).cos() * 40.0;
+            let rotation = (phase * 0.35).sin() * 0.22;
+            let scale = 0.19 + (phase * 0.45).cos() * 0.015;
+            let transform = Affine::translate((anchor_x + offset_x, anchor_y + offset_y))
+                * Affine::rotate(rotation)
+                * Affine::scale(scale)
+                * Affine::translate((-1024.0, -1024.0));
+            scene.draw_image(image, transform);
         }
     }
 

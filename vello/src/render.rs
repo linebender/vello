@@ -12,6 +12,13 @@ use crate::Scene;
 
 use vello_encoding::{Encoding, Resolver, WorkgroupSize, make_mask_lut, make_mask_lut_16};
 
+#[derive(Clone, Copy, Debug)]
+enum AtlasProxyAction {
+    Created,
+    Reused,
+    Resized,
+}
+
 /// State for a render in progress.
 pub struct Render {
     fine_wg_count: Option<WorkgroupSize>,
@@ -78,9 +85,10 @@ pub(crate) fn render_full(
     scene: &Scene,
     resolver: &mut Resolver,
     shaders: &FullShaders,
+    image_atlas: &mut Option<ImageProxy>,
     params: &RenderParams,
 ) -> (Recording, ResourceProxy) {
-    render_encoding_full(scene.encoding(), resolver, shaders, params)
+    render_encoding_full(scene.encoding(), resolver, shaders, image_atlas, params)
 }
 
 #[cfg(feature = "wgpu")]
@@ -92,10 +100,12 @@ pub(crate) fn render_encoding_full(
     encoding: &Encoding,
     resolver: &mut Resolver,
     shaders: &FullShaders,
+    image_atlas: &mut Option<ImageProxy>,
     params: &RenderParams,
 ) -> (Recording, ResourceProxy) {
     let mut render = Render::new();
-    let mut recording = render.render_encoding_coarse(encoding, resolver, shaders, params, false);
+    let mut recording =
+        render.render_encoding_coarse(encoding, resolver, shaders, image_atlas, params, false);
     let out_image = render.out_image();
     render.record_fine(shaders, &mut recording);
     (recording, out_image.into())
@@ -127,6 +137,7 @@ impl Render {
         encoding: &Encoding,
         resolver: &mut Resolver,
         shaders: &FullShaders,
+        persistent_image_atlas: &mut Option<ImageProxy>,
         params: &RenderParams,
         robust: bool,
     ) -> Recording {
@@ -146,11 +157,47 @@ impl Render {
                 data,
             ))
         };
-        let image_atlas = if images.images.is_empty() {
-            ImageProxy::new(1, 1, ImageFormat::Rgba8)
-        } else {
-            ImageProxy::new(images.width, images.height, ImageFormat::Rgba8)
+        let atlas_width = images.width.max(1);
+        let atlas_height = images.height.max(1);
+        let (image_atlas, atlas_proxy_action) = match persistent_image_atlas {
+            Some(proxy) if proxy.width == atlas_width && proxy.height == atlas_height => {
+                (*proxy, AtlasProxyAction::Reused)
+            }
+            Some(proxy) => {
+                recording.free_image(*proxy);
+                let new_proxy = ImageProxy::new(atlas_width, atlas_height, ImageFormat::Rgba8);
+                *persistent_image_atlas = Some(new_proxy);
+                (new_proxy, AtlasProxyAction::Resized)
+            }
+            None => {
+                let proxy = ImageProxy::new(atlas_width, atlas_height, ImageFormat::Rgba8);
+                *persistent_image_atlas = Some(proxy);
+                (proxy, AtlasProxyAction::Created)
+            }
         };
+        if !matches!(atlas_proxy_action, AtlasProxyAction::Reused)
+            || !images.images.is_empty()
+            || images.evicted != 0
+        {
+            if images.evicted == 0 {
+                log::debug!(
+                    "image atlas {}x{}: {:?}, {} upload(s)",
+                    atlas_width,
+                    atlas_height,
+                    atlas_proxy_action,
+                    images.images.len()
+                );
+            } else {
+                log::debug!(
+                    "image atlas {}x{}: {:?}, {} upload(s), {} eviction(s)",
+                    atlas_width,
+                    atlas_height,
+                    atlas_proxy_action,
+                    images.images.len(),
+                    images.evicted
+                );
+            }
+        }
         for image in images.images {
             recording.write_image(image_atlas, image.1, image.2, image.0.clone());
         }
@@ -573,7 +620,6 @@ impl Render {
         recording.free_resource(fine.segments_buf);
         recording.free_resource(fine.ptcl_buf);
         recording.free_resource(fine.gradient_image);
-        recording.free_resource(fine.image_atlas);
         recording.free_resource(fine.info_bin_data_buf);
         recording.free_resource(fine.blend_spill_buf);
         // TODO: make mask buf persistent
