@@ -62,7 +62,10 @@ use vello_common::{
     pixmap::Pixmap,
     tile::Tile,
 };
-use vello_sparse_shaders::{clear_slots, filters, render_strips};
+use vello_sparse_shaders::{
+    clear_slots, filters, opaque_gradient, opaque_image, opaque_image_untinted, opaque_solid,
+    render_strips,
+};
 use web_sys::wasm_bindgen::{JsCast, JsValue};
 use web_sys::{
     HtmlCanvasElement, WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram,
@@ -545,6 +548,8 @@ impl WebGlRenderer {
             programs: &mut self.programs,
             gl: &self.gl,
             image_cache,
+            encoded_paints: &encoded_paints,
+            paint_idxs: &self.paint_idxs,
             filter_context: &self.filter_context,
             filter_pass_state: &mut self.filter_pass_state,
         };
@@ -879,6 +884,22 @@ struct WebGlPrograms {
     strip_program: WebGlProgram,
     /// Uniform locations for the strip program
     strip_uniforms: StripUniforms,
+    /// Program for opaque solid strips on the final view.
+    opaque_solid_program: WebGlProgram,
+    /// Uniform locations for the opaque solid program.
+    opaque_solid_uniforms: StripUniforms,
+    /// Program for opaque tinted image strips on the final view.
+    opaque_image_program: WebGlProgram,
+    /// Uniform locations for the opaque tinted image program.
+    opaque_image_uniforms: StripUniforms,
+    /// Program for opaque untinted image strips on the final view.
+    opaque_image_untinted_program: WebGlProgram,
+    /// Uniform locations for the opaque untinted image program.
+    opaque_image_untinted_uniforms: StripUniforms,
+    /// Program for opaque gradient strips on the final view.
+    opaque_gradient_program: WebGlProgram,
+    /// Uniform locations for the opaque gradient program.
+    opaque_gradient_uniforms: StripUniforms,
     /// Program for clearing slots in slot textures.
     clear_program: WebGlProgram,
     /// Uniform locations for the `clear_program`.
@@ -909,22 +930,18 @@ struct FilterPassUniforms {
 /// Uniform locations for `strip_program`.
 #[derive(Debug)]
 struct StripUniforms {
-    /// Config uniform block index for vertex shader.
-    config_vs_block_index: u32,
-    /// Config uniform block index for fragment shader.
-    config_fs_block_index: u32,
     /// Alphas texture location.
-    alphas_texture: WebGlUniformLocation,
+    alphas_texture: Option<WebGlUniformLocation>,
     /// Clip input texture location.
-    clip_input_texture: WebGlUniformLocation,
+    clip_input_texture: Option<WebGlUniformLocation>,
     /// Atlas texture location.
-    atlas_texture_array: WebGlUniformLocation,
+    atlas_texture_array: Option<WebGlUniformLocation>,
     /// Encoded paints texture location for fragment shader.
-    encoded_paints_texture_fs: WebGlUniformLocation,
+    encoded_paints_texture_fs: Option<WebGlUniformLocation>,
     /// Encoded paints texture location for vertex shader.
-    encoded_paints_texture_vs: WebGlUniformLocation,
+    encoded_paints_texture_vs: Option<WebGlUniformLocation>,
     /// Gradient texture location.
-    gradient_texture: WebGlUniformLocation,
+    gradient_texture: Option<WebGlUniformLocation>,
 }
 
 /// Uniform locations for `clear_program`.
@@ -1042,6 +1059,26 @@ impl WebGlPrograms {
             render_strips::VERTEX_SOURCE,
             render_strips::FRAGMENT_SOURCE,
         );
+        let opaque_solid_program = create_shader_program(
+            &gl,
+            opaque_solid::VERTEX_SOURCE,
+            opaque_solid::FRAGMENT_SOURCE,
+        );
+        let opaque_image_program = create_shader_program(
+            &gl,
+            opaque_image::VERTEX_SOURCE,
+            opaque_image::FRAGMENT_SOURCE,
+        );
+        let opaque_image_untinted_program = create_shader_program(
+            &gl,
+            opaque_image_untinted::VERTEX_SOURCE,
+            opaque_image_untinted::FRAGMENT_SOURCE,
+        );
+        let opaque_gradient_program = create_shader_program(
+            &gl,
+            opaque_gradient::VERTEX_SOURCE,
+            opaque_gradient::FRAGMENT_SOURCE,
+        );
         let clear_program = create_shader_program(
             &gl,
             clear_slots::VERTEX_SOURCE,
@@ -1052,6 +1089,11 @@ impl WebGlPrograms {
         let filter_uniforms = get_filter_pass_uniforms(&gl, &filter_program);
 
         let strip_uniforms = get_strip_uniforms(&gl, &strip_program);
+        let opaque_solid_uniforms = get_opaque_solid_uniforms(&gl, &opaque_solid_program);
+        let opaque_image_uniforms = get_opaque_image_uniforms(&gl, &opaque_image_program);
+        let opaque_image_untinted_uniforms =
+            get_opaque_image_untinted_uniforms(&gl, &opaque_image_untinted_program);
+        let opaque_gradient_uniforms = get_opaque_gradient_uniforms(&gl, &opaque_gradient_program);
         let clear_uniforms = get_clear_uniforms(&gl, &clear_program);
 
         let resources = create_webgl_resources(&gl, image_cache, filter_context, slot_count);
@@ -1074,6 +1116,14 @@ impl WebGlPrograms {
             filter_program,
             filter_uniforms,
             strip_uniforms,
+            opaque_solid_program,
+            opaque_solid_uniforms,
+            opaque_image_program,
+            opaque_image_uniforms,
+            opaque_image_untinted_program,
+            opaque_image_untinted_uniforms,
+            opaque_gradient_program,
+            opaque_gradient_uniforms,
             clear_uniforms,
             resources,
             render_size: RenderSize {
@@ -1555,14 +1605,9 @@ impl WebGlPrograms {
         gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
     }
 
-    /// Uploads two strip slices (opaque then alpha) into a single GPU buffer.
-    fn upload_strip_pair(
-        &mut self,
-        gl: &WebGl2RenderingContext,
-        opaque_strips: &[GpuStrip],
-        alpha_strips: &[GpuStrip],
-    ) {
-        if opaque_strips.is_empty() && alpha_strips.is_empty() {
+    /// Uploads a strip slice into the GPU instance buffer.
+    fn upload_strips(&mut self, gl: &WebGl2RenderingContext, strips: &[GpuStrip]) {
+        if strips.is_empty() {
             return;
         }
 
@@ -1571,32 +1616,17 @@ impl WebGlPrograms {
             Some(&self.resources.strips_buffer),
         );
 
-        let opaque_bytes: &[u8] = bytemuck::cast_slice(opaque_strips);
-        let alpha_bytes: &[u8] = bytemuck::cast_slice(alpha_strips);
-        let total_len = opaque_bytes.len() + alpha_bytes.len();
-
-        // Allocate buffer, then write both slices via bufferSubData.
-        // We don't want to pay for concatenating the two slices. It's better to
-        // simply write twice.
+        let strip_bytes: &[u8] = bytemuck::cast_slice(strips);
         gl.buffer_data_with_i32(
             WebGl2RenderingContext::ARRAY_BUFFER,
-            total_len as i32,
+            strip_bytes.len() as i32,
             WebGl2RenderingContext::DYNAMIC_DRAW,
         );
-        if !opaque_bytes.is_empty() {
-            gl.buffer_sub_data_with_i32_and_u8_array(
-                WebGl2RenderingContext::ARRAY_BUFFER,
-                0,
-                opaque_bytes,
-            );
-        }
-        if !alpha_bytes.is_empty() {
-            gl.buffer_sub_data_with_i32_and_u8_array(
-                WebGl2RenderingContext::ARRAY_BUFFER,
-                opaque_bytes.len() as i32,
-                alpha_bytes,
-            );
-        }
+        gl.buffer_sub_data_with_i32_and_u8_array(
+            WebGl2RenderingContext::ARRAY_BUFFER,
+            0,
+            strip_bytes,
+        );
     }
 }
 
@@ -1869,56 +1899,134 @@ fn create_shader_program(
 
 /// Get the  uniform locations for the `render_strips` program.
 fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> StripUniforms {
-    let config_vs_name = render_strips::vertex::CONFIG;
-    let config_vs_block_index = gl.get_uniform_block_index(program, config_vs_name);
+    get_optional_strip_uniforms(
+        gl,
+        program,
+        Some(render_strips::vertex::CONFIG),
+        Some(render_strips::fragment::CONFIG),
+        Some(render_strips::fragment::ALPHAS_TEXTURE),
+        Some(render_strips::fragment::CLIP_INPUT_TEXTURE),
+        Some(render_strips::fragment::ATLAS_TEXTURE_ARRAY),
+        Some(render_strips::fragment::ENCODED_PAINTS_TEXTURE),
+        Some(render_strips::vertex::ENCODED_PAINTS_TEXTURE),
+        Some(render_strips::fragment::GRADIENT_TEXTURE),
+    )
+}
 
-    let config_fs_name = render_strips::fragment::CONFIG;
-    let config_fs_block_index = gl.get_uniform_block_index(program, config_fs_name);
+fn get_opaque_solid_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> StripUniforms {
+    get_optional_strip_uniforms(
+        gl,
+        program,
+        Some(opaque_solid::vertex::CONFIG),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+}
 
-    debug_assert_ne!(
-        config_vs_block_index,
-        WebGl2RenderingContext::INVALID_INDEX,
-        "invalid uniform index"
-    );
-    debug_assert_ne!(
-        config_fs_block_index,
-        WebGl2RenderingContext::INVALID_INDEX,
-        "invalid uniform index"
-    );
+fn get_opaque_image_uniforms(gl: &WebGl2RenderingContext, program: &WebGlProgram) -> StripUniforms {
+    get_optional_strip_uniforms(
+        gl,
+        program,
+        Some(opaque_image::vertex::CONFIG),
+        Some(opaque_image::fragment::CONFIG),
+        None,
+        None,
+        Some(opaque_image::fragment::ATLAS_TEXTURE_ARRAY),
+        Some(opaque_image::fragment::ENCODED_PAINTS_TEXTURE),
+        Some(opaque_image::vertex::ENCODED_PAINTS_TEXTURE),
+        None,
+    )
+}
 
-    // Bind uniform blocks to binding points.
-    gl.uniform_block_binding(program, config_vs_block_index, 0);
-    gl.uniform_block_binding(program, config_fs_block_index, 0);
+fn get_opaque_image_untinted_uniforms(
+    gl: &WebGl2RenderingContext,
+    program: &WebGlProgram,
+) -> StripUniforms {
+    get_optional_strip_uniforms(
+        gl,
+        program,
+        Some(opaque_image_untinted::vertex::CONFIG),
+        Some(opaque_image_untinted::fragment::CONFIG),
+        None,
+        None,
+        Some(opaque_image_untinted::fragment::ATLAS_TEXTURE_ARRAY),
+        Some(opaque_image_untinted::fragment::ENCODED_PAINTS_TEXTURE),
+        Some(opaque_image_untinted::vertex::ENCODED_PAINTS_TEXTURE),
+        None,
+    )
+}
 
-    // Get texture uniform locations.
-    let alphas_texture_name = render_strips::fragment::ALPHAS_TEXTURE;
-    let clip_input_texture_name = render_strips::fragment::CLIP_INPUT_TEXTURE;
-    let atlas_texture_array_name = render_strips::fragment::ATLAS_TEXTURE_ARRAY;
-    let encoded_paints_texture_fs_name = render_strips::fragment::ENCODED_PAINTS_TEXTURE;
-    let encoded_paints_texture_vs_name = render_strips::vertex::ENCODED_PAINTS_TEXTURE;
-    let gradient_texture_name = render_strips::fragment::GRADIENT_TEXTURE;
+fn get_opaque_gradient_uniforms(
+    gl: &WebGl2RenderingContext,
+    program: &WebGlProgram,
+) -> StripUniforms {
+    get_optional_strip_uniforms(
+        gl,
+        program,
+        Some(opaque_gradient::vertex::CONFIG),
+        Some(opaque_gradient::fragment::CONFIG),
+        None,
+        None,
+        None,
+        Some(opaque_gradient::fragment::ENCODED_PAINTS_TEXTURE),
+        None,
+        Some(opaque_gradient::fragment::GRADIENT_TEXTURE),
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Uniform metadata is naturally wide here."
+)]
+fn get_optional_strip_uniforms(
+    gl: &WebGl2RenderingContext,
+    program: &WebGlProgram,
+    config_vs_name: Option<&str>,
+    config_fs_name: Option<&str>,
+    alphas_texture_name: Option<&str>,
+    clip_input_texture_name: Option<&str>,
+    atlas_texture_array_name: Option<&str>,
+    encoded_paints_texture_fs_name: Option<&str>,
+    encoded_paints_texture_vs_name: Option<&str>,
+    gradient_texture_name: Option<&str>,
+) -> StripUniforms {
+    let _config_vs_block_index = config_vs_name.and_then(|name| {
+        let idx = gl.get_uniform_block_index(program, name);
+        if idx == WebGl2RenderingContext::INVALID_INDEX {
+            None
+        } else {
+            gl.uniform_block_binding(program, idx, 0);
+            Some(idx)
+        }
+    });
+
+    let _config_fs_block_index = config_fs_name.and_then(|name| {
+        let idx = gl.get_uniform_block_index(program, name);
+        if idx == WebGl2RenderingContext::INVALID_INDEX {
+            None
+        } else {
+            gl.uniform_block_binding(program, idx, 0);
+            Some(idx)
+        }
+    });
 
     StripUniforms {
-        config_vs_block_index,
-        config_fs_block_index,
-        alphas_texture: gl
-            .get_uniform_location(program, alphas_texture_name)
-            .unwrap(),
-        clip_input_texture: gl
-            .get_uniform_location(program, clip_input_texture_name)
-            .unwrap(),
-        atlas_texture_array: gl
-            .get_uniform_location(program, atlas_texture_array_name)
-            .unwrap(),
-        encoded_paints_texture_fs: gl
-            .get_uniform_location(program, encoded_paints_texture_fs_name)
-            .unwrap(),
-        encoded_paints_texture_vs: gl
-            .get_uniform_location(program, encoded_paints_texture_vs_name)
-            .unwrap(),
-        gradient_texture: gl
-            .get_uniform_location(program, gradient_texture_name)
-            .unwrap(),
+        alphas_texture: alphas_texture_name.and_then(|name| gl.get_uniform_location(program, name)),
+        clip_input_texture: clip_input_texture_name
+            .and_then(|name| gl.get_uniform_location(program, name)),
+        atlas_texture_array: atlas_texture_array_name
+            .and_then(|name| gl.get_uniform_location(program, name)),
+        encoded_paints_texture_fs: encoded_paints_texture_fs_name
+            .and_then(|name| gl.get_uniform_location(program, name)),
+        encoded_paints_texture_vs: encoded_paints_texture_vs_name
+            .and_then(|name| gl.get_uniform_location(program, name)),
+        gradient_texture: gradient_texture_name
+            .and_then(|name| gl.get_uniform_location(program, name)),
     }
 }
 
@@ -2315,8 +2423,135 @@ struct WebGlRendererContext<'a> {
     programs: &'a mut WebGlPrograms,
     gl: &'a WebGl2RenderingContext,
     image_cache: &'a ImageCache,
+    encoded_paints: &'a [EncodedPaint],
+    paint_idxs: &'a [u32],
     filter_context: &'a FilterContext,
     filter_pass_state: &'a mut FilterPassState,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OpaqueBucket {
+    ImageUntinted,
+    ImageTinted,
+    Solid,
+    Gradient,
+}
+
+impl OpaqueBucket {
+    fn from_strip(strip: &GpuStrip, encoded_paints: &[EncodedPaint], paint_idxs: &[u32]) -> Self {
+        const COLOR_SOURCE_PAYLOAD: u32 = 0;
+        const PAINT_TYPE_SOLID: u32 = 0;
+        const PAINT_TYPE_IMAGE: u32 = 1;
+        const PAINT_TYPE_LINEAR_GRADIENT: u32 = 2;
+        const PAINT_TYPE_RADIAL_GRADIENT: u32 = 3;
+        const PAINT_TYPE_SWEEP_GRADIENT: u32 = 4;
+
+        let paint_and_rect_flag = strip.paint_and_rect_flag;
+        let color_source = (paint_and_rect_flag >> 29) & 0x3;
+        debug_assert_eq!(
+            color_source, COLOR_SOURCE_PAYLOAD,
+            "only payload-backed strips may be emitted as opaque"
+        );
+
+        match (paint_and_rect_flag >> 26) & 0x7 {
+            PAINT_TYPE_SOLID => Self::Solid,
+            PAINT_TYPE_IMAGE => {
+                let paint_tex_idx = paint_and_rect_flag & 0x03FF_FFFF;
+                let encoded_paint_idx = paint_idxs[..encoded_paints.len()]
+                    .binary_search(&paint_tex_idx)
+                    .expect("opaque image strip must reference a valid encoded paint");
+                let EncodedPaint::Image(img) = &encoded_paints[encoded_paint_idx] else {
+                    panic!("opaque image strip must reference an encoded image paint");
+                };
+                if img.tint.is_some() {
+                    Self::ImageTinted
+                } else {
+                    Self::ImageUntinted
+                }
+            }
+            PAINT_TYPE_LINEAR_GRADIENT | PAINT_TYPE_RADIAL_GRADIENT | PAINT_TYPE_SWEEP_GRADIENT => {
+                Self::Gradient
+            }
+            paint_type => panic!("unexpected opaque paint type {paint_type}"),
+        }
+    }
+}
+
+fn bind_strip_program(
+    gl: &WebGl2RenderingContext,
+    program: &WebGlProgram,
+    uniforms: &StripUniforms,
+    resources: &WebGlResources,
+    clip_texture_idx: usize,
+) {
+    gl.use_program(Some(program));
+
+    if let Some(location) = &uniforms.alphas_texture {
+        gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+        gl.bind_texture(
+            WebGl2RenderingContext::TEXTURE_2D,
+            Some(&resources.alphas_texture),
+        );
+        gl.uniform1i(Some(location), 0);
+    }
+
+    if let Some(location) = &uniforms.clip_input_texture {
+        gl.active_texture(WebGl2RenderingContext::TEXTURE1);
+        gl.bind_texture(
+            WebGl2RenderingContext::TEXTURE_2D,
+            Some(&resources.slot_textures[clip_texture_idx]),
+        );
+        gl.uniform1i(Some(location), 1);
+    }
+
+    if let Some(location) = &uniforms.atlas_texture_array {
+        gl.active_texture(WebGl2RenderingContext::TEXTURE2);
+        gl.bind_texture(
+            WebGl2RenderingContext::TEXTURE_2D_ARRAY,
+            Some(&resources.atlas_texture_array.texture),
+        );
+        gl.uniform1i(Some(location), 2);
+    }
+
+    if let Some(location) = &uniforms.encoded_paints_texture_fs {
+        gl.active_texture(WebGl2RenderingContext::TEXTURE3);
+        gl.bind_texture(
+            WebGl2RenderingContext::TEXTURE_2D,
+            Some(&resources.encoded_paints_texture),
+        );
+        gl.uniform1i(Some(location), 3);
+    }
+
+    if let Some(location) = &uniforms.encoded_paints_texture_vs {
+        gl.active_texture(WebGl2RenderingContext::TEXTURE3);
+        gl.bind_texture(
+            WebGl2RenderingContext::TEXTURE_2D,
+            Some(&resources.encoded_paints_texture),
+        );
+        gl.uniform1i(Some(location), 3);
+    }
+
+    if let Some(location) = &uniforms.gradient_texture {
+        gl.active_texture(WebGl2RenderingContext::TEXTURE4);
+        gl.bind_texture(
+            WebGl2RenderingContext::TEXTURE_2D,
+            Some(&resources.gradient_texture),
+        );
+        gl.uniform1i(Some(location), 4);
+    }
+}
+
+fn set_strip_instance_offset(gl: &WebGl2RenderingContext, base_instance: i32) {
+    let base_byte_offset = base_instance * STRIP_STRIDE;
+    for i in 0..STRIP_ATTR_COUNT {
+        gl.vertex_attrib_i_pointer_with_i32(
+            i as u32,
+            1,
+            WebGl2RenderingContext::UNSIGNED_INT,
+            STRIP_STRIDE,
+            i * 4 + base_byte_offset,
+        );
+    }
 }
 
 impl WebGlRendererContext<'_> {
@@ -2384,16 +2619,8 @@ impl WebGlRendererContext<'_> {
                     bytemuck::bytes_of(&config),
                     WebGl2RenderingContext::DYNAMIC_DRAW,
                 );
-                self.gl.bind_buffer_base(
-                    WebGl2RenderingContext::UNIFORM_BUFFER,
-                    self.programs.strip_uniforms.config_vs_block_index,
-                    Some(buf),
-                );
-                self.gl.bind_buffer_base(
-                    WebGl2RenderingContext::UNIFORM_BUFFER,
-                    self.programs.strip_uniforms.config_fs_block_index,
-                    Some(buf),
-                );
+                self.gl
+                    .bind_buffer_base(WebGl2RenderingContext::UNIFORM_BUFFER, 0, Some(buf));
 
                 Some([
                     resources.offset[0] as i32,
@@ -2413,12 +2640,7 @@ impl WebGlRendererContext<'_> {
 
                 self.gl.bind_buffer_base(
                     WebGl2RenderingContext::UNIFORM_BUFFER,
-                    self.programs.strip_uniforms.config_vs_block_index,
-                    Some(&self.programs.resources.view_config_buffer),
-                );
-                self.gl.bind_buffer_base(
-                    WebGl2RenderingContext::UNIFORM_BUFFER,
-                    self.programs.strip_uniforms.config_fs_block_index,
+                    0,
                     Some(&self.programs.resources.view_config_buffer),
                 );
 
@@ -2441,12 +2663,7 @@ impl WebGlRendererContext<'_> {
                 // Use slot config buffer for rendering to a slot texture.
                 self.gl.bind_buffer_base(
                     WebGl2RenderingContext::UNIFORM_BUFFER,
-                    self.programs.strip_uniforms.config_vs_block_index,
-                    Some(&self.programs.resources.slot_config_buffer),
-                );
-                self.gl.bind_buffer_base(
-                    WebGl2RenderingContext::UNIFORM_BUFFER,
-                    self.programs.strip_uniforms.config_fs_block_index,
+                    0,
                     Some(&self.programs.resources.slot_config_buffer),
                 );
 
@@ -2467,66 +2684,18 @@ impl WebGlRendererContext<'_> {
             self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
         }
 
-        // Use the strip program.
-        self.gl.use_program(Some(&self.programs.strip_program));
-
-        // Set up attributes.
-        self.gl
-            .bind_vertex_array(Some(&self.programs.resources.strip_vao));
-
-        // Bind textures.
-        self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-        self.gl.bind_texture(
-            WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.alphas_texture),
-        );
-        self.gl
-            .uniform1i(Some(&self.programs.strip_uniforms.alphas_texture), 0);
-
         let clip_texture_idx = match &target {
             StripPassRenderTarget::SlotTexture(1) => 0,
             _ => 1,
         };
-        self.gl.active_texture(WebGl2RenderingContext::TEXTURE1);
-        self.gl.bind_texture(
-            WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.slot_textures[clip_texture_idx]),
-        );
-        self.gl
-            .uniform1i(Some(&self.programs.strip_uniforms.clip_input_texture), 1);
 
-        // Bind atlas texture array for image rendering
-        self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);
-        self.gl.bind_texture(
-            WebGl2RenderingContext::TEXTURE_2D_ARRAY,
-            Some(&self.programs.resources.atlas_texture_array.texture),
-        );
+        // Set up attributes.
         self.gl
-            .uniform1i(Some(&self.programs.strip_uniforms.atlas_texture_array), 2);
-
-        // Bind encoded paints texture for image metadata
-        self.gl.active_texture(WebGl2RenderingContext::TEXTURE3);
-        self.gl.bind_texture(
-            WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.encoded_paints_texture),
+            .bind_vertex_array(Some(&self.programs.resources.strip_vao));
+        self.gl.bind_buffer(
+            WebGl2RenderingContext::ARRAY_BUFFER,
+            Some(&self.programs.resources.strips_buffer),
         );
-        self.gl.uniform1i(
-            Some(&self.programs.strip_uniforms.encoded_paints_texture_fs),
-            3,
-        );
-        self.gl.uniform1i(
-            Some(&self.programs.strip_uniforms.encoded_paints_texture_vs),
-            3,
-        );
-
-        // Bind gradient texture for gradient rendering
-        self.gl.active_texture(WebGl2RenderingContext::TEXTURE4);
-        self.gl.bind_texture(
-            WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.gradient_texture),
-        );
-        self.gl
-            .uniform1i(Some(&self.programs.strip_uniforms.gradient_texture), 4);
 
         // TODO: Today, we only support early-z rejection on the final view. If we wanted to support
         // intermediate layers, we would require separate depth buffers for each target. We can explore
@@ -2535,11 +2704,59 @@ impl WebGlRendererContext<'_> {
             target,
             StripPassRenderTarget::Root(RootRenderTarget::UserSurface)
         );
+        let mut image_untinted_opaque = Vec::new();
+        let mut image_tinted_opaque = Vec::new();
+        let mut solid_opaque = Vec::new();
+        let mut gradient_opaque = Vec::new();
+        let mut uploaded_strips = Vec::new();
+        let (alpha_start, alpha_count) = if is_final_view {
+            image_untinted_opaque.reserve(opaque_strips.len());
+            image_tinted_opaque.reserve(opaque_strips.len());
+            solid_opaque.reserve(opaque_strips.len());
+            gradient_opaque.reserve(opaque_strips.len());
+            for strip in opaque_strips {
+                match OpaqueBucket::from_strip(strip, self.encoded_paints, self.paint_idxs) {
+                    OpaqueBucket::ImageUntinted => image_untinted_opaque.push(*strip),
+                    OpaqueBucket::ImageTinted => image_tinted_opaque.push(*strip),
+                    OpaqueBucket::Solid => solid_opaque.push(*strip),
+                    OpaqueBucket::Gradient => gradient_opaque.push(*strip),
+                }
+            }
 
-        self.programs
-            .upload_strip_pair(self.gl, opaque_strips, alpha_strips);
-        let opaque_count = opaque_strips.len() as i32;
-        let alpha_count = alpha_strips.len() as i32;
+            uploaded_strips.reserve(
+                image_untinted_opaque.len()
+                    + image_tinted_opaque.len()
+                    + solid_opaque.len()
+                    + gradient_opaque.len()
+                    + alpha_strips.len(),
+            );
+            uploaded_strips.extend_from_slice(&image_untinted_opaque);
+            uploaded_strips.extend_from_slice(&image_tinted_opaque);
+            uploaded_strips.extend_from_slice(&solid_opaque);
+            uploaded_strips.extend_from_slice(&gradient_opaque);
+            let alpha_start = uploaded_strips.len() as i32;
+            uploaded_strips.extend_from_slice(alpha_strips);
+            (alpha_start, alpha_strips.len() as i32)
+        } else {
+            debug_assert!(
+                opaque_strips.is_empty(),
+                "opaque strips should only be emitted for the user surface"
+            );
+            uploaded_strips.extend_from_slice(alpha_strips);
+            (0, alpha_strips.len() as i32)
+        };
+
+        let image_untinted_start = 0_i32;
+        let image_untinted_count = image_untinted_opaque.len() as i32;
+        let image_tinted_start = image_untinted_count;
+        let image_tinted_count = image_tinted_opaque.len() as i32;
+        let solid_start = image_tinted_start + image_tinted_count;
+        let solid_count = solid_opaque.len() as i32;
+        let gradient_start = solid_start + solid_count;
+        let gradient_count = gradient_opaque.len() as i32;
+
+        self.programs.upload_strips(self.gl, &uploaded_strips);
+        set_strip_instance_offset(self.gl, 0);
 
         if is_final_view {
             self.gl.enable(WebGl2RenderingContext::DEPTH_TEST);
@@ -2553,32 +2770,85 @@ impl WebGlRendererContext<'_> {
             }
 
             // Opaque pass: front-to-back, depth test ON, depth write ON, blend OFF.
-            if opaque_count > 0 {
+            if image_untinted_count + image_tinted_count + solid_count + gradient_count > 0 {
                 self.gl.depth_mask(true);
                 self.gl.disable(WebGl2RenderingContext::BLEND);
+            }
+            if image_untinted_count > 0 {
+                bind_strip_program(
+                    self.gl,
+                    &self.programs.opaque_image_untinted_program,
+                    &self.programs.opaque_image_untinted_uniforms,
+                    &self.programs.resources,
+                    clip_texture_idx,
+                );
+                set_strip_instance_offset(self.gl, image_untinted_start);
                 self.gl.draw_arrays_instanced(
                     WebGl2RenderingContext::TRIANGLE_STRIP,
                     0,
                     4,
-                    opaque_count,
+                    image_untinted_count,
+                );
+            }
+            if image_tinted_count > 0 {
+                bind_strip_program(
+                    self.gl,
+                    &self.programs.opaque_image_program,
+                    &self.programs.opaque_image_uniforms,
+                    &self.programs.resources,
+                    clip_texture_idx,
+                );
+                set_strip_instance_offset(self.gl, image_tinted_start);
+                self.gl.draw_arrays_instanced(
+                    WebGl2RenderingContext::TRIANGLE_STRIP,
+                    0,
+                    4,
+                    image_tinted_count,
+                );
+            }
+            if solid_count > 0 {
+                bind_strip_program(
+                    self.gl,
+                    &self.programs.opaque_solid_program,
+                    &self.programs.opaque_solid_uniforms,
+                    &self.programs.resources,
+                    clip_texture_idx,
+                );
+                set_strip_instance_offset(self.gl, solid_start);
+                self.gl.draw_arrays_instanced(
+                    WebGl2RenderingContext::TRIANGLE_STRIP,
+                    0,
+                    4,
+                    solid_count,
+                );
+            }
+            if gradient_count > 0 {
+                bind_strip_program(
+                    self.gl,
+                    &self.programs.opaque_gradient_program,
+                    &self.programs.opaque_gradient_uniforms,
+                    &self.programs.resources,
+                    clip_texture_idx,
+                );
+                set_strip_instance_offset(self.gl, gradient_start);
+                self.gl.draw_arrays_instanced(
+                    WebGl2RenderingContext::TRIANGLE_STRIP,
+                    0,
+                    4,
+                    gradient_count,
                 );
             }
 
             // Alpha pass: back-to-front, depth test ON, depth write OFF, blend ON.
             if alpha_count > 0 {
-                // Rebind attribute pointers with offset to start at the alpha portion
-                // of the buffer.
-                let alpha_byte_offset = opaque_count * STRIP_STRIDE;
-                for i in 0..STRIP_ATTR_COUNT {
-                    self.gl.vertex_attrib_i_pointer_with_i32(
-                        i as u32,
-                        1,
-                        WebGl2RenderingContext::UNSIGNED_INT,
-                        STRIP_STRIDE,
-                        i * 4 + alpha_byte_offset,
-                    );
-                }
-
+                bind_strip_program(
+                    self.gl,
+                    &self.programs.strip_program,
+                    &self.programs.strip_uniforms,
+                    &self.programs.resources,
+                    clip_texture_idx,
+                );
+                set_strip_instance_offset(self.gl, alpha_start);
                 self.gl.depth_mask(false);
                 self.gl.enable(WebGl2RenderingContext::BLEND);
                 self.gl.draw_arrays_instanced(
@@ -2587,30 +2857,27 @@ impl WebGlRendererContext<'_> {
                     4,
                     alpha_count,
                 );
-
-                // Restore attribute offsets to base for subsequent passes.
-                for i in 0..STRIP_ATTR_COUNT {
-                    self.gl.vertex_attrib_i_pointer_with_i32(
-                        i as u32,
-                        1,
-                        WebGl2RenderingContext::UNSIGNED_INT,
-                        STRIP_STRIDE,
-                        i * 4,
-                    );
-                }
             }
 
             // Restore state.
             self.gl.disable(WebGl2RenderingContext::DEPTH_TEST);
             self.gl.depth_mask(true);
             self.gl.enable(WebGl2RenderingContext::BLEND);
+            set_strip_instance_offset(self.gl, 0);
         } else {
             // Slot texture / intermediate: single draw with blending, no depth.
+            bind_strip_program(
+                self.gl,
+                &self.programs.strip_program,
+                &self.programs.strip_uniforms,
+                &self.programs.resources,
+                clip_texture_idx,
+            );
             self.gl.draw_arrays_instanced(
                 WebGl2RenderingContext::TRIANGLE_STRIP,
                 0,
                 4,
-                opaque_count + alpha_count,
+                alpha_count,
             );
         }
 
