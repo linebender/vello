@@ -75,15 +75,7 @@ pub(crate) trait Renderer: Sized {
     fn render_to_pixmap(&mut self, pixmap: &mut Pixmap);
     fn width(&self) -> u16;
     fn height(&self) -> u16;
-    #[allow(
-        dead_code,
-        reason = "external texture snapshot scaffolding is not enabled yet"
-    )]
     fn register_external_texture(&mut self, pixmap: Arc<Pixmap>) -> TextureId;
-    #[allow(
-        dead_code,
-        reason = "external texture snapshot scaffolding is not enabled yet"
-    )]
     fn draw_texture_rects(
         &mut self,
         texture_id: TextureId,

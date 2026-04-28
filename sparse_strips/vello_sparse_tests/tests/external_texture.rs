@@ -1,4 +1,4 @@
-// Copyright 2025 the Vello Authors
+// Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 #[cfg(not(target_arch = "wasm32"))]
