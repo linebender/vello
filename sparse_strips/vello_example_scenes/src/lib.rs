@@ -4,6 +4,7 @@
 //! Example scenes for Vello Sparse Strips.
 
 pub mod blend;
+pub mod blurred_rounded_rect;
 pub mod clip;
 pub mod filter;
 pub mod filter_elements;
@@ -66,6 +67,8 @@ pub trait RenderingContext: Sized {
     fn stroke_path(&mut self, path: &BezPath);
     /// Fill a rectangle with the current paint.
     fn fill_rect(&mut self, rect: &Rect);
+    /// Fill a blurred rounded rectangle with the current solid paint.
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32);
     /// Create a glyph run builder for text rendering.
     fn glyph_run<'a>(
         &'a mut self,
@@ -146,6 +149,10 @@ impl RenderingContext for RenderContext {
 
     fn fill_rect(&mut self, rect: &Rect) {
         self.fill_rect(rect);
+    }
+
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
+        self.fill_blurred_rounded_rect(rect, radius, std_dev);
     }
 
     fn glyph_run<'a>(
@@ -238,6 +245,10 @@ impl RenderingContext for Scene {
 
     fn fill_rect(&mut self, rect: &Rect) {
         self.fill_rect(rect);
+    }
+
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
+        self.fill_blurred_rounded_rect(rect, radius, std_dev);
     }
 
     fn glyph_run<'a>(
@@ -437,6 +448,9 @@ where
     scenes.push(AnyScene::new(text::TextScene::new("Hello, Vello!")));
     scenes.push(AnyScene::new(random_text::RandomTextScene::new()));
     scenes.push(AnyScene::new(simple::SimpleScene::new()));
+    scenes.push(AnyScene::new(
+        blurred_rounded_rect::BlurredRoundedRectScene::new(),
+    ));
     scenes.push(AnyScene::new(clip::ClipScene::new()));
     scenes.push(AnyScene::new(filter::FilterScene::new()));
     scenes.push(AnyScene::new(blend::BlendScene::new()));
@@ -472,6 +486,7 @@ where
         AnyScene::new(text::TextScene::new("Hello, Vello!")),
         AnyScene::new(random_text::RandomTextScene::new()),
         AnyScene::new(simple::SimpleScene::new()),
+        AnyScene::new(blurred_rounded_rect::BlurredRoundedRectScene::new()),
         AnyScene::new(filter::FilterScene::new()),
         AnyScene::new(clip::ClipScene::new()),
         AnyScene::new(blend::BlendScene::new()),
