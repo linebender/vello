@@ -26,7 +26,6 @@ pub use vello_common::mask::Mask;
 use vello_common::paint::ImageSource;
 pub use vello_common::paint::{Paint, PaintType};
 pub use vello_common::peniko::{BlendMode, Fill, FontData};
-use vello_common::recording::{Recordable, Recorder, Recording};
 #[cfg(feature = "cpu")]
 use vello_cpu::{RenderContext, Resources as CpuResources};
 use vello_hybrid::{Resources as HybridResources, Scene};
@@ -90,12 +89,6 @@ pub trait RenderingContext: Sized {
     fn pop_layer(&mut self);
     /// Pop the last clip path.
     fn pop_clip_path(&mut self);
-    /// Record rendering commands into a recording.
-    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>));
-    /// Generate sparse strips for a recording.
-    fn prepare_recording(&mut self, recording: &mut Recording);
-    /// Execute a recording directly without preparation.
-    fn execute_recording(&mut self, recording: &Recording);
 }
 
 #[cfg(feature = "cpu")]
@@ -180,18 +173,6 @@ impl RenderingContext for RenderContext {
 
     fn pop_layer(&mut self) {
         self.pop_layer();
-    }
-
-    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
-        Recordable::record(self, recording, f);
-    }
-
-    fn prepare_recording(&mut self, recording: &mut Recording) {
-        Recordable::prepare_recording(self, recording);
-    }
-
-    fn execute_recording(&mut self, recording: &Recording) {
-        Recordable::execute_recording(self, recording);
     }
 
     fn push_clip_path(&mut self, path: &BezPath) {
@@ -284,18 +265,6 @@ impl RenderingContext for Scene {
 
     fn pop_layer(&mut self) {
         self.pop_layer();
-    }
-
-    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
-        Recordable::record(self, recording, f);
-    }
-
-    fn prepare_recording(&mut self, recording: &mut Recording) {
-        Recordable::prepare_recording(self, recording);
-    }
-
-    fn execute_recording(&mut self, recording: &Recording) {
-        Recordable::execute_recording(self, recording);
     }
 
     fn push_clip_path(&mut self, path: &BezPath) {
