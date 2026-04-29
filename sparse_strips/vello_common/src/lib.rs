@@ -84,8 +84,8 @@ pub mod pixmap;
 #[doc(hidden)]
 #[cfg(feature = "probe")]
 pub mod probe;
-pub mod recording;
 pub mod rect;
+pub mod render_state;
 pub mod render_graph;
 pub mod simd;
 pub mod strip;

@@ -400,7 +400,7 @@ impl DrawSink for RenderContext {
 }
 
 impl glifo::GlyphRenderer for RenderContext {
-    type SavedState = vello_common::recording::RenderState;
+    type SavedState = vello_common::render_state::RenderState;
 
     #[inline]
     fn save_state(&mut self) -> Self::SavedState {

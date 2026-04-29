@@ -288,7 +288,7 @@ impl<'a> GlyphRunBackend<'a> for HybridGlyphRunBackend<'a> {
 pub type GlyphRunBuilder<'a> = glifo::GlyphRunBuilder<'a, HybridGlyphRunBackend<'a>>;
 
 impl glifo::GlyphRenderer for Scene {
-    type SavedState = vello_common::recording::RenderState;
+    type SavedState = vello_common::render_state::RenderState;
 
     #[inline]
     fn save_state(&mut self) -> Self::SavedState {
