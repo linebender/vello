@@ -837,7 +837,6 @@ impl ImageResolver for ImageRegistry {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::RenderContext;

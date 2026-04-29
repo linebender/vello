@@ -245,7 +245,6 @@ impl Renderer for CpuRenderer {
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
         self.resources.register_image(pixmap)
     }
-
 }
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
@@ -606,7 +605,6 @@ impl Renderer for HybridRenderer {
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
         self.upload_image_with_resources(&pixmap, "Register Test Image")
     }
-
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
@@ -853,5 +851,4 @@ impl Renderer for HybridRenderer {
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
         self.upload_image(&pixmap)
     }
-
 }
