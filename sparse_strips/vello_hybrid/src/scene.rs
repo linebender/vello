@@ -557,12 +557,7 @@ impl Scene {
         let x_extend = Extend::Pad;
         let y_extend = Extend::Pad;
 
-        let can_fast_path = self.strip_path_mode != StripPathMode::CoarseOnly
-            && !self.wide.has_layers()
-            && self.filter.is_none()
-            && self.clip_context.get().is_none();
-
-        if can_fast_path {
+        if self.can_emit_fast_strips() {
             for rect in rects {
                 if rect.source_region.is_empty() {
                     continue;
@@ -657,19 +652,22 @@ impl Scene {
         }
     }
 
+    /// Whether we're in a state that allows pushing commands directly into
+    /// [`Self::fast_strips_buffer`], bypassing coarse rasterization.
+    #[inline]
+    fn can_emit_fast_strips(&self) -> bool {
+        self.strip_path_mode != StripPathMode::CoarseOnly
+            && !self.wide.has_layers()
+            && self.filter.is_none()
+            && self.clip_context.get().is_none()
+    }
+
     #[expect(
         clippy::cast_possible_truncation,
         reason = "f64→f32 truncation is acceptable for pixel coordinates"
     )]
     fn try_fast_rect(&mut self, rect: &Rect) -> bool {
-        if self.strip_path_mode == StripPathMode::CoarseOnly
-            || self.wide.has_layers()
-            || self.filter.is_some()
-        {
-            return false;
-        }
-
-        if self.clip_context.get().is_some() {
+        if !self.can_emit_fast_strips() {
             return false;
         }
 
