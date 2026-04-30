@@ -287,9 +287,18 @@ fn convolve(
     var color = textureSampleLevel(in_tex, linear_sampler, (src_texel + 0.5) / tex_size, 0.0) * center_weight;
 
     // See https://github.com/linebender/vello/pull/1601#issuecomment-4323170395 for why we convert
-    // into array first.
-    let weights_arr = array<f32, 3>(weights.x, weights.y, weights.z);
-    let offsets_arr = array<f32, 3>(offsets.x, offsets.y, offsets.z);
+    // into array first. Also see https://github.com/linebender/vello/pull/1605 for why we
+    // assign each field separately.
+
+    var weights_arr: array<f32, 3>;
+    weights_arr[0] = weights.x;
+    weights_arr[1] = weights.y;
+    weights_arr[2] = weights.z;
+
+    var offsets_arr: array<f32, 3>;
+    offsets_arr[0] = offsets.x;
+    offsets_arr[1] = offsets.y;
+    offsets_arr[2] = offsets.z;
 
     // Then, compute and sum the contributions of the adjacent pixels.
     for (var i = 0u; i < n_linear_taps; i++) {
