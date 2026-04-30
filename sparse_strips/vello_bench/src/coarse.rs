@@ -33,6 +33,7 @@ pub fn coarse(c: &mut Criterion) {
                     0,
                     None,
                     &[],
+                    false,
                 );
                 std::hint::black_box(&wide);
             });
@@ -93,6 +94,7 @@ pub fn coarse_with_layer(c: &mut Criterion) {
                     0,
                     None,
                     &[],
+                    false,
                 );
 
                 // Pop all layers
@@ -167,6 +169,7 @@ pub fn coarse_with_layer_large_viewport(c: &mut Criterion) {
                     0,
                     None,
                     &[],
+                    false,
                 );
 
                 // Pop all layers

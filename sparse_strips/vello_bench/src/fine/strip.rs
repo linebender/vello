@@ -60,6 +60,7 @@ fn strip_single<S: Simd, N: FineKernel<S>>(
             &NoOpImageResolver,
             Some(&alphas),
             None,
+            false,
         );
 
         std::hint::black_box(&fine);

@@ -502,6 +502,7 @@ impl<const MODE: u8> Wide<MODE> {
         thread_idx: u8,
         mask: Option<Mask>,
         encoded_paints: &[EncodedPaint],
+        gamma_correction: bool,
     ) {
         if strip_buf.is_empty() {
             return;
@@ -516,6 +517,7 @@ impl<const MODE: u8> Wide<MODE> {
             thread_idx,
             paint,
             blend_mode,
+            gamma_correction,
             mask,
             alpha_base_idx,
         });
@@ -2053,6 +2055,8 @@ pub struct FillAttrs {
     pub paint: Paint,
     /// The blend mode to apply before drawing the contents.
     pub blend_mode: BlendMode,
+    /// Whether to use gamma-corrected compositing for solid color fills.
+    pub gamma_correction: bool,
     /// A mask to apply to the command.
     pub mask: Option<Mask>,
     /// Base index into the alpha buffer for this path's commands.
@@ -2357,6 +2361,7 @@ mod tests {
             0,
             None,
             &[],
+            false,
         );
         assert!(wide.tiles_dirty);
 
@@ -2393,6 +2398,7 @@ mod tests {
             0,
             None,
             &[],
+            false,
         );
         assert!(!wide.tiles_dirty);
     }

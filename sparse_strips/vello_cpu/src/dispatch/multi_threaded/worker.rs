@@ -70,6 +70,7 @@ impl Worker {
                     blend_mode,
                     aliasing_threshold,
                     mask,
+                    gamma_correction,
                 } => {
                     let start = self.strip_storage.strips.len() as u32;
                     let path = &render_task.allocation_group.path
@@ -91,6 +92,7 @@ impl Worker {
                         blend_mode,
                         paint,
                         mask,
+                        gamma_correction,
                     };
 
                     render_task
@@ -106,6 +108,7 @@ impl Worker {
                     stroke,
                     aliasing_threshold,
                     mask,
+                    gamma_correction,
                 } => {
                     let start = self.strip_storage.strips.len() as u32;
                     let path = &render_task.allocation_group.path
@@ -127,6 +130,7 @@ impl Worker {
                         blend_mode,
                         paint,
                         mask,
+                        gamma_correction,
                     };
 
                     render_task
