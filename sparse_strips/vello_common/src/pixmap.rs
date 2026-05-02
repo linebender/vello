@@ -26,7 +26,7 @@ pub struct Pixmap {
     ///
     /// Note: This may become stale if pixels are modified via [`data_mut()`](Self::data_mut),
     /// [`data_as_u8_slice_mut()`](Self::data_as_u8_slice_mut), or [`set_pixel()`](Self::set_pixel).
-    may_have_opacities: bool,
+    may_have_transparency: bool,
 }
 
 impl Pixmap {
@@ -39,7 +39,7 @@ impl Pixmap {
             width,
             height,
             buf,
-            may_have_opacities: true,
+            may_have_transparency: true,
         }
     }
 
@@ -76,7 +76,7 @@ impl Pixmap {
         data: Vec<PremulRgba8>,
         width: u16,
         height: u16,
-        may_have_opacities: bool,
+        may_have_transparency: bool,
     ) -> Self {
         assert_eq!(
             data.len(),
@@ -87,7 +87,7 @@ impl Pixmap {
             width,
             height,
             buf: data,
-            may_have_opacities,
+            may_have_transparency,
         }
     }
 
@@ -101,7 +101,7 @@ impl Pixmap {
         let new_len = usize::from(width) * usize::from(height);
         // If we're growing, new pixels are transparent black
         if new_len > self.buf.len() {
-            self.may_have_opacities = true;
+            self.may_have_transparency = true;
         }
         self.width = width;
         self.height = height;
@@ -137,28 +137,28 @@ impl Pixmap {
     /// modified directly via [`data_mut()`](Self::data_mut),
     /// [`data_as_u8_slice_mut()`](Self::data_as_u8_slice_mut), or [`set_pixel()`](Self::set_pixel).
     ///
-    /// Use [`set_may_have_opacities()`](Self::set_may_have_opacities) to manually update the flag,
-    /// or [`recompute_may_have_opacities()`](Self::recompute_may_have_opacities) to recalculate it
+    /// Use [`set_may_have_transparency()`](Self::set_may_have_transparency) to manually update the flag,
+    /// or [`recompute_may_have_transparency()`](Self::recompute_may_have_transparency) to recalculate it
     /// by scanning all pixels.
-    pub fn may_have_opacities(&self) -> bool {
-        self.may_have_opacities
+    pub fn may_have_transparency(&self) -> bool {
+        self.may_have_transparency
     }
 
-    /// Manually set the `may_have_opacities` flag.
+    /// Manually set the `may_have_transparency` flag.
     ///
     /// Use this after modifying pixels via [`data_mut()`](Self::data_mut) or
     /// [`set_pixel()`](Self::set_pixel) when you know whether the image has
     /// non-opaque pixels.
-    pub fn set_may_have_opacities(&mut self, may_have_opacities: bool) {
-        self.may_have_opacities = may_have_opacities;
+    pub fn set_may_have_transparency(&mut self, may_have_transparency: bool) {
+        self.may_have_transparency = may_have_transparency;
     }
 
-    /// Recalculate `may_have_opacities` by scanning all pixels.
+    /// Recalculate `may_have_transparency` by scanning all pixels.
     ///
     /// Use this after modifying pixels via [`data_mut()`](Self::data_mut) or
     /// [`set_pixel()`](Self::set_pixel) when you need accurate opacity information.
-    pub fn recompute_may_have_opacities(&mut self) {
-        self.may_have_opacities = self.buf.iter().any(|pixel| pixel.a != 255);
+    pub fn recompute_may_have_transparency(&mut self) {
+        self.may_have_transparency = self.buf.iter().any(|pixel| pixel.a != 255);
     }
 
     /// Apply an alpha value to the whole pixmap.
@@ -180,7 +180,7 @@ impl Pixmap {
 
         // If we applied a non-opaque alpha, the image now has opacities
         if alpha != 255 {
-            self.may_have_opacities = true;
+            self.may_have_transparency = true;
         }
     }
 
@@ -253,11 +253,11 @@ impl Pixmap {
             }
         };
 
-        let mut may_have_opacities = false;
+        let mut may_have_transparency = false;
         for pixel in pixmap.data_mut() {
             let alpha = pixel.a;
             if alpha != 255 {
-                may_have_opacities = true;
+                may_have_transparency = true;
             }
             let alpha_u16 = u16::from(alpha);
             #[expect(
@@ -269,7 +269,7 @@ impl Pixmap {
             pixel.g = premultiply(pixel.g);
             pixel.b = premultiply(pixel.b);
         }
-        pixmap.may_have_opacities = may_have_opacities;
+        pixmap.may_have_transparency = may_have_transparency;
 
         Ok(pixmap)
     }

@@ -733,11 +733,11 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 // We need to have this as a macro because closures cannot take generic arguments, and
                 // we would have to repeatedly provide all arguments if we made it a function.
                 macro_rules! fill_complex_paint {
-                    ($may_have_opacities:expr, $filler:expr) => {
-                        fill_complex_paint!($may_have_opacities, $filler, None::<&Tint>)
+                    ($may_have_transparency:expr, $filler:expr) => {
+                        fill_complex_paint!($may_have_transparency, $filler, None::<&Tint>)
                     };
-                    ($may_have_opacities:expr, $filler:expr, $tint:expr) => {
-                        if $may_have_opacities || alphas.is_some() {
+                    ($may_have_transparency:expr, $filler:expr, $tint:expr) => {
+                        if $may_have_transparency || alphas.is_some() {
                             T::apply_painter(self.simd, color_buf, $filler);
                             if let Some(t) = $tint {
                                 T::apply_tint(self.simd, color_buf, t);
@@ -799,7 +799,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                 );
 
                                 fill_complex_paint!(
-                                    g.may_have_opacities,
+                                    g.may_have_transparency,
                                     T::gradient_painter(self.simd, g, f32_buf)
                                 );
                             }
@@ -814,7 +814,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                 );
 
                                 fill_complex_paint!(
-                                    g.may_have_opacities,
+                                    g.may_have_transparency,
                                     T::gradient_painter(self.simd, g, f32_buf)
                                 );
                             }
@@ -830,12 +830,12 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
                                 if r.has_undefined() {
                                     fill_complex_paint!(
-                                        g.may_have_opacities,
+                                        g.may_have_transparency,
                                         T::gradient_painter_with_undefined(self.simd, g, f32_buf)
                                     );
                                 } else {
                                     fill_complex_paint!(
-                                        g.may_have_opacities,
+                                        g.may_have_transparency,
                                         T::gradient_painter(self.simd, g, f32_buf)
                                     );
                                 }
@@ -857,7 +857,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                 // Axis-aligned with filtering - use optimized plain painters
                                 if i.sampler.quality == ImageQuality::Medium {
                                     fill_complex_paint!(
-                                        i.may_have_opacities,
+                                        i.may_have_transparency,
                                         T::plain_medium_quality_image_painter(
                                             self.simd, i, &pixmap, sampler_x, sampler_y
                                         ),
@@ -865,7 +865,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                     );
                                 } else {
                                     fill_complex_paint!(
-                                        i.may_have_opacities,
+                                        i.may_have_transparency,
                                         T::high_quality_image_painter(
                                             self.simd, i, &pixmap, sampler_x, sampler_y
                                         ),
@@ -877,7 +877,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                 // Skewed with filtering - use generic filtered painters
                                 if i.sampler.quality == ImageQuality::Medium {
                                     fill_complex_paint!(
-                                        i.may_have_opacities,
+                                        i.may_have_transparency,
                                         T::medium_quality_image_painter(
                                             self.simd, i, &pixmap, sampler_x, sampler_y
                                         ),
@@ -885,7 +885,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                                     );
                                 } else {
                                     fill_complex_paint!(
-                                        i.may_have_opacities,
+                                        i.may_have_transparency,
                                         T::high_quality_image_painter(
                                             self.simd, i, &pixmap, sampler_x, sampler_y
                                         ),
@@ -895,7 +895,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                             }
                             (false, true) => {
                                 fill_complex_paint!(
-                                    i.may_have_opacities,
+                                    i.may_have_transparency,
                                     T::plain_nn_image_painter(
                                         self.simd, i, &pixmap, sampler_x, sampler_y
                                     ),
@@ -904,7 +904,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                             }
                             (true, true) => {
                                 fill_complex_paint!(
-                                    i.may_have_opacities,
+                                    i.may_have_transparency,
                                     T::nn_image_painter(
                                         self.simd, i, &pixmap, sampler_x, sampler_y
                                     ),

@@ -233,7 +233,7 @@ pub fn probe_image_pixmap() -> Pixmap {
             );
         }
     }
-    pixmap.set_may_have_opacities(false);
+    pixmap.set_may_have_transparency(false);
     pixmap
 }
 

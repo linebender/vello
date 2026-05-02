@@ -73,7 +73,7 @@ impl EncodeExt for Gradient {
             return paint;
         }
 
-        let mut may_have_opacities = self.stops.iter().any(|s| s.color.components[3] != 1.0);
+        let mut may_have_transparency = self.stops.iter().any(|s| s.color.components[3] != 1.0);
 
         let mut base_transform;
 
@@ -161,7 +161,7 @@ impl EncodeExt for Gradient {
                 // alpha-compositing in case the radial gradient is undefined in certain positions,
                 // in which case the resulting color will be transparent and thus the gradient overall
                 // must be treated as non-opaque.
-                may_have_opacities |= radial_kind.has_undefined();
+                may_have_transparency |= radial_kind.has_undefined();
 
                 EncodedKind::Radial(radial_kind)
             }
@@ -229,7 +229,7 @@ impl EncodeExt for Gradient {
             y_advance,
             ranges,
             extend: self.extend,
-            may_have_opacities,
+            may_have_transparency,
             u8_lut: OnceCell::new(),
             f32_lut: OnceCell::new(),
         };
@@ -518,7 +518,7 @@ impl EncodeExt for Image {
         let tint_has_opacity = tint.as_ref().is_some_and(|t| t.color.components[3] < 1.0);
 
         let encoded = EncodedImage {
-            may_have_opacities: self.image.may_have_opacities() || tint_has_opacity,
+            may_have_transparency: self.image.may_have_transparency() || tint_has_opacity,
             source: self.image.clone(),
             sampler,
             transform,
@@ -564,7 +564,7 @@ pub struct EncodedImage {
     /// Sampler
     pub sampler: ImageSampler,
     /// Whether the image has opacities.
-    pub may_have_opacities: bool,
+    pub may_have_transparency: bool,
     /// A transform to apply to the image.
     pub transform: Affine,
     /// The advance in image coordinates for one step in the x direction.
@@ -747,7 +747,7 @@ pub struct EncodedGradient {
     /// The extend of the gradient.
     pub extend: Extend,
     /// Whether the gradient requires `source_over` compositing.
-    pub may_have_opacities: bool,
+    pub may_have_transparency: bool,
     u8_lut: OnceCell<GradientLut<u8>>,
     f32_lut: OnceCell<GradientLut<f32>>,
 }
