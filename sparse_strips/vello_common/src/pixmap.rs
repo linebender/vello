@@ -178,7 +178,7 @@ impl Pixmap {
             };
         }
 
-        // If we applied a non-opaque alpha, the image now has opacities
+        // If we applied a non-opaque alpha, the image now has transparency
         if alpha != 255 {
             self.may_have_transparency = true;
         }
