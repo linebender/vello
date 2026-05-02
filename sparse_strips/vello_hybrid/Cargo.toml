@@ -17,7 +17,7 @@ targets = ["wasm32-unknown-unknown"]
 [dependencies]
 bytemuck = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
-vello_common = { workspace = true, features = ["std"] }
+vello_common = { workspace = true }
 glifo = { workspace = true, default-features = false, optional = true }
 wgpu = { workspace = true, default-features = false, optional = true }
 vello_sparse_shaders = { workspace = true, optional = true }
@@ -48,7 +48,7 @@ roxmltree = "0.20.0"
 
 [features]
 default = ["wgpu", "wgpu_default", "text"]
-std = ["wgpu", "vello_common/std", "glifo?/std"]
+std = ["vello_common/std", "glifo?/std"]
 libm = ["vello_common/libm", "glifo?/libm"]
 wgpu = ["dep:wgpu", "dep:vello_sparse_shaders"]
 # Enable wgpu with its default features. If you need to customise the set of enabled wgpu features,
@@ -57,7 +57,7 @@ wgpu = ["dep:wgpu", "dep:vello_sparse_shaders"]
 wgpu_default = ["wgpu", "wgpu/default"]
 # Add support for text rendering.
 text = ["dep:glifo", "glifo/std"]
-probe = ["vello_common/probe", "std"]
+probe = ["vello_common/probe"]
 webgl = ["dep:js-sys", "dep:web-sys", "dep:vello_sparse_shaders", "vello_sparse_shaders/glsl"]
 
 [lints]
