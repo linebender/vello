@@ -109,7 +109,8 @@ impl ImageSource {
         match self {
             Self::Pixmap(p) => p.may_have_transparency(),
             Self::OpaqueId {
-                may_have_transparency, ..
+                may_have_transparency,
+                ..
             } => *may_have_transparency,
         }
     }
