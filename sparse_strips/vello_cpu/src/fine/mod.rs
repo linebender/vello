@@ -418,6 +418,17 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         alphas: Option<&[u8]>,
     );
 
+    /// Perform alpha compositing with an opaque solid color and per-pixel alpha values.
+    ///
+    /// Blends an opaque RGBA color over the destination while modulating the source
+    /// contribution by the provided per-pixel alpha values.
+    fn alpha_composite_opaque_solid(
+        simd: S,
+        target: &mut [Self::Numeric],
+        src: [Self::Numeric; 4],
+        alphas: &[u8],
+    );
+
     /// Perform alpha compositing with a source buffer over the destination buffer.
     ///
     /// Blends the source buffer contents over the destination using standard alpha compositing.
@@ -687,14 +698,14 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             Paint::Solid(color) => {
                 let color = T::extract_color(*color);
 
-                // If color is completely opaque, we can just directly override
-                // the blend buffer.
-                if color[3] == T::Numeric::ONE
-                    && default_blend
-                    && alphas.is_none()
-                    && mask.is_none()
-                {
-                    T::copy_solid(self.simd, blend_buf, color);
+                // If color is completely opaque and we have the default blend
+                // mode, we can use the solid-color fast path.
+                if color[3] == T::Numeric::ONE && default_blend && mask.is_none() {
+                    if let Some(alphas) = alphas {
+                        T::alpha_composite_opaque_solid(self.simd, blend_buf, color, alphas);
+                    } else {
+                        T::copy_solid(self.simd, blend_buf, color);
+                    }
 
                     return;
                 }

@@ -213,6 +213,21 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         }
     }
 
+    #[inline(always)]
+    fn alpha_composite_opaque_solid(
+        simd: S,
+        dest: &mut [Self::Numeric],
+        src: [Self::Numeric; 4],
+        alphas: &[u8],
+    ) {
+        alpha_fill::alpha_composite_opaque_solid(
+            simd,
+            dest,
+            src,
+            bytemuck::cast_slice::<u8, [u8; 4]>(alphas).iter().copied(),
+        );
+    }
+
     /// Composites a source buffer onto a destination buffer using alpha blending.
     ///
     /// Dispatches to either the masked or unmasked implementation based on the
@@ -441,6 +456,32 @@ mod alpha_fill {
 
                 for (next_dest, next_mask) in dest.chunks_exact_mut(16).zip(alphas) {
                     alpha_composite_inner(s, next_dest, &next_mask, src_c, src_a, one);
+                }
+            },
+        );
+    }
+
+    /// Composites an opaque solid color with alpha masks.
+    #[inline(always)]
+    pub(super) fn alpha_composite_opaque_solid<S: Simd>(
+        s: S,
+        dest: &mut [f32],
+        src: [f32; 4],
+        alphas: impl Iterator<Item = [u8; 4]>,
+    ) {
+        s.vectorize(
+            #[inline(always)]
+            || {
+                let src_c = f32x16::block_splat(src.simd_into(s));
+                let one = f32x16::splat(s, 1.0);
+
+                for (next_dest, next_mask) in dest.chunks_exact_mut(16).zip(alphas) {
+                    let bg_c = f32x16::from_slice(s, next_dest);
+                    let mask_a = extract_masks(s, &next_mask);
+                    let inv_mask_a = one - mask_a;
+
+                    let res = bg_c.mul_add(inv_mask_a, src_c * mask_a);
+                    res.store_slice(next_dest);
                 }
             },
         );
