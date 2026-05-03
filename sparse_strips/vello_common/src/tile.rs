@@ -120,6 +120,64 @@ impl CulledWindings {
             self.active[end_word] |= mask;
         }
     }
+
+    /// Calls `f` on active rows in the range [`start`, `end`).
+    #[inline(always)]
+    pub fn for_active_rows_in_range<F>(&self, start: usize, end: usize, mut f: F)
+    where
+        F: FnMut(usize),
+    {
+        if start >= end {
+            return;
+        }
+
+        let start_word = start >> Self::WORD_SHIFT;
+        let end_word = (end - 1) >> Self::WORD_SHIFT;
+
+        let mut process_word = |mut word: u32, word_idx: usize| {
+            while word != 0 {
+                let bit = word.trailing_zeros();
+                word &= !(1_u32 << bit);
+                f((word_idx << Self::WORD_SHIFT) + bit as usize);
+            }
+        };
+
+        let end_limit = ((end - 1) & Self::WORD_MASK) + 1;
+        let end_mask = if end_limit == Self::WORD_BITS {
+            u32::MAX
+        } else {
+            (1_u32 << end_limit) - 1
+        };
+
+        // Start Word
+        {
+            let mut word = self.active[start_word];
+            let start_bit = start & Self::WORD_MASK;
+            word &= !((1_u32 << start_bit) - 1);
+
+            if start_word == end_word {
+                word &= end_mask;
+            }
+
+            process_word(word, start_word);
+        }
+
+        // Middle Words & End Word
+        if start_word < end_word {
+            for (word_idx, &word_val) in self
+                .active
+                .iter()
+                .enumerate()
+                .take(end_word)
+                .skip(start_word + 1)
+            {
+                process_word(word_val, word_idx);
+            }
+
+            // End Word
+            process_word(self.active[end_word] & end_mask, end_word);
+        }
+    }
 }
 
 /// A tile represents an aligned area on the pixmap, used to subdivide the viewport into sub-areas
@@ -1110,6 +1168,7 @@ mod tests {
     use crate::flatten::{FlattenCtx, Line, Point, fill};
     use crate::geometry::RectU16;
     use crate::kurbo::{Affine, BezPath};
+    use crate::tile::CulledWindings;
     use crate::tile::{B, L, R, T, Tile, Tiles, W};
     use fearless_simd::Level;
     use std::vec::Vec;
@@ -2131,6 +2190,88 @@ mod tests {
         let expected = [Tile::new(0, 0, 0, W), Tile::new(0, 0, 1, W)];
 
         tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
+    }
+
+    //==============================================================================================
+    // CulledWindings & Row Marking Logic
+    //==============================================================================================
+    #[test]
+    fn test_culled_windings_new_and_reset() {
+        let mut windings = CulledWindings::new(100);
+        assert_eq!(windings.partial.len(), 25);
+        assert_eq!(windings.coarse.len(), 25);
+        assert_eq!(windings.active.len(), 1);
+
+        windings.coarse[0] = 1;
+        windings.active[0] = 0xFF;
+        windings.culled = true;
+
+        windings.reset();
+        assert_eq!(windings.coarse[0], 0);
+        assert_eq!(windings.active[0], 0);
+
+        windings.coarse[0] = 1;
+        windings.active[0] = 0xFF;
+        windings.culled = false;
+
+        windings.reset();
+        assert_eq!(windings.coarse[0], 1);
+        assert_eq!(windings.active[0], 0xFF);
+    }
+
+    #[test]
+    fn test_mark_row_active() {
+        let mut windings = CulledWindings::new(200);
+        windings.mark_row_active(0);
+        windings.mark_row_active(5);
+        windings.mark_row_active(31);
+        windings.mark_row_active(32);
+        assert_eq!(windings.active[0], (1 << 0) | (1 << 5) | (1 << 31));
+        assert_eq!(windings.active[1], 1 << 0);
+    }
+
+    #[test]
+    fn test_mark_row_range_single_word() {
+        let mut windings = CulledWindings::new(200);
+        windings.mark_row_range_active(5, 10);
+        let expected_mask = ((1_u32 << 5) - 1) << 5;
+        assert_eq!(windings.active[0], expected_mask);
+        assert_eq!(windings.active[1], 0);
+    }
+
+    #[test]
+    fn test_mark_row_range_full_word() {
+        let mut windings = CulledWindings::new(200);
+        windings.mark_row_range_active(0, 32);
+        assert_eq!(windings.active[0], u32::MAX);
+        assert_eq!(windings.active[1], 0);
+    }
+
+    #[test]
+    fn test_mark_row_range_spanning_two_words() {
+        let mut windings = CulledWindings::new(200);
+        windings.mark_row_range_active(30, 35);
+        assert_eq!(windings.active[0], (1 << 30) | (1 << 31));
+        assert_eq!(windings.active[1], (1 << 0) | (1 << 1) | (1 << 2));
+    }
+
+    #[test]
+    fn test_mark_row_range_spanning_multiple_words() {
+        let mut windings = CulledWindings::new(500);
+        windings.mark_row_range_active(10, 80);
+        assert_eq!(windings.active[0], u32::MAX << 10);
+        assert_eq!(windings.active[1], u32::MAX);
+        assert_eq!(windings.active[2], (1 << 16) - 1);
+        assert_eq!(windings.active[3], 0);
+    }
+
+    #[test]
+    fn test_mark_row_range_empty_or_invalid() {
+        let mut windings = CulledWindings::new(200);
+        windings.mark_row_range_active(10, 10);
+        windings.mark_row_range_active(15, 10);
+        assert_eq!(windings.active[0], 0);
+        assert_eq!(windings.active[1], 0);
     }
 
     //==============================================================================================

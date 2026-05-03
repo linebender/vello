@@ -91,7 +91,7 @@ impl Strip {
 
     /// When early culling is active, geometry fully to the left of the viewport creates no tiles.
     /// However, if that geometry has a non-zero winding (e.g. a large shape surrounding the
-    /// viewport), the fill must persist.
+    /// viewport), then we must output strips for those fills.
     ///
     /// We reconstruct this "background" fill using `row_windings` (the winding at x=0) to emit solid
     /// strips for:
@@ -104,88 +104,21 @@ impl Strip {
         end: u16,
         strips: &mut Vec<Self>,
         alphas: &mut Vec<u8>,
-        active_rows: &[u32],
-        row_windings: &[i8],
-        should_fill: F,
+        windings: &crate::tile::CulledWindings,
+        mut should_fill: F,
     ) where
-        F: Fn(i32) -> bool,
+        F: FnMut(i32) -> bool,
     {
-        if start >= end {
-            return;
-        }
-
-        let mut push_strip = |y_pos: u16| {
-            strips.push(Self::new(0, y_pos, alphas.len() as u32, false));
-            alphas.extend([255_u8; Tile::HEIGHT as usize * Tile::WIDTH as usize]);
-            strips.push(Self::new(u16::MAX, y_pos, alphas.len() as u32, true));
-        };
-
-        let start_word = (start >> 5) as usize;
-        let end_word = ((end - 1) >> 5) as usize;
-
-        // Start Word
-        {
-            let mut word = active_rows[start_word];
-            let start_bit = start & 31;
-            word &= !((1 << start_bit) - 1);
-            if start_word == end_word {
-                let end_limit = ((end - 1) & 31) + 1;
-                if end_limit < 32 {
-                    word &= (1 << end_limit) - 1;
-                }
+        windings.for_active_rows_in_range(start as usize, end as usize, |row| {
+            if should_fill(windings.coarse[row] as i32) {
+                let y_pos = row as u16 * Tile::HEIGHT;
+                strips.push(Self::new(0, y_pos, alphas.len() as u32, false));
+                alphas.extend([255_u8; Tile::HEIGHT as usize * Tile::WIDTH as usize]);
+                // TODO: Clamp to the scene width instead of u16::MAX; in the future there might
+                // not be clamping on the x.
+                strips.push(Self::new(u16::MAX, y_pos, alphas.len() as u32, true));
             }
-
-            while word != 0 {
-                let bit = word.trailing_zeros();
-                word &= !(1 << bit);
-                let row = (start_word << 5) + bit as usize;
-                if should_fill(row_windings[row] as i32) {
-                    let y_pos = row as u16 * Tile::HEIGHT;
-                    push_strip(y_pos);
-                }
-            }
-        }
-
-        // Middle Words
-        if start_word < end_word {
-            for (word_idx, &word_val) in active_rows
-                .iter()
-                .enumerate()
-                .take(end_word)
-                .skip(start_word + 1)
-            {
-                let mut word = word_val;
-                while word != 0 {
-                    let bit = word.trailing_zeros();
-                    word &= !(1 << bit);
-
-                    let row = (word_idx << 5) + bit as usize;
-                    if should_fill(row_windings[row] as i32) {
-                        let y_pos = row as u16 * Tile::HEIGHT;
-                        push_strip(y_pos);
-                    }
-                }
-            }
-
-            // End Word
-            {
-                let mut word = active_rows[end_word];
-                let end_limit = ((end - 1) & 31) + 1;
-                if end_limit < 32 {
-                    word &= (1 << end_limit) - 1;
-                }
-
-                while word != 0 {
-                    let bit = word.trailing_zeros();
-                    word &= !(1 << bit);
-                    let row = (end_word << 5) + bit as usize;
-                    if should_fill(row_windings[row] as i32) {
-                        let y_pos = row as u16 * Tile::HEIGHT;
-                        push_strip(y_pos);
-                    }
-                }
-            }
-        }
+        });
     }
 }
 
@@ -229,9 +162,7 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
     aliasing_threshold: Option<u8>,
     lines: &[Line],
 ) {
-    let partial_windings = &tiles.windings.partial;
     let row_windings = &tiles.windings.coarse;
-    let active_rows = &tiles.windings.active;
 
     // If we're not early culling and the tile buffer is empty, we can simply exit. If we *are*
     // early culling, the tile buffer may be empty but there may be winding produced by culled
@@ -244,6 +175,27 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
         Fill::NonZero => winding != 0,
         Fill::EvenOdd => winding % 2 != 0,
     };
+
+    // Helper to handle "captive strips". When a row has tiles, but the first tile
+    // is not at the left edge of the viewport (x != 0), we must emit a solid strip
+    // from x=0 to that tile if the coarse winding dictates a fill.
+    let emit_captive_strip =
+        |y: u16, is_left_viewport: bool, strips: &mut Vec<Strip>, alphas: &mut Vec<u8>| {
+            let coarse_wd = tiles.windings.coarse[y as usize] as i32;
+
+            if should_fill(coarse_wd) && !is_left_viewport {
+                strips.push(Strip::new(0, y * Tile::HEIGHT, alphas.len() as u32, false));
+                alphas.extend([255_u8; Tile::HEIGHT as usize * Tile::WIDTH as usize]);
+            }
+
+            let mut acc = f32x4::splat(s, coarse_wd as f32);
+            if is_left_viewport {
+                let fine_winding: f32x4<_> = tiles.windings.partial[y as usize].simd_into(s);
+                acc += fine_winding;
+            }
+
+            (coarse_wd, acc)
+        };
 
     // The accumulated tile winding delta. A line that crosses the top edge of a tile
     // increments the delta if the line is directed upwards, and decrements it if goes
@@ -274,30 +226,16 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
             row_max,
             strip_buf,
             alpha_buf,
-            active_rows,
-            row_windings,
+            &tiles.windings,
             should_fill,
         );
-        if !tiles.is_empty() {
-            winding_delta = row_windings[prev_tile.y as usize] as i32;
-            if should_fill(winding_delta) && !left_viewport {
-                strip_buf.push(Strip::new(
-                    0,
-                    prev_tile.y * Tile::HEIGHT,
-                    alpha_buf.len() as u32,
-                    false,
-                ));
-                alpha_buf.extend([255_u8; Tile::HEIGHT as usize * Tile::WIDTH as usize]);
-            }
-            accumulated_winding = f32x4::splat(s, winding_delta as f32);
-            if left_viewport {
-                let fine_winding: f32x4<_> = partial_windings[prev_tile.y as usize].simd_into(s);
-                accumulated_winding += fine_winding;
-            }
-            location_winding = [accumulated_winding; Tile::WIDTH as usize];
-        } else {
+        if tiles.is_empty() {
             return;
         }
+        let (wd, acc) = emit_captive_strip(prev_tile.y, left_viewport, strip_buf, alpha_buf);
+        winding_delta = wd;
+        accumulated_winding = acc;
+        location_winding = [accumulated_winding; Tile::WIDTH as usize];
     }
 
     // The strip we're building.
@@ -408,26 +346,13 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
                         tile.y,
                         strip_buf,
                         alpha_buf,
-                        active_rows,
-                        row_windings,
+                        &tiles.windings,
                         should_fill,
                     );
-                    winding_delta = row_windings[tile.y as usize] as i32;
-                    if should_fill(winding_delta) && !left_viewport {
-                        strip_buf.push(Strip::new(
-                            0,
-                            tile.y * Tile::HEIGHT,
-                            alpha_buf.len() as u32,
-                            false,
-                        ));
-                        alpha_buf.extend([255_u8; Tile::HEIGHT as usize * Tile::WIDTH as usize]);
-                    }
 
-                    accumulated_winding = f32x4::splat(s, winding_delta as f32);
-                    if left_viewport {
-                        let fine_winding: f32x4<_> = partial_windings[tile.y as usize].simd_into(s);
-                        accumulated_winding += fine_winding;
-                    }
+                    let (wd, acc) = emit_captive_strip(tile.y, left_viewport, strip_buf, alpha_buf);
+                    winding_delta = wd;
+                    accumulated_winding = acc;
                 } else {
                     winding_delta = 0;
                     accumulated_winding = f32x4::splat(s, 0.0);
@@ -613,8 +538,7 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
             row_windings.len() as u16,
             strip_buf,
             alpha_buf,
-            active_rows,
-            row_windings,
+            &tiles.windings,
             should_fill,
         );
     }
