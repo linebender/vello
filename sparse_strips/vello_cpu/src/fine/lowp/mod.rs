@@ -498,12 +498,19 @@ mod alpha_fill {
         s.vectorize(
             #[inline(always)]
             || {
-                let src_a = u8x32::splat(s, src[3]);
                 let src_c = u32x8::splat(s, u32::from_ne_bytes(src)).to_bytes();
                 let one = u8x32::splat(s, 255);
 
-                for (next_bg, next_mask) in dest.chunks_exact_mut(32).zip(alphas) {
-                    alpha_composite_inner(s, next_bg, &next_mask, src_c, src_a, one);
+                if src[3] == 255 {
+                    for (next_bg, next_mask) in dest.chunks_exact_mut(32).zip(alphas) {
+                        alpha_composite_opaque_inner(s, next_bg, &next_mask, src_c, one);
+                    }
+                } else {
+                    let src_a = u8x32::splat(s, src[3]);
+
+                    for (next_bg, next_mask) in dest.chunks_exact_mut(32).zip(alphas) {
+                        alpha_composite_inner(s, next_bg, &next_mask, src_c, src_a, one);
+                    }
                 }
             },
         );
@@ -559,7 +566,31 @@ mod alpha_fill {
                 let p2 = s.widen_u8x32(src_c) * s.widen_u8x32(mask_v);
                 let res = s.narrow_u16x32((p1 + p2).div_255());
 
-                dest.copy_from_slice(res.as_slice());
+                res.store_slice(dest);
+            },
+        );
+    }
+
+    #[inline(always)]
+    fn alpha_composite_opaque_inner<S: Simd>(
+        s: S,
+        dest: &mut [u8],
+        masks: &[u8; 8],
+        src_c: u8x32<S>,
+        one: u8x32<S>,
+    ) {
+        s.vectorize(
+            #[inline(always)]
+            || {
+                let bg_v = u8x32::from_slice(s, dest);
+                let mask_v = extract_masks(s, masks);
+                let inv_mask = one - mask_v;
+
+                let p1 = s.widen_u8x32(bg_v) * s.widen_u8x32(inv_mask);
+                let p2 = s.widen_u8x32(src_c) * s.widen_u8x32(mask_v);
+                let res = s.narrow_u16x32((p1 + p2).div_255());
+
+                res.store_slice(dest);
             },
         );
     }
