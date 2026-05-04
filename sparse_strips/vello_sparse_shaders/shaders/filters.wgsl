@@ -148,27 +148,31 @@ fn vs_main(
 // Sample a pixel from the original texture.
 // Note: `rel_cord` needs to be positive and must not exceed the width/height of the image
 // that is to be sampled.
-fn sample_original(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
-    let src_coord = vec2<u32>(vec2<i32>(in.original_offset) + vec2<i32>(rel_coord));
+fn sample_original(original_offset: vec2<u32>, rel_coord: vec2<f32>) -> vec4<f32> {
+    let src_coord = vec2<u32>(vec2<i32>(original_offset) + vec2<i32>(rel_coord));
     return textureLoad(original_tex, src_coord, 0);
 }
 
 // Sample a pixel from the input texture.
 // Note: `rel_cord` needs to be positive and must not exceed the width/height of the image
 // that is to be sampled.
-fn sample_input(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
-    let src_coord = vec2<u32>(vec2<i32>(in.src_offset) + vec2<i32>(rel_coord));
+fn sample_input(src_offset: vec2<u32>, rel_coord: vec2<f32>) -> vec4<f32> {
+    let src_coord = vec2<u32>(vec2<i32>(src_offset) + vec2<i32>(rel_coord));
     return textureLoad(in_tex, src_coord, 0);
 }
 
 // Same as `sample_input`, but with bounds checking.
-fn sample_input_checked(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f32> {
-    if rel_coord.x < 0.0 || rel_coord.x >= f32(in.src_size.x) ||
-       rel_coord.y < 0.0 || rel_coord.y >= f32(in.src_size.y) {
+fn sample_input_checked(
+    src_offset: vec2<u32>,
+    src_size: vec2<u32>,
+    rel_coord: vec2<f32>,
+) -> vec4<f32> {
+    if rel_coord.x < 0.0 || rel_coord.x >= f32(src_size.x) ||
+       rel_coord.y < 0.0 || rel_coord.y >= f32(src_size.y) {
         return vec4<f32>(0.0);
     }
 
-    return sample_input(in, rel_coord);
+    return sample_input(src_offset, rel_coord);
 }
 
 // TODO: Add support for edge modes when blurring. This unfortunately will make it harder/impossible to perform
@@ -181,11 +185,15 @@ fn sample_input_checked(in: FilterVertexOutput, rel_coord: vec2<f32>) -> vec4<f3
 // We need to use `textureSampleLevel` instead of `textureSample` for loops with dynamic
 // iteration count so that it works properly in the Direct3D backend.
 
-fn downscale(in: FilterVertexOutput) -> vec4<f32> {
-    let frag_coord = vec2<u32>(in.position.xy);
-    let rel = vec2<i32>(frag_coord - in.dest_offset);
+fn downscale(
+    position: vec4<f32>,
+    src_offset: vec2<u32>,
+    dest_offset: vec2<u32>,
+) -> vec4<f32> {
+    let frag_coord = vec2<u32>(position.xy);
+    let rel = vec2<i32>(frag_coord - dest_offset);
     let src_rel = vec2<f32>(rel * 2);
-    let src_texel = vec2<f32>(in.src_offset) + src_rel;
+    let src_texel = vec2<f32>(src_offset) + src_rel;
     let tex_size = vec2<f32>(textureDimensions(in_tex));
 
     // Overall, this follows the same approach that is used by the CPU, where a [1,3,3,1]/8 filter
@@ -209,11 +217,15 @@ fn downscale(in: FilterVertexOutput) -> vec4<f32> {
     return (s00 + s01 + s10 + s11) * 0.25;
 }
 
-fn upscale(in: FilterVertexOutput) -> vec4<f32> {
+fn upscale(
+    position: vec4<f32>,
+    src_offset: vec2<u32>,
+    dest_offset: vec2<u32>,
+) -> vec4<f32> {
     // Same story as for downscaling, but this time even simpler and we can get away with a single texture sample.
 
-    let frag_coord = vec2<u32>(in.position.xy);
-    let rel = vec2<i32>(frag_coord - in.dest_offset);
+    let frag_coord = vec2<u32>(position.xy);
+    let rel = vec2<i32>(frag_coord - dest_offset);
     let src_base = vec2<f32>(rel / 2);
     let phase = vec2<f32>(rel % 2);
     let tex_size = vec2<f32>(textureDimensions(in_tex));
@@ -221,14 +233,14 @@ fn upscale(in: FilterVertexOutput) -> vec4<f32> {
     // For even phases: 75% of current, 25% of top/left.
     // For odd phases: 75% of current, 25% of bottom/right.
     let sample_offset = select(vec2(-0.25), vec2(0.25), phase == vec2(1.0));
-    let src_texel = vec2<f32>(in.src_offset) + src_base + sample_offset;
+    let src_texel = vec2<f32>(src_offset) + src_base + sample_offset;
 
     // Yay, just a single sample!
     return textureSampleLevel(in_tex, linear_sampler, (src_texel + 0.5) / tex_size, 0.0);
 }
 
 fn convolve(
-    in: FilterVertexOutput,
+    src_offset: vec2<u32>,
     src_rel: vec2<f32>,
     dir: vec2<f32>,
     n_linear_taps: u32,
@@ -245,7 +257,7 @@ fn convolve(
     // TODO: Explore whether combining horizontal and vertical filtering is worth it. Likely not worth doing
     // since downscaling/upscaling forms the bottleneck for now.
 
-    let src_texel = vec2<f32>(in.src_offset) + src_rel;
+    let src_texel = vec2<f32>(src_offset) + src_rel;
     let tex_size = vec2<f32>(textureDimensions(in_tex));
 
     // First compute the color contribution of the center pixel.
@@ -283,45 +295,56 @@ const VERTICAL: vec2<f32> = vec2<f32>(0.0, 1.0);
 // See also https://github.com/linebender/vello/pull/1604 for more information on why.
 
 @fragment
-fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
-    let frag_coord = vec2<u32>(in.position.xy);
-    let rel_coord = vec2<f32>(frag_coord - in.dest_offset);
+fn fs_main(
+    @location(0) @interpolate(flat) filter_offset: u32,
+    @location(1) @interpolate(flat) src_offset: vec2<u32>,
+    @location(2) @interpolate(flat) src_size: vec2<u32>,
+    @location(3) @interpolate(flat) dest_offset: vec2<u32>,
+    @location(4) @interpolate(flat) dest_size: vec2<u32>,
+    @location(5) @interpolate(flat) dest_atlas_size: vec2<u32>,
+    @location(6) @interpolate(flat) original_offset: vec2<u32>,
+    @location(7) @interpolate(flat) original_size: vec2<u32>,
+    @location(8) @interpolate(flat) pass_kind: u32,
+    @builtin(position) position: vec4<f32>,
+) -> @location(0) vec4<f32> {
+    let frag_coord = vec2<u32>(position.xy);
+    let rel_coord = vec2<f32>(frag_coord - dest_offset);
 
     // See the comment in `vs_main`.
-    if rel_coord.x >= f32(in.dest_size.x) || rel_coord.y >= f32(in.dest_size.y) {
+    if rel_coord.x >= f32(dest_size.x) || rel_coord.y >= f32(dest_size.y) {
         return vec4<f32>(0.0);
     }
 
-    switch in.pass_kind {
+    switch pass_kind {
         case PASS_COPY: {
-            return sample_input(in, rel_coord);
+            return sample_input(src_offset, rel_coord);
         }
         case PASS_FLOOD: {
-            let filter_raw0 = load_filter_texel(in.filter_offset, 0u);
+            let filter_raw0 = load_filter_texel(filter_offset, 0u);
             return unpack4x8unorm(get_flood_color(filter_raw0));
         }
         case PASS_OFFSET: {
-            let filter_raw0 = load_filter_texel(in.filter_offset, 0u);
+            let filter_raw0 = load_filter_texel(filter_offset, 0u);
             var dxdy: vec2<f32>;
 
             if get_filter_type(filter_raw0) == FILTER_TYPE_DROP_SHADOW {
-                let filter_raw2 = load_filter_texel(in.filter_offset, 2u);
+                let filter_raw2 = load_filter_texel(filter_offset, 2u);
                 dxdy = vec2<f32>(get_drop_shadow_dx(filter_raw2), get_drop_shadow_dy(filter_raw2));
             } else {
                 dxdy = vec2<f32>(get_offset_dx(filter_raw0), get_offset_dy(filter_raw0));
             }
 
             // CPU version uses normal round but WGSL round with ties even, so we use floor + 0.5 instead.
-            return sample_input_checked(in, rel_coord - floor(dxdy + 0.5));
+            return sample_input_checked(src_offset, src_size, rel_coord - floor(dxdy + 0.5));
         }
         case PASS_DOWNSCALE: {
-            return downscale(in);
+            return downscale(position, src_offset, dest_offset);
         }
         case PASS_BLUR_H: {
-            let filter_raw0 = load_filter_texel(in.filter_offset, 0u);
-            let filter_raw1 = load_filter_texel(in.filter_offset, 1u);
+            let filter_raw0 = load_filter_texel(filter_offset, 0u);
+            let filter_raw1 = load_filter_texel(filter_offset, 1u);
             return convolve(
-                in,
+                src_offset,
                 rel_coord,
                 HORIZONTAL,
                 get_filter_header_n_linear_taps(filter_raw0),
@@ -331,10 +354,10 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
             );
         }
         case PASS_BLUR_V: {
-            let filter_raw0 = load_filter_texel(in.filter_offset, 0u);
-            let filter_raw1 = load_filter_texel(in.filter_offset, 1u);
+            let filter_raw0 = load_filter_texel(filter_offset, 0u);
+            let filter_raw1 = load_filter_texel(filter_offset, 1u);
             return convolve(
-                in,
+                src_offset,
                 rel_coord,
                 VERTICAL,
                 get_filter_header_n_linear_taps(filter_raw0),
@@ -344,15 +367,15 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
             );
         }
         case PASS_UPSCALE: {
-            return upscale(in);
+            return upscale(position, src_offset, dest_offset);
         }
         case PASS_COMPOSITE_DROP_SHADOW: {
-            let filter_raw2 = load_filter_texel(in.filter_offset, 2u);
+            let filter_raw2 = load_filter_texel(filter_offset, 2u);
             // Drop shadow composite: colorize blurred result, composite original on top.
-            let blurred = sample_input(in, rel_coord);
+            let blurred = sample_input(src_offset, rel_coord);
             let shadow_color = unpack4x8unorm(get_drop_shadow_color(filter_raw2));
             let shadow_result = shadow_color * blurred.a;
-            let original = sample_original(in, rel_coord);
+            let original = sample_original(original_offset, rel_coord);
 
             // Simple source-over compositing.
             return original + shadow_result * (1.0 - original.a);
