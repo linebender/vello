@@ -1611,11 +1611,11 @@ impl Scheduler {
                 let paint_id = indexed_paint.index();
                 match encoded_paints.get(paint_id) {
                     Some(EncodedPaint::Image(img)) => {
-                        !img.may_have_opacities
+                        !img.may_have_transparency
                             && img.sampler.alpha == 1.0
                             && img.tint.is_none_or(|t| t.color.components[3] >= 1.0)
                     }
-                    Some(EncodedPaint::Gradient(g)) => !g.may_have_opacities,
+                    Some(EncodedPaint::Gradient(g)) => !g.may_have_transparency,
                     Some(EncodedPaint::BlurredRoundedRect(_)) => false,
                     None => unreachable!("Paint must be in encoded paints"),
                 }
@@ -2403,7 +2403,7 @@ mod tests {
         let encoded_paints = vec![vello_common::encode::EncodedPaint::Image(EncodedImage {
             source: ImageSource::opaque_id(ImageId::new(1)),
             sampler: ImageSampler::new(),
-            may_have_opacities: false,
+            may_have_transparency: false,
             transform: Affine::IDENTITY,
             x_advance: Vec2::new(1.0, 0.0),
             y_advance: Vec2::new(0.0, 1.0),

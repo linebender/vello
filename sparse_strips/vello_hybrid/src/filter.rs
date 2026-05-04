@@ -821,10 +821,10 @@ impl FilterContext {
                 let encoded_paint = EncodedPaint::Image(EncodedImage {
                     source: ImageSource::OpaqueId {
                         id: dest_image_id,
-                        may_have_opacities: true,
+                        may_have_transparency: true,
                     },
                     sampler: ImageSampler::new().with_quality(ImageQuality::Low),
-                    may_have_opacities: true,
+                    may_have_transparency: true,
                     // Since filter layers are always shifted to start at (0, 0) relative to
                     // their bounding box, we need to "unshift" them when sampling.
                     transform: Affine::translate((

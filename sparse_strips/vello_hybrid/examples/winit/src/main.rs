@@ -63,7 +63,7 @@ fn main() {
             }
         }
         let img_sources = vec![
-            ImageSource::opaque_id_with_opacity_hint(ImageId::new(0), false),
+            ImageSource::opaque_id_with_transparency_hint(ImageId::new(0), false),
             ImageSource::opaque_id(ImageId::new(1)),
         ];
         let scenes = if svg_paths.is_empty() {

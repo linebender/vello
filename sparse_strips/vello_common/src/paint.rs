@@ -79,7 +79,7 @@ pub enum ImageSource {
         /// The image handle.
         id: ImageId,
         /// Whether the image may contain non-opaque pixels.
-        may_have_opacities: bool,
+        may_have_transparency: bool,
     },
 }
 
@@ -87,30 +87,31 @@ impl ImageSource {
     /// Create an [`ImageSource`] from a pre-registered image handle.
     ///
     /// Conservatively assumes the image may have non-opaque pixels.
-    /// Use [`Self::opaque_id_with_opacity_hint`] when you know the image is fully opaque.
+    /// Use [`Self::opaque_id_with_transparency_hint`] when you know the image is fully opaque.
     pub fn opaque_id(id: ImageId) -> Self {
         Self::OpaqueId {
             id,
-            may_have_opacities: true,
+            may_have_transparency: true,
         }
     }
 
     /// Create an [`ImageSource`] from a pre-registered image handle,
     /// with an explicit hint about whether the image may have non-opaque pixels.
-    pub fn opaque_id_with_opacity_hint(id: ImageId, may_have_opacities: bool) -> Self {
+    pub fn opaque_id_with_transparency_hint(id: ImageId, may_have_transparency: bool) -> Self {
         Self::OpaqueId {
             id,
-            may_have_opacities,
+            may_have_transparency,
         }
     }
 
     /// Returns whether this image source may contain non-opaque pixels.
-    pub fn may_have_opacities(&self) -> bool {
+    pub fn may_have_transparency(&self) -> bool {
         match self {
-            Self::Pixmap(p) => p.may_have_opacities(),
+            Self::Pixmap(p) => p.may_have_transparency(),
             Self::OpaqueId {
-                may_have_opacities, ..
-            } => *may_have_opacities,
+                may_have_transparency,
+                ..
+            } => *may_have_transparency,
         }
     }
 
