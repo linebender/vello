@@ -334,28 +334,36 @@ var clip_input_texture: texture_2d<f32>;
 // See also https://github.com/linebender/vello/pull/1604 for more information on why.
 
 @fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+fn fs_main(
+    @location(0) @interpolate(flat) paint_and_rect_flag: u32,
+    @location(1) tex_coord: vec2<f32>,
+    @location(2) sample_xy: vec2<f32>,
+    @location(3) @interpolate(flat) dense_end_or_rect_size: u32,
+    @location(4) @interpolate(flat) payload: u32,
+    @location(5) @interpolate(flat) rect_frac: u32,
+    @builtin(position) position: vec4<f32>,
+) -> @location(0) vec4<f32> {
     var alpha = 1.0;
-    let is_rect = (in.paint_and_rect_flag & RECT_STRIP_FLAG) != 0u;
+    let is_rect = (paint_and_rect_flag & RECT_STRIP_FLAG) != 0u;
     // TODO: Explore doing these calculations only for rectangle parts that actually need anti-aliasing. See
     // https://github.com/linebender/vello/pull/1482#discussion_r2861311034
-    if is_rect && in.rect_frac != 0u {
-        let frac = unpack4x8unorm(in.rect_frac);
+    if is_rect && rect_frac != 0u {
+        let frac = unpack4x8unorm(rect_frac);
         // Calculate how much of the pixel is actually covered by the rect.
         // We do this by simply calculating the fractions in the x and y direction, and
         // then multiplying them.
         // For (maybe?) better performance, we calculate the x and y dimension in a single
         // pass by packing everything into a vec2.
-        let rect_size = vec2<f32>(f32(in.dense_end_or_rect_size & 0xFFFFu), f32(in.dense_end_or_rect_size >> 16u));
-        let tc = in.tex_coord;
+        let rect_size = vec2<f32>(f32(dense_end_or_rect_size & 0xFFFFu), f32(dense_end_or_rect_size >> 16u));
+        let tc = tex_coord;
         // + 0.5 and -0.5 since the fragment shader positions the coordinates in the center of the pixel.
         let bottom_and_right = min(tc + 0.5, rect_size - frac.zw);
         let top_and_left = max(tc - 0.5, frac.xy);
         let a = clamp(bottom_and_right - top_and_left, vec2(0.0), vec2(1.0));
         alpha = a.x * a.y;
-    } else if !is_rect && in.dense_end_or_rect_size != 0u {
-        let x = u32(floor(in.tex_coord.x));
-        let y = u32(floor(in.tex_coord.y));
+    } else if !is_rect && dense_end_or_rect_size != 0u {
+        let x = u32(floor(tex_coord.x));
+        let y = u32(floor(tex_coord.y));
         // Retrieve alpha value from the texture. We store 16 1-byte alpha
         // values per texel, with each color channel packing 4 alpha values.
         // The code here assumes the strip height is 4, i.e., each color
@@ -381,17 +389,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         alpha = f32((alphas_u32 >> (y * 8u)) & 0xffu) * (1.0 / 255.0);
     }
     // Apply the alpha value to the unpacked RGBA color or slot index
-    let color_source = (in.paint_and_rect_flag >> 29u) & 0x3u;
+    let color_source = (paint_and_rect_flag >> 29u) & 0x3u;
     var final_color: vec4<f32>;
 
     if color_source == COLOR_SOURCE_PAYLOAD {
-        let paint_type = (in.paint_and_rect_flag >> 26u) & 0x7u;
+        let paint_type = (paint_and_rect_flag >> 26u) & 0x7u;
 
         // in.payload encodes a color for PAINT_TYPE_SOLID or sample_xy for PAINT_TYPE_IMAGE
         if paint_type == PAINT_TYPE_SOLID {
-            final_color = alpha * unpack4x8unorm(in.payload);
+            final_color = alpha * unpack4x8unorm(payload);
         } else if paint_type == PAINT_TYPE_IMAGE {
-            let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
+            let paint_tex_idx = paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
             let image_raw0 = load_encoded_paint_texel(paint_tex_idx, 0u);
             let image_raw1 = load_encoded_paint_texel(paint_tex_idx, 1u);
             let image_raw2 = load_encoded_paint_texel(paint_tex_idx, 2u);
@@ -400,7 +408,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let image_extend_modes = get_image_extend_modes(image_raw0);
             let image_atlas_index = get_image_atlas_index(image_raw0);
             let image_padding = get_image_padding(image_raw2);
-            let local_xy = in.sample_xy - image_offset;
+            let local_xy = sample_xy - image_offset;
             // This offset doesn't exist in vello_cpu, and we use it because 45 degree skewing seems to cause
             // artifacts on the GPU. We have something similar in place for gradients. It might be worth revisiting
             // this to see whether a better approach is possible.
@@ -454,12 +462,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 is_multiply
             );
         } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT {
-            let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
+            let paint_tex_idx = paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
             let gradient_raw0 = load_encoded_paint_texel(paint_tex_idx, 0u);
             let gradient_raw1 = load_encoded_paint_texel(paint_tex_idx, 1u);
             
             // Calculate fragment position and apply affine transform
-            let fragment_pos = in.sample_xy;
+            let fragment_pos = sample_xy;
             let grad_pos = apply_gradient_transform(gradient_raw0, gradient_raw1, fragment_pos);
             
             // For linear gradient, t-value is just the x coordinate in gradient space
@@ -472,14 +480,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             );
             final_color = alpha * gradient_color;
         } else if paint_type == PAINT_TYPE_RADIAL_GRADIENT {
-            let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
+            let paint_tex_idx = paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
             let gradient_raw0 = load_encoded_paint_texel(paint_tex_idx, 0u);
             let gradient_raw1 = load_encoded_paint_texel(paint_tex_idx, 1u);
             let gradient_raw2 = load_encoded_paint_texel(paint_tex_idx, 2u);
             let gradient_raw3 = load_encoded_paint_texel(paint_tex_idx, 3u);
             
             // Calculate fragment position and apply affine transform
-            let fragment_pos = in.sample_xy;
+            let fragment_pos = sample_xy;
             let grad_pos = apply_gradient_transform(gradient_raw0, gradient_raw1, fragment_pos);
             
             // For radial gradient, calculate distance from center
@@ -496,13 +504,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 gradient_result.y != 0.0
             );
         } else if paint_type == PAINT_TYPE_SWEEP_GRADIENT {
-            let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
+            let paint_tex_idx = paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
             let gradient_raw0 = load_encoded_paint_texel(paint_tex_idx, 0u);
             let gradient_raw1 = load_encoded_paint_texel(paint_tex_idx, 1u);
             let gradient_raw2 = load_encoded_paint_texel(paint_tex_idx, 2u);
             
             // Calculate fragment position and apply affine transform
-            let fragment_pos = in.sample_xy;
+            let fragment_pos = sample_xy;
             var grad_pos = apply_gradient_transform(gradient_raw0, gradient_raw1, fragment_pos);
 
             // Before passing the position to the angle calculation, we bias
@@ -534,7 +542,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // assumes a `y-up` or `y-down` coordinate system. However, for slot textures, we need the original
         // coordinate in the `y-down` system. Therefore, we invert the y-position _again_ in case we are
         // currently rendering to a y-up system, to get the original coordinate.
-        let sample_y = select(in.position.y, f32(config.height) - in.position.y, config.ndc_y_negate != 0u);
+        let sample_y = select(position.y, f32(config.height) - position.y, config.ndc_y_negate != 0u);
         // in.payload encodes a slot in the source clip texture.
         // This is a bit finicky: When copying from a texture slot, we already
         // know which slot to choose and where that slot is located. Therefore, we now
@@ -543,26 +551,26 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // strip offset is (2, 2), then the pixel (2, 2) should still map to (0, 0)
         // within the wide tile slot! Therefore, we need to subtract the strip
         // offset here.
-        let clip_x = u32(i32(in.position.x) - config.strip_offset_x) & 0xFFu;
-        let clip_y = (u32(i32(sample_y) - config.strip_offset_y) & 3u) + in.payload * config.strip_height;
+        let clip_x = u32(i32(position.x) - config.strip_offset_x) & 0xFFu;
+        let clip_y = (u32(i32(sample_y) - config.strip_offset_y) & 3u) + payload * config.strip_height;
         let clip_in_color = textureLoad(clip_input_texture, vec2(clip_x, clip_y), 0);
 
         // Extract opacity from first 8 bits (quantized from [0, 255])
-        let opacity = f32(in.paint_and_rect_flag & 0xFFu) * (1.0 / 255.0);
+        let opacity = f32(paint_and_rect_flag & 0xFFu) * (1.0 / 255.0);
 
         final_color = alpha * opacity * clip_in_color;
     } else if color_source == COLOR_SOURCE_BLEND {
         // See the comment above.
-        let sample_y = select(in.position.y, f32(config.height) - in.position.y, config.ndc_y_negate != 0u);
-        let opacity = f32((in.paint_and_rect_flag >> 16u) & 0xFFu) * (1.0 / 255.0);
-        let mix_mode = (in.paint_and_rect_flag >> 8u) & 0xFFu;
-        let compose_mode = in.paint_and_rect_flag & 0xFFu;
+        let sample_y = select(position.y, f32(config.height) - position.y, config.ndc_y_negate != 0u);
+        let opacity = f32((paint_and_rect_flag >> 16u) & 0xFFu) * (1.0 / 255.0);
+        let mix_mode = (paint_and_rect_flag >> 8u) & 0xFFu;
+        let compose_mode = paint_and_rect_flag & 0xFFu;
         
         // Read source color from slot
-        let src_slot = in.payload & 0xFFFFu;
-        let dest_slot = (in.payload >> 16u) & 0xFFFFu;
+        let src_slot = payload & 0xFFFFu;
+        let dest_slot = (payload >> 16u) & 0xFFFFu;
         // See the comment above for why we need to subtract the strip offset.
-        let clip_x = u32(i32(in.position.x) - config.strip_offset_x) & 0xFFu;
+        let clip_x = u32(i32(position.x) - config.strip_offset_x) & 0xFFu;
         let clip_y_in_strip = u32(i32(sample_y) - config.strip_offset_y) & 3u;
         let src_y = clip_y_in_strip + src_slot * config.strip_height;
         let src_color = textureLoad(clip_input_texture, vec2(clip_x, src_y), 0);
