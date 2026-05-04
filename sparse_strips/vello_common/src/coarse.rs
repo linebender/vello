@@ -2216,7 +2216,7 @@ impl LayerCommandRanges {
 
 #[cfg(test)]
 mod tests {
-    use crate::coarse::{FillHint, LayerKind, MODE_CPU, NeedsBufLayerStack, Wide, WideTile};
+    use crate::coarse::{Cmd, FillHint, LayerKind, MODE_CPU, NeedsBufLayerStack, Wide, WideTile};
     use crate::kurbo::Affine;
     use crate::paint::{Paint, PremulColor};
     use crate::peniko;
@@ -2245,6 +2245,97 @@ mod tests {
         wide.pop_buf();
 
         assert_eq!(wide.cmds.len(), 4);
+    }
+
+    #[test]
+    fn push_buffers_lazily() {
+        let mut wide = Wide::<MODE_CPU>::new(512, 4);
+        let mut render_graph = RenderGraph::new();
+        let no_clip: Option<Box<[Strip]>> = None;
+
+        wide.push_layer(
+            1,
+            no_clip,
+            BlendMode::default(),
+            None,
+            0.5,
+            None,
+            Affine::IDENTITY,
+            &mut render_graph,
+            0,
+        );
+
+        assert!(wide.get(0, 0).cmds.is_empty());
+        assert!(wide.get(1, 0).cmds.is_empty());
+        assert_eq!(wide.get(0, 0).n_bufs, 0);
+        assert_eq!(wide.get(1, 0).n_bufs, 0);
+
+        let strips = [Strip::new(0, 0, 0, false), Strip::new(10, 0, 4, true)];
+        wide.generate(
+            &strips,
+            Paint::Solid(PremulColor::from_alpha_color(
+                peniko::color::palette::css::RED,
+            )),
+            BlendMode::default(),
+            0,
+            None,
+            &[],
+        );
+
+        assert!(matches!(
+            wide.get(0, 0).cmds.first(),
+            Some(Cmd::PushBuf(LayerKind::Regular(1), false))
+        ));
+        assert_eq!(wide.get(0, 0).n_bufs, 1);
+        // Nothing has been drawn into the second wide tile, so it should stay empty.
+        assert!(wide.get(1, 0).cmds.is_empty());
+        assert_eq!(wide.get(1, 0).n_bufs, 0);
+
+        wide.pop_layer(&mut render_graph);
+
+        assert_eq!(wide.get(0, 0).n_bufs, 0);
+        assert_eq!(wide.get(1, 0).n_bufs, 0);
+
+        assert!(!wide.get(0, 0).cmds.is_empty());
+        assert!(wide.get(1, 0).cmds.is_empty());
+    }
+
+    #[test]
+    fn push_destructive_blends_eagerly() {
+        let mut wide = Wide::<MODE_CPU>::new(512, 4);
+        let mut render_graph = RenderGraph::new();
+        let no_clip: Option<Box<[Strip]>> = None;
+
+        wide.push_layer(
+            1,
+            no_clip,
+            BlendMode::new(Mix::Normal, Compose::Clear),
+            None,
+            1.0,
+            None,
+            Affine::IDENTITY,
+            &mut render_graph,
+            0,
+        );
+
+        assert!(matches!(
+            wide.get(0, 0).cmds.first(),
+            Some(Cmd::PushBuf(LayerKind::Regular(1), false))
+        ));
+        assert!(matches!(
+            wide.get(1, 0).cmds.first(),
+            Some(Cmd::PushBuf(LayerKind::Regular(1), false))
+        ));
+        assert_eq!(wide.get(0, 0).n_bufs, 1);
+        assert_eq!(wide.get(1, 0).n_bufs, 1);
+
+        wide.pop_layer(&mut render_graph);
+
+        assert_eq!(wide.get(0, 0).n_bufs, 0);
+        assert_eq!(wide.get(1, 0).n_bufs, 0);
+
+        assert!(!wide.get(0, 0).cmds.is_empty());
+        assert!(!wide.get(1, 0).cmds.is_empty());
     }
 
     #[test]
