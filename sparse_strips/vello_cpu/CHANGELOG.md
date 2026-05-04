@@ -15,6 +15,11 @@ You can find its changes [documented below](#007---2026-03-24).
 
 This release has an [MSRV][] of 1.88.
 
+### Removed
+
+- Support for recordings. This decision was made due to a number of downsides that
+  came with the implementation. See the corresponding PR and Zulip thread for more information. ([#1611][] by [@LaurenzV][])
+
 ## [0.0.7][] - 2026-03-24
 
 This release has an [MSRV][] of 1.92.
@@ -141,6 +146,7 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [#1451]: https://github.com/linebender/vello/pull/1451
 [#1460]: https://github.com/linebender/vello/pull/1460
 [#1488]: https://github.com/linebender/vello/pull/1488
+[#1611]: https://github.com/linebender/vello/pull/1611
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.7...HEAD
 [0.0.7]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.6...sparse-strips-v0.0.7

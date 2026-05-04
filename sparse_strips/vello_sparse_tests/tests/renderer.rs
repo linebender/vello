@@ -10,7 +10,6 @@ use vello_common::mask::Mask;
 use vello_common::paint::{ImageId, ImageSource, PaintType, Tint};
 use vello_common::peniko::{BlendMode, Fill, FontData};
 use vello_common::pixmap::Pixmap;
-use vello_common::recording::{Recordable, Recorder, Recording};
 use vello_cpu::{Level, RenderContext, RenderMode, RenderSettings, Resources};
 use vello_hybrid::{
     RenderSettings as HybridRenderSettings, Resources as HybridResources, Scene, SceneConstraints,
@@ -74,9 +73,6 @@ pub(crate) trait Renderer: Sized {
     fn height(&self) -> u16;
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource;
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId;
-    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>));
-    fn prepare_recording(&mut self, recording: &mut Recording);
-    fn execute_recording(&mut self, recording: &Recording);
 }
 
 pub(crate) struct CpuRenderer {
@@ -248,18 +244,6 @@ impl Renderer for CpuRenderer {
 
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
         self.resources.register_image(pixmap)
-    }
-
-    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
-        Recordable::record(&mut self.ctx, recording, f);
-    }
-
-    fn prepare_recording(&mut self, recording: &mut Recording) {
-        Recordable::prepare_recording(&mut self.ctx, recording);
-    }
-
-    fn execute_recording(&mut self, recording: &Recording) {
-        Recordable::execute_recording(&mut self.ctx, recording);
     }
 }
 
@@ -621,18 +605,6 @@ impl Renderer for HybridRenderer {
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
         self.upload_image_with_resources(&pixmap, "Register Test Image")
     }
-
-    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
-        Recordable::record(&mut self.scene, recording, f);
-    }
-
-    fn prepare_recording(&mut self, recording: &mut Recording) {
-        Recordable::prepare_recording(&mut self.scene, recording);
-    }
-
-    fn execute_recording(&mut self, recording: &Recording) {
-        Recordable::execute_recording(&mut self.scene, recording);
-    }
 }
 
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
@@ -878,17 +850,5 @@ impl Renderer for HybridRenderer {
 
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
         self.upload_image(&pixmap)
-    }
-
-    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
-        self.scene.record(recording, f);
-    }
-
-    fn prepare_recording(&mut self, recording: &mut Recording) {
-        self.scene.prepare_recording(recording);
-    }
-
-    fn execute_recording(&mut self, recording: &Recording) {
-        self.scene.execute_recording(recording);
     }
 }
