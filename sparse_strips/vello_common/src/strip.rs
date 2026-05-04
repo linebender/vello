@@ -133,27 +133,18 @@ pub fn render(
     lines: &[Line],
     use_early_culling: bool,
 ) {
-    if use_early_culling {
-        dispatch!(level, simd => render_impl::<_, true>(simd,
-                                                        tiles,
-                                                        strip_buf,
-                                                        alpha_buf,
-                                                        fill_rule,
-                                                        aliasing_threshold,
-                                                        lines));
-    } else {
-        dispatch!(level, simd => render_impl::<_, false>(simd,
-                                                         tiles,
-                                                         strip_buf,
-                                                         alpha_buf,
-                                                         fill_rule,
-                                                         aliasing_threshold,
-                                                         lines));
-    }
+    dispatch!(level, simd => render_impl(simd,
+                                         tiles,
+                                         strip_buf,
+                                         alpha_buf,
+                                         fill_rule,
+                                         aliasing_threshold,
+                                         lines,
+                                         use_early_culling));
 }
 
 #[inline(always)]
-fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
+fn render_impl<S: Simd>(
     s: S,
     tiles: &Tiles,
     strip_buf: &mut Vec<Strip>,
@@ -161,13 +152,14 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
     fill_rule: Fill,
     aliasing_threshold: Option<u8>,
     lines: &[Line],
+    use_early_culling: bool,
 ) {
     let row_windings = &tiles.windings.coarse;
 
     // If we're not early culling and the tile buffer is empty, we can simply exit. If we *are*
     // early culling, the tile buffer may be empty but there may be winding produced by culled
     // geometry left of the viewport that must be checked for filling.
-    if !USE_EARLY_CULL && tiles.is_empty() {
+    if !use_early_culling && tiles.is_empty() {
         return;
     }
 
@@ -203,7 +195,7 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
     let mut winding_delta: i32 = 0;
 
     // The previous tile visited.
-    let mut prev_tile = if USE_EARLY_CULL && tiles.is_empty() {
+    let mut prev_tile = if use_early_culling && tiles.is_empty() {
         Tile::SENTINEL
     } else {
         *tiles.get(0)
@@ -219,7 +211,7 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
     let mut accumulated_winding = f32x4::splat(s, 0.0);
 
     let left_viewport = prev_tile.x == 0;
-    if USE_EARLY_CULL {
+    if use_early_culling {
         let row_max = prev_tile.y.min(row_windings.len() as u16);
         Strip::emit_culled_background(
             0,
@@ -340,7 +332,7 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
 
                 // Logic identical to the start (see above): fill any vertical gaps (empty rows)
                 // between the previous and current tile using the row windings.
-                if USE_EARLY_CULL && !is_sentinel {
+                if use_early_culling && !is_sentinel {
                     Strip::emit_culled_background(
                         prev_tile.y + 1,
                         tile.y,
@@ -532,7 +524,7 @@ fn render_impl<S: Simd, const USE_EARLY_CULL: bool>(
         accumulated_winding += acc;
     }
 
-    if USE_EARLY_CULL {
+    if use_early_culling {
         Strip::emit_culled_background(
             (prev_tile.y + 1).min(row_windings.len() as u16),
             row_windings.len() as u16,

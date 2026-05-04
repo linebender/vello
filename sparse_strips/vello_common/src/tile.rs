@@ -43,20 +43,27 @@ pub const MAX_LINES_PER_PATH: u32 = 1 << (32 - INT_MASK_SHIFT);
 /// A logical grouping of arrays used for culled tile processing,
 #[derive(Debug, Clone, Default)]
 pub struct CulledWindings {
+    /// Fractional winding coverage for each individual scanline in a row.
     pub partial: Vec<[f32; Tile::HEIGHT as usize]>,
+    /// Accumulated integer winding deltas for each tile row.
     pub coarse: Vec<i8>,
+    /// Bitmask tracking which rows contain active geometry or winding data.
     pub active: Vec<u32>,
+    /// Flag indicating if any geometry was early-culled outside the viewport.
     pub culled: bool,
 }
 
 impl CulledWindings {
     /// Number of bits in a single active mask word.
     const WORD_BITS: usize = 32;
-    /// Bit shift equivalent to dividing by WORD_BITS (2^5 = 32).
+    /// Bit shift equivalent to dividing by `WORD_BITS` (2^5 = 32).
     const WORD_SHIFT: usize = 5;
-    /// Bitmask equivalent to modulo WORD_BITS (32 - 1 = 31).
+    /// Bitmask equivalent to modulo `WORD_BITS` (32 - 1 = 31).
     const WORD_MASK: usize = 31;
 
+    /// Constructor chained to `Tiles`' constructor and matches its lifetime. Since `Tiles` itself
+    /// matches the lifetime of `StripGenerator`, we know that the viewport dimensions will never
+    /// change, and thus the backing vecs never need to be resized. (For now).
     pub fn new(height: u16) -> Self {
         let height_usize = height as usize;
         let tile_height = Tile::HEIGHT as usize;
@@ -71,6 +78,7 @@ impl CulledWindings {
         }
     }
 
+    /// Clears but does not resize
     pub fn reset(&mut self) {
         if self.culled {
             self.partial.fill([0.0; Tile::HEIGHT as usize]);
@@ -401,6 +409,7 @@ pub struct Tiles {
     tile_buf: Vec<Tile>,
     level: Level,
     sorted: bool,
+    /// Auxiliary data tracking row windings and active rows for early culling.
     pub windings: CulledWindings,
 }
 
