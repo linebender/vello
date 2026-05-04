@@ -279,6 +279,9 @@ fn convolve(
 const HORIZONTAL: vec2<f32> = vec2<f32>(1.0, 0.0);
 const VERTICAL: vec2<f32> = vec2<f32>(0.0, 1.0);
 
+// Note: When extending the fragment shader, do not create new structs.
+// See also https://github.com/linebender/vello/pull/1604 for more information on why.
+
 @fragment
 fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
     let frag_coord = vec2<u32>(in.position.xy);

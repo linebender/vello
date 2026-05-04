@@ -330,6 +330,9 @@ var alphas_texture: texture_2d<u32>;
 @group(0) @binding(2)
 var clip_input_texture: texture_2d<f32>;
 
+// Note: When extending the fragment shader, do not create new structs.
+// See also https://github.com/linebender/vello/pull/1604 for more information on why.
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var alpha = 1.0;
