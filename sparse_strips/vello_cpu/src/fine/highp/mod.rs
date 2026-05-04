@@ -435,12 +435,19 @@ mod alpha_fill {
         s.vectorize(
             #[inline(always)]
             || {
-                let src_a = f32x16::splat(s, src[3]);
                 let src_c = f32x16::block_splat(src.simd_into(s));
                 let one = f32x16::splat(s, 1.0);
 
-                for (next_dest, next_mask) in dest.chunks_exact_mut(16).zip(alphas) {
-                    alpha_composite_inner(s, next_dest, &next_mask, src_c, src_a, one);
+                if src[3] == 1.0 {
+                    for (next_dest, next_mask) in dest.chunks_exact_mut(16).zip(alphas) {
+                        alpha_composite_opaque_inner(s, next_dest, &next_mask, src_c, one);
+                    }
+                } else {
+                    let src_a = f32x16::splat(s, src[3]);
+
+                    for (next_dest, next_mask) in dest.chunks_exact_mut(16).zip(alphas) {
+                        alpha_composite_inner(s, next_dest, &next_mask, src_c, src_a, one);
+                    }
                 }
             },
         );
@@ -515,6 +522,22 @@ mod alpha_fill {
 
         let res = bg_c.mul_add(inv_src_a_mask_a, src_c * mask_a);
         dest.copy_from_slice(res.as_slice());
+    }
+
+    #[inline(always)]
+    fn alpha_composite_opaque_inner<S: Simd>(
+        s: S,
+        dest: &mut [f32],
+        masks: &[u8; 4],
+        src_c: f32x16<S>,
+        one: f32x16<S>,
+    ) {
+        let bg_c = f32x16::from_slice(s, dest);
+        let mask_a = extract_masks(s, masks);
+        let inv_mask_a = one - mask_a;
+
+        let res = bg_c.mul_add(inv_mask_a, src_c * mask_a);
+        res.store_slice(dest);
     }
 }
 

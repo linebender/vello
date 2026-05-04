@@ -16,14 +16,21 @@ use vello_cpu::fine::{Fine, FineKernel};
 use vello_dev_macros::vello_bench;
 
 pub fn strip(c: &mut Criterion) {
-    solid_single(c);
-    solid_short(c);
-    solid_medium(c);
-    solid_long(c);
+    solid_opaque_single(c);
+    solid_transparent_single(c);
+
+    solid_opaque_short(c);
+    solid_transparent_short(c);
+
+    solid_opaque_medium(c);
+    solid_transparent_medium(c);
+
+    solid_opaque_long(c);
+    solid_transparent_long(c);
 }
 
 #[vello_bench]
-pub fn solid_single<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
+pub fn solid_opaque_single<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
     let paint = Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE));
     let width = Tile::WIDTH;
 
@@ -31,7 +38,7 @@ pub fn solid_single<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut F
 }
 
 #[vello_bench]
-pub fn solid_short<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
+pub fn solid_opaque_short<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
     let paint = Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE));
     let width = 8;
 
@@ -39,7 +46,7 @@ pub fn solid_short<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fi
 }
 
 #[vello_bench]
-pub fn solid_medium<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
+pub fn solid_opaque_medium<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
     let paint = Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE));
     let width = 16;
 
@@ -47,8 +54,52 @@ pub fn solid_medium<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut F
 }
 
 #[vello_bench]
-pub fn solid_long<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
+pub fn solid_opaque_long<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
     let paint = Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE));
+    let width = 64;
+
+    strip_single(&paint, &[], width, b, fine);
+}
+
+#[vello_bench]
+pub fn solid_transparent_single<S: Simd, N: FineKernel<S>>(
+    b: &mut Bencher<'_>,
+    fine: &mut Fine<S, N>,
+) {
+    let paint = Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE.with_alpha(0.3)));
+    let width = Tile::WIDTH;
+
+    strip_single(&paint, &[], width as usize, b, fine);
+}
+
+#[vello_bench]
+pub fn solid_transparent_short<S: Simd, N: FineKernel<S>>(
+    b: &mut Bencher<'_>,
+    fine: &mut Fine<S, N>,
+) {
+    let paint = Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE.with_alpha(0.3)));
+    let width = 8;
+
+    strip_single(&paint, &[], width, b, fine);
+}
+
+#[vello_bench]
+pub fn solid_transparent_medium<S: Simd, N: FineKernel<S>>(
+    b: &mut Bencher<'_>,
+    fine: &mut Fine<S, N>,
+) {
+    let paint = Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE.with_alpha(0.3)));
+    let width = 16;
+
+    strip_single(&paint, &[], width, b, fine);
+}
+
+#[vello_bench]
+pub fn solid_transparent_long<S: Simd, N: FineKernel<S>>(
+    b: &mut Bencher<'_>,
+    fine: &mut Fine<S, N>,
+) {
+    let paint = Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE.with_alpha(0.3)));
     let width = 64;
 
     strip_single(&paint, &[], width, b, fine);
