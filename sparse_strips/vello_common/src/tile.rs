@@ -6,7 +6,7 @@
 use crate::flatten::Line;
 use alloc::vec;
 use alloc::vec::Vec;
-use fearless_simd::Level;
+use fearless_simd::*;
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
 
@@ -39,6 +39,154 @@ const INT_MASK_SHIFT: u32 = INTERSECTION_MASK.count_ones();
 ///
 /// Trying to render a path with more lines than this may result in visual artifacts.
 pub const MAX_LINES_PER_PATH: u32 = 1 << (32 - INT_MASK_SHIFT);
+
+/// A logical grouping of arrays used for culled tile processing,
+#[derive(Debug, Clone, Default)]
+pub struct CulledWindings {
+    /// Fractional winding coverage for each individual scanline in a row.
+    pub partial: Vec<[f32; Tile::HEIGHT as usize]>,
+    /// Accumulated integer winding deltas for each tile row.
+    pub coarse: Vec<i8>,
+    /// Bitmask tracking which rows contain active geometry or winding data.
+    pub active: Vec<u32>,
+    /// Flag indicating if any geometry was early-culled outside the viewport.
+    pub culled: bool,
+}
+
+impl CulledWindings {
+    /// Number of bits in a single active mask word.
+    const WORD_BITS: usize = 32;
+    /// Bit shift equivalent to dividing by `WORD_BITS` (2^5 = 32).
+    const WORD_SHIFT: usize = 5;
+    /// Bitmask equivalent to modulo `WORD_BITS` (32 - 1 = 31).
+    const WORD_MASK: usize = 31;
+
+    /// Constructor chained to `Tiles`' constructor and matches its lifetime. Since `Tiles` itself
+    /// matches the lifetime of `StripGenerator`, we know that the viewport dimensions will never
+    /// change, and thus the backing vecs never need to be resized. (For now).
+    pub fn new(height: u16) -> Self {
+        let height_usize = height as usize;
+        let tile_height = Tile::HEIGHT as usize;
+        let num_rows = height_usize.div_ceil(tile_height);
+        let num_bits = num_rows.div_ceil(Self::WORD_BITS);
+
+        Self {
+            partial: vec![[0.0; Tile::HEIGHT as usize]; num_rows],
+            coarse: vec![0; num_rows],
+            active: vec![0; num_bits],
+            culled: false,
+        }
+    }
+
+    /// Clears but does not resize
+    pub fn reset(&mut self) {
+        if self.culled {
+            self.partial.fill([0.0; Tile::HEIGHT as usize]);
+            self.coarse.fill(0);
+            self.active.fill(0);
+        }
+    }
+
+    /// Marks if a row was culled early for faster traversal in strip generation.
+    #[inline(always)]
+    pub fn mark_row_active(&mut self, row_idx: usize) {
+        self.active[row_idx >> Self::WORD_SHIFT] |= 1 << (row_idx & Self::WORD_MASK);
+    }
+
+    /// Bulk marks a range of rows as active [`start_row`, `end_row`).
+    #[inline(always)]
+    pub fn mark_row_range_active(&mut self, start_row: usize, end_row: usize) {
+        if start_row >= end_row {
+            return;
+        }
+
+        let start_word = start_row >> Self::WORD_SHIFT;
+        let end_word = (end_row - 1) >> Self::WORD_SHIFT;
+
+        if start_word == end_word {
+            // All bits fall within the same u32 word
+            let shift = start_row & Self::WORD_MASK;
+            let count = end_row - start_row;
+            let mask = if count == Self::WORD_BITS {
+                u32::MAX
+            } else {
+                ((1_u32 << count) - 1) << shift
+            };
+            self.active[start_word] |= mask;
+        } else {
+            // Bits span multiple words: handle start, full middle words, and end
+            self.active[start_word] |= u32::MAX << (start_row & Self::WORD_MASK);
+
+            self.active[(start_word + 1)..end_word].fill(u32::MAX);
+
+            let end_shift = ((end_row - 1) & Self::WORD_MASK) + 1;
+            let mask = if end_shift == Self::WORD_BITS {
+                u32::MAX
+            } else {
+                (1_u32 << end_shift) - 1
+            };
+            self.active[end_word] |= mask;
+        }
+    }
+
+    /// Calls `f` on active rows in the range [`start`, `end`).
+    #[inline(always)]
+    pub fn for_active_rows_in_range<F>(&self, start: usize, end: usize, mut f: F)
+    where
+        F: FnMut(usize),
+    {
+        if start >= end {
+            return;
+        }
+
+        let start_word = start >> Self::WORD_SHIFT;
+        let end_word = (end - 1) >> Self::WORD_SHIFT;
+
+        let mut process_word = |mut word: u32, word_idx: usize| {
+            while word != 0 {
+                let bit = word.trailing_zeros();
+                word &= !(1_u32 << bit);
+                f((word_idx << Self::WORD_SHIFT) + bit as usize);
+            }
+        };
+
+        let end_limit = ((end - 1) & Self::WORD_MASK) + 1;
+        let end_mask = if end_limit == Self::WORD_BITS {
+            u32::MAX
+        } else {
+            (1_u32 << end_limit) - 1
+        };
+
+        // Start Word
+        {
+            let mut word = self.active[start_word];
+            let start_bit = start & Self::WORD_MASK;
+            word &= !((1_u32 << start_bit) - 1);
+
+            if start_word == end_word {
+                word &= end_mask;
+            }
+
+            process_word(word, start_word);
+        }
+
+        // Middle Words & End Word
+        if start_word < end_word {
+            for (word_idx, &word_val) in self
+                .active
+                .iter()
+                .enumerate()
+                .take(end_word)
+                .skip(start_word + 1)
+            {
+                process_word(word_val, word_idx);
+            }
+
+            // End Word
+            process_word(self.active[end_word] & end_mask, end_word);
+        }
+    }
+}
 
 /// A tile represents an aligned area on the pixmap, used to subdivide the viewport into sub-areas
 /// (currently 4x4) and analyze line intersections inside each such area.
@@ -99,6 +247,9 @@ impl Tile {
 
     /// The height of a tile in pixels.
     pub const HEIGHT: u16 = 4;
+
+    /// A special tile used to signal the end of a tile stream during rendering.
+    pub const SENTINEL: Self = Self::new(u16::MAX, u16::MAX, 0, 0);
 
     /// Create a new tile.
     /// `x` and `y` will be clamped to the largest possible coordinate if they are too large.
@@ -218,6 +369,15 @@ impl Tile {
         // the in-memory representation.
         ((self.y as u64) << 48) | ((self.x as u64) << 32) | self.packed_winding_line_idx as u64
     }
+
+    /// Whether a tile is a sentinel tile
+    //
+    // A tile produced organically by a make_tiles call can never have this coordinate because of
+    // the division by tile size on creation, so checking on x is sufficient to identify it.
+    #[inline(always)]
+    pub const fn is_sentinel(&self) -> bool {
+        self.x == u16::MAX
+    }
 }
 
 impl PartialEq for Tile {
@@ -249,15 +409,18 @@ pub struct Tiles {
     tile_buf: Vec<Tile>,
     level: Level,
     sorted: bool,
+    /// Auxiliary data tracking row windings and active rows for early culling.
+    pub windings: CulledWindings,
 }
 
 impl Tiles {
     /// Create a new tiles container.
-    pub fn new(level: Level) -> Self {
+    pub fn new(level: Level, height: u16) -> Self {
         Self {
             tile_buf: vec![],
             level,
             sorted: false,
+            windings: CulledWindings::new(height),
         }
     }
 
@@ -273,6 +436,7 @@ impl Tiles {
 
     /// Reset the tiles' container.
     pub fn reset(&mut self) {
+        self.windings.reset();
         self.tile_buf.clear();
         self.sorted = false;
     }
@@ -314,15 +478,33 @@ impl Tiles {
     /// function performs "coarse binning" to simply identify every tile a line segment traverses.
     /// It encodes the line index and winding direction, delegating the precise calculation of pixel
     /// coverage to `strip::render`.
-    //
-    // TODO: Tiles are clamped to the left edge of the viewport, but lines fully to the left of the
-    // viewport are not culled yet. These lines impact winding, and would need forwarding of
-    // winding to the strip generation stage.
-    pub fn make_tiles_analytic_aa(&mut self, lines: &[Line], width: u16, height: u16) {
+    pub fn make_tiles_analytic_aa<const USE_EARLY_CULL: bool>(
+        &mut self,
+        level: Level,
+        lines: &[Line],
+        width: u16,
+        height: u16,
+    ) -> bool {
+        dispatch!(level, simd => self.make_tiles_analytic_aa_impl::<_, USE_EARLY_CULL>(
+            simd,
+            lines,
+            width,
+            height,
+        ))
+    }
+
+    fn make_tiles_analytic_aa_impl<S: Simd, const USE_EARLY_CULL: bool>(
+        &mut self,
+        s: S,
+        lines: &[Line],
+        width: u16,
+        height: u16,
+    ) -> bool {
         self.reset();
+        self.windings.culled = false;
 
         if width == 0 || height == 0 {
-            return;
+            return self.windings.culled;
         }
 
         debug_assert!(
@@ -334,6 +516,11 @@ impl Tiles {
 
         let tile_columns = width.div_ceil(Tile::WIDTH);
         let tile_rows = height.div_ceil(Tile::HEIGHT);
+
+        let px_top = f32x4::from_slice(s, &[0.0, 1.0, 2.0, 3.0]);
+        let px_bottom = px_top + f32x4::splat(s, 1.0);
+        let simd_zero = f32x4::splat(s, 0.0);
+        let tile_height_f32 = Tile::HEIGHT as f32;
 
         for (line_idx, line) in lines.iter().take(MAX_LINES_PER_PATH as usize).enumerate() {
             let line_idx = line_idx as u32;
@@ -374,6 +561,85 @@ impl Tiles {
                 continue;
             }
 
+            let dir = if p0_y >= p1_y { 1 } else { -1 };
+            let f_dir = dir as f32;
+            let f_dir_v = f32x4::splat(s, f_dir);
+
+            macro_rules! calc_fractional_coverage {
+                ($y_idx:expr, $segment_top_y:expr, $segment_bottom_y:expr) => {{
+                    let y_idx_f32 = f32::from($y_idx);
+                    let local_y_start = ($segment_top_y - y_idx_f32) * tile_height_f32;
+                    let local_y_end = ($segment_bottom_y - y_idx_f32) * tile_height_f32;
+
+                    let start_v = f32x4::splat(s, local_y_start);
+                    let end_v = f32x4::splat(s, local_y_end);
+
+                    (px_bottom.min(end_v) - px_top.max(start_v)).max(simd_zero)
+                }};
+            }
+
+            // Lines fully to the left of the viewport are not visible but still produce winding
+            // which we record here and forward to the rendering stage.
+            if USE_EARLY_CULL && line_right_x < 0.0 {
+                let is_start_culled = line_top_y < 0.0;
+                if !is_start_culled {
+                    self.windings.mark_row_active(y_top_tiles as usize);
+
+                    let crosses_top = line_top_y <= f32::from(y_top_tiles);
+                    if crosses_top {
+                        self.windings.coarse[y_top_tiles as usize] += dir;
+                    }
+
+                    let fractional_coverage =
+                        calc_fractional_coverage!(y_top_tiles, line_top_y, line_bottom_y);
+                    let target_row = &mut self.windings.partial[y_top_tiles as usize];
+                    let current = f32x4::from_slice(s, target_row);
+
+                    // See comment below on the double counting risk!
+                    let double_count = if crosses_top {
+                        f_dir_v
+                    } else {
+                        f32x4::splat(s, 0.0)
+                    };
+                    let next = fractional_coverage.mul_add(f_dir_v, current - double_count);
+                    target_row.copy_from_slice(next.as_slice());
+                }
+
+                let y_start_middle = if is_start_culled {
+                    y_top_tiles
+                } else {
+                    y_top_tiles + 1
+                };
+                let line_bottom_floor = line_bottom_y.floor();
+                let y_end_middle = (line_bottom_floor as u16).min(tile_rows);
+
+                for y_idx in y_start_middle..y_end_middle {
+                    self.windings.coarse[y_idx as usize] += dir;
+                }
+                self.windings
+                    .mark_row_range_active(y_start_middle as usize, y_end_middle as usize);
+
+                if line_bottom_y != line_bottom_floor
+                    && y_end_middle < tile_rows
+                    // Prevent double-processing, unless the start was off-screen and hasn't been
+                    // handled yet.
+                    && (is_start_culled || y_end_middle != y_top_tiles)
+                {
+                    self.windings.mark_row_active(y_end_middle as usize);
+                    self.windings.coarse[y_end_middle as usize] += dir; // Ends implicitly cross the top
+                    let fractional_coverage =
+                        calc_fractional_coverage!(y_end_middle, line_top_y, line_bottom_y);
+                    let target_row = &mut self.windings.partial[y_end_middle as usize];
+                    let current = f32x4::from_slice(s, target_row);
+                    // Subtract the inverse direction to avoid double counting with the coarse winding
+                    let next = fractional_coverage.mul_add(f_dir_v, current - f_dir_v);
+                    target_row.copy_from_slice(next.as_slice());
+                }
+
+                self.windings.culled = true;
+                continue;
+            }
+
             // Get tile coordinates for start/end points, use i32 to preserve negative coordinates
             let p0_tile_x = line_top_x.floor() as i32;
             let p0_tile_y = line_top_y.floor() as i32;
@@ -383,7 +649,8 @@ impl Tiles {
             // Special-case out lines which are fully contained within a tile.
             let not_same_tile = p0_tile_y != p1_tile_y || p0_tile_x != p1_tile_x;
             if not_same_tile {
-                // For ease of logic, special-case purely vertical tiles.
+                // Case vertical lines: By definition, these cannot be horizontally crossing, and
+                // thus require no additional left-edge culling handling.
                 if line_left_x == line_right_x {
                     let x = (line_left_x as u16).min(tile_columns.saturating_sub(1));
 
@@ -403,22 +670,13 @@ impl Tiles {
                     } else {
                         y_top_tiles + 1
                     };
-                    let line_bottom_floor = line_bottom_y.floor();
-                    let y_end_idx = (line_bottom_floor as u16).min(tile_rows);
 
-                    for y_idx in y_start..y_end_idx {
+                    for y_idx in y_start..y_bottom_tiles {
                         let tile = Tile::new_clamped(x, y_idx, line_idx, W);
                         self.tile_buf.push(tile);
                     }
-
-                    // Row End, handle the final tile (y_end_idx), but *only* if the line does
-                    // not perfectly end on the top edge of the tile. In the case that it does,
-                    // it gets handled by the middle logic above.
-                    if line_bottom_y != line_bottom_floor && y_end_idx < tile_rows {
-                        let tile = Tile::new_clamped(x, y_end_idx, line_idx, W);
-                        self.tile_buf.push(tile);
-                    }
                 } else {
+                    // General case, any line which crosses more than one tile and is not vertical.
                     let dx = p1_x - p0_x;
                     let dy = p1_y - p0_y;
                     let x_slope = dx / dy;
@@ -439,6 +697,59 @@ impl Tiles {
 
                         let row_left_x = f32::min(row_top_x, row_bottom_x).max(line_left_x);
                         let row_right_x = f32::max(row_top_x, row_bottom_x).min(line_right_x);
+
+                        if USE_EARLY_CULL && row_left_x < 0.0 {
+                            self.windings.culled = true;
+                            if row_right_x < 0.0 {
+                                // Although the line may cross the left edge, the rightmost point in
+                                // this row may still be fully left of the viewport. In this case,
+                                // record the winding and emit no tiles.
+                                self.windings.mark_row_active(y_idx as usize);
+
+                                let crosses_top = (w_single & W) != 0;
+                                if crosses_top {
+                                    self.windings.coarse[y_idx as usize] += dir;
+                                }
+
+                                let fractional_coverage =
+                                    calc_fractional_coverage!(y_idx, row_top_y, row_bottom_y);
+                                let target_row = &mut self.windings.partial[y_idx as usize];
+                                let current = f32x4::from_slice(s, target_row);
+
+                                let next = if crosses_top {
+                                    fractional_coverage.mul_add(f_dir_v, current - f_dir_v)
+                                } else {
+                                    fractional_coverage.mul_add(f_dir_v, current)
+                                };
+                                target_row.copy_from_slice(next.as_slice());
+                                return;
+                            } else {
+                                // The line crosses into the viewport in this row. Record only the
+                                // fractional portion of the winding, as the coarse winding will
+                                // naturally get included by the clamped tile logic!
+                                let y_slope = dy / dx;
+                                let y_intersect = row_top_y - (row_top_x * y_slope);
+
+                                let (off_screen_top_y, off_screen_bottom_y) = if row_top_x < 0.0 {
+                                    (row_top_y, f32::min(row_bottom_y, y_intersect))
+                                } else {
+                                    (f32::max(row_top_y, y_intersect), row_bottom_y)
+                                };
+
+                                if off_screen_top_y < off_screen_bottom_y {
+                                    self.windings.mark_row_active(y_idx as usize);
+                                    let fractional_coverage = calc_fractional_coverage!(
+                                        y_idx,
+                                        off_screen_top_y,
+                                        off_screen_bottom_y
+                                    );
+                                    let target_row = &mut self.windings.partial[y_idx as usize];
+                                    let current = f32x4::from_slice(s, target_row);
+                                    let next = fractional_coverage.mul_add(f_dir_v, current);
+                                    target_row.copy_from_slice(next.as_slice());
+                                }
+                            }
+                        }
 
                         let x_start = row_left_x as u16;
                         let x_end = (row_right_x as u16).min(tile_columns.saturating_sub(1));
@@ -474,31 +785,20 @@ impl Tiles {
                         );
                     }
 
-                    let y_start_middle = if is_start_culled {
+                    let y_start = if is_start_culled {
                         y_top_tiles
                     } else {
                         y_top_tiles + 1
                     };
 
-                    let line_bottom_floor = line_bottom_y.floor();
-                    let y_end_middle = (line_bottom_floor as u16).min(tile_rows);
-                    for y_idx in y_start_middle..y_end_middle {
+                    for y_idx in y_start..y_bottom_tiles {
                         let y = f32::from(y_idx);
                         let row_bottom_y = (y + 1.0).min(line_bottom_y);
                         push_row(y_idx, y, row_bottom_y, w_start_base, w_end_base, W);
                     }
-
-                    if line_bottom_y != line_bottom_floor
-                        && y_end_middle < tile_rows
-                        && (is_start_culled || y_end_middle != y_top_tiles)
-                    {
-                        let y_idx = y_end_middle;
-                        let y = f32::from(y_idx);
-                        push_row(y_idx, y, line_bottom_y, w_start_base, w_end_base, W);
-                    }
                 }
             } else {
-                // Case: Line is fully contained within a single tile.
+                // Case line is fully contained within a single tile: These also cannot cross edges!
                 let tile = Tile::new_clamped(
                     (line_left_x as u16).min(tile_columns + 1),
                     y_top_tiles,
@@ -508,6 +808,8 @@ impl Tiles {
                 self.tile_buf.push(tile);
             }
         }
+
+        self.windings.culled
     }
 
     /// Generates tile commands for MSAA (Multisample Anti-Aliasing) rasterization.
@@ -875,12 +1177,14 @@ mod tests {
     use crate::flatten::{FlattenCtx, Line, Point, fill};
     use crate::geometry::RectU16;
     use crate::kurbo::{Affine, BezPath};
+    use crate::tile::CulledWindings;
     use crate::tile::{B, L, R, T, Tile, Tiles, W};
     use fearless_simd::Level;
-    use std::vec;
+    use std::vec::Vec;
 
     const VIEW_DIM: u16 = 100;
     const F_V_DIM: f32 = VIEW_DIM as f32;
+    const NO_EARLY_CULL: bool = false;
 
     impl Tiles {
         fn assert_tiles_match(
@@ -893,7 +1197,7 @@ mod tests {
             self.make_tiles_msaa(lines, width, height);
             assert_eq!(self.tile_buf, expected, "MSAA: Tile buffer mismatch");
 
-            self.make_tiles_analytic_aa(lines, width, height);
+            self.make_tiles_analytic_aa::<NO_EARLY_CULL>(Level::baseline(), lines, width, height);
             check_analytic_aa_matches(&self.tile_buf, expected);
         }
     }
@@ -971,7 +1275,7 @@ mod tests {
             },
         ];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &[]);
     }
 
@@ -996,7 +1300,7 @@ mod tests {
             },
         ];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(0, 0, 0, W | T),
             Tile::new(1, 0, 1, W | T),
@@ -1042,7 +1346,7 @@ mod tests {
             },
         ];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(1, 24, 0, B),
             Tile::new(2, 24, 1, B),
@@ -1065,7 +1369,7 @@ mod tests {
             },
         ];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(0, 0, 0, W | T | R),
             Tile::new(1, 0, 0, L | B),
@@ -1096,7 +1400,7 @@ mod tests {
             },
         ];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(0, 23, 0, B),
             Tile::new(0, 24, 0, W | T | R),
@@ -1127,7 +1431,7 @@ mod tests {
             },
         ];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(24, 0, 0, R),
             Tile::new(23, 0, 1, R),
@@ -1154,7 +1458,7 @@ mod tests {
             },
         ];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(0, 0, 0, L),
             Tile::new(0, 0, 1, L | R),
@@ -1177,7 +1481,7 @@ mod tests {
             p1: Point { x: 90.0, y: -5.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &[]);
     }
 
@@ -1194,7 +1498,7 @@ mod tests {
             },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &[]);
     }
 
@@ -1205,7 +1509,7 @@ mod tests {
             p1: Point { x: 10.0, y: 10.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(0, 2, 0, L | R),
             Tile::new(1, 2, 0, L | R),
@@ -1228,7 +1532,7 @@ mod tests {
             },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [Tile::new(23, 2, 0, R), Tile::new(24, 2, 0, L | R)];
 
         tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
@@ -1253,7 +1557,7 @@ mod tests {
             },
         ];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &[]);
     }
 
@@ -1263,7 +1567,7 @@ mod tests {
         const VIEWPORT_HEIGHT: u16 = 10;
 
         let path = BezPath::from_svg("M261,0 L78848,0 L78848,4 L261,4 Z").unwrap();
-        let mut line_buf = vec![];
+        let mut line_buf: Vec<Line> = Vec::new();
         fill(
             Level::try_detect().unwrap_or(Level::baseline()),
             &path,
@@ -1273,7 +1577,7 @@ mod tests {
             RectU16::new(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT),
         );
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         tiles.assert_tiles_match(&line_buf, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, &[]);
     }
 
@@ -1294,7 +1598,7 @@ mod tests {
             },
         ];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(0, 0, 0, W | T),
             Tile::new(0, 0, 1, W | B | T),
@@ -1331,7 +1635,7 @@ mod tests {
             },
         ];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(0, 24, 0, B),
             Tile::new(0, 23, 1, B),
@@ -1348,7 +1652,7 @@ mod tests {
             p1: Point { x: 2.0, y: -1.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [Tile::new(0, 0, 0, W | L | T)];
 
         tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
@@ -1367,7 +1671,7 @@ mod tests {
             },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [Tile::new(24, 24, 0, R | B)];
 
         tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
@@ -1383,7 +1687,7 @@ mod tests {
             p1: Point { x: 8.5, y: 1.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(0, 0, 0, R),
             Tile::new(1, 0, 0, R | L),
@@ -1400,7 +1704,7 @@ mod tests {
             p1: Point { x: 1.5, y: 1.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(0, 0, 0, R),
             Tile::new(1, 0, 0, R | L),
@@ -1417,7 +1721,7 @@ mod tests {
             p1: Point { x: 12.5, y: 1.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(0, 0, 0, R),
             Tile::new(1, 0, 0, R | L),
@@ -1435,7 +1739,7 @@ mod tests {
             p1: Point { x: 1.0, y: 8.5 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(0, 0, 0, B),
             Tile::new(0, 1, 0, W | T | B),
@@ -1452,7 +1756,7 @@ mod tests {
             p1: Point { x: 1.0, y: 13.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(0, 0, 0, B),
             Tile::new(0, 1, 0, W | T | B),
@@ -1470,7 +1774,7 @@ mod tests {
             p1: Point { x: 1.0, y: 1.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(0, 0, 0, B),
             Tile::new(0, 1, 0, W | T | B),
@@ -1488,7 +1792,7 @@ mod tests {
             p1: Point { x: 1.0, y: 1.5 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(0, 0, 0, B),
             Tile::new(0, 1, 0, W | T | B),
@@ -1506,7 +1810,7 @@ mod tests {
             p1: Point { x: 1.0, y: 8.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [Tile::new(0, 0, 0, B), Tile::new(0, 1, 0, W | T)];
 
         tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
@@ -1519,7 +1823,7 @@ mod tests {
             p1: Point { x: 1.0, y: 7.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [Tile::new(0, 0, 0, W | B), Tile::new(0, 1, 0, W | T)];
 
         tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
@@ -1535,7 +1839,7 @@ mod tests {
             p1: Point { x: 11.0, y: 9.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(0, 0, 0, R),
             Tile::new(1, 0, 0, L | B),
@@ -1554,7 +1858,7 @@ mod tests {
             p1: Point { x: 1.0, y: 1.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(0, 0, 0, R),
             Tile::new(1, 0, 0, L | B),
@@ -1573,7 +1877,7 @@ mod tests {
             p1: Point { x: 14.0, y: 6.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(2, 1, 0, R | B),
             Tile::new(3, 1, 0, L),
@@ -1592,7 +1896,7 @@ mod tests {
             p1: Point { x: 2.0, y: 11.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(2, 1, 0, R | B),
             Tile::new(3, 1, 0, L),
@@ -1617,7 +1921,7 @@ mod tests {
             },
         ];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [Tile::new(0, 0, 0, 0), Tile::new(0, 0, 1, 0)];
 
         tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
@@ -1630,7 +1934,7 @@ mod tests {
             p1: Point { x: 5.0, y: 3.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(1, 0, 0, L),
             Tile::new(0, 1, 0, R),
@@ -1647,7 +1951,7 @@ mod tests {
             p1: Point { x: 0.1, y: 0.1 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(0, 0, 0, R),
             Tile::new(1, 0, 0, L),
@@ -1664,7 +1968,7 @@ mod tests {
             p1: Point { x: 9.0, y: 9.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(1, 1, 0, R),
             Tile::new(2, 1, 0, L),
@@ -1681,7 +1985,7 @@ mod tests {
             p1: Point { x: 9.0, y: 5.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(1, 1, 0, R | B),
             Tile::new(2, 1, 0, L),
@@ -1698,7 +2002,7 @@ mod tests {
             p1: Point { x: 4.0, y: 4.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [Tile::new(0, 0, 0, W | R), Tile::new(1, 0, 0, L)];
 
         tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
@@ -1711,7 +2015,7 @@ mod tests {
             p1: Point { x: 4.0, y: 0.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [Tile::new(0, 0, 0, R), Tile::new(1, 0, 0, W | L)];
 
         tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
@@ -1724,7 +2028,7 @@ mod tests {
             p1: Point { x: 8.0, y: 8.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(0, 0, 0, W | R),
             Tile::new(1, 0, 0, L),
@@ -1742,7 +2046,7 @@ mod tests {
             p1: Point { x: 8.0, y: 0.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(1, 0, 0, R | L),
             Tile::new(2, 0, 0, W | L),
@@ -1760,7 +2064,7 @@ mod tests {
             p1: Point { x: 8.0, y: 2.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(0, 0, 0, R),
             Tile::new(1, 0, 0, R | L),
@@ -1777,7 +2081,7 @@ mod tests {
             p1: Point { x: 4.0, y: 0.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(0, 0, 0, R | B),
             Tile::new(1, 0, 0, W | L),
@@ -1794,7 +2098,7 @@ mod tests {
             p1: Point { x: 4.0, y: 8.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [
             Tile::new(0, 0, 0, W | B),
             Tile::new(0, 1, 0, W | R | T),
@@ -1814,7 +2118,7 @@ mod tests {
             p1: Point { x: 3.0, y: 3.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [Tile::new(0, 0, 0, 0)];
 
         tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
@@ -1827,7 +2131,7 @@ mod tests {
             p1: Point { x: 3.0, y: 1.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [Tile::new(0, 0, 0, 0)];
 
         tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
@@ -1840,7 +2144,7 @@ mod tests {
             p1: Point { x: 1.0, y: 3.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [Tile::new(0, 0, 0, W)];
 
         tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
@@ -1853,7 +2157,7 @@ mod tests {
             p1: Point { x: 4.0, y: 1.0 },
         }];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [Tile::new(0, 0, 0, R), Tile::new(1, 0, 0, L)];
 
         tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
@@ -1872,7 +2176,7 @@ mod tests {
             },
         ];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [Tile::new(0, 0, 0, 0), Tile::new(0, 0, 1, 0)];
 
         tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
@@ -1891,10 +2195,92 @@ mod tests {
             },
         ];
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         let expected = [Tile::new(0, 0, 0, W), Tile::new(0, 0, 1, W)];
 
         tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
+    }
+
+    //==============================================================================================
+    // CulledWindings & Row Marking Logic
+    //==============================================================================================
+    #[test]
+    fn test_culled_windings_new_and_reset() {
+        let mut windings = CulledWindings::new(100);
+        assert_eq!(windings.partial.len(), 25);
+        assert_eq!(windings.coarse.len(), 25);
+        assert_eq!(windings.active.len(), 1);
+
+        windings.coarse[0] = 1;
+        windings.active[0] = 0xFF;
+        windings.culled = true;
+
+        windings.reset();
+        assert_eq!(windings.coarse[0], 0);
+        assert_eq!(windings.active[0], 0);
+
+        windings.coarse[0] = 1;
+        windings.active[0] = 0xFF;
+        windings.culled = false;
+
+        windings.reset();
+        assert_eq!(windings.coarse[0], 1);
+        assert_eq!(windings.active[0], 0xFF);
+    }
+
+    #[test]
+    fn test_mark_row_active() {
+        let mut windings = CulledWindings::new(200);
+        windings.mark_row_active(0);
+        windings.mark_row_active(5);
+        windings.mark_row_active(31);
+        windings.mark_row_active(32);
+        assert_eq!(windings.active[0], (1 << 0) | (1 << 5) | (1 << 31));
+        assert_eq!(windings.active[1], 1 << 0);
+    }
+
+    #[test]
+    fn test_mark_row_range_single_word() {
+        let mut windings = CulledWindings::new(200);
+        windings.mark_row_range_active(5, 10);
+        let expected_mask = ((1_u32 << 5) - 1) << 5;
+        assert_eq!(windings.active[0], expected_mask);
+        assert_eq!(windings.active[1], 0);
+    }
+
+    #[test]
+    fn test_mark_row_range_full_word() {
+        let mut windings = CulledWindings::new(200);
+        windings.mark_row_range_active(0, 32);
+        assert_eq!(windings.active[0], u32::MAX);
+        assert_eq!(windings.active[1], 0);
+    }
+
+    #[test]
+    fn test_mark_row_range_spanning_two_words() {
+        let mut windings = CulledWindings::new(200);
+        windings.mark_row_range_active(30, 35);
+        assert_eq!(windings.active[0], (1 << 30) | (1 << 31));
+        assert_eq!(windings.active[1], (1 << 0) | (1 << 1) | (1 << 2));
+    }
+
+    #[test]
+    fn test_mark_row_range_spanning_multiple_words() {
+        let mut windings = CulledWindings::new(500);
+        windings.mark_row_range_active(10, 80);
+        assert_eq!(windings.active[0], u32::MAX << 10);
+        assert_eq!(windings.active[1], u32::MAX);
+        assert_eq!(windings.active[2], (1 << 16) - 1);
+        assert_eq!(windings.active[3], 0);
+    }
+
+    #[test]
+    fn test_mark_row_range_empty_or_invalid() {
+        let mut windings = CulledWindings::new(200);
+        windings.mark_row_range_active(10, 10);
+        windings.mark_row_range_active(15, 10);
+        assert_eq!(windings.active[0], 0);
+        assert_eq!(windings.active[1], 0);
     }
 
     //==============================================================================================
@@ -1908,9 +2294,9 @@ mod tests {
             p1: Point { x: 224.0, y: 388.0 },
         };
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         tiles.make_tiles_msaa(&[line], 600, 600);
-        tiles.make_tiles_analytic_aa(&[line], 600, 600);
+        tiles.make_tiles_analytic_aa::<NO_EARLY_CULL>(Level::baseline(), &[line], 600, 600);
     }
 
     #[test]
@@ -1927,15 +2313,15 @@ mod tests {
             },
         };
 
-        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()));
-        tiles.make_tiles_analytic_aa(&[line], 200, 100);
+        let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
+        tiles.make_tiles_analytic_aa::<NO_EARLY_CULL>(Level::baseline(), &[line], 200, 100);
         tiles.make_tiles_msaa(&[line], 200, 100);
     }
 
     #[test]
     fn sort_test() {
-        let mut lines = vec![];
-        let mut tiles = Tiles::new(Level::baseline());
+        let mut lines: Vec<Line> = Vec::new();
+        let mut tiles = Tiles::new(Level::baseline(), VIEW_DIM);
 
         let step = 4.0;
         let mut y = F_V_DIM - 10.0;
@@ -1964,7 +2350,12 @@ mod tests {
         tiles.sort_tiles();
         check_sorted(&tiles.tile_buf);
 
-        tiles.make_tiles_analytic_aa(&lines, VIEW_DIM, VIEW_DIM);
+        tiles.make_tiles_analytic_aa::<NO_EARLY_CULL>(
+            Level::baseline(),
+            &lines,
+            VIEW_DIM,
+            VIEW_DIM,
+        );
         assert!(tiles.tile_buf.first().unwrap().y > tiles.tile_buf.last().unwrap().y);
         tiles.sort_tiles();
         check_sorted(&tiles.tile_buf);

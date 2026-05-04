@@ -95,7 +95,7 @@ impl StripGenerator {
         Self {
             level,
             line_buf: Vec::new(),
-            tiles: Tiles::new(level),
+            tiles: Tiles::new(level, height),
             flatten_ctx: FlattenCtx::default(),
             stroke_ctx: StrokeCtx::default(),
             temp_storage: StripStorage::default(),
@@ -174,8 +174,13 @@ impl StripGenerator {
         fill_rule: Fill,
         clip_path: Option<PathDataRef<'_>>,
     ) {
-        self.tiles
-            .make_tiles_analytic_aa(&self.line_buf, self.width, self.height);
+        let culled_tiles = self.tiles.make_tiles_analytic_aa::<true>(
+            self.level,
+            &self.line_buf,
+            self.width,
+            self.height,
+        );
+
         self.tiles.sort_tiles();
 
         let level = self.level;
@@ -195,6 +200,7 @@ impl StripGenerator {
                     fill_rule,
                     aliasing_threshold,
                     line_buf,
+                    culled_tiles,
                 );
             },
         );

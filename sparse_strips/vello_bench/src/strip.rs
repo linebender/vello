@@ -4,9 +4,33 @@
 use crate::data::get_data_items;
 use criterion::Criterion;
 use vello_common::fearless_simd::Level;
+use vello_common::flatten::Line;
 use vello_common::kurbo::{Affine, Rect, Shape};
 use vello_common::peniko::Fill;
 use vello_common::strip_generator::{StripGenerator, StripStorage};
+use vello_common::tile::Tiles;
+
+pub fn shift_lines_50_percent(lines: &[Line]) -> Vec<Line> {
+    if lines.is_empty() {
+        return vec![];
+    }
+
+    let mut min_x = f32::MAX;
+    let mut max_x = f32::MIN;
+    for line in lines {
+        min_x = min_x.min(line.p0.x).min(line.p1.x);
+        max_x = max_x.max(line.p0.x).max(line.p1.x);
+    }
+
+    let shift_amount = (min_x + max_x) / 2.0;
+
+    let mut shifted = lines.to_vec();
+    for line in &mut shifted {
+        line.p0.x -= shift_amount;
+        line.p1.x -= shift_amount;
+    }
+    shifted
+}
 
 pub fn render_strips(c: &mut Criterion) {
     let mut g = c.benchmark_group("render_strips");
@@ -33,6 +57,7 @@ pub fn render_strips(c: &mut Criterion) {
                         Fill::NonZero,
                         None,
                         &lines,
+                        false,
                     );
                     std::hint::black_box((&strip_buf, &alpha_buf));
                 })
@@ -48,6 +73,53 @@ pub fn render_strips(c: &mut Criterion) {
             strip_single!(item, simd_level, "simd");
         }
     }
+    g.finish();
+}
+
+pub fn render_strips_cull(c: &mut Criterion) {
+    let mut g_cull = c.benchmark_group("render_strips_culled50");
+    g_cull.sample_size(50);
+
+    for item in get_data_items() {
+        let simd_level = Level::new();
+        if simd_level.is_fallback() {
+            continue;
+        }
+
+        let shifted_lines = shift_lines_50_percent(&item.lines());
+
+        let mut tiler = Tiles::new(simd_level, item.height);
+        let is_culled = tiler.make_tiles_analytic_aa::<true>(
+            simd_level,
+            &shifted_lines,
+            item.width,
+            item.height,
+        );
+        tiler.sort_tiles();
+
+        g_cull.bench_function(item.name.clone().to_string(), |b| {
+            let mut strip_buf = vec![];
+            let mut alpha_buf = vec![];
+
+            b.iter(|| {
+                strip_buf.clear();
+                alpha_buf.clear();
+
+                vello_common::strip::render(
+                    simd_level,
+                    &tiler,
+                    &mut strip_buf,
+                    &mut alpha_buf,
+                    Fill::NonZero,
+                    None,
+                    &shifted_lines,
+                    is_culled,
+                );
+                std::hint::black_box((&strip_buf, &alpha_buf));
+            });
+        });
+    }
+    g_cull.finish();
 }
 
 pub fn render_rect(c: &mut Criterion) {

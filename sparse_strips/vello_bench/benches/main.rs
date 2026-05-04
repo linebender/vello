@@ -22,6 +22,7 @@ criterion_group!(tile, tile::tile);
 criterion_group!(flatten, flatten::flatten);
 criterion_group!(strokes, flatten::strokes);
 criterion_group!(render_strips, strip::render_strips);
+criterion_group!(render_strips_cull, strip::render_strips_cull);
 criterion_group!(render_rect, strip::render_rect);
 criterion_group!(glyph, glyph::glyph);
 criterion_group!(sort_tiles, sort::sort);
@@ -33,6 +34,7 @@ criterion_main!(
     coarse_layer_4k,
     tile,
     render_strips,
+    render_strips_cull,
     render_rect,
     flatten,
     strokes,

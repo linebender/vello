@@ -33,7 +33,7 @@ fn main() {
         Document::new().set("viewBox", (-10, -10, args.width + 20, args.height + 20));
 
     let mut line_buf = vec![];
-    let mut tiles = Tiles::new(Level::new());
+    let mut tiles = Tiles::new(Level::new(), args.height);
     let mut strip_buf = vec![];
     let mut alpha_buf = vec![];
     let mut wide = Wide::<MODE_CPU>::new(args.width, args.height);
@@ -74,7 +74,7 @@ fn main() {
     }
 
     if stages.iter().any(|s| s.requires_tiling()) {
-        tiles.make_tiles_analytic_aa(&line_buf, args.width, args.height);
+        tiles.make_tiles_analytic_aa::<false>(Level::new(), &line_buf, args.width, args.height);
         tiles.sort_tiles();
     }
 
@@ -87,6 +87,7 @@ fn main() {
             args.fill_rule,
             None,
             &line_buf,
+            false,
         );
     }
 
