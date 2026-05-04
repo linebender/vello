@@ -18,13 +18,13 @@ use vello_dev_macros::vello_bench;
 pub fn strip(c: &mut Criterion) {
     solid_opaque_single(c);
     solid_transparent_single(c);
-    
+
     solid_opaque_short(c);
     solid_transparent_short(c);
-    
+
     solid_opaque_medium(c);
     solid_transparent_medium(c);
-    
+
     solid_opaque_long(c);
     solid_transparent_long(c);
 }
