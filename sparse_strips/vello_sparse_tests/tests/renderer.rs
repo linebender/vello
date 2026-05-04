@@ -243,7 +243,7 @@ impl Renderer for CpuRenderer {
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
         let id = self.resources.register_image(Arc::clone(&pixmap));
-        ImageSource::opaque_id_with_opacity_hint(id, pixmap.may_have_transparency())
+        ImageSource::opaque_id_with_transparency_hint(id, pixmap.may_have_transparency())
     }
 
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
@@ -615,7 +615,7 @@ impl Renderer for HybridRenderer {
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
         let image_id = self.upload_image_with_resources(&pixmap, "Upload Test Image");
-        ImageSource::opaque_id_with_opacity_hint(image_id, pixmap.may_have_transparency())
+        ImageSource::opaque_id_with_transparency_hint(image_id, pixmap.may_have_transparency())
     }
 
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {
@@ -873,7 +873,7 @@ impl Renderer for HybridRenderer {
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
         let image_id = self.upload_image(&pixmap);
-        ImageSource::opaque_id_with_opacity_hint(image_id, pixmap.may_have_transparency())
+        ImageSource::opaque_id_with_transparency_hint(image_id, pixmap.may_have_transparency())
     }
 
     fn register_image(&mut self, pixmap: Arc<Pixmap>) -> ImageId {

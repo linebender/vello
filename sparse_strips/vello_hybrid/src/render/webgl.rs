@@ -446,7 +446,7 @@ impl WebGlRenderer {
         let mut scene = Scene::new(width, height);
         vello_common::probe::draw_scene(
             &mut scene,
-            ImageSource::opaque_id_with_opacity_hint(
+            ImageSource::opaque_id_with_transparency_hint(
                 probe_image_id,
                 probe_image.may_have_transparency(),
             ),

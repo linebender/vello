@@ -87,7 +87,7 @@ impl ImageSource {
     /// Create an [`ImageSource`] from a pre-registered image handle.
     ///
     /// Conservatively assumes the image may have non-opaque pixels.
-    /// Use [`Self::opaque_id_with_opacity_hint`] when you know the image is fully opaque.
+    /// Use [`Self::opaque_id_with_transparency_hint`] when you know the image is fully opaque.
     pub fn opaque_id(id: ImageId) -> Self {
         Self::OpaqueId {
             id,
@@ -97,7 +97,7 @@ impl ImageSource {
 
     /// Create an [`ImageSource`] from a pre-registered image handle,
     /// with an explicit hint about whether the image may have non-opaque pixels.
-    pub fn opaque_id_with_opacity_hint(id: ImageId, may_have_transparency: bool) -> Self {
+    pub fn opaque_id_with_transparency_hint(id: ImageId, may_have_transparency: bool) -> Self {
         Self::OpaqueId {
             id,
             may_have_transparency,
