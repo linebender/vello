@@ -19,6 +19,11 @@ This release has an [MSRV][] of 1.88.
 
 - Performance of clipped drawing by culling geometry outside the clip bounding box during flattening. ([#1519][] by [@tomcur][])
 
+### Removed
+
+- Support for recordings. This decision was made due to a number of downsides that
+  came with the implementation. See the corresponding PR and Zulip thread for more information. ([#1611][] by [@LaurenzV][]) 
+
 ## [0.0.7][] - 2026-03-24
 
 This release has an [MSRV][] of 1.92.
@@ -189,6 +194,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1484]: https://github.com/linebender/vello/pull/1484
 [#1486]: https://github.com/linebender/vello/pull/1486
 [#1519]: https://github.com/linebender/vello/pull/1519
+[#1611]: https://github.com/linebender/vello/pull/1611
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.7...HEAD
 [0.0.7]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.6...sparse-strips-v0.0.7
