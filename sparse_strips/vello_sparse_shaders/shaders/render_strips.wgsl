@@ -482,7 +482,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             // For radial gradient, calculate distance from center
             let gradient_result = calculate_radial_gradient(grad_pos, gradient_raw2, gradient_raw3);
             let gradient_color = sample_gradient_lut(
-                gradient_result.t_value, 
+                gradient_result.x,
                 get_gradient_extend_mode(gradient_raw0), 
                 get_gradient_start(gradient_raw0), 
                 get_gradient_texture_width(gradient_raw0)
@@ -490,7 +490,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             final_color = select(
                 vec4<f32>(0.0, 0.0, 0.0, 0.0),
                 alpha * gradient_color,
-                gradient_result.is_valid
+                gradient_result.y != 0.0
             );
         } else if paint_type == PAINT_TYPE_SWEEP_GRADIENT {
             let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
@@ -1163,18 +1163,12 @@ fn get_sweep_start_angle(raw2: vec4<u32>) -> f32 { return bitcast<f32>(raw2.x); 
 
 fn get_sweep_inv_angle_delta(raw2: vec4<u32>) -> f32 { return bitcast<f32>(raw2.y); }
 
-// Result of calculating a radial gradient.
-struct RadialGradientResult {
-    t_value: f32,
-    is_valid: bool,
-}
-
 // Calculate a radial gradient; matches vello_cpu implementation.
 fn calculate_radial_gradient(
     grad_pos: vec2<f32>,
     raw2: vec4<u32>,
     raw3: vec4<u32>,
-) -> RadialGradientResult {
+) -> vec2<f32> {
     let x_pos = grad_pos.x;
     let y_pos = grad_pos.y;
     
@@ -1260,5 +1254,5 @@ fn calculate_radial_gradient(
         }
     }
     
-    return RadialGradientResult(t_value, is_valid);
+    return vec2<f32>(t_value, select(0.0, 1.0, is_valid));
 }
