@@ -92,12 +92,19 @@ impl SingleThreadedDispatcher {
         buffer: &mut [u8],
         width: u16,
         height: u16,
+        dst_x: u16,
+        dst_y: u16,
+        dst_buffer_width: u16,
+        dst_buffer_height: u16,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
         use crate::fine::F32Kernel;
         use vello_common::fearless_simd::dispatch;
-        dispatch!(self.level, simd => self.rasterize_with::<_, F32Kernel>(simd, buffer, width, height, encoded_paints, image_resolver));
+        dispatch!(self.level, simd => self.rasterize_with::<_, F32Kernel>(simd, buffer, width, height, dst_x,
+                dst_y,
+                dst_buffer_width,
+                dst_buffer_height,encoded_paints, image_resolver));
     }
 
     /// Rasterizes the scene using u8 precision (fast).
@@ -110,12 +117,19 @@ impl SingleThreadedDispatcher {
         buffer: &mut [u8],
         width: u16,
         height: u16,
+        dst_x: u16,
+        dst_y: u16,
+        dst_buffer_width: u16,
+        dst_buffer_height: u16,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
         use crate::fine::U8Kernel;
         use vello_common::fearless_simd::dispatch;
-        dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, buffer, width, height, encoded_paints, image_resolver));
+        dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, buffer, width, height,dst_x,
+                dst_y,
+                dst_buffer_width,
+                dst_buffer_height, encoded_paints, image_resolver));
     }
 
     /// Core rasterization dispatcher that chooses between simple and filter-aware paths.
@@ -132,6 +146,10 @@ impl SingleThreadedDispatcher {
         buffer: &mut [u8],
         width: u16,
         height: u16,
+        dst_x: u16,
+        dst_y: u16,
+        dst_buffer_width: u16,
+        dst_buffer_height: u16,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
@@ -144,6 +162,10 @@ impl SingleThreadedDispatcher {
                 buffer,
                 width,
                 height,
+                dst_x,
+                dst_y,
+                dst_buffer_width,
+                dst_buffer_height,
                 encoded_paints,
                 image_resolver,
                 &mut layer_manager,
@@ -155,6 +177,10 @@ impl SingleThreadedDispatcher {
                 buffer,
                 width,
                 height,
+                dst_x,
+                dst_y,
+                dst_buffer_width,
+                dst_buffer_height,
                 encoded_paints,
                 image_resolver,
             );
@@ -177,6 +203,10 @@ impl SingleThreadedDispatcher {
         buffer: &mut [u8],
         width: u16,
         height: u16,
+        dst_x: u16,
+        dst_y: u16,
+        dst_buffer_width: u16,
+        dst_buffer_height: u16,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
         layer_manager: &mut LayerManager,
@@ -244,7 +274,15 @@ impl SingleThreadedDispatcher {
                     wtile_bbox: _,
                 } => {
                     // Final composition directly to output buffer.
-                    let mut regions = Regions::new(width, height, buffer);
+                    let mut regions = Regions::new_at_offset(
+                        width,
+                        height,
+                        dst_x,
+                        dst_y,
+                        dst_buffer_width,
+                        dst_buffer_height,
+                        buffer,
+                    );
                     regions.update_regions(|region| {
                         // Use the background color from the wide tile.
                         let bg = self.wide.get(region.x, region.y).bg;
@@ -395,10 +433,22 @@ impl SingleThreadedDispatcher {
         buffer: &mut [u8],
         width: u16,
         height: u16,
+        dst_x: u16,
+        dst_y: u16,
+        dst_buffer_width: u16,
+        dst_buffer_height: u16,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
-        let mut regions = Regions::new(width, height, buffer);
+        let mut regions = Regions::new_at_offset(
+            width,
+            height,
+            dst_x,
+            dst_y,
+            dst_buffer_width,
+            dst_buffer_height,
+            buffer,
+        );
         let mut fine = Fine::<S, F>::new(simd);
 
         regions.update_regions(|region| {
@@ -703,6 +753,10 @@ impl Dispatcher for SingleThreadedDispatcher {
         render_mode: RenderMode,
         width: u16,
         height: u16,
+        dst_x: u16,
+        dst_y: u16,
+        dst_buffer_width: u16,
+        dst_buffer_height: u16,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
@@ -710,14 +764,34 @@ impl Dispatcher for SingleThreadedDispatcher {
         #[cfg(all(feature = "u8_pipeline", not(feature = "f32_pipeline")))]
         {
             let _ = render_mode;
-            self.rasterize_u8(buffer, width, height, encoded_paints, image_resolver);
+            self.rasterize_u8(
+                buffer,
+                width,
+                height,
+                dst_x,
+                dst_y,
+                dst_buffer_width,
+                dst_buffer_height,
+                encoded_paints,
+                image_resolver,
+            );
         }
 
         // If only the f32 pipeline is enabled, then use it
         #[cfg(all(feature = "f32_pipeline", not(feature = "u8_pipeline")))]
         {
             let _ = render_mode;
-            self.rasterize_f32(buffer, width, height, encoded_paints, image_resolver);
+            self.rasterize_f32(
+                buffer,
+                width,
+                height,
+                dst_x,
+                dst_y,
+                dst_buffer_width,
+                dst_buffer_height,
+                encoded_paints,
+                image_resolver,
+            );
         }
 
         // If both pipelines are enabled, select precision based on render mode parameter.
@@ -725,11 +799,31 @@ impl Dispatcher for SingleThreadedDispatcher {
         match render_mode {
             RenderMode::OptimizeSpeed => {
                 // Use u8 precision for faster rendering.
-                self.rasterize_u8(buffer, width, height, encoded_paints, image_resolver);
+                self.rasterize_u8(
+                    buffer,
+                    width,
+                    height,
+                    dst_x,
+                    dst_y,
+                    dst_buffer_width,
+                    dst_buffer_height,
+                    encoded_paints,
+                    image_resolver,
+                );
             }
             RenderMode::OptimizeQuality => {
                 // Use f32 precision for higher quality.
-                self.rasterize_f32(buffer, width, height, encoded_paints, image_resolver);
+                self.rasterize_f32(
+                    buffer,
+                    width,
+                    height,
+                    dst_x,
+                    dst_y,
+                    dst_buffer_width,
+                    dst_buffer_height,
+                    encoded_paints,
+                    image_resolver,
+                );
             }
         }
 
