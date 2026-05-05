@@ -17,7 +17,7 @@ targets = ["wasm32-unknown-unknown"]
 [dependencies]
 bytemuck = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
-vello_common = { workspace = true }
+vello_common = { workspace = true, features = ["std"] }
 glifo = { workspace = true, default-features = false, optional = true }
 wgpu = { workspace = true, default-features = false, optional = true }
 vello_sparse_shaders = { workspace = true, optional = true }
