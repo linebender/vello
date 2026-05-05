@@ -1417,9 +1417,11 @@ fn erf7(x: f32) -> f32 {
     return z / sqrt(1.0 + z * z);
 }
 
-// Approximation for the convolution of a gaussian filter with a rounded rectangle.
+// Approximation for the convolution of a gaussian filter with a rounded rectangle, modelled
+// after vello_cpu's blurred rounded rectangle painter rather than the Vello Classic shader.
 fn calculate_blurred_rounded_rect(fragment_pos: vec2<f32>, rect: BlurredRoundedRect) -> vec4<f32> {
     let local_xy = rect.transform * fragment_pos + rect.translate;
+    // The 0.5 and 0.0 constants correspond to vello_cpu's v1 and v0 respectively.
     let y = local_xy.y - 0.5 * rect.height;
     let y0 = rect.r1 + abs(y) - 0.5 * rect.h;
     let y1 = max(y0, 0.0);
