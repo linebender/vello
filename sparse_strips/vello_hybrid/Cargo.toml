@@ -48,7 +48,7 @@ roxmltree = "0.20.0"
 
 [features]
 default = ["wgpu", "wgpu_default", "text"]
-std = ["vello_common/std", "glifo?/std"]
+std = ["wgpu", "vello_common/std", "glifo?/std"]
 libm = ["vello_common/libm", "glifo?/libm"]
 wgpu = ["dep:wgpu", "dep:vello_sparse_shaders"]
 # Enable wgpu with its default features. If you need to customise the set of enabled wgpu features,
