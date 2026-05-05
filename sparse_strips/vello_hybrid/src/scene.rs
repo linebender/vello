@@ -506,29 +506,12 @@ impl Scene {
     }
 
     fn try_fast_rect(&mut self, rect: &Rect) -> bool {
-        if self.fast_rect_bounds(rect).is_none() {
-            return false;
-        }
-
-        let paint = self.encode_current_paint();
-        self.try_fast_rect_with_paint(rect, paint)
-    }
-
-    fn try_fast_rect_with_paint(&mut self, rect: &Rect, paint: Paint) -> bool {
-        let Some((x0, y0, x1, y1)) = self.fast_rect_bounds(rect) else {
+        let Some(bounds) = self.fast_rect_bounds(rect) else {
             return false;
         };
 
-        self.fast_strips_buffer
-            .commands
-            .push(FastStripCommand::Rect(FastPathRect {
-                x0,
-                y0,
-                x1,
-                y1,
-                paint,
-            }));
-
+        let paint = self.encode_current_paint();
+        self.push_fast_rect(bounds, paint);
         true
     }
 
@@ -536,7 +519,19 @@ impl Scene {
         clippy::cast_possible_truncation,
         reason = "f64→f32 truncation is acceptable for pixel coordinates"
     )]
-    fn fast_rect_bounds(&self, rect: &Rect) -> Option<(f32, f32, f32, f32)> {
+    fn push_fast_rect(&mut self, bounds: Rect, paint: Paint) {
+        self.fast_strips_buffer
+            .commands
+            .push(FastStripCommand::Rect(FastPathRect {
+                x0: bounds.x0 as f32,
+                y0: bounds.y0 as f32,
+                x1: bounds.x1 as f32,
+                y1: bounds.y1 as f32,
+                paint,
+            }));
+    }
+
+    fn fast_rect_bounds(&self, rect: &Rect) -> Option<Rect> {
         if self.strip_path_mode == StripPathMode::CoarseOnly
             || self.wide.has_layers()
             || self.filter.is_some()
@@ -569,7 +564,7 @@ impl Scene {
             return None;
         }
 
-        Some((x0 as f32, y0 as f32, x1 as f32, y1 as f32))
+        Some(Rect::new(x0, y0, x1, y1))
     }
 
     /// Stroke a rectangle with the current paint and stroke settings.
@@ -605,7 +600,8 @@ impl Scene {
             let paint =
                 blurred_rect.encode_into(&mut ctx.encoded_paints.borrow_mut(), transform, None);
 
-            if ctx.try_fast_rect_with_paint(&inflated_rect, paint.clone()) {
+            if let Some(bounds) = ctx.fast_rect_bounds(&inflated_rect) {
+                ctx.push_fast_rect(bounds, paint);
                 return;
             }
 
