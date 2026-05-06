@@ -64,6 +64,11 @@ pub use render::{Config, GpuStrip, RenderSize};
 pub use render::{Probe, ProbeResult};
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 pub use render::{WebGlAtlasWriter, WebGlRenderer, WebGlTextureWithDimensions};
+#[cfg(all(target_arch = "wasm32", feature = "webgl", feature = "probe"))]
+pub use render::{
+    WebGlPendingProbe, WebGlProbePoll, WebGlProbeReadbackError, WebGlProbeStartError,
+    WebGlProbeTryFinishError,
+};
 pub use resources::Resources;
 pub use scene::{RenderSettings, Scene, SceneConstraints};
 #[cfg(feature = "text")]

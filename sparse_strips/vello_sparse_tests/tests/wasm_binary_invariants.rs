@@ -43,7 +43,7 @@ async fn no_simd_instruction_inclusion() {
 #[cfg(feature = "webgl")]
 #[wasm_bindgen_test]
 fn webgl_probe_succeeds() {
-    use vello_hybrid::Probe;
+    use vello_hybrid::{WebGlProbePoll, WebGlProbeStartError};
     use wasm_bindgen::JsCast;
     use web_sys::HtmlCanvasElement;
 
@@ -58,9 +58,24 @@ fn webgl_probe_succeeds() {
 
     let mut renderer = vello_hybrid::WebGlRenderer::new(&canvas);
     match renderer.probe() {
-        Probe::Success => {}
-        Probe::Error(_) => panic!("WebGlRenderer::probe() unexpectedly failed"),
-        Probe::RenderError(error) => {
+        Ok(mut pending) => {
+            match pending.poll() {
+                WebGlProbePoll::Pending => {}
+                WebGlProbePoll::Complete(result) => {
+                    assert!(result.is_success());
+                    return;
+                }
+                WebGlProbePoll::Failed(error) => {
+                    panic!("WebGlRenderer::probe() readback failed: {error:?}");
+                }
+                WebGlProbePoll::AlreadyFinished => {
+                    panic!("WebGlRenderer::probe() finished before polling");
+                }
+            }
+
+            assert!(pending.finish_blocking().unwrap().is_success());
+        }
+        Err(WebGlProbeStartError::RenderError { error, .. }) => {
             panic!("WebGlRenderer::probe() failed to render: {error:?}");
         }
     }

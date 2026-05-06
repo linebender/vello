@@ -67,6 +67,8 @@ use vello_common::{
     tile::Tile,
 };
 use vello_sparse_shaders::{clear_slots, filters, render_strips};
+#[cfg(feature = "probe")]
+use web_sys::WebGlSync;
 use web_sys::wasm_bindgen::{JsCast, JsValue};
 use web_sys::{
     HtmlCanvasElement, WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram,
@@ -117,6 +119,195 @@ pub struct WebGlRenderer {
     /// State used for constructing filter passes.
     filter_pass_state: FilterPassState,
     dummy_image_cache: Option<ImageCache>,
+}
+
+#[cfg(feature = "probe")]
+/// A WebGL probe whose pixel readback has been queued but not completed.
+#[derive(Debug)]
+pub struct WebGlPendingProbe {
+    gl: WebGl2RenderingContext,
+    sync: Option<WebGlSync>,
+    pixel_pack_buffer: Option<WebGlBuffer>,
+    width: u16,
+    height: u16,
+    elapsed_ms: f64,
+    finished: bool,
+}
+
+/// Error returned when starting the WebGL probe fails before async readback is queued.
+#[cfg(feature = "probe")]
+#[derive(Debug, Clone)]
+pub enum WebGlProbeStartError {
+    /// Rendering the probe scene failed.
+    RenderError {
+        /// The error returned while rendering the probe.
+        error: RenderError,
+        /// Time spent in [`WebGlRenderer::probe`] before returning this error.
+        elapsed_ms: f64,
+    },
+}
+
+/// Result of polling a pending WebGL probe.
+#[cfg(feature = "probe")]
+#[derive(Debug)]
+pub enum WebGlProbePoll {
+    /// The GPU fence has not completed yet.
+    Pending,
+    /// The readback completed and the probe result is available.
+    Complete(Probe<RenderError>),
+    /// The GPU fence reported `WAIT_FAILED`.
+    Failed(WebGlProbeReadbackError),
+    /// The pending probe was already completed by a previous poll or finish call.
+    AlreadyFinished,
+}
+
+/// Error returned when a non-blocking `try_finish` cannot produce a probe result.
+#[cfg(feature = "probe")]
+#[derive(Debug)]
+pub enum WebGlProbeTryFinishError {
+    /// The GPU fence has not completed yet.
+    Pending(WebGlPendingProbe),
+    /// The GPU fence reported `WAIT_FAILED`.
+    Failed(WebGlProbeReadbackError),
+    /// The pending probe was already completed by a previous poll or finish call.
+    AlreadyFinished,
+}
+
+/// Error returned when async WebGL probe readback fails.
+#[cfg(feature = "probe")]
+#[derive(Debug, Clone)]
+pub struct WebGlProbeReadbackError {
+    /// The `clientWaitSync` status value.
+    pub status: u32,
+    /// Time spent in [`WebGlRenderer::probe`] before it returned the pending probe.
+    pub elapsed_ms: f64,
+}
+
+#[cfg(feature = "probe")]
+impl WebGlPendingProbe {
+    /// Return time spent in [`WebGlRenderer::probe`] before it returned this pending probe.
+    pub fn elapsed_ms(&self) -> f64 {
+        self.elapsed_ms
+    }
+
+    /// Try to finish the probe without blocking.
+    ///
+    /// Returns `Err(WebGlProbeTryFinishError::Pending(self))` when the GPU fence has not completed
+    /// yet.
+    pub fn try_finish(mut self) -> Result<Probe<RenderError>, WebGlProbeTryFinishError> {
+        match self.poll() {
+            WebGlProbePoll::Pending => Err(WebGlProbeTryFinishError::Pending(self)),
+            WebGlProbePoll::Complete(result) => Ok(result),
+            WebGlProbePoll::Failed(error) => Err(WebGlProbeTryFinishError::Failed(error)),
+            WebGlProbePoll::AlreadyFinished => Err(WebGlProbeTryFinishError::AlreadyFinished),
+        }
+    }
+
+    /// Poll the pending probe without blocking.
+    pub fn poll(&mut self) -> WebGlProbePoll {
+        if self.finished {
+            return WebGlProbePoll::AlreadyFinished;
+        }
+
+        let status = self.gl.client_wait_sync_with_u32(
+            self.sync.as_ref().expect("probe sync must exist"),
+            0,
+            0,
+        );
+
+        if status == WebGl2RenderingContext::TIMEOUT_EXPIRED {
+            return WebGlProbePoll::Pending;
+        }
+
+        if status == WebGl2RenderingContext::WAIT_FAILED {
+            return WebGlProbePoll::Failed(self.finish_wait_failed(status));
+        }
+
+        if status == WebGl2RenderingContext::ALREADY_SIGNALED
+            || status == WebGl2RenderingContext::CONDITION_SATISFIED
+        {
+            WebGlProbePoll::Complete(self.finish_after_sync())
+        } else {
+            WebGlProbePoll::Failed(self.finish_wait_failed(status))
+        }
+    }
+
+    /// Block until the GPU readback fence completes, then return the final probe result.
+    pub fn finish_blocking(mut self) -> Result<Probe<RenderError>, WebGlProbeReadbackError> {
+        if self.finished {
+            return Err(self.finish_wait_failed(WebGl2RenderingContext::WAIT_FAILED));
+        }
+
+        let status = self.gl.client_wait_sync_with_f64(
+            self.sync.as_ref().expect("probe sync must exist"),
+            0,
+            WebGl2RenderingContext::TIMEOUT_IGNORED,
+        );
+
+        if status == WebGl2RenderingContext::WAIT_FAILED {
+            return Err(self.finish_wait_failed(status));
+        }
+
+        if status == WebGl2RenderingContext::ALREADY_SIGNALED
+            || status == WebGl2RenderingContext::CONDITION_SATISFIED
+        {
+            Ok(self.finish_after_sync())
+        } else {
+            Err(self.finish_wait_failed(status))
+        }
+    }
+
+    fn finish_after_sync(&mut self) -> Probe<RenderError> {
+        let mut pixmap = Pixmap::new(self.width, self.height);
+
+        self.gl.bind_buffer(
+            WebGl2RenderingContext::PIXEL_PACK_BUFFER,
+            self.pixel_pack_buffer.as_ref(),
+        );
+        self.gl.get_buffer_sub_data_with_i32_and_u8_array(
+            WebGl2RenderingContext::PIXEL_PACK_BUFFER,
+            0,
+            pixmap.data_as_u8_slice_mut(),
+        );
+        self.gl
+            .bind_buffer(WebGl2RenderingContext::PIXEL_PACK_BUFFER, None);
+        pixmap.recompute_may_have_transparency();
+        if let Some(sync) = self.sync.take() {
+            self.gl.delete_sync(Some(&sync));
+        }
+        if let Some(buffer) = self.pixel_pack_buffer.take() {
+            self.gl.delete_buffer(Some(&buffer));
+        }
+
+        self.finished = true;
+        Probe::from_actual(pixmap)
+    }
+
+    fn finish_wait_failed(&mut self, status: u32) -> WebGlProbeReadbackError {
+        if let Some(sync) = self.sync.take() {
+            self.gl.delete_sync(Some(&sync));
+        }
+        if let Some(buffer) = self.pixel_pack_buffer.take() {
+            self.gl.delete_buffer(Some(&buffer));
+        }
+        self.finished = true;
+        WebGlProbeReadbackError {
+            status,
+            elapsed_ms: self.elapsed_ms,
+        }
+    }
+}
+
+#[cfg(feature = "probe")]
+impl Drop for WebGlPendingProbe {
+    fn drop(&mut self) {
+        if let Some(sync) = self.sync.take() {
+            self.gl.delete_sync(Some(&sync));
+        }
+        if let Some(buffer) = self.pixel_pack_buffer.take() {
+            self.gl.delete_buffer(Some(&buffer));
+        }
+    }
 }
 
 impl WebGlRenderer {
@@ -382,26 +573,42 @@ impl WebGlRenderer {
     /// device actually results in visible and correct output. How this achieved is by drawing a selection
     /// of small elements into a small canvas, and comparing the final output against a reference image.
     ///
-    /// If certain pixels in the final output deviate too much from the expected image, an error result
-    /// will be returned, containing the expected image and the actual image. If probe rendering itself
-    /// fails, [`Probe::RenderError`] will be returned with the corresponding [`RenderError`]. Otherwise,
-    /// [`Probe::Success`] will be returned, indicating that the device seems to be compatible with
-    /// Vello Hybrid.
+    /// If starting the probe succeeds, this queues an async pixel readback and returns a
+    /// [`WebGlPendingProbe`]. Poll or finish that pending probe to compare the final pixels against
+    /// the reference image. If probe rendering itself fails, [`WebGlProbeStartError::RenderError`]
+    /// will be returned with the corresponding [`RenderError`].
     ///
-    /// **Important:** Note that this method can be expensive to call, as it performs a small rendering
-    /// operation and also does readback of the pixels to the CPU. Expect it to take anywhere from 10ms
-    /// to 100ms+. This should be taken into consideration when deciding when and how to call this method,
-    /// to prevent noticeable stalls on the main thread.
+    /// The returned pending probe reports the time spent before this method returned. The later
+    /// readback completion is intentionally not part of that elapsed time.
     #[cfg(feature = "probe")]
-    pub fn probe(&mut self) -> Probe<RenderError> {
+    pub fn probe(&mut self) -> Result<WebGlPendingProbe, WebGlProbeStartError> {
+        let probe_start = probe_time_now_ms();
         match self.probe_inner() {
-            Ok(actual) => Probe::from_actual(actual),
-            Err(error) => Probe::RenderError(error),
+            Ok(mut pending) => {
+                pending.elapsed_ms = probe_time_now_ms() - probe_start;
+                Ok(pending)
+            }
+            Err(error) => Err(WebGlProbeStartError::RenderError {
+                error,
+                elapsed_ms: probe_time_now_ms() - probe_start,
+            }),
         }
     }
 
     #[cfg(feature = "probe")]
-    fn probe_inner(&mut self) -> Result<Pixmap, RenderError> {
+    fn probe_inner(&mut self) -> Result<WebGlPendingProbe, RenderError> {
+        let state_guard = WebGlStateGuard::with_config(
+            &self.gl,
+            WebGlStateConfig {
+                framebuffer: true,
+                read_framebuffer: true,
+                texture_2d_array: true,
+                pixel_pack_buffer: true,
+                viewport: true,
+                ..Default::default()
+            },
+        );
+
         let (width, height) = vello_common::probe::canvas_size();
         let render_size = RenderSize {
             width: u32::from(width),
@@ -443,8 +650,6 @@ impl WebGlRenderer {
         );
 
         let probe_image = Arc::new(vello_common::probe::probe_image_pixmap());
-        // Note: No need to destroy the image explicitly in the end, because we discard the image
-        // cache anyway.
         let probe_image_id =
             self.upload_image_with(&mut probe_image_cache, &probe_image, IMAGE_PADDING);
         let mut scene = Scene::new(width, height);
@@ -477,18 +682,24 @@ impl WebGlRenderer {
         self.gl
             .delete_texture(Some(&probe_atlas_texture_array.texture));
 
-        let pixels = match render_result {
-            Ok(()) => read_framebuffer_rgba8(&self.gl, &probe_framebuffer, width, height),
-            Err(error) => {
-                self.gl.delete_framebuffer(Some(&probe_framebuffer));
-                self.gl.delete_texture(Some(&probe_texture));
-                return Err(error);
-            }
-        };
+        if let Err(error) = render_result {
+            self.gl.delete_framebuffer(Some(&probe_framebuffer));
+            self.gl.delete_texture(Some(&probe_texture));
+            drop(state_guard);
+            return Err(error);
+        }
 
-        self.gl.delete_framebuffer(Some(&probe_framebuffer));
-        self.gl.delete_texture(Some(&probe_texture));
-        Ok(pixels)
+        let pending = start_async_probe_readback(
+            &self.gl,
+            &probe_framebuffer,
+            probe_texture,
+            width,
+            height,
+            0.0,
+        );
+
+        drop(state_guard);
+        Ok(pending)
     }
 
     /// Shared render pipeline: prepares GPU resources, runs the scheduler, and
@@ -1623,19 +1834,20 @@ impl WebGlPrograms {
 /// RAII guard for WebGL state management.
 /// Automatically saves state on creation and restores it on drop.
 /// Only saves/restores the state specified in the configuration.
-struct WebGlStateGuard<'a> {
-    gl: &'a WebGl2RenderingContext,
+struct WebGlStateGuard {
+    gl: WebGl2RenderingContext,
     config: WebGlStateConfig,
     original_framebuffer: Option<WebGlFramebuffer>,
     original_read_framebuffer: Option<WebGlFramebuffer>,
     original_texture_2d_array: Option<WebGlTexture>,
+    original_pixel_pack_buffer: Option<WebGlBuffer>,
     scissor_enabled: bool,
     viewport: [i32; 4],
 }
 
-impl<'a> WebGlStateGuard<'a> {
+impl WebGlStateGuard {
     /// Create a new state guard with custom configuration.
-    fn with_config(gl: &'a WebGl2RenderingContext, config: WebGlStateConfig) -> Self {
+    fn with_config(gl: &WebGl2RenderingContext, config: WebGlStateConfig) -> Self {
         // Save current framebuffer binding if requested
         let original_framebuffer = if config.framebuffer {
             gl.get_parameter(WebGl2RenderingContext::FRAMEBUFFER_BINDING)
@@ -1659,6 +1871,15 @@ impl<'a> WebGlStateGuard<'a> {
             gl.get_parameter(WebGl2RenderingContext::TEXTURE_BINDING_2D_ARRAY)
                 .ok()
                 .and_then(|v| v.dyn_into::<WebGlTexture>().ok())
+        } else {
+            None
+        };
+
+        // Save current pixel pack buffer binding if requested
+        let original_pixel_pack_buffer = if config.pixel_pack_buffer {
+            gl.get_parameter(WebGl2RenderingContext::PIXEL_PACK_BUFFER_BINDING)
+                .ok()
+                .and_then(|v| v.dyn_into::<WebGlBuffer>().ok())
         } else {
             None
         };
@@ -1692,18 +1913,19 @@ impl<'a> WebGlStateGuard<'a> {
         };
 
         Self {
-            gl,
+            gl: gl.clone(),
             config,
             original_framebuffer,
             original_read_framebuffer,
             original_texture_2d_array,
+            original_pixel_pack_buffer,
             scissor_enabled,
             viewport,
         }
     }
 
     /// Create a state guard for clearing an atlas region operations.
-    fn for_clear_atlas_region(gl: &'a WebGl2RenderingContext) -> Self {
+    fn for_clear_atlas_region(gl: &WebGl2RenderingContext) -> Self {
         Self::with_config(
             gl,
             WebGlStateConfig {
@@ -1716,19 +1938,20 @@ impl<'a> WebGlStateGuard<'a> {
     }
 
     /// Create a state guard for texture copying operations.
-    fn for_texture_copy(gl: &'a WebGl2RenderingContext) -> Self {
+    fn for_texture_copy(gl: &WebGl2RenderingContext) -> Self {
         Self::with_config(
             gl,
             WebGlStateConfig {
                 read_framebuffer: true,
                 texture_2d_array: true,
+                pixel_pack_buffer: true,
                 ..Default::default()
             },
         )
     }
 }
 
-impl Drop for WebGlStateGuard<'_> {
+impl Drop for WebGlStateGuard {
     /// Restore WebGL state when the guard goes out of scope.
     /// Only restores state that was configured to be saved.
     fn drop(&mut self) {
@@ -1774,6 +1997,14 @@ impl Drop for WebGlStateGuard<'_> {
                 self.original_texture_2d_array.as_ref(),
             );
         }
+
+        // Restore original pixel pack buffer binding if it was saved
+        if self.config.pixel_pack_buffer {
+            self.gl.bind_buffer(
+                WebGl2RenderingContext::PIXEL_PACK_BUFFER,
+                self.original_pixel_pack_buffer.as_ref(),
+            );
+        }
     }
 }
 /// Configuration for which WebGL state to save/restore.
@@ -1785,6 +2016,8 @@ struct WebGlStateConfig {
     read_framebuffer: bool,
     /// Save/restore 2D array texture binding (`TEXTURE_BINDING_2D_ARRAY`)
     texture_2d_array: bool,
+    /// Save/restore pixel pack buffer binding (`PIXEL_PACK_BUFFER_BINDING`)
+    pixel_pack_buffer: bool,
     /// Save/restore scissor test state
     scissor: bool,
     /// Save/restore viewport
@@ -1792,34 +2025,59 @@ struct WebGlStateConfig {
 }
 
 #[cfg(feature = "probe")]
-fn read_framebuffer_rgba8(
+fn probe_time_now_ms() -> f64 {
+    js_sys::Date::now()
+}
+
+#[cfg(feature = "probe")]
+fn start_async_probe_readback(
     gl: &WebGl2RenderingContext,
     framebuffer: &WebGlFramebuffer,
+    texture: WebGlTexture,
     width: u16,
     height: u16,
-) -> Pixmap {
-    let _state_guard = WebGlStateGuard::with_config(
-        gl,
-        WebGlStateConfig {
-            framebuffer: true,
-            ..Default::default()
-        },
-    );
+    elapsed_ms: f64,
+) -> WebGlPendingProbe {
+    let pixel_pack_buffer = gl.create_buffer().unwrap();
+    let byte_len = i32::from(width) * i32::from(height) * 4;
 
+    gl.bind_buffer(
+        WebGl2RenderingContext::PIXEL_PACK_BUFFER,
+        Some(&pixel_pack_buffer),
+    );
+    gl.buffer_data_with_i32(
+        WebGl2RenderingContext::PIXEL_PACK_BUFFER,
+        byte_len,
+        WebGl2RenderingContext::STREAM_READ,
+    );
     gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(framebuffer));
-    let mut pixmap = Pixmap::new(width, height);
-    gl.read_pixels_with_opt_u8_array(
+    gl.read_pixels_with_i32(
         0,
         0,
         i32::from(width),
         i32::from(height),
         WebGl2RenderingContext::RGBA,
         WebGl2RenderingContext::UNSIGNED_BYTE,
-        Some(pixmap.data_as_u8_slice_mut()),
+        0,
     )
     .unwrap();
-    pixmap.recompute_may_have_transparency();
-    pixmap
+    let sync = gl
+        .fence_sync(WebGl2RenderingContext::SYNC_GPU_COMMANDS_COMPLETE, 0)
+        .unwrap();
+    gl.flush();
+    gl.bind_buffer(WebGl2RenderingContext::PIXEL_PACK_BUFFER, None);
+    gl.delete_framebuffer(Some(framebuffer));
+    gl.delete_texture(Some(&texture));
+
+    WebGlPendingProbe {
+        gl: gl.clone(),
+        sync: Some(sync),
+        pixel_pack_buffer: Some(pixel_pack_buffer),
+        width,
+        height,
+        elapsed_ms,
+        finished: false,
+    }
 }
 
 /// Create a WebGL shader program from vertex and fragment sources.
