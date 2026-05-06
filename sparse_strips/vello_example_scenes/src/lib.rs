@@ -4,12 +4,14 @@
 //! Example scenes for Vello Sparse Strips.
 
 pub mod blend;
+pub mod blurred_rounded_rect;
 pub mod clip;
 pub mod filter;
 pub mod filter_elements;
 pub mod gradient;
 pub mod image;
 pub mod multi_image;
+pub mod multi_image_alpha;
 pub mod path;
 pub mod random_text;
 pub mod simple;
@@ -24,7 +26,7 @@ use vello_common::kurbo::Affine;
 pub use vello_common::kurbo::{BezPath, Rect, Shape, Stroke};
 pub use vello_common::mask::Mask;
 use vello_common::paint::ImageSource;
-pub use vello_common::paint::{Paint, PaintType};
+pub use vello_common::paint::{Paint, PaintType, Tint};
 pub use vello_common::peniko::{BlendMode, Fill, FontData};
 #[cfg(feature = "cpu")]
 use vello_cpu::{RenderContext, Resources as CpuResources};
@@ -52,6 +54,8 @@ pub trait RenderingContext: Sized {
     fn set_fill_rule(&mut self, fill_rule: Fill);
     /// Set the current paint.
     fn set_paint(&mut self, paint: impl Into<PaintType>);
+    /// Set the tint applied to subsequent image paints.
+    fn set_tint(&mut self, tint: Option<Tint>);
     /// Set the current filter effect.
     fn set_filter_effect(&mut self, filter: Filter);
     /// Reset the current filter effect.
@@ -66,6 +70,8 @@ pub trait RenderingContext: Sized {
     fn stroke_path(&mut self, path: &BezPath);
     /// Fill a rectangle with the current paint.
     fn fill_rect(&mut self, rect: &Rect);
+    /// Fill a blurred rounded rectangle with the current solid paint.
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32);
     /// Create a glyph run builder for text rendering.
     fn glyph_run<'a>(
         &'a mut self,
@@ -112,6 +118,10 @@ impl RenderingContext for RenderContext {
         self.set_paint(paint);
     }
 
+    fn set_tint(&mut self, tint: Option<Tint>) {
+        self.set_tint(tint);
+    }
+
     fn set_paint_transform(&mut self, transform: Affine) {
         self.set_paint_transform(transform);
     }
@@ -146,6 +156,10 @@ impl RenderingContext for RenderContext {
 
     fn fill_rect(&mut self, rect: &Rect) {
         self.fill_rect(rect);
+    }
+
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
+        self.fill_blurred_rounded_rect(rect, radius, std_dev);
     }
 
     fn glyph_run<'a>(
@@ -216,6 +230,10 @@ impl RenderingContext for Scene {
         self.set_paint(paint);
     }
 
+    fn set_tint(&mut self, tint: Option<Tint>) {
+        self.set_tint(tint);
+    }
+
     fn set_paint_transform(&mut self, transform: Affine) {
         self.set_paint_transform(transform);
     }
@@ -238,6 +256,10 @@ impl RenderingContext for Scene {
 
     fn fill_rect(&mut self, rect: &Rect) {
         self.fill_rect(rect);
+    }
+
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
+        self.fill_blurred_rounded_rect(rect, radius, std_dev);
     }
 
     fn glyph_run<'a>(
@@ -292,6 +314,12 @@ pub trait ExampleScene {
         false
     }
 
+    /// Reset any accumulated scene state (e.g. dynamically added elements).
+    ///
+    /// Called by the runner when the user requests a full reset (e.g. pressing
+    /// the spacebar). Default implementation is a no-op.
+    fn reset(&mut self) {}
+
     /// Optional status string shown in the window title (e.g. element count).
     fn status(&self) -> Option<String> {
         None
@@ -305,6 +333,8 @@ pub struct AnyScene<T: RenderingContext> {
     resources: T::Resources,
     /// The key handler function.
     key_handler_fn: KeyHandlerFn,
+    /// The reset function.
+    reset_fn: ResetFn,
     /// The status query function.
     status_fn: StatusFn,
     /// Whether to show the wide tile columns overlay.
@@ -316,6 +346,9 @@ type RenderFn<T> = Box<dyn FnMut(&mut T, &mut <T as RenderingContext>::Resources
 
 /// A type-erased key handler function.
 type KeyHandlerFn = Box<dyn FnMut(&str) -> bool>;
+
+/// A type-erased reset function.
+type ResetFn = Box<dyn FnMut()>;
 
 /// A type-erased status function.
 type StatusFn = Box<dyn Fn() -> Option<String>>;
@@ -336,16 +369,18 @@ where
     /// Create a new `AnyScene` from any type that implements `ExampleScene`.
     pub fn new<S: ExampleScene + 'static>(scene: S) -> Self {
         let scene = std::rc::Rc::new(std::cell::RefCell::new(scene));
-        let scene_clone = scene.clone();
-        let scene_status = scene.clone();
+        let scene_for_keys = scene.clone();
+        let scene_for_reset = scene.clone();
+        let scene_for_status = scene.clone();
 
         Self {
             render_fn: Box::new(move |s, resources, transform| {
                 scene.borrow_mut().render(s, resources, transform);
             }),
             resources: T::Resources::default(),
-            key_handler_fn: Box::new(move |key| scene_clone.borrow_mut().handle_key(key)),
-            status_fn: Box::new(move || scene_status.borrow().status()),
+            key_handler_fn: Box::new(move |key| scene_for_keys.borrow_mut().handle_key(key)),
+            reset_fn: Box::new(move || scene_for_reset.borrow_mut().reset()),
+            status_fn: Box::new(move || scene_for_status.borrow().status()),
             show_widetile_columns: false,
         }
     }
@@ -375,6 +410,11 @@ where
 
         // Then delegate to the scene-specific handler
         (self.key_handler_fn)(key)
+    }
+
+    /// Reset any accumulated scene state (e.g. dynamically added elements).
+    pub fn reset(&mut self) {
+        (self.reset_fn)();
     }
 
     /// Get an optional status string from the scene.
@@ -437,12 +477,18 @@ where
     scenes.push(AnyScene::new(text::TextScene::new("Hello, Vello!")));
     scenes.push(AnyScene::new(random_text::RandomTextScene::new()));
     scenes.push(AnyScene::new(simple::SimpleScene::new()));
+    scenes.push(AnyScene::new(
+        blurred_rounded_rect::BlurredRoundedRectScene::new(),
+    ));
     scenes.push(AnyScene::new(clip::ClipScene::new()));
     scenes.push(AnyScene::new(filter::FilterScene::new()));
     scenes.push(AnyScene::new(blend::BlendScene::new()));
     let flower_source = img_sources[0].clone();
     scenes.push(AnyScene::new(image::ImageScene::new(img_sources)));
     scenes.push(AnyScene::new(multi_image::MultiImageScene::new(
+        flower_source.clone(),
+    )));
+    scenes.push(AnyScene::new(multi_image_alpha::MultiImageAlphaScene::new(
         flower_source,
     )));
     scenes.push(AnyScene::new(filter_elements::FilterElementsScene::new()));
@@ -472,11 +518,15 @@ where
         AnyScene::new(text::TextScene::new("Hello, Vello!")),
         AnyScene::new(random_text::RandomTextScene::new()),
         AnyScene::new(simple::SimpleScene::new()),
+        AnyScene::new(blurred_rounded_rect::BlurredRoundedRectScene::new()),
         AnyScene::new(filter::FilterScene::new()),
         AnyScene::new(clip::ClipScene::new()),
         AnyScene::new(blend::BlendScene::new()),
         AnyScene::new(image::ImageScene::new(img_sources.clone())),
         AnyScene::new(multi_image::MultiImageScene::new(img_sources[0].clone())),
+        AnyScene::new(multi_image_alpha::MultiImageAlphaScene::new(
+            img_sources[0].clone(),
+        )),
         AnyScene::new(filter_elements::FilterElementsScene::new()),
         AnyScene::new(gradient::GradientExtendScene::new()),
         AnyScene::new(gradient::RadialScene::new()),

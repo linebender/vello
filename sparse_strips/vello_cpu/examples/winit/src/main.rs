@@ -57,7 +57,7 @@ struct App {
 fn main() {
     #[cfg(not(target_arch = "wasm32"))]
     let (scenes, start_scene_index) = {
-        let mut start_scene_index = 0;
+        let mut start_scene_index = 10; // MultiImageAlphaScene
         let args: Vec<String> = env::args().collect();
         let mut svg_paths: Vec<&str> = Vec::new();
 
@@ -247,8 +247,11 @@ impl ApplicationHandler for App {
                         window.request_redraw();
                     }
                     Key::Named(NamedKey::Space) => {
-                        // Reset transform on spacebar
+                        // Reset transform and scene state on spacebar
                         self.transform = Affine::IDENTITY;
+                        if let Some(scene) = self.scenes.get_mut(self.current_scene) {
+                            scene.reset();
+                        }
                         window.request_redraw();
                     }
                     Key::Named(NamedKey::Escape) => {

@@ -206,6 +206,7 @@ const PAINT_TYPE_IMAGE: u32 = 1;
 const PAINT_TYPE_LINEAR_GRADIENT: u32 = 2;
 const PAINT_TYPE_RADIAL_GRADIENT: u32 = 3;
 const PAINT_TYPE_SWEEP_GRADIENT: u32 = 4;
+const PAINT_TYPE_BLURRED_ROUNDED_RECT: u32 = 5;
 
 /// Bit 31 of [`GpuStrip::paint_and_rect_flag`] signals that the strip
 /// represents a full rectangle.
@@ -1805,7 +1806,13 @@ impl Scheduler {
                 let scene_strip_xy = ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
                 (scene_strip_xy, paint_packed)
             }
-            _ => unimplemented!("Unsupported paint type"),
+            EncodedPaint::BlurredRoundedRect(_) => {
+                let paint_packed = (COLOR_SOURCE_PAYLOAD << 29)
+                    | (PAINT_TYPE_BLURRED_ROUNDED_RECT << 26)
+                    | (paint_idx & 0x03FF_FFFF);
+                let scene_strip_xy = ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
+                (scene_strip_xy, paint_packed)
+            }
         }
     }
 }

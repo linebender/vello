@@ -11,6 +11,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::ops::Range;
+use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::clip::ClipContext;
 use vello_common::coarse::{MODE_HYBRID, Wide, WideTilesBbox};
 use vello_common::encode::{EncodeExt, EncodedPaint};
@@ -22,6 +23,7 @@ use vello_common::multi_atlas::AtlasConfig;
 use vello_common::paint::{Paint, PaintType, Tint};
 #[cfg(feature = "text")]
 use vello_common::peniko::FontData;
+use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Fill, Mix};
 use vello_common::render_graph::{RenderGraph, RenderNodeKind};
 use vello_common::render_state::RenderState;
@@ -209,7 +211,7 @@ pub struct Scene {
     // The reason we use `RefCell` here is that during `render`, we need
     // mutable access so we can store additional encoded paints for filtered layers,
     // if applicable.
-    /// Storage for encoded gradient and image paint data.
+    /// Storage for encoded non-solid paint data.
     pub(crate) encoded_paints: RefCell<Vec<EncodedPaint>>,
     /// Whether the current paint is visible (e.g., alpha > 0).
     paint_visible: bool,
@@ -503,20 +505,42 @@ impl Scene {
         }
     }
 
+    fn try_fast_rect(&mut self, rect: &Rect) -> bool {
+        let Some(bounds) = self.fast_rect_bounds(rect) else {
+            return false;
+        };
+
+        let paint = self.encode_current_paint();
+        self.push_fast_rect(bounds, paint);
+        true
+    }
+
     #[expect(
         clippy::cast_possible_truncation,
         reason = "f64→f32 truncation is acceptable for pixel coordinates"
     )]
-    fn try_fast_rect(&mut self, rect: &Rect) -> bool {
+    fn push_fast_rect(&mut self, bounds: Rect, paint: Paint) {
+        self.fast_strips_buffer
+            .commands
+            .push(FastStripCommand::Rect(FastPathRect {
+                x0: bounds.x0 as f32,
+                y0: bounds.y0 as f32,
+                x1: bounds.x1 as f32,
+                y1: bounds.y1 as f32,
+                paint,
+            }));
+    }
+
+    fn fast_rect_bounds(&self, rect: &Rect) -> Option<Rect> {
         if self.strip_path_mode == StripPathMode::CoarseOnly
             || self.wide.has_layers()
             || self.filter.is_some()
         {
-            return false;
+            return None;
         }
 
         if self.clip_context.get().is_some() {
-            return false;
+            return None;
         }
 
         // TODO: Either bail out or properly implement the case where `aliasing_threshold` is set.
@@ -525,7 +549,7 @@ impl Scene {
         // We can't handle skewed rectangles.
         // TODO: Maybe support rotated rectangles (https://github.com/linebender/vello/pull/1482#discussion_r2881223621)
         if !is_axis_aligned(&self.render_state.transform) {
-            return false;
+            return None;
         }
 
         let transformed_rect = self.render_state.transform.transform_rect_bbox(*rect);
@@ -537,27 +561,74 @@ impl Scene {
 
         // Can't handle mirrored or zero-sized rectangles.
         if x1 <= x0 || y1 <= y0 {
-            return false;
+            return None;
         }
 
-        let paint = self.encode_current_paint();
-
-        self.fast_strips_buffer
-            .commands
-            .push(FastStripCommand::Rect(FastPathRect {
-                x0: x0 as f32,
-                y0: y0 as f32,
-                x1: x1 as f32,
-                y1: y1 as f32,
-                paint,
-            }));
-
-        true
+        Some(Rect::new(x0, y0, x1, y1))
     }
 
     /// Stroke a rectangle with the current paint and stroke settings.
     pub fn stroke_rect(&mut self, rect: &Rect) {
         self.stroke_path(&rect.to_path(DEFAULT_TOLERANCE));
+    }
+
+    /// Fill a blurred rectangle with the given corner radius and standard deviation.
+    ///
+    /// This operation uses the current transform and paint transform. Like Vello CPU, it only
+    /// uses solid paints; non-solid paints fall back to black.
+    pub fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
+        if !self.paint_visible {
+            return;
+        }
+
+        self.with_optional_filter(|ctx| {
+            let rect = rect.abs();
+            let color = match ctx.render_state.paint {
+                PaintType::Solid(s) => s,
+                _ => BLACK,
+            };
+            let blurred_rect = BlurredRoundedRectangle {
+                rect,
+                color,
+                radius,
+                std_dev,
+            };
+
+            let kernel_size = 2.5 * std_dev;
+            let inflated_rect = rect.inflate(f64::from(kernel_size), f64::from(kernel_size));
+            let transform = ctx.render_state.transform * ctx.render_state.paint_transform;
+            let paint =
+                blurred_rect.encode_into(&mut ctx.encoded_paints.borrow_mut(), transform, None);
+
+            if let Some(bounds) = ctx.fast_rect_bounds(&inflated_rect) {
+                ctx.push_fast_rect(bounds, paint);
+                return;
+            }
+
+            if is_axis_aligned(&ctx.render_state.transform) && ctx.aliasing_threshold.is_none() {
+                let transformed_rect = ctx
+                    .render_state
+                    .transform
+                    .transform_rect_bbox(inflated_rect);
+                let strip_storage = &mut ctx.strip_storage.borrow_mut();
+                let strip_start = strip_storage.strips.len();
+                ctx.strip_generator.generate_filled_rect_fast(
+                    &transformed_rect,
+                    strip_storage,
+                    ctx.clip_context.get(),
+                );
+
+                submit_strips!(ctx, strip_storage, strip_start, paint);
+            } else {
+                ctx.fill_path_with(
+                    &inflated_rect.to_path(DEFAULT_TOLERANCE),
+                    ctx.render_state.transform,
+                    Fill::NonZero,
+                    paint,
+                    ctx.aliasing_threshold,
+                );
+            }
+        });
     }
 
     /// Creates a builder for drawing a run of glyphs that have the same attributes.

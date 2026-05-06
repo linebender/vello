@@ -135,6 +135,9 @@ impl AppState {
 
     fn reset_transform(&mut self) {
         self.transform = Affine::IDENTITY;
+        if let Some(scene) = self.scenes.get_mut(self.current_scene) {
+            scene.reset();
+        }
         self.need_render = true;
     }
 

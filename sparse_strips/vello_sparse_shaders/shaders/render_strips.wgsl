@@ -37,6 +37,7 @@ const PAINT_TYPE_IMAGE: u32 = 1u;
 const PAINT_TYPE_LINEAR_GRADIENT: u32 = 2u;
 const PAINT_TYPE_RADIAL_GRADIENT: u32 = 3u;
 const PAINT_TYPE_SWEEP_GRADIENT: u32 = 4u;
+const PAINT_TYPE_BLURRED_ROUNDED_RECT: u32 = 5u;
 
 // Paint texture index mask (extracts lower 26 bits from paint field).
 const PAINT_TEXTURE_INDEX_MASK: u32 = 0x03FFFFFFu;
@@ -173,7 +174,10 @@ struct Config {
 // │
 // ├── paint_type = 2 (PAINT_TYPE_LINEAR_GRADIENT) - Linear gradient rendering
 // ├── paint_type = 3 (PAINT_TYPE_RADIAL_GRADIENT) - Radial gradient (with kind discriminator)
-// └── paint_type = 4 (PAINT_TYPE_SWEEP_GRADIENT) - Sweep gradient rendering
+// ├── paint_type = 4 (PAINT_TYPE_SWEEP_GRADIENT) - Sweep gradient rendering
+//     ├── payload = [x, y] scene coordinates (packed as u16s)
+//     └── bits 0-25 = paint_texture_idx
+// └── paint_type = 5 (PAINT_TYPE_BLURRED_ROUNDED_RECT) - Analytic blurred rounded rectangle
 //     ├── payload = [x, y] scene coordinates (packed as u16s)
 //     └── bits 0-25 = paint_texture_idx
 //
@@ -296,7 +300,7 @@ fn vs_main(
             // Use view coordinates for image sampling (always in global view space)
             let pos = vec2<f32>(f32(scene_strip_x) + x * f32(width), f32(scene_strip_y) + y * f32(height));
             out.sample_xy = encoded_image.translate + encoded_image.image_offset + encoded_image.transform * pos;
-        } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT || paint_type == PAINT_TYPE_RADIAL_GRADIENT || paint_type == PAINT_TYPE_SWEEP_GRADIENT {
+        } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT || paint_type == PAINT_TYPE_RADIAL_GRADIENT || paint_type == PAINT_TYPE_SWEEP_GRADIENT || paint_type == PAINT_TYPE_BLURRED_ROUNDED_RECT {
             // Use view coordinates for gradient transform (always in global view space)
             out.sample_xy = vec2<f32>(
                 f32(scene_strip_x) + x * f32(width),
@@ -509,6 +513,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 sweep_gradient.texture_width
             );
             final_color = alpha * gradient_color;
+        } else if paint_type == PAINT_TYPE_BLURRED_ROUNDED_RECT {
+            let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
+            let blurred_rect = unpack_blurred_rounded_rect(paint_tex_idx);
+            final_color = alpha * calculate_blurred_rounded_rect(in.sample_xy, blurred_rect);
         }
     } else if color_source == COLOR_SOURCE_SLOT {
         // Depending on the value of `ndc_y_negate`, the y position will have a value that either
@@ -1175,6 +1183,25 @@ struct SweepGradient {
     inv_angle_delta: f32,
 }
 
+struct BlurredRoundedRect {
+    /// 2×2 linear part of the affine transform (columns [a,b] and [c,d]).
+    transform: mat2x2<f32>,
+    /// Translation part of the affine transform [tx, ty].
+    translate: vec2<f32>,
+    /// Premultiplied rectangle color.
+    color: vec4<f32>,
+    exponent: f32,
+    recip_exponent: f32,
+    scale: f32,
+    std_dev_inv: f32,
+    min_edge: f32,
+    w: f32,
+    h: f32,
+    r1: f32,
+    width: f32,
+    height: f32,
+}
+
 // Unpack linear gradient from the encoded paints texture.
 fn unpack_linear_gradient(paint_tex_idx: u32) -> LinearGradient {
     let texel0 = textureLoad(encoded_paints_texture, encoded_paint_coord(paint_tex_idx), 0);
@@ -1348,6 +1375,69 @@ fn unpack_sweep_gradient(paint_tex_idx: u32) -> SweepGradient {
     return SweepGradient(
         extend_mode, gradient_start, texture_width, transform, translate, start_angle, inv_angle_delta
     );
+}
+
+// Unpack blurred rounded rectangle from the encoded paints texture.
+fn unpack_blurred_rounded_rect(paint_tex_idx: u32) -> BlurredRoundedRect {
+    let texel0 = textureLoad(encoded_paints_texture, encoded_paint_coord(paint_tex_idx), 0);
+    let texel1 = textureLoad(encoded_paints_texture, encoded_paint_coord(paint_tex_idx + 1u), 0);
+    let texel2 = textureLoad(encoded_paints_texture, encoded_paint_coord(paint_tex_idx + 2u), 0);
+    let texel3 = textureLoad(encoded_paints_texture, encoded_paint_coord(paint_tex_idx + 3u), 0);
+    let texel4 = textureLoad(encoded_paints_texture, encoded_paint_coord(paint_tex_idx + 4u), 0);
+
+    let transform = mat2x2<f32>(
+        vec2<f32>(bitcast<f32>(texel0.x), bitcast<f32>(texel0.y)),
+        vec2<f32>(bitcast<f32>(texel0.z), bitcast<f32>(texel0.w))
+    );
+    let translate = vec2<f32>(bitcast<f32>(texel1.x), bitcast<f32>(texel1.y));
+    let color = unpack4x8unorm(texel1.z);
+
+    return BlurredRoundedRect(
+        transform,
+        translate,
+        color,
+        bitcast<f32>(texel2.x),
+        bitcast<f32>(texel2.y),
+        bitcast<f32>(texel2.z),
+        bitcast<f32>(texel2.w),
+        bitcast<f32>(texel3.x),
+        bitcast<f32>(texel3.y),
+        bitcast<f32>(texel3.z),
+        bitcast<f32>(texel3.w),
+        bitcast<f32>(texel4.x),
+        bitcast<f32>(texel4.y)
+    );
+}
+
+// Approximation to erf used by Vello Classic and vello_cpu.
+fn erf7(x: f32) -> f32 {
+    let y = clamp(x * 1.1283791671, -100.0, 100.0);
+    let yy = y * y;
+    let z = y + (0.24295 + (0.03395 + 0.0104 * yy) * yy) * (y * yy);
+    return z / sqrt(1.0 + z * z);
+}
+
+// Approximation for the convolution of a gaussian filter with a rounded rectangle, modelled
+// after vello_cpu's blurred rounded rectangle painter rather than the Vello Classic shader.
+fn calculate_blurred_rounded_rect(fragment_pos: vec2<f32>, rect: BlurredRoundedRect) -> vec4<f32> {
+    let local_xy = rect.transform * fragment_pos + rect.translate;
+    // The 0.5 and 0.0 constants correspond to vello_cpu's v1 and v0 respectively.
+    let y = local_xy.y - 0.5 * rect.height;
+    let y0 = rect.r1 + abs(y) - 0.5 * rect.h;
+    let y1 = max(y0, 0.0);
+
+    let x = local_xy.x - 0.5 * rect.width;
+    let x0 = rect.r1 + abs(x) - 0.5 * rect.w;
+    let x1 = max(x0, 0.0);
+
+    let d_pos = pow(pow(x1, rect.exponent) + pow(y1, rect.exponent), rect.recip_exponent);
+    let d_neg = min(max(x0, y0), 0.0);
+    let d = d_pos + d_neg - rect.r1;
+    let blur_alpha = rect.scale * (
+        erf7(rect.std_dev_inv * (rect.min_edge + d)) - erf7(rect.std_dev_inv * d)
+    );
+
+    return rect.color * blur_alpha;
 }
 
 // Unpack texture_width and extend_mode from packed field.
