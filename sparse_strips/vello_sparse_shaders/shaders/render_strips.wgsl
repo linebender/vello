@@ -1330,26 +1330,40 @@ fn calculate_blurred_rounded_rect(
     raw3: vec4<u32>,
     raw4: vec4<u32>,
 ) -> vec4<f32> {
-    let local_xy = get_blurred_rounded_rect_transform(raw0) * fragment_pos + get_blurred_rounded_rect_translate(raw1);
+    let transform = get_blurred_rounded_rect_transform(raw0);
+    let translate = get_blurred_rounded_rect_translate(raw1);
+    let color = get_blurred_rounded_rect_color(raw1);
+    let exponent = get_blurred_rounded_rect_exponent(raw2);
+    let recip_exponent = get_blurred_rounded_rect_recip_exponent(raw2);
+    let scale = get_blurred_rounded_rect_scale(raw2);
+    let std_dev_inv = get_blurred_rounded_rect_std_dev_inv(raw2);
+    let min_edge = get_blurred_rounded_rect_min_edge(raw3);
+    let w = get_blurred_rounded_rect_w(raw3);
+    let h = get_blurred_rounded_rect_h(raw3);
+    let r1 = get_blurred_rounded_rect_r1(raw3);
+    let width = get_blurred_rounded_rect_width(raw4);
+    let height = get_blurred_rounded_rect_height(raw4);
+
+    let local_xy = transform * fragment_pos + translate;
     // The 0.5 and 0.0 constants correspond to vello_cpu's v1 and v0 respectively.
-    let y = local_xy.y - 0.5 * get_blurred_rounded_rect_height(raw4);
-    let y0 = get_blurred_rounded_rect_r1(raw3) + abs(y) - 0.5 * get_blurred_rounded_rect_h(raw3);
+    let y = local_xy.y - 0.5 * height;
+    let y0 = r1 + abs(y) - 0.5 * h;
     let y1 = max(y0, 0.0);
 
-    let x = local_xy.x - 0.5 * get_blurred_rounded_rect_width(raw4);
-    let x0 = get_blurred_rounded_rect_r1(raw3) + abs(x) - 0.5 * get_blurred_rounded_rect_w(raw3);
+    let x = local_xy.x - 0.5 * width;
+    let x0 = r1 + abs(x) - 0.5 * w;
     let x1 = max(x0, 0.0);
 
     let d_pos = pow(
-        pow(x1, get_blurred_rounded_rect_exponent(raw2)) + pow(y1, get_blurred_rounded_rect_exponent(raw2)),
-        get_blurred_rounded_rect_recip_exponent(raw2),
+        pow(x1, exponent) + pow(y1, exponent),
+        recip_exponent,
     );
     let d_neg = min(max(x0, y0), 0.0);
-    let d = d_pos + d_neg - get_blurred_rounded_rect_r1(raw3);
-    let blur_alpha = get_blurred_rounded_rect_scale(raw2) * (
-        erf7(get_blurred_rounded_rect_std_dev_inv(raw2) * (get_blurred_rounded_rect_min_edge(raw3) + d)) -
-        erf7(get_blurred_rounded_rect_std_dev_inv(raw2) * d)
+    let d = d_pos + d_neg - r1;
+    let blur_alpha = scale * (
+        erf7(std_dev_inv * (min_edge + d)) -
+        erf7(std_dev_inv * d)
     );
 
-    return get_blurred_rounded_rect_color(raw1) * blur_alpha;
+    return color * blur_alpha;
 }
