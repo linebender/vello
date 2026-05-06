@@ -68,10 +68,15 @@ struct DropShadowFilter {
 //   bits [5:6]   = edge_mode     (2 bits, only for blur filters), currently ignored.
 //   bits [7:10]  = n_decimations (4 bits, only for blur filters), only read on the CPU side.
 //   bits [11:12] = n_linear_taps (2 bits, only for blur filters)
-//   bits [13:32] = reserved for future use
+//   bit  [13]    = premultiplied-compatible matrix (only for color matrix filters)
+//   bits [14:32] = reserved for future use
+const COLOR_MATRIX_PREMUL_COMPATIBLE_FLAG: u32 = 1u << 13u;
 
 fn unpack_filter_type(data: GpuFilterData) -> u32 { return data.data[0] & 0x1Fu; }
 fn unpack_header_n_linear_taps(header: u32) -> u32 { return (header >> 11u) & 0x3u; }
+fn unpack_header_color_matrix_premul_compatible(header: u32) -> bool {
+    return (header & COLOR_MATRIX_PREMUL_COMPATIBLE_FLAG) != 0u;
+}
 
 fn unpack_offset_filter(data: GpuFilterData) -> OffsetFilter {
     return OffsetFilter(
@@ -335,7 +340,34 @@ fn color_matrix_row(data: GpuFilterData, base: u32, color: vec4<f32>) -> f32 {
     );
 }
 
+fn color_matrix_premul_row(data: GpuFilterData, base: u32, rgb: vec3<f32>) -> f32 {
+    return
+        bitcast<f32>(data.data[base]) * rgb.r +
+        bitcast<f32>(data.data[base + 1u]) * rgb.g +
+        bitcast<f32>(data.data[base + 2u]) * rgb.b;
+}
+
+fn apply_premul_compatible_color_matrix(data: GpuFilterData, pixel: vec4<f32>) -> vec4<f32> {
+    // For RGB-only, alpha-preserving matrices, applying the RGB rows directly
+    // to premultiplied channels is equivalent to unpremultiply -> matrix ->
+    // premultiply. Straight-alpha clamping becomes clamping RGB to [0, alpha].
+    let transformed_rgb = vec3<f32>(
+        color_matrix_premul_row(data, 1u, pixel.rgb),
+        color_matrix_premul_row(data, 6u, pixel.rgb),
+        color_matrix_premul_row(data, 11u, pixel.rgb),
+    );
+
+    return vec4<f32>(
+        clamp(transformed_rgb, vec3<f32>(0.0), vec3<f32>(pixel.a)),
+        pixel.a,
+    );
+}
+
 fn apply_color_matrix(data: GpuFilterData, pixel: vec4<f32>) -> vec4<f32> {
+    if unpack_header_color_matrix_premul_compatible(data.data[0]) {
+        return apply_premul_compatible_color_matrix(data, pixel);
+    }
+
     var rgb = vec3<f32>(0.0);
     if pixel.a > 0.0 {
         rgb = pixel.rgb / pixel.a;

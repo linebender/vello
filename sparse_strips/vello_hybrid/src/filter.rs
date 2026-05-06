@@ -65,6 +65,10 @@ const BYTES_PER_TEXEL: usize = 16;
 const FILTER_SIZE_BYTES: usize = 96;
 const FILTER_SIZE_U32: usize = FILTER_SIZE_BYTES / 4;
 
+// Header bit used by color matrix filters to select the shader path that works
+// directly in premultiplied-alpha space.
+const COLOR_MATRIX_PREMUL_COMPATIBLE_FLAG: u32 = 1 << 13;
+
 const _: () = assert!(
     size_of::<GpuFilterData>() == FILTER_SIZE_BYTES,
     "memory size of filters need to match"
@@ -131,6 +135,14 @@ fn pack_header(filter_type: u32) -> u32 {
     debug_assert!(filter_type <= 31, "filter_type must fit in 5 bits");
 
     filter_type
+}
+
+fn pack_color_matrix_header(color_matrix: &ColorMatrix) -> u32 {
+    let mut header = pack_header(filter_type::COLOR_MATRIX);
+    if color_matrix.is_premul_compatible() {
+        header |= COLOR_MATRIX_PREMUL_COMPATIBLE_FLAG;
+    }
+    header
 }
 
 fn pack_header_with_gaussian_params(
@@ -345,7 +357,7 @@ pub(crate) struct GpuColorMatrix {
 impl From<&ColorMatrix> for GpuColorMatrix {
     fn from(color_matrix: &ColorMatrix) -> Self {
         Self {
-            header: pack_header(filter_type::COLOR_MATRIX),
+            header: pack_color_matrix_header(color_matrix),
             matrix: color_matrix.matrix,
             _padding: [0; 3],
         }
@@ -1148,6 +1160,44 @@ mod tests {
         check_round_trip(
             GpuColorMatrix::from(&ColorMatrix::new(matrices::SEPIA)),
             filter_type::COLOR_MATRIX,
+        );
+    }
+
+    #[test]
+    fn color_matrix_header_marks_premul_compatible_matrices() {
+        assert!(
+            GpuColorMatrix::from(&ColorMatrix::new(matrices::GRAYSCALE)).header
+                & COLOR_MATRIX_PREMUL_COMPATIBLE_FLAG
+                != 0
+        );
+        assert!(
+            GpuColorMatrix::from(&ColorMatrix::new(matrices::SEPIA)).header
+                & COLOR_MATRIX_PREMUL_COMPATIBLE_FLAG
+                != 0
+        );
+        assert_eq!(
+            GpuColorMatrix::from(&ColorMatrix::new(matrices::ALPHA_TO_BLACK)).header
+                & COLOR_MATRIX_PREMUL_COMPATIBLE_FLAG,
+            0
+        );
+    }
+
+    #[test]
+    fn color_matrix_header_rejects_offsets_and_alpha_changes() {
+        let mut offset_matrix = matrices::IDENTITY;
+        offset_matrix[4] = 0.25;
+        assert_eq!(
+            GpuColorMatrix::from(&ColorMatrix::new(offset_matrix)).header
+                & COLOR_MATRIX_PREMUL_COMPATIBLE_FLAG,
+            0
+        );
+
+        let mut opacity_matrix = matrices::IDENTITY;
+        opacity_matrix[18] = 0.5;
+        assert_eq!(
+            GpuColorMatrix::from(&ColorMatrix::new(opacity_matrix)).header
+                & COLOR_MATRIX_PREMUL_COMPATIBLE_FLAG,
+            0
         );
     }
 

@@ -15,21 +15,22 @@ use vello_common::pixmap::Pixmap;
 
 impl FilterEffect for ColorMatrix {
     fn execute_lowp(&self, pixmap: &mut Pixmap, _layer_manager: &mut LayerManager) {
-        apply_color_matrix(pixmap, &self.matrix);
+        apply_color_matrix(pixmap, self);
     }
 
     fn execute_highp(&self, pixmap: &mut Pixmap, _layer_manager: &mut LayerManager) {
-        apply_color_matrix(pixmap, &self.matrix);
+        apply_color_matrix(pixmap, self);
     }
 }
 
-fn apply_color_matrix(pixmap: &mut Pixmap, matrix: &[f32; 20]) {
+fn apply_color_matrix(pixmap: &mut Pixmap, filter: &ColorMatrix) {
+    let matrix = &filter.matrix;
     if matrix == &matrices::IDENTITY {
         return;
     }
 
     let mut may_have_transparency = false;
-    if is_premul_compatible_matrix(matrix) {
+    if filter.is_premul_compatible() {
         // For RGB-only, alpha-preserving matrices, applying the RGB matrix to
         // premultiplied channels is equivalent to unpremultiply -> matrix ->
         // premultiply. This avoids the per-pixel alpha division.
@@ -90,20 +91,6 @@ fn apply_row(matrix: &[f32; 20], offset: usize, r: f32, g: f32, b: f32, a: f32) 
     )
 }
 
-fn is_premul_compatible_matrix(matrix: &[f32; 20]) -> bool {
-    matrix[3] == 0.0
-        && matrix[4] == 0.0
-        && matrix[8] == 0.0
-        && matrix[9] == 0.0
-        && matrix[13] == 0.0
-        && matrix[14] == 0.0
-        && matrix[15] == 0.0
-        && matrix[16] == 0.0
-        && matrix[17] == 0.0
-        && matrix[18] == 1.0
-        && matrix[19] == 0.0
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,7 +133,7 @@ mod tests {
         );
         let before = [pixmap.sample(0, 0), pixmap.sample(1, 0)];
 
-        apply_color_matrix(&mut pixmap, &matrices::IDENTITY);
+        apply_color_matrix(&mut pixmap, &ColorMatrix::new(matrices::IDENTITY));
 
         assert_eq!([pixmap.sample(0, 0), pixmap.sample(1, 0)], before);
         assert!(pixmap.may_have_transparency());
@@ -174,9 +161,9 @@ mod tests {
 
     #[test]
     fn premul_compatible_matrices_skip_straight_alpha_conversion() {
-        assert!(is_premul_compatible_matrix(&matrices::GRAYSCALE));
-        assert!(is_premul_compatible_matrix(&matrices::SEPIA));
-        assert!(!is_premul_compatible_matrix(&matrices::ALPHA_TO_BLACK));
+        assert!(ColorMatrix::new(matrices::GRAYSCALE).is_premul_compatible());
+        assert!(ColorMatrix::new(matrices::SEPIA).is_premul_compatible());
+        assert!(!ColorMatrix::new(matrices::ALPHA_TO_BLACK).is_premul_compatible());
     }
 
     #[test]
@@ -300,7 +287,7 @@ mod tests {
             0.0, 0.0, 0.0, 0.0, 1.0,
         ];
 
-        apply_color_matrix(&mut pixmap, &matrix);
+        apply_color_matrix(&mut pixmap, &ColorMatrix::new(matrix));
 
         assert!(!pixmap.may_have_transparency());
         assert_eq!(
