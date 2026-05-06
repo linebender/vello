@@ -42,10 +42,21 @@ async fn no_simd_instruction_inclusion() {
 
 #[cfg(feature = "webgl")]
 #[wasm_bindgen_test]
-fn webgl_probe_succeeds() {
-    use vello_hybrid::Probe;
+async fn webgl_probe_succeeds() {
+    use vello_hybrid::WebGlProbeStatus;
     use wasm_bindgen::JsCast;
+    use wasm_bindgen_futures::JsFuture;
     use web_sys::HtmlCanvasElement;
+
+    async fn wait_for_animation_frame() {
+        let promise = web_sys::js_sys::Promise::new(&mut |resolve, _reject| {
+            web_sys::window()
+                .unwrap()
+                .request_animation_frame(&resolve)
+                .unwrap();
+        });
+        JsFuture::from(promise).await.unwrap();
+    }
 
     let document = web_sys::window().unwrap().document().unwrap();
     let canvas = document
@@ -57,13 +68,30 @@ fn webgl_probe_succeeds() {
     canvas.set_height(200);
 
     let mut renderer = vello_hybrid::WebGlRenderer::new(&canvas);
-    match renderer.probe() {
-        Probe::Success => {}
-        Probe::Error(_) => panic!("WebGlRenderer::probe() unexpectedly failed"),
-        Probe::RenderError(error) => {
-            panic!("WebGlRenderer::probe() failed to render: {error:?}");
+    let mut pending = renderer
+        .probe()
+        .unwrap_or_else(|error| panic!("WebGlRenderer::probe() failed to render: {error:?}"));
+
+    const MAX_FRAMES: u32 = 600;
+
+    for _ in 0..MAX_FRAMES {
+        match pending.try_finish() {
+            Ok(WebGlProbeStatus::Complete(result)) => {
+                assert!(result.is_success());
+                return;
+            }
+            Ok(WebGlProbeStatus::Pending(next_pending)) => {
+                pending = next_pending;
+                wait_for_animation_frame().await;
+            }
+            Err(error) => panic!("WebGlRenderer::probe() readback failed: {error:?}"),
         }
     }
+
+    panic!(
+        "WebGlRenderer::probe() did not finish within {} animation frames",
+        MAX_FRAMES
+    );
 }
 
 // This test reproduces a bug where creating a renderer would leave a non-default framebuffer without
