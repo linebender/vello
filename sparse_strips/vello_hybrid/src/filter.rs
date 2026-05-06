@@ -378,6 +378,9 @@ impl From<&PreparedFilter> for GpuFilterData {
             PreparedFilter::Flood(f) => GpuFlood::from(f).into(),
             PreparedFilter::GaussianBlur(f) => GpuGaussianBlur::from(f).into(),
             PreparedFilter::DropShadow(f) => GpuDropShadow::from(f).into(),
+            PreparedFilter::ColorMatrix(_) => {
+                unimplemented!("Color matrix filters are not yet supported by vello_hybrid")
+            }
         }
     }
 }

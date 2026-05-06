@@ -15,14 +15,15 @@
 
 use super::FilterEffect;
 use super::gaussian_blur::apply_blur;
+use super::pixel::{norm_to_u8, premultiply_u8, u8_to_norm};
 use super::shift::offset_pixels;
 use crate::layer_manager::LayerManager;
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::filter::drop_shadow::DropShadow;
 use vello_common::filter_effects::EdgeMode;
-use vello_common::peniko::color::PremulRgba8;
 #[cfg(not(feature = "std"))]
-use vello_common::peniko::kurbo::common::FloatFuncs as _;
+use vello_common::kurbo::common::FloatFuncs as _;
+use vello_common::peniko::color::PremulRgba8;
 use vello_common::pixmap::Pixmap;
 
 impl FilterEffect for DropShadow {
@@ -109,14 +110,10 @@ fn compose_shadow_direct(shadow: &Pixmap, dst: &mut Pixmap, color: AlphaColor<Sr
             let shadow_alpha = (u8_to_norm(alpha) * color.components[3]).min(1.0);
             let final_alpha = norm_to_u8(shadow_alpha);
 
-            // Premultiply RGB by alpha as required by PremulRgba8
-            let alpha_u16 = u16::from(final_alpha);
-            let premultiply = |channel: u8| ((u16::from(channel) * alpha_u16) / 255) as u8;
-
             let colored_shadow = PremulRgba8 {
-                r: premultiply(shadow_r),
-                g: premultiply(shadow_g),
-                b: premultiply(shadow_b),
+                r: premultiply_u8(shadow_r, final_alpha),
+                g: premultiply_u8(shadow_g, final_alpha),
+                b: premultiply_u8(shadow_b, final_alpha),
                 a: final_alpha,
             };
 
@@ -155,47 +152,10 @@ fn src_over_channel(src: u8, dst: u8, src_alpha: f32) -> u8 {
     norm_to_u8(result)
 }
 
-/// Convert a u8 color component (0-255) to normalized f32 (0.0-1.0).
-#[inline]
-fn u8_to_norm(value: u8) -> f32 {
-    value as f32 / 255.0
-}
-
-/// Convert a normalized f32 (0.0-1.0) to u8 color component (0-255).
-#[inline]
-fn norm_to_u8(value: f32) -> u8 {
-    (value * 255.0).round() as u8
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use vello_common::color::Srgb;
-
-    /// Test `u8_to_norm` conversion.
-    #[test]
-    fn test_u8_to_norm() {
-        assert_eq!(u8_to_norm(0), 0.0);
-        assert!((u8_to_norm(255) - 1.0).abs() < 1e-6);
-    }
-
-    /// Test `norm_to_u8` conversion.
-    #[test]
-    fn test_norm_to_u8() {
-        assert_eq!(norm_to_u8(0.0), 0);
-        assert_eq!(norm_to_u8(1.0), 255);
-        assert_eq!(norm_to_u8(0.5), 128); // 0.5 * 255 = 127.5 → 128
-    }
-
-    /// Test round-trip conversion u8 → norm → u8.
-    #[test]
-    fn test_conversion_roundtrip() {
-        for value in [0, 1, 50, 127, 128, 200, 254, 255] {
-            let normalized = u8_to_norm(value);
-            let back = norm_to_u8(normalized);
-            assert_eq!(back, value);
-        }
-    }
 
     /// Test Porter-Duff source-over with fully opaque source.
     #[test]
