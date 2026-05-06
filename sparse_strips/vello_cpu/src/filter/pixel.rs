@@ -7,10 +7,12 @@ use vello_common::peniko::color::PremulRgba8;
 #[cfg(not(feature = "std"))]
 use vello_common::peniko::kurbo::common::FloatFuncs as _;
 
+const INV_255: f32 = 1.0 / 255.0;
+
 /// Convert a u8 color component to normalized f32.
 #[inline]
 pub(super) fn u8_to_norm(value: u8) -> f32 {
-    f32::from(value) / 255.0
+    f32::from(value) * INV_255
 }
 
 /// Convert a normalized f32 color component to u8.
@@ -30,16 +32,23 @@ pub(super) fn premultiply_u8(channel: u8, alpha: u8) -> u8 {
 pub(super) fn premul_rgba8_to_straight_f32(pixel: PremulRgba8) -> [f32; 4] {
     let a = u8_to_norm(pixel.a);
 
-    if pixel.a == 0 {
-        [0.0, 0.0, 0.0, 0.0]
-    } else {
-        let inv_alpha = 1.0 / a;
-        [
-            u8_to_norm(pixel.r) * inv_alpha,
-            u8_to_norm(pixel.g) * inv_alpha,
-            u8_to_norm(pixel.b) * inv_alpha,
-            a,
-        ]
+    match pixel.a {
+        0 => [0.0, 0.0, 0.0, 0.0],
+        255 => [
+            u8_to_norm(pixel.r),
+            u8_to_norm(pixel.g),
+            u8_to_norm(pixel.b),
+            1.0,
+        ],
+        _ => {
+            let inv_alpha = 1.0 / a;
+            [
+                u8_to_norm(pixel.r) * inv_alpha,
+                u8_to_norm(pixel.g) * inv_alpha,
+                u8_to_norm(pixel.b) * inv_alpha,
+                a,
+            ]
+        }
     }
 }
 
