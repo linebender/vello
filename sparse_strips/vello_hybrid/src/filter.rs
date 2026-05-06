@@ -32,6 +32,7 @@ use hashbrown::HashMap;
 use vello_common::coarse::{WideTile, WideTilesBbox};
 use vello_common::encode::{EncodedImage, EncodedPaint};
 use vello_common::filter::PreparedFilter;
+use vello_common::filter::color_matrix::ColorMatrix;
 use vello_common::filter::drop_shadow::DropShadow;
 use vello_common::filter::flood::Flood;
 use vello_common::filter::gaussian_blur::{DecimationSizer, GaussianBlur, MAX_KERNEL_SIZE};
@@ -61,7 +62,7 @@ const FILTER_ATLAS_PADDING: u16 = MAX_KERNEL_SIZE as u16 / 2;
 
 // Since we store in RGBA32 texture.
 const BYTES_PER_TEXEL: usize = 16;
-const FILTER_SIZE_BYTES: usize = 48;
+const FILTER_SIZE_BYTES: usize = 96;
 const FILTER_SIZE_U32: usize = FILTER_SIZE_BYTES / 4;
 
 const _: () = assert!(
@@ -84,12 +85,17 @@ const _: () = assert!(
     size_of::<GpuGaussianBlur>() == FILTER_SIZE_BYTES,
     "memory size of filters need to match"
 );
+const _: () = assert!(
+    size_of::<GpuColorMatrix>() == FILTER_SIZE_BYTES,
+    "memory size of filters need to match"
+);
 
 pub(crate) mod filter_type {
     pub(crate) const OFFSET: u32 = 0;
     pub(crate) const FLOOD: u32 = 1;
     pub(crate) const GAUSSIAN_BLUR: u32 = 2;
     pub(crate) const DROP_SHADOW: u32 = 3;
+    pub(crate) const COLOR_MATRIX: u32 = 4;
 }
 
 pub(crate) mod edge_mode {
@@ -109,6 +115,7 @@ pub(crate) mod pass_kind {
     pub(crate) const BLUR_V: u32 = 5;
     pub(crate) const UPSCALE: u32 = 6;
     pub(crate) const COMPOSITE_DROP_SHADOW: u32 = 7;
+    pub(crate) const COLOR_MATRIX: u32 = 8;
 }
 
 pub(crate) fn edge_mode_to_gpu(mode: EdgeMode) -> u32 {
@@ -220,7 +227,7 @@ pub(crate) struct GpuOffset {
     pub header: u32,
     pub dx: f32,
     pub dy: f32,
-    pub _padding: [u32; 9],
+    pub _padding: [u32; 21],
 }
 
 impl From<&Offset> for GpuOffset {
@@ -229,7 +236,7 @@ impl From<&Offset> for GpuOffset {
             header: pack_header(filter_type::OFFSET),
             dx: offset.dx,
             dy: offset.dy,
-            _padding: [0; 9],
+            _padding: [0; 21],
         }
     }
 }
@@ -239,7 +246,7 @@ impl From<&Offset> for GpuOffset {
 pub(crate) struct GpuFlood {
     pub header: u32,
     pub color: u32,
-    pub _padding: [u32; 10],
+    pub _padding: [u32; 22],
 }
 
 impl From<&Flood> for GpuFlood {
@@ -247,7 +254,7 @@ impl From<&Flood> for GpuFlood {
         Self {
             header: pack_header(filter_type::FLOOD),
             color: flood.color.premultiply().to_rgba8().to_u32(),
-            _padding: [0; 10],
+            _padding: [0; 22],
         }
     }
 }
@@ -260,7 +267,7 @@ pub(crate) struct GpuGaussianBlur {
     pub linear_weights: [f32; MAX_TAPS_PER_SIDE],
     pub linear_offsets: [f32; MAX_TAPS_PER_SIDE],
     // Needed since drop shadow has a bigger footprint.
-    pub _padding: [u32; 4],
+    pub _padding: [u32; 16],
 }
 
 impl From<&GaussianBlur> for GpuGaussianBlur {
@@ -284,7 +291,7 @@ impl From<&GaussianBlur> for GpuGaussianBlur {
             center_weight: lk.center_weight,
             linear_weights: lk.weights,
             linear_offsets: lk.offsets,
-            _padding: [0; 4],
+            _padding: [0; 16],
         }
     }
 }
@@ -299,7 +306,7 @@ pub(crate) struct GpuDropShadow {
     pub dx: f32,
     pub dy: f32,
     pub color: u32,
-    pub _padding: [u32; 1],
+    pub _padding: [u32; 13],
 }
 
 impl From<&DropShadow> for GpuDropShadow {
@@ -322,7 +329,25 @@ impl From<&DropShadow> for GpuDropShadow {
             dx: shadow.dx,
             dy: shadow.dy,
             color: shadow.color.premultiply().to_rgba8().to_u32(),
-            _padding: [0; 1],
+            _padding: [0; 13],
+        }
+    }
+}
+
+#[repr(C, align(16))]
+#[derive(Debug, Clone, Copy, PartialEq, Zeroable, Pod)]
+pub(crate) struct GpuColorMatrix {
+    pub header: u32,
+    pub matrix: [f32; 20],
+    pub _padding: [u32; 3],
+}
+
+impl From<&ColorMatrix> for GpuColorMatrix {
+    fn from(color_matrix: &ColorMatrix) -> Self {
+        Self {
+            header: pack_header(filter_type::COLOR_MATRIX),
+            matrix: color_matrix.matrix,
+            _padding: [0; 3],
         }
     }
 }
@@ -364,6 +389,7 @@ impl CastToFilterData for GpuOffset {}
 impl CastToFilterData for GpuFlood {}
 impl CastToFilterData for GpuGaussianBlur {}
 impl CastToFilterData for GpuDropShadow {}
+impl CastToFilterData for GpuColorMatrix {}
 
 impl<T: CastToFilterData> From<T> for GpuFilterData {
     fn from(filter: T) -> Self {
@@ -378,9 +404,7 @@ impl From<&PreparedFilter> for GpuFilterData {
             PreparedFilter::Flood(f) => GpuFlood::from(f).into(),
             PreparedFilter::GaussianBlur(f) => GpuGaussianBlur::from(f).into(),
             PreparedFilter::DropShadow(f) => GpuDropShadow::from(f).into(),
-            PreparedFilter::ColorMatrix(_) => {
-                unimplemented!("Color matrix filters are not yet supported by vello_hybrid")
-            }
+            PreparedFilter::ColorMatrix(f) => GpuColorMatrix::from(f).into(),
         }
     }
 }
@@ -948,6 +972,7 @@ impl FilterContext {
             let pass = match filter_type {
                 filter_type::OFFSET => pass_kind::OFFSET,
                 filter_type::FLOOD => pass_kind::FLOOD,
+                filter_type::COLOR_MATRIX => pass_kind::COLOR_MATRIX,
                 // The above are the only single-pass filters currently implemented.
                 _ => unimplemented!(),
             };
@@ -1062,6 +1087,7 @@ mod tests {
     use super::*;
     use vello_common::color::AlphaColor;
     use vello_common::filter::gaussian_blur::{compute_gaussian_kernel, plan_decimated_blur};
+    use vello_common::filter_effects::matrices;
 
     #[test]
     fn test_offset_conversion() {
@@ -1114,6 +1140,14 @@ mod tests {
                 AlphaColor::new([0.0, 0.0, 0.0, 1.0]),
             )),
             filter_type::DROP_SHADOW,
+        );
+    }
+
+    #[test]
+    fn test_color_matrix_round_trip() {
+        check_round_trip(
+            GpuColorMatrix::from(&ColorMatrix::new(matrices::SEPIA)),
+            filter_type::COLOR_MATRIX,
         );
     }
 

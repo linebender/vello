@@ -83,7 +83,7 @@ fn filter_offset_nested(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(skip_multithreaded, skip_hybrid, width = 120, height = 80)]
+#[vello_test(skip_multithreaded, width = 120, height = 80, hybrid_tolerance = 1)]
 fn filter_color_matrix_full_sepia(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::ColorMatrix {
         matrix: matrices::SEPIA,
