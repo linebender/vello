@@ -555,7 +555,8 @@ impl Scene {
     /// [scene transform][`Self::set_transform`]. This transform is relative to the local region
     /// defined by each [`SampleRect`]: i.e., the origin of each [`SampleRect`] is used only to
     /// determine the region to sample in the source [`TextureId`], and is ignored for determining
-    /// the destination.
+    /// the destination. Note that the [`paint transform`](Self::set_paint_transform) has no impact
+    /// on this method.
     ///
     /// A texture with the given [`TextureId`] must be supplied at render time. The given
     /// [source regions][`SampleRect::source_region`] must be within bounds of that texture. The
