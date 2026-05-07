@@ -61,8 +61,8 @@ use vello_common::{
         EncodedBlurredRoundedRectangle, EncodedGradient, EncodedKind, EncodedPaint,
         MAX_GRADIENT_LUT_SIZE, RadialKind,
     },
-    paint::{ImageId, ImageSource},
-    peniko::{self},
+    paint::{ImageId, ImageSource, PremulColor},
+    peniko::{self, color::palette::css::TRANSPARENT},
     pixmap::Pixmap,
     tile::Tile,
 };
@@ -270,7 +270,9 @@ impl WebGlRenderer {
             scene,
             &mut resources.image_cache,
             render_size,
-            true,
+            scene
+                .background
+                .or(Some(PremulColor::from_alpha_color(TRANSPARENT))),
             RootRenderTarget::UserSurface,
         )?;
 
@@ -353,7 +355,13 @@ impl WebGlRenderer {
             scene,
             &mut dummy_image_cache,
             &atlas_render_size,
-            false,
+            // Note: By default, we don't want to clear the atlas, since the existing glyphs
+            // should be preserved. The scene background is only set if we have an opaque colored
+            // rect which covers the whole viewport; meaning that this is only `Some` if for
+            // some reason the glyph atlas was filled with such a rectangle (which should never happen
+            // but in case it does happen it means that all existing glyphs are being covered by this
+            // rectangle anyway), so it's fine to just set the reset color to the scene background.
+            scene.background,
             RootRenderTarget::AtlasLayer,
         );
         self.dummy_image_cache = Some(dummy_image_cache);
@@ -465,7 +473,9 @@ impl WebGlRenderer {
             &scene,
             &mut probe_image_cache,
             &render_size,
-            true,
+            scene
+                .background
+                .or(Some(PremulColor::from_alpha_color(TRANSPARENT))),
             RootRenderTarget::AtlasLayer,
         );
         self.programs.resources.view_framebuffer_override = previous_view_framebuffer;
@@ -494,16 +504,14 @@ impl WebGlRenderer {
     /// Shared render pipeline: prepares GPU resources, runs the scheduler, and
     /// maintains caches.
     ///
-    /// When `clear` is true the view framebuffer is cleared to transparent black
-    /// before drawing. This must happen *after* `prepare` (which may create/resize
-    /// the framebuffer attachment). Atlas renders skip the clear so previously
-    /// rendered atlas content is preserved.
+    /// When `clear_color` is `Some`, the view framebuffer is cleared to that color before drawing.
+    /// This must happen *after* `prepare` (which may create/resize the framebuffer attachment).
     fn render_scene(
         &mut self,
         scene: &Scene,
         image_cache: &mut ImageCache,
         render_size: &RenderSize,
-        clear: bool,
+        clear_color: Option<PremulColor>,
         root_output_target: RootRenderTarget,
     ) -> Result<(), RenderError> {
         if !self.filter_context.filter_textures.is_empty() {
@@ -541,8 +549,8 @@ impl WebGlRenderer {
             &self.filter_context,
         );
 
-        if clear {
-            self.programs.clear_view_framebuffer(&self.gl);
+        if let Some(clear_color) = clear_color {
+            self.programs.clear_view_framebuffer(&self.gl, clear_color);
         }
         self.programs.resources.depth_cleared_this_frame = false;
         let mut ctx = WebGlRendererContext {
@@ -1568,12 +1576,14 @@ impl WebGlPrograms {
 
     /// Clear the view framebuffer.
     // TODO: Investigate adding tests for the clear_view behavior.
-    fn clear_view_framebuffer(&mut self, gl: &WebGl2RenderingContext) {
+    fn clear_view_framebuffer(&mut self, gl: &WebGl2RenderingContext, color: PremulColor) {
+        let [r, g, b, a] = color.as_premul_f32().components;
+
         gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
             self.resources.view_framebuffer_override.as_ref(),
         );
-        gl.clear_color(0.0, 0.0, 0.0, 0.0);
+        gl.clear_color(r, g, b, a);
         gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
     }
 

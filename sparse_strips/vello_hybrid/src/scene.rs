@@ -20,7 +20,7 @@ use vello_common::filter_effects::Filter;
 use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 use vello_common::mask::Mask;
 use vello_common::multi_atlas::AtlasConfig;
-use vello_common::paint::{Paint, PaintType, Tint};
+use vello_common::paint::{Paint, PaintType, PremulColor, Tint};
 #[cfg(feature = "text")]
 use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
@@ -225,6 +225,8 @@ pub struct Scene {
     pub(crate) render_graph: RenderGraph,
     /// Current filter effect applied to individual draw operations.
     filter: Option<Filter>,
+    /// The background color of the scene.
+    pub(crate) background: Option<PremulColor>,
     /// A buffer that stores the strips of path drawing calls that are rendered directly
     /// to the surface, bypassing coarse rasterization.
     pub(crate) fast_strips_buffer: FastStripsBuffer,
@@ -316,6 +318,7 @@ impl Scene {
             layer_id_next: 0,
             render_graph,
             filter: None,
+            background: None,
             fast_strips_buffer: FastStripsBuffer::default(),
             strip_path_mode: StripPathMode::FastOnly,
             coarse_batch_splits: Vec::new(),
@@ -481,6 +484,10 @@ impl Scene {
             return;
         }
 
+        if self.try_set_background_from_rect(rect) {
+            return;
+        }
+
         if self.try_fast_rect(rect) {
             return;
         }
@@ -513,6 +520,37 @@ impl Scene {
         let paint = self.encode_current_paint();
         self.push_fast_rect(bounds, paint);
         true
+    }
+
+    #[inline]
+    fn try_set_background_from_rect(&mut self, rect: &Rect) -> bool {
+        let PaintType::Solid(color) = &self.render_state.paint else {
+            return false;
+        };
+
+        if !self.fast_strips_buffer.commands.is_empty()
+            || !self.constraints.use_default_blending_only()
+            || color.components[3] != 1.0
+            || self.filter.is_some()
+            || self.wide.has_layers()
+            || self.wide.has_coarse_batches()
+            || self.clip_context.get().is_some()
+            || !is_axis_aligned(&self.render_state.transform)
+        {
+            return false;
+        }
+
+        let transformed_rect = self.render_state.transform.transform_rect_bbox(*rect);
+        if transformed_rect.x0 <= 0.0
+            && transformed_rect.y0 <= 0.0
+            && transformed_rect.x1 >= f64::from(self.width)
+            && transformed_rect.y1 >= f64::from(self.height)
+        {
+            self.background = Some(PremulColor::from_alpha_color(*color));
+            return true;
+        }
+
+        false
     }
 
     #[expect(
@@ -929,6 +967,7 @@ impl Scene {
         self.encoded_paints.borrow_mut().clear();
 
         self.render_state.reset();
+        self.background = None;
 
         self.fast_strips_buffer.clear();
         self.strip_path_mode = StripPathMode::FastOnly;
@@ -1160,6 +1199,124 @@ mod tests {
 
         assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
         assert!(is_rect(&scene.fast_strips_buffer.commands[0]));
+    }
+
+    #[test]
+    fn background_optimized_for_first_full_viewport_rect() {
+        let mut scene = default_blending_only();
+        let color = Color::from_rgba8(255, 0, 0, 255);
+        scene.set_paint(color);
+        scene.fill_rect(&Rect::new(0.0, 0.0, 200.0, 200.0));
+
+        assert_eq!(scene.background, Some(PremulColor::from_alpha_color(color)));
+        assert!(scene.fast_strips_buffer.commands.is_empty());
+    }
+
+    #[test]
+    fn background_optimized_for_scaled_up_full_viewport_rect() {
+        let mut scene = default_blending_only();
+        let color = Color::from_rgba8(255, 0, 0, 255);
+        scene.set_paint(color);
+        scene.set_transform(Affine::scale(2.0));
+        scene.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+
+        assert_eq!(scene.background, Some(PremulColor::from_alpha_color(color)));
+        assert!(scene.fast_strips_buffer.commands.is_empty());
+    }
+
+    #[test]
+    fn background_optimization_ignores_rect_with_transparency() {
+        let mut scene = default_blending_only();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 128));
+        scene.fill_rect(&Rect::new(0.0, 0.0, 200.0, 200.0));
+
+        assert_eq!(scene.background, None);
+        assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
+    }
+
+    #[test]
+    fn background_optimization_requires_default_blending_constraint() {
+        let mut scene = unconstrained();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.fill_rect(&Rect::new(0.0, 0.0, 200.0, 200.0));
+
+        assert_eq!(scene.background, None);
+    }
+
+    #[test]
+    fn background_optimization_uses_newest_opaque_consecutive_rect() {
+        let mut scene = default_blending_only();
+        let first = Color::from_rgba8(255, 0, 0, 255);
+        let second = Color::from_rgba8(0, 0, 255, 255);
+        scene.set_paint(first);
+        scene.fill_rect(&Rect::new(0.0, 0.0, 200.0, 200.0));
+
+        scene.set_paint(second);
+        scene.fill_rect(&Rect::new(0.0, 0.0, 200.0, 200.0));
+
+        assert_eq!(
+            scene.background,
+            Some(PremulColor::from_alpha_color(second))
+        );
+        assert!(scene.fast_strips_buffer.commands.is_empty());
+    }
+
+    #[test]
+    fn background_optimization_stops_after_normal_shape() {
+        let mut scene = default_blending_only();
+        let first = Color::from_rgba8(255, 0, 0, 255);
+        scene.set_paint(first);
+        scene.fill_rect(&Rect::new(0.0, 0.0, 200.0, 200.0));
+
+        scene.set_paint(Color::from_rgba8(0, 255, 0, 255));
+        scene.fill_path(&triangle_path());
+        scene.set_paint(Color::from_rgba8(0, 0, 255, 255));
+        scene.fill_rect(&Rect::new(0.0, 0.0, 200.0, 200.0));
+
+        assert_eq!(scene.background, Some(PremulColor::from_alpha_color(first)));
+        assert_eq!(scene.fast_strips_buffer.commands.len(), 2);
+    }
+
+    #[test]
+    fn background_optimization_rejects_after_layer_rendering() {
+        let mut scene = default_blending_only();
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        scene.push_layer(None, None, Some(0.5), None, None);
+        scene.fill_rect(&small_rect());
+        scene.pop_layer();
+
+        scene.set_paint(Color::from_rgba8(0, 0, 255, 255));
+        scene.fill_rect(&Rect::new(0.0, 0.0, 200.0, 200.0));
+
+        assert_eq!(scene.background, None);
+        assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
+        assert!(is_rect(&scene.fast_strips_buffer.commands[0]));
+    }
+
+    #[test]
+    fn background_optimization_rejects_after_empty_layer() {
+        let mut scene = default_blending_only();
+        scene.push_layer(None, None, Some(0.5), None, None);
+        scene.pop_layer();
+
+        scene.set_paint(Color::from_rgba8(0, 0, 255, 255));
+        scene.fill_rect(&Rect::new(0.0, 0.0, 200.0, 200.0));
+
+        assert_eq!(scene.background, None);
+        assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
+        assert!(is_rect(&scene.fast_strips_buffer.commands[0]));
+    }
+
+    #[test]
+    fn background_optimization_rejects_inside_active_layer() {
+        let mut scene = default_blending_only();
+        scene.push_layer(None, None, Some(0.5), None, None);
+
+        scene.set_paint(Color::from_rgba8(0, 0, 255, 255));
+        scene.fill_rect(&Rect::new(0.0, 0.0, 200.0, 200.0));
+
+        assert_eq!(scene.background, None);
+        assert!(scene.fast_strips_buffer.commands.is_empty());
     }
 
     #[test]

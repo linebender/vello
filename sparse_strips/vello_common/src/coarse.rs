@@ -404,6 +404,11 @@ impl<const MODE: u8> Wide<MODE> {
         !self.layer_stack.is_empty()
     }
 
+    /// Whether any coarse batch boundaries have been recorded.
+    pub fn has_coarse_batches(&self) -> bool {
+        self.batch_count != 0
+    }
+
     /// Reset all tiles in the container.
     pub fn reset(&mut self) {
         if self.tiles_dirty {
