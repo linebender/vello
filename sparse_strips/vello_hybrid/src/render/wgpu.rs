@@ -285,44 +285,14 @@ impl Renderer {
         Ok(())
     }
 
-    /// Render `scene` into the provided command encoder.
-    ///
-    /// This method creates GPU resources as needed and schedules potentially multiple
-    /// render passes.
-    ///
-    /// See [`Self::render_with_texture_bindings`] to render with
-    /// [externally bound textures](`TextureBindings`).
-    pub fn render(
-        &mut self,
-        scene: &Scene,
-        resources: &mut Resources,
-        device: &Device,
-        queue: &Queue,
-        encoder: &mut CommandEncoder,
-        render_size: &RenderSize,
-        view: &TextureView,
-    ) -> Result<(), RenderError> {
-        let bindings = TextureBindings::new();
-        self.render_with_texture_bindings(
-            scene,
-            resources,
-            device,
-            queue,
-            encoder,
-            render_size,
-            view,
-            &bindings,
-        )
-    }
-
-    /// Render `scene` with [externally bound textures](`TextureBindings`).
-    ///
-    /// See [`Self::render`] to render without externally bound textures.
+    /// Render `scene`.
     ///
     /// Every [`TextureId`] referenced by the scene must have a binding; this returns
     /// [`RenderError::MissingTextureBinding`] otherwise. See [`TextureBindings::insert`] for the
     /// requirements on the bound texture views.
-    pub fn render_with_texture_bindings(
+    ///
+    /// To render without any texture bindings, you can pass an empty [`TextureBindings`].
+    pub fn render(
         &mut self,
         scene: &Scene,
         resources: &mut Resources,

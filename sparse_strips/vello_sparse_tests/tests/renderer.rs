@@ -566,7 +566,7 @@ impl Renderer for HybridRenderer {
                 label: Some("Vello Render To Buffer"),
             });
         self.renderer
-            .render_with_texture_bindings(
+            .render(
                 &self.scene,
                 &mut self.resources,
                 &self.device,

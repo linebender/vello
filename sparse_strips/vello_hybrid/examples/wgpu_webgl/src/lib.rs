@@ -221,6 +221,7 @@ impl AppState {
                 &mut encoder,
                 &render_size,
                 &surface_texture_view,
+                &vello_hybrid::TextureBindings::new(),
             )
             .unwrap();
 
@@ -631,6 +632,7 @@ pub async fn render_scene(scene: Scene, width: u16, height: u16) {
             &mut encoder,
             &render_size,
             &surface_texture_view,
+            &vello_hybrid::TextureBindings::new(),
         )
         .unwrap();
 
