@@ -74,7 +74,21 @@ pub(crate) trait Renderer: Sized {
     fn render_to_pixmap(&mut self, pixmap: &mut Pixmap);
     fn width(&self) -> u16;
     fn height(&self) -> u16;
+    #[cfg_attr(
+        all(target_arch = "wasm32", feature = "webgl"),
+        expect(
+            dead_code,
+            reason = "external textures are not wired up for the WebGL backend"
+        )
+    )]
     fn register_external_texture(&mut self, pixmap: Arc<Pixmap>) -> TextureId;
+    #[cfg_attr(
+        all(target_arch = "wasm32", feature = "webgl"),
+        expect(
+            dead_code,
+            reason = "external textures are not wired up for the WebGL backend"
+        )
+    )]
     fn draw_texture_rects(
         &mut self,
         texture_id: TextureId,

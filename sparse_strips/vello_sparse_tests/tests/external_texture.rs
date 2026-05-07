@@ -1,7 +1,7 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 mod tests {
     use vello_common::color;
     use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
