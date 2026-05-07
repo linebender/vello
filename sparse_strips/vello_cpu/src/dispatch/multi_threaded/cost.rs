@@ -41,7 +41,6 @@ pub(crate) fn estimate_render_task_cost(task: &RenderTaskType, paths: &[PathEl])
                     .unwrap_or(0.0)
         }
         RenderTaskType::PopLayer => LAYER_COST,
-        RenderTaskType::WideCommand { .. } => LAYER_COST,
     }
 }
 

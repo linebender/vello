@@ -44,7 +44,7 @@ version = "0.8.0"
 edition = "2024"
 # Keep in sync with RUST_MIN_VER in .github/workflows/ci.yml, with the relevant README.md files
 # and with the MSRV in the `Unreleased` section of CHANGELOG.md.
-rust-version = "1.92"
+rust-version = "1.88"
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/linebender/vello"
 
@@ -100,7 +100,7 @@ vello = { version = "0.8.0", path = "vello" }
 vello_encoding = { version = "0.8.0", path = "vello_encoding" }
 vello_shaders = { version = "0.8.0", path = "vello_shaders" }
 bytemuck = { version = "1.25.0", features = ["derive"] }
-skrifa = { version = "0.40.0", default-features = false, features = ["autohint_shaping"] }
+skrifa = { version = "0.42.0", default-features = false, features = ["autohint_shaping"] }
 # The version of kurbo used below should be kept in sync
 # with the version of kurbo used by peniko.
 peniko = { version = "0.6.0", default-features = false }
@@ -108,9 +108,9 @@ peniko = { version = "0.6.0", default-features = false }
 kurbo = { version = "0.13.0", default-features = false }
 futures-intrusive = "0.5.0"
 guillotiere = { version = "0.7.0", default-features = false }
-hashbrown = { version = "0.16.1", default-features = false, features = ["default-hasher"] }
+hashbrown = { version = "0.17.0", default-features = false, features = ["default-hasher"] }
 core_maths = "0.1.1"
-foldhash = { version = "0.1.5", default-features = false }
+foldhash = { version = "0.2.0", default-features = false }
 smallvec = "1.15.1"
 static_assertions = "1.1.0"
 thiserror = { version = "2.0.18", default-features = false }
@@ -134,8 +134,8 @@ vello_dev_macros = { path = "sparse_strips/vello_dev_macros" }
 
 # NOTE: The wgpu and naga versions should be kept in sync, and make sure to keep this
 # in sync with the version badge in README.md and vello/README.md
-wgpu = { version = "28.0.0", default-features = false, features = ["std", "wgsl"] }
-naga = { version = "28.0.0", default-features = false }
+wgpu = { version = "29.0.1", default-features = false, features = ["std", "wgsl"] }
+naga = { version = "29.0.1", default-features = false }
 log = "0.4.29"
 image = { version = "0.25.10", default-features = false }
 
@@ -144,7 +144,7 @@ clap = "4.6.0"
 anyhow = "1.0.102"
 pollster = "0.4.0"
 web-time = "1.1.0"
-wgpu-profiler = "0.26.0"
+wgpu-profiler = "0.27.0"
 winit = "0.30.13"
 scenes = { path = "examples/scenes" }
 svg = "0.18.0"

@@ -63,8 +63,8 @@ impl Parse for Attribute {
 /// ## Example
 /// ```ignore
 /// use vello_dev_macros::vello_test;
-/// use vello_api::kurbo::Rect;
-/// use vello_api::color::palette::css::REBECCA_PURPLE;
+/// use vello_common::kurbo::Rect;
+/// use vello_common::color::palette::css::REBECCA_PURPLE;
 ///
 /// #[vello_test(width = 10, height = 10)]
 /// fn rectangle_above_viewport(ctx: &mut impl Renderer) {

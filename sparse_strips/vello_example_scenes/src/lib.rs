@@ -4,6 +4,7 @@
 //! Example scenes for Vello Sparse Strips.
 
 pub mod blend;
+pub mod blurred_rounded_rect;
 pub mod clip;
 pub mod filter;
 pub mod filter_elements;
@@ -26,7 +27,6 @@ pub use vello_common::mask::Mask;
 use vello_common::paint::ImageSource;
 pub use vello_common::paint::{Paint, PaintType};
 pub use vello_common::peniko::{BlendMode, Fill, FontData};
-use vello_common::recording::{Recordable, Recorder, Recording};
 #[cfg(feature = "cpu")]
 use vello_cpu::{RenderContext, Resources as CpuResources};
 use vello_hybrid::{Resources as HybridResources, Scene};
@@ -67,6 +67,8 @@ pub trait RenderingContext: Sized {
     fn stroke_path(&mut self, path: &BezPath);
     /// Fill a rectangle with the current paint.
     fn fill_rect(&mut self, rect: &Rect);
+    /// Fill a blurred rounded rectangle with the current solid paint.
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32);
     /// Create a glyph run builder for text rendering.
     fn glyph_run<'a>(
         &'a mut self,
@@ -90,12 +92,6 @@ pub trait RenderingContext: Sized {
     fn pop_layer(&mut self);
     /// Pop the last clip path.
     fn pop_clip_path(&mut self);
-    /// Record rendering commands into a recording.
-    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>));
-    /// Generate sparse strips for a recording.
-    fn prepare_recording(&mut self, recording: &mut Recording);
-    /// Execute a recording directly without preparation.
-    fn execute_recording(&mut self, recording: &Recording);
 }
 
 #[cfg(feature = "cpu")]
@@ -155,6 +151,10 @@ impl RenderingContext for RenderContext {
         self.fill_rect(rect);
     }
 
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
+        self.fill_blurred_rounded_rect(rect, radius, std_dev);
+    }
+
     fn glyph_run<'a>(
         &'a mut self,
         resources: &'a mut Self::Resources,
@@ -180,18 +180,6 @@ impl RenderingContext for RenderContext {
 
     fn pop_layer(&mut self) {
         self.pop_layer();
-    }
-
-    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
-        Recordable::record(self, recording, f);
-    }
-
-    fn prepare_recording(&mut self, recording: &mut Recording) {
-        Recordable::prepare_recording(self, recording);
-    }
-
-    fn execute_recording(&mut self, recording: &Recording) {
-        Recordable::execute_recording(self, recording);
     }
 
     fn push_clip_path(&mut self, path: &BezPath) {
@@ -259,6 +247,10 @@ impl RenderingContext for Scene {
         self.fill_rect(rect);
     }
 
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
+        self.fill_blurred_rounded_rect(rect, radius, std_dev);
+    }
+
     fn glyph_run<'a>(
         &'a mut self,
         resources: &'a mut Self::Resources,
@@ -284,18 +276,6 @@ impl RenderingContext for Scene {
 
     fn pop_layer(&mut self) {
         self.pop_layer();
-    }
-
-    fn record(&mut self, recording: &mut Recording, f: impl FnOnce(&mut Recorder<'_>)) {
-        Recordable::record(self, recording, f);
-    }
-
-    fn prepare_recording(&mut self, recording: &mut Recording) {
-        Recordable::prepare_recording(self, recording);
-    }
-
-    fn execute_recording(&mut self, recording: &Recording) {
-        Recordable::execute_recording(self, recording);
     }
 
     fn push_clip_path(&mut self, path: &BezPath) {
@@ -468,6 +448,9 @@ where
     scenes.push(AnyScene::new(text::TextScene::new("Hello, Vello!")));
     scenes.push(AnyScene::new(random_text::RandomTextScene::new()));
     scenes.push(AnyScene::new(simple::SimpleScene::new()));
+    scenes.push(AnyScene::new(
+        blurred_rounded_rect::BlurredRoundedRectScene::new(),
+    ));
     scenes.push(AnyScene::new(clip::ClipScene::new()));
     scenes.push(AnyScene::new(filter::FilterScene::new()));
     scenes.push(AnyScene::new(blend::BlendScene::new()));
@@ -503,6 +486,7 @@ where
         AnyScene::new(text::TextScene::new("Hello, Vello!")),
         AnyScene::new(random_text::RandomTextScene::new()),
         AnyScene::new(simple::SimpleScene::new()),
+        AnyScene::new(blurred_rounded_rect::BlurredRoundedRectScene::new()),
         AnyScene::new(filter::FilterScene::new()),
         AnyScene::new(clip::ClipScene::new()),
         AnyScene::new(blend::BlendScene::new()),

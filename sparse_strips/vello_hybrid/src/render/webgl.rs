@@ -28,8 +28,9 @@ use crate::{
     render::{
         Config,
         common::{
-            GPU_ENCODED_IMAGE_SIZE_TEXELS, GPU_LINEAR_GRADIENT_SIZE_TEXELS,
-            GPU_RADIAL_GRADIENT_SIZE_TEXELS, GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuEncodedImage,
+            GPU_BLURRED_ROUNDED_RECT_SIZE_TEXELS, GPU_ENCODED_IMAGE_SIZE_TEXELS,
+            GPU_LINEAR_GRADIENT_SIZE_TEXELS, GPU_RADIAL_GRADIENT_SIZE_TEXELS,
+            GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuBlurredRoundedRect, GpuEncodedImage,
             GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
             normalize_atlas_config, pack_image_offset, pack_image_params, pack_image_size,
             pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode, pack_tint,
@@ -48,21 +49,28 @@ use core::fmt::Debug;
 #[cfg(feature = "text")]
 use glifo::{GLYPH_PADDING, PendingClearRect};
 use vello_common::image_cache::{ImageCache, ImageResource};
+#[cfg(feature = "probe")]
+use vello_common::multi_atlas::AllocationStrategy;
 use vello_common::multi_atlas::{AtlasConfig, AtlasId};
+#[cfg(feature = "probe")]
+use vello_common::probe::Probe;
 use vello_common::render_graph::LayerId;
 use vello_common::{
     coarse::WideTile,
-    encode::{EncodedGradient, EncodedKind, EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind},
-    paint::ImageSource,
-    peniko,
+    encode::{
+        EncodedBlurredRoundedRectangle, EncodedGradient, EncodedKind, EncodedPaint,
+        MAX_GRADIENT_LUT_SIZE, RadialKind,
+    },
+    paint::{ImageId, ImageSource},
+    peniko::{self},
     pixmap::Pixmap,
     tile::Tile,
 };
 use vello_sparse_shaders::{clear_slots, filters, render_strips};
 use web_sys::wasm_bindgen::{JsCast, JsValue};
 use web_sys::{
-    WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram, WebGlTexture,
-    WebGlUniformLocation, WebGlVertexArrayObject,
+    HtmlCanvasElement, WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram,
+    WebGlTexture, WebGlUniformLocation, WebGlVertexArrayObject,
 };
 
 /// Placeholder value for uninitialized GPU encoded paints.
@@ -113,18 +121,31 @@ pub struct WebGlRenderer {
 
 impl WebGlRenderer {
     /// Creates a new WebGL2 renderer
-    pub fn new(canvas: &web_sys::HtmlCanvasElement) -> Self {
+    pub fn new(canvas: &HtmlCanvasElement) -> Self {
         Self::new_with(canvas, RenderSettings::default())
     }
 
     /// Creates a new WebGL2 renderer with specific settings.
-    pub fn new_with(canvas: &web_sys::HtmlCanvasElement, settings: RenderSettings) -> Self {
+    pub fn new_with(canvas: &HtmlCanvasElement, settings: RenderSettings) -> Self {
         super::common::maybe_warn_about_webgl_feature_conflict();
 
         // We do our own anti-aliasing, so no need to enable it in the WebGL
         // context.
         let context_options = js_sys::Object::new();
         js_sys::Reflect::set(&context_options, &"antialias".into(), &JsValue::FALSE).unwrap();
+        // Vello only supports 24+ bit depth buffers. If the hardware falls back to a 16 bit depth buffer,
+        // correctness issues will arise. For all intents and purposes, a device manufactured in the past 10 years
+        // should support 24+ bit depth buffers (certainly those within the realm of what we consider "supported" devices)
+        // but:
+        //
+        // Relevant code for default depth buffer behaviour can be found here:
+        // - Chromium defaults to 24 bit with no fallback: https://github.com/chromium/chromium/blob/86bafb3aab8e999690d310b201d0b5489f512b08/third_party/blink/renderer/platform/graphics/gpu/drawing_buffer.cc#L1376-L1400
+        // - Firefox defaults to 24 bit with no fallback: https://github.com/mozilla/gecko-dev/blob/5836a062726f715fda621338a17b51aff30d0a8c/gfx/gl/MozFramebuffer.cpp#L155-L161
+        // - Safari defaults to 24 bit _with 16 bit_ fallback: https://github.com/WebKit/WebKit/blob/a6d6c154bbee0643f5ad1e55c071558c0df9aef7/Source/WebCore/platform/graphics/angle/GraphicsContextGLANGLE.cpp#L393-L416
+        //
+        // TODO: The above understanding is encoded in a below assertion, but this should be encapsulated within a
+        // "this device can run Vello correctly" check function.
+        js_sys::Reflect::set(&context_options, &"depth".into(), &JsValue::TRUE).unwrap();
 
         let gl = canvas
             .get_context_with_context_options("webgl2", &context_options)
@@ -133,6 +154,24 @@ impl WebGlRenderer {
             .dyn_into::<WebGl2RenderingContext>()
             .expect("Context to be a WebGL2 context");
 
+        let cloned_gl = gl.clone();
+        let _state_guard = WebGlStateGuard::with_config(
+            &cloned_gl,
+            WebGlStateConfig {
+                framebuffer: true,
+                ..Default::default()
+            },
+        );
+
+        // Note: It is not entirely clear whether we really _have_ to ensure anti-aliasing is disabled.
+        // This code is inherited from a similar snippet in wgpu
+        // (https://github.com/gfx-rs/wgpu/blob/56e4a389ddd02403e232beef3d3ff305625e6485/wgpu-hal/src/gles/web.rs#L101-L106),
+        // which itself seems to have been copied from the older `gfx` crate, where it was first introduced
+        // in https://github.com/gfx-rs/gfx/pull/2554/changes#diff-a47711d61df7a43fe6dd99c39b936d17ff817cbc2238d7e3ae6698ffde9b88f7R79,
+        // without any comment on why.
+        // From my (Laurenz) testing, tests seem to work even when anti-aliasing is enabled,
+        // but Andrew previously got errors similar to the ones outlined in
+        // https://github.com/gfx-rs/wgpu/issues/5263. Therefore, we just leave it as is for now.
         #[cfg(debug_assertions)]
         {
             // If a WebGL context already exists on this canvas, it will be returned instead of
@@ -159,6 +198,14 @@ impl WebGlRenderer {
             1,
         );
         let total_slots: usize = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
+        assert!(
+            gl.get_parameter(WebGl2RenderingContext::DEPTH_BITS)
+                .unwrap()
+                .as_f64()
+                .unwrap()
+                >= 24.0,
+            "Depth buffer must be at least 24 bits"
+        );
         let image_cache = ImageCache::new_with_config(settings.atlas_config);
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
         // and the maximum gradient LUT size - worst case scenario.
@@ -324,6 +371,126 @@ impl WebGlRenderer {
         result
     }
 
+    /// Conduct a probing operation.
+    ///
+    /// The WebGL drivers of certain devices are known to be buggy and might therefore not work correctly
+    /// with Vello Hybrid. In the best case, it will simply result in a program crash, but in the worst
+    /// case it can instead result in a silent failure, meaning that no explicit error is
+    /// thrown, but the rendered contents of Vello Hybrid will either be completely empty or look glitchy.
+    ///
+    /// The purpose of this method is to run a sanity check to ensure that running Vello Hybrid on this
+    /// device actually results in visible and correct output. How this achieved is by drawing a selection
+    /// of small elements into a small canvas, and comparing the final output against a reference image.
+    ///
+    /// If certain pixels in the final output deviate too much from the expected image, an error result
+    /// will be returned, containing the expected image and the actual image. If probe rendering itself
+    /// fails, [`Probe::RenderError`] will be returned with the corresponding [`RenderError`]. Otherwise,
+    /// [`Probe::Success`] will be returned, indicating that the device seems to be compatible with
+    /// Vello Hybrid.
+    ///
+    /// **Important:** Note that this method can be expensive to call, as it performs a small rendering
+    /// operation and also does readback of the pixels to the CPU. Expect it to take anywhere from 10ms
+    /// to 100ms+. This should be taken into consideration when deciding when and how to call this method,
+    /// to prevent noticeable stalls on the main thread.
+    #[cfg(feature = "probe")]
+    pub fn probe(&mut self) -> Probe<RenderError> {
+        match self.probe_inner() {
+            Ok(actual) => Probe::from_actual(actual),
+            Err(error) => Probe::RenderError(error),
+        }
+    }
+
+    #[cfg(feature = "probe")]
+    fn probe_inner(&mut self) -> Result<Pixmap, RenderError> {
+        let (width, height) = vello_common::probe::canvas_size();
+        let render_size = RenderSize {
+            width: u32::from(width),
+            height: u32::from(height),
+        };
+
+        let probe_texture = create_texture(&self.gl);
+        self.gl
+            .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
+                WebGl2RenderingContext::TEXTURE_2D,
+                0,
+                WebGl2RenderingContext::RGBA8 as i32,
+                render_size.width as i32,
+                render_size.height as i32,
+                0,
+                WebGl2RenderingContext::RGBA,
+                WebGl2RenderingContext::UNSIGNED_BYTE,
+                None,
+            )
+            .unwrap();
+        let probe_framebuffer = create_framebuffer_for_texture(&self.gl, &probe_texture);
+
+        let atlas_config = AtlasConfig {
+            initial_atlas_count: 1,
+            // These should be large enough for the probe scene.
+            atlas_size: (256, 256),
+            max_atlases: 1,
+            auto_grow: true,
+            allocation_strategy: AllocationStrategy::FirstFit,
+        };
+        let (atlas_width, atlas_height) = atlas_config.atlas_size;
+
+        let mut probe_image_cache = ImageCache::new_with_config(atlas_config);
+        let mut probe_atlas_texture_array =
+            create_atlas_texture_array(&self.gl, atlas_width, atlas_height, 1);
+        core::mem::swap(
+            &mut self.programs.resources.atlas_texture_array,
+            &mut probe_atlas_texture_array,
+        );
+
+        let probe_image = Arc::new(vello_common::probe::probe_image_pixmap());
+        // Note: No need to destroy the image explicitly in the end, because we discard the image
+        // cache anyway.
+        let probe_image_id =
+            self.upload_image_with(&mut probe_image_cache, &probe_image, IMAGE_PADDING);
+        let mut scene = Scene::new(width, height);
+        vello_common::probe::draw_scene(
+            &mut scene,
+            ImageSource::opaque_id_with_transparency_hint(
+                probe_image_id,
+                probe_image.may_have_transparency(),
+            ),
+        );
+
+        let previous_view_framebuffer = self
+            .programs
+            .resources
+            .view_framebuffer_override
+            .replace(probe_framebuffer.clone());
+        let render_result = self.render_scene(
+            &scene,
+            &mut probe_image_cache,
+            &render_size,
+            true,
+            RootRenderTarget::AtlasLayer,
+        );
+        self.programs.resources.view_framebuffer_override = previous_view_framebuffer;
+
+        core::mem::swap(
+            &mut self.programs.resources.atlas_texture_array,
+            &mut probe_atlas_texture_array,
+        );
+        self.gl
+            .delete_texture(Some(&probe_atlas_texture_array.texture));
+
+        let pixels = match render_result {
+            Ok(()) => read_framebuffer_rgba8(&self.gl, &probe_framebuffer, width, height),
+            Err(error) => {
+                self.gl.delete_framebuffer(Some(&probe_framebuffer));
+                self.gl.delete_texture(Some(&probe_texture));
+                return Err(error);
+            }
+        };
+
+        self.gl.delete_framebuffer(Some(&probe_framebuffer));
+        self.gl.delete_texture(Some(&probe_texture));
+        Ok(pixels)
+    }
+
     /// Shared render pipeline: prepares GPU resources, runs the scheduler, and
     /// maintains caches.
     ///
@@ -377,6 +544,7 @@ impl WebGlRenderer {
         if clear {
             self.programs.clear_view_framebuffer(&self.gl);
         }
+        self.programs.resources.depth_cleared_this_frame = false;
         let mut ctx = WebGlRendererContext {
             programs: &mut self.programs,
             gl: &self.gl,
@@ -393,6 +561,22 @@ impl WebGlRenderer {
             &self.filter_context,
             &encoded_paints,
         )?;
+
+        // See: https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_invalidateframebuffer
+        // We want to indicate to the GPU driver that we won't read the depth buffer again
+        // until the next clear. This enables the GPU to avoid storing depth tiles back to VRAM.
+        if self.programs.resources.depth_cleared_this_frame {
+            self.gl.bind_framebuffer(
+                WebGl2RenderingContext::FRAMEBUFFER,
+                self.programs.resources.view_framebuffer_override.as_ref(),
+            );
+            self.gl
+                .invalidate_framebuffer(
+                    WebGl2RenderingContext::FRAMEBUFFER,
+                    &self.programs.resources.depth_attachment_array,
+                )
+                .unwrap();
+        }
 
         encoded_paints.truncate(original_scene_paint_count);
         self.gradient_cache.maintain();
@@ -415,7 +599,7 @@ impl WebGlRenderer {
         &mut self,
         resources: &mut Resources,
         writer: &T,
-    ) -> vello_common::paint::ImageId {
+    ) -> ImageId {
         self.upload_image_with(&mut resources.image_cache, writer, IMAGE_PADDING)
     }
 
@@ -424,7 +608,7 @@ impl WebGlRenderer {
         image_cache: &mut ImageCache,
         writer: &T,
         padding: u16,
-    ) -> vello_common::paint::ImageId {
+    ) -> ImageId {
         let width = writer.width();
         let height = writer.height();
         let image_id = image_cache.allocate(width, height, padding).unwrap();
@@ -444,7 +628,7 @@ impl WebGlRenderer {
     pub(crate) fn write_to_atlas<T: WebGlAtlasWriter>(
         &mut self,
         image_cache: &ImageCache,
-        image_id: vello_common::paint::ImageId,
+        image_id: ImageId,
         writer: &T,
         offset_override: Option<[u32; 2]>,
     ) {
@@ -467,12 +651,8 @@ impl WebGlRenderer {
     }
 
     /// Destroy an image from the cache and clear the allocated slot in the atlas.
-    pub fn destroy_image(
-        &mut self,
-        image_cache: &mut ImageCache,
-        image_id: vello_common::paint::ImageId,
-    ) {
-        if let Some(image_resource) = image_cache.deallocate(image_id) {
+    pub fn destroy_image(&mut self, resources: &mut Resources, image_id: ImageId) {
+        if let Some(image_resource) = resources.image_cache.deallocate(image_id) {
             let padding = image_resource.padding as u32;
             self.clear_atlas_region(
                 image_resource.atlas_id,
@@ -574,14 +754,13 @@ impl WebGlRenderer {
                 }
                 EncodedPaint::ExternalTexture(_external_texture) => {
                     // TODO: External textures are not yet supported.
-                    log::warn!("External texture are not yet supported in the WebGL backend");
+                    log::warn!("External textures are not yet supported in the WebGL backend");
                     current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
                 }
-                EncodedPaint::BlurredRoundedRect(_blurred_rect) => {
-                    // TODO: Blurred rounded rectangles are not yet supported
-                    log::warn!(
-                        "Blurred rounded rectangles are not yet supported in sparse strips hybrid renderer"
-                    );
+                EncodedPaint::BlurredRoundedRect(blurred_rect) => {
+                    self.encoded_paints[encoded_paint_idx] =
+                        Self::encode_blurred_rounded_rect_paint(blurred_rect);
+                    current_idx += GPU_BLURRED_ROUNDED_RECT_SIZE_TEXELS;
                 }
             }
         }
@@ -684,6 +863,23 @@ impl WebGlRenderer {
                 _padding: [0, 0],
             }),
         }
+    }
+
+    fn encode_blurred_rounded_rect_paint(rect: &EncodedBlurredRoundedRectangle) -> GpuEncodedPaint {
+        GpuEncodedPaint::BlurredRoundedRect(GpuBlurredRoundedRect {
+            transform: rect.transform.as_coeffs().map(|x| x as f32),
+            color: rect.color.as_premul_rgba8().to_u32(),
+            _padding0: 0,
+            params0: [
+                rect.exponent,
+                rect.recip_exponent,
+                rect.scale,
+                rect.std_dev_inv,
+            ],
+            params1: [rect.min_edge, rect.w, rect.h, rect.r1],
+            size: [rect.width, rect.height],
+            _padding1: [0, 0],
+        })
     }
 }
 
@@ -802,6 +998,10 @@ struct WebGlResources {
     clear_config_buffer: WebGlBuffer,
 
     view_framebuffer_override: Option<WebGlFramebuffer>,
+    /// Whether the depth buffer has been cleared this frame.
+    depth_cleared_this_frame: bool,
+    /// Pre-allocated JS array for `invalidateFramebuffer` calls.
+    depth_attachment_array: js_sys::Array,
 
     /// Slot textures.
     slot_textures: [WebGlTexture; 2],
@@ -1348,6 +1548,7 @@ impl WebGlPrograms {
 
         // Take ownership of the luts to avoid copying, then resize for texture padding.
         let mut luts = gradient_cache.take_luts();
+        let old_luts_len = luts.len();
         luts.resize(total_capacity, 0);
 
         gl.active_texture(WebGl2RenderingContext::TEXTURE0);
@@ -1370,6 +1571,7 @@ impl WebGlPrograms {
         .unwrap();
 
         // Restore the luts back to the cache.
+        luts.truncate(old_luts_len);
         gradient_cache.restore_luts(luts);
     }
 
@@ -1384,9 +1586,14 @@ impl WebGlPrograms {
         gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
     }
 
-    /// Upload strip data to GPU.
-    fn upload_strips(&mut self, gl: &WebGl2RenderingContext, strips: &[GpuStrip]) {
-        if strips.is_empty() {
+    /// Uploads two strip slices (opaque then alpha) into a single GPU buffer.
+    fn upload_strip_pair(
+        &mut self,
+        gl: &WebGl2RenderingContext,
+        opaque_strips: &[GpuStrip],
+        alpha_strips: &[GpuStrip],
+    ) {
+        if opaque_strips.is_empty() && alpha_strips.is_empty() {
             return;
         }
 
@@ -1394,12 +1601,33 @@ impl WebGlPrograms {
             WebGl2RenderingContext::ARRAY_BUFFER,
             Some(&self.resources.strips_buffer),
         );
-        let strips_data = bytemuck::cast_slice(strips);
-        gl.buffer_data_with_u8_array(
+
+        let opaque_bytes: &[u8] = bytemuck::cast_slice(opaque_strips);
+        let alpha_bytes: &[u8] = bytemuck::cast_slice(alpha_strips);
+        let total_len = opaque_bytes.len() + alpha_bytes.len();
+
+        // Allocate buffer, then write both slices via bufferSubData.
+        // We don't want to pay for concatenating the two slices. It's better to
+        // simply write twice.
+        gl.buffer_data_with_i32(
             WebGl2RenderingContext::ARRAY_BUFFER,
-            strips_data,
+            total_len as i32,
             WebGl2RenderingContext::DYNAMIC_DRAW,
         );
+        if !opaque_bytes.is_empty() {
+            gl.buffer_sub_data_with_i32_and_u8_array(
+                WebGl2RenderingContext::ARRAY_BUFFER,
+                0,
+                opaque_bytes,
+            );
+        }
+        if !alpha_bytes.is_empty() {
+            gl.buffer_sub_data_with_i32_and_u8_array(
+                WebGl2RenderingContext::ARRAY_BUFFER,
+                opaque_bytes.len() as i32,
+                alpha_bytes,
+            );
+        }
     }
 }
 
@@ -1572,6 +1800,37 @@ struct WebGlStateConfig {
     scissor: bool,
     /// Save/restore viewport
     viewport: bool,
+}
+
+#[cfg(feature = "probe")]
+fn read_framebuffer_rgba8(
+    gl: &WebGl2RenderingContext,
+    framebuffer: &WebGlFramebuffer,
+    width: u16,
+    height: u16,
+) -> Pixmap {
+    let _state_guard = WebGlStateGuard::with_config(
+        gl,
+        WebGlStateConfig {
+            framebuffer: true,
+            ..Default::default()
+        },
+    );
+
+    gl.bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(framebuffer));
+    let mut pixmap = Pixmap::new(width, height);
+    gl.read_pixels_with_opt_u8_array(
+        0,
+        0,
+        i32::from(width),
+        i32::from(height),
+        WebGl2RenderingContext::RGBA,
+        WebGl2RenderingContext::UNSIGNED_BYTE,
+        Some(pixmap.data_as_u8_slice_mut()),
+    )
+    .unwrap();
+    pixmap.recompute_may_have_transparency();
+    pixmap
 }
 
 /// Create a WebGL shader program from vertex and fragment sources.
@@ -1959,6 +2218,11 @@ fn create_webgl_resources(
         slot_textures,
         slot_framebuffers,
         view_framebuffer_override: None,
+        depth_cleared_this_frame: false,
+        // Note: we use DEPTH (not DEPTH_ATTACHMENT) because we render to the default
+        // framebuffer. If we ever support non-default framebuffers, this must change
+        // to DEPTH_ATTACHMENT.
+        depth_attachment_array: js_sys::Array::of1(&WebGl2RenderingContext::DEPTH.into()),
         max_texture_dimension_2d,
         stub_atlas_texture_array,
         atlas_render_framebuffer: None,
@@ -2041,6 +2305,13 @@ fn create_framebuffer_for_texture(
     framebuffer
 }
 
+const STRIP_STRIDE: i32 = size_of::<GpuStrip>() as i32;
+const STRIP_ATTR_COUNT: i32 = STRIP_STRIDE / 4;
+const _: () = assert!(
+    STRIP_STRIDE == 24,
+    "GpuStrip layout must match strip vertex stride"
+);
+
 /// Initialize strip VAO.
 fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) {
     gl.bind_vertex_array(Some(&resources.strip_vao));
@@ -2049,12 +2320,7 @@ fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
         Some(&resources.strips_buffer),
     );
 
-    const STRIDE: i32 = size_of::<GpuStrip>() as i32;
-    const { assert!(STRIDE == 20, "expected stride of 20") };
-    let stride = STRIDE;
-
-    // Configure attributes.
-    for i in 0..5 {
+    for i in 0..STRIP_ATTR_COUNT {
         let location = i as u32;
         let offset = i * 4;
 
@@ -2063,7 +2329,7 @@ fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
             location,
             1,
             WebGl2RenderingContext::UNSIGNED_INT,
-            stride,
+            STRIP_STRIDE,
             offset,
         );
 
@@ -2098,7 +2364,7 @@ fn initialize_clear_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
 
 /// Context for WebGL rendering operations.
 // TODO: Improve buffer management. Currently a single buffer is used per resource, which means that
-// the GPU must finish drawing before the next `upload_strips` can be executed (effectively pausing
+// the GPU must finish drawing before the next `upload_strip_pair` can be executed (effectively pausing
 // execution). Investigate a buffer pool or creating a new buffer per pass.
 struct WebGlRendererContext<'a> {
     programs: &'a mut WebGlPrograms,
@@ -2112,14 +2378,14 @@ impl WebGlRendererContext<'_> {
     /// Render strips to the specified render target.
     fn do_strip_render_pass(
         &mut self,
-        strips: &[GpuStrip],
+        opaque_strips: &[GpuStrip],
+        alpha_strips: &[GpuStrip],
         target: StripPassRenderTarget,
         load: LoadOp,
     ) {
-        if strips.is_empty() {
+        if opaque_strips.is_empty() && alpha_strips.is_empty() {
             return;
         }
-        self.programs.upload_strips(self.gl, strips);
 
         let scissor_rect = match &target {
             StripPassRenderTarget::FilterLayer(layer_id) => {
@@ -2317,6 +2583,8 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.strip_uniforms.gradient_texture), 4);
 
+        // We don't support external textures in our WebGL backend yet; instead we bind a
+        // placeholder so the shader's sampler binding is satisfied.
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE5);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
@@ -2325,13 +2593,91 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.strip_uniforms.external_texture), 5);
 
-        // Draw.
-        self.gl.draw_arrays_instanced(
-            WebGl2RenderingContext::TRIANGLE_STRIP,
-            0,
-            4,
-            strips.len() as i32,
+        // TODO: Today, we only support early-z rejection on the final view. If we wanted to support
+        // intermediate layers, we would require separate depth buffers for each target. We can explore
+        // that possibility in the future.
+        let is_final_view = matches!(
+            target,
+            StripPassRenderTarget::Root(RootRenderTarget::UserSurface)
         );
+
+        self.programs
+            .upload_strip_pair(self.gl, opaque_strips, alpha_strips);
+        let opaque_count = opaque_strips.len() as i32;
+        let alpha_count = alpha_strips.len() as i32;
+
+        if is_final_view {
+            self.gl.enable(WebGl2RenderingContext::DEPTH_TEST);
+            self.gl.depth_func(WebGl2RenderingContext::LEQUAL);
+
+            // Clear depth buffer on first use per frame.
+            if !self.programs.resources.depth_cleared_this_frame {
+                self.programs.resources.depth_cleared_this_frame = true;
+                self.gl.clear_depth(1.0);
+                self.gl.clear(WebGl2RenderingContext::DEPTH_BUFFER_BIT);
+            }
+
+            // Opaque pass: front-to-back, depth test ON, depth write ON, blend OFF.
+            if opaque_count > 0 {
+                self.gl.depth_mask(true);
+                self.gl.disable(WebGl2RenderingContext::BLEND);
+                self.gl.draw_arrays_instanced(
+                    WebGl2RenderingContext::TRIANGLE_STRIP,
+                    0,
+                    4,
+                    opaque_count,
+                );
+            }
+
+            // Alpha pass: back-to-front, depth test ON, depth write OFF, blend ON.
+            if alpha_count > 0 {
+                // Rebind attribute pointers with offset to start at the alpha portion
+                // of the buffer.
+                let alpha_byte_offset = opaque_count * STRIP_STRIDE;
+                for i in 0..STRIP_ATTR_COUNT {
+                    self.gl.vertex_attrib_i_pointer_with_i32(
+                        i as u32,
+                        1,
+                        WebGl2RenderingContext::UNSIGNED_INT,
+                        STRIP_STRIDE,
+                        i * 4 + alpha_byte_offset,
+                    );
+                }
+
+                self.gl.depth_mask(false);
+                self.gl.enable(WebGl2RenderingContext::BLEND);
+                self.gl.draw_arrays_instanced(
+                    WebGl2RenderingContext::TRIANGLE_STRIP,
+                    0,
+                    4,
+                    alpha_count,
+                );
+
+                // Restore attribute offsets to base for subsequent passes.
+                for i in 0..STRIP_ATTR_COUNT {
+                    self.gl.vertex_attrib_i_pointer_with_i32(
+                        i as u32,
+                        1,
+                        WebGl2RenderingContext::UNSIGNED_INT,
+                        STRIP_STRIDE,
+                        i * 4,
+                    );
+                }
+            }
+
+            // Restore state.
+            self.gl.disable(WebGl2RenderingContext::DEPTH_TEST);
+            self.gl.depth_mask(true);
+            self.gl.enable(WebGl2RenderingContext::BLEND);
+        } else {
+            // Slot texture / intermediate: single draw with blending, no depth.
+            self.gl.draw_arrays_instanced(
+                WebGl2RenderingContext::TRIANGLE_STRIP,
+                0,
+                4,
+                opaque_count + alpha_count,
+            );
+        }
 
         // Clean up.
         self.gl.bind_vertex_array(None);
@@ -2409,12 +2755,13 @@ impl RendererBackend for WebGlRendererContext<'_> {
     /// Execute a render pass for strips.
     fn render_strips(
         &mut self,
-        strips: &[GpuStrip],
+        opaque_strips: &[GpuStrip],
+        alpha_strips: &[GpuStrip],
         _external_texture_runs: &[crate::schedule::ExternalTextureRun],
         target: StripPassRenderTarget,
         load_op: LoadOp,
     ) {
-        self.do_strip_render_pass(strips, target, load_op);
+        self.do_strip_render_pass(opaque_strips, alpha_strips, target, load_op);
     }
 
     fn apply_filter(&mut self, layer_id: LayerId) {

@@ -9,24 +9,14 @@ use crate::RenderMode;
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use core::fmt::Debug;
-use vello_common::clip::PathDataRef;
 use vello_common::coarse::Wide;
 use vello_common::encode::EncodedPaint;
 use vello_common::filter_effects::Filter;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
-use vello_common::strip::Strip;
-use vello_common::strip_generator::StripStorage;
 
 pub(crate) trait Dispatcher: Debug + Send + Sync {
     fn wide(&self) -> &Wide;
-    fn generate_wide_cmd(
-        &mut self,
-        strip_buf: &[Strip],
-        paint: Paint,
-        blend_mode: BlendMode,
-        encoded_paints: &[EncodedPaint],
-    );
     fn fill_path(
         &mut self,
         path: &BezPath,
@@ -66,7 +56,6 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         aliasing_threshold: Option<u8>,
     );
     fn pop_clip_path(&mut self);
-    fn current_clip_path(&self) -> Option<PathDataRef<'_>>;
     fn push_layer(
         &mut self,
         clip_path: Option<&BezPath>,
@@ -103,5 +92,4 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     );
-    fn strip_storage_mut(&mut self) -> &mut StripStorage;
 }

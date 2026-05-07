@@ -21,6 +21,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use color::palette::css::BLACK;
 use core::fmt::Debug;
+use core::ops::RangeInclusive;
 use glifo::atlas::{
     AtlasConfig, AtlasSlot, GlyphAtlas, GlyphCacheConfig, ImageCache, PendingClearRect,
 };
@@ -270,6 +271,23 @@ impl<'a> GlyphRunBackend<'a> for CpuGlyphRunBackend<'a> {
             ctx.stroke_mut().width = original_width;
         });
     }
+
+    fn render_decoration<Glyphs>(
+        self,
+        run: glifo::GlyphRun<'a>,
+        glyphs: Glyphs,
+        x_range: RangeInclusive<f32>,
+        baseline_y: f32,
+        offset: f32,
+        size: f32,
+        buffer: f32,
+    ) where
+        Glyphs: Iterator<Item = Glyph> + Clone,
+    {
+        self.render_glyphs(run, glyphs, |glyph_run, ctx| {
+            glyph_run.render_decoration(x_range, baseline_y, offset, size, buffer, ctx);
+        });
+    }
 }
 
 /// A glyph run builder.
@@ -351,18 +369,23 @@ impl DrawSink for RenderContext {
     }
 
     #[inline]
-    fn push_blend_layer(&mut self, blend_mode: BlendMode) {
-        // TODO: See the comment for the `colr_test_glyphs` test.
-        if blend_mode != BlendMode::default() {
-            panic!("COLR emojis with non-default blending are not supported yet.")
-        }
+    fn push_clip_path(&mut self, clip: &BezPath) {
+        Self::push_clip_path(self, clip);
+    }
 
+    #[inline]
+    fn push_blend_layer(&mut self, blend_mode: BlendMode) {
         Self::push_blend_layer(self, blend_mode);
     }
 
     #[inline]
     fn pop_layer(&mut self) {
         Self::pop_layer(self);
+    }
+
+    #[inline]
+    fn pop_clip_path(&mut self) {
+        Self::pop_clip_path(self);
     }
 
     #[inline]
@@ -377,7 +400,7 @@ impl DrawSink for RenderContext {
 }
 
 impl glifo::GlyphRenderer for RenderContext {
-    type SavedState = vello_common::recording::RenderState;
+    type SavedState = vello_common::render_state::RenderState;
 
     #[inline]
     fn save_state(&mut self) -> Self::SavedState {

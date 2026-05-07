@@ -13,12 +13,12 @@ use std::path::{Path, PathBuf};
 #[path = "src/compile.rs"]
 mod compile;
 #[allow(warnings)]
+#[path = "src/shader_info.rs"]
+mod shader_info;
+#[allow(warnings)]
 #[cfg(feature = "glsl")]
 #[path = "src/types.rs"]
 mod types;
-
-#[cfg(feature = "glsl")]
-use compile::compile_wgsl_shader;
 
 // TODO: Format the generated code via `rustfmt`.
 // TODO: Use `quote` instead of string concatenation to generate code.
@@ -32,34 +32,12 @@ fn main() {
 
     // Get paths to WGSL files
     let shader_dir = PathBuf::from("shaders");
-    let shader_paths = fs::read_dir(&shader_dir)
-        .expect("Unable to read shaders directory")
-        .filter_map(|entry| {
-            let entry = entry.ok()?;
-            let path = entry.path();
-            if path.extension()?.to_str()? == "wgsl" {
-                Some(path)
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-
-    let mut shader_infos = Vec::new();
-    for path in shader_paths {
-        let file_stem = path.file_stem().unwrap().to_str().unwrap().to_owned();
-        let source = fs::read_to_string(&path)
-            .unwrap_or_else(|_| panic!("Failed to read shader {}", path.display()));
-        shader_infos.push((file_stem, source));
-    }
-    shader_infos.sort_by(|a, b| a.0.cmp(&b.0));
-
-    let mut buf = String::new();
-    generate_compiled_shaders_module(&mut buf, &shader_infos);
-    fs::write(dest_path, &buf).unwrap();
+    let shader_infos = shader_info::load_shader_infos(&shader_dir).expect("Unable to read shaders");
+    fs::write(dest_path, generate_compiled_shaders_module(&shader_infos)).unwrap();
 }
 
-fn generate_compiled_shaders_module(buf: &mut String, shader_infos: &[(String, String)]) {
+fn generate_compiled_shaders_module(shader_infos: &[shader_info::ShaderInfo]) -> String {
+    let mut buf = String::new();
     writeln!(
         buf,
         "// Generated code by `vello_sparse_shaders` - DO NOT EDIT"
@@ -69,8 +47,8 @@ fn generate_compiled_shaders_module(buf: &mut String, shader_infos: &[(String, S
     writeln!(buf, "/// Re-exporting wgsl shader source code.").unwrap();
 
     writeln!(buf, "pub mod wgsl {{").unwrap();
-    for (shader_name, shader_source) in shader_infos {
-        generate_wgsl_shader_module(buf, shader_name, shader_source).unwrap();
+    for shader_info in shader_infos {
+        generate_wgsl_shader_module(&mut buf, shader_info).unwrap();
     }
     writeln!(buf, "}}").unwrap();
 
@@ -84,25 +62,27 @@ fn generate_compiled_shaders_module(buf: &mut String, shader_infos: &[(String, S
         )
         .unwrap();
 
-        for (shader_name, shader_source) in shader_infos {
-            let compiled = compile_wgsl_shader(shader_source, "vs_main", "fs_main");
-
-            let generated_code = compiled.to_generated_code(shader_name);
+        for shader_info in shader_infos {
+            let shader =
+                compile::compile_wgsl_shader(&shader_info.wgsl_source, "vs_main", "fs_main");
+            let generated_code = shader.to_generated_code(&shader_info.name);
             writeln!(buf, "{generated_code}").unwrap();
         }
     }
+
+    buf
 }
 
-fn generate_wgsl_shader_module<T: Write>(
-    buf: &mut T,
-    shader_name: &str,
-    shader_source: &str,
+fn generate_wgsl_shader_module(
+    buf: &mut String,
+    shader_info: &shader_info::ShaderInfo,
 ) -> std::fmt::Result {
-    let const_name = shader_name.to_uppercase();
-    writeln!(buf, "    /// Source for `{shader_name}.wgsl`")?;
+    let const_name = shader_info.name.to_uppercase();
+    writeln!(buf, "    /// Source for `{}.wgsl`", shader_info.name)?;
     writeln!(
         buf,
-        "    pub const {const_name}: &str = r###\"{shader_source}\"###;"
+        "    pub const {const_name}: &str = r###\"{}\"###;",
+        shader_info.wgsl_source
     )?;
 
     Ok(())

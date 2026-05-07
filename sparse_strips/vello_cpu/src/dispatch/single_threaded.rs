@@ -18,7 +18,6 @@ use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint, PremulColor};
 use vello_common::pixmap::Pixmap;
 use vello_common::render_graph::{RenderGraph, RenderNodeKind};
-use vello_common::strip::Strip;
 use vello_common::strip_generator::{StripGenerator, StripStorage};
 
 /// Single-threaded implementation of the rendering dispatcher.
@@ -841,22 +840,6 @@ impl Dispatcher for SingleThreadedDispatcher {
         }
     }
 
-    fn generate_wide_cmd(
-        &mut self,
-        strip_buf: &[Strip],
-        paint: Paint,
-        blend_mode: BlendMode,
-        encoded_paints: &[EncodedPaint],
-    ) {
-        // Generate coarse-level commands from pre-computed strips (thread_idx 0 for single-threaded).
-        self.wide
-            .generate(strip_buf, paint, blend_mode, 0, None, encoded_paints);
-    }
-
-    fn strip_storage_mut(&mut self) -> &mut StripStorage {
-        &mut self.strip_storage
-    }
-
     fn push_clip_path(
         &mut self,
         path: &BezPath,
@@ -875,10 +858,6 @@ impl Dispatcher for SingleThreadedDispatcher {
 
     fn pop_clip_path(&mut self) {
         self.clip_context.pop_clip();
-    }
-
-    fn current_clip_path(&self) -> Option<vello_common::clip::PathDataRef<'_>> {
-        self.clip_context.get()
     }
 }
 

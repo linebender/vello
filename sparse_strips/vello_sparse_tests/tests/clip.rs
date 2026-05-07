@@ -180,9 +180,10 @@ fn clip_rect_cull_alignment(ctx: &mut impl Renderer) {
     const TOP_Y: f64 = Tile::HEIGHT as f64;
 
     // Another strip-aligned Y value lower down.
-    const BOT_Y: f64 = (46. / Tile::HEIGHT as f64).ceil() * Tile::HEIGHT as f64;
+    // FIXME: make const once MSRV >= 1.90
+    let bot_y: f64 = (46. / Tile::HEIGHT as f64).ceil() * Tile::HEIGHT as f64;
 
-    let clip_rect = Rect::new(18.0, TOP_Y + 2., 78.0, BOT_Y - 2.);
+    let clip_rect = Rect::new(18.0, TOP_Y + 2., 78.0, bot_y - 2.);
     ctx.set_paint(DARK_GREEN.with_alpha(0.1));
     ctx.fill_rect(&clip_rect);
 
@@ -201,7 +202,7 @@ fn clip_rect_cull_alignment(ctx: &mut impl Renderer) {
     // unculled geometry existing.
     let mut path = BezPath::new();
     let top_y = TOP_Y + 1.;
-    let bot_y = BOT_Y - 1.;
+    let bot_y = bot_y - 1.;
     path.move_to((30.0, bot_y));
     path.line_to((30.0, top_y));
     path.curve_to((45.0, top_y - 0.5), (55.0, top_y - 0.5), (70.0, top_y));
@@ -384,6 +385,65 @@ fn clip_non_isolated_outside_canvas(ctx: &mut impl Renderer) {
 
     let rect = Rect::new(16.0, -16.0, 32.0, 0.0);
     ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_rect(&rect);
+    ctx.pop_clip_path();
+}
+
+#[vello_test]
+fn clip_non_isolated_with_rect(ctx: &mut impl Renderer) {
+    let clip_rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+    ctx.push_clip_path(&clip_rect.to_path(0.1));
+
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+    ctx.pop_clip_path();
+}
+
+#[vello_test]
+fn clip_non_isolated_with_rotated_rect(ctx: &mut impl Renderer) {
+    let clip_rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+    ctx.push_clip_path(&clip_rect.to_path(0.1));
+
+    ctx.set_transform(Affine::rotate_about(
+        25.0 * PI / 180.0,
+        Point::new(50.0, 50.0),
+    ));
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+    ctx.pop_clip_path();
+}
+
+#[vello_test]
+fn clip_non_isolated_with_scaled_rect(ctx: &mut impl Renderer) {
+    let clip_rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+    ctx.push_clip_path(&clip_rect.to_path(0.1));
+
+    ctx.set_transform(
+        Affine::translate((50.0, 50.0)) * Affine::scale(4.0) * Affine::translate((-50.0, -50.0)),
+    );
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(40.0, 40.0, 60.0, 60.0));
+    ctx.pop_clip_path();
+}
+
+#[vello_test]
+fn clip_non_isolated_with_aa_with_rect(ctx: &mut impl Renderer) {
+    let clip_rect = Rect::new(10.5, 10.5, 89.5, 89.5);
+    ctx.push_clip_path(&clip_rect.to_path(0.1));
+
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+    ctx.pop_clip_path();
+}
+
+#[vello_test]
+fn clip_non_isolated_with_aa_with_rect_aa(ctx: &mut impl Renderer) {
+    // In theory, anti-aliasing should be 50% here, but due to conflation artifacts it will be
+    // 25% instead.
+    let rect = Rect::new(10.5, 10.5, 89.5, 89.5);
+    ctx.push_clip_path(&rect.to_path(0.1));
+
+    ctx.set_paint(BLUE);
     ctx.fill_rect(&rect);
     ctx.pop_clip_path();
 }

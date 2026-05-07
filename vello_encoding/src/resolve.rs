@@ -184,6 +184,7 @@ impl Resolver {
         }
         let patch_sizes = self.resolve_patches(encoding);
         self.resolve_pending_images();
+        self.image_cache.finish_resolve();
         let data = packed;
         data.clear();
         let mut layout = Layout {
@@ -390,7 +391,7 @@ impl Resolver {
         self.ramp_cache.maintain();
         self.glyphs.clear();
         self.glyph_cache.maintain();
-        self.image_cache.clear();
+        self.image_cache.begin_resolve();
         self.pending_images.clear();
         self.patches.clear();
         let mut sizes = StreamOffsets::default();
@@ -487,13 +488,19 @@ impl Resolver {
     }
 
     fn resolve_pending_images(&mut self) {
-        self.image_cache.clear();
         'outer: loop {
+            self.image_cache.restart_resolve_pass();
             // Loop over the images, attempting to allocate them all into the atlas.
             for pending_image in &mut self.pending_images {
-                if let Some(xy) = self.image_cache.get_or_insert(&pending_image.image) {
-                    pending_image.xy = Some(xy);
-                } else {
+                pending_image.xy = loop {
+                    if let Some(xy) = self.image_cache.get_or_insert(&pending_image.image) {
+                        break Some(xy);
+                    }
+                    if self.image_cache.can_fit_image(&pending_image.image)
+                        && self.image_cache.evict_stale_entries()
+                    {
+                        continue;
+                    }
                     // We failed to allocate. Try to bump the atlas size.
                     if self.image_cache.bump_size() {
                         // We were able to increase the atlas size. Restart the outer loop.
@@ -502,9 +509,9 @@ impl Resolver {
                         // If the atlas is already maximum size, there's nothing we can do. Set
                         // the xy field to None so this image isn't rendered and then carry on--
                         // other images might still fit.
-                        pending_image.xy = None;
+                        break None;
                     }
-                }
+                };
             }
             // If we made it here, we've either successfully allocated all images or we reached
             // the maximum atlas size.

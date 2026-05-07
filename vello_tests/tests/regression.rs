@@ -52,6 +52,52 @@ fn test_data_image_roundtrip_extend_pad() {
         .assert_mean_less_than(0.001);
 }
 
+/// Test for <https://github.com/linebender/vello/issues/972>
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn test_data_image_roundtrip_extend_reflect() {
+    let mut scene = Scene::new();
+    let mut images = ImageCache::new();
+    let image = images
+        .from_bytes(0, DATA_IMAGE_PNG)
+        .unwrap()
+        .with_quality(ImageQuality::Low)
+        .with_extend(Extend::Reflect);
+    scene.draw_image(&image, Affine::IDENTITY);
+    let mut params = TestParams::new(
+        "data_image_roundtrip",
+        image.image.width,
+        image.image.height,
+    );
+    params.anti_aliasing = AaConfig::Area;
+    smoke_snapshot_test_sync(scene, &params)
+        .unwrap()
+        .assert_mean_less_than(0.001);
+}
+
+/// Test for <https://github.com/linebender/vello/issues/972>
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn test_data_image_roundtrip_extend_repeat() {
+    let mut scene = Scene::new();
+    let mut images = ImageCache::new();
+    let image = images
+        .from_bytes(0, DATA_IMAGE_PNG)
+        .unwrap()
+        .with_quality(ImageQuality::Low)
+        .with_extend(Extend::Repeat);
+    scene.draw_image(&image, Affine::IDENTITY);
+    let mut params = TestParams::new(
+        "data_image_roundtrip",
+        image.image.width,
+        image.image.height,
+    );
+    params.anti_aliasing = AaConfig::Area;
+    smoke_snapshot_test_sync(scene, &params)
+        .unwrap()
+        .assert_mean_less_than(0.001);
+}
+
 /// Test created from <https://github.com/linebender/vello/issues/662>
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]

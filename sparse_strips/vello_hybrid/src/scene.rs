@@ -13,6 +13,7 @@ use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::ops::Range;
 use vello_common::TextureId;
+use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::clip::ClipContext;
 use vello_common::coarse::{MODE_HYBRID, Wide, WideTilesBbox};
 use vello_common::encode::{EncodeExt, EncodedExternalTexture, EncodedPaint};
@@ -25,12 +26,10 @@ use vello_common::multi_atlas::AtlasConfig;
 use vello_common::paint::{Paint, PaintType, Tint};
 #[cfg(feature = "text")]
 use vello_common::peniko::FontData;
+use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Extend, Fill, ImageQuality, ImageSampler, Mix};
-use vello_common::recording::{
-    PushLayerCommand, Recordable, Recorder, Recording, RenderCommand, RenderState,
-};
 use vello_common::render_graph::{RenderGraph, RenderNodeKind};
-use vello_common::strip::Strip;
+use vello_common::render_state::RenderState;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use vello_common::util::is_axis_aligned;
 
@@ -215,7 +214,7 @@ pub struct Scene {
     // The reason we use `RefCell` here is that during `render`, we need
     // mutable access so we can store additional encoded paints for filtered layers,
     // if applicable.
-    /// Storage for encoded gradient and image paint data.
+    /// Storage for encoded non-solid paint data.
     pub(crate) encoded_paints: RefCell<Vec<EncodedPaint>>,
     /// Whether the current paint is visible (e.g., alpha > 0).
     paint_visible: bool,
@@ -372,7 +371,7 @@ impl Scene {
                 quality,
                 alpha: 1.0,
             },
-            may_have_opacities: true,
+            may_have_transparency: true,
             transform: transform.inverse(),
             tint: self.render_state.tint,
         };
@@ -519,8 +518,34 @@ impl Scene {
             return;
         }
 
-        // TODO: Use a temporary storage for rect paths, like in `vello_cpu`.
-        self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
+        if is_axis_aligned(&self.render_state.transform) && self.aliasing_threshold.is_none() {
+            self.with_optional_filter(|ctx| {
+                let paint = ctx.encode_current_paint();
+                let transformed_rect = ctx.render_state.transform.transform_rect_bbox(*rect);
+                let strip_storage = &mut ctx.strip_storage.borrow_mut();
+                let strip_start = strip_storage.strips.len();
+                ctx.strip_generator.generate_filled_rect_fast(
+                    &transformed_rect,
+                    strip_storage,
+                    ctx.clip_context.get(),
+                );
+
+                submit_strips!(ctx, strip_storage, strip_start, paint);
+            });
+        } else {
+            // TODO: Use a temporary storage for rect paths, like in `vello_cpu`.
+            self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
+        }
+    }
+
+    fn try_fast_rect(&mut self, rect: &Rect) -> bool {
+        let Some(bounds) = self.fast_rect_bounds(rect) else {
+            return false;
+        };
+
+        let paint = self.encode_current_paint();
+        self.push_fast_rect(bounds, paint);
+        true
     }
 
     /// Sample rectangular regions from an externally bound texture and draw them with the
@@ -666,9 +691,21 @@ impl Scene {
         clippy::cast_possible_truncation,
         reason = "f64→f32 truncation is acceptable for pixel coordinates"
     )]
-    fn try_fast_rect(&mut self, rect: &Rect) -> bool {
+    fn push_fast_rect(&mut self, bounds: Rect, paint: Paint) {
+        self.fast_strips_buffer
+            .commands
+            .push(FastStripCommand::Rect(FastPathRect {
+                x0: bounds.x0 as f32,
+                y0: bounds.y0 as f32,
+                x1: bounds.x1 as f32,
+                y1: bounds.y1 as f32,
+                paint,
+            }));
+    }
+
+    fn fast_rect_bounds(&self, rect: &Rect) -> Option<Rect> {
         if !self.can_emit_fast_strips() {
-            return false;
+            return None;
         }
 
         // TODO: Either bail out or properly implement the case where `aliasing_threshold` is set.
@@ -677,7 +714,7 @@ impl Scene {
         // We can't handle skewed rectangles.
         // TODO: Maybe support rotated rectangles (https://github.com/linebender/vello/pull/1482#discussion_r2881223621)
         if !is_axis_aligned(&self.render_state.transform) {
-            return false;
+            return None;
         }
 
         let transformed_rect = self.render_state.transform.transform_rect_bbox(*rect);
@@ -689,27 +726,74 @@ impl Scene {
 
         // Can't handle mirrored or zero-sized rectangles.
         if x1 <= x0 || y1 <= y0 {
-            return false;
+            return None;
         }
 
-        let paint = self.encode_current_paint();
-
-        self.fast_strips_buffer
-            .commands
-            .push(FastStripCommand::Rect(FastPathRect {
-                x0: x0 as f32,
-                y0: y0 as f32,
-                x1: x1 as f32,
-                y1: y1 as f32,
-                paint,
-            }));
-
-        true
+        Some(Rect::new(x0, y0, x1, y1))
     }
 
     /// Stroke a rectangle with the current paint and stroke settings.
     pub fn stroke_rect(&mut self, rect: &Rect) {
         self.stroke_path(&rect.to_path(DEFAULT_TOLERANCE));
+    }
+
+    /// Fill a blurred rectangle with the given corner radius and standard deviation.
+    ///
+    /// This operation uses the current transform and paint transform. Like Vello CPU, it only
+    /// uses solid paints; non-solid paints fall back to black.
+    pub fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
+        if !self.paint_visible {
+            return;
+        }
+
+        self.with_optional_filter(|ctx| {
+            let rect = rect.abs();
+            let color = match ctx.render_state.paint {
+                PaintType::Solid(s) => s,
+                _ => BLACK,
+            };
+            let blurred_rect = BlurredRoundedRectangle {
+                rect,
+                color,
+                radius,
+                std_dev,
+            };
+
+            let kernel_size = 2.5 * std_dev;
+            let inflated_rect = rect.inflate(f64::from(kernel_size), f64::from(kernel_size));
+            let transform = ctx.render_state.transform * ctx.render_state.paint_transform;
+            let paint =
+                blurred_rect.encode_into(&mut ctx.encoded_paints.borrow_mut(), transform, None);
+
+            if let Some(bounds) = ctx.fast_rect_bounds(&inflated_rect) {
+                ctx.push_fast_rect(bounds, paint);
+                return;
+            }
+
+            if is_axis_aligned(&ctx.render_state.transform) && ctx.aliasing_threshold.is_none() {
+                let transformed_rect = ctx
+                    .render_state
+                    .transform
+                    .transform_rect_bbox(inflated_rect);
+                let strip_storage = &mut ctx.strip_storage.borrow_mut();
+                let strip_start = strip_storage.strips.len();
+                ctx.strip_generator.generate_filled_rect_fast(
+                    &transformed_rect,
+                    strip_storage,
+                    ctx.clip_context.get(),
+                );
+
+                submit_strips!(ctx, strip_storage, strip_start, paint);
+            } else {
+                ctx.fill_path_with(
+                    &inflated_rect.to_path(DEFAULT_TOLERANCE),
+                    ctx.render_state.transform,
+                    Fill::NonZero,
+                    paint,
+                    ctx.aliasing_threshold,
+                );
+            }
+        });
     }
 
     /// Creates a builder for drawing a run of glyphs that have the same attributes.
@@ -1053,260 +1137,6 @@ impl Scene {
     pub fn restore_state(&mut self, state: RenderState) {
         self.render_state = state;
         self.set_paint_visible();
-    }
-}
-
-impl Recordable for Scene {
-    fn record<F>(&mut self, recording: &mut Recording, f: F)
-    where
-        F: FnOnce(&mut Recorder<'_>),
-    {
-        let mut recorder = Recorder::new(recording, self.render_state.transform);
-        f(&mut recorder);
-    }
-
-    fn prepare_recording(&mut self, recording: &mut Recording) {
-        let buffers = recording.take_cached_strips();
-        let (strip_storage, strip_start_indices) =
-            self.generate_strips_from_commands(recording.commands(), buffers);
-        recording.set_cached_strips(strip_storage, strip_start_indices);
-    }
-
-    fn execute_recording(&mut self, recording: &Recording) {
-        let (cached_strips, cached_alphas) = recording.get_cached_strips();
-        let adjusted_strips = self.prepare_cached_strips(cached_strips, cached_alphas);
-
-        // Use pre-calculated strip start indices from when we generated the cache
-        let strip_start_indices = recording.get_strip_start_indices();
-        let mut range_index = 0;
-
-        // Replay commands in order, using cached strips for geometry
-        for command in recording.commands() {
-            match command {
-                RenderCommand::FillPath(_)
-                | RenderCommand::StrokePath(_)
-                | RenderCommand::FillRect(_)
-                | RenderCommand::StrokeRect(_) => {
-                    self.process_geometry_command(
-                        strip_start_indices,
-                        range_index,
-                        &adjusted_strips,
-                    );
-                    range_index += 1;
-                }
-                RenderCommand::SetPaint(paint) => {
-                    self.set_paint(paint.clone());
-                }
-                RenderCommand::SetPaintTransform(transform) => {
-                    self.set_paint_transform(*transform);
-                }
-                RenderCommand::ResetPaintTransform => {
-                    self.reset_paint_transform();
-                }
-                RenderCommand::SetTransform(transform) => {
-                    self.set_transform(*transform);
-                }
-                RenderCommand::SetFillRule(fill_rule) => {
-                    self.set_fill_rule(*fill_rule);
-                }
-                RenderCommand::SetStroke(stroke) => {
-                    self.set_stroke(stroke.clone());
-                }
-                RenderCommand::SetTint(tint) => {
-                    self.set_tint(*tint);
-                }
-                RenderCommand::SetFilterEffect(filter) => {
-                    self.set_filter_effect(filter.clone());
-                }
-                RenderCommand::ResetFilterEffect => {
-                    self.reset_filter_effect();
-                }
-                RenderCommand::PushLayer(PushLayerCommand {
-                    clip_path,
-                    blend_mode,
-                    opacity,
-                    mask,
-                    filter,
-                }) => {
-                    self.push_layer(
-                        clip_path.as_ref(),
-                        *blend_mode,
-                        *opacity,
-                        mask.clone(),
-                        filter.clone(),
-                    );
-                }
-                RenderCommand::PopLayer => {
-                    self.pop_layer();
-                }
-            }
-        }
-    }
-}
-
-/// Recording management implementation.
-impl Scene {
-    /// Generate strips from strip commands and capture ranges.
-    ///
-    /// Returns:
-    /// - `collected_strips`: The generated strips.
-    /// - `collected_alphas`: The generated alphas.
-    /// - `strip_start_indices`: The start indices of strips for each geometry command.
-    fn generate_strips_from_commands(
-        &mut self,
-        commands: &[RenderCommand],
-        buffers: (StripStorage, Vec<usize>),
-    ) -> (StripStorage, Vec<usize>) {
-        let (mut strip_storage, mut strip_start_indices) = buffers;
-        strip_storage.clear();
-        strip_storage.set_generation_mode(GenerationMode::Append);
-        strip_start_indices.clear();
-
-        let saved_state = self.take_current_state();
-
-        for command in commands {
-            let start_index = strip_storage.strips.len();
-
-            match command {
-                RenderCommand::FillPath(path) => {
-                    self.strip_generator.generate_filled_path(
-                        path,
-                        self.render_state.fill_rule,
-                        self.render_state.transform,
-                        self.aliasing_threshold,
-                        &mut strip_storage,
-                        self.clip_context.get(),
-                    );
-                    strip_start_indices.push(start_index);
-                }
-                RenderCommand::StrokePath(path) => {
-                    self.strip_generator.generate_stroked_path(
-                        path,
-                        &self.render_state.stroke,
-                        self.render_state.transform,
-                        self.aliasing_threshold,
-                        &mut strip_storage,
-                        self.clip_context.get(),
-                    );
-                    strip_start_indices.push(start_index);
-                }
-                RenderCommand::FillRect(rect) => {
-                    self.strip_generator.generate_filled_path(
-                        rect.to_path(DEFAULT_TOLERANCE),
-                        self.render_state.fill_rule,
-                        self.render_state.transform,
-                        self.aliasing_threshold,
-                        &mut strip_storage,
-                        self.clip_context.get(),
-                    );
-                    strip_start_indices.push(start_index);
-                }
-                RenderCommand::StrokeRect(rect) => {
-                    self.strip_generator.generate_stroked_path(
-                        rect.to_path(DEFAULT_TOLERANCE),
-                        &self.render_state.stroke,
-                        self.render_state.transform,
-                        self.aliasing_threshold,
-                        &mut strip_storage,
-                        self.clip_context.get(),
-                    );
-                    strip_start_indices.push(start_index);
-                }
-                RenderCommand::SetTransform(transform) => {
-                    self.render_state.transform = *transform;
-                }
-                RenderCommand::SetFillRule(fill_rule) => {
-                    self.render_state.fill_rule = *fill_rule;
-                }
-                RenderCommand::SetStroke(stroke) => {
-                    self.render_state.stroke = stroke.clone();
-                }
-
-                _ => {}
-            }
-        }
-
-        self.restore_state(saved_state);
-
-        (strip_storage, strip_start_indices)
-    }
-
-    fn process_geometry_command(
-        &mut self,
-        strip_start_indices: &[usize],
-        range_index: usize,
-        adjusted_strips: &[Strip],
-    ) {
-        assert!(
-            range_index < strip_start_indices.len(),
-            "Strip range index out of bounds: range_index={}, strip_start_indices.len()={}",
-            range_index,
-            strip_start_indices.len()
-        );
-        let start = strip_start_indices[range_index];
-        let end = strip_start_indices
-            .get(range_index + 1)
-            .copied()
-            .unwrap_or(adjusted_strips.len());
-        let count = end - start;
-        if count == 0 {
-            // There are no strips to generate.
-            return;
-        }
-        assert!(
-            start < adjusted_strips.len() && count > 0,
-            "Invalid strip range: start={start}, end={end}, count={count}"
-        );
-        let paint = self.encode_current_paint();
-
-        if self.strip_path_mode != StripPathMode::CoarseOnly {
-            let mut strip_storage = self.strip_storage.borrow_mut();
-            let strip_start = strip_storage.strips.len();
-            strip_storage
-                .strips
-                .extend_from_slice(&adjusted_strips[start..end]);
-            self.fast_strips_buffer
-                .commands
-                .push(FastStripCommand::Path(FastStripsPath {
-                    strips: strip_start..strip_storage.strips.len(),
-                    paint,
-                }));
-        } else {
-            self.wide.generate(
-                &adjusted_strips[start..end],
-                paint,
-                self.render_state.blend_mode,
-                0,
-                None,
-                &self.encoded_paints.borrow(),
-            );
-        }
-    }
-
-    /// Prepare cached strips for rendering by adjusting alpha indices and extending alpha buffer.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "Alphas length conversion is safe in this case"
-    )]
-    fn prepare_cached_strips(
-        &mut self,
-        cached_strips: &[Strip],
-        cached_alphas: &[u8],
-    ) -> Vec<Strip> {
-        let mut strip_storage = self.strip_storage.borrow_mut();
-        // Calculate offset for alpha indices based on current buffer size.
-        let alpha_offset = strip_storage.alphas.len() as u32;
-        // Extend current alpha buffer with cached alphas.
-        strip_storage.alphas.extend(cached_alphas);
-        // Create adjusted strips with corrected alpha indices
-        cached_strips
-            .iter()
-            .map(move |strip| {
-                let mut adjusted_strip = *strip;
-                adjusted_strip.set_alpha_idx(adjusted_strip.alpha_idx() + alpha_offset);
-                adjusted_strip
-            })
-            .collect()
     }
 }
 

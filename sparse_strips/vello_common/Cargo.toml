@@ -38,6 +38,8 @@ std = ["peniko/std", "fearless_simd/std"]
 libm = ["peniko/libm", "dep:libm", "fearless_simd/libm"]
 # Allow loading Pixmap from PNG, and drawing png glyphs.
 png = ["std", "dep:png"]
+# Add helpers for drawing a probe scene.
+probe = []
 # Enable multi-threaded rendering.
 multithreading = ["std"]
 # Development only features

@@ -81,9 +81,12 @@ pub mod paint;
 #[cfg(feature = "pico_svg")]
 pub mod pico_svg;
 pub mod pixmap;
-pub mod recording;
+#[doc(hidden)]
+#[cfg(feature = "probe")]
+pub mod probe;
 pub mod rect;
 pub mod render_graph;
+pub mod render_state;
 pub mod simd;
 pub mod strip;
 pub mod strip_generator;

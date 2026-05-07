@@ -3,12 +3,12 @@ env:
   # version like 1.70. Note that we only specify MAJOR.MINOR and not PATCH so that bugfixes still
   # come automatically. If the version specified here is no longer the latest stable version,
   # then please feel free to submit a PR that adjusts it along with the potential clippy fixes.
-  RUST_STABLE_VER: "1.94" # In quotes because otherwise (e.g.) 1.70 would be interpreted as 1.7
+  RUST_STABLE_VER: "1.95" # In quotes because otherwise (e.g.) 1.70 would be interpreted as 1.7
   # The purpose of checking with the minimum supported Rust toolchain is to detect its staleness.
   # If the compilation fails, then the version specified here needs to be bumped up to reality.
   # Be sure to also update the rust-version property in the workspace Cargo.toml file,
   # plus all the README.md files of the affected packages.
-  RUST_MIN_VER: "1.92"
+  RUST_MIN_VER: "1.88"
   # List of packages that will be checked with the minimum supported Rust version.
   # This should be limited to packages that are intended for publishing.
   RUST_MIN_VER_PKGS: "-p vello -p vello_encoding -p vello_shaders -p vello_api -p vello_common -p vello_cpu -p vello_hybrid"
@@ -16,7 +16,7 @@ env:
   # This should be limited to packages that are intended for publishing.
   RUST_NO_STD_PKGS: "-p vello_api -p vello_common -p vello_cpu"
   # List of features that depend on the standard library and will be excluded from no_std checks.
-  FEATURES_DEPENDING_ON_STD: "std,default,png,pico_svg,multithreading"
+  FEATURES_DEPENDING_ON_STD: "std,default,png,pico_svg,multithreading,probe"
   # List of packages that can not target Wasm.
   # `vello_tests` uses `nv-flip`, which doesn't support Wasm.
   NO_WASM_PKGS: "--exclude vello_tests --exclude xtask"
@@ -74,7 +74,7 @@ jobs:
     name: formatting
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: install stable toolchain
         uses: dtolnay/rust-toolchain@master
@@ -125,7 +125,7 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: install stable toolchain
         uses: dtolnay/rust-toolchain@master
@@ -167,7 +167,7 @@ jobs:
     name: cargo clippy (wasm32)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: install stable toolchain
         uses: dtolnay/rust-toolchain@master
@@ -203,7 +203,7 @@ jobs:
       lfs-hash: ${{ steps.calc-hash.outputs.result }}
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - id: calc-hash
       name: Calculate LFS hash
@@ -242,7 +242,7 @@ jobs:
             # this failed in initial testing
             gpu: 'no'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         # We intentionally do not use lfs: true here, instead using the caching method to save LFS bandwidth.
 
       - name: Restore lfs cache
@@ -318,7 +318,7 @@ jobs:
     needs: prime-lfs-cache
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         # We intentionally do not use lfs: true here, instead using the caching method to save LFS bandwidth.
 
       - name: Restore lfs cache
@@ -379,7 +379,7 @@ jobs:
     name: cargo check (aarch64-android)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: install stable toolchain
         uses: dtolnay/rust-toolchain@master
@@ -408,7 +408,7 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: install msrv toolchain
         uses: dtolnay/rust-toolchain@master
@@ -440,7 +440,7 @@ jobs:
     name: cargo check (msrv) (wasm32)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: install msrv toolchain
         uses: dtolnay/rust-toolchain@master
@@ -467,7 +467,7 @@ jobs:
     #       If we get per-platform docs (win/macos/linux/wasm32/..) then doc jobs should match that.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: install nightly toolchain
         uses: dtolnay/rust-toolchain@nightly
@@ -487,7 +487,7 @@ jobs:
   typos:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: check typos
-        uses: crate-ci/typos@v1.44.0
+        uses: crate-ci/typos@v1.45.0

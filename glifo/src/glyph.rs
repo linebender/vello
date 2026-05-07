@@ -16,7 +16,7 @@ use crate::atlas::key::{SUBPIXEL_BITMAP, SUBPIXEL_COLR, pack_color};
 use crate::atlas::{GlyphAtlas, ImageCache};
 use crate::color::PremulRgba8;
 use crate::color::palette::css::BLACK;
-use crate::colr::convert_bounding_box;
+use crate::colr::{convert_bounding_box, get_colr_info};
 use crate::kurbo::Point;
 use crate::kurbo::Rect;
 use crate::kurbo::Vec2;
@@ -144,6 +144,8 @@ pub struct GlyphColr<'a> {
     pub pix_width: u16,
     /// The height of the pixmap/texture in pixels to which the glyph should be rendered to.
     pub pix_height: u16,
+    /// Whether the glyph paint graph uses a non-default blend mode.
+    pub has_non_default_blend: bool,
 }
 
 impl Debug for GlyphColr<'_> {
@@ -237,6 +239,19 @@ pub trait GlyphRunBackend<'a>: Sized {
     fn stroke_glyphs<Glyphs>(self, run: GlyphRun<'a>, glyphs: Glyphs)
     where
         Glyphs: Iterator<Item = Glyph> + Clone;
+
+    /// Render a decoration (e.g. underline) with skip-ink behavior.
+    fn render_decoration<Glyphs>(
+        self,
+        run: GlyphRun<'a>,
+        glyphs: Glyphs,
+        x_range: RangeInclusive<f32>,
+        baseline_y: f32,
+        offset: f32,
+        size: f32,
+        buffer: f32,
+    ) where
+        Glyphs: Iterator<Item = Glyph> + Clone;
 }
 
 /// Helper struct for rendering a prepared glyph run.
@@ -304,6 +319,9 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
         let context_color = renderer.get_context_color();
         let context_color_packed = pack_color(context_color);
         for glyph in self.glyph_iterator.clone() {
+            // TODO: Add a mechanism such that glyphs that are completely outside of the viewport
+            // (especially for more expensive COLR glyphs), we don't do any processing in the
+            // first place and cull them.
             let glyph_id = GlyphId::new(glyph.id);
 
             // ── Speculative outline cache check ─────────────────────────
@@ -341,12 +359,15 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
 
             // ── COLR Glyphs ───────────────────────────────────────────
             if let Some(color_glyph) = color_glyphs.get(glyph_id) {
+                let location = LocationRef::new(normalized_coords);
                 let metrics = calculate_colr_metrics(
                     draw_props.font_size,
                     upem,
                     draw_props,
                     glyph,
+                    &font_ref,
                     &color_glyph,
+                    location,
                 );
                 let transform = calculate_colr_transform(&metrics);
 
@@ -777,6 +798,24 @@ where
         let GlyphRunBuilder { run, backend } = self;
         backend.stroke_glyphs(run, glyphs);
     }
+
+    /// Render a decoration (e.g. underline) with skip-ink behavior.
+    ///
+    /// See [`GlyphRunRenderer::render_decoration`].
+    pub fn render_decoration<Glyphs>(
+        self,
+        glyphs: Glyphs,
+        x_range: RangeInclusive<f32>,
+        baseline_y: f32,
+        offset: f32,
+        size: f32,
+        buffer: f32,
+    ) where
+        Glyphs: Iterator<Item = Glyph> + Clone,
+    {
+        let GlyphRunBuilder { run, backend } = self;
+        backend.render_decoration(run, glyphs, x_range, baseline_y, offset, size, buffer);
+    }
 }
 
 /// Insert a range into a sorted list, merging with any overlapping ranges.
@@ -1029,6 +1068,7 @@ struct ColrMetrics {
     scale_factor_y: f64,
     /// Font size scale (`font_size` / `upem`).
     font_size_scale: f64,
+    has_non_default_blend: bool,
 }
 
 /// Calculate COLR glyph metrics (scale factors, bounding box, etc.).
@@ -1040,7 +1080,9 @@ fn calculate_colr_metrics(
     upem: f32,
     draw_props: DrawProps,
     glyph: Glyph,
+    font_ref: &FontRef<'_>,
     color_glyph: &skrifa::color::ColorGlyph<'_>,
+    location: LocationRef<'_>,
 ) -> ColrMetrics {
     // The scale factor we need to apply to scale from font units to our font size.
     let font_size_scale = (font_size / upem) as f64;
@@ -1054,10 +1096,16 @@ fn calculate_colr_metrics(
         (x_vec.length(), y_vec.length())
     };
 
+    // TODO: Cache this across frames.
+    let colr_info = get_colr_info(font_ref, color_glyph, location);
     let bbox = color_glyph
-        .bounding_box(LocationRef::default(), Size::unscaled())
+        // First try to get the clip bbox from the COLR table,
+        // as this one has the highest priority.
+        .bounding_box(location, Size::unscaled())
         .map(convert_bounding_box)
-        .unwrap_or(Rect::new(0.0, 0.0, f64::from(upem), f64::from(upem)));
+        // Otherwise, we use the conservative bounding box we determined before.
+        .or(colr_info.bbox)
+        .unwrap_or(Rect::ZERO);
 
     // Calculate the position of the rectangle that will contain the rendered pixmap in device
     // coordinates.
@@ -1074,6 +1122,7 @@ fn calculate_colr_metrics(
         scale_factor_x,
         scale_factor_y,
         font_size_scale,
+        has_non_default_blend: colr_info.has_non_default_blend,
     }
 }
 
@@ -1143,14 +1192,17 @@ fn create_colr_glyph<'a>(
         metrics.scaled_bbox.height(),
     );
 
+    let location = LocationRef::new(normalized_coords);
+
     GlyphType::Colr(Box::new(GlyphColr {
         skrifa_glyph: color_glyph,
         font_ref,
-        location: LocationRef::new(normalized_coords),
+        location,
         area,
         pix_width,
         pix_height,
         draw_transform,
+        has_non_default_blend: metrics.has_non_default_blend,
     }))
 }
 
@@ -1401,7 +1453,7 @@ impl OutlinePath {
         }
     }
 
-    fn reuse(&mut self) {
+    pub(crate) fn reuse(&mut self) {
         self.path.truncate(0);
         self.bbox = Rect {
             x0: f64::INFINITY,
@@ -1774,6 +1826,7 @@ pub struct HintCache {
     // internal memory when reconfigured for the same format.
     glyf_entries: Vec<HintEntry>,
     cff_entries: Vec<HintEntry>,
+    varc_entries: Vec<HintEntry>,
     serial: u64,
 }
 
@@ -1782,6 +1835,7 @@ impl Debug for HintCache {
         f.debug_struct("HintCache")
             .field("glyf_entries", &self.glyf_entries.len())
             .field("cff_entries", &self.cff_entries.len())
+            .field("varc_entries", &self.varc_entries.len())
             .field("serial", &self.serial)
             .finish()
     }
@@ -1793,6 +1847,7 @@ impl HintCache {
         let entries = match key.outlines.format()? {
             OutlineGlyphFormat::Glyf => &mut self.glyf_entries,
             OutlineGlyphFormat::Cff | OutlineGlyphFormat::Cff2 => &mut self.cff_entries,
+            OutlineGlyphFormat::Varc => &mut self.varc_entries,
         };
         let (entry_ix, is_current) = find_hint_entry(entries, key)?;
         let entry = entries.get_mut(entry_ix)?;
@@ -1818,6 +1873,7 @@ impl HintCache {
     pub fn clear(&mut self) {
         self.glyf_entries.clear();
         self.cff_entries.clear();
+        self.varc_entries.clear();
         self.serial = 0;
     }
 }

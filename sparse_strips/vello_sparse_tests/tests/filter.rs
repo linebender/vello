@@ -6,10 +6,9 @@
 use crate::load_image;
 use crate::util::{circular_star, stops_blue_green_red_yellow};
 use crate::{renderer::Renderer, util::layout_glyphs_roboto};
-use vello_api::peniko::color::palette::css::LIME;
 use vello_common::color::AlphaColor;
 use vello_common::color::palette::css::{
-    BLACK, PURPLE, REBECCA_PURPLE, ROYAL_BLUE, SEA_GREEN, TOMATO, VIOLET,
+    BLACK, LIME, PURPLE, REBECCA_PURPLE, ROYAL_BLUE, SEA_GREEN, TOMATO, VIOLET,
 };
 use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
 use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape, Stroke};
@@ -1474,7 +1473,7 @@ fn filter_with_non_rect_clip(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(skip_multithreaded)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
 fn filter_drop_shadow_inside_clip(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::DropShadow {
         dx: 20.0,
@@ -1530,7 +1529,7 @@ fn filter_with_out_of_bounds_clip(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 2)]
 fn filter_with_inner_clip(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 5.0,

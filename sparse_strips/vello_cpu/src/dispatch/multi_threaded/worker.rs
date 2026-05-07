@@ -182,25 +182,6 @@ impl Worker {
                         .coarse_tasks
                         .push(CoarseTaskType::PopLayer);
                 }
-                RenderTaskType::WideCommand {
-                    strip_buf,
-                    paint,
-                    thread_idx,
-                    blend_mode,
-                } => {
-                    let coarse_command = CoarseTaskType::RenderWideCommand {
-                        thread_id: thread_idx,
-                        strips: strip_buf,
-                        paint,
-                        blend_mode,
-                        mask: None,
-                    };
-
-                    render_task
-                        .allocation_group
-                        .coarse_tasks
-                        .push(coarse_command);
-                }
             }
         }
 

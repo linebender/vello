@@ -4,15 +4,18 @@
 //! Tests for basic functionality.
 
 use crate::renderer::Renderer;
-use crate::util::{circular_star, crossed_line_star, layout_glyphs_roboto, miter_stroke_2};
+use crate::util::{
+    circular_star, crossed_line_star, layout_glyphs_roboto, miter_stroke_2, stops_green_blue,
+};
 use std::f64::consts::PI;
 use vello_common::coarse::Cmd;
 use vello_common::color::palette::css::{
     BEIGE, BLUE, DARK_BLUE, GREEN, LIME, MAROON, REBECCA_PURPLE, RED, TRANSPARENT,
 };
 use vello_common::kurbo::{Affine, BezPath, Circle, Join, Point, Rect, Shape, Stroke};
-use vello_common::peniko::Fill;
+use vello_common::peniko::{Fill, Gradient};
 use vello_cpu::color::palette::css::BLACK;
+use vello_cpu::peniko::LinearGradientPosition;
 use vello_cpu::{Glyph, Level, Pixmap, RenderContext, RenderMode, RenderSettings};
 use vello_dev_macros::vello_test;
 
@@ -183,6 +186,44 @@ fn filled_aligned_rect(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
 }
 
+#[vello_test(width = 100, height = 100)]
+fn filled_inverted_rect(ctx: &mut impl Renderer) {
+    let rect = Rect::new(80.0, 80.0, 20.0, 20.0);
+
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_rect(&rect);
+}
+
+#[vello_test(width = 100, height = 100)]
+fn filled_inverted_rect_gradient(ctx: &mut impl Renderer) {
+    // Gradient paint should not be affected by the rect inversion.
+    let rect = Rect::new(80.0, 80.0, 20.0, 20.0);
+    let gradient = Gradient {
+        kind: LinearGradientPosition {
+            start: Point::new(20.0, 20.0),
+            end: Point::new(80.0, 20.0),
+        }
+        .into(),
+        stops: stops_green_blue(),
+        ..Default::default()
+    };
+
+    ctx.set_paint(gradient);
+    ctx.fill_rect(&rect);
+}
+
+#[vello_test(width = 100, height = 100)]
+fn filled_inverted_rect_rotated(ctx: &mut impl Renderer) {
+    let rect = Rect::new(80.0, 80.0, 20.0, 20.0);
+
+    ctx.set_transform(Affine::rotate_about(
+        45.0 * PI / 180.0,
+        Point::new(50.0, 50.0),
+    ));
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_rect(&rect);
+}
+
 #[vello_test(width = 30, height = 30)]
 fn stroked_unaligned_rect(ctx: &mut impl Renderer) {
     let rect = Rect::new(5.0, 5.0, 25.0, 25.0);
@@ -304,6 +345,14 @@ fn filled_transformed_rect_4(ctx: &mut impl Renderer) {
     ));
     ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
     ctx.fill_rect(&rect);
+}
+
+#[vello_test(width = 100, height = 100)]
+fn blurred_rounded_rect_inverted(ctx: &mut impl Renderer) {
+    let rect = Rect::new(80.0, 80.0, 20.0, 20.0);
+
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_blurred_rounded_rect(&rect, 10.0, 2.0);
 }
 
 #[vello_test(width = 30, height = 30)]
