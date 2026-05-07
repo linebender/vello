@@ -42,7 +42,7 @@ mod tests {
             false,
             0,
             "fallback",
-            RenderMode::OptimizeSpeed,
+            RenderMode::OptimizeQuality,
             false,
         );
         f(&mut ctx);
