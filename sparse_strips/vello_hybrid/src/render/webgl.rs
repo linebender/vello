@@ -1561,7 +1561,7 @@ impl WebGlPrograms {
         )
         .unwrap();
 
-        // Restore the luts back to the cache
+        // Restore the luts back to the cache.
         luts.truncate(old_luts_len);
         gradient_cache.restore_luts(luts);
     }
