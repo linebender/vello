@@ -20,7 +20,7 @@ use crate::colr::{convert_bounding_box, get_colr_info};
 use crate::kurbo::Point;
 use crate::kurbo::Rect;
 use crate::kurbo::Vec2;
-use crate::kurbo::{Affine, BezPath};
+use crate::kurbo::{self, Affine, BezPath, Diagonal2, Join, Shape};
 use crate::kurbo::{Line, ParamCurve as _, PathSeg};
 use crate::peniko::FontData;
 use crate::renderer::{fill_glyph, render_cached_glyph, stroke_glyph};
@@ -297,6 +297,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
         let PreparedGlyphRun {
             draw_props,
             run_size: _,
+            font_embolden,
             normalized_coords,
             hinting_instance,
             ..
@@ -342,6 +343,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     fractional_x,
                     BLACK,
                     BLACK_PACKED,
+                    font_embolden.xx,
+                    font_embolden.yy,
                     normalized_coords,
                 )
             });
@@ -382,6 +385,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     subpixel_x: SUBPIXEL_COLR,
                     context_color,
                     context_color_packed,
+                    embolden_x_bits: 0,
+                    embolden_y_bits: 0,
                     var_coords: SmallVec::from_slice(normalized_coords),
                 });
 
@@ -461,6 +466,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     subpixel_x: SUBPIXEL_BITMAP,
                     context_color: BLACK,
                     context_color_packed: BLACK_PACKED,
+                    embolden_x_bits: 0,
+                    embolden_y_bits: 0,
                     var_coords: SmallVec::new(),
                 });
 
@@ -502,6 +509,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                 font_index,
                 &mut outline_cache_session,
                 draw_props.font_size,
+                font_embolden,
                 &outline,
                 hinting_instance,
                 normalized_coords,
@@ -567,6 +575,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
 
         let PreparedGlyphRun {
             draw_props,
+            font_embolden,
             hinting_instance,
             ..
         } = self.prepared_run;
@@ -618,6 +627,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                 self.prepared_run.font.data.id(),
                 self.prepared_run.font.index,
                 draw_props.font_size,
+                font_embolden,
                 var_key,
                 &outline,
                 hinting_instance,
@@ -707,6 +717,7 @@ impl<'a, B> GlyphRunBuilder<'a, B> {
             run: GlyphRun {
                 font,
                 font_size: 16.0,
+                font_embolden: Diagonal2::new(0.0, 0.0),
                 transform,
                 glyph_transform: None,
                 hint: true,
@@ -719,6 +730,12 @@ impl<'a, B> GlyphRunBuilder<'a, B> {
     /// Set the font size in pixels per em.
     pub fn font_size(mut self, size: f32) -> Self {
         self.run.font_size = size;
+        self
+    }
+
+    /// Set the synthetic embolden amount.
+    pub fn font_embolden(mut self, embolden: Diagonal2) -> Self {
+        self.run.font_embolden = embolden;
         self
     }
 
@@ -935,6 +952,7 @@ fn create_outline_glyph<'a>(
     font_index: u32,
     outline_cache: &'a mut OutlineCacheSession<'_>,
     size: f32,
+    embolden: Diagonal2,
     outline_glyph: &skrifa::outline::OutlineGlyph<'a>,
     hinting_instance: Option<&HintingInstance>,
     normalized_coords: &[skrifa::instance::NormalizedCoord],
@@ -944,6 +962,7 @@ fn create_outline_glyph<'a>(
         font_id,
         font_index,
         size,
+        embolden,
         VarLookupKey(normalized_coords),
         outline_glyph,
         hinting_instance,
@@ -1232,6 +1251,8 @@ pub struct GlyphRun<'a> {
     font: FontData,
     /// Size of the font in pixels per em.
     font_size: f32,
+    /// Synthetic embolden amount.
+    font_embolden: Diagonal2,
     /// Global transform.
     transform: Affine,
     /// Per-glyph transform. Use [`Affine::skew`] with horizontal-skew only to simulate italic
@@ -1254,6 +1275,8 @@ struct PreparedGlyphRun<'a> {
     // (for example handling of underlines).
     /// The original run size supplied by the caller.
     run_size: f32,
+    /// Synthetic embolden amount.
+    font_embolden: Diagonal2,
     /// The original per-glyph transform supplied by the caller.
     glyph_transform: Option<Affine>,
     // Continuing the above comment, the problem is that we also need to precalculate data
@@ -1320,6 +1343,7 @@ impl Debug for PreparedGlyphRun<'_> {
         f.debug_struct("PreparedGlyphRun")
             .field("font", &self.font)
             .field("run_size", &self.run_size)
+            .field("font_embolden", &self.font_embolden)
             .field("glyph_transform", &self.glyph_transform)
             .field("transforms", &self.draw_props)
             .field("normalized_coords", &self.normalized_coords)
@@ -1408,6 +1432,7 @@ fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> Pr
     PreparedGlyphRun {
         font: run.font,
         run_size: run.font_size,
+        font_embolden: run.font_embolden,
         glyph_transform: run.glyph_transform,
         draw_props: DrawProps {
             positioning_transform: run
@@ -1563,6 +1588,8 @@ struct OutlineKey {
     font_index: u32,
     glyph_id: u32,
     size_bits: u32,
+    embolden_x_bits: u64,
+    embolden_y_bits: u64,
     hint: bool,
 }
 
@@ -1721,6 +1748,7 @@ impl<'a> OutlineCacheSession<'a> {
         font_id: u64,
         font_index: u32,
         size: f32,
+        embolden: Diagonal2,
         var_key: VarLookupKey<'_>,
         outline_glyph: &skrifa::outline::OutlineGlyph<'_>,
         hinting_instance: Option<&HintingInstance>,
@@ -1730,6 +1758,8 @@ impl<'a> OutlineCacheSession<'a> {
             font_id,
             font_index,
             size_bits: size.to_bits(),
+            embolden_x_bits: embolden.xx.to_bits(),
+            embolden_y_bits: embolden.yy.to_bits(),
             hint: hinting_instance.is_some(),
         };
 
@@ -1754,6 +1784,11 @@ impl<'a> OutlineCacheSession<'a> {
 
                 drawing_buf.reuse();
                 outline_glyph.draw(draw_settings, &mut drawing_buf).unwrap();
+                if embolden != Diagonal2::new(0.0, 0.0) {
+                    drawing_buf.path =
+                        kurbo::expand_path(&drawing_buf.path, embolden, Join::Miter, 4.0, 0.1);
+                    drawing_buf.bbox = drawing_buf.path.bounding_box();
+                }
 
                 let bbox = drawing_buf.bbox;
                 let entry = entry.insert(OutlineEntry::new(
