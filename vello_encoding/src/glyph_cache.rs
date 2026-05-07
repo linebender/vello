@@ -6,9 +6,12 @@ use std::sync::Arc;
 
 use super::{Encoding, StreamOffsets};
 
-use peniko::{FontData, Style};
+use peniko::{
+    FontData, Style,
+    kurbo::{BezPath, Diagonal2, Join, Point},
+};
 use skrifa::instance::{NormalizedCoord, Size};
-use skrifa::outline::{HintingInstance, HintingOptions, OutlineGlyphFormat};
+use skrifa::outline::{HintingInstance, HintingOptions, OutlineGlyphFormat, OutlinePen};
 use skrifa::{GlyphId, MetadataProvider, OutlineGlyphCollection};
 
 #[derive(Default)]
@@ -28,6 +31,7 @@ impl GlyphCache {
         font: &'a FontData,
         coords: &'a [NormalizedCoord],
         size: f32,
+        embolden: Diagonal2,
         hint: bool,
         style: &'a Style,
     ) -> Option<GlyphCacheSession<'a>> {
@@ -76,6 +80,7 @@ impl GlyphCache {
             coords,
             size,
             size_bits: size.ppem().unwrap().to_bits(),
+            embolden,
             style,
             style_bits,
             outlines,
@@ -140,6 +145,7 @@ pub(crate) struct GlyphCacheSession<'a> {
     coords: &'a [NormalizedCoord],
     size: Size,
     size_bits: u32,
+    embolden: Diagonal2,
     style: &'a Style,
     style_bits: [u32; 2],
     outlines: OutlineGlyphCollection<'a>,
@@ -158,6 +164,8 @@ impl GlyphCacheSession<'_> {
             font_index: self.font_index,
             glyph_id,
             font_size_bits: self.size_bits,
+            embolden_x_bits: self.embolden.xx.to_bits(),
+            embolden_y_bits: self.embolden.yy.to_bits(),
             style_bits: self.style_bits,
             hint: self.hinter.is_some(),
         };
@@ -181,7 +189,6 @@ impl GlyphCacheSession<'_> {
             }
         };
         use skrifa::outline::DrawSettings;
-        let mut path = encoding_ptr.encode_path(is_fill);
         let draw_settings = if key.hint {
             if let Some(hinter) = self.hinter {
                 DrawSettings::hinted(hinter, false)
@@ -191,8 +198,19 @@ impl GlyphCacheSession<'_> {
         } else {
             DrawSettings::unhinted(self.size, self.coords)
         };
-        outline.draw(draw_settings, &mut path).ok()?;
-        if path.finish(false) == 0 {
+        let n_path_segments = if self.embolden != Diagonal2::new(0.0, 0.0) {
+            let mut path = BezPathOutline(BezPath::new());
+            outline.draw(draw_settings, &mut path).ok()?;
+            let path = peniko::kurbo::expand_path(&path.0, self.embolden, Join::Miter, 4.0, 0.1);
+            let mut encoder = encoding_ptr.encode_path(is_fill);
+            encoder.path_elements(path.elements().iter().copied());
+            encoder.finish(false)
+        } else {
+            let mut path = encoding_ptr.encode_path(is_fill);
+            outline.draw(draw_settings, &mut path).ok()?;
+            path.finish(false)
+        };
+        if n_path_segments == 0 {
             encoding_ptr.reset();
         }
         let stream_sizes = encoding_ptr.stream_offsets();
@@ -215,8 +233,41 @@ struct GlyphKey {
     font_index: u32,
     glyph_id: u32,
     font_size_bits: u32,
+    embolden_x_bits: u64,
+    embolden_y_bits: u64,
     style_bits: [u32; 2],
     hint: bool,
+}
+
+struct BezPathOutline(BezPath);
+
+impl OutlinePen for BezPathOutline {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.0.move_to(Point::new(x.into(), y.into()));
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.0.line_to(Point::new(x.into(), y.into()));
+    }
+
+    fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
+        self.0.quad_to(
+            Point::new(cx0.into(), cy0.into()),
+            Point::new(x.into(), y.into()),
+        );
+    }
+
+    fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
+        self.0.curve_to(
+            Point::new(cx0.into(), cy0.into()),
+            Point::new(cx1.into(), cy1.into()),
+            Point::new(x.into(), y.into()),
+        );
+    }
+
+    fn close(&mut self) {
+        self.0.close_path();
+    }
 }
 
 /// Outer level key for variable font caches.
