@@ -156,10 +156,8 @@ pub(crate) fn get_ctx<T: Renderer>(
     );
 
     if !transparent {
-        let path = Rect::new(0.0, 0.0, width as f64, height as f64).to_path(0.1);
-
         ctx.set_paint(WHITE);
-        ctx.fill_path(&path);
+        ctx.fill_rect(&Rect::new(0.0, 0.0, width as f64, height as f64));
     }
 
     ctx

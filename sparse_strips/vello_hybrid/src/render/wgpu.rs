@@ -54,8 +54,8 @@ use vello_common::{
         EncodedBlurredRoundedRectangle, EncodedGradient, EncodedKind, EncodedPaint,
         MAX_GRADIENT_LUT_SIZE, RadialKind,
     },
-    paint::ImageSource,
-    peniko,
+    paint::{ImageSource, PremulColor},
+    peniko::{self, color::palette::css::TRANSPARENT},
     pixmap::Pixmap,
     tile::Tile,
 };
@@ -291,7 +291,9 @@ impl Renderer {
             view,
             &resources.image_cache,
             &encoded_paints,
-            true,
+            scene
+                .background
+                .or(Some(PremulColor::from_alpha_color(TRANSPARENT))),
             RootRenderTarget::UserSurface,
         );
 
@@ -383,7 +385,8 @@ impl Renderer {
             &layer_view,
             &dummy_image_cache,
             &encoded_paints,
-            false,
+            // See the note in the WebGL backend.
+            scene.background,
             RootRenderTarget::AtlasLayer,
         );
         self.dummy_image_cache = Some(dummy_image_cache);
@@ -404,8 +407,7 @@ impl Renderer {
     /// Shared render pipeline: prepares GPU resources, runs the scheduler against
     /// the provided `view` at `render_size`, and maintains caches.
     ///
-    /// When `clear` is true the render target is cleared to transparent black
-    /// before drawing (normal frame rendering).
+    /// When `clear_color` is `Some`, the render target is cleared to that color before drawing.
     fn render_scene(
         &mut self,
         scene: &Scene,
@@ -416,7 +418,7 @@ impl Renderer {
         view: &TextureView,
         image_cache: &ImageCache,
         encoded_paints: &[EncodedPaint],
-        clear: bool,
+        clear_color: Option<PremulColor>,
         root_output_target: RootRenderTarget,
     ) -> Result<(), RenderError> {
         self.programs.depth_cleared_this_frame = false;
@@ -435,8 +437,8 @@ impl Renderer {
             &self.filter_context,
         );
 
-        if clear {
-            Self::clear_view(encoder, view);
+        if let Some(clear_color) = clear_color {
+            Self::clear_view(encoder, view, clear_color);
         }
         let mut ctx = RendererContext {
             programs: &mut self.programs,
@@ -462,16 +464,22 @@ impl Renderer {
         Ok(())
     }
 
-    /// Clear the view to transparent black.
+    /// Clear the view to the scene background.
     // TODO: Investigate adding tests for the clear_view behavior.
-    fn clear_view(encoder: &mut CommandEncoder, view: &TextureView) {
+    fn clear_view(encoder: &mut CommandEncoder, view: &TextureView, color: PremulColor) {
+        let [r, g, b, a] = color.as_premul_f32().components;
         encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("Clear View"),
             color_attachments: &[Some(RenderPassColorAttachment {
                 view,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: r.into(),
+                        g: g.into(),
+                        b: b.into(),
+                        a: a.into(),
+                    }),
                     store: wgpu::StoreOp::Store,
                 },
                 depth_slice: None,
