@@ -8,7 +8,7 @@ use peniko::{
     BlendMode, Blob, Brush, BrushRef, Color, ColorStop, ColorStops, ColorStopsSource, Compose,
     Extend, Fill, FontData, Gradient, ImageBrush, ImageBrushRef, ImageData, StyleRef,
     color::{AlphaColor, DynamicColor, Srgb, palette},
-    kurbo::{Affine, BezPath, Point, Rect, Shape, Stroke, StrokeOpts, Vec2},
+    kurbo::{Affine, BezPath, Diagonal2, Point, Rect, Shape, Stroke, StrokeOpts, Vec2},
 };
 use png::{BitDepth, ColorType, Transformations};
 use skrifa::bitmap::BitmapFormat;
@@ -503,6 +503,7 @@ impl<'a> DrawGlyphs<'a> {
                 transform: Transform::IDENTITY,
                 glyph_transform: None,
                 font_size: 16.0,
+                font_embolden: Diagonal2::new(0.0, 0.0),
                 hint: false,
                 normalized_coords: coords_start..coords_start,
                 style: Fill::NonZero.into(),
@@ -541,6 +542,15 @@ impl<'a> DrawGlyphs<'a> {
     #[must_use]
     pub fn font_size(mut self, size: f32) -> Self {
         self.run.font_size = size;
+        self
+    }
+
+    /// Sets the synthetic embolden amount.
+    ///
+    /// The default value is zero.
+    #[must_use]
+    pub fn font_embolden(mut self, embolden: Diagonal2) -> Self {
+        self.run.font_embolden = embolden;
         self
     }
 
