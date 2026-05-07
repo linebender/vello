@@ -14,7 +14,7 @@ use std::cmp::max;
 use std::sync::Arc;
 use vello_common::color::DynamicColor;
 use vello_common::color::palette::css::{BLUE, GREEN, RED, WHITE, YELLOW};
-use vello_common::kurbo::{BezPath, Join, Point, Rect, Shape, Stroke, Vec2};
+use vello_common::kurbo::{BezPath, Join, Point, Rect, Stroke, Vec2};
 use vello_common::peniko::{Blob, ColorStop, ColorStops, FontData};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::{Level, RenderMode};
