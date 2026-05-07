@@ -544,6 +544,15 @@ impl Renderer {
         }
     }
 
+    /// Marks `image` as dirty in the atlas cache, so its override texture will be re-copied on
+    /// the next render.
+    ///
+    /// Call this each frame for any `image` whose override texture has changed since the last
+    /// render. Otherwise, it's possible stale image data from the atlas will be used.
+    pub fn mark_override_image_dirty(&mut self, image: &ImageData) {
+        self.resolver.mark_image_dirty(image);
+    }
+
     /// Register a [`wgpu::Texture`] with Vello, to allow drawing GPU-resident data.
     ///
     /// The returned `Image` can be used in [`Scene`]s (only those rendered with this `Renderer`)

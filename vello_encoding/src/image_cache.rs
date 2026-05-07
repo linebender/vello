@@ -158,6 +158,12 @@ impl ImageCache {
             && image.height <= self.atlas.size().height as u32
     }
 
+    pub(crate) fn mark_dirty(&mut self, image: &ImageData) {
+        if let Some(resident) = self.map.get_mut(&image.data.id()) {
+            resident.dirty = true;
+        }
+    }
+
     pub(crate) fn evict_stale_entries(&mut self) -> bool {
         if self.evicted_in_resolve != 0 {
             return false;

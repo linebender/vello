@@ -170,6 +170,11 @@ impl Resolver {
         Self::default()
     }
 
+    /// Marks the atlas entry for `image` as dirty, forcing it to be re-uploaded on the next resolve.
+    pub fn mark_image_dirty(&mut self, image: &ImageData) {
+        self.image_cache.mark_dirty(image);
+    }
+
     /// Resolves late bound resources and packs an encoding. Returns the packed
     /// layout and computed ramp data.
     pub fn resolve<'a>(
