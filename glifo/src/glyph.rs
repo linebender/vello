@@ -1510,14 +1510,6 @@ impl OutlinePen for OutlinePath {
 /// the need for updates only to align Skrifa versions.
 pub type NormalizedCoord = i16;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const _NORMALISED_COORD_SIZE_MATCHES: () =
-        assert!(size_of::<skrifa::instance::NormalizedCoord>() == size_of::<NormalizedCoord>());
-}
-
 /// Caches used for glyph rendering.
 ///
 /// Contains renderer-agnostic caches (outline paths, hinting instances)
@@ -1930,4 +1922,219 @@ fn x_y_advances(transform: &Affine) -> (Vec2, Vec2) {
         Vec2::new(x_advance.x, x_advance.y),
         Vec2::new(y_advance.x, y_advance.y),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::atlas::{AtlasConfig, AtlasPaint};
+    use crate::interface::{DrawSink, GlyphRenderer};
+    use crate::peniko::BlendMode;
+    use crate::peniko::Blob;
+    use crate::peniko::color::{AlphaColor, Srgb};
+    use alloc::sync::Arc;
+    use vello_common::paint::{Image, ImageId, ImageSource, Tint};
+
+    const _NORMALISED_COORD_SIZE_MATCHES: () =
+        assert!(size_of::<skrifa::instance::NormalizedCoord>() == size_of::<NormalizedCoord>());
+
+    const ROBOTO_FONT: &[u8] = include_bytes!("../../examples/assets/roboto/Roboto-Regular.ttf");
+    const NOTO_COLR_FONT: &[u8] =
+        include_bytes!("../../examples/assets/noto_color_emoji/NotoColorEmoji-Subset.ttf");
+    #[cfg(feature = "png")]
+    const NOTO_CBTF_FONT: &[u8] =
+        include_bytes!("../../examples/assets/noto_color_emoji/NotoColorEmoji-CBTF-Subset.ttf");
+
+    #[derive(Clone, Copy)]
+    enum TestGlyphKind {
+        Outline,
+        Colr,
+        #[cfg(feature = "png")]
+        Bitmap,
+    }
+
+    #[derive(Default)]
+    struct NoopRenderer;
+
+    struct TestResources {
+        renderer: NoopRenderer,
+        prep_cache: GlyphPrepCache,
+        glyph_atlas: GlyphAtlas,
+        image_cache: ImageCache,
+    }
+
+    impl Default for TestResources {
+        fn default() -> Self {
+            Self {
+                renderer: NoopRenderer,
+                prep_cache: GlyphPrepCache::default(),
+                glyph_atlas: GlyphAtlas::default(),
+                image_cache: ImageCache::new_with_config(AtlasConfig {
+                    atlas_size: (512, 512),
+                    ..AtlasConfig::default()
+                }),
+            }
+        }
+    }
+
+    impl DrawSink for NoopRenderer {
+        fn set_transform(&mut self, _t: Affine) {}
+
+        fn set_paint(&mut self, _paint: AtlasPaint) {}
+
+        fn set_paint_transform(&mut self, _t: Affine) {}
+
+        fn fill_path(&mut self, _path: &BezPath) {}
+
+        fn fill_rect(&mut self, _rect: &Rect) {}
+
+        fn push_clip_layer(&mut self, _clip: &BezPath) {}
+
+        fn push_blend_layer(&mut self, _blend_mode: BlendMode) {}
+
+        fn pop_layer(&mut self) {}
+
+        fn width(&self) -> u16 {
+            512
+        }
+
+        fn height(&self) -> u16 {
+            512
+        }
+    }
+
+    impl GlyphRenderer for NoopRenderer {
+        type SavedState = ();
+
+        fn save_state(&mut self) -> Self::SavedState {}
+
+        fn restore_state(&mut self, _state: Self::SavedState) {}
+
+        fn stroke_path(&mut self, _path: &BezPath) {}
+
+        fn set_paint_image(&mut self, _image: Image) {}
+
+        fn set_tint(&mut self, _tint: Option<Tint>) {}
+
+        fn get_context_color(&self) -> AlphaColor<Srgb> {
+            BLACK
+        }
+
+        fn atlas_image_source(&self, atlas_slot: &AtlasSlot) -> ImageSource {
+            ImageSource::opaque_id(ImageId::new(atlas_slot.page_index))
+        }
+
+        fn atlas_paint_transform(&self, atlas_slot: &AtlasSlot) -> Affine {
+            Affine::translate((-(atlas_slot.x as f64), -(atlas_slot.y as f64)))
+        }
+    }
+
+    fn test_font(kind: TestGlyphKind) -> FontData {
+        let bytes = match kind {
+            TestGlyphKind::Outline => ROBOTO_FONT,
+            TestGlyphKind::Colr => NOTO_COLR_FONT,
+            #[cfg(feature = "png")]
+            TestGlyphKind::Bitmap => NOTO_CBTF_FONT,
+        };
+        FontData::new(Blob::new(Arc::new(bytes)), 0)
+    }
+
+    fn test_glyph(font: &FontData, kind: TestGlyphKind) -> Glyph {
+        let ch = match kind {
+            TestGlyphKind::Outline => 'H',
+            TestGlyphKind::Colr => '✅',
+            #[cfg(feature = "png")]
+            TestGlyphKind::Bitmap => '✅',
+        };
+        let glyph_id = font.as_skrifa().charmap().map(ch).unwrap();
+        Glyph {
+            id: glyph_id.to_u32(),
+            x: 0.0,
+            y: 0.0,
+        }
+    }
+
+    fn draw_test_glyph(
+        font: &FontData,
+        glyph: Glyph,
+        atlas_cache_enabled: bool,
+        resources: &mut TestResources,
+    ) {
+        let atlas_cacher = if atlas_cache_enabled {
+            AtlasCacher::Enabled(&mut resources.glyph_atlas, &mut resources.image_cache)
+        } else {
+            AtlasCacher::Disabled
+        };
+
+        GlyphRun {
+            font: font.clone(),
+            font_size: 20.0,
+            transform: Affine::translate((0.0, 20.0)),
+            glyph_transform: None,
+            normalized_coords: &[],
+            hint: false,
+        }
+        .build(
+            core::iter::once(glyph),
+            resources.prep_cache.as_mut(),
+            atlas_cacher,
+        )
+        .fill_glyphs(&mut resources.renderer);
+    }
+
+    fn ensure_cache(kind: TestGlyphKind) {
+        let font = test_font(kind);
+        let glyph = test_glyph(&font, kind);
+        let mut resources = TestResources::default();
+
+        draw_test_glyph(&font, glyph, true, &mut resources);
+
+        assert_eq!(resources.glyph_atlas.len(), 1);
+        assert_eq!(resources.glyph_atlas.cache_hits(), 0);
+        assert!(resources.glyph_atlas.cache_misses() > 0);
+    }
+
+    fn ensure_no_cache(kind: TestGlyphKind) {
+        let font = test_font(kind);
+        let glyph = test_glyph(&font, kind);
+        let mut resources = TestResources::default();
+
+        draw_test_glyph(&font, glyph, false, &mut resources);
+
+        assert_eq!(resources.glyph_atlas.len(), 0);
+        assert_eq!(resources.glyph_atlas.cache_hits(), 0);
+        assert_eq!(resources.glyph_atlas.cache_misses(), 0);
+    }
+
+    #[test]
+    fn outline_glyph_is_cached_when_atlas_cache_is_enabled() {
+        ensure_cache(TestGlyphKind::Outline);
+    }
+
+    #[test]
+    fn outline_glyph_is_not_cached_when_atlas_cache_is_disabled() {
+        ensure_no_cache(TestGlyphKind::Outline);
+    }
+
+    #[test]
+    fn colr_glyph_is_cached_when_atlas_cache_is_enabled() {
+        ensure_cache(TestGlyphKind::Colr);
+    }
+
+    #[test]
+    fn colr_glyph_is_not_cached_when_atlas_cache_is_disabled() {
+        ensure_no_cache(TestGlyphKind::Colr);
+    }
+
+    #[cfg(feature = "png")]
+    #[test]
+    fn bitmap_glyph_is_cached_when_atlas_cache_is_enabled() {
+        ensure_cache(TestGlyphKind::Bitmap);
+    }
+
+    #[cfg(feature = "png")]
+    #[test]
+    fn bitmap_glyph_is_not_cached_when_atlas_cache_is_disabled() {
+        ensure_no_cache(TestGlyphKind::Bitmap);
+    }
 }
