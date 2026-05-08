@@ -434,10 +434,13 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
         .append_child(&canvas)
         .unwrap();
 
-    let scenes = vello_example_scenes::get_example_scenes(vec![
-        ImageSource::opaque_id(ImageId::new(0)),
-        ImageSource::opaque_id(ImageId::new(1)),
-    ]);
+    let scenes = vello_example_scenes::get_example_scenes(
+        vello_example_scenes::Capabilities::default(),
+        vec![
+            ImageSource::opaque_id(ImageId::new(0)),
+            ImageSource::opaque_id(ImageId::new(1)),
+        ],
+    );
 
     let app_state = Rc::new(RefCell::new(AppState::new(canvas.clone(), scenes).await));
 

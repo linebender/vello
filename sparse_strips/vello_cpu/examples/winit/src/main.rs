@@ -18,7 +18,7 @@ use vello_common::paint::ImageSource;
 use vello_common::pixmap::Pixmap;
 use vello_cpu::{RenderContext, RenderSettings};
 use vello_example_scenes::image::ImageScene;
-use vello_example_scenes::{AnyScene, get_example_scenes};
+use vello_example_scenes::{AnyScene, Capabilities, get_example_scenes};
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, KeyEvent, Modifiers, MouseButton, MouseScrollDelta, WindowEvent},
@@ -79,10 +79,11 @@ fn main() {
             ImageSource::Pixmap(std::sync::Arc::new(pixmap1)),
             ImageSource::Pixmap(std::sync::Arc::new(pixmap2)),
         ];
+        let capabilities = Capabilities::default();
         let scenes = if svg_paths.is_empty() {
-            get_example_scenes(None, img_sources)
+            get_example_scenes(capabilities, None, img_sources)
         } else {
-            get_example_scenes(Some(svg_paths), img_sources)
+            get_example_scenes(capabilities, Some(svg_paths), img_sources)
         };
 
         start_scene_index = start_scene_index.min(scenes.len() - 1);
@@ -93,10 +94,13 @@ fn main() {
         let pixmap1 = ImageScene::read_flower_image();
         let pixmap2 = ImageScene::read_cowboy_image();
         (
-            get_example_scenes(vec![
-                ImageSource::Pixmap(std::sync::Arc::new(pixmap1)),
-                ImageSource::Pixmap(std::sync::Arc::new(pixmap2)),
-            ]),
+            get_example_scenes(
+                Capabilities::default(),
+                vec![
+                    ImageSource::Pixmap(std::sync::Arc::new(pixmap1)),
+                    ImageSource::Pixmap(std::sync::Arc::new(pixmap2)),
+                ],
+            ),
             0,
         )
     };

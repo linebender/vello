@@ -14,6 +14,7 @@ pub mod multi_image;
 pub mod path;
 pub mod random_text;
 pub mod simple;
+pub mod spritesheet;
 pub mod svg;
 pub mod text;
 
@@ -26,10 +27,22 @@ pub use vello_common::kurbo::{BezPath, Rect, Shape, Stroke};
 pub use vello_common::mask::Mask;
 use vello_common::paint::ImageSource;
 pub use vello_common::paint::{Paint, PaintType};
-pub use vello_common::peniko::{BlendMode, Fill, FontData};
+pub use vello_common::peniko::{BlendMode, Fill, FontData, ImageQuality};
 #[cfg(feature = "cpu")]
 use vello_cpu::{RenderContext, Resources as CpuResources};
 use vello_hybrid::{Resources as HybridResources, Scene};
+pub use vello_hybrid::{SampleRect, TextureId};
+
+/// Renderer capability flags controlling which scenes are listed by [`get_example_scenes`].
+///
+/// Use this to pass the features the host renderer supports. Scenes requiring an unsupported
+/// feature are omitted. Defaults to everything off.
+#[derive(Default, Clone, Copy, Debug)]
+pub struct Capabilities {
+    /// Whether the renderer supports externally bound textures and
+    /// [`RenderingContext::draw_texture_rects`].
+    pub external_textures: bool,
+}
 
 /// A generic rendering context.
 pub trait RenderingContext: Sized {
@@ -92,6 +105,14 @@ pub trait RenderingContext: Sized {
     fn pop_layer(&mut self);
     /// Pop the last clip path.
     fn pop_clip_path(&mut self);
+    /// Sample rectangular regions from an externally bound texture and draw them with the
+    /// corresponding transforms.
+    fn draw_texture_rects(
+        &mut self,
+        texture_id: TextureId,
+        quality: ImageQuality,
+        rects: impl IntoIterator<Item = SampleRect>,
+    );
 }
 
 #[cfg(feature = "cpu")]
@@ -189,6 +210,15 @@ impl RenderingContext for RenderContext {
     fn pop_clip_path(&mut self) {
         Self::pop_clip_path(self);
     }
+
+    fn draw_texture_rects(
+        &mut self,
+        _texture_id: TextureId,
+        _quality: ImageQuality,
+        _rects: impl IntoIterator<Item = SampleRect>,
+    ) {
+        unimplemented!("vello_cpu does not yet support external textures");
+    }
 }
 
 impl RenderingContext for Scene {
@@ -284,6 +314,15 @@ impl RenderingContext for Scene {
 
     fn pop_clip_path(&mut self) {
         Self::pop_clip_path(self);
+    }
+
+    fn draw_texture_rects(
+        &mut self,
+        texture_id: TextureId,
+        quality: ImageQuality,
+        rects: impl IntoIterator<Item = SampleRect>,
+    ) {
+        self.draw_texture_rects(texture_id, quality, rects);
     }
 }
 
@@ -426,6 +465,7 @@ where
 /// Unlike the Wasm version, this function allows for passing custom SVGs.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn get_example_scenes<T: RenderingContext + 'static>(
+    capabilities: Capabilities,
     svg_paths: Option<Vec<&str>>,
     img_sources: Vec<ImageSource>,
 ) -> Box<[AnyScene<T>]>
@@ -470,18 +510,23 @@ where
     scenes.push(AnyScene::new(path::FunkyPathsScene::new()));
     scenes.push(AnyScene::new(path::RobustPathsScene::new()));
 
+    if capabilities.external_textures {
+        scenes.push(AnyScene::new(spritesheet::SpritesheetScene::new()));
+    }
+
     scenes.into_boxed_slice()
 }
 
 /// Get all available example scenes (WASM version).
 #[cfg(target_arch = "wasm32")]
 pub fn get_example_scenes<T: RenderingContext + 'static>(
+    capabilities: Capabilities,
     img_sources: Vec<ImageSource>,
 ) -> Box<[AnyScene<T>]>
 where
     T::Resources: Default,
 {
-    let scenes = vec![
+    let mut scenes = vec![
         AnyScene::new(svg::SvgScene::tiger()),
         AnyScene::new(text::TextScene::new("Hello, Vello!")),
         AnyScene::new(random_text::RandomTextScene::new()),
@@ -503,5 +548,10 @@ where
         AnyScene::new(path::FunkyPathsScene::new()),
         AnyScene::new(path::RobustPathsScene::new()),
     ];
+
+    if capabilities.external_textures {
+        scenes.push(AnyScene::new(spritesheet::SpritesheetScene::new()));
+    }
+
     scenes.into_boxed_slice()
 }
