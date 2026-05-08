@@ -394,8 +394,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     embolden_x_bits: 0,
                     embolden_y_bits: 0,
                     embolden_join_bits: join_bits(Join::Miter),
-                    embolden_miter_limit_bits: 4.0_f64.to_bits(),
-                    embolden_tolerance_bits: 0.1_f64.to_bits(),
+                    embolden_miter_limit_bits: 4.0_f32.to_bits(),
+                    embolden_tolerance_bits: 0.1_f32.to_bits(),
                     var_coords: SmallVec::from_slice(normalized_coords),
                 });
 
@@ -478,8 +478,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     embolden_x_bits: 0,
                     embolden_y_bits: 0,
                     embolden_join_bits: join_bits(Join::Miter),
-                    embolden_miter_limit_bits: 4.0_f64.to_bits(),
-                    embolden_tolerance_bits: 0.1_f64.to_bits(),
+                    embolden_miter_limit_bits: 4.0_f32.to_bits(),
+                    embolden_tolerance_bits: 0.1_f32.to_bits(),
                     var_coords: SmallVec::new(),
                 });
 
@@ -1651,11 +1651,11 @@ struct OutlineKey {
     font_index: u32,
     glyph_id: u32,
     size_bits: u32,
-    embolden_x_bits: u64,
-    embolden_y_bits: u64,
+    embolden_x_bits: u32,
+    embolden_y_bits: u32,
     embolden_join_bits: u8,
-    embolden_miter_limit_bits: u64,
-    embolden_tolerance_bits: u64,
+    embolden_miter_limit_bits: u32,
+    embolden_tolerance_bits: u32,
     hint: bool,
 }
 
@@ -1665,6 +1665,14 @@ fn join_bits(join: Join) -> u8 {
         Join::Miter => 1,
         Join::Round => 2,
     }
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "Cache keys intentionally store embolden parameters at f32 precision."
+)]
+fn f32_bits(value: f64) -> u32 {
+    (value as f32).to_bits()
 }
 
 struct OutlineEntry {
@@ -1835,11 +1843,11 @@ impl<'a> OutlineCacheSession<'a> {
             font_id,
             font_index,
             size_bits: size.to_bits(),
-            embolden_x_bits: embolden.xx.to_bits(),
-            embolden_y_bits: embolden.yy.to_bits(),
+            embolden_x_bits: f32_bits(embolden.xx),
+            embolden_y_bits: f32_bits(embolden.yy),
             embolden_join_bits: join_bits(embolden_join),
-            embolden_miter_limit_bits: embolden_miter_limit.to_bits(),
-            embolden_tolerance_bits: embolden_tolerance.to_bits(),
+            embolden_miter_limit_bits: f32_bits(embolden_miter_limit),
+            embolden_tolerance_bits: f32_bits(embolden_tolerance),
             hint: hinting_instance.is_some(),
         };
 

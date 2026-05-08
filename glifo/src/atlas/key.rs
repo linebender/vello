@@ -65,15 +65,15 @@ pub struct GlyphCacheKey {
     /// Pre-packed context color (premultiplied RGBA8 as u32) used in Hash/Eq.
     pub context_color_packed: u32,
     /// Synthetic embolden amount. Only non-zero for outline glyphs.
-    pub embolden_x_bits: u64,
+    pub embolden_x_bits: u32,
     /// Synthetic embolden amount. Only non-zero for outline glyphs.
-    pub embolden_y_bits: u64,
+    pub embolden_y_bits: u32,
     /// Join style for synthetic embolden. Only meaningful for outline glyphs.
     pub embolden_join_bits: u8,
     /// Miter limit for synthetic embolden. Only meaningful for outline glyphs.
-    pub embolden_miter_limit_bits: u64,
+    pub embolden_miter_limit_bits: u32,
     /// Tolerance for synthetic embolden. Only meaningful for outline glyphs.
-    pub embolden_tolerance_bits: u64,
+    pub embolden_tolerance_bits: u32,
     /// Variation coordinates for variable fonts.
     pub var_coords: SmallVec<[NormalizedCoord; 4]>,
 }
@@ -109,11 +109,11 @@ impl GlyphCacheKey {
             subpixel_x: quantize_subpixel(fractional_x),
             context_color,
             context_color_packed,
-            embolden_x_bits: embolden_x.to_bits(),
-            embolden_y_bits: embolden_y.to_bits(),
+            embolden_x_bits: f32_bits(embolden_x),
+            embolden_y_bits: f32_bits(embolden_y),
             embolden_join_bits: join_bits(embolden_join),
-            embolden_miter_limit_bits: embolden_miter_limit.to_bits(),
-            embolden_tolerance_bits: embolden_tolerance.to_bits(),
+            embolden_miter_limit_bits: f32_bits(embolden_miter_limit),
+            embolden_tolerance_bits: f32_bits(embolden_tolerance),
             var_coords: SmallVec::from_slice(var_coords),
         }
     }
@@ -167,6 +167,14 @@ fn join_bits(join: Join) -> u8 {
         Join::Miter => 1,
         Join::Round => 2,
     }
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "Cache keys intentionally store embolden parameters at f32 precision."
+)]
+fn f32_bits(value: f64) -> u32 {
+    (value as f32).to_bits()
 }
 
 /// Premultiply and pack an RGBA color into a `u32` for bitwise hashing/comparison.
@@ -301,8 +309,8 @@ mod tests {
             embolden_x_bits: 0,
             embolden_y_bits: 0,
             embolden_join_bits: join_bits(Join::Miter),
-            embolden_miter_limit_bits: 4.0_f64.to_bits(),
-            embolden_tolerance_bits: 0.1_f64.to_bits(),
+            embolden_miter_limit_bits: 4.0_f32.to_bits(),
+            embolden_tolerance_bits: 0.1_f32.to_bits(),
             var_coords: SmallVec::new(),
         };
         let bitmap_key = GlyphCacheKey {
@@ -317,8 +325,8 @@ mod tests {
             embolden_x_bits: 0,
             embolden_y_bits: 0,
             embolden_join_bits: join_bits(Join::Miter),
-            embolden_miter_limit_bits: 4.0_f64.to_bits(),
-            embolden_tolerance_bits: 0.1_f64.to_bits(),
+            embolden_miter_limit_bits: 4.0_f32.to_bits(),
+            embolden_tolerance_bits: 0.1_f32.to_bits(),
             var_coords: SmallVec::new(),
         };
         assert_ne!(outline_key, colr_key);
