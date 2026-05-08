@@ -447,9 +447,6 @@ impl Resolver {
                         bytemuck::cast_slice(coords),
                         font_size,
                         run.font_embolden,
-                        run.font_embolden_join,
-                        run.font_embolden_miter_limit,
-                        run.font_embolden_tolerance,
                         hint,
                         &run.style,
                     ) else {

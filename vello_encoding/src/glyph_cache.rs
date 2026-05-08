@@ -4,11 +4,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::{Encoding, StreamOffsets};
+use super::{Encoding, FontEmbolden, StreamOffsets};
 
 use peniko::{
     FontData, Style,
-    kurbo::{BezPath, Diagonal2, Join, Point},
+    kurbo::{BezPath, Join, Point},
 };
 use skrifa::instance::{NormalizedCoord, Size};
 use skrifa::outline::{HintingInstance, HintingOptions, OutlineGlyphFormat, OutlinePen};
@@ -31,10 +31,7 @@ impl GlyphCache {
         font: &'a FontData,
         coords: &'a [NormalizedCoord],
         size: f32,
-        embolden: Diagonal2,
-        embolden_join: Join,
-        embolden_miter_limit: f64,
-        embolden_tolerance: f64,
+        embolden: FontEmbolden,
         hint: bool,
         style: &'a Style,
     ) -> Option<GlyphCacheSession<'a>> {
@@ -84,13 +81,11 @@ impl GlyphCache {
             size,
             size_bits: size.ppem().unwrap().to_bits(),
             embolden,
-            embolden_join,
-            embolden_miter_limit,
-            embolden_tolerance,
             style,
             style_bits,
             outlines,
             hinter,
+            outline_buf: BezPath::new(),
             serial: self.serial,
             cached_count: &mut self.cached_count,
         })
@@ -151,14 +146,12 @@ pub(crate) struct GlyphCacheSession<'a> {
     coords: &'a [NormalizedCoord],
     size: Size,
     size_bits: u32,
-    embolden: Diagonal2,
-    embolden_join: Join,
-    embolden_miter_limit: f64,
-    embolden_tolerance: f64,
+    embolden: FontEmbolden,
     style: &'a Style,
     style_bits: [u32; 2],
     outlines: OutlineGlyphCollection<'a>,
     hinter: Option<&'a HintingInstance>,
+    outline_buf: BezPath,
     serial: u64,
     cached_count: &'a mut usize,
 }
@@ -173,11 +166,11 @@ impl GlyphCacheSession<'_> {
             font_index: self.font_index,
             glyph_id,
             font_size_bits: self.size_bits,
-            embolden_x_bits: f32_bits(self.embolden.xx),
-            embolden_y_bits: f32_bits(self.embolden.yy),
-            embolden_join_bits: join_bits(self.embolden_join),
-            embolden_miter_limit_bits: f32_bits(self.embolden_miter_limit),
-            embolden_tolerance_bits: f32_bits(self.embolden_tolerance),
+            embolden_x_bits: f32_bits(self.embolden.amount.xx),
+            embolden_y_bits: f32_bits(self.embolden.amount.yy),
+            embolden_join_bits: join_bits(self.embolden.join),
+            embolden_miter_limit_bits: f32_bits(self.embolden.miter_limit),
+            embolden_tolerance_bits: f32_bits(self.embolden.tolerance),
             style_bits: self.style_bits,
             hint: self.hinter.is_some(),
         };
@@ -210,15 +203,16 @@ impl GlyphCacheSession<'_> {
         } else {
             DrawSettings::unhinted(self.size, self.coords)
         };
-        let n_path_segments = if self.embolden != Diagonal2::new(0.0, 0.0) {
-            let mut path = BezPathOutline(BezPath::new());
+        let n_path_segments = if self.embolden.amount != peniko::kurbo::Diagonal2::new(0.0, 0.0) {
+            self.outline_buf.truncate(0);
+            let mut path = BezPathOutline(&mut self.outline_buf);
             outline.draw(draw_settings, &mut path).ok()?;
             let path = peniko::kurbo::expand_path(
-                &path.0,
-                self.embolden,
-                self.embolden_join,
-                self.embolden_miter_limit,
-                self.embolden_tolerance,
+                &self.outline_buf,
+                self.embolden.amount,
+                self.embolden.join,
+                self.embolden.miter_limit,
+                self.embolden.tolerance,
             );
             let mut encoder = encoding_ptr.encode_path(is_fill);
             encoder.path_elements(path.elements().iter().copied());
@@ -276,9 +270,9 @@ fn f32_bits(value: f64) -> u32 {
     (value as f32).to_bits()
 }
 
-struct BezPathOutline(BezPath);
+struct BezPathOutline<'a>(&'a mut BezPath);
 
-impl OutlinePen for BezPathOutline {
+impl OutlinePen for BezPathOutline<'_> {
     fn move_to(&mut self, x: f32, y: f32) {
         self.0.move_to(Point::new(x.into(), y.into()));
     }
