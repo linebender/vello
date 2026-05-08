@@ -173,11 +173,11 @@ impl GlyphCacheSession<'_> {
             font_index: self.font_index,
             glyph_id,
             font_size_bits: self.size_bits,
-            embolden_x_bits: self.embolden.xx.to_bits(),
-            embolden_y_bits: self.embolden.yy.to_bits(),
+            embolden_x_bits: f32_bits(self.embolden.xx),
+            embolden_y_bits: f32_bits(self.embolden.yy),
             embolden_join_bits: join_bits(self.embolden_join),
-            embolden_miter_limit_bits: self.embolden_miter_limit.to_bits(),
-            embolden_tolerance_bits: self.embolden_tolerance.to_bits(),
+            embolden_miter_limit_bits: f32_bits(self.embolden_miter_limit),
+            embolden_tolerance_bits: f32_bits(self.embolden_tolerance),
             style_bits: self.style_bits,
             hint: self.hinter.is_some(),
         };
@@ -251,11 +251,11 @@ struct GlyphKey {
     font_index: u32,
     glyph_id: u32,
     font_size_bits: u32,
-    embolden_x_bits: u64,
-    embolden_y_bits: u64,
+    embolden_x_bits: u32,
+    embolden_y_bits: u32,
     embolden_join_bits: u8,
-    embolden_miter_limit_bits: u64,
-    embolden_tolerance_bits: u64,
+    embolden_miter_limit_bits: u32,
+    embolden_tolerance_bits: u32,
     style_bits: [u32; 2],
     hint: bool,
 }
@@ -266,6 +266,14 @@ fn join_bits(join: Join) -> u8 {
         Join::Miter => 1,
         Join::Round => 2,
     }
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "Cache keys intentionally store embolden parameters at f32 precision."
+)]
+fn f32_bits(value: f64) -> u32 {
+    (value as f32).to_bits()
 }
 
 struct BezPathOutline(BezPath);
