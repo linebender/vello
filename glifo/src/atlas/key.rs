@@ -9,6 +9,7 @@
 //! equal produce identical bitmaps and can safely share a single atlas entry.
 
 use crate::color::{AlphaColor, Srgb};
+use crate::kurbo::Join;
 use core::hash::{Hash, Hasher};
 #[cfg(not(feature = "std"))]
 use core_maths::CoreFloat as _;
@@ -67,6 +68,12 @@ pub struct GlyphCacheKey {
     pub embolden_x_bits: u64,
     /// Synthetic embolden amount. Only non-zero for outline glyphs.
     pub embolden_y_bits: u64,
+    /// Join style for synthetic embolden. Only meaningful for outline glyphs.
+    pub embolden_join_bits: u8,
+    /// Miter limit for synthetic embolden. Only meaningful for outline glyphs.
+    pub embolden_miter_limit_bits: u64,
+    /// Tolerance for synthetic embolden. Only meaningful for outline glyphs.
+    pub embolden_tolerance_bits: u64,
     /// Variation coordinates for variable fonts.
     pub var_coords: SmallVec<[NormalizedCoord; 4]>,
 }
@@ -88,6 +95,9 @@ impl GlyphCacheKey {
         context_color_packed: u32,
         embolden_x: f64,
         embolden_y: f64,
+        embolden_join: Join,
+        embolden_miter_limit: f64,
+        embolden_tolerance: f64,
         var_coords: &[NormalizedCoord],
     ) -> Self {
         Self {
@@ -101,6 +111,9 @@ impl GlyphCacheKey {
             context_color_packed,
             embolden_x_bits: embolden_x.to_bits(),
             embolden_y_bits: embolden_y.to_bits(),
+            embolden_join_bits: join_bits(embolden_join),
+            embolden_miter_limit_bits: embolden_miter_limit.to_bits(),
+            embolden_tolerance_bits: embolden_tolerance.to_bits(),
             var_coords: SmallVec::from_slice(var_coords),
         }
     }
@@ -122,6 +135,9 @@ impl Hash for GlyphCacheKey {
         self.context_color_packed.hash(state);
         self.embolden_x_bits.hash(state);
         self.embolden_y_bits.hash(state);
+        self.embolden_join_bits.hash(state);
+        self.embolden_miter_limit_bits.hash(state);
+        self.embolden_tolerance_bits.hash(state);
     }
 }
 
@@ -137,10 +153,21 @@ impl PartialEq for GlyphCacheKey {
             && self.context_color_packed == other.context_color_packed
             && self.embolden_x_bits == other.embolden_x_bits
             && self.embolden_y_bits == other.embolden_y_bits
+            && self.embolden_join_bits == other.embolden_join_bits
+            && self.embolden_miter_limit_bits == other.embolden_miter_limit_bits
+            && self.embolden_tolerance_bits == other.embolden_tolerance_bits
     }
 }
 
 impl Eq for GlyphCacheKey {}
+
+fn join_bits(join: Join) -> u8 {
+    match join {
+        Join::Bevel => 0,
+        Join::Miter => 1,
+        Join::Round => 2,
+    }
+}
 
 /// Premultiply and pack an RGBA color into a `u32` for bitwise hashing/comparison.
 #[inline]
@@ -208,16 +235,60 @@ mod tests {
     #[test]
     fn test_key_equality() {
         let packed = pack_color(BLACK);
-        let key1 = GlyphCacheKey::new(1, 0, 42, 16.0, true, 0.3, BLACK, packed, 0.0, 0.0, &[]);
-        let key2 = GlyphCacheKey::new(1, 0, 42, 16.0, true, 0.3, BLACK, packed, 0.0, 0.0, &[]);
+        let key1 = GlyphCacheKey::new(
+            1,
+            0,
+            42,
+            16.0,
+            true,
+            0.3,
+            BLACK,
+            packed,
+            0.0,
+            0.0,
+            Join::Miter,
+            4.0,
+            0.1,
+            &[],
+        );
+        let key2 = GlyphCacheKey::new(
+            1,
+            0,
+            42,
+            16.0,
+            true,
+            0.3,
+            BLACK,
+            packed,
+            0.0,
+            0.0,
+            Join::Miter,
+            4.0,
+            0.1,
+            &[],
+        );
         assert_eq!(key1, key2);
     }
 
     #[test]
     fn test_outline_colr_bitmap_keys_never_collide() {
         let packed = pack_color(BLACK);
-        let outline_key =
-            GlyphCacheKey::new(1, 0, 42, 16.0, false, 0.0, BLACK, packed, 0.0, 0.0, &[]);
+        let outline_key = GlyphCacheKey::new(
+            1,
+            0,
+            42,
+            16.0,
+            false,
+            0.0,
+            BLACK,
+            packed,
+            0.0,
+            0.0,
+            Join::Miter,
+            4.0,
+            0.1,
+            &[],
+        );
         let colr_key = GlyphCacheKey {
             font_id: 1,
             font_index: 0,
@@ -229,6 +300,9 @@ mod tests {
             context_color_packed: packed,
             embolden_x_bits: 0,
             embolden_y_bits: 0,
+            embolden_join_bits: join_bits(Join::Miter),
+            embolden_miter_limit_bits: 4.0_f64.to_bits(),
+            embolden_tolerance_bits: 0.1_f64.to_bits(),
             var_coords: SmallVec::new(),
         };
         let bitmap_key = GlyphCacheKey {
@@ -242,6 +316,9 @@ mod tests {
             context_color_packed: packed,
             embolden_x_bits: 0,
             embolden_y_bits: 0,
+            embolden_join_bits: join_bits(Join::Miter),
+            embolden_miter_limit_bits: 4.0_f64.to_bits(),
+            embolden_tolerance_bits: 0.1_f64.to_bits(),
             var_coords: SmallVec::new(),
         };
         assert_ne!(outline_key, colr_key);
@@ -263,7 +340,22 @@ mod tests {
         let packed = pack_color(BLACK);
         // var_coords is excluded from Hash/Eq (two-level map handles it),
         // so keys differing only in var_coords are considered equal.
-        let key1 = GlyphCacheKey::new(1, 0, 42, 16.0, true, 0.3, BLACK, packed, 0.0, 0.0, &[]);
+        let key1 = GlyphCacheKey::new(
+            1,
+            0,
+            42,
+            16.0,
+            true,
+            0.3,
+            BLACK,
+            packed,
+            0.0,
+            0.0,
+            Join::Miter,
+            4.0,
+            0.1,
+            &[],
+        );
         let key2 = GlyphCacheKey::new(
             1,
             0,
@@ -275,6 +367,9 @@ mod tests {
             packed,
             0.0,
             0.0,
+            Join::Miter,
+            4.0,
+            0.1,
             &[NormalizedCoord::from_bits(100)],
         );
         assert_eq!(key1, key2);
