@@ -9,6 +9,7 @@
 //! equal produce identical bitmaps and can safely share a single atlas entry.
 
 use crate::color::{AlphaColor, Srgb};
+use crate::glyph::FontEmbolden;
 use crate::kurbo::Join;
 use core::hash::{Hash, Hasher};
 #[cfg(not(feature = "std"))]
@@ -93,11 +94,7 @@ impl GlyphCacheKey {
         fractional_x: f32,
         context_color: AlphaColor<Srgb>,
         context_color_packed: u32,
-        embolden_x: f64,
-        embolden_y: f64,
-        embolden_join: Join,
-        embolden_miter_limit: f64,
-        embolden_tolerance: f64,
+        embolden: FontEmbolden,
         var_coords: &[NormalizedCoord],
     ) -> Self {
         Self {
@@ -109,11 +106,11 @@ impl GlyphCacheKey {
             subpixel_x: quantize_subpixel(fractional_x),
             context_color,
             context_color_packed,
-            embolden_x_bits: f32_bits(embolden_x),
-            embolden_y_bits: f32_bits(embolden_y),
-            embolden_join_bits: join_bits(embolden_join),
-            embolden_miter_limit_bits: f32_bits(embolden_miter_limit),
-            embolden_tolerance_bits: f32_bits(embolden_tolerance),
+            embolden_x_bits: f32_bits(embolden.amount.xx),
+            embolden_y_bits: f32_bits(embolden.amount.yy),
+            embolden_join_bits: join_bits(embolden.join),
+            embolden_miter_limit_bits: f32_bits(embolden.miter_limit),
+            embolden_tolerance_bits: f32_bits(embolden.tolerance),
             var_coords: SmallVec::from_slice(var_coords),
         }
     }
@@ -161,6 +158,7 @@ impl PartialEq for GlyphCacheKey {
 
 impl Eq for GlyphCacheKey {}
 
+#[inline(always)]
 fn join_bits(join: Join) -> u8 {
     match join {
         Join::Bevel => 0,
@@ -173,6 +171,7 @@ fn join_bits(join: Join) -> u8 {
     clippy::cast_possible_truncation,
     reason = "Cache keys intentionally store embolden parameters at f32 precision."
 )]
+#[inline(always)]
 fn f32_bits(value: f64) -> u32 {
     (value as f32).to_bits()
 }
@@ -252,11 +251,7 @@ mod tests {
             0.3,
             BLACK,
             packed,
-            0.0,
-            0.0,
-            Join::Miter,
-            4.0,
-            0.1,
+            FontEmbolden::default(),
             &[],
         );
         let key2 = GlyphCacheKey::new(
@@ -268,11 +263,7 @@ mod tests {
             0.3,
             BLACK,
             packed,
-            0.0,
-            0.0,
-            Join::Miter,
-            4.0,
-            0.1,
+            FontEmbolden::default(),
             &[],
         );
         assert_eq!(key1, key2);
@@ -290,11 +281,7 @@ mod tests {
             0.0,
             BLACK,
             packed,
-            0.0,
-            0.0,
-            Join::Miter,
-            4.0,
-            0.1,
+            FontEmbolden::default(),
             &[],
         );
         let colr_key = GlyphCacheKey {
@@ -357,11 +344,7 @@ mod tests {
             0.3,
             BLACK,
             packed,
-            0.0,
-            0.0,
-            Join::Miter,
-            4.0,
-            0.1,
+            FontEmbolden::default(),
             &[],
         );
         let key2 = GlyphCacheKey::new(
@@ -373,11 +356,7 @@ mod tests {
             0.3,
             BLACK,
             packed,
-            0.0,
-            0.0,
-            Join::Miter,
-            4.0,
-            0.1,
+            FontEmbolden::default(),
             &[NormalizedCoord::from_bits(100)],
         );
         assert_eq!(key1, key2);
