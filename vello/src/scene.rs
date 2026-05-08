@@ -8,7 +8,7 @@ use peniko::{
     BlendMode, Blob, Brush, BrushRef, Color, ColorStop, ColorStops, ColorStopsSource, Compose,
     Extend, Fill, FontData, Gradient, ImageBrush, ImageBrushRef, ImageData, StyleRef,
     color::{AlphaColor, DynamicColor, Srgb, palette},
-    kurbo::{Affine, BezPath, Diagonal2, Point, Rect, Shape, Stroke, StrokeOpts, Vec2},
+    kurbo::{Affine, BezPath, Diagonal2, Join, Point, Rect, Shape, Stroke, StrokeOpts, Vec2},
 };
 use png::{BitDepth, ColorType, Transformations};
 use skrifa::bitmap::BitmapFormat;
@@ -504,6 +504,9 @@ impl<'a> DrawGlyphs<'a> {
                 glyph_transform: None,
                 font_size: 16.0,
                 font_embolden: Diagonal2::new(0.0, 0.0),
+                font_embolden_join: Join::Miter,
+                font_embolden_miter_limit: 4.0,
+                font_embolden_tolerance: 0.1,
                 hint: false,
                 normalized_coords: coords_start..coords_start,
                 style: Fill::NonZero.into(),
@@ -551,6 +554,33 @@ impl<'a> DrawGlyphs<'a> {
     #[must_use]
     pub fn font_embolden(mut self, embolden: Diagonal2) -> Self {
         self.run.font_embolden = embolden;
+        self
+    }
+
+    /// Sets the join style for synthetic embolden.
+    ///
+    /// The default value is [`Join::Miter`].
+    #[must_use]
+    pub fn font_embolden_join(mut self, join: Join) -> Self {
+        self.run.font_embolden_join = join;
+        self
+    }
+
+    /// Sets the miter limit for synthetic embolden.
+    ///
+    /// The default value is 4.0.
+    #[must_use]
+    pub fn font_embolden_miter_limit(mut self, miter_limit: f64) -> Self {
+        self.run.font_embolden_miter_limit = miter_limit;
+        self
+    }
+
+    /// Sets the tolerance for synthetic embolden.
+    ///
+    /// The default value is 0.1.
+    #[must_use]
+    pub fn font_embolden_tolerance(mut self, tolerance: f64) -> Self {
+        self.run.font_embolden_tolerance = tolerance;
         self
     }
 

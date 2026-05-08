@@ -32,6 +32,9 @@ impl GlyphCache {
         coords: &'a [NormalizedCoord],
         size: f32,
         embolden: Diagonal2,
+        embolden_join: Join,
+        embolden_miter_limit: f64,
+        embolden_tolerance: f64,
         hint: bool,
         style: &'a Style,
     ) -> Option<GlyphCacheSession<'a>> {
@@ -81,6 +84,9 @@ impl GlyphCache {
             size,
             size_bits: size.ppem().unwrap().to_bits(),
             embolden,
+            embolden_join,
+            embolden_miter_limit,
+            embolden_tolerance,
             style,
             style_bits,
             outlines,
@@ -146,6 +152,9 @@ pub(crate) struct GlyphCacheSession<'a> {
     size: Size,
     size_bits: u32,
     embolden: Diagonal2,
+    embolden_join: Join,
+    embolden_miter_limit: f64,
+    embolden_tolerance: f64,
     style: &'a Style,
     style_bits: [u32; 2],
     outlines: OutlineGlyphCollection<'a>,
@@ -166,6 +175,9 @@ impl GlyphCacheSession<'_> {
             font_size_bits: self.size_bits,
             embolden_x_bits: self.embolden.xx.to_bits(),
             embolden_y_bits: self.embolden.yy.to_bits(),
+            embolden_join_bits: join_bits(self.embolden_join),
+            embolden_miter_limit_bits: self.embolden_miter_limit.to_bits(),
+            embolden_tolerance_bits: self.embolden_tolerance.to_bits(),
             style_bits: self.style_bits,
             hint: self.hinter.is_some(),
         };
@@ -201,7 +213,13 @@ impl GlyphCacheSession<'_> {
         let n_path_segments = if self.embolden != Diagonal2::new(0.0, 0.0) {
             let mut path = BezPathOutline(BezPath::new());
             outline.draw(draw_settings, &mut path).ok()?;
-            let path = peniko::kurbo::expand_path(&path.0, self.embolden, Join::Miter, 4.0, 0.1);
+            let path = peniko::kurbo::expand_path(
+                &path.0,
+                self.embolden,
+                self.embolden_join,
+                self.embolden_miter_limit,
+                self.embolden_tolerance,
+            );
             let mut encoder = encoding_ptr.encode_path(is_fill);
             encoder.path_elements(path.elements().iter().copied());
             encoder.finish(false)
@@ -235,8 +253,19 @@ struct GlyphKey {
     font_size_bits: u32,
     embolden_x_bits: u64,
     embolden_y_bits: u64,
+    embolden_join_bits: u8,
+    embolden_miter_limit_bits: u64,
+    embolden_tolerance_bits: u64,
     style_bits: [u32; 2],
     hint: bool,
+}
+
+fn join_bits(join: Join) -> u8 {
+    match join {
+        Join::Bevel => 0,
+        Join::Miter => 1,
+        Join::Round => 2,
+    }
 }
 
 struct BezPathOutline(BezPath);

@@ -3,7 +3,10 @@
 
 use std::ops::Range;
 
-use peniko::{FontData, Style, kurbo::Diagonal2};
+use peniko::{
+    FontData, Style,
+    kurbo::{Diagonal2, Join},
+};
 
 use super::{StreamOffsets, Transform};
 
@@ -31,6 +34,12 @@ pub struct GlyphRun {
     pub font_size: f32,
     /// Synthetic embolden amount.
     pub font_embolden: Diagonal2,
+    /// Join style for synthetic embolden.
+    pub font_embolden_join: Join,
+    /// Miter limit for synthetic embolden.
+    pub font_embolden_miter_limit: f64,
+    /// Tolerance for synthetic embolden.
+    pub font_embolden_tolerance: f64,
     /// True if hinting is enabled.
     pub hint: bool,
     /// Range of normalized coordinates in the parent encoding.
