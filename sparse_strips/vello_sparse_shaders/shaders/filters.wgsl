@@ -11,7 +11,7 @@
 // for the drop shadow filter, we need to composite the original content on top of the shadow.
 @group(2) @binding(0) var original_tex: texture_2d<f32>;
 
-// Keep these variables and structs in sync with the ones in `filter.rs`!
+// Keep these variables and layouts in sync with the ones in `filter.rs`!
 
 const FILTER_SIZE_BYTES: u32 = 48;
 const FILTER_SIZE_U32: u32 = FILTER_SIZE_BYTES / 4;
@@ -33,34 +33,6 @@ const PASS_COMPOSITE_DROP_SHADOW: u32 = 7u;
 
 const MAX_TAPS_PER_SIDE: u32 = 3u;
 
-// A type erased instance of a filter containing the values of all parameters.
-struct GpuFilterData {
-    data: array<u32, FILTER_SIZE_U32>
-}
-
-struct OffsetFilter {
-    dx: f32,
-    dy: f32,
-}
-
-struct FloodFilter {
-    color: u32,
-}
-
-struct BlurParams {
-    n_linear_taps: u32,
-    center_weight: f32,
-    // Note: This assumes that `MAX_TAPS_PER_SIDE` = 3.
-    linear_weights: vec3<f32>,
-    linear_offsets: vec3<f32>,
-}
-
-struct DropShadowFilter {
-    dx: f32,
-    dy: f32,
-    color: u32,
-}
-
 // The layout of the header:
 //   bits [0:4]   = filter_type   (5 bits)
 //   bits [5:6]   = edge_mode     (2 bits, only for blur filters), currently ignored.
@@ -68,54 +40,47 @@ struct DropShadowFilter {
 //   bits [11:12] = n_linear_taps (2 bits, only for blur filters)
 //   bits [13:32] = reserved for future use
 
-fn unpack_filter_type(data: GpuFilterData) -> u32 { return data.data[0] & 0x1Fu; }
-fn unpack_header_n_linear_taps(header: u32) -> u32 { return (header >> 11u) & 0x3u; }
-
-fn unpack_offset_filter(data: GpuFilterData) -> OffsetFilter {
-    return OffsetFilter(
-        bitcast<f32>(data.data[1]),
-        bitcast<f32>(data.data[2])
-    );
-}
-
-fn unpack_flood_filter(data: GpuFilterData) -> FloodFilter {
-    return FloodFilter(data.data[1]);
-}
-
-// Note that this assumes that the data is stored directly after the header,
-// which currently is the case for gaussian blur and drop shadow.
-fn unpack_blur_params(data: GpuFilterData) -> BlurParams {
-    let n_linear_taps = unpack_header_n_linear_taps(data.data[0]);
-    let center_weight = bitcast<f32>(data.data[1]);
-    let weights = vec3<f32>(
-        bitcast<f32>(data.data[2u]),
-        bitcast<f32>(data.data[3u]),
-        bitcast<f32>(data.data[4u]),
-    );
-    let offsets = vec3<f32>(
-        bitcast<f32>(data.data[2u + MAX_TAPS_PER_SIDE]),
-        bitcast<f32>(data.data[3u + MAX_TAPS_PER_SIDE]),
-        bitcast<f32>(data.data[4u + MAX_TAPS_PER_SIDE]),
-    );
-
-    return BlurParams(n_linear_taps, center_weight, weights, offsets);
-}
-
-fn unpack_drop_shadow_filter(data: GpuFilterData) -> DropShadowFilter {
-    return DropShadowFilter(
-        bitcast<f32>(data.data[8]),
-        bitcast<f32>(data.data[9]),
-        data.data[10],
-    );
-}
-
-fn load_filter_data(texel_offset: u32) -> GpuFilterData {
+fn load_filter_texel(texel_offset: u32, texel_index: u32) -> vec4<u32> {
     let w = textureDimensions(filter_data).x;
-    let t0 = textureLoad(filter_data, vec2((texel_offset     ) % w, (texel_offset     ) / w), 0);
-    let t1 = textureLoad(filter_data, vec2((texel_offset + 1u) % w, (texel_offset + 1u) / w), 0);
-    let t2 = textureLoad(filter_data, vec2((texel_offset + 2u) % w, (texel_offset + 2u) / w), 0);
-    return GpuFilterData(array(t0.x, t0.y, t0.z, t0.w, t1.x, t1.y, t1.z, t1.w, t2.x, t2.y, t2.z, t2.w));
+    let flat_index = texel_offset + texel_index;
+    return textureLoad(filter_data, vec2(flat_index % w, flat_index / w), 0);
 }
+
+fn get_filter_type(raw0: vec4<u32>) -> u32 { return raw0.x & 0x1Fu; }
+
+fn get_filter_header_n_linear_taps(raw0: vec4<u32>) -> u32 { return (raw0.x >> 11u) & 0x3u; }
+
+fn get_offset_dx(raw0: vec4<u32>) -> f32 { return bitcast<f32>(raw0.y); }
+
+fn get_offset_dy(raw0: vec4<u32>) -> f32 { return bitcast<f32>(raw0.z); }
+
+fn get_flood_color(raw0: vec4<u32>) -> u32 { return raw0.y; }
+
+fn get_blur_center_weight(raw0: vec4<u32>) -> f32 { return bitcast<f32>(raw0.y); }
+
+fn get_blur_linear_weights(raw0: vec4<u32>, raw1: vec4<u32>) -> vec3<f32> {
+    // Note: This assumes that `MAX_TAPS_PER_SIDE` = 3.
+    return vec3<f32>(
+        bitcast<f32>(raw0.z),
+        bitcast<f32>(raw0.w),
+        bitcast<f32>(raw1.x),
+    );
+}
+
+fn get_blur_linear_offsets(raw1: vec4<u32>) -> vec3<f32> {
+    // Note: This assumes that `MAX_TAPS_PER_SIDE` = 3.
+    return vec3<f32>(
+        bitcast<f32>(raw1.y),
+        bitcast<f32>(raw1.z),
+        bitcast<f32>(raw1.w),
+    );
+}
+
+fn get_drop_shadow_dx(raw2: vec4<u32>) -> f32 { return bitcast<f32>(raw2.x); }
+
+fn get_drop_shadow_dy(raw2: vec4<u32>) -> f32 { return bitcast<f32>(raw2.y); }
+
+fn get_drop_shadow_color(raw2: vec4<u32>) -> u32 { return raw2.z; }
 
 struct FilterInstanceData {
     @location(0) src_offset: vec2<u32>,
@@ -314,6 +279,9 @@ fn convolve(
 const HORIZONTAL: vec2<f32> = vec2<f32>(1.0, 0.0);
 const VERTICAL: vec2<f32> = vec2<f32>(0.0, 1.0);
 
+// Note: When extending the fragment shader, do not create new structs.
+// See also https://github.com/linebender/vello/pull/1604 for more information on why.
+
 @fragment
 fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
     let frag_coord = vec2<u32>(in.position.xy);
@@ -329,22 +297,18 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
             return sample_input(in, rel_coord);
         }
         case PASS_FLOOD: {
-            let data = load_filter_data(in.filter_offset);
-            let flood = unpack_flood_filter(data);
-
-            return unpack4x8unorm(flood.color);
+            let filter_raw0 = load_filter_texel(in.filter_offset, 0u);
+            return unpack4x8unorm(get_flood_color(filter_raw0));
         }
         case PASS_OFFSET: {
-            let data = load_filter_data(in.filter_offset);
-            let filter_type = unpack_filter_type(data);
+            let filter_raw0 = load_filter_texel(in.filter_offset, 0u);
             var dxdy: vec2<f32>;
 
-            if filter_type == FILTER_TYPE_DROP_SHADOW {
-                let shadow = unpack_drop_shadow_filter(data);
-                dxdy = vec2<f32>(shadow.dx, shadow.dy);
+            if get_filter_type(filter_raw0) == FILTER_TYPE_DROP_SHADOW {
+                let filter_raw2 = load_filter_texel(in.filter_offset, 2u);
+                dxdy = vec2<f32>(get_drop_shadow_dx(filter_raw2), get_drop_shadow_dy(filter_raw2));
             } else {
-                let offset = unpack_offset_filter(data);
-                dxdy = vec2<f32>(offset.dx, offset.dy);
+                dxdy = vec2<f32>(get_offset_dx(filter_raw0), get_offset_dy(filter_raw0));
             }
 
             // CPU version uses normal round but WGSL round with ties even, so we use floor + 0.5 instead.
@@ -354,24 +318,39 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
             return downscale(in);
         }
         case PASS_BLUR_H: {
-            let data = load_filter_data(in.filter_offset);
-            let blur = unpack_blur_params(data);
-            return convolve(in, rel_coord, HORIZONTAL, blur.n_linear_taps, blur.center_weight, blur.linear_weights, blur.linear_offsets);
+            let filter_raw0 = load_filter_texel(in.filter_offset, 0u);
+            let filter_raw1 = load_filter_texel(in.filter_offset, 1u);
+            return convolve(
+                in,
+                rel_coord,
+                HORIZONTAL,
+                get_filter_header_n_linear_taps(filter_raw0),
+                get_blur_center_weight(filter_raw0),
+                get_blur_linear_weights(filter_raw0, filter_raw1),
+                get_blur_linear_offsets(filter_raw1),
+            );
         }
         case PASS_BLUR_V: {
-            let data = load_filter_data(in.filter_offset);
-            let blur = unpack_blur_params(data);
-            return convolve(in, rel_coord, VERTICAL, blur.n_linear_taps, blur.center_weight, blur.linear_weights, blur.linear_offsets);
+            let filter_raw0 = load_filter_texel(in.filter_offset, 0u);
+            let filter_raw1 = load_filter_texel(in.filter_offset, 1u);
+            return convolve(
+                in,
+                rel_coord,
+                VERTICAL,
+                get_filter_header_n_linear_taps(filter_raw0),
+                get_blur_center_weight(filter_raw0),
+                get_blur_linear_weights(filter_raw0, filter_raw1),
+                get_blur_linear_offsets(filter_raw1),
+            );
         }
         case PASS_UPSCALE: {
             return upscale(in);
         }
         case PASS_COMPOSITE_DROP_SHADOW: {
-            let data = load_filter_data(in.filter_offset);
+            let filter_raw2 = load_filter_texel(in.filter_offset, 2u);
             // Drop shadow composite: colorize blurred result, composite original on top.
-            let shadow = unpack_drop_shadow_filter(data);
             let blurred = sample_input(in, rel_coord);
-            let shadow_color = unpack4x8unorm(shadow.color);
+            let shadow_color = unpack4x8unorm(get_drop_shadow_color(filter_raw2));
             let shadow_result = shadow_color * blurred.a;
             let original = sample_original(in, rel_coord);
 
