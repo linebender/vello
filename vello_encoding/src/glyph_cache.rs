@@ -254,6 +254,7 @@ struct GlyphKey {
     hint: bool,
 }
 
+#[inline(always)]
 fn join_bits(join: Join) -> u8 {
     match join {
         Join::Bevel => 0,
@@ -266,6 +267,7 @@ fn join_bits(join: Join) -> u8 {
     clippy::cast_possible_truncation,
     reason = "Cache keys intentionally store embolden parameters at f32 precision."
 )]
+#[inline(always)]
 fn f32_bits(value: f64) -> u32 {
     (value as f32).to_bits()
 }

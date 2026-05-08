@@ -7,12 +7,12 @@ use crate::renderer::Renderer;
 #[cfg(target_os = "macos")]
 use crate::util::layout_glyphs_apple_color_emoji;
 use crate::util::{layout_glyphs_noto_cbtf, layout_glyphs_noto_colr, layout_glyphs_roboto};
-use glifo::Glyph;
+use glifo::{FontEmbolden, Glyph};
 use std::f64::consts::FRAC_PI_4;
 use std::iter;
 use std::sync::Arc;
 use vello_common::color::palette::css::{BLACK, BLUE, GREEN, REBECCA_PURPLE};
-use vello_common::kurbo::{Affine, Stroke};
+use vello_common::kurbo::{Affine, Diagonal2, Stroke};
 use vello_common::peniko::{Blob, FontData};
 use vello_dev_macros::vello_test;
 
@@ -123,6 +123,28 @@ fn glyphs_filled_unhinted(ctx: &mut impl Renderer, enable_caching: bool) {
         .font_size(font_size)
         .atlas_cache(enable_caching)
         .hint(false)
+        .fill_glyphs(glyphs.into_iter());
+}
+
+#[vello_test(width = 760, height = 140)]
+fn glyphs_emboldened(ctx: &mut impl Renderer) {
+    let font_size: f32 = 44_f32;
+    let (font, glyphs) = layout_glyphs_roboto("this is regular and emboldened text", font_size);
+
+    ctx.set_transform(Affine::translate((0., f64::from(font_size))));
+    ctx.set_paint(REBECCA_PURPLE.with_alpha(0.5));
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .hint(true)
+        .fill_glyphs(glyphs.into_iter());
+
+    let (font, glyphs) = layout_glyphs_roboto("this is regular and emboldened text", font_size);
+
+    ctx.set_transform(Affine::translate((0., f64::from(font_size) + 58.0)));
+    ctx.glyph_run(&font)
+        .font_size(font_size)
+        .font_embolden(FontEmbolden::new(Diagonal2::new(1.0, 1.0)))
+        .hint(true)
         .fill_glyphs(glyphs.into_iter());
 }
 
