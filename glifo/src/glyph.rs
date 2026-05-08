@@ -164,6 +164,8 @@ pub(crate) struct PreparedGlyph<'a> {
 pub(crate) struct GlyphOutline {
     /// The path of the glyph (shared with the outline cache via `Arc`).
     pub(crate) path: Arc<BezPath>,
+    /// Scale from the cached outline size to the requested draw size.
+    pub(crate) scale: f64,
 }
 
 /// A glyph defined by a bitmap.
@@ -384,6 +386,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             // On a miss we keep both for reuse in the outline branch below.
             let outline_transform =
                 calculate_outline_transform(glyph, draw_props, hinting_instance);
+            let scale_props =
+                GlyphScaleProperties::new(draw_props.font_size, upem, hinting_instance, style);
             let outline_cache_key = outline_cache_enabled.then(|| {
                 let fractional_x = outline_transform.translation().x.fract() as f32;
                 GlyphCacheKey::new(
@@ -565,7 +569,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                 font_id,
                 font_index,
                 &mut outline_cache_session,
-                draw_props.font_size,
+                scale_props.cache_size,
+                scale_props.draw_scale,
                 font_embolden,
                 &outline,
                 hinting_instance,
@@ -628,6 +633,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
         buffer: f32,
     ) -> impl Iterator<Item = Rect> + 'c {
         let font_ref = self.prepared_run.font.as_skrifa();
+        let upem: f32 = font_ref.head().map(|h| h.units_per_em()).unwrap().into();
         let outlines = font_ref.outline_glyphs();
 
         let PreparedGlyphRun {
@@ -644,7 +650,10 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
         // `draw_props.font_size`, outlines are generated in that scaled coordinate space. We scale them back
         // to the nominal coordinate space. The glyph-drawing path handles this by
         // simply drawing in global space, but we need to invert it for drawing decorations.
-        let outline_to_nominal_scale = f64::from(self.prepared_run.run_size / draw_props.font_size);
+        let scale_props =
+            GlyphScaleProperties::new(draw_props.font_size, upem, hinting_instance, Style::Fill);
+        let outline_to_nominal_scale =
+            f64::from(self.prepared_run.run_size / scale_props.cache_size);
         let outline_transform = self
             .prepared_run
             .glyph_transform
@@ -683,7 +692,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                 glyph.id,
                 self.prepared_run.font.data.id(),
                 self.prepared_run.font.index,
-                draw_props.font_size,
+                scale_props.cache_size,
                 font_embolden,
                 var_key,
                 &outline,
@@ -1009,6 +1018,7 @@ fn create_outline_glyph<'a>(
     font_index: u32,
     outline_cache: &'a mut OutlineCacheSession<'_>,
     size: f32,
+    scale: f64,
     embolden: FontEmbolden,
     outline_glyph: &skrifa::outline::OutlineGlyph<'a>,
     hinting_instance: Option<&HintingInstance>,
@@ -1027,7 +1037,43 @@ fn create_outline_glyph<'a>(
 
     GlyphType::Outline(GlyphOutline {
         path: Arc::clone(cached.path),
+        scale,
     })
+}
+
+struct GlyphScaleProperties {
+    /// The size at which the outline was cached.
+    cache_size: f32,
+    /// The scale factor that needs to be applied to scale the outline
+    /// to the draw size.
+    draw_scale: f64,
+}
+
+impl GlyphScaleProperties {
+    fn new(
+        draw_font_size: f32,
+        upem: f32,
+        hinting_instance: Option<&HintingInstance>,
+        style: Style,
+    ) -> Self {
+        if hinting_instance.is_some() || style == Style::Stroke {
+            // For hinting, we need to preserve the original font size since outlines are
+            // scale-dependent.
+            // For stroking, we need to preserve the font size because the stroke width would
+            // be affected by any additional transform (we could support them
+            // in the future by scaling the outlines directly instead of folding the scale into
+            // the draw transform, but that would require cloning the `BezPath`).
+            Self {
+                cache_size: draw_font_size,
+                draw_scale: 1.0,
+            }
+        } else {
+            Self {
+                cache_size: upem,
+                draw_scale: f64::from(draw_font_size / upem),
+            }
+        }
+    }
 }
 
 /// Calculate transform for outline glyphs.
