@@ -15,6 +15,15 @@ You can find its changes [documented below](#007---2026-03-24).
 
 This release has an [MSRV][] of 1.88.
 
+### Added
+
+- Support for sampling from external textures through `Scene::draw_texture_rects`. ([#1552][] by [@tomcur][]) 
+  
+  This method can sample many regions from a texture at once, allowing the texture to be used as an atlas.
+  You bind the textures at render-time (as opposed to scene-construction time), allowing drawing of quickly-changing textures without interning them into the renderer.
+
+  External textures are not yet supported by the `webgl` backend.
+
 ### Removed
 
 - Support for recordings. This decision was made due to a number of downsides that
@@ -107,6 +116,7 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1492]: https://github.com/linebender/vello/pull/1492
 [#1494]: https://github.com/linebender/vello/pull/1494
 [#1496]: https://github.com/linebender/vello/pull/1496
+[#1552]: https://github.com/linebender/vello/pull/1552
 [#1611]: https://github.com/linebender/vello/pull/1611
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.7...HEAD

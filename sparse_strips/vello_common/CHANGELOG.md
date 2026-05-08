@@ -15,6 +15,10 @@ You can find its changes [documented below](#007---2026-03-24).
 
 This release has an [MSRV][] of 1.88.
 
+### Added
+
+- `TextureId`, a handle for user-provided textures resolved at render-time, and `EncodedExternalTexture` for encoding draws that sample from them. ([#1552][] by [@tomcur][])
+
 ### Optimized
 
 - Performance of clipped drawing by culling geometry outside the clip bounding box during flattening. ([#1519][] by [@tomcur][])
@@ -194,6 +198,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1484]: https://github.com/linebender/vello/pull/1484
 [#1486]: https://github.com/linebender/vello/pull/1486
 [#1519]: https://github.com/linebender/vello/pull/1519
+[#1552]: https://github.com/linebender/vello/pull/1552
 [#1611]: https://github.com/linebender/vello/pull/1611
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.7...HEAD
