@@ -674,6 +674,18 @@ fn left_cull_cross_left_combined(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect_bot);
 }
 
+#[vello_test(width = 30, height = 60)]
+fn left_cull_triangle_expands_below_viewport(ctx: &mut impl Renderer) {
+    let mut path = BezPath::new();
+    path.move_to((15.0, 2.0));
+    path.line_to((52.0, 72.0));
+    path.line_to((-22.0, 72.0));
+    path.close_path();
+
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_path(&path);
+}
+
 #[vello_test(width = 30, height = 30)]
 fn left_cull_encloses_viewport(ctx: &mut impl Renderer) {
     let rect = Rect::new(-50.0, -50.0, 80.0, 80.0);
