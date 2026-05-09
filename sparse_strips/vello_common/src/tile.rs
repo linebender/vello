@@ -80,10 +80,13 @@ impl CulledWindings {
 
     /// Clears but does not resize
     pub fn reset(&mut self) {
+        // TODO: Maybe consider tracking touched regions and only resetting those
+        // instead of always the full array?
         if self.culled {
             self.partial.fill([0.0; Tile::HEIGHT as usize]);
             self.coarse.fill(0);
             self.active.fill(0);
+            self.culled = false;
         }
     }
 
@@ -501,7 +504,6 @@ impl Tiles {
         height: u16,
     ) -> bool {
         self.reset();
-        self.windings.culled = false;
 
         if width == 0 || height == 0 {
             return self.windings.culled;
