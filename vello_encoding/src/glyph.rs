@@ -82,6 +82,11 @@ pub struct GlyphRun {
     pub transform: Transform,
     /// Per-glyph transform.
     pub glyph_transform: Option<Transform>,
+    /// Additional transform applied to the brush contents after the global run transform.
+    ///
+    /// This is encoded as the run's paint transform and affects transformed
+    /// brushes such as gradients and images; solid colors ignore it.
+    pub brush_transform: Option<Transform>,
     /// Size of the font in pixels per em.
     pub font_size: f32,
     /// Synthetic embolden settings.

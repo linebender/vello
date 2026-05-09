@@ -504,6 +504,7 @@ impl<'a> DrawGlyphs<'a> {
                 font: font.clone(),
                 transform: Transform::IDENTITY,
                 glyph_transform: None,
+                brush_transform: None,
                 font_size: 16.0,
                 font_embolden: FontEmbolden::default(),
                 hint: false,
@@ -535,6 +536,19 @@ impl<'a> DrawGlyphs<'a> {
     #[must_use]
     pub fn glyph_transform(mut self, transform: Option<Affine>) -> Self {
         self.run.glyph_transform = transform.map(|xform| Transform::from_kurbo(&xform));
+        self
+    }
+
+    /// Sets the transform applied to the brush contents.
+    ///
+    /// This is applied after the global run [transform](Self::transform) and is
+    /// encoded as the glyph run's paint transform. It affects transformed
+    /// brushes such as gradients and images; solid colors ignore it.
+    ///
+    /// The default value is `None`.
+    #[must_use]
+    pub fn brush_transform(mut self, transform: Option<Affine>) -> Self {
+        self.run.brush_transform = transform.map(|xform| Transform::from_kurbo(&xform));
         self
     }
 

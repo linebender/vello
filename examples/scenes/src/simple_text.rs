@@ -72,6 +72,7 @@ impl SimpleText {
             &Brush::Solid(palette::css::WHITE),
             transform,
             glyph_transform,
+            None,
             style,
             text,
             false,
@@ -104,6 +105,7 @@ impl SimpleText {
             &Brush::Solid(palette::css::WHITE),
             transform,
             glyph_transform,
+            None,
             style,
             text,
             false,
@@ -118,6 +120,7 @@ impl SimpleText {
         brush: impl Into<BrushRef<'a>>,
         transform: Affine,
         glyph_transform: Option<Affine>,
+        brush_transform: Option<Affine>,
         style: impl Into<StyleRef<'a>>,
         text: &str,
     ) {
@@ -129,6 +132,7 @@ impl SimpleText {
             brush,
             transform,
             glyph_transform,
+            brush_transform,
             style,
             text,
             false,
@@ -148,6 +152,7 @@ impl SimpleText {
         brush: impl Into<BrushRef<'a>>,
         transform: Affine,
         glyph_transform: Option<Affine>,
+        brush_transform: Option<Affine>,
         style: impl Into<StyleRef<'a>>,
         text: &str,
         hint: bool,
@@ -175,6 +180,7 @@ impl SimpleText {
             .font_size(size)
             .transform(transform)
             .glyph_transform(glyph_transform)
+            .brush_transform(brush_transform)
             .normalized_coords(bytemuck::cast_slice(var_loc.coords()))
             .brush(brush)
             .hint(hint)
@@ -215,6 +221,7 @@ impl SimpleText {
             size,
             brush,
             transform,
+            None,
             None,
             Fill::NonZero,
             text,

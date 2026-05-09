@@ -68,6 +68,7 @@ fn encode_apple_bitmap(text: &str, font_size: f32) -> Scene {
         &Brush::Solid(palette::css::WHITE),
         Affine::translate((0., f64::from(font_size))),
         None,
+        None,
         Fill::EvenOdd,
         text,
         false,
