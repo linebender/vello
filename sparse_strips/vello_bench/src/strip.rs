@@ -88,12 +88,7 @@ pub fn render_strips_cull(c: &mut Criterion) {
         let shifted_lines = shift_lines_50_percent(&item.lines());
 
         let mut tiler = Tiles::new(simd_level, item.height);
-        tiler.make_tiles_analytic_aa::<true>(
-            simd_level,
-            &shifted_lines,
-            item.width,
-            item.height,
-        );
+        tiler.make_tiles_analytic_aa(simd_level, &shifted_lines, item.width, item.height);
         tiler.sort_tiles();
 
         g_cull.bench_function(item.name.clone().to_string(), |b| {

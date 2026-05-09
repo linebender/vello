@@ -74,7 +74,7 @@ fn main() {
     }
 
     if stages.iter().any(|s| s.requires_tiling()) {
-        tiles.make_tiles_analytic_aa::<false>(Level::new(), &line_buf, args.width, args.height);
+        tiles.make_tiles_analytic_aa(Level::new(), &line_buf, args.width, args.height);
         tiles.sort_tiles();
     }
 

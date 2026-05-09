@@ -486,14 +486,14 @@ impl Tiles {
     /// function performs "coarse binning" to simply identify every tile a line segment traverses.
     /// It encodes the line index and winding direction, delegating the precise calculation of pixel
     /// coverage to `strip::render`.
-    pub fn make_tiles_analytic_aa<const USE_EARLY_CULL: bool>(
+    pub fn make_tiles_analytic_aa(
         &mut self,
         level: Level,
         lines: &[Line],
         width: u16,
         height: u16,
     ) -> bool {
-        dispatch!(level, simd => self.make_tiles_analytic_aa_impl::<_, USE_EARLY_CULL>(
+        dispatch!(level, simd => self.make_tiles_analytic_aa_impl::<_>(
             simd,
             lines,
             width,
@@ -501,7 +501,7 @@ impl Tiles {
         ))
     }
 
-    fn make_tiles_analytic_aa_impl<S: Simd, const USE_EARLY_CULL: bool>(
+    fn make_tiles_analytic_aa_impl<S: Simd>(
         &mut self,
         s: S,
         lines: &[Line],
@@ -587,7 +587,7 @@ impl Tiles {
 
             // Lines fully to the left of the viewport are not visible but still produce winding
             // which we record here and forward to the rendering stage.
-            if USE_EARLY_CULL && line_right_x < 0.0 {
+            if line_right_x < 0.0 {
                 let is_start_culled = line_top_y < 0.0;
                 if !is_start_culled {
                     self.windings.mark_row_active(y_top_tiles as usize);
@@ -705,7 +705,7 @@ impl Tiles {
                         let row_left_x = f32::min(row_top_x, row_bottom_x).max(line_left_x);
                         let row_right_x = f32::max(row_top_x, row_bottom_x).min(line_right_x);
 
-                        if USE_EARLY_CULL && row_left_x < 0.0 {
+                        if row_left_x < 0.0 {
                             self.windings.culled = true;
                             if row_right_x < 0.0 {
                                 // Although the line may cross the left edge, the rightmost point in
@@ -1191,7 +1191,6 @@ mod tests {
 
     const VIEW_DIM: u16 = 100;
     const F_V_DIM: f32 = VIEW_DIM as f32;
-    const NO_EARLY_CULL: bool = false;
 
     impl Tiles {
         fn assert_tiles_match(
@@ -1204,7 +1203,7 @@ mod tests {
             self.make_tiles_msaa(lines, width, height);
             assert_eq!(self.tile_buf, expected, "MSAA: Tile buffer mismatch");
 
-            self.make_tiles_analytic_aa::<NO_EARLY_CULL>(Level::baseline(), lines, width, height);
+            self.make_tiles_analytic_aa(Level::baseline(), lines, width, height);
             check_analytic_aa_matches(&self.tile_buf, expected);
         }
     }
@@ -2303,7 +2302,7 @@ mod tests {
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
         tiles.make_tiles_msaa(&[line], 600, 600);
-        tiles.make_tiles_analytic_aa::<NO_EARLY_CULL>(Level::baseline(), &[line], 600, 600);
+        tiles.make_tiles_analytic_aa(Level::baseline(), &[line], 600, 600);
     }
 
     #[test]
@@ -2321,7 +2320,7 @@ mod tests {
         };
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
-        tiles.make_tiles_analytic_aa::<NO_EARLY_CULL>(Level::baseline(), &[line], 200, 100);
+        tiles.make_tiles_analytic_aa(Level::baseline(), &[line], 200, 100);
         tiles.make_tiles_msaa(&[line], 200, 100);
     }
 
@@ -2357,12 +2356,7 @@ mod tests {
         tiles.sort_tiles();
         check_sorted(&tiles.tile_buf);
 
-        tiles.make_tiles_analytic_aa::<NO_EARLY_CULL>(
-            Level::baseline(),
-            &lines,
-            VIEW_DIM,
-            VIEW_DIM,
-        );
+        tiles.make_tiles_analytic_aa(Level::baseline(), &lines, VIEW_DIM, VIEW_DIM);
         assert!(tiles.tile_buf.first().unwrap().y > tiles.tile_buf.last().unwrap().y);
         tiles.sort_tiles();
         check_sorted(&tiles.tile_buf);

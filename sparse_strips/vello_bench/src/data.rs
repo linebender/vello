@@ -134,7 +134,7 @@ impl DataItem {
     pub fn unsorted_tiles(&self) -> Tiles {
         let mut tiles = Tiles::new(Level::new(), self.height);
         let lines = self.lines();
-        tiles.make_tiles_analytic_aa::<false>(Level::new(), &lines, self.width, self.height);
+        tiles.make_tiles_analytic_aa(Level::new(), &lines, self.width, self.height);
 
         tiles
     }

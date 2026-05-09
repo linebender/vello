@@ -174,12 +174,8 @@ impl StripGenerator {
         fill_rule: Fill,
         clip_path: Option<PathDataRef<'_>>,
     ) {
-        self.tiles.make_tiles_analytic_aa::<true>(
-            self.level,
-            &self.line_buf,
-            self.width,
-            self.height,
-        );
+        self.tiles
+            .make_tiles_analytic_aa(self.level, &self.line_buf, self.width, self.height);
 
         self.tiles.sort_tiles();
 

@@ -34,7 +34,7 @@ where
 
 pub fn tile(c: &mut Criterion) {
     run_tile_benchmark::<false, _>(c, "tile_aaa", |tiler, lines, w, h| {
-        tiler.make_tiles_analytic_aa::<false>(Level::new(), lines, w, h);
+        tiler.make_tiles_analytic_aa(Level::new(), lines, w, h);
     });
 
     run_tile_benchmark::<false, _>(c, "tile_msaa", |tiler, lines, w, h| {
@@ -42,10 +42,6 @@ pub fn tile(c: &mut Criterion) {
     });
 
     run_tile_benchmark::<true, _>(c, "tile_aaa_shift50", |tiler, lines, w, h| {
-        tiler.make_tiles_analytic_aa::<false>(Level::new(), lines, w, h);
-    });
-
-    run_tile_benchmark::<true, _>(c, "tile_aaa_shift50_cull", |tiler, lines, w, h| {
-        tiler.make_tiles_analytic_aa::<true>(Level::new(), lines, w, h);
+        tiler.make_tiles_analytic_aa(Level::new(), lines, w, h);
     });
 }
