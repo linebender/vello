@@ -437,6 +437,11 @@ impl Tiles {
         self.tile_buf.is_empty()
     }
 
+    /// Returns `true` if any geometry was early-culled outside the viewport.
+    pub fn has_culled_tiles(&self) -> bool {
+        self.windings.culled
+    }
+
     /// Reset the tiles' container.
     pub fn reset(&mut self) {
         self.windings.reset();

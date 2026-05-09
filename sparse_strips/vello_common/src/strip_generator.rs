@@ -174,7 +174,7 @@ impl StripGenerator {
         fill_rule: Fill,
         clip_path: Option<PathDataRef<'_>>,
     ) {
-        let culled_tiles = self.tiles.make_tiles_analytic_aa::<true>(
+        self.tiles.make_tiles_analytic_aa::<true>(
             self.level,
             &self.line_buf,
             self.width,
@@ -200,7 +200,6 @@ impl StripGenerator {
                     fill_rule,
                     aliasing_threshold,
                     line_buf,
-                    culled_tiles,
                 );
             },
         );

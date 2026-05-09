@@ -87,7 +87,6 @@ fn main() {
             args.fill_rule,
             None,
             &line_buf,
-            false,
         );
     }
 

@@ -162,7 +162,6 @@ impl DataItem {
             Fill::NonZero,
             None,
             &lines,
-            false,
         );
 
         (alpha_buf, strip_buf)

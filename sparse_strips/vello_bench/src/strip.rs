@@ -57,7 +57,6 @@ pub fn render_strips(c: &mut Criterion) {
                         Fill::NonZero,
                         None,
                         &lines,
-                        false,
                     );
                     std::hint::black_box((&strip_buf, &alpha_buf));
                 })
@@ -89,7 +88,7 @@ pub fn render_strips_cull(c: &mut Criterion) {
         let shifted_lines = shift_lines_50_percent(&item.lines());
 
         let mut tiler = Tiles::new(simd_level, item.height);
-        let is_culled = tiler.make_tiles_analytic_aa::<true>(
+        tiler.make_tiles_analytic_aa::<true>(
             simd_level,
             &shifted_lines,
             item.width,
@@ -113,7 +112,6 @@ pub fn render_strips_cull(c: &mut Criterion) {
                     Fill::NonZero,
                     None,
                     &shifted_lines,
-                    is_culled,
                 );
                 std::hint::black_box((&strip_buf, &alpha_buf));
             });
