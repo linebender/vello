@@ -45,6 +45,8 @@ pub const MAX_LINES_PER_PATH: u32 = 1 << (32 - INT_MASK_SHIFT);
 pub struct CulledWindings {
     /// Fractional winding coverage for each individual scanline in a row.
     pub partial: Vec<[f32; Tile::HEIGHT as usize]>,
+    // Note that this will cause issues if we have windings greater/less than i8,
+    // but this should only occur in pathological cases.
     /// Accumulated integer winding deltas for each tile row.
     pub coarse: Vec<i8>,
     /// Bitmask tracking which rows contain active geometry or winding data.
@@ -589,11 +591,18 @@ impl Tiles {
             // which we record here and forward to the rendering stage.
             if line_right_x < 0.0 {
                 let is_start_culled = line_top_y < 0.0;
+
+                // This branch is for handling the "start" of the line. In case
+                // the line reaches above the viewport, we are already in the
+                // middle so we can skip that part.
                 if !is_start_culled {
                     self.windings.mark_row_active(y_top_tiles as usize);
 
-                    let crosses_top = line_top_y <= f32::from(y_top_tiles);
-                    if crosses_top {
+                    // Note: In theory, == should be enough, but just as
+                    // additional safety against numerical precision errors we
+                    // use <=.
+                    let at_top_of_tile = line_top_y <= f32::from(y_top_tiles);
+                    if at_top_of_tile {
                         self.windings.coarse[y_top_tiles as usize] += dir;
                     }
 
@@ -603,13 +612,13 @@ impl Tiles {
                     let current = f32x4::from_slice(s, target_row);
 
                     // See comment below on the double counting risk!
-                    let double_count = if crosses_top {
+                    let double_count = if at_top_of_tile {
                         f_dir_v
                     } else {
                         f32x4::splat(s, 0.0)
                     };
                     let next = fractional_coverage.mul_add(f_dir_v, current - double_count);
-                    target_row.copy_from_slice(next.as_slice());
+                    next.store_slice(target_row);
                 }
 
                 let y_start_middle = if is_start_culled {
@@ -633,21 +642,22 @@ impl Tiles {
                     && (is_start_culled || y_end_middle != y_top_tiles)
                 {
                     self.windings.mark_row_active(y_end_middle as usize);
-                    self.windings.coarse[y_end_middle as usize] += dir; // Ends implicitly cross the top
+                    // Ends implicitly cross the top.
+                    self.windings.coarse[y_end_middle as usize] += dir;
                     let fractional_coverage =
                         calc_fractional_coverage!(y_end_middle, line_top_y, line_bottom_y);
                     let target_row = &mut self.windings.partial[y_end_middle as usize];
                     let current = f32x4::from_slice(s, target_row);
-                    // Subtract the inverse direction to avoid double counting with the coarse winding
+                    // Subtract the inverse direction to avoid double counting with the coarse winding.
                     let next = fractional_coverage.mul_add(f_dir_v, current - f_dir_v);
-                    target_row.copy_from_slice(next.as_slice());
+                    next.store_slice(target_row);
                 }
 
                 self.windings.culled = true;
                 continue;
             }
 
-            // Get tile coordinates for start/end points, use i32 to preserve negative coordinates
+            // Get tile coordinates for start/end points, use i32 to preserve negative coordinates.
             let p0_tile_x = line_top_x.floor() as i32;
             let p0_tile_y = line_top_y.floor() as i32;
             let p1_tile_x = line_bottom_x.floor() as i32;
@@ -707,6 +717,7 @@ impl Tiles {
 
                         if row_left_x < 0.0 {
                             self.windings.culled = true;
+
                             if row_right_x < 0.0 {
                                 // Although the line may cross the left edge, the rightmost point in
                                 // this row may still be fully left of the viewport. In this case,
@@ -723,12 +734,15 @@ impl Tiles {
                                 let target_row = &mut self.windings.partial[y_idx as usize];
                                 let current = f32x4::from_slice(s, target_row);
 
-                                let next = if crosses_top {
-                                    fractional_coverage.mul_add(f_dir_v, current - f_dir_v)
+                                let double_count = if crosses_top {
+                                    f_dir_v
                                 } else {
-                                    fractional_coverage.mul_add(f_dir_v, current)
+                                    f32x4::splat(s, 0.0)
                                 };
-                                target_row.copy_from_slice(next.as_slice());
+                                let next =
+                                    fractional_coverage.mul_add(f_dir_v, current - double_count);
+                                next.store_slice(target_row);
+
                                 return;
                             } else {
                                 // The line crosses into the viewport in this row. Record only the
@@ -753,7 +767,7 @@ impl Tiles {
                                     let target_row = &mut self.windings.partial[y_idx as usize];
                                     let current = f32x4::from_slice(s, target_row);
                                     let next = fractional_coverage.mul_add(f_dir_v, current);
-                                    target_row.copy_from_slice(next.as_slice());
+                                    next.store_slice(target_row);
                                 }
                             }
                         }
