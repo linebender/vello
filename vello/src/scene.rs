@@ -303,6 +303,9 @@ impl Scene {
                 radius as _,
                 std_dev as _,
             );
+            #[cfg(feature = "bump_estimate")]
+            self.estimator
+                .count_blurred_rounded_rect(shape.path_elements(0.1), &t);
         }
     }
 
