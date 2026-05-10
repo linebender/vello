@@ -703,6 +703,34 @@ impl Tiles {
                     let w_start_base = dx_dir << WINDING_SHIFT;
                     let w_end_base = not_dx_dir << WINDING_SHIFT;
 
+                    let push_row_extents = {
+                        #[inline(always)]
+                        |tile_buf: &mut Vec<Tile>,
+                         y_idx: u16,
+                         row_left_x: f32,
+                         row_right_x: f32,
+                         w_start: u32,
+                         w_end: u32,
+                         w_single: u32| {
+                            let x_start = row_left_x as u16;
+                            let x_end = (row_right_x as u16).min(tile_columns - 1);
+
+                            if x_start <= x_end {
+                                let winding = if x_start == x_end { w_single } else { w_start };
+
+                                tile_buf.push(Tile::new(x_start, y_idx, line_idx, winding));
+
+                                for x_idx in x_start.saturating_add(1)..x_end {
+                                    tile_buf.push(Tile::new(x_idx, y_idx, line_idx, 0));
+                                }
+
+                                if x_start < x_end {
+                                    tile_buf.push(Tile::new(x_end, y_idx, line_idx, w_end));
+                                }
+                            }
+                        }
+                    };
+
                     let mut push_row = {
                         #[inline(always)]
                         |y_idx: u16,
@@ -775,51 +803,99 @@ impl Tiles {
                                 }
                             }
 
-                            let x_start = row_left_x as u16;
-                            let x_end = (row_right_x as u16).min(tile_columns.saturating_sub(1));
-
-                            if x_start <= x_end {
-                                let winding = if x_start == x_end { w_single } else { w_start };
-
-                                self.tile_buf
-                                    .push(Tile::new(x_start, y_idx, line_idx, winding));
-
-                                for x_idx in x_start.saturating_add(1)..x_end {
-                                    self.tile_buf.push(Tile::new(x_idx, y_idx, line_idx, 0));
-                                }
-
-                                if x_start < x_end {
-                                    self.tile_buf.push(Tile::new(x_end, y_idx, line_idx, w_end));
-                                }
-                            }
+                            push_row_extents(
+                                &mut self.tile_buf,
+                                y_idx,
+                                row_left_x,
+                                row_right_x,
+                                w_start,
+                                w_end,
+                                w_single,
+                            );
                         }
                     };
 
                     let is_start_culled = line_top_y < 0.0;
-                    if !is_start_culled {
-                        let y = f32::from(y_top_tiles);
-                        let row_bottom_y = (y + 1.0).min(line_bottom_y);
-                        let mask = ((y >= line_top_y) as u32) << WINDING_SHIFT;
-                        push_row(
-                            y_top_tiles,
-                            line_top_y,
-                            row_bottom_y,
-                            w_start_base & mask,
-                            w_end_base & mask,
-                            W & mask,
-                        );
-                    }
+                    // This branch is taken in case the line is completely inside
+                    // the viewport, allowing us to save many calculations that
+                    // otherwise would need to be made viewport culling work.
+                    if line_left_x >= 0.0 && line_right_x < tile_columns as f32 {
+                        if !is_start_culled {
+                            let y = f32::from(y_top_tiles);
+                            let row_bottom_y = (y + 1.0).min(line_bottom_y);
+                            let row_bottom_x = if row_bottom_y == line_bottom_y {
+                                line_bottom_x
+                            } else {
+                                p0_x + (row_bottom_y - p0_y) * x_slope
+                            };
+                            let mask = ((y >= line_top_y) as u32) << WINDING_SHIFT;
+                            push_row_extents(
+                                &mut self.tile_buf,
+                                y_top_tiles,
+                                f32::min(line_top_x, row_bottom_x),
+                                f32::max(line_top_x, row_bottom_x),
+                                w_start_base & mask,
+                                w_end_base & mask,
+                                W & mask,
+                            );
+                        }
 
-                    let y_start = if is_start_culled {
-                        y_top_tiles
+                        let y_start = if is_start_culled {
+                            y_top_tiles
+                        } else {
+                            y_top_tiles + 1
+                        };
+
+                        if y_start < y_bottom_tiles {
+                            let mut row_top_x = p0_x + (f32::from(y_start) - p0_y) * x_slope;
+                            for y_idx in y_start..y_bottom_tiles {
+                                let y = f32::from(y_idx);
+                                // Note: We purposefully don't precompute it once
+                                // and just increment by `x_slope` after every iteration
+                                // to avoid errors due to floating point inaccuracies.
+                                let row_bottom_x = if line_bottom_y < y + 1.0 {
+                                    line_bottom_x
+                                } else {
+                                    p0_x + (y + 1.0 - p0_y) * x_slope
+                                };
+                                push_row_extents(
+                                    &mut self.tile_buf,
+                                    y_idx,
+                                    f32::min(row_top_x, row_bottom_x),
+                                    f32::max(row_top_x, row_bottom_x),
+                                    w_start_base,
+                                    w_end_base,
+                                    W,
+                                );
+                                row_top_x = row_bottom_x;
+                            }
+                        }
                     } else {
-                        y_top_tiles + 1
-                    };
+                        if !is_start_culled {
+                            let y = f32::from(y_top_tiles);
+                            let row_bottom_y = (y + 1.0).min(line_bottom_y);
+                            let mask = ((y >= line_top_y) as u32) << WINDING_SHIFT;
+                            push_row(
+                                y_top_tiles,
+                                line_top_y,
+                                row_bottom_y,
+                                w_start_base & mask,
+                                w_end_base & mask,
+                                W & mask,
+                            );
+                        }
 
-                    for y_idx in y_start..y_bottom_tiles {
-                        let y = f32::from(y_idx);
-                        let row_bottom_y = (y + 1.0).min(line_bottom_y);
-                        push_row(y_idx, y, row_bottom_y, w_start_base, w_end_base, W);
+                        let y_start = if is_start_culled {
+                            y_top_tiles
+                        } else {
+                            y_top_tiles + 1
+                        };
+
+                        for y_idx in y_start..y_bottom_tiles {
+                            let y = f32::from(y_idx);
+                            let row_bottom_y = (y + 1.0).min(line_bottom_y);
+                            push_row(y_idx, y, row_bottom_y, w_start_base, w_end_base, W);
+                        }
                     }
                 }
             } else {
@@ -2096,6 +2172,42 @@ mod tests {
         ];
 
         tiles.assert_tiles_match(&lines, VIEW_DIM, VIEW_DIM, &expected);
+    }
+
+    // This test reproduces an issue where a floating point inaccuracy would
+    // cause a tile with the winding bit being emitted at a slightly earlier
+    // position, causing a filled 4x4 block artifact to appear.
+    #[test]
+    fn issue_early_winding_emission() {
+        const WIDTH: u16 = Tile::WIDTH * 35;
+        const HEIGHT: u16 = Tile::HEIGHT * 7;
+
+        let tile_width = f32::from(Tile::WIDTH);
+        let tile_height = f32::from(Tile::HEIGHT);
+        let lines = [Line {
+            p0: Point {
+                x: 32.89 * tile_width,
+                y: 0.9 * tile_height,
+            },
+            p1: Point {
+                x: 33.5 * tile_width,
+                y: 7.0 * tile_height,
+            },
+        }];
+
+        let mut tiles = Tiles::new(Level::baseline(), HEIGHT);
+        tiles.make_tiles_analytic_aa(Level::baseline(), &lines, WIDTH, HEIGHT);
+
+        let row_tiles: Vec<Tile> = tiles
+            .tile_buf
+            .iter()
+            .copied()
+            .filter(|tile| tile.y == 2)
+            .collect();
+
+        // When the issue occurred, another tile at location x = 32, y = 2
+        // would be emitted.
+        assert_eq!(row_tiles, [Tile::new(33, 2, 0, W)]);
     }
 
     #[test]
