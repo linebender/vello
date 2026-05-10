@@ -25,6 +25,7 @@ impl<S: Simd> Channels<S> {
 
 // TODO: blending is still extremely slow, investigate whether there is something obvious we are
 // missing that other renderers do.
+#[inline(always)]
 pub(crate) fn mix<S: Simd>(src_c: f32x16<S>, bg: f32x16<S>, blend_mode: BlendMode) -> f32x16<S> {
     if matches!(blend_mode.mix, Mix::Normal) {
         return src_c;
@@ -32,16 +33,19 @@ pub(crate) fn mix<S: Simd>(src_c: f32x16<S>, bg: f32x16<S>, blend_mode: BlendMod
     // See https://www.w3.org/TR/compositing-1/#blending
     let simd = src_c.simd;
 
-    let split = |input: f32x16<S>| {
-        let mut storage = [0.0; 16];
-        simd.store_interleaved_128_f32x16(input, &mut storage);
-        let input_v = f32x16::from_slice(simd, &storage);
+    let split = {
+        #[inline(always)]
+        |input: f32x16<S>| {
+            let mut storage = [0.0; 16];
+            simd.store_interleaved_128_f32x16(input, &mut storage);
+            let input_v = f32x16::from_slice(simd, &storage);
 
-        let p1 = simd.split_f32x16(input_v);
-        let (r, g) = simd.split_f32x8(p1.0);
-        let (b, a) = simd.split_f32x8(p1.1);
+            let p1 = simd.split_f32x16(input_v);
+            let (r, g) = simd.split_f32x8(p1.0);
+            let (b, a) = simd.split_f32x8(p1.1);
 
-        (Channels { r, g, b }, a)
+            (Channels { r, g, b }, a)
+        }
     };
 
     let (bg_channels, bg_a) = split(bg);
@@ -53,13 +57,16 @@ pub(crate) fn mix<S: Simd>(src_c: f32x16<S>, bg: f32x16<S>, blend_mode: BlendMod
     let mut res_bg = unpremultiplied_bg;
     let mix_src = blend_mode.mix(unpremultiplied_src, unpremultiplied_bg);
 
-    let apply_alpha = |unpremultiplied_src_channel: f32x4<S>,
-                       mix_src_channel: f32x4<S>,
-                       dest_channel: &mut f32x4<S>| {
-        let p1 = (1.0 - bg_a) * unpremultiplied_src_channel;
-        let p2 = bg_a * mix_src_channel;
+    let apply_alpha = {
+        #[inline(always)]
+        |unpremultiplied_src_channel: f32x4<S>,
+         mix_src_channel: f32x4<S>,
+         dest_channel: &mut f32x4<S>| {
+            let p1 = (1.0 - bg_a) * unpremultiplied_src_channel;
+            let p2 = bg_a * mix_src_channel;
 
-        *dest_channel = (p1 + p2).premultiply(src_a);
+            *dest_channel = (p1 + p2).premultiply(src_a);
+        }
     };
 
     apply_alpha(unpremultiplied_src.r, mix_src.r, &mut res_bg.r);
