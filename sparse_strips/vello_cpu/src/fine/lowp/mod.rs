@@ -182,7 +182,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
                         (simd.widen_u8x16(loaded) * simd.widen_u8x16(src.next().unwrap()))
                             .div_255(),
                     );
-                    el.copy_from_slice(mulled.as_slice());
+                    mulled.store_slice(el);
                 }
             },
         );
@@ -212,14 +212,14 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
                         let pixel = u8x32::from_slice(simd, chunk);
                         let alphas = pixel.splat_4th();
                         let tinted = tint_v.normalized_mul(alphas);
-                        chunk.copy_from_slice(tinted.as_slice());
+                        tinted.store_slice(chunk);
                     }
                 }
                 TintMode::Multiply => {
                     for chunk in dest.chunks_exact_mut(32) {
                         let pixel = u8x32::from_slice(simd, chunk);
                         let tinted = pixel.normalized_mul(tint_v);
-                        chunk.copy_from_slice(tinted.as_slice());
+                        tinted.store_slice(chunk);
                     }
                 }
             },
@@ -375,7 +375,7 @@ mod fill {
                         mix(next_src, bg_v, blend_mode)
                     };
                     let res = blend_mode.compose(simd, src_v, bg_v, None);
-                    next_dest.copy_from_slice(res.as_slice());
+                    res.store_slice(next_dest);
                 }
             },
         );
@@ -399,7 +399,7 @@ mod fill {
                     let res_1 = alpha_composite_inner(s, bg_1, src_c, one_minus_alpha);
                     let res_2 = alpha_composite_inner(s, bg_2, src_c, one_minus_alpha);
                     let combined = s.combine_u8x32(res_1, res_2);
-                    next_dest.copy_from_slice(combined.as_slice());
+                    combined.store_slice(next_dest);
                 }
             },
         );
@@ -420,7 +420,7 @@ mod fill {
                     let one_minus_alpha = 255 - next_src.splat_4th();
                     let bg_v = u8x32::from_slice(simd, next_dest);
                     let res = alpha_composite_inner(simd, bg_v, next_src, one_minus_alpha);
-                    next_dest.copy_from_slice(res.as_slice());
+                    res.store_slice(next_dest);
                 }
             },
         );
@@ -479,7 +479,7 @@ mod alpha_fill {
                     let masks = extract_masks(simd, &next_mask);
                     let res = blend_mode.compose(simd, src_c, bg_v, Some(masks));
 
-                    next_bg.copy_from_slice(res.as_slice());
+                    res.store_slice(next_bg);
                 }
             },
         );
@@ -559,7 +559,7 @@ mod alpha_fill {
                 let p2 = s.widen_u8x32(src_c) * s.widen_u8x32(mask_v);
                 let res = s.narrow_u16x32((p1 + p2).div_255());
 
-                dest.copy_from_slice(res.as_slice());
+                res.store_slice(dest);
             },
         );
     }
@@ -679,10 +679,13 @@ fn pack_block<S: Simd>(simd: S, region: &mut Region<'_>, mut buf: &[u8]) {
         let casted: &[u32; 16] = cast_slice::<u8, u32>(col).try_into().unwrap();
 
         let loaded = simd.load_interleaved_128_u32x16(casted).to_bytes();
-        dest_slices[0][dest_idx..][..16].copy_from_slice(&loaded.as_slice()[..16]);
-        dest_slices[1][dest_idx..][..16].copy_from_slice(&loaded.as_slice()[16..32]);
-        dest_slices[2][dest_idx..][..16].copy_from_slice(&loaded.as_slice()[32..48]);
-        dest_slices[3][dest_idx..][..16].copy_from_slice(&loaded.as_slice()[48..64]);
+        let (loaded_lo, loaded_hi) = simd.split_u8x64(loaded);
+        let (loaded_1, loaded_2) = simd.split_u8x32(loaded_lo);
+        let (loaded_3, loaded_4) = simd.split_u8x32(loaded_hi);
+        loaded_1.store_slice(&mut dest_slices[0][dest_idx..][..16]);
+        loaded_2.store_slice(&mut dest_slices[1][dest_idx..][..16]);
+        loaded_3.store_slice(&mut dest_slices[2][dest_idx..][..16]);
+        loaded_4.store_slice(&mut dest_slices[3][dest_idx..][..16]);
     }
 }
 

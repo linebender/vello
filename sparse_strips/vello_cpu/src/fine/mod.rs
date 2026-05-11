@@ -1073,7 +1073,7 @@ mod macros {
                         for chunk in buf.chunks_exact_mut(16) {
                             let next = self.next().unwrap();
                             let converted = u8x16::<S>::from_f32(next.simd, next);
-                            chunk.copy_from_slice(converted.as_slice());
+                            converted.store_slice(chunk);
                         }
                     })
                 }
@@ -1082,7 +1082,7 @@ mod macros {
                     self.simd.vectorize(#[inline(always)] || {
                         for chunk in buf.chunks_exact_mut(16) {
                             let next = self.next().unwrap();
-                            chunk.copy_from_slice(next.as_slice());
+                            next.store_slice(chunk);
                         }
                     })
                 }
@@ -1101,7 +1101,7 @@ mod macros {
                     self.simd.vectorize(#[inline(always)] || {
                         for chunk in buf.chunks_exact_mut(16) {
                             let next = self.next().unwrap();
-                            chunk.copy_from_slice(next.as_slice());
+                            next.store_slice(chunk);
                         }
                     })
                 }
@@ -1114,7 +1114,7 @@ mod macros {
                         for chunk in buf.chunks_exact_mut(16) {
                             let next = self.next().unwrap();
                             let converted = f32x16::<S>::from_u8(next.simd, next);
-                            chunk.copy_from_slice(converted.as_slice());
+                            converted.store_slice(chunk);
                         }
                     })
                 }
