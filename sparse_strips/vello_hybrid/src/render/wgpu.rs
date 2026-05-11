@@ -30,8 +30,10 @@ use crate::{
             GPU_LINEAR_GRADIENT_SIZE_TEXELS, GPU_RADIAL_GRADIENT_SIZE_TEXELS,
             GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuBlurredRoundedRect, GpuEncodedImage,
             GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
-            normalize_atlas_config, pack_image_offset, pack_image_params, pack_image_size,
-            pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode, pack_tint,
+            SOURCE_KIND_EXTERNAL_RGBA, SOURCE_KIND_EXTERNAL_YCBCR_NV12,
+            merge_external_source_bits, normalize_atlas_config, pack_image_offset,
+            pack_image_params, pack_image_size, pack_radial_kind_and_swapped,
+            pack_texture_width_and_extend_mode, pack_tint,
         },
     },
     scene::Scene,
@@ -55,7 +57,7 @@ use vello_common::{
     coarse::WideTile,
     encode::{
         EncodedBlurredRoundedRectangle, EncodedExternalTexture, EncodedGradient, EncodedKind,
-        EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind,
+        EncodedPaint, ExternalTextureFormat, MAX_GRADIENT_LUT_SIZE, RadialKind,
     },
     paint::ImageSource,
     peniko,
@@ -76,8 +78,6 @@ const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(G
     transform: [0.0; 6],
 });
 
-const EXTERNAL_IMAGE_SOURCE_FLAG: u32 = 1 << 14;
-
 /// Options for the renderer
 #[derive(Debug)]
 pub struct RenderTargetConfig {
@@ -89,10 +89,29 @@ pub struct RenderTargetConfig {
     pub height: u32,
 }
 
+/// A single runtime binding for a [`TextureId`].
+#[derive(Debug, Clone, Copy)]
+enum TextureBinding<'a> {
+    /// Premultiplied RGBA in the destination color space.
+    Rgba(&'a TextureView),
+    /// Two-plane NV12 YCbCr: full-resolution `R8` luma plane plus
+    /// half-resolution `Rg8` interleaved Cb/Cr plane.
+    YCbCrNv12 {
+        y: &'a TextureView,
+        uv: &'a TextureView,
+    },
+}
+
 /// Runtime bindings for [externally owned textures](`TextureId`) sampled by texture-rect draws.
+///
+/// A binding's *kind* must match the [`ExternalTextureFormat`](crate::ExternalTextureFormat)
+/// passed to the corresponding [`Scene::draw_texture_rects`] call: use
+/// [`Self::insert`] for [`ExternalTextureFormat::Rgba`](crate::ExternalTextureFormat::Rgba)
+/// and [`Self::insert_ycbcr_nv12`] for
+/// [`ExternalTextureFormat::YCbCrNv12`](crate::ExternalTextureFormat::YCbCrNv12).
 #[derive(Debug, Default)]
 pub struct TextureBindings<'a> {
-    views: HashMap<TextureId, &'a TextureView>,
+    bindings: HashMap<TextureId, TextureBinding<'a>>,
 }
 
 impl<'a> TextureBindings<'a> {
@@ -102,7 +121,7 @@ impl<'a> TextureBindings<'a> {
         Self::default()
     }
 
-    /// Insert or replace a texture binding.
+    /// Insert or replace a single-plane RGBA texture binding.
     ///
     /// The [`TextureView`] must fit the following binding type.
     ///
@@ -124,13 +143,36 @@ impl<'a> TextureBindings<'a> {
     /// [`wgpu::TextureUsages::TEXTURE_BINDING`], and only mip level 0 is read.
     #[inline]
     pub fn insert(&mut self, texture_id: TextureId, view: &'a TextureView) {
-        self.views.insert(texture_id, view);
+        self.bindings.insert(texture_id, TextureBinding::Rgba(view));
+    }
+
+    /// Insert or replace a two-plane NV12 YCbCr binding.
+    ///
+    /// Both views must be float-sampleable 2D views with
+    /// [`wgpu::TextureUsages::TEXTURE_BINDING`]. `y_plane` is expected to be the
+    /// full-resolution single-channel luma plane (e.g. `R8Unorm`); `uv_plane` the
+    /// half-resolution two-channel interleaved Cb/Cr plane (e.g. `Rg8Unorm`).
+    /// Mip level 0 of each view is sampled.
+    #[inline]
+    pub fn insert_ycbcr_nv12(
+        &mut self,
+        texture_id: TextureId,
+        y_plane: &'a TextureView,
+        uv_plane: &'a TextureView,
+    ) {
+        self.bindings.insert(
+            texture_id,
+            TextureBinding::YCbCrNv12 {
+                y: y_plane,
+                uv: uv_plane,
+            },
+        );
     }
 
     /// Get a texture binding.
     #[inline]
-    fn get(&self, texture_id: TextureId) -> Option<&'a TextureView> {
-        self.views.get(&texture_id).copied()
+    fn get(&self, texture_id: TextureId) -> Option<TextureBinding<'a>> {
+        self.bindings.get(&texture_id).copied()
     }
 
     /// Remove a texture binding.
@@ -138,7 +180,7 @@ impl<'a> TextureBindings<'a> {
     /// Returns whether the binding existed.
     #[inline]
     pub fn remove(&mut self, texture_id: TextureId) -> bool {
-        self.views.remove(&texture_id).is_some()
+        self.bindings.remove(&texture_id).is_some()
     }
 }
 
@@ -758,8 +800,19 @@ impl Renderer {
                     }
                 }
                 EncodedPaint::ExternalTexture(img) => {
-                    if texture_bindings.get(img.texture_id).is_none() {
-                        return Err(RenderError::MissingTextureBinding(img.texture_id));
+                    let binding = texture_bindings
+                        .get(img.texture_id)
+                        .ok_or(RenderError::MissingTextureBinding(img.texture_id))?;
+                    let format_matches = matches!(
+                        (binding, &img.format),
+                        (TextureBinding::Rgba(_), ExternalTextureFormat::Rgba)
+                            | (
+                                TextureBinding::YCbCrNv12 { .. },
+                                ExternalTextureFormat::YCbCrNv12 { .. },
+                            )
+                    );
+                    if !format_matches {
+                        return Err(RenderError::TextureBindingFormatMismatch(img.texture_id));
                     }
                     let image_paint = self.encode_external_texture_paint(img);
                     self.encoded_paints[encoded_paint_idx] = image_paint;
@@ -822,12 +875,26 @@ impl Renderer {
         let region = image.source_region;
         let image_size = pack_image_size(region.width(), region.height());
         let image_offset = pack_image_offset(region.x0, region.y0);
-        let image_params = pack_image_params(
+        let base_image_params = pack_image_params(
             image.sampler.quality as u32,
             image.sampler.x_extend as u32,
             image.sampler.y_extend as u32,
             0,
-        ) | EXTERNAL_IMAGE_SOURCE_FLAG;
+        );
+        let (source_kind, ycbcr_matrix, ycbcr_range) = match image.format {
+            ExternalTextureFormat::Rgba => (SOURCE_KIND_EXTERNAL_RGBA, 0, 0),
+            ExternalTextureFormat::YCbCrNv12 { color_space } => (
+                SOURCE_KIND_EXTERNAL_YCBCR_NV12,
+                color_space.matrix.as_u32(),
+                color_space.range.as_u32(),
+            ),
+        };
+        let image_params = merge_external_source_bits(
+            base_image_params,
+            source_kind,
+            ycbcr_matrix,
+            ycbcr_range,
+        );
         let (tint, tint_mode) = pack_tint(image.tint);
 
         GpuEncodedPaint::Image(GpuEncodedImage {
@@ -1094,10 +1161,15 @@ struct GpuResources {
     atlas_texture_array: Texture,
     /// View for atlas texture array
     atlas_texture_array_view: TextureView,
-    /// Bind group for paint sources: an atlas textures as texture array plus an external texture.
+    /// Bind group for paint sources: atlas array + primary external texture +
+    /// secondary external texture (NV12 Cb/Cr plane).
     atlas_bind_group: BindGroup,
-    /// Transparent 1x1 placeholder texture in case no external texture is bound by the user.
+    /// 1×1 placeholder bound to the primary external-texture slot when no real external texture
+    /// (or only one plane of an NV12 binding) is in use.
     placeholder_external_texture_view: TextureView,
+    /// 1×1 placeholder bound to the secondary external-texture (NV12 Cb/Cr) slot when no
+    /// two-plane format is in use. `Rg8Unorm` to match the real Cb/Cr plane.
+    placeholder_external_uv_texture_view: TextureView,
     /// Filter atlas textures and their associated views/bind groups.
     /// Lazily allocated: stays empty until the first scene with filters.
     filter_atlas: FilterAtlasState,
@@ -1227,6 +1299,18 @@ impl Programs {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    // Second plane for two-plane external textures (NV12 Cb/Cr).
+                    // For single-plane formats a 1×1 placeholder is bound here.
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Texture {
                             sample_type: wgpu::TextureSampleType::Float { filterable: false },
@@ -1638,11 +1722,14 @@ impl Programs {
             *initial_atlas_count as u32,
         );
         let placeholder_external_texture_view = Self::create_placeholder_external_texture(device);
+        let placeholder_external_uv_texture_view =
+            Self::create_placeholder_external_uv_texture(device);
         let atlas_bind_group = Self::create_paint_source_bind_group(
             device,
             &atlas_bind_group_layout,
             &atlas_texture_array_view,
             &placeholder_external_texture_view,
+            &placeholder_external_uv_texture_view,
         );
 
         // Create a 1x1 stub atlas texture array for use during render_to_atlas.
@@ -1655,6 +1742,7 @@ impl Programs {
             &atlas_bind_group_layout,
             &stub_atlas_view,
             &placeholder_external_texture_view,
+            &placeholder_external_uv_texture_view,
         );
 
         const INITIAL_ENCODED_PAINTS_TEXTURE_HEIGHT: u32 = 1;
@@ -1734,6 +1822,7 @@ impl Programs {
             atlas_texture_array_view,
             atlas_bind_group,
             placeholder_external_texture_view,
+            placeholder_external_uv_texture_view,
             filter_atlas,
             stub_atlas_bind_group,
             encoded_paints_texture,
@@ -1939,6 +2028,9 @@ impl Programs {
         })
     }
 
+    /// 1×1 placeholder bound to the primary external-texture slot when no real
+    /// external texture is in use. `Rgba8Unorm` so it is float-sampleable, which
+    /// the bind-group layout requires.
     fn create_placeholder_external_texture(device: &Device) -> TextureView {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Placeholder External Texture"),
@@ -1957,11 +2049,34 @@ impl Programs {
         texture.create_view(&TextureViewDescriptor::default())
     }
 
+    /// 1×1 placeholder bound to the external-texture *UV* slot for draws that
+    /// don't sample a two-plane format (i.e. anything other than NV12). Format
+    /// matches the real NV12 Cb/Cr plane (`Rg8Unorm`) so the same bind-group
+    /// layout entry covers both cases.
+    fn create_placeholder_external_uv_texture(device: &Device) -> TextureView {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Placeholder External UV Texture"),
+            size: Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rg8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        texture.create_view(&TextureViewDescriptor::default())
+    }
+
     fn create_paint_source_bind_group(
         device: &Device,
         atlas_bind_group_layout: &BindGroupLayout,
         atlas_texture_array_view: &TextureView,
         external_texture_view: &TextureView,
+        external_uv_texture_view: &TextureView,
     ) -> BindGroup {
         let entries = [
             wgpu::BindGroupEntry {
@@ -1971,6 +2086,10 @@ impl Programs {
             wgpu::BindGroupEntry {
                 binding: 1,
                 resource: wgpu::BindingResource::TextureView(external_texture_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::TextureView(external_uv_texture_view),
             },
         ];
         device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -2367,6 +2486,7 @@ impl Programs {
                 atlas_bind_group_layout,
                 &new_atlas_texture_array_view,
                 &resources.placeholder_external_texture_view,
+                &resources.placeholder_external_uv_texture_view,
             );
 
             // Replace the old resources
@@ -2380,12 +2500,14 @@ impl Programs {
         &self,
         device: &Device,
         external_texture_view: &TextureView,
+        external_uv_texture_view: &TextureView,
     ) -> BindGroup {
         Self::create_paint_source_bind_group(
             device,
             &self.atlas_bind_group_layout,
             &self.resources.atlas_texture_array_view,
             external_texture_view,
+            external_uv_texture_view,
         )
     }
 
@@ -2612,13 +2734,24 @@ impl RendererContext<'_> {
         match self.external_paint_source_bind_groups.entry(texture_id) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
-                let texture_view = self
+                let binding = self
                     .texture_bindings
                     .get(texture_id)
                     .expect("external texture bindings were validated during paint preparation");
-                let bind_group = self
-                    .programs
-                    .create_external_paint_source_bind_group(self.device, texture_view);
+                let (y_view, uv_view) = match binding {
+                    TextureBinding::Rgba(view) => (
+                        view,
+                        // RGBA draws don't read the second plane; bind the placeholder UV
+                        // view so the bind-group layout is satisfied.
+                        &self.programs.resources.placeholder_external_uv_texture_view,
+                    ),
+                    TextureBinding::YCbCrNv12 { y, uv } => (y, uv),
+                };
+                let bind_group = self.programs.create_external_paint_source_bind_group(
+                    self.device,
+                    y_view,
+                    uv_view,
+                );
                 entry.insert(bind_group)
             }
         }

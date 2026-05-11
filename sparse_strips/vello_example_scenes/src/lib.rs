@@ -31,7 +31,7 @@ pub use vello_common::peniko::{BlendMode, Fill, FontData, ImageQuality};
 #[cfg(feature = "cpu")]
 use vello_cpu::{RenderContext, Resources as CpuResources};
 use vello_hybrid::{Resources as HybridResources, Scene};
-pub use vello_hybrid::{SampleRect, TextureId};
+pub use vello_hybrid::{ExternalTextureFormat, SampleRect, TextureId};
 
 /// Renderer capability flags controlling which scenes are listed by [`get_example_scenes`].
 ///
@@ -111,6 +111,7 @@ pub trait RenderingContext: Sized {
         &mut self,
         texture_id: TextureId,
         quality: ImageQuality,
+        format: ExternalTextureFormat,
         rects: impl IntoIterator<Item = SampleRect>,
     );
 }
@@ -215,6 +216,7 @@ impl RenderingContext for RenderContext {
         &mut self,
         _texture_id: TextureId,
         _quality: ImageQuality,
+        _format: ExternalTextureFormat,
         _rects: impl IntoIterator<Item = SampleRect>,
     ) {
         unimplemented!("vello_cpu does not yet support external textures");
@@ -320,9 +322,10 @@ impl RenderingContext for Scene {
         &mut self,
         texture_id: TextureId,
         quality: ImageQuality,
+        format: ExternalTextureFormat,
         rects: impl IntoIterator<Item = SampleRect>,
     ) {
-        self.draw_texture_rects(texture_id, quality, rects);
+        self.draw_texture_rects(texture_id, quality, format, rects);
     }
 }
 

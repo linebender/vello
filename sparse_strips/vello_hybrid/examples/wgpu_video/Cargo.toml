@@ -1,0 +1,53 @@
+[package]
+name = "vello_hybrid_wgpu_video"
+description = "Vello Hybrid example that renders decoded video frames through Vello's native NV12 (YCbCr) external-texture API on a wgpu backend. macOS-only: zero-copy AVFoundation / VideoToolbox -> wgpu plane import."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+winit = { workspace = true }
+wgpu = { workspace = true, default-features = true }
+vello_common = { workspace = true, features = ["std"] }
+vello_hybrid = { workspace = true }
+glifo = { workspace = true }
+skrifa = { workspace = true }
+pollster = { workspace = true }
+log = { workspace = true }
+thiserror = { workspace = true }
+env_logger = "0.11.9"
+
+# Apple-only — used by the video pipeline (AVAssetReader demuxer, VideoToolbox decoder,
+# CVMetalTextureCache zero-copy import of NV12 plane textures into wgpu).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-av-foundation = { version = "0.3.2", features = [
+    "AVAsset",
+    "AVAssetTrack",
+    "AVAssetReader",
+    "AVAssetReaderOutput",
+    "AVMediaFormat",
+    # Enables `AVAssetReaderOutput::copyNextSampleBuffer` (returns CMSampleBuffer).
+    "objc2-core-media",
+] }
+objc2-core-foundation = "0.3.2"
+objc2-core-media = "0.3.2"
+objc2-core-video = "0.3.2"
+objc2-foundation = { version = "0.3.2", features = [
+    "NSString",
+    "NSURL",
+    "NSError",
+    "NSArray",
+    "NSGeometry",
+] }
+objc2-metal = { version = "0.3.2", features = [
+    "MTLDevice",
+    "MTLTexture",
+    "MTLPixelFormat",
+    "MTLResource",
+] }
+objc2-video-toolbox = "0.3.2"

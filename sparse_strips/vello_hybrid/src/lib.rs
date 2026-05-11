@@ -72,6 +72,7 @@ pub use scene::{RenderSettings, Scene, SceneConstraints};
 pub use text::{GlyphRunBuilder, HybridGlyphRunBackend};
 pub use util::DimensionConstraints;
 pub use vello_common::TextureId;
+pub use vello_common::encode::ExternalTextureFormat;
 pub use vello_common::multi_atlas::{AllocationStrategy, AtlasConfig, AtlasId};
 pub use vello_common::pixmap::Pixmap;
 
@@ -96,6 +97,11 @@ pub enum RenderError {
     /// A draw referenced a [`TextureId`] that was not provided at render time.
     #[error("Missing texture binding for {0:?}")]
     MissingTextureBinding(TextureId),
+    /// A draw referenced a [`TextureId`] whose runtime binding is of a different
+    /// pixel-format kind than the encoded paint expects (e.g. RGBA binding used by an
+    /// NV12 draw or vice versa).
+    #[error("Texture binding format mismatch for {0:?}")]
+    TextureBindingFormatMismatch(TextureId),
     // TODO: Consider expanding `RenderError` to replace some `.unwrap` and `.expect`.
 }
 

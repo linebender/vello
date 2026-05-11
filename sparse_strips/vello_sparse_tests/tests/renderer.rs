@@ -14,8 +14,8 @@ use vello_common::peniko::{BlendMode, Fill, FontData, ImageQuality};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::{Level, RenderContext, RenderMode, RenderSettings, Resources};
 use vello_hybrid::{
-    RenderSettings as HybridRenderSettings, Resources as HybridResources, SampleRect, Scene,
-    SceneConstraints, TextureId,
+    ExternalTextureFormat, RenderSettings as HybridRenderSettings, Resources as HybridResources,
+    SampleRect, Scene, SceneConstraints, TextureId,
 };
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 use web_sys::WebGl2RenderingContext;
@@ -93,6 +93,7 @@ pub(crate) trait Renderer: Sized {
         &mut self,
         texture_id: TextureId,
         quality: ImageQuality,
+        format: ExternalTextureFormat,
         rects: impl IntoIterator<Item = SampleRect>,
     );
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource;
@@ -269,6 +270,7 @@ impl Renderer for CpuRenderer {
         &mut self,
         _: TextureId,
         _: ImageQuality,
+        _: ExternalTextureFormat,
         _: impl IntoIterator<Item = SampleRect>,
     ) {
         unimplemented!("external textures are only supported by hybrid renderer tests")
@@ -695,9 +697,11 @@ impl Renderer for HybridRenderer {
         &mut self,
         texture_id: TextureId,
         quality: ImageQuality,
+        format: ExternalTextureFormat,
         rects: impl IntoIterator<Item = SampleRect>,
     ) {
-        self.scene.draw_texture_rects(texture_id, quality, rects);
+        self.scene
+            .draw_texture_rects(texture_id, quality, format, rects);
     }
 
     fn get_image_source(&mut self, pixmap: Arc<Pixmap>) -> ImageSource {
@@ -954,6 +958,7 @@ impl Renderer for HybridRenderer {
         &mut self,
         _: TextureId,
         _: ImageQuality,
+        _: ExternalTextureFormat,
         _: impl IntoIterator<Item = SampleRect>,
     ) {
         unimplemented!("external textures are not wired up for the WebGL test backend")

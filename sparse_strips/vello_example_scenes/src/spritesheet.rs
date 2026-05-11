@@ -9,7 +9,7 @@ use vello_common::geometry::RectU16;
 use vello_common::kurbo::Affine;
 use vello_common::peniko::ImageQuality;
 use vello_common::pixmap::Pixmap;
-use vello_hybrid::{SampleRect, TextureId};
+use vello_hybrid::{ExternalTextureFormat, SampleRect, TextureId};
 
 use crate::{ExampleScene, RenderingContext};
 
@@ -111,6 +111,11 @@ impl ExampleScene for SpritesheetScene {
             }
         }
 
-        ctx.draw_texture_rects(SPRITESHEET_TEXTURE_ID, ImageQuality::Medium, rects);
+        ctx.draw_texture_rects(
+            SPRITESHEET_TEXTURE_ID,
+            ImageQuality::Medium,
+            ExternalTextureFormat::Rgba,
+            rects,
+        );
     }
 }

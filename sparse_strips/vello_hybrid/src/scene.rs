@@ -16,7 +16,9 @@ use vello_common::TextureId;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::clip::ClipContext;
 use vello_common::coarse::{MODE_HYBRID, Wide, WideTilesBbox};
-use vello_common::encode::{EncodeExt, EncodedExternalTexture, EncodedPaint};
+use vello_common::encode::{
+    EncodeExt, EncodedExternalTexture, EncodedPaint, ExternalTextureFormat,
+};
 use vello_common::fearless_simd::Level;
 use vello_common::filter_effects::Filter;
 use vello_common::geometry::RectU16;
@@ -360,6 +362,7 @@ impl Scene {
         x_extend: Extend,
         y_extend: Extend,
         transform: Affine,
+        format: ExternalTextureFormat,
     ) -> Paint {
         let idx = self.encoded_paints.borrow().len();
         let encoded = EncodedExternalTexture {
@@ -374,6 +377,7 @@ impl Scene {
             may_have_transparency: true,
             transform: transform.inverse(),
             tint: self.render_state.tint,
+            format,
         };
         self.encoded_paints
             .borrow_mut()
@@ -562,6 +566,18 @@ impl Scene {
     /// [source regions][`SampleRect::source_region`] must be within bounds of that texture. The
     /// texture is treated as premultiplied alpha in the render target's color space. See the
     /// backend's binding type for more information on texture requirements.
+    ///
+    /// The `format` parameter selects the pixel-format contract for the bound texture and
+    /// must match the kind of binding supplied at render time:
+    ///
+    /// * [`ExternalTextureFormat::Rgba`] — single premultiplied RGBA texture in the
+    ///   destination color space. Bind via the backend's `TextureBindings::insert`.
+    /// * [`ExternalTextureFormat::YCbCrNv12`] — two-plane NV12 YCbCr (full-resolution `R8`
+    ///   Y plane + half-resolution `Rg8` interleaved Cb/Cr plane). The shader performs
+    ///   the YCbCr → RGB conversion using the supplied
+    ///   [`YCbCrInfo`](vello_common::paint::YCbCrInfo). Bind via the backend's
+    ///   `TextureBindings::insert_ycbcr_nv12`. For multi-plane formats,
+    ///   [`SampleRect::source_region`] is expressed in *full-resolution* (Y-plane) texels.
     #[expect(
         clippy::cast_possible_truncation,
         reason = "f64→f32 truncation is acceptable for pixel coordinates"
@@ -570,6 +586,7 @@ impl Scene {
         &mut self,
         texture_id: TextureId,
         quality: ImageQuality,
+        format: ExternalTextureFormat,
         rects: impl IntoIterator<Item = SampleRect>,
     ) {
         // This API currently doesn't take extend mode parameters: as of writing, the
@@ -603,6 +620,7 @@ impl Scene {
                         x_extend,
                         y_extend,
                         transform,
+                        format,
                     );
                     let dst_rect = Rect::new(0., 0., w, h);
                     self.fill_path_with(
@@ -635,6 +653,7 @@ impl Scene {
                     x_extend,
                     y_extend,
                     transform,
+                    format,
                 );
 
                 self.fast_strips_buffer
@@ -664,6 +683,7 @@ impl Scene {
                         x_extend,
                         y_extend,
                         transform,
+                        format,
                     );
                     let dst_rect = Rect::new(0., 0., w, h);
                     ctx.fill_path_with(

@@ -8,7 +8,7 @@ mod tests {
     use vello_common::geometry::RectU16;
     use vello_common::kurbo::{Affine, Circle, Rect, Shape};
     use vello_common::peniko::ImageQuality;
-    use vello_hybrid::SampleRect;
+    use vello_hybrid::{ExternalTextureFormat, SampleRect};
 
     use crate::load_image;
 
@@ -59,6 +59,7 @@ mod tests {
             ctx.draw_texture_rects(
                 texture_id,
                 ImageQuality::Low,
+                ExternalTextureFormat::Rgba,
                 [SampleRect {
                     source_region: SPRITES[0],
                     transform: Affine::translate((12., 15.)),
@@ -69,6 +70,7 @@ mod tests {
             ctx.draw_texture_rects(
                 texture_id,
                 ImageQuality::Low,
+                ExternalTextureFormat::Rgba,
                 [SampleRect {
                     source_region: SPRITES[3],
                     transform: Affine::translate((25., 25.)),
@@ -84,6 +86,7 @@ mod tests {
             ctx.draw_texture_rects(
                 texture_id,
                 ImageQuality::High,
+                ExternalTextureFormat::Rgba,
                 [SampleRect {
                     source_region: SPRITES[0],
                     transform: Affine::translate((15., 15.)) * Affine::skew(0.2, 0.1),
@@ -102,6 +105,7 @@ mod tests {
             ctx.draw_texture_rects(
                 texture_id,
                 ImageQuality::Medium,
+                ExternalTextureFormat::Rgba,
                 [
                     SampleRect {
                         source_region: SPRITES[1],
@@ -130,6 +134,7 @@ mod tests {
             ctx.draw_texture_rects(
                 texture_id,
                 ImageQuality::Low,
+                ExternalTextureFormat::Rgba,
                 [SampleRect {
                     source_region: SPRITES[2],
                     transform: Affine::translate((20., 20.)),
@@ -161,6 +166,7 @@ mod tests {
             ctx.draw_texture_rects(
                 texture_id,
                 ImageQuality::Low,
+                ExternalTextureFormat::Rgba,
                 placements.map(|(source_region, x, y)| SampleRect {
                     source_region,
                     transform: Affine::translate((x, y)),
@@ -182,6 +188,7 @@ mod tests {
             ctx.draw_texture_rects(
                 texture_id,
                 ImageQuality::Medium,
+                ExternalTextureFormat::Rgba,
                 [
                     SampleRect {
                         source_region: SPRITES[0],

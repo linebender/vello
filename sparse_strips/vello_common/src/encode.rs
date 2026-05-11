@@ -579,6 +579,26 @@ pub struct EncodedImage {
     pub tint: Option<Tint>,
 }
 
+/// Pixel-format / color-space contract between an [`EncodedExternalTexture`] and the
+/// [`TextureBindings`](../../vello_hybrid/struct.TextureBindings.html) entry the user
+/// supplies for it at render-time.
+///
+/// Each variant tells the shader which sampling path to take and, for non-RGB formats,
+/// carries the metadata needed to convert into linear premultiplied RGB.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ExternalTextureFormat {
+    /// A single premultiplied RGBA texture in the destination color space (the existing
+    /// external-texture contract).
+    Rgba,
+    /// A two-plane NV12 YCbCr texture: full-resolution `R8` Y plane plus
+    /// half-resolution `Rg8` interleaved `CbCr` plane. Both planes are bound separately
+    /// through the runtime [`TextureBindings`](../../vello_hybrid/struct.TextureBindings.html).
+    YCbCrNv12 {
+        /// Color-space metadata for the YCbCr → RGB conversion.
+        color_space: crate::paint::YCbCrInfo,
+    },
+}
+
 /// An encoded external texture.
 ///
 /// The texture must be bound by the user at render-time in order for us to be able to sample from
@@ -588,6 +608,9 @@ pub struct EncodedExternalTexture {
     /// External texture handle.
     pub texture_id: TextureId,
     /// Source region of the texture in texel coordinates.
+    ///
+    /// For multi-plane formats (e.g. [`ExternalTextureFormat::YCbCrNv12`]) the region is
+    /// expressed in *full-resolution* (Y-plane / luma) texels.
     pub source_region: RectU16,
     /// Sampler parameters.
     pub sampler: ImageSampler,
@@ -597,6 +620,8 @@ pub struct EncodedExternalTexture {
     pub transform: Affine,
     /// Optional tint applied to the sampled color.
     pub tint: Option<Tint>,
+    /// Pixel-format / color-space contract for the bound texture.
+    pub format: ExternalTextureFormat,
 }
 
 /// Computed properties of a linear gradient.

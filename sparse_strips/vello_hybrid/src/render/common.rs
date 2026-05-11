@@ -373,6 +373,52 @@ pub(crate) fn pack_image_params(
     (atlas_index << 6) | (extend_y << 4) | (extend_x << 2) | quality
 }
 
+// Constants for packing source_kind / ycbcr metadata into the spare upper bits of
+// `image_params`. Kept in sync with the equivalent constants in
+// `vello_sparse_shaders/shaders/render_strips.wgsl`.
+
+/// `source_kind` field: bits 14-15 of `image_params`. 2 bits, 3 values used today.
+pub(crate) const SOURCE_KIND_SHIFT: u32 = 14;
+/// `ycbcr_matrix` field: bits 16-17 of `image_params`. Only meaningful when the
+/// `source_kind` is `ExternalYCbCrNv12`.
+pub(crate) const YCBCR_MATRIX_SHIFT: u32 = 16;
+/// `ycbcr_range` field: bit 18 of `image_params`. Only meaningful when the
+/// `source_kind` is `ExternalYCbCrNv12`.
+pub(crate) const YCBCR_RANGE_SHIFT: u32 = 18;
+
+/// Source-kind = `Atlas` (the default for stored / atlased images).
+///
+/// `Atlas` is the implicit zero default for `image_params`; no helper needs to OR it in.
+/// Kept here for documentation/extensibility — listed alongside the other variants for
+/// completeness.
+#[allow(dead_code, reason = "documentation parity with the other source kinds")]
+pub(crate) const SOURCE_KIND_ATLAS: u32 = 0;
+/// Source-kind = single-plane RGBA external texture.
+pub(crate) const SOURCE_KIND_EXTERNAL_RGBA: u32 = 1;
+/// Source-kind = two-plane NV12 YCbCr external texture.
+pub(crate) const SOURCE_KIND_EXTERNAL_YCBCR_NV12: u32 = 2;
+
+/// Pack `source_kind`, `ycbcr_matrix` and `ycbcr_range` into the spare upper bits of
+/// an existing `image_params` value.
+///
+/// `image_params` should already encode quality / extend / `atlas_index` via
+/// [`pack_image_params`].
+#[inline(always)]
+pub(crate) fn merge_external_source_bits(
+    image_params: u32,
+    source_kind: u32,
+    ycbcr_matrix: u32,
+    ycbcr_range: u32,
+) -> u32 {
+    debug_assert!(source_kind <= 3, "source_kind must be 0-3 (2 bits)");
+    debug_assert!(ycbcr_matrix <= 3, "ycbcr_matrix must be 0-3 (2 bits)");
+    debug_assert!(ycbcr_range <= 1, "ycbcr_range must be 0 or 1 (1 bit)");
+    image_params
+        | (source_kind << SOURCE_KIND_SHIFT)
+        | (ycbcr_matrix << YCBCR_MATRIX_SHIFT)
+        | (ycbcr_range << YCBCR_RANGE_SHIFT)
+}
+
 /// Pack an optional [`Tint`](vello_common::paint::Tint) into a (`tint_color_u32`, `tint_mode_u32`) pair for the GPU.
 ///
 /// The tint color is premultiplied before packing into a u32 in the same layout

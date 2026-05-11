@@ -274,3 +274,62 @@ pub struct Tint {
 
 /// A kind of paint that can be used for filling and stroking shapes.
 pub type PaintType = peniko::Brush<Image, Gradient>;
+
+/// YCbCr conversion-matrix coefficients used when sampling a YCbCr external texture.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum YCbCrMatrix {
+    /// ITU-R BT.601 (SD video).
+    Bt601 = 0,
+    /// ITU-R BT.709 (HD video). The most common matrix for AVC/HEVC content.
+    Bt709 = 1,
+    /// ITU-R BT.2020 non-constant luminance (UHD/HDR content).
+    Bt2020Ncl = 2,
+}
+
+impl YCbCrMatrix {
+    /// Return the discriminant as a `u32` for GPU packing.
+    pub fn as_u32(self) -> u32 {
+        self as u32
+    }
+}
+
+/// Numeric range of the YCbCr samples in the underlying texture.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum YCbCrRange {
+    /// "TV" / "video" range: Y in `[16, 235]`, Cb/Cr in `[16, 240]` (8-bit).
+    Limited = 0,
+    /// "PC" / "JPEG" range: full `[0, 255]` for all channels.
+    Full = 1,
+}
+
+impl YCbCrRange {
+    /// Return the discriminant as a `u32` for GPU packing.
+    pub fn as_u32(self) -> u32 {
+        self as u32
+    }
+}
+
+/// Color-space metadata describing how to interpret a YCbCr external texture.
+///
+/// Today this is purely the bits the GPU shader needs to perform YCbCr → RGB
+/// conversion. Transfer function and color primaries are *not* included: we currently
+/// assume the destination color space matches the source, the same simplification the
+/// existing RGBA external-texture path makes.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct YCbCrInfo {
+    /// Matrix coefficients for the YCbCr → RGB conversion.
+    pub matrix: YCbCrMatrix,
+    /// Numeric range of the source samples.
+    pub range: YCbCrRange,
+}
+
+impl YCbCrInfo {
+    /// Convenience: ITU-R BT.709 with limited (TV) range — matches the typical
+    /// `H.264` / `HEVC` HD video output of `VideoToolbox` on macOS.
+    pub const BT_709_LIMITED: Self = Self {
+        matrix: YCbCrMatrix::Bt709,
+        range: YCbCrRange::Limited,
+    };
+}

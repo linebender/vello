@@ -51,6 +51,18 @@ const IMAGE_QUALITY_HIGH = 2u;
 
 const IMAGE_SOURCE_ATLAS = 0u;
 const IMAGE_SOURCE_EXTERNAL = 1u;
+const IMAGE_SOURCE_EXTERNAL_YCBCR_NV12 = 2u;
+
+// YCbCr conversion-matrix coefficients. Must match `YCbCrMatrix` in
+// `vello_common/src/paint.rs` and `SOURCE_KIND_*` in
+// `vello_hybrid/src/render/common.rs`.
+const YCBCR_MATRIX_BT601 = 0u;
+const YCBCR_MATRIX_BT709 = 1u;
+const YCBCR_MATRIX_BT2020_NCL = 2u;
+
+// YCbCr numeric range. Must match `YCbCrRange` in `vello_common/src/paint.rs`.
+const YCBCR_RANGE_LIMITED = 0u;
+const YCBCR_RANGE_FULL = 1u;
 
 // Gradient types.
 const GRADIENT_TYPE_LINEAR: u32 = 0u;
@@ -252,6 +264,11 @@ var atlas_texture_array: texture_2d_array<f32>;
 @group(1) @binding(1)
 var external_texture: texture_2d<f32>;
 
+// Second plane for two-plane external textures (NV12 Cb/Cr). For single-plane
+// formats (e.g. RGBA, atlas) a 1×1 placeholder texture is bound here.
+@group(1) @binding(2)
+var external_texture_uv: texture_2d<f32>;
+
 @group(2) @binding(0)
 var encoded_paints_texture: texture_2d<u32>;
 
@@ -420,6 +437,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                     final_xy,
                     image_offset,
                     image_size,
+                );
+            } else if encoded_image.source_kind == IMAGE_SOURCE_EXTERNAL_YCBCR_NV12 {
+                let final_xy = image_offset + extended_xy;
+                sample_color = sample_external_ycbcr_nv12(
+                    encoded_image.quality,
+                    encoded_image.ycbcr_matrix,
+                    encoded_image.ycbcr_range,
+                    final_xy,
                 );
             } else if encoded_image.quality == IMAGE_QUALITY_HIGH {
                 let final_xy = image_offset + extended_xy;
@@ -861,7 +886,8 @@ const TINT_MODE_MULTIPLY: u32 = 1u;
 struct EncodedImage {
     /// The rendering quality of the image.
     quality: u32,
-    /// Whether the image is sourced from the atlas or the "externally bound" texture.
+    /// Source-kind: `IMAGE_SOURCE_ATLAS`, `IMAGE_SOURCE_EXTERNAL` or
+    /// `IMAGE_SOURCE_EXTERNAL_YCBCR_NV12`.
     source_kind: u32,
     /// The extends in the horizontal and vertical direction.
     extend_modes: vec2<u32>,
@@ -881,6 +907,12 @@ struct EncodedImage {
     tint_mode: u32,
     /// Number of transparent padding pixels around the image in the atlas.
     image_padding: f32,
+    /// YCbCr conversion-matrix selector (`YCBCR_MATRIX_*`). Only meaningful when
+    /// `source_kind == IMAGE_SOURCE_EXTERNAL_YCBCR_NV12`.
+    ycbcr_matrix: u32,
+    /// YCbCr numeric range (`YCBCR_RANGE_*`). Only meaningful when
+    /// `source_kind == IMAGE_SOURCE_EXTERNAL_YCBCR_NV12`.
+    ycbcr_range: u32,
 }
 
 // Convert a flat texel index to 2D texture coordinates for the encoded paints texture.
@@ -901,7 +933,12 @@ fn unpack_encoded_image(paint_tex_idx: u32) -> EncodedImage {
     let extend_x = (texel0.x >> 2u) & 0x3u;
     let extend_y = (texel0.x >> 4u) & 0x3u;
     let atlas_index = (texel0.x >> 6u) & 0xFFu;
-    let source_kind = (texel0.x >> 14u) & 0x1u;
+    // `source_kind` was 1 bit; it's now 2 bits to leave room for
+    // `IMAGE_SOURCE_EXTERNAL_YCBCR_NV12`. The Atlas / RGBA-external encoding still uses
+    // the low bit only, so old paint encodings remain compatible.
+    let source_kind = (texel0.x >> 14u) & 0x3u;
+    let ycbcr_matrix = (texel0.x >> 16u) & 0x3u;
+    let ycbcr_range = (texel0.x >> 18u) & 0x1u;
     // Unpack image_size from texel0.y (stored as u32, unpack to width/height)
     let image_size = vec2<f32>(f32(texel0.y >> 16u), f32(texel0.y & 0xFFFFu));
     // Unpack image_offset from texel0.z (stored as u32, unpack to x/y)
@@ -929,7 +966,9 @@ fn unpack_encoded_image(paint_tex_idx: u32) -> EncodedImage {
         translate,
         tint,
         tint_mode,
-        image_padding
+        image_padding,
+        ycbcr_matrix,
+        ycbcr_range,
     );
 }
 
@@ -1129,6 +1168,88 @@ fn sample_external_image(
         return external_bilinear_sample(coords - vec2(0.5), image_offset, image_size);
     }
     return textureLoad(external_texture, vec2<u32>(coords), 0);
+}
+
+fn ycbcr_to_rgb(y_in: f32, cb_in: f32, cr_in: f32, matrix: u32, range: u32) -> vec3<f32> {
+    var y = y_in;
+    var cb = cb_in - 0.5;
+    var cr = cr_in - 0.5;
+    if range == YCBCR_RANGE_LIMITED {
+        // 8-bit limited (TV) range: Y in 16..=235, CbCr in 16..=240.
+        y = (y - 16.0 / 255.0) * (255.0 / 219.0);
+        cb = cb * (255.0 / 224.0);
+        cr = cr * (255.0 / 224.0);
+    }
+
+    var rgb: vec3<f32>;
+    if matrix == YCBCR_MATRIX_BT601 {
+        rgb = vec3<f32>(
+            y + 1.402 * cr,
+            y - 0.344136 * cb - 0.714136 * cr,
+            y + 1.772 * cb,
+        );
+    } else if matrix == YCBCR_MATRIX_BT2020_NCL {
+        rgb = vec3<f32>(
+            y + 1.4746 * cr,
+            y - 0.16455 * cb - 0.57135 * cr,
+            y + 1.8814 * cb,
+        );
+    } else {
+        // Default to BT.709 — the most common matrix for HD H.264 / HEVC content.
+        rgb = vec3<f32>(
+            y + 1.5748 * cr,
+            y - 0.187324 * cb - 0.468124 * cr,
+            y + 1.8556 * cb,
+        );
+    }
+    return clamp(rgb, vec3(0.0), vec3(1.0));
+}
+
+// Bilinear-fetch a YCbCr value from an NV12 pair of planes at full-resolution Y-plane
+// coordinates `coords`. The CbCr plane is half-resolution in both axes, so we sample it
+// at `coords * 0.5`.
+fn sample_external_ycbcr_nv12_bilinear(coords: vec2<f32>) -> vec3<f32> {
+    let y_xy = coords - vec2(0.5);
+    let y_floor = floor(y_xy);
+    let y_frac = fract(y_xy);
+    let y_i = vec2<i32>(y_floor);
+    let y00 = textureLoad(external_texture, y_i + vec2<i32>(0, 0), 0).r;
+    let y10 = textureLoad(external_texture, y_i + vec2<i32>(1, 0), 0).r;
+    let y01 = textureLoad(external_texture, y_i + vec2<i32>(0, 1), 0).r;
+    let y11 = textureLoad(external_texture, y_i + vec2<i32>(1, 1), 0).r;
+    let y_top = mix(y00, y10, y_frac.x);
+    let y_bot = mix(y01, y11, y_frac.x);
+    let y = mix(y_top, y_bot, y_frac.y);
+
+    // CbCr lives at half resolution. We sample the texel under the Y position; this is
+    // the simple "nearest CbCr, bilinear Y" pattern most video shaders use — chroma
+    // bandwidth is already low, so additional CbCr filtering brings little visual gain.
+    let uv_xy = coords * 0.5;
+    let uv = textureLoad(external_texture_uv, vec2<i32>(uv_xy), 0).rg;
+
+    return vec3<f32>(y, uv.x, uv.y);
+}
+
+fn sample_external_ycbcr_nv12(
+    quality: u32,
+    matrix: u32,
+    range: u32,
+    coords: vec2<f32>,
+) -> vec4<f32> {
+    var ycbcr: vec3<f32>;
+    if quality == IMAGE_QUALITY_LOW {
+        let i = vec2<i32>(coords);
+        let y = textureLoad(external_texture, i, 0).r;
+        let uv = textureLoad(external_texture_uv, i / 2, 0).rg;
+        ycbcr = vec3<f32>(y, uv.x, uv.y);
+    } else {
+        // Both `IMAGE_QUALITY_MEDIUM` and `IMAGE_QUALITY_HIGH` use bilinear today;
+        // bicubic for video is rarely worth the cost.
+        ycbcr = sample_external_ycbcr_nv12_bilinear(coords);
+    }
+    let rgb = ycbcr_to_rgb(ycbcr.x, ycbcr.y, ycbcr.z, matrix, range);
+    // Video frames are opaque; result is already premultiplied (alpha == 1).
+    return vec4<f32>(rgb, 1.0);
 }
 
 // Cubic resampler logic borrowed from Skia (same as CPU cubic_resampler function)
