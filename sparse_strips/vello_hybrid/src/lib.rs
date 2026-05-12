@@ -51,7 +51,7 @@ mod render;
 mod resources;
 mod sampling;
 mod scene;
-#[cfg(any(all(target_arch = "wasm32", feature = "webgl"), feature = "wgpu"))]
+#[cfg(any(feature = "webgl", feature = "wgpu"))]
 mod schedule;
 #[cfg(feature = "text")]
 mod text;
@@ -61,9 +61,9 @@ pub mod util;
 #[cfg(feature = "wgpu")]
 pub use render::{AtlasWriter, RenderTargetConfig, Renderer, TextureBindings};
 pub use render::{Config, GpuStrip, RenderSize};
-#[cfg(all(target_arch = "wasm32", feature = "webgl", feature = "probe"))]
+#[cfg(all(feature = "webgl", feature = "probe"))]
 pub use render::{Probe, ProbeResult};
-#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+#[cfg(feature = "webgl")]
 pub use render::{WebGlAtlasWriter, WebGlRenderer, WebGlTextureWithDimensions};
 pub use resources::Resources;
 pub use sampling::SampleRect;

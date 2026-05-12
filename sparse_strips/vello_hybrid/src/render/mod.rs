@@ -11,16 +11,16 @@
 pub(crate) mod common;
 #[cfg(feature = "probe")]
 mod probe;
-#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+#[cfg(feature = "webgl")]
 mod webgl;
 #[cfg(feature = "wgpu")]
 mod wgpu;
 
 pub use common::{Config, GpuStrip, RenderSize};
 
-#[cfg(all(target_arch = "wasm32", feature = "webgl", feature = "probe"))]
+#[cfg(all(feature = "webgl", feature = "probe"))]
 pub use vello_common::probe::{Probe, ProbeResult};
-#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+#[cfg(feature = "webgl")]
 pub use webgl::{WebGlAtlasWriter, WebGlRenderer, WebGlTextureWithDimensions};
 #[cfg(feature = "wgpu")]
 pub use wgpu::{AtlasWriter, RenderTargetConfig, Renderer, TextureBindings};

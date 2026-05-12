@@ -435,7 +435,7 @@ pub(crate) fn pack_tint(tint: Option<vello_common::paint::Tint>) -> (u32, u32) {
     }
 }
 
-#[cfg(all(target_arch = "wasm32", feature = "webgl", feature = "wgpu"))]
+#[cfg(all(feature = "webgl", feature = "wgpu"))]
 pub(crate) fn maybe_warn_about_webgl_feature_conflict() {
     use core::sync::atomic::{AtomicBool, Ordering};
     static HAS_WARNED: AtomicBool = AtomicBool::new(false);
@@ -451,7 +451,7 @@ For optimal performance and binary size on web targets, use only the dedicated W
 }
 
 #[cfg(all(
-    any(all(target_arch = "wasm32", feature = "webgl"), feature = "wgpu"),
-    not(all(target_arch = "wasm32", feature = "webgl", feature = "wgpu"))
+    any(all(feature = "webgl"), feature = "wgpu"),
+    not(all(feature = "webgl", feature = "wgpu"))
 ))]
 pub(crate) fn maybe_warn_about_webgl_feature_conflict() {}

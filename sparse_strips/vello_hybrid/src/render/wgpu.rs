@@ -234,10 +234,7 @@ impl Renderer {
         // @see https://github.com/gfx-rs/wgpu/blob/61e5124eb9530d3b3865556a7da4fd320d03ddc5/wgpu-hal/src/gles/mod.rs#L470-L517
         // TODO: Can we somehow dynamically detect whether the WebGL backend was chosen, so that the
         // wgpu backend isn't affected by this?
-        #[cfg(target_arch = "wasm32")]
         let min_initial_atlas_count = 2;
-        #[cfg(not(target_arch = "wasm32"))]
-        let min_initial_atlas_count = 1;
         normalize_atlas_config(
             &mut settings.atlas_config,
             max_texture_dimension_2d,
@@ -1958,10 +1955,7 @@ impl Programs {
     ) -> (Texture, TextureView) {
         // See the comment in `Renderer::new_with`. On WASM, we need to set this to at
         // least 2 so it works with the wgpu WebGL backend.
-        #[cfg(target_arch = "wasm32")]
         let depth_or_array_layers = atlas_count.max(2);
-        #[cfg(not(target_arch = "wasm32"))]
-        let depth_or_array_layers = atlas_count;
 
         let atlas_texture_array = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Atlas Texture Array"),
