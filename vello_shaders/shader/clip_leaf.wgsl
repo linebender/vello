@@ -152,10 +152,18 @@ fn main(
     workgroupBarrier();
     // search for predecessor node
     bic = Bic();
-    var link = search_link(&bic, local_id.x);
+    var link = -1;
+    if global_id.x < config.n_clip {
+        link = search_link(&bic, local_id.x);
+    }
     sh_link[local_id.x] = link;
     workgroupBarrier();
-    let grandparent = select(link - 1, sh_link[link], link >= 0);
+    // Use explicit control flow rather than select here, as some backends may
+    // still materialize the indexed operand and expose invalid inactive lanes.
+    var grandparent = link - 1;
+    if link >= 0 {
+        grandparent = sh_link[link];
+    }
     var parent: i32;
     if link >= 0 {
         parent = i32(wg_id.x * WG_SIZE) + link;
