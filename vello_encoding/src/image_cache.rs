@@ -153,6 +153,12 @@ impl ImageCache {
         }
     }
 
+    pub(crate) fn mark_dirty(&mut self, image: &ImageData) {
+        if let Some(resident) = self.map.get_mut(&image.data.id()) {
+            resident.dirty = true;
+        }
+    }
+
     pub(crate) fn can_fit_image(&self, image: &ImageData) -> bool {
         image.width <= self.atlas.size().width as u32
             && image.height <= self.atlas.size().height as u32
@@ -241,6 +247,47 @@ mod tests {
         assert_eq!(first, second);
         assert_eq!(cache.images.len(), 0);
         assert_eq!(cache.map.len(), 1);
+    }
+
+    #[test]
+    fn marked_dirty_resident_entries_are_uploaded_again() {
+        let mut cache = ImageCache::new_with_sizes(32, 64);
+        let image = image(7, 8, 8);
+
+        cache.begin_resolve();
+        let first = cache.get_or_insert(&image).unwrap();
+        cache.finish_resolve();
+
+        cache.mark_dirty(&image);
+        cache.begin_resolve();
+        let second = cache.get_or_insert(&image).unwrap();
+        assert_eq!(first, second);
+        assert_eq!(cache.images.len(), 1);
+        assert_eq!(cache.images[0].0.data.id(), image.data.id());
+        assert_eq!((cache.images[0].1, cache.images[0].2), first);
+        cache.finish_resolve();
+
+        cache.begin_resolve();
+        assert_eq!(cache.get_or_insert(&image), Some(first));
+        assert_eq!(cache.images.len(), 0);
+    }
+
+    #[test]
+    fn marked_dirty_unused_entries_stay_dirty() {
+        let mut cache = ImageCache::new_with_sizes(32, 64);
+        let image = image(7, 8, 8);
+
+        cache.begin_resolve();
+        let xy = cache.get_or_insert(&image).unwrap();
+        cache.finish_resolve();
+
+        cache.mark_dirty(&image);
+        cache.begin_resolve();
+        cache.finish_resolve();
+
+        cache.begin_resolve();
+        assert_eq!(cache.get_or_insert(&image), Some(xy));
+        assert_eq!(cache.images.len(), 1);
     }
 
     #[test]
