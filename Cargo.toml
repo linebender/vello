@@ -105,7 +105,7 @@ skrifa = { version = "0.42.0", default-features = false, features = ["autohint_s
 # with the version of kurbo used by peniko.
 peniko = { version = "0.6.0", default-features = false }
 # FIXME: This can be removed once peniko supports the schemars feature.
-kurbo = { version = "0.13.0", default-features = false }
+kurbo = { version = "0.13.1", default-features = false }
 futures-intrusive = "0.5.0"
 guillotiere = { version = "0.7.0", default-features = false }
 hashbrown = { version = "0.17.0", default-features = false, features = ["default-hasher"] }
@@ -161,9 +161,6 @@ syn = { version = "2.0.117", features = ["full", "extra-traits"] }
 quote = "1.0.45"
 serde = { version = "1.0.228", default-features = false }
 serde_json = "1.0.149"
-
-[patch.crates-io]
-kurbo = { git = "https://github.com/linebender/kurbo.git", rev = "6836244be0b280ff68728f100fca0a5fcf62638a" }
 
 [profile.instrument]
 inherits = "release"

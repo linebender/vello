@@ -1825,8 +1825,9 @@ dependencies = [
 
 [[package]]
 name = "kurbo"
-version = "0.13.0"
-source = "git+https://github.com/linebender/kurbo.git?rev=6836244be0b280ff68728f100fca0a5fcf62638a#6836244be0b280ff68728f100fca0a5fcf62638a"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b60dfc32f652b926df6192e55525b16d186c69d47876c3ead4da5cc9f8450e2"
 dependencies = [
  "arrayvec",
  "euclid",
@@ -2664,7 +2665,7 @@ checksum = "9a2b6aadb221872732e87d465213e9be5af2849b0e8cc5300a8ba98fffa2e00a"
 dependencies = [
  "bytemuck",
  "color",
- "kurbo 0.13.0",
+ "kurbo 0.13.1",
  "linebender_resource_handle",
  "smallvec",
 ]
@@ -2761,7 +2762,8 @@ checksum = "2f3a9f18d041e6d0e102a0a46750538147e5e8992d3b4873aaafee2520b00ce3"
 [[package]]
 name = "polycool"
 version = "0.4.0"
-source = "git+https://github.com/linebender/kurbo.git?rev=6836244be0b280ff68728f100fca0a5fcf62638a#6836244be0b280ff68728f100fca0a5fcf62638a"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "50596ddc09eb5ad5f75cacd40209568e66df71baf86e1499a0e99c4cff12a5a6"
 dependencies = [
  "arrayvec",
  "libm",
@@ -5245,7 +5247,7 @@ dependencies = [
  "env_logger",
  "getrandom",
  "jni",
- "kurbo 0.13.0",
+ "kurbo 0.13.1",
  "log",
  "notify-debouncer-full",
  "pollster",
