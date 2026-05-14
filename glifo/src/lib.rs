@@ -35,7 +35,9 @@ use png as _;
 #[cfg(feature = "std")]
 extern crate std;
 
-use peniko::{self, color, kurbo};
+#[allow(clippy::single_component_path_imports, reason = "false positive")]
+use kurbo;
+use peniko::{self, color};
 use vello_common::pixmap::Pixmap;
 
 pub mod atlas;

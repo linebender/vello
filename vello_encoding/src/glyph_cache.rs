@@ -203,11 +203,11 @@ impl GlyphCacheSession<'_> {
         } else {
             DrawSettings::unhinted(self.size, self.coords)
         };
-        let n_path_segments = if self.embolden.amount != peniko::kurbo::Diagonal2::new(0.0, 0.0) {
+        let n_path_segments = if self.embolden.amount != kurbo::Diagonal2::new(0.0, 0.0) {
             self.outline_buf.truncate(0);
             let mut path = BezPathOutline(&mut self.outline_buf);
             outline.draw(draw_settings, &mut path).ok()?;
-            let path = peniko::kurbo::expand_path(
+            let path = kurbo::expand_path(
                 &self.outline_buf,
                 self.embolden.amount,
                 self.embolden.join,

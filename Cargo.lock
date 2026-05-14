@@ -1281,6 +1281,7 @@ dependencies = [
  "core_maths",
  "foldhash 0.2.0",
  "hashbrown 0.17.0",
+ "kurbo 0.13.1",
  "log",
  "peniko 0.6.0",
  "png",
@@ -4045,6 +4046,7 @@ version = "0.8.0"
 dependencies = [
  "bytemuck",
  "guillotiere",
+ "kurbo 0.13.1",
  "peniko 0.6.0",
  "skrifa 0.42.0",
  "smallvec",

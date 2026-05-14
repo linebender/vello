@@ -262,7 +262,7 @@ impl Encoding {
     /// closed. Returns `true` if a non-zero number of segments were encoded.
     pub fn encode_path_elements(
         &mut self,
-        path: impl Iterator<Item = peniko::kurbo::PathEl>,
+        path: impl Iterator<Item = kurbo::PathEl>,
         is_fill: bool,
     ) -> bool {
         let mut encoder = self.encode_path(is_fill);
