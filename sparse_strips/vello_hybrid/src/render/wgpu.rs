@@ -90,12 +90,12 @@ pub struct RenderTargetConfig {
 }
 
 /// Runtime bindings for [externally owned textures](`TextureId`) sampled by texture-rect draws.
-#[derive(Debug, Default)]
-pub struct TextureBindings<'a> {
-    views: HashMap<TextureId, &'a TextureView>,
+#[derive(Debug, Default, Clone)]
+pub struct TextureBindings {
+    views: HashMap<TextureId, TextureView>,
 }
 
-impl<'a> TextureBindings<'a> {
+impl TextureBindings {
     /// Create an empty binding map.
     #[inline]
     pub fn new() -> Self {
@@ -123,22 +123,22 @@ impl<'a> TextureBindings<'a> {
     /// formats are rejected by wgpu at bind time), the underlying texture must include
     /// [`wgpu::TextureUsages::TEXTURE_BINDING`], and only mip level 0 is read.
     #[inline]
-    pub fn insert(&mut self, texture_id: TextureId, view: &'a TextureView) {
+    pub fn insert(&mut self, texture_id: TextureId, view: TextureView) {
         self.views.insert(texture_id, view);
     }
 
     /// Get a texture binding.
     #[inline]
-    fn get(&self, texture_id: TextureId) -> Option<&'a TextureView> {
-        self.views.get(&texture_id).copied()
+    fn get(&self, texture_id: TextureId) -> Option<&TextureView> {
+        self.views.get(&texture_id)
     }
 
     /// Remove a texture binding.
     ///
-    /// Returns whether the binding existed.
+    /// This returns the removed [`TextureView`] binding if it existed.
     #[inline]
-    pub fn remove(&mut self, texture_id: TextureId) -> bool {
-        self.views.remove(&texture_id).is_some()
+    pub fn remove(&mut self, texture_id: TextureId) -> Option<TextureView> {
+        self.views.remove(&texture_id)
     }
 }
 
@@ -301,7 +301,7 @@ impl Renderer {
         encoder: &mut CommandEncoder,
         render_size: &RenderSize,
         view: &TextureView,
-        texture_bindings: &TextureBindings<'_>,
+        texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
         #[cfg(feature = "text")]
         {
@@ -394,7 +394,7 @@ impl Renderer {
         device: &Device,
         queue: &Queue,
         atlas_id: AtlasId,
-        texture_bindings: &TextureBindings<'_>,
+        texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render to Atlas Encoder"),
@@ -488,7 +488,7 @@ impl Renderer {
         encoded_paints: &[EncodedPaint],
         clear: bool,
         root_output_target: RootRenderTarget,
-        texture_bindings: &TextureBindings<'_>,
+        texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
         self.programs.depth_cleared_this_frame = false;
         self.prepare_gpu_encoded_paints(encoded_paints, image_cache, texture_bindings)?;
@@ -737,7 +737,7 @@ impl Renderer {
         &mut self,
         encoded_paints: &[EncodedPaint],
         image_cache: &ImageCache,
-        texture_bindings: &TextureBindings<'_>,
+        texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
         self.encoded_paints
             .resize_with(encoded_paints.len(), || GPU_PAINT_PLACEHOLDER);
@@ -2600,7 +2600,7 @@ struct RendererContext<'a> {
     image_cache: &'a ImageCache,
     filter_context: &'a FilterContext,
     filter_pass_state: &'a mut FilterPassState,
-    texture_bindings: &'a TextureBindings<'a>,
+    texture_bindings: &'a TextureBindings,
     external_paint_source_bind_groups: HashMap<TextureId, BindGroup>,
 }
 
