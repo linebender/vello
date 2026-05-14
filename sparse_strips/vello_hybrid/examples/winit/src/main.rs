@@ -389,12 +389,12 @@ impl ApplicationHandler for App<'_> {
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                             label: Some("Vello Render to Surface pass"),
                         });
-                let spritesheet_view = self.spritesheet_textures[surface.dev_id]
-                    .as_ref()
-                    .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()));
                 let mut texture_bindings = TextureBindings::new();
-                if let Some(view) = spritesheet_view.as_ref() {
-                    texture_bindings.insert(SPRITESHEET_TEXTURE_ID, view);
+                if let Some(texture) = self.spritesheet_textures[surface.dev_id].as_ref() {
+                    texture_bindings.insert(
+                        SPRITESHEET_TEXTURE_ID,
+                        texture.create_view(&wgpu::TextureViewDescriptor::default()),
+                    );
                 }
                 self.renderers[surface.dev_id]
                     .as_mut()

@@ -557,7 +557,7 @@ impl Renderer for HybridRenderer {
 
         let mut texture_bindings = vello_hybrid::TextureBindings::new();
         for (texture_id, texture) in &self.external_textures {
-            texture_bindings.insert(*texture_id, texture);
+            texture_bindings.insert(*texture_id, texture.clone());
         }
         // Copy texture to buffer
         let mut encoder = self
