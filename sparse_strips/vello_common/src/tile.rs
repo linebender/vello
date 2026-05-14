@@ -742,6 +742,7 @@ impl Tiles {
                             let row_top_x = p0_x + (row_top_y - p0_y) * x_slope;
                             let row_bottom_x = p0_x + (row_bottom_y - p0_y) * x_slope;
 
+                            // TODO: Evaluate whether we need the second max/min.
                             let row_left_x = f32::min(row_top_x, row_bottom_x).max(line_left_x);
                             let row_right_x = f32::max(row_top_x, row_bottom_x).min(line_right_x);
 
