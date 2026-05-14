@@ -703,90 +703,94 @@ impl Tiles {
                     let w_start_base = dx_dir << WINDING_SHIFT;
                     let w_end_base = not_dx_dir << WINDING_SHIFT;
 
-                    let mut push_row = |y_idx: u16,
-                                        row_top_y: f32,
-                                        row_bottom_y: f32,
-                                        w_start: u32,
-                                        w_end: u32,
-                                        w_single: u32| {
-                        let row_top_x = p0_x + (row_top_y - p0_y) * x_slope;
-                        let row_bottom_x = p0_x + (row_bottom_y - p0_y) * x_slope;
+                    let mut push_row = {
+                        #[inline(always)]
+                        |y_idx: u16,
+                         row_top_y: f32,
+                         row_bottom_y: f32,
+                         w_start: u32,
+                         w_end: u32,
+                         w_single: u32| {
+                            let row_top_x = p0_x + (row_top_y - p0_y) * x_slope;
+                            let row_bottom_x = p0_x + (row_bottom_y - p0_y) * x_slope;
 
-                        let row_left_x = f32::min(row_top_x, row_bottom_x).max(line_left_x);
-                        let row_right_x = f32::max(row_top_x, row_bottom_x).min(line_right_x);
+                            let row_left_x = f32::min(row_top_x, row_bottom_x).max(line_left_x);
+                            let row_right_x = f32::max(row_top_x, row_bottom_x).min(line_right_x);
 
-                        if row_left_x < 0.0 {
-                            self.windings.culled = true;
+                            if row_left_x < 0.0 {
+                                self.windings.culled = true;
 
-                            if row_right_x < 0.0 {
-                                // Although the line may cross the left edge, the rightmost point in
-                                // this row may still be fully left of the viewport. In this case,
-                                // record the winding and emit no tiles.
-                                self.windings.mark_row_active(y_idx as usize);
-
-                                let crosses_top = (w_single & W) != 0;
-                                if crosses_top {
-                                    self.windings.coarse[y_idx as usize] += dir;
-                                }
-
-                                let fractional_coverage =
-                                    calc_fractional_coverage!(y_idx, row_top_y, row_bottom_y);
-                                let target_row = &mut self.windings.partial[y_idx as usize];
-                                let current = f32x4::from_slice(s, target_row);
-
-                                let double_count = if crosses_top {
-                                    f_dir_v
-                                } else {
-                                    f32x4::splat(s, 0.0)
-                                };
-                                let next =
-                                    fractional_coverage.mul_add(f_dir_v, current - double_count);
-                                next.store_slice(target_row);
-
-                                return;
-                            } else {
-                                // The line crosses into the viewport in this row. Record only the
-                                // fractional portion of the winding, as the coarse winding will
-                                // naturally get included by the clamped tile logic!
-                                let y_slope = dy / dx;
-                                let y_intersect = row_top_y - (row_top_x * y_slope);
-
-                                let (off_screen_top_y, off_screen_bottom_y) = if row_top_x < 0.0 {
-                                    (row_top_y, f32::min(row_bottom_y, y_intersect))
-                                } else {
-                                    (f32::max(row_top_y, y_intersect), row_bottom_y)
-                                };
-
-                                if off_screen_top_y < off_screen_bottom_y {
+                                if row_right_x < 0.0 {
+                                    // Although the line may cross the left edge, the rightmost point in
+                                    // this row may still be fully left of the viewport. In this case,
+                                    // record the winding and emit no tiles.
                                     self.windings.mark_row_active(y_idx as usize);
-                                    let fractional_coverage = calc_fractional_coverage!(
-                                        y_idx,
-                                        off_screen_top_y,
-                                        off_screen_bottom_y
-                                    );
+
+                                    let crosses_top = (w_single & W) != 0;
+                                    if crosses_top {
+                                        self.windings.coarse[y_idx as usize] += dir;
+                                    }
+
+                                    let fractional_coverage =
+                                        calc_fractional_coverage!(y_idx, row_top_y, row_bottom_y);
                                     let target_row = &mut self.windings.partial[y_idx as usize];
                                     let current = f32x4::from_slice(s, target_row);
-                                    let next = fractional_coverage.mul_add(f_dir_v, current);
+
+                                    let double_count = if crosses_top {
+                                        f_dir_v
+                                    } else {
+                                        f32x4::splat(s, 0.0)
+                                    };
+                                    let next = fractional_coverage
+                                        .mul_add(f_dir_v, current - double_count);
                                     next.store_slice(target_row);
+
+                                    return;
+                                } else {
+                                    // The line crosses into the viewport in this row. Record only the
+                                    // fractional portion of the winding, as the coarse winding will
+                                    // naturally get included by the clamped tile logic!
+                                    let y_slope = dy / dx;
+                                    let y_intersect = row_top_y - (row_top_x * y_slope);
+
+                                    let (off_screen_top_y, off_screen_bottom_y) = if row_top_x < 0.0
+                                    {
+                                        (row_top_y, f32::min(row_bottom_y, y_intersect))
+                                    } else {
+                                        (f32::max(row_top_y, y_intersect), row_bottom_y)
+                                    };
+
+                                    if off_screen_top_y < off_screen_bottom_y {
+                                        self.windings.mark_row_active(y_idx as usize);
+                                        let fractional_coverage = calc_fractional_coverage!(
+                                            y_idx,
+                                            off_screen_top_y,
+                                            off_screen_bottom_y
+                                        );
+                                        let target_row = &mut self.windings.partial[y_idx as usize];
+                                        let current = f32x4::from_slice(s, target_row);
+                                        let next = fractional_coverage.mul_add(f_dir_v, current);
+                                        next.store_slice(target_row);
+                                    }
                                 }
                             }
-                        }
 
-                        let x_start = row_left_x as u16;
-                        let x_end = (row_right_x as u16).min(tile_columns.saturating_sub(1));
+                            let x_start = row_left_x as u16;
+                            let x_end = (row_right_x as u16).min(tile_columns.saturating_sub(1));
 
-                        if x_start <= x_end {
-                            let winding = if x_start == x_end { w_single } else { w_start };
+                            if x_start <= x_end {
+                                let winding = if x_start == x_end { w_single } else { w_start };
 
-                            self.tile_buf
-                                .push(Tile::new(x_start, y_idx, line_idx, winding));
+                                self.tile_buf
+                                    .push(Tile::new(x_start, y_idx, line_idx, winding));
 
-                            for x_idx in x_start.saturating_add(1)..x_end {
-                                self.tile_buf.push(Tile::new(x_idx, y_idx, line_idx, 0));
-                            }
+                                for x_idx in x_start.saturating_add(1)..x_end {
+                                    self.tile_buf.push(Tile::new(x_idx, y_idx, line_idx, 0));
+                                }
 
-                            if x_start < x_end {
-                                self.tile_buf.push(Tile::new(x_end, y_idx, line_idx, w_end));
+                                if x_start < x_end {
+                                    self.tile_buf.push(Tile::new(x_end, y_idx, line_idx, w_end));
+                                }
                             }
                         }
                     };
