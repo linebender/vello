@@ -446,6 +446,7 @@ impl Resolver {
                         &run.font,
                         bytemuck::cast_slice(coords),
                         font_size,
+                        run.font_embolden,
                         hint,
                         &run.style,
                     ) else {

@@ -22,7 +22,9 @@ use skrifa::{
 };
 #[cfg(feature = "bump_estimate")]
 use vello_encoding::BumpAllocatorMemory;
-use vello_encoding::{DrawBeginClip, Encoding, Glyph, GlyphRun, NormalizedCoord, Patch, Transform};
+use vello_encoding::{
+    DrawBeginClip, Encoding, FontEmbolden, Glyph, GlyphRun, NormalizedCoord, Patch, Transform,
+};
 
 // TODO - Document invariants and edge cases (#470)
 // - What happens when we pass a transform matrix with NaN values to the Scene?
@@ -503,6 +505,7 @@ impl<'a> DrawGlyphs<'a> {
                 transform: Transform::IDENTITY,
                 glyph_transform: None,
                 font_size: 16.0,
+                font_embolden: FontEmbolden::default(),
                 hint: false,
                 normalized_coords: coords_start..coords_start,
                 style: Fill::NonZero.into(),
@@ -541,6 +544,13 @@ impl<'a> DrawGlyphs<'a> {
     #[must_use]
     pub fn font_size(mut self, size: f32) -> Self {
         self.run.font_size = size;
+        self
+    }
+
+    /// Sets synthetic embolden settings.
+    #[must_use]
+    pub fn font_embolden(mut self, embolden: FontEmbolden) -> Self {
+        self.run.font_embolden = embolden;
         self
     }
 
