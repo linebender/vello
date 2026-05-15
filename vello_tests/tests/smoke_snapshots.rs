@@ -7,7 +7,7 @@ use scenes::SimpleText;
 use vello::{
     Scene,
     kurbo::{Affine, Circle, Rect},
-    peniko::{Brush, Fill, color::palette},
+    peniko::{Brush, Fill, Gradient, color::palette},
 };
 use vello_tests::{TestParams, smoke_snapshot_test_sync};
 
@@ -75,6 +75,50 @@ fn two_emoji(use_cpu: bool) {
         .assert_mean_less_than(0.01);
 }
 
+fn glyph_gradient_brush_transform(use_cpu: bool) {
+    let mut scene = Scene::new();
+    let mut text = SimpleText::new();
+    // The gradient starts to the right of the text. Without a brush transform,
+    // pad extension clamps the whole run to red; with the transform below, the
+    // gradient is translated over the glyphs and becomes visibly red-lime-blue.
+    let gradient = Gradient::new_linear((200.0, 0.0), (320.0, 0.0)).with_stops([
+        palette::css::RED,
+        palette::css::LIME,
+        palette::css::BLUE,
+    ]);
+
+    text.add_run(
+        &mut scene,
+        None,
+        40.0,
+        &gradient,
+        Affine::translate((8.0, 38.0)),
+        None,
+        None,
+        Fill::NonZero,
+        "GRAD",
+    );
+    text.add_run(
+        &mut scene,
+        None,
+        40.0,
+        &gradient,
+        Affine::translate((8.0, 82.0)),
+        None,
+        Some(Affine::translate((-200.0, 0.0))),
+        Fill::NonZero,
+        "GRAD",
+    );
+
+    let params = TestParams {
+        use_cpu,
+        ..TestParams::new("glyph_gradient_brush_transform", 150, 92)
+    };
+    smoke_snapshot_test_sync(scene, &params)
+        .unwrap()
+        .assert_mean_less_than(0.01);
+}
+
 #[test]
 #[cfg_attr(skip_gpu_tests, ignore)]
 fn filled_square_gpu() {
@@ -111,4 +155,16 @@ fn two_emoji_gpu() {
 #[cfg_attr(skip_gpu_tests, ignore)]
 fn two_emoji_cpu() {
     two_emoji(true);
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn glyph_gradient_brush_transform_gpu() {
+    glyph_gradient_brush_transform(false);
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn glyph_gradient_brush_transform_cpu() {
+    glyph_gradient_brush_transform(true);
 }

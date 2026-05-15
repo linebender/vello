@@ -222,6 +222,7 @@ impl Resolver {
                         data.extend_from_slice(bytemuck::bytes_of(&PathTag::TRANSFORM));
                         data.extend_from_slice(bytemuck::cast_slice(&glyph.path_tags));
                     }
+                    data.extend_from_slice(bytemuck::bytes_of(&PathTag::TRANSFORM));
                     data.extend_from_slice(bytemuck::bytes_of(&PathTag::PATH));
                 }
             }
@@ -325,6 +326,7 @@ impl Resolver {
                 if let ResolvedPatch::GlyphRun {
                     index,
                     glyphs: _,
+                    paint_transform,
                     transform,
                     scale,
                     hint,
@@ -362,6 +364,7 @@ impl Resolver {
                             data.extend_from_slice(bytemuck::bytes_of(&xform));
                         }
                     }
+                    data.extend_from_slice(bytemuck::bytes_of(paint_transform));
                 }
             }
             if pos < stream.len() {
@@ -423,6 +426,8 @@ impl Resolver {
                     let run = &resources.glyph_runs[*index];
                     let glyphs = &resources.glyphs[run.glyphs.clone()];
                     let coords = &resources.normalized_coords[run.normalized_coords.clone()];
+                    let paint_transform =
+                        run.transform * run.brush_transform.unwrap_or(Transform::IDENTITY);
                     let mut hint = run.hint;
                     let mut font_size = run.font_size;
                     let mut transform = run.transform;
@@ -466,12 +471,13 @@ impl Resolver {
                         self.glyphs.push(encoding);
                     }
                     let glyph_end = self.glyphs.len();
-                    run_sizes.path_tags += glyphs.len() + 1;
-                    run_sizes.transforms += glyphs.len();
+                    run_sizes.path_tags += glyphs.len() + 2;
+                    run_sizes.transforms += glyphs.len() + 1;
                     sizes.add(&run_sizes);
                     self.patches.push(ResolvedPatch::GlyphRun {
                         index: *index,
                         glyphs: glyph_start..glyph_end,
+                        paint_transform,
                         transform,
                         scale,
                         hint,
@@ -577,6 +583,8 @@ enum ResolvedPatch {
         index: usize,
         /// Range into the glyphs encoding range buffer.
         glyphs: Range<usize>,
+        /// Transform used for the run brush.
+        paint_transform: Transform,
         /// Global transform.
         transform: Transform,
         /// Additional scale factor to apply to translation.

@@ -128,6 +128,7 @@ fn text_stroke_width_zero() {
         palette::css::WHITE,
         Affine::translate((0., f64::from(font_size))),
         None,
+        None,
         &Stroke::new(0.),
         "Testing text",
     );

@@ -32,6 +32,7 @@ fn encode_hinted_text(text: &str, font_size: f32) -> Scene {
         &Brush::Solid(palette::css::WHITE),
         transform,
         None,
+        None,
         Fill::EvenOdd,
         text,
         true,
