@@ -12,6 +12,7 @@ members = [
     "examples/scenes",
     "examples/simple",
     "examples/with_winit",
+    "examples/symbols",
 
     "sparse_strips/vello_api",
     "sparse_strips/vello_bench",
