@@ -15,10 +15,36 @@ You can find its changes [documented below](#007---2026-03-24).
 
 This release has an [MSRV][] of 1.88.
 
+### Added
+
+- `render_decoration` on glyph run builders for rendering text decorations with skip-ink behavior. ([#1592][] by [@taj-p][])
+- Support for rendering VARC glyphs in text paths. ([#1594][] by [@nicoburns][], [@oscargus][])
+- Support for synthetic font emboldening in text glyph runs via `GlyphRunBuilder::font_embolden` and `glifo::FontEmbolden`. ([#1628][] by [@jrmoulton][])
+
+### Changed
+
+- Migrated text rendering to `glifo`; rendering, glyph, and image APIs now use an explicit `Resources` object for persistent image and glyph caches. `RenderContext::render_to_buffer`, `RenderContext::render_to_pixmap`, `RenderContext::composite_to_pixmap_at_offset`, and `RenderContext::glyph_run` now take resources, and image registration moved from `RenderContext` to `Resources`. ([#1562][] by [@LaurenzV][])
+- Renamed image transparency hint APIs from `may_have_opacities` and `*_opacity_hint` to `may_have_transparency` and `*_transparency_hint`. ([#1613][] by [@upsuper][])
+
 ### Removed
 
-- Support for recordings. This decision was made due to a number of downsides that
-  came with the implementation. See the corresponding PR and Zulip thread for more information. ([#1611][] by [@LaurenzV][])
+- Experimental `vello_api` integration and `api` module. ([#1602][] by [@waywardmonkeys][])
+- Support for recordings.
+  This decision was made due to a number of downsides that came with the implementation.
+  See the corresponding PR and Zulip thread for more information. ([#1611][] by [@LaurenzV][])
+
+### Fixed
+
+- Rendering of rare degenerate radial gradients with undefined regions, which should render those regions transparent. ([#1529][] by [@LaurenzV][])
+- Incorrect rendering of filter layers containing nested clip layers. ([#1541][] by [@LaurenzV][])
+- x86 artifacts in bicubic image rendering caused by negative interpolated color values wrapping during SIMD `f32` to `u8` conversion. ([#1563][] by [@LaurenzV][])
+- Stroked glyph rendering when scaled glyph runs absorb the transform into the font size, preserving the expected stroke width. ([#1576][] by [@LaurenzV][])
+- COLR glyph rendering, including glyphs using non-default blend modes. ([#1584][] by [@LaurenzV][])
+- Rendering of inverted rectangles, including blurred rounded rectangles. ([#1589][] by [@LaurenzV][])
+
+### Optimized
+
+- CPU fine rasterization performance through improved SIMD codegen. ([#1616][] by [@LaurenzV][])
 
 ## [0.0.7][] - 2026-03-24
 
@@ -123,9 +149,13 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 
 [@DJMcNab]: https://github.com/DJMcNab
 [@grebmeg]: https://github.com/grebmeg
+[@jrmoulton]: https://github.com/jrmoulton
 [@LaurenzV]: https://github.com/LaurenzV
 [@nicoburns]: https://github.com/nicoburns
+[@oscargus]: https://github.com/oscargus
+[@taj-p]: https://github.com/taj-p
 [@tomcur]: https://github.com/tomcur
+[@upsuper]: https://github.com/upsuper
 [@waywardmonkeys]: https://github.com/waywardmonkeys
 
 [#1159]: https://github.com/linebender/vello/pull/1159
@@ -146,7 +176,20 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [#1451]: https://github.com/linebender/vello/pull/1451
 [#1460]: https://github.com/linebender/vello/pull/1460
 [#1488]: https://github.com/linebender/vello/pull/1488
+[#1529]: https://github.com/linebender/vello/pull/1529
+[#1541]: https://github.com/linebender/vello/pull/1541
+[#1562]: https://github.com/linebender/vello/pull/1562
+[#1563]: https://github.com/linebender/vello/pull/1563
+[#1576]: https://github.com/linebender/vello/pull/1576
+[#1584]: https://github.com/linebender/vello/pull/1584
+[#1589]: https://github.com/linebender/vello/pull/1589
+[#1592]: https://github.com/linebender/vello/pull/1592
+[#1594]: https://github.com/linebender/vello/pull/1594
+[#1602]: https://github.com/linebender/vello/pull/1602
 [#1611]: https://github.com/linebender/vello/pull/1611
+[#1613]: https://github.com/linebender/vello/pull/1613
+[#1616]: https://github.com/linebender/vello/pull/1616
+[#1628]: https://github.com/linebender/vello/pull/1628
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.7...HEAD
 [0.0.7]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.6...sparse-strips-v0.0.7

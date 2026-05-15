@@ -18,15 +18,33 @@ This release has an [MSRV][] of 1.88.
 ### Added
 
 - `TextureId`, a handle for user-provided textures resolved at render-time, and `EncodedExternalTexture` for encoding draws that sample from them. ([#1552][] by [@tomcur][])
+- `RectU16`, a shared axis-aligned rectangle type for `u16` coordinate bounding boxes. ([#1559][] by [@tomcur][])
 
-### Optimized
+### Changed
 
-- Performance of clipped drawing by culling geometry outside the clip bounding box during flattening. ([#1519][] by [@tomcur][])
+- `WideTilesBbox` now uses `RectU16` internally, its `bbox` field is private, and `WideTilesBbox::new` now takes four `u16` coordinates instead of a `[u16; 4]`. ([#1559][] by [@tomcur][])
+- Renamed image transparency hint APIs from `may_have_opacities` and `*_opacity_hint` to `may_have_transparency` and `*_transparency_hint`. ([#1613][] by [@upsuper][])
+- Gradient LUTs no longer reserve an extra transparent entry for undefined radial-gradient regions; `EncodedGradient` now tracks whether those regions are possible. ([#1529][] by [@LaurenzV][])
 
 ### Removed
 
-- Support for recordings. This decision was made due to a number of downsides that
-  came with the implementation. See the corresponding PR and Zulip thread for more information. ([#1611][] by [@LaurenzV][]) 
+- Public `glyph` and `colr` modules and the `text` feature; sparse-strips text rendering now lives in `glifo` and the renderer crates. ([#1562][] by [@LaurenzV][])
+- Support for recordings, including the shared recording API.
+  This decision was made due to a number of downsides that came with the implementation.
+  See the corresponding PR and Zulip thread for more information. ([#1611][] by [@LaurenzV][])
+
+### Fixed
+
+- Handling of zero-area rectangles in the rectangle fast path, avoiding out-of-viewport strips and downstream assertions. ([#1537][] by [@LaurenzV][])
+- Invalid gradients with NaN or out-of-range final stop offsets now fall back to the first color instead of passing validation. ([#1531][] by [@LaurenzV][])
+- Implicit subpaths that continue after `ClosePath` without an explicit `MoveTo`. ([#1544][] by [@tomcur][])
+- Negative-sized rectangles during strip generation. ([#1589][] by [@LaurenzV][])
+
+### Optimized
+
+- Rendering performance for paths with line segments fully or partly left of the viewport by culling invisible left-of-viewport line work while preserving winding contributions. ([#1368][] by [@b0nes164][])
+- Performance of clipped drawing by culling geometry outside the clip bounding box during flattening. ([#1519][] by [@tomcur][])
+- Flattening and tiling performance through codegen improvements in the sparse strip pipeline. ([#1600][], [#1616][], [#1634][] by [@LaurenzV][])
 
 ## [0.0.7][] - 2026-03-24
 
@@ -155,6 +173,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [@LaurenzV]: https://github.com/LaurenzV
 [@taj-p]: https://github.com/taj-p
 [@tomcur]: https://github.com/tomcur
+[@upsuper]: https://github.com/upsuper
 [@valadaptive]: https://github.com/valadaptive
 [@waywardmonkeys]: https://github.com/waywardmonkeys
 
@@ -177,6 +196,7 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1349]: https://github.com/linebender/vello/pull/1349
 [#1353]: https://github.com/linebender/vello/pull/1353
 [#1354]: https://github.com/linebender/vello/pull/1354
+[#1368]: https://github.com/linebender/vello/pull/1368
 [#1399]: https://github.com/linebender/vello/pull/1399
 [#1403]: https://github.com/linebender/vello/pull/1403
 [#1414]: https://github.com/linebender/vello/pull/1414
@@ -198,8 +218,19 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1484]: https://github.com/linebender/vello/pull/1484
 [#1486]: https://github.com/linebender/vello/pull/1486
 [#1519]: https://github.com/linebender/vello/pull/1519
+[#1529]: https://github.com/linebender/vello/pull/1529
+[#1531]: https://github.com/linebender/vello/pull/1531
+[#1537]: https://github.com/linebender/vello/pull/1537
+[#1544]: https://github.com/linebender/vello/pull/1544
 [#1552]: https://github.com/linebender/vello/pull/1552
+[#1559]: https://github.com/linebender/vello/pull/1559
+[#1562]: https://github.com/linebender/vello/pull/1562
+[#1589]: https://github.com/linebender/vello/pull/1589
+[#1600]: https://github.com/linebender/vello/pull/1600
 [#1611]: https://github.com/linebender/vello/pull/1611
+[#1613]: https://github.com/linebender/vello/pull/1613
+[#1616]: https://github.com/linebender/vello/pull/1616
+[#1634]: https://github.com/linebender/vello/pull/1634
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.7...HEAD
 [0.0.7]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.6...sparse-strips-v0.0.7
