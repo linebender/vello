@@ -1,9 +1,18 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Glifo provides APIs for rendering and caching glyphs in a backend-agnostic way.
+//! Glifo provides APIs for efficiently rendering glyphs and paint styles like underline.
 //!
-//! ## Features
+//! # Goals
+//!
+//! Glifo is under rapid development. Consider it experimental for now. Its goals are to:
+//!
+//! - Provide an API surface that accepts glyphs and their positions and renders them to a surface.
+//! - Cache those glyphs so that repeated renders of a glyph are fast.
+//! - Support rendering paint styles like underline, strikethrough, and brush color.
+//! - Share expensive structs and data between the shaper and renderer like the hinting instance and hinted advance.
+//!
+//! # Features
 //!
 //! - `std` (enabled by default): Get floating point functions from the standard library
 //!   (likely using your target's libc).
