@@ -9,6 +9,7 @@
 )]
 
 use std::fs::{File, create_dir_all};
+#[cfg(target_os = "macos")]
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
