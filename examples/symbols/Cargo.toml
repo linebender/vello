@@ -1,0 +1,24 @@
+[package]
+name = "symbols"
+version = "0.1.0"
+description = "An example rendering layered point, line, and polygon symbols with Vello."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["symbol", "rendering", "graphics"]
+categories = ["graphics", "visualization", "rendering"]
+
+[lints]
+workspace = true
+
+[dependencies]
+vello = { workspace = true }
+
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+
+pollster = { workspace = true }
+env_logger = "0.11"
+png = { workspace = true }
+futures-intrusive = { workspace = true }
