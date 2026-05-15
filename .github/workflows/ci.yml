@@ -118,6 +118,9 @@ jobs:
       - name: Run cargo rdme (vello_hybrid)
         run: cargo rdme --check --workspace-project=vello_hybrid
 
+      - name: Run cargo rdme (glifo)
+        run: cargo rdme --check --workspace-project=glifo
+
   clippy-stable:
     name: cargo clippy
     runs-on: ${{ matrix.os }}
