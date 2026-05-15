@@ -17,17 +17,57 @@ This release has an [MSRV][] of 1.88.
 
 ### Added
 
-- Support for sampling from external textures through `Scene::draw_texture_rects`. ([#1552][] by [@tomcur][]) 
+- Support for sampling from external textures through `Scene::draw_texture_rects`. ([#1552][] by [@tomcur][])
   
   This method can sample many regions from a texture at once, allowing the texture to be used as an atlas.
   You bind the textures at render-time (as opposed to scene-construction time), allowing drawing of quickly-changing textures without interning them into the renderer.
 
   External textures are not yet supported by the `webgl` backend.
 
+- Bicubic image sampling in the sparse shader path, improving high-quality image rendering. ([#1557][] by [@waywardmonkeys][])
+- `WebGlRenderer::probe` behind the `probe` feature to sanity-check WebGL device compatibility by rendering a small reference scene and comparing the output. ([#1596][] by [@LaurenzV][])
+- `render_decoration` on glyph run builders for rendering text decorations with skip-ink behavior. ([#1592][] by [@taj-p][])
+- Support for rendering VARC glyphs in text paths. ([#1594][] by [@nicoburns][], [@oscargus][])
+- Support for synthetic font emboldening in text glyph runs via `GlyphRunBuilder::font_embolden` and `glifo::FontEmbolden`. ([#1628][] by [@jrmoulton][])
+
+### Changed
+
+- Updated `wgpu` to v29. ([#1534][] by [@nicoburns][])
+- Migrated text rendering to `glifo`; renderer resources are now managed through `Resources`, which must be passed to text, image upload, and render operations such as `Scene::glyph_run`, `Renderer::render`, and `Renderer::upload_image`. ([#1562][] by [@LaurenzV][])
+- Renamed image transparency hint APIs from `may_have_opacities` and `*_opacity_hint` to `may_have_transparency` and `*_transparency_hint`. ([#1613][] by [@upsuper][])
+- `Renderer::destroy_image` and `WebGlRenderer::destroy_image` now take `&mut Resources` instead of `&mut ImageCache`, allowing clients to destroy images through the public resource container. ([#1580][] by [@LaurenzV][])
+- `TextureBindings` now owns `wgpu::TextureView`s, allowing bindings to be held across frames more easily.
+  `insert` now takes a `TextureView` by value and `remove` returns the removed view if present. ([#1639][] by [@tomcur][])
+
 ### Removed
 
-- Support for recordings. This decision was made due to a number of downsides that
-  came with the implementation. See the corresponding PR and Zulip thread for more information. ([#1611][] by [@LaurenzV][])
+- Experimental `vello_api` integration and `api` module. ([#1602][] by [@waywardmonkeys][])
+- Support for recordings.
+  This decision was made due to a number of downsides that came with the implementation.
+  See the corresponding PR and Zulip thread for more information. ([#1611][] by [@LaurenzV][])
+
+### Fixed
+
+- Rendering of rare degenerate radial gradients with undefined regions, which should render those regions transparent. ([#1529][] by [@LaurenzV][])
+- Incorrect rendering of filter layers containing nested clip layers. ([#1541][] by [@LaurenzV][])
+- Incorrect rendering when a background-clearing optimization ran after filter layers had been used. ([#1526][] by [@LaurenzV][])
+- `SceneConstraints::default_blending_only()` now allows non-default blend modes inside nested layers, while still rejecting them on the root layer. ([#1554][] by [@LaurenzV][])
+- Draw ordering for fast-path strips scheduled after nested layers when default blending constraints are enabled. ([#1555][] by [@LaurenzV][], [@taj-p][])
+- Atlas configuration is now clamped to backend device limits, allowing `RenderSettings::default()` and oversized atlas settings to work on more devices. ([#1568][] by [@LaurenzV][])
+- `wgpu` render targets are cleared before drawing, fixing stale pixels in transparent or untouched regions when rendering into reused offscreen targets. ([#1572][] by [@waywardmonkeys][])
+- Bicubic image sampling now clamps sparse shader results correctly, avoiding invalid premultiplied color values. ([#1573][] by [@waywardmonkeys][])
+- Stroked glyph rendering when scaled glyph runs absorb the transform into the font size, preserving the expected stroke width. ([#1576][] by [@LaurenzV][])
+- COLR glyph rendering, including glyphs using non-default blend modes. ([#1584][] by [@LaurenzV][])
+- `WebGlRenderer` construction no longer leaks framebuffer state, fixing a panic when creating a second WebGL renderer. ([#1603][] by [@LaurenzV][])
+- Blur and filter shader compatibility on some mobile GPUs. ([#1601][], [#1612][] by [@LaurenzV][])
+- Feature gating so `probe` no longer enables `std`, and `std` no longer implies `wgpu`, preserving WebGL-only configurations. ([#1614][] by [@LaurenzV][])
+
+### Optimized
+
+- Native WebGL rendering now avoids an intermediate framebuffer, improving performance especially for low-complexity scenes. ([#1546][] by [@LaurenzV][])
+- Rectangle rendering, including large anti-aliased rectangles, clipped axis-aligned `fill_rect` calls, and blurred rounded rectangles. ([#1565][], [#1586][] by [@LaurenzV][], [#1610][] by [@waywardmonkeys][])
+- Filter rendering by applying scissor rectangles to filter passes and intermediate layers. ([#1566][], [#1567][] by [@LaurenzV][])
+- Rendering of opaque strips by adding a front-to-back opaque pass with depth testing to reduce overdraw. ([#1577][] by [@taj-p][])
 
 ## [0.0.7][] - 2026-03-24
 
@@ -92,9 +132,13 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 
 [@DJMcNab]: https://github.com/DJMcNab
 [@grebmeg]: https://github.com/grebmeg
+[@jrmoulton]: https://github.com/jrmoulton
 [@LaurenzV]: https://github.com/LaurenzV
+[@nicoburns]: https://github.com/nicoburns
+[@oscargus]: https://github.com/oscargus
 [@taj-p]: https://github.com/taj-p
 [@tomcur]: https://github.com/tomcur
+[@upsuper]: https://github.com/upsuper
 [@waywardmonkeys]: https://github.com/waywardmonkeys
 [@xStrom]: https://github.com/xStrom
 
@@ -116,8 +160,40 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1492]: https://github.com/linebender/vello/pull/1492
 [#1494]: https://github.com/linebender/vello/pull/1494
 [#1496]: https://github.com/linebender/vello/pull/1496
+[#1526]: https://github.com/linebender/vello/pull/1526
+[#1529]: https://github.com/linebender/vello/pull/1529
+[#1534]: https://github.com/linebender/vello/pull/1534
+[#1541]: https://github.com/linebender/vello/pull/1541
+[#1546]: https://github.com/linebender/vello/pull/1546
+[#1554]: https://github.com/linebender/vello/pull/1554
+[#1555]: https://github.com/linebender/vello/pull/1555
 [#1552]: https://github.com/linebender/vello/pull/1552
+[#1557]: https://github.com/linebender/vello/pull/1557
+[#1562]: https://github.com/linebender/vello/pull/1562
+[#1565]: https://github.com/linebender/vello/pull/1565
+[#1566]: https://github.com/linebender/vello/pull/1566
+[#1567]: https://github.com/linebender/vello/pull/1567
+[#1568]: https://github.com/linebender/vello/pull/1568
+[#1572]: https://github.com/linebender/vello/pull/1572
+[#1573]: https://github.com/linebender/vello/pull/1573
+[#1576]: https://github.com/linebender/vello/pull/1576
+[#1577]: https://github.com/linebender/vello/pull/1577
+[#1580]: https://github.com/linebender/vello/pull/1580
+[#1584]: https://github.com/linebender/vello/pull/1584
+[#1586]: https://github.com/linebender/vello/pull/1586
+[#1592]: https://github.com/linebender/vello/pull/1592
+[#1594]: https://github.com/linebender/vello/pull/1594
+[#1596]: https://github.com/linebender/vello/pull/1596
+[#1601]: https://github.com/linebender/vello/pull/1601
+[#1602]: https://github.com/linebender/vello/pull/1602
+[#1603]: https://github.com/linebender/vello/pull/1603
+[#1610]: https://github.com/linebender/vello/pull/1610
 [#1611]: https://github.com/linebender/vello/pull/1611
+[#1612]: https://github.com/linebender/vello/pull/1612
+[#1613]: https://github.com/linebender/vello/pull/1613
+[#1614]: https://github.com/linebender/vello/pull/1614
+[#1628]: https://github.com/linebender/vello/pull/1628
+[#1639]: https://github.com/linebender/vello/pull/1639
 
 [Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.7...HEAD
 [0.0.7]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.6...sparse-strips-v0.0.7
