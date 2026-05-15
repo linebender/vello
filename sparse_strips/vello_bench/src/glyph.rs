@@ -22,11 +22,11 @@ pub fn glyph(c: &mut Criterion) {
         let mut layout_cx = LayoutContext::new();
         let mut font_cx = FontContext::new();
         let mut builder = layout_cx.ranged_builder(&mut font_cx, text, scale, true);
-        builder.push_default(FontFamily::parse("Roboto").unwrap());
+        builder.push_default(FontFamily::named("Roboto"));
         let mut layout: Layout<Brush> = builder.build(text);
         let max_advance = Some(WIDTH as f32);
         layout.break_all_lines(max_advance);
-        layout.align(max_advance, Alignment::Start, AlignmentOptions::default());
+        layout.align(Alignment::Start, AlignmentOptions::default());
         layout
     };
 
@@ -133,7 +133,7 @@ fn render_glyph_run(
         run_x += glyph.advance;
 
         Glyph {
-            id: glyph.id as u32,
+            id: glyph.id,
             x: glyph_x,
             y: glyph_y,
         }
