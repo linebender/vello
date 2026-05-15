@@ -1228,7 +1228,7 @@ dependencies = [
 
 [[package]]
 name = "glifo"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "bytemuck",
  "core_maths",
@@ -2209,7 +2209,7 @@ dependencies = [
 
 [[package]]
 name = "native_webgl"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "console_error_panic_hook",
  "console_log",
@@ -4093,7 +4093,7 @@ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
 name = "vello"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "bytemuck",
  "futures-intrusive",
@@ -4111,7 +4111,7 @@ dependencies = [
 
 [[package]]
 name = "vello_api"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "bytemuck",
  "peniko",
@@ -4135,7 +4135,7 @@ dependencies = [
 
 [[package]]
 name = "vello_common"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "bytemuck",
  "fearless_simd",
@@ -4152,7 +4152,7 @@ dependencies = [
 
 [[package]]
 name = "vello_cpu"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "bytemuck",
  "crossbeam-channel",
@@ -4187,7 +4187,7 @@ dependencies = [
 
 [[package]]
 name = "vello_encoding"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "bytemuck",
  "guillotiere",
@@ -4215,11 +4215,11 @@ dependencies = [
 
 [[package]]
 name = "vello_filters_cpu"
-version = "0.8.0"
+version = "0.9.0"
 
 [[package]]
 name = "vello_hybrid"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "bytemuck",
  "glifo",
@@ -4250,7 +4250,7 @@ dependencies = [
 
 [[package]]
 name = "vello_shaders"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "bytemuck",
  "log",
@@ -4261,7 +4261,7 @@ dependencies = [
 
 [[package]]
 name = "vello_sparse_shaders"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "naga",
 ]
@@ -4504,7 +4504,7 @@ dependencies = [
 
 [[package]]
 name = "wasm_cpu"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "bytemuck",
  "console_error_panic_hook",
@@ -4867,7 +4867,7 @@ dependencies = [
 
 [[package]]
 name = "wgpu_webgl"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "console_error_panic_hook",
  "console_log",

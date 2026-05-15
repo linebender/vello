@@ -12,6 +12,10 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+## [0.1.0][] - 2026-05-15
+
+This release has an [MSRV][] of 1.88.
+
 The first release of Glifo!
 
 Glifo moved to the Vello repo in [#1539][] and was prepared for release by [@conor-93][], [@grebmeg][], [@jrmoulton][], [@LaurenzV][], [@nicoburns][], [@oscargus][], [@taj-p][], and [@xStrom][].
@@ -27,6 +31,7 @@ Glifo moved to the Vello repo in [#1539][] and was prepared for release by [@con
 
 [#1539]: https://github.com/linebender/vello/pull/1539
 
-[Unreleased]: https://github.com/linebender/vello/commits/main/glifo
+[Unreleased]: https://github.com/linebender/vello/compare/glifo-v0.1.0...HEAD
+[0.1.0]: https://github.com/linebender/vello/compare/246912ae692cff7719cd95026107cc1aa077f205...glifo-v0.1.0
 
 [MSRV]: README.md#minimum-supported-rust-version-msrv
