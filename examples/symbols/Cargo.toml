@@ -5,6 +5,9 @@ description = "An example rendering layered point, line, and polygon symbols wit
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
+keywords = ["symbol", "rendering", "graphics"]
+categories = ["graphics", "visualization", "rendering"]
 
 [lints]
 workspace = true

@@ -11,7 +11,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, ValueEnum};
-use vello::kurbo::{Affine, BezPath, Cap, Circle, Join, Line, Point, Rect, RoundedRect, Shape, Stroke, Vec2};
+use vello::kurbo::{
+    Affine, BezPath, Cap, Circle, Join, Line, Point, Rect, RoundedRect, Shape, Stroke, Vec2,
+};
 use vello::peniko::{Color, ColorStop, Extend, Fill, Gradient};
 use vello::util::{RenderContext, block_on_wgpu};
 use vello::wgpu::{
@@ -670,14 +672,9 @@ async fn render_to_png(
     );
 
     let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();
-    encoder.map_buffer_on_submit(
-        &buffer,
-        wgpu::MapMode::Read,
-        ..,
-        move |result| {
-            sender.send(result).unwrap();
-        },
-    );
+    encoder.map_buffer_on_submit(&buffer, wgpu::MapMode::Read, .., move |result| {
+        sender.send(result).unwrap();
+    });
     queue.submit([encoder.finish()]);
     if let Some(recv_result) = block_on_wgpu(device, receiver.receive()) {
         recv_result?;
@@ -706,7 +703,10 @@ async fn render_to_png(
     writer.write_image_data(&png_data)?;
     writer.finish()?;
 
-    println!("Wrote symbols ({output_width}x{output_height}, {aa:?}) to {}", out_path.display());
+    println!(
+        "Wrote symbols ({output_width}x{output_height}, {aa:?}) to {}",
+        out_path.display()
+    );
     Ok(())
 }
 
