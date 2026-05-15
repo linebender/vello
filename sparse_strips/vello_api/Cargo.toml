@@ -1,6 +1,6 @@
 [package]
 name = "vello_api"
-version = "0.0.7"
+version = "0.0.8"
 description = "Defines the public API types for Vello, providing a stable interface for CPU and Hybrid rendering implementations."
 categories = ["rendering", "graphics"]
 keywords = ["2d", "vector-graphics"]
