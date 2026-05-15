@@ -2177,27 +2177,6 @@ pub struct CmdClipAlphaFill {
     pub attrs_idx: u32,
 }
 
-trait BlendModeExt {
-    /// Whether a blend mode might cause destructive changes in the backdrop.
-    /// This disallows certain optimizations (like for example inlining a blend mode
-    /// or only applying a blend mode to the current clipping area).
-    fn is_destructive(&self) -> bool;
-}
-
-impl BlendModeExt for BlendMode {
-    fn is_destructive(&self) -> bool {
-        matches!(
-            self.compose,
-            Compose::Clear
-                | Compose::Copy
-                | Compose::SrcIn
-                | Compose::DestIn
-                | Compose::SrcOut
-                | Compose::DestAtop
-        )
-    }
-}
-
 /// Ranges of commands for a specific layer in a specific tile.
 ///
 /// This structure tracks two different ranges of commands:
