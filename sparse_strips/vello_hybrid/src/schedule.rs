@@ -658,6 +658,7 @@ impl Scheduler {
         }
 
         // Restore state to reuse allocations.
+        
         self.round = 0;
         #[cfg(debug_assertions)]
         {
