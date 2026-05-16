@@ -22,7 +22,7 @@ only break in edge cases, and some of them are also only related to conversions 
 
 use crate::render::common::IMAGE_PADDING;
 use crate::{
-    GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
+    GpuStrip, RenderError, RenderSettings, RenderSize, Resources, Tile,
     filter::{FilterContext, FilterInstanceData, FilterPassState, FilterPassTarget},
     gradient_cache::GradientRampCache,
     render::{
@@ -64,7 +64,6 @@ use vello_common::{
     paint::{ImageId, ImageSource},
     peniko::{self},
     pixmap::Pixmap,
-    tile::Tile,
 };
 use vello_sparse_shaders::{clear_slots, filters, render_strips};
 use web_sys::wasm_bindgen::{JsCast, JsValue};
