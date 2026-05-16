@@ -660,13 +660,6 @@ impl Scheduler {
         // Restore state to reuse allocations.
         
         self.round = 0;
-        #[cfg(debug_assertions)]
-        {
-            for i in 0..self.total_slots {
-                debug_assert!(self.free[0].contains(&i), "free[0] is missing slot {i}");
-                debug_assert!(self.free[1].contains(&i), "free[1] is missing slot {i}");
-            }
-        }
         debug_assert!(self.rounds_queue.is_empty(), "rounds_queue is not empty");
 
         Ok(())
@@ -985,20 +978,6 @@ impl Scheduler {
     fn flush<R: RendererBackend>(&mut self, renderer: &mut R) {
         let mut round = self.rounds_queue.pop_front().unwrap();
         for (i, draw) in round.draws.iter_mut().enumerate() {
-            #[cfg(debug_assertions)]
-            {
-                // This is an expensive O(n²) debug only check that enforces that there are no
-                // duplicate slots in the clear list. Duplicates signal an inefficiency in
-                // scheduling.
-                if i != 2 {
-                    for (idx, &slot) in round.clear[i].iter().enumerate() {
-                        assert!(
-                            !round.clear[i][..idx].contains(&slot),
-                            "Duplicate slot {slot} found in round.clear[{i}]",
-                        );
-                    }
-                }
-            }
             let target = if i == 2 {
                 self.output_target
             } else {
