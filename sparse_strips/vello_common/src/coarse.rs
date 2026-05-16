@@ -12,12 +12,15 @@ use crate::mask::Mask;
 use crate::paint::{Paint, PremulColor};
 use crate::peniko::{BlendMode, Compose, Mix};
 use crate::render_graph::{DependencyKind, LayerId, RenderGraph, RenderNodeKind};
-use crate::{strip::Strip, tile::Tile};
+use crate::{
+    strip::Strip,
+    tile::{SmallSize, TileSize, TileSizeCore},
+};
 use alloc::vec;
 use alloc::{boxed::Box, vec::Vec};
 #[cfg(debug_assertions)]
 use alloc::{format, string::String};
-use core::ops::Range;
+use core::{marker::PhantomData, ops::Range};
 use hashbrown::HashMap;
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
@@ -130,13 +133,13 @@ impl NeedsBufLayerStack {
 
 /// A container for wide tiles.
 #[derive(Debug)]
-pub struct Wide<const MODE: u8 = MODE_CPU> {
+pub struct Wide<const MODE: u8 = MODE_CPU, S: TileSize = SmallSize> {
     /// The width of the container.
     width: u16,
     /// The height of the container.
     height: u16,
     /// The wide tiles in the container.
-    tiles: Vec<WideTile<MODE>>,
+    tiles: Vec<WideTile<MODE, S>>,
     /// Shared command properties, referenced by index from fill and clip commands.
     pub attrs: CommandAttrs,
     /// The stack of layers.
@@ -147,7 +150,7 @@ pub struct Wide<const MODE: u8 = MODE_CPU> {
     /// [`Self::layer_stack`].
     layers_needing_buf_stack: NeedsBufLayerStack,
     /// The stack of active clip regions.
-    clip_stack: Vec<Clip>,
+    clip_stack: Vec<Clip<S>>,
     /// Stack of filter layer node IDs for render graph dependency tracking.
     /// Initialized with node 0 (the root node representing the final output).
     /// As layers with filters are pushed, their node IDs are added to this stack.
@@ -169,15 +172,16 @@ pub struct Wide<const MODE: u8 = MODE_CPU> {
     /// Whether at least one of the wide tiles has been mutated and thus they
     /// need to be reset.
     tiles_dirty: bool,
+    size: PhantomData<S>,
 }
 
 /// A clip region.
 #[derive(Debug)]
-struct Clip {
+struct Clip<S: TileSize = SmallSize> {
     /// The intersected bounding box after clip
     pub clip_bbox: WideTilesBbox,
     /// The rendered path in sparse strip representation
-    pub strips: Box<[Strip]>,
+    pub strips: Box<[Strip<S>]>,
     /// The index of the thread that owns the alpha buffer.
     /// Always 0 in single-threaded mode.
     pub thread_idx: u8,
@@ -266,7 +270,7 @@ impl WideTilesBbox {
     /// Get the height of the bounding box in pixels.
     #[inline(always)]
     pub fn height_px(&self) -> u16 {
-        self.height_tiles() * Tile::HEIGHT
+        self.height_tiles() * WideTile::HEIGHT
     }
 
     /// Check if a point (x, y) is contained within this bounding box.
@@ -330,9 +334,9 @@ impl WideTilesBbox {
 
         // Convert pixel expansion to tile expansion (round up)
         let left_tiles = left_px.div_ceil(WideTile::WIDTH);
-        let top_tiles = top_px.div_ceil(Tile::HEIGHT);
+        let top_tiles = top_px.div_ceil(WideTile::HEIGHT);
         let right_tiles = right_px.div_ceil(WideTile::WIDTH);
-        let bottom_tiles = bottom_px.div_ceil(Tile::HEIGHT);
+        let bottom_tiles = bottom_px.div_ceil(WideTile::HEIGHT);
 
         Self::new(
             self.x0().saturating_sub(left_tiles),
@@ -343,14 +347,14 @@ impl WideTilesBbox {
     }
 }
 
-impl Wide<MODE_CPU> {
+impl<S: TileSize> Wide<MODE_CPU, S> {
     /// Create a new container for wide tiles.
     pub fn new(width: u16, height: u16) -> Self {
         Self::new_internal(width, height, true)
     }
 }
 
-impl Wide<MODE_HYBRID> {
+impl<S: TileSize> Wide<MODE_HYBRID, S> {
     /// Create a new container for wide tiles.
     pub fn new(width: u16, height: u16, enable_bg_optimization: bool) -> Self {
         Self::new_internal(width, height, enable_bg_optimization)
@@ -366,18 +370,23 @@ impl Wide<MODE_HYBRID> {
     }
 }
 
-impl<const MODE: u8> Wide<MODE> {
+impl<const MODE: u8, S: TileSize> Wide<MODE, S> {
+    /// The width of a wide tile in pixels.
+    pub const WIDE_TILE_WIDTH: u16 = WideTile::WIDTH;
+    /// The height of a wide tile in pixels.
+    pub const WIDE_TILE_HEIGHT: u16 = S::HEIGHT;
+
     /// Create a new container for wide tiles.
     fn new_internal(width: u16, height: u16, enable_bg_optimization: bool) -> Self {
         let width_tiles = width.div_ceil(WideTile::WIDTH);
-        let height_tiles = height.div_ceil(Tile::HEIGHT);
+        let height_tiles = height.div_ceil(S::HEIGHT);
         let mut tiles = Vec::with_capacity(usize::from(width_tiles) * usize::from(height_tiles));
 
         for h in 0..height_tiles {
             for w in 0..width_tiles {
-                tiles.push(WideTile::<MODE>::new_internal(
+                tiles.push(WideTile::<MODE, S>::new_internal(
                     w * WideTile::WIDTH,
-                    h * Tile::HEIGHT,
+                    h * S::HEIGHT,
                 ));
             }
         }
@@ -396,6 +405,7 @@ impl<const MODE: u8> Wide<MODE> {
             layers_needing_buf_stack: NeedsBufLayerStack::default(),
             batch_count: 0,
             tiles_dirty: false,
+            size: PhantomData,
         }
     }
 
@@ -430,7 +440,7 @@ impl<const MODE: u8> Wide<MODE> {
 
     /// Return the number of vertical tiles.
     pub fn height_tiles(&self) -> u16 {
-        self.height.div_ceil(Tile::HEIGHT)
+        self.height.div_ceil(S::HEIGHT)
     }
 
     /// Get the index of the wide tile at the given coordinates.
@@ -449,7 +459,7 @@ impl<const MODE: u8> Wide<MODE> {
     /// Get the index of the wide tile at the given coordinates.
     ///
     /// Panics if the coordinates are out-of-range.
-    pub fn get(&self, x: u16, y: u16) -> &WideTile<MODE> {
+    pub fn get(&self, x: u16, y: u16) -> &WideTile<MODE, S> {
         let idx = self.get_idx(x, y);
         &self.tiles[idx]
     }
@@ -457,13 +467,13 @@ impl<const MODE: u8> Wide<MODE> {
     /// Get mutable access to the wide tile at the given coordinates.
     ///
     /// Panics if the coordinates are out-of-range.
-    fn get_mut(&mut self, x: u16, y: u16) -> &mut WideTile<MODE> {
+    fn get_mut(&mut self, x: u16, y: u16) -> &mut WideTile<MODE, S> {
         let idx = self.get_idx(x, y);
         &mut self.tiles[idx]
     }
 
     /// Return a reference to all wide tiles.
-    pub fn tiles(&self) -> &[WideTile<MODE>] {
+    pub fn tiles(&self) -> &[WideTile<MODE, S>] {
         self.tiles.as_slice()
     }
 
@@ -496,7 +506,7 @@ impl<const MODE: u8> Wide<MODE> {
     ///    - Generate solid fill commands for the regions between strips
     pub fn generate(
         &mut self,
-        strip_buf: &[Strip],
+        strip_buf: &[Strip<S>],
         paint: Paint,
         blend_mode: BlendMode,
         thread_idx: u8,
@@ -554,8 +564,8 @@ impl<const MODE: u8> Wide<MODE> {
             }
 
             // Calculate the width of the strip in columns
-            let mut col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
-            let next_col = next_strip.alpha_idx() / u32::from(Tile::HEIGHT);
+            let mut col = strip.alpha_idx() / u32::from(S::HEIGHT);
+            let next_col = next_strip.alpha_idx() / u32::from(S::HEIGHT);
             // Can potentially be 0 if strip only changes winding without covering pixels
             let strip_width = next_col.saturating_sub(col) as u16;
             let x1 = x0.saturating_add(strip_width);
@@ -586,7 +596,7 @@ impl<const MODE: u8> Wide<MODE> {
                 let cmd = CmdAlphaFill {
                     x: x_wtile_rel,
                     width,
-                    alpha_offset: col * u32::from(Tile::HEIGHT) - alpha_base_idx,
+                    alpha_offset: col * u32::from(S::HEIGHT) - alpha_base_idx,
                     attrs_idx,
                 };
                 x += width;
@@ -688,7 +698,7 @@ impl<const MODE: u8> Wide<MODE> {
     pub fn push_layer(
         &mut self,
         layer_id: LayerId,
-        clip_path: Option<impl Into<Box<[Strip]>>>,
+        clip_path: Option<impl Into<Box<[Strip<S>]>>>,
         blend_mode: BlendMode,
         mask: Option<Mask>,
         opacity: f32,
@@ -962,7 +972,7 @@ impl<const MODE: u8> Wide<MODE> {
     ///    - If covered by zero winding: `push_zero_clip`
     ///    - If fully covered by non-zero winding: do nothing (clip is a no-op)
     ///    - If partially covered: `push_clip`
-    fn push_clip(&mut self, strips: impl Into<Box<[Strip]>>, layer_id: LayerId, thread_idx: u8) {
+    fn push_clip(&mut self, strips: impl Into<Box<[Strip<S>]>>, layer_id: LayerId, thread_idx: u8) {
         let strips = strips.into();
         let n_strips = strips.len();
 
@@ -981,7 +991,7 @@ impl<const MODE: u8> Wide<MODE> {
                 let strip = &strips[i];
                 let next_strip = &strips[i + 1];
                 let width =
-                    ((next_strip.alpha_idx() - strip.alpha_idx()) / u32::from(Tile::HEIGHT)) as u16;
+                    ((next_strip.alpha_idx() - strip.alpha_idx()) / u32::from(S::HEIGHT)) as u16;
                 let x = strip.x;
                 wtile_x0 = wtile_x0.min(x / WideTile::WIDTH);
                 wtile_x1 = wtile_x1.max((x + width).div_ceil(WideTile::WIDTH));
@@ -1057,7 +1067,7 @@ impl<const MODE: u8> Wide<MODE> {
             // Process wide tiles covered by the strip - these need actual clipping
             let next_strip = &strips[i + 1];
             let width =
-                ((next_strip.alpha_idx() - strip.alpha_idx()) / u32::from(Tile::HEIGHT)) as u16;
+                ((next_strip.alpha_idx() - strip.alpha_idx()) / u32::from(S::HEIGHT)) as u16;
             let wtile_x1 = (x + width).div_ceil(WideTile::WIDTH).min(clip_bbox.x1());
             if cur_wtile_x < wtile_x1 {
                 for wtile_x in cur_wtile_x..wtile_x1 {
@@ -1208,14 +1218,14 @@ impl<const MODE: u8> Wide<MODE> {
             // Process tiles covered by the strip - render clip content and pop
             let next_strip = &strips[i + 1];
             let strip_width =
-                ((next_strip.alpha_idx() - strip.alpha_idx()) / u32::from(Tile::HEIGHT)) as u16;
+                ((next_strip.alpha_idx() - strip.alpha_idx()) / u32::from(S::HEIGHT)) as u16;
             let mut clipped_x1 = x0 + strip_width;
             let wtile_x0 = (x0 / WideTile::WIDTH).max(clip_bbox.x0());
             let wtile_x1 = clipped_x1.div_ceil(WideTile::WIDTH).min(clip_bbox.x1());
 
             // Calculate starting position and column for alpha mask
             let mut x = x0;
-            let mut col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
+            let mut col = strip.alpha_idx() / u32::from(S::HEIGHT);
             let clip_x = clip_bbox.x0() * WideTile::WIDTH;
             if clip_x > x {
                 col += u32::from(clip_x - x);
@@ -1238,7 +1248,7 @@ impl<const MODE: u8> Wide<MODE> {
                 let cmd = CmdClipAlphaFill {
                     x: x_rel,
                     width,
-                    alpha_offset: col * u32::from(Tile::HEIGHT) - alpha_base_idx,
+                    alpha_offset: col * u32::from(S::HEIGHT) - alpha_base_idx,
                     attrs_idx: clip_attrs_idx,
                 };
                 x += width;
@@ -1330,7 +1340,7 @@ impl<const MODE: u8> Wide<MODE> {
 
 /// A wide tile.
 #[derive(Debug)]
-pub struct WideTile<const MODE: u8 = MODE_CPU> {
+pub struct WideTile<const MODE: u8 = MODE_CPU, S: TileSize = SmallSize> {
     /// The x coordinate of the wide tile.
     pub x: u16,
     /// The y coordinate of the wide tile.
@@ -1369,30 +1379,33 @@ pub struct WideTile<const MODE: u8 = MODE_CPU> {
     /// Watermark: the batch count at which this tile last emitted `BatchEnd` markers.
     /// Only meaningful in `MODE_HYBRID`.
     last_batch_end: u32,
+    size: PhantomData<S>,
 }
 
 impl WideTile {
     /// The width of a wide tile in pixels.
     pub const WIDTH: u16 = 256;
+    /// The height of a wide tile in pixels.
+    pub const HEIGHT: u16 = SmallSize::HEIGHT;
     /// The maximum coordinate of a wide tile.
     pub const MAX_WIDE_TILE_COORD: u16 = u16::MAX / Self::WIDTH;
 }
 
-impl WideTile<MODE_CPU> {
+impl<S: TileSize> WideTile<MODE_CPU, S> {
     /// Create a new wide tile.
     pub fn new(width: u16, height: u16) -> Self {
         Self::new_internal(width, height)
     }
 }
 
-impl WideTile<MODE_HYBRID> {
+impl<S: TileSize> WideTile<MODE_HYBRID, S> {
     /// Create a new wide tile.
     pub fn new(width: u16, height: u16) -> Self {
         Self::new_internal(width, height)
     }
 }
 
-impl<const MODE: u8> WideTile<MODE> {
+impl<const MODE: u8, S: TileSize> WideTile<MODE, S> {
     /// Create a new wide tile.
     fn new_internal(x: u16, y: u16) -> Self {
         let mut layer_cmd_ranges = HashMap::new();
@@ -1412,6 +1425,7 @@ impl<const MODE: u8> WideTile<MODE> {
             push_buf_indices: vec![TARGET_SURFACE_PUSH_BUF_IDX],
             surface_is_blend_target: false,
             last_batch_end: 0,
+            size: PhantomData,
         }
     }
 
@@ -1810,7 +1824,7 @@ impl<const MODE: u8> WideTile<MODE> {
 /// These methods are only available in debug builds (`debug_assertions`).
 /// They provide introspection into the command buffer for debugging and logging purposes.
 #[cfg(debug_assertions)]
-impl<const MODE: u8> WideTile<MODE> {
+impl<const MODE: u8, S: TileSize> WideTile<MODE, S> {
     /// Lists all commands in this wide tile with their indices and names.
     ///
     /// Returns a formatted string with each command on a new line, showing its index

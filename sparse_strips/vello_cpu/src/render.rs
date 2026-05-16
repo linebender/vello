@@ -848,13 +848,13 @@ mod tests {
     #[cfg(feature = "text")]
     use glifo::Glyph;
     use vello_common::kurbo::{Rect, Shape};
-    use vello_common::tile::Tile;
+    use vello_common::tile::{SmallSize, tile_pixels};
 
     #[test]
     fn clip_overflow() {
         let mut ctx = RenderContext::new(100, 100);
 
-        for _ in 0..(usize::from(u16::MAX) + 1).div_ceil(usize::from(Tile::HEIGHT * Tile::WIDTH)) {
+        for _ in 0..(usize::from(u16::MAX) + 1).div_ceil(tile_pixels::<SmallSize>()) {
             ctx.fill_rect(&Rect::new(0.0, 0.0, 1.0, 1.0));
         }
 

@@ -134,6 +134,7 @@
 
 extern crate alloc;
 extern crate core;
+
 // Unused in release mode because it's only used directly in the `text_debug` module
 // (or transitively in vello_common).
 #[cfg(feature = "png")]

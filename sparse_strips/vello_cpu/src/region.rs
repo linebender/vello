@@ -7,7 +7,6 @@ use crate::fine::COLOR_COMPONENTS;
 use alloc::vec::Vec;
 use vello_common::coarse::WideTile;
 use vello_common::pixmap::Pixmap;
-use vello_common::tile::Tile;
 
 #[derive(Debug)]
 pub struct Regions<'a> {
@@ -54,7 +53,7 @@ impl<'a> Regions<'a> {
         }
 
         let width_regions = effective_width.div_ceil(WideTile::WIDTH as usize);
-        let height_regions = effective_height.div_ceil(Tile::HEIGHT as usize);
+        let height_regions = effective_height.div_ceil(WideTile::HEIGHT as usize);
 
         let mut regions = Vec::with_capacity(width_regions * height_regions);
 
@@ -65,14 +64,14 @@ impl<'a> Regions<'a> {
         let start_offset = (dst_y as usize * row_stride) + (dst_x as usize * COLOR_COMPONENTS);
         buffer = &mut buffer[start_offset..];
 
-        let mut next_lines: [&'a mut [u8]; Tile::HEIGHT as usize] =
+        let mut next_lines: [&'a mut [u8]; WideTile::HEIGHT as usize] =
             [&mut [], &mut [], &mut [], &mut []];
 
         for y in 0..height_regions {
-            let base_y = y * Tile::HEIGHT as usize;
-            let region_height = (Tile::HEIGHT as usize).min(effective_height - base_y);
+            let base_y = y * WideTile::HEIGHT as usize;
+            let region_height = (WideTile::HEIGHT as usize).min(effective_height - base_y);
 
-            // Extract Tile::HEIGHT rows from the buffer
+            // Extract WideTile::HEIGHT rows from the buffer
             // Each row is at row_stride intervals
             for line in next_lines.iter_mut().take(region_height) {
                 // Take only the render area portion of this row
@@ -87,7 +86,7 @@ impl<'a> Regions<'a> {
 
             // Split each row horizontally into tile-width chunks
             for x in 0..width_regions {
-                let mut areas: [&mut [u8]; Tile::HEIGHT as usize] =
+                let mut areas: [&mut [u8]; WideTile::HEIGHT as usize] =
                     [&mut [], &mut [], &mut [], &mut []];
 
                 let base_x = x * WideTile::WIDTH as usize;
@@ -143,12 +142,12 @@ pub struct Region<'a> {
     pub(crate) y: u16,
     pub width: u16,
     pub height: u16,
-    areas: [&'a mut [u8]; Tile::HEIGHT as usize],
+    areas: [&'a mut [u8]; WideTile::HEIGHT as usize],
 }
 
 impl<'a> Region<'a> {
     pub(crate) fn new(
-        areas: [&'a mut [u8]; Tile::HEIGHT as usize],
+        areas: [&'a mut [u8]; WideTile::HEIGHT as usize],
         x: u16,
         y: u16,
         width: u16,
@@ -165,8 +164,8 @@ impl<'a> Region<'a> {
 
     /// Extracts a `Region` from a pixmap at the specified tile coordinates.
     ///
-    /// The region corresponds to a wide tile area (`WideTile::WIDTH` × `Tile::HEIGHT` pixels),
-    /// starting at pixel coordinates `(tile_x * WideTile::WIDTH, tile_y * Tile::HEIGHT)`.
+    /// The region corresponds to a wide tile area (`WideTile::WIDTH` × `WideTile::HEIGHT` pixels),
+    /// starting at pixel coordinates `(tile_x * WideTile::WIDTH, tile_y * WideTile::HEIGHT)`.
     /// Regions at the right or bottom edges may be smaller if they extend beyond the pixmap bounds.
     ///
     /// Returns `None` if the tile coordinates are completely outside the pixmap bounds.
@@ -185,7 +184,7 @@ impl<'a> Region<'a> {
 
         // Calculate pixel coordinates for this tile
         let base_x = tile_x * WideTile::WIDTH;
-        let base_y = tile_y * Tile::HEIGHT;
+        let base_y = tile_y * WideTile::HEIGHT;
 
         // Check bounds
         if base_x >= pixmap_width || base_y >= pixmap_height {
@@ -194,7 +193,7 @@ impl<'a> Region<'a> {
 
         // Calculate actual region dimensions (might be smaller at edges)
         let region_width = WideTile::WIDTH.min(pixmap_width - base_x);
-        let region_height = Tile::HEIGHT.min(pixmap_height - base_y);
+        let region_height = WideTile::HEIGHT.min(pixmap_height - base_y);
 
         // Get mutable access to the pixmap's buffer
         let buffer = pixmap.data_as_u8_slice_mut();
@@ -208,7 +207,8 @@ impl<'a> Region<'a> {
         let tile_buffer = &mut buffer[start_offset..];
 
         // Extract individual row slices using safe split operations
-        let mut areas: [&mut [u8]; Tile::HEIGHT as usize] = [&mut [], &mut [], &mut [], &mut []];
+        let mut areas: [&mut [u8]; WideTile::HEIGHT as usize] =
+            [&mut [], &mut [], &mut [], &mut []];
 
         // Use split_at_mut to safely extract each row
         let mut remaining = tile_buffer;
@@ -237,7 +237,7 @@ impl<'a> Region<'a> {
         self.areas[usize::from(y)]
     }
 
-    pub fn areas(&mut self) -> &mut [&'a mut [u8]; Tile::HEIGHT as usize] {
+    pub fn areas(&mut self) -> &mut [&'a mut [u8]; WideTile::HEIGHT as usize] {
         &mut self.areas
     }
 }

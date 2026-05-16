@@ -39,7 +39,6 @@ use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, ImageSource, Paint, PremulColor, Tint};
 use vello_common::pixmap::Pixmap;
 use vello_common::simd::Splat4thExt;
-use vello_common::tile::Tile;
 use vello_common::util::f32_to_u8;
 
 pub use highp::F32Kernel;
@@ -52,12 +51,12 @@ const PIXEL_CENTER_OFFSET: f64 = 0.5;
 pub(crate) const COLOR_COMPONENTS: usize = 4;
 
 /// Number of color components in a single column of a tile (height * components).
-pub(crate) const TILE_HEIGHT_COMPONENTS: usize = Tile::HEIGHT as usize * COLOR_COMPONENTS;
+pub(crate) const TILE_HEIGHT_COMPONENTS: usize = WideTile::HEIGHT as usize * COLOR_COMPONENTS;
 
 /// Size of the scratch buffer used for intermediate rendering operations.
 /// Sized to hold a full wide tile with all color components.
 pub const SCRATCH_BUF_SIZE: usize =
-    WideTile::WIDTH as usize * Tile::HEIGHT as usize * COLOR_COMPONENTS;
+    WideTile::WIDTH as usize * WideTile::HEIGHT as usize * COLOR_COMPONENTS;
 
 /// Type alias for a scratch buffer that can hold a full wide tile's worth of data.
 pub type ScratchBuf<F> = [F; SCRATCH_BUF_SIZE];
@@ -602,11 +601,12 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             Cmd::Blend(b) => self.blend(*b),
             Cmd::Mask(m) => {
                 let start_x = self.wide_coords.0 * WideTile::WIDTH;
-                let start_y = self.wide_coords.1 * Tile::HEIGHT;
+                let start_y = self.wide_coords.1 * WideTile::HEIGHT;
 
                 let blend_buf = self.blend_buf.last_mut().unwrap();
 
-                let width = (blend_buf.len() / (Tile::HEIGHT as usize * COLOR_COMPONENTS)) as u16;
+                let width =
+                    (blend_buf.len() / (WideTile::HEIGHT as usize * COLOR_COMPONENTS)) as u16;
                 let y = start_y as u32 + u32x4::from_slice(self.simd, &[0, 1, 2, 3]);
 
                 let iter = (start_x..(start_x + width)).map(|x| {
@@ -703,7 +703,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     T::alpha_composite_solid(self.simd, blend_buf, color, alphas);
                 } else {
                     let start_x = self.wide_coords.0 * WideTile::WIDTH + x as u16;
-                    let start_y = self.wide_coords.1 * Tile::HEIGHT;
+                    let start_y = self.wide_coords.1 * WideTile::HEIGHT;
 
                     T::blend(
                         self.simd,
@@ -724,7 +724,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 let encoded_paint = &encoded_paints[paint.index()];
 
                 let start_x = self.wide_coords.0 * WideTile::WIDTH + x as u16;
-                let start_y = self.wide_coords.1 * Tile::HEIGHT;
+                let start_y = self.wide_coords.1 * WideTile::HEIGHT;
 
                 // Make sure sampling happens at the center of the pixel.
                 let sampler_x = start_x as f64 + PIXEL_CENTER_OFFSET;
@@ -785,7 +785,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                         // the t values on the fly in the iterator. The latter would be faster, but
                         // it would probably increase code size a lot, because the functions for
                         // position calculation need to be inlined for good performance.
-                        let f32_buf = &mut self.f32_buf[..width * Tile::HEIGHT as usize];
+                        let f32_buf = &mut self.f32_buf[..width * WideTile::HEIGHT as usize];
 
                         match &g.kind {
                             EncodedKind::Linear(l) => {
@@ -999,7 +999,7 @@ pub trait PosExt<S: Simd> {
 impl<S: Simd> PosExt<S> for f32x4<S> {
     #[inline(always)]
     fn splat_pos(simd: S, pos: f32, _: f32, y_advance: f32) -> Self {
-        let columns: [f32; Tile::HEIGHT as usize] = [0.0, 1.0, 2.0, 3.0];
+        let columns: [f32; WideTile::HEIGHT as usize] = [0.0, 1.0, 2.0, 3.0];
         let column_mask: Self = columns.simd_into(simd);
 
         column_mask.mul_add(Self::splat(simd, y_advance), Self::splat(simd, pos))

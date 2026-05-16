@@ -17,7 +17,7 @@
 //!
 //! ```rs
 //! const WIDTH: f64 = 100.0;
-//! const HEIGHT: f64 = Tile::HEIGHT as f64;
+//! const HEIGHT: f64 = Wide::WIDE_TILE_HEIGHT as f64;
 //! const OFFSET: f64 = WIDTH / 3.0;
 //!
 //! let colors = [RED, GREEN, BLUE];
@@ -178,23 +178,20 @@ only break in edge cases, and some of them are also only related to conversions 
 
 use crate::filter::FilterContext;
 use crate::scene::{FastPathRect, FastStripCommand, FastStripsPath, StripPathMode};
-use crate::{GpuStrip, RenderError, Scene};
+use crate::{GpuStrip, RenderError, Scene, StripStorage, Wide, WideTile};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use core::ops::Range;
 use vello_common::coarse::{
-    CmdAlphaFill, CmdClipAlphaFill, CmdClipFill, CmdFill, CommandAttrs, LayerKind, MODE_HYBRID,
-    Wide, WideTilesBbox,
+    CmdAlphaFill, CmdClipAlphaFill, CmdClipFill, CmdFill, CommandAttrs, LayerKind, WideTilesBbox,
 };
 use vello_common::peniko::BlendMode;
 use vello_common::render_graph::{LayerId, RenderNodeKind};
-use vello_common::strip_generator::StripStorage;
 use vello_common::{
     TextureId,
-    coarse::{Cmd, WideTile},
+    coarse::Cmd,
     encode::EncodedPaint,
     paint::{ImageSource, Paint},
-    tile::Tile,
 };
 
 // Constants used for bit packing, matching `render_strips.wgsl`
@@ -808,8 +805,8 @@ impl Scheduler {
         for y in wtile_bbox.y0()..wtile_bbox.y1() {
             for x in wtile_bbox.x0()..wtile_bbox.x1() {
                 let wide_tile = scene.wide.get(x, y);
-                let wide_tile_x = x * WideTile::WIDTH;
-                let wide_tile_y = y * Tile::HEIGHT;
+                let wide_tile_x = x * Wide::WIDE_TILE_WIDTH;
+                let wide_tile_y = y * Wide::WIDE_TILE_HEIGHT;
 
                 state.tile_state.clear();
                 self.initialize_tile_state(
@@ -913,7 +910,7 @@ impl Scheduler {
         &mut self,
         state: &mut SchedulerState,
         renderer: &mut R,
-        wide: &Wide<MODE_HYBRID>,
+        wide: &Wide,
         rows: u16,
         cols: u16,
         cmd_offsets: &mut [usize],
@@ -934,8 +931,8 @@ impl Scheduler {
                     continue;
                 }
 
-                let tile_x = col * WideTile::WIDTH;
-                let tile_y = row * Tile::HEIGHT;
+                let tile_x = col * Wide::WIDE_TILE_WIDTH;
+                let tile_y = row * Wide::WIDE_TILE_HEIGHT;
 
                 // We only must paint the background if we are processing the wide tile for the
                 // first time (i.e. the start offset is 0).
@@ -1088,7 +1085,7 @@ impl Scheduler {
     /// surface.
     fn paint_tile_bg(
         &mut self,
-        tile: &WideTile<MODE_HYBRID>,
+        tile: &WideTile,
         wide_tile_x: u16,
         wide_tile_y: u16,
         encoded_paints: &[EncodedPaint],
@@ -1108,8 +1105,12 @@ impl Scheduler {
             let is_user_surface = self.is_rendering_to_user_surface();
             let bg_depth_index = self.depth.next(is_opaque && is_user_surface);
             let draw = self.draw_mut(self.round, 2);
-            let strip = GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
-                .paint(processed.payload, processed.paint, bg_depth_index);
+            let strip = GpuStripBuilder::at_surface(
+                wide_tile_x,
+                wide_tile_y,
+                Wide::WIDE_TILE_WIDTH,
+            )
+            .paint(processed.payload, processed.paint, bg_depth_index);
             if is_opaque && is_user_surface {
                 draw.push_opaque(strip);
             } else {
@@ -1121,7 +1122,7 @@ impl Scheduler {
     fn initialize_tile_state(
         &mut self,
         tile_state: &mut TileState,
-        tile: &WideTile<MODE_HYBRID>,
+        tile: &WideTile,
         wide_tile_x: u16,
         wide_tile_y: u16,
         initial_round: usize,
@@ -1156,7 +1157,7 @@ impl Scheduler {
         encoded_paints: &[EncodedPaint],
         wide_tile_x: u16,
         wide_tile_y: u16,
-        tile: &WideTile<MODE_HYBRID>,
+        tile: &WideTile,
         cmd_range: Range<usize>,
         surface_is_blend_target: bool,
         paint_idxs: &[u32],
@@ -1244,7 +1245,7 @@ impl Scheduler {
                         |scheduler: &mut Self, state: &mut SchedulerState| {
                             let cmd = CmdFill {
                                 x: 0,
-                                width: WideTile::WIDTH,
+                                width: Wide::WIDE_TILE_WIDTH,
                                 attrs_idx: 0,
                             };
                             let encoded_paint = encoded_paints
@@ -1369,7 +1370,7 @@ impl Scheduler {
                 let depth_index = self.depth.next(false);
                 let draw = self.draw_mut(el_round, temp_slot.get_texture());
                 draw.push_alpha(
-                    GpuStripBuilder::at_slot(temp_slot.get_idx(), 0, WideTile::WIDTH)
+                    GpuStripBuilder::at_slot(temp_slot.get_idx(), 0, Wide::WIDE_TILE_WIDTH)
                         .copy_from_slot(tos.dest_slot.get_idx(), 0xFF, depth_index),
                     None,
                 );
@@ -1489,9 +1490,9 @@ impl Scheduler {
         );
 
         let gpu_strip_builder = if depth <= 2 {
-            GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, WideTile::WIDTH)
+            GpuStripBuilder::at_surface(wide_tile_x, wide_tile_y, Wide::WIDE_TILE_WIDTH)
         } else {
-            GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
+            GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, Wide::WIDE_TILE_WIDTH)
         };
         if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
             let opacity_u8 = (tos.opacity * 255.0) as u8;
@@ -1555,7 +1556,7 @@ impl Scheduler {
 
         let fill_attrs = &attrs.fill[cmd.attrs_idx as usize];
         let alpha_idx = fill_attrs.alpha_idx(cmd.alpha_offset);
-        let col_idx = alpha_idx / u32::from(Tile::HEIGHT);
+        let col_idx = alpha_idx / u32::from(Wide::WIDE_TILE_HEIGHT);
         let (scene_strip_x, scene_strip_y) = (wide_tile_x + cmd.x, wide_tile_y);
         let processed = Self::process_paint(
             &fill_attrs.paint,
@@ -1725,7 +1726,7 @@ impl Scheduler {
         if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
             let draw = self.draw_mut(round, nos.dest_slot.get_texture());
             draw.push_alpha(
-                GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
+                GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, Wide::WIDE_TILE_WIDTH)
                     .copy_from_slot(temp_slot.get_idx(), 0xFF, depth_index),
                 None,
             );
@@ -1774,7 +1775,7 @@ impl Scheduler {
         if let TemporarySlot::Valid(temp_slot) = nos.temporary_slot {
             let draw = self.draw_mut(round, nos.dest_slot.get_texture());
             draw.push_alpha(
-                GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, WideTile::WIDTH)
+                GpuStripBuilder::at_slot(nos.dest_slot.get_idx(), 0, Wide::WIDE_TILE_WIDTH)
                     .copy_from_slot(temp_slot.get_idx(), 0xFF, depth_index),
                 None,
             );
@@ -1797,7 +1798,7 @@ impl Scheduler {
 
         let clip_attrs = &attrs.clip[cmd.attrs_idx as usize];
         let alpha_idx = clip_attrs.alpha_idx(cmd.alpha_offset);
-        let col_idx = alpha_idx / u32::from(Tile::HEIGHT);
+        let col_idx = alpha_idx / u32::from(Wide::WIDE_TILE_HEIGHT);
 
         draw.push_alpha(
             gpu_strip_builder
@@ -1934,7 +1935,7 @@ impl GpuStripBuilder {
     fn at_slot(slot_idx: usize, x_offset: u16, width: u16) -> Self {
         Self {
             x: x_offset,
-            y: u16::try_from(slot_idx).unwrap() * Tile::HEIGHT,
+            y: u16::try_from(slot_idx).unwrap() * Wide::WIDE_TILE_HEIGHT,
             width,
             dense_width_or_rect_height: 0,
             col_idx_or_rect_frac: 0,
@@ -2036,8 +2037,8 @@ fn generate_gpu_strips_for_fast_path(
         }
 
         let next_strip = &strips[i + 1];
-        let col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
-        let next_col = next_strip.alpha_idx() / u32::from(Tile::HEIGHT);
+        let col = strip.alpha_idx() / u32::from(Wide::WIDE_TILE_HEIGHT);
+        let next_col = next_strip.alpha_idx() / u32::from(Wide::WIDE_TILE_HEIGHT);
         let strip_width = next_col.saturating_sub(col) as u16;
         let x0 = strip.x;
         let y = strip.y;
@@ -2060,7 +2061,7 @@ fn generate_gpu_strips_for_fast_path(
             let x2 = next_strip.x.min(
                 scene
                     .width
-                    .checked_next_multiple_of(WideTile::WIDTH)
+                    .checked_next_multiple_of(Wide::WIDE_TILE_WIDTH)
                     .unwrap_or(u16::MAX),
             );
             if x2 > x1 {

@@ -8,14 +8,14 @@ use crate::Resources;
 use crate::sampling::SampleRect;
 #[cfg(feature = "text")]
 use crate::text::GlyphRunBuilder;
+use crate::{ClipContext, StripGenerator, StripStorage, Wide};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::ops::Range;
 use vello_common::TextureId;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
-use vello_common::clip::ClipContext;
-use vello_common::coarse::{MODE_HYBRID, Wide, WideTilesBbox};
+use vello_common::coarse::WideTilesBbox;
 use vello_common::encode::{EncodeExt, EncodedExternalTexture, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::filter_effects::Filter;
@@ -30,7 +30,7 @@ use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Extend, Fill, ImageQuality, ImageSampler, Mix};
 use vello_common::render_graph::{RenderGraph, RenderNodeKind};
 use vello_common::render_state::RenderState;
-use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
+use vello_common::strip_generator::GenerationMode;
 use vello_common::util::is_axis_aligned;
 
 /// Default tolerance for curve flattening
@@ -207,7 +207,7 @@ pub struct Scene {
     /// Height of the rendering surface in pixels.
     pub(crate) height: u16,
     /// Wide coarse rasterizer for generating binned draw commands.
-    pub(crate) wide: Wide<MODE_HYBRID>,
+    pub(crate) wide: Wide,
     clip_context: ClipContext,
     pub(crate) render_state: RenderState,
     pub(crate) aliasing_threshold: Option<u8>,
@@ -293,7 +293,7 @@ impl Scene {
         // we have to disable bg optimizations in that case.
         let enable_bg_optimization = !settings.constraints.use_default_blending_only();
 
-        let wide = Wide::<MODE_HYBRID>::new(width, height, enable_bg_optimization);
+        let wide = Wide::new(width, height, enable_bg_optimization);
 
         // Create root node (layer_id 0) as the first node (will be node 0).
         // This ensures the root layer is always rendered last in the execution order.

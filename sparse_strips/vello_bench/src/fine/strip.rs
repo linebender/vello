@@ -11,7 +11,7 @@ use vello_common::color::palette::css::ROYAL_BLUE;
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::Simd;
 use vello_common::paint::{NoOpImageResolver, Paint, PremulColor};
-use vello_common::tile::Tile;
+use vello_common::tile::{SmallSize, TileSizeCore};
 use vello_cpu::fine::{Fine, FineKernel};
 use vello_dev_macros::vello_bench;
 
@@ -25,7 +25,7 @@ pub fn strip(c: &mut Criterion) {
 #[vello_bench]
 pub fn solid_single<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
     let paint = Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE));
-    let width = Tile::WIDTH;
+    let width = SmallSize::WIDTH;
 
     strip_single(&paint, &[], width as usize, b, fine);
 }
@@ -64,7 +64,7 @@ fn strip_single<S: Simd, N: FineKernel<S>>(
     let mut rng = StdRng::from_seed(SEED);
     let mut alphas = vec![];
 
-    for _ in 0..WideTile::WIDTH * Tile::HEIGHT {
+    for _ in 0..WideTile::WIDTH * SmallSize::HEIGHT {
         alphas.push(rng.random());
     }
 

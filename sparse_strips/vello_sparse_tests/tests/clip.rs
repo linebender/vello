@@ -13,7 +13,7 @@ use vello_common::color::palette::css::{
 use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape, Stroke};
 use vello_common::peniko::Color;
 use vello_common::peniko::Fill;
-use vello_common::tile::Tile;
+use vello_common::tile::{SmallSize, TileSizeCore};
 use vello_cpu::peniko::{
     Gradient, LinearGradientPosition, RadialGradientPosition, SweepGradientPosition,
 };
@@ -23,7 +23,7 @@ use vello_dev_macros::vello_test;
 fn clip_single_wide_tile(ctx: &mut impl Renderer) {
     const WIDTH: f64 = 100.0;
     assert!(WIDTH <= WideTile::WIDTH as f64, "Width larger than a tile");
-    const HEIGHT: f64 = Tile::HEIGHT as f64;
+    const HEIGHT: f64 = SmallSize::HEIGHT as f64;
     const OFFSET: f64 = WIDTH / 3.0;
 
     let colors = [RED, GREEN, BLUE];
@@ -171,17 +171,17 @@ fn clip_rectangle_and_circle(ctx: &mut impl Renderer) {
 fn clip_rect_cull_alignment(ctx: &mut impl Renderer) {
     const {
         assert!(
-            Tile::HEIGHT >= 4 && Tile::HEIGHT <= 16,
+            SmallSize::HEIGHT >= 4 && SmallSize::HEIGHT <= 16,
             "This test only shows regressions if the tile height remains between 4 and 16 inclusive"
         );
     }
 
     // A strip-aligned Y value.
-    const TOP_Y: f64 = Tile::HEIGHT as f64;
+    const TOP_Y: f64 = SmallSize::HEIGHT as f64;
 
     // Another strip-aligned Y value lower down.
     // FIXME: make const once MSRV >= 1.90
-    let bot_y: f64 = (46. / Tile::HEIGHT as f64).ceil() * Tile::HEIGHT as f64;
+    let bot_y: f64 = (46. / SmallSize::HEIGHT as f64).ceil() * SmallSize::HEIGHT as f64;
 
     let clip_rect = Rect::new(18.0, TOP_Y + 2., 78.0, bot_y - 2.);
     ctx.set_paint(DARK_GREEN.with_alpha(0.1));

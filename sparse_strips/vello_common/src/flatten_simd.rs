@@ -12,7 +12,6 @@ use crate::{
     flatten::{SQRT_TOL, TOL, TOL_2},
     geometry::RectU16,
     kurbo::Affine,
-    tile::Tile,
 };
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
@@ -57,6 +56,7 @@ pub(crate) fn flatten<S: Simd>(
     callback: &mut impl Callback,
     flatten_ctx: &mut FlattenCtx,
     cull_bbox: RectU16,
+    tile_height: u16,
 ) {
     flatten_ctx.flattened_cubics.clear();
 
@@ -81,7 +81,7 @@ pub(crate) fn flatten<S: Simd>(
     // geometry extends above the row, there will be coarse winding for a sparse fill. If not, it
     // there will be geometry to generate the intermediate tiles.
     let left = cull_bbox.x0 as f64;
-    let top = ((cull_bbox.y0 / Tile::HEIGHT) * Tile::HEIGHT) as f64;
+    let top = ((cull_bbox.y0 / tile_height) * tile_height) as f64;
     let right = cull_bbox.x1 as f64;
     let bottom = cull_bbox.y1 as f64;
 

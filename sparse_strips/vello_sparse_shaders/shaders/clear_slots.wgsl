@@ -9,7 +9,7 @@
 struct Config {
     // Width of a slot (matching `WideTile::WIDTH` and the width of a slot texture).
     slot_width: u32,
-    // Height of a slot (matching `Tile::HEIGHT`)
+    // Height of a slot (matching `Config::strip_height` in `render_strips.wgsl`).
     slot_height: u32,
     // Total height of the texture (slot_height * number_of_slots)
     texture_height: u32,

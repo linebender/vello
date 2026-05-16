@@ -20,7 +20,6 @@ use crate::fine::{COLOR_COMPONENTS, Painter, SCRATCH_BUF_SIZE, Splat4thExt};
 use crate::layer_manager::LayerManager;
 use crate::peniko::BlendMode;
 use crate::region::Region;
-use crate::util::NormalizedMulExt;
 use crate::util::scalar::div_255;
 use bytemuck::cast_slice;
 use core::iter;
@@ -32,8 +31,7 @@ use vello_common::kurbo::Affine;
 use vello_common::mask::Mask;
 use vello_common::paint::{PremulColor, Tint, TintMode};
 use vello_common::pixmap::Pixmap;
-use vello_common::tile::Tile;
-use vello_common::util::Div255Ext;
+use vello_common::util::{Div255Ext, NormalizedMulExt};
 
 /// The kernel for doing rendering using u8/u16.
 #[derive(Clone, Copy, Debug)]
@@ -56,7 +54,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
     /// using either a SIMD-optimized path for full tiles or a scalar fallback.
     #[inline(always)]
     fn pack(simd: S, region: &mut Region<'_>, blend_buf: &[Self::Numeric]) {
-        if region.width != WideTile::WIDTH || region.height != Tile::HEIGHT {
+        if region.width != WideTile::WIDTH || region.height != WideTile::HEIGHT {
             // Use scalar path for non-standard tile sizes. Wrapping this in `vectorize`
             // degrades performance significantly on SSE4.2.
             pack(region, blend_buf);
@@ -76,7 +74,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
     /// This is the inverse operation of `pack`.
     #[inline(always)]
     fn unpack(simd: S, region: &mut Region<'_>, blend_buf: &mut [Self::Numeric]) {
-        if region.width != WideTile::WIDTH || region.height != Tile::HEIGHT {
+        if region.width != WideTile::WIDTH || region.height != WideTile::HEIGHT {
             // Use scalar path for non-standard tile sizes.
             // Note that right now, this path is unused (only for benchmarking), because when
             // using filters we always allocate pixmaps of the same size as a wide tile.
@@ -591,13 +589,13 @@ fn extract_masks<S: Simd>(simd: S, masks: &[u8; 8]) -> u8x32<S> {
 /// while the region uses row-major order for output.
 #[inline(always)]
 fn pack(region: &mut Region<'_>, blend_buf: &[u8]) {
-    for y in 0..Tile::HEIGHT {
+    for y in 0..WideTile::HEIGHT {
         for (x, pixel) in region
             .row_mut(y)
             .chunks_exact_mut(COLOR_COMPONENTS)
             .enumerate()
         {
-            let idx = COLOR_COMPONENTS * (usize::from(Tile::HEIGHT) * x + usize::from(y));
+            let idx = COLOR_COMPONENTS * (usize::from(WideTile::HEIGHT) * x + usize::from(y));
             pixel.copy_from_slice(&blend_buf[idx..][..COLOR_COMPONENTS]);
         }
     }
@@ -609,9 +607,9 @@ fn pack(region: &mut Region<'_>, blend_buf: &[u8]) {
 /// This is the inverse operation of `pack`.
 #[inline(always)]
 fn unpack(region: &mut Region<'_>, blend_buf: &mut [u8]) {
-    for y in 0..Tile::HEIGHT {
+    for y in 0..WideTile::HEIGHT {
         for (x, pixel) in region.row_mut(y).chunks_exact(COLOR_COMPONENTS).enumerate() {
-            let idx = COLOR_COMPONENTS * (usize::from(Tile::HEIGHT) * x + usize::from(y));
+            let idx = COLOR_COMPONENTS * (usize::from(WideTile::HEIGHT) * x + usize::from(y));
             blend_buf[idx..][..COLOR_COMPONENTS].copy_from_slice(pixel);
         }
     }
@@ -698,7 +696,7 @@ mod tests {
         unpack_fn: impl FnOnce(&mut Region<'_>, &mut [u8]),
     ) {
         let width = WideTile::WIDTH;
-        let height = Tile::HEIGHT;
+        let height = WideTile::HEIGHT;
 
         // Just some pseudo-random numbers.
         let blend_buf = (0..SCRATCH_BUF_SIZE)

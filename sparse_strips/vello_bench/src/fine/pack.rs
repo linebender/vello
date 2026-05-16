@@ -4,7 +4,7 @@
 use criterion::{Bencher, Criterion};
 use vello_common::coarse::WideTile;
 use vello_common::fearless_simd::Simd;
-use vello_common::tile::Tile;
+use vello_common::tile::{SmallSize, TileSizeCore};
 use vello_cpu::fine::{Fine, FineKernel, SCRATCH_BUF_SIZE};
 use vello_cpu::region::Regions;
 use vello_dev_macros::vello_bench;
@@ -19,7 +19,7 @@ pub fn pack(c: &mut Criterion) {
 #[vello_bench]
 pub fn pack_block<S: Simd, T: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, T>) {
     let mut buf = vec![0; SCRATCH_BUF_SIZE];
-    let mut regions = Regions::new(WideTile::WIDTH, Tile::HEIGHT, &mut buf);
+    let mut regions = Regions::new(WideTile::WIDTH, SmallSize::HEIGHT, &mut buf);
 
     b.iter(|| {
         regions.update_regions(|region| {
@@ -33,7 +33,7 @@ pub fn pack_block<S: Simd, T: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fin
 #[vello_bench]
 pub fn pack_regular<S: Simd, T: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, T>) {
     let mut buf = vec![0; SCRATCH_BUF_SIZE];
-    let mut regions = Regions::new(WideTile::WIDTH - 1, Tile::HEIGHT, &mut buf);
+    let mut regions = Regions::new(WideTile::WIDTH - 1, SmallSize::HEIGHT, &mut buf);
 
     b.iter(|| {
         regions.update_regions(|region| {
@@ -47,7 +47,7 @@ pub fn pack_regular<S: Simd, T: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut F
 #[vello_bench]
 pub fn unpack_block<S: Simd, T: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, T>) {
     let mut buf = vec![0; SCRATCH_BUF_SIZE];
-    let mut regions = Regions::new(WideTile::WIDTH, Tile::HEIGHT, &mut buf);
+    let mut regions = Regions::new(WideTile::WIDTH, SmallSize::HEIGHT, &mut buf);
 
     b.iter(|| {
         regions.update_regions(|region| {
@@ -61,7 +61,7 @@ pub fn unpack_block<S: Simd, T: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut F
 #[vello_bench]
 pub fn unpack_regular<S: Simd, T: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, T>) {
     let mut buf = vec![0; SCRATCH_BUF_SIZE];
-    let mut regions = Regions::new(WideTile::WIDTH - 1, Tile::HEIGHT, &mut buf);
+    let mut regions = Regions::new(WideTile::WIDTH - 1, SmallSize::HEIGHT, &mut buf);
 
     b.iter(|| {
         regions.update_regions(|region| {

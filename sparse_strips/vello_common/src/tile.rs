@@ -6,6 +6,7 @@
 use crate::flatten::Line;
 use alloc::vec;
 use alloc::vec::Vec;
+use core::marker::PhantomData;
 use fearless_simd::*;
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
@@ -40,11 +41,13 @@ const INT_MASK_SHIFT: u32 = INTERSECTION_MASK.count_ones();
 /// Trying to render a path with more lines than this may result in visual artifacts.
 pub const MAX_LINES_PER_PATH: u32 = 1 << (32 - INT_MASK_SHIFT);
 
-/// A logical grouping of arrays used for culled tile processing,
+/// A logical grouping of arrays used for culled tile processing.
 #[derive(Debug, Clone, Default)]
-pub struct CulledWindings {
+pub struct CulledWindings<S: TileSize = SmallSize> {
     /// Fractional winding coverage for each individual scanline in a row.
-    pub partial: Vec<[f32; Tile::HEIGHT as usize]>,
+    ///
+    /// Stored row-major with `S::HEIGHT` values per tile row.
+    pub partial: Vec<f32>,
     // Note that this will cause issues if we have windings greater/less than i16,
     // but this should only occur in pathological cases.
     /// Accumulated integer winding deltas for each tile row.
@@ -53,9 +56,10 @@ pub struct CulledWindings {
     pub active: Vec<u32>,
     /// Flag indicating if any geometry was early-culled outside the viewport.
     pub culled: bool,
+    size: PhantomData<S>,
 }
 
-impl CulledWindings {
+impl<S: TileSize> CulledWindings<S> {
     /// Number of bits in a single active mask word.
     const WORD_BITS: usize = 32;
     /// Bit shift equivalent to dividing by `WORD_BITS` (2^5 = 32).
@@ -68,28 +72,45 @@ impl CulledWindings {
     /// change, and thus the backing vecs never need to be resized. (For now).
     pub fn new(height: u16) -> Self {
         let height_usize = height as usize;
-        let tile_height = Tile::HEIGHT as usize;
+        let tile_height = S::HEIGHT as usize;
         let num_rows = height_usize.div_ceil(tile_height);
         let num_bits = num_rows.div_ceil(Self::WORD_BITS);
 
         Self {
-            partial: vec![[0.0; Tile::HEIGHT as usize]; num_rows],
+            partial: vec![0.0; num_rows * tile_height],
             coarse: vec![0; num_rows],
             active: vec![0; num_bits],
             culled: false,
+            size: PhantomData,
         }
     }
 
-    /// Clears but does not resize
+    /// Clears but does not resize.
     pub fn reset(&mut self) {
         // TODO: Maybe consider tracking touched regions and only resetting those
         // instead of always the full array?
         if self.culled {
-            self.partial.fill([0.0; Tile::HEIGHT as usize]);
+            self.partial.fill(0.0);
             self.coarse.fill(0);
             self.active.fill(0);
             self.culled = false;
         }
+    }
+
+    /// Partial winding slice for one tile row.
+    #[inline(always)]
+    pub(crate) fn partial_row(&self, row_idx: usize) -> &[f32] {
+        let height = usize::from(S::HEIGHT);
+        let start = row_idx * height;
+        &self.partial[start..][..height]
+    }
+
+    /// Mutable partial winding slice for one tile row.
+    #[inline(always)]
+    pub(crate) fn partial_row_mut(&mut self, row_idx: usize) -> &mut [f32] {
+        let height = usize::from(S::HEIGHT);
+        let start = row_idx * height;
+        &mut self.partial[start..][..height]
     }
 
     /// Marks if a row was culled early for faster traversal in strip generation.
@@ -194,10 +215,10 @@ impl CulledWindings {
 }
 
 /// A tile represents an aligned area on the pixmap, used to subdivide the viewport into sub-areas
-/// (currently 4x4) and analyze line intersections inside each such area.
+/// and analyze line intersections inside each such area.
 ///
 /// Keep in mind that it is possible to have multiple tiles with the same index,
-/// namely if we have multiple lines crossing the same 4x4 area!
+/// namely if we have multiple lines crossing the same area!
 ///
 /// # Note
 ///
@@ -205,7 +226,7 @@ impl CulledWindings {
 /// the compilation target.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-pub struct Tile {
+pub struct Tile<S: TileSize = SmallSize> {
     // The field ordering is important.
     //
     // The given ordering (variant over little and big endian compilation targets), ensures that
@@ -244,15 +265,85 @@ pub struct Tile {
     #[cfg(target_endian = "little")]
     /// The index of the tile in the y direction.
     pub y: u16,
+
+    size: PhantomData<S>,
 }
 
-impl Tile {
+/// Core tile dimensions used by the sparse strip pipeline.
+#[allow(unnameable_types)]
+pub trait TileSizeCore: sealed::Sealed + Copy + Clone + core::fmt::Debug {
     /// The width of a tile in pixels.
-    pub const WIDTH: u16 = 4;
-
+    const WIDTH: u16;
     /// The height of a tile in pixels.
-    pub const HEIGHT: u16 = 4;
+    const HEIGHT: u16;
+}
 
+/// Number of pixels in a tile of size `S`.
+pub const fn tile_pixels<S: TileSizeCore>() -> usize {
+    S::WIDTH as usize * S::HEIGHT as usize
+}
+
+/// Complete tile-size policy for all vello_common sparse strip pipeline stages.
+#[allow(
+    private_bounds,
+    reason = "stage-specific tile-size policy traits are crate-private implementation details"
+)]
+pub trait TileSize:
+    TileSizeCore + crate::strip::StripExt + crate::clip::ClipExt + crate::rect::RectExt
+{
+}
+
+impl<S> TileSize for S where
+    S: TileSizeCore + crate::strip::StripExt + crate::clip::ClipExt + crate::rect::RectExt
+{
+}
+
+/// A 4x4 tile size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SmallSize;
+
+/// An 8x8 tile size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MediumSize;
+
+/// A 16x16 tile size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LargeSize;
+
+/// A 4x4 tile.
+pub type SmallTile = Tile<SmallSize>;
+
+/// An 8x8 tile.
+pub type MediumTile = Tile<MediumSize>;
+
+/// A 16x16 tile.
+pub type LargeTile = Tile<LargeSize>;
+
+impl TileSizeCore for SmallSize {
+    const WIDTH: u16 = 4;
+    const HEIGHT: u16 = 4;
+}
+
+impl TileSizeCore for MediumSize {
+    const WIDTH: u16 = 8;
+    const HEIGHT: u16 = 8;
+}
+
+impl TileSizeCore for LargeSize {
+    const WIDTH: u16 = 16;
+    const HEIGHT: u16 = 16;
+}
+
+mod sealed {
+    #[allow(unnameable_types)]
+    pub trait Sealed {}
+
+    impl Sealed for super::SmallSize {}
+    impl Sealed for super::MediumSize {}
+    impl Sealed for super::LargeSize {}
+}
+
+impl<S: TileSize> Tile<S> {
     /// A special tile used to signal the end of a tile stream during rendering.
     pub const SENTINEL: Self = Self::new(u16::MAX, u16::MAX, 0, 0);
 
@@ -265,8 +356,8 @@ impl Tile {
         Self::new(
             // Make sure that x and y stay in range when multiplying
             // with the tile width and height during strips generation.
-            x.min(u16::MAX / Self::WIDTH),
-            y.min(u16::MAX / Self::HEIGHT),
+            x.min(u16::MAX / S::WIDTH),
+            y.min(u16::MAX / S::HEIGHT),
             line_idx,
             intersection_mask,
         )
@@ -289,6 +380,7 @@ impl Tile {
             x,
             y,
             packed_winding_line_idx: (line_idx << INT_MASK_SHIFT) | intersection_mask,
+            size: PhantomData,
         }
     }
 
@@ -385,47 +477,47 @@ impl Tile {
     }
 }
 
-impl PartialEq for Tile {
+impl<S: TileSize> PartialEq for Tile<S> {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
         self.to_bits() == other.to_bits()
     }
 }
 
-impl Ord for Tile {
+impl<S: TileSize> Ord for Tile<S> {
     #[inline(always)]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.to_bits().cmp(&other.to_bits())
     }
 }
 
-impl PartialOrd for Tile {
+impl<S: TileSize> PartialOrd for Tile<S> {
     #[inline(always)]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Eq for Tile {}
+impl<S: TileSize> Eq for Tile<S> {}
 
 /// Handles the tiling of paths.
 #[derive(Clone, Debug)]
-pub struct Tiles {
-    tile_buf: Vec<Tile>,
+pub struct Tiles<S: TileSize = SmallSize> {
+    tile_buf: Vec<Tile<S>>,
     level: Level,
     sorted: bool,
     /// Auxiliary data tracking row windings and active rows for early culling.
-    pub windings: CulledWindings,
+    pub windings: CulledWindings<S>,
 }
 
-impl Tiles {
+impl<TS: TileSize> Tiles<TS> {
     /// Create a new tiles container.
     pub fn new(level: Level, height: u16) -> Self {
         Self {
             tile_buf: vec![],
             level,
             sorted: false,
-            windings: CulledWindings::new(height),
+            windings: CulledWindings::<TS>::new(height),
         }
     }
 
@@ -462,7 +554,7 @@ impl Tiles {
     ///
     /// Panics if the container hasn't been sorted before.
     #[inline]
-    pub fn get(&self, index: u32) -> &Tile {
+    pub fn get(&self, index: u32) -> &Tile<TS> {
         assert!(
             self.sorted,
             "attempted to call `get` before sorting the tile container."
@@ -475,7 +567,7 @@ impl Tiles {
     ///
     /// Panics if the container hasn't been sorted before.
     #[inline]
-    pub fn iter(&self) -> impl Iterator<Item = &Tile> {
+    pub fn iter(&self) -> impl Iterator<Item = &Tile<TS>> {
         assert!(
             self.sorted,
             "attempted to call `iter` before sorting the tile container."
@@ -523,21 +615,21 @@ impl Tiles {
             lines.len()
         );
 
-        let tile_columns = width.div_ceil(Tile::WIDTH);
-        let tile_rows = height.div_ceil(Tile::HEIGHT);
+        let tile_columns = width.div_ceil(TS::WIDTH);
+        let tile_rows = height.div_ceil(TS::HEIGHT);
 
-        let px_top = f32x4::from_slice(s, &[0.0, 1.0, 2.0, 3.0]);
-        let px_bottom = px_top + f32x4::splat(s, 1.0);
-        let simd_zero = f32x4::splat(s, 0.0);
-        let tile_height_f32 = Tile::HEIGHT as f32;
+        let px_top = TS::indices(s);
+        let px_bottom = px_top + TS::WindingVector::<S>::splat(s, 1.0);
+        let simd_zero = TS::WindingVector::<S>::splat(s, 0.0);
+        let tile_height_f32 = TS::HEIGHT as f32;
 
         for (line_idx, line) in lines.iter().take(MAX_LINES_PER_PATH as usize).enumerate() {
             let line_idx = line_idx as u32;
 
-            let p0_x = line.p0.x / f32::from(Tile::WIDTH);
-            let p0_y = line.p0.y / f32::from(Tile::HEIGHT);
-            let p1_x = line.p1.x / f32::from(Tile::WIDTH);
-            let p1_y = line.p1.y / f32::from(Tile::HEIGHT);
+            let p0_x = line.p0.x / f32::from(TS::WIDTH);
+            let p0_y = line.p0.y / f32::from(TS::HEIGHT);
+            let p1_x = line.p1.x / f32::from(TS::WIDTH);
+            let p1_y = line.p1.y / f32::from(TS::HEIGHT);
 
             let (line_left_x, line_right_x) = if p0_x < p1_x {
                 (p0_x, p1_x)
@@ -572,7 +664,7 @@ impl Tiles {
 
             let dir = if p0_y >= p1_y { 1 } else { -1 };
             let f_dir = dir as f32;
-            let f_dir_v = f32x4::splat(s, f_dir);
+            let f_dir_v = TS::WindingVector::<S>::splat(s, f_dir);
 
             macro_rules! calc_fractional_coverage {
                 ($y_idx:expr, $segment_top_y:expr, $segment_bottom_y:expr) => {{
@@ -580,8 +672,8 @@ impl Tiles {
                     let local_y_start = ($segment_top_y - y_idx_f32) * tile_height_f32;
                     let local_y_end = ($segment_bottom_y - y_idx_f32) * tile_height_f32;
 
-                    let start_v = f32x4::splat(s, local_y_start);
-                    let end_v = f32x4::splat(s, local_y_end);
+                    let start_v = TS::WindingVector::<S>::splat(s, local_y_start);
+                    let end_v = TS::WindingVector::<S>::splat(s, local_y_end);
 
                     (px_bottom.min(end_v) - px_top.max(start_v)).max(simd_zero)
                 }};
@@ -608,14 +700,14 @@ impl Tiles {
 
                     let fractional_coverage =
                         calc_fractional_coverage!(y_top_tiles, line_top_y, line_bottom_y);
-                    let target_row = &mut self.windings.partial[y_top_tiles as usize];
-                    let current = f32x4::from_slice(s, target_row);
+                    let target_row = self.windings.partial_row_mut(y_top_tiles as usize);
+                    let current = TS::WindingVector::<S>::from_slice(s, target_row);
 
                     // See comment below on the double counting risk!
                     let double_count = if at_top_of_tile {
                         f_dir_v
                     } else {
-                        f32x4::splat(s, 0.0)
+                        TS::WindingVector::<S>::splat(s, 0.0)
                     };
                     let next = fractional_coverage.mul_add(f_dir_v, current - double_count);
                     next.store_slice(target_row);
@@ -646,8 +738,8 @@ impl Tiles {
                     self.windings.coarse[y_end_middle as usize] += dir;
                     let fractional_coverage =
                         calc_fractional_coverage!(y_end_middle, line_top_y, line_bottom_y);
-                    let target_row = &mut self.windings.partial[y_end_middle as usize];
-                    let current = f32x4::from_slice(s, target_row);
+                    let target_row = self.windings.partial_row_mut(y_end_middle as usize);
+                    let current = TS::WindingVector::<S>::from_slice(s, target_row);
                     // Subtract the inverse direction to avoid double counting with the coarse winding.
                     let next = fractional_coverage.mul_add(f_dir_v, current - f_dir_v);
                     next.store_slice(target_row);
@@ -705,7 +797,7 @@ impl Tiles {
 
                     let push_row_extents = {
                         #[inline(always)]
-                        |tile_buf: &mut Vec<Tile>,
+                        |tile_buf: &mut Vec<Tile<TS>>,
                          y_idx: u16,
                          row_left_x: f32,
                          row_right_x: f32,
@@ -762,13 +854,13 @@ impl Tiles {
 
                                     let fractional_coverage =
                                         calc_fractional_coverage!(y_idx, row_top_y, row_bottom_y);
-                                    let target_row = &mut self.windings.partial[y_idx as usize];
-                                    let current = f32x4::from_slice(s, target_row);
+                                    let target_row = self.windings.partial_row_mut(y_idx as usize);
+                                    let current = TS::WindingVector::<S>::from_slice(s, target_row);
 
                                     let double_count = if crosses_top {
                                         f_dir_v
                                     } else {
-                                        f32x4::splat(s, 0.0)
+                                        TS::WindingVector::<S>::splat(s, 0.0)
                                     };
                                     let next = fractional_coverage
                                         .mul_add(f_dir_v, current - double_count);
@@ -796,8 +888,10 @@ impl Tiles {
                                             off_screen_top_y,
                                             off_screen_bottom_y
                                         );
-                                        let target_row = &mut self.windings.partial[y_idx as usize];
-                                        let current = f32x4::from_slice(s, target_row);
+                                        let target_row =
+                                            self.windings.partial_row_mut(y_idx as usize);
+                                        let current =
+                                            TS::WindingVector::<S>::from_slice(s, target_row);
                                         let next = fractional_coverage.mul_add(f_dir_v, current);
                                         next.store_slice(target_row);
                                     }
@@ -951,16 +1045,16 @@ impl Tiles {
             lines.len()
         );
 
-        let tile_columns = width.div_ceil(Tile::WIDTH);
-        let tile_rows = height.div_ceil(Tile::HEIGHT);
+        let tile_columns = width.div_ceil(TS::WIDTH);
+        let tile_rows = height.div_ceil(TS::HEIGHT);
 
         for (line_idx, line) in lines.iter().take(MAX_LINES_PER_PATH as usize).enumerate() {
             let line_idx = line_idx as u32;
 
-            let p0_x = line.p0.x / f32::from(Tile::WIDTH);
-            let p0_y = line.p0.y / f32::from(Tile::HEIGHT);
-            let p1_x = line.p1.x / f32::from(Tile::WIDTH);
-            let p1_y = line.p1.y / f32::from(Tile::HEIGHT);
+            let p0_x = line.p0.x / f32::from(TS::WIDTH);
+            let p0_y = line.p0.y / f32::from(TS::HEIGHT);
+            let p1_x = line.p1.x / f32::from(TS::WIDTH);
+            let p1_y = line.p1.y / f32::from(TS::HEIGHT);
 
             let (line_left_x, line_right_x) = if p0_x < p1_x {
                 (p0_x, p1_x)
@@ -1279,13 +1373,18 @@ mod tests {
     use crate::flatten::{FlattenCtx, Line, Point, fill};
     use crate::geometry::RectU16;
     use crate::kurbo::{Affine, BezPath};
-    use crate::tile::CulledWindings;
-    use crate::tile::{B, L, R, T, Tile, Tiles, W};
+    use crate::tile::{
+        B, CulledWindings as CulledWindingsForSize, L, R, SmallSize, T, Tile, TileSizeCore,
+        Tiles as TilesForSize, W,
+    };
     use fearless_simd::Level;
     use std::vec::Vec;
 
     const VIEW_DIM: u16 = 100;
     const F_V_DIM: f32 = VIEW_DIM as f32;
+
+    type Tiles = TilesForSize<SmallSize>;
+    type CulledWindings = CulledWindingsForSize<SmallSize>;
 
     impl Tiles {
         fn assert_tiles_match(
@@ -1676,6 +1775,7 @@ mod tests {
             &mut line_buf,
             &mut FlattenCtx::default(),
             RectU16::new(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT),
+            SmallSize::HEIGHT,
         );
 
         let mut tiles = Tiles::new(Level::try_detect().unwrap_or(Level::baseline()), VIEW_DIM);
@@ -2180,11 +2280,11 @@ mod tests {
     // position, causing a filled 4x4 block artifact to appear.
     #[test]
     fn issue_early_winding_emission() {
-        const WIDTH: u16 = Tile::WIDTH * 35;
-        const HEIGHT: u16 = Tile::HEIGHT * 7;
+        const WIDTH: u16 = SmallSize::WIDTH * 35;
+        const HEIGHT: u16 = SmallSize::HEIGHT * 7;
 
-        let tile_width = f32::from(Tile::WIDTH);
-        let tile_height = f32::from(Tile::HEIGHT);
+        let tile_width = f32::from(SmallSize::WIDTH);
+        let tile_height = f32::from(SmallSize::HEIGHT);
         let lines = [Line {
             p0: Point {
                 x: 32.89 * tile_width,
@@ -2344,7 +2444,7 @@ mod tests {
     #[test]
     fn test_culled_windings_new_and_reset() {
         let mut windings = CulledWindings::new(100);
-        assert_eq!(windings.partial.len(), 25);
+        assert_eq!(windings.partial.len(), 100);
         assert_eq!(windings.coarse.len(), 25);
         assert_eq!(windings.active.len(), 1);
 

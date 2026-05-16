@@ -22,7 +22,7 @@ only break in edge cases, and some of them are also only related to conversions 
 
 use crate::render::common::IMAGE_PADDING;
 use crate::{
-    GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
+    GpuStrip, RenderError, RenderSettings, RenderSize, Resources, Wide,
     filter::{FilterContext, FilterInstanceData, FilterPassState, FilterPassTarget},
     gradient_cache::GradientRampCache,
     render::{
@@ -56,7 +56,6 @@ use vello_common::multi_atlas::{AtlasConfig, AtlasId};
 use vello_common::probe::Probe;
 use vello_common::render_graph::LayerId;
 use vello_common::{
-    coarse::WideTile,
     encode::{
         EncodedBlurredRoundedRectangle, EncodedGradient, EncodedKind, EncodedPaint,
         MAX_GRADIENT_LUT_SIZE, RadialKind,
@@ -64,7 +63,6 @@ use vello_common::{
     paint::{ImageId, ImageSource},
     peniko::{self},
     pixmap::Pixmap,
-    tile::Tile,
 };
 use vello_sparse_shaders::{clear_slots, filters, render_strips};
 use web_sys::wasm_bindgen::{JsCast, JsValue};
@@ -197,7 +195,8 @@ impl WebGlRenderer {
             get_max_texture_array_layers(&gl),
             1,
         );
-        let total_slots: usize = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
+        let total_slots: usize =
+            (max_texture_dimension_2d / u32::from(Wide::WIDE_TILE_HEIGHT)) as usize;
         assert!(
             gl.get_parameter(WebGl2RenderingContext::DEPTH_BITS)
                 .unwrap()
@@ -1399,7 +1398,7 @@ impl WebGlPrograms {
                 let config = Config {
                     width: new_render_size.width,
                     height: new_render_size.height,
-                    strip_height: u32::from(Tile::HEIGHT),
+                    strip_height: u32::from(Wide::WIDE_TILE_HEIGHT),
                     alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                     encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                     strip_offset_x: 0,
@@ -1419,13 +1418,13 @@ impl WebGlPrograms {
                 );
             }
 
-            let total_slots = max_texture_dimension_2d / u32::from(Tile::HEIGHT);
+            let total_slots = max_texture_dimension_2d / u32::from(Wide::WIDE_TILE_HEIGHT);
             // Update slot config buffer.
             {
                 let slot_config = Config {
-                    width: u32::from(WideTile::WIDTH),
-                    height: u32::from(Tile::HEIGHT) * total_slots,
-                    strip_height: u32::from(Tile::HEIGHT),
+                    width: u32::from(Wide::WIDE_TILE_WIDTH),
+                    height: u32::from(Wide::WIDE_TILE_HEIGHT) * total_slots,
+                    strip_height: u32::from(Wide::WIDE_TILE_HEIGHT),
                     alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                     encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                     strip_offset_x: 0,
@@ -1450,9 +1449,9 @@ impl WebGlPrograms {
             // TODO: This can be done once, and doesn't need to be done on every `prepare` call.
             {
                 let clear_config = ClearSlotsConfig {
-                    slot_width: u32::from(WideTile::WIDTH),
-                    slot_height: u32::from(Tile::HEIGHT),
-                    texture_height: u32::from(Tile::HEIGHT) * total_slots,
+                    slot_width: u32::from(Wide::WIDE_TILE_WIDTH),
+                    slot_height: u32::from(Wide::WIDE_TILE_HEIGHT),
+                    texture_height: u32::from(Wide::WIDE_TILE_HEIGHT) * total_slots,
                     _padding: 0,
                 };
 
@@ -2274,8 +2273,8 @@ fn create_slot_texture(gl: &WebGl2RenderingContext, slot_count: usize) -> WebGlT
         WebGl2RenderingContext::TEXTURE_2D,
         0,
         WebGl2RenderingContext::RGBA8 as i32,
-        u32::from(WideTile::WIDTH) as i32,
-        (u32::from(Tile::HEIGHT) * slot_count as u32) as i32,
+        u32::from(Wide::WIDE_TILE_WIDTH) as i32,
+        (u32::from(Wide::WIDE_TILE_HEIGHT) * slot_count as u32) as i32,
         0,
         WebGl2RenderingContext::RGBA,
         WebGl2RenderingContext::UNSIGNED_BYTE,
@@ -2409,14 +2408,14 @@ impl WebGlRendererContext<'_> {
 
                 let filter_textures = self.filter_context.filter_textures.get(layer_id).unwrap();
                 let strip_offset_x = resources.offset[0] as i32
-                    - (filter_textures.bbox.x0() * WideTile::WIDTH) as i32;
-                let strip_offset_y =
-                    resources.offset[1] as i32 - (filter_textures.bbox.y0() * Tile::HEIGHT) as i32;
+                    - (filter_textures.bbox.x0() * Wide::WIDE_TILE_WIDTH) as i32;
+                let strip_offset_y = resources.offset[1] as i32
+                    - (filter_textures.bbox.y0() * Wide::WIDE_TILE_HEIGHT) as i32;
 
                 let config = Config {
                     width: atlas_width,
                     height: atlas_height,
-                    strip_height: u32::from(Tile::HEIGHT),
+                    strip_height: u32::from(Wide::WIDE_TILE_HEIGHT),
                     alphas_tex_width_bits: self
                         .programs
                         .resources
@@ -2487,11 +2486,12 @@ impl WebGlRendererContext<'_> {
                 // Set viewport to match slot framebuffer.
                 // TODO: Remove the slot height texture calculation.
                 let total_slots: usize = (self.programs.resources.max_texture_dimension_2d
-                    / u32::from(Tile::HEIGHT)) as usize;
+                    / u32::from(Wide::WIDE_TILE_HEIGHT))
+                    as usize;
                 // Set viewport to match slot texture.
-                let height = u32::from(Tile::HEIGHT) * total_slots as u32;
+                let height = u32::from(Wide::WIDE_TILE_HEIGHT) * total_slots as u32;
                 self.gl
-                    .viewport(0, 0, i32::from(WideTile::WIDTH), height as i32);
+                    .viewport(0, 0, i32::from(Wide::WIDE_TILE_WIDTH), height as i32);
 
                 // Use slot config buffer for rendering to a slot texture.
                 self.gl.bind_buffer_base(
@@ -2711,11 +2711,11 @@ impl WebGlRendererContext<'_> {
             Some(&self.programs.resources.slot_framebuffers[ix]),
         );
         // TODO: Remove the slot height texture calculation.
-        let total_slots: usize =
-            (self.programs.resources.max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
-        let height = u32::from(Tile::HEIGHT) * total_slots as u32;
+        let total_slots: usize = (self.programs.resources.max_texture_dimension_2d
+            / u32::from(Wide::WIDE_TILE_HEIGHT)) as usize;
+        let height = u32::from(Wide::WIDE_TILE_HEIGHT) * total_slots as u32;
         self.gl
-            .viewport(0, 0, i32::from(WideTile::WIDTH), height as i32);
+            .viewport(0, 0, i32::from(Wide::WIDE_TILE_WIDTH), height as i32);
 
         // Setup clear program.
         self.gl.use_program(Some(&self.programs.clear_program));

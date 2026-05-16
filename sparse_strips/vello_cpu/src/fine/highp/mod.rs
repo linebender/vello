@@ -19,13 +19,13 @@ use crate::fine::{COLOR_COMPONENTS, Painter, Splat4thExt};
 use crate::layer_manager::LayerManager;
 use crate::peniko::BlendMode;
 use crate::region::Region;
+use vello_common::coarse::WideTile;
 use vello_common::fearless_simd::*;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::Affine;
 use vello_common::mask::Mask;
 use vello_common::paint::{PremulColor, Tint, TintMode};
 use vello_common::pixmap::Pixmap;
-use vello_common::tile::Tile;
 
 pub(crate) mod blend;
 pub(crate) mod compose;
@@ -54,14 +54,14 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         simd.vectorize(
             #[inline(always)]
             || {
-                for y in 0..Tile::HEIGHT {
+                for y in 0..WideTile::HEIGHT {
                     for (x, pixel) in region
                         .row_mut(y)
                         .chunks_exact_mut(COLOR_COMPONENTS)
                         .enumerate()
                     {
                         let idx =
-                            COLOR_COMPONENTS * (usize::from(Tile::HEIGHT) * x + usize::from(y));
+                            COLOR_COMPONENTS * (usize::from(WideTile::HEIGHT) * x + usize::from(y));
                         let start = &blend_buf[idx..];
                         // Convert f32 [0.0, 1.0] to u8 [0, 255] with rounding.
                         // TODO: Use explicit SIMD for better performance
@@ -88,10 +88,10 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         simd.vectorize(
             #[inline(always)]
             || {
-                for y in 0..Tile::HEIGHT {
+                for y in 0..WideTile::HEIGHT {
                     for (x, pixel) in region.row_mut(y).chunks_exact(COLOR_COMPONENTS).enumerate() {
                         let idx =
-                            COLOR_COMPONENTS * (usize::from(Tile::HEIGHT) * x + usize::from(y));
+                            COLOR_COMPONENTS * (usize::from(WideTile::HEIGHT) * x + usize::from(y));
                         let start = &mut blend_buf[idx..];
                         // Convert u8 [0, 255] to normalized f32 [0.0, 1.0] (reverse of pack)
                         start[0] = pixel[0] as f32 / 255.0;

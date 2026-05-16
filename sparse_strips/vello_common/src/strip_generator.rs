@@ -10,16 +10,16 @@ use crate::geometry::RectU16;
 use crate::kurbo::{Affine, PathEl, Rect, Stroke};
 use crate::peniko::Fill;
 use crate::strip::Strip;
-use crate::tile::Tiles;
+use crate::tile::{SmallSize, TileSize, Tiles};
 use crate::{flatten, rect, strip};
 use alloc::vec::Vec;
 use peniko::kurbo::StrokeCtx;
 
 /// A storage for storing strip-related data.
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct StripStorage {
+#[derive(Debug, PartialEq, Eq)]
+pub struct StripStorage<S: TileSize = SmallSize> {
     /// The strips in the storage.
-    pub strips: Vec<Strip>,
+    pub strips: Vec<Strip<S>>,
     /// The alphas in the storage.
     pub alphas: Vec<u8>,
     generation_mode: GenerationMode,
@@ -38,7 +38,7 @@ pub enum GenerationMode {
     ReplaceAfter(usize),
 }
 
-impl StripStorage {
+impl<S: TileSize> StripStorage<S> {
     /// Create a new strip storage with the given generation mode.
     pub fn new(generation_mode: GenerationMode) -> Self {
         Self {
@@ -76,20 +76,26 @@ impl StripStorage {
     }
 }
 
+impl<S: TileSize> Default for StripStorage<S> {
+    fn default() -> Self {
+        Self::new(GenerationMode::default())
+    }
+}
+
 /// An object for easily generating strips for a filled/stroked path.
 #[derive(Debug)]
-pub struct StripGenerator {
+pub struct StripGenerator<S: TileSize = SmallSize> {
     pub(crate) level: Level,
     line_buf: Vec<Line>,
     flatten_ctx: FlattenCtx,
     stroke_ctx: StrokeCtx,
-    temp_storage: StripStorage,
-    tiles: Tiles,
+    temp_storage: StripStorage<S>,
+    tiles: Tiles<S>,
     width: u16,
     height: u16,
 }
 
-impl StripGenerator {
+impl<S: TileSize> StripGenerator<S> {
     /// Create a new strip generator.
     pub fn new(width: u16, height: u16, level: Level) -> Self {
         Self {
@@ -123,8 +129,8 @@ impl StripGenerator {
         fill_rule: Fill,
         transform: Affine,
         aliasing_threshold: Option<u8>,
-        strip_storage: &mut StripStorage,
-        clip_path: Option<PathDataRef<'_>>,
+        strip_storage: &mut StripStorage<S>,
+        clip_path: Option<PathDataRef<'_, S>>,
     ) {
         let cull_bbox = clip_path
             .map(|clip_path| clip_path.bbox)
@@ -136,6 +142,7 @@ impl StripGenerator {
             &mut self.line_buf,
             &mut self.flatten_ctx,
             cull_bbox,
+            S::HEIGHT,
         );
 
         self.generate_with_clip(aliasing_threshold, strip_storage, fill_rule, clip_path);
@@ -148,8 +155,8 @@ impl StripGenerator {
         stroke: &Stroke,
         transform: Affine,
         aliasing_threshold: Option<u8>,
-        strip_storage: &mut StripStorage,
-        clip_path: Option<PathDataRef<'_>>,
+        strip_storage: &mut StripStorage<S>,
+        clip_path: Option<PathDataRef<'_, S>>,
     ) {
         let cull_bbox = clip_path
             .map(|clip_path| clip_path.bbox)
@@ -163,6 +170,7 @@ impl StripGenerator {
             &mut self.flatten_ctx,
             &mut self.stroke_ctx,
             cull_bbox,
+            S::HEIGHT,
         );
         self.generate_with_clip(aliasing_threshold, strip_storage, Fill::NonZero, clip_path);
     }
@@ -170,9 +178,9 @@ impl StripGenerator {
     fn generate_with_clip(
         &mut self,
         aliasing_threshold: Option<u8>,
-        strip_storage: &mut StripStorage,
+        strip_storage: &mut StripStorage<S>,
         fill_rule: Fill,
-        clip_path: Option<PathDataRef<'_>>,
+        clip_path: Option<PathDataRef<'_, S>>,
     ) {
         self.tiles
             .make_tiles_analytic_aa(self.level, &self.line_buf, self.width, self.height);
@@ -188,7 +196,7 @@ impl StripGenerator {
             strip_storage,
             clip_path,
             |strips, alphas| {
-                strip::render(
+                strip::render::<S>(
                     level,
                     tiles,
                     strips,
@@ -208,8 +216,8 @@ impl StripGenerator {
     pub fn generate_filled_rect_fast(
         &mut self,
         rect: &Rect,
-        strip_storage: &mut StripStorage,
-        clip_path: Option<PathDataRef<'_>>,
+        strip_storage: &mut StripStorage<S>,
+        clip_path: Option<PathDataRef<'_, S>>,
     ) {
         let viewport = Rect::new(0.0, 0.0, self.width as f64, self.height as f64);
         let clip_bbox = clip_path
@@ -233,7 +241,7 @@ impl StripGenerator {
             strip_storage,
             clip_path,
             |strips, alphas| {
-                rect::render(level, clamped, strips, alphas);
+                rect::render::<S>(level, clamped, strips, alphas);
             },
         );
     }
@@ -251,12 +259,12 @@ impl StripGenerator {
 /// When `clip_path` is `Some`, strips are rendered into `temp_storage` first, then
 /// intersected with the clip mask into `strip_storage`. Otherwise strips are rendered
 /// directly into `strip_storage`.
-fn render_with_clip(
+fn render_with_clip<S: TileSize>(
     level: Level,
-    temp_storage: &mut StripStorage,
-    strip_storage: &mut StripStorage,
-    clip_path: Option<PathDataRef<'_>>,
-    render_fn: impl FnOnce(&mut Vec<Strip>, &mut Vec<u8>),
+    temp_storage: &mut StripStorage<S>,
+    strip_storage: &mut StripStorage<S>,
+    clip_path: Option<PathDataRef<'_, S>>,
+    render_fn: impl FnOnce(&mut Vec<Strip<S>>, &mut Vec<u8>),
 ) {
     match strip_storage.generation_mode {
         GenerationMode::Replace => strip_storage.strips.clear(),
@@ -274,7 +282,7 @@ fn render_with_clip(
             alphas: &temp_storage.alphas,
             bbox: RectU16::new(0, 0, u16::MAX, u16::MAX),
         };
-        intersect(level, clip_path, path_data, strip_storage);
+        intersect::<S>(level, clip_path, path_data, strip_storage);
     } else {
         render_fn(&mut strip_storage.strips, &mut strip_storage.alphas);
     }
@@ -287,7 +295,9 @@ mod tests {
     use crate::fearless_simd::Level;
     use crate::kurbo::{Affine, Rect, Shape};
     use crate::peniko::Fill;
-    use crate::strip_generator::{StripGenerator, StripStorage};
+    use crate::strip_generator::StripStorage;
+
+    type StripGenerator = crate::strip_generator::StripGenerator;
 
     #[test]
     fn reset() {

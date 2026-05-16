@@ -45,6 +45,17 @@
 
 extern crate alloc;
 
+/// If you want to change the used tile size, all you need to do is change this
+/// type alias to point to a different tile size.
+pub(crate) type Size = vello_common::tile::SmallSize;
+
+pub(crate) type Wide = vello_common::coarse::Wide<{ vello_common::coarse::MODE_HYBRID }, Size>;
+pub(crate) type WideTile =
+    vello_common::coarse::WideTile<{ vello_common::coarse::MODE_HYBRID }, Size>;
+pub(crate) type ClipContext = vello_common::clip::ClipContext<Size>;
+pub(crate) type StripGenerator = vello_common::strip_generator::StripGenerator<Size>;
+pub(crate) type StripStorage = vello_common::strip_generator::StripStorage<Size>;
+
 pub(crate) mod filter;
 mod gradient_cache;
 mod render;
@@ -98,8 +109,3 @@ pub enum RenderError {
     MissingTextureBinding(TextureId),
     // TODO: Consider expanding `RenderError` to replace some `.unwrap` and `.expect`.
 }
-
-#[cfg(test)]
-const _: () = if vello_common::tile::Tile::HEIGHT != 4 {
-    panic!("`vello_hybrid` shaders currently require `Tile::HEIGHT` to be `4`");
-};

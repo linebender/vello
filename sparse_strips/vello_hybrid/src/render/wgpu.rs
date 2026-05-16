@@ -20,7 +20,7 @@ only break in edge cases, and some of them are also only related to conversions 
 
 use crate::render::common::IMAGE_PADDING;
 use crate::{
-    GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
+    GpuStrip, RenderError, RenderSettings, RenderSize, Resources, Wide,
     filter::{FilterContext, FilterInstanceData, FilterPassState, FilterPassTarget},
     gradient_cache::GradientRampCache,
     render::{
@@ -52,7 +52,6 @@ use vello_common::multi_atlas::{AtlasConfig, AtlasError, AtlasId};
 use vello_common::render_graph::LayerId;
 use vello_common::{
     TextureId,
-    coarse::WideTile,
     encode::{
         EncodedBlurredRoundedRectangle, EncodedExternalTexture, EncodedGradient, EncodedKind,
         EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind,
@@ -60,7 +59,6 @@ use vello_common::{
     paint::ImageSource,
     peniko,
     pixmap::Pixmap,
-    tile::Tile,
 };
 use wgpu::{
     BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, CommandEncoder,
@@ -202,7 +200,7 @@ impl Renderer {
             device.limits().max_texture_array_layers,
             min_initial_atlas_count,
         );
-        let total_slots = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
+        let total_slots = (max_texture_dimension_2d / u32::from(Wide::WIDE_TILE_HEIGHT)) as usize;
         let image_cache = ImageCache::new_with_config(settings.atlas_config);
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
         // and the maximum gradient LUT size - worst case scenario.
@@ -1562,8 +1560,8 @@ impl Programs {
                 .create_texture(&wgpu::TextureDescriptor {
                     label: Some("Slot Texture"),
                     size: Extent3d {
-                        width: u32::from(WideTile::WIDTH),
-                        height: u32::from(Tile::HEIGHT) * slot_count as u32,
+                        width: u32::from(Wide::WIDE_TILE_WIDTH),
+                        height: u32::from(Wide::WIDE_TILE_HEIGHT) * slot_count as u32,
                         depth_or_array_layers: 1,
                     },
                     mip_level_count: 1,
@@ -1581,9 +1579,9 @@ impl Programs {
         let clear_config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Clear Slots Config"),
             contents: bytemuck::bytes_of(&ClearSlotsConfig {
-                slot_width: u32::from(WideTile::WIDTH),
-                slot_height: u32::from(Tile::HEIGHT),
-                texture_height: u32::from(Tile::HEIGHT) * slot_count as u32,
+                slot_width: u32::from(Wide::WIDE_TILE_WIDTH),
+                slot_height: u32::from(Wide::WIDE_TILE_HEIGHT),
+                texture_height: u32::from(Wide::WIDE_TILE_HEIGHT) * slot_count as u32,
                 _padding: 0,
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
@@ -1604,8 +1602,8 @@ impl Programs {
         let slot_config_buffer = Self::create_config_buffer(
             device,
             &RenderSize {
-                width: u32::from(WideTile::WIDTH),
-                height: u32::from(Tile::HEIGHT) * slot_count as u32,
+                width: u32::from(Wide::WIDE_TILE_WIDTH),
+                height: u32::from(Wide::WIDE_TILE_HEIGHT) * slot_count as u32,
             },
             device.limits().max_texture_dimension_2d,
         );
@@ -1833,7 +1831,7 @@ impl Programs {
             contents: bytemuck::bytes_of(&Config {
                 width: render_size.width,
                 height: render_size.height,
-                strip_height: Tile::HEIGHT.into(),
+                strip_height: Wide::WIDE_TILE_HEIGHT.into(),
                 alphas_tex_width_bits: alpha_texture_width.trailing_zeros(),
                 encoded_paints_tex_width_bits: alpha_texture_width.trailing_zeros(),
                 strip_offset_x: 0,
@@ -2311,7 +2309,7 @@ impl Programs {
             let config = Config {
                 width: new_render_size.width,
                 height: new_render_size.height,
-                strip_height: Tile::HEIGHT.into(),
+                strip_height: Wide::WIDE_TILE_HEIGHT.into(),
                 alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                 encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                 strip_offset_x: 0,
@@ -2691,9 +2689,9 @@ impl RendererContext<'_> {
                 // 1. Account for the intermediate texture living at an offset within its atlas.
                 // 2. Account for the filter layer bbox not starting at (0, 0).
                 let strip_offset_x = resources.offset[0] as i32
-                    - (filter_textures.bbox.x0() * WideTile::WIDTH) as i32;
-                let strip_offset_y =
-                    resources.offset[1] as i32 - (filter_textures.bbox.y0() * Tile::HEIGHT) as i32;
+                    - (filter_textures.bbox.x0() * Wide::WIDE_TILE_WIDTH) as i32;
+                let strip_offset_y = resources.offset[1] as i32
+                    - (filter_textures.bbox.y0() * Wide::WIDE_TILE_HEIGHT) as i32;
 
                 // TODO: Cache this and bind group? See https://github.com/linebender/vello/pull/1494#discussion_r2937895891.
                 let atlas_config_buffer =
@@ -2703,7 +2701,7 @@ impl RendererContext<'_> {
                             contents: bytemuck::bytes_of(&Config {
                                 width: atlas_size.width,
                                 height: atlas_size.height,
-                                strip_height: Tile::HEIGHT.into(),
+                                strip_height: Wide::WIDE_TILE_HEIGHT.into(),
                                 alphas_tex_width_bits: self
                                     .programs
                                     .resources

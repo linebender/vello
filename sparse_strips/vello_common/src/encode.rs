@@ -207,7 +207,7 @@ impl EncodeExt for Gradient {
         // that we calculate based on the transform.
         //
         // Remember that we render wide tiles in column major order (i.e. we first calculate the
-        // values for a specific x for all Tile::HEIGHT y by incrementing y by 1, and then finally
+        // values for a specific x for all tile rows by incrementing y by 1, and then finally
         // we increment the x position by 1 and start from the beginning). If we want to implement
         // the above approach of incrementally updating the position, we need to calculate
         // how the x/y unit vectors are affected by the transform, and then use this as the

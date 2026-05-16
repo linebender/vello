@@ -55,6 +55,26 @@ impl<S: Simd> Div255Ext for u16x16<S> {
     }
 }
 
+/// Multiply packed alpha values using normalized integer multiplication.
+pub trait NormalizedMulExt {
+    /// Multiply alpha values.
+    fn normalized_mul(self, rhs: Self) -> Self;
+}
+
+impl<S: Simd> NormalizedMulExt for u8x32<S> {
+    #[inline(always)]
+    fn normalized_mul(self, rhs: Self) -> Self {
+        self.simd.narrow_u16x32(normalized_mul_u8x32(self, rhs))
+    }
+}
+
+impl<S: Simd> NormalizedMulExt for u8x16<S> {
+    #[inline(always)]
+    fn normalized_mul(self, rhs: Self) -> Self {
+        self.simd.narrow_u16x16(normalized_mul_u8x16(self, rhs))
+    }
+}
+
 /// Perform a normalized multiplication for u8x32.
 #[inline(always)]
 pub fn normalized_mul_u8x32<S: Simd>(a: u8x32<S>, b: u8x32<S>) -> u16x32<S> {

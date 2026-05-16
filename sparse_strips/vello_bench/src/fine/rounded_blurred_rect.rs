@@ -9,7 +9,7 @@ use vello_common::color::palette::css::GREEN;
 use vello_common::encode::EncodeExt;
 use vello_common::fearless_simd::Simd;
 use vello_common::kurbo::{Affine, Point, Rect};
-use vello_common::tile::Tile;
+use vello_common::tile::{SmallSize, TileSizeCore};
 use vello_cpu::fine::{Fine, FineKernel};
 use vello_dev_macros::vello_bench;
 
@@ -20,7 +20,7 @@ pub fn rounded_blurred_rect(c: &mut Criterion) {
 
 #[vello_bench]
 fn with_transform<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
-    let center = Point::new(WideTile::WIDTH as f64 / 2.0, Tile::HEIGHT as f64 / 2.0);
+    let center = Point::new(WideTile::WIDTH as f64 / 2.0, SmallSize::HEIGHT as f64 / 2.0);
 
     base(b, fine, Affine::rotate_about(1.0, center));
 }
@@ -34,7 +34,7 @@ fn base<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>, t
     let mut paints = vec![];
 
     let rect = BlurredRoundedRectangle {
-        rect: Rect::new(0.0, 0.0, WideTile::WIDTH as f64, Tile::HEIGHT as f64),
+        rect: Rect::new(0.0, 0.0, WideTile::WIDTH as f64, SmallSize::HEIGHT as f64),
         color: GREEN,
         radius: 30.0,
         std_dev: 10.0,
