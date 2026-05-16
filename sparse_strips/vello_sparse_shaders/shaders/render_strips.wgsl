@@ -109,9 +109,7 @@ struct Config {
     width: u32,
     // Height of the rendering target
     height: u32,
-    // Height of a strip in the rendering
-    // CAUTION: When changing this value, you must also update the fragment shader's
-    // logic to handle the new strip height.
+    // Height of a strip in the rendering. Must be a power of two.
     strip_height: u32,
     // Number of trailing zeros in alphas_tex_width (log2 of width).
     // Pre-calculated on CPU since WebGL2 doesn't support `firstTrailingBit`.
@@ -132,7 +130,7 @@ struct Config {
 }
 
 // A `StripInstance` can represent either a **normal strip** (representing a sparse fill or alpha fill of height
-// Tile::HEIGHT) or a **rect strip** (an entire rectangle rendered as a single quad, with anti-aliasing support).
+// `Config::strip_height`) or a **rect strip** (an entire rectangle rendered as a single quad, with anti-aliasing support).
 // The two modes are distinguished by RECT_STRIP_FLAG (bit 31 of `paint_and_rect_flag`).
 //
 // Depending on the active mode, the fields are interpreted as follows:
@@ -374,16 +372,14 @@ fn fs_main(
         let y = u32(floor(tex_coord.y));
         // Retrieve alpha value from the texture. We store 16 1-byte alpha
         // values per texel, with each color channel packing 4 alpha values.
-        // The code here assumes the strip height is 4, i.e., each color
-        // channel encodes the alpha values for a single column within a strip.
-        // Divide x by 4 to get the texel position.
-        let alphas_index = x;
+        let alpha_byte_index = x * config.strip_height + y;
         let tex_dimensions = textureDimensions(alphas_texture);
         let alphas_tex_width = tex_dimensions.x;
-        // Which texel contains the alpha values for this column
-        let texel_index = alphas_index / 4u;
-        // Which channel (R,G,B,A) in the texel contains the alpha values for this column
-        let channel_index = alphas_index % 4u;
+        // Which texel contains this alpha byte.
+        let texel_index = alpha_byte_index / 16u;
+        // Which channel (R,G,B,A) in the texel contains this alpha byte.
+        let channel_index = (alpha_byte_index / 4u) % 4u;
+        let byte_index_in_channel = alpha_byte_index % 4u;
         // Calculate texel coordinates
         let tex_x = texel_index & (alphas_tex_width - 1u);
         let tex_y = texel_index >> config.alphas_tex_width_bits;
@@ -394,7 +390,7 @@ fn fs_main(
         // Get the column's alphas from the appropriate RGBA channel based on the index
         let alphas_u32 = unpack_alphas_from_channel(rgba_values, channel_index);
         // Extract the alpha value for the current y-position from the packed u32 data
-        alpha = f32((alphas_u32 >> (y * 8u)) & 0xffu) * (1.0 / 255.0);
+        alpha = f32((alphas_u32 >> (byte_index_in_channel * 8u)) & 0xffu) * (1.0 / 255.0);
     }
     // Apply the alpha value to the unpacked RGBA color or slot index
     let color_source = (paint_and_rect_flag >> 29u) & 0x3u;
@@ -589,7 +585,7 @@ fn fs_main(
         // within the wide tile slot! Therefore, we need to subtract the strip
         // offset here.
         let clip_x = u32(i32(position.x) - config.strip_offset_x) & 0xFFu;
-        let clip_y = (u32(i32(sample_y) - config.strip_offset_y) & 3u) + payload * config.strip_height;
+        let clip_y = (u32(i32(sample_y) - config.strip_offset_y) & (config.strip_height - 1u)) + payload * config.strip_height;
         let clip_in_color = textureLoad(clip_input_texture, vec2(clip_x, clip_y), 0);
 
         // Extract opacity from first 8 bits (quantized from [0, 255])
@@ -608,7 +604,7 @@ fn fs_main(
         let dest_slot = (payload >> 16u) & 0xFFFFu;
         // See the comment above for why we need to subtract the strip offset.
         let clip_x = u32(i32(position.x) - config.strip_offset_x) & 0xFFu;
-        let clip_y_in_strip = u32(i32(sample_y) - config.strip_offset_y) & 3u;
+        let clip_y_in_strip = u32(i32(sample_y) - config.strip_offset_y) & (config.strip_height - 1u);
         let src_y = clip_y_in_strip + src_slot * config.strip_height;
         let src_color = textureLoad(clip_input_texture, vec2(clip_x, src_y), 0);
 
@@ -1367,7 +1363,7 @@ fn calculate_radial_gradient(
     var t_value: f32;
     var is_valid: bool;
     let kind = get_radial_kind(texel2);
-    
+
     switch kind {
         case RADIAL_GRADIENT_TYPE_STANDARD: {
             // Standard radial gradient: bias + scale * sqrt(x^2 + y^2)

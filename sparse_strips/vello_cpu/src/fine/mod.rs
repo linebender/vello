@@ -58,7 +58,7 @@ const PIXEL_CENTER_OFFSET: f64 = 0.5;
 pub(crate) const COLOR_COMPONENTS: usize = 4;
 
 /// Number of color components in a single column of a tile (height * components).
-pub(crate) const TILE_HEIGHT_COMPONENTS: usize = Tile::HEIGHT as usize * COLOR_COMPONENTS;
+pub(crate) const TILE_HEIGHT_COMPONENTS: usize = Tile::<vello_common::tile::SmallSize>::HEIGHT as usize * COLOR_COMPONENTS;
 
 /// Trait for numeric types used in fine rasterization.
 ///
@@ -460,7 +460,7 @@ pub(crate) fn rasterize_region<S: Simd, T: FineKernel<S>>(
     resources: FineResources<'_>,
     unpack_dest: bool,
 ) {
-    let scene_y = region.row_idx as u16 * Tile::HEIGHT;
+    let scene_y = region.row_idx as u16 * Tile::<vello_common::tile::SmallSize>::HEIGHT;
     let row = &bucketer.rows()[region.row_idx];
     let span = Span::new(0, region.width());
 
@@ -632,7 +632,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     let alphas = cmd.alpha_idx().map(|alpha_idx| {
                         let alpha_offset = alpha_idx as usize
                             + usize::from(span.pixel_x() - cmd.span.pixel_x())
-                                * Tile::HEIGHT as usize;
+                                * Tile::<vello_common::tile::SmallSize>::HEIGHT as usize;
                         &alpha_buffer[alpha_offset..]
                     });
 
@@ -679,7 +679,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     let alphas = cmd.alpha_idx().map(|alpha_idx| {
                         let alpha_offset = alpha_idx as usize
                             + usize::from(span.pixel_x() - cmd.span.pixel_x())
-                                * Tile::HEIGHT as usize;
+                                * Tile::<vello_common::tile::SmallSize>::HEIGHT as usize;
                         &alpha_buffer[alpha_offset..]
                     });
 
@@ -863,7 +863,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             self.paint_buf.resize(len, T::Numeric::ZERO);
         }
 
-        let t_len = usize::from(width) * Tile::HEIGHT as usize;
+        let t_len = usize::from(width) * Tile::<vello_common::tile::SmallSize>::HEIGHT as usize;
         if self.f32_buf.len() < t_len {
             self.f32_buf.resize(t_len, 0.0);
         }
@@ -941,7 +941,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 // the t values on the fly in the iterator. The latter would be faster, but
                 // it would probably increase code size a lot, because the functions for
                 // position calculation need to be inlined for good performance.
-                let t_vals = &mut self.f32_buf[..width * Tile::HEIGHT as usize];
+                let t_vals = &mut self.f32_buf[..width * Tile::<vello_common::tile::SmallSize>::HEIGHT as usize];
 
                 match &gradient.kind {
                     EncodedKind::Linear(kind) => {
@@ -1130,7 +1130,7 @@ pub trait PosExt<S: Simd> {
 impl<S: Simd> PosExt<S> for f32x4<S> {
     #[inline(always)]
     fn splat_pos(simd: S, pos: f32, _: f32, y_advance: f32) -> Self {
-        let columns: [f32; Tile::HEIGHT as usize] = [0.0, 1.0, 2.0, 3.0];
+        let columns: [f32; Tile::<vello_common::tile::SmallSize>::HEIGHT as usize] = [0.0, 1.0, 2.0, 3.0];
         let column_mask: Self = columns.simd_into(simd);
 
         column_mask.mul_add(Self::splat(simd, y_advance), Self::splat(simd, pos))

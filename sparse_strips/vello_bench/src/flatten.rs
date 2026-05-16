@@ -8,6 +8,7 @@ use vello_common::flatten::FlattenCtx;
 use vello_common::geometry::RectU16;
 use vello_common::kurbo::Stroke;
 use vello_common::kurbo::StrokeCtx;
+use vello_common::tile::{SmallSize, TileSizeCore};
 use vello_cpu::Level;
 use vello_cpu::kurbo::Affine;
 
@@ -35,6 +36,7 @@ pub fn flatten(c: &mut Criterion) {
                             &mut temp_buf,
                             &mut flatten_ctx,
                             RectU16::new(0, 0, $item.width, $item.height),
+                            SmallSize::HEIGHT,
                         );
                         line_buf.extend(&temp_buf);
                     }
@@ -47,6 +49,7 @@ pub fn flatten(c: &mut Criterion) {
                             &mut temp_buf,
                             &mut flatten_ctx,
                             RectU16::new(0, 0, $item.width, $item.height),
+                            SmallSize::HEIGHT,
                         );
                         line_buf.extend(&temp_buf);
                     }

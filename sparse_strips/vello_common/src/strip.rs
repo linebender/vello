@@ -5,14 +5,128 @@
 
 use crate::flatten::Line;
 use crate::peniko::Fill;
-use crate::tile::{Tile, Tiles};
+use crate::tile::{
+    LargeSize, MediumSize, SmallSize, Tile, TileSize, TileSizeCore, Tiles, tile_pixels,
+};
 use crate::util::f32_to_u8;
 use alloc::vec::Vec;
+use core::marker::PhantomData;
 use fearless_simd::*;
+
+/// SIMD vector used for per-scanline winding computation.
+///
+/// This helper trait avoids putting the selectability bound directly on
+/// [`StripExt::WindingVector`]. The direct spelling looks like this:
+///
+/// ```ignore
+/// type WindingVector<S: Simd>: SimdFloat<S, Element = f32> + Copy
+/// where
+///     <Self::WindingVector<S> as SimdBase<S>>::Mask: Select<Self::WindingVector<S>>;
+/// ```
+///
+/// That form causes rustc to overflow while evaluating the concrete associated
+/// type aliases. Moving the mask relationship into this separate trait lets the
+/// blanket impl prove it without the self-referential GAT where-clause.
+pub(crate) trait StripWindingVector<S: Simd>:
+    SimdFloat<S, Element = f32, Mask = <Self as StripWindingVector<S>>::SelectMask> + Copy
+{
+    /// Mask produced by comparisons on this winding vector.
+    type SelectMask: Select<Self>;
+}
+
+impl<S, T> StripWindingVector<S> for T
+where
+    S: Simd,
+    T: SimdFloat<S, Element = f32> + Copy,
+    <T as SimdBase<S>>::Mask: Select<T>,
+{
+    type SelectMask = <T as SimdBase<S>>::Mask;
+}
+
+pub(crate) trait StripExt: TileSizeCore {
+    type WindingVector<S: Simd>: StripWindingVector<S>;
+
+    fn indices<S: Simd>(simd: S) -> Self::WindingVector<S>;
+
+    fn append_alpha_tile<S: Simd>(
+        simd: S,
+        columns: &[Self::WindingVector<S>],
+        alpha_buf: &mut Vec<u8>,
+    );
+}
+
+impl StripExt for SmallSize {
+    type WindingVector<S: Simd> = f32x4<S>;
+
+    #[inline(always)]
+    fn indices<S: Simd>(simd: S) -> Self::WindingVector<S> {
+        f32x4::from_fn(simd, |i| i as f32)
+    }
+
+    #[inline(always)]
+    fn append_alpha_tile<S: Simd>(
+        simd: S,
+        columns: &[Self::WindingVector<S>],
+        alpha_buf: &mut Vec<u8>,
+    ) {
+        debug_assert_eq!(columns.len(), usize::from(Self::WIDTH));
+
+        let p1 = simd.combine_f32x4(columns[0], columns[1]);
+        let p2 = simd.combine_f32x4(columns[2], columns[3]);
+        let values = f32_to_u8(simd.combine_f32x8(p1, p2));
+        alpha_buf.extend_from_slice(values.as_slice());
+    }
+}
+
+impl StripExt for MediumSize {
+    type WindingVector<S: Simd> = f32x8<S>;
+
+    #[inline(always)]
+    fn indices<S: Simd>(simd: S) -> Self::WindingVector<S> {
+        f32x8::from_fn(simd, |i| i as f32)
+    }
+
+    #[inline(always)]
+    fn append_alpha_tile<S: Simd>(
+        simd: S,
+        columns: &[Self::WindingVector<S>],
+        alpha_buf: &mut Vec<u8>,
+    ) {
+        debug_assert_eq!(columns.len(), usize::from(Self::WIDTH));
+
+        for columns in columns.chunks_exact(2) {
+            let values = f32_to_u8(simd.combine_f32x8(columns[0], columns[1]));
+            alpha_buf.extend_from_slice(values.as_slice());
+        }
+    }
+}
+
+impl StripExt for LargeSize {
+    type WindingVector<S: Simd> = f32x16<S>;
+
+    #[inline(always)]
+    fn indices<S: Simd>(simd: S) -> Self::WindingVector<S> {
+        f32x16::from_fn(simd, |i| i as f32)
+    }
+
+    #[inline(always)]
+    fn append_alpha_tile<S: Simd>(
+        _simd: S,
+        columns: &[Self::WindingVector<S>],
+        alpha_buf: &mut Vec<u8>,
+    ) {
+        debug_assert_eq!(columns.len(), usize::from(Self::WIDTH));
+
+        for &column in columns {
+            let values = f32_to_u8(column);
+            alpha_buf.extend_from_slice(values.as_slice());
+        }
+    }
+}
 
 /// A strip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Strip {
+pub struct Strip<S: TileSize = SmallSize> {
     /// The x coordinate of the strip, in user coordinates.
     pub x: u16,
     /// The y coordinate of the strip, in user coordinates.
@@ -23,9 +137,10 @@ pub struct Strip {
     /// - bit 31: `fill_gap` (See `Strip::fill_gap()`).
     /// - bits 0..=30: `alpha_idx` (See `Strip::alpha_idx()`).
     packed_alpha_idx_fill_gap: u32,
+    size: PhantomData<S>,
 }
 
-impl Strip {
+impl<S: TileSize> Strip<S> {
     /// The bit mask for `fill_gap` packed into `packed_alpha_idx_fill_gap`.
     const FILL_GAP_MASK: u32 = 1 << 31;
 
@@ -41,6 +156,7 @@ impl Strip {
             x,
             y,
             packed_alpha_idx_fill_gap: alpha_idx | fill_gap,
+            size: PhantomData,
         }
     }
 
@@ -51,7 +167,7 @@ impl Strip {
 
     /// Return the y coordinate of the strip, in strip units.
     pub fn strip_y(&self) -> u16 {
-        self.y / Tile::HEIGHT
+        self.y / S::HEIGHT
     }
 
     /// Returns the horizontal pixel width of this strip.
@@ -59,8 +175,8 @@ impl Strip {
     /// **IMPORTANT**: This assumes that the `next` is actually the next adjacent strip
     /// to `self`, otherwise this method will return a garbage value!
     pub fn width_to(&self, next: &Self) -> u16 {
-        let col = self.alpha_idx() / u32::from(Tile::HEIGHT);
-        let next_col = next.alpha_idx() / u32::from(Tile::HEIGHT);
+        let col = self.alpha_idx() / u32::from(S::HEIGHT);
+        let next_col = next.alpha_idx() / u32::from(S::HEIGHT);
         next_col.saturating_sub(col) as u16
     }
 
@@ -114,16 +230,16 @@ impl Strip {
         end: u16,
         strips: &mut Vec<Self>,
         alphas: &mut Vec<u8>,
-        windings: &crate::tile::CulledWindings,
+        windings: &crate::tile::CulledWindings<S>,
         mut should_fill: F,
     ) where
         F: FnMut(i32) -> bool,
     {
         windings.for_active_rows_in_range(start as usize, end as usize, |row| {
             if should_fill(windings.coarse[row] as i32) {
-                let y_pos = row as u16 * Tile::HEIGHT;
+                let y_pos = row as u16 * S::HEIGHT;
                 strips.push(Self::new(0, y_pos, alphas.len() as u32, false));
-                alphas.extend([255_u8; Tile::HEIGHT as usize * Tile::WIDTH as usize]);
+                alphas.extend(core::iter::repeat_n(255_u8, tile_pixels::<S>()));
                 // TODO: Clamp to the scene width instead of u16::MAX; in the future there might
                 // not be clamping on the x.
                 strips.push(Self::new(u16::MAX, y_pos, alphas.len() as u32, true));
@@ -133,16 +249,16 @@ impl Strip {
 }
 
 /// Render the tiles stored in `tiles` into the strip and alpha buffer.
-pub fn render(
+pub fn render<TS: TileSize>(
     level: Level,
-    tiles: &Tiles,
-    strip_buf: &mut Vec<Strip>,
+    tiles: &Tiles<TS>,
+    strip_buf: &mut Vec<Strip<TS>>,
     alpha_buf: &mut Vec<u8>,
     fill_rule: Fill,
     aliasing_threshold: Option<u8>,
     lines: &[Line],
 ) {
-    dispatch!(level, simd => render_impl(simd,
+    dispatch!(level, simd => render_impl::<_, TS>(simd,
                                          tiles,
                                          strip_buf,
                                          alpha_buf,
@@ -152,10 +268,10 @@ pub fn render(
 }
 
 #[inline(always)]
-fn render_impl<S: Simd>(
+fn render_impl<S: Simd, TS: TileSize>(
     s: S,
-    tiles: &Tiles,
-    strip_buf: &mut Vec<Strip>,
+    tiles: &Tiles<TS>,
+    strip_buf: &mut Vec<Strip<TS>>,
     alpha_buf: &mut Vec<u8>,
     fill_rule: Fill,
     aliasing_threshold: Option<u8>,
@@ -180,17 +296,18 @@ fn render_impl<S: Simd>(
     // is not at the left edge of the viewport (x != 0), we must emit a solid strip
     // from x=0 to that tile if the coarse winding dictates a fill.
     let emit_captive_strip =
-        |y: u16, is_left_viewport: bool, strips: &mut Vec<Strip>, alphas: &mut Vec<u8>| {
+        |y: u16, is_left_viewport: bool, strips: &mut Vec<Strip<TS>>, alphas: &mut Vec<u8>| {
             let coarse_wd = tiles.windings.coarse[y as usize] as i32;
 
             if should_fill(coarse_wd) && !is_left_viewport {
-                strips.push(Strip::new(0, y * Tile::HEIGHT, alphas.len() as u32, false));
-                alphas.extend([255_u8; Tile::HEIGHT as usize * Tile::WIDTH as usize]);
+                strips.push(Strip::new(0, y * TS::HEIGHT, alphas.len() as u32, false));
+                alphas.extend(core::iter::repeat_n(255_u8, tile_pixels::<TS>()));
             }
 
-            let mut acc = f32x4::splat(s, coarse_wd as f32);
+            let mut acc = TS::WindingVector::<S>::splat(s, coarse_wd as f32);
             if is_left_viewport {
-                let fine_winding: f32x4<_> = tiles.windings.partial[y as usize].simd_into(s);
+                let fine_winding =
+                    TS::WindingVector::<S>::from_slice(s, tiles.windings.partial_row(y as usize));
                 acc += fine_winding;
             }
 
@@ -204,19 +321,18 @@ fn render_impl<S: Simd>(
 
     // The previous tile visited.
     let mut prev_tile = if has_culled_tiles && tiles.is_empty() {
-        Tile::SENTINEL
+        Tile::<TS>::SENTINEL
     } else {
         *tiles.get(0)
     };
 
     // The accumulated (fractional) winding of the tile-sized location we're currently at.
     // Note multiple tiles can be at the same location.
-    // Note that we are also implicitly assuming here that the tile height exactly fits into a
-    // SIMD vector (i.e. 128 bits).
-    let mut location_winding = [f32x4::splat(s, 0.0); Tile::WIDTH as usize];
+    // The tile-size policies ensure that one tile column exactly fits into the winding vector.
+    let mut location_winding = [TS::WindingVector::<S>::splat(s, 0.0); LargeSize::WIDTH as usize];
     // The accumulated (fractional) windings at this location's right edge. When we move to the
     // next location, this is splatted to that location's starting winding.
-    let mut accumulated_winding = f32x4::splat(s, 0.0);
+    let mut accumulated_winding = TS::WindingVector::<S>::splat(s, 0.0);
 
     let left_viewport = prev_tile.x == 0;
     if has_culled_tiles {
@@ -235,21 +351,26 @@ fn render_impl<S: Simd>(
         let (wd, acc) = emit_captive_strip(prev_tile.y, left_viewport, strip_buf, alpha_buf);
         winding_delta = wd;
         accumulated_winding = acc;
-        location_winding = [accumulated_winding; Tile::WIDTH as usize];
+        location_winding.fill(accumulated_winding);
     }
 
     // The strip we're building.
     let mut strip = Strip::new(
-        prev_tile.x * Tile::WIDTH,
-        prev_tile.y * Tile::HEIGHT,
+        prev_tile.x * TS::WIDTH,
+        prev_tile.y * TS::HEIGHT,
         alpha_buf.len() as u32,
         should_fill(winding_delta) && !left_viewport,
     );
 
-    for (tile_idx, tile) in tiles.iter().copied().chain([Tile::SENTINEL]).enumerate() {
+    for (tile_idx, tile) in tiles
+        .iter()
+        .copied()
+        .chain([Tile::<TS>::SENTINEL])
+        .enumerate()
+    {
         let line = lines[tile.line_idx() as usize];
-        let tile_left_x = f32::from(tile.x) * f32::from(Tile::WIDTH);
-        let tile_top_y = f32::from(tile.y) * f32::from(Tile::HEIGHT);
+        let tile_left_x = f32::from(tile.x) * f32::from(TS::WIDTH);
+        let tile_top_y = f32::from(tile.y) * f32::from(TS::HEIGHT);
         let p0_x = line.p0.x - tile_left_x;
         let p0_y = line.p0.y - tile_top_y;
         let p1_x = line.p1.x - tile_left_x;
@@ -260,11 +381,11 @@ fn render_impl<S: Simd>(
         if !prev_tile.same_loc(&tile) {
             match fill_rule {
                 Fill::NonZero => {
-                    let p1 = f32x4::splat(s, 0.5);
-                    let p2 = f32x4::splat(s, 255.0);
+                    let p1 = TS::WindingVector::<S>::splat(s, 0.5);
+                    let p2 = TS::WindingVector::<S>::splat(s, 255.0);
 
                     #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
-                    for x in 0..Tile::WIDTH as usize {
+                    for x in 0..usize::from(TS::WIDTH) {
                         let area = location_winding[x];
                         let coverage = area.abs();
                         let mulled = coverage.mul_add(p2, p1);
@@ -276,12 +397,12 @@ fn render_impl<S: Simd>(
                     }
                 }
                 Fill::EvenOdd => {
-                    let p1 = f32x4::splat(s, 0.5);
-                    let p2 = f32x4::splat(s, -2.0);
-                    let p3 = f32x4::splat(s, 255.0);
+                    let p1 = TS::WindingVector::<S>::splat(s, 0.5);
+                    let p2 = TS::WindingVector::<S>::splat(s, -2.0);
+                    let p3 = TS::WindingVector::<S>::splat(s, 255.0);
 
                     #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
-                    for x in 0..Tile::WIDTH as usize {
+                    for x in 0..usize::from(TS::WIDTH) {
                         let area = location_winding[x];
                         let im1 = area.mul_add(p1, p1).floor();
                         let coverage = p2.mul_add(im1, area).abs();
@@ -293,23 +414,23 @@ fn render_impl<S: Simd>(
                 }
             };
 
-            let p1 = s.combine_f32x4(location_winding[0], location_winding[1]);
-            let p2 = s.combine_f32x4(location_winding[2], location_winding[3]);
-
-            let mut u8_vals = f32_to_u8(s.combine_f32x8(p1, p2));
-
             if let Some(aliasing_threshold) = aliasing_threshold {
-                u8_vals = s.select_u8x16(
-                    u8_vals.simd_ge(u8x16::splat(s, aliasing_threshold)),
-                    u8x16::splat(s, 255),
-                    u8x16::splat(s, 0),
-                );
+                let threshold = TS::WindingVector::<S>::splat(s, f32::from(aliasing_threshold));
+                let opaque = TS::WindingVector::<S>::splat(s, 255.0);
+                let transparent = TS::WindingVector::<S>::splat(s, 0.0);
+
+                #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
+                for x in 0..usize::from(TS::WIDTH) {
+                    location_winding[x] = location_winding[x]
+                        .simd_ge(threshold)
+                        .select(opaque, transparent);
+                }
             }
 
-            alpha_buf.extend_from_slice(u8_vals.as_slice());
+            TS::append_alpha_tile(s, &location_winding[..usize::from(TS::WIDTH)], alpha_buf);
 
             #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
-            for x in 0..Tile::WIDTH as usize {
+            for x in 0..usize::from(TS::WIDTH) {
                 location_winding[x] = accumulated_winding;
             }
         }
@@ -317,8 +438,8 @@ fn render_impl<S: Simd>(
         // Push out the strip if we're moving to a next strip.
         if !prev_tile.same_loc(&tile) && !prev_tile.prev_loc(&tile) {
             debug_assert_eq!(
-                (prev_tile.x as u32 + 1) * Tile::WIDTH as u32 - strip.x as u32,
-                ((alpha_buf.len() - strip.alpha_idx() as usize) / usize::from(Tile::HEIGHT)) as u32,
+                (prev_tile.x as u32 + 1) * TS::WIDTH as u32 - strip.x as u32,
+                ((alpha_buf.len() - strip.alpha_idx() as usize) / usize::from(TS::HEIGHT)) as u32,
                 "The number of columns written to the alpha buffer should equal the number of columns spanned by this strip."
             );
             strip_buf.push(strip);
@@ -332,7 +453,7 @@ fn render_impl<S: Simd>(
                 if winding_delta != 0 || is_sentinel {
                     strip_buf.push(Strip::new(
                         u16::MAX,
-                        prev_tile.y * Tile::HEIGHT,
+                        prev_tile.y * TS::HEIGHT,
                         alpha_buf.len() as u32,
                         should_fill(winding_delta),
                     ));
@@ -355,17 +476,17 @@ fn render_impl<S: Simd>(
                     accumulated_winding = acc;
                 } else {
                     winding_delta = 0;
-                    accumulated_winding = f32x4::splat(s, 0.0);
+                    accumulated_winding = TS::WindingVector::<S>::splat(s, 0.0);
                 };
 
                 #[expect(clippy::needless_range_loop, reason = "dimension clarity")]
-                for x in 0..Tile::WIDTH as usize {
+                for x in 0..usize::from(TS::WIDTH) {
                     location_winding[x] = accumulated_winding;
                 }
             } else {
                 // Note: this fill is mathematically not necessary. It provides a way to reduce
                 // accumulation of float rounding errors.
-                accumulated_winding = f32x4::splat(s, winding_delta as f32);
+                accumulated_winding = TS::WindingVector::<S>::splat(s, winding_delta as f32);
             }
 
             if is_sentinel {
@@ -373,8 +494,8 @@ fn render_impl<S: Simd>(
             }
 
             strip = Strip::new(
-                tile.x * Tile::WIDTH,
-                tile.y * Tile::HEIGHT,
+                tile.x * TS::WIDTH,
+                tile.y * TS::HEIGHT,
                 alpha_buf.len() as u32,
                 should_fill(winding_delta) && !left_viewport,
             );
@@ -432,25 +553,25 @@ fn render_impl<S: Simd>(
 
         winding_delta += sign as i32 * i32::from(tile.winding());
 
-        let line_top_y = f32x4::splat(s, line_top_y);
-        let line_bottom_y = f32x4::splat(s, line_bottom_y);
+        let line_top_y = TS::WindingVector::<S>::splat(s, line_top_y);
+        let line_bottom_y = TS::WindingVector::<S>::splat(s, line_bottom_y);
 
         // See the explanation of this term on the `line_px_left_yx` and `line_px_right_yx`
         // variables below.
         let line_px_base_yx = line_top_y.mul_add(-x_slope, line_top_x);
 
-        let px_top_y = f32x4::simd_from(s, [0., 1., 2., 3.]);
-        let px_bottom_y = 1. + px_top_y;
+        let px_top_y = TS::indices(s);
+        let px_bottom_y = TS::WindingVector::<S>::splat(s, 1.0) + px_top_y;
 
         let ymin = line_top_y.max(px_top_y);
         let ymax = line_bottom_y.min(px_bottom_y);
 
-        let mut acc = f32x4::splat(s, 0.0);
+        let mut acc = TS::WindingVector::<S>::splat(s, 0.0);
 
-        for x_idx in 0..Tile::WIDTH {
-            let x_idx_s = f32x4::splat(s, x_idx as f32);
+        for x_idx in 0..TS::WIDTH {
+            let x_idx_s = TS::WindingVector::<S>::splat(s, x_idx as f32);
             let px_left_x = x_idx_s;
-            let px_right_x = 1.0 + x_idx_s;
+            let px_right_x = TS::WindingVector::<S>::splat(s, 1.0) + x_idx_s;
 
             // The y-coordinate of the intersections between the line and the pixel's left and
             // right edges respectively.
@@ -472,25 +593,36 @@ fn render_impl<S: Simd>(
             //
             // We know `ymin` and `ymax` are finite. We require the `max` operation to pick `ymin`
             // if its first operand is NaN. On x86, that maps to the semantics of `_mm_max_ps`,
-            // which `f32x4::max` emits: that instruction takes element-wise
+            // which the x86 vector max emits: that instruction takes element-wise
             // `if first > second { first } else { second }`. For AArch64, we do require the
-            // `f32x4::max_precise` semantics (as `vmax_f32` returns NaN if either operand is NaN);
+            // precise max semantics (as `vmax_f32` returns NaN if either operand is NaN);
             // however, for AArch64 the precise version should be comparatively less expensive than
             // on x86. For `min`, we then know both operands are finite, so we can unambiguously
             // use the relaxed version. If this ever breaks, tests should fail loudly, because NaNs
             // happen a lot here!
-            trait F32x4MaxExt {
+            trait F32MaxExt<S: Simd>: SimdFloat<S, Element = f32> + Copy {
+                /// Return `rhs` when `self` is NaN.
                 fn max_if_first_nan_take_second(self, rhs: Self) -> Self;
             }
+
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            impl<S: Simd> F32x4MaxExt for f32x4<S> {
+            impl<S, T> F32MaxExt<S> for T
+            where
+                S: Simd,
+                T: SimdFloat<S, Element = f32> + Copy,
+            {
                 #[inline(always)]
                 fn max_if_first_nan_take_second(self, rhs: Self) -> Self {
                     self.max(rhs)
                 }
             }
+
             #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-            impl<S: Simd> F32x4MaxExt for f32x4<S> {
+            impl<S, T> F32MaxExt<S> for T
+            where
+                S: Simd,
+                T: SimdFloat<S, Element = f32> + Copy,
+            {
                 #[inline(always)]
                 fn max_if_first_nan_take_second(self, rhs: Self) -> Self {
                     self.max_precise(rhs)

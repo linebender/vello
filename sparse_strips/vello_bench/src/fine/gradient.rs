@@ -142,7 +142,7 @@ mod radial {
     use vello_common::fearless_simd::Simd;
     use vello_common::kurbo::Point;
     use vello_common::peniko;
-    use vello_common::tile::Tile;
+    use vello_common::tile::{SmallSize, TileSizeCore};
     use vello_cpu::{
         fine::{Fine, FineKernel},
         peniko::RadialGradientPosition,
@@ -152,9 +152,9 @@ mod radial {
     #[vello_bench]
     pub(super) fn opaque<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
         let kind = RadialGradientPosition {
-            start_center: Point::new(WideTile::WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
+            start_center: Point::new(WideTile::WIDTH as f64 / 2.0, (SmallSize::HEIGHT / 2) as f64),
             start_radius: 25.0,
-            end_center: Point::new(WideTile::WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
+            end_center: Point::new(WideTile::WIDTH as f64 / 2.0, (SmallSize::HEIGHT / 2) as f64),
             end_radius: 75.0,
         }
         .into();
@@ -174,11 +174,11 @@ mod radial {
         fine: &mut Fine<S, N>,
     ) {
         let kind = RadialGradientPosition {
-            start_center: Point::new(WideTile::WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
+            start_center: Point::new(WideTile::WIDTH as f64 / 2.0, (SmallSize::HEIGHT / 2) as f64),
             start_radius: 25.0,
             end_center: Point::new(
                 WideTile::WIDTH as f64 / 2.0 + 5.0,
-                (Tile::HEIGHT / 2) as f64 + 5.0,
+                (SmallSize::HEIGHT / 2) as f64 + 5.0,
             ),
             end_radius: 75.0,
         }
@@ -202,7 +202,7 @@ mod sweep {
     use vello_common::fearless_simd::Simd;
     use vello_common::kurbo::Point;
     use vello_common::peniko;
-    use vello_common::tile::Tile;
+    use vello_common::tile::{SmallSize, TileSizeCore};
     use vello_cpu::{
         fine::{Fine, FineKernel},
         peniko::SweepGradientPosition,
@@ -212,7 +212,7 @@ mod sweep {
     #[vello_bench]
     pub(super) fn opaque<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
         let kind = SweepGradientPosition {
-            center: Point::new(WideTile::WIDTH as f64 / 2.0, (Tile::HEIGHT / 2) as f64),
+            center: Point::new(WideTile::WIDTH as f64 / 2.0, (SmallSize::HEIGHT / 2) as f64),
             start_angle: 70.0_f32.to_radians(),
             end_angle: 250.0_f32.to_radians(),
         }

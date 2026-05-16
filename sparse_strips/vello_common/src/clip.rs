@@ -7,17 +7,43 @@ use crate::geometry::RectU16;
 use crate::kurbo::{Affine, PathEl};
 use crate::strip::Strip;
 use crate::strip_generator::{GenerationMode, StripGenerator, StripStorage};
-use crate::tile::Tile;
-use crate::util::normalized_mul_u8x16;
+use crate::tile::{LargeSize, MediumSize, SmallSize, TileSize, TileSizeCore};
+use crate::util::{self, NormalizedMulExt};
 use alloc::vec;
 use alloc::vec::Vec;
-use fearless_simd::{Level, Simd, SimdBase, dispatch, u8x16};
+use core::marker::PhantomData;
+use fearless_simd::{Level, Simd, SimdBase, dispatch, u8x16, u8x32};
 use peniko::Fill;
 
-use crate::util;
+#[cfg(not(feature = "std"))]
+use peniko::kurbo::common::FloatFuncs as _;
+
+pub(crate) trait ClipExt: TileSizeCore {
+    const ALPHA_CHUNK_LEN: usize;
+
+    type AlphaVector<S: Simd>: SimdBase<S, Element = u8> + NormalizedMulExt;
+}
+
+impl ClipExt for SmallSize {
+    const ALPHA_CHUNK_LEN: usize = 16;
+
+    type AlphaVector<S: Simd> = u8x16<S>;
+}
+
+impl ClipExt for MediumSize {
+    const ALPHA_CHUNK_LEN: usize = 32;
+
+    type AlphaVector<S: Simd> = u8x32<S>;
+}
+
+impl ClipExt for LargeSize {
+    const ALPHA_CHUNK_LEN: usize = 32;
+
+    type AlphaVector<S: Simd> = u8x32<S>;
+}
 
 #[derive(Debug)]
-struct ClipData {
+struct ClipData<S: TileSize = SmallSize> {
     alpha_start: u32,
     strip_start: u32,
 
@@ -25,10 +51,11 @@ struct ClipData {
     ///
     /// These bounds have already been intersected with the viewport.
     bbox: RectU16,
+    size: PhantomData<S>,
 }
 
-impl ClipData {
-    fn to_path_data_ref<'a>(&self, storage: &'a StripStorage) -> PathDataRef<'a> {
+impl<S: TileSize> ClipData<S> {
+    fn to_path_data_ref<'a>(&self, storage: &'a StripStorage<S>) -> PathDataRef<'a, S> {
         PathDataRef {
             strips: storage
                 .strips
@@ -45,19 +72,19 @@ impl ClipData {
 
 /// A context for managing clip stacks.
 #[derive(Debug)]
-pub struct ClipContext {
-    storage: StripStorage,
-    temp_storage: StripStorage,
-    clip_stack: Vec<ClipData>,
+pub struct ClipContext<S: TileSize = SmallSize> {
+    storage: StripStorage<S>,
+    temp_storage: StripStorage<S>,
+    clip_stack: Vec<ClipData<S>>,
 }
 
-impl Default for ClipContext {
+impl<S: TileSize> Default for ClipContext<S> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ClipContext {
+impl<S: TileSize> ClipContext<S> {
     /// Create a new clip context.
     #[inline]
     pub fn new() -> Self {
@@ -80,7 +107,7 @@ impl ClipContext {
 
     /// Get the data of the current clip path.
     #[inline]
-    pub fn get(&self) -> Option<PathDataRef<'_>> {
+    pub fn get(&self) -> Option<PathDataRef<'_, S>> {
         self.clip_stack
             .last()
             .map(|c| c.to_path_data_ref(&self.storage))
@@ -91,7 +118,7 @@ impl ClipContext {
     pub fn push_clip(
         &mut self,
         clip_path: impl IntoIterator<Item = PathEl> + Clone,
-        strip_generator: &mut StripGenerator,
+        strip_generator: &mut StripGenerator<S>,
         fill_rule: Fill,
         transform: Affine,
         aliasing_threshold: Option<u8>,
@@ -124,6 +151,7 @@ impl ClipContext {
             alpha_start,
             strip_start,
             bbox,
+            size: PhantomData,
         };
 
         let existing_clip = self
@@ -155,9 +183,9 @@ impl ClipContext {
 
 /// Borrowed data of a stripped path.
 #[derive(Clone, Copy, Debug)]
-pub struct PathDataRef<'a> {
+pub struct PathDataRef<'a, S: TileSize = SmallSize> {
     /// The strips.
-    pub strips: &'a [Strip],
+    pub strips: &'a [Strip<S>],
     /// The alpha buffer.
     pub alphas: &'a [u8],
 
@@ -170,11 +198,11 @@ pub struct PathDataRef<'a> {
 /// Compute the sparse strips representation of a path that results
 /// from intersecting the two input paths. This can be used to implement
 /// clip paths.
-pub fn intersect(
+pub fn intersect<S: TileSize>(
     level: Level,
-    path_1: PathDataRef<'_>,
-    path_2: PathDataRef<'_>,
-    target: &mut StripStorage,
+    path_1: PathDataRef<'_, S>,
+    path_2: PathDataRef<'_, S>,
+    target: &mut StripStorage<S>,
 ) {
     dispatch!(level, simd => intersect_impl(simd, path_1, path_2, target));
 }
@@ -190,12 +218,11 @@ pub fn intersect(
 ///
 /// This is all that this method does. It just looks more complicated as the logic for iterating
 /// in lock step is a bit tricky.
-#[inline(always)]
-fn intersect_impl<S: Simd>(
+fn intersect_impl<S: Simd, T: TileSize>(
     simd: S,
-    path_1: PathDataRef<'_>,
-    path_2: PathDataRef<'_>,
-    target: &mut StripStorage,
+    path_1: PathDataRef<'_, T>,
+    path_2: PathDataRef<'_, T>,
+    target: &mut StripStorage<T>,
 ) {
     // In case either path is empty, the clip path should be empty.
     if path_1.strips.is_empty() || path_2.strips.is_empty() {
@@ -204,26 +231,13 @@ fn intersect_impl<S: Simd>(
 
     // Ignore any y values that are outside the bounding box of either of the two paths, as
     // those are guaranteed to have neither fill nor strip regions.
-    let path_1_start_y = path_1.strips[0].strip_y();
-    let path_2_start_y = path_2.strips[0].strip_y();
-    let mut cur_y = path_1_start_y.max(path_2_start_y);
+    let mut cur_y = path_1.strips[0].strip_y().min(path_2.strips[0].strip_y());
     let end_y = path_1.strips[path_1.strips.len() - 1]
         .strip_y()
         .min(path_2.strips[path_2.strips.len() - 1].strip_y());
 
     let mut path_1_idx = 0;
     let mut path_2_idx = 0;
-
-    // Use binary search to determine the first index of whichever
-    // path has a smaller y to avoid a large linear scan in the
-    // first iteration of the loop below in case the discrepancy
-    // is large.
-    if path_1_start_y < cur_y {
-        path_1_idx = first_strip_at_or_after(path_1.strips, cur_y);
-    } else if path_2_start_y < cur_y {
-        path_2_idx = first_strip_at_or_after(path_2.strips, cur_y);
-    }
-
     let mut strip_state = None;
 
     // Iterate over each strip row and handle them.
@@ -268,44 +282,49 @@ fn intersect_impl<S: Simd>(
                         (Region::Strip(s), Region::Fill(_))
                         | (Region::Fill(_), Region::Strip(s)) => {
                             // If possible, don't create a new strip but just extend the current one.
-                            if should_create_new_strip(&strip_state, &target.alphas, overlap.start)
-                            {
+                            if should_create_new_strip::<T>(
+                                &strip_state,
+                                &target.alphas,
+                                overlap.start,
+                            ) {
                                 flush_strip(&mut strip_state, &mut target.strips, cur_y);
                                 start_strip(&mut strip_state, &target.alphas, overlap.start, false);
                             }
 
-                            let s_alphas = &s.alphas[(overlap.start - s.start) as usize * 4..]
-                                [..overlap.width() as usize * 4];
+                            let height = usize::from(T::HEIGHT);
+                            let start = (overlap.start - s.start) as usize * height;
+                            let len = overlap.width() as usize * height;
+                            let s_alphas = &s.alphas[start..][..len];
                             target.alphas.extend_from_slice(s_alphas);
                         }
                         // Two strips, we need to multiply the opacity masks from both paths.
                         (Region::Strip(s_region_1), Region::Strip(s_region_2)) => {
                             // Once again, only create a new strip if we can't extend the current one.
-                            if should_create_new_strip(&strip_state, &target.alphas, overlap.start)
-                            {
+                            if should_create_new_strip::<T>(
+                                &strip_state,
+                                &target.alphas,
+                                overlap.start,
+                            ) {
                                 flush_strip(&mut strip_state, &mut target.strips, cur_y);
                                 start_strip(&mut strip_state, &target.alphas, overlap.start, false);
                             }
 
-                            let num_blocks = overlap.width() / Tile::HEIGHT;
+                            let height = usize::from(T::HEIGHT);
+                            let start_1 = (overlap.start - s_region_1.start) as usize * height;
+                            let start_2 = (overlap.start - s_region_2.start) as usize * height;
+                            let len = overlap.width() as usize * height;
+                            let s1_alphas = &s_region_1.alphas[start_1..][..len];
+                            let s2_alphas = &s_region_2.alphas[start_2..][..len];
 
-                            // Get the right alpha values for the specific position.
-                            let s1_alphas = s_region_1.alphas
-                                [(overlap.start - s_region_1.start) as usize * 4..]
-                                .chunks_exact(16)
-                                .take(num_blocks as usize);
-                            let s2_alphas = s_region_2.alphas
-                                [(overlap.start - s_region_2.start) as usize * 4..]
-                                .chunks_exact(16)
-                                .take(num_blocks as usize);
-
-                            for (s1_alpha, s2_alpha) in s1_alphas.zip(s2_alphas) {
-                                let s1 = u8x16::from_slice(simd, s1_alpha);
-                                let s2 = u8x16::from_slice(simd, s2_alpha);
-
-                                // Combine them.
-                                let res = simd.narrow_u16x16(normalized_mul_u8x16(s1, s2));
-                                target.alphas.extend(res.as_slice());
+                            debug_assert_eq!(len % T::ALPHA_CHUNK_LEN, 0);
+                            for (s1, s2) in s1_alphas
+                                .chunks_exact(T::ALPHA_CHUNK_LEN)
+                                .zip(s2_alphas.chunks_exact(T::ALPHA_CHUNK_LEN))
+                            {
+                                let s1 = T::AlphaVector::<S>::from_slice(simd, s1);
+                                let s2 = T::AlphaVector::<S>::from_slice(simd, s2);
+                                let multiplied = s1.normalized_mul(s2);
+                                target.alphas.extend_from_slice(multiplied.as_slice());
                             }
                         }
                     }
@@ -328,18 +347,11 @@ fn intersect_impl<S: Simd>(
     if !target.strips.last().is_some_and(Strip::is_sentinel) {
         target.strips.push(Strip::new(
             u16::MAX,
-            end_y * Tile::HEIGHT,
+            end_y * T::HEIGHT,
             target.alphas.len() as u32,
             false,
         ));
     }
-}
-
-#[inline(always)]
-fn first_strip_at_or_after(strips: &[Strip], strip_y: u16) -> usize {
-    // Strips are guaranteed to be sorted in ascending y (and ascending x),
-    // hence why we can do this.
-    strips.partition_point(|strip| strip.strip_y() < strip_y)
 }
 
 /// An overlap between two regions.
@@ -437,9 +449,9 @@ impl Region<'_> {
 }
 
 /// An iterator of strip and fill regions of a single strip row.
-struct RowIterator<'a> {
+struct RowIterator<'a, S: TileSize = SmallSize> {
     /// The path in question.
-    input: PathDataRef<'a>,
+    input: PathDataRef<'a, S>,
     /// The strip row we want to iterate over.
     strip_y: u16,
     /// The index of the current strip.
@@ -451,8 +463,8 @@ struct RowIterator<'a> {
     on_strip: bool,
 }
 
-impl<'a> RowIterator<'a> {
-    fn new(input: PathDataRef<'a>, cur_idx: &'a mut usize, strip_y: u16) -> Self {
+impl<'a, S: TileSize> RowIterator<'a, S> {
+    fn new(input: PathDataRef<'a, S>, cur_idx: &'a mut usize, strip_y: u16) -> Self {
         // Forward the index until we have found the right strip.
         while input.strips[*cur_idx].strip_y() < strip_y {
             *cur_idx += 1;
@@ -467,12 +479,12 @@ impl<'a> RowIterator<'a> {
     }
 
     #[inline(always)]
-    fn cur_strip(&self) -> &Strip {
+    fn cur_strip(&self) -> &Strip<S> {
         &self.input.strips[*self.cur_idx]
     }
 
     #[inline(always)]
-    fn next_strip(&self) -> &Strip {
+    fn next_strip(&self) -> &Strip<S> {
         &self.input.strips[*self.cur_idx + 1]
     }
 
@@ -480,7 +492,7 @@ impl<'a> RowIterator<'a> {
     fn cur_strip_width(&self) -> u16 {
         let cur = self.cur_strip();
         let next = self.next_strip();
-        ((next.alpha_idx() - cur.alpha_idx()) / Tile::HEIGHT as u32) as u16
+        ((next.alpha_idx() - cur.alpha_idx()) / S::HEIGHT as u32) as u16
     }
 
     #[inline(always)]
@@ -507,7 +519,7 @@ impl<'a> RowIterator<'a> {
     }
 }
 
-impl<'a> Iterator for RowIterator<'a> {
+impl<'a, S: TileSize> Iterator for RowIterator<'a, S> {
     type Item = Region<'a>;
 
     #[inline(always)]
@@ -558,11 +570,15 @@ struct StripState {
     fill_gap: bool,
 }
 
-fn flush_strip(strip_state: &mut Option<StripState>, strips: &mut Vec<Strip>, cur_y: u16) {
+fn flush_strip<S: TileSize>(
+    strip_state: &mut Option<StripState>,
+    strips: &mut Vec<Strip<S>>,
+    cur_y: u16,
+) {
     if let Some(state) = core::mem::take(strip_state) {
         strips.push(Strip::new(
             state.x,
-            cur_y * Tile::HEIGHT,
+            cur_y * S::HEIGHT,
             state.alpha_idx,
             state.fill_gap,
         ));
@@ -578,14 +594,14 @@ fn start_strip(strip_data: &mut Option<StripState>, alphas: &[u8], x: u16, fill_
     });
 }
 
-fn should_create_new_strip(
+fn should_create_new_strip<S: TileSize>(
     strip_state: &Option<StripState>,
     alphas: &[u8],
     overlap_start: u16,
 ) -> bool {
     // Returns false in case we can append to the currently built strip.
     strip_state.as_ref().is_none_or(|state| {
-        let width = ((alphas.len() as u32 - state.alpha_idx) / Tile::HEIGHT as u32) as u16;
+        let width = ((alphas.len() as u32 - state.alpha_idx) / S::HEIGHT as u32) as u16;
         let strip_end = state.x + width;
 
         strip_end < overlap_start - 1
@@ -594,11 +610,11 @@ fn should_create_new_strip(
 
 #[cfg(test)]
 mod tests {
-    use crate::clip::{PathDataRef, Region, RowIterator, first_strip_at_or_after, intersect};
+    use crate::clip::{PathDataRef, Region, RowIterator, intersect};
     use crate::geometry::RectU16;
     use crate::strip::Strip;
     use crate::strip_generator::StripStorage;
-    use crate::tile::Tile;
+    use crate::tile::{SmallSize, TileSizeCore};
     use fearless_simd::Level;
     use std::vec;
 
@@ -685,27 +701,6 @@ mod tests {
     }
 
     #[test]
-    fn first_strip_at_or_after_returns_first_matching_strip_y() {
-        let path = StripBuilder::new()
-            .add_strip(0, 0, 4, false)
-            .add_strip(0, 2, 4, false)
-            .add_strip(8, 2, 12, false)
-            .add_strip(16, 2, 20, false)
-            .add_strip(0, 4, 4, false)
-            .add_strip(8, 4, 12, false)
-            .add_strip(0, 6, 4, false)
-            .finish();
-
-        assert_eq!(first_strip_at_or_after(&path.strips, 0), 0);
-        assert_eq!(first_strip_at_or_after(&path.strips, 2), 1);
-        assert_eq!(first_strip_at_or_after(&path.strips, 3), 4);
-        assert_eq!(first_strip_at_or_after(&path.strips, 4), 4);
-        assert_eq!(first_strip_at_or_after(&path.strips, 5), 6);
-        assert_eq!(first_strip_at_or_after(&path.strips, 6), 6);
-        assert_eq!(first_strip_at_or_after(&path.strips, 7), path.strips.len());
-    }
-
-    #[test]
     fn row_iterator_abort_next_line() {
         let path_1 = StripBuilder::new()
             .add_strip(0, 0, 4, false)
@@ -728,22 +723,22 @@ mod tests {
     #[test]
     fn row_iterator_sentinel_fill_gap() {
         let path = StripBuilder::new()
-            .add_strip(0, 0, Tile::WIDTH, false)
+            .add_strip(0, 0, SmallSize::WIDTH, false)
             .finish_with_fill_gap_sentinel();
         let path_ref = path_ref(&path);
 
         let mut idx = 0;
         let mut iter = RowIterator::new(path_ref, &mut idx, 0);
 
-        assert_strip_region(iter.next(), 0, Tile::WIDTH);
-        assert_fill_region(iter.next(), Tile::WIDTH, u16::MAX - Tile::WIDTH);
+        assert_strip_region(iter.next(), 0, SmallSize::WIDTH);
+        assert_fill_region(iter.next(), SmallSize::WIDTH, u16::MAX - SmallSize::WIDTH);
         assert!(iter.next().is_none());
     }
 
     #[test]
     fn intersect_strip_with_sentinel_fill_gap() {
         let path_1 = StripBuilder::new()
-            .add_strip(0, 0, Tile::WIDTH, false)
+            .add_strip(0, 0, SmallSize::WIDTH, false)
             .finish_with_fill_gap_sentinel();
         let path_2 = StripBuilder::new().add_strip(8, 0, 12, false).finish();
         let expected = StripBuilder::new().add_strip(8, 0, 12, false).finish();
@@ -773,12 +768,12 @@ mod tests {
             .finish_with_fill_gap_sentinel();
         let idx = path.alphas.len();
         path.strips
-            .push(Strip::new(0, Tile::HEIGHT, idx as u32, false));
+            .push(Strip::new(0, SmallSize::HEIGHT, idx as u32, false));
         path.alphas
-            .extend([0; Tile::HEIGHT as usize * Tile::WIDTH as usize]);
+            .extend([0; SmallSize::HEIGHT as usize * SmallSize::WIDTH as usize]);
         path.strips.push(Strip::new(
             u16::MAX,
-            Tile::HEIGHT,
+            SmallSize::HEIGHT,
             path.alphas.len() as u32,
             false,
         ));
@@ -793,7 +788,7 @@ mod tests {
 
         let mut iter = RowIterator::new(path_ref, &mut idx, 1);
 
-        assert_strip_region(iter.next(), 0, Tile::WIDTH);
+        assert_strip_region(iter.next(), 0, SmallSize::WIDTH);
         assert!(iter.next().is_none());
     }
 
@@ -887,7 +882,7 @@ mod tests {
             Some(Region::Strip(strip)) => {
                 assert_eq!(strip.start, start);
                 assert_eq!(strip.width, width);
-                assert_eq!(strip.alphas.len(), (width * Tile::HEIGHT) as usize);
+                assert_eq!(strip.alphas.len(), (width * SmallSize::HEIGHT) as usize);
             }
             other => panic!("expected strip region, got {other:?}"),
         }
@@ -921,7 +916,7 @@ mod tests {
                 strip_y,
                 end,
                 fill_gap,
-                &vec![0; (width * Tile::HEIGHT) as usize],
+                &vec![0; (width * SmallSize::HEIGHT) as usize],
             )
         }
 
@@ -934,11 +929,14 @@ mod tests {
             alphas: &[u8],
         ) -> Self {
             let width = end - x;
-            assert_eq!(alphas.len(), (width * Tile::HEIGHT) as usize);
+            assert_eq!(alphas.len(), (width * SmallSize::HEIGHT) as usize);
             let idx = self.storage.alphas.len();
-            self.storage
-                .strips
-                .push(Strip::new(x, strip_y * Tile::HEIGHT, idx as u32, fill_gap));
+            self.storage.strips.push(Strip::new(
+                x,
+                strip_y * SmallSize::HEIGHT,
+                idx as u32,
+                fill_gap,
+            ));
             self.storage.alphas.extend_from_slice(alphas);
 
             self

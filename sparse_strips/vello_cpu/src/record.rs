@@ -451,8 +451,8 @@ fn strip_bbox(strips: &[Strip], viewport_width: u16) -> RectU16 {
         }
 
         let strip_y = strip.strip_y();
-        let row_y = strip_y.saturating_mul(Tile::HEIGHT);
-        let row_y1 = row_y.saturating_add(Tile::HEIGHT);
+        let row_y = strip_y.saturating_mul(Tile::<vello_common::tile::SmallSize>::HEIGHT);
+        let row_y1 = row_y.saturating_add(Tile::<vello_common::tile::SmallSize>::HEIGHT);
         let strip_width = strip.width_to(&next_strip);
         let strip_x1 = strip.x.saturating_add(strip_width);
 
@@ -649,7 +649,7 @@ mod tests {
     fn single_strip_bbox() {
         let strips = [
             Strip::new(8, 4, 0, false),
-            sentinel(4, u32::from(Tile::HEIGHT) * 4),
+            sentinel(4, u32::from(Tile::<vello_common::tile::SmallSize>::HEIGHT) * 4),
         ];
 
         assert_eq!(strip_bbox(&strips, 32), RectU16::new(8, 4, 12, 8));
@@ -659,8 +659,8 @@ mod tests {
     fn strip_with_fill_bbox() {
         let strips = [
             Strip::new(4, 0, 0, false),
-            Strip::new(20, 0, u32::from(Tile::HEIGHT) * 4, true),
-            sentinel(0, u32::from(Tile::HEIGHT) * 8),
+            Strip::new(20, 0, u32::from(Tile::<vello_common::tile::SmallSize>::HEIGHT) * 4, true),
+            sentinel(0, u32::from(Tile::<vello_common::tile::SmallSize>::HEIGHT) * 8),
         ];
 
         assert_eq!(strip_bbox(&strips, 32), RectU16::new(4, 0, 24, 4));
@@ -670,7 +670,7 @@ mod tests {
     fn strip_with_sentinel_fill_gap_bbox_is_clamped_to_viewport() {
         let strips = [
             Strip::new(4, 0, 0, false),
-            fill_gap_sentinel(0, u32::from(Tile::HEIGHT) * 4),
+            fill_gap_sentinel(0, u32::from(Tile::<vello_common::tile::SmallSize>::HEIGHT) * 4),
         ];
 
         assert_eq!(strip_bbox(&strips, 32), RectU16::new(4, 0, 32, 4));
@@ -680,9 +680,9 @@ mod tests {
     fn strips_with_multiple_rows_bbox() {
         let strips = [
             Strip::new(12, 0, 0, false),
-            sentinel(0, u32::from(Tile::HEIGHT) * 4),
-            Strip::new(4, 8, u32::from(Tile::HEIGHT) * 4, false),
-            sentinel(8, u32::from(Tile::HEIGHT) * 8),
+            sentinel(0, u32::from(Tile::<vello_common::tile::SmallSize>::HEIGHT) * 4),
+            Strip::new(4, 8, u32::from(Tile::<vello_common::tile::SmallSize>::HEIGHT) * 4, false),
+            sentinel(8, u32::from(Tile::<vello_common::tile::SmallSize>::HEIGHT) * 8),
         ];
 
         assert_eq!(strip_bbox(&strips, 32), RectU16::new(4, 0, 16, 12));

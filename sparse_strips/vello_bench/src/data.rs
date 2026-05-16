@@ -11,7 +11,7 @@ use vello_common::geometry::RectU16;
 use vello_common::kurbo::{Affine, BezPath, Stroke, StrokeCtx};
 use vello_common::peniko::Fill;
 use vello_common::strip::Strip;
-use vello_common::tile::Tiles;
+use vello_common::tile::{SmallSize, TileSizeCore, Tiles};
 use vello_common::{flatten, strip};
 
 static DATA: OnceLock<Vec<DataItem>> = OnceLock::new();
@@ -88,6 +88,7 @@ impl DataItem {
                 &mut temp_buf,
                 &mut FlattenCtx::default(),
                 RectU16::new(0, 0, self.width, self.height),
+                SmallSize::HEIGHT,
             );
             line_buf.extend(&temp_buf);
         }
@@ -106,6 +107,7 @@ impl DataItem {
                 &mut FlattenCtx::default(),
                 &mut StrokeCtx::default(),
                 RectU16::new(0, 0, self.width, self.height),
+                SmallSize::HEIGHT,
             );
             line_buf.extend(&temp_buf);
         }

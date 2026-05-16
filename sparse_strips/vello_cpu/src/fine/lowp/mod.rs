@@ -326,8 +326,8 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
 
 #[inline(always)]
 fn pack<S: Simd>(simd: S, scratch: &[u8], width: usize, region: &mut Region<'_>) {
-    let block_width = if region.height == Tile::HEIGHT {
-        (width / Tile::WIDTH as usize) * Tile::WIDTH as usize
+    let block_width = if region.height == Tile::<vello_common::tile::SmallSize>::HEIGHT {
+        (width / Tile::<vello_common::tile::SmallSize>::WIDTH as usize) * Tile::<vello_common::tile::SmallSize>::WIDTH as usize
     } else {
         0
     };
@@ -348,7 +348,7 @@ fn pack<S: Simd>(simd: S, scratch: &[u8], width: usize, region: &mut Region<'_>)
 
 #[inline(always)]
 fn pack_block<S: Simd>(simd: S, scratch: &[u8], width: usize, region: &mut Region<'_>) {
-    const CHUNK_LENGTH: usize = Tile::WIDTH as usize * TILE_HEIGHT_COMPONENTS;
+    const CHUNK_LENGTH: usize = Tile::<vello_common::tile::SmallSize>::WIDTH as usize * TILE_HEIGHT_COMPONENTS;
 
     let [row0, row1, row2, row3] = region.areas();
     let row_len = width * COLOR_COMPONENTS;
@@ -365,10 +365,10 @@ fn pack_block<S: Simd>(simd: S, scratch: &[u8], width: usize, region: &mut Regio
         let (loaded_1, loaded_2) = simd.split_u8x32(loaded_lo);
         let (loaded_3, loaded_4) = simd.split_u8x32(loaded_hi);
 
-        let (dest0, rest0) = row0.split_at_mut(Tile::WIDTH as usize * COLOR_COMPONENTS);
-        let (dest1, rest1) = row1.split_at_mut(Tile::WIDTH as usize * COLOR_COMPONENTS);
-        let (dest2, rest2) = row2.split_at_mut(Tile::WIDTH as usize * COLOR_COMPONENTS);
-        let (dest3, rest3) = row3.split_at_mut(Tile::WIDTH as usize * COLOR_COMPONENTS);
+        let (dest0, rest0) = row0.split_at_mut(Tile::<vello_common::tile::SmallSize>::WIDTH as usize * COLOR_COMPONENTS);
+        let (dest1, rest1) = row1.split_at_mut(Tile::<vello_common::tile::SmallSize>::WIDTH as usize * COLOR_COMPONENTS);
+        let (dest2, rest2) = row2.split_at_mut(Tile::<vello_common::tile::SmallSize>::WIDTH as usize * COLOR_COMPONENTS);
+        let (dest3, rest3) = row3.split_at_mut(Tile::<vello_common::tile::SmallSize>::WIDTH as usize * COLOR_COMPONENTS);
 
         loaded_1.store_slice(dest0);
         loaded_2.store_slice(dest1);
@@ -387,7 +387,7 @@ fn pack_tail(scratch: &[u8], x: usize, width: usize, region: &mut Region<'_>) {
     for y in 0..region.height {
         let row = &mut region.row_mut(y)[x * COLOR_COMPONENTS..(x + width) * COLOR_COMPONENTS];
         for (dx, pixel) in row.chunks_exact_mut(COLOR_COMPONENTS).enumerate() {
-            let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * dx + usize::from(y));
+            let idx = COLOR_COMPONENTS * (Tile::<vello_common::tile::SmallSize>::HEIGHT as usize * dx + usize::from(y));
             pixel.copy_from_slice(&scratch[idx..idx + COLOR_COMPONENTS]);
         }
     }
@@ -395,8 +395,8 @@ fn pack_tail(scratch: &[u8], x: usize, width: usize, region: &mut Region<'_>) {
 
 #[inline(always)]
 fn unpack<S: Simd>(simd: S, region: &mut Region<'_>, width: usize, scratch: &mut [u8]) {
-    let block_width = if region.height == Tile::HEIGHT {
-        width / Tile::WIDTH as usize * Tile::WIDTH as usize
+    let block_width = if region.height == Tile::<vello_common::tile::SmallSize>::HEIGHT {
+        width / Tile::<vello_common::tile::SmallSize>::WIDTH as usize * Tile::<vello_common::tile::SmallSize>::WIDTH as usize
     } else {
         0
     };
@@ -431,10 +431,10 @@ fn unpack_block<S: Simd>(simd: S, region: &mut Region<'_>, width: usize, scratch
         // Note: We experimented with using u32 vs. f32 for this, but it seems like for some reason
         // f32 works better on M1, while on M4 they are the same. Probably worth doing more
         // benchmarks on different systems.
-        let (src0, rest0) = row0.split_at(Tile::WIDTH as usize * COLOR_COMPONENTS);
-        let (src1, rest1) = row1.split_at(Tile::WIDTH as usize * COLOR_COMPONENTS);
-        let (src2, rest2) = row2.split_at(Tile::WIDTH as usize * COLOR_COMPONENTS);
-        let (src3, rest3) = row3.split_at(Tile::WIDTH as usize * COLOR_COMPONENTS);
+        let (src0, rest0) = row0.split_at(Tile::<vello_common::tile::SmallSize>::WIDTH as usize * COLOR_COMPONENTS);
+        let (src1, rest1) = row1.split_at(Tile::<vello_common::tile::SmallSize>::WIDTH as usize * COLOR_COMPONENTS);
+        let (src2, rest2) = row2.split_at(Tile::<vello_common::tile::SmallSize>::WIDTH as usize * COLOR_COMPONENTS);
+        let (src3, rest3) = row3.split_at(Tile::<vello_common::tile::SmallSize>::WIDTH as usize * COLOR_COMPONENTS);
 
         let r0 = f32x4::from_bytes(u8x16::from_slice(simd, src0));
         let r1 = f32x4::from_bytes(u8x16::from_slice(simd, src1));
@@ -456,7 +456,7 @@ fn unpack_tail(region: &mut Region<'_>, x: usize, width: usize, scratch: &mut [u
     for y in 0..region.height {
         let row = &region.row_mut(y)[x * COLOR_COMPONENTS..(x + width) * COLOR_COMPONENTS];
         for (dx, pixel) in row.chunks_exact(COLOR_COMPONENTS).enumerate() {
-            let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * dx + usize::from(y));
+            let idx = COLOR_COMPONENTS * (Tile::<vello_common::tile::SmallSize>::HEIGHT as usize * dx + usize::from(y));
             scratch[idx..idx + COLOR_COMPONENTS].copy_from_slice(pixel);
         }
     }
@@ -716,7 +716,7 @@ mod tests {
         pack_fn: impl FnOnce(&mut Region<'_>, &[u8]),
         unpack_fn: impl FnOnce(&mut Region<'_>, &mut [u8]),
     ) {
-        let height = Tile::HEIGHT;
+        let height = Tile::<vello_common::tile::SmallSize>::HEIGHT;
         let scratch_len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
 
         // Just some pseudo-random numbers.
@@ -738,7 +738,7 @@ mod tests {
 
     #[test]
     fn pack_block_unpack_block_roundtrip() {
-        let width = Tile::WIDTH * 2;
+        let width = Tile::<vello_common::tile::SmallSize>::WIDTH * 2;
         dispatch!(Level::try_detect().unwrap_or(Level::baseline()), simd => {
             test_pack_unpack_roundtrip(
                 width,
@@ -754,7 +754,7 @@ mod tests {
 
     #[test]
     fn pack_unpack_roundtrip() {
-        let width = Tile::WIDTH * 2 + 1;
+        let width = Tile::<vello_common::tile::SmallSize>::WIDTH * 2 + 1;
         dispatch!(Level::try_detect().unwrap_or(Level::baseline()), simd => {
             test_pack_unpack_roundtrip(
                 width,

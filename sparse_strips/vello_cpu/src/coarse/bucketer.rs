@@ -184,7 +184,7 @@ impl CommandBucketer {
         let clip_bbox = RectU16::new(0, 0, viewport.width(), viewport.height());
         // Note: `clip_bbox` is already snapped to tile coordinates because `viewport` is, so no
         // need to `div_ceil` here.
-        let num_rows = usize::from(clip_bbox.height() / Tile::HEIGHT);
+        let num_rows = usize::from(clip_bbox.height() / Tile::<vello_common::tile::SmallSize>::HEIGHT);
 
         Self {
             viewport,
@@ -221,7 +221,7 @@ impl CommandBucketer {
         // See comments in `CommandBucketer::reset`.
         viewport = viewport.snap_to_tile_coordinates();
         let clip_bbox = RectU16::new(0, 0, viewport.width(), viewport.height());
-        let num_rows = usize::from(viewport.height() / Tile::HEIGHT);
+        let num_rows = usize::from(viewport.height() / Tile::<vello_common::tile::SmallSize>::HEIGHT);
 
         self.rows.clear();
         self.rows.resize_with(num_rows, RowState::new);
@@ -276,12 +276,12 @@ impl CommandBucketer {
         // they should actually be sampled at (200, 200) instead of (0, 0).
 
         debug_assert_eq!(
-            self.viewport.x0 % Tile::WIDTH,
+            self.viewport.x0 % Tile::<vello_common::tile::SmallSize>::WIDTH,
             0,
             "viewport origin must be tile-width aligned",
         );
         debug_assert_eq!(
-            self.viewport.y0 % Tile::HEIGHT,
+            self.viewport.y0 % Tile::<vello_common::tile::SmallSize>::HEIGHT,
             0,
             "viewport origin must be tile-height aligned",
         );
@@ -377,8 +377,8 @@ impl CommandBucketer {
         // since even areas where we didn't draw anything need to be blended with the destructive
         // blend mode.
         if props.blend_mode.is_destructive() {
-            let row_start = usize::from(bbox.y0 / Tile::HEIGHT);
-            let row_end = usize::from(bbox.y1.div_ceil(Tile::HEIGHT)).min(self.rows.len());
+            let row_start = usize::from(bbox.y0 / Tile::<vello_common::tile::SmallSize>::HEIGHT);
+            let row_end = usize::from(bbox.y1.div_ceil(Tile::<vello_common::tile::SmallSize>::HEIGHT)).min(self.rows.len());
             for row_idx in row_start..row_end {
                 self.ensure_row_layers(row_idx);
             }
@@ -552,8 +552,8 @@ impl CommandBucketer {
             thread_idx: 0,
             origin,
         });
-        let row_start = usize::from(clipped_dest_bbox.y0 / Tile::HEIGHT);
-        let row_end = usize::from(clipped_dest_bbox.y1.div_ceil(Tile::HEIGHT));
+        let row_start = usize::from(clipped_dest_bbox.y0 / Tile::<vello_common::tile::SmallSize>::HEIGHT);
+        let row_end = usize::from(clipped_dest_bbox.y1.div_ceil(Tile::<vello_common::tile::SmallSize>::HEIGHT));
         for row_idx in row_start..row_end {
             self.push_fill(GeneratedFill { row_idx, span }, attrs_idx, None);
         }
@@ -621,12 +621,12 @@ impl CommandBucketer {
         let clip_x1 = clip_bbox.x1.min(self.width());
 
         debug_assert_eq!(
-            clip_x0 % Tile::WIDTH,
+            clip_x0 % Tile::<vello_common::tile::SmallSize>::WIDTH,
             0,
             "clip start must be tile-width aligned",
         );
         debug_assert_eq!(
-            clip_x1 % Tile::WIDTH,
+            clip_x1 % Tile::<vello_common::tile::SmallSize>::WIDTH,
             0,
             "clip end must be tile-width aligned",
         );
@@ -646,7 +646,7 @@ impl CommandBucketer {
         let clip_scene_x0 = origin.0.saturating_add(clip_x0);
         let clip_scene_x1 = origin.0.saturating_add(clip_x1);
 
-        let strip_row = |strip: &Strip| (strip.y - origin.1) / Tile::HEIGHT;
+        let strip_row = |strip: &Strip| (strip.y - origin.1) / Tile::<vello_common::tile::SmallSize>::HEIGHT;
 
         // Clip strips that are outside the viewport horizontally.
         let clip_span = |x0: u16, x1: u16| (x0.max(clip_scene_x0), x1.min(clip_scene_x1));
@@ -663,7 +663,7 @@ impl CommandBucketer {
             }
 
             let strip_y = strip_row(strip);
-            let row_y = strip_y.saturating_mul(Tile::HEIGHT);
+            let row_y = strip_y.saturating_mul(Tile::<vello_common::tile::SmallSize>::HEIGHT);
 
             if row_y < clip_bbox.y0 {
                 continue;
@@ -687,7 +687,7 @@ impl CommandBucketer {
                         row_idx,
                         span: Span::new(clipped_x0 - origin.0, clipped_x1 - clipped_x0),
                         alpha_idx: strip.alpha_idx()
-                            + u32::from(clipped_x0 - x0) * u32::from(Tile::HEIGHT),
+                            + u32::from(clipped_x0 - x0) * u32::from(Tile::<vello_common::tile::SmallSize>::HEIGHT),
                     },
                 );
             }
@@ -877,7 +877,7 @@ mod tests {
             RenderCmd::PaintFill(cmd)
                 if cmd.span.pixel_x() == 4
                     && cmd.span.pixel_width() == 4
-                    && cmd.alpha_idx() == Some(u32::from(4 * Tile::HEIGHT))
+                    && cmd.alpha_idx() == Some(u32::from(4 * Tile::<vello_common::tile::SmallSize>::HEIGHT))
         ));
     }
 
@@ -933,7 +933,7 @@ mod tests {
         // A 32px-wide alpha strip at scene (40, 32) => local (8, 0), fully inside the clip.
         let strips = [
             Strip::new(40, 32, 0, false),
-            Strip::new(72, 32, 32 * u32::from(Tile::HEIGHT), false),
+            Strip::new(72, 32, 32 * u32::from(Tile::<vello_common::tile::SmallSize>::HEIGHT), false),
         ];
         bucketer.generate_fill(&strips, &fill_attrs(Paint::Solid(color(RED))), &[]);
 
@@ -955,7 +955,7 @@ mod tests {
         // Viewport spans scene (0, 32) to (64, 96). Local space is 64x64, the origin at (0, 32).
         let mut bucketer = CommandBucketer::new(RectU16::new(0, 32, 64, 96));
 
-        let alpha = u32::from(Tile::HEIGHT);
+        let alpha = u32::from(Tile::<vello_common::tile::SmallSize>::HEIGHT);
         let strips = [
             // Content: 16px alpha strip at scene (0, 32) => local row 0.
             Strip::new(0, 32, 0, false),

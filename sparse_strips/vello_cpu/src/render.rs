@@ -985,7 +985,7 @@ mod tests {
     fn clip_overflow() {
         let mut ctx = RenderContext::new(100, 100);
 
-        for _ in 0..(usize::from(u16::MAX) + 1).div_ceil(usize::from(Tile::HEIGHT * Tile::WIDTH)) {
+        for _ in 0..(usize::from(u16::MAX) + 1).div_ceil(usize::from(Tile::<vello_common::tile::SmallSize>::HEIGHT * Tile::<vello_common::tile::SmallSize>::WIDTH)) {
             ctx.fill_rect(&Rect::new(0.0, 0.0, 1.0, 1.0));
         }
 

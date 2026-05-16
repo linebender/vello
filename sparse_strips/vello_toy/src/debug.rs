@@ -22,7 +22,7 @@ use vello_common::geometry::RectU16;
 use vello_common::kurbo::{Affine, BezPath, Cap, Join, Stroke, StrokeCtx};
 use vello_common::peniko::Fill;
 use vello_common::strip::Strip;
-use vello_common::tile::{Tile, Tiles};
+use vello_common::tile::{SmallSize, TileSizeCore, Tiles};
 use vello_common::{flatten, strip};
 use vello_cpu::peniko::{BlendMode, Compose, Mix};
 
@@ -51,6 +51,7 @@ fn main() {
                 &mut line_buf,
                 &mut FlattenCtx::default(),
                 RectU16::new(0, 0, args.width, args.height),
+                SmallSize::HEIGHT,
             );
         } else {
             let stroke = Stroke {
@@ -69,6 +70,7 @@ fn main() {
                 &mut FlattenCtx::default(),
                 &mut StrokeCtx::default(),
                 RectU16::new(0, 0, args.width, args.height),
+                SmallSize::HEIGHT,
             );
         }
     }
@@ -202,8 +204,8 @@ fn draw_tile_areas(document: &mut Document, tiles: &Tiles) {
 
     for i in 0..tiles.len() {
         let tile = tiles.get(i);
-        let x = tile.x * Tile::WIDTH;
-        let y = tile.y * Tile::HEIGHT;
+        let x = tile.x * SmallSize::WIDTH;
+        let y = tile.y * SmallSize::HEIGHT;
 
         if seen.contains(&(x, y)) {
             continue;
@@ -214,8 +216,8 @@ fn draw_tile_areas(document: &mut Document, tiles: &Tiles) {
         let rect = Rectangle::new()
             .set("x", x)
             .set("y", y)
-            .set("width", Tile::WIDTH)
-            .set("height", Tile::HEIGHT)
+            .set("width", SmallSize::WIDTH)
+            .set("height", SmallSize::HEIGHT)
             .set("fill", color)
             .set("stroke", color)
             .set("stroke-opacity", 1.0)
@@ -236,19 +238,19 @@ fn draw_strip_areas(document: &mut Document, strips: &[Strip], alphas: &[u8]) {
 
         let end = strips
             .get(i + 1)
-            .map(|s| s.alpha_idx() / u32::from(Tile::HEIGHT))
+            .map(|s| s.alpha_idx() / u32::from(SmallSize::HEIGHT))
             .unwrap_or(alphas.len() as u32);
 
-        let width = end - strip.alpha_idx() / u32::from(Tile::HEIGHT);
+        let width = end - strip.alpha_idx() / u32::from(SmallSize::HEIGHT);
 
         // TODO: Account for even-odd?
         let color = if strip.fill_gap() { "red" } else { "limegreen" };
 
         let rect = Rectangle::new()
             .set("x", x)
-            .set("y", y * Tile::HEIGHT)
+            .set("y", y * SmallSize::HEIGHT)
             .set("width", width)
-            .set("height", Tile::HEIGHT)
+            .set("height", SmallSize::HEIGHT)
             .set("stroke", color)
             .set("fill", color)
             .set("fill-opacity", 0.4)
@@ -265,18 +267,18 @@ fn draw_strips(document: &mut Document, strips: &[Strip], alphas: &[u8]) {
 
         let end = strips
             .get(s + 1)
-            .map(|st| st.alpha_idx() / u32::from(Tile::HEIGHT))
+            .map(|st| st.alpha_idx() / u32::from(SmallSize::HEIGHT))
             .unwrap_or(alphas.len() as u32);
 
-        let width = u16::try_from(end - strip.alpha_idx() / u32::from(Tile::HEIGHT)).unwrap();
+        let width = u16::try_from(end - strip.alpha_idx() / u32::from(SmallSize::HEIGHT)).unwrap();
 
         // TODO: Account for even-odd?
         let color = if strip.fill_gap() { "red" } else { "limegreen" };
 
         for x in 0..width {
-            for y in 0..Tile::HEIGHT {
+            for y in 0..SmallSize::HEIGHT {
                 let alpha = alphas[strip.alpha_idx() as usize
-                    + usize::from(x) * usize::from(Tile::HEIGHT)
+                    + usize::from(x) * usize::from(SmallSize::HEIGHT)
                     + usize::from(y)];
                 let rect = Rectangle::new()
                     .set("x", strip.x + x)
@@ -299,10 +301,13 @@ fn draw_wide_tiles(document: &mut Document, wide_tiles: &[WideTile], alphas: &[u
             match cmd {
                 Cmd::Fill(f) => {
                     for x in 0..f.width {
-                        for y in 0..Tile::HEIGHT {
+                        for y in 0..SmallSize::HEIGHT {
                             let rect = Rectangle::new()
                                 .set("x", f.x + x)
-                                .set("y", tile_idx * usize::from(Tile::HEIGHT) + usize::from(y))
+                                .set(
+                                    "y",
+                                    tile_idx * usize::from(SmallSize::HEIGHT) + usize::from(y),
+                                )
                                 .set("width", 1)
                                 .set("height", 1)
                                 .set("fill", "blue");
@@ -313,16 +318,19 @@ fn draw_wide_tiles(document: &mut Document, wide_tiles: &[WideTile], alphas: &[u
                 }
                 Cmd::AlphaFill(s) => {
                     for x in 0..s.width {
-                        for y in 0..Tile::HEIGHT {
+                        for y in 0..SmallSize::HEIGHT {
                             // Since we only draw one path, we can use alpha offset
                             // directly, since the absolute offset is 0.
                             let alpha = alphas[s.alpha_offset as usize
-                                + usize::from(x) * usize::from(Tile::HEIGHT)
+                                + usize::from(x) * usize::from(SmallSize::HEIGHT)
                                 + usize::from(y)];
 
                             let rect = Rectangle::new()
                                 .set("x", s.x + x)
-                                .set("y", tile_idx * usize::from(Tile::HEIGHT) + usize::from(y))
+                                .set(
+                                    "y",
+                                    tile_idx * usize::from(SmallSize::HEIGHT) + usize::from(y),
+                                )
                                 .set("width", 1)
                                 .set("height", 1)
                                 .set("fill", "yellow")

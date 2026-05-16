@@ -26,10 +26,11 @@
 
 //! GPU filter types and conversion utilities.
 
+use crate::Wide;
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use hashbrown::HashMap;
-use vello_common::coarse::{WideTile, WideTilesBbox};
+use vello_common::coarse::WideTilesBbox;
 use vello_common::encode::{EncodedImage, EncodedPaint};
 use vello_common::filter::PreparedFilter;
 use vello_common::filter::drop_shadow::DropShadow;
@@ -41,7 +42,6 @@ use vello_common::kurbo::{Affine, Vec2};
 use vello_common::paint::{ImageId, ImageSource};
 use vello_common::peniko::{ImageQuality, ImageSampler};
 use vello_common::render_graph::{LayerId, RenderGraph, RenderNodeKind};
-use vello_common::tile::Tile;
 
 use crate::render::common::IMAGE_PADDING;
 use crate::util::{IntOffset, IntRect, IntSize};
@@ -63,6 +63,11 @@ const FILTER_ATLAS_PADDING: u16 = MAX_KERNEL_SIZE as u16 / 2;
 const BYTES_PER_TEXEL: usize = 16;
 const FILTER_SIZE_BYTES: usize = 48;
 const FILTER_SIZE_U32: usize = FILTER_SIZE_BYTES / 4;
+
+#[inline(always)]
+fn bbox_height_px(bbox: &WideTilesBbox) -> u16 {
+    bbox.height_tiles() * Wide::WIDE_TILE_HEIGHT
+}
 
 const _: () = assert!(
     size_of::<GpuFilterData>() == FILTER_SIZE_BYTES,
@@ -768,7 +773,7 @@ impl FilterContext {
             } = &node.kind
             {
                 let width = wtile_bbox.width_px() as u32;
-                let height = wtile_bbox.height_px() as u32;
+                let height = bbox_height_px(wtile_bbox) as u32;
 
                 let instantiated = PreparedFilter::new(filter, transform);
                 let gpu_filter = GpuFilterData::from(&instantiated);
@@ -828,8 +833,8 @@ impl FilterContext {
                     // Since filter layers are always shifted to start at (0, 0) relative to
                     // their bounding box, we need to "unshift" them when sampling.
                     transform: Affine::translate((
-                        -(wtile_bbox.x0() as f64) * WideTile::WIDTH as f64,
-                        -(wtile_bbox.y0() as f64) * Tile::HEIGHT as f64,
+                        -(wtile_bbox.x0() as f64) * Wide::WIDE_TILE_WIDTH as f64,
+                        -(wtile_bbox.y0() as f64) * Wide::WIDE_TILE_HEIGHT as f64,
                     )),
                     x_advance: Vec2::new(1.0, 0.0),
                     y_advance: Vec2::new(0.0, 1.0),
@@ -980,7 +985,7 @@ impl FilterContext {
 
         state.sizer.reset(
             filter_textures.bbox.width_px(),
-            filter_textures.bbox.height_px(),
+            bbox_height_px(&filter_textures.bbox),
         );
 
         let mut builder = BlurPassScheduler {
@@ -1010,7 +1015,7 @@ impl FilterContext {
             filter_data_offset,
             original_size: IntSize([
                 filter_textures.bbox.width_px() as u32,
-                filter_textures.bbox.height_px() as u32,
+                bbox_height_px(&filter_textures.bbox) as u32,
             ]),
             toggle: 0,
             first: true,

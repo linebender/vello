@@ -15,7 +15,7 @@ pub struct Region<'a> {
     pub(crate) row_idx: usize,
     width: u16,
     pub(crate) height: u16,
-    areas: [&'a mut [u8]; Tile::HEIGHT as usize],
+    areas: [&'a mut [u8]; Tile::<vello_common::tile::SmallSize>::HEIGHT as usize],
 }
 
 impl<'a> Region<'a> {
@@ -30,7 +30,7 @@ impl<'a> Region<'a> {
         row_idx: usize,
     ) -> Self {
         let width = rect.width();
-        let height = rect.height().min(Tile::HEIGHT);
+        let height = rect.height().min(Tile::<vello_common::tile::SmallSize>::HEIGHT);
         let row_stride = usize::from(pixmap.width()) * COLOR_COMPONENTS;
         let start_offset = usize::from(rect.y0) * row_stride;
         let x_offset = usize::from(rect.x0) * COLOR_COMPONENTS;
@@ -57,7 +57,7 @@ impl<'a> Region<'a> {
     pub(crate) fn sub_span(&mut self, x: u16, width: u16) -> Region<'_> {
         let x_offset = usize::from(x) * COLOR_COMPONENTS;
         let row_width_bytes = usize::from(width) * COLOR_COMPONENTS;
-        let mut areas: [&mut [u8]; Tile::HEIGHT as usize] = [&mut [], &mut [], &mut [], &mut []];
+        let mut areas: [&mut [u8]; Tile::<vello_common::tile::SmallSize>::HEIGHT as usize] = [&mut [], &mut [], &mut [], &mut []];
 
         for (source, area) in self
             .areas
@@ -78,7 +78,7 @@ impl<'a> Region<'a> {
         }
     }
 
-    pub(crate) fn areas(&mut self) -> &mut [&'a mut [u8]; Tile::HEIGHT as usize] {
+    pub(crate) fn areas(&mut self) -> &mut [&'a mut [u8]; Tile::<vello_common::tile::SmallSize>::HEIGHT as usize] {
         &mut self.areas
     }
 
@@ -91,7 +91,7 @@ impl<'a> Region<'a> {
         mut rows: &'a mut [u8],
     ) -> Self {
         let row_width_bytes = usize::from(width) * COLOR_COMPONENTS;
-        let mut areas: [&mut [u8]; Tile::HEIGHT as usize] = [&mut [], &mut [], &mut [], &mut []];
+        let mut areas: [&mut [u8]; Tile::<vello_common::tile::SmallSize>::HEIGHT as usize] = [&mut [], &mut [], &mut [], &mut []];
 
         for area in areas.iter_mut().take(usize::from(height)) {
             let (row, rest) = rows.split_at_mut(row_stride);
@@ -134,7 +134,7 @@ impl<'a> Regions<'a> {
             };
         }
 
-        let row_count = row_count.min(usize::from(height).div_ceil(Tile::HEIGHT as usize));
+        let row_count = row_count.min(usize::from(height).div_ceil(Tile::<vello_common::tile::SmallSize>::HEIGHT as usize));
         let stride = usize::from(target.width()) * COLOR_COMPONENTS;
         let x_offset = usize::from(dst_x) * COLOR_COMPONENTS;
         let render_bytes = usize::from(height) * stride;
@@ -143,8 +143,8 @@ impl<'a> Regions<'a> {
         let mut regions = Vec::with_capacity(row_count);
 
         for row_idx in 0..row_count {
-            let row_y = row_idx as u16 * Tile::HEIGHT;
-            let row_height = (height - row_y).min(Tile::HEIGHT);
+            let row_y = row_idx as u16 * Tile::<vello_common::tile::SmallSize>::HEIGHT;
+            let row_height = (height - row_y).min(Tile::<vello_common::tile::SmallSize>::HEIGHT);
             let band_len = usize::from(row_height) * stride;
             let (buffer, rest) = remaining.split_at_mut(band_len);
             regions.push(Region::from_rows(

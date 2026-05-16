@@ -17,9 +17,9 @@
 //! save 50% pixel work.
 //!
 //! Therefore, the CPU-based depth buffer acts at a much coarser granularity. Vertically, it comes
-//! very natural to simply decide that one depth buffer entry covers a range of [`Tile::HEIGHT`]
+//! very natural to simply decide that one depth buffer entry covers a range of [`Tile::<vello_common::tile::SmallSize>::HEIGHT`]
 //! pixels, since all commands are executed at this height anyway. Choosing a width is much trickier:
-//! Similarly, the width should be a multiple of [`Tile::WIDTH`], but using this as the granularity
+//! Similarly, the width should be a multiple of [`Tile::<vello_common::tile::SmallSize>::WIDTH`], but using this as the granularity
 //! is still to narrow. After some empirical measurements, it was decided that a width of
 //! [`DEPTH_BUCKET_WIDTH`] overall represents a good compromise across different paint types.
 //!
@@ -41,9 +41,9 @@ use core::ops::Range;
 use vello_common::tile::Tile;
 
 pub(crate) const DEPTH_BUCKET_WIDTH: u16 = 128;
-const DEPTH_BUCKET_TILE_WIDTH: u16 = DEPTH_BUCKET_WIDTH / Tile::WIDTH;
+const DEPTH_BUCKET_TILE_WIDTH: u16 = DEPTH_BUCKET_WIDTH / Tile::<vello_common::tile::SmallSize>::WIDTH;
 const _: () = assert!(
-    DEPTH_BUCKET_WIDTH.is_multiple_of(Tile::WIDTH),
+    DEPTH_BUCKET_WIDTH.is_multiple_of(Tile::<vello_common::tile::SmallSize>::WIDTH),
     "depth bucket width must be a multiple of tile width"
 );
 
@@ -79,7 +79,7 @@ pub(crate) enum DepthSegment {
 /// opaque middle span.
 pub(crate) fn split_opaque_span(span: Span, mut segment: impl FnMut(DepthSegment)) {
     debug_assert!(
-        span.pixel_x().is_multiple_of(Tile::WIDTH) && span.pixel_end().is_multiple_of(Tile::WIDTH),
+        span.pixel_x().is_multiple_of(Tile::<vello_common::tile::SmallSize>::WIDTH) && span.pixel_end().is_multiple_of(Tile::<vello_common::tile::SmallSize>::WIDTH),
         "`split_opaque_span` requires a tile-aligned span"
     );
 

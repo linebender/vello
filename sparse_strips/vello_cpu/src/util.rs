@@ -190,19 +190,19 @@ impl Span {
     /// Creates a span from tile coordinates.
     pub fn new_tile(tile_x: u16, tile_width: u16) -> Self {
         Self {
-            x: tile_x * Tile::WIDTH,
-            width: tile_width * Tile::WIDTH,
+            x: tile_x * Tile::<vello_common::tile::SmallSize>::WIDTH,
+            width: tile_width * Tile::<vello_common::tile::SmallSize>::WIDTH,
         }
     }
 
     /// Returns the horizontal start position in tile coordinates.
     pub fn tile_x(self) -> u16 {
-        self.x / Tile::WIDTH
+        self.x / Tile::<vello_common::tile::SmallSize>::WIDTH
     }
 
     /// Returns the exclusive horizontal end position in tile coordinates.
     pub fn tile_end(self) -> u16 {
-        self.pixel_end().div_ceil(Tile::WIDTH)
+        self.pixel_end().div_ceil(Tile::<vello_common::tile::SmallSize>::WIDTH)
     }
 
     /// Extends this span to include another span.

@@ -114,7 +114,7 @@ mod transform {
     use vello_common::kurbo::{Affine, Point};
     use vello_common::peniko;
     use vello_common::peniko::ImageQuality;
-    use vello_common::tile::Tile;
+    use vello_common::tile::{SmallSize, TileSizeCore};
     use vello_cpu::fine::{Fine, FineKernel};
     use vello_dev_macros::vello_bench;
 
@@ -139,7 +139,7 @@ mod transform {
             im,
             Affine::rotate_about(
                 1.0,
-                Point::new(WideTile::WIDTH as f64 / 2.0, Tile::HEIGHT as f64 / 2.0),
+                Point::new(WideTile::WIDTH as f64 / 2.0, SmallSize::HEIGHT as f64 / 2.0),
             ),
         );
     }

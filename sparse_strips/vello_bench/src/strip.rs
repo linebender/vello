@@ -8,7 +8,7 @@ use vello_common::flatten::Line;
 use vello_common::kurbo::{Affine, Rect, Shape};
 use vello_common::peniko::Fill;
 use vello_common::strip_generator::{StripGenerator, StripStorage};
-use vello_common::tile::Tiles;
+use vello_common::tile::{SmallSize, Tiles};
 
 pub fn shift_lines_50_percent(lines: &[Line]) -> Vec<Line> {
     if lines.is_empty() {
@@ -87,7 +87,7 @@ pub fn render_strips_cull(c: &mut Criterion) {
 
         let shifted_lines = shift_lines_50_percent(&item.lines());
 
-        let mut tiler = Tiles::new(simd_level, item.height);
+        let mut tiler: Tiles<SmallSize> = Tiles::new(simd_level, item.height);
         tiler.make_tiles_analytic_aa(simd_level, &shifted_lines, item.width, item.height);
         tiler.sort_tiles();
 
@@ -126,7 +126,7 @@ pub fn render_rect(c: &mut Criterion) {
 
     // Benchmark: generate_filled_path (path-based approach)
     g.bench_function("14x14_via_path", |b| {
-        let mut generator = StripGenerator::new(width, height, level);
+        let mut generator: StripGenerator<SmallSize> = StripGenerator::new(width, height, level);
         let mut storage = StripStorage::default();
 
         b.iter(|| {
@@ -146,7 +146,7 @@ pub fn render_rect(c: &mut Criterion) {
 
     // Benchmark: generate_rect_strips_with_clip (optimized rect approach)
     g.bench_function("14x14_via_rect", |b| {
-        let mut generator = StripGenerator::new(width, height, level);
+        let mut generator: StripGenerator<SmallSize> = StripGenerator::new(width, height, level);
         let mut storage = StripStorage::default();
 
         b.iter(|| {

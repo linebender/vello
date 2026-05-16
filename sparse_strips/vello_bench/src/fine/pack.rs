@@ -12,7 +12,7 @@ use vello_cpu::region::Region;
 use vello_dev_macros::vello_bench;
 
 // 256 was the original width of a wide tile, hence we are keeping it for consistency.
-const TILE_BUFFER_SIZE: usize = 256 * Tile::HEIGHT as usize * 4;
+const TILE_BUFFER_SIZE: usize = 256 * Tile::<vello_common::tile::SmallSize>::HEIGHT as usize * 4;
 
 pub fn pack(c: &mut Criterion) {
     pack_block(c);
@@ -24,10 +24,10 @@ pub fn pack_block<S: Simd, T: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fin
     let mut buf = vec![0; TILE_BUFFER_SIZE];
 
     b.iter(|| {
-        let mut pixmap = PixmapMut::new(WideTile::WIDTH, Tile::HEIGHT, &mut buf).unwrap();
+        let mut pixmap = PixmapMut::new(WideTile::WIDTH, Tile::<vello_common::tile::SmallSize>::HEIGHT, &mut buf).unwrap();
         let mut region = Region::new(
             &mut pixmap,
-            RectU16::new(0, 0, WideTile::WIDTH, Tile::HEIGHT),
+            RectU16::new(0, 0, WideTile::WIDTH, Tile::<vello_common::tile::SmallSize>::HEIGHT),
         );
         fine.pack(&mut region);
 
@@ -40,10 +40,10 @@ pub fn unpack_block<S: Simd, T: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut F
     let mut buf = vec![0; TILE_BUFFER_SIZE];
 
     b.iter(|| {
-        let mut pixmap = PixmapMut::new(WideTile::WIDTH, Tile::HEIGHT, &mut buf).unwrap();
+        let mut pixmap = PixmapMut::new(WideTile::WIDTH, Tile::<vello_common::tile::SmallSize>::HEIGHT, &mut buf).unwrap();
         let mut region = Region::new(
             &mut pixmap,
-            RectU16::new(0, 0, WideTile::WIDTH, Tile::HEIGHT),
+            RectU16::new(0, 0, WideTile::WIDTH, Tile::<vello_common::tile::SmallSize>::HEIGHT),
         );
         fine.unpack(0, &mut region);
 

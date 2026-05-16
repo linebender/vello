@@ -274,7 +274,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
             let row = &mut region.row_mut(y)[..width * COLOR_COMPONENTS];
             // TODO: SIMDify
             for (dx, pixel) in row.chunks_exact_mut(COLOR_COMPONENTS).enumerate() {
-                let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * dx + usize::from(y));
+                let idx = COLOR_COMPONENTS * (Tile::<vello_common::tile::SmallSize>::HEIGHT as usize * dx + usize::from(y));
                 let src = &scratch[idx..idx + COLOR_COMPONENTS];
                 pixel[0] = (src[0] * 255.0 + 0.5) as u8;
                 pixel[1] = (src[1] * 255.0 + 0.5) as u8;
@@ -289,7 +289,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
             let row = &region.row_mut(y)[..width * COLOR_COMPONENTS];
             // TODO: SIMDify + multiply by 1.0/255.0 instead.
             for (dx, pixel) in row.chunks_exact(COLOR_COMPONENTS).enumerate() {
-                let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * dx + usize::from(y));
+                let idx = COLOR_COMPONENTS * (Tile::<vello_common::tile::SmallSize>::HEIGHT as usize * dx + usize::from(y));
                 scratch[idx] = pixel[0] as f32 / 255.0;
                 scratch[idx + 1] = pixel[1] as f32 / 255.0;
                 scratch[idx + 2] = pixel[2] as f32 / 255.0;

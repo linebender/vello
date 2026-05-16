@@ -25,7 +25,7 @@ pub fn strip(c: &mut Criterion) {
 #[vello_bench]
 pub fn solid_single<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>) {
     let paint = Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE));
-    let width = Tile::WIDTH;
+    let width = Tile::<vello_common::tile::SmallSize>::WIDTH;
 
     strip_single(&paint, &[], width, b, fine);
 }
@@ -72,7 +72,7 @@ fn strip_single<S: Simd, N: FineKernel<S>>(
         origin: (0, 0),
     };
 
-    for _ in 0..WideTile::WIDTH * Tile::HEIGHT {
+    for _ in 0..WideTile::WIDTH * Tile::<vello_common::tile::SmallSize>::HEIGHT {
         alphas.push(rng.random());
     }
 

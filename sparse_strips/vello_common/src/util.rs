@@ -6,7 +6,7 @@
 use crate::geometry::RectU16;
 use crate::kurbo::PathEl;
 use crate::math::FloatExt;
-use crate::tile::Tile;
+use crate::tile::{SmallSize, Tile};
 use alloc::vec::Vec;
 use core::ops::{Index, IndexMut};
 use fearless_simd::{
@@ -57,6 +57,26 @@ impl<S: Simd> Div255Ext for u16x16<S> {
         let p1 = Self::splat(self.simd, 255);
         let p2 = self + p1;
         p2 >> 8
+    }
+}
+
+/// Multiply packed alpha values using normalized integer multiplication.
+pub trait NormalizedMulExt {
+    /// Multiply alpha values.
+    fn normalized_mul(self, rhs: Self) -> Self;
+}
+
+impl<S: Simd> NormalizedMulExt for u8x32<S> {
+    #[inline(always)]
+    fn normalized_mul(self, rhs: Self) -> Self {
+        self.simd.narrow_u16x32(normalized_mul_u8x32(self, rhs))
+    }
+}
+
+impl<S: Simd> NormalizedMulExt for u8x16<S> {
+    #[inline(always)]
+    fn normalized_mul(self, rhs: Self) -> Self {
+        self.simd.narrow_u16x16(normalized_mul_u8x16(self, rhs))
     }
 }
 
@@ -140,10 +160,10 @@ impl RectExt for Rect {
     #[inline]
     fn snap_to_tile_coordinates(self) -> Self {
         Self::new(
-            snap_down(self.x0, Tile::WIDTH),
-            snap_down(self.y0, Tile::HEIGHT),
-            snap_up(self.x1, Tile::WIDTH),
-            snap_up(self.y1, Tile::HEIGHT),
+            snap_down(self.x0, Tile::<SmallSize>::WIDTH),
+            snap_down(self.y0, Tile::<SmallSize>::HEIGHT),
+            snap_up(self.x1, Tile::<SmallSize>::WIDTH),
+            snap_up(self.y1, Tile::<SmallSize>::HEIGHT),
         )
     }
 }
@@ -152,13 +172,13 @@ impl RectExt for RectU16 {
     #[inline]
     fn snap_to_tile_coordinates(self) -> Self {
         Self::new(
-            (self.x0 / Tile::WIDTH) * Tile::WIDTH,
-            (self.y0 / Tile::HEIGHT) * Tile::HEIGHT,
+            (self.x0 / Tile::<SmallSize>::WIDTH) * Tile::<SmallSize>::WIDTH,
+            (self.y0 / Tile::<SmallSize>::HEIGHT) * Tile::<SmallSize>::HEIGHT,
             self.x1
-                .checked_next_multiple_of(Tile::WIDTH)
+                .checked_next_multiple_of(Tile::<SmallSize>::WIDTH)
                 .unwrap_or(u16::MAX),
             self.y1
-                .checked_next_multiple_of(Tile::HEIGHT)
+                .checked_next_multiple_of(Tile::<SmallSize>::HEIGHT)
                 .unwrap_or(u16::MAX),
         )
     }
