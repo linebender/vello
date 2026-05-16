@@ -205,7 +205,7 @@ impl CulledWindings {
 /// the compilation target.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-pub struct Tile {
+pub struct Tile<const WIDTH: usize = 4, const HEIGHT: usize = 4> {
     // The field ordering is important.
     //
     // The given ordering (variant over little and big endian compilation targets), ensures that
@@ -246,13 +246,23 @@ pub struct Tile {
     pub y: u16,
 }
 
-impl Tile {
+/// A 4x4 tile.
+pub type SmallTile = Tile<4, 4>;
+/// An 8x8 tile.
+pub type MediumTile = Tile<8, 8>;
+/// A 16x16 tile.
+pub type LargeTile = Tile<16, 16>;
+
+// TODO: Remove once we've made tiling generic over tile size.
+impl Tile<4, 4> {
     /// The width of a tile in pixels.
     pub const WIDTH: u16 = 4;
 
     /// The height of a tile in pixels.
     pub const HEIGHT: u16 = 4;
+}
 
+impl<const WIDTH: usize, const HEIGHT: usize> Tile<WIDTH, HEIGHT> {
     /// A special tile used to signal the end of a tile stream during rendering.
     pub const SENTINEL: Self = Self::new(u16::MAX, u16::MAX, 0, 0);
 
@@ -265,8 +275,8 @@ impl Tile {
         Self::new(
             // Make sure that x and y stay in range when multiplying
             // with the tile width and height during strips generation.
-            x.min(u16::MAX / Self::WIDTH),
-            y.min(u16::MAX / Self::HEIGHT),
+            x.min(u16::MAX / WIDTH as u16),
+            y.min(u16::MAX / HEIGHT as u16),
             line_idx,
             intersection_mask,
         )
@@ -385,28 +395,28 @@ impl Tile {
     }
 }
 
-impl PartialEq for Tile {
+impl<const WIDTH: usize, const HEIGHT: usize> PartialEq for Tile<WIDTH, HEIGHT> {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
         self.to_bits() == other.to_bits()
     }
 }
 
-impl Ord for Tile {
+impl<const WIDTH: usize, const HEIGHT: usize> Ord for Tile<WIDTH, HEIGHT> {
     #[inline(always)]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.to_bits().cmp(&other.to_bits())
     }
 }
 
-impl PartialOrd for Tile {
+impl<const WIDTH: usize, const HEIGHT: usize> PartialOrd for Tile<WIDTH, HEIGHT> {
     #[inline(always)]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Eq for Tile {}
+impl<const WIDTH: usize, const HEIGHT: usize> Eq for Tile<WIDTH, HEIGHT> {}
 
 /// Handles the tiling of paths.
 #[derive(Clone, Debug)]

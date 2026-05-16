@@ -45,6 +45,8 @@
 
 extern crate alloc;
 
+pub(crate) type Tile = vello_common::tile::SmallTile;
+
 pub(crate) mod filter;
 mod gradient_cache;
 mod render;
@@ -100,6 +102,6 @@ pub enum RenderError {
 }
 
 #[cfg(test)]
-const _: () = if vello_common::tile::Tile::HEIGHT != 4 {
+const _: () = if Tile::HEIGHT != 4 {
     panic!("`vello_hybrid` shaders currently require `Tile::HEIGHT` to be `4`");
 };
