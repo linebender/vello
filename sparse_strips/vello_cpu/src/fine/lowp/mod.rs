@@ -8,14 +8,15 @@
 //! performance on many architectures compared to floating-point operations, while
 //! maintaining sufficient precision for most rendering tasks.
 
+pub(crate) mod blend;
 mod compose;
 mod gradient;
 mod image;
 
 use crate::filter::filter_lowp;
+use crate::fine::FineKernel;
 use crate::fine::lowp::image::{BilinearImagePainter, PlainBilinearImagePainter};
 use crate::fine::{COLOR_COMPONENTS, Painter, SCRATCH_BUF_SIZE, Splat4thExt};
-use crate::fine::{FineKernel, highp, u8_to_f32};
 use crate::layer_manager::LayerManager;
 use crate::peniko::BlendMode;
 use crate::region::Region;
@@ -32,7 +33,7 @@ use vello_common::mask::Mask;
 use vello_common::paint::{PremulColor, Tint, TintMode};
 use vello_common::pixmap::Pixmap;
 use vello_common::tile::Tile;
-use vello_common::util::{Div255Ext, f32_to_u8};
+use vello_common::util::Div255Ext;
 
 /// The kernel for doing rendering using u8/u16.
 #[derive(Clone, Copy, Debug)]
@@ -350,8 +351,8 @@ mod fill {
     //! using only the source alpha channel for compositing.
 
     use crate::fine::Splat4thExt;
+    use crate::fine::lowp::blend;
     use crate::fine::lowp::compose::ComposeExt;
-    use crate::fine::lowp::mix;
     use crate::peniko::{BlendMode, Mix};
     use vello_common::fearless_simd::*;
     use vello_common::util::normalized_mul_u8x32;
@@ -372,7 +373,7 @@ mod fill {
                     let src_v = if default_mix {
                         next_src
                     } else {
-                        mix(next_src, bg_v, blend_mode)
+                        blend::mix(next_src, bg_v, blend_mode)
                     };
                     let res = blend_mode.compose(simd, src_v, bg_v, None);
                     res.store_slice(next_dest);
@@ -449,7 +450,7 @@ mod alpha_fill {
 
     use crate::fine::Splat4thExt;
     use crate::fine::lowp::compose::ComposeExt;
-    use crate::fine::lowp::{extract_masks, mix};
+    use crate::fine::lowp::{blend, extract_masks};
     use crate::peniko::{BlendMode, Mix};
     use vello_common::fearless_simd::*;
     use vello_common::util::{Div255Ext, normalized_mul_u8x32};
@@ -474,7 +475,7 @@ mod alpha_fill {
                     let src_c = if default_mix {
                         next_src
                     } else {
-                        mix(next_src, bg_v, blend_mode)
+                        blend::mix(next_src, bg_v, blend_mode)
                     };
                     let masks = extract_masks(simd, &next_mask);
                     let res = blend_mode.compose(simd, src_c, bg_v, Some(masks));
@@ -563,38 +564,6 @@ mod alpha_fill {
             },
         );
     }
-}
-
-/// Applies blend mode mixing by converting to f32, mixing, then converting back to u8.
-///
-/// TODO: Add a proper lowp mix pipeline that operates entirely in integer space
-/// for better performance (currently converts through f32 which is slower).
-fn mix<S: Simd>(src_c: u8x32<S>, bg_c: u8x32<S>, blend_mode: BlendMode) -> u8x32<S> {
-    let to_f32 = |val: u8x32<S>| {
-        let (a, b) = src_c.simd.split_u8x32(val);
-        let mut a = u8_to_f32(a);
-        let mut b = u8_to_f32(b);
-        a *= f32x16::splat(src_c.simd, 1.0 / 255.0);
-        b *= f32x16::splat(src_c.simd, 1.0 / 255.0);
-        (a, b)
-    };
-
-    let to_u8 = |val1: f32x16<S>, val2: f32x16<S>| {
-        let val1 =
-            f32_to_u8(f32x16::splat(val1.simd, 255.0).mul_add(val1, f32x16::splat(val1.simd, 0.5)));
-        let val2 =
-            f32_to_u8(f32x16::splat(val2.simd, 255.0).mul_add(val2, f32x16::splat(val2.simd, 0.5)));
-
-        val1.simd.combine_u8x16(val1, val2)
-    };
-
-    let (mut src_1, mut src_2) = to_f32(src_c);
-    let (bg_1, bg_2) = to_f32(bg_c);
-
-    src_1 = highp::blend::mix(src_1, bg_1, blend_mode);
-    src_2 = highp::blend::mix(src_2, bg_2, blend_mode);
-
-    to_u8(src_1, src_2)
 }
 
 /// Expands 8 mask bytes into a 32-byte SIMD vector where each pixel's 4 components
