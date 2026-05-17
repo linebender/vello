@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use criterion::Criterion;
+use vello_common::color::palette::css::{BLACK, BLUE, GREEN, RED, WHITE};
 use vello_common::kurbo::{Affine, Rect};
 use vello_common::paint::{Image, ImageSource};
 use vello_common::peniko::ImageSampler;
@@ -22,6 +23,44 @@ pub fn images(c: &mut Criterion) {
 
     const VIEWPORT_WIDTH: u16 = 1280;
     const VIEWPORT_HEIGHT: u16 = 960;
+
+    g.bench_function("solid_rows", |b| {
+        let mut renderer = RenderContext::new(VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
+        let mut resources = Resources::default();
+        let mut pixmap = Pixmap::new(VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
+
+        b.iter(|| {
+            renderer.reset();
+
+            renderer.set_paint(WHITE);
+            renderer.fill_rect(&Rect::new(
+                0.0,
+                0.0,
+                f64::from(VIEWPORT_WIDTH),
+                f64::from(VIEWPORT_HEIGHT),
+            ));
+
+            for y in (0..VIEWPORT_HEIGHT).step_by(24) {
+                let color = match y % 96 {
+                    0 => RED,
+                    24 => GREEN,
+                    48 => BLUE,
+                    _ => BLACK,
+                };
+                renderer.set_paint(color);
+                renderer.fill_rect(&Rect::new(
+                    0.0,
+                    f64::from(y),
+                    f64::from(VIEWPORT_WIDTH),
+                    f64::from((y + 12).min(VIEWPORT_HEIGHT)),
+                ));
+            }
+
+            renderer.flush();
+            renderer.render_to_pixmap(&mut resources, &mut pixmap);
+            std::hint::black_box(&pixmap);
+        });
+    });
 
     let ImageSource::Pixmap(ref image_pixmap) = flower_image else {
         panic!("Expected Pixmap");

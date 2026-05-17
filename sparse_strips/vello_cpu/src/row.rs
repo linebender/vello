@@ -8,6 +8,8 @@ use crate::fine::U8Kernel;
 use crate::fine::{COLOR_COMPONENTS, FineKernel, Numeric, TILE_HEIGHT_COMPONENTS};
 use alloc::vec;
 use alloc::vec::Vec;
+#[cfg(feature = "u8_pipeline")]
+use bytemuck::cast_slice;
 use core::marker::PhantomData;
 use vello_common::color::palette::css::TRANSPARENT;
 use vello_common::fearless_simd::*;
@@ -227,11 +229,20 @@ impl CommandBucketer {
 pub(crate) trait RowRenderKernel<S: Simd>: FineKernel<S> {
     fn fill_solid(simd: S, dest: &mut [Self::Numeric], color: PremulColor, alphas: Option<&[u8]>);
 
-    fn pack_row(
+    fn pack_prefix(
+        simd: S,
         scratch: &[Self::Numeric],
-        scratch_width: usize,
+        width: usize,
+        out_width: usize,
+        out: &mut [u8],
+    );
+
+    fn pack_tail(
+        scratch: &[Self::Numeric],
+        x: usize,
         width: usize,
         height: usize,
+        out_width: usize,
         out: &mut [u8],
     );
 }
@@ -243,22 +254,37 @@ impl<S: Simd> RowRenderKernel<S> for U8Kernel {
         <Self as FineKernel<S>>::alpha_composite_solid(simd, dest, color, alphas);
     }
 
-    fn pack_row(
+    fn pack_prefix(
+        simd: S,
         scratch: &[Self::Numeric],
-        scratch_width: usize,
+        width: usize,
+        out_width: usize,
+        out: &mut [u8],
+    ) {
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                pack_u8_prefix(simd, scratch, width, out_width, out);
+            },
+        );
+    }
+
+    fn pack_tail(
+        scratch: &[Self::Numeric],
+        x: usize,
         width: usize,
         height: usize,
+        out_width: usize,
         out: &mut [u8],
     ) {
         for y in 0..height {
-            let row = &mut out[y * width * COLOR_COMPONENTS..][..width * COLOR_COMPONENTS];
-            for (x, pixel) in row.chunks_exact_mut(COLOR_COMPONENTS).enumerate() {
-                let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * x + y);
+            let row_start = (y * out_width + x) * COLOR_COMPONENTS;
+            let row = &mut out[row_start..][..width * COLOR_COMPONENTS];
+            for (dx, pixel) in row.chunks_exact_mut(COLOR_COMPONENTS).enumerate() {
+                let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * (x + dx) + y);
                 pixel.copy_from_slice(&scratch[idx..idx + COLOR_COMPONENTS]);
             }
         }
-
-        let _ = scratch_width;
     }
 }
 
@@ -269,17 +295,36 @@ impl<S: Simd> RowRenderKernel<S> for F32Kernel {
         <Self as FineKernel<S>>::alpha_composite_solid(simd, dest, color, alphas);
     }
 
-    fn pack_row(
+    fn pack_prefix(
+        _simd: S,
         scratch: &[Self::Numeric],
-        scratch_width: usize,
+        width: usize,
+        out_width: usize,
+        out: &mut [u8],
+    ) {
+        <Self as RowRenderKernel<S>>::pack_tail(
+            scratch,
+            0,
+            width,
+            Tile::HEIGHT as usize,
+            out_width,
+            out,
+        );
+    }
+
+    fn pack_tail(
+        scratch: &[Self::Numeric],
+        x: usize,
         width: usize,
         height: usize,
+        out_width: usize,
         out: &mut [u8],
     ) {
         for y in 0..height {
-            let row = &mut out[y * width * COLOR_COMPONENTS..][..width * COLOR_COMPONENTS];
-            for (x, pixel) in row.chunks_exact_mut(COLOR_COMPONENTS).enumerate() {
-                let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * x + y);
+            let row_start = (y * out_width + x) * COLOR_COMPONENTS;
+            let row = &mut out[row_start..][..width * COLOR_COMPONENTS];
+            for (dx, pixel) in row.chunks_exact_mut(COLOR_COMPONENTS).enumerate() {
+                let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * (x + dx) + y);
                 let src = &scratch[idx..idx + COLOR_COMPONENTS];
                 pixel[0] = (src[0] * 255.0 + 0.5) as u8;
                 pixel[1] = (src[1] * 255.0 + 0.5) as u8;
@@ -287,8 +332,6 @@ impl<S: Simd> RowRenderKernel<S> for F32Kernel {
                 pixel[3] = (src[3] * 255.0 + 0.5) as u8;
             }
         }
-
-        let _ = scratch_width;
     }
 }
 
@@ -296,7 +339,6 @@ impl<S: Simd> RowRenderKernel<S> for F32Kernel {
 pub(crate) struct RowFine<S: Simd, T: RowRenderKernel<S>> {
     simd: S,
     width: u16,
-    scratch_width: usize,
     scratch: Vec<T::Numeric>,
     depth: Vec<u32>,
     _marker: PhantomData<T>,
@@ -309,7 +351,6 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
         Self {
             simd,
             width,
-            scratch_width,
             scratch: vec![T::Numeric::ZERO; scratch_len],
             depth: vec![0; usize::from(width.div_ceil(DEPTH_BUCKET_WIDTH))],
             _marker: PhantomData,
@@ -469,13 +510,63 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
         let width = usize::from(self.width);
         let offset = row_idx * Tile::HEIGHT as usize * width * COLOR_COMPONENTS;
         let len = row_height * width * COLOR_COMPONENTS;
-        T::pack_row(
-            &self.scratch,
-            self.scratch_width,
-            width,
-            row_height,
-            &mut buffer[offset..offset + len],
-        );
+        let out = &mut buffer[offset..offset + len];
+
+        let prefix_width = if row_height == Tile::HEIGHT as usize {
+            width / Tile::WIDTH as usize * Tile::WIDTH as usize
+        } else {
+            0
+        };
+
+        if prefix_width > 0 {
+            T::pack_prefix(self.simd, &self.scratch, prefix_width, width, out);
+        }
+
+        if prefix_width < width {
+            T::pack_tail(
+                &self.scratch,
+                prefix_width,
+                width - prefix_width,
+                row_height,
+                width,
+                out,
+            );
+        }
+    }
+}
+
+#[cfg(feature = "u8_pipeline")]
+#[inline(always)]
+fn pack_u8_prefix<S: Simd>(
+    simd: S,
+    scratch: &[u8],
+    width: usize,
+    out_width: usize,
+    out: &mut [u8],
+) {
+    const CHUNK_LENGTH: usize = Tile::WIDTH as usize * TILE_HEIGHT_COMPONENTS;
+
+    let row_stride = out_width * COLOR_COMPONENTS;
+    let (row0, out) = out.split_at_mut(row_stride);
+    let (row1, out) = out.split_at_mut(row_stride);
+    let (row2, out) = out.split_at_mut(row_stride);
+    let (row3, _) = out.split_at_mut(row_stride);
+
+    for (idx, col) in scratch[..width * TILE_HEIGHT_COMPONENTS]
+        .chunks_exact(CHUNK_LENGTH)
+        .enumerate()
+    {
+        let dest_idx = idx * Tile::WIDTH as usize * COLOR_COMPONENTS;
+        let casted: &[u32; 16] = cast_slice::<u8, u32>(col).try_into().unwrap();
+
+        let loaded = simd.load_interleaved_128_u32x16(casted).to_bytes();
+        let (loaded_lo, loaded_hi) = simd.split_u8x64(loaded);
+        let (loaded_1, loaded_2) = simd.split_u8x32(loaded_lo);
+        let (loaded_3, loaded_4) = simd.split_u8x32(loaded_hi);
+        loaded_1.store_slice(&mut row0[dest_idx..][..16]);
+        loaded_2.store_slice(&mut row1[dest_idx..][..16]);
+        loaded_3.store_slice(&mut row2[dest_idx..][..16]);
+        loaded_4.store_slice(&mut row3[dest_idx..][..16]);
     }
 }
 
