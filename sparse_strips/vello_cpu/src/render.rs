@@ -844,8 +844,10 @@ mod tests {
     use alloc::vec;
     #[cfg(feature = "text")]
     use glifo::Glyph;
-    use vello_common::color::palette::css::{BLUE, GREEN};
+    use vello_common::color::palette::css::{BLUE, GREEN, RED};
     use vello_common::kurbo::{Rect, Shape};
+    use vello_common::mask::Mask;
+    use vello_common::peniko::{BlendMode, Compose, Mix};
     use vello_common::peniko::{ColorStop, Gradient};
     use vello_common::tile::Tile;
 
@@ -908,6 +910,83 @@ mod tests {
         assert_ne!(left, right);
         assert_eq!(left[3], 255);
         assert_eq!(right[3], 255);
+    }
+
+    #[test]
+    fn render_to_buffer_supports_non_isolated_mask() {
+        let mut resources = Resources::new();
+        let mut ctx = RenderContext::new(4, 4);
+        let mut buffer = vec![0; 4 * 4 * 4];
+
+        ctx.set_paint(RED);
+        ctx.set_mask(Mask::from_parts(vec![128; 4 * 4], 4, 4));
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 4.0));
+        ctx.flush();
+        ctx.render_to_buffer(
+            &mut resources,
+            &mut buffer,
+            4,
+            4,
+            ctx.render_settings().render_mode,
+        );
+
+        let pixel = &buffer[(2 * 4 + 2) * 4..][..4];
+        assert!((120..=136).contains(&pixel[0]));
+        assert_eq!(pixel[1], 0);
+        assert_eq!(pixel[2], 0);
+        assert!((120..=136).contains(&pixel[3]));
+    }
+
+    #[test]
+    fn render_to_buffer_supports_non_isolated_blend_mode() {
+        let mut resources = Resources::new();
+        let mut ctx = RenderContext::new(4, 4);
+        let mut buffer = vec![0; 4 * 4 * 4];
+
+        ctx.set_paint(RED);
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 4.0));
+        ctx.set_paint(BLUE);
+        ctx.set_blend_mode(BlendMode::new(Mix::Multiply, Compose::SrcOver));
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 4.0));
+        ctx.flush();
+        ctx.render_to_buffer(
+            &mut resources,
+            &mut buffer,
+            4,
+            4,
+            ctx.render_settings().render_mode,
+        );
+
+        let pixel = &buffer[(2 * 4 + 2) * 4..][..4];
+        assert!(pixel[0] <= 1);
+        assert!(pixel[1] <= 1);
+        assert!(pixel[2] <= 1);
+        assert_eq!(pixel[3], 255);
+    }
+
+    #[test]
+    fn render_to_buffer_supports_non_isolated_clip_path() {
+        let mut resources = Resources::new();
+        let mut ctx = RenderContext::new(16, 16);
+        let mut buffer = vec![0; 16 * 16 * 4];
+
+        ctx.set_paint(RED);
+        ctx.push_clip_path(&Rect::new(4.0, 4.0, 12.0, 12.0).to_path(0.1));
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 16.0, 16.0));
+        ctx.pop_clip_path();
+        ctx.flush();
+        ctx.render_to_buffer(
+            &mut resources,
+            &mut buffer,
+            16,
+            16,
+            ctx.render_settings().render_mode,
+        );
+
+        let outside = &buffer[(2 * 16 + 2) * 4..][..4];
+        let inside = &buffer[(8 * 16 + 8) * 4..][..4];
+        assert_eq!(outside, &[0, 0, 0, 0]);
+        assert_eq!(inside, &[255, 0, 0, 255]);
     }
 
     #[cfg(feature = "multithreading")]

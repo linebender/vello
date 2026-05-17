@@ -6,18 +6,19 @@ use crate::fine::F32Kernel;
 #[cfg(feature = "u8_pipeline")]
 use crate::fine::U8Kernel;
 use crate::fine::{
-    COLOR_COMPONENTS, FineKernel, Numeric, SimdLinearKind, SimdRadialKind, SimdSweepKind,
-    TILE_HEIGHT_COMPONENTS, calculate_t_vals,
+    COLOR_COMPONENTS, CompositeType, FineKernel, Numeric, SimdLinearKind, SimdRadialKind,
+    SimdSweepKind, TILE_HEIGHT_COMPONENTS, calculate_t_vals,
 };
-use crate::peniko::ImageQuality;
+use crate::peniko::{BlendMode, ImageQuality};
 use crate::util::EncodedImageExt;
 use alloc::vec;
 use alloc::vec::Vec;
 #[cfg(feature = "u8_pipeline")]
 use bytemuck::cast_slice;
-use core::marker::PhantomData;
+use core::{iter, marker::PhantomData};
 use vello_common::encode::{EncodedKind, EncodedPaint};
 use vello_common::fearless_simd::*;
+use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, ImageSource, Paint, PremulColor, Tint};
 use vello_common::strip::Strip;
 use vello_common::tile::Tile;
@@ -83,6 +84,8 @@ pub(crate) struct OpaqueCmd {
 #[derive(Debug, Clone)]
 pub(crate) struct FillAttrs {
     pub(crate) paint: Paint,
+    pub(crate) blend_mode: BlendMode,
+    pub(crate) mask: Option<Mask>,
     pub(crate) path_id: u32,
 }
 
@@ -163,7 +166,13 @@ impl CommandBucketer {
         self.next_path_id = 1;
     }
 
-    pub(crate) fn generate(&mut self, strip_buf: &[Strip], paint: Paint) {
+    pub(crate) fn generate(
+        &mut self,
+        strip_buf: &[Strip],
+        paint: Paint,
+        blend_mode: BlendMode,
+        mask: Option<Mask>,
+    ) {
         if strip_buf.is_empty() {
             return;
         }
@@ -176,8 +185,11 @@ impl CommandBucketer {
         let attrs_idx = self.attrs.len() as u32;
         self.attrs.push(FillAttrs {
             paint: paint.clone(),
+            blend_mode,
+            mask: mask.clone(),
             path_id,
         });
+        let can_depth_cull = blend_mode == BlendMode::default() && mask.is_none();
 
         for i in 0..strip_buf.len() - 1 {
             let strip = &strip_buf[i];
@@ -221,6 +233,7 @@ impl CommandBucketer {
                         &paint,
                         path_id,
                         attrs_idx,
+                        can_depth_cull,
                     );
                 }
             }
@@ -235,8 +248,21 @@ impl CommandBucketer {
         paint: &Paint,
         path_id: u32,
         attrs_idx: u32,
+        can_depth_cull: bool,
     ) {
         let row = &mut self.rows[row_idx];
+        if !can_depth_cull {
+            row.push_cmd(
+                Cmd::Fill(FillCmd {
+                    x,
+                    width,
+                    attrs_idx,
+                }),
+                self.width,
+            );
+            return;
+        }
+
         let Paint::Solid(color) = paint else {
             row.push_cmd(
                 Cmd::Fill(FillCmd {
@@ -492,12 +518,49 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
         );
     }
 
+    #[inline(always)]
+    fn fill_solid_with_attrs(
+        &mut self,
+        x: u16,
+        y: u16,
+        width: u16,
+        color: PremulColor,
+        blend_mode: BlendMode,
+        mask: Option<&Mask>,
+        alphas: Option<&[u8]>,
+    ) {
+        if blend_mode == BlendMode::default() && mask.is_none() {
+            self.fill_solid(x, width, color, alphas);
+            return;
+        }
+
+        if width == 0 {
+            return;
+        }
+
+        let start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
+        let len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
+        let color = T::extract_color(color);
+        T::blend(
+            self.simd,
+            &mut self.scratch[start..start + len],
+            x,
+            y,
+            iter::repeat(T::Composite::from_color(self.simd, color)),
+            blend_mode,
+            alphas,
+            mask,
+        );
+    }
+
     fn fill_indexed(
         &mut self,
         x: u16,
         y: u16,
         width: u16,
         paint_index: usize,
+        blend_mode: BlendMode,
+        mask: Option<&Mask>,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
         alphas: Option<&[u8]>,
@@ -521,6 +584,8 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
             y,
             width,
             paint_index,
+            blend_mode,
+            mask,
             encoded_paints,
             image_resolver,
             alphas,
@@ -569,12 +634,22 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
             let end = cmd_end.min(run.end as u16 * DEPTH_BUCKET_WIDTH);
             match cmd {
                 Cmd::Fill(_) => match &attrs.paint {
-                    Paint::Solid(color) => this.fill_solid(x, end - x, *color, None),
+                    Paint::Solid(color) => this.fill_solid_with_attrs(
+                        x,
+                        row_y,
+                        end - x,
+                        *color,
+                        attrs.blend_mode,
+                        attrs.mask.as_ref(),
+                        None,
+                    ),
                     Paint::Indexed(index) => this.fill_indexed(
                         x,
                         row_y,
                         end - x,
                         index.index(),
+                        attrs.blend_mode,
+                        attrs.mask.as_ref(),
                         encoded_paints,
                         image_resolver,
                         None,
@@ -584,15 +659,23 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
                     let alpha_offset =
                         fill.alpha_idx as usize + usize::from(x - fill.x) * Tile::HEIGHT as usize;
                     match &attrs.paint {
-                        Paint::Solid(color) => {
-                            this.fill_solid(x, end - x, *color, Some(&alphas[alpha_offset..]));
-                        }
+                        Paint::Solid(color) => this.fill_solid_with_attrs(
+                            x,
+                            row_y,
+                            end - x,
+                            *color,
+                            attrs.blend_mode,
+                            attrs.mask.as_ref(),
+                            Some(&alphas[alpha_offset..]),
+                        ),
                         Paint::Indexed(index) => {
                             this.fill_indexed(
                                 x,
                                 row_y,
                                 end - x,
                                 index.index(),
+                                attrs.blend_mode,
+                                attrs.mask.as_ref(),
                                 encoded_paints,
                                 image_resolver,
                                 Some(&alphas[alpha_offset..]),
@@ -757,6 +840,8 @@ fn fill_indexed_paint<S: Simd, T: RowRenderKernel<S>>(
     y: u16,
     width: u16,
     paint_index: usize,
+    blend_mode: BlendMode,
+    mask: Option<&Mask>,
     encoded_paints: &[EncodedPaint],
     image_resolver: &dyn ImageResolver,
     alphas: Option<&[u8]>,
@@ -774,18 +859,35 @@ fn fill_indexed_paint<S: Simd, T: RowRenderKernel<S>>(
 
     let sampler_x = f64::from(x) + PIXEL_CENTER_OFFSET;
     let sampler_y = f64::from(y) + PIXEL_CENTER_OFFSET;
+    let default_blend = blend_mode == BlendMode::default();
 
     macro_rules! fill_complex_paint {
         ($may_have_transparency:expr, $filler:expr) => {
             fill_complex_paint!($may_have_transparency, $filler, None::<&Tint>)
         };
         ($may_have_transparency:expr, $filler:expr, $tint:expr) => {
-            if $may_have_transparency || alphas.is_some() {
+            if $may_have_transparency || alphas.is_some() || !default_blend || mask.is_some() {
                 T::apply_painter(simd, color_buf, $filler);
                 if let Some(tint) = $tint {
                     T::apply_tint(simd, color_buf, tint);
                 }
-                T::alpha_composite_buffer(simd, dest, color_buf, alphas);
+
+                if default_blend && mask.is_none() {
+                    T::alpha_composite_buffer(simd, dest, color_buf, alphas);
+                } else {
+                    T::blend(
+                        simd,
+                        dest,
+                        x,
+                        y,
+                        color_buf
+                            .chunks_exact(T::Composite::LENGTH)
+                            .map(|s| T::Composite::from_slice(simd, s)),
+                        blend_mode,
+                        alphas,
+                        mask,
+                    );
+                }
             } else {
                 T::apply_painter(simd, dest, $filler);
                 if let Some(tint) = $tint {
@@ -1015,6 +1117,7 @@ mod tests {
     use vello_common::color::palette::css::{BLUE, RED};
     use vello_common::color::{AlphaColor, Srgb};
     use vello_common::paint::{Paint, PremulColor};
+    use vello_common::peniko::BlendMode;
     use vello_common::strip::Strip;
 
     fn color(alpha: AlphaColor<Srgb>) -> PremulColor {
@@ -1026,7 +1129,12 @@ mod tests {
         let mut bucketer = CommandBucketer::new(128, 4);
         let strips = [Strip::new(3, 0, 0, false), Strip::new(100, 0, 0, true)];
 
-        bucketer.generate(&strips, Paint::Solid(color(RED)));
+        bucketer.generate(
+            &strips,
+            Paint::Solid(color(RED)),
+            BlendMode::default(),
+            None,
+        );
 
         let row = &bucketer.rows()[0];
         assert_eq!(row.opaque.len(), 1);
@@ -1045,6 +1153,8 @@ mod tests {
         bucketer.generate(
             &strips,
             Paint::Solid(color(AlphaColor::from_rgba8(255, 0, 0, 128))),
+            BlendMode::default(),
+            None,
         );
 
         let row = &bucketer.rows()[0];
@@ -1058,7 +1168,12 @@ mod tests {
         let mut bucketer = CommandBucketer::new(128, 4);
         let strips = [Strip::new(0, 0, 0, false), Strip::new(8, 0, 32, false)];
 
-        bucketer.generate(&strips, Paint::Solid(color(BLUE)));
+        bucketer.generate(
+            &strips,
+            Paint::Solid(color(BLUE)),
+            BlendMode::default(),
+            None,
+        );
 
         let row = &bucketer.rows()[0];
         assert!(row.opaque.is_empty());
@@ -1073,7 +1188,12 @@ mod tests {
         let mut bucketer = CommandBucketer::new(128, 4);
         let strips = [Strip::new(8, 0, 0, false), Strip::new(16, 0, 0, true)];
 
-        bucketer.generate(&strips, Paint::Solid(color(RED)));
+        bucketer.generate(
+            &strips,
+            Paint::Solid(color(RED)),
+            BlendMode::default(),
+            None,
+        );
 
         let row = &bucketer.rows()[0];
         assert!(row.opaque.is_empty());
