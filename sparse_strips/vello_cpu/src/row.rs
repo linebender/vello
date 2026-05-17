@@ -6,8 +6,8 @@ use crate::fine::F32Kernel;
 #[cfg(feature = "u8_pipeline")]
 use crate::fine::U8Kernel;
 use crate::fine::{
-    COLOR_COMPONENTS, CompositeType, FineKernel, Numeric, SimdLinearKind, SimdRadialKind,
-    SimdSweepKind, TILE_HEIGHT_COMPONENTS, calculate_t_vals,
+    COLOR_COMPONENTS, CompositeType, FineKernel, Numeric, NumericVec, SimdLinearKind,
+    SimdRadialKind, SimdSweepKind, TILE_HEIGHT_COMPONENTS, calculate_t_vals,
 };
 use crate::peniko::{BlendMode, ImageQuality};
 use crate::util::EncodedImageExt;
@@ -30,31 +30,41 @@ const PIXEL_CENTER_OFFSET: f64 = 0.5;
 pub(crate) enum Cmd {
     Fill(FillCmd),
     AlphaFill(AlphaFillCmd),
+    PushLayer(u32),
+    PopLayer(u32),
 }
 
 impl Cmd {
     #[inline(always)]
-    fn x(&self) -> u16 {
+    fn fill_x(&self) -> u16 {
         match self {
             Self::Fill(cmd) => cmd.x,
             Self::AlphaFill(cmd) => cmd.x,
+            Self::PushLayer(_) | Self::PopLayer(_) => unreachable!(),
         }
     }
 
     #[inline(always)]
-    fn width(&self) -> u16 {
+    fn fill_width(&self) -> u16 {
         match self {
             Self::Fill(cmd) => cmd.width,
             Self::AlphaFill(cmd) => cmd.width,
+            Self::PushLayer(_) | Self::PopLayer(_) => unreachable!(),
         }
     }
 
     #[inline(always)]
-    fn attrs_idx(&self) -> u32 {
+    fn fill_attrs_idx(&self) -> u32 {
         match self {
             Self::Fill(cmd) => cmd.attrs_idx,
             Self::AlphaFill(cmd) => cmd.attrs_idx,
+            Self::PushLayer(_) | Self::PopLayer(_) => unreachable!(),
         }
+    }
+
+    #[inline(always)]
+    fn is_fill(&self) -> bool {
+        matches!(self, Self::Fill(_) | Self::AlphaFill(_))
     }
 }
 
@@ -81,6 +91,23 @@ pub(crate) struct FillAttrs {
     pub(crate) path_id: u32,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct LayerClip;
+
+#[derive(Debug, Clone)]
+pub(crate) struct LayerProps {
+    pub(crate) mask: Option<Mask>,
+    pub(crate) blend_mode: BlendMode,
+    pub(crate) clip_path: Option<LayerClip>,
+    pub(crate) opacity: f32,
+}
+
+#[derive(Debug)]
+struct ActiveLayer {
+    props_idx: u32,
+    occupied_rows: Vec<usize>,
+}
+
 #[derive(Debug)]
 pub(crate) struct RowCommands {
     pub(crate) cmds: Vec<Cmd>,
@@ -88,6 +115,7 @@ pub(crate) struct RowCommands {
     bounds: Option<(u16, u16)>,
     opaque_bounds: Option<(u16, u16)>,
     max_opaque_path_id: u32,
+    layer_depth: usize,
 }
 
 impl RowCommands {
@@ -98,6 +126,7 @@ impl RowCommands {
             bounds: None,
             opaque_bounds: None,
             max_opaque_path_id: 0,
+            layer_depth: 0,
         }
     }
 
@@ -107,11 +136,23 @@ impl RowCommands {
         self.bounds = None;
         self.opaque_bounds = None;
         self.max_opaque_path_id = 0;
+        self.layer_depth = 0;
     }
 
-    fn push_cmd(&mut self, cmd: Cmd, width: u16) {
-        self.include_bounds(cmd.x(), cmd.width(), width);
+    fn push_fill_cmd(&mut self, cmd: Cmd, width: u16) {
+        debug_assert!(cmd.is_fill());
+        self.include_bounds(cmd.fill_x(), cmd.fill_width(), width);
         self.cmds.push(cmd);
+    }
+
+    fn push_layer(&mut self, props_idx: u32) {
+        self.cmds.push(Cmd::PushLayer(props_idx));
+        self.layer_depth += 1;
+    }
+
+    fn pop_layer(&mut self, props_idx: u32) {
+        self.cmds.push(Cmd::PopLayer(props_idx));
+        self.layer_depth -= 1;
     }
 
     fn push_opaque(&mut self, cmd: FillCmd, width: u16, path_id: u32) {
@@ -174,6 +215,8 @@ pub(crate) struct CommandBucketer {
     width: u16,
     rows: Vec<RowCommands>,
     attrs: Vec<FillAttrs>,
+    layer_props: Vec<LayerProps>,
+    active_layers: Vec<ActiveLayer>,
     next_path_id: u32,
 }
 
@@ -184,6 +227,8 @@ impl CommandBucketer {
             width,
             rows: (0..num_rows).map(|_| RowCommands::new()).collect(),
             attrs: Vec::new(),
+            layer_props: Vec::new(),
+            active_layers: Vec::new(),
             next_path_id: 1,
         }
     }
@@ -196,12 +241,65 @@ impl CommandBucketer {
         &self.attrs
     }
 
+    pub(crate) fn layer_props(&self) -> &[LayerProps] {
+        &self.layer_props
+    }
+
+    pub(crate) fn has_unpopped_layers(&self) -> bool {
+        !self.active_layers.is_empty()
+    }
+
     pub(crate) fn reset(&mut self) {
         for row in &mut self.rows {
             row.clear();
         }
         self.attrs.clear();
+        self.layer_props.clear();
+        self.active_layers.clear();
         self.next_path_id = 1;
+    }
+
+    pub(crate) fn push_layer(
+        &mut self,
+        blend_mode: BlendMode,
+        opacity: f32,
+        mask: Option<Mask>,
+        clip_path: Option<LayerClip>,
+    ) {
+        let props_idx = self.layer_props.len() as u32;
+        self.layer_props.push(LayerProps {
+            mask,
+            blend_mode,
+            clip_path,
+            opacity,
+        });
+        self.active_layers.push(ActiveLayer {
+            props_idx,
+            occupied_rows: Vec::new(),
+        });
+    }
+
+    pub(crate) fn pop_layer(&mut self) {
+        let mut layer = self.active_layers.pop().unwrap();
+        for row_idx in layer.occupied_rows.drain(..) {
+            let row = &mut self.rows[row_idx];
+            debug_assert_eq!(row.layer_depth, self.active_layers.len() + 1);
+            row.pop_layer(layer.props_idx);
+        }
+    }
+
+    #[inline(always)]
+    fn ensure_row_layers(&mut self, row_idx: usize) {
+        let layer_depth = self.rows[row_idx].layer_depth;
+        if layer_depth == self.active_layers.len() {
+            return;
+        }
+
+        for layer_idx in layer_depth..self.active_layers.len() {
+            let props_idx = self.active_layers[layer_idx].props_idx;
+            self.rows[row_idx].push_layer(props_idx);
+            self.active_layers[layer_idx].occupied_rows.push(row_idx);
+        }
     }
 
     pub(crate) fn generate(
@@ -228,7 +326,8 @@ impl CommandBucketer {
             mask: mask.clone(),
             path_id,
         });
-        let can_depth_cull = blend_mode == BlendMode::default() && mask.is_none();
+        let can_depth_cull =
+            self.active_layers.is_empty() && blend_mode == BlendMode::default() && mask.is_none();
 
         for i in 0..strip_buf.len() - 1 {
             let strip = &strip_buf[i];
@@ -250,7 +349,8 @@ impl CommandBucketer {
             let clipped_x1 = x1.min(self.width);
 
             if x0 < clipped_x1 {
-                self.rows[row_idx].push_cmd(
+                self.ensure_row_layers(row_idx);
+                self.rows[row_idx].push_fill_cmd(
                     Cmd::AlphaFill(AlphaFillCmd {
                         x: x0,
                         width: clipped_x1 - x0,
@@ -291,9 +391,10 @@ impl CommandBucketer {
         can_depth_cull: bool,
         encoded_paints: &[EncodedPaint],
     ) {
+        self.ensure_row_layers(row_idx);
         let row = &mut self.rows[row_idx];
         if !can_depth_cull || !paint_is_opaque(paint, encoded_paints) {
-            row.push_cmd(
+            row.push_fill_cmd(
                 Cmd::Fill(FillCmd {
                     x,
                     width,
@@ -309,7 +410,7 @@ impl CommandBucketer {
         let aligned_end = (end / DEPTH_BUCKET_WIDTH) * DEPTH_BUCKET_WIDTH;
 
         if aligned_x >= aligned_end {
-            row.push_cmd(
+            row.push_fill_cmd(
                 Cmd::Fill(FillCmd {
                     x,
                     width,
@@ -321,7 +422,7 @@ impl CommandBucketer {
         }
 
         if x < aligned_x {
-            row.push_cmd(
+            row.push_fill_cmd(
                 Cmd::Fill(FillCmd {
                     x,
                     width: aligned_x - x,
@@ -344,7 +445,7 @@ impl CommandBucketer {
         }
 
         if aligned_end < end {
-            row.push_cmd(
+            row.push_fill_cmd(
                 Cmd::Fill(FillCmd {
                     x: aligned_end,
                     width: end - aligned_end,
@@ -492,7 +593,8 @@ impl<S: Simd> RowRenderKernel<S> for F32Kernel {
 pub(crate) struct RowFine<S: Simd, T: RowRenderKernel<S>> {
     simd: S,
     width: u16,
-    scratch: Vec<T::Numeric>,
+    buffers: Vec<Vec<T::Numeric>>,
+    buffer_pool: Vec<Vec<T::Numeric>>,
     paint_buf: Vec<T::Numeric>,
     f32_buf: Vec<f32>,
     depth: Vec<u32>,
@@ -506,12 +608,25 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
         Self {
             simd,
             width,
-            scratch: vec![T::Numeric::ZERO; scratch_len],
+            // TODO
+            buffers: vec![vec![T::Numeric::ZERO; scratch_len]],
+            buffer_pool: Vec::new(),
             paint_buf: Vec::new(),
             f32_buf: Vec::new(),
             depth: vec![0; usize::from(width.div_ceil(DEPTH_BUCKET_WIDTH))],
             _marker: PhantomData,
         }
+    }
+
+    #[inline(always)]
+    fn scratch(&self) -> &[T::Numeric] {
+        debug_assert_eq!(self.buffers.len(), 1);
+        &self.buffers[0]
+    }
+
+    #[inline(always)]
+    fn scratch_mut(&mut self) -> &mut [T::Numeric] {
+        self.buffers.last_mut().unwrap()
     }
 
     fn clear_range(&mut self, x: u16, width: u16) {
@@ -525,10 +640,99 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
         self.simd.vectorize(
             #[inline(always)]
             || {
-                self.scratch[scratch_start..scratch_start + scratch_len].fill(T::Numeric::ZERO);
+                self.buffers[0][scratch_start..scratch_start + scratch_len].fill(T::Numeric::ZERO);
                 self.depth[depth_start..depth_end].fill(0);
             },
         )
+    }
+
+    fn push_layer(&mut self, x: u16, width: u16) {
+        let mut buf = self
+            .buffer_pool
+            .pop()
+            .unwrap_or_else(|| vec![T::Numeric::ZERO; self.buffers[0].len()]);
+        let scratch_start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
+        let scratch_len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
+        buf[scratch_start..scratch_start + scratch_len].fill(T::Numeric::ZERO);
+        self.buffers.push(buf);
+    }
+
+    fn pop_layer(&mut self, row_y: u16, x: u16, width: u16, props: &LayerProps) {
+        let scratch_start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
+        let scratch_len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
+        let (source, rest) = self.buffers.split_last_mut().unwrap();
+        let target = rest.last_mut().unwrap();
+        let source = &mut source[scratch_start..scratch_start + scratch_len];
+        let target = &mut target[scratch_start..scratch_start + scratch_len];
+
+        let _ = &props.clip_path;
+
+        if let Some(mask) = props.mask.as_ref() {
+            Self::apply_mask(self.simd, source, x, row_y, width, mask);
+        }
+
+        if props.opacity != 1.0 {
+            T::apply_mask(
+                self.simd,
+                source,
+                iter::repeat(T::NumericVec::from_f32(
+                    self.simd,
+                    f32x16::splat(self.simd, props.opacity),
+                )),
+            );
+        }
+
+        if props.blend_mode == BlendMode::default() {
+            T::alpha_composite_buffer(self.simd, target, source, None);
+        } else {
+            T::blend(
+                self.simd,
+                target,
+                x,
+                row_y,
+                source
+                    .chunks_exact(T::Composite::LENGTH)
+                    .map(|s| T::Composite::from_slice(self.simd, s)),
+                props.blend_mode,
+                None,
+                None,
+            );
+        }
+
+        let popped = self.buffers.pop().unwrap();
+        self.buffer_pool.push(popped);
+    }
+
+    fn apply_mask(simd: S, target: &mut [T::Numeric], x: u16, y: u16, width: u16, mask: &Mask) {
+        let y = u32::from(y) + u32x4::from_slice(simd, &[0, 1, 2, 3]);
+        let iter = (x..x.saturating_add(width)).map(|x| {
+            let x_in_range = x < mask.width();
+
+            macro_rules! sample {
+                ($idx:expr) => {
+                    if x_in_range && (y[$idx] as u16) < mask.height() {
+                        mask.sample(x, y[$idx] as u16)
+                    } else {
+                        0
+                    }
+                };
+            }
+
+            let s1 = sample!(0);
+            let s2 = sample!(1);
+            let s3 = sample!(2);
+            let s4 = sample!(3);
+
+            let samples = u8x16::from_slice(
+                simd,
+                &[
+                    s1, s1, s1, s1, s2, s2, s2, s2, s3, s3, s3, s3, s4, s4, s4, s4,
+                ],
+            );
+            T::NumericVec::from_u8(simd, samples)
+        });
+
+        T::apply_mask(simd, target, iter);
     }
 
     #[inline(always)]
@@ -539,12 +743,9 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
 
         let start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
         let len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
-        T::fill_solid(
-            self.simd,
-            &mut self.scratch[start..start + len],
-            color,
-            alphas,
-        );
+        let simd = self.simd;
+        let scratch = self.scratch_mut();
+        T::fill_solid(simd, &mut scratch[start..start + len], color, alphas);
     }
 
     #[inline(always)]
@@ -570,12 +771,15 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
         let start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
         let len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
         let color = T::extract_color(color);
+        let simd = self.simd;
+        let color = T::Composite::from_color(simd, color);
+        let scratch = self.scratch_mut();
         T::blend(
-            self.simd,
-            &mut self.scratch[start..start + len],
+            simd,
+            &mut scratch[start..start + len],
             x,
             y,
-            iter::repeat(T::Composite::from_color(self.simd, color)),
+            iter::repeat(color),
             blend_mode,
             alphas,
             mask,
@@ -604,9 +808,10 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
             self.f32_buf.resize(t_len, 0.0);
         }
 
+        let scratch = self.buffers.last_mut().unwrap();
         fill_indexed_paint::<S, T>(
             self.simd,
-            &mut self.scratch,
+            scratch,
             &mut self.paint_buf,
             &mut self.f32_buf,
             x,
@@ -702,8 +907,8 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
         image_resolver: &dyn ImageResolver,
         use_depth: bool,
     ) {
-        let cmd_x = cmd.x();
-        let cmd_end = (cmd_x + cmd.width()).min(self.width);
+        let cmd_x = cmd.fill_x();
+        let cmd_end = (cmd_x + cmd.fill_width()).min(self.width);
         if cmd_x >= cmd_end {
             return;
         }
@@ -834,6 +1039,7 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
                     }
                 }
             }
+            Cmd::PushLayer(_) | Cmd::PopLayer(_) => unreachable!(),
         }
     }
 
@@ -854,7 +1060,7 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
 
         if x < prefix_start {
             T::pack_tail(
-                &self.scratch,
+                self.scratch(),
                 x,
                 prefix_start - x,
                 row_height,
@@ -872,7 +1078,7 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
         if prefix_width > 0 {
             T::pack_prefix(
                 self.simd,
-                &self.scratch,
+                self.scratch(),
                 prefix_start,
                 prefix_width,
                 out_width,
@@ -883,7 +1089,7 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
         let tail_start = prefix_start + prefix_width;
         if tail_start < end {
             T::pack_tail(
-                &self.scratch,
+                self.scratch(),
                 tail_start,
                 end - tail_start,
                 row_height,
@@ -1161,17 +1367,32 @@ pub(crate) fn rasterize<S: Simd, T: RowRenderKernel<S>>(
             fine.render_opaque(cmd, row_y, attrs, encoded_paints, image_resolver);
         }
         for &cmd in &row.cmds {
-            let attrs = &bucketer.attrs()[cmd.attrs_idx() as usize];
-            let use_depth = row.depth_affects(cmd.x(), cmd.width(), attrs.path_id);
-            fine.render_cmd(
-                cmd,
-                row_y,
-                alphas,
-                attrs,
-                encoded_paints,
-                image_resolver,
-                use_depth,
-            );
+            // TODO: CHeck whether having fill/alpha fill commands in
+            // a separate vector leads to better performance.
+            match cmd {
+                Cmd::Fill(_) | Cmd::AlphaFill(_) => {
+                    let attrs = &bucketer.attrs()[cmd.fill_attrs_idx() as usize];
+                    let use_depth =
+                        row.depth_affects(cmd.fill_x(), cmd.fill_width(), attrs.path_id);
+                    fine.render_cmd(
+                        cmd,
+                        row_y,
+                        alphas,
+                        attrs,
+                        encoded_paints,
+                        image_resolver,
+                        use_depth,
+                    );
+                }
+                Cmd::PushLayer(props_idx) => {
+                    let _ = &bucketer.layer_props()[props_idx as usize];
+                    fine.push_layer(row_start, row_end - row_start);
+                }
+                Cmd::PopLayer(props_idx) => {
+                    let props = &bucketer.layer_props()[props_idx as usize];
+                    fine.pop_layer(row_y, row_start, row_end - row_start, props);
+                }
+            }
         }
 
         fine.pack(row_idx, row_height, row_start, row_end - row_start, buffer);

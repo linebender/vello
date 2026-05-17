@@ -6,7 +6,7 @@ use crate::dispatch::Dispatcher;
 use crate::fine::FineKernel;
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
-use crate::row::{CommandBucketer, RowRenderKernel};
+use crate::row::{CommandBucketer, LayerClip, RowRenderKernel};
 use vello_common::clip::ClipContext;
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd};
@@ -88,7 +88,7 @@ impl SingleThreadedDispatcher {
 
 impl Dispatcher for SingleThreadedDispatcher {
     fn has_unpopped_layers(&self) -> bool {
-        false
+        self.bucketer.has_unpopped_layers()
     }
 
     fn fill_path(
@@ -196,20 +196,31 @@ impl Dispatcher for SingleThreadedDispatcher {
 
     fn push_layer(
         &mut self,
-        _clip_path: Option<&BezPath>,
+        clip_path: Option<&BezPath>,
         _fill_rule: Fill,
         _clip_transform: Affine,
-        _blend_mode: BlendMode,
-        _opacity: f32,
+        blend_mode: BlendMode,
+        opacity: f32,
         _aliasing_threshold: Option<u8>,
-        _mask: Option<Mask>,
-        _filter: Option<Filter>,
+        mask: Option<Mask>,
+        filter: Option<Filter>,
     ) {
-        unimplemented!("row-bucket prototype does not support layers");
+        if filter.is_some() {
+            unimplemented!("row-bucket prototype does not support filter layers");
+        }
+        if clip_path.is_some() {
+            panic!("row-bucket prototype does not support layer clip paths");
+        }
+        if blend_mode.is_destructive() {
+            panic!("row-bucket prototype does not support destructive layer blends");
+        }
+
+        self.bucketer
+            .push_layer(blend_mode, opacity, mask, clip_path.map(|_| LayerClip));
     }
 
     fn pop_layer(&mut self) {
-        unimplemented!("row-bucket prototype does not support layers");
+        self.bucketer.pop_layer();
     }
 
     fn reset(&mut self) {
