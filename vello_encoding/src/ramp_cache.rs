@@ -125,12 +125,13 @@ fn make_ramp(
         let c = if du < 1e-9 {
             this_c
         } else {
+            let t = (u - last_u) / du;
             match interpolation_alpha_space {
                 InterpolationAlphaSpace::Premultiplied => {
-                    last_c.lerp(this_c, (u - last_u) / du, HueDirection::default())
+                    last_c.lerp(this_c, t, HueDirection::default())
                 }
                 InterpolationAlphaSpace::Unpremultiplied => {
-                    last_c + (this_c - last_c) * ((u - last_u) / du)
+                    last_c + (this_c - last_c) * t
                 }
             }
         };
