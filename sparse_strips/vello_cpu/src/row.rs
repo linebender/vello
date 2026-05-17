@@ -339,7 +339,11 @@ pub(crate) trait RowRenderKernel<S: Simd>: FineKernel<S> {
 impl<S: Simd> RowRenderKernel<S> for U8Kernel {
     fn fill_solid(simd: S, dest: &mut [Self::Numeric], color: PremulColor, alphas: Option<&[u8]>) {
         let color = <Self as FineKernel<S>>::extract_color(color);
-        <Self as FineKernel<S>>::alpha_composite_solid(simd, dest, color, alphas);
+        if color[3] == <Self as FineKernel<S>>::Numeric::ONE && alphas.is_none() {
+            <Self as FineKernel<S>>::copy_solid(simd, dest, color);
+        } else {
+            <Self as FineKernel<S>>::alpha_composite_solid(simd, dest, color, alphas);
+        }
     }
 
     fn pack_prefix(
@@ -381,7 +385,11 @@ impl<S: Simd> RowRenderKernel<S> for U8Kernel {
 impl<S: Simd> RowRenderKernel<S> for F32Kernel {
     fn fill_solid(simd: S, dest: &mut [Self::Numeric], color: PremulColor, alphas: Option<&[u8]>) {
         let color = <Self as FineKernel<S>>::extract_color(color);
-        <Self as FineKernel<S>>::alpha_composite_solid(simd, dest, color, alphas);
+        if color[3] == <Self as FineKernel<S>>::Numeric::ONE && alphas.is_none() {
+            <Self as FineKernel<S>>::copy_solid(simd, dest, color);
+        } else {
+            <Self as FineKernel<S>>::alpha_composite_solid(simd, dest, color, alphas);
+        }
     }
 
     fn pack_prefix(
