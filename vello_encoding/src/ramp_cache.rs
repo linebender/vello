@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use std::collections::HashMap;
+use std::hash::Hash;
+use std::hash::Hasher;
 
-use peniko::color::cache_key::CacheKey;
+use peniko::color::cache_key::{BitEq, BitHash, CacheKey};
 use peniko::color::{HueDirection, Srgb};
 use peniko::{ColorStop, ColorStops, InterpolationAlphaSpace};
 
@@ -18,10 +20,33 @@ pub struct Ramps<'a> {
     pub height: u32,
 }
 
+/// Cache key for gradient color ramps based on color-affecting properties.
+#[derive(Debug, Clone)]
+struct GradientCacheKey {
+    /// The color stops (offsets + colors).
+    pub stops: ColorStops,
+    /// Interpolation alpha space.
+    pub interpolation_alpha_space: InterpolationAlphaSpace,
+}
+
+impl BitHash for GradientCacheKey {
+    fn bit_hash<H: Hasher>(&self, state: &mut H) {
+        self.stops.bit_hash(state);
+        core::mem::discriminant(&self.interpolation_alpha_space).hash(state);
+    }
+}
+
+impl BitEq for GradientCacheKey {
+    fn bit_eq(&self, other: &Self) -> bool {
+        self.stops.bit_eq(&other.stops)
+            && self.interpolation_alpha_space == other.interpolation_alpha_space
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct RampCache {
     epoch: u64,
-    map: HashMap<(InterpolationAlphaSpace, CacheKey<ColorStops>), (u32, u64)>,
+    map: HashMap<CacheKey<GradientCacheKey>, (u32, u64)>,
     data: Vec<u32>,
 }
 
@@ -40,20 +65,18 @@ impl RampCache {
         interpolation_alpha_space: InterpolationAlphaSpace,
         stops: &[ColorStop],
     ) -> u32 {
-        if let Some(entry) = self
-            .map
-            .get_mut(&(interpolation_alpha_space, CacheKey(stops.into())))
-        {
+        let key = CacheKey(GradientCacheKey {
+            stops: stops.into(),
+            interpolation_alpha_space,
+        });
+        if let Some(entry) = self.map.get_mut(&key) {
             entry.1 = self.epoch;
             entry.0
         } else if self.map.len() < RETAINED_COUNT {
             let id = (self.data.len() / N_SAMPLES) as u32;
             self.data
                 .extend(make_ramp(stops, interpolation_alpha_space));
-            self.map.insert(
-                (interpolation_alpha_space, CacheKey(stops.into())),
-                (id, self.epoch),
-            );
+            self.map.insert(key, (id, self.epoch));
             id
         } else {
             let mut reuse = None;
@@ -72,19 +95,13 @@ impl RampCache {
                 {
                     *dst = src;
                 }
-                self.map.insert(
-                    (interpolation_alpha_space, CacheKey(stops.into())),
-                    (id, self.epoch),
-                );
+                self.map.insert(key, (id, self.epoch));
                 id
             } else {
                 let id = (self.data.len() / N_SAMPLES) as u32;
                 self.data
                     .extend(make_ramp(stops, interpolation_alpha_space));
-                self.map.insert(
-                    (interpolation_alpha_space, CacheKey(stops.into())),
-                    (id, self.epoch),
-                );
+                self.map.insert(key, (id, self.epoch));
                 id
             }
         }
