@@ -7,6 +7,7 @@ use crate::fine::FineKernel;
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::row::{CommandBucketer, RowRenderKernel};
+use vello_common::clip::ClipContext;
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd};
 use vello_common::filter_effects::Filter;
@@ -18,6 +19,7 @@ use vello_common::strip_generator::{StripGenerator, StripStorage};
 #[derive(Debug)]
 pub(crate) struct SingleThreadedDispatcher {
     bucketer: CommandBucketer,
+    clip_context: ClipContext,
     strip_generator: StripGenerator,
     strip_storage: StripStorage,
     level: Level,
@@ -27,6 +29,7 @@ impl SingleThreadedDispatcher {
     pub(crate) fn new(width: u16, height: u16, level: Level) -> Self {
         Self {
             bucketer: CommandBucketer::new(width, height),
+            clip_context: ClipContext::new(),
             strip_generator: StripGenerator::new(width, height, level),
             strip_storage: StripStorage::default(),
             level,
@@ -81,18 +84,6 @@ impl SingleThreadedDispatcher {
             image_resolver,
         );
     }
-
-    fn assert_supported(&self, _paint: &Paint, blend_mode: BlendMode, mask: &Option<Mask>) {
-        assert_eq!(
-            blend_mode,
-            BlendMode::default(),
-            "row-bucket prototype only supports default source-over blending"
-        );
-        assert!(
-            mask.is_none(),
-            "row-bucket prototype does not support masks"
-        );
-    }
 }
 
 impl Dispatcher for SingleThreadedDispatcher {
@@ -111,16 +102,19 @@ impl Dispatcher for SingleThreadedDispatcher {
         mask: Option<Mask>,
         _encoded_paints: &[EncodedPaint],
     ) {
-        self.assert_supported(&paint, blend_mode, &mask);
-        self.strip_generator.generate_filled_path(
+        let clip_path = self.clip_context.get();
+        let strip_generator = &mut self.strip_generator;
+        let strip_storage = &mut self.strip_storage;
+        strip_generator.generate_filled_path(
             path,
             fill_rule,
             transform,
             aliasing_threshold,
-            &mut self.strip_storage,
-            None,
+            strip_storage,
+            clip_path,
         );
-        self.bucketer.generate(&self.strip_storage.strips, paint);
+        self.bucketer
+            .generate(&self.strip_storage.strips, paint, blend_mode, mask);
     }
 
     fn stroke_path(
@@ -134,16 +128,19 @@ impl Dispatcher for SingleThreadedDispatcher {
         mask: Option<Mask>,
         _encoded_paints: &[EncodedPaint],
     ) {
-        self.assert_supported(&paint, blend_mode, &mask);
-        self.strip_generator.generate_stroked_path(
+        let clip_path = self.clip_context.get();
+        let strip_generator = &mut self.strip_generator;
+        let strip_storage = &mut self.strip_storage;
+        strip_generator.generate_stroked_path(
             path,
             stroke,
             transform,
             aliasing_threshold,
-            &mut self.strip_storage,
-            None,
+            strip_storage,
+            clip_path,
         );
-        self.bucketer.generate(&self.strip_storage.strips, paint);
+        self.bucketer
+            .generate(&self.strip_storage.strips, paint, blend_mode, mask);
     }
 
     fn fill_rect_fast(
@@ -154,24 +151,32 @@ impl Dispatcher for SingleThreadedDispatcher {
         mask: Option<Mask>,
         _encoded_paints: &[EncodedPaint],
     ) {
-        self.assert_supported(&paint, blend_mode, &mask);
-        self.strip_generator
-            .generate_filled_rect_fast(rect, &mut self.strip_storage, None);
-        self.bucketer.generate(&self.strip_storage.strips, paint);
+        let clip_path = self.clip_context.get();
+        let strip_generator = &mut self.strip_generator;
+        let strip_storage = &mut self.strip_storage;
+        strip_generator.generate_filled_rect_fast(rect, strip_storage, clip_path);
+        self.bucketer
+            .generate(&self.strip_storage.strips, paint, blend_mode, mask);
     }
 
     fn push_clip_path(
         &mut self,
-        _path: &BezPath,
-        _fill_rule: Fill,
-        _transform: Affine,
-        _aliasing_threshold: Option<u8>,
+        path: &BezPath,
+        fill_rule: Fill,
+        transform: Affine,
+        aliasing_threshold: Option<u8>,
     ) {
-        unimplemented!("row-bucket prototype does not support clip paths");
+        self.clip_context.push_clip(
+            path,
+            &mut self.strip_generator,
+            fill_rule,
+            transform,
+            aliasing_threshold,
+        );
     }
 
     fn pop_clip_path(&mut self) {
-        unimplemented!("row-bucket prototype does not support clip paths");
+        self.clip_context.pop_clip();
     }
 
     fn push_layer(
@@ -194,6 +199,7 @@ impl Dispatcher for SingleThreadedDispatcher {
 
     fn reset(&mut self) {
         self.bucketer.reset();
+        self.clip_context.reset();
         self.strip_generator.reset();
         self.strip_storage.clear();
     }
