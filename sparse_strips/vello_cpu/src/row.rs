@@ -73,14 +73,6 @@ pub(crate) struct AlphaFillCmd {
     pub(crate) attrs_idx: u32,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct OpaqueCmd {
-    pub(crate) x: u16,
-    pub(crate) width: u16,
-    pub(crate) color: PremulColor,
-    pub(crate) path_id: u32,
-}
-
 #[derive(Debug, Clone)]
 pub(crate) struct FillAttrs {
     pub(crate) paint: Paint,
@@ -92,7 +84,7 @@ pub(crate) struct FillAttrs {
 #[derive(Debug, Default)]
 pub(crate) struct RowCommands {
     pub(crate) cmds: Vec<Cmd>,
-    pub(crate) opaque: Vec<OpaqueCmd>,
+    pub(crate) opaque: Vec<FillCmd>,
     bounds: Option<(u16, u16)>,
 }
 
@@ -108,7 +100,7 @@ impl RowCommands {
         self.cmds.push(cmd);
     }
 
-    fn push_opaque(&mut self, cmd: OpaqueCmd, width: u16) {
+    fn push_opaque(&mut self, cmd: FillCmd, width: u16) {
         self.include_bounds(cmd.x, cmd.width, width);
         self.opaque.push(cmd);
     }
@@ -172,6 +164,7 @@ impl CommandBucketer {
         paint: Paint,
         blend_mode: BlendMode,
         mask: Option<Mask>,
+        encoded_paints: &[EncodedPaint],
     ) {
         if strip_buf.is_empty() {
             return;
@@ -231,9 +224,9 @@ impl CommandBucketer {
                         fill_x0,
                         fill_x1 - fill_x0,
                         &paint,
-                        path_id,
                         attrs_idx,
                         can_depth_cull,
+                        encoded_paints,
                     );
                 }
             }
@@ -246,36 +239,12 @@ impl CommandBucketer {
         x: u16,
         width: u16,
         paint: &Paint,
-        path_id: u32,
         attrs_idx: u32,
         can_depth_cull: bool,
+        encoded_paints: &[EncodedPaint],
     ) {
         let row = &mut self.rows[row_idx];
-        if !can_depth_cull {
-            row.push_cmd(
-                Cmd::Fill(FillCmd {
-                    x,
-                    width,
-                    attrs_idx,
-                }),
-                self.width,
-            );
-            return;
-        }
-
-        let Paint::Solid(color) = paint else {
-            row.push_cmd(
-                Cmd::Fill(FillCmd {
-                    x,
-                    width,
-                    attrs_idx,
-                }),
-                self.width,
-            );
-            return;
-        };
-
-        if !color.is_opaque() {
+        if !can_depth_cull || !paint_is_opaque(paint, encoded_paints) {
             row.push_cmd(
                 Cmd::Fill(FillCmd {
                     x,
@@ -316,11 +285,10 @@ impl CommandBucketer {
 
         if aligned_x < aligned_end {
             row.push_opaque(
-                OpaqueCmd {
+                FillCmd {
                     x: aligned_x,
                     width: aligned_end - aligned_x,
-                    color: *color,
-                    path_id,
+                    attrs_idx,
                 },
                 self.width,
             );
@@ -336,6 +304,18 @@ impl CommandBucketer {
                 self.width,
             );
         }
+    }
+}
+
+fn paint_is_opaque(paint: &Paint, encoded_paints: &[EncodedPaint]) -> bool {
+    match paint {
+        Paint::Solid(color) => color.is_opaque(),
+        Paint::Indexed(index) => match &encoded_paints[index.index()] {
+            EncodedPaint::Gradient(gradient) => !gradient.may_have_transparency,
+            EncodedPaint::Image(image) => !image.may_have_transparency,
+            EncodedPaint::ExternalTexture(texture) => !texture.may_have_transparency,
+            EncodedPaint::BlurredRoundedRect(_) => false,
+        },
     }
 }
 
@@ -592,7 +572,15 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
         );
     }
 
-    fn render_opaque(&mut self, cmd: OpaqueCmd) {
+    fn render_opaque(
+        &mut self,
+        cmd: FillCmd,
+        row_y: u16,
+        attrs: &[FillAttrs],
+        encoded_paints: &[EncodedPaint],
+        image_resolver: &dyn ImageResolver,
+    ) {
+        let attrs = &attrs[cmd.attrs_idx as usize];
         let start = usize::from(cmd.x / DEPTH_BUCKET_WIDTH);
         let end = usize::from((cmd.x + cmd.width) / DEPTH_BUCKET_WIDTH);
 
@@ -603,9 +591,22 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
             |this, run| {
                 let x = (run.start as u16) * DEPTH_BUCKET_WIDTH;
                 let width = (run.end - run.start) as u16 * DEPTH_BUCKET_WIDTH;
-                this.fill_solid(x, width, cmd.color, None);
+                match &attrs.paint {
+                    Paint::Solid(color) => this.fill_solid(x, width, *color, None),
+                    Paint::Indexed(index) => this.fill_indexed(
+                        x,
+                        row_y,
+                        width,
+                        index.index(),
+                        attrs.blend_mode,
+                        attrs.mask.as_ref(),
+                        encoded_paints,
+                        image_resolver,
+                        None,
+                    ),
+                }
                 for depth in &mut this.depth[run.start..run.end] {
-                    *depth = cmd.path_id;
+                    *depth = attrs.path_id;
                 }
             },
         );
@@ -1094,7 +1095,7 @@ pub(crate) fn rasterize<S: Simd, T: RowRenderKernel<S>>(
         fine.clear_range(row_start, row_end - row_start);
 
         for &cmd in row.opaque.iter().rev() {
-            fine.render_opaque(cmd);
+            fine.render_opaque(cmd, row_y, bucketer.attrs(), encoded_paints, image_resolver);
         }
         for &cmd in &row.cmds {
             fine.render_cmd(
@@ -1114,10 +1115,13 @@ pub(crate) fn rasterize<S: Simd, T: RowRenderKernel<S>>(
 #[cfg(test)]
 mod tests {
     use super::{Cmd, CommandBucketer};
+    use alloc::vec::Vec;
     use vello_common::color::palette::css::{BLUE, RED};
     use vello_common::color::{AlphaColor, Srgb};
+    use vello_common::encode::EncodeExt;
+    use vello_common::kurbo::Affine;
     use vello_common::paint::{Paint, PremulColor};
-    use vello_common::peniko::BlendMode;
+    use vello_common::peniko::{BlendMode, ColorStop, Gradient};
     use vello_common::strip::Strip;
 
     fn color(alpha: AlphaColor<Srgb>) -> PremulColor {
@@ -1134,7 +1138,28 @@ mod tests {
             Paint::Solid(color(RED)),
             BlendMode::default(),
             None,
+            &[],
         );
+
+        let row = &bucketer.rows()[0];
+        assert_eq!(row.opaque.len(), 1);
+        assert_eq!(row.opaque[0].x, 32);
+        assert_eq!(row.opaque[0].width, 64);
+        assert_eq!(row.cmds.len(), 2);
+        assert!(matches!(row.cmds[0], Cmd::Fill(cmd) if cmd.x == 3 && cmd.width == 29));
+        assert!(matches!(row.cmds[1], Cmd::Fill(cmd) if cmd.x == 96 && cmd.width == 4));
+    }
+
+    #[test]
+    fn opaque_indexed_fill_splits_to_aligned_middle() {
+        let mut bucketer = CommandBucketer::new(128, 4);
+        let strips = [Strip::new(3, 0, 0, false), Strip::new(100, 0, 0, true)];
+        let mut encoded_paints = Vec::new();
+        let paint = Gradient::new_linear((0., 0.), (128., 0.))
+            .with_stops([ColorStop::from((0.0, RED)), ColorStop::from((1.0, BLUE))])
+            .encode_into(&mut encoded_paints, Affine::IDENTITY, None);
+
+        bucketer.generate(&strips, paint, BlendMode::default(), None, &encoded_paints);
 
         let row = &bucketer.rows()[0];
         assert_eq!(row.opaque.len(), 1);
@@ -1155,6 +1180,7 @@ mod tests {
             Paint::Solid(color(AlphaColor::from_rgba8(255, 0, 0, 128))),
             BlendMode::default(),
             None,
+            &[],
         );
 
         let row = &bucketer.rows()[0];
@@ -1173,6 +1199,7 @@ mod tests {
             Paint::Solid(color(BLUE)),
             BlendMode::default(),
             None,
+            &[],
         );
 
         let row = &bucketer.rows()[0];
@@ -1193,6 +1220,7 @@ mod tests {
             Paint::Solid(color(RED)),
             BlendMode::default(),
             None,
+            &[],
         );
 
         let row = &bucketer.rows()[0];
