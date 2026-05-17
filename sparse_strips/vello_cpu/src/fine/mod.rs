@@ -541,6 +541,10 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     ///
     /// This is the main dispatch method that processes different command types including
     /// fills, clips, blends, filters, masks, and buffer operations.
+    #[allow(
+        dead_code,
+        reason = "the row-bucket prototype bypasses wide-tile commands"
+    )]
     pub(crate) fn run_cmd(
         &mut self,
         cmd: &Cmd,
@@ -926,6 +930,10 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     /// This pops the top buffer from the blend stack and composites it onto the
     /// buffer below using the specified blend mode. This is the core operation for
     /// layer composition.
+    #[allow(
+        dead_code,
+        reason = "the row-bucket prototype bypasses wide-tile commands"
+    )]
     pub(crate) fn blend(&mut self, blend_mode: BlendMode) {
         let (source_buffer, rest) = self.blend_buf.split_last_mut().unwrap();
         let target_buffer = rest.last_mut().unwrap();
@@ -954,6 +962,10 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     ///
     /// Uses the top buffer's alpha channel as a mask, multiplying it with the buffer
     /// below. This implements clipping by masking out pixels outside the clip region.
+    #[allow(
+        dead_code,
+        reason = "the row-bucket prototype bypasses wide-tile commands"
+    )]
     fn clip(&mut self, x: usize, width: usize, alphas: Option<&[u8]>) {
         let (source_buffer, rest) = self.blend_buf.split_last_mut().unwrap();
         let target_buffer = rest.last_mut().unwrap();
