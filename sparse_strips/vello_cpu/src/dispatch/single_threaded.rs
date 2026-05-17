@@ -100,7 +100,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
-        _encoded_paints: &[EncodedPaint],
+        encoded_paints: &[EncodedPaint],
     ) {
         let clip_path = self.clip_context.get();
         let strip_generator = &mut self.strip_generator;
@@ -113,8 +113,13 @@ impl Dispatcher for SingleThreadedDispatcher {
             strip_storage,
             clip_path,
         );
-        self.bucketer
-            .generate(&self.strip_storage.strips, paint, blend_mode, mask);
+        self.bucketer.generate(
+            &self.strip_storage.strips,
+            paint,
+            blend_mode,
+            mask,
+            encoded_paints,
+        );
     }
 
     fn stroke_path(
@@ -126,7 +131,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
-        _encoded_paints: &[EncodedPaint],
+        encoded_paints: &[EncodedPaint],
     ) {
         let clip_path = self.clip_context.get();
         let strip_generator = &mut self.strip_generator;
@@ -139,8 +144,13 @@ impl Dispatcher for SingleThreadedDispatcher {
             strip_storage,
             clip_path,
         );
-        self.bucketer
-            .generate(&self.strip_storage.strips, paint, blend_mode, mask);
+        self.bucketer.generate(
+            &self.strip_storage.strips,
+            paint,
+            blend_mode,
+            mask,
+            encoded_paints,
+        );
     }
 
     fn fill_rect_fast(
@@ -149,14 +159,19 @@ impl Dispatcher for SingleThreadedDispatcher {
         paint: Paint,
         blend_mode: BlendMode,
         mask: Option<Mask>,
-        _encoded_paints: &[EncodedPaint],
+        encoded_paints: &[EncodedPaint],
     ) {
         let clip_path = self.clip_context.get();
         let strip_generator = &mut self.strip_generator;
         let strip_storage = &mut self.strip_storage;
         strip_generator.generate_filled_rect_fast(rect, strip_storage, clip_path);
-        self.bucketer
-            .generate(&self.strip_storage.strips, paint, blend_mode, mask);
+        self.bucketer.generate(
+            &self.strip_storage.strips,
+            paint,
+            blend_mode,
+            mask,
+            encoded_paints,
+        );
     }
 
     fn push_clip_path(
