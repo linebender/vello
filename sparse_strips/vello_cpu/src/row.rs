@@ -81,18 +81,32 @@ pub(crate) struct FillAttrs {
     pub(crate) path_id: u32,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct RowCommands {
     pub(crate) cmds: Vec<Cmd>,
     pub(crate) opaque: Vec<FillCmd>,
     bounds: Option<(u16, u16)>,
+    opaque_bounds: Option<(u16, u16)>,
+    max_opaque_path_id: u32,
 }
 
 impl RowCommands {
+    fn new() -> Self {
+        Self {
+            cmds: Vec::new(),
+            opaque: Vec::new(),
+            bounds: None,
+            opaque_bounds: None,
+            max_opaque_path_id: 0,
+        }
+    }
+
     fn clear(&mut self) {
         self.cmds.clear();
         self.opaque.clear();
         self.bounds = None;
+        self.opaque_bounds = None;
+        self.max_opaque_path_id = 0;
     }
 
     fn push_cmd(&mut self, cmd: Cmd, width: u16) {
@@ -100,13 +114,32 @@ impl RowCommands {
         self.cmds.push(cmd);
     }
 
-    fn push_opaque(&mut self, cmd: FillCmd, width: u16) {
+    fn push_opaque(&mut self, cmd: FillCmd, width: u16, path_id: u32) {
         self.include_bounds(cmd.x, cmd.width, width);
+        self.include_opaque_bounds(cmd.x, cmd.width, width);
+        self.max_opaque_path_id = self.max_opaque_path_id.max(path_id);
         self.opaque.push(cmd);
     }
 
     fn bounds(&self) -> Option<(u16, u16)> {
         self.bounds
+    }
+
+    fn depth_affects(&self, x: u16, cmd_width: u16, path_id: u32) -> bool {
+        if path_id >= self.max_opaque_path_id {
+            return false;
+        }
+
+        let Some((opaque_start, opaque_end)) = self.opaque_bounds else {
+            return false;
+        };
+
+        let end = x.saturating_add(cmd_width);
+        if x >= opaque_end || end <= opaque_start {
+            return false;
+        }
+
+        true
     }
 
     fn include_bounds(&mut self, x: u16, cmd_width: u16, width: u16) {
@@ -117,6 +150,19 @@ impl RowCommands {
         }
 
         self.bounds = Some(match self.bounds {
+            Some((old_start, old_end)) => (old_start.min(start), old_end.max(end)),
+            None => (start, end),
+        });
+    }
+
+    fn include_opaque_bounds(&mut self, x: u16, cmd_width: u16, width: u16) {
+        let start = x.min(width);
+        let end = start.saturating_add(cmd_width).min(width);
+        if start >= end {
+            return;
+        }
+
+        self.opaque_bounds = Some(match self.opaque_bounds {
             Some((old_start, old_end)) => (old_start.min(start), old_end.max(end)),
             None => (start, end),
         });
@@ -136,7 +182,7 @@ impl CommandBucketer {
         let num_rows = height.div_ceil(Tile::HEIGHT) as usize;
         Self {
             width,
-            rows: (0..num_rows).map(|_| RowCommands::default()).collect(),
+            rows: (0..num_rows).map(|_| RowCommands::new()).collect(),
             attrs: Vec::new(),
             next_path_id: 1,
         }
@@ -224,6 +270,7 @@ impl CommandBucketer {
                         fill_x0,
                         fill_x1 - fill_x0,
                         &paint,
+                        path_id,
                         attrs_idx,
                         can_depth_cull,
                         encoded_paints,
@@ -239,6 +286,7 @@ impl CommandBucketer {
         x: u16,
         width: u16,
         paint: &Paint,
+        path_id: u32,
         attrs_idx: u32,
         can_depth_cull: bool,
         encoded_paints: &[EncodedPaint],
@@ -291,6 +339,7 @@ impl CommandBucketer {
                     attrs_idx,
                 },
                 self.width,
+                path_id,
             );
         }
 
@@ -572,31 +621,26 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
         );
     }
 
+    #[inline(always)]
     fn render_opaque(
         &mut self,
         cmd: FillCmd,
         row_y: u16,
-        attrs: &[FillAttrs],
+        attrs: &FillAttrs,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
-        let attrs = &attrs[cmd.attrs_idx as usize];
         let start = usize::from(cmd.x / DEPTH_BUCKET_WIDTH);
         let end = usize::from((cmd.x + cmd.width) / DEPTH_BUCKET_WIDTH);
 
-        self.for_depth_runs(
-            start,
-            end,
-            |depth| *depth == 0,
-            |this, run| {
-                let x = (run.start as u16) * DEPTH_BUCKET_WIDTH;
-                let width = (run.end - run.start) as u16 * DEPTH_BUCKET_WIDTH;
+        if start + 1 == end {
+            if self.depth[start] == 0 {
                 match &attrs.paint {
-                    Paint::Solid(color) => this.fill_solid(x, width, *color, None),
-                    Paint::Indexed(index) => this.fill_indexed(
-                        x,
+                    Paint::Solid(color) => self.fill_solid(cmd.x, cmd.width, *color, None),
+                    Paint::Indexed(index) => self.fill_indexed(
+                        cmd.x,
                         row_y,
-                        width,
+                        cmd.width,
                         index.index(),
                         attrs.blend_mode,
                         attrs.mask.as_ref(),
@@ -605,21 +649,58 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
                         None,
                     ),
                 }
-                for depth in &mut this.depth[run.start..run.end] {
-                    *depth = attrs.path_id;
-                }
-            },
-        );
+                self.depth[start] = attrs.path_id;
+            }
+            return;
+        }
+
+        let mut idx = start;
+        while idx < end {
+            while idx < end && self.depth[idx] != 0 {
+                idx += 1;
+            }
+
+            let run_start = idx;
+            while idx < end && self.depth[idx] == 0 {
+                idx += 1;
+            }
+
+            if run_start == idx {
+                continue;
+            }
+
+            let x = (run_start as u16) * DEPTH_BUCKET_WIDTH;
+            let width = (idx - run_start) as u16 * DEPTH_BUCKET_WIDTH;
+            match &attrs.paint {
+                Paint::Solid(color) => self.fill_solid(x, width, *color, None),
+                Paint::Indexed(index) => self.fill_indexed(
+                    x,
+                    row_y,
+                    width,
+                    index.index(),
+                    attrs.blend_mode,
+                    attrs.mask.as_ref(),
+                    encoded_paints,
+                    image_resolver,
+                    None,
+                ),
+            }
+            for depth in &mut self.depth[run_start..idx] {
+                *depth = attrs.path_id;
+            }
+        }
     }
 
+    #[inline(always)]
     fn render_cmd(
         &mut self,
         cmd: Cmd,
         row_y: u16,
         alphas: &[u8],
-        attrs: &[FillAttrs],
+        attrs: &FillAttrs,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
+        use_depth: bool,
     ) {
         let cmd_x = cmd.x();
         let cmd_end = (cmd_x + cmd.width()).min(self.width);
@@ -627,151 +708,132 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
             return;
         }
 
-        let attrs = &attrs[cmd.attrs_idx() as usize];
+        if !use_depth {
+            self.render_cmd_span(
+                cmd,
+                cmd_x,
+                cmd_end,
+                row_y,
+                alphas,
+                attrs,
+                encoded_paints,
+                image_resolver,
+            );
+            return;
+        }
+
         let start = usize::from(cmd_x / DEPTH_BUCKET_WIDTH);
         let end = usize::from(cmd_end.div_ceil(DEPTH_BUCKET_WIDTH));
-        self.for_visible_runs(attrs.path_id, start, end, |this, run| {
-            let x = cmd_x.max(run.start as u16 * DEPTH_BUCKET_WIDTH);
-            let end = cmd_end.min(run.end as u16 * DEPTH_BUCKET_WIDTH);
-            match cmd {
-                Cmd::Fill(_) => match &attrs.paint {
-                    Paint::Solid(color) => this.fill_solid_with_attrs(
+
+        if start + 1 == end {
+            if self.depth[start] <= attrs.path_id {
+                self.render_cmd_span(
+                    cmd,
+                    cmd_x,
+                    cmd_end,
+                    row_y,
+                    alphas,
+                    attrs,
+                    encoded_paints,
+                    image_resolver,
+                );
+            }
+            return;
+        }
+
+        let mut idx = start;
+        while idx < end {
+            while idx < end && self.depth[idx] > attrs.path_id {
+                idx += 1;
+            }
+
+            let run_start = idx;
+            while idx < end && self.depth[idx] <= attrs.path_id {
+                idx += 1;
+            }
+
+            if run_start == idx {
+                continue;
+            }
+
+            let x = cmd_x.max(run_start as u16 * DEPTH_BUCKET_WIDTH);
+            let end = cmd_end.min(idx as u16 * DEPTH_BUCKET_WIDTH);
+            self.render_cmd_span(
+                cmd,
+                x,
+                end,
+                row_y,
+                alphas,
+                attrs,
+                encoded_paints,
+                image_resolver,
+            );
+        }
+    }
+
+    #[inline(always)]
+    fn render_cmd_span(
+        &mut self,
+        cmd: Cmd,
+        x: u16,
+        end: u16,
+        row_y: u16,
+        alphas: &[u8],
+        attrs: &FillAttrs,
+        encoded_paints: &[EncodedPaint],
+        image_resolver: &dyn ImageResolver,
+    ) {
+        match cmd {
+            Cmd::Fill(_) => match &attrs.paint {
+                Paint::Solid(color) => self.fill_solid_with_attrs(
+                    x,
+                    row_y,
+                    end - x,
+                    *color,
+                    attrs.blend_mode,
+                    attrs.mask.as_ref(),
+                    None,
+                ),
+                Paint::Indexed(index) => self.fill_indexed(
+                    x,
+                    row_y,
+                    end - x,
+                    index.index(),
+                    attrs.blend_mode,
+                    attrs.mask.as_ref(),
+                    encoded_paints,
+                    image_resolver,
+                    None,
+                ),
+            },
+            Cmd::AlphaFill(fill) => {
+                let alpha_offset =
+                    fill.alpha_idx as usize + usize::from(x - fill.x) * Tile::HEIGHT as usize;
+                match &attrs.paint {
+                    Paint::Solid(color) => self.fill_solid_with_attrs(
                         x,
                         row_y,
                         end - x,
                         *color,
                         attrs.blend_mode,
                         attrs.mask.as_ref(),
-                        None,
+                        Some(&alphas[alpha_offset..]),
                     ),
-                    Paint::Indexed(index) => this.fill_indexed(
-                        x,
-                        row_y,
-                        end - x,
-                        index.index(),
-                        attrs.blend_mode,
-                        attrs.mask.as_ref(),
-                        encoded_paints,
-                        image_resolver,
-                        None,
-                    ),
-                },
-                Cmd::AlphaFill(fill) => {
-                    let alpha_offset =
-                        fill.alpha_idx as usize + usize::from(x - fill.x) * Tile::HEIGHT as usize;
-                    match &attrs.paint {
-                        Paint::Solid(color) => this.fill_solid_with_attrs(
+                    Paint::Indexed(index) => {
+                        self.fill_indexed(
                             x,
                             row_y,
                             end - x,
-                            *color,
+                            index.index(),
                             attrs.blend_mode,
                             attrs.mask.as_ref(),
+                            encoded_paints,
+                            image_resolver,
                             Some(&alphas[alpha_offset..]),
-                        ),
-                        Paint::Indexed(index) => {
-                            this.fill_indexed(
-                                x,
-                                row_y,
-                                end - x,
-                                index.index(),
-                                attrs.blend_mode,
-                                attrs.mask.as_ref(),
-                                encoded_paints,
-                                image_resolver,
-                                Some(&alphas[alpha_offset..]),
-                            );
-                        }
+                        );
                     }
                 }
             }
-        });
-    }
-
-    fn for_depth_runs<P, F>(&mut self, start: usize, end: usize, mut predicate: P, mut f: F)
-    where
-        P: FnMut(&u32) -> bool,
-        F: FnMut(&mut Self, core::ops::Range<usize>),
-    {
-        let mut run_start = None;
-        let mut idx = start;
-        while idx < end {
-            if idx + 4 <= end {
-                let chunk = u32x4::from_slice(self.simd, &self.depth[idx..idx + 4]);
-                let selected = self.simd.select_u32x4(
-                    chunk.simd_eq(u32x4::splat(self.simd, 0)),
-                    u32x4::splat(self.simd, 1),
-                    u32x4::splat(self.simd, 0),
-                );
-                let all_zero = selected[0] + selected[1] + selected[2] + selected[3] == 4;
-                if all_zero && predicate(&0) {
-                    if run_start.is_none() {
-                        run_start = Some(idx);
-                    }
-                    idx += 4;
-                    continue;
-                }
-            }
-
-            if predicate(&self.depth[idx]) {
-                if run_start.is_none() {
-                    run_start = Some(idx);
-                }
-            } else if let Some(start) = run_start.take() {
-                f(self, start..idx);
-            }
-            idx += 1;
-        }
-
-        if let Some(start) = run_start {
-            f(self, start..end);
-        }
-    }
-
-    fn for_visible_runs<F>(&mut self, path_id: u32, start: usize, end: usize, mut f: F)
-    where
-        F: FnMut(&mut Self, core::ops::Range<usize>),
-    {
-        let mut run_start = None;
-        let mut idx = start;
-        while idx < end {
-            if idx + 4 <= end {
-                let chunk = u32x4::from_slice(self.simd, &self.depth[idx..idx + 4]);
-                let hidden = self.simd.select_u32x4(
-                    self.simd
-                        .simd_lt_u32x4(u32x4::splat(self.simd, path_id), chunk),
-                    u32x4::splat(self.simd, 1),
-                    u32x4::splat(self.simd, 0),
-                );
-                let hidden_count = hidden[0] + hidden[1] + hidden[2] + hidden[3];
-                if hidden_count == 0 {
-                    if run_start.is_none() {
-                        run_start = Some(idx);
-                    }
-                    idx += 4;
-                    continue;
-                }
-                if hidden_count == 4 {
-                    if let Some(start) = run_start.take() {
-                        f(self, start..idx);
-                    }
-                    idx += 4;
-                    continue;
-                }
-            }
-
-            if self.depth[idx] <= path_id {
-                if run_start.is_none() {
-                    run_start = Some(idx);
-                }
-            } else if let Some(start) = run_start.take() {
-                f(self, start..idx);
-            }
-            idx += 1;
-        }
-
-        if let Some(start) = run_start {
-            f(self, start..end);
         }
     }
 
@@ -1095,16 +1157,20 @@ pub(crate) fn rasterize<S: Simd, T: RowRenderKernel<S>>(
         fine.clear_range(row_start, row_end - row_start);
 
         for &cmd in row.opaque.iter().rev() {
-            fine.render_opaque(cmd, row_y, bucketer.attrs(), encoded_paints, image_resolver);
+            let attrs = &bucketer.attrs()[cmd.attrs_idx as usize];
+            fine.render_opaque(cmd, row_y, attrs, encoded_paints, image_resolver);
         }
         for &cmd in &row.cmds {
+            let attrs = &bucketer.attrs()[cmd.attrs_idx() as usize];
+            let use_depth = row.depth_affects(cmd.x(), cmd.width(), attrs.path_id);
             fine.render_cmd(
                 cmd,
                 row_y,
                 alphas,
-                bucketer.attrs(),
+                attrs,
                 encoded_paints,
                 image_resolver,
+                use_depth,
             );
         }
 
