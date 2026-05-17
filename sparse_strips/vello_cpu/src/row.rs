@@ -11,7 +11,6 @@ use alloc::vec::Vec;
 #[cfg(feature = "u8_pipeline")]
 use bytemuck::cast_slice;
 use core::marker::PhantomData;
-use vello_common::color::palette::css::TRANSPARENT;
 use vello_common::fearless_simd::*;
 use vello_common::paint::{Paint, PremulColor};
 use vello_common::strip::Strip;
@@ -80,12 +79,41 @@ pub(crate) struct OpaqueCmd {
 pub(crate) struct RowCommands {
     pub(crate) cmds: Vec<Cmd>,
     pub(crate) opaque: Vec<OpaqueCmd>,
+    bounds: Option<(u16, u16)>,
 }
 
 impl RowCommands {
     fn clear(&mut self) {
         self.cmds.clear();
         self.opaque.clear();
+        self.bounds = None;
+    }
+
+    fn push_cmd(&mut self, cmd: Cmd, width: u16) {
+        self.include_bounds(cmd.x(), cmd.width(), width);
+        self.cmds.push(cmd);
+    }
+
+    fn push_opaque(&mut self, cmd: OpaqueCmd, width: u16) {
+        self.include_bounds(cmd.x, cmd.width, width);
+        self.opaque.push(cmd);
+    }
+
+    fn bounds(&self) -> Option<(u16, u16)> {
+        self.bounds
+    }
+
+    fn include_bounds(&mut self, x: u16, cmd_width: u16, width: u16) {
+        let start = x.min(width);
+        let end = start.saturating_add(cmd_width).min(width);
+        if start >= end {
+            return;
+        }
+
+        self.bounds = Some(match self.bounds {
+            Some((old_start, old_end)) => (old_start.min(start), old_end.max(end)),
+            None => (start, end),
+        });
     }
 }
 
@@ -152,13 +180,16 @@ impl CommandBucketer {
             let clipped_x1 = x1.min(self.width);
 
             if x0 < clipped_x1 {
-                self.rows[row_idx].cmds.push(Cmd::AlphaFill(AlphaFillCmd {
-                    x: x0,
-                    width: clipped_x1 - x0,
-                    alpha_idx: strip.alpha_idx(),
-                    color,
-                    path_id,
-                }));
+                self.rows[row_idx].push_cmd(
+                    Cmd::AlphaFill(AlphaFillCmd {
+                        x: x0,
+                        width: clipped_x1 - x0,
+                        alpha_idx: strip.alpha_idx(),
+                        color,
+                        path_id,
+                    }),
+                    self.width,
+                );
             }
 
             if next_strip.fill_gap() && strip.strip_y() == next_strip.strip_y() {
@@ -174,12 +205,15 @@ impl CommandBucketer {
     fn push_fill(&mut self, row_idx: usize, x: u16, width: u16, color: PremulColor, path_id: u32) {
         let row = &mut self.rows[row_idx];
         if !color.is_opaque() {
-            row.cmds.push(Cmd::Fill(FillCmd {
-                x,
-                width,
-                color,
-                path_id,
-            }));
+            row.push_cmd(
+                Cmd::Fill(FillCmd {
+                    x,
+                    width,
+                    color,
+                    path_id,
+                }),
+                self.width,
+            );
             return;
         }
 
@@ -188,40 +222,52 @@ impl CommandBucketer {
         let aligned_end = (end / DEPTH_BUCKET_WIDTH) * DEPTH_BUCKET_WIDTH;
 
         if aligned_x >= aligned_end {
-            row.cmds.push(Cmd::Fill(FillCmd {
-                x,
-                width,
-                color,
-                path_id,
-            }));
+            row.push_cmd(
+                Cmd::Fill(FillCmd {
+                    x,
+                    width,
+                    color,
+                    path_id,
+                }),
+                self.width,
+            );
             return;
         }
 
         if x < aligned_x {
-            row.cmds.push(Cmd::Fill(FillCmd {
-                x,
-                width: aligned_x - x,
-                color,
-                path_id,
-            }));
+            row.push_cmd(
+                Cmd::Fill(FillCmd {
+                    x,
+                    width: aligned_x - x,
+                    color,
+                    path_id,
+                }),
+                self.width,
+            );
         }
 
         if aligned_x < aligned_end {
-            row.opaque.push(OpaqueCmd {
-                x: aligned_x,
-                width: aligned_end - aligned_x,
-                color,
-                path_id,
-            });
+            row.push_opaque(
+                OpaqueCmd {
+                    x: aligned_x,
+                    width: aligned_end - aligned_x,
+                    color,
+                    path_id,
+                },
+                self.width,
+            );
         }
 
         if aligned_end < end {
-            row.cmds.push(Cmd::Fill(FillCmd {
-                x: aligned_end,
-                width: end - aligned_end,
-                color,
-                path_id,
-            }));
+            row.push_cmd(
+                Cmd::Fill(FillCmd {
+                    x: aligned_end,
+                    width: end - aligned_end,
+                    color,
+                    path_id,
+                }),
+                self.width,
+            );
         }
     }
 }
@@ -232,6 +278,7 @@ pub(crate) trait RowRenderKernel<S: Simd>: FineKernel<S> {
     fn pack_prefix(
         simd: S,
         scratch: &[Self::Numeric],
+        x: usize,
         width: usize,
         out_width: usize,
         out: &mut [u8],
@@ -257,6 +304,7 @@ impl<S: Simd> RowRenderKernel<S> for U8Kernel {
     fn pack_prefix(
         simd: S,
         scratch: &[Self::Numeric],
+        x: usize,
         width: usize,
         out_width: usize,
         out: &mut [u8],
@@ -264,7 +312,7 @@ impl<S: Simd> RowRenderKernel<S> for U8Kernel {
         simd.vectorize(
             #[inline(always)]
             || {
-                pack_u8_prefix(simd, scratch, width, out_width, out);
+                pack_u8_prefix(simd, scratch, x, width, out_width, out);
             },
         );
     }
@@ -298,13 +346,14 @@ impl<S: Simd> RowRenderKernel<S> for F32Kernel {
     fn pack_prefix(
         _simd: S,
         scratch: &[Self::Numeric],
+        x: usize,
         width: usize,
         out_width: usize,
         out: &mut [u8],
     ) {
         <Self as RowRenderKernel<S>>::pack_tail(
             scratch,
-            0,
+            x,
             width,
             Tile::HEIGHT as usize,
             out_width,
@@ -357,11 +406,21 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
         }
     }
 
-    fn clear(&mut self) {
-        self.simd.vectorize(#[inline(always)] || {
-            self.scratch.fill(T::Numeric::ZERO);
-            self.depth.fill(0);
-        })
+    fn clear_range(&mut self, x: u16, width: u16) {
+        let scratch_start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
+        let scratch_len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
+        let depth_start = usize::from(x / DEPTH_BUCKET_WIDTH);
+        let depth_end = ((usize::from(x) + usize::from(width))
+            .div_ceil(usize::from(DEPTH_BUCKET_WIDTH)))
+        .min(self.depth.len());
+
+        self.simd.vectorize(
+            #[inline(always)]
+            || {
+                self.scratch[scratch_start..scratch_start + scratch_len].fill(T::Numeric::ZERO);
+                self.depth[depth_start..depth_end].fill(0);
+            },
+        )
     }
 
     fn fill(&mut self, x: u16, width: u16, color: PremulColor, alphas: Option<&[u8]>) {
@@ -508,29 +567,57 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
         }
     }
 
-    fn pack(&self, row_idx: usize, row_height: usize, buffer: &mut [u8]) {
-        let width = usize::from(self.width);
-        let offset = row_idx * Tile::HEIGHT as usize * width * COLOR_COMPONENTS;
-        let len = row_height * width * COLOR_COMPONENTS;
+    fn pack(&self, row_idx: usize, row_height: usize, x: u16, width: u16, buffer: &mut [u8]) {
+        let out_width = usize::from(self.width);
+        let offset = row_idx * Tile::HEIGHT as usize * out_width * COLOR_COMPONENTS;
+        let len = row_height * out_width * COLOR_COMPONENTS;
         let out = &mut buffer[offset..offset + len];
+        let x = usize::from(x);
+        let width = usize::from(width);
+        let end = x + width;
+
+        let prefix_start = if row_height == Tile::HEIGHT as usize {
+            x.next_multiple_of(Tile::WIDTH as usize).min(end)
+        } else {
+            end
+        };
+
+        if x < prefix_start {
+            T::pack_tail(
+                &self.scratch,
+                x,
+                prefix_start - x,
+                row_height,
+                out_width,
+                out,
+            );
+        }
 
         let prefix_width = if row_height == Tile::HEIGHT as usize {
-            width / Tile::WIDTH as usize * Tile::WIDTH as usize
+            (end - prefix_start) / Tile::WIDTH as usize * Tile::WIDTH as usize
         } else {
             0
         };
 
         if prefix_width > 0 {
-            T::pack_prefix(self.simd, &self.scratch, prefix_width, width, out);
+            T::pack_prefix(
+                self.simd,
+                &self.scratch,
+                prefix_start,
+                prefix_width,
+                out_width,
+                out,
+            );
         }
 
-        if prefix_width < width {
+        let tail_start = prefix_start + prefix_width;
+        if tail_start < end {
             T::pack_tail(
                 &self.scratch,
-                prefix_width,
-                width - prefix_width,
+                tail_start,
+                end - tail_start,
                 row_height,
-                width,
+                out_width,
                 out,
             );
         }
@@ -542,6 +629,7 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
 fn pack_u8_prefix<S: Simd>(
     simd: S,
     scratch: &[u8],
+    x: usize,
     width: usize,
     out_width: usize,
     out: &mut [u8],
@@ -554,11 +642,12 @@ fn pack_u8_prefix<S: Simd>(
     let (row2, out) = out.split_at_mut(row_stride);
     let (row3, _) = out.split_at_mut(row_stride);
 
-    for (idx, col) in scratch[..width * TILE_HEIGHT_COMPONENTS]
+    let scratch_start = x * TILE_HEIGHT_COMPONENTS;
+    for (idx, col) in scratch[scratch_start..scratch_start + width * TILE_HEIGHT_COMPONENTS]
         .chunks_exact(CHUNK_LENGTH)
         .enumerate()
     {
-        let dest_idx = idx * Tile::WIDTH as usize * COLOR_COMPONENTS;
+        let dest_idx = (x + idx * Tile::WIDTH as usize) * COLOR_COMPONENTS;
         let casted: &[u32; 16] = cast_slice::<u8, u32>(col).try_into().unwrap();
 
         let loaded = simd.load_interleaved_128_u32x16(casted).to_bytes();
@@ -581,7 +670,7 @@ pub(crate) fn rasterize<S: Simd, T: RowRenderKernel<S>>(
     height: u16,
 ) {
     let mut fine = RowFine::<S, T>::new(simd, width);
-    let transparent = PremulColor::from_alpha_color(TRANSPARENT);
+    buffer.fill(0);
 
     for (row_idx, row) in bucketer.rows().iter().enumerate() {
         let row_y = row_idx as u16 * Tile::HEIGHT;
@@ -589,8 +678,12 @@ pub(crate) fn rasterize<S: Simd, T: RowRenderKernel<S>>(
             break;
         }
 
-        fine.clear();
-        fine.fill(0, width, transparent, None);
+        let row_height = usize::from((height - row_y).min(Tile::HEIGHT));
+        let Some((row_start, row_end)) = row.bounds() else {
+            continue;
+        };
+
+        fine.clear_range(row_start, row_end - row_start);
 
         for &cmd in row.opaque.iter().rev() {
             fine.render_opaque(cmd);
@@ -599,8 +692,7 @@ pub(crate) fn rasterize<S: Simd, T: RowRenderKernel<S>>(
             fine.render_cmd(cmd, alphas);
         }
 
-        let row_height = usize::from((height - row_y).min(Tile::HEIGHT));
-        fine.pack(row_idx, row_height, buffer);
+        fine.pack(row_idx, row_height, row_start, row_end - row_start, buffer);
     }
 }
 

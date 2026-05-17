@@ -836,11 +836,12 @@ impl ImageResolver for ImageRegistry {
 
 #[cfg(test)]
 mod tests {
-    use crate::RenderContext;
     #[cfg(feature = "text")]
     use crate::peniko::{Blob, FontData};
+    use crate::{RenderContext, Resources};
     #[cfg(feature = "text")]
     use alloc::sync::Arc;
+    use alloc::vec;
     #[cfg(feature = "text")]
     use glifo::Glyph;
     use vello_common::kurbo::{Rect, Shape};
@@ -860,6 +861,26 @@ mod tests {
         ctx.flush();
     }
 
+    #[test]
+    fn render_to_buffer_clears_pixels_outside_dirty_bounds() {
+        let mut resources = Resources::new();
+        let mut ctx = RenderContext::new(16, 16);
+        let mut buffer = vec![255; 16 * 16 * 4];
+
+        ctx.fill_rect(&Rect::new(4.0, 4.0, 8.0, 8.0));
+        ctx.flush();
+        ctx.render_to_buffer(
+            &mut resources,
+            &mut buffer,
+            16,
+            16,
+            ctx.render_settings().render_mode,
+        );
+
+        assert_eq!(&buffer[..4], &[0, 0, 0, 0]);
+        assert!(buffer[(5 * 16 + 5) * 4 + 3] > 0);
+    }
+
     #[cfg(feature = "multithreading")]
     #[test]
     #[should_panic(expected = "row-bucket prototype does not support multi-threaded rendering")]
@@ -874,7 +895,7 @@ mod tests {
             render_mode: RenderMode::OptimizeQuality,
         };
 
-        let mut resources = crate::Resources::new();
+        let mut resources = Resources::new();
         let mut ctx = RenderContext::new_with(200, 200, settings);
         ctx.reset();
         ctx.fill_path(&Rect::new(0.0, 0.0, 100.0, 100.0).to_path(0.1));
@@ -898,7 +919,7 @@ mod tests {
             y: 0.0,
         }];
 
-        let mut resources = crate::Resources::new();
+        let mut resources = Resources::new();
         let mut ctx = RenderContext::new(100, 100);
 
         ctx.fill_rect(&Rect::new(0.0, 0.0, 10.0, 10.0));
