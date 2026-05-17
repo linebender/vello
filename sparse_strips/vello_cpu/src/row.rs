@@ -358,8 +358,10 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
     }
 
     fn clear(&mut self) {
-        self.scratch.fill(T::Numeric::ZERO);
-        self.depth.fill(0);
+        self.simd.vectorize(#[inline(always)] || {
+            self.scratch.fill(T::Numeric::ZERO);
+            self.depth.fill(0);
+        })
     }
 
     fn fill(&mut self, x: u16, width: u16, color: PremulColor, alphas: Option<&[u8]>) {
