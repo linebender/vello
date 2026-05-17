@@ -5,18 +5,25 @@
 use crate::fine::F32Kernel;
 #[cfg(feature = "u8_pipeline")]
 use crate::fine::U8Kernel;
-use crate::fine::{COLOR_COMPONENTS, FineKernel, Numeric, TILE_HEIGHT_COMPONENTS};
+use crate::fine::{
+    COLOR_COMPONENTS, FineKernel, Numeric, SimdLinearKind, SimdRadialKind, SimdSweepKind,
+    TILE_HEIGHT_COMPONENTS, calculate_t_vals,
+};
+use crate::peniko::ImageQuality;
+use crate::util::EncodedImageExt;
 use alloc::vec;
 use alloc::vec::Vec;
 #[cfg(feature = "u8_pipeline")]
 use bytemuck::cast_slice;
 use core::marker::PhantomData;
+use vello_common::encode::{EncodedKind, EncodedPaint};
 use vello_common::fearless_simd::*;
-use vello_common::paint::{Paint, PremulColor};
+use vello_common::paint::{ImageResolver, ImageSource, Paint, PremulColor, Tint};
 use vello_common::strip::Strip;
 use vello_common::tile::Tile;
 
 const DEPTH_BUCKET_WIDTH: u16 = 32;
+const PIXEL_CENTER_OFFSET: f64 = 0.5;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Cmd {
@@ -42,10 +49,10 @@ impl Cmd {
     }
 
     #[inline(always)]
-    fn path_id(&self) -> u32 {
+    fn attrs_idx(&self) -> u32 {
         match self {
-            Self::Fill(cmd) => cmd.path_id,
-            Self::AlphaFill(cmd) => cmd.path_id,
+            Self::Fill(cmd) => cmd.attrs_idx,
+            Self::AlphaFill(cmd) => cmd.attrs_idx,
         }
     }
 }
@@ -54,8 +61,7 @@ impl Cmd {
 pub(crate) struct FillCmd {
     pub(crate) x: u16,
     pub(crate) width: u16,
-    pub(crate) color: PremulColor,
-    pub(crate) path_id: u32,
+    pub(crate) attrs_idx: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -63,8 +69,7 @@ pub(crate) struct AlphaFillCmd {
     pub(crate) x: u16,
     pub(crate) width: u16,
     pub(crate) alpha_idx: u32,
-    pub(crate) color: PremulColor,
-    pub(crate) path_id: u32,
+    pub(crate) attrs_idx: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -72,6 +77,12 @@ pub(crate) struct OpaqueCmd {
     pub(crate) x: u16,
     pub(crate) width: u16,
     pub(crate) color: PremulColor,
+    pub(crate) path_id: u32,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct FillAttrs {
+    pub(crate) paint: Paint,
     pub(crate) path_id: u32,
 }
 
@@ -121,6 +132,7 @@ impl RowCommands {
 pub(crate) struct CommandBucketer {
     width: u16,
     rows: Vec<RowCommands>,
+    attrs: Vec<FillAttrs>,
     next_path_id: u32,
 }
 
@@ -130,6 +142,7 @@ impl CommandBucketer {
         Self {
             width,
             rows: (0..num_rows).map(|_| RowCommands::default()).collect(),
+            attrs: Vec::new(),
             next_path_id: 1,
         }
     }
@@ -138,18 +151,19 @@ impl CommandBucketer {
         &self.rows
     }
 
+    pub(crate) fn attrs(&self) -> &[FillAttrs] {
+        &self.attrs
+    }
+
     pub(crate) fn reset(&mut self) {
         for row in &mut self.rows {
             row.clear();
         }
+        self.attrs.clear();
         self.next_path_id = 1;
     }
 
     pub(crate) fn generate(&mut self, strip_buf: &[Strip], paint: Paint) {
-        let Paint::Solid(color) = paint else {
-            unimplemented!("row-bucket prototype only supports solid paints");
-        };
-
         if strip_buf.is_empty() {
             return;
         }
@@ -159,6 +173,11 @@ impl CommandBucketer {
             .next_path_id
             .checked_add(1)
             .expect("row-bucket path ID overflow");
+        let attrs_idx = self.attrs.len() as u32;
+        self.attrs.push(FillAttrs {
+            paint: paint.clone(),
+            path_id,
+        });
 
         for i in 0..strip_buf.len() - 1 {
             let strip = &strip_buf[i];
@@ -185,8 +204,7 @@ impl CommandBucketer {
                         x: x0,
                         width: clipped_x1 - x0,
                         alpha_idx: strip.alpha_idx(),
-                        color,
-                        path_id,
+                        attrs_idx,
                     }),
                     self.width,
                 );
@@ -196,21 +214,47 @@ impl CommandBucketer {
                 let fill_x0 = clipped_x1;
                 let fill_x1 = next_strip.x.min(self.width);
                 if fill_x0 < fill_x1 {
-                    self.push_fill(row_idx, fill_x0, fill_x1 - fill_x0, color, path_id);
+                    self.push_fill(
+                        row_idx,
+                        fill_x0,
+                        fill_x1 - fill_x0,
+                        &paint,
+                        path_id,
+                        attrs_idx,
+                    );
                 }
             }
         }
     }
 
-    fn push_fill(&mut self, row_idx: usize, x: u16, width: u16, color: PremulColor, path_id: u32) {
+    fn push_fill(
+        &mut self,
+        row_idx: usize,
+        x: u16,
+        width: u16,
+        paint: &Paint,
+        path_id: u32,
+        attrs_idx: u32,
+    ) {
         let row = &mut self.rows[row_idx];
+        let Paint::Solid(color) = paint else {
+            row.push_cmd(
+                Cmd::Fill(FillCmd {
+                    x,
+                    width,
+                    attrs_idx,
+                }),
+                self.width,
+            );
+            return;
+        };
+
         if !color.is_opaque() {
             row.push_cmd(
                 Cmd::Fill(FillCmd {
                     x,
                     width,
-                    color,
-                    path_id,
+                    attrs_idx,
                 }),
                 self.width,
             );
@@ -226,8 +270,7 @@ impl CommandBucketer {
                 Cmd::Fill(FillCmd {
                     x,
                     width,
-                    color,
-                    path_id,
+                    attrs_idx,
                 }),
                 self.width,
             );
@@ -239,8 +282,7 @@ impl CommandBucketer {
                 Cmd::Fill(FillCmd {
                     x,
                     width: aligned_x - x,
-                    color,
-                    path_id,
+                    attrs_idx,
                 }),
                 self.width,
             );
@@ -251,7 +293,7 @@ impl CommandBucketer {
                 OpaqueCmd {
                     x: aligned_x,
                     width: aligned_end - aligned_x,
-                    color,
+                    color: *color,
                     path_id,
                 },
                 self.width,
@@ -263,8 +305,7 @@ impl CommandBucketer {
                 Cmd::Fill(FillCmd {
                     x: aligned_end,
                     width: end - aligned_end,
-                    color,
-                    path_id,
+                    attrs_idx,
                 }),
                 self.width,
             );
@@ -389,6 +430,8 @@ pub(crate) struct RowFine<S: Simd, T: RowRenderKernel<S>> {
     simd: S,
     width: u16,
     scratch: Vec<T::Numeric>,
+    paint_buf: Vec<T::Numeric>,
+    f32_buf: Vec<f32>,
     depth: Vec<u32>,
     _marker: PhantomData<T>,
 }
@@ -401,6 +444,8 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
             simd,
             width,
             scratch: vec![T::Numeric::ZERO; scratch_len],
+            paint_buf: Vec::new(),
+            f32_buf: Vec::new(),
             depth: vec![0; usize::from(width.div_ceil(DEPTH_BUCKET_WIDTH))],
             _marker: PhantomData,
         }
@@ -423,7 +468,8 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
         )
     }
 
-    fn fill(&mut self, x: u16, width: u16, color: PremulColor, alphas: Option<&[u8]>) {
+    #[inline(always)]
+    fn fill_solid(&mut self, x: u16, width: u16, color: PremulColor, alphas: Option<&[u8]>) {
         if width == 0 {
             return;
         }
@@ -434,6 +480,41 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
             self.simd,
             &mut self.scratch[start..start + len],
             color,
+            alphas,
+        );
+    }
+
+    fn fill_indexed(
+        &mut self,
+        x: u16,
+        y: u16,
+        width: u16,
+        paint_index: usize,
+        encoded_paints: &[EncodedPaint],
+        image_resolver: &dyn ImageResolver,
+        alphas: Option<&[u8]>,
+    ) {
+        let len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
+        if self.paint_buf.len() < len {
+            self.paint_buf.resize(len, T::Numeric::ZERO);
+        }
+
+        let t_len = usize::from(width) * Tile::HEIGHT as usize;
+        if self.f32_buf.len() < t_len {
+            self.f32_buf.resize(t_len, 0.0);
+        }
+
+        fill_indexed_paint::<S, T>(
+            self.simd,
+            &mut self.scratch,
+            &mut self.paint_buf,
+            &mut self.f32_buf,
+            x,
+            y,
+            width,
+            paint_index,
+            encoded_paints,
+            image_resolver,
             alphas,
         );
     }
@@ -449,7 +530,7 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
             |this, run| {
                 let x = (run.start as u16) * DEPTH_BUCKET_WIDTH;
                 let width = (run.end - run.start) as u16 * DEPTH_BUCKET_WIDTH;
-                this.fill(x, width, cmd.color, None);
+                this.fill_solid(x, width, cmd.color, None);
                 for depth in &mut this.depth[run.start..run.end] {
                     *depth = cmd.path_id;
                 }
@@ -457,24 +538,59 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
         );
     }
 
-    fn render_cmd(&mut self, cmd: Cmd, alphas: &[u8]) {
+    fn render_cmd(
+        &mut self,
+        cmd: Cmd,
+        row_y: u16,
+        alphas: &[u8],
+        attrs: &[FillAttrs],
+        encoded_paints: &[EncodedPaint],
+        image_resolver: &dyn ImageResolver,
+    ) {
         let cmd_x = cmd.x();
         let cmd_end = (cmd_x + cmd.width()).min(self.width);
         if cmd_x >= cmd_end {
             return;
         }
 
+        let attrs = &attrs[cmd.attrs_idx() as usize];
         let start = usize::from(cmd_x / DEPTH_BUCKET_WIDTH);
         let end = usize::from(cmd_end.div_ceil(DEPTH_BUCKET_WIDTH));
-        self.for_visible_runs(cmd.path_id(), start, end, |this, run| {
+        self.for_visible_runs(attrs.path_id, start, end, |this, run| {
             let x = cmd_x.max(run.start as u16 * DEPTH_BUCKET_WIDTH);
             let end = cmd_end.min(run.end as u16 * DEPTH_BUCKET_WIDTH);
             match cmd {
-                Cmd::Fill(fill) => this.fill(x, end - x, fill.color, None),
+                Cmd::Fill(_) => match &attrs.paint {
+                    Paint::Solid(color) => this.fill_solid(x, end - x, *color, None),
+                    Paint::Indexed(index) => this.fill_indexed(
+                        x,
+                        row_y,
+                        end - x,
+                        index.index(),
+                        encoded_paints,
+                        image_resolver,
+                        None,
+                    ),
+                },
                 Cmd::AlphaFill(fill) => {
                     let alpha_offset =
                         fill.alpha_idx as usize + usize::from(x - fill.x) * Tile::HEIGHT as usize;
-                    this.fill(x, end - x, fill.color, Some(&alphas[alpha_offset..]));
+                    match &attrs.paint {
+                        Paint::Solid(color) => {
+                            this.fill_solid(x, end - x, *color, Some(&alphas[alpha_offset..]));
+                        }
+                        Paint::Indexed(index) => {
+                            this.fill_indexed(
+                                x,
+                                row_y,
+                                end - x,
+                                index.index(),
+                                encoded_paints,
+                                image_resolver,
+                                Some(&alphas[alpha_offset..]),
+                            );
+                        }
+                    }
                 }
             }
         });
@@ -624,6 +740,186 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
     }
 }
 
+fn fill_indexed_paint<S: Simd, T: RowRenderKernel<S>>(
+    simd: S,
+    scratch: &mut [T::Numeric],
+    paint_buf: &mut [T::Numeric],
+    f32_buf: &mut [f32],
+    x: u16,
+    y: u16,
+    width: u16,
+    paint_index: usize,
+    encoded_paints: &[EncodedPaint],
+    image_resolver: &dyn ImageResolver,
+    alphas: Option<&[u8]>,
+) {
+    if width == 0 {
+        return;
+    }
+
+    let width = usize::from(width);
+    let start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
+    let len = width * TILE_HEIGHT_COMPONENTS;
+    let dest = &mut scratch[start..start + len];
+    let color_buf = &mut paint_buf[..len];
+    let encoded_paint = &encoded_paints[paint_index];
+
+    let sampler_x = f64::from(x) + PIXEL_CENTER_OFFSET;
+    let sampler_y = f64::from(y) + PIXEL_CENTER_OFFSET;
+
+    macro_rules! fill_complex_paint {
+        ($may_have_transparency:expr, $filler:expr) => {
+            fill_complex_paint!($may_have_transparency, $filler, None::<&Tint>)
+        };
+        ($may_have_transparency:expr, $filler:expr, $tint:expr) => {
+            if $may_have_transparency || alphas.is_some() {
+                T::apply_painter(simd, color_buf, $filler);
+                if let Some(tint) = $tint {
+                    T::apply_tint(simd, color_buf, tint);
+                }
+                T::alpha_composite_buffer(simd, dest, color_buf, alphas);
+            } else {
+                T::apply_painter(simd, dest, $filler);
+                if let Some(tint) = $tint {
+                    T::apply_tint(simd, dest, tint);
+                }
+            }
+        };
+    }
+
+    match encoded_paint {
+        EncodedPaint::BlurredRoundedRect(rect) => {
+            fill_complex_paint!(
+                true,
+                T::blurred_rounded_rectangle_painter(simd, rect, sampler_x, sampler_y)
+            );
+        }
+        EncodedPaint::Gradient(gradient) => {
+            let t_vals = &mut f32_buf[..width * Tile::HEIGHT as usize];
+
+            match &gradient.kind {
+                EncodedKind::Linear(kind) => {
+                    calculate_t_vals(
+                        simd,
+                        SimdLinearKind::new(simd, *kind),
+                        t_vals,
+                        gradient,
+                        sampler_x,
+                        sampler_y,
+                    );
+                    fill_complex_paint!(
+                        gradient.may_have_transparency,
+                        T::gradient_painter(simd, gradient, t_vals)
+                    );
+                }
+                EncodedKind::Sweep(kind) => {
+                    calculate_t_vals(
+                        simd,
+                        SimdSweepKind::new(simd, kind),
+                        t_vals,
+                        gradient,
+                        sampler_x,
+                        sampler_y,
+                    );
+                    fill_complex_paint!(
+                        gradient.may_have_transparency,
+                        T::gradient_painter(simd, gradient, t_vals)
+                    );
+                }
+                EncodedKind::Radial(kind) => {
+                    calculate_t_vals(
+                        simd,
+                        SimdRadialKind::new(simd, kind),
+                        t_vals,
+                        gradient,
+                        sampler_x,
+                        sampler_y,
+                    );
+
+                    if kind.has_undefined() {
+                        fill_complex_paint!(
+                            gradient.may_have_transparency,
+                            T::gradient_painter_with_undefined(simd, gradient, t_vals)
+                        );
+                    } else {
+                        fill_complex_paint!(
+                            gradient.may_have_transparency,
+                            T::gradient_painter(simd, gradient, t_vals)
+                        );
+                    }
+                }
+            }
+        }
+        EncodedPaint::Image(image) => {
+            let pixmap = match &image.source {
+                ImageSource::Pixmap(pixmap) => pixmap.clone(),
+                ImageSource::OpaqueId { id, .. } => image_resolver
+                    .resolve(*id)
+                    .unwrap_or_else(|| panic!("Image {:?} not found in registry", id)),
+            };
+            let tint = image.tint.as_ref();
+
+            match (image.has_skew(), image.nearest_neighbor()) {
+                (false, false) => {
+                    if image.sampler.quality == ImageQuality::Medium {
+                        fill_complex_paint!(
+                            image.may_have_transparency,
+                            T::plain_medium_quality_image_painter(
+                                simd, image, &pixmap, sampler_x, sampler_y
+                            ),
+                            tint
+                        );
+                    } else {
+                        fill_complex_paint!(
+                            image.may_have_transparency,
+                            T::high_quality_image_painter(
+                                simd, image, &pixmap, sampler_x, sampler_y
+                            ),
+                            tint
+                        );
+                    }
+                }
+                (true, false) => {
+                    if image.sampler.quality == ImageQuality::Medium {
+                        fill_complex_paint!(
+                            image.may_have_transparency,
+                            T::medium_quality_image_painter(
+                                simd, image, &pixmap, sampler_x, sampler_y
+                            ),
+                            tint
+                        );
+                    } else {
+                        fill_complex_paint!(
+                            image.may_have_transparency,
+                            T::high_quality_image_painter(
+                                simd, image, &pixmap, sampler_x, sampler_y
+                            ),
+                            tint
+                        );
+                    }
+                }
+                (false, true) => {
+                    fill_complex_paint!(
+                        image.may_have_transparency,
+                        T::plain_nn_image_painter(simd, image, &pixmap, sampler_x, sampler_y),
+                        tint
+                    );
+                }
+                (true, true) => {
+                    fill_complex_paint!(
+                        image.may_have_transparency,
+                        T::nn_image_painter(simd, image, &pixmap, sampler_x, sampler_y),
+                        tint
+                    );
+                }
+            }
+        }
+        EncodedPaint::ExternalTexture(_) => {
+            unimplemented!("External textures are not supported by `vello_cpu`")
+        }
+    }
+}
+
 #[cfg(feature = "u8_pipeline")]
 #[inline(always)]
 fn pack_u8_prefix<S: Simd>(
@@ -668,6 +964,8 @@ pub(crate) fn rasterize<S: Simd, T: RowRenderKernel<S>>(
     buffer: &mut [u8],
     width: u16,
     height: u16,
+    encoded_paints: &[EncodedPaint],
+    image_resolver: &dyn ImageResolver,
 ) {
     let mut fine = RowFine::<S, T>::new(simd, width);
     buffer.fill(0);
@@ -689,7 +987,14 @@ pub(crate) fn rasterize<S: Simd, T: RowRenderKernel<S>>(
             fine.render_opaque(cmd);
         }
         for &cmd in &row.cmds {
-            fine.render_cmd(cmd, alphas);
+            fine.render_cmd(
+                cmd,
+                row_y,
+                alphas,
+                bucketer.attrs(),
+                encoded_paints,
+                image_resolver,
+            );
         }
 
         fine.pack(row_idx, row_height, row_start, row_end - row_start, buffer);

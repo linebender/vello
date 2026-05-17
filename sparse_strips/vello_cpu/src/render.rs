@@ -844,7 +844,9 @@ mod tests {
     use alloc::vec;
     #[cfg(feature = "text")]
     use glifo::Glyph;
+    use vello_common::color::palette::css::{BLUE, GREEN};
     use vello_common::kurbo::{Rect, Shape};
+    use vello_common::peniko::{ColorStop, Gradient};
     use vello_common::tile::Tile;
 
     #[test]
@@ -881,6 +883,33 @@ mod tests {
         assert!(buffer[(5 * 16 + 5) * 4 + 3] > 0);
     }
 
+    #[test]
+    fn render_to_buffer_supports_indexed_gradient_paint() {
+        let mut resources = Resources::new();
+        let mut ctx = RenderContext::new(16, 16);
+        let mut buffer = vec![0; 16 * 16 * 4];
+
+        ctx.set_paint(
+            Gradient::new_linear((0., 0.), (16., 0.))
+                .with_stops([ColorStop::from((0.0, GREEN)), ColorStop::from((1.0, BLUE))]),
+        );
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 16.0, 16.0));
+        ctx.flush();
+        ctx.render_to_buffer(
+            &mut resources,
+            &mut buffer,
+            16,
+            16,
+            ctx.render_settings().render_mode,
+        );
+
+        let left = &buffer[(8 * 16) * 4..][..4];
+        let right = &buffer[(8 * 16 + 15) * 4..][..4];
+        assert_ne!(left, right);
+        assert_eq!(left[3], 255);
+        assert_eq!(right[3], 255);
+    }
+
     #[cfg(feature = "multithreading")]
     #[test]
     #[should_panic(expected = "row-bucket prototype does not support multi-threaded rendering")]
@@ -907,7 +936,6 @@ mod tests {
 
     #[cfg(feature = "text")]
     #[test]
-    #[should_panic(expected = "row-bucket prototype only supports solid paints")]
     fn glyph_atlas_resources_are_lazy() {
         const ROBOTO_FONT: &[u8] =
             include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");

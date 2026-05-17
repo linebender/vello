@@ -39,12 +39,12 @@ impl SingleThreadedDispatcher {
         buffer: &mut [u8],
         width: u16,
         height: u16,
-        _encoded_paints: &[EncodedPaint],
-        _image_resolver: &dyn ImageResolver,
+        encoded_paints: &[EncodedPaint],
+        image_resolver: &dyn ImageResolver,
     ) {
         use crate::fine::F32Kernel;
         use vello_common::fearless_simd::dispatch;
-        dispatch!(self.level, simd => self.rasterize_with::<_, F32Kernel>(simd, buffer, width, height));
+        dispatch!(self.level, simd => self.rasterize_with::<_, F32Kernel>(simd, buffer, width, height, encoded_paints, image_resolver));
     }
 
     #[cfg(feature = "u8_pipeline")]
@@ -53,12 +53,12 @@ impl SingleThreadedDispatcher {
         buffer: &mut [u8],
         width: u16,
         height: u16,
-        _encoded_paints: &[EncodedPaint],
-        _image_resolver: &dyn ImageResolver,
+        encoded_paints: &[EncodedPaint],
+        image_resolver: &dyn ImageResolver,
     ) {
         use crate::fine::U8Kernel;
         use vello_common::fearless_simd::dispatch;
-        dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, buffer, width, height));
+        dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, buffer, width, height, encoded_paints, image_resolver));
     }
 
     fn rasterize_with<S: Simd, F: FineKernel<S> + RowRenderKernel<S>>(
@@ -67,6 +67,8 @@ impl SingleThreadedDispatcher {
         buffer: &mut [u8],
         width: u16,
         height: u16,
+        encoded_paints: &[EncodedPaint],
+        image_resolver: &dyn ImageResolver,
     ) {
         crate::row::rasterize::<S, F>(
             simd,
@@ -75,13 +77,12 @@ impl SingleThreadedDispatcher {
             buffer,
             width,
             height,
+            encoded_paints,
+            image_resolver,
         );
     }
 
-    fn assert_supported(&self, paint: &Paint, blend_mode: BlendMode, mask: &Option<Mask>) {
-        if !matches!(paint, Paint::Solid(_)) {
-            unimplemented!("row-bucket prototype only supports solid paints");
-        }
+    fn assert_supported(&self, _paint: &Paint, blend_mode: BlendMode, mask: &Option<Mask>) {
         assert_eq!(
             blend_mode,
             BlendMode::default(),
