@@ -130,9 +130,7 @@ fn make_ramp(
                 InterpolationAlphaSpace::Premultiplied => {
                     last_c.lerp(this_c, t, HueDirection::default())
                 }
-                InterpolationAlphaSpace::Unpremultiplied => {
-                    last_c + (this_c - last_c) * t
-                }
+                InterpolationAlphaSpace::Unpremultiplied => last_c + (this_c - last_c) * t,
             }
         };
         c.premultiply().to_rgba8().to_u32()
