@@ -11,10 +11,11 @@ mod common;
 mod highp;
 mod lowp;
 
-use crate::fine::common::gradient::linear::SimdLinearKind;
-use crate::fine::common::gradient::radial::SimdRadialKind;
-use crate::fine::common::gradient::sweep::SimdSweepKind;
-use crate::fine::common::gradient::{GradientPainter, calculate_t_vals};
+use crate::fine::common::gradient::GradientPainter;
+pub(crate) use crate::fine::common::gradient::calculate_t_vals;
+pub(crate) use crate::fine::common::gradient::linear::SimdLinearKind;
+pub(crate) use crate::fine::common::gradient::radial::SimdRadialKind;
+pub(crate) use crate::fine::common::gradient::sweep::SimdSweepKind;
 use crate::fine::common::image::{FilteredImagePainter, NNImagePainter, PlainNNImagePainter};
 use crate::fine::common::rounded_blurred_rect::BlurredRoundedRectFiller;
 use crate::layer_manager::LayerManager;
