@@ -138,8 +138,16 @@ impl<'a> Regions<'a> {
 #[derive(Default, Debug)]
 pub struct Region<'a> {
     /// The x coordinate of the wide tile this region covers.
+    #[allow(
+        dead_code,
+        reason = "the row-bucket prototype bypasses region iteration"
+    )]
     pub(crate) x: u16,
     /// The y coordinate of the wide tile this region covers.
+    #[allow(
+        dead_code,
+        reason = "the row-bucket prototype bypasses region iteration"
+    )]
     pub(crate) y: u16,
     pub width: u16,
     pub height: u16,

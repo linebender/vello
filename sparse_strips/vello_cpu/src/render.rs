@@ -10,8 +10,6 @@ use crate::text::{GlyphAtlasResources, GlyphRunBuilder};
 #[cfg(feature = "text")]
 use glifo::GlyphPrepCache;
 
-#[cfg(feature = "multithreading")]
-use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
 use crate::dispatch::single_threaded::SingleThreadedDispatcher;
 use crate::kurbo::{PathEl, Point};
 use alloc::boxed::Box;
@@ -156,15 +154,12 @@ impl RenderContext {
     /// Create a new render context with specific settings.
     pub fn new_with(width: u16, height: u16, settings: RenderSettings) -> Self {
         #[cfg(feature = "multithreading")]
-        let dispatcher: Box<dyn Dispatcher> = if settings.num_threads == 0 {
+        let dispatcher: Box<dyn Dispatcher> = {
+            assert_eq!(
+                settings.num_threads, 0,
+                "row-bucket prototype does not support multi-threaded rendering"
+            );
             Box::new(SingleThreadedDispatcher::new(width, height, settings.level))
-        } else {
-            Box::new(MultiThreadedDispatcher::new(
-                width,
-                height,
-                settings.num_threads,
-                settings.level,
-            ))
         };
 
         #[cfg(not(feature = "multithreading"))]
@@ -632,8 +627,10 @@ impl RenderContext {
         render_mode: RenderMode,
     ) {
         // TODO: Maybe we should move those checks into the dispatcher.
-        let wide = self.dispatcher.wide();
-        assert!(!wide.has_layers(), "some layers haven't been popped yet");
+        assert!(
+            !self.dispatcher.has_unpopped_layers(),
+            "some layers haven't been popped yet"
+        );
         assert_eq!(
             buffer.len(),
             (width as usize) * (height as usize) * 4,
@@ -850,6 +847,7 @@ mod tests {
     use vello_common::tile::Tile;
 
     #[test]
+    #[should_panic(expected = "row-bucket prototype does not support layers")]
     fn clip_overflow() {
         let mut ctx = RenderContext::new(100, 100);
 
@@ -864,6 +862,7 @@ mod tests {
 
     #[cfg(feature = "multithreading")]
     #[test]
+    #[should_panic(expected = "row-bucket prototype does not support multi-threaded rendering")]
     fn multithreaded_crash_after_reset() {
         use crate::{Level, RenderMode, RenderSettings};
         use vello_common::pixmap::Pixmap;
@@ -887,6 +886,7 @@ mod tests {
 
     #[cfg(feature = "text")]
     #[test]
+    #[should_panic(expected = "row-bucket prototype only supports solid paints")]
     fn glyph_atlas_resources_are_lazy() {
         const ROBOTO_FONT: &[u8] =
             include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");

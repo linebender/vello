@@ -409,8 +409,8 @@ impl MultiThreadedDispatcher {
 }
 
 impl Dispatcher for MultiThreadedDispatcher {
-    fn wide(&self) -> &Wide {
-        &self.wide
+    fn has_unpopped_layers(&self) -> bool {
+        self.wide.has_layers()
     }
 
     fn fill_path(

@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 #[cfg(feature = "multithreading")]
+#[allow(
+    dead_code,
+    reason = "the row-bucket prototype disables multi-threaded rendering"
+)]
 pub(crate) mod multi_threaded;
 pub(crate) mod single_threaded;
 
@@ -9,14 +13,13 @@ use crate::RenderMode;
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use core::fmt::Debug;
-use vello_common::coarse::Wide;
 use vello_common::encode::EncodedPaint;
 use vello_common::filter_effects::Filter;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
 
 pub(crate) trait Dispatcher: Debug + Send + Sync {
-    fn wide(&self) -> &Wide;
+    fn has_unpopped_layers(&self) -> bool;
     fn fill_path(
         &mut self,
         path: &BezPath,
