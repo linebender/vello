@@ -13,6 +13,7 @@
 //! - Debugging and reference implementations
 //! - Platforms where SIMD f32 operations are well-optimized
 
+use crate::Tile;
 use crate::filter::filter_highp;
 use crate::fine::FineKernel;
 use crate::fine::{COLOR_COMPONENTS, Painter, Splat4thExt};
@@ -25,7 +26,6 @@ use vello_common::kurbo::Affine;
 use vello_common::mask::Mask;
 use vello_common::paint::{PremulColor, Tint, TintMode};
 use vello_common::pixmap::Pixmap;
-use vello_common::tile::Tile;
 
 pub(crate) mod blend;
 pub(crate) mod compose;

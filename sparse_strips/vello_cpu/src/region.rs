@@ -3,11 +3,11 @@
 
 //! Splitting a single mutable buffer into regions that can be accessed concurrently.
 
+use crate::Tile;
 use crate::fine::COLOR_COMPONENTS;
 use alloc::vec::Vec;
 use vello_common::coarse::WideTile;
 use vello_common::pixmap::Pixmap;
-use vello_common::tile::Tile;
 
 #[derive(Debug)]
 pub struct Regions<'a> {

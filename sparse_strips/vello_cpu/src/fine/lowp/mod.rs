@@ -12,6 +12,7 @@ mod compose;
 mod gradient;
 mod image;
 
+use crate::Tile;
 use crate::filter::filter_lowp;
 use crate::fine::lowp::image::{BilinearImagePainter, PlainBilinearImagePainter};
 use crate::fine::{COLOR_COMPONENTS, Painter, SCRATCH_BUF_SIZE, Splat4thExt};
@@ -31,7 +32,6 @@ use vello_common::kurbo::Affine;
 use vello_common::mask::Mask;
 use vello_common::paint::{PremulColor, Tint, TintMode};
 use vello_common::pixmap::Pixmap;
-use vello_common::tile::Tile;
 use vello_common::util::{Div255Ext, f32_to_u8};
 
 /// The kernel for doing rendering using u8/u16.

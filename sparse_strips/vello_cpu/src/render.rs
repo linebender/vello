@@ -839,15 +839,14 @@ impl ImageResolver for ImageRegistry {
 
 #[cfg(test)]
 mod tests {
-    use crate::RenderContext;
     #[cfg(feature = "text")]
     use crate::peniko::{Blob, FontData};
+    use crate::{RenderContext, Tile};
     #[cfg(feature = "text")]
     use alloc::sync::Arc;
     #[cfg(feature = "text")]
     use glifo::Glyph;
     use vello_common::kurbo::{Rect, Shape};
-    use vello_common::tile::Tile;
 
     #[test]
     fn clip_overflow() {
