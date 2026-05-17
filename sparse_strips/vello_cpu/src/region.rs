@@ -135,8 +135,16 @@ impl<'a> Regions<'a> {
 #[derive(Default, Debug)]
 pub struct Region<'a> {
     /// The x coordinate of the wide tile this region covers.
+    #[allow(
+        dead_code,
+        reason = "the row-bucket prototype bypasses region iteration"
+    )]
     pub(crate) x: u16,
     /// The y coordinate of the wide tile this region covers.
+    #[allow(
+        dead_code,
+        reason = "the row-bucket prototype bypasses region iteration"
+    )]
     pub(crate) y: u16,
     pub width: u16,
     pub height: u16,
@@ -158,6 +166,45 @@ impl<'a> Region<'a> {
             width,
             height,
         }
+    }
+
+    pub(crate) fn from_buffer_at(
+        buffer: &'a mut [u8],
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        buffer_width: u16,
+    ) -> Option<Self> {
+        let row_stride = usize::from(buffer_width) * COLOR_COMPONENTS;
+        if row_stride == 0 {
+            return None;
+        }
+
+        let buffer_height = buffer.len() / row_stride;
+        if usize::from(x) >= usize::from(buffer_width) || usize::from(y) >= buffer_height {
+            return None;
+        }
+
+        let width = width.min(buffer_width - x);
+        let height = height.min(u16::try_from(buffer_height - usize::from(y)).unwrap_or(u16::MAX));
+        if width == 0 || height == 0 {
+            return None;
+        }
+
+        let start_offset = usize::from(y) * row_stride + usize::from(x) * COLOR_COMPONENTS;
+        let row_width_bytes = usize::from(width) * COLOR_COMPONENTS;
+        let mut remaining = &mut buffer[start_offset..];
+        let mut areas: [&mut [u8]; Tile::HEIGHT as usize] = [&mut [], &mut [], &mut [], &mut []];
+
+        for area in areas.iter_mut().take(usize::from(height)) {
+            let (row, rest) = remaining.split_at_mut(row_width_bytes);
+            *area = row;
+            let skip = (row_stride - row_width_bytes).min(rest.len());
+            remaining = &mut rest[skip..];
+        }
+
+        Some(Self::new(areas, x, y, width, height))
     }
 
     /// Extracts a `Region` from a pixmap at the specified tile coordinates.

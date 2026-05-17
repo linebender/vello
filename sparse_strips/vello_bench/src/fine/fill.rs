@@ -61,7 +61,7 @@ pub(crate) fn fill_single<S: Simd, N: FineKernel<S>>(
     b.iter(|| {
         fine.fill(
             0,
-            width,
+            width as u16,
             paint,
             blend_mode,
             encoded_paints,

@@ -861,7 +861,7 @@ impl<const MODE: u8> Wide<MODE> {
                 {
                     // Calculate expansion in device/pixel space, accounting for the full transform.
                     // This ensures that rotated filters (e.g., drop shadows) have correct bounds.
-                    let expansion = filter.bounds_expansion(transform);
+                    let expansion = filter.filter_expansion(transform);
                     let expanded_bbox = layer.wtile_bbox.expand_by_pixels(
                         expansion,
                         self.width_tiles(),

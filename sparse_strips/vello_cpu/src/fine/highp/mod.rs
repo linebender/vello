@@ -45,65 +45,6 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         color.as_premul_f32().components
     }
 
-    /// Copies rendered pixels from the scratch buffer to the output region.
-    ///
-    /// Converts f32 color values in [0.0, 1.0] range to u8 [0, 255] with rounding,
-    /// transforming from column-major scratch buffer to row-major region layout.
-    #[inline(always)]
-    fn pack(simd: S, region: &mut Region<'_>, blend_buf: &[Self::Numeric]) {
-        simd.vectorize(
-            #[inline(always)]
-            || {
-                for y in 0..Tile::HEIGHT {
-                    for (x, pixel) in region
-                        .row_mut(y)
-                        .chunks_exact_mut(COLOR_COMPONENTS)
-                        .enumerate()
-                    {
-                        let idx =
-                            COLOR_COMPONENTS * (usize::from(Tile::HEIGHT) * x + usize::from(y));
-                        let start = &blend_buf[idx..];
-                        // Convert f32 [0.0, 1.0] to u8 [0, 255] with rounding.
-                        // TODO: Use explicit SIMD for better performance
-                        let converted = [
-                            (start[0] * 255.0 + 0.5) as u8,
-                            (start[1] * 255.0 + 0.5) as u8,
-                            (start[2] * 255.0 + 0.5) as u8,
-                            (start[3] * 255.0 + 0.5) as u8,
-                        ];
-                        pixel.copy_from_slice(&converted);
-                    }
-                }
-            },
-        );
-    }
-
-    /// Copies pixels from the output region to the scratch buffer.
-    ///
-    /// Converts u8 color values [0, 255] to normalized f32 [0.0, 1.0],
-    /// transforming from row-major region layout to column-major scratch buffer.
-    /// This is the inverse operation of `pack`.
-    #[inline(always)]
-    fn unpack(simd: S, region: &mut Region<'_>, blend_buf: &mut [Self::Numeric]) {
-        simd.vectorize(
-            #[inline(always)]
-            || {
-                for y in 0..Tile::HEIGHT {
-                    for (x, pixel) in region.row_mut(y).chunks_exact(COLOR_COMPONENTS).enumerate() {
-                        let idx =
-                            COLOR_COMPONENTS * (usize::from(Tile::HEIGHT) * x + usize::from(y));
-                        let start = &mut blend_buf[idx..];
-                        // Convert u8 [0, 255] to normalized f32 [0.0, 1.0] (reverse of pack)
-                        start[0] = pixel[0] as f32 / 255.0;
-                        start[1] = pixel[1] as f32 / 255.0;
-                        start[2] = pixel[2] as f32 / 255.0;
-                        start[3] = pixel[3] as f32 / 255.0;
-                    }
-                }
-            },
-        );
-    }
-
     /// Applies a filter effect to a rendered layer.
     ///
     /// Delegates to the f32-specific filter implementation.
@@ -320,6 +261,46 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
             (Some(alpha_iter), None) => alpha_fill::blend(simd, dest, src, alpha_iter, blend_mode),
             (None, None) => {
                 fill::blend(simd, dest, src, blend_mode);
+            }
+        }
+    }
+
+    fn pack_block(_simd: S, scratch: &[Self::Numeric], width: usize, region: &mut Region<'_>) {
+        <Self as FineKernel<S>>::pack_tail(scratch, width, region);
+    }
+
+    fn pack_tail(scratch: &[Self::Numeric], width: usize, region: &mut Region<'_>) {
+        for y in 0..region.height {
+            let row = &mut region.row_mut(y)[..width * COLOR_COMPONENTS];
+            for (dx, pixel) in row.chunks_exact_mut(COLOR_COMPONENTS).enumerate() {
+                let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * dx + usize::from(y));
+                let src = &scratch[idx..idx + COLOR_COMPONENTS];
+                pixel[0] = (src[0] * 255.0 + 0.5) as u8;
+                pixel[1] = (src[1] * 255.0 + 0.5) as u8;
+                pixel[2] = (src[2] * 255.0 + 0.5) as u8;
+                pixel[3] = (src[3] * 255.0 + 0.5) as u8;
+            }
+        }
+    }
+
+    fn unpack_block(
+        _simd: S,
+        region: &mut Region<'_>,
+        width: usize,
+        scratch: &mut [Self::Numeric],
+    ) {
+        <Self as FineKernel<S>>::unpack_tail(region, width, scratch);
+    }
+
+    fn unpack_tail(region: &mut Region<'_>, width: usize, scratch: &mut [Self::Numeric]) {
+        for y in 0..region.height {
+            let row = &region.row_mut(y)[..width * COLOR_COMPONENTS];
+            for (dx, pixel) in row.chunks_exact(COLOR_COMPONENTS).enumerate() {
+                let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * dx + usize::from(y));
+                scratch[idx] = pixel[0] as f32 / 255.0;
+                scratch[idx + 1] = pixel[1] as f32 / 255.0;
+                scratch[idx + 2] = pixel[2] as f32 / 255.0;
+                scratch[idx + 3] = pixel[3] as f32 / 255.0;
             }
         }
     }

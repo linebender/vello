@@ -1,13 +1,13 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::dispatch::Dispatcher;
+use crate::coarse::{CommandBucketer, LayerClip};
 use crate::dispatch::multi_threaded::cost::{COST_THRESHOLD, estimate_render_task_cost};
 use crate::dispatch::multi_threaded::worker::Worker;
-use crate::fine::{Fine, FineKernel};
+use crate::dispatch::{Dispatcher, RecordedCmd};
+use crate::fine::FineKernel;
 use crate::kurbo::{Affine, BezPath, PathEl, Point, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
-use crate::region::Regions;
 use crate::{CompositeMode, RasterizerSettings};
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -22,7 +22,6 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Barrier, Mutex};
 use thread_local::ThreadLocal;
 use vello_common::clip::ClipContext;
-use vello_common::coarse::{Cmd, MODE_CPU, Wide};
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, dispatch};
 use vello_common::filter_effects::Filter;
@@ -30,9 +29,8 @@ use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
 use vello_common::pixmap::PixmapMut;
-use vello_common::render_graph::RenderGraph;
 use vello_common::strip::Strip;
-use vello_common::strip_generator::StripGenerator;
+use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 
 mod cost;
 mod worker;
@@ -40,6 +38,39 @@ mod worker;
 type RenderTaskSender = crossbeam_channel::Sender<RenderTask>;
 type CoarseTaskSender = ordered_channel::Sender<CoarseTask>;
 type CoarseTaskReceiver = ordered_channel::Receiver<CoarseTask>;
+
+fn control_point_bbox(path: &BezPath, transform: Affine) -> RectU16 {
+    let mut bbox = Rect::new(
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NEG_INFINITY,
+    );
+    for el in path.iter() {
+        match el {
+            PathEl::MoveTo(p) | PathEl::LineTo(p) => {
+                bbox = bbox.union_pt(transform * p);
+            }
+            PathEl::QuadTo(p1, p2) => {
+                bbox = bbox.union_pt(transform * p1);
+                bbox = bbox.union_pt(transform * p2);
+            }
+            PathEl::CurveTo(p1, p2, p3) => {
+                bbox = bbox.union_pt(transform * p1);
+                bbox = bbox.union_pt(transform * p2);
+                bbox = bbox.union_pt(transform * p3);
+            }
+            PathEl::ClosePath => {}
+        }
+    }
+
+    RectU16::new(
+        bbox.x0 as u16,
+        bbox.y0 as u16,
+        bbox.x1.ceil() as u16,
+        bbox.y1.ceil() as u16,
+    )
+}
 
 /// A dispatcher for multi-threaded rendering.
 ///
@@ -52,9 +83,10 @@ type CoarseTaskReceiver = ordered_channel::Receiver<CoarseTask>;
 /// The below comments will hopefully help with understanding the overall structure and lifecycles
 /// a bit better.
 pub(crate) struct MultiThreadedDispatcher {
-    /// The wide tile container.
-    wide: Wide,
+    bucketer: RefCell<CommandBucketer>,
     clip_context: ClipContext,
+    cmds: Vec<RecordedCmd>,
+    strip_storage: StripStorage,
     /// The thread pool that is used for dispatching tasks.
     thread_pool: ThreadPool,
     allocation_group: AllocationGroup,
@@ -106,13 +138,11 @@ pub(crate) struct MultiThreadedDispatcher {
     flushed: bool,
     // So that we can reuse memory allocations across different runs.
     allocations: Allocations,
-    /// Render graph (unused in multi-threaded, only needed for API compatibility with Wide).
-    render_graph: RenderGraph,
+    layer_depth: usize,
 }
 
 impl MultiThreadedDispatcher {
     pub(crate) fn new(width: u16, height: u16, num_threads: u16, level: Level) -> Self {
-        let wide = Wide::<MODE_CPU>::new(width, height);
         let thread_pool = ThreadPoolBuilder::new()
             .num_threads(num_threads as usize)
             .build()
@@ -138,7 +168,7 @@ impl MultiThreadedDispatcher {
         let flushed = false;
 
         let mut dispatcher = Self {
-            wide,
+            bucketer: RefCell::new(CommandBucketer::new(width, height)),
             thread_pool,
             allocations: Allocations::default(),
             allocation_group: AllocationGroup::default(),
@@ -147,13 +177,15 @@ impl MultiThreadedDispatcher {
             flushed,
             workers,
             clip_context: ClipContext::new(),
+            cmds: Vec::new(),
             task_sender: None,
             coarse_task_receiver: None,
             strip_generator: StripGenerator::new(width, height, level),
+            strip_storage: StripStorage::new(GenerationMode::Append),
             level,
             alpha_storage,
             num_threads,
-            render_graph: RenderGraph::new(),
+            layer_depth: 0,
         };
 
         dispatcher.init();
@@ -273,11 +305,7 @@ impl MultiThreadedDispatcher {
             allocation_group,
         };
         task_sender.send(task).unwrap();
-        // TODO: Pass encoded_paints here to enable overdraw elimination for opaque indexed
-        // paints. Currently we pass an empty slice, so indexed paints render correctly but miss
-        // the FillHint::OpaqueImage optimization. The challenge is that encoded_paints is a
-        // borrowed reference that may not be valid by the time coarse processing runs asynchronously.
-        self.run_coarse(true, &[]);
+        self.run_coarse(true);
     }
 
     // Currently, we do coarse rasterization in two phases:
@@ -292,11 +320,15 @@ impl MultiThreadedDispatcher {
     // new strips that will be generated.
     //
     // This is why we have the `abort_empty`flag.
-    fn run_coarse(&mut self, abort_empty: bool, encoded_paints: &[EncodedPaint]) {
-        let result_receiver = self.coarse_task_receiver.as_mut().unwrap();
+    fn append_strips(&mut self, strips: &[Strip]) -> Range<usize> {
+        let start = self.strip_storage.strips.len();
+        self.strip_storage.strips.extend_from_slice(strips);
+        start..self.strip_storage.strips.len()
+    }
 
+    fn run_coarse(&mut self, abort_empty: bool) {
         loop {
-            match result_receiver.try_recv() {
+            match self.coarse_task_receiver.as_mut().unwrap().try_recv() {
                 Ok(mut task) => {
                     let num_tasks = task.allocation_group.coarse_tasks.len();
                     for cmd in task.allocation_group.coarse_tasks.drain(0..num_tasks) {
@@ -307,42 +339,50 @@ impl MultiThreadedDispatcher {
                                 blend_mode,
                                 thread_id,
                                 mask,
-                            } => self.wide.generate(
-                                &task.allocation_group.strips
-                                    [strip_range.start as usize..strip_range.end as usize],
-                                paint.clone(),
-                                blend_mode,
-                                thread_id,
-                                mask,
-                                encoded_paints,
-                            ),
+                            } => {
+                                let strip_range = self.append_strips(
+                                    &task.allocation_group.strips
+                                        [strip_range.start as usize..strip_range.end as usize],
+                                );
+                                self.cmds.push(RecordedCmd::Fill {
+                                    thread_idx: thread_id,
+                                    strip_range,
+                                    paint: paint.clone(),
+                                    blend_mode,
+                                    mask,
+                                });
+                            }
                             CoarseTaskType::PushLayer {
                                 thread_id,
                                 clip_path,
+                                clip_bbox,
                                 blend_mode,
                                 mask,
                                 opacity,
                             } => {
                                 let clip_path = clip_path.map(|strip_range| {
-                                    &task.allocation_group.strips
-                                        [strip_range.start as usize..strip_range.end as usize]
+                                    let strip_range = self.append_strips(
+                                        &task.allocation_group.strips
+                                            [strip_range.start as usize..strip_range.end as usize],
+                                    );
+                                    LayerClip {
+                                        strip_range,
+                                        thread_idx: thread_id,
+                                        bbox: clip_bbox.unwrap(),
+                                    }
                                 });
 
-                                // layer_id 0 and filter None since filters aren't supported
-                                self.wide.push_layer(
-                                    0,
-                                    clip_path,
+                                self.cmds.push(RecordedCmd::PushLayer {
                                     blend_mode,
-                                    mask,
                                     opacity,
-                                    None,
-                                    // Transform can be IDENTITY because filters aren't supported in multi-threaded mode
-                                    Affine::IDENTITY,
-                                    &mut self.render_graph,
-                                    thread_id,
-                                );
+                                    mask,
+                                    clip: clip_path,
+                                    content_bbox: RectU16::INVERTED,
+                                });
                             }
-                            CoarseTaskType::PopLayer => self.wide.pop_layer(&mut self.render_graph),
+                            CoarseTaskType::PopLayer => {
+                                self.cmds.push(RecordedCmd::PopLayer);
+                            }
                         }
                     }
 
@@ -373,62 +413,86 @@ impl MultiThreadedDispatcher {
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
-        let target_width = target.width();
-        let target_height = target.height();
-        let mut buffer = Regions::new_at_offset(
-            (scene_width, scene_height),
-            settings.offset,
-            (target_width, target_height),
-            target.data_mut(),
-        );
-        let fines = ThreadLocal::new();
-        let wide = &self.wide;
+        let mut bucketer = self.bucketer.borrow_mut();
+        bucketer.reset();
+        for cmd in &self.cmds {
+            match cmd {
+                RecordedCmd::Fill {
+                    thread_idx,
+                    strip_range,
+                    paint,
+                    blend_mode,
+                    mask,
+                } => bucketer.generate_fill(
+                    &self.strip_storage.strips[strip_range.clone()],
+                    paint.clone(),
+                    *blend_mode,
+                    mask.clone(),
+                    *thread_idx,
+                    (0, 0),
+                    encoded_paints,
+                ),
+                RecordedCmd::PushLayer {
+                    blend_mode,
+                    opacity,
+                    mask,
+                    clip,
+                    ..
+                } => bucketer.push_layer(*blend_mode, *opacity, mask.clone(), clip.clone()),
+                RecordedCmd::CompositeFilterLayer { .. } => {
+                    unimplemented!(
+                        "Filter effects are not yet supported in multi-threaded rendering"
+                    );
+                }
+                RecordedCmd::PopLayer => bucketer.pop_layer(&self.strip_storage.strips),
+            }
+        }
+
         let alpha_slots = self.alpha_storage.take();
+        {
+            let alpha_buffers = alpha_slots.iter().map(Vec::as_slice).collect::<Vec<_>>();
+            let target_width = target.width();
+            let target_height = target.height();
+            let unpack_dest = settings.composite_mode == CompositeMode::SrcOver;
 
-        self.thread_pool.install(|| {
-            buffer.update_regions_par(|region| {
-                let x = region.x;
-                let y = region.y;
-
-                let mut fine = fines
-                    .get_or(|| RefCell::new(Fine::<S, F>::new(simd)))
-                    .borrow_mut();
-
-                let wtile = wide.get(x, y);
-                fine.set_coords(x, y);
-
-                if settings.composite_mode == CompositeMode::Replace || wtile.bg.is_opaque() {
-                    fine.clear(wtile.bg);
-                } else {
-                    // See the comment in the single-threaded dispatcher.
-                    fine.unpack(region);
-                }
-                for cmd in &wtile.cmds {
-                    let thread_idx = match cmd {
-                        Cmd::AlphaFill(a) => Some(wide.attrs.fill[a.attrs_idx as usize].thread_idx),
-                        Cmd::ClipStrip(a) => Some(wide.attrs.clip[a.attrs_idx as usize].thread_idx),
-                        _ => None,
-                    };
-
-                    let alphas = thread_idx
-                        .map(|i| alpha_slots[i as usize].as_slice())
-                        .unwrap_or(&[]);
-                    fine.run_cmd(cmd, alphas, encoded_paints, image_resolver, &wide.attrs);
-                }
-
-                fine.pack(region);
-            });
-        });
-
-        // Don't forget to put back the alpha buffers, so that they can be re-used in
-        // the next path rendering iteration!
+            if settings.offset == (0, 0) && !unpack_dest {
+                crate::fine::rasterize::<S, F>(
+                    simd,
+                    &bucketer,
+                    &alpha_buffers,
+                    &[],
+                    target.data_mut(),
+                    target_width,
+                    target_height,
+                    encoded_paints,
+                    image_resolver,
+                );
+            } else {
+                crate::fine::rasterize_at_offset::<S, F>(
+                    simd,
+                    &bucketer,
+                    &alpha_buffers,
+                    &[],
+                    target.data_mut(),
+                    scene_width,
+                    scene_height,
+                    settings.offset.0,
+                    settings.offset.1,
+                    target_width,
+                    target_height,
+                    unpack_dest,
+                    encoded_paints,
+                    image_resolver,
+                );
+            }
+        }
         self.alpha_storage.init(alpha_slots);
     }
 }
 
 impl Dispatcher for MultiThreadedDispatcher {
-    fn wide(&self) -> &Wide {
-        &self.wide
+    fn has_unpopped_layers(&self) -> bool {
+        self.layer_depth != 0
     }
 
     fn fill_path(
@@ -533,7 +597,14 @@ impl Dispatcher for MultiThreadedDispatcher {
             let start = self.allocation_group.path.len() as u32;
             self.allocation_group.path.extend(c);
             let end = self.allocation_group.path.len() as u32;
-            (start..end, clip_transform)
+            let mut bbox = control_point_bbox(c, clip_transform);
+            if let Some(existing_clip) = self.clip_context.get() {
+                bbox = bbox.intersect(existing_clip.bbox);
+            } else {
+                bbox.x1 = bbox.x1.min(self.strip_generator.width());
+                bbox.y1 = bbox.y1.min(self.strip_generator.height());
+            }
+            (start..end, clip_transform, bbox)
         });
 
         self.register_task(RenderTaskType::PushLayer {
@@ -544,19 +615,27 @@ impl Dispatcher for MultiThreadedDispatcher {
             fill_rule,
             aliasing_threshold,
         });
+        self.layer_depth += 1;
     }
 
     fn pop_layer(&mut self) {
         self.register_task(RenderTaskType::PopLayer);
+        self.layer_depth = self
+            .layer_depth
+            .checked_sub(1)
+            .expect("layer stack underflow");
     }
 
     fn reset(&mut self) {
-        self.wide.reset();
+        self.bucketer.borrow_mut().reset();
         self.clip_context.reset();
+        self.cmds.clear();
+        self.strip_storage.clear();
         self.allocation_group.clear();
         self.batch_cost = 0.0;
         self.task_idx = 0;
         self.flushed = false;
+        self.layer_depth = 0;
         self.task_sender = None;
         self.coarse_task_receiver = None;
         self.strip_generator.reset();
@@ -593,7 +672,8 @@ impl Dispatcher for MultiThreadedDispatcher {
         // Note that dropping the sender will signal to the workers that no more new paths
         // can arrive.
         drop(sender);
-        self.run_coarse(false, encoded_paints);
+        let _ = encoded_paints;
+        self.run_coarse(false);
 
         self.flushed = true;
     }
@@ -814,7 +894,7 @@ pub(crate) enum RenderTaskType {
         mask: Option<Mask>,
     },
     PushLayer {
-        clip_path: Option<(Range<u32>, Affine)>,
+        clip_path: Option<(Range<u32>, Affine, RectU16)>,
         blend_mode: BlendMode,
         opacity: f32,
         mask: Option<Mask>,
@@ -840,6 +920,7 @@ pub(crate) enum CoarseTaskType {
     PushLayer {
         thread_id: u8,
         clip_path: Option<Range<u32>>,
+        clip_bbox: Option<RectU16>,
         blend_mode: BlendMode,
         mask: Option<Mask>,
         opacity: f32,

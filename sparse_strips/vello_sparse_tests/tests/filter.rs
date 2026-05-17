@@ -139,6 +139,23 @@ fn filter_drop_shadow(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
+// Make sure drop shadows are not cut off at the top/left.
+#[vello_test(skip_multithreaded, skip_hybrid, width = 100, height = 100)]
+fn filter_drop_shadow_offscreen(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::DropShadow {
+        dx: 20.0,
+        dy: 20.0,
+        std_deviation: 5.0,
+        color: AlphaColor::from_rgba8(128, 128, 128, 255),
+        edge_mode: EdgeMode::None,
+    });
+
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(AlphaColor::from_rgba8(0, 0, 255, 128));
+    ctx.fill_rect(&Rect::new(-50.0, -50.0, 50.0, 50.0));
+    ctx.pop_layer();
+}
+
 /// Test drop shadow on a simple rectangle.
 /// Verifies the offset pixel optimization works correctly with different offsets.
 #[vello_test(skip_multithreaded)]

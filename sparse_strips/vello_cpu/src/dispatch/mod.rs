@@ -6,18 +6,49 @@ pub(crate) mod multi_threaded;
 pub(crate) mod single_threaded;
 
 use crate::RasterizerSettings;
+use crate::coarse::LayerClip;
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use core::fmt::Debug;
-use vello_common::coarse::Wide;
+use core::ops::Range;
 use vello_common::encode::EncodedPaint;
 use vello_common::filter_effects::Filter;
+use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
 use vello_common::pixmap::PixmapMut;
 
-pub(crate) trait Dispatcher: Debug + Send + Sync {
-    fn wide(&self) -> &Wide;
+#[derive(Debug)]
+pub(crate) enum RecordedCmd {
+    Fill {
+        thread_idx: u8,
+        strip_range: Range<usize>,
+        paint: Paint,
+        blend_mode: BlendMode,
+        mask: Option<Mask>,
+    },
+    PushLayer {
+        blend_mode: BlendMode,
+        opacity: f32,
+        mask: Option<Mask>,
+        clip: Option<LayerClip>,
+        content_bbox: RectU16,
+    },
+    CompositeFilterLayer {
+        layer_id: usize,
+        bbox: RectU16,
+        src_x: u16,
+        src_y: u16,
+        blend_mode: BlendMode,
+        opacity: f32,
+        mask: Option<Mask>,
+        clip: Option<LayerClip>,
+    },
+    PopLayer,
+}
+
+pub(crate) trait Dispatcher: Debug + Send {
+    fn has_unpopped_layers(&self) -> bool;
     fn fill_path(
         &mut self,
         path: &BezPath,

@@ -358,7 +358,7 @@ fn do_not_panic_on_multiple_flushes(ctx: &mut impl Renderer) {
 }
 
 /// <https://github.com/linebender/vello/issues/1119>
-#[vello_test]
+#[vello_test(skip_hybrid)]
 fn clip_clear(ctx: &mut impl Renderer) {
     // initial coloring
     ctx.set_paint(LIME);

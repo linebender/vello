@@ -1,91 +1,90 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::dispatch::Dispatcher;
-use crate::fine::{Fine, FineKernel};
-use crate::kurbo::{Affine, BezPath, Rect, Stroke};
+use crate::coarse::{CommandBucketer, LayerClip};
+use crate::dispatch::{Dispatcher, RecordedCmd};
+use crate::fine::{FineKernel, RenderedFilterLayer};
+use crate::kurbo::{Affine, BezPath, PathEl, Rect, Stroke};
 use crate::layer_manager::LayerManager;
 use crate::peniko::{BlendMode, Fill};
-use crate::region::Regions;
 use crate::{CompositeMode, RasterizerSettings};
+use alloc::vec;
+use alloc::vec::Vec;
+use core::cell::RefCell;
 use vello_common::clip::ClipContext;
-use vello_common::coarse::{Cmd, LayerKind, MODE_CPU, Wide, WideTilesBbox};
-use vello_common::color::palette::css::TRANSPARENT;
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd};
 use vello_common::filter_effects::Filter;
+use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
-use vello_common::paint::{ImageResolver, Paint, PremulColor};
+use vello_common::paint::{ImageResolver, Paint};
 use vello_common::pixmap::{Pixmap, PixmapMut};
-use vello_common::render_graph::{RenderGraph, RenderNodeKind};
-use vello_common::strip_generator::{StripGenerator, StripStorage};
+use vello_common::strip::Strip;
+use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
+use vello_common::tile::Tile;
 
-/// Single-threaded implementation of the rendering dispatcher.
-///
-/// This dispatcher handles the entire rendering pipeline on a single thread,
-/// including path rasterization, layer composition, and filter effects.
-/// It maintains the coarse tile grid (`Wide`), strip generation for paths,
-/// and the render graph for managing layer dependencies and filter effects.
+#[derive(Debug)]
+struct RecordedLayer {
+    stream_id: Option<usize>,
+    push_cmd_idx: usize,
+    content_bbox: RectU16,
+    kind: RecordedLayerKind,
+}
+
+#[derive(Debug)]
+enum RecordedLayerKind {
+    Regular,
+    Filter { layer_id: usize },
+}
+
+#[derive(Debug)]
+struct RecordedFilterLayer {
+    cmds: Vec<RecordedCmd>,
+    filter: Filter,
+    transform: Affine,
+    expansion: Rect,
+    source_origin: (u16, u16),
+    content_bbox: RectU16,
+    bbox: RectU16,
+}
+
+/// Single-threaded dispatcher for the row-bucket prototype.
 #[derive(Debug)]
 pub(crate) struct SingleThreadedDispatcher {
-    /// Coarse tile grid containing rendering commands for each wide tile.
-    wide: Wide,
-    /// Clip context for managing non-isolated clipping.
+    bucketer: RefCell<CommandBucketer>,
     clip_context: ClipContext,
-    /// Generator for converting paths into coverage strips.
+    cmds: Vec<RecordedCmd>,
+    filter_layers: Vec<RecordedFilterLayer>,
+    recording_stack: Vec<usize>,
+    layer_stack: Vec<RecordedLayer>,
     strip_generator: StripGenerator,
-    /// Storage for alpha coverage data from strip generation.
     strip_storage: StripStorage,
-    /// SIMD level for fearless SIMD dispatch.
+    viewport_stack: Vec<(u16, u16)>,
+    base_width: u16,
+    base_height: u16,
+    layer_depth: usize,
     level: Level,
-    /// Counter for generating unique layer IDs.
-    layer_id_next: u32,
-    /// Dependency graph tracking layer relationships and filter effects.
-    render_graph: RenderGraph,
 }
 
 impl SingleThreadedDispatcher {
-    /// Creates a new single-threaded dispatcher for the given dimensions.
-    ///
-    /// # Arguments
-    /// * `width` - Width of the rendering surface in pixels.
-    /// * `height` - Height of the rendering surface in pixels.
-    /// * `level` - SIMD level to use for rasterization.
-    ///
-    /// # Notes
-    /// The root layer (`layer_id` 0) is created immediately and must be node 0
-    /// in the render graph for proper rendering order.
     pub(crate) fn new(width: u16, height: u16, level: Level) -> Self {
-        let wide = Wide::<MODE_CPU>::new(width, height);
-        let strip_generator = StripGenerator::new(width, height, level);
-        let clip_context = ClipContext::new();
-        let strip_storage = StripStorage::default();
-        let mut render_graph = RenderGraph::new();
-
-        // Create root node (layer_id 0) as the first node (will be node 0).
-        // This ensures the root layer is always rendered last in the execution order.
-        let wtile_bbox = WideTilesBbox::new(0, 0, wide.width_tiles(), wide.height_tiles());
-        let root_node = render_graph.add_node(RenderNodeKind::RootLayer {
-            layer_id: 0,
-            wtile_bbox,
-        });
-        assert_eq!(root_node, 0, "Root node must be node 0");
-
         Self {
-            wide,
-            clip_context,
-            strip_generator,
-            strip_storage,
+            bucketer: RefCell::new(CommandBucketer::new(width, height)),
+            clip_context: ClipContext::new(),
+            cmds: Vec::new(),
+            filter_layers: Vec::new(),
+            recording_stack: Vec::new(),
+            layer_stack: Vec::new(),
+            strip_generator: StripGenerator::new(width, height, level),
+            strip_storage: StripStorage::new(GenerationMode::Append),
+            viewport_stack: Vec::new(),
+            base_width: width,
+            base_height: height,
+            layer_depth: 0,
             level,
-            layer_id_next: 0,
-            render_graph,
         }
     }
 
-    /// Rasterizes the scene using f32 precision (high quality).
-    ///
-    /// This dispatches to the appropriate SIMD implementation based on the
-    /// configured level, using f32 for intermediate calculations.
     #[cfg(feature = "f32_pipeline")]
     fn rasterize_f32(
         &self,
@@ -101,10 +100,6 @@ impl SingleThreadedDispatcher {
         dispatch!(self.level, simd => self.rasterize_with::<_, F32Kernel>(simd, target, scene_width, scene_height, settings, encoded_paints, image_resolver));
     }
 
-    /// Rasterizes the scene using u8 precision (fast).
-    ///
-    /// This dispatches to the appropriate SIMD implementation based on the
-    /// configured level, using u8 for intermediate calculations to maximize speed.
     #[cfg(feature = "u8_pipeline")]
     fn rasterize_u8(
         &self,
@@ -120,308 +115,99 @@ impl SingleThreadedDispatcher {
         dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, target, scene_width, scene_height, settings, encoded_paints, image_resolver));
     }
 
-    // Note: We purposefully don't add `vectorize` to each of the functions
-    // like `rasterize_with`, `composite_at_offset`, etc. since vectoriation
-    // instead is applied wherever necessary in child functions.
+    fn active_stream_id(&self) -> Option<usize> {
+        self.recording_stack.last().copied()
+    }
 
-    /// Core rasterization dispatcher that chooses between simple and filter-aware paths.
-    ///
-    /// # Type Parameters
-    /// * `S` - SIMD implementation to use.
-    /// * `F` - Fine rasterization kernel (determines precision).
-    ///
-    /// If the scene contains filter effects, uses the filter-aware path which maintains
-    /// intermediate layer buffers. Otherwise, uses the simpler direct rasterization path.
+    fn active_cmds_mut(&mut self) -> &mut Vec<RecordedCmd> {
+        if let Some(layer_id) = self.active_stream_id() {
+            &mut self.filter_layers[layer_id].cmds
+        } else {
+            &mut self.cmds
+        }
+    }
+
+    fn stream_cmds_mut(&mut self, stream_id: Option<usize>) -> &mut Vec<RecordedCmd> {
+        if let Some(layer_id) = stream_id {
+            &mut self.filter_layers[layer_id].cmds
+        } else {
+            &mut self.cmds
+        }
+    }
+
+    fn replay_commands(
+        &self,
+        cmds: &[RecordedCmd],
+        bucketer: &mut CommandBucketer,
+        encoded_paints: &[EncodedPaint],
+        origin: (u16, u16),
+    ) {
+        bucketer.reset();
+        let translated_strips = if origin == (0, 0) {
+            Vec::new()
+        } else {
+            self.strip_storage
+                .strips
+                .iter()
+                .map(|strip| translate_strip(*strip, origin))
+                .collect::<Vec<_>>()
+        };
+        let strips = if origin == (0, 0) {
+            self.strip_storage.strips.as_slice()
+        } else {
+            translated_strips.as_slice()
+        };
+        for cmd in cmds {
+            match cmd {
+                RecordedCmd::Fill {
+                    thread_idx,
+                    strip_range,
+                    paint,
+                    blend_mode,
+                    mask,
+                } => {
+                    bucketer.generate_fill(
+                        &strips[strip_range.clone()],
+                        paint.clone(),
+                        *blend_mode,
+                        mask.clone(),
+                        *thread_idx,
+                        origin,
+                        encoded_paints,
+                    );
+                }
+                RecordedCmd::PushLayer {
+                    blend_mode,
+                    opacity,
+                    mask,
+                    clip,
+                    ..
+                } => bucketer.push_layer(*blend_mode, *opacity, mask.clone(), clip.clone()),
+                RecordedCmd::CompositeFilterLayer {
+                    layer_id,
+                    bbox,
+                    src_x,
+                    src_y,
+                    blend_mode,
+                    opacity,
+                    mask,
+                    clip,
+                } => {
+                    let bbox = translate_bbox(*bbox, origin);
+                    bucketer.push_layer(*blend_mode, *opacity, mask.clone(), clip.clone());
+                    bucketer.generate_filter_layer(*layer_id, bbox, (*src_x, *src_y));
+                    bucketer.pop_layer(strips);
+                }
+                RecordedCmd::PopLayer => bucketer.pop_layer(strips),
+            }
+        }
+    }
+
+    // Note: We purposefully don't add `vectorize` to each of these helpers,
+    // since vectorization is applied wherever necessary in child functions.
     fn rasterize_with<S: Simd, F: FineKernel<S>>(
         &self,
         simd: S,
-        target: PixmapMut<'_>,
-        scene_width: u16,
-        scene_height: u16,
-        settings: RasterizerSettings,
-        encoded_paints: &[EncodedPaint],
-        image_resolver: &dyn ImageResolver,
-    ) {
-        let mut layer_manager = LayerManager::new();
-
-        if self.has_filters() {
-            // Use filter-aware path that maintains layer buffers for filter effects.
-            self.rasterize_with_filters::<S, F>(
-                simd,
-                target,
-                scene_width,
-                scene_height,
-                settings,
-                encoded_paints,
-                image_resolver,
-                &mut layer_manager,
-            );
-        } else {
-            // Use simple direct rasterization for scenes without filters.
-            self.rasterize_simple::<S, F>(
-                simd,
-                target,
-                scene_width,
-                scene_height,
-                settings,
-                encoded_paints,
-                image_resolver,
-            );
-        }
-    }
-
-    /// Rasterizes a scene with filter effects using dependency-ordered execution.
-    ///
-    /// This processes the render graph in topological order, ensuring that filtered
-    /// layers are rendered into intermediate buffers before being composed. Each
-    /// filter layer is rendered to its own pixmap, the filter is applied, and then
-    /// the result is stored in the layer manager for use by dependent layers.
-    ///
-    /// # Render Graph Execution
-    /// - `FilterLayer` nodes: Render to intermediate buffer, apply filter, store result.
-    /// - `RootLayer` node: Final composition to output buffer.
-    fn rasterize_with_filters<S: Simd, F: FineKernel<S>>(
-        &self,
-        simd: S,
-        mut target: PixmapMut<'_>,
-        scene_width: u16,
-        scene_height: u16,
-        settings: RasterizerSettings,
-        encoded_paints: &[EncodedPaint],
-        image_resolver: &dyn ImageResolver,
-        layer_manager: &mut LayerManager,
-    ) {
-        let mut fine = Fine::<S, F>::new(simd);
-
-        // Process nodes in dependency order (filtered layers before their consumers).
-        for node_id in self.render_graph.execution_order() {
-            let node = &self.render_graph.nodes[node_id];
-
-            match &node.kind {
-                RenderNodeKind::FilterLayer {
-                    layer_id,
-                    filter,
-                    wtile_bbox,
-                    transform,
-                } => {
-                    // Allocate intermediate buffer for this filtered layer.
-                    let bbox_width = wtile_bbox.width_px();
-                    let bbox_height = wtile_bbox.height_px();
-                    let mut pixmap = Pixmap::new(bbox_width, bbox_height);
-                    // TODO: Re-use this allocation by adding a .configure() or similar method
-                    // to avoid allocating the internal Vec<Region> on every filtered layer.
-                    let mut regions =
-                        Regions::new(bbox_width, bbox_height, pixmap.data_as_u8_slice_mut());
-
-                    // Render each tile in the layer's bounding box.
-                    regions.update_regions(|region| {
-                        // Convert region-local coords to global wtile coords.
-                        let x = wtile_bbox.x0() + region.x;
-                        let y = wtile_bbox.y0() + region.y;
-
-                        self.process_layer_tile(
-                            &mut fine,
-                            x,
-                            y,
-                            *layer_id,
-                            Some(PremulColor::from_alpha_color(TRANSPARENT)),
-                            layer_manager,
-                            encoded_paints,
-                            image_resolver,
-                        );
-
-                        debug_assert_eq!(
-                            fine.blend_buf.len(),
-                            1,
-                            "blend buffer should contain exactly one layer after tile processing"
-                        );
-
-                        fine.pack(region);
-                    });
-
-                    // Apply the filter effect to the completed layer.
-                    fine.filter_layer(&mut pixmap, filter, layer_manager, *transform);
-
-                    // Save the filtered pixmap to disk for debugging.
-                    // #[cfg(all(debug_assertions, feature = "std", feature = "png"))]
-                    // save_filtered_layer_debug(&pixmap, *layer_id);
-
-                    // Store the filtered result for use by dependent layers.
-                    layer_manager.register_layer(*layer_id, *wtile_bbox, pixmap);
-                }
-                RenderNodeKind::RootLayer {
-                    layer_id,
-                    wtile_bbox: _,
-                } => {
-                    // Final composition directly to output buffer.
-                    let target_width = target.width();
-                    let target_height = target.height();
-                    let mut regions = Regions::new_at_offset(
-                        (scene_width, scene_height),
-                        settings.offset,
-                        (target_width, target_height),
-                        target.data_mut(),
-                    );
-                    regions.update_regions(|region| {
-                        // Use the background color from the wide tile.
-                        let bg = self.wide.get(region.x, region.y).bg;
-                        let clear_color = if settings.composite_mode == CompositeMode::Replace
-                            || bg.is_opaque()
-                        {
-                            Some(bg)
-                        } else {
-                            // See the comment in `rasterize_simple`.
-                            fine.set_coords(region.x, region.y);
-                            fine.unpack(region);
-
-                            None
-                        };
-                        self.process_layer_tile(
-                            &mut fine,
-                            region.x,
-                            region.y,
-                            *layer_id,
-                            clear_color,
-                            layer_manager,
-                            encoded_paints,
-                            image_resolver,
-                        );
-
-                        debug_assert_eq!(
-                            fine.blend_buf.len(),
-                            1,
-                            "blend buffer should contain exactly one layer after tile processing"
-                        );
-
-                        fine.pack(region);
-                    });
-                }
-            }
-        }
-    }
-
-    /// Processes all rendering commands for a single layer within a specific tile.
-    ///
-    /// This handles the complex logic of composing filtered layers by:
-    /// 1. Running normal rendering commands in sequence.
-    /// 2. When encountering a filtered layer reference, compositing its pre-rendered
-    ///    content from the layer manager.
-    /// 3. Skipping the filtered layer's internal commands (already rendered separately).
-    ///
-    /// # Arguments
-    /// * `fine` - The fine rasterizer instance.
-    /// * `x`, `y` - Wide tile coordinates.
-    /// * `layer_id` - The layer being processed.
-    /// * `clear_color` - Initial color for the tile.
-    /// * `layer_manager` - Storage for filtered layer buffers.
-    /// * `encoded_paints` - Paint definitions for the scene.
-    /// * `image_resolver` - Resolver for looking up opaque image IDs.
-    fn process_layer_tile<S: Simd, F: FineKernel<S>>(
-        &self,
-        fine: &mut Fine<S, F>,
-        x: u16,
-        y: u16,
-        layer_id: u32,
-        clear_color: Option<PremulColor>,
-        layer_manager: &mut LayerManager,
-        encoded_paints: &[EncodedPaint],
-        image_resolver: &dyn ImageResolver,
-    ) {
-        let wtile = &self.wide.get(x, y);
-        fine.set_coords(x, y);
-        if let Some(clear_color) = clear_color {
-            fine.clear(clear_color);
-        }
-
-        // Process all commands in this layer's render range.
-        // It can happen that the layer has no associated ranges in this wide tile in
-        // case they have been cleared by setting a new wide tile background, for example
-        // when filling a full-tile opaque solid color.
-        let Some(ranges) = wtile.layer_cmd_ranges.get(&layer_id) else {
-            return;
-        };
-
-        let mut cmd_idx = ranges.render_range.start;
-        while cmd_idx < ranges.render_range.end {
-            let cmd: &Cmd = &wtile.cmds[cmd_idx];
-
-            fine.run_cmd(
-                cmd,
-                &self.strip_storage.alphas,
-                encoded_paints,
-                image_resolver,
-                &self.wide.attrs,
-            );
-
-            // Special handling for filtered layer composition.
-            // Filtered layers have already been rendered and stored in layer_manager.
-            // Here we composite them into the current buffer, with special handling for clipping.
-            if let Cmd::PushBuf(LayerKind::Filtered(child_layer_id), _) = cmd {
-                // Unlike above, the unwrap is safe here because as long as the filtered layer
-                // is referenced in the wide tile, it must have associated layer ranges.
-                let filtered_ranges = wtile.layer_cmd_ranges.get(child_layer_id).unwrap();
-
-                // Check what comes after the filtered layer push to determine clipping state
-                match wtile.cmds.get(cmd_idx + 1) {
-                    // Zero-clip region: tile is completely outside the clip path.
-                    // The layer was already rendered for filtering, but we skip compositing
-                    // since this tile is entirely clipped out.
-                    // (PushZeroClip only appears for clipped filter layers)
-                    // See https://github.com/linebender/vello/pull/1541/ for why we
-                    // add the ID check.
-                    Some(Cmd::PushZeroClip(id)) if *id == *child_layer_id => {
-                        // If we have a zero-clip, it means that the whole layer should not be drawn.
-                        // Therefore, we want to skip to the very end so that only `PopBuf` will
-                        // be run. Therefore, we jump to `filtered_ranges.full_range.end - 1`.
-                        cmd_idx = filtered_ranges.full_range.end - 1;
-                        continue;
-                    }
-
-                    // Partial clip: push the clip buffer, then composite the filtered layer
-                    Some(Cmd::PushBuf(LayerKind::Clip(id), _)) if *id == *child_layer_id => {
-                        fine.run_cmd(
-                            &wtile.cmds[cmd_idx + 1],
-                            &self.strip_storage.alphas,
-                            encoded_paints,
-                            image_resolver,
-                            &self.wide.attrs,
-                        );
-                        cmd_idx += 1;
-
-                        if let Some(mut region) =
-                            layer_manager.layer_tile_region_mut(*child_layer_id, x, y)
-                        {
-                            fine.unpack(&mut region);
-                        }
-                    }
-
-                    // No clip or fully inside clip: composite the filtered layer directly
-                    _ => {
-                        if let Some(mut region) =
-                            layer_manager.layer_tile_region_mut(*child_layer_id, x, y)
-                        {
-                            fine.unpack(&mut region);
-                        }
-                    }
-                }
-
-                // Skip past the filtered layer's internal commands, as they were already
-                // rendered when the FilterLayer node was processed earlier.
-                cmd_idx = filtered_ranges.render_range.end.max(cmd_idx + 1);
-            } else {
-                cmd_idx += 1;
-            }
-        }
-    }
-
-    /// Simple rasterization path for scenes without filter effects.
-    ///
-    /// This directly processes each tile's commands without maintaining intermediate
-    /// layer buffers. All rendering happens in a single pass directly to the output buffer.
-    /// This is more efficient than the filter-aware path when no filters are present.
-    fn rasterize_simple<S: Simd, F: FineKernel<S>>(
-        &self,
-        simd: S,
         mut target: PixmapMut<'_>,
         scene_width: u16,
         scene_height: u16,
@@ -429,55 +215,362 @@ impl SingleThreadedDispatcher {
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
+        let filter_layers = self.render_filter_layers::<S, F>(simd, encoded_paints, image_resolver);
+        let mut bucketer = self.bucketer.borrow_mut();
+        self.replay_commands(&self.cmds, &mut bucketer, encoded_paints, (0, 0));
+
         let target_width = target.width();
         let target_height = target.height();
-        let mut regions = Regions::new_at_offset(
-            (scene_width, scene_height),
-            settings.offset,
-            (target_width, target_height),
-            target.data_mut(),
-        );
-        let mut fine = Fine::<S, F>::new(simd);
+        let unpack_dest = settings.composite_mode == CompositeMode::SrcOver;
+        let alpha_buffers = &[self.strip_storage.alphas.as_slice()];
 
-        regions.update_regions(|region| {
-            let x = region.x;
-            let y = region.y;
-
-            let wtile = self.wide.get(x, y);
-            fine.set_coords(x, y);
-
-            if settings.composite_mode == CompositeMode::Replace || wtile.bg.is_opaque() {
-                fine.clear(wtile.bg);
-            } else {
-                // If the background is not opaque, it means that it is _fully_ transparent
-                // (the background mechanism doesn't trigger for partially-transparent paints).
-                // Therefore, we never need any background color and just need to unpack
-                // to implement the src-over semantics.
-                fine.unpack(region);
-            }
-            for cmd in &wtile.cmds {
-                fine.run_cmd(
-                    cmd,
-                    &self.strip_storage.alphas,
-                    encoded_paints,
-                    image_resolver,
-                    &self.wide.attrs,
-                );
-            }
-
-            fine.pack(region);
-        });
+        if settings.offset == (0, 0) && !unpack_dest {
+            crate::fine::rasterize::<S, F>(
+                simd,
+                &bucketer,
+                alpha_buffers,
+                &filter_layers,
+                target.data_mut(),
+                target_width,
+                target_height,
+                encoded_paints,
+                image_resolver,
+            );
+        } else {
+            crate::fine::rasterize_at_offset::<S, F>(
+                simd,
+                &bucketer,
+                alpha_buffers,
+                &filter_layers,
+                target.data_mut(),
+                scene_width,
+                scene_height,
+                settings.offset.0,
+                settings.offset.1,
+                target_width,
+                target_height,
+                unpack_dest,
+                encoded_paints,
+                image_resolver,
+            );
+        }
     }
 
-    /// Returns true if the scene contains any filter effects.
-    fn has_filters(&self) -> bool {
-        self.render_graph.has_filters()
+    fn record_fill(
+        &mut self,
+        strip_start: usize,
+        paint: Paint,
+        blend_mode: BlendMode,
+        mask: Option<Mask>,
+    ) {
+        let strip_end = self.strip_storage.strips.len();
+        self.active_cmds_mut().push(RecordedCmd::Fill {
+            thread_idx: 0,
+            strip_range: strip_start..strip_end,
+            paint,
+            blend_mode,
+            mask,
+        });
+        let content_bbox = strip_bbox(
+            &self.strip_storage.strips[strip_start..],
+            self.strip_generator.width(),
+            self.strip_generator.height(),
+        );
+        self.include_content_bbox(content_bbox);
+    }
+
+    fn render_filter_layers<S: Simd, F: FineKernel<S>>(
+        &self,
+        simd: S,
+        encoded_paints: &[EncodedPaint],
+        image_resolver: &dyn ImageResolver,
+    ) -> Vec<Option<RenderedFilterLayer>> {
+        let mut rendered = (0..self.filter_layers.len())
+            .map(|_| None)
+            .collect::<Vec<_>>();
+        for layer_id in (0..self.filter_layers.len()).rev() {
+            let layer = &self.filter_layers[layer_id];
+            if layer.bbox.is_empty() {
+                continue;
+            }
+
+            let width = layer.bbox.width();
+            let height = layer.bbox.height();
+            let mut data = vec![0; usize::from(width) * usize::from(height) * 4];
+            let mut bucketer = CommandBucketer::new(width, height);
+            self.replay_commands(
+                &layer.cmds,
+                &mut bucketer,
+                encoded_paints,
+                (layer.bbox.x0, layer.bbox.y0),
+            );
+            crate::fine::rasterize::<S, F>(
+                simd,
+                &bucketer,
+                &[self.strip_storage.alphas.as_slice()],
+                &rendered,
+                &mut data,
+                width,
+                height,
+                encoded_paints,
+                image_resolver,
+            );
+
+            let mut pixmap = Pixmap::new(width, height);
+            pixmap.data_as_u8_slice_mut().copy_from_slice(&data);
+            let mut layer_manager = LayerManager::new();
+            F::filter_layer(
+                &mut pixmap,
+                &layer.filter,
+                &mut layer_manager,
+                layer.transform,
+            );
+            rendered[layer_id] = Some(RenderedFilterLayer {
+                data: pixmap.data_as_u8_slice().to_vec(),
+                width,
+                height,
+            });
+        }
+        rendered
+    }
+
+    fn push_recorded_cmd(&mut self, cmd: RecordedCmd) -> usize {
+        let cmds = self.active_cmds_mut();
+        let idx = cmds.len();
+        cmds.push(cmd);
+        idx
+    }
+
+    fn set_push_layer_content_bbox(
+        &mut self,
+        stream_id: Option<usize>,
+        push_cmd_idx: usize,
+        content_bbox: RectU16,
+    ) {
+        match &mut self.stream_cmds_mut(stream_id)[push_cmd_idx] {
+            RecordedCmd::PushLayer {
+                content_bbox: bbox, ..
+            } => *bbox = content_bbox,
+            _ => unreachable!("layer stack referenced a non-layer command"),
+        }
+    }
+
+    fn set_filter_layer_bbox(
+        &mut self,
+        layer_id: usize,
+        parent_stream_id: Option<usize>,
+        composite_cmd_idx: usize,
+        bbox: RectU16,
+    ) {
+        self.filter_layers[layer_id].content_bbox = bbox;
+        let expansion = self.filter_layers[layer_id].expansion;
+        let source_origin = self.filter_layers[layer_id].source_origin;
+        let render_bbox = expand_bbox(bbox, expansion);
+        let (output_bbox, src_x, src_y) = shift_bbox_to_parent(render_bbox, source_origin);
+        self.filter_layers[layer_id].bbox = render_bbox;
+        match &mut self.stream_cmds_mut(parent_stream_id)[composite_cmd_idx] {
+            RecordedCmd::CompositeFilterLayer {
+                bbox,
+                src_x: cmd_src_x,
+                src_y: cmd_src_y,
+                ..
+            } => {
+                *bbox = output_bbox;
+                *cmd_src_x = src_x;
+                *cmd_src_y = src_y;
+            }
+            _ => unreachable!("filter layer stack referenced a non-filter command"),
+        }
+        self.include_content_bbox(output_bbox);
+    }
+
+    fn include_content_bbox(&mut self, bbox: RectU16) {
+        if bbox.is_empty() {
+            return;
+        }
+        if let Some(layer) = self.layer_stack.last_mut() {
+            layer.content_bbox.union(bbox);
+        }
+    }
+
+    fn push_filter_viewport(&mut self, expansion: Rect) {
+        let (left, top, right, bottom) = expansion_padding(expansion);
+        let width = self
+            .strip_generator
+            .width()
+            .saturating_add(left)
+            .saturating_add(right);
+        let height = self
+            .strip_generator
+            .height()
+            .saturating_add(top)
+            .saturating_add(bottom);
+        self.viewport_stack
+            .push((self.strip_generator.width(), self.strip_generator.height()));
+        self.strip_generator = StripGenerator::new(width, height, self.level);
+    }
+
+    fn pop_filter_viewport(&mut self) {
+        let (width, height) = self
+            .viewport_stack
+            .pop()
+            .expect("filter viewport stack underflow");
+        self.strip_generator = StripGenerator::new(width, height, self.level);
     }
 }
 
+fn control_point_bbox(path: &BezPath, transform: Affine) -> RectU16 {
+    let mut bbox = Rect::new(
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NEG_INFINITY,
+    );
+    for el in path.iter() {
+        match el {
+            PathEl::MoveTo(p) | PathEl::LineTo(p) => {
+                bbox = bbox.union_pt(transform * p);
+            }
+            PathEl::QuadTo(p1, p2) => {
+                bbox = bbox.union_pt(transform * p1);
+                bbox = bbox.union_pt(transform * p2);
+            }
+            PathEl::CurveTo(p1, p2, p3) => {
+                bbox = bbox.union_pt(transform * p1);
+                bbox = bbox.union_pt(transform * p2);
+                bbox = bbox.union_pt(transform * p3);
+            }
+            PathEl::ClosePath => {}
+        }
+    }
+
+    RectU16::new(
+        bbox.x0 as u16,
+        bbox.y0 as u16,
+        bbox.x1.ceil() as u16,
+        bbox.y1.ceil() as u16,
+    )
+}
+
+fn strip_bbox(strips: &[Strip], width: u16, height: u16) -> RectU16 {
+    if strips.len() < 2 {
+        return RectU16::INVERTED;
+    }
+
+    let mut bbox = RectU16::INVERTED;
+    for pair in strips.windows(2) {
+        let strip = pair[0];
+        let next_strip = pair[1];
+        if strip.is_sentinel() {
+            continue;
+        }
+
+        let strip_y = strip.strip_y();
+        let row_y = strip_y.saturating_mul(Tile::HEIGHT);
+        let row_y1 = row_y.saturating_add(Tile::HEIGHT).min(height);
+        let col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
+        let next_col = next_strip.alpha_idx() / u32::from(Tile::HEIGHT);
+        let strip_width = next_col.saturating_sub(col) as u16;
+        let strip_x1 = strip.x.saturating_add(strip_width).min(width);
+
+        if strip_width > 0 && strip.x < width && row_y < height {
+            bbox.union(RectU16::new(strip.x, row_y, strip_x1, row_y1));
+        }
+
+        if next_strip.fill_gap() && strip_y == next_strip.strip_y() && strip_x1 < next_strip.x {
+            let fill_x1 = next_strip.x.min(width);
+            if strip_x1 < fill_x1 && row_y < height {
+                bbox.union(RectU16::new(strip_x1, row_y, fill_x1, row_y1));
+            }
+        }
+    }
+    bbox
+}
+
+fn translate_strip(strip: Strip, origin: (u16, u16)) -> Strip {
+    let x = if strip.is_sentinel() {
+        strip.x
+    } else {
+        strip.x.saturating_sub(origin.0)
+    };
+    Strip::new(
+        x,
+        strip.y.saturating_sub(origin.1),
+        strip.alpha_idx(),
+        strip.fill_gap(),
+    )
+}
+
+fn translate_bbox(bbox: RectU16, origin: (u16, u16)) -> RectU16 {
+    if bbox.is_empty() {
+        return bbox;
+    }
+    RectU16::new(
+        bbox.x0.saturating_sub(origin.0),
+        bbox.y0.saturating_sub(origin.1),
+        bbox.x1.saturating_sub(origin.0),
+        bbox.y1.saturating_sub(origin.1),
+    )
+}
+
+fn expand_bbox(bbox: RectU16, expansion: Rect) -> RectU16 {
+    if bbox.is_empty() {
+        return bbox;
+    }
+
+    let (left, top, right, bottom) = expansion_padding(expansion);
+    RectU16::new(
+        bbox.x0.saturating_sub(left),
+        bbox.y0.saturating_sub(top),
+        bbox.x1.saturating_add(right),
+        bbox.y1.saturating_add(bottom),
+    )
+}
+
+fn expansion_left_top(expansion: Rect) -> (u16, u16) {
+    let (left, top, _, _) = expansion_padding(expansion);
+    (left, top)
+}
+
+fn expansion_padding(expansion: Rect) -> (u16, u16, u16, u16) {
+    let left = (-expansion.x0).max(0.0).ceil() as u16;
+    let top = (-expansion.y0).max(0.0).ceil() as u16;
+    let right = expansion.x1.max(0.0).ceil() as u16;
+    let bottom = expansion.y1.max(0.0).ceil() as u16;
+    let left = left
+        .checked_next_multiple_of(Tile::WIDTH)
+        .unwrap_or(u16::MAX);
+    let top = top
+        .checked_next_multiple_of(Tile::HEIGHT)
+        .unwrap_or(u16::MAX);
+    let right = right
+        .checked_next_multiple_of(Tile::WIDTH)
+        .unwrap_or(u16::MAX);
+    let bottom = bottom
+        .checked_next_multiple_of(Tile::HEIGHT)
+        .unwrap_or(u16::MAX);
+    (left, top, right, bottom)
+}
+
+fn shift_bbox_to_parent(bbox: RectU16, origin: (u16, u16)) -> (RectU16, u16, u16) {
+    let (left, top) = origin;
+    let src_x = left.saturating_sub(bbox.x0);
+    let src_y = top.saturating_sub(bbox.y0);
+    (
+        RectU16::new(
+            bbox.x0.saturating_sub(left),
+            bbox.y0.saturating_sub(top),
+            bbox.x1.saturating_sub(left),
+            bbox.y1.saturating_sub(top),
+        ),
+        src_x,
+        src_y,
+    )
+}
+
 impl Dispatcher for SingleThreadedDispatcher {
-    fn wide(&self) -> &Wide {
-        &self.wide
+    fn has_unpopped_layers(&self) -> bool {
+        self.layer_depth != 0
     }
 
     fn fill_path(
@@ -489,29 +582,21 @@ impl Dispatcher for SingleThreadedDispatcher {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
-        encoded_paints: &[EncodedPaint],
+        _encoded_paints: &[EncodedPaint],
     ) {
-        let wide = &mut self.wide;
-
-        // Convert path to coverage strips.
-        self.strip_generator.generate_filled_path(
+        let clip_path = self.clip_context.get();
+        let strip_start = self.strip_storage.strips.len();
+        let strip_generator = &mut self.strip_generator;
+        let strip_storage = &mut self.strip_storage;
+        strip_generator.generate_filled_path(
             path,
             fill_rule,
             transform,
             aliasing_threshold,
-            &mut self.strip_storage,
-            self.clip_context.get(),
+            strip_storage,
+            clip_path,
         );
-
-        // Generate coarse-level commands from strips (thread_idx 0 for single-threaded).
-        wide.generate(
-            &self.strip_storage.strips,
-            paint,
-            blend_mode,
-            0,
-            mask,
-            encoded_paints,
-        );
+        self.record_fill(strip_start, paint, blend_mode, mask);
     }
 
     fn stroke_path(
@@ -523,29 +608,21 @@ impl Dispatcher for SingleThreadedDispatcher {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
-        encoded_paints: &[EncodedPaint],
+        _encoded_paints: &[EncodedPaint],
     ) {
-        let wide = &mut self.wide;
-
-        // Convert stroked path to coverage strips.
-        self.strip_generator.generate_stroked_path(
+        let clip_path = self.clip_context.get();
+        let strip_start = self.strip_storage.strips.len();
+        let strip_generator = &mut self.strip_generator;
+        let strip_storage = &mut self.strip_storage;
+        strip_generator.generate_stroked_path(
             path,
             stroke,
             transform,
             aliasing_threshold,
-            &mut self.strip_storage,
-            self.clip_context.get(),
+            strip_storage,
+            clip_path,
         );
-
-        // Generate coarse-level commands from strips (thread_idx 0 for single-threaded).
-        wide.generate(
-            &self.strip_storage.strips,
-            paint,
-            blend_mode,
-            0,
-            mask,
-            encoded_paints,
-        );
+        self.record_fill(strip_start, paint, blend_mode, mask);
     }
 
     fn fill_rect_fast(
@@ -554,176 +631,14 @@ impl Dispatcher for SingleThreadedDispatcher {
         paint: Paint,
         blend_mode: BlendMode,
         mask: Option<Mask>,
-        encoded_paints: &[EncodedPaint],
+        _encoded_paints: &[EncodedPaint],
     ) {
-        let wide = &mut self.wide;
-
-        // Generate strips directly for the rectangle (bypasses path processing).
-        self.strip_generator.generate_filled_rect_fast(
-            rect,
-            &mut self.strip_storage,
-            self.clip_context.get(),
-        );
-
-        // Generate coarse-level commands from strips (thread_idx 0 for single-threaded).
-        wide.generate(
-            &self.strip_storage.strips,
-            paint,
-            blend_mode,
-            0,
-            mask,
-            encoded_paints,
-        );
-    }
-
-    fn push_layer(
-        &mut self,
-        clip_path: Option<&BezPath>,
-        fill_rule: Fill,
-        transform: Affine,
-        blend_mode: BlendMode,
-        opacity: f32,
-        aliasing_threshold: Option<u8>,
-        mask: Option<Mask>,
-        filter: Option<Filter>,
-    ) {
-        // Allocate a new unique layer ID.
-        self.layer_id_next += 1;
-
-        // Generate clip coverage if a clip path is provided.
-        let clip = if let Some(c) = clip_path {
-            self.strip_generator.generate_filled_path(
-                c,
-                fill_rule,
-                transform,
-                aliasing_threshold,
-                &mut self.strip_storage,
-                self.clip_context.get(),
-            );
-
-            Some(self.strip_storage.strips.as_slice())
-        } else {
-            None
-        };
-
-        // Push the layer onto the coarse tile stack and update render graph.
-        self.wide.push_layer(
-            self.layer_id_next,
-            clip,
-            blend_mode,
-            mask,
-            opacity,
-            filter,
-            transform,
-            &mut self.render_graph,
-            0,
-        );
-    }
-
-    fn pop_layer(&mut self) {
-        // Pop the current layer and update render graph.
-        self.wide.pop_layer(&mut self.render_graph);
-    }
-
-    fn reset(&mut self) {
-        // Clear all rendering state to prepare for a new scene.
-        self.wide.reset();
-        self.clip_context.reset();
-        self.strip_generator.reset();
-        self.strip_storage.clear();
-        self.render_graph.clear();
-        self.layer_id_next = 0;
-
-        // Recreate root node as node 0 (required for proper execution order).
-        let root_node = self.render_graph.add_node(RenderNodeKind::RootLayer {
-            layer_id: 0,
-            wtile_bbox: WideTilesBbox::new(0, 0, self.wide.width_tiles(), self.wide.height_tiles()),
-        });
-        debug_assert_eq!(root_node, 0, "Root node must be node 0");
-
-        // Reset layer ID counter.
-        self.layer_id_next = 0;
-    }
-
-    fn flush(&mut self, _encoded_paints: &[EncodedPaint]) {
-        // No-op for single-threaded dispatcher (no work queue to flush).
-    }
-
-    fn rasterize(
-        &self,
-        target: PixmapMut<'_>,
-        scene_width: u16,
-        scene_height: u16,
-        settings: RasterizerSettings,
-        encoded_paints: &[EncodedPaint],
-        image_resolver: &dyn ImageResolver,
-    ) {
-        // If only the u8 pipeline is enabled, then use it.
-        #[cfg(all(feature = "u8_pipeline", not(feature = "f32_pipeline")))]
-        {
-            self.rasterize_u8(
-                target,
-                scene_width,
-                scene_height,
-                settings,
-                encoded_paints,
-                image_resolver,
-            );
-        }
-
-        // If only the f32 pipeline is enabled, then use it.
-        #[cfg(all(feature = "f32_pipeline", not(feature = "u8_pipeline")))]
-        {
-            self.rasterize_f32(
-                target,
-                scene_width,
-                scene_height,
-                settings,
-                encoded_paints,
-                image_resolver,
-            );
-        }
-
-        // If both pipelines are enabled, select precision based on render mode parameter.
-        #[cfg(all(feature = "u8_pipeline", feature = "f32_pipeline"))]
-        match settings.quality {
-            crate::RenderMode::OptimizeSpeed => {
-                // Use u8 precision for faster rendering.
-                self.rasterize_u8(
-                    target,
-                    scene_width,
-                    scene_height,
-                    settings,
-                    encoded_paints,
-                    image_resolver,
-                );
-            }
-            crate::RenderMode::OptimizeQuality => {
-                // Use f32 precision for higher quality.
-                self.rasterize_f32(
-                    target,
-                    scene_width,
-                    scene_height,
-                    settings,
-                    encoded_paints,
-                    image_resolver,
-                );
-            }
-        }
-
-        #[cfg(all(not(feature = "u8_pipeline"), not(feature = "f32_pipeline")))]
-        {
-            // This case never gets hit because there is a compile_error in the root.
-            // But have this code disables some warnings and makes the compile error easier to read
-            let _ = (
-                target,
-                scene_width,
-                scene_height,
-                settings,
-                encoded_paints,
-                image_resolver,
-            );
-        }
+        let clip_path = self.clip_context.get();
+        let strip_start = self.strip_storage.strips.len();
+        let strip_generator = &mut self.strip_generator;
+        let strip_storage = &mut self.strip_storage;
+        strip_generator.generate_filled_rect_fast(rect, strip_storage, clip_path);
+        self.record_fill(strip_start, paint, blend_mode, mask);
     }
 
     fn push_clip_path(
@@ -745,64 +660,312 @@ impl Dispatcher for SingleThreadedDispatcher {
     fn pop_clip_path(&mut self) {
         self.clip_context.pop_clip();
     }
-}
 
-/// Saves a filtered pixmap to disk for debugging purposes.
-/// Only available in debug builds with `std` and `png` features enabled.
-#[allow(
-    dead_code,
-    reason = "useful debug utility, can be enabled by uncommenting the call site"
-)]
-#[cfg(all(debug_assertions, feature = "std", feature = "png"))]
-fn save_filtered_layer_debug(pixmap: &Pixmap, layer_id: u32) {
-    use std::path::PathBuf;
+    fn push_layer(
+        &mut self,
+        clip_path: Option<&BezPath>,
+        fill_rule: Fill,
+        clip_transform: Affine,
+        blend_mode: BlendMode,
+        opacity: f32,
+        aliasing_threshold: Option<u8>,
+        mask: Option<Mask>,
+        filter: Option<Filter>,
+    ) {
+        let filter_expansion = filter
+            .as_ref()
+            .map(|filter| filter.filter_expansion(&clip_transform));
+        let filter_source_expansion = filter
+            .as_ref()
+            .map(|filter| filter.source_expansion(&clip_transform));
+        if let Some(expansion) = filter_source_expansion {
+            self.push_filter_viewport(expansion);
+        }
 
-    let diffs_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_sparse_tests/diffs");
-    let _ = std::fs::create_dir_all(&diffs_path);
-    let filename = diffs_path.join(alloc::format!("filtered_layer_{}.png", layer_id));
+        let clip_path = clip_path.map(|clip_path| {
+            let existing_clip = self.clip_context.get();
+            let mut bbox = control_point_bbox(clip_path, clip_transform);
+            if let Some(existing_clip) = existing_clip {
+                bbox = bbox.intersect(existing_clip.bbox);
+            } else {
+                bbox.x1 = bbox.x1.min(self.strip_generator.width());
+                bbox.y1 = bbox.y1.min(self.strip_generator.height());
+            }
 
-    if let Ok(png_data) = pixmap.clone().into_png() {
-        let _ = std::fs::write(&filename, &png_data);
+            let strip_start = self.strip_storage.strips.len();
+            self.strip_generator.generate_filled_path(
+                clip_path,
+                fill_rule,
+                clip_transform,
+                aliasing_threshold,
+                &mut self.strip_storage,
+                existing_clip,
+            );
+
+            LayerClip {
+                strip_range: strip_start..self.strip_storage.strips.len(),
+                thread_idx: 0,
+                bbox,
+            }
+        });
+
+        let stream_id = self.active_stream_id();
+        let (push_cmd_idx, kind) = if let Some(filter) = filter {
+            let layer_id = self.filter_layers.len();
+            let expansion = filter_expansion.expect("filter expansion missing");
+            let source_expansion =
+                filter_source_expansion.expect("filter source expansion missing");
+            let push_cmd_idx = self.push_recorded_cmd(RecordedCmd::CompositeFilterLayer {
+                layer_id,
+                bbox: RectU16::INVERTED,
+                src_x: 0,
+                src_y: 0,
+                blend_mode,
+                opacity,
+                mask,
+                clip: clip_path,
+            });
+            self.filter_layers.push(RecordedFilterLayer {
+                cmds: Vec::new(),
+                filter,
+                transform: clip_transform,
+                expansion,
+                source_origin: expansion_left_top(source_expansion),
+                content_bbox: RectU16::INVERTED,
+                bbox: RectU16::INVERTED,
+            });
+            self.recording_stack.push(layer_id);
+            (push_cmd_idx, RecordedLayerKind::Filter { layer_id })
+        } else {
+            let push_cmd_idx = self.push_recorded_cmd(RecordedCmd::PushLayer {
+                blend_mode,
+                opacity,
+                mask,
+                clip: clip_path,
+                content_bbox: RectU16::INVERTED,
+            });
+            (push_cmd_idx, RecordedLayerKind::Regular)
+        };
+        self.layer_stack.push(RecordedLayer {
+            stream_id,
+            push_cmd_idx,
+            content_bbox: RectU16::INVERTED,
+            kind,
+        });
+        self.layer_depth += 1;
+    }
+
+    fn pop_layer(&mut self) {
+        let layer = self.layer_stack.pop().expect("layer stack underflow");
+        let content_bbox = layer.content_bbox;
+        match layer.kind {
+            RecordedLayerKind::Regular => {
+                self.set_push_layer_content_bbox(layer.stream_id, layer.push_cmd_idx, content_bbox);
+                self.include_content_bbox(content_bbox);
+                self.active_cmds_mut().push(RecordedCmd::PopLayer);
+            }
+            RecordedLayerKind::Filter { layer_id, .. } => {
+                let popped = self.recording_stack.pop().expect("filter stack underflow");
+                assert_eq!(popped, layer_id, "filter layer stack mismatch");
+                self.set_filter_layer_bbox(
+                    layer_id,
+                    layer.stream_id,
+                    layer.push_cmd_idx,
+                    content_bbox,
+                );
+                self.pop_filter_viewport();
+            }
+        }
+        self.layer_depth = self
+            .layer_depth
+            .checked_sub(1)
+            .expect("layer stack underflow");
+    }
+
+    fn reset(&mut self) {
+        self.bucketer.borrow_mut().reset();
+        self.clip_context.reset();
+        self.cmds.clear();
+        self.filter_layers.clear();
+        self.recording_stack.clear();
+        self.layer_stack.clear();
+        self.viewport_stack.clear();
+        self.strip_generator = StripGenerator::new(self.base_width, self.base_height, self.level);
+        self.strip_generator.reset();
+        self.strip_storage.clear();
+        self.layer_depth = 0;
+    }
+
+    fn flush(&mut self, _encoded_paints: &[EncodedPaint]) {}
+
+    fn rasterize(
+        &self,
+        target: PixmapMut<'_>,
+        scene_width: u16,
+        scene_height: u16,
+        settings: RasterizerSettings,
+        encoded_paints: &[EncodedPaint],
+        image_resolver: &dyn ImageResolver,
+    ) {
+        #[cfg(all(feature = "u8_pipeline", not(feature = "f32_pipeline")))]
+        {
+            self.rasterize_u8(
+                target,
+                scene_width,
+                scene_height,
+                settings,
+                encoded_paints,
+                image_resolver,
+            );
+        }
+
+        #[cfg(all(feature = "f32_pipeline", not(feature = "u8_pipeline")))]
+        {
+            self.rasterize_f32(
+                target,
+                scene_width,
+                scene_height,
+                settings,
+                encoded_paints,
+                image_resolver,
+            );
+        }
+
+        #[cfg(all(feature = "u8_pipeline", feature = "f32_pipeline"))]
+        match settings.quality {
+            crate::RenderMode::OptimizeSpeed => {
+                self.rasterize_u8(
+                    target,
+                    scene_width,
+                    scene_height,
+                    settings,
+                    encoded_paints,
+                    image_resolver,
+                );
+            }
+            crate::RenderMode::OptimizeQuality => {
+                self.rasterize_f32(
+                    target,
+                    scene_width,
+                    scene_height,
+                    settings,
+                    encoded_paints,
+                    image_resolver,
+                );
+            }
+        }
+
+        #[cfg(all(not(feature = "u8_pipeline"), not(feature = "f32_pipeline")))]
+        {
+            let _ = (
+                target,
+                scene_width,
+                scene_height,
+                settings,
+                encoded_paints,
+                image_resolver,
+            );
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kurbo::Rect;
+    use crate::kurbo::Shape;
     use vello_common::color::palette::css::BLUE;
-    use vello_common::kurbo::Shape;
     use vello_common::paint::PremulColor;
 
-    /// Verifies that `reset()` properly clears all internal buffers and state.
-    ///
-    /// This is important to ensure that a dispatcher can be reused for multiple
-    /// rendering passes without accumulating stale data from previous frames.
-    #[test]
-    fn buffers_cleared_on_reset() {
-        let mut dispatcher = SingleThreadedDispatcher::new(100, 100, Level::new());
+    fn paint() -> Paint {
+        Paint::Solid(PremulColor::from_alpha_color(BLUE))
+    }
 
-        // Render a simple shape to populate internal buffers.
-        dispatcher.fill_path(
-            &Rect::new(0.0, 0.0, 50.0, 50.0).to_path(0.1),
+    fn layer_content_bbox(dispatcher: &SingleThreadedDispatcher, cmd_idx: usize) -> RectU16 {
+        match &dispatcher.cmds[cmd_idx] {
+            RecordedCmd::PushLayer { content_bbox, .. } => *content_bbox,
+            _ => panic!("expected push layer command"),
+        }
+    }
+
+    #[test]
+    fn tracks_layer_content_bbox_ignoring_layer_clip() {
+        let mut dispatcher = SingleThreadedDispatcher::new(64, 64, Level::new());
+        let clip = Rect::new(0.0, 0.0, 8.0, 8.0).to_path(0.1);
+
+        dispatcher.push_layer(
+            Some(&clip),
             Fill::NonZero,
             Affine::IDENTITY,
-            Paint::Solid(PremulColor::from_alpha_color(BLUE)),
+            BlendMode::default(),
+            1.0,
+            None,
+            None,
+            None,
+        );
+        dispatcher.fill_rect_fast(
+            &Rect::new(20.0, 12.0, 36.0, 20.0),
+            paint(),
             BlendMode::default(),
             None,
+            &[],
+        );
+        dispatcher.pop_layer();
+
+        assert_eq!(
+            layer_content_bbox(&dispatcher, 0),
+            RectU16::new(20, 12, 40, 20)
+        );
+    }
+
+    #[test]
+    fn nested_layer_content_bbox_is_propagated_to_parent() {
+        let mut dispatcher = SingleThreadedDispatcher::new(64, 64, Level::new());
+
+        dispatcher.push_layer(
+            None,
+            Fill::NonZero,
+            Affine::IDENTITY,
+            BlendMode::default(),
+            1.0,
+            None,
+            None,
+            None,
+        );
+        dispatcher.fill_rect_fast(
+            &Rect::new(4.0, 4.0, 12.0, 12.0),
+            paint(),
+            BlendMode::default(),
             None,
             &[],
         );
 
-        // Ensure there is data to clear.
-        assert!(!dispatcher.strip_storage.alphas.is_empty());
-        assert!(!dispatcher.wide.get(0, 0).cmds.is_empty());
+        dispatcher.push_layer(
+            None,
+            Fill::NonZero,
+            Affine::IDENTITY,
+            BlendMode::default(),
+            1.0,
+            None,
+            None,
+            None,
+        );
+        dispatcher.fill_rect_fast(
+            &Rect::new(24.0, 24.0, 32.0, 32.0),
+            paint(),
+            BlendMode::default(),
+            None,
+            &[],
+        );
+        dispatcher.pop_layer();
+        dispatcher.pop_layer();
 
-        dispatcher.reset();
-
-        // Verify all buffers are cleared.
-        assert!(dispatcher.strip_storage.alphas.is_empty());
-        assert!(dispatcher.wide.get(0, 0).cmds.is_empty());
-        assert_eq!(dispatcher.layer_id_next, 0);
+        assert_eq!(
+            layer_content_bbox(&dispatcher, 0),
+            RectU16::new(4, 4, 36, 32)
+        );
+        assert_eq!(
+            layer_content_bbox(&dispatcher, 2),
+            RectU16::new(24, 24, 36, 32)
+        );
     }
 }
