@@ -27,12 +27,19 @@ use vello_common::tile::Tile;
 const DEPTH_BUCKET_WIDTH: u16 = 32;
 const PIXEL_CENTER_OFFSET: f64 = 0.5;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) enum Cmd {
     Fill(FillCmd),
     AlphaFill(AlphaFillCmd),
-    PushLayer(u32),
-    PopLayer(u32),
+    PushLayer,
+    Opacity(f32),
+    Mask(Mask),
+    BlendFill(BlendFillCmd),
+    #[allow(
+        dead_code,
+        reason = "will be used once layer clip alphas are emitted as row commands"
+    )]
+    BlendAlphaFill(BlendAlphaFillCmd),
 }
 
 impl Cmd {
@@ -41,7 +48,11 @@ impl Cmd {
         match self {
             Self::Fill(cmd) => cmd.x,
             Self::AlphaFill(cmd) => cmd.x,
-            Self::PushLayer(_) | Self::PopLayer(_) => unreachable!(),
+            Self::PushLayer
+            | Self::Opacity(_)
+            | Self::Mask(_)
+            | Self::BlendFill(_)
+            | Self::BlendAlphaFill(_) => unreachable!(),
         }
     }
 
@@ -50,7 +61,11 @@ impl Cmd {
         match self {
             Self::Fill(cmd) => cmd.width,
             Self::AlphaFill(cmd) => cmd.width,
-            Self::PushLayer(_) | Self::PopLayer(_) => unreachable!(),
+            Self::PushLayer
+            | Self::Opacity(_)
+            | Self::Mask(_)
+            | Self::BlendFill(_)
+            | Self::BlendAlphaFill(_) => unreachable!(),
         }
     }
 
@@ -59,7 +74,11 @@ impl Cmd {
         match self {
             Self::Fill(cmd) => cmd.attrs_idx,
             Self::AlphaFill(cmd) => cmd.attrs_idx,
-            Self::PushLayer(_) | Self::PopLayer(_) => unreachable!(),
+            Self::PushLayer
+            | Self::Opacity(_)
+            | Self::Mask(_)
+            | Self::BlendFill(_)
+            | Self::BlendAlphaFill(_) => unreachable!(),
         }
     }
 
@@ -84,6 +103,21 @@ pub(crate) struct AlphaFillCmd {
     pub(crate) attrs_idx: u32,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct BlendFillCmd {
+    pub(crate) x: u16,
+    pub(crate) width: u16,
+    pub(crate) blend_mode: BlendMode,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct BlendAlphaFillCmd {
+    pub(crate) x: u16,
+    pub(crate) width: u16,
+    pub(crate) alpha_idx: u32,
+    pub(crate) blend_mode: BlendMode,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct FillAttrs {
     pub(crate) paint: Paint,
@@ -96,16 +130,10 @@ pub(crate) struct FillAttrs {
 pub(crate) struct LayerClip;
 
 #[derive(Debug, Clone)]
-pub(crate) struct LayerProps {
-    pub(crate) mask: Option<Mask>,
-    pub(crate) blend_mode: BlendMode,
-    pub(crate) clip_path: Option<LayerClip>,
-    pub(crate) opacity: f32,
-}
-
-#[derive(Debug)]
 struct ActiveLayer {
-    props_idx: u32,
+    mask: Option<Mask>,
+    blend_mode: BlendMode,
+    opacity: f32,
     occupied_rows: Vec<usize>,
 }
 
@@ -146,13 +174,29 @@ impl RowCommands {
         self.cmds.push(cmd);
     }
 
-    fn push_layer(&mut self, props_idx: u32) {
-        self.cmds.push(Cmd::PushLayer(props_idx));
+    fn push_layer(&mut self) {
+        self.cmds.push(Cmd::PushLayer);
         self.layer_depth += 1;
     }
 
-    fn pop_layer(&mut self, props_idx: u32) {
-        self.cmds.push(Cmd::PopLayer(props_idx));
+    fn pop_layer(
+        &mut self,
+        full_width: u16,
+        mask: Option<&Mask>,
+        opacity: f32,
+        blend_mode: BlendMode,
+    ) {
+        if let Some(mask) = mask {
+            self.cmds.push(Cmd::Mask(mask.clone()));
+        }
+        if opacity != 1.0 {
+            self.cmds.push(Cmd::Opacity(opacity));
+        }
+        self.cmds.push(Cmd::BlendFill(BlendFillCmd {
+            x: 0,
+            width: full_width,
+            blend_mode,
+        }));
         self.layer_depth -= 1;
     }
 
@@ -217,7 +261,6 @@ pub(crate) struct CommandBucketer {
     clip_bboxes: Vec<RectU16>,
     rows: Vec<RowCommands>,
     attrs: Vec<FillAttrs>,
-    layer_props: Vec<LayerProps>,
     active_layers: Vec<ActiveLayer>,
     next_path_id: u32,
 }
@@ -231,7 +274,6 @@ impl CommandBucketer {
             clip_bboxes: vec![full_clip_bbox],
             rows: (0..num_rows).map(|_| RowCommands::new()).collect(),
             attrs: Vec::new(),
-            layer_props: Vec::new(),
             active_layers: Vec::new(),
             next_path_id: 1,
         }
@@ -270,10 +312,6 @@ impl CommandBucketer {
         &self.attrs
     }
 
-    pub(crate) fn layer_props(&self) -> &[LayerProps] {
-        &self.layer_props
-    }
-
     pub(crate) fn has_unpopped_layers(&self) -> bool {
         !self.active_layers.is_empty()
     }
@@ -283,7 +321,6 @@ impl CommandBucketer {
             row.clear();
         }
         self.attrs.clear();
-        self.layer_props.clear();
         self.active_layers.clear();
         self.next_path_id = 1;
         self.clip_bboxes.truncate(1);
@@ -294,27 +331,26 @@ impl CommandBucketer {
         blend_mode: BlendMode,
         opacity: f32,
         mask: Option<Mask>,
-        clip_path: Option<LayerClip>,
+        _clip_path: Option<LayerClip>,
     ) {
-        let props_idx = self.layer_props.len() as u32;
-        self.layer_props.push(LayerProps {
+        self.active_layers.push(ActiveLayer {
             mask,
             blend_mode,
-            clip_path,
             opacity,
-        });
-        self.active_layers.push(ActiveLayer {
-            props_idx,
             occupied_rows: Vec::new(),
         });
     }
 
     pub(crate) fn pop_layer(&mut self) {
         let mut layer = self.active_layers.pop().unwrap();
+        let mask = layer.mask.clone();
+        let opacity = layer.opacity;
+        let blend_mode = layer.blend_mode;
+        let full_width = self.width();
         for row_idx in layer.occupied_rows.drain(..) {
             let row = &mut self.rows[row_idx];
             debug_assert_eq!(row.layer_depth, self.active_layers.len() + 1);
-            row.pop_layer(layer.props_idx);
+            row.pop_layer(full_width, mask.as_ref(), opacity, blend_mode);
         }
     }
 
@@ -326,8 +362,7 @@ impl CommandBucketer {
         }
 
         for layer_idx in layer_depth..self.active_layers.len() {
-            let props_idx = self.active_layers[layer_idx].props_idx;
-            self.rows[row_idx].push_layer(props_idx);
+            self.rows[row_idx].push_layer();
             self.active_layers[layer_idx].occupied_rows.push(row_idx);
         }
     }
@@ -633,7 +668,6 @@ impl<S: Simd> RowRenderKernel<S> for F32Kernel {
 pub(crate) struct RowFine<S: Simd, T: RowRenderKernel<S>> {
     simd: S,
     out_width: u16,
-    buffer_width: u16,
     buffers: Vec<Vec<T::Numeric>>,
     buffer_pool: Vec<Vec<T::Numeric>>,
     paint_buf: Vec<T::Numeric>,
@@ -648,7 +682,6 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
         Self {
             simd,
             out_width,
-            buffer_width,
             // TODO
             buffers: vec![vec![T::Numeric::ZERO; scratch_len]],
             buffer_pool: Vec::new(),
@@ -698,7 +731,54 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
         self.buffers.push(buf);
     }
 
-    fn pop_layer(&mut self, row_y: u16, x: u16, width: u16, props: &LayerProps) {
+    fn opacity(&mut self, x: u16, width: u16, opacity: f32) {
+        let scratch_start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
+        let scratch_len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
+        let target = self.buffers.last_mut().unwrap();
+        let target = &mut target[scratch_start..scratch_start + scratch_len];
+
+        T::apply_mask(
+            self.simd,
+            target,
+            iter::repeat(T::NumericVec::from_f32(
+                self.simd,
+                f32x16::splat(self.simd, opacity),
+            )),
+        );
+    }
+
+    fn mask(&mut self, row_y: u16, x: u16, width: u16, mask: &Mask) {
+        let scratch_start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
+        let scratch_len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
+        let target = self.buffers.last_mut().unwrap();
+        let target = &mut target[scratch_start..scratch_start + scratch_len];
+
+        Self::apply_mask(self.simd, target, x, row_y, width, mask);
+    }
+
+    fn blend_fill(&mut self, row_y: u16, x: u16, width: u16, blend_mode: BlendMode) {
+        self.blend(row_y, x, width, blend_mode, None);
+    }
+
+    fn blend_alpha_fill(
+        &mut self,
+        row_y: u16,
+        x: u16,
+        width: u16,
+        blend_mode: BlendMode,
+        alphas: &[u8],
+    ) {
+        self.blend(row_y, x, width, blend_mode, Some(alphas));
+    }
+
+    fn blend(
+        &mut self,
+        row_y: u16,
+        x: u16,
+        width: u16,
+        blend_mode: BlendMode,
+        alphas: Option<&[u8]>,
+    ) {
         let scratch_start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
         let scratch_len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
         let (source, rest) = self.buffers.split_last_mut().unwrap();
@@ -706,25 +786,8 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
         let source = &mut source[scratch_start..scratch_start + scratch_len];
         let target = &mut target[scratch_start..scratch_start + scratch_len];
 
-        let _ = &props.clip_path;
-
-        if let Some(mask) = props.mask.as_ref() {
-            Self::apply_mask(self.simd, source, x, row_y, width, mask);
-        }
-
-        if props.opacity != 1.0 {
-            T::apply_mask(
-                self.simd,
-                source,
-                iter::repeat(T::NumericVec::from_f32(
-                    self.simd,
-                    f32x16::splat(self.simd, props.opacity),
-                )),
-            );
-        }
-
-        if props.blend_mode == BlendMode::default() {
-            T::alpha_composite_buffer(self.simd, target, source, None);
+        if blend_mode == BlendMode::default() {
+            T::alpha_composite_buffer(self.simd, target, source, alphas);
         } else {
             T::blend(
                 self.simd,
@@ -734,8 +797,8 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
                 source
                     .chunks_exact(T::Composite::LENGTH)
                     .map(|s| T::Composite::from_slice(self.simd, s)),
-                props.blend_mode,
-                None,
+                blend_mode,
+                alphas,
                 None,
             );
         }
@@ -940,7 +1003,7 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
     #[inline(always)]
     fn render_cmd(
         &mut self,
-        cmd: Cmd,
+        cmd: &Cmd,
         row_y: u16,
         alphas: &[u8],
         attrs: &FillAttrs,
@@ -1020,7 +1083,7 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
     #[inline(always)]
     fn render_cmd_span(
         &mut self,
-        cmd: Cmd,
+        cmd: &Cmd,
         x: u16,
         end: u16,
         row_y: u16,
@@ -1080,7 +1143,11 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
                     }
                 }
             }
-            Cmd::PushLayer(_) | Cmd::PopLayer(_) => unreachable!(),
+            Cmd::PushLayer
+            | Cmd::Opacity(_)
+            | Cmd::Mask(_)
+            | Cmd::BlendFill(_)
+            | Cmd::BlendAlphaFill(_) => unreachable!(),
         }
     }
 
@@ -1407,7 +1474,7 @@ pub(crate) fn rasterize<S: Simd, T: RowRenderKernel<S>>(
             let attrs = &bucketer.attrs()[cmd.attrs_idx as usize];
             fine.render_opaque(cmd, row_y, attrs, encoded_paints, image_resolver);
         }
-        for &cmd in &row.cmds {
+        for cmd in &row.cmds {
             // TODO: CHeck whether having fill/alpha fill commands in
             // a separate vector leads to better performance.
             match cmd {
@@ -1425,13 +1492,26 @@ pub(crate) fn rasterize<S: Simd, T: RowRenderKernel<S>>(
                         use_depth,
                     );
                 }
-                Cmd::PushLayer(props_idx) => {
-                    let _ = &bucketer.layer_props()[props_idx as usize];
+                Cmd::PushLayer => {
                     fine.push_layer(row_start, row_end - row_start);
                 }
-                Cmd::PopLayer(props_idx) => {
-                    let props = &bucketer.layer_props()[props_idx as usize];
-                    fine.pop_layer(row_y, row_start, row_end - row_start, props);
+                Cmd::Opacity(opacity) => {
+                    fine.opacity(row_start, row_end - row_start, *opacity);
+                }
+                Cmd::Mask(mask) => {
+                    fine.mask(row_y, row_start, row_end - row_start, mask);
+                }
+                Cmd::BlendFill(cmd) => {
+                    fine.blend_fill(row_y, cmd.x, cmd.width, cmd.blend_mode);
+                }
+                Cmd::BlendAlphaFill(cmd) => {
+                    fine.blend_alpha_fill(
+                        row_y,
+                        cmd.x,
+                        cmd.width,
+                        cmd.blend_mode,
+                        &alphas[cmd.alpha_idx as usize..],
+                    );
                 }
             }
         }
@@ -1447,7 +1527,6 @@ mod tests {
     use vello_common::color::palette::css::{BLUE, RED};
     use vello_common::color::{AlphaColor, Srgb};
     use vello_common::encode::EncodeExt;
-    use vello_common::geometry::RectU16;
     use vello_common::kurbo::Affine;
     use vello_common::paint::{Paint, PremulColor};
     use vello_common::peniko::{BlendMode, ColorStop, Gradient};
