@@ -242,10 +242,6 @@ impl Dispatcher for SingleThreadedDispatcher {
         if filter.is_some() {
             unimplemented!("row-bucket prototype does not support filter layers");
         }
-        if blend_mode.is_destructive() {
-            panic!("row-bucket prototype does not support destructive layer blends");
-        }
-
         let clip_path = clip_path.map(|clip_path| {
             let existing_clip = self.clip_context.get();
             let mut bbox = control_point_bbox(clip_path, clip_transform);

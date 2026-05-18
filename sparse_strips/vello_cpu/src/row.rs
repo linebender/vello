@@ -161,6 +161,7 @@ struct ActiveLayer {
     blend_mode: BlendMode,
     opacity: f32,
     clip: Option<LayerClip>,
+    bbox: RectU16,
     occupied_rows: Vec<usize>,
 }
 
@@ -209,7 +210,8 @@ impl RowCommands {
 
     fn pop_layer(
         &mut self,
-        full_width: u16,
+        x: u16,
+        width: u16,
         mask: Option<&Mask>,
         opacity: f32,
         blend_mode: BlendMode,
@@ -221,8 +223,8 @@ impl RowCommands {
             self.cmds.push(Cmd::Opacity(opacity));
         }
         self.cmds.push(Cmd::BlendFill(BlendFillCmd {
-            x: 0,
-            width: full_width,
+            x,
+            width,
             blend_mode,
         }));
         self.pop_buf();
@@ -402,9 +404,13 @@ impl CommandBucketer {
         mask: Option<Mask>,
         clip: Option<LayerClip>,
     ) {
-        if let Some(clip) = &clip {
-            let clip_bbox = clip.bbox.intersect(*self.clip_bboxes.last().unwrap());
-            self.clip_bboxes.push(clip_bbox);
+        let parent_bbox = *self.clip_bboxes.last().unwrap();
+        let bbox = clip
+            .as_ref()
+            .map(|clip| clip.bbox.intersect(parent_bbox))
+            .unwrap_or(parent_bbox);
+        if clip.is_some() {
+            self.clip_bboxes.push(bbox);
         }
 
         self.active_layers.push(ActiveLayer {
@@ -412,8 +418,12 @@ impl CommandBucketer {
             blend_mode,
             opacity,
             clip,
+            bbox,
             occupied_rows: Vec::new(),
         });
+        if blend_mode.is_destructive() {
+            self.ensure_layer_rows(bbox);
+        }
     }
 
     pub(crate) fn pop_layer(&mut self) {
@@ -451,11 +461,28 @@ impl CommandBucketer {
                 self.rows[row_idx].pop_buf();
             }
         } else {
+            let (blend_x, blend_width) = if blend_mode.is_destructive() {
+                (layer.bbox.x0, layer.bbox.width())
+            } else {
+                (0, full_width)
+            };
             for row_idx in layer.occupied_rows.drain(..) {
                 let row = &mut self.rows[row_idx];
                 debug_assert_eq!(row.layer_depth, self.active_layers.len() + 1);
-                row.pop_layer(full_width, mask.as_ref(), opacity, blend_mode);
+                row.pop_layer(blend_x, blend_width, mask.as_ref(), opacity, blend_mode);
             }
+        }
+    }
+
+    fn ensure_layer_rows(&mut self, bbox: RectU16) {
+        if bbox.is_empty() {
+            return;
+        }
+
+        let row_start = usize::from(bbox.y0 / Tile::HEIGHT);
+        let row_end = usize::from(bbox.y1.div_ceil(Tile::HEIGHT)).min(self.rows.len());
+        for row_idx in row_start..row_end {
+            self.ensure_row_layers(row_idx);
         }
     }
 
