@@ -20,6 +20,7 @@
 //! - `Flood` - Solid color fill
 //! - `GaussianBlur` - Gaussian blur filter
 //! - `DropShadow` - Drop shadow effect (compound primitive)
+//! - `ColorMatrix` - Matrix-based color transformation
 //! - `Offset` - Translation/shift (single primitive)
 //!
 //! **Note:** Currently only single primitive filters are supported. Filter graphs with
@@ -36,7 +37,6 @@
 //!   `Opacity`, `Saturate`, `Sepia`
 //!
 //! **Filter Primitives:**
-//! - `ColorMatrix` - Matrix-based color transformation
 //! - `Composite` - Porter-Duff compositing operations
 //! - `Blend` - Blend mode operations
 //! - `Morphology` - Dilate/erode operations
@@ -400,11 +400,6 @@ pub enum FilterPrimitive {
         /// Default is `EdgeMode::None` per SVG spec.
         edge_mode: EdgeMode,
     },
-    //
-    // ============================================================
-    // TODO: The following filter primitives are not yet implemented
-    // ============================================================
-    //
     /// Matrix-based color transformation.
     ///
     /// Applies a 4x5 matrix transformation to colors, allowing arbitrary
@@ -425,6 +420,11 @@ pub enum FilterPrimitive {
         dy: f32,
     },
 
+    //
+    // ============================================================
+    // TODO: The following filter primitives are not yet implemented
+    // ============================================================
+    //
     /// Composite two inputs using Porter-Duff compositing operations.
     ///
     /// Combines two input images using standard compositing operators

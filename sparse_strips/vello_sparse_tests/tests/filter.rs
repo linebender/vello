@@ -10,7 +10,7 @@ use vello_common::color::AlphaColor;
 use vello_common::color::palette::css::{
     BLACK, LIME, PURPLE, REBECCA_PURPLE, ROYAL_BLUE, SEA_GREEN, TOMATO, VIOLET,
 };
-use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
+use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive, matrices};
 use vello_common::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape, Stroke};
 use vello_common::paint::Image;
 use vello_common::peniko::{
@@ -80,6 +80,24 @@ fn filter_offset_nested(ctx: &mut impl Renderer) {
     ctx.set_paint(RED);
     ctx.fill_rect(&Rect::new(5.0, 5.0, 55.0, 55.0));
     ctx.pop_layer();
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded, width = 120, height = 80, hybrid_tolerance = 1)]
+fn filter_color_matrix_full_sepia(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::ColorMatrix {
+        matrix: matrices::SEPIA,
+    });
+
+    ctx.push_filter_layer(filter);
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(10.0, 10.0, 55.0, 35.0));
+    ctx.set_paint(GREEN);
+    ctx.fill_rect(&Rect::new(65.0, 10.0, 110.0, 35.0));
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(10.0, 45.0, 55.0, 70.0));
+    ctx.set_paint(AlphaColor::from_rgba8(60, 120, 240, 128));
+    ctx.fill_rect(&Rect::new(65.0, 45.0, 110.0, 70.0));
     ctx.pop_layer();
 }
 
