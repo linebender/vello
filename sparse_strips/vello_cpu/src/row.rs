@@ -18,6 +18,7 @@ use bytemuck::cast_slice;
 use core::{iter, marker::PhantomData};
 use vello_common::encode::{EncodedKind, EncodedPaint};
 use vello_common::fearless_simd::*;
+use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, ImageSource, Paint, PremulColor, Tint};
 use vello_common::strip::Strip;
@@ -213,6 +214,7 @@ impl RowCommands {
 #[derive(Debug)]
 pub(crate) struct CommandBucketer {
     width: u16,
+    clip_bboxes: Vec<RectU16>,
     rows: Vec<RowCommands>,
     attrs: Vec<FillAttrs>,
     layer_props: Vec<LayerProps>,
@@ -222,9 +224,11 @@ pub(crate) struct CommandBucketer {
 
 impl CommandBucketer {
     pub(crate) fn new(width: u16, height: u16) -> Self {
-        let num_rows = height.div_ceil(Tile::HEIGHT) as usize;
+        let full_clip_bbox = Self::full_clip_bbox(width, height);
+        let num_rows = usize::from(full_clip_bbox.height() / Tile::HEIGHT);
         Self {
             width,
+            clip_bboxes: vec![full_clip_bbox],
             rows: (0..num_rows).map(|_| RowCommands::new()).collect(),
             attrs: Vec::new(),
             layer_props: Vec::new(),
@@ -233,8 +237,33 @@ impl CommandBucketer {
         }
     }
 
+    fn full_clip_bbox(width: u16, height: u16) -> RectU16 {
+        RectU16::new(
+            0,
+            0,
+            Self::ceil_to_tile_width(width),
+            Self::ceil_to_tile_height(height),
+        )
+    }
+
+    fn ceil_to_tile_width(width: u16) -> u16 {
+        width
+            .checked_next_multiple_of(Tile::WIDTH)
+            .unwrap_or(u16::MAX)
+    }
+
+    fn ceil_to_tile_height(height: u16) -> u16 {
+        height
+            .checked_next_multiple_of(Tile::HEIGHT)
+            .unwrap_or(u16::MAX)
+    }
+
     pub(crate) fn rows(&self) -> &[RowCommands] {
         &self.rows
+    }
+
+    pub(crate) fn width(&self) -> u16 {
+        self.clip_bboxes[0].width()
     }
 
     pub(crate) fn attrs(&self) -> &[FillAttrs] {
@@ -257,6 +286,7 @@ impl CommandBucketer {
         self.layer_props.clear();
         self.active_layers.clear();
         self.next_path_id = 1;
+        self.clip_bboxes.truncate(1);
     }
 
     pub(crate) fn push_layer(
@@ -328,14 +358,21 @@ impl CommandBucketer {
         });
         let can_depth_cull =
             self.active_layers.is_empty() && blend_mode == BlendMode::default() && mask.is_none();
-
+        let clip_bbox = *self.clip_bboxes.last().unwrap();
+        let clip_x0 = clip_bbox.x0;
+        let clip_x1 = clip_bbox.x1;
         for i in 0..strip_buf.len() - 1 {
             let strip = &strip_buf[i];
-            if strip.x >= self.width {
+            let strip_y = strip.strip_y();
+            let row_y = strip_y * Tile::HEIGHT;
+            if row_y < clip_bbox.y0 {
                 continue;
             }
+            if row_y >= clip_bbox.y1 {
+                break;
+            }
 
-            let row_idx = strip.strip_y() as usize;
+            let row_idx = strip_y as usize;
             if row_idx >= self.rows.len() {
                 break;
             }
@@ -346,24 +383,27 @@ impl CommandBucketer {
             let strip_width = next_col.saturating_sub(col) as u16;
             let x0 = strip.x;
             let x1 = x0.saturating_add(strip_width);
-            let clipped_x1 = x1.min(self.width);
+            let clipped_x0 = x0.max(clip_x0);
+            let clipped_x1 = x1.min(clip_x1);
 
-            if x0 < clipped_x1 {
+            if clipped_x0 < clipped_x1 {
+                let alpha_idx =
+                    strip.alpha_idx() + u32::from(clipped_x0 - x0) * u32::from(Tile::HEIGHT);
                 self.ensure_row_layers(row_idx);
                 self.rows[row_idx].push_fill_cmd(
                     Cmd::AlphaFill(AlphaFillCmd {
-                        x: x0,
-                        width: clipped_x1 - x0,
-                        alpha_idx: strip.alpha_idx(),
+                        x: clipped_x0,
+                        width: clipped_x1 - clipped_x0,
+                        alpha_idx,
                         attrs_idx,
                     }),
                     self.width,
                 );
             }
 
-            if next_strip.fill_gap() && strip.strip_y() == next_strip.strip_y() {
-                let fill_x0 = clipped_x1;
-                let fill_x1 = next_strip.x.min(self.width);
+            if next_strip.fill_gap() && strip_y == next_strip.strip_y() {
+                let fill_x0 = x1.max(clip_x0);
+                let fill_x1 = next_strip.x.min(clip_x1);
                 if fill_x0 < fill_x1 {
                     self.push_fill(
                         row_idx,
@@ -592,7 +632,8 @@ impl<S: Simd> RowRenderKernel<S> for F32Kernel {
 #[derive(Debug)]
 pub(crate) struct RowFine<S: Simd, T: RowRenderKernel<S>> {
     simd: S,
-    width: u16,
+    out_width: u16,
+    buffer_width: u16,
     buffers: Vec<Vec<T::Numeric>>,
     buffer_pool: Vec<Vec<T::Numeric>>,
     paint_buf: Vec<T::Numeric>,
@@ -602,18 +643,18 @@ pub(crate) struct RowFine<S: Simd, T: RowRenderKernel<S>> {
 }
 
 impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
-    fn new(simd: S, width: u16) -> Self {
-        let scratch_width = usize::from(width.next_multiple_of(Tile::WIDTH));
-        let scratch_len = scratch_width * TILE_HEIGHT_COMPONENTS;
+    fn new(simd: S, out_width: u16, buffer_width: u16) -> Self {
+        let scratch_len = usize::from(buffer_width) * TILE_HEIGHT_COMPONENTS;
         Self {
             simd,
-            width,
+            out_width,
+            buffer_width,
             // TODO
             buffers: vec![vec![T::Numeric::ZERO; scratch_len]],
             buffer_pool: Vec::new(),
             paint_buf: Vec::new(),
             f32_buf: Vec::new(),
-            depth: vec![0; usize::from(width.div_ceil(DEPTH_BUCKET_WIDTH))],
+            depth: vec![0; usize::from(buffer_width.div_ceil(DEPTH_BUCKET_WIDTH))],
             _marker: PhantomData,
         }
     }
@@ -908,7 +949,7 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
         use_depth: bool,
     ) {
         let cmd_x = cmd.fill_x();
-        let cmd_end = (cmd_x + cmd.fill_width()).min(self.width);
+        let cmd_end = (cmd_x + cmd.fill_width()).min(self.out_width);
         if cmd_x >= cmd_end {
             return;
         }
@@ -1044,7 +1085,7 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
     }
 
     fn pack(&self, row_idx: usize, row_height: usize, x: u16, width: u16, buffer: &mut [u8]) {
-        let out_width = usize::from(self.width);
+        let out_width = usize::from(self.out_width);
         let offset = row_idx * Tile::HEIGHT as usize * out_width * COLOR_COMPONENTS;
         let len = row_height * out_width * COLOR_COMPONENTS;
         let out = &mut buffer[offset..offset + len];
@@ -1346,7 +1387,7 @@ pub(crate) fn rasterize<S: Simd, T: RowRenderKernel<S>>(
     encoded_paints: &[EncodedPaint],
     image_resolver: &dyn ImageResolver,
 ) {
-    let mut fine = RowFine::<S, T>::new(simd, width);
+    let mut fine = RowFine::<S, T>::new(simd, width, bucketer.width());
     buffer.fill(0);
 
     for (row_idx, row) in bucketer.rows().iter().enumerate() {
@@ -1406,6 +1447,7 @@ mod tests {
     use vello_common::color::palette::css::{BLUE, RED};
     use vello_common::color::{AlphaColor, Srgb};
     use vello_common::encode::EncodeExt;
+    use vello_common::geometry::RectU16;
     use vello_common::kurbo::Affine;
     use vello_common::paint::{Paint, PremulColor};
     use vello_common::peniko::{BlendMode, ColorStop, Gradient};
