@@ -44,6 +44,17 @@ pub(crate) enum Cmd {
 
 impl Cmd {
     #[inline(always)]
+    fn generated_span(&self) -> Option<(u16, u16)> {
+        match self {
+            Self::Fill(cmd) => Some((cmd.x, cmd.width)),
+            Self::AlphaFill(cmd) => Some((cmd.x, cmd.width)),
+            Self::BlendFill(cmd) => Some((cmd.x, cmd.width)),
+            Self::BlendAlphaFill(cmd) => Some((cmd.x, cmd.width)),
+            Self::PushLayer | Self::Opacity(_) | Self::Mask(_) => None,
+        }
+    }
+
+    #[inline(always)]
     fn fill_x(&self) -> u16 {
         match self {
             Self::Fill(cmd) => cmd.x,
@@ -81,11 +92,6 @@ impl Cmd {
             | Self::BlendAlphaFill(_) => unreachable!(),
         }
     }
-
-    #[inline(always)]
-    fn is_fill(&self) -> bool {
-        matches!(self, Self::Fill(_) | Self::AlphaFill(_))
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -116,6 +122,19 @@ pub(crate) struct BlendAlphaFillCmd {
     pub(crate) width: u16,
     pub(crate) alpha_idx: u32,
     pub(crate) blend_mode: BlendMode,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct GeneratedFill {
+    pub(crate) x: u16,
+    pub(crate) width: u16,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct GeneratedAlphaFill {
+    pub(crate) x: u16,
+    pub(crate) width: u16,
+    pub(crate) alpha_idx: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -168,9 +187,10 @@ impl RowCommands {
         self.layer_depth = 0;
     }
 
-    fn push_fill_cmd(&mut self, cmd: Cmd, width: u16) {
-        debug_assert!(cmd.is_fill());
-        self.include_bounds(cmd.fill_x(), cmd.fill_width(), width);
+    fn push_cmd(&mut self, cmd: Cmd, width: u16) {
+        if let Some((x, cmd_width)) = cmd.generated_span() {
+            self.include_bounds(x, cmd_width, width);
+        }
         self.cmds.push(cmd);
     }
 
@@ -257,7 +277,6 @@ impl RowCommands {
 
 #[derive(Debug)]
 pub(crate) struct CommandBucketer {
-    width: u16,
     clip_bboxes: Vec<RectU16>,
     rows: Vec<RowCommands>,
     attrs: Vec<FillAttrs>,
@@ -270,7 +289,6 @@ impl CommandBucketer {
         let full_clip_bbox = Self::full_clip_bbox(width, height);
         let num_rows = usize::from(full_clip_bbox.height() / Tile::HEIGHT);
         Self {
-            width,
             clip_bboxes: vec![full_clip_bbox],
             rows: (0..num_rows).map(|_| RowCommands::new()).collect(),
             attrs: Vec::new(),
@@ -368,7 +386,7 @@ impl CommandBucketer {
         }
     }
 
-    pub(crate) fn generate(
+    pub(crate) fn generate_fill(
         &mut self,
         strip_buf: &[Strip],
         paint: Paint,
@@ -392,8 +410,45 @@ impl CommandBucketer {
             mask: mask.clone(),
             path_id,
         });
-        let can_depth_cull =
-            self.active_layers.is_empty() && blend_mode == BlendMode::default() && mask.is_none();
+        let depth_cull_path_id = (self.active_layers.is_empty()
+            && blend_mode == BlendMode::default()
+            && mask.is_none()
+            && paint_is_opaque(&paint, encoded_paints))
+        .then_some(path_id);
+        self.generate(
+            strip_buf,
+            |bucketer, row_idx, fill| {
+                bucketer.push_fill(row_idx, fill, attrs_idx, depth_cull_path_id)
+            },
+            |bucketer, row_idx, fill| {
+                bucketer.ensure_row_layers(row_idx);
+                let full_width = bucketer.width();
+                bucketer.rows[row_idx].push_cmd(
+                    Cmd::AlphaFill(AlphaFillCmd {
+                        x: fill.x,
+                        width: fill.width,
+                        alpha_idx: fill.alpha_idx,
+                        attrs_idx,
+                    }),
+                    full_width,
+                );
+            },
+        );
+    }
+
+    pub(crate) fn generate<F, A>(
+        &mut self,
+        strip_buf: &[Strip],
+        mut fill_cmd: F,
+        mut alpha_fill_cmd: A,
+    ) where
+        F: FnMut(&mut Self, usize, GeneratedFill),
+        A: FnMut(&mut Self, usize, GeneratedAlphaFill),
+    {
+        if strip_buf.is_empty() {
+            return;
+        }
+
         let clip_bbox = *self.clip_bboxes.last().unwrap();
         let clip_x0 = clip_bbox.x0;
         let clip_x1 = clip_bbox.x1;
@@ -425,15 +480,14 @@ impl CommandBucketer {
             if clipped_x0 < clipped_x1 {
                 let alpha_idx =
                     strip.alpha_idx() + u32::from(clipped_x0 - x0) * u32::from(Tile::HEIGHT);
-                self.ensure_row_layers(row_idx);
-                self.rows[row_idx].push_fill_cmd(
-                    Cmd::AlphaFill(AlphaFillCmd {
+                alpha_fill_cmd(
+                    self,
+                    row_idx,
+                    GeneratedAlphaFill {
                         x: clipped_x0,
                         width: clipped_x1 - clipped_x0,
                         alpha_idx,
-                        attrs_idx,
-                    }),
-                    self.width,
+                    },
                 );
             }
 
@@ -441,15 +495,13 @@ impl CommandBucketer {
                 let fill_x0 = x1.max(clip_x0);
                 let fill_x1 = next_strip.x.min(clip_x1);
                 if fill_x0 < fill_x1 {
-                    self.push_fill(
+                    fill_cmd(
+                        self,
                         row_idx,
-                        fill_x0,
-                        fill_x1 - fill_x0,
-                        &paint,
-                        path_id,
-                        attrs_idx,
-                        can_depth_cull,
-                        encoded_paints,
+                        GeneratedFill {
+                            x: fill_x0,
+                            width: fill_x1 - fill_x0,
+                        },
                     );
                 }
             }
@@ -459,52 +511,49 @@ impl CommandBucketer {
     fn push_fill(
         &mut self,
         row_idx: usize,
-        x: u16,
-        width: u16,
-        paint: &Paint,
-        path_id: u32,
+        fill: GeneratedFill,
         attrs_idx: u32,
-        can_depth_cull: bool,
-        encoded_paints: &[EncodedPaint],
+        depth_cull_path_id: Option<u32>,
     ) {
         self.ensure_row_layers(row_idx);
+        let full_width = self.width();
         let row = &mut self.rows[row_idx];
-        if !can_depth_cull || !paint_is_opaque(paint, encoded_paints) {
-            row.push_fill_cmd(
+        let Some(path_id) = depth_cull_path_id else {
+            row.push_cmd(
                 Cmd::Fill(FillCmd {
-                    x,
-                    width,
+                    x: fill.x,
+                    width: fill.width,
                     attrs_idx,
                 }),
-                self.width,
+                full_width,
             );
             return;
-        }
+        };
 
-        let end = x + width;
-        let aligned_x = x.next_multiple_of(DEPTH_BUCKET_WIDTH).min(end);
+        let end = fill.x + fill.width;
+        let aligned_x = fill.x.next_multiple_of(DEPTH_BUCKET_WIDTH).min(end);
         let aligned_end = (end / DEPTH_BUCKET_WIDTH) * DEPTH_BUCKET_WIDTH;
 
         if aligned_x >= aligned_end {
-            row.push_fill_cmd(
+            row.push_cmd(
                 Cmd::Fill(FillCmd {
-                    x,
-                    width,
+                    x: fill.x,
+                    width: fill.width,
                     attrs_idx,
                 }),
-                self.width,
+                full_width,
             );
             return;
         }
 
-        if x < aligned_x {
-            row.push_fill_cmd(
+        if fill.x < aligned_x {
+            row.push_cmd(
                 Cmd::Fill(FillCmd {
-                    x,
-                    width: aligned_x - x,
+                    x: fill.x,
+                    width: aligned_x - fill.x,
                     attrs_idx,
                 }),
-                self.width,
+                full_width,
             );
         }
 
@@ -515,19 +564,19 @@ impl CommandBucketer {
                     width: aligned_end - aligned_x,
                     attrs_idx,
                 },
-                self.width,
+                full_width,
                 path_id,
             );
         }
 
         if aligned_end < end {
-            row.push_fill_cmd(
+            row.push_cmd(
                 Cmd::Fill(FillCmd {
                     x: aligned_end,
                     width: end - aligned_end,
                     attrs_idx,
                 }),
-                self.width,
+                full_width,
             );
         }
     }
@@ -1517,7 +1566,17 @@ pub(crate) fn rasterize<S: Simd, T: RowRenderKernel<S>>(
             }
         }
 
-        fine.pack(row_idx, row_height, row_start, row_end - row_start, buffer);
+        let pack_start = row_start.min(width);
+        let pack_end = row_end.min(width);
+        if pack_start < pack_end {
+            fine.pack(
+                row_idx,
+                row_height,
+                pack_start,
+                pack_end - pack_start,
+                buffer,
+            );
+        }
     }
 }
 
@@ -1542,7 +1601,7 @@ mod tests {
         let mut bucketer = CommandBucketer::new(128, 4);
         let strips = [Strip::new(3, 0, 0, false), Strip::new(100, 0, 0, true)];
 
-        bucketer.generate(
+        bucketer.generate_fill(
             &strips,
             Paint::Solid(color(RED)),
             BlendMode::default(),
@@ -1568,7 +1627,7 @@ mod tests {
             .with_stops([ColorStop::from((0.0, RED)), ColorStop::from((1.0, BLUE))])
             .encode_into(&mut encoded_paints, Affine::IDENTITY, None);
 
-        bucketer.generate(&strips, paint, BlendMode::default(), None, &encoded_paints);
+        bucketer.generate_fill(&strips, paint, BlendMode::default(), None, &encoded_paints);
 
         let row = &bucketer.rows()[0];
         assert_eq!(row.opaque.len(), 1);
@@ -1584,7 +1643,7 @@ mod tests {
         let mut bucketer = CommandBucketer::new(128, 4);
         let strips = [Strip::new(0, 0, 0, false), Strip::new(96, 0, 0, true)];
 
-        bucketer.generate(
+        bucketer.generate_fill(
             &strips,
             Paint::Solid(color(AlphaColor::from_rgba8(255, 0, 0, 128))),
             BlendMode::default(),
@@ -1603,7 +1662,7 @@ mod tests {
         let mut bucketer = CommandBucketer::new(128, 4);
         let strips = [Strip::new(0, 0, 0, false), Strip::new(8, 0, 32, false)];
 
-        bucketer.generate(
+        bucketer.generate_fill(
             &strips,
             Paint::Solid(color(BLUE)),
             BlendMode::default(),
@@ -1624,7 +1683,7 @@ mod tests {
         let mut bucketer = CommandBucketer::new(128, 4);
         let strips = [Strip::new(8, 0, 0, false), Strip::new(16, 0, 0, true)];
 
-        bucketer.generate(
+        bucketer.generate_fill(
             &strips,
             Paint::Solid(color(RED)),
             BlendMode::default(),
