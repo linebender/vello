@@ -52,6 +52,12 @@ pub struct ImageCache {
     free_idxs: Vec<usize>,
 }
 
+impl Default for ImageCache {
+    fn default() -> Self {
+        Self::new_with_config(AtlasConfig::default())
+    }
+}
+
 impl core::fmt::Debug for ImageCache {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let atlas_stats = self.atlas_manager.atlas_stats();
