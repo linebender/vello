@@ -305,6 +305,7 @@ impl CommandBucketer {
     }
 
     pub(crate) fn width(&self) -> u16 {
+        // TODO: Should be + 1?
         self.clip_bboxes[0].width()
     }
 
