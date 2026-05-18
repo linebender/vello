@@ -1541,7 +1541,8 @@ mod tests {
         });
         let mut ctx = RenderContext::new(100, 100);
 
-        ctx.glyph_run(&mut resources, &font)
+        let _ = ctx
+            .glyph_run(&mut resources, &font)
             .atlas_cache(true)
             .fill_glyphs(glyphs.into_iter());
 
