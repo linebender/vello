@@ -4,13 +4,14 @@
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
 use crate::fine::FineKernel;
-use crate::kurbo::{Affine, BezPath, Rect, Stroke};
+use crate::kurbo::{Affine, BezPath, PathEl, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::row::{CommandBucketer, LayerClip, RowRenderKernel};
 use vello_common::clip::ClipContext;
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd};
 use vello_common::filter_effects::Filter;
+use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
 use vello_common::strip_generator::{StripGenerator, StripStorage};
@@ -84,6 +85,39 @@ impl SingleThreadedDispatcher {
             image_resolver,
         );
     }
+}
+
+fn control_point_bbox(path: &BezPath, transform: Affine) -> RectU16 {
+    let mut bbox = Rect::new(
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NEG_INFINITY,
+    );
+    for el in path.iter() {
+        match el {
+            PathEl::MoveTo(p) | PathEl::LineTo(p) => {
+                bbox = bbox.union_pt(transform * p);
+            }
+            PathEl::QuadTo(p1, p2) => {
+                bbox = bbox.union_pt(transform * p1);
+                bbox = bbox.union_pt(transform * p2);
+            }
+            PathEl::CurveTo(p1, p2, p3) => {
+                bbox = bbox.union_pt(transform * p1);
+                bbox = bbox.union_pt(transform * p2);
+                bbox = bbox.union_pt(transform * p3);
+            }
+            PathEl::ClosePath => {}
+        }
+    }
+
+    RectU16::new(
+        bbox.x0 as u16,
+        bbox.y0 as u16,
+        bbox.x1.ceil() as u16,
+        bbox.y1.ceil() as u16,
+    )
 }
 
 impl Dispatcher for SingleThreadedDispatcher {
@@ -197,26 +231,48 @@ impl Dispatcher for SingleThreadedDispatcher {
     fn push_layer(
         &mut self,
         clip_path: Option<&BezPath>,
-        _fill_rule: Fill,
-        _clip_transform: Affine,
+        fill_rule: Fill,
+        clip_transform: Affine,
         blend_mode: BlendMode,
         opacity: f32,
-        _aliasing_threshold: Option<u8>,
+        aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
         filter: Option<Filter>,
     ) {
         if filter.is_some() {
             unimplemented!("row-bucket prototype does not support filter layers");
         }
-        if clip_path.is_some() {
-            panic!("row-bucket prototype does not support layer clip paths");
-        }
         if blend_mode.is_destructive() {
             panic!("row-bucket prototype does not support destructive layer blends");
         }
 
+        let clip_path = clip_path.map(|clip_path| {
+            let existing_clip = self.clip_context.get();
+            let mut bbox = control_point_bbox(clip_path, clip_transform);
+            if let Some(existing_clip) = existing_clip {
+                bbox = bbox.intersect(existing_clip.bbox);
+            } else {
+                bbox.x1 = bbox.x1.min(self.strip_generator.width());
+                bbox.y1 = bbox.y1.min(self.strip_generator.height());
+            }
+
+            self.strip_generator.generate_filled_path(
+                clip_path,
+                fill_rule,
+                clip_transform,
+                aliasing_threshold,
+                &mut self.strip_storage,
+                existing_clip,
+            );
+
+            LayerClip {
+                strips: self.strip_storage.strips.clone(),
+                bbox,
+            }
+        });
+
         self.bucketer
-            .push_layer(blend_mode, opacity, mask, clip_path.map(|_| LayerClip));
+            .push_layer(blend_mode, opacity, mask, clip_path);
     }
 
     fn pop_layer(&mut self) {

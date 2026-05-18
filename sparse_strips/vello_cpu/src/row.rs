@@ -32,6 +32,7 @@ pub(crate) enum Cmd {
     Fill(FillCmd),
     AlphaFill(AlphaFillCmd),
     PushLayer,
+    PopBuf,
     Opacity(f32),
     Mask(Mask),
     BlendFill(BlendFillCmd),
@@ -50,7 +51,7 @@ impl Cmd {
             Self::AlphaFill(cmd) => Some((cmd.x, cmd.width)),
             Self::BlendFill(cmd) => Some((cmd.x, cmd.width)),
             Self::BlendAlphaFill(cmd) => Some((cmd.x, cmd.width)),
-            Self::PushLayer | Self::Opacity(_) | Self::Mask(_) => None,
+            Self::PushLayer | Self::PopBuf | Self::Opacity(_) | Self::Mask(_) => None,
         }
     }
 
@@ -60,6 +61,7 @@ impl Cmd {
             Self::Fill(cmd) => cmd.x,
             Self::AlphaFill(cmd) => cmd.x,
             Self::PushLayer
+            | Self::PopBuf
             | Self::Opacity(_)
             | Self::Mask(_)
             | Self::BlendFill(_)
@@ -73,6 +75,7 @@ impl Cmd {
             Self::Fill(cmd) => cmd.width,
             Self::AlphaFill(cmd) => cmd.width,
             Self::PushLayer
+            | Self::PopBuf
             | Self::Opacity(_)
             | Self::Mask(_)
             | Self::BlendFill(_)
@@ -86,6 +89,7 @@ impl Cmd {
             Self::Fill(cmd) => cmd.attrs_idx,
             Self::AlphaFill(cmd) => cmd.attrs_idx,
             Self::PushLayer
+            | Self::PopBuf
             | Self::Opacity(_)
             | Self::Mask(_)
             | Self::BlendFill(_)
@@ -146,13 +150,17 @@ pub(crate) struct FillAttrs {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct LayerClip;
+pub(crate) struct LayerClip {
+    pub(crate) strips: Vec<Strip>,
+    pub(crate) bbox: RectU16,
+}
 
 #[derive(Debug, Clone)]
 struct ActiveLayer {
     mask: Option<Mask>,
     blend_mode: BlendMode,
     opacity: f32,
+    clip: Option<LayerClip>,
     occupied_rows: Vec<usize>,
 }
 
@@ -217,6 +225,48 @@ impl RowCommands {
             width: full_width,
             blend_mode,
         }));
+        self.pop_buf();
+    }
+
+    fn push_layer_props(&mut self, mask: Option<&Mask>, opacity: f32) {
+        if let Some(mask) = mask {
+            self.cmds.push(Cmd::Mask(mask.clone()));
+        }
+        if opacity != 1.0 {
+            self.cmds.push(Cmd::Opacity(opacity));
+        }
+    }
+
+    fn push_blend_fill(&mut self, fill: GeneratedFill, blend_mode: BlendMode, full_width: u16) {
+        self.push_cmd(
+            Cmd::BlendFill(BlendFillCmd {
+                x: fill.x,
+                width: fill.width,
+                blend_mode,
+            }),
+            full_width,
+        );
+    }
+
+    fn push_blend_alpha_fill(
+        &mut self,
+        fill: GeneratedAlphaFill,
+        blend_mode: BlendMode,
+        full_width: u16,
+    ) {
+        self.push_cmd(
+            Cmd::BlendAlphaFill(BlendAlphaFillCmd {
+                x: fill.x,
+                width: fill.width,
+                alpha_idx: fill.alpha_idx,
+                blend_mode,
+            }),
+            full_width,
+        );
+    }
+
+    fn pop_buf(&mut self) {
+        self.cmds.push(Cmd::PopBuf);
         self.layer_depth -= 1;
     }
 
@@ -350,12 +400,18 @@ impl CommandBucketer {
         blend_mode: BlendMode,
         opacity: f32,
         mask: Option<Mask>,
-        _clip_path: Option<LayerClip>,
+        clip: Option<LayerClip>,
     ) {
+        if let Some(clip) = &clip {
+            let clip_bbox = clip.bbox.intersect(*self.clip_bboxes.last().unwrap());
+            self.clip_bboxes.push(clip_bbox);
+        }
+
         self.active_layers.push(ActiveLayer {
             mask,
             blend_mode,
             opacity,
+            clip,
             occupied_rows: Vec::new(),
         });
     }
@@ -366,10 +422,40 @@ impl CommandBucketer {
         let opacity = layer.opacity;
         let blend_mode = layer.blend_mode;
         let full_width = self.width();
-        for row_idx in layer.occupied_rows.drain(..) {
-            let row = &mut self.rows[row_idx];
-            debug_assert_eq!(row.layer_depth, self.active_layers.len() + 1);
-            row.pop_layer(full_width, mask.as_ref(), opacity, blend_mode);
+        if let Some(clip) = layer.clip {
+            self.clip_bboxes.pop();
+
+            let mut occupied_rows = vec![false; self.rows.len()];
+            for &row_idx in &layer.occupied_rows {
+                occupied_rows[row_idx] = true;
+                let row = &mut self.rows[row_idx];
+                debug_assert_eq!(row.layer_depth, self.active_layers.len() + 1);
+                row.push_layer_props(mask.as_ref(), opacity);
+            }
+
+            self.generate(
+                &clip.strips,
+                |bucketer, row_idx, fill| {
+                    if occupied_rows[row_idx] {
+                        bucketer.rows[row_idx].push_blend_fill(fill, blend_mode, full_width);
+                    }
+                },
+                |bucketer, row_idx, fill| {
+                    if occupied_rows[row_idx] {
+                        bucketer.rows[row_idx].push_blend_alpha_fill(fill, blend_mode, full_width);
+                    }
+                },
+            );
+
+            for row_idx in layer.occupied_rows.drain(..) {
+                self.rows[row_idx].pop_buf();
+            }
+        } else {
+            for row_idx in layer.occupied_rows.drain(..) {
+                let row = &mut self.rows[row_idx];
+                debug_assert_eq!(row.layer_depth, self.active_layers.len() + 1);
+                row.pop_layer(full_width, mask.as_ref(), opacity, blend_mode);
+            }
         }
     }
 
@@ -456,7 +542,8 @@ impl CommandBucketer {
             let strip = &strip_buf[i];
             let strip_y = strip.strip_y();
             let row_y = strip_y * Tile::HEIGHT;
-            if row_y < clip_bbox.y0 {
+            let row_y1 = row_y.saturating_add(Tile::HEIGHT);
+            if row_y1 <= clip_bbox.y0 {
                 continue;
             }
             if row_y >= clip_bbox.y1 {
@@ -852,7 +939,9 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
                 None,
             );
         }
+    }
 
+    fn pop_buf(&mut self) {
         let popped = self.buffers.pop().unwrap();
         self.buffer_pool.push(popped);
     }
@@ -1194,6 +1283,7 @@ impl<S: Simd, T: RowRenderKernel<S>> RowFine<S, T> {
                 }
             }
             Cmd::PushLayer
+            | Cmd::PopBuf
             | Cmd::Opacity(_)
             | Cmd::Mask(_)
             | Cmd::BlendFill(_)
@@ -1544,6 +1634,9 @@ pub(crate) fn rasterize<S: Simd, T: RowRenderKernel<S>>(
                 }
                 Cmd::PushLayer => {
                     fine.push_layer(row_start, row_end - row_start);
+                }
+                Cmd::PopBuf => {
+                    fine.pop_buf();
                 }
                 Cmd::Opacity(opacity) => {
                     fine.opacity(row_start, row_end - row_start, *opacity);
