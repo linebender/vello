@@ -8,10 +8,12 @@
 //! Filters are applied to layers through the layer manager, which handles
 //! intermediate storage.
 
+mod color_matrix;
 mod drop_shadow;
 mod flood;
 mod gaussian_blur;
 mod offset;
+mod pixel;
 mod shift;
 
 use crate::layer_manager::LayerManager;
@@ -78,6 +80,9 @@ pub(crate) fn filter_lowp(
         PreparedFilter::DropShadow(drop_shadow) => {
             drop_shadow.execute_lowp(pixmap, layer_manager);
         }
+        PreparedFilter::ColorMatrix(color_matrix) => {
+            color_matrix.execute_lowp(pixmap, layer_manager);
+        }
     }
 }
 
@@ -115,6 +120,9 @@ pub(crate) fn filter_highp(
         }
         PreparedFilter::DropShadow(drop_shadow) => {
             drop_shadow.execute_highp(pixmap, layer_manager);
+        }
+        PreparedFilter::ColorMatrix(color_matrix) => {
+            color_matrix.execute_highp(pixmap, layer_manager);
         }
     }
 }
