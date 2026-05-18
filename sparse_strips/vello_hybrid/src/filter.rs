@@ -41,8 +41,8 @@ use vello_common::kurbo::{Affine, Vec2};
 use vello_common::paint::{ImageId, ImageSource};
 use vello_common::peniko::{ImageQuality, ImageSampler};
 use vello_common::render_graph::{LayerId, RenderGraph, RenderNodeKind};
-use vello_common::tile::Tile;
 
+use crate::Tile;
 use crate::render::common::IMAGE_PADDING;
 use crate::util::{IntOffset, IntRect, IntSize};
 use vello_common::image_cache::ImageCache;

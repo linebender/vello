@@ -6,6 +6,7 @@
 use crate::flatten::Line;
 use alloc::vec;
 use alloc::vec::Vec;
+use core::marker::PhantomData;
 use fearless_simd::*;
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
@@ -205,7 +206,7 @@ impl CulledWindings {
 /// the compilation target.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-pub struct Tile {
+pub struct Tile<S: TileSize = SmallSize> {
     // The field ordering is important.
     //
     // The given ordering (variant over little and big endian compilation targets), ensures that
@@ -244,15 +245,74 @@ pub struct Tile {
     #[cfg(target_endian = "little")]
     /// The index of the tile in the y direction.
     pub y: u16,
+
+    size: PhantomData<S>,
 }
 
-impl Tile {
+/// Tile dimensions used by [`Tile`].
+#[allow(unnameable_types)]
+pub trait TileSize: sealed::Sealed + Copy + Clone + core::fmt::Debug {
+    /// The width of a tile in pixels.
+    const WIDTH: u16;
+    /// The height of a tile in pixels.
+    const HEIGHT: u16;
+}
+
+/// A 4x4 tile size.
+#[derive(Debug, Clone, Copy)]
+pub struct SmallSize;
+
+/// An 8x8 tile size.
+#[derive(Debug, Clone, Copy)]
+pub struct MediumSize;
+
+/// A 16x16 tile size.
+#[derive(Debug, Clone, Copy)]
+pub struct LargeSize;
+
+/// A 4x4 tile.
+pub type SmallTile = Tile<SmallSize>;
+
+/// An 8x8 tile.
+pub type MediumTile = Tile<MediumSize>;
+
+/// A 16x16 tile.
+pub type LargeTile = Tile<LargeSize>;
+
+impl TileSize for SmallSize {
+    const WIDTH: u16 = 4;
+    const HEIGHT: u16 = 4;
+}
+
+impl TileSize for MediumSize {
+    const WIDTH: u16 = 8;
+    const HEIGHT: u16 = 8;
+}
+
+impl TileSize for LargeSize {
+    const WIDTH: u16 = 16;
+    const HEIGHT: u16 = 16;
+}
+
+mod sealed {
+    #[allow(unnameable_types)]
+    pub trait Sealed {}
+
+    impl Sealed for super::SmallSize {}
+    impl Sealed for super::MediumSize {}
+    impl Sealed for super::LargeSize {}
+}
+
+// TODO: Remove once we've made tiling generic over tile size.
+impl Tile<SmallSize> {
     /// The width of a tile in pixels.
     pub const WIDTH: u16 = 4;
 
     /// The height of a tile in pixels.
     pub const HEIGHT: u16 = 4;
+}
 
+impl<S: TileSize> Tile<S> {
     /// A special tile used to signal the end of a tile stream during rendering.
     pub const SENTINEL: Self = Self::new(u16::MAX, u16::MAX, 0, 0);
 
@@ -265,8 +325,8 @@ impl Tile {
         Self::new(
             // Make sure that x and y stay in range when multiplying
             // with the tile width and height during strips generation.
-            x.min(u16::MAX / Self::WIDTH),
-            y.min(u16::MAX / Self::HEIGHT),
+            x.min(u16::MAX / S::WIDTH),
+            y.min(u16::MAX / S::HEIGHT),
             line_idx,
             intersection_mask,
         )
@@ -289,6 +349,7 @@ impl Tile {
             x,
             y,
             packed_winding_line_idx: (line_idx << INT_MASK_SHIFT) | intersection_mask,
+            size: PhantomData,
         }
     }
 
@@ -385,28 +446,28 @@ impl Tile {
     }
 }
 
-impl PartialEq for Tile {
+impl<S: TileSize> PartialEq for Tile<S> {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
         self.to_bits() == other.to_bits()
     }
 }
 
-impl Ord for Tile {
+impl<S: TileSize> Ord for Tile<S> {
     #[inline(always)]
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.to_bits().cmp(&other.to_bits())
     }
 }
 
-impl PartialOrd for Tile {
+impl<S: TileSize> PartialOrd for Tile<S> {
     #[inline(always)]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Eq for Tile {}
+impl<S: TileSize> Eq for Tile<S> {}
 
 /// Handles the tiling of paths.
 #[derive(Clone, Debug)]

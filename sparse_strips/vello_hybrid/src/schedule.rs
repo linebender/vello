@@ -178,7 +178,7 @@ only break in edge cases, and some of them are also only related to conversions 
 
 use crate::filter::FilterContext;
 use crate::scene::{FastPathRect, FastStripCommand, FastStripsPath, StripPathMode};
-use crate::{GpuStrip, RenderError, Scene};
+use crate::{GpuStrip, RenderError, Scene, Tile};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use core::ops::Range;
@@ -194,7 +194,6 @@ use vello_common::{
     coarse::{Cmd, WideTile},
     encode::EncodedPaint,
     paint::{ImageSource, Paint},
-    tile::Tile,
 };
 
 // Constants used for bit packing, matching `render_strips.wgsl`

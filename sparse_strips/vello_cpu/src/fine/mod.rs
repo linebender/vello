@@ -11,6 +11,7 @@ mod common;
 mod highp;
 mod lowp;
 
+use crate::Tile;
 use crate::fine::common::gradient::linear::SimdLinearKind;
 use crate::fine::common::gradient::radial::SimdRadialKind;
 use crate::fine::common::gradient::sweep::SimdSweepKind;
@@ -39,7 +40,6 @@ use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, ImageSource, Paint, PremulColor, Tint};
 use vello_common::pixmap::Pixmap;
 use vello_common::simd::Splat4thExt;
-use vello_common::tile::Tile;
 use vello_common::util::f32_to_u8;
 
 pub use highp::F32Kernel;
