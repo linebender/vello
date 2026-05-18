@@ -113,7 +113,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             strip_storage,
             clip_path,
         );
-        self.bucketer.generate(
+        self.bucketer.generate_fill(
             &self.strip_storage.strips,
             paint,
             blend_mode,
@@ -144,7 +144,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             strip_storage,
             clip_path,
         );
-        self.bucketer.generate(
+        self.bucketer.generate_fill(
             &self.strip_storage.strips,
             paint,
             blend_mode,
@@ -165,7 +165,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         let strip_generator = &mut self.strip_generator;
         let strip_storage = &mut self.strip_storage;
         strip_generator.generate_filled_rect_fast(rect, strip_storage, clip_path);
-        self.bucketer.generate(
+        self.bucketer.generate_fill(
             &self.strip_storage.strips,
             paint,
             blend_mode,
