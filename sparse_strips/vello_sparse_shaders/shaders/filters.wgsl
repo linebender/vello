@@ -13,7 +13,7 @@
 
 // Keep these variables and structs in sync with the ones in `filter.rs`!
 
-const FILTER_SIZE_BYTES: u32 = 48;
+const FILTER_SIZE_BYTES: u32 = 96;
 const FILTER_SIZE_U32: u32 = FILTER_SIZE_BYTES / 4;
 const TEXELS_PER_FILTER: u32 = FILTER_SIZE_U32 / 4u;
 
@@ -21,6 +21,7 @@ const FILTER_TYPE_OFFSET: u32 = 0u;
 const FILTER_TYPE_FLOOD: u32 = 1u;
 const FILTER_TYPE_GAUSSIAN_BLUR: u32 = 2u;
 const FILTER_TYPE_DROP_SHADOW: u32 = 3u;
+const FILTER_TYPE_COLOR_MATRIX: u32 = 4u;
 
 const PASS_COPY: u32 = 0u;
 const PASS_FLOOD: u32 = 1u;
@@ -30,6 +31,7 @@ const PASS_BLUR_H: u32 = 4u;
 const PASS_BLUR_V: u32 = 5u;
 const PASS_UPSCALE: u32 = 6u;
 const PASS_COMPOSITE_DROP_SHADOW: u32 = 7u;
+const PASS_COLOR_MATRIX: u32 = 8u;
 
 const MAX_TAPS_PER_SIDE: u32 = 3u;
 
@@ -114,7 +116,17 @@ fn load_filter_data(texel_offset: u32) -> GpuFilterData {
     let t0 = textureLoad(filter_data, vec2((texel_offset     ) % w, (texel_offset     ) / w), 0);
     let t1 = textureLoad(filter_data, vec2((texel_offset + 1u) % w, (texel_offset + 1u) / w), 0);
     let t2 = textureLoad(filter_data, vec2((texel_offset + 2u) % w, (texel_offset + 2u) / w), 0);
-    return GpuFilterData(array(t0.x, t0.y, t0.z, t0.w, t1.x, t1.y, t1.z, t1.w, t2.x, t2.y, t2.z, t2.w));
+    let t3 = textureLoad(filter_data, vec2((texel_offset + 3u) % w, (texel_offset + 3u) / w), 0);
+    let t4 = textureLoad(filter_data, vec2((texel_offset + 4u) % w, (texel_offset + 4u) / w), 0);
+    let t5 = textureLoad(filter_data, vec2((texel_offset + 5u) % w, (texel_offset + 5u) / w), 0);
+    return GpuFilterData(array(
+        t0.x, t0.y, t0.z, t0.w,
+        t1.x, t1.y, t1.z, t1.w,
+        t2.x, t2.y, t2.z, t2.w,
+        t3.x, t3.y, t3.z, t3.w,
+        t4.x, t4.y, t4.z, t4.w,
+        t5.x, t5.y, t5.z, t5.w,
+    ));
 }
 
 struct FilterInstanceData {
@@ -311,6 +323,34 @@ fn convolve(
     return color;
 }
 
+fn color_matrix_row(data: GpuFilterData, base: u32, color: vec4<f32>) -> f32 {
+    return clamp(
+        bitcast<f32>(data.data[base]) * color.r +
+        bitcast<f32>(data.data[base + 1u]) * color.g +
+        bitcast<f32>(data.data[base + 2u]) * color.b +
+        bitcast<f32>(data.data[base + 3u]) * color.a +
+        bitcast<f32>(data.data[base + 4u]),
+        0.0,
+        1.0,
+    );
+}
+
+fn apply_color_matrix(data: GpuFilterData, pixel: vec4<f32>) -> vec4<f32> {
+    var rgb = vec3<f32>(0.0);
+    if pixel.a > 0.0 {
+        rgb = pixel.rgb / pixel.a;
+    }
+    let straight = vec4<f32>(rgb, pixel.a);
+    let transformed = vec4<f32>(
+        color_matrix_row(data, 1u, straight),
+        color_matrix_row(data, 6u, straight),
+        color_matrix_row(data, 11u, straight),
+        color_matrix_row(data, 16u, straight),
+    );
+
+    return vec4<f32>(transformed.rgb * transformed.a, transformed.a);
+}
+
 const HORIZONTAL: vec2<f32> = vec2<f32>(1.0, 0.0);
 const VERTICAL: vec2<f32> = vec2<f32>(0.0, 1.0);
 
@@ -377,6 +417,10 @@ fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
 
             // Simple source-over compositing.
             return original + shadow_result * (1.0 - original.a);
+        }
+        case PASS_COLOR_MATRIX: {
+            let data = load_filter_data(in.filter_offset);
+            return apply_color_matrix(data, sample_input(in, rel_coord));
         }
         // Shouldn't be reached.
         default: {

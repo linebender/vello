@@ -15,11 +15,14 @@
 //!
 //! **Filter Functions:**
 //! - `Blur` - Gaussian blur effect
+//! - `Brightness`, `Contrast`, `Grayscale`, `HueRotate`, `Invert`,
+//!   `Opacity`, `Saturate`, `Sepia` - implemented as color matrices
 //!
 //! **Filter Primitives (Single Use Only):**
 //! - `Flood` - Solid color fill
 //! - `GaussianBlur` - Gaussian blur filter
 //! - `DropShadow` - Drop shadow effect (compound primitive)
+//! - `ColorMatrix` - Matrix-based color transformation
 //! - `Offset` - Translation/shift (single primitive)
 //!
 //! **Note:** Currently only single primitive filters are supported. Filter graphs with
@@ -31,12 +34,7 @@
 //! - `FilterGraph` execution - Chaining multiple filter primitives together
 //! - `FilterInputs` - Connecting primitives to create complex effects
 //!
-//! **Filter Functions:**
-//! - `Brightness`, `Contrast`, `Grayscale`, `HueRotate`, `Invert`,
-//!   `Opacity`, `Saturate`, `Sepia`
-//!
 //! **Filter Primitives:**
-//! - `ColorMatrix` - Matrix-based color transformation
 //! - `Composite` - Porter-Duff compositing operations
 //! - `Blend` - Blend mode operations
 //! - `Morphology` - Dilate/erode operations
@@ -49,10 +47,19 @@
 //! - `DiffuseLighting`, `SpecularLighting` - Lighting effects
 
 use crate::color::{AlphaColor, Srgb};
+#[cfg(not(feature = "std"))]
+use crate::kurbo::common::FloatFuncs as _;
 use crate::kurbo::{Affine, Rect};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use smallvec::SmallVec;
+
+// sRGB luminance coefficients used by the Filter Effects grayscale and saturate
+// color-matrix definitions. These are the higher-precision coefficients from the
+// current spec, not the older rounded values used by hueRotate.
+const LUMA_R: f32 = 0.2126;
+const LUMA_G: f32 = 0.7152;
+const LUMA_B: f32 = 0.0722;
 
 /// The main filter system.
 ///
@@ -74,16 +81,7 @@ impl Filter {
     /// Converts a high-level CSS-style filter function into a filter graph.
     /// Use this for simple effects like blur, brightness, etc.
     pub fn from_function(function: FilterFunction) -> Self {
-        // Convert function to primitive
-        let primitive = match function {
-            FilterFunction::Blur { radius } => FilterPrimitive::GaussianBlur {
-                std_deviation: radius,
-                edge_mode: EdgeMode::default(),
-            },
-            _ => unimplemented!("Filter function {:?} not supported", function),
-        };
-
-        Self::from_primitive(primitive)
+        Self::from_primitive(filter_function_to_primitive(function))
     }
 
     /// Create a filter system from a filter primitive.
@@ -123,6 +121,160 @@ impl Filter {
 
         self.graph.bounds_expansion(&linear_only)
     }
+}
+
+fn filter_function_to_primitive(function: FilterFunction) -> FilterPrimitive {
+    // CSS filter functions are defined as equivalent SVG filter primitive
+    // shorthands. The color-adjustment functions lower to a single
+    // feColorMatrix-style primitive here.
+    match function {
+        FilterFunction::Blur { radius } => FilterPrimitive::GaussianBlur {
+            std_deviation: radius,
+            edge_mode: EdgeMode::default(),
+        },
+        FilterFunction::Brightness { amount } => color_matrix(brightness_matrix(amount)),
+        FilterFunction::Contrast { amount } => color_matrix(contrast_matrix(amount)),
+        FilterFunction::Grayscale { amount } => color_matrix(grayscale_matrix(amount)),
+        FilterFunction::HueRotate { angle } => color_matrix(hue_rotate_matrix(angle)),
+        FilterFunction::Invert { amount } => color_matrix(invert_matrix(amount)),
+        FilterFunction::Opacity { amount } => color_matrix(opacity_matrix(amount)),
+        FilterFunction::Saturate { amount } => color_matrix(saturate_matrix(amount)),
+        FilterFunction::Sepia { amount } => color_matrix(sepia_matrix(amount)),
+    }
+}
+
+fn color_matrix(matrix: [f32; 20]) -> FilterPrimitive {
+    FilterPrimitive::ColorMatrix { matrix }
+}
+
+fn brightness_matrix(amount: f32) -> [f32; 20] {
+    // Equivalent to per-channel component transfer with slope `amount`.
+    [
+        amount, 0.0, 0.0, 0.0, 0.0, //
+        0.0, amount, 0.0, 0.0, 0.0, //
+        0.0, 0.0, amount, 0.0, 0.0, //
+        0.0, 0.0, 0.0, 1.0, 0.0,
+    ]
+}
+
+fn contrast_matrix(amount: f32) -> [f32; 20] {
+    // Equivalent to per-channel component transfer:
+    // C' = amount * C + (0.5 - 0.5 * amount).
+    let offset = 0.5 - 0.5 * amount;
+    [
+        amount, 0.0, 0.0, 0.0, offset, //
+        0.0, amount, 0.0, 0.0, offset, //
+        0.0, 0.0, amount, 0.0, offset, //
+        0.0, 0.0, 0.0, 1.0, 0.0,
+    ]
+}
+
+fn grayscale_matrix(amount: f32) -> [f32; 20] {
+    interpolate_from_identity(matrices::GRAYSCALE, amount.clamp(0.0, 1.0))
+}
+
+fn hue_rotate_matrix(angle: f32) -> [f32; 20] {
+    // The hueRotate matrix is specified with older rounded luminance
+    // coefficients (0.213, 0.715, 0.072). Keep those literal values rather than
+    // substituting the higher-precision LUMA_* constants used elsewhere.
+    let (sin, cos) = (angle * (core::f32::consts::PI / 180.0)).sin_cos();
+
+    [
+        0.213 + cos * 0.787 - sin * 0.213,
+        0.715 - cos * 0.715 - sin * 0.715,
+        0.072 - cos * 0.072 + sin * 0.928,
+        0.0,
+        0.0,
+        0.213 - cos * 0.213 + sin * 0.143,
+        0.715 + cos * 0.285 + sin * 0.140,
+        0.072 - cos * 0.072 - sin * 0.283,
+        0.0,
+        0.0,
+        0.213 - cos * 0.213 - sin * 0.787,
+        0.715 - cos * 0.715 + sin * 0.715,
+        0.072 + cos * 0.928 + sin * 0.072,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+    ]
+}
+
+fn invert_matrix(amount: f32) -> [f32; 20] {
+    // Equivalent to interpolating between identity and full inversion.
+    let amount = amount.clamp(0.0, 1.0);
+    let scale = 1.0 - 2.0 * amount;
+    [
+        scale, 0.0, 0.0, 0.0, amount, //
+        0.0, scale, 0.0, 0.0, amount, //
+        0.0, 0.0, scale, 0.0, amount, //
+        0.0, 0.0, 0.0, 1.0, 0.0,
+    ]
+}
+
+fn opacity_matrix(amount: f32) -> [f32; 20] {
+    // Equivalent to multiplying the alpha channel by amount.
+    [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0, //
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0, //
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0, //
+        0.0,
+        0.0,
+        0.0,
+        amount.clamp(0.0, 1.0),
+        0.0,
+    ]
+}
+
+fn saturate_matrix(amount: f32) -> [f32; 20] {
+    // Equivalent to feColorMatrix type="saturate".
+    [
+        LUMA_R + (1.0 - LUMA_R) * amount,
+        LUMA_G - LUMA_G * amount,
+        LUMA_B - LUMA_B * amount,
+        0.0,
+        0.0,
+        LUMA_R - LUMA_R * amount,
+        LUMA_G + (1.0 - LUMA_G) * amount,
+        LUMA_B - LUMA_B * amount,
+        0.0,
+        0.0,
+        LUMA_R - LUMA_R * amount,
+        LUMA_G - LUMA_G * amount,
+        LUMA_B + (1.0 - LUMA_B) * amount,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+    ]
+}
+
+fn sepia_matrix(amount: f32) -> [f32; 20] {
+    // Equivalent to interpolating between identity and the spec's full sepia matrix.
+    interpolate_from_identity(matrices::SEPIA, amount.clamp(0.0, 1.0))
+}
+
+fn interpolate_from_identity(target: [f32; 20], amount: f32) -> [f32; 20] {
+    let inverse_amount = 1.0 - amount;
+    core::array::from_fn(|i| matrices::IDENTITY[i] * inverse_amount + target[i] * amount)
 }
 
 /// A directed acyclic graph (DAG) of filter operations.
@@ -400,11 +552,6 @@ pub enum FilterPrimitive {
         /// Default is `EdgeMode::None` per SVG spec.
         edge_mode: EdgeMode,
     },
-    //
-    // ============================================================
-    // TODO: The following filter primitives are not yet implemented
-    // ============================================================
-    //
     /// Matrix-based color transformation.
     ///
     /// Applies a 4x5 matrix transformation to colors, allowing arbitrary
@@ -425,6 +572,11 @@ pub enum FilterPrimitive {
         dy: f32,
     },
 
+    //
+    // ============================================================
+    // TODO: The following filter primitives are not yet implemented
+    // ============================================================
+    //
     /// Composite two inputs using Porter-Duff compositing operations.
     ///
     /// Combines two input images using standard compositing operators
@@ -597,6 +749,141 @@ impl FilterPrimitive {
             // Most other filters don't expand bounds
             _ => Rect::ZERO,
         }
+    }
+}
+
+#[cfg(test)]
+mod filter_function_tests {
+    use super::*;
+
+    fn color_matrix_from_function(function: FilterFunction) -> [f32; 20] {
+        let filter = Filter::from_function(function);
+        assert_eq!(filter.graph.primitives.len(), 1);
+
+        let FilterPrimitive::ColorMatrix { matrix } = &filter.graph.primitives[0] else {
+            panic!("expected color matrix primitive");
+        };
+
+        *matrix
+    }
+
+    fn assert_matrix_approx_eq(actual: [f32; 20], expected: [f32; 20]) {
+        for (i, (actual, expected)) in actual.into_iter().zip(expected).enumerate() {
+            assert!(
+                (actual - expected).abs() < 1e-6,
+                "matrix entry {i}: expected {expected}, got {actual}"
+            );
+        }
+    }
+
+    #[test]
+    fn blur_function_lowers_to_gaussian_blur() {
+        let filter = Filter::from_function(FilterFunction::Blur { radius: 3.0 });
+
+        assert_eq!(filter.graph.primitives.len(), 1);
+        assert_eq!(
+            filter.graph.primitives[0],
+            FilterPrimitive::GaussianBlur {
+                std_deviation: 3.0,
+                edge_mode: EdgeMode::default(),
+            }
+        );
+    }
+
+    #[test]
+    fn brightness_function_lowers_to_color_matrix() {
+        assert_eq!(
+            color_matrix_from_function(FilterFunction::Brightness { amount: 0.75 }),
+            [
+                0.75, 0.0, 0.0, 0.0, 0.0, //
+                0.0, 0.75, 0.0, 0.0, 0.0, //
+                0.0, 0.0, 0.75, 0.0, 0.0, //
+                0.0, 0.0, 0.0, 1.0, 0.0,
+            ]
+        );
+    }
+
+    #[test]
+    fn contrast_function_lowers_to_color_matrix() {
+        assert_eq!(
+            color_matrix_from_function(FilterFunction::Contrast { amount: 2.0 }),
+            [
+                2.0, 0.0, 0.0, 0.0, -0.5, //
+                0.0, 2.0, 0.0, 0.0, -0.5, //
+                0.0, 0.0, 2.0, 0.0, -0.5, //
+                0.0, 0.0, 0.0, 1.0, 0.0,
+            ]
+        );
+    }
+
+    #[test]
+    fn grayscale_function_interpolates_to_full_grayscale() {
+        assert_eq!(
+            color_matrix_from_function(FilterFunction::Grayscale { amount: 0.0 }),
+            matrices::IDENTITY
+        );
+        assert_eq!(
+            color_matrix_from_function(FilterFunction::Grayscale { amount: 1.0 }),
+            matrices::GRAYSCALE
+        );
+    }
+
+    #[test]
+    fn hue_rotate_function_zero_angle_is_identity() {
+        assert_matrix_approx_eq(
+            color_matrix_from_function(FilterFunction::HueRotate { angle: 0.0 }),
+            matrices::IDENTITY,
+        );
+    }
+
+    #[test]
+    fn invert_function_lowers_to_color_matrix() {
+        assert_eq!(
+            color_matrix_from_function(FilterFunction::Invert { amount: 0.25 }),
+            [
+                0.5, 0.0, 0.0, 0.0, 0.25, //
+                0.0, 0.5, 0.0, 0.0, 0.25, //
+                0.0, 0.0, 0.5, 0.0, 0.25, //
+                0.0, 0.0, 0.0, 1.0, 0.0,
+            ]
+        );
+    }
+
+    #[test]
+    fn opacity_function_lowers_to_color_matrix() {
+        assert_eq!(
+            color_matrix_from_function(FilterFunction::Opacity { amount: 0.5 }),
+            [
+                1.0, 0.0, 0.0, 0.0, 0.0, //
+                0.0, 1.0, 0.0, 0.0, 0.0, //
+                0.0, 0.0, 1.0, 0.0, 0.0, //
+                0.0, 0.0, 0.0, 0.5, 0.0,
+            ]
+        );
+    }
+
+    #[test]
+    fn saturate_function_lowers_to_color_matrix() {
+        assert_eq!(
+            color_matrix_from_function(FilterFunction::Saturate { amount: 0.0 }),
+            matrices::GRAYSCALE
+        );
+        assert_eq!(
+            color_matrix_from_function(FilterFunction::Saturate { amount: 1.0 }),
+            matrices::IDENTITY
+        );
+    }
+
+    #[test]
+    fn sepia_function_interpolates_to_full_sepia() {
+        assert_eq!(
+            color_matrix_from_function(FilterFunction::Sepia { amount: 0.0 }),
+            matrices::IDENTITY
+        );
+        assert_eq!(
+            color_matrix_from_function(FilterFunction::Sepia { amount: 1.0 }),
+            matrices::SEPIA
+        );
     }
 }
 
@@ -1002,6 +1289,8 @@ pub enum LightSource {
 /// These 4x5 matrices are used with the `ColorMatrix` filter primitive.
 /// Each row transforms a color channel: [R, G, B, A, offset].
 pub mod matrices {
+    use super::{LUMA_B, LUMA_G, LUMA_R};
+
     /// Identity matrix (no change).
     pub const IDENTITY: [f32; 20] = [
         1.0, 0.0, 0.0, 0.0, 0.0, // Red
@@ -1018,15 +1307,15 @@ pub mod matrices {
         0.0, 0.0, 0.0, 1.0, 0.0, // Alpha = Alpha
     ];
 
-    /// Grayscale conversion matrix using luminosity weights.
+    /// Full grayscale matrix from the Filter Effects `grayscale(1)` shorthand.
     pub const GRAYSCALE: [f32; 20] = [
-        0.2126, 0.7152, 0.0722, 0.0, 0.0, // Red
-        0.2126, 0.7152, 0.0722, 0.0, 0.0, // Green
-        0.2126, 0.7152, 0.0722, 0.0, 0.0, // Blue
+        LUMA_R, LUMA_G, LUMA_B, 0.0, 0.0, // Red
+        LUMA_R, LUMA_G, LUMA_B, 0.0, 0.0, // Green
+        LUMA_R, LUMA_G, LUMA_B, 0.0, 0.0, // Blue
         0.0, 0.0, 0.0, 1.0, 0.0, // Alpha
     ];
 
-    /// Sepia tone matrix for vintage photo effect.
+    /// Full sepia matrix from the Filter Effects `sepia(1)` shorthand.
     pub const SEPIA: [f32; 20] = [
         0.393, 0.769, 0.189, 0.0, 0.0, // Red
         0.349, 0.686, 0.168, 0.0, 0.0, // Green
