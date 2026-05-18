@@ -1543,12 +1543,6 @@ mod tests {
             .atlas_cache(true)
             .fill_glyphs(glyphs.into_iter());
 
-        resources.prepare_glyph_cache(crate::RenderMode::OptimizeQuality);
-        resources.maintain_glyph_cache();
-        if let Some(glyph_atlas) = resources.glyph_atlas_mut() {
-            glyph_atlas.clear_tick();
-        }
-
         assert_eq!(resources.image_cache.atlas_count(), 1);
 
         let stats = resources.image_cache.atlas_manager().atlas_stats()[0].1;
