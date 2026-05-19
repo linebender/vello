@@ -6,6 +6,8 @@
 #[cfg(feature = "glsl")]
 mod compile;
 #[cfg(feature = "glsl")]
+mod lint;
+#[cfg(feature = "glsl")]
 mod shader_info;
 #[cfg(feature = "glsl")]
 mod types;
@@ -19,7 +21,12 @@ fn main() {
     let shader_infos = shader_info::load_shader_infos(&manifest_dir.join("shaders")).unwrap();
 
     for shader_info in shader_infos {
-        let shader = compile::compile_wgsl_shader(&shader_info.wgsl_source, "vs_main", "fs_main");
+        let shader = compile::compile_wgsl_shader(
+            &shader_info.wgsl_source,
+            &shader_info.name,
+            "vs_main",
+            "fs_main",
+        );
         std::fs::write(
             output_dir.join(format!("{}.vert.glsl", shader_info.name)),
             shader.vertex.source,
