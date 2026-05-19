@@ -623,12 +623,16 @@ impl RenderContext {
 
     /// Render the current context into a buffer.
     /// The buffer is expected to be in premultiplied RGBA8 format with length `width * height * 4`
-    pub fn render_to_buffer(
+    pub fn render_to_buffer_with_offset(
         &self,
         resources: &mut Resources,
         buffer: &mut [u8],
         width: u16,
         height: u16,
+        dst_x: u16,
+        dst_y: u16,
+        dst_buffer_width: u16,
+        dst_buffer_height: u16,
         render_mode: RenderMode,
     ) {
         // TODO: Maybe we should move those checks into the dispatcher.
@@ -636,8 +640,8 @@ impl RenderContext {
         assert!(!wide.has_layers(), "some layers haven't been popped yet");
         assert_eq!(
             buffer.len(),
-            (width as usize) * (height as usize) * 4,
-            "provided width ({}) and height ({}) do not match buffer size ({})",
+            (dst_buffer_width as usize) * (dst_buffer_height as usize) * 4,
+            "provided dst_buffer_width ({}) and dst_buffer_height ({}) do not match buffer size ({})",
             width,
             height,
             buffer.len(),
@@ -650,6 +654,10 @@ impl RenderContext {
             render_mode,
             width,
             height,
+            dst_x,
+            dst_y,
+            dst_buffer_width,
+            dst_buffer_height,
             &self.encoded_paints,
             &resources.image_registry,
         );
@@ -659,6 +667,29 @@ impl RenderContext {
         // assumed to exist in `RenderContext`, meaning that if the user rasterizes the same `RenderContext`
         // again without resetting it, some of the cached glyphs might be stale and not exist anymore.
         resources.after_render();
+    }
+
+    /// Render the current context into a buffer.
+    /// The buffer is expected to be in premultiplied RGBA8 format with length `width * height * 4`
+    pub fn render_to_buffer(
+        &self,
+        resources: &mut Resources,
+        buffer: &mut [u8],
+        width: u16,
+        height: u16,
+        render_mode: RenderMode,
+    ) {
+        self.render_to_buffer_with_offset(
+            resources,
+            buffer,
+            width,
+            height,
+            0,
+            0,
+            width,
+            height,
+            render_mode,
+        );
     }
 
     /// Render the current context into a pixmap.
