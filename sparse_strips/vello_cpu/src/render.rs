@@ -10,6 +10,11 @@ use crate::text::{GlyphAtlasResources, GlyphRunBuilder};
 #[cfg(feature = "text")]
 use glifo::GlyphPrepCache;
 
+#[cfg(feature = "text")]
+use vello_common::image_cache::ImageCache;
+#[cfg(feature = "text")]
+use vello_common::multi_atlas::AtlasConfig;
+
 #[cfg(feature = "multithreading")]
 use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
 use crate::dispatch::single_threaded::SingleThreadedDispatcher;
@@ -32,8 +37,6 @@ use vello_common::pixmap::Pixmap;
 use vello_common::render_state::RenderState;
 use vello_common::util::is_axis_aligned;
 
-#[cfg(feature = "text")]
-pub(crate) const DEFAULT_GLYPH_ATLAS_SIZE: u16 = 4096;
 // Why do we need this? The reason is that the way uploaded images work in Vello Hybrid
 // is different from how they work in Vello CPU.
 //
@@ -59,6 +62,8 @@ pub(crate) const ATLAS_IMAGE_ID_BASE: u32 = u32::MAX / 2;
 pub struct Resources {
     pub(crate) image_registry: ImageRegistry,
     #[cfg(feature = "text")]
+    pub(crate) image_cache: ImageCache,
+    #[cfg(feature = "text")]
     pub(crate) glyph_prep_cache: GlyphPrepCache,
     // Will be initialized lazily on first use.
     #[cfg(feature = "text")]
@@ -69,6 +74,13 @@ impl Resources {
     /// Create a new set of renderer resources.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Returns this [`Resources`] with a new [`AtlasConfig`].
+    #[cfg(feature = "text")]
+    pub fn with_atlas_config(mut self, atlas_config: AtlasConfig) -> Self {
+        self.image_cache = ImageCache::new_with_config(atlas_config);
+        self
     }
 
     pub(crate) fn before_render(&mut self) {
@@ -845,7 +857,7 @@ mod tests {
     #[cfg(feature = "text")]
     use alloc::sync::Arc;
     #[cfg(feature = "text")]
-    use glifo::Glyph;
+    use glifo::{AtlasConfig, Glyph};
     use vello_common::kurbo::{Rect, Shape};
     use vello_common::tile::Tile;
 
@@ -913,5 +925,36 @@ mod tests {
             .fill_glyphs(glyphs.into_iter());
 
         assert!(resources.glyph_resources.is_some());
+    }
+
+    #[cfg(feature = "text")]
+    #[test]
+    fn custom_atlas_size() {
+        const ROBOTO_FONT: &[u8] =
+            include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");
+
+        let font = FontData::new(Blob::new(Arc::new(ROBOTO_FONT)), 0);
+        let glyphs = [Glyph {
+            id: 1,
+            x: 0.0,
+            y: 0.0,
+        }];
+
+        let mut resources = crate::Resources::new().with_atlas_config(AtlasConfig {
+            atlas_size: (100, 100),
+            ..AtlasConfig::default()
+        });
+        let mut ctx = RenderContext::new(100, 100);
+
+        ctx.glyph_run(&mut resources, &font)
+            .atlas_cache(true)
+            .fill_glyphs(glyphs.into_iter());
+
+        assert_eq!(resources.image_cache.atlas_count(), 1);
+
+        let stats = resources.image_cache.atlas_manager().atlas_stats()[0].1;
+        assert!(stats.allocated_area > 0);
+        assert_eq!(stats.total_area, 100 * 100);
+        assert_eq!(stats.allocated_count, 1);
     }
 }
