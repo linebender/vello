@@ -405,6 +405,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let image_atlas_index = get_image_atlas_index(image_raw0);
             let image_quality = get_image_quality(image_raw0);
             let image_padding = get_image_padding(image_raw2);
+            let packed_tint = image_raw2.y;
+            let has_tint = packed_tint != 0u;
+            // When packed_tint is zero (no tint), use identity color vec4(1.0) with
+            // Multiply mode so the math reduces to sample_color * 1.0 = sample_color.
+            let image_tint = select(vec4<f32>(1.0), unpack4x8unorm(packed_tint), has_tint);
+            let is_multiply = !has_tint || image_raw2.z != TINT_MODE_ALPHA_MASK;
             let local_xy = in.sample_xy - image_offset;
             // This offset doesn't exist in vello_cpu, and we use it because 45 degree skewing seems to cause
             // artifacts on the GPU. We have something similar in place for gradients. It might be worth revisiting
@@ -451,8 +457,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 );
             }
 
-            let image_tint = get_image_tint(image_raw2);
-            let is_multiply = bool(get_image_tint_mode(image_raw2));
             final_color = alpha * select(
                 image_tint * sample_color.a,
                 sample_color * image_tint,
@@ -915,18 +919,6 @@ fn get_image_transform(raw0: vec4<u32>, raw1: vec4<u32>) -> mat2x2<f32> {
 
 fn get_image_translate(raw1: vec4<u32>, raw2: vec4<u32>) -> vec2<f32> {
     return vec2<f32>(bitcast<f32>(raw1.w), bitcast<f32>(raw2.x));
-}
-
-fn get_image_tint(raw2: vec4<u32>) -> vec4<f32> {
-    let packed_tint = raw2.y;
-    // When packed_tint is zero (no tint), use identity color vec4(1.0) with
-    // Multiply mode so the math reduces to sample_color * 1.0 = sample_color.
-    return select(vec4<f32>(1.0), unpack4x8unorm(packed_tint), packed_tint != 0u);
-}
-
-fn get_image_tint_mode(raw2: vec4<u32>) -> u32 {
-    let packed_tint = raw2.y;
-    return select(TINT_MODE_MULTIPLY, raw2.z, packed_tint != 0u);
 }
 
 fn get_image_padding(raw2: vec4<u32>) -> f32 { return f32(raw2.w); }
