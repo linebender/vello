@@ -1,6 +1,6 @@
 [package]
 name = "glifo"
-version = "0.0.0"
+version = "0.1.0"
 description = "Glifo provides APIs for efficiently rendering text."
 keywords = ["text", "layout"]
 categories = ["gui", "graphics"]
@@ -8,8 +8,6 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-
-publish = false # When enabling, add it to the MSRV package list in CI
 
 [package.metadata.docs.rs]
 all-features = true

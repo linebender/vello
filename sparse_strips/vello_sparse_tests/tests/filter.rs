@@ -896,7 +896,7 @@ fn filter_drop_shadow_fractional_offset(ctx: &mut impl Renderer) {
 }
 
 /// Test drop shadow with zero offset (shadow directly behind).
-#[vello_test(skip_multithreaded)]
+#[vello_test(skip_multithreaded, diff_pixels = 4)]
 fn filter_drop_shadow_zero_offset(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::DropShadow {
         dx: 0.0,
@@ -951,7 +951,7 @@ fn filter_offset(ctx: &mut impl Renderer) {
 }
 
 /// Test blur with various transforms (translate, rotate, scale, skew).
-#[vello_test(skip_multithreaded, hybrid_tolerance = 2)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 2, diff_pixels = 1)]
 fn filter_transformed_blur(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 3.0,

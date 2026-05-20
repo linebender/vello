@@ -143,7 +143,7 @@ use peniko::ImageData;
 pub use wgpu;
 
 pub use scene::{DrawGlyphs, Scene};
-pub use vello_encoding::{Glyph, NormalizedCoord};
+pub use vello_encoding::{FontEmbolden, Glyph, NormalizedCoord};
 
 use low_level::ShaderId;
 #[cfg(feature = "wgpu")]
@@ -538,10 +538,20 @@ impl Renderer {
         image: &ImageData,
         texture: Option<wgpu::TexelCopyTextureInfoBase<wgpu::Texture>>,
     ) -> Option<wgpu::TexelCopyTextureInfoBase<wgpu::Texture>> {
+        self.resolver.mark_image_dirty(image);
         match texture {
             Some(texture) => self.engine.image_overrides.insert(image.data.id(), texture),
             None => self.engine.image_overrides.remove(&image.data.id()),
         }
+    }
+
+    /// Marks `image` as dirty in the atlas cache, so its override texture will be recopied on
+    /// the next render that uses it.
+    ///
+    /// Call this for any `image` whose existing override texture has changed since the last render.
+    /// Otherwise, stale image data from the atlas may be used.
+    pub fn mark_override_image_dirty(&mut self, image: &ImageData) {
+        self.resolver.mark_image_dirty(image);
     }
 
     /// Register a [`wgpu::Texture`] with Vello, to allow drawing GPU-resident data.
@@ -581,17 +591,15 @@ impl Renderer {
             aspect: wgpu::TextureAspect::All,
         };
 
-        // We overwrite any attempt to use the fake blob, instead reading from the texture
-        self.engine
-            .image_overrides
-            .insert(image.data.id(), texture_base);
+        // We overwrite any attempt to use the fake blob, instead reading from the texture.
+        self.override_image(&image, Some(texture_base));
 
         image
     }
 
     /// Unregister a [`wgpu::Texture`] that was registered with [`register_texture`](Self::register_texture).
     pub fn unregister_texture(&mut self, handle: ImageData) {
-        self.engine.image_overrides.remove(&handle.data.id());
+        self.override_image(&handle, None);
     }
 
     /// Reload the shaders. This should only be used during `vello` development

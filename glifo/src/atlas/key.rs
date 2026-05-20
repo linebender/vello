@@ -9,6 +9,8 @@
 //! equal produce identical bitmaps and can safely share a single atlas entry.
 
 use crate::color::{AlphaColor, Srgb};
+use crate::glyph::FontEmbolden;
+use crate::kurbo::Join;
 use core::hash::{Hash, Hasher};
 #[cfg(not(feature = "std"))]
 use core_maths::CoreFloat as _;
@@ -63,6 +65,16 @@ pub struct GlyphCacheKey {
     pub context_color: AlphaColor<Srgb>,
     /// Pre-packed context color (premultiplied RGBA8 as u32) used in Hash/Eq.
     pub context_color_packed: u32,
+    /// Synthetic embolden amount. Only non-zero for outline glyphs.
+    pub embolden_x_bits: u32,
+    /// Synthetic embolden amount. Only non-zero for outline glyphs.
+    pub embolden_y_bits: u32,
+    /// Join style for synthetic embolden. Only meaningful for outline glyphs.
+    pub embolden_join_bits: u8,
+    /// Miter limit for synthetic embolden. Only meaningful for outline glyphs.
+    pub embolden_miter_limit_bits: u32,
+    /// Tolerance for synthetic embolden. Only meaningful for outline glyphs.
+    pub embolden_tolerance_bits: u32,
     /// Variation coordinates for variable fonts.
     pub var_coords: SmallVec<[NormalizedCoord; 4]>,
 }
@@ -82,6 +94,7 @@ impl GlyphCacheKey {
         fractional_x: f32,
         context_color: AlphaColor<Srgb>,
         context_color_packed: u32,
+        embolden: FontEmbolden,
         var_coords: &[NormalizedCoord],
     ) -> Self {
         Self {
@@ -93,6 +106,11 @@ impl GlyphCacheKey {
             subpixel_x: quantize_subpixel(fractional_x),
             context_color,
             context_color_packed,
+            embolden_x_bits: f32_bits(embolden.amount.xx),
+            embolden_y_bits: f32_bits(embolden.amount.yy),
+            embolden_join_bits: join_bits(embolden.join),
+            embolden_miter_limit_bits: f32_bits(embolden.miter_limit),
+            embolden_tolerance_bits: f32_bits(embolden.tolerance),
             var_coords: SmallVec::from_slice(var_coords),
         }
     }
@@ -112,6 +130,11 @@ impl Hash for GlyphCacheKey {
         self.hinted.hash(state);
         self.subpixel_x.hash(state);
         self.context_color_packed.hash(state);
+        self.embolden_x_bits.hash(state);
+        self.embolden_y_bits.hash(state);
+        self.embolden_join_bits.hash(state);
+        self.embolden_miter_limit_bits.hash(state);
+        self.embolden_tolerance_bits.hash(state);
     }
 }
 
@@ -125,10 +148,33 @@ impl PartialEq for GlyphCacheKey {
             && self.size_bits == other.size_bits
             && self.hinted == other.hinted
             && self.context_color_packed == other.context_color_packed
+            && self.embolden_x_bits == other.embolden_x_bits
+            && self.embolden_y_bits == other.embolden_y_bits
+            && self.embolden_join_bits == other.embolden_join_bits
+            && self.embolden_miter_limit_bits == other.embolden_miter_limit_bits
+            && self.embolden_tolerance_bits == other.embolden_tolerance_bits
     }
 }
 
 impl Eq for GlyphCacheKey {}
+
+#[inline(always)]
+fn join_bits(join: Join) -> u8 {
+    match join {
+        Join::Bevel => 0,
+        Join::Miter => 1,
+        Join::Round => 2,
+    }
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "Cache keys intentionally store embolden parameters at f32 precision."
+)]
+#[inline(always)]
+fn f32_bits(value: f64) -> u32 {
+    (value as f32).to_bits()
+}
 
 /// Premultiply and pack an RGBA color into a `u32` for bitwise hashing/comparison.
 #[inline]
@@ -196,15 +242,48 @@ mod tests {
     #[test]
     fn test_key_equality() {
         let packed = pack_color(BLACK);
-        let key1 = GlyphCacheKey::new(1, 0, 42, 16.0, true, 0.3, BLACK, packed, &[]);
-        let key2 = GlyphCacheKey::new(1, 0, 42, 16.0, true, 0.3, BLACK, packed, &[]);
+        let key1 = GlyphCacheKey::new(
+            1,
+            0,
+            42,
+            16.0,
+            true,
+            0.3,
+            BLACK,
+            packed,
+            FontEmbolden::default(),
+            &[],
+        );
+        let key2 = GlyphCacheKey::new(
+            1,
+            0,
+            42,
+            16.0,
+            true,
+            0.3,
+            BLACK,
+            packed,
+            FontEmbolden::default(),
+            &[],
+        );
         assert_eq!(key1, key2);
     }
 
     #[test]
     fn test_outline_colr_bitmap_keys_never_collide() {
         let packed = pack_color(BLACK);
-        let outline_key = GlyphCacheKey::new(1, 0, 42, 16.0, false, 0.0, BLACK, packed, &[]);
+        let outline_key = GlyphCacheKey::new(
+            1,
+            0,
+            42,
+            16.0,
+            false,
+            0.0,
+            BLACK,
+            packed,
+            FontEmbolden::default(),
+            &[],
+        );
         let colr_key = GlyphCacheKey {
             font_id: 1,
             font_index: 0,
@@ -214,6 +293,11 @@ mod tests {
             subpixel_x: SUBPIXEL_COLR,
             context_color: BLACK,
             context_color_packed: packed,
+            embolden_x_bits: 0,
+            embolden_y_bits: 0,
+            embolden_join_bits: join_bits(Join::Miter),
+            embolden_miter_limit_bits: 4.0_f32.to_bits(),
+            embolden_tolerance_bits: 0.1_f32.to_bits(),
             var_coords: SmallVec::new(),
         };
         let bitmap_key = GlyphCacheKey {
@@ -225,6 +309,11 @@ mod tests {
             subpixel_x: SUBPIXEL_BITMAP,
             context_color: BLACK,
             context_color_packed: packed,
+            embolden_x_bits: 0,
+            embolden_y_bits: 0,
+            embolden_join_bits: join_bits(Join::Miter),
+            embolden_miter_limit_bits: 4.0_f32.to_bits(),
+            embolden_tolerance_bits: 0.1_f32.to_bits(),
             var_coords: SmallVec::new(),
         };
         assert_ne!(outline_key, colr_key);
@@ -246,7 +335,18 @@ mod tests {
         let packed = pack_color(BLACK);
         // var_coords is excluded from Hash/Eq (two-level map handles it),
         // so keys differing only in var_coords are considered equal.
-        let key1 = GlyphCacheKey::new(1, 0, 42, 16.0, true, 0.3, BLACK, packed, &[]);
+        let key1 = GlyphCacheKey::new(
+            1,
+            0,
+            42,
+            16.0,
+            true,
+            0.3,
+            BLACK,
+            packed,
+            FontEmbolden::default(),
+            &[],
+        );
         let key2 = GlyphCacheKey::new(
             1,
             0,
@@ -256,6 +356,7 @@ mod tests {
             0.3,
             BLACK,
             packed,
+            FontEmbolden::default(),
             &[NormalizedCoord::from_bits(100)],
         );
         assert_eq!(key1, key2);

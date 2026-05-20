@@ -20,7 +20,7 @@ use crate::colr::{convert_bounding_box, get_colr_info};
 use crate::kurbo::Point;
 use crate::kurbo::Rect;
 use crate::kurbo::Vec2;
-use crate::kurbo::{Affine, BezPath};
+use crate::kurbo::{self, Affine, BezPath, Diagonal2, Join, Shape};
 use crate::kurbo::{Line, ParamCurve as _, PathSeg};
 use crate::peniko::FontData;
 use crate::renderer::{fill_glyph, render_cached_glyph, stroke_glyph};
@@ -55,6 +55,58 @@ pub struct Glyph {
     pub x: f32,
     /// Y-offset in run, relative to transform.
     pub y: f32,
+}
+
+/// Synthetic embolden settings for a glyph run.
+#[derive(Clone, Copy, Debug)]
+pub struct FontEmbolden {
+    /// Synthetic embolden amount.
+    pub amount: Diagonal2,
+    /// Join style used when expanding outlines.
+    pub join: Join,
+    /// Miter limit used when expanding outlines.
+    pub miter_limit: f64,
+    /// Tolerance used when expanding outlines.
+    pub tolerance: f64,
+}
+
+impl FontEmbolden {
+    /// Create synthetic embolden settings with default expansion controls.
+    pub fn new(amount: Diagonal2) -> Self {
+        Self {
+            amount,
+            ..Self::default()
+        }
+    }
+
+    /// Set the join style used when expanding outlines.
+    pub fn with_join(mut self, join: Join) -> Self {
+        self.join = join;
+        self
+    }
+
+    /// Set the miter limit used when expanding outlines.
+    pub fn with_miter_limit(mut self, miter_limit: f64) -> Self {
+        self.miter_limit = miter_limit;
+        self
+    }
+
+    /// Set the tolerance used when expanding outlines.
+    pub fn with_tolerance(mut self, tolerance: f64) -> Self {
+        self.tolerance = tolerance;
+        self
+    }
+}
+
+impl Default for FontEmbolden {
+    fn default() -> Self {
+        Self {
+            amount: Diagonal2::new(0.0, 0.0),
+            join: Join::Miter,
+            miter_limit: 4.0,
+            tolerance: 0.1,
+        }
+    }
 }
 
 /// Pre-packed `BLACK` color as a `u32` for use in `GlyphCacheKey`.
@@ -297,6 +349,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
         let PreparedGlyphRun {
             draw_props,
             run_size: _,
+            font_embolden,
             normalized_coords,
             hinting_instance,
             ..
@@ -342,6 +395,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     fractional_x,
                     BLACK,
                     BLACK_PACKED,
+                    font_embolden,
                     normalized_coords,
                 )
             });
@@ -382,6 +436,11 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     subpixel_x: SUBPIXEL_COLR,
                     context_color,
                     context_color_packed,
+                    embolden_x_bits: 0,
+                    embolden_y_bits: 0,
+                    embolden_join_bits: join_bits(Join::Miter),
+                    embolden_miter_limit_bits: 4.0_f32.to_bits(),
+                    embolden_tolerance_bits: 0.1_f32.to_bits(),
                     var_coords: SmallVec::from_slice(normalized_coords),
                 });
 
@@ -461,6 +520,11 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     subpixel_x: SUBPIXEL_BITMAP,
                     context_color: BLACK,
                     context_color_packed: BLACK_PACKED,
+                    embolden_x_bits: 0,
+                    embolden_y_bits: 0,
+                    embolden_join_bits: join_bits(Join::Miter),
+                    embolden_miter_limit_bits: 4.0_f32.to_bits(),
+                    embolden_tolerance_bits: 0.1_f32.to_bits(),
                     var_coords: SmallVec::new(),
                 });
 
@@ -502,6 +566,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                 font_index,
                 &mut outline_cache_session,
                 draw_props.font_size,
+                font_embolden,
                 &outline,
                 hinting_instance,
                 normalized_coords,
@@ -567,6 +632,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
 
         let PreparedGlyphRun {
             draw_props,
+            font_embolden,
             hinting_instance,
             ..
         } = self.prepared_run;
@@ -618,6 +684,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                 self.prepared_run.font.data.id(),
                 self.prepared_run.font.index,
                 draw_props.font_size,
+                font_embolden,
                 var_key,
                 &outline,
                 hinting_instance,
@@ -707,6 +774,7 @@ impl<'a, B> GlyphRunBuilder<'a, B> {
             run: GlyphRun {
                 font,
                 font_size: 16.0,
+                font_embolden: FontEmbolden::default(),
                 transform,
                 glyph_transform: None,
                 hint: true,
@@ -719,6 +787,12 @@ impl<'a, B> GlyphRunBuilder<'a, B> {
     /// Set the font size in pixels per em.
     pub fn font_size(mut self, size: f32) -> Self {
         self.run.font_size = size;
+        self
+    }
+
+    /// Set synthetic embolden settings.
+    pub fn font_embolden(mut self, embolden: FontEmbolden) -> Self {
+        self.run.font_embolden = embolden;
         self
     }
 
@@ -935,6 +1009,7 @@ fn create_outline_glyph<'a>(
     font_index: u32,
     outline_cache: &'a mut OutlineCacheSession<'_>,
     size: f32,
+    embolden: FontEmbolden,
     outline_glyph: &skrifa::outline::OutlineGlyph<'a>,
     hinting_instance: Option<&HintingInstance>,
     normalized_coords: &[skrifa::instance::NormalizedCoord],
@@ -944,6 +1019,7 @@ fn create_outline_glyph<'a>(
         font_id,
         font_index,
         size,
+        embolden,
         VarLookupKey(normalized_coords),
         outline_glyph,
         hinting_instance,
@@ -1232,6 +1308,8 @@ pub struct GlyphRun<'a> {
     font: FontData,
     /// Size of the font in pixels per em.
     font_size: f32,
+    /// Synthetic embolden settings.
+    font_embolden: FontEmbolden,
     /// Global transform.
     transform: Affine,
     /// Per-glyph transform. Use [`Affine::skew`] with horizontal-skew only to simulate italic
@@ -1254,6 +1332,8 @@ struct PreparedGlyphRun<'a> {
     // (for example handling of underlines).
     /// The original run size supplied by the caller.
     run_size: f32,
+    /// Synthetic embolden settings.
+    font_embolden: FontEmbolden,
     /// The original per-glyph transform supplied by the caller.
     glyph_transform: Option<Affine>,
     // Continuing the above comment, the problem is that we also need to precalculate data
@@ -1320,6 +1400,7 @@ impl Debug for PreparedGlyphRun<'_> {
         f.debug_struct("PreparedGlyphRun")
             .field("font", &self.font)
             .field("run_size", &self.run_size)
+            .field("font_embolden", &self.font_embolden)
             .field("glyph_transform", &self.glyph_transform)
             .field("transforms", &self.draw_props)
             .field("normalized_coords", &self.normalized_coords)
@@ -1408,6 +1489,7 @@ fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> Pr
     PreparedGlyphRun {
         font: run.font,
         run_size: run.font_size,
+        font_embolden: run.font_embolden,
         glyph_transform: run.glyph_transform,
         draw_props: DrawProps {
             positioning_transform: run
@@ -1563,7 +1645,30 @@ struct OutlineKey {
     font_index: u32,
     glyph_id: u32,
     size_bits: u32,
+    embolden_x_bits: u32,
+    embolden_y_bits: u32,
+    embolden_join_bits: u8,
+    embolden_miter_limit_bits: u32,
+    embolden_tolerance_bits: u32,
     hint: bool,
+}
+
+#[inline(always)]
+fn join_bits(join: Join) -> u8 {
+    match join {
+        Join::Bevel => 0,
+        Join::Miter => 1,
+        Join::Round => 2,
+    }
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "Cache keys intentionally store embolden parameters at f32 precision."
+)]
+#[inline(always)]
+fn f32_bits(value: f64) -> u32 {
+    (value as f32).to_bits()
 }
 
 struct OutlineEntry {
@@ -1721,6 +1826,7 @@ impl<'a> OutlineCacheSession<'a> {
         font_id: u64,
         font_index: u32,
         size: f32,
+        embolden: FontEmbolden,
         var_key: VarLookupKey<'_>,
         outline_glyph: &skrifa::outline::OutlineGlyph<'_>,
         hinting_instance: Option<&HintingInstance>,
@@ -1730,6 +1836,11 @@ impl<'a> OutlineCacheSession<'a> {
             font_id,
             font_index,
             size_bits: size.to_bits(),
+            embolden_x_bits: f32_bits(embolden.amount.xx),
+            embolden_y_bits: f32_bits(embolden.amount.yy),
+            embolden_join_bits: join_bits(embolden.join),
+            embolden_miter_limit_bits: f32_bits(embolden.miter_limit),
+            embolden_tolerance_bits: f32_bits(embolden.tolerance),
             hint: hinting_instance.is_some(),
         };
 
@@ -1754,6 +1865,16 @@ impl<'a> OutlineCacheSession<'a> {
 
                 drawing_buf.reuse();
                 outline_glyph.draw(draw_settings, &mut drawing_buf).unwrap();
+                if embolden.amount != Diagonal2::new(0.0, 0.0) {
+                    drawing_buf.path = kurbo::expand_path(
+                        &drawing_buf.path,
+                        embolden.amount,
+                        embolden.join,
+                        embolden.miter_limit,
+                        embolden.tolerance,
+                    );
+                    drawing_buf.bbox = drawing_buf.path.bounding_box();
+                }
 
                 let bbox = drawing_buf.bbox;
                 let entry = entry.insert(OutlineEntry::new(

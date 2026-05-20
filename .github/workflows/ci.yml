@@ -11,10 +11,10 @@ env:
   RUST_MIN_VER: "1.88"
   # List of packages that will be checked with the minimum supported Rust version.
   # This should be limited to packages that are intended for publishing.
-  RUST_MIN_VER_PKGS: "-p vello -p vello_encoding -p vello_shaders -p vello_api -p vello_common -p vello_cpu -p vello_hybrid"
+  RUST_MIN_VER_PKGS: "-p vello -p vello_encoding -p vello_shaders -p vello_api -p vello_common -p vello_cpu -p vello_hybrid -p glifo"
   # List of packages that will be checked for `no_std` builds.
   # This should be limited to packages that are intended for publishing.
-  RUST_NO_STD_PKGS: "-p vello_api -p vello_common -p vello_cpu"
+  RUST_NO_STD_PKGS: "-p vello_api -p vello_common -p vello_cpu -p glifo"
   # List of features that depend on the standard library and will be excluded from no_std checks.
   FEATURES_DEPENDING_ON_STD: "std,default,png,pico_svg,multithreading,probe"
   # List of packages that can not target Wasm.
@@ -118,6 +118,9 @@ jobs:
       - name: Run cargo rdme (vello_hybrid)
         run: cargo rdme --check --workspace-project=vello_hybrid
 
+      - name: Run cargo rdme (glifo)
+        run: cargo rdme --check --workspace-project=glifo
+
   clippy-stable:
     name: cargo clippy
     runs-on: ${{ matrix.os }}
@@ -141,12 +144,13 @@ jobs:
 
       - name: install native dependencies
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev
+        run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libfontconfig-dev
 
       - name: restore cache
         uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.event_name != 'merge_group' }}
+          cache-bin: ${{ matrix.os != 'macos-latest' }} # works around https://github.com/Swatinem/rust-cache/issues/341
 
       - name: cargo clippy (no_std)
         run: cargo hack clippy ${{ env.RUST_NO_STD_PKGS }} --locked --optional-deps --each-feature --ignore-unknown-features --features libm,u8_pipeline,f32_pipeline --exclude-features ${{ env.FEATURES_DEPENDING_ON_STD }} --target x86_64-unknown-none -- -D warnings
@@ -268,7 +272,7 @@ jobs:
 
       - name: install native dependencies
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev
+        run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libfontconfig-dev
 
       # Adapted from https://github.com/bevyengine/bevy/blob/b446374392adc70aceb92621b080d1a6cf7a7392/.github/workflows/validation-jobs.yml#L74-L79
       - name: install xvfb, llvmpipe and lavapipe
@@ -289,10 +293,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.event_name != 'merge_group' }}
+          cache-bin: ${{ matrix.os != 'macos-latest' }} # works around https://github.com/Swatinem/rust-cache/issues/341
 
       - name: cargo nextest
         # TODO: Maybe use --release; the CPU shaders are extremely slow when unoptimised
-        run: cargo nextest run --workspace --locked --all-features --no-fail-fast
+        run: cargo nextest run --workspace --locked --all-features --no-fail-fast --release
         env:
           VELLO_CI_GPU_SUPPORT: ${{ matrix.gpu }}
           # We are experimenting with git lfs, and we don't expect to run out of bandwidth.
@@ -423,12 +428,13 @@ jobs:
 
       - name: install native dependencies
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev
+        run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libfontconfig-dev
 
       - name: restore cache
         uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.event_name != 'merge_group' }}
+          cache-bin: ${{ matrix.os != 'macos-latest' }} # works around https://github.com/Swatinem/rust-cache/issues/341
 
       - name: cargo check (no_std)
         run: cargo hack check ${{ env.RUST_NO_STD_PKGS }} --locked --optional-deps --each-feature --ignore-unknown-features --features libm,u8_pipeline,f32_pipeline --exclude-features ${{ env.FEATURES_DEPENDING_ON_STD }} --target x86_64-unknown-none
@@ -471,6 +477,9 @@ jobs:
 
       - name: install nightly toolchain
         uses: dtolnay/rust-toolchain@nightly
+
+      - name: install native dependencies
+        run: sudo apt-get update; sudo apt-get install --no-install-recommends libfontconfig-dev
 
       - name: restore cache
         uses: Swatinem/rust-cache@v2

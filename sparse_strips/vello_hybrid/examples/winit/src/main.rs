@@ -13,8 +13,9 @@ use vello_common::kurbo::{Affine, Point};
 use vello_common::paint::ImageId;
 use vello_common::paint::ImageSource;
 use vello_example_scenes::image::ImageScene;
-use vello_example_scenes::{AnyScene, get_example_scenes};
-use vello_hybrid::{Pixmap, RenderSize, Renderer, Scene};
+use vello_example_scenes::spritesheet::{SPRITESHEET_TEXTURE_ID, SpritesheetScene};
+use vello_example_scenes::{AnyScene, Capabilities, get_example_scenes};
+use vello_hybrid::{Pixmap, RenderSize, Renderer, Scene, TextureBindings};
 use wgpu::CurrentSurfaceTexture;
 use winit::{
     application::ApplicationHandler,
@@ -32,6 +33,7 @@ struct App<'s> {
     current_scene: usize,
     renderers: Vec<Option<Renderer>>,
     uploaded_scene_images: Vec<Vec<bool>>,
+    spritesheet_textures: Vec<Option<wgpu::Texture>>,
     render_state: RenderState<'s>,
     scene: Scene,
     transform: Affine,
@@ -66,10 +68,13 @@ fn main() {
             ImageSource::opaque_id_with_transparency_hint(ImageId::new(0), false),
             ImageSource::opaque_id(ImageId::new(1)),
         ];
+        let capabilities = Capabilities {
+            external_textures: true,
+        };
         let scenes = if svg_paths.is_empty() {
-            get_example_scenes(None, img_sources)
+            get_example_scenes(capabilities, None, img_sources)
         } else {
-            get_example_scenes(Some(svg_paths), img_sources)
+            get_example_scenes(capabilities, Some(svg_paths), img_sources)
         };
 
         start_scene_index = start_scene_index.min(scenes.len() - 1);
@@ -77,10 +82,15 @@ fn main() {
     };
     #[cfg(target_arch = "wasm32")]
     let (scenes, start_scene_index) = (
-        get_example_scenes(vec![
-            ImageSource::opaque_id(ImageId::new(0)),
-            ImageSource::opaque_id(ImageId::new(1)),
-        ]),
+        get_example_scenes(
+            Capabilities {
+                external_textures: true,
+            },
+            vec![
+                ImageSource::opaque_id(ImageId::new(0)),
+                ImageSource::opaque_id(ImageId::new(1)),
+            ],
+        ),
         0,
     );
 
@@ -89,6 +99,7 @@ fn main() {
         context: RenderContext::new(),
         renderers: vec![],
         uploaded_scene_images: vec![],
+        spritesheet_textures: vec![],
         scenes,
         current_scene: start_scene_index,
         render_state: RenderState::Suspended(None),
@@ -154,10 +165,13 @@ impl ApplicationHandler for App<'_> {
             .resize_with(self.context.devices.len(), || {
                 vec![false; self.scenes.len()]
             });
+        self.spritesheet_textures
+            .resize_with(self.context.devices.len(), || None);
         self.renderers[surface.dev_id]
             .get_or_insert_with(|| create_vello_renderer(&self.context, &surface));
 
         self.upload_images_to_atlas(surface.dev_id);
+        self.ensure_spritesheet_uploaded(surface.dev_id);
 
         self.render_state = RenderState::Active {
             surface: Box::new(surface),
@@ -375,6 +389,13 @@ impl ApplicationHandler for App<'_> {
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                             label: Some("Vello Render to Surface pass"),
                         });
+                let mut texture_bindings = TextureBindings::new();
+                if let Some(texture) = self.spritesheet_textures[surface.dev_id].as_ref() {
+                    texture_bindings.insert(
+                        SPRITESHEET_TEXTURE_ID,
+                        texture.create_view(&wgpu::TextureViewDescriptor::default()),
+                    );
+                }
                 self.renderers[surface.dev_id]
                     .as_mut()
                     .unwrap()
@@ -386,6 +407,7 @@ impl ApplicationHandler for App<'_> {
                         &mut encoder,
                         &render_size,
                         &texture_view,
+                        &texture_bindings,
                     )
                     .unwrap();
 
@@ -442,6 +464,17 @@ impl App<'_> {
 
         device_handle.queue.submit([encoder.finish()]);
         self.uploaded_scene_images[device_id][self.current_scene] = true;
+    }
+
+    fn ensure_spritesheet_uploaded(&mut self, device_id: usize) {
+        if self.spritesheet_textures[device_id].is_some() {
+            return;
+        }
+        let device_handle = &self.context.devices[device_id];
+        let pixmap = SpritesheetScene::read_spritesheet();
+        let texture =
+            self.upload_image_to_texture(&device_handle.device, &device_handle.queue, &pixmap);
+        self.spritesheet_textures[device_id] = Some(texture);
     }
 
     fn upload_image_to_texture(

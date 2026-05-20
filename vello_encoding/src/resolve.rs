@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use bytemuck::{Pod, Zeroable};
-use peniko::{Extend, ImageData};
+use peniko::{Extend, ImageData, InterpolationAlphaSpace};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -170,6 +170,14 @@ impl Resolver {
         Self::default()
     }
 
+    /// Marks the atlas entry for `image` as dirty.
+    ///
+    /// If `image` is already resident in the atlas and appears in a later resolve pass,
+    /// that pass will include it in the returned image uploads.
+    pub fn mark_image_dirty(&mut self, image: &ImageData) {
+        self.image_cache.mark_dirty(image);
+    }
+
     /// Resolves late bound resources and packs an encoding. Returns the packed
     /// layout and computed ramp data.
     pub fn resolve<'a>(
@@ -214,6 +222,7 @@ impl Resolver {
                         data.extend_from_slice(bytemuck::bytes_of(&PathTag::TRANSFORM));
                         data.extend_from_slice(bytemuck::cast_slice(&glyph.path_tags));
                     }
+                    data.extend_from_slice(bytemuck::bytes_of(&PathTag::TRANSFORM));
                     data.extend_from_slice(bytemuck::bytes_of(&PathTag::PATH));
                 }
             }
@@ -317,6 +326,7 @@ impl Resolver {
                 if let ResolvedPatch::GlyphRun {
                     index,
                     glyphs: _,
+                    paint_transform,
                     transform,
                     scale,
                     hint,
@@ -354,6 +364,7 @@ impl Resolver {
                             data.extend_from_slice(bytemuck::bytes_of(&xform));
                         }
                     }
+                    data.extend_from_slice(bytemuck::bytes_of(paint_transform));
                 }
             }
             if pos < stream.len() {
@@ -402,8 +413,12 @@ impl Resolver {
                     draw_data_offset,
                     stops,
                     extend,
+                    interpolation_alpha_space,
                 } => {
-                    let ramp_id = self.ramp_cache.add(&resources.color_stops[stops.clone()]);
+                    let ramp_id = self.ramp_cache.add(
+                        *interpolation_alpha_space,
+                        &resources.color_stops[stops.clone()],
+                    );
                     self.patches.push(ResolvedPatch::Ramp {
                         draw_data_offset: *draw_data_offset + sizes.draw_data,
                         ramp_id,
@@ -415,6 +430,8 @@ impl Resolver {
                     let run = &resources.glyph_runs[*index];
                     let glyphs = &resources.glyphs[run.glyphs.clone()];
                     let coords = &resources.normalized_coords[run.normalized_coords.clone()];
+                    let paint_transform =
+                        run.transform * run.brush_transform.unwrap_or(Transform::IDENTITY);
                     let mut hint = run.hint;
                     let mut font_size = run.font_size;
                     let mut transform = run.transform;
@@ -438,6 +455,7 @@ impl Resolver {
                         &run.font,
                         bytemuck::cast_slice(coords),
                         font_size,
+                        run.font_embolden,
                         hint,
                         &run.style,
                     ) else {
@@ -457,12 +475,13 @@ impl Resolver {
                         self.glyphs.push(encoding);
                     }
                     let glyph_end = self.glyphs.len();
-                    run_sizes.path_tags += glyphs.len() + 1;
-                    run_sizes.transforms += glyphs.len();
+                    run_sizes.path_tags += glyphs.len() + 2;
+                    run_sizes.transforms += glyphs.len() + 1;
                     sizes.add(&run_sizes);
                     self.patches.push(ResolvedPatch::GlyphRun {
                         index: *index,
                         glyphs: glyph_start..glyph_end,
+                        paint_transform,
                         transform,
                         scale,
                         hint,
@@ -531,6 +550,8 @@ pub enum Patch {
         stops: Range<usize>,
         /// Extend mode for the gradient.
         extend: Extend,
+        /// Interpolation alpha space for the gradient.
+        interpolation_alpha_space: InterpolationAlphaSpace,
     },
     /// Glyph run resource.
     GlyphRun {
@@ -568,6 +589,8 @@ enum ResolvedPatch {
         index: usize,
         /// Range into the glyphs encoding range buffer.
         glyphs: Range<usize>,
+        /// Transform used for the run brush.
+        paint_transform: Transform,
         /// Global transform.
         transform: Transform,
         /// Additional scale factor to apply to translation.

@@ -456,13 +456,13 @@ fn eval_cubics_simd<S: Simd>(simd: S, c: &CubicBez, n: usize, result: &mut Flatt
 
         let (low, high) = simd.split_f32x8(evaluated);
 
-        even_pts[i * 4..][..4].copy_from_slice(low.as_slice());
-        odd_pts[i * 4..][..4].copy_from_slice(high.as_slice());
+        low.store_slice(&mut even_pts[i * 4..][..4]);
+        high.store_slice(&mut odd_pts[i * 4..][..4]);
 
         t += t_inc;
     }
 
-    even_pts[n * 2..][..8].copy_from_slice(p3_128.as_slice());
+    p3_128.store_slice(&mut even_pts[n * 2..][..8]);
 }
 
 #[inline(always)]
@@ -480,7 +480,7 @@ fn estimate_subdiv_simd<S: Simd>(simd: S, sqrt_tol: f32, ctx: &mut FlattenCtx) {
         let x1 = p_onehalf.mul_add(2.0, x);
         let p1 = p2.mul_add(-0.5, x1);
 
-        odd_pts[(i * 8)..][..8].copy_from_slice(p1.as_slice());
+        p1.store_slice(&mut odd_pts[(i * 8)..][..8]);
 
         let d01 = p1 - p0;
         let d12 = p2 - p1;
@@ -536,11 +536,11 @@ fn estimate_subdiv_simd<S: Simd>(simd: S, sqrt_tol: f32, ctx: &mut FlattenCtx) {
         let uscale_a = u2 - u0;
         let uscale = 1.0 / uscale_a;
 
-        ctx.a0[i * 4..][..4].copy_from_slice(a0.as_slice());
-        ctx.da[i * 4..][..4].copy_from_slice(da.as_slice());
-        ctx.u0[i * 4..][..4].copy_from_slice(u0.as_slice());
-        ctx.uscale[i * 4..][..4].copy_from_slice(uscale.as_slice());
-        ctx.val[i * 4..][..4].copy_from_slice(val.as_slice());
+        a0.store_slice(&mut ctx.a0[i * 4..][..4]);
+        da.store_slice(&mut ctx.da[i * 4..][..4]);
+        u0.store_slice(&mut ctx.u0[i * 4..][..4]);
+        uscale.store_slice(&mut ctx.uscale[i * 4..][..4]);
+        val.store_slice(&mut ctx.val[i * 4..][..4]);
     }
 }
 
@@ -578,7 +578,7 @@ fn output_lines_simd<S: Simd>(
         let u = approx_parabola_inv_integral_simd(a);
         let t = (u - u0) * uscale;
         let p = coeff_a.mul_add(t, coeff_b).mul_add(t, coeff_c);
-        out[j * 8..][..8].copy_from_slice(p.as_slice());
+        p.store_slice(&mut out[j * 8..][..8]);
         a += a_inc;
     }
 }

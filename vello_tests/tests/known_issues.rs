@@ -14,7 +14,7 @@
 
 use vello::Scene;
 use vello::kurbo::{Affine, Rect, Triangle};
-use vello::peniko::{Color, ColorStop, Gradient, ImageFormat, Mix, color::palette};
+use vello::peniko::{ImageFormat, Mix, color::palette};
 use vello_tests::{TestParams, smoke_snapshot_test_sync, snapshot_test_sync};
 
 /// A reproduction of <https://github.com/linebender/vello/issues/680>
@@ -102,36 +102,6 @@ fn test_layer_size() {
     );
     scene.pop_layer();
     let params = TestParams::new("layer_size", 60, 60);
-    smoke_snapshot_test_sync(scene, &params)
-        .unwrap()
-        .assert_mean_less_than(0.001);
-}
-
-/// <https://github.com/web-platform-tests/wpt/blob/18c64a74b1/html/canvas/element/fill-and-stroke-styles/2d.gradient.interpolate.coloralpha.html>
-/// See <https://github.com/linebender/vello/issues/1056>.
-#[test]
-#[cfg_attr(skip_gpu_tests, ignore)]
-fn test_gradient_color_alpha() {
-    let mut scene = Scene::new();
-    let viewport = Rect::new(0., 0., 100., 50.);
-    scene.fill(
-        vello::peniko::Fill::NonZero,
-        Affine::IDENTITY,
-        &Gradient::new_linear((0., 0.), (100., 0.)).with_stops([
-            ColorStop {
-                offset: 0.,
-                color: Color::from_rgba8(255, 255, 0, 0).into(),
-            },
-            ColorStop {
-                offset: 1.,
-                color: Color::from_rgba8(0, 0, 255, 255).into(),
-            },
-        ]),
-        None,
-        &viewport,
-    );
-    let mut params = TestParams::new("gradient_color_alpha", 100, 50);
-    params.base_color = Some(palette::css::WHITE);
     smoke_snapshot_test_sync(scene, &params)
         .unwrap()
         .assert_mean_less_than(0.001);

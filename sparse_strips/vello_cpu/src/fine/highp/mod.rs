@@ -127,7 +127,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
                 let color = f32x16::block_splat(src.simd_into(simd));
 
                 for el in dest.chunks_exact_mut(16) {
-                    el.copy_from_slice(color.as_slice());
+                    color.store_slice(el);
                 }
             },
         );
@@ -148,7 +148,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
                 for el in dest.chunks_exact_mut(16) {
                     let loaded = f32x16::from_slice(simd, el);
                     let mulled = loaded * src.next().unwrap();
-                    el.copy_from_slice(mulled.as_slice());
+                    mulled.store_slice(el);
                 }
             },
         );
@@ -176,14 +176,14 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
                         let pixel = f32x16::from_slice(simd, chunk);
                         let alphas = pixel.splat_4th();
                         let tinted = tint_v * alphas;
-                        chunk.copy_from_slice(tinted.as_slice());
+                        tinted.store_slice(chunk);
                     }
                 }
                 TintMode::Multiply => {
                     for chunk in dest.chunks_exact_mut(16) {
                         let pixel = f32x16::from_slice(simd, chunk);
                         let tinted = pixel * tint_v;
-                        chunk.copy_from_slice(tinted.as_slice());
+                        tinted.store_slice(chunk);
                     }
                 }
             },
@@ -389,7 +389,7 @@ mod fill {
             let bg_v = f32x16::from_slice(simd, next_dest);
             let src_c = blend::mix(next_src, bg_v, blend_mode);
             let res = blend_mode.compose(simd, src_c, bg_v, None);
-            next_dest.copy_from_slice(res.as_slice());
+            res.store_slice(next_dest);
         }
     }
 
@@ -406,7 +406,7 @@ mod fill {
     ) {
         let mut bg_c = f32x16::from_slice(s, dest);
         bg_c = one_minus_alpha.mul_add(bg_c, src);
-        dest.copy_from_slice(bg_c.as_slice());
+        bg_c.store_slice(dest);
     }
 }
 
@@ -488,7 +488,7 @@ mod alpha_fill {
                     let bg = f32x16::from_slice(simd, next_dest);
                     let src_c = blend::mix(next_src, bg, blend_mode);
                     let res = blend_mode.compose(simd, src_c, bg, Some(masks));
-                    next_dest.copy_from_slice(res.as_slice());
+                    res.store_slice(next_dest);
                 }
             },
         );
@@ -514,7 +514,7 @@ mod alpha_fill {
         let inv_src_a_mask_a = src_a.mul_add(-mask_a, one);
 
         let res = bg_c.mul_add(inv_src_a_mask_a, src_c * mask_a);
-        dest.copy_from_slice(res.as_slice());
+        res.store_slice(dest);
     }
 }
 

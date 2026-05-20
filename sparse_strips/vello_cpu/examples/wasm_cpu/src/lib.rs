@@ -224,10 +224,13 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
 
     let pixmap1 = ImageScene::read_flower_image();
     let pixmap2 = ImageScene::read_cowboy_image();
-    let scenes = vello_example_scenes::get_example_scenes::<RenderContext>(vec![
-        ImageSource::Pixmap(Arc::new(pixmap1)),
-        ImageSource::Pixmap(Arc::new(pixmap2)),
-    ]);
+    let scenes = vello_example_scenes::get_example_scenes::<RenderContext>(
+        vello_example_scenes::Capabilities::default(),
+        vec![
+            ImageSource::Pixmap(Arc::new(pixmap1)),
+            ImageSource::Pixmap(Arc::new(pixmap2)),
+        ],
+    );
 
     let app_state = Rc::new(RefCell::new(AppState::new(canvas.clone(), scenes)));
 

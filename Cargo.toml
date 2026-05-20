@@ -39,7 +39,7 @@ members = [
 # NOTE: When bumping this, remember to also bump the aforementioned other packages'
 #       version in the dependencies section at the bottom of this file.
 #       Additionally, bump the Vello dependency version in the 'simple' example.
-version = "0.8.0"
+version = "0.9.0"
 
 edition = "2024"
 # Keep in sync with RUST_MIN_VER in .github/workflows/ci.yml, with the relevant README.md files
@@ -96,51 +96,51 @@ clippy.wildcard_dependencies = "warn"
 # END LINEBENDER LINT SET
 
 [workspace.dependencies]
-vello = { version = "0.8.0", path = "vello" }
-vello_encoding = { version = "0.8.0", path = "vello_encoding" }
-vello_shaders = { version = "0.8.0", path = "vello_shaders" }
+vello = { version = "0.9.0", path = "vello" }
+vello_encoding = { version = "0.9.0", path = "vello_encoding" }
+vello_shaders = { version = "0.9.0", path = "vello_shaders" }
 bytemuck = { version = "1.25.0", features = ["derive"] }
-skrifa = { version = "0.42.0", default-features = false, features = ["autohint_shaping"] }
+skrifa = { version = "0.42.1", default-features = false, features = ["autohint_shaping"] }
 # The version of kurbo used below should be kept in sync
 # with the version of kurbo used by peniko.
-peniko = { version = "0.6.0", default-features = false }
+peniko = { version = "0.6.1", default-features = false }
 # FIXME: This can be removed once peniko supports the schemars feature.
-kurbo = { version = "0.13.0", default-features = false }
+kurbo = { version = "0.13.1", default-features = false }
 futures-intrusive = "0.5.0"
 guillotiere = { version = "0.7.0", default-features = false }
-hashbrown = { version = "0.17.0", default-features = false, features = ["default-hasher"] }
+hashbrown = { version = "0.17.1", default-features = false, features = ["default-hasher"] }
 core_maths = "0.1.1"
 foldhash = { version = "0.2.0", default-features = false }
 smallvec = "1.15.1"
 static_assertions = "1.1.0"
 thiserror = { version = "2.0.18", default-features = false }
-oxipng = { version = "10.1.0", default-features = false }
+oxipng = { version = "10.1.1", default-features = false }
 png = "0.18.1"
-rayon = { version = "1.11.0" }
+rayon = { version = "1.12.0" }
 thread_local = "1.1.9"
 crossbeam-channel = "0.5.15"
 ordered-channel = { version = "1.2.0", features = ["crossbeam-channel"] }
 fearless_simd = { version = "0.4.0", default-features = false }
 
 # The below crates are experimental!
-vello_api = { version = "0.0.7", path = "sparse_strips/vello_api", default-features = false }
-vello_common = { version = "0.0.7", path = "sparse_strips/vello_common", default-features = false }
-vello_cpu = { version = "0.0.7", path = "sparse_strips/vello_cpu" }
-vello_hybrid = { version = "0.0.7", path = "sparse_strips/vello_hybrid" }
-vello_sparse_shaders = { version = "0.0.7", path = "sparse_strips/vello_sparse_shaders" }
-glifo = { path = "glifo", default-features = false }
+vello_api = { version = "0.0.8", path = "sparse_strips/vello_api", default-features = false }
+vello_common = { version = "0.0.8", path = "sparse_strips/vello_common", default-features = false }
+vello_cpu = { version = "0.0.8", path = "sparse_strips/vello_cpu" }
+vello_hybrid = { version = "0.0.8", path = "sparse_strips/vello_hybrid" }
+vello_sparse_shaders = { version = "0.0.8", path = "sparse_strips/vello_sparse_shaders" }
+glifo = { version = "0.1.0", path = "glifo", default-features = false }
 vello_example_scenes = { path = "sparse_strips/vello_example_scenes" }
 vello_dev_macros = { path = "sparse_strips/vello_dev_macros" }
 
 # NOTE: The wgpu and naga versions should be kept in sync, and make sure to keep this
 # in sync with the version badge in README.md and vello/README.md
-wgpu = { version = "29.0.1", default-features = false, features = ["std", "wgsl"] }
-naga = { version = "29.0.1", default-features = false }
+wgpu = { version = "29.0.3", default-features = false, features = ["std", "wgsl"] }
+naga = { version = "29.0.3", default-features = false }
 log = "0.4.29"
 image = { version = "0.25.10", default-features = false }
 
 # Used for examples
-clap = "4.6.0"
+clap = "4.6.1"
 anyhow = "1.0.102"
 pollster = "0.4.0"
 web-time = "1.1.0"
@@ -149,7 +149,7 @@ winit = "0.30.13"
 scenes = { path = "examples/scenes" }
 svg = "0.18.0"
 criterion = { version = "0.5.1", default-features = false }
-rand = { version = "0.9.2", default-features = false, features = ["std_rng"] }
+rand = { version = "0.9.4", default-features = false, features = ["std_rng"] }
 usvg = { version = "0.45.1" }
 once_cell = "1.21.4"
 console_error_panic_hook = "0.1.7"

@@ -95,7 +95,7 @@ impl StripGenerator {
         Self {
             level,
             line_buf: Vec::new(),
-            tiles: Tiles::new(level),
+            tiles: Tiles::new(level, height),
             flatten_ctx: FlattenCtx::default(),
             stroke_ctx: StrokeCtx::default(),
             temp_storage: StripStorage::default(),
@@ -175,7 +175,8 @@ impl StripGenerator {
         clip_path: Option<PathDataRef<'_>>,
     ) {
         self.tiles
-            .make_tiles_analytic_aa(&self.line_buf, self.width, self.height);
+            .make_tiles_analytic_aa(self.level, &self.line_buf, self.width, self.height);
+
         self.tiles.sort_tiles();
 
         let level = self.level;

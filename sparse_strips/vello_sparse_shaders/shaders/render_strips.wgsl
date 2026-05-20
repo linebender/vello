@@ -56,6 +56,9 @@ const IMAGE_QUALITY_LOW = 0u;
 const IMAGE_QUALITY_MEDIUM = 1u;
 const IMAGE_QUALITY_HIGH = 2u;
 
+const IMAGE_SOURCE_ATLAS = 0u;
+const IMAGE_SOURCE_EXTERNAL = 1u;
+
 // Gradient types.
 const GRADIENT_TYPE_LINEAR: u32 = 0u;
 const GRADIENT_TYPE_RADIAL: u32 = 1u;
@@ -253,6 +256,9 @@ var<uniform> config: Config;
 @group(1) @binding(0)
 var atlas_texture_array: texture_2d_array<f32>;
 
+@group(1) @binding(1)
+var external_texture: texture_2d<f32>;
+
 @group(2) @binding(0)
 var encoded_paints_texture: texture_2d<u32>;
 
@@ -265,6 +271,7 @@ fn vs_main(
     instance: StripInstance,
 ) -> VertexOutput {
     var out: VertexOutput;
+    out.sample_xy = vec2(0.0);
     // Map vertex_index (0-3) to quad corners:
     // 0 → (0,0), 1 → (1,0), 2 → (0,1), 3 → (1,1)
     let x = f32(in_vertex_index & 1u);
@@ -408,6 +415,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let image_extend_modes = get_image_extend_modes(image_texel0);
             let image_atlas_index = get_image_atlas_index(image_texel0);
             let image_quality = get_image_quality(image_texel0);
+            let image_source_kind = get_image_source_kind(image_texel0);
             let image_padding = get_image_padding(image_texel2);
             let packed_tint = image_texel2.y;
             let has_tint = packed_tint != 0u;
@@ -427,9 +435,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
             // TODO: add a fast path for images where we are using bilinear sampling and want transparent pixels,
             // using GPU-native bilinear sampling
-            
+
             var sample_color: vec4<f32>;
-            if image_quality == IMAGE_QUALITY_HIGH {
+            if image_source_kind == IMAGE_SOURCE_EXTERNAL {
+                let final_xy = image_offset + extended_xy;
+                sample_color = sample_external_image(
+                    image_quality,
+                    final_xy,
+                    image_offset,
+                    image_size,
+                );
+            } else if image_quality == IMAGE_QUALITY_HIGH {
                 let final_xy = image_offset + extended_xy;
                 sample_color = bicubic_sample(
                     atlas_texture_array,
@@ -905,6 +921,7 @@ fn load_encoded_paint_texel(paint_tex_idx: u32, texel_offset: u32) -> vec4<u32> 
 //   bits 2-3: extend_x
 //   bits 4-5: extend_y
 //   bits 6-13: atlas_index
+//   bit 14: source_kind (0=atlas, 1=external texture)
 // texel0.y: image_size, packed as [width:16, height:16]
 // texel0.z: image_offset, packed as [x:16, y:16]
 // texel0.w/texel1.x/texel1.y/texel1.z: transform matrix [a, b, c, d]
@@ -933,6 +950,9 @@ fn get_image_offset(texel0: vec4<u32>) -> vec2<f32> {
 
 /// The atlas index containing this image.
 fn get_image_atlas_index(texel0: vec4<u32>) -> u32 { return (texel0.x >> 6u) & 0xFFu; }
+
+/// Whether the image is sourced from the atlas or the externally bound texture.
+fn get_image_source_kind(texel0: vec4<u32>) -> u32 { return (texel0.x >> 14u) & 0x1u; }
 
 /// 2x2 linear part of the affine transform (columns [a,b] and [c,d]).
 fn get_image_transform(texel0: vec4<u32>, texel1: vec4<u32>) -> mat2x2<f32> {
@@ -1002,8 +1022,8 @@ fn bilinear_sample(
     atlas_idx: i32,
     image_offset: vec2<f32>,
     image_size: vec2<f32>,
-    extend_modes: vec2<u32>,
-    image_padding: f32,
+    _extend_modes: vec2<u32>,
+    _image_padding: f32,
 ) -> vec4<f32> {
     let atlas_max = image_offset + image_size - vec2(1.0);
     let atlas_uv_clamped = clamp(coords, image_offset, atlas_max);
@@ -1013,6 +1033,23 @@ fn bilinear_sample(
     let b = textureLoad(tex, vec2<i32>(uv_quad.xw), atlas_idx, 0);
     let c = textureLoad(tex, vec2<i32>(uv_quad.zy), atlas_idx, 0);
     let d = textureLoad(tex, vec2<i32>(uv_quad.zw), atlas_idx, 0);
+    return mix(mix(a, b, uv_frac.y), mix(c, d, uv_frac.y), uv_frac.x);
+}
+
+// This is the same as `bilinear_sample` above, but for external textures instead of the atlas texture array.
+fn external_bilinear_sample(
+    coords: vec2<f32>,
+    image_offset: vec2<f32>,
+    image_size: vec2<f32>,
+) -> vec4<f32> {
+    let atlas_max = image_offset + image_size - vec2(1.0);
+    let atlas_uv_clamped = clamp(coords, image_offset, atlas_max);
+    let uv_quad = vec4(floor(atlas_uv_clamped), ceil(atlas_uv_clamped));
+    let uv_frac = fract(coords);
+    let a = textureLoad(external_texture, vec2<i32>(uv_quad.xy), 0);
+    let b = textureLoad(external_texture, vec2<i32>(uv_quad.xw), 0);
+    let c = textureLoad(external_texture, vec2<i32>(uv_quad.zy), 0);
+    let d = textureLoad(external_texture, vec2<i32>(uv_quad.zw), 0);
     return mix(mix(a, b, uv_frac.y), mix(c, d, uv_frac.y), uv_frac.x);
 }
 
@@ -1028,8 +1065,8 @@ fn bicubic_sample(
     atlas_idx: i32,
     image_offset: vec2<f32>,
     image_size: vec2<f32>,
-    extend_modes: vec2<u32>,
-    image_padding: f32,
+    _extend_modes: vec2<u32>,
+    _image_padding: f32,
 ) -> vec4<f32> {
      let atlas_max = image_offset + image_size - vec2(1.0);
      let frac_coords = fract(coords + 0.5);
@@ -1069,6 +1106,66 @@ fn bicubic_sample(
     // Clamp alpha first, then clamp premultiplied color channels against it.
     let a = clamp(result.a, 0.0, 1.0);
     return vec4<f32>(clamp(result.rgb, vec3(0.0), vec3(a)), a);
+}
+
+// This is the same as `bicubic_sample` above, but for external textures instead of the atlas texture array.
+fn external_bicubic_sample(
+    coords: vec2<f32>,
+    image_offset: vec2<f32>,
+    image_size: vec2<f32>,
+) -> vec4<f32> {
+     let atlas_max = image_offset + image_size - vec2(1.0);
+     let frac_coords = fract(coords + 0.5);
+     // Get cubic weights for x and y directions
+     let cx = cubic_weights(frac_coords.x);
+     let cy = cubic_weights(frac_coords.y);
+
+     // Sample 4x4 grid around coords
+     let s00 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(-1.5, -1.5), image_offset, atlas_max)), 0);
+     let s10 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(-0.5, -1.5), image_offset, atlas_max)), 0);
+     let s20 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(0.5, -1.5), image_offset, atlas_max)), 0);
+     let s30 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(1.5, -1.5), image_offset, atlas_max)), 0);
+
+     let s01 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(-1.5, -0.5), image_offset, atlas_max)), 0);
+     let s11 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(-0.5, -0.5), image_offset, atlas_max)), 0);
+     let s21 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(0.5, -0.5), image_offset, atlas_max)), 0);
+     let s31 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(1.5, -0.5), image_offset, atlas_max)), 0);
+
+     let s02 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(-1.5, 0.5), image_offset, atlas_max)), 0);
+     let s12 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(-0.5, 0.5), image_offset, atlas_max)), 0);
+     let s22 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(0.5, 0.5), image_offset, atlas_max)), 0);
+     let s32 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(1.5, 0.5), image_offset, atlas_max)), 0);
+
+     let s03 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(-1.5, 1.5), image_offset, atlas_max)), 0);
+     let s13 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(-0.5, 1.5), image_offset, atlas_max)), 0);
+     let s23 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(0.5, 1.5), image_offset, atlas_max)), 0);
+     let s33 = textureLoad(external_texture, vec2<i32>(clamp(coords + vec2(1.5, 1.5), image_offset, atlas_max)), 0);
+
+    // Interpolate in x direction for each row
+    let row0 = cx.x * s00 + cx.y * s10 + cx.z * s20 + cx.w * s30;
+    let row1 = cx.x * s01 + cx.y * s11 + cx.z * s21 + cx.w * s31;
+    let row2 = cx.x * s02 + cx.y * s12 + cx.z * s22 + cx.w * s32;
+    let row3 = cx.x * s03 + cx.y * s13 + cx.z * s23 + cx.w * s33;
+    let result = cy.x * row0 + cy.y * row1 + cy.z * row2 + cy.w * row3;
+
+    // Clamp alpha first, then clamp premultiplied color channels against it.
+    let a = clamp(result.a, 0.0, 1.0);
+    return vec4<f32>(clamp(result.rgb, vec3(0.0), vec3(a)), a);
+}
+
+fn sample_external_image(
+    quality: u32,
+    coords: vec2<f32>,
+    image_offset: vec2<f32>,
+    image_size: vec2<f32>,
+) -> vec4<f32> {
+    if quality == IMAGE_QUALITY_HIGH {
+        return external_bicubic_sample(coords, image_offset, image_size);
+    }
+    if quality == IMAGE_QUALITY_MEDIUM {
+        return external_bilinear_sample(coords - vec2(0.5), image_offset, image_size);
+    }
+    return textureLoad(external_texture, vec2<u32>(coords), 0);
 }
 
 // Cubic resampler logic borrowed from Skia (same as CPU cubic_resampler function)
