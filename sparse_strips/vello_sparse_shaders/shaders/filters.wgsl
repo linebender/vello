@@ -7,6 +7,9 @@
 // for this. For now, fragment shader code should pass raw values and use accessor functions instead.
 // Contributions or cleaner solutions are welcome if someone finds a better approach.
 // See also https://github.com/linebender/vello/pull/1604 for more information.
+//
+// Also do not pass structs as an input to the fragment shader, instead passing the flattened
+// arguments individually. See https://github.com/linebender/vello/pull/1620.
 
 // The texture that holds the encoded parameters for all filter effects used in the scene.
 @group(0) @binding(0) var filter_data: texture_2d<u32>;
