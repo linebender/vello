@@ -1,6 +1,13 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+// WARNING: Avoid adding structs that are used in the fragment shader. On certain Adreno
+// GPU drivers (e.g. the one used in Google Pixel 5), precision qualifiers are ignored
+// and u32/f32 are always demoted to u16/f16. We have been unable to find a proper workaround
+// for this. For now, fragment shader code should pass raw values and use accessor functions instead.
+// Contributions or cleaner solutions are welcome if someone finds a better approach.
+// See also https://github.com/linebender/vello/pull/1604 for more information.
+
 // The texture that holds the encoded parameters for all filter effects used in the scene.
 @group(0) @binding(0) var filter_data: texture_2d<u32>;
 // The texture holding the input texture we want to filter.
@@ -278,9 +285,6 @@ fn convolve(
 
 const HORIZONTAL: vec2<f32> = vec2<f32>(1.0, 0.0);
 const VERTICAL: vec2<f32> = vec2<f32>(0.0, 1.0);
-
-// Note: When extending the fragment shader, do not create new structs.
-// See also https://github.com/linebender/vello/pull/1604 for more information on why.
 
 @fragment
 fn fs_main(in: FilterVertexOutput) -> @location(0) vec4<f32> {
