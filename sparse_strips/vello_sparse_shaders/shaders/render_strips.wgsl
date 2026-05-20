@@ -403,6 +403,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let image_size = get_image_size(image_raw0);
             let image_extend_modes = get_image_extend_modes(image_raw0);
             let image_atlas_index = get_image_atlas_index(image_raw0);
+            let image_quality = get_image_quality(image_raw0);
             let image_padding = get_image_padding(image_raw2);
             let local_xy = in.sample_xy - image_offset;
             // This offset doesn't exist in vello_cpu, and we use it because 45 degree skewing seems to cause
@@ -418,7 +419,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             // using GPU-native bilinear sampling
             
             var sample_color: vec4<f32>;
-            if get_image_quality(image_raw0) == IMAGE_QUALITY_HIGH {
+            if image_quality == IMAGE_QUALITY_HIGH {
                 let final_xy = image_offset + extended_xy;
                 sample_color = bicubic_sample(
                     atlas_texture_array,
@@ -429,7 +430,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                     image_extend_modes,
                     image_padding,
                 );
-            } else if get_image_quality(image_raw0) == IMAGE_QUALITY_MEDIUM {
+            } else if image_quality == IMAGE_QUALITY_MEDIUM {
                 let final_xy = image_offset + extended_xy - vec2(0.5);
                 sample_color = bilinear_sample(
                     atlas_texture_array,
