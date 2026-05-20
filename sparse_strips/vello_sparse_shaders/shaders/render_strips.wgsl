@@ -898,22 +898,28 @@ fn load_encoded_paint_texel(paint_tex_idx: u32, texel_offset: u32) -> vec4<u32> 
     );
 }
 
+/// The rendering quality of the image.
 fn get_image_quality(raw0: vec4<u32>) -> u32 { return raw0.x & 0x3u; }
 
+/// The extend modes in the horizontal and vertical direction.
 fn get_image_extend_modes(raw0: vec4<u32>) -> vec2<u32> {
     return vec2<u32>((raw0.x >> 2u) & 0x3u, (raw0.x >> 4u) & 0x3u);
 }
 
+/// The size of the image in pixels.
 fn get_image_size(raw0: vec4<u32>) -> vec2<f32> {
     return vec2<f32>(f32(raw0.y >> 16u), f32(raw0.y & 0xFFFFu));
 }
 
+/// The offset of the image in pixels.
 fn get_image_offset(raw0: vec4<u32>) -> vec2<f32> {
     return vec2<f32>(f32(raw0.z >> 16u), f32(raw0.z & 0xFFFFu));
 }
 
+/// The atlas index containing this image.
 fn get_image_atlas_index(raw0: vec4<u32>) -> u32 { return (raw0.x >> 6u) & 0xFFu; }
 
+/// 2x2 linear part of the affine transform (columns [a,b] and [c,d]).
 fn get_image_transform(raw0: vec4<u32>, raw1: vec4<u32>) -> mat2x2<f32> {
     return mat2x2<f32>(
         vec2<f32>(bitcast<f32>(raw0.w), bitcast<f32>(raw1.x)),
@@ -921,10 +927,12 @@ fn get_image_transform(raw0: vec4<u32>, raw1: vec4<u32>) -> mat2x2<f32> {
     );
 }
 
+/// Translation part of the affine transform [tx, ty].
 fn get_image_translate(raw1: vec4<u32>, raw2: vec4<u32>) -> vec2<f32> {
     return vec2<f32>(bitcast<f32>(raw1.w), bitcast<f32>(raw2.x));
 }
 
+/// Number of transparent padding pixels around the image in the atlas.
 fn get_image_padding(raw2: vec4<u32>) -> f32 { return f32(raw2.w); }
 
 fn unpack_alphas_from_channel(rgba: vec4<u32>, channel_index: u32) -> u32 {
@@ -1135,12 +1143,16 @@ fn sample_gradient_lut(t_value: f32, extend_mode: u32, gradient_start: u32, text
     return gradient_color;
 }
 
+/// Width of the gradient texture.
 fn get_gradient_texture_width(raw0: vec4<u32>) -> u32 { return raw0.x & 0x0FFFFFFFu; }
 
+/// The extend mode for the gradient.
 fn get_gradient_extend_mode(raw0: vec4<u32>) -> u32 { return (raw0.x >> 30u) & 3u; }
 
+/// Start coordinate in the flat gradient texture.
 fn get_gradient_start(raw0: vec4<u32>) -> u32 { return raw0.y; }
 
+/// 2x2 linear part of the affine transform (columns [a,b] and [c,d]).
 fn get_gradient_transform(raw0: vec4<u32>, raw1: vec4<u32>) -> mat2x2<f32> {
     return mat2x2<f32>(
         vec2<f32>(bitcast<f32>(raw0.z), bitcast<f32>(raw0.w)),
@@ -1148,6 +1160,7 @@ fn get_gradient_transform(raw0: vec4<u32>, raw1: vec4<u32>) -> mat2x2<f32> {
     );
 }
 
+/// Translation part of the affine transform [tx, ty].
 fn get_gradient_translate(raw1: vec4<u32>) -> vec2<f32> {
     return vec2<f32>(bitcast<f32>(raw1.z), bitcast<f32>(raw1.w));
 }
@@ -1160,28 +1173,40 @@ fn apply_gradient_transform(
     return get_gradient_transform(raw0, raw1) * fragment_pos + get_gradient_translate(raw1);
 }
 
+/// Kind of radial gradient (0=Radial, 1=Strip, 2=Focal).
 fn get_radial_kind(raw2: vec4<u32>) -> u32 { return raw2.x & 0x3u; }
 
+/// Whether the focal point is swapped for radial gradient (0=false, 1=true).
 fn get_radial_f_is_swapped(raw2: vec4<u32>) -> u32 { return (raw2.x >> 2u) & 1u; }
 
+/// Bias value for radial gradient calculation.
 fn get_radial_bias(raw2: vec4<u32>) -> f32 { return bitcast<f32>(raw2.y); }
 
+/// Scale factor for radial gradient calculation.
 fn get_radial_scale(raw2: vec4<u32>) -> f32 { return bitcast<f32>(raw2.z); }
 
+/// Focal point 0 parameter for radial gradient.
 fn get_radial_fp0(raw2: vec4<u32>) -> f32 { return bitcast<f32>(raw2.w); }
 
+/// Focal point 1 parameter for radial gradient.
 fn get_radial_fp1(raw3: vec4<u32>) -> f32 { return bitcast<f32>(raw3.x); }
 
+/// Focal radius 1 parameter for radial gradient.
 fn get_radial_fr1(raw3: vec4<u32>) -> f32 { return bitcast<f32>(raw3.y); }
 
+/// Focal X coordinate for radial gradient.
 fn get_radial_f_focal_x(raw3: vec4<u32>) -> f32 { return bitcast<f32>(raw3.z); }
 
+/// Scaled radius 0 squared parameter for radial gradient strip.
 fn get_radial_scaled_r0_squared(raw3: vec4<u32>) -> f32 { return bitcast<f32>(raw3.w); }
 
+/// Starting angle for sweep gradient (in radians).
 fn get_sweep_start_angle(raw2: vec4<u32>) -> f32 { return bitcast<f32>(raw2.x); }
 
+/// Inverse of angle delta for sweep gradient.
 fn get_sweep_inv_angle_delta(raw2: vec4<u32>) -> f32 { return bitcast<f32>(raw2.y); }
 
+/// 2x2 linear part of the affine transform (columns [a,b] and [c,d]).
 fn get_blurred_rounded_rect_transform(raw0: vec4<u32>) -> mat2x2<f32> {
     return mat2x2<f32>(
         vec2<f32>(bitcast<f32>(raw0.x), bitcast<f32>(raw0.y)),
@@ -1189,10 +1214,12 @@ fn get_blurred_rounded_rect_transform(raw0: vec4<u32>) -> mat2x2<f32> {
     );
 }
 
+/// Translation part of the affine transform [tx, ty].
 fn get_blurred_rounded_rect_translate(raw1: vec4<u32>) -> vec2<f32> {
     return vec2<f32>(bitcast<f32>(raw1.x), bitcast<f32>(raw1.y));
 }
 
+/// Premultiplied rectangle color.
 fn get_blurred_rounded_rect_color(raw1: vec4<u32>) -> vec4<f32> { return unpack4x8unorm(raw1.z); }
 
 fn get_blurred_rounded_rect_exponent(raw2: vec4<u32>) -> f32 { return bitcast<f32>(raw2.x); }

@@ -53,18 +53,25 @@ fn load_filter_texel(texel_offset: u32, texel_index: u32) -> vec4<u32> {
     return textureLoad(filter_data, vec2(flat_index % w, flat_index / w), 0);
 }
 
+/// Filter type stored in the packed header.
 fn get_filter_type(raw0: vec4<u32>) -> u32 { return raw0.x & 0x1Fu; }
 
+/// Number of linear taps stored in the packed header for blur filters.
 fn get_filter_header_n_linear_taps(raw0: vec4<u32>) -> u32 { return (raw0.x >> 11u) & 0x3u; }
 
+/// Horizontal offset for an offset filter.
 fn get_offset_dx(raw0: vec4<u32>) -> f32 { return bitcast<f32>(raw0.y); }
 
+/// Vertical offset for an offset filter.
 fn get_offset_dy(raw0: vec4<u32>) -> f32 { return bitcast<f32>(raw0.z); }
 
+/// Flood color packed as RGBA8.
 fn get_flood_color(raw0: vec4<u32>) -> u32 { return raw0.y; }
 
+/// Center weight for gaussian blur convolution.
 fn get_blur_center_weight(raw0: vec4<u32>) -> f32 { return bitcast<f32>(raw0.y); }
 
+/// Linear sample weights for gaussian blur convolution.
 fn get_blur_linear_weights(raw0: vec4<u32>, raw1: vec4<u32>) -> vec3<f32> {
     // Note: This assumes that `MAX_TAPS_PER_SIDE` = 3.
     return vec3<f32>(
@@ -74,6 +81,7 @@ fn get_blur_linear_weights(raw0: vec4<u32>, raw1: vec4<u32>) -> vec3<f32> {
     );
 }
 
+/// Linear sample offsets for gaussian blur convolution.
 fn get_blur_linear_offsets(raw1: vec4<u32>) -> vec3<f32> {
     // Note: This assumes that `MAX_TAPS_PER_SIDE` = 3.
     return vec3<f32>(
@@ -83,10 +91,13 @@ fn get_blur_linear_offsets(raw1: vec4<u32>) -> vec3<f32> {
     );
 }
 
+/// Horizontal offset for a drop shadow filter.
 fn get_drop_shadow_dx(raw2: vec4<u32>) -> f32 { return bitcast<f32>(raw2.x); }
 
+/// Vertical offset for a drop shadow filter.
 fn get_drop_shadow_dy(raw2: vec4<u32>) -> f32 { return bitcast<f32>(raw2.y); }
 
+/// Drop shadow color packed as RGBA8.
 fn get_drop_shadow_color(raw2: vec4<u32>) -> u32 { return raw2.z; }
 
 struct FilterInstanceData {
