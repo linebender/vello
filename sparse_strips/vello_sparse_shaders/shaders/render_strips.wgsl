@@ -898,6 +898,21 @@ fn load_encoded_paint_texel(paint_tex_idx: u32, texel_offset: u32) -> vec4<u32> 
     );
 }
 
+// Encoded image layout. Must match `GpuEncodedImage` in `vello_hybrid/src/render/common.rs`.
+//
+// raw0.x: image_params
+//   bits 0-1: quality
+//   bits 2-3: extend_x
+//   bits 4-5: extend_y
+//   bits 6-13: atlas_index
+// raw0.y: image_size, packed as [width:16, height:16]
+// raw0.z: image_offset, packed as [x:16, y:16]
+// raw0.w/raw1.x/raw1.y/raw1.z: transform matrix [a, b, c, d]
+// raw1.w/raw2.x: translation [tx, ty]
+// raw2.y: premultiplied tint color packed as RGBA8 unorm; 0 means no tint
+// raw2.z: tint mode, only meaningful when raw2.y != 0
+// raw2.w: transparent padding pixels around the image in the atlas
+
 /// The rendering quality of the image.
 fn get_image_quality(raw0: vec4<u32>) -> u32 { return raw0.x & 0x3u; }
 
