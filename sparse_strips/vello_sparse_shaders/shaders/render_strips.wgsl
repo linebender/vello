@@ -303,14 +303,14 @@ fn vs_main(
 
         if paint_type == PAINT_TYPE_IMAGE {
             let paint_tex_idx = instance.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
-            let image_raw0 = load_encoded_paint_texel(paint_tex_idx, 0u);
-            let image_raw1 = load_encoded_paint_texel(paint_tex_idx, 1u);
-            let image_raw2 = load_encoded_paint_texel(paint_tex_idx, 2u);
+            let image_texel0 = load_encoded_paint_texel(paint_tex_idx, 0u);
+            let image_texel1 = load_encoded_paint_texel(paint_tex_idx, 1u);
+            let image_texel2 = load_encoded_paint_texel(paint_tex_idx, 2u);
             // Use view coordinates for image sampling (always in global view space)
             let pos = vec2<f32>(f32(scene_strip_x) + x * f32(width), f32(scene_strip_y) + y * f32(height));
-            out.sample_xy = get_image_translate(image_raw1, image_raw2)
-                + get_image_offset(image_raw0)
-                + get_image_transform(image_raw0, image_raw1) * pos;
+            out.sample_xy = get_image_translate(image_texel1, image_texel2)
+                + get_image_offset(image_texel0)
+                + get_image_transform(image_texel0, image_texel1) * pos;
         } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT || paint_type == PAINT_TYPE_RADIAL_GRADIENT || paint_type == PAINT_TYPE_SWEEP_GRADIENT || paint_type == PAINT_TYPE_BLURRED_ROUNDED_RECT {
             // Use view coordinates for gradient transform (always in global view space)
             out.sample_xy = vec2<f32>(
@@ -400,21 +400,21 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             final_color = alpha * unpack4x8unorm(in.payload);
         } else if paint_type == PAINT_TYPE_IMAGE {
             let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
-            let image_raw0 = load_encoded_paint_texel(paint_tex_idx, 0u);
-            let image_raw1 = load_encoded_paint_texel(paint_tex_idx, 1u);
-            let image_raw2 = load_encoded_paint_texel(paint_tex_idx, 2u);
-            let image_offset = get_image_offset(image_raw0);
-            let image_size = get_image_size(image_raw0);
-            let image_extend_modes = get_image_extend_modes(image_raw0);
-            let image_atlas_index = get_image_atlas_index(image_raw0);
-            let image_quality = get_image_quality(image_raw0);
-            let image_padding = get_image_padding(image_raw2);
-            let packed_tint = image_raw2.y;
+            let image_texel0 = load_encoded_paint_texel(paint_tex_idx, 0u);
+            let image_texel1 = load_encoded_paint_texel(paint_tex_idx, 1u);
+            let image_texel2 = load_encoded_paint_texel(paint_tex_idx, 2u);
+            let image_offset = get_image_offset(image_texel0);
+            let image_size = get_image_size(image_texel0);
+            let image_extend_modes = get_image_extend_modes(image_texel0);
+            let image_atlas_index = get_image_atlas_index(image_texel0);
+            let image_quality = get_image_quality(image_texel0);
+            let image_padding = get_image_padding(image_texel2);
+            let packed_tint = image_texel2.y;
             let has_tint = packed_tint != 0u;
             // When packed_tint is zero (no tint), use identity color vec4(1.0) with
             // Multiply mode so the math reduces to sample_color * 1.0 = sample_color.
             let image_tint = select(vec4<f32>(1.0), unpack4x8unorm(packed_tint), has_tint);
-            let is_multiply = !has_tint || image_raw2.z != TINT_MODE_ALPHA_MASK;
+            let is_multiply = !has_tint || image_texel2.z != TINT_MODE_ALPHA_MASK;
             let local_xy = in.sample_xy - image_offset;
             // This offset doesn't exist in vello_cpu, and we use it because 45 degree skewing seems to cause
             // artifacts on the GPU. We have something similar in place for gradients. It might be worth revisiting
@@ -468,40 +468,40 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             );
         } else if paint_type == PAINT_TYPE_LINEAR_GRADIENT {
             let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
-            let gradient_raw0 = load_encoded_paint_texel(paint_tex_idx, 0u);
-            let gradient_raw1 = load_encoded_paint_texel(paint_tex_idx, 1u);
+            let gradient_texel0 = load_encoded_paint_texel(paint_tex_idx, 0u);
+            let gradient_texel1 = load_encoded_paint_texel(paint_tex_idx, 1u);
             
             // Calculate fragment position and apply affine transform
             let fragment_pos = in.sample_xy;
-            let grad_pos = apply_gradient_transform(gradient_raw0, gradient_raw1, fragment_pos);
+            let grad_pos = apply_gradient_transform(gradient_texel0, gradient_texel1, fragment_pos);
             
             // For linear gradient, t-value is just the x coordinate in gradient space
             let t_value = grad_pos.x + 0.00001;
             let gradient_color = sample_gradient_lut(
                 t_value,
-                get_gradient_extend_mode(gradient_raw0),
-                get_gradient_start(gradient_raw0),
-                get_gradient_texture_width(gradient_raw0)
+                get_gradient_extend_mode(gradient_texel0),
+                get_gradient_start(gradient_texel0),
+                get_gradient_texture_width(gradient_texel0)
             );
             final_color = alpha * gradient_color;
         } else if paint_type == PAINT_TYPE_RADIAL_GRADIENT {
             let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
-            let gradient_raw0 = load_encoded_paint_texel(paint_tex_idx, 0u);
-            let gradient_raw1 = load_encoded_paint_texel(paint_tex_idx, 1u);
-            let gradient_raw2 = load_encoded_paint_texel(paint_tex_idx, 2u);
-            let gradient_raw3 = load_encoded_paint_texel(paint_tex_idx, 3u);
+            let gradient_texel0 = load_encoded_paint_texel(paint_tex_idx, 0u);
+            let gradient_texel1 = load_encoded_paint_texel(paint_tex_idx, 1u);
+            let gradient_texel2 = load_encoded_paint_texel(paint_tex_idx, 2u);
+            let gradient_texel3 = load_encoded_paint_texel(paint_tex_idx, 3u);
             
             // Calculate fragment position and apply affine transform
             let fragment_pos = in.sample_xy;
-            let grad_pos = apply_gradient_transform(gradient_raw0, gradient_raw1, fragment_pos);
+            let grad_pos = apply_gradient_transform(gradient_texel0, gradient_texel1, fragment_pos);
             
             // For radial gradient, calculate distance from center
-            let gradient_result = calculate_radial_gradient(grad_pos, gradient_raw2, gradient_raw3);
+            let gradient_result = calculate_radial_gradient(grad_pos, gradient_texel2, gradient_texel3);
             let gradient_color = sample_gradient_lut(
                 gradient_result.x,
-                get_gradient_extend_mode(gradient_raw0),
-                get_gradient_start(gradient_raw0),
-                get_gradient_texture_width(gradient_raw0)
+                get_gradient_extend_mode(gradient_texel0),
+                get_gradient_start(gradient_texel0),
+                get_gradient_texture_width(gradient_texel0)
             );
             final_color = select(
                 vec4<f32>(0.0, 0.0, 0.0, 0.0),
@@ -510,13 +510,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             );
         } else if paint_type == PAINT_TYPE_SWEEP_GRADIENT {
             let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
-            let gradient_raw0 = load_encoded_paint_texel(paint_tex_idx, 0u);
-            let gradient_raw1 = load_encoded_paint_texel(paint_tex_idx, 1u);
-            let gradient_raw2 = load_encoded_paint_texel(paint_tex_idx, 2u);
+            let gradient_texel0 = load_encoded_paint_texel(paint_tex_idx, 0u);
+            let gradient_texel1 = load_encoded_paint_texel(paint_tex_idx, 1u);
+            let gradient_texel2 = load_encoded_paint_texel(paint_tex_idx, 2u);
             
             // Calculate fragment position and apply affine transform
             let fragment_pos = in.sample_xy;
-            var grad_pos = apply_gradient_transform(gradient_raw0, gradient_raw1, fragment_pos);
+            var grad_pos = apply_gradient_transform(gradient_texel0, gradient_texel1, fragment_pos);
 
             // Before passing the position to the angle calculation, we bias
             // very small coordinates to 0. Otherwise the sweep gradient's seam
@@ -533,28 +533,28 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let unit_angle = xy_to_unit_angle(grad_pos.x, grad_pos.y);
             // Convert unit angle [0, 1) to radians [0, 2π)
             let angle = unit_angle * TWO_PI;
-            let t_value = (angle - get_sweep_start_angle(gradient_raw2)) * get_sweep_inv_angle_delta(gradient_raw2);
+            let t_value = (angle - get_sweep_start_angle(gradient_texel2)) * get_sweep_inv_angle_delta(gradient_texel2);
             let gradient_color = sample_gradient_lut(
                 t_value,
-                get_gradient_extend_mode(gradient_raw0),
-                get_gradient_start(gradient_raw0),
-                get_gradient_texture_width(gradient_raw0)
+                get_gradient_extend_mode(gradient_texel0),
+                get_gradient_start(gradient_texel0),
+                get_gradient_texture_width(gradient_texel0)
             );
             final_color = alpha * gradient_color;
         } else if paint_type == PAINT_TYPE_BLURRED_ROUNDED_RECT {
             let paint_tex_idx = in.paint_and_rect_flag & PAINT_TEXTURE_INDEX_MASK;
-            let blurred_raw0 = load_encoded_paint_texel(paint_tex_idx, 0u);
-            let blurred_raw1 = load_encoded_paint_texel(paint_tex_idx, 1u);
-            let blurred_raw2 = load_encoded_paint_texel(paint_tex_idx, 2u);
-            let blurred_raw3 = load_encoded_paint_texel(paint_tex_idx, 3u);
-            let blurred_raw4 = load_encoded_paint_texel(paint_tex_idx, 4u);
+            let blurred_texel0 = load_encoded_paint_texel(paint_tex_idx, 0u);
+            let blurred_texel1 = load_encoded_paint_texel(paint_tex_idx, 1u);
+            let blurred_texel2 = load_encoded_paint_texel(paint_tex_idx, 2u);
+            let blurred_texel3 = load_encoded_paint_texel(paint_tex_idx, 3u);
+            let blurred_texel4 = load_encoded_paint_texel(paint_tex_idx, 4u);
             final_color = alpha * calculate_blurred_rounded_rect(
                 in.sample_xy,
-                blurred_raw0,
-                blurred_raw1,
-                blurred_raw2,
-                blurred_raw3,
-                blurred_raw4,
+                blurred_texel0,
+                blurred_texel1,
+                blurred_texel2,
+                blurred_texel3,
+                blurred_texel4,
             );
         }
     } else if color_source == COLOR_SOURCE_SLOT {
@@ -900,55 +900,55 @@ fn load_encoded_paint_texel(paint_tex_idx: u32, texel_offset: u32) -> vec4<u32> 
 
 // Encoded image layout. Must match `GpuEncodedImage` in `vello_hybrid/src/render/common.rs`.
 //
-// raw0.x: image_params
+// texel0.x: image_params
 //   bits 0-1: quality
 //   bits 2-3: extend_x
 //   bits 4-5: extend_y
 //   bits 6-13: atlas_index
-// raw0.y: image_size, packed as [width:16, height:16]
-// raw0.z: image_offset, packed as [x:16, y:16]
-// raw0.w/raw1.x/raw1.y/raw1.z: transform matrix [a, b, c, d]
-// raw1.w/raw2.x: translation [tx, ty]
-// raw2.y: premultiplied tint color packed as RGBA8 unorm; 0 means no tint
-// raw2.z: tint mode, only meaningful when raw2.y != 0
-// raw2.w: transparent padding pixels around the image in the atlas
+// texel0.y: image_size, packed as [width:16, height:16]
+// texel0.z: image_offset, packed as [x:16, y:16]
+// texel0.w/texel1.x/texel1.y/texel1.z: transform matrix [a, b, c, d]
+// texel1.w/texel2.x: translation [tx, ty]
+// texel2.y: premultiplied tint color packed as RGBA8 unorm; 0 means no tint
+// texel2.z: tint mode, only meaningful when texel2.y != 0
+// texel2.w: transparent padding pixels around the image in the atlas
 
 /// The rendering quality of the image.
-fn get_image_quality(raw0: vec4<u32>) -> u32 { return raw0.x & 0x3u; }
+fn get_image_quality(texel0: vec4<u32>) -> u32 { return texel0.x & 0x3u; }
 
 /// The extend modes in the horizontal and vertical direction.
-fn get_image_extend_modes(raw0: vec4<u32>) -> vec2<u32> {
-    return vec2<u32>((raw0.x >> 2u) & 0x3u, (raw0.x >> 4u) & 0x3u);
+fn get_image_extend_modes(texel0: vec4<u32>) -> vec2<u32> {
+    return vec2<u32>((texel0.x >> 2u) & 0x3u, (texel0.x >> 4u) & 0x3u);
 }
 
 /// The size of the image in pixels.
-fn get_image_size(raw0: vec4<u32>) -> vec2<f32> {
-    return vec2<f32>(f32(raw0.y >> 16u), f32(raw0.y & 0xFFFFu));
+fn get_image_size(texel0: vec4<u32>) -> vec2<f32> {
+    return vec2<f32>(f32(texel0.y >> 16u), f32(texel0.y & 0xFFFFu));
 }
 
 /// The offset of the image in pixels.
-fn get_image_offset(raw0: vec4<u32>) -> vec2<f32> {
-    return vec2<f32>(f32(raw0.z >> 16u), f32(raw0.z & 0xFFFFu));
+fn get_image_offset(texel0: vec4<u32>) -> vec2<f32> {
+    return vec2<f32>(f32(texel0.z >> 16u), f32(texel0.z & 0xFFFFu));
 }
 
 /// The atlas index containing this image.
-fn get_image_atlas_index(raw0: vec4<u32>) -> u32 { return (raw0.x >> 6u) & 0xFFu; }
+fn get_image_atlas_index(texel0: vec4<u32>) -> u32 { return (texel0.x >> 6u) & 0xFFu; }
 
 /// 2x2 linear part of the affine transform (columns [a,b] and [c,d]).
-fn get_image_transform(raw0: vec4<u32>, raw1: vec4<u32>) -> mat2x2<f32> {
+fn get_image_transform(texel0: vec4<u32>, texel1: vec4<u32>) -> mat2x2<f32> {
     return mat2x2<f32>(
-        vec2<f32>(bitcast<f32>(raw0.w), bitcast<f32>(raw1.x)),
-        vec2<f32>(bitcast<f32>(raw1.y), bitcast<f32>(raw1.z))
+        vec2<f32>(bitcast<f32>(texel0.w), bitcast<f32>(texel1.x)),
+        vec2<f32>(bitcast<f32>(texel1.y), bitcast<f32>(texel1.z))
     );
 }
 
 /// Translation part of the affine transform [tx, ty].
-fn get_image_translate(raw1: vec4<u32>, raw2: vec4<u32>) -> vec2<f32> {
-    return vec2<f32>(bitcast<f32>(raw1.w), bitcast<f32>(raw2.x));
+fn get_image_translate(texel1: vec4<u32>, texel2: vec4<u32>) -> vec2<f32> {
+    return vec2<f32>(bitcast<f32>(texel1.w), bitcast<f32>(texel2.x));
 }
 
 /// Number of transparent padding pixels around the image in the atlas.
-fn get_image_padding(raw2: vec4<u32>) -> f32 { return f32(raw2.w); }
+fn get_image_padding(texel2: vec4<u32>) -> f32 { return f32(texel2.w); }
 
 fn unpack_alphas_from_channel(rgba: vec4<u32>, channel_index: u32) -> u32 {
     switch channel_index {
@@ -1159,128 +1159,128 @@ fn sample_gradient_lut(t_value: f32, extend_mode: u32, gradient_start: u32, text
 }
 
 /// Width of the gradient texture.
-fn get_gradient_texture_width(raw0: vec4<u32>) -> u32 { return raw0.x & 0x0FFFFFFFu; }
+fn get_gradient_texture_width(texel0: vec4<u32>) -> u32 { return texel0.x & 0x0FFFFFFFu; }
 
 /// The extend mode for the gradient.
-fn get_gradient_extend_mode(raw0: vec4<u32>) -> u32 { return (raw0.x >> 30u) & 3u; }
+fn get_gradient_extend_mode(texel0: vec4<u32>) -> u32 { return (texel0.x >> 30u) & 3u; }
 
 /// Start coordinate in the flat gradient texture.
-fn get_gradient_start(raw0: vec4<u32>) -> u32 { return raw0.y; }
+fn get_gradient_start(texel0: vec4<u32>) -> u32 { return texel0.y; }
 
 /// 2x2 linear part of the affine transform (columns [a,b] and [c,d]).
-fn get_gradient_transform(raw0: vec4<u32>, raw1: vec4<u32>) -> mat2x2<f32> {
+fn get_gradient_transform(texel0: vec4<u32>, texel1: vec4<u32>) -> mat2x2<f32> {
     return mat2x2<f32>(
-        vec2<f32>(bitcast<f32>(raw0.z), bitcast<f32>(raw0.w)),
-        vec2<f32>(bitcast<f32>(raw1.x), bitcast<f32>(raw1.y))
+        vec2<f32>(bitcast<f32>(texel0.z), bitcast<f32>(texel0.w)),
+        vec2<f32>(bitcast<f32>(texel1.x), bitcast<f32>(texel1.y))
     );
 }
 
 /// Translation part of the affine transform [tx, ty].
-fn get_gradient_translate(raw1: vec4<u32>) -> vec2<f32> {
-    return vec2<f32>(bitcast<f32>(raw1.z), bitcast<f32>(raw1.w));
+fn get_gradient_translate(texel1: vec4<u32>) -> vec2<f32> {
+    return vec2<f32>(bitcast<f32>(texel1.z), bitcast<f32>(texel1.w));
 }
 
 fn apply_gradient_transform(
-    raw0: vec4<u32>,
-    raw1: vec4<u32>,
+    texel0: vec4<u32>,
+    texel1: vec4<u32>,
     fragment_pos: vec2<f32>,
 ) -> vec2<f32> {
-    return get_gradient_transform(raw0, raw1) * fragment_pos + get_gradient_translate(raw1);
+    return get_gradient_transform(texel0, texel1) * fragment_pos + get_gradient_translate(texel1);
 }
 
 /// Kind of radial gradient (0=Radial, 1=Strip, 2=Focal).
-fn get_radial_kind(raw2: vec4<u32>) -> u32 { return raw2.x & 0x3u; }
+fn get_radial_kind(texel2: vec4<u32>) -> u32 { return texel2.x & 0x3u; }
 
 /// Whether the focal point is swapped for radial gradient (0=false, 1=true).
-fn get_radial_f_is_swapped(raw2: vec4<u32>) -> u32 { return (raw2.x >> 2u) & 1u; }
+fn get_radial_f_is_swapped(texel2: vec4<u32>) -> u32 { return (texel2.x >> 2u) & 1u; }
 
 /// Bias value for radial gradient calculation.
-fn get_radial_bias(raw2: vec4<u32>) -> f32 { return bitcast<f32>(raw2.y); }
+fn get_radial_bias(texel2: vec4<u32>) -> f32 { return bitcast<f32>(texel2.y); }
 
 /// Scale factor for radial gradient calculation.
-fn get_radial_scale(raw2: vec4<u32>) -> f32 { return bitcast<f32>(raw2.z); }
+fn get_radial_scale(texel2: vec4<u32>) -> f32 { return bitcast<f32>(texel2.z); }
 
 /// Focal point 0 parameter for radial gradient.
-fn get_radial_fp0(raw2: vec4<u32>) -> f32 { return bitcast<f32>(raw2.w); }
+fn get_radial_fp0(texel2: vec4<u32>) -> f32 { return bitcast<f32>(texel2.w); }
 
 /// Focal point 1 parameter for radial gradient.
-fn get_radial_fp1(raw3: vec4<u32>) -> f32 { return bitcast<f32>(raw3.x); }
+fn get_radial_fp1(texel3: vec4<u32>) -> f32 { return bitcast<f32>(texel3.x); }
 
 /// Focal radius 1 parameter for radial gradient.
-fn get_radial_fr1(raw3: vec4<u32>) -> f32 { return bitcast<f32>(raw3.y); }
+fn get_radial_fr1(texel3: vec4<u32>) -> f32 { return bitcast<f32>(texel3.y); }
 
 /// Focal X coordinate for radial gradient.
-fn get_radial_f_focal_x(raw3: vec4<u32>) -> f32 { return bitcast<f32>(raw3.z); }
+fn get_radial_f_focal_x(texel3: vec4<u32>) -> f32 { return bitcast<f32>(texel3.z); }
 
 /// Scaled radius 0 squared parameter for radial gradient strip.
-fn get_radial_scaled_r0_squared(raw3: vec4<u32>) -> f32 { return bitcast<f32>(raw3.w); }
+fn get_radial_scaled_r0_squared(texel3: vec4<u32>) -> f32 { return bitcast<f32>(texel3.w); }
 
 /// Starting angle for sweep gradient (in radians).
-fn get_sweep_start_angle(raw2: vec4<u32>) -> f32 { return bitcast<f32>(raw2.x); }
+fn get_sweep_start_angle(texel2: vec4<u32>) -> f32 { return bitcast<f32>(texel2.x); }
 
 /// Inverse of angle delta for sweep gradient.
-fn get_sweep_inv_angle_delta(raw2: vec4<u32>) -> f32 { return bitcast<f32>(raw2.y); }
+fn get_sweep_inv_angle_delta(texel2: vec4<u32>) -> f32 { return bitcast<f32>(texel2.y); }
 
 /// 2x2 linear part of the affine transform (columns [a,b] and [c,d]).
-fn get_blurred_rounded_rect_transform(raw0: vec4<u32>) -> mat2x2<f32> {
+fn get_blurred_rounded_rect_transform(texel0: vec4<u32>) -> mat2x2<f32> {
     return mat2x2<f32>(
-        vec2<f32>(bitcast<f32>(raw0.x), bitcast<f32>(raw0.y)),
-        vec2<f32>(bitcast<f32>(raw0.z), bitcast<f32>(raw0.w))
+        vec2<f32>(bitcast<f32>(texel0.x), bitcast<f32>(texel0.y)),
+        vec2<f32>(bitcast<f32>(texel0.z), bitcast<f32>(texel0.w))
     );
 }
 
 /// Translation part of the affine transform [tx, ty].
-fn get_blurred_rounded_rect_translate(raw1: vec4<u32>) -> vec2<f32> {
-    return vec2<f32>(bitcast<f32>(raw1.x), bitcast<f32>(raw1.y));
+fn get_blurred_rounded_rect_translate(texel1: vec4<u32>) -> vec2<f32> {
+    return vec2<f32>(bitcast<f32>(texel1.x), bitcast<f32>(texel1.y));
 }
 
 /// Premultiplied rectangle color.
-fn get_blurred_rounded_rect_color(raw1: vec4<u32>) -> vec4<f32> { return unpack4x8unorm(raw1.z); }
+fn get_blurred_rounded_rect_color(texel1: vec4<u32>) -> vec4<f32> { return unpack4x8unorm(texel1.z); }
 
-fn get_blurred_rounded_rect_exponent(raw2: vec4<u32>) -> f32 { return bitcast<f32>(raw2.x); }
+fn get_blurred_rounded_rect_exponent(texel2: vec4<u32>) -> f32 { return bitcast<f32>(texel2.x); }
 
-fn get_blurred_rounded_rect_recip_exponent(raw2: vec4<u32>) -> f32 { return bitcast<f32>(raw2.y); }
+fn get_blurred_rounded_rect_recip_exponent(texel2: vec4<u32>) -> f32 { return bitcast<f32>(texel2.y); }
 
-fn get_blurred_rounded_rect_scale(raw2: vec4<u32>) -> f32 { return bitcast<f32>(raw2.z); }
+fn get_blurred_rounded_rect_scale(texel2: vec4<u32>) -> f32 { return bitcast<f32>(texel2.z); }
 
-fn get_blurred_rounded_rect_std_dev_inv(raw2: vec4<u32>) -> f32 { return bitcast<f32>(raw2.w); }
+fn get_blurred_rounded_rect_std_dev_inv(texel2: vec4<u32>) -> f32 { return bitcast<f32>(texel2.w); }
 
-fn get_blurred_rounded_rect_min_edge(raw3: vec4<u32>) -> f32 { return bitcast<f32>(raw3.x); }
+fn get_blurred_rounded_rect_min_edge(texel3: vec4<u32>) -> f32 { return bitcast<f32>(texel3.x); }
 
-fn get_blurred_rounded_rect_w(raw3: vec4<u32>) -> f32 { return bitcast<f32>(raw3.y); }
+fn get_blurred_rounded_rect_w(texel3: vec4<u32>) -> f32 { return bitcast<f32>(texel3.y); }
 
-fn get_blurred_rounded_rect_h(raw3: vec4<u32>) -> f32 { return bitcast<f32>(raw3.z); }
+fn get_blurred_rounded_rect_h(texel3: vec4<u32>) -> f32 { return bitcast<f32>(texel3.z); }
 
-fn get_blurred_rounded_rect_r1(raw3: vec4<u32>) -> f32 { return bitcast<f32>(raw3.w); }
+fn get_blurred_rounded_rect_r1(texel3: vec4<u32>) -> f32 { return bitcast<f32>(texel3.w); }
 
-fn get_blurred_rounded_rect_width(raw4: vec4<u32>) -> f32 { return bitcast<f32>(raw4.x); }
+fn get_blurred_rounded_rect_width(texel4: vec4<u32>) -> f32 { return bitcast<f32>(texel4.x); }
 
-fn get_blurred_rounded_rect_height(raw4: vec4<u32>) -> f32 { return bitcast<f32>(raw4.y); }
+fn get_blurred_rounded_rect_height(texel4: vec4<u32>) -> f32 { return bitcast<f32>(texel4.y); }
 
 // Calculate a radial gradient; matches vello_cpu implementation.
 fn calculate_radial_gradient(
     grad_pos: vec2<f32>,
-    raw2: vec4<u32>,
-    raw3: vec4<u32>,
+    texel2: vec4<u32>,
+    texel3: vec4<u32>,
 ) -> vec2<f32> {
     let x_pos = grad_pos.x;
     let y_pos = grad_pos.y;
     
     var t_value: f32;
     var is_valid: bool;
-    let kind = get_radial_kind(raw2);
+    let kind = get_radial_kind(texel2);
     
     switch kind {
         case RADIAL_GRADIENT_TYPE_STANDARD: {
             // Standard radial gradient: bias + scale * sqrt(x^2 + y^2)
             let radius = sqrt(x_pos * x_pos + y_pos * y_pos);
-            t_value = get_radial_bias(raw2) + get_radial_scale(raw2) * radius;
+            t_value = get_radial_bias(texel2) + get_radial_scale(texel2) * radius;
             // Radial gradients are always valid
             is_valid = true;
         }
         case RADIAL_GRADIENT_TYPE_STRIP: {
             // Strip gradient: x + sqrt(scaled_r0_squared - y^2)
-            let p1 = get_radial_scaled_r0_squared(raw3) - y_pos * y_pos;
+            let p1 = get_radial_scaled_r0_squared(texel3) - y_pos * y_pos;
             // Invalid if negative under square root
             is_valid = p1 >= 0.0;
             if is_valid {
@@ -1293,11 +1293,11 @@ fn calculate_radial_gradient(
         case RADIAL_GRADIENT_TYPE_FOCAL, default: {
             // Focal gradient implementation
             var t = 0.0;
-            let fp0 = get_radial_fp0(raw2);
-            let fp1 = get_radial_fp1(raw3);
-            let fr1 = get_radial_fr1(raw3);
-            let f_focal_x = get_radial_f_focal_x(raw3);
-            let is_swapped = get_radial_f_is_swapped(raw2);
+            let fp0 = get_radial_fp0(texel2);
+            let fp1 = get_radial_fp1(texel3);
+            let fr1 = get_radial_fr1(texel3);
+            let f_focal_x = get_radial_f_focal_x(texel3);
+            let is_swapped = get_radial_f_is_swapped(texel2);
             
             // Calculate focal flags directly from field values (matching FocalData implementation)
             let is_focal_on_circle = abs(1.0 - fr1) <= NEARLY_ZERO_TOLERANCE;
@@ -1363,25 +1363,25 @@ fn erf7(x: f32) -> f32 {
 // after vello_cpu's blurred rounded rectangle painter rather than the Vello Classic shader.
 fn calculate_blurred_rounded_rect(
     fragment_pos: vec2<f32>,
-    raw0: vec4<u32>,
-    raw1: vec4<u32>,
-    raw2: vec4<u32>,
-    raw3: vec4<u32>,
-    raw4: vec4<u32>,
+    texel0: vec4<u32>,
+    texel1: vec4<u32>,
+    texel2: vec4<u32>,
+    texel3: vec4<u32>,
+    texel4: vec4<u32>,
 ) -> vec4<f32> {
-    let transform = get_blurred_rounded_rect_transform(raw0);
-    let translate = get_blurred_rounded_rect_translate(raw1);
-    let color = get_blurred_rounded_rect_color(raw1);
-    let exponent = get_blurred_rounded_rect_exponent(raw2);
-    let recip_exponent = get_blurred_rounded_rect_recip_exponent(raw2);
-    let scale = get_blurred_rounded_rect_scale(raw2);
-    let std_dev_inv = get_blurred_rounded_rect_std_dev_inv(raw2);
-    let min_edge = get_blurred_rounded_rect_min_edge(raw3);
-    let w = get_blurred_rounded_rect_w(raw3);
-    let h = get_blurred_rounded_rect_h(raw3);
-    let r1 = get_blurred_rounded_rect_r1(raw3);
-    let width = get_blurred_rounded_rect_width(raw4);
-    let height = get_blurred_rounded_rect_height(raw4);
+    let transform = get_blurred_rounded_rect_transform(texel0);
+    let translate = get_blurred_rounded_rect_translate(texel1);
+    let color = get_blurred_rounded_rect_color(texel1);
+    let exponent = get_blurred_rounded_rect_exponent(texel2);
+    let recip_exponent = get_blurred_rounded_rect_recip_exponent(texel2);
+    let scale = get_blurred_rounded_rect_scale(texel2);
+    let std_dev_inv = get_blurred_rounded_rect_std_dev_inv(texel2);
+    let min_edge = get_blurred_rounded_rect_min_edge(texel3);
+    let w = get_blurred_rounded_rect_w(texel3);
+    let h = get_blurred_rounded_rect_h(texel3);
+    let r1 = get_blurred_rounded_rect_r1(texel3);
+    let width = get_blurred_rounded_rect_width(texel4);
+    let height = get_blurred_rounded_rect_height(texel4);
 
     let local_xy = transform * fragment_pos + translate;
     // The 0.5 and 0.0 constants correspond to vello_cpu's v1 and v0 respectively.
