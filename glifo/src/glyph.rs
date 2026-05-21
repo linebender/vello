@@ -2258,6 +2258,7 @@ mod tests {
         ensure_no_cache(TestGlyphKind::Outline, Style::Fill, false);
     }
 
+    // This might change in the future, but for now they are not cached.
     #[test]
     fn stroked_outline_glyph_is_not_cached_when_atlas_cache_is_enabled() {
         ensure_no_cache(TestGlyphKind::Outline, Style::Stroke, true);
