@@ -2179,6 +2179,7 @@ mod tests {
         font: &FontData,
         glyph: Glyph,
         atlas_cache_enabled: bool,
+        style: Style,
         resources: &mut TestResources,
     ) {
         let atlas_cacher = if atlas_cache_enabled {
@@ -2187,7 +2188,7 @@ mod tests {
             AtlasCacher::Disabled
         };
 
-        GlyphRun {
+        let mut run = GlyphRun {
             font: font.clone(),
             font_size: 20.0,
             transform: Affine::translate((0.0, 20.0)),
@@ -2199,16 +2200,20 @@ mod tests {
             core::iter::once(glyph),
             resources.prep_cache.as_mut(),
             atlas_cacher,
-        )
-        .fill_glyphs(&mut resources.renderer);
+        );
+
+        match style {
+            Style::Fill => run.fill_glyphs(&mut resources.renderer),
+            Style::Stroke => run.stroke_glyphs(&mut resources.renderer),
+        }
     }
 
-    fn ensure_cache(kind: TestGlyphKind) {
+    fn ensure_cache(kind: TestGlyphKind, style: Style) {
         let font = test_font(kind);
         let glyph = test_glyph(&font, kind);
         let mut resources = TestResources::default();
 
-        draw_test_glyph(&font, glyph, true, &mut resources);
+        draw_test_glyph(&font, glyph, true, style, &mut resources);
 
         assert_eq!(resources.glyph_atlas.len(), 1);
         assert_eq!(resources.glyph_atlas.cache_hits(), 0);
@@ -2218,25 +2223,25 @@ mod tests {
         // and then get a second cache miss for the actual COLR glyph).
         assert!(resources.glyph_atlas.cache_misses() > 0);
 
-        draw_test_glyph(&font, glyph, true, &mut resources);
+        draw_test_glyph(&font, glyph, true, style, &mut resources);
 
         assert_eq!(resources.glyph_atlas.len(), 1);
         assert_eq!(resources.glyph_atlas.cache_hits(), 1);
         assert!(resources.glyph_atlas.cache_misses() > 0);
     }
 
-    fn ensure_no_cache(kind: TestGlyphKind) {
+    fn ensure_no_cache(kind: TestGlyphKind, style: Style, atlas_cache_enabled: bool) {
         let font = test_font(kind);
         let glyph = test_glyph(&font, kind);
         let mut resources = TestResources::default();
 
-        draw_test_glyph(&font, glyph, false, &mut resources);
+        draw_test_glyph(&font, glyph, atlas_cache_enabled, style, &mut resources);
 
         assert_eq!(resources.glyph_atlas.len(), 0);
         assert_eq!(resources.glyph_atlas.cache_hits(), 0);
         assert_eq!(resources.glyph_atlas.cache_misses(), 0);
 
-        draw_test_glyph(&font, glyph, false, &mut resources);
+        draw_test_glyph(&font, glyph, atlas_cache_enabled, style, &mut resources);
 
         assert_eq!(resources.glyph_atlas.len(), 0);
         assert_eq!(resources.glyph_atlas.cache_hits(), 0);
@@ -2245,33 +2250,43 @@ mod tests {
 
     #[test]
     fn outline_glyph_is_cached_when_atlas_cache_is_enabled() {
-        ensure_cache(TestGlyphKind::Outline);
+        ensure_cache(TestGlyphKind::Outline, Style::Fill);
     }
 
     #[test]
     fn outline_glyph_is_not_cached_when_atlas_cache_is_disabled() {
-        ensure_no_cache(TestGlyphKind::Outline);
+        ensure_no_cache(TestGlyphKind::Outline, Style::Fill, false);
+    }
+
+    #[test]
+    fn stroked_outline_glyph_is_not_cached_when_atlas_cache_is_enabled() {
+        ensure_no_cache(TestGlyphKind::Outline, Style::Stroke, true);
+    }
+
+    #[test]
+    fn stroked_outline_glyph_is_not_cached_when_atlas_cache_is_disabled() {
+        ensure_no_cache(TestGlyphKind::Outline, Style::Stroke, false);
     }
 
     #[test]
     fn colr_glyph_is_cached_when_atlas_cache_is_enabled() {
-        ensure_cache(TestGlyphKind::Colr);
+        ensure_cache(TestGlyphKind::Colr, Style::Fill);
     }
 
     #[test]
     fn colr_glyph_is_not_cached_when_atlas_cache_is_disabled() {
-        ensure_no_cache(TestGlyphKind::Colr);
+        ensure_no_cache(TestGlyphKind::Colr, Style::Fill, false);
     }
 
     #[cfg(feature = "png")]
     #[test]
     fn bitmap_glyph_is_cached_when_atlas_cache_is_enabled() {
-        ensure_cache(TestGlyphKind::Bitmap);
+        ensure_cache(TestGlyphKind::Bitmap, Style::Fill);
     }
 
     #[cfg(feature = "png")]
     #[test]
     fn bitmap_glyph_is_not_cached_when_atlas_cache_is_disabled() {
-        ensure_no_cache(TestGlyphKind::Bitmap);
+        ensure_no_cache(TestGlyphKind::Bitmap, Style::Fill, false);
     }
 }
