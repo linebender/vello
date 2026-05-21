@@ -96,13 +96,15 @@ fn ensure_page(
 }
 
 impl Resources {
-    pub(crate) fn prepare_glyph_cache(&mut self, render_mode: RenderMode) {
+    /// Prepare the glyph cache.
+    pub fn prepare_glyph_cache(&mut self, render_mode: RenderMode) {
         if self.glyph_resources.is_some() {
             self.sync_glyph_cache(render_mode);
         }
     }
 
-    pub(crate) fn maintain_glyph_cache(&mut self) {
+    /// Maintain the glyph cache.
+    pub fn maintain_glyph_cache(&mut self) {
         self.glyph_prep_cache.maintain();
 
         if let Some(glyph_resources) = self.glyph_resources.as_mut() {
