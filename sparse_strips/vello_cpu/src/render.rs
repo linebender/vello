@@ -7,6 +7,7 @@ use crate::RenderMode;
 use crate::dispatch::Dispatcher;
 #[cfg(feature = "text")]
 use crate::text::{GlyphAtlasResources, GlyphRunBuilder};
+use glifo::GlyphAtlas;
 #[cfg(feature = "text")]
 use glifo::GlyphPrepCache;
 
@@ -96,6 +97,20 @@ impl Resources {
     pub(crate) fn after_render(&mut self) {
         #[cfg(feature = "text")]
         self.maintain_glyph_cache();
+    }
+
+    /// Returns atlas pages.
+    pub fn pixmaps(&self) -> Option<Vec<Arc<Pixmap>>> {
+        self.glyph_resources
+            .as_ref()
+            .map(|glyph_resources| glyph_resources.pixmaps.clone())
+    }
+
+    /// Returns glyph atlas cache data.
+    pub fn glyph_atlas_mut(&mut self) -> Option<&mut GlyphAtlas> {
+        self.glyph_resources
+            .as_mut()
+            .map(|glyph_resources| &mut glyph_resources.glyph_atlas)
     }
 }
 
@@ -900,8 +915,10 @@ mod tests {
     use alloc::sync::Arc;
     use alloc::vec;
     #[cfg(feature = "text")]
-    use glifo::{AtlasConfig, Glyph};
+    use glifo::{AtlasConfig, FontEmbolden, Glyph, GlyphCacheKey};
     use vello_common::color::PremulRgba8;
+    #[cfg(feature = "text")]
+    use vello_common::color::palette::css::BLACK;
     use vello_common::color::palette::css::{BLUE, RED};
     use vello_common::kurbo::{Rect, Shape};
     use vello_common::pixmap::{Pixmap, PixmapMut};
@@ -1200,11 +1217,41 @@ mod tests {
             .atlas_cache(true)
             .fill_glyphs(glyphs.into_iter());
 
+        resources.prepare_glyph_cache(crate::RenderMode::OptimizeQuality);
+        resources.maintain_glyph_cache();
+
         assert_eq!(resources.image_cache.atlas_count(), 1);
 
         let stats = resources.image_cache.atlas_manager().atlas_stats()[0].1;
         assert!(stats.allocated_area > 0);
         assert_eq!(stats.total_area, 100 * 100);
         assert_eq!(stats.allocated_count, 1);
+
+        let glyph_atlas_mut = resources.glyph_atlas_mut().unwrap();
+
+        const BLACK_PACKED: u32 = PremulRgba8 {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        }
+        .to_u32();
+
+        assert!(
+            glyph_atlas_mut
+                .get(&GlyphCacheKey::new(
+                    0,
+                    0,
+                    1,
+                    16.0,
+                    true,
+                    0.0,
+                    BLACK,
+                    BLACK_PACKED,
+                    FontEmbolden::default(),
+                    &[],
+                ))
+                .is_some()
+        );
     }
 }
