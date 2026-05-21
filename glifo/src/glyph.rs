@@ -2212,6 +2212,16 @@ mod tests {
 
         assert_eq!(resources.glyph_atlas.len(), 1);
         assert_eq!(resources.glyph_atlas.cache_hits(), 0);
+        // Note that we are checking > 0 instead of == 1 here because
+        // COLR actually has slightly different cache access behavior than
+        // normal outlines (we first perform a speculative check for normal outlines
+        // and then get a second cache miss for the actual COLR glyph).
+        assert!(resources.glyph_atlas.cache_misses() > 0);
+
+        draw_test_glyph(&font, glyph, true, &mut resources);
+
+        assert_eq!(resources.glyph_atlas.len(), 1);
+        assert_eq!(resources.glyph_atlas.cache_hits(), 1);
         assert!(resources.glyph_atlas.cache_misses() > 0);
     }
 
@@ -2219,6 +2229,12 @@ mod tests {
         let font = test_font(kind);
         let glyph = test_glyph(&font, kind);
         let mut resources = TestResources::default();
+
+        draw_test_glyph(&font, glyph, false, &mut resources);
+
+        assert_eq!(resources.glyph_atlas.len(), 0);
+        assert_eq!(resources.glyph_atlas.cache_hits(), 0);
+        assert_eq!(resources.glyph_atlas.cache_misses(), 0);
 
         draw_test_glyph(&font, glyph, false, &mut resources);
 
