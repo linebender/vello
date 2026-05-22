@@ -20,8 +20,7 @@ use crate::colr::{convert_bounding_box, get_colr_info};
 use crate::kurbo::Point;
 use crate::kurbo::Rect;
 use crate::kurbo::Vec2;
-use crate::kurbo::{self, Affine, BezPath, Diagonal2, Join, Shape};
-use crate::kurbo::{Line, ParamCurve as _, PathSeg, Shape};
+use crate::kurbo::{self, Affine, BezPath, Diagonal2, Join, Line, ParamCurve as _, PathSeg, Shape};
 use crate::peniko::FontData;
 use crate::renderer::{fill_glyph, render_cached_glyph, stroke_glyph};
 use crate::util::AffineExt;
@@ -1901,7 +1900,6 @@ impl<'a> OutlineCacheSession<'a> {
                         embolden.miter_limit,
                         embolden.tolerance,
                     );
-                    drawing_buf.bbox = drawing_buf.path.bounding_box();
                 }
 
                 let bbox = drawing_buf.path.bounding_box();
