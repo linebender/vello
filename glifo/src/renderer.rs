@@ -8,7 +8,7 @@ use crate::atlas::key::subpixel_offset;
 use crate::atlas::{AtlasSlot, GlyphAtlas, GlyphCacheKey, ImageCache, RasterMetrics};
 use crate::colr::ColrPainter;
 use crate::glyph::{
-    AtlasCacher, CachedGlyphType, GlyphBitmap, GlyphColr, GlyphType, PreparedGlyph,
+    AtlasCacher, CachedGlyphType, GlyphBitmap, GlyphColr, GlyphOutline, GlyphType, PreparedGlyph,
 };
 use crate::interface::{DrawSink, GlyphRenderer};
 use crate::util::AffineExt;
@@ -68,8 +68,7 @@ pub(crate) fn fill_glyph(
             if let Some(key) = cache_key.take()
                 && let CacheResult::CachedAndRendered = insert_and_render_outline(
                     renderer,
-                    &glyph.path,
-                    glyph.scale,
+                    &glyph,
                     transform,
                     key,
                     glyph_atlas,
@@ -146,8 +145,7 @@ pub(crate) fn stroke_glyph(
             if let Some(key) = cache_key.take()
                 && let CacheResult::CachedAndRendered = insert_and_render_outline(
                     renderer,
-                    &glyph.path,
-                    glyph.scale,
+                    &glyph,
                     transform,
                     key,
                     glyph_atlas,
@@ -353,8 +351,7 @@ fn render_colr_to_atlas(
 /// checking the cache first and only calling this on a miss.
 fn insert_and_render_outline(
     renderer: &mut impl GlyphRenderer,
-    path: &Arc<BezPath>,
-    scale: f64,
+    glyph: &GlyphOutline,
     transform: Affine,
     cache_key: GlyphCacheKey,
     glyph_atlas: &mut GlyphAtlas,
@@ -365,7 +362,7 @@ fn insert_and_render_outline(
         return CacheResult::UnsupportedTransform;
     }
 
-    let bounds = path.bounding_box().scale_from_origin(scale);
+    let bounds = glyph.bbox.scale_from_origin(glyph.scale);
     let raster_metrics = calculate_raster_metrics(&bounds);
 
     let subpixel_offset = subpixel_offset(cache_key.subpixel_x);
@@ -376,8 +373,8 @@ fn insert_and_render_outline(
     };
 
     render_outline_to_atlas(
-        path,
-        scale,
+        &glyph.path,
+        glyph.scale,
         subpixel_offset,
         recorder,
         atlas_slot,

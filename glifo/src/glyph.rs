@@ -21,7 +21,7 @@ use crate::kurbo::Point;
 use crate::kurbo::Rect;
 use crate::kurbo::Vec2;
 use crate::kurbo::{self, Affine, BezPath, Diagonal2, Join, Shape};
-use crate::kurbo::{Line, ParamCurve as _, PathSeg};
+use crate::kurbo::{Line, ParamCurve as _, PathSeg, Shape};
 use crate::peniko::FontData;
 use crate::renderer::{fill_glyph, render_cached_glyph, stroke_glyph};
 use crate::util::AffineExt;
@@ -164,6 +164,8 @@ pub(crate) struct PreparedGlyph<'a> {
 pub(crate) struct GlyphOutline {
     /// The path of the glyph (shared with the outline cache via `Arc`).
     pub(crate) path: Arc<BezPath>,
+    /// Precise bounding box of the path at the cached outline size.
+    pub(crate) bbox: Rect,
     /// Scale from the cached outline size to the requested draw size.
     pub(crate) scale: f64,
 }
@@ -1043,6 +1045,7 @@ fn create_outline_glyph<'a>(
 
     GlyphType::Outline(GlyphOutline {
         path: Arc::clone(cached.path),
+        bbox: cached.bbox,
         scale,
     })
 }
@@ -1583,30 +1586,17 @@ const HINTING_OPTIONS: HintingOptions = HintingOptions {
 #[derive(Clone, Default)]
 pub(crate) struct OutlinePath {
     pub(crate) path: BezPath,
-    pub(crate) bbox: Rect,
 }
 
 impl OutlinePath {
     pub(crate) fn new() -> Self {
         Self {
             path: BezPath::new(),
-            bbox: Rect {
-                x0: f64::INFINITY,
-                y0: f64::INFINITY,
-                x1: f64::NEG_INFINITY,
-                y1: f64::NEG_INFINITY,
-            },
         }
     }
 
     pub(crate) fn reuse(&mut self) {
         self.path.truncate(0);
-        self.bbox = Rect {
-            x0: f64::INFINITY,
-            y0: f64::INFINITY,
-            x1: f64::NEG_INFINITY,
-            y1: f64::NEG_INFINITY,
-        };
     }
 }
 
@@ -1615,28 +1605,21 @@ impl OutlinePen for OutlinePath {
     #[inline]
     fn move_to(&mut self, x: f32, y: f32) {
         self.path.move_to((x, y));
-        self.bbox = self.bbox.union_pt((x, y));
     }
 
     #[inline]
     fn line_to(&mut self, x: f32, y: f32) {
         self.path.line_to((x, y));
-        self.bbox = self.bbox.union_pt((x, y));
     }
 
     #[inline]
     fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
         self.path.curve_to((cx0, cy0), (cx1, cy1), (x, y));
-        self.bbox = self.bbox.union_pt((cx0, cy0));
-        self.bbox = self.bbox.union_pt((cx1, cy1));
-        self.bbox = self.bbox.union_pt((x, y));
     }
 
     #[inline]
     fn quad_to(&mut self, cx: f32, cy: f32, x: f32, y: f32) {
         self.path.quad_to((cx, cy), (x, y));
-        self.bbox = self.bbox.union_pt((cx, cy));
-        self.bbox = self.bbox.union_pt((x, y));
     }
 
     #[inline]
@@ -1741,14 +1724,11 @@ impl OutlineEntry {
     /// Takes the inner `BezPath` out of this entry if the `Arc` is uniquely owned.
     fn take_path(&mut self) -> Option<OutlinePath> {
         let arc = core::mem::replace(&mut self.path, Arc::new(BezPath::new()));
-        Arc::try_unwrap(arc).ok().map(|path| OutlinePath {
-            path,
-            bbox: Rect::ZERO,
-        })
+        Arc::try_unwrap(arc).ok().map(|path| OutlinePath { path })
     }
 }
 
-/// A cached outline glyph path with its approximate bounding box.
+/// A cached outline glyph path with its precise bounding box.
 pub(crate) struct CachedOutline<'a> {
     pub(crate) path: &'a Arc<BezPath>,
     pub(crate) bbox: Rect,
@@ -1932,7 +1912,7 @@ impl<'a> OutlineCacheSession<'a> {
                     drawing_buf.bbox = drawing_buf.path.bounding_box();
                 }
 
-                let bbox = drawing_buf.bbox;
+                let bbox = drawing_buf.path.bounding_box();
                 let entry = entry.insert(OutlineEntry::new(
                     Arc::new(drawing_buf.path),
                     bbox,
