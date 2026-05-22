@@ -9,9 +9,8 @@ use crate::dispatch::Dispatcher;
 use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
 #[cfg(feature = "text")]
 use crate::text::{GlyphAtlasResources, GlyphRunBuilder};
-use glifo::GlyphAtlas;
 #[cfg(feature = "text")]
-use glifo::GlyphPrepCache;
+use glifo::{GlyphAtlas, GlyphPrepCache};
 
 #[cfg(feature = "text")]
 use vello_common::image_cache::ImageCache;
@@ -101,6 +100,7 @@ impl Resources {
     }
 
     /// Returns atlas pages.
+    #[cfg(feature = "text")]
     pub fn pixmaps(&self) -> Option<Vec<Arc<Pixmap>>> {
         self.glyph_resources
             .as_ref()
@@ -108,6 +108,7 @@ impl Resources {
     }
 
     /// Returns glyph atlas cache data.
+    #[cfg(feature = "text")]
     pub fn glyph_atlas_mut(&mut self) -> Option<&mut GlyphAtlas> {
         self.glyph_resources
             .as_mut()
