@@ -13,7 +13,6 @@ members = [
     "examples/simple",
     "examples/with_winit",
 
-    "sparse_strips/vello_api",
     "sparse_strips/vello_bench",
     "sparse_strips/vello_common",
     "sparse_strips/vello_cpu",
@@ -123,7 +122,6 @@ ordered-channel = { version = "1.2.0", features = ["crossbeam-channel"] }
 fearless_simd = { version = "0.4.0", default-features = false }
 
 # The below crates are experimental!
-vello_api = { version = "0.0.8", path = "sparse_strips/vello_api", default-features = false }
 vello_common = { version = "0.0.8", path = "sparse_strips/vello_common", default-features = false }
 vello_cpu = { version = "0.0.8", path = "sparse_strips/vello_cpu" }
 vello_hybrid = { version = "0.0.8", path = "sparse_strips/vello_hybrid" }
