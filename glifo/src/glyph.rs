@@ -20,8 +20,7 @@ use crate::colr::{convert_bounding_box, get_colr_info};
 use crate::kurbo::Point;
 use crate::kurbo::Rect;
 use crate::kurbo::Vec2;
-use crate::kurbo::{self, Affine, BezPath, Diagonal2, Join, Shape};
-use crate::kurbo::{Line, ParamCurve as _, PathSeg};
+use crate::kurbo::{self, Affine, BezPath, Diagonal2, Join, Line, ParamCurve as _, PathSeg, Shape};
 use crate::peniko::FontData;
 use crate::renderer::{fill_glyph, render_cached_glyph, stroke_glyph};
 use crate::util::AffineExt;
@@ -164,6 +163,10 @@ pub(crate) struct PreparedGlyph<'a> {
 pub(crate) struct GlyphOutline {
     /// The path of the glyph (shared with the outline cache via `Arc`).
     pub(crate) path: Arc<BezPath>,
+    /// Precise bounding box of the path at the cached outline size.
+    pub(crate) bbox: Rect,
+    /// Scale from the cached outline size to the requested draw size.
+    pub(crate) scale: f64,
 }
 
 /// A glyph defined by a bitmap.
@@ -336,7 +339,6 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
     /// construction).
     fn draw_glyphs(&mut self, style: Style, renderer: &mut impl crate::GlyphRenderer) {
         let font_ref = self.prepared_run.font.as_skrifa();
-        let upem: f32 = font_ref.head().map(|h| h.units_per_em()).unwrap().into();
 
         let outlines = font_ref.outline_glyphs();
         let color_glyphs = font_ref.color_glyphs();
@@ -371,6 +373,9 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
 
         let context_color = renderer.get_context_color();
         let context_color_packed = pack_color(context_color);
+        let scale_props =
+            GlyphScaleProperties::new(draw_props.font_size, self.prepared_run.upem, hinted, style);
+
         for glyph in self.glyph_iterator.clone() {
             // TODO: Add a mechanism such that glyphs that are completely outside of the viewport
             // (especially for more expensive COLR glyphs), we don't do any processing in the
@@ -416,7 +421,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                 let location = LocationRef::new(normalized_coords);
                 let metrics = calculate_colr_metrics(
                     draw_props.font_size,
-                    upem,
+                    self.prepared_run.upem,
                     draw_props,
                     glyph,
                     &font_ref,
@@ -504,7 +509,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     &pixmap,
                     draw_props,
                     draw_props.font_size,
-                    upem,
+                    self.prepared_run.upem,
                     &bitmap_glyph,
                     &bitmaps,
                 );
@@ -565,7 +570,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                 font_id,
                 font_index,
                 &mut outline_cache_session,
-                draw_props.font_size,
+                scale_props.cache_size,
+                scale_props.draw_scale,
                 font_embolden,
                 &outline,
                 hinting_instance,
@@ -644,7 +650,14 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
         // `draw_props.font_size`, outlines are generated in that scaled coordinate space. We scale them back
         // to the nominal coordinate space. The glyph-drawing path handles this by
         // simply drawing in global space, but we need to invert it for drawing decorations.
-        let outline_to_nominal_scale = f64::from(self.prepared_run.run_size / draw_props.font_size);
+        let scale_props = GlyphScaleProperties::new(
+            draw_props.font_size,
+            self.prepared_run.upem,
+            hinting_instance.is_some(),
+            Style::Fill,
+        );
+        let outline_to_nominal_scale =
+            f64::from(self.prepared_run.run_size / scale_props.cache_size);
         let outline_transform = self
             .prepared_run
             .glyph_transform
@@ -683,7 +696,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                 glyph.id,
                 self.prepared_run.font.data.id(),
                 self.prepared_run.font.index,
-                draw_props.font_size,
+                scale_props.cache_size,
                 font_embolden,
                 var_key,
                 &outline,
@@ -1009,6 +1022,7 @@ fn create_outline_glyph<'a>(
     font_index: u32,
     outline_cache: &'a mut OutlineCacheSession<'_>,
     size: f32,
+    scale: f64,
     embolden: FontEmbolden,
     outline_glyph: &skrifa::outline::OutlineGlyph<'a>,
     hinting_instance: Option<&HintingInstance>,
@@ -1027,7 +1041,39 @@ fn create_outline_glyph<'a>(
 
     GlyphType::Outline(GlyphOutline {
         path: Arc::clone(cached.path),
+        bbox: cached.bbox,
+        scale,
     })
+}
+
+struct GlyphScaleProperties {
+    /// The size at which the outline was cached.
+    cache_size: f32,
+    /// The scale factor that needs to be applied to scale the outline
+    /// to the draw size.
+    draw_scale: f64,
+}
+
+impl GlyphScaleProperties {
+    fn new(draw_font_size: f32, upem: f32, hinted: bool, style: Style) -> Self {
+        if hinted || style == Style::Stroke {
+            // For hinting, we need to preserve the original font size since outlines are
+            // scale-dependent.
+            // For stroking, we need to preserve the font size because the stroke width would
+            // be affected by any additional transform (we could support them
+            // in the future by scaling the outlines directly instead of folding the scale into
+            // the draw transform, but that would require cloning the `BezPath`).
+            Self {
+                cache_size: draw_font_size,
+                draw_scale: 1.0,
+            }
+        } else {
+            Self {
+                cache_size: upem,
+                draw_scale: f64::from(draw_font_size / upem),
+            }
+        }
+    }
 }
 
 /// Calculate transform for outline glyphs.
@@ -1324,6 +1370,8 @@ pub struct GlyphRun<'a> {
 struct PreparedGlyphRun<'a> {
     /// The underlying font data.
     font: FontData,
+    /// Font units per em for the underlying font.
+    upem: f32,
     // The fact that we store `run_size` and `glyph_transform` here, as well
     // as having more transforms and an effective font size inside of the `draw_props` field is pretty
     // confusing, so here is a brief explanation:
@@ -1399,6 +1447,7 @@ impl Debug for PreparedGlyphRun<'_> {
         // HintingInstance doesn't implement Debug so we have to do this manually :(
         f.debug_struct("PreparedGlyphRun")
             .field("font", &self.font)
+            .field("upem", &self.upem)
             .field("run_size", &self.run_size)
             .field("font_embolden", &self.font_embolden)
             .field("glyph_transform", &self.glyph_transform)
@@ -1486,8 +1535,17 @@ fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> Pr
         }
     };
 
+    let upem = run
+        .font
+        .as_skrifa()
+        .head()
+        .map(|h| h.units_per_em())
+        .unwrap()
+        .into();
+
     PreparedGlyphRun {
         font: run.font,
+        upem,
         run_size: run.font_size,
         font_embolden: run.font_embolden,
         glyph_transform: run.glyph_transform,
@@ -1519,30 +1577,17 @@ const HINTING_OPTIONS: HintingOptions = HintingOptions {
 #[derive(Clone, Default)]
 pub(crate) struct OutlinePath {
     pub(crate) path: BezPath,
-    pub(crate) bbox: Rect,
 }
 
 impl OutlinePath {
     pub(crate) fn new() -> Self {
         Self {
             path: BezPath::new(),
-            bbox: Rect {
-                x0: f64::INFINITY,
-                y0: f64::INFINITY,
-                x1: f64::NEG_INFINITY,
-                y1: f64::NEG_INFINITY,
-            },
         }
     }
 
     pub(crate) fn reuse(&mut self) {
         self.path.truncate(0);
-        self.bbox = Rect {
-            x0: f64::INFINITY,
-            y0: f64::INFINITY,
-            x1: f64::NEG_INFINITY,
-            y1: f64::NEG_INFINITY,
-        };
     }
 }
 
@@ -1551,28 +1596,21 @@ impl OutlinePen for OutlinePath {
     #[inline]
     fn move_to(&mut self, x: f32, y: f32) {
         self.path.move_to((x, y));
-        self.bbox = self.bbox.union_pt((x, y));
     }
 
     #[inline]
     fn line_to(&mut self, x: f32, y: f32) {
         self.path.line_to((x, y));
-        self.bbox = self.bbox.union_pt((x, y));
     }
 
     #[inline]
     fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
         self.path.curve_to((cx0, cy0), (cx1, cy1), (x, y));
-        self.bbox = self.bbox.union_pt((cx0, cy0));
-        self.bbox = self.bbox.union_pt((cx1, cy1));
-        self.bbox = self.bbox.union_pt((x, y));
     }
 
     #[inline]
     fn quad_to(&mut self, cx: f32, cy: f32, x: f32, y: f32) {
         self.path.quad_to((cx, cy), (x, y));
-        self.bbox = self.bbox.union_pt((cx, cy));
-        self.bbox = self.bbox.union_pt((x, y));
     }
 
     #[inline]
@@ -1677,14 +1715,11 @@ impl OutlineEntry {
     /// Takes the inner `BezPath` out of this entry if the `Arc` is uniquely owned.
     fn take_path(&mut self) -> Option<OutlinePath> {
         let arc = core::mem::replace(&mut self.path, Arc::new(BezPath::new()));
-        Arc::try_unwrap(arc).ok().map(|path| OutlinePath {
-            path,
-            bbox: Rect::ZERO,
-        })
+        Arc::try_unwrap(arc).ok().map(|path| OutlinePath { path })
     }
 }
 
-/// A cached outline glyph path with its approximate bounding box.
+/// A cached outline glyph path with its precise bounding box.
 pub(crate) struct CachedOutline<'a> {
     pub(crate) path: &'a Arc<BezPath>,
     pub(crate) bbox: Rect,
@@ -1865,10 +1900,9 @@ impl<'a> OutlineCacheSession<'a> {
                         embolden.miter_limit,
                         embolden.tolerance,
                     );
-                    drawing_buf.bbox = drawing_buf.path.bounding_box();
                 }
 
-                let bbox = drawing_buf.bbox;
+                let bbox = drawing_buf.path.bounding_box();
                 let entry = entry.insert(OutlineEntry::new(
                     Arc::new(drawing_buf.path),
                     bbox,
