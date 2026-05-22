@@ -1,70 +1,30 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Lints for the WGSL shaders.
+//! Lint pass: no user-defined struct value may appear anywhere in code reachable
+//! from a `@fragment` entry point.
 //!
-//! See [`lint`] for the entry point and the individual `check_*` passes for what
-//! each lint enforces.
+//! A row of older Adreno GPU drivers silently downgrade the numeric precision of
+//! structs in fragment shaders to 16 bits, regardless of the precision the shader
+//! actually requested. The workaround is to flatten all data into scalar or vector
+//! primitives. See <https://github.com/linebender/vello/pull/1604> and the issues
+//! linked from it.
+//!
+//! Struct-typed uniform globals (e.g. `Config`) and vertex IO structs are allowed
+//! because their fields are only ever read as scalars/vectors inside the fragment
+//! shader — the struct itself is never materialised in fragment-shader storage.
 
 use std::collections::{BTreeSet, VecDeque};
 
 use naga::{Block, Expression, Function, Handle, Module, ShaderStage, Statement, Type, TypeInner};
 
-/// Diagnostic produced by a single lint pass when it finds violations.
-struct LintReport {
-    /// One-line summary of what the lint guards against.
-    summary: &'static str,
-    /// Multi-paragraph context: why the lint exists, how to fix it.
-    explanation: &'static str,
-    /// Specific places in the shader that violate the lint.
-    violations: Vec<String>,
-}
-
-/// Runs every WGSL shader lint over `module` and panics with a single aggregated
-/// message (prefixed by `shader_name`) if any lint reports violations.
-pub(crate) fn lint(shader_name: &str, module: &Module) {
-    let reports: Vec<LintReport> = [check_no_structs_in_fragment_shader(module)]
-        .into_iter()
-        .flatten()
-        .collect();
-
-    if reports.is_empty() {
-        return;
-    }
-
-    let mut message = format!("`{shader_name}.wgsl` failed shader lints:\n");
-    for report in &reports {
-        use std::fmt::Write as _;
-        write!(
-            message,
-            "\n{}\n\n{}\n\nViolations:\n",
-            report.summary, report.explanation,
-        )
-        .unwrap();
-        for violation in &report.violations {
-            message.push_str("  - ");
-            message.push_str(violation);
-            message.push('\n');
-        }
-    }
-    panic!("{message}");
-}
+use super::LintReport;
 
 /// Detects user-defined struct values reachable from the `@fragment` entry point.
 ///
-/// A row of older Adreno GPU drivers silently downgrade the numeric precision of
-/// structs in fragment shaders to 16 bits, regardless of the precision the shader
-/// actually requested. The workaround is to flatten all data into scalar or vector
-/// primitives. See <https://github.com/linebender/vello/pull/1604> and the issues
-/// linked from it.
-///
-/// Struct-typed uniform globals (e.g. `Config`) and vertex IO structs are allowed
-/// because their fields are only ever read as scalars/vectors inside the fragment
-/// shader — the struct itself is never materialised in fragment-shader storage.
-///
 /// Returns `None` for modules without a fragment entry point or when the rule is
 /// upheld.
-fn check_no_structs_in_fragment_shader(module: &Module) -> Option<LintReport> {
+pub(super) fn check(module: &Module) -> Option<LintReport> {
     let entry_point = module
         .entry_points
         .iter()
@@ -252,6 +212,7 @@ fn type_name(module: &Module, ty: Handle<Type>) -> String {
 mod tests {
     use naga::front::wgsl;
 
+    use super::super::lint;
     use super::*;
 
     const SHADER_WITH_STRUCT_LOCAL: &str = r#"
@@ -386,20 +347,5 @@ fn fs_main() -> @location(0) vec4<f32> {
     #[should_panic(expected = "load of global variable `config` of struct type `Config`")]
     fn rejects_whole_uniform_struct_load_in_fragment_shader() {
         lint("loads_uniform_struct", &parse(SHADER_LOADS_UNIFORM_STRUCT));
-    }
-
-    #[test]
-    fn every_shipped_shader_passes_the_lint() {
-        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let shader_dir = manifest_dir.join("shaders");
-        let shaders =
-            crate::shader_info::load_shader_infos(&shader_dir).expect("load WGSL shaders");
-        assert!(
-            !shaders.is_empty(),
-            "expected at least one shader in {shader_dir:?}"
-        );
-        for shader in shaders {
-            lint(&shader.name, &parse(&shader.wgsl_source));
-        }
     }
 }

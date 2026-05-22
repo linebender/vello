@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 mod compile;
 #[allow(warnings)]
 #[cfg(feature = "glsl")]
-#[path = "src/lint.rs"]
+#[path = "src/lint/mod.rs"]
 mod lint;
 #[allow(warnings)]
 #[path = "src/shader_info.rs"]
