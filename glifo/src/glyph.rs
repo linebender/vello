@@ -338,7 +338,6 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
     /// construction).
     fn draw_glyphs(&mut self, style: Style, renderer: &mut impl crate::GlyphRenderer) {
         let font_ref = self.prepared_run.font.as_skrifa();
-        let upem: f32 = font_ref.head().map(|h| h.units_per_em()).unwrap().into();
 
         let outlines = font_ref.outline_glyphs();
         let color_glyphs = font_ref.color_glyphs();
@@ -386,8 +385,12 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             // On a miss we keep both for reuse in the outline branch below.
             let outline_transform =
                 calculate_outline_transform(glyph, draw_props, hinting_instance);
-            let scale_props =
-                GlyphScaleProperties::new(draw_props.font_size, upem, hinting_instance, style);
+            let scale_props = GlyphScaleProperties::new(
+                draw_props.font_size,
+                self.prepared_run.upem,
+                hinting_instance,
+                style,
+            );
             let outline_cache_key = outline_cache_enabled.then(|| {
                 let fractional_x = outline_transform.translation().x.fract() as f32;
                 GlyphCacheKey::new(
@@ -420,7 +423,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                 let location = LocationRef::new(normalized_coords);
                 let metrics = calculate_colr_metrics(
                     draw_props.font_size,
-                    upem,
+                    self.prepared_run.upem,
                     draw_props,
                     glyph,
                     &font_ref,
@@ -508,7 +511,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     &pixmap,
                     draw_props,
                     draw_props.font_size,
-                    upem,
+                    self.prepared_run.upem,
                     &bitmap_glyph,
                     &bitmaps,
                 );
@@ -633,7 +636,6 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
         buffer: f32,
     ) -> impl Iterator<Item = Rect> + 'c {
         let font_ref = self.prepared_run.font.as_skrifa();
-        let upem: f32 = font_ref.head().map(|h| h.units_per_em()).unwrap().into();
         let outlines = font_ref.outline_glyphs();
 
         let PreparedGlyphRun {
@@ -650,8 +652,12 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
         // `draw_props.font_size`, outlines are generated in that scaled coordinate space. We scale them back
         // to the nominal coordinate space. The glyph-drawing path handles this by
         // simply drawing in global space, but we need to invert it for drawing decorations.
-        let scale_props =
-            GlyphScaleProperties::new(draw_props.font_size, upem, hinting_instance, Style::Fill);
+        let scale_props = GlyphScaleProperties::new(
+            draw_props.font_size,
+            self.prepared_run.upem,
+            hinting_instance,
+            Style::Fill,
+        );
         let outline_to_nominal_scale =
             f64::from(self.prepared_run.run_size / scale_props.cache_size);
         let outline_transform = self
@@ -1370,6 +1376,8 @@ pub struct GlyphRun<'a> {
 struct PreparedGlyphRun<'a> {
     /// The underlying font data.
     font: FontData,
+    /// Font units per em for the underlying font.
+    upem: f32,
     // The fact that we store `run_size` and `glyph_transform` here, as well
     // as having more transforms and an effective font size inside of the `draw_props` field is pretty
     // confusing, so here is a brief explanation:
@@ -1445,6 +1453,7 @@ impl Debug for PreparedGlyphRun<'_> {
         // HintingInstance doesn't implement Debug so we have to do this manually :(
         f.debug_struct("PreparedGlyphRun")
             .field("font", &self.font)
+            .field("upem", &self.upem)
             .field("run_size", &self.run_size)
             .field("font_embolden", &self.font_embolden)
             .field("glyph_transform", &self.glyph_transform)
@@ -1532,8 +1541,17 @@ fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> Pr
         }
     };
 
+    let upem = run
+        .font
+        .as_skrifa()
+        .head()
+        .map(|h| h.units_per_em())
+        .unwrap()
+        .into();
+
     PreparedGlyphRun {
         font: run.font,
+        upem,
         run_size: run.font_size,
         font_embolden: run.font_embolden,
         glyph_transform: run.glyph_transform,
