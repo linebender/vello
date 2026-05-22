@@ -4110,15 +4110,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vello_api"
-version = "0.0.8"
-dependencies = [
- "bytemuck",
- "peniko",
- "png",
-]
-
-[[package]]
 name = "vello_bench"
 version = "0.0.0"
 dependencies = [
