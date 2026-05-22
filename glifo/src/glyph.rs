@@ -374,6 +374,9 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
 
         let context_color = renderer.get_context_color();
         let context_color_packed = pack_color(context_color);
+        let scale_props =
+            GlyphScaleProperties::new(draw_props.font_size, self.prepared_run.upem, hinted, style);
+
         for glyph in self.glyph_iterator.clone() {
             // TODO: Add a mechanism such that glyphs that are completely outside of the viewport
             // (especially for more expensive COLR glyphs), we don't do any processing in the
@@ -387,12 +390,6 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             // On a miss we keep both for reuse in the outline branch below.
             let outline_transform =
                 calculate_outline_transform(glyph, draw_props, hinting_instance);
-            let scale_props = GlyphScaleProperties::new(
-                draw_props.font_size,
-                self.prepared_run.upem,
-                hinted,
-                style,
-            );
             let outline_cache_key = outline_cache_enabled.then(|| {
                 let fractional_x = outline_transform.translation().x.fract() as f32;
                 GlyphCacheKey::new(
