@@ -390,7 +390,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             let scale_props = GlyphScaleProperties::new(
                 draw_props.font_size,
                 self.prepared_run.upem,
-                hinting_instance,
+                hinted,
                 style,
             );
             let outline_cache_key = outline_cache_enabled.then(|| {
@@ -657,7 +657,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
         let scale_props = GlyphScaleProperties::new(
             draw_props.font_size,
             self.prepared_run.upem,
-            hinting_instance,
+            hinting_instance.is_some(),
             Style::Fill,
         );
         let outline_to_nominal_scale =
@@ -1059,13 +1059,8 @@ struct GlyphScaleProperties {
 }
 
 impl GlyphScaleProperties {
-    fn new(
-        draw_font_size: f32,
-        upem: f32,
-        hinting_instance: Option<&HintingInstance>,
-        style: Style,
-    ) -> Self {
-        if hinting_instance.is_some() || style == Style::Stroke {
+    fn new(draw_font_size: f32, upem: f32, hinted: bool, style: Style) -> Self {
+        if hinted || style == Style::Stroke {
             // For hinting, we need to preserve the original font size since outlines are
             // scale-dependent.
             // For stroking, we need to preserve the font size because the stroke width would
