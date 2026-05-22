@@ -2191,6 +2191,7 @@ mod tests {
         let mut run = GlyphRun {
             font: font.clone(),
             font_size: 20.0,
+            font_embolden: Default::default(),
             transform: Affine::translate((0.0, 20.0)),
             glyph_transform: None,
             normalized_coords: &[],
