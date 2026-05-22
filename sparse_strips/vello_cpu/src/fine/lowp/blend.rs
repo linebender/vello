@@ -7,7 +7,7 @@ use vello_common::fearless_simd::*;
 use vello_common::util::{Div255Ext, f32_to_u8, normalized_mul_u8x32};
 
 pub(crate) fn mix<S: Simd>(src_c: u8x32<S>, bg_c: u8x32<S>, blend_mode: BlendMode) -> u8x32<S> {
-    if let Some(res) = blend_mode.mix(src_c, bg_c) {
+    if let Some(res) = try_u8_mix(blend_mode, src_c, bg_c) {
         return res;
     }
 
@@ -40,37 +40,31 @@ pub(crate) fn mix<S: Simd>(src_c: u8x32<S>, bg_c: u8x32<S>, blend_mode: BlendMod
     to_u8(src_1, src_2)
 }
 
-trait MixExt {
-    fn mix<S: Simd>(&self, src_c: u8x32<S>, bg_c: u8x32<S>) -> Option<u8x32<S>>;
-}
-
-impl MixExt for BlendMode {
-    fn mix<S: Simd>(&self, src_c: u8x32<S>, bg_c: u8x32<S>) -> Option<u8x32<S>> {
-        // We implement the u8 fast path for blend modes that
-        // 1) are separable.
-        // 2) don't have too many divisions, since integer normalization is
-        // relatively expensive.
-        // In the future, it's possible to do further experimentation to see whether
-        // some more blend modes are worth doing in integer space.
-        Some(match self.mix {
-            Mix::Normal => src_c,
-            Mix::Multiply => Multiply::mix(src_c, bg_c),
-            Mix::Screen => Screen::mix(src_c, bg_c),
-            Mix::Overlay => Overlay::mix(src_c, bg_c),
-            Mix::Darken => Darken::mix(src_c, bg_c),
-            Mix::Lighten => Lighten::mix(src_c, bg_c),
-            Mix::HardLight => HardLight::mix(src_c, bg_c),
-            Mix::Difference => Difference::mix(src_c, bg_c),
-            Mix::Exclusion => Exclusion::mix(src_c, bg_c),
-            Mix::ColorDodge
-            | Mix::ColorBurn
-            | Mix::SoftLight
-            | Mix::Luminosity
-            | Mix::Color
-            | Mix::Hue
-            | Mix::Saturation => return None,
-        })
-    }
+fn try_u8_mix<S: Simd>(blend_mode: BlendMode, src_c: u8x32<S>, bg_c: u8x32<S>) -> Option<u8x32<S>> {
+    // We implement the u8 fast path for blend modes that
+    // 1) are separable.
+    // 2) don't have too many divisions, since integer normalization is
+    // relatively expensive.
+    // In the future, it's possible to do further experimentation to see whether
+    // some more blend modes are worth doing in integer space.
+    Some(match blend_mode.mix {
+        Mix::Normal => src_c,
+        Mix::Multiply => Multiply::mix(src_c, bg_c),
+        Mix::Screen => Screen::mix(src_c, bg_c),
+        Mix::Overlay => Overlay::mix(src_c, bg_c),
+        Mix::Darken => Darken::mix(src_c, bg_c),
+        Mix::Lighten => Lighten::mix(src_c, bg_c),
+        Mix::HardLight => HardLight::mix(src_c, bg_c),
+        Mix::Difference => Difference::mix(src_c, bg_c),
+        Mix::Exclusion => Exclusion::mix(src_c, bg_c),
+        Mix::ColorDodge
+        | Mix::ColorBurn
+        | Mix::SoftLight
+        | Mix::Luminosity
+        | Mix::Color
+        | Mix::Hue
+        | Mix::Saturation => return None,
+    })
 }
 
 macro_rules! u8_mix {
