@@ -6,6 +6,10 @@
 #[cfg(feature = "glsl")]
 mod compile;
 #[cfg(feature = "glsl")]
+mod lint;
+#[cfg(all(test, feature = "glsl"))]
+mod shader_info;
+#[cfg(feature = "glsl")]
 mod types;
 
 include!(concat!(env!("OUT_DIR"), "/compiled_shaders.rs"));

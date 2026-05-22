@@ -13,6 +13,10 @@ use std::path::{Path, PathBuf};
 #[path = "src/compile.rs"]
 mod compile;
 #[allow(warnings)]
+#[cfg(feature = "glsl")]
+#[path = "src/lint/mod.rs"]
+mod lint;
+#[allow(warnings)]
 #[path = "src/shader_info.rs"]
 mod shader_info;
 #[allow(warnings)]
@@ -63,8 +67,12 @@ fn generate_compiled_shaders_module(shader_infos: &[shader_info::ShaderInfo]) ->
         .unwrap();
 
         for shader_info in shader_infos {
-            let shader =
-                compile::compile_wgsl_shader(&shader_info.wgsl_source, "vs_main", "fs_main");
+            let shader = compile::compile_wgsl_shader(
+                &shader_info.wgsl_source,
+                &shader_info.name,
+                "vs_main",
+                "fs_main",
+            );
             let generated_code = shader.to_generated_code(&shader_info.name);
             writeln!(buf, "{generated_code}").unwrap();
         }

@@ -1,16 +1,6 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-// WARNING: Avoid adding structs that are used in the fragment shader. On certain Adreno
-// GPU drivers (e.g. the one used in Google Pixel 5), precision qualifiers are ignored
-// and u32/f32 are always demoted to u16/f16. We have been unable to find a proper workaround
-// for this. For now, fragment shader code should pass raw values and use accessor functions instead.
-// Contributions or cleaner solutions are welcome if someone finds a better approach.
-// See also https://github.com/linebender/vello/pull/1604 for more information.
-//
-// Also do not pass structs as an input to the fragment shader, instead passing the flattened
-// arguments individually. See https://github.com/linebender/vello/pull/1620.
-
 // The texture that holds the encoded parameters for all filter effects used in the scene.
 @group(0) @binding(0) var filter_data: texture_2d<u32>;
 // The texture holding the input texture we want to filter.

@@ -8,6 +8,7 @@ use naga::{
     valid::{Capabilities, ValidationFlags, Validator},
 };
 
+use crate::lint::lint;
 use crate::types::{CompiledGlsl, ReflectionMap, Stage};
 
 #[allow(
@@ -17,10 +18,13 @@ use crate::types::{CompiledGlsl, ReflectionMap, Stage};
 /// Compiles the given wgsl source into GLSL using [naga].
 pub(crate) fn compile_wgsl_shader(
     source: &str,
+    shader_name: &str,
     vertex_entry: &str,
     fragment_entry: &str,
 ) -> CompiledGlsl {
     let module = wgsl::parse_str(source).unwrap();
+
+    lint(shader_name, &module);
 
     let info = Validator::new(ValidationFlags::all(), Capabilities::default())
         .subgroup_stages(naga::valid::ShaderStages::all())
