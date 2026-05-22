@@ -3,34 +3,72 @@
 
 //! Lints for the WGSL shaders.
 //!
-//! At the moment a single lint is enforced: no user-defined struct value may appear
-//! anywhere in code reachable from a `@fragment` entry point. A row of older Adreno
-//! GPU drivers silently downgrade the numeric precision of structs in fragment shaders
-//! to 16 bits, regardless of the precision the shader actually requested. The
-//! workaround is to flatten all data into scalar or vector primitives. See
-//! <https://github.com/linebender/vello/pull/1604> and the issues linked from it.
-//!
-//! Struct-typed uniform globals (e.g. `Config`) and vertex IO structs are allowed
-//! because their fields are only ever read as scalars/vectors inside the fragment
-//! shader — the struct itself is never materialised in fragment-shader storage.
+//! See [`lint`] for the entry point and the individual `check_*` passes for what
+//! each lint enforces.
 
 use std::collections::{BTreeSet, VecDeque};
 
 use naga::{Block, Expression, Function, Handle, Module, ShaderStage, Statement, Type, TypeInner};
 
-/// Asserts that no struct value is referenced from the fragment entry point of
-/// `wgsl_source`. Panics with a detailed message listing each violation if the rule
-/// is broken. See the module-level documentation for background.
+/// Diagnostic produced by a single lint pass when it finds violations.
+struct LintReport {
+    /// One-line summary of what the lint guards against.
+    summary: &'static str,
+    /// Multi-paragraph context: why the lint exists, how to fix it.
+    explanation: &'static str,
+    /// Specific places in the shader that violate the lint.
+    violations: Vec<String>,
+}
+
+/// Runs every WGSL shader lint over `module` and panics with a single aggregated
+/// message (prefixed by `shader_name`) if any lint reports violations.
+pub(crate) fn lint(shader_name: &str, module: &Module) {
+    let reports: Vec<LintReport> = [check_no_structs_in_fragment_shader(module)]
+        .into_iter()
+        .flatten()
+        .collect();
+
+    if reports.is_empty() {
+        return;
+    }
+
+    let mut message = format!("`{shader_name}.wgsl` failed shader lints:\n");
+    for report in &reports {
+        use std::fmt::Write as _;
+        write!(
+            message,
+            "\n{}\n\n{}\n\nViolations:\n",
+            report.summary, report.explanation,
+        )
+        .unwrap();
+        for violation in &report.violations {
+            message.push_str("  - ");
+            message.push_str(violation);
+            message.push('\n');
+        }
+    }
+    panic!("{message}");
+}
+
+/// Detects user-defined struct values reachable from the `@fragment` entry point.
 ///
-/// Modules without a fragment entry point are accepted silently.
-pub(crate) fn assert_no_structs_in_fragment_shader(shader_name: &str, module: &Module) {
-    let Some(entry_point) = module
+/// A row of older Adreno GPU drivers silently downgrade the numeric precision of
+/// structs in fragment shaders to 16 bits, regardless of the precision the shader
+/// actually requested. The workaround is to flatten all data into scalar or vector
+/// primitives. See <https://github.com/linebender/vello/pull/1604> and the issues
+/// linked from it.
+///
+/// Struct-typed uniform globals (e.g. `Config`) and vertex IO structs are allowed
+/// because their fields are only ever read as scalars/vectors inside the fragment
+/// shader — the struct itself is never materialised in fragment-shader storage.
+///
+/// Returns `None` for modules without a fragment entry point or when the rule is
+/// upheld.
+fn check_no_structs_in_fragment_shader(module: &Module) -> Option<LintReport> {
+    let entry_point = module
         .entry_points
         .iter()
-        .find(|ep| ep.stage == ShaderStage::Fragment)
-    else {
-        return;
-    };
+        .find(|ep| ep.stage == ShaderStage::Fragment)?;
 
     let mut violations = Vec::new();
     check_function(
@@ -63,25 +101,18 @@ pub(crate) fn assert_no_structs_in_fragment_shader(shader_name: &str, module: &M
     }
 
     if violations.is_empty() {
-        return;
+        return None;
     }
 
-    let mut message = format!(
-        "`{shader_name}.wgsl` uses one or more struct values in code reachable from \
-         its fragment entry point.\n\n\
-         A row of Adreno GPU drivers silently downgrades the precision of struct \
-         values in fragment shaders to 16 bits, which corrupts paint encodings and \
-         coordinates. Flatten the data into scalar or vector primitives instead \
-         (e.g. unpack a `vec4<u32>` texel directly with top-level `get_*` helpers).\n\
-         See https://github.com/linebender/vello/pull/1604 for context.\n\n\
-         Violations:\n"
-    );
-    for violation in &violations {
-        message.push_str("  - ");
-        message.push_str(violation);
-        message.push('\n');
-    }
-    panic!("{message}");
+    Some(LintReport {
+        summary: "uses one or more struct values in code reachable from its fragment entry point.",
+        explanation: "A row of Adreno GPU drivers silently downgrades the precision of struct \
+                      values in fragment shaders to 16 bits, which corrupts paint encodings and \
+                      coordinates. Flatten the data into scalar or vector primitives instead \
+                      (e.g. unpack a `vec4<u32>` texel directly with top-level `get_*` helpers).\n\
+                      See https://github.com/linebender/vello/pull/1604 for context.",
+        violations,
+    })
 }
 
 fn check_function(
@@ -130,8 +161,54 @@ fn check_function(
                     type_name(module, *ty),
                 ));
             }
+            Expression::Load { pointer } => {
+                if let Some((kind, name, ty)) = base_variable_load(module, func, *pointer)
+                    && is_struct(module, ty)
+                {
+                    violations.push(format!(
+                        "{function_label}: load of {kind} `{name}` of struct type `{}`",
+                        type_name(module, ty),
+                    ));
+                }
+            }
             _ => {}
         }
+    }
+}
+
+/// If `pointer` is a direct load of a `GlobalVariable` or `LocalVariable` (with no
+/// `Access` / `AccessIndex` reducing it to a field), returns the variable's kind,
+/// name, and type. Otherwise returns `None` — partial loads like `config.width`
+/// correctly fall through.
+fn base_variable_load(
+    module: &Module,
+    func: &Function,
+    pointer: Handle<Expression>,
+) -> Option<(&'static str, String, Handle<Type>)> {
+    match func.expressions[pointer] {
+        Expression::GlobalVariable(handle) => {
+            let global = &module.global_variables[handle];
+            Some((
+                "global variable",
+                global
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| "<unnamed>".to_string()),
+                global.ty,
+            ))
+        }
+        Expression::LocalVariable(handle) => {
+            let local = &func.local_variables[handle];
+            Some((
+                "local variable",
+                local
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| "<unnamed>".to_string()),
+                local.ty,
+            ))
+        }
+        _ => None,
     }
 }
 
@@ -252,42 +329,63 @@ fn fs_main() -> @location(0) vec4<f32> {
 }
 "#;
 
+    // Loading a whole uniform struct into a `let` materialises the struct value
+    // in fragment-shader storage and triggers the same Adreno precision bug as
+    // declaring a struct local does.
+    const SHADER_LOADS_UNIFORM_STRUCT: &str = r#"
+struct Config { width: u32, height: u32 }
+
+@group(0) @binding(0) var<uniform> config: Config;
+
+@vertex
+fn vs_main() -> @builtin(position) vec4<f32> {
+    return vec4<f32>(0.0);
+}
+
+@fragment
+fn fs_main() -> @location(0) vec4<f32> {
+    let copied = config;
+    return vec4<f32>(f32(copied.width), f32(copied.height), 0.0, 1.0);
+}
+"#;
+
     fn parse(source: &str) -> Module {
         wgsl::parse_str(source).expect("WGSL parses")
     }
 
     #[test]
     fn accepts_fragment_shader_without_struct_values() {
-        assert_no_structs_in_fragment_shader("ok_shader", &parse(SHADER_WITHOUT_STRUCTS));
+        lint("ok_shader", &parse(SHADER_WITHOUT_STRUCTS));
     }
 
     #[test]
     #[should_panic(expected = "uses one or more struct values")]
     fn rejects_struct_local_variable_in_fragment_shader() {
-        assert_no_structs_in_fragment_shader("with_struct_local", &parse(SHADER_WITH_STRUCT_LOCAL));
+        lint("with_struct_local", &parse(SHADER_WITH_STRUCT_LOCAL));
     }
 
     #[test]
     #[should_panic(expected = "uses one or more struct values")]
     fn rejects_helper_function_returning_struct() {
-        assert_no_structs_in_fragment_shader(
-            "with_struct_helper",
-            &parse(SHADER_WITH_STRUCT_HELPER),
-        );
+        lint("with_struct_helper", &parse(SHADER_WITH_STRUCT_HELPER));
     }
 
     // The same Adreno bug also fires when the fragment entry point takes a struct as
     // its input parameter (every field of `in` gets silently downgraded to 16-bit).
-    // The flattening of `fs_main(in: FilterVertexOutput)` into individual `@location`
-    // parameters in commit 07ef807b was the workaround; this test pins down that
-    // shape so it cannot regress.
     #[test]
     #[should_panic(expected = "argument #0 (`in`) has struct type `VertexOutput`")]
     fn rejects_struct_as_fragment_entry_point_input() {
-        assert_no_structs_in_fragment_shader(
+        lint(
             "with_struct_fragment_input",
             &parse(SHADER_WITH_STRUCT_FRAGMENT_INPUT),
         );
+    }
+
+    // Whole-struct load of a uniform global into a `let`.
+    #[test]
+    #[should_panic(expected = "load of global variable `config` of struct type `Config`")]
+    fn rejects_whole_uniform_struct_load_in_fragment_shader() {
+        lint("loads_uniform_struct", &parse(SHADER_LOADS_UNIFORM_STRUCT));
     }
 
     #[test]
@@ -301,7 +399,7 @@ fn fs_main() -> @location(0) vec4<f32> {
             "expected at least one shader in {shader_dir:?}"
         );
         for shader in shaders {
-            assert_no_structs_in_fragment_shader(&shader.name, &parse(&shader.wgsl_source));
+            lint(&shader.name, &parse(&shader.wgsl_source));
         }
     }
 }

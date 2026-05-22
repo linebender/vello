@@ -8,7 +8,7 @@ use naga::{
     valid::{Capabilities, ValidationFlags, Validator},
 };
 
-use crate::lint::assert_no_structs_in_fragment_shader;
+use crate::lint::lint;
 use crate::types::{CompiledGlsl, ReflectionMap, Stage};
 
 #[allow(
@@ -16,9 +16,6 @@ use crate::types::{CompiledGlsl, ReflectionMap, Stage};
     reason = "False positive as compile_wgsl_shader is used at build time."
 )]
 /// Compiles the given wgsl source into GLSL using [naga].
-///
-/// `shader_name` is only used to make diagnostics more actionable when the
-/// [`assert_no_structs_in_fragment_shader`] lint fires.
 pub(crate) fn compile_wgsl_shader(
     source: &str,
     shader_name: &str,
@@ -27,10 +24,7 @@ pub(crate) fn compile_wgsl_shader(
 ) -> CompiledGlsl {
     let module = wgsl::parse_str(source).unwrap();
 
-    // Guard against accidentally reintroducing struct values in fragment shaders. Some
-    // Adreno GPU drivers downgrade these to 16-bit precision; see
-    // https://github.com/linebender/vello/pull/1604.
-    assert_no_structs_in_fragment_shader(shader_name, &module);
+    lint(shader_name, &module);
 
     let info = Validator::new(ValidationFlags::all(), Capabilities::default())
         .subgroup_stages(naga::valid::ShaderStages::all())
