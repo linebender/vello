@@ -4,6 +4,8 @@
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 use std::collections::HashMap;
 use std::sync::Arc;
+#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
+use std::sync::LazyLock;
 
 use glifo::GlyphRunBackend;
 use vello_common::filter_effects::Filter;
@@ -285,11 +287,41 @@ impl Renderer for CpuRenderer {
 }
 
 #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
+struct WgpuContext {
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+}
+
+#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
+static WGPU_CONTEXT: LazyLock<WgpuContext> = LazyLock::new(|| {
+    let instance = wgpu::Instance::default();
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::default(),
+        force_fallback_adapter: false,
+        compatible_surface: None,
+    }))
+    .expect("Failed to find an appropriate adapter");
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("Device"),
+        required_features: wgpu::Features::empty(),
+        ..Default::default()
+    }))
+    .expect("Failed to create device");
+
+    WgpuContext { device, queue }
+});
+
+#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
+fn wgpu_context() -> &'static WgpuContext {
+    &WGPU_CONTEXT
+}
+
+#[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
 pub(crate) struct HybridRenderer {
     scene: Scene,
     resources: HybridResources,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+    device: &'static wgpu::Device,
+    queue: &'static wgpu::Queue,
     texture: wgpu::Texture,
     texture_view: wgpu::TextureView,
     renderer: vello_hybrid::Renderer,
@@ -305,20 +337,9 @@ pub(crate) struct HybridRenderer {
 impl HybridRenderer {
     fn new_with_settings(width: u16, height: u16, settings: HybridRenderSettings) -> Self {
         let scene = Scene::new_with(width, height, settings);
-        // Initialize wgpu device and queue for GPU rendering
-        let instance = wgpu::Instance::default();
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::default(),
-            force_fallback_adapter: false,
-            compatible_surface: None,
-        }))
-        .expect("Failed to find an appropriate adapter");
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("Device"),
-            required_features: wgpu::Features::empty(),
-            ..Default::default()
-        }))
-        .expect("Failed to create device");
+        let context = wgpu_context();
+        let device = &context.device;
+        let queue = &context.queue;
 
         // Create a render target texture
         let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -340,7 +361,7 @@ impl HybridRenderer {
 
         // Create renderer and render the scene to the texture
         let renderer = vello_hybrid::Renderer::new(
-            &device,
+            device,
             &vello_hybrid::RenderTargetConfig {
                 format: texture.format(),
                 width: width.into(),
@@ -371,8 +392,8 @@ impl HybridRenderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(label) });
         let image_id = self.renderer.upload_image(
             &mut self.resources,
-            &self.device,
-            &self.queue,
+            self.device,
+            self.queue,
             &mut encoder,
             pixmap,
         );
@@ -528,19 +549,12 @@ impl Renderer for HybridRenderer {
         self.scene.reset();
     }
 
-    // This method creates device resources every time it is called. This does not matter much for
-    // testing, but should not be used as a basis for implementing something real. This would be a
-    // very bad example for that.
+    // This method creates temporary GPU resources every time it is called. This does not matter
+    // much for testing, but should not be used as a basis for implementing something real.
     fn render_to_pixmap(&mut self, pixmap: &mut Pixmap) {
         // On some platforms using `cargo test` triggers segmentation faults in wgpu when the GPU
         // tests are run in parallel (likely related to the number of device resources being
-        // requested simultaneously). This is "fixed" by putting a mutex around this method,
-        // ensuring only one set of device resources is alive at the same time. This slows down
-        // testing when `cargo test` is used.
-        //
-        // Testing with `cargo nextest` (as on CI) is not meaningfully slowed down. `nextest` runs
-        // each test in its own process (<https://nexte.st/docs/design/why-process-per-test/>),
-        // meaning there is no contention on this mutex.
+        // requested simultaneously). This is "fixed" by putting a mutex around this method.
         let _guard = {
             use std::sync::Mutex;
             static M: Mutex<()> = Mutex::new(());
@@ -569,8 +583,8 @@ impl Renderer for HybridRenderer {
             .render(
                 &self.scene,
                 &mut self.resources,
-                &self.device,
-                &self.queue,
+                self.device,
+                self.queue,
                 &mut encoder,
                 &render_size,
                 &self.texture_view,
