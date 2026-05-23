@@ -16,7 +16,7 @@ use std::time::Instant;
 use vello_common::kurbo::{Affine, Point};
 use vello_common::paint::ImageSource;
 use vello_common::pixmap::Pixmap;
-use vello_cpu::{RenderContext, RenderSettings};
+use vello_cpu::{RasterizerSettings, RenderContext, RenderSettings};
 use vello_example_scenes::image::ImageScene;
 use vello_example_scenes::{AnyScene, Capabilities, get_example_scenes};
 use winit::{
@@ -457,9 +457,10 @@ impl ApplicationHandler for App {
 
                 self.scenes[self.current_scene].render(&mut self.renderer, self.transform);
                 self.renderer.flush();
-                self.renderer.render_to_pixmap(
-                    self.scenes[self.current_scene].resources_mut(),
+                self.renderer.render(
                     &mut self.pixmap,
+                    self.scenes[self.current_scene].resources_mut(),
+                    RasterizerSettings::default(),
                 );
 
                 // Copy pixmap to window surface

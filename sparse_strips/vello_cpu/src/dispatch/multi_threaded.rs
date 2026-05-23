@@ -1,7 +1,6 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::RenderMode;
 use crate::dispatch::Dispatcher;
 use crate::dispatch::multi_threaded::cost::{COST_THRESHOLD, estimate_render_task_cost};
 use crate::dispatch::multi_threaded::worker::Worker;
@@ -9,6 +8,7 @@ use crate::fine::{Fine, FineKernel};
 use crate::kurbo::{Affine, BezPath, PathEl, Point, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::region::Regions;
+use crate::{CompositeMode, RasterizerSettings};
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec;
@@ -29,6 +29,7 @@ use vello_common::filter_effects::Filter;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
+use vello_common::pixmap::PixmapMut;
 use vello_common::render_graph::RenderGraph;
 use vello_common::strip::Strip;
 use vello_common::strip_generator::StripGenerator;
@@ -163,27 +164,29 @@ impl MultiThreadedDispatcher {
     #[cfg(feature = "f32_pipeline")]
     fn rasterize_f32(
         &self,
-        buffer: &mut [u8],
-        width: u16,
-        height: u16,
+        target: PixmapMut<'_>,
+        scene_width: u16,
+        scene_height: u16,
+        settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
         use crate::fine::F32Kernel;
-        dispatch!(self.level, simd => self.rasterize_with::<_, F32Kernel>(simd, buffer, width, height, encoded_paints, image_resolver));
+        dispatch!(self.level, simd => self.rasterize_with::<_, F32Kernel>(simd, target, scene_width, scene_height, settings, encoded_paints, image_resolver));
     }
 
     #[cfg(feature = "u8_pipeline")]
     fn rasterize_u8(
         &self,
-        buffer: &mut [u8],
-        width: u16,
-        height: u16,
+        target: PixmapMut<'_>,
+        scene_width: u16,
+        scene_height: u16,
+        settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
         use crate::fine::U8Kernel;
-        dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, buffer, width, height, encoded_paints, image_resolver));
+        dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, target, scene_width, scene_height, settings, encoded_paints, image_resolver));
     }
 
     fn init(&mut self) {
@@ -363,13 +366,21 @@ impl MultiThreadedDispatcher {
     fn rasterize_with<S: Simd, F: FineKernel<S>>(
         &self,
         simd: S,
-        buffer: &mut [u8],
-        width: u16,
-        height: u16,
+        mut target: PixmapMut<'_>,
+        scene_width: u16,
+        scene_height: u16,
+        settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
-        let mut buffer = Regions::new(width, height, buffer);
+        let target_width = target.width();
+        let target_height = target.height();
+        let mut buffer = Regions::new_at_offset(
+            (scene_width, scene_height),
+            settings.offset,
+            (target_width, target_height),
+            target.data_mut(),
+        );
         let fines = ThreadLocal::new();
         let wide = &self.wide;
         let alpha_slots = self.alpha_storage.take();
@@ -386,7 +397,12 @@ impl MultiThreadedDispatcher {
                 let wtile = wide.get(x, y);
                 fine.set_coords(x, y);
 
-                fine.clear(wtile.bg);
+                if settings.composite_mode == CompositeMode::Replace || wtile.bg.is_opaque() {
+                    fine.clear(wtile.bg);
+                } else {
+                    // See the comment in the single-threaded dispatcher.
+                    fine.unpack(region);
+                }
                 for cmd in &wtile.cmds {
                     let thread_idx = match cmd {
                         Cmd::AlphaFill(a) => Some(wide.attrs.fill[a.attrs_idx as usize].thread_idx),
@@ -584,10 +600,10 @@ impl Dispatcher for MultiThreadedDispatcher {
 
     fn rasterize(
         &self,
-        buffer: &mut [u8],
-        render_mode: RenderMode,
-        width: u16,
-        height: u16,
+        target: PixmapMut<'_>,
+        scene_width: u16,
+        scene_height: u16,
+        settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
@@ -596,43 +612,52 @@ impl Dispatcher for MultiThreadedDispatcher {
         // Only u8 pipeline enabled
         #[cfg(all(feature = "u8_pipeline", not(feature = "f32_pipeline")))]
         {
-            let _ = render_mode;
-            self.rasterize_u8(buffer, width, height, encoded_paints, image_resolver);
+            self.rasterize_u8(
+                target,
+                scene_width,
+                scene_height,
+                settings,
+                encoded_paints,
+                image_resolver,
+            );
         }
         // Only f32 pipeline enabled
         #[cfg(all(feature = "f32_pipeline", not(feature = "u8_pipeline")))]
         {
-            let _ = render_mode;
-            self.rasterize_f32(buffer, width, height, encoded_paints, image_resolver);
+            self.rasterize_f32(
+                target,
+                scene_width,
+                scene_height,
+                settings,
+                encoded_paints,
+                image_resolver,
+            );
         }
 
         // Both pipelines enabled
         #[cfg(all(feature = "f32_pipeline", feature = "u8_pipeline"))]
-        match render_mode {
-            RenderMode::OptimizeSpeed => {
-                self.rasterize_u8(buffer, width, height, encoded_paints, image_resolver);
+        match settings.quality {
+            crate::RenderMode::OptimizeSpeed => {
+                self.rasterize_u8(
+                    target,
+                    scene_width,
+                    scene_height,
+                    settings,
+                    encoded_paints,
+                    image_resolver,
+                );
             }
-            RenderMode::OptimizeQuality => {
-                self.rasterize_f32(buffer, width, height, encoded_paints, image_resolver);
+            crate::RenderMode::OptimizeQuality => {
+                self.rasterize_f32(
+                    target,
+                    scene_width,
+                    scene_height,
+                    settings,
+                    encoded_paints,
+                    image_resolver,
+                );
             }
         }
-    }
-
-    fn composite_at_offset(
-        &self,
-        _buffer: &mut [u8],
-        _width: u16,
-        _height: u16,
-        _dst_x: u16,
-        _dst_y: u16,
-        _dst_buffer_width: u16,
-        _dst_buffer_height: u16,
-        _render_mode: RenderMode,
-        _encoded_paints: &[EncodedPaint],
-        _image_resolver: &dyn ImageResolver,
-    ) {
-        // TODO: Implement composite_at_offset for multi-threaded dispatcher.
-        unimplemented!("composite_at_offset is not implemented for multi-threaded dispatcher");
     }
 
     fn push_clip_path(

@@ -19,7 +19,7 @@ use vello_common::{
     pixmap::Pixmap,
     probe::{self, ProbeRenderer},
 };
-use vello_cpu::{Level, RenderContext, RenderMode, RenderSettings, Resources};
+use vello_cpu::{Level, RasterizerSettings, RenderContext, RenderMode, RenderSettings, Resources};
 
 static PROBE_PNG_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_common/assets/probe.png")
@@ -78,7 +78,6 @@ fn render_probe_pixmap() -> Pixmap {
     let settings = RenderSettings {
         level: Level::fallback(),
         num_threads: 0,
-        render_mode: RenderMode::OptimizeQuality,
     };
     let mut ctx = RenderContext::new_with(width, height, settings);
 
@@ -90,7 +89,14 @@ fn render_probe_pixmap() -> Pixmap {
 
     let mut resources = Resources::new();
     let mut pixmap = Pixmap::new(width, height);
-    ctx.render_to_pixmap(&mut resources, &mut pixmap);
+    ctx.render(
+        &mut pixmap,
+        &mut resources,
+        RasterizerSettings {
+            quality: RenderMode::OptimizeQuality,
+            ..Default::default()
+        },
+    );
     pixmap
 }
 
