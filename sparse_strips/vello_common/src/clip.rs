@@ -4,7 +4,7 @@
 //! Managing clipping state.
 
 use crate::geometry::RectU16;
-use crate::kurbo::{Affine, BezPath, PathEl, Rect};
+use crate::kurbo::{Affine, BezPath};
 use crate::strip::Strip;
 use crate::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use crate::tile::Tile;
@@ -14,8 +14,7 @@ use alloc::vec::Vec;
 use fearless_simd::{Level, Simd, SimdBase, dispatch, u8x16};
 use peniko::Fill;
 
-#[cfg(not(feature = "std"))]
-use peniko::kurbo::common::FloatFuncs as _;
+use crate::util;
 
 #[derive(Debug)]
 struct ClipData {
@@ -110,13 +109,7 @@ impl ClipContext {
         // flattening. If we ever take an iterator instead, or want to prevent iterating twice, we
         // could move this calculation into flattening (perhaps with a const-generic as to not
         // pessimize calls that don't require the bbox).
-        let path_bbox = control_point_bbox(clip_path, transform);
-        let mut bbox = RectU16::new(
-            path_bbox.x0 as u16,
-            path_bbox.y0 as u16,
-            path_bbox.x1.ceil() as u16,
-            path_bbox.y1.ceil() as u16,
-        );
+        let mut bbox = util::control_point_bbox_u16(clip_path, transform);
 
         // Intersect with the existing clip bounding box, or the viewport if this is the outermost
         // clip.
@@ -158,39 +151,6 @@ impl ClipContext {
         self.storage.strips.truncate(data.strip_start as usize);
         self.storage.alphas.truncate(data.alpha_start as usize);
     }
-}
-
-/// Compute a conservative bounding box for the transformed path by computing the bounding box of
-/// the transformed control points.
-///
-/// If `path` is empty, this returns an infinite, inversed [`Rect`] (`left` > `right` and `top` > `bottom`).
-fn control_point_bbox(path: &BezPath, transform: Affine) -> Rect {
-    // Start with an infinite, inversed rectangle. Adding the first point immediately collapses it
-    // without branching.
-    let mut bbox = Rect::new(
-        f64::INFINITY,
-        f64::INFINITY,
-        f64::NEG_INFINITY,
-        f64::NEG_INFINITY,
-    );
-    for el in path.iter() {
-        match el {
-            PathEl::MoveTo(p) | PathEl::LineTo(p) => {
-                bbox = bbox.union_pt(transform * p);
-            }
-            PathEl::QuadTo(p1, p2) => {
-                bbox = bbox.union_pt(transform * p1);
-                bbox = bbox.union_pt(transform * p2);
-            }
-            PathEl::CurveTo(p1, p2, p3) => {
-                bbox = bbox.union_pt(transform * p1);
-                bbox = bbox.union_pt(transform * p2);
-                bbox = bbox.union_pt(transform * p3);
-            }
-            PathEl::ClosePath => {}
-        }
-    }
-    bbox
 }
 
 /// Borrowed data of a stripped path.

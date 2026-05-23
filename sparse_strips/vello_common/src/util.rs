@@ -3,13 +3,18 @@
 
 //! Utility functions.
 
+use crate::geometry::RectU16;
+use crate::kurbo::{BezPath, PathEl};
 use crate::math::FloatExt;
+use crate::tile::Tile;
+use alloc::vec::Vec;
+use core::ops::{Index, IndexMut};
 use fearless_simd::{
     Bytes, Simd, SimdBase, SimdFloat, f32x16, u8x16, u8x32, u16x16, u16x32, u32x16,
 };
-use peniko::kurbo::Affine;
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
+use peniko::kurbo::{Affine, Rect};
 
 /// Convert f32x16 to u8x16.
 ///
@@ -123,4 +128,212 @@ pub fn extract_scales(transform: &Affine) -> (f32, f32) {
     let scale_y = (0.5 * (s1 - s2)).sqrt();
 
     (scale_x.max(1e-6), scale_y.max(1e-6))
+}
+
+/// Extension methods for rectangles.
+pub trait RectExt {
+    /// Snap the rect to whole tile coordinates.
+    fn snap_to_tile_coordinates(self) -> Self;
+}
+
+impl RectExt for Rect {
+    #[inline]
+    fn snap_to_tile_coordinates(self) -> Self {
+        Self::new(
+            snap_down(self.x0, Tile::WIDTH),
+            snap_down(self.y0, Tile::HEIGHT),
+            snap_up(self.x1, Tile::WIDTH),
+            snap_up(self.y1, Tile::HEIGHT),
+        )
+    }
+}
+
+impl RectExt for RectU16 {
+    #[inline]
+    fn snap_to_tile_coordinates(self) -> Self {
+        Self::new(
+            (self.x0 / Tile::WIDTH) * Tile::WIDTH,
+            (self.y0 / Tile::HEIGHT) * Tile::HEIGHT,
+            self.x1
+                .checked_next_multiple_of(Tile::WIDTH)
+                .unwrap_or(u16::MAX),
+            self.y1
+                .checked_next_multiple_of(Tile::HEIGHT)
+                .unwrap_or(u16::MAX),
+        )
+    }
+}
+
+#[inline]
+fn snap_down(value: f64, step: u16) -> f64 {
+    let step = f64::from(step);
+    (value / step).floor() * step
+}
+
+#[inline]
+fn snap_up(value: f64, step: u16) -> f64 {
+    let step = f64::from(step);
+    (value / step).ceil() * step
+}
+
+/// A type that can be cleared.
+pub trait Clear {
+    /// Clear the object to its default state.
+    fn clear(&mut self);
+}
+
+/// A resizable vector that retains inner elements upon resizing.
+#[derive(Debug)]
+pub struct RetainVec<T> {
+    inner: Vec<T>,
+    len: usize,
+}
+
+impl<T: Clear> RetainVec<T> {
+    /// Create an empty `RetainVec`.
+    pub fn new() -> Self {
+        Self {
+            inner: Vec::new(),
+            len: 0,
+        }
+    }
+
+    /// Create a `RetainVec` with `len` initialized entries.
+    pub fn with_len(len: usize, mut init: impl FnMut() -> T) -> Self {
+        let mut inner = Vec::with_capacity(len);
+        inner.resize_with(len, &mut init);
+        Self { inner, len }
+    }
+
+    /// Return the length.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Return `true` if the vector is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Return the entries as a slice.
+    pub fn as_slice(&self) -> &[T] {
+        &self.inner[..self.len]
+    }
+
+    /// Return the entries as a mutable slice.
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        &mut self.inner[..self.len]
+    }
+
+    /// Iterate mutably over active entries.
+    pub fn iter_mut(&mut self) -> core::slice::IterMut<'_, T> {
+        self.as_mut_slice().iter_mut()
+    }
+
+    /// Clear the elements in this vector.
+    pub fn clear(&mut self) {
+        self.len = 0;
+    }
+
+    /// Resize the vector.
+    pub fn resize_with(&mut self, new_len: usize, mut init: impl FnMut() -> T) {
+        let old_len = self.len;
+        if new_len > self.inner.len() {
+            self.inner.resize_with(new_len, &mut init);
+        }
+        self.len = new_len;
+
+        // Make sure to actually reset the newly added values since they are not reset when shrinking
+        // the vector.
+        if new_len > old_len {
+            for item in &mut self.inner[old_len..new_len] {
+                item.clear();
+            }
+        }
+    }
+}
+
+impl<T: Clear> Default for RetainVec<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T> Index<usize> for RetainVec<T> {
+    type Output = T;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.inner[..self.len][index]
+    }
+}
+
+impl<T> IndexMut<usize> for RetainVec<T> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.inner[..self.len][index]
+    }
+}
+
+/// Compute a conservative bounding box for the transformed path by computing the bounding box of
+/// the transformed control points.
+///
+/// If `path` is empty, this returns an infinite, inversed [`Rect`] (`left` > `right` and `top` > `bottom`).
+pub fn control_point_bbox(path: &BezPath, transform: Affine) -> Rect {
+    // Start with an infinite, inversed rectangle. Adding the first point immediately collapses it
+    // without branching.
+    let mut bbox = Rect::new(
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NEG_INFINITY,
+    );
+    for el in path.iter() {
+        match el {
+            PathEl::MoveTo(p) | PathEl::LineTo(p) => {
+                bbox = bbox.union_pt(transform * p);
+            }
+            PathEl::QuadTo(p1, p2) => {
+                bbox = bbox.union_pt(transform * p1);
+                bbox = bbox.union_pt(transform * p2);
+            }
+            PathEl::CurveTo(p1, p2, p3) => {
+                bbox = bbox.union_pt(transform * p1);
+                bbox = bbox.union_pt(transform * p2);
+                bbox = bbox.union_pt(transform * p3);
+            }
+            PathEl::ClosePath => {}
+        }
+    }
+    bbox
+}
+
+/// Compute a conservative bounding box for the transformed path in pixel coordinates.
+///
+/// If `path` is empty, this returns an inverted [`RectU16`].
+pub fn control_point_bbox_u16(path: &BezPath, transform: Affine) -> RectU16 {
+    let bbox = control_point_bbox(path, transform);
+    RectU16::new(
+        bbox.x0 as u16,
+        bbox.y0 as u16,
+        bbox.x1.ceil() as u16,
+        bbox.y1.ceil() as u16,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RectExt;
+    use super::RectU16;
+    use peniko::kurbo::Rect;
+
+    #[test]
+    fn snap_to_tile_coordinates_rounds_outward() {
+        let rect = Rect::new(-4.1, -0.1, 4.1, 8.0).snap_to_tile_coordinates();
+        assert_eq!(rect, Rect::new(-8.0, -4.0, 8.0, 8.0));
+    }
+
+    #[test]
+    fn snap_u16_to_tile_coordinates_rounds_outward() {
+        let rect = RectU16::new(5, 3, 9, 7).snap_to_tile_coordinates();
+        assert_eq!(rect, RectU16::new(4, 0, 12, 8));
+    }
 }

@@ -195,7 +195,7 @@ fn base<S: Simd, T: FineKernel<S>>(
     blend_mode: BlendMode,
 ) {
     let paint = Paint::Solid(PremulColor::from_alpha_color(ROYAL_BLUE));
-    let width = WideTile::WIDTH as usize;
+    let width = WideTile::WIDTH;
 
     fill_single(&paint, &[], width, b, blend_mode, fine);
 }

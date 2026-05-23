@@ -8,7 +8,7 @@ use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::Simd;
 use vello_common::paint::{NoOpImageResolver, Paint, PremulColor};
 use vello_common::peniko::BlendMode;
-use vello_cpu::fine::{Fine, FineKernel};
+use vello_cpu::fine::{Fine, FineKernel, FineResources, Span};
 use vello_dev_macros::vello_bench;
 
 pub fn fill(c: &mut Criterion) {
@@ -53,19 +53,22 @@ pub fn transparent_long<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &m
 pub(crate) fn fill_single<S: Simd, N: FineKernel<S>>(
     paint: &Paint,
     encoded_paints: &[EncodedPaint],
-    width: usize,
+    width: u16,
     b: &mut Bencher<'_>,
     blend_mode: BlendMode,
     fine: &mut Fine<S, N>,
 ) {
     b.iter(|| {
         fine.fill(
-            0,
-            width,
+            Span::new(0, width),
             paint,
             blend_mode,
-            encoded_paints,
-            &NoOpImageResolver,
+            FineResources {
+                alpha_buffers: &[],
+                encoded_paints,
+                filter_paints: &[],
+                image_resolver: &NoOpImageResolver,
+            },
             None,
             None,
         );

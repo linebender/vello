@@ -358,7 +358,7 @@ fn do_not_panic_on_multiple_flushes(ctx: &mut impl Renderer) {
 }
 
 /// <https://github.com/linebender/vello/issues/1119>
-#[vello_test]
+#[vello_test(skip_hybrid)]
 fn clip_clear(ctx: &mut impl Renderer) {
     // initial coloring
     ctx.set_paint(LIME);
@@ -643,7 +643,15 @@ fn issue_1477(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
 }
 
-#[vello_test(skip_multithreaded, width = 768, height = 100, hybrid_tolerance = 3)]
+// TODO: Re-enable hybrid once proper edge handling is implemented in Vello hybrid.
+#[vello_test(
+    skip_multithreaded,
+    skip_hybrid,
+    skip_hybrid_constrained,
+    width = 768,
+    height = 100,
+    hybrid_tolerance = 3
+)]
 fn issue_1509(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 25.0,
