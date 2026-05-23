@@ -616,7 +616,12 @@ impl Renderer {
         if let Some(error) = error {
             return Err(error.into());
         }
+        engine.image_overrides = std::mem::take(&mut self.engine.image_overrides);
         self.engine = engine;
+        // The new engine has no GPU resources, including the persistent image atlas.
+        // Start a fresh resolver so the next image frame uploads resident images into
+        // the new atlas instead of treating them as clean cache hits.
+        self.resolver = Resolver::new();
         self.image_atlas = None;
         self.shaders = shaders;
         #[cfg(feature = "debug_layers")]
