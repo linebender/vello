@@ -1,13 +1,13 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::RenderMode;
 use crate::dispatch::Dispatcher;
 use crate::fine::{Fine, FineKernel};
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::layer_manager::LayerManager;
 use crate::peniko::{BlendMode, Fill};
 use crate::region::Regions;
+use crate::{CompositeMode, RasterizerSettings};
 use vello_common::clip::ClipContext;
 use vello_common::coarse::{Cmd, LayerKind, MODE_CPU, Wide, WideTilesBbox};
 use vello_common::color::palette::css::TRANSPARENT;
@@ -16,7 +16,7 @@ use vello_common::fearless_simd::{Level, Simd};
 use vello_common::filter_effects::Filter;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint, PremulColor};
-use vello_common::pixmap::Pixmap;
+use vello_common::pixmap::{Pixmap, PixmapMut};
 use vello_common::render_graph::{RenderGraph, RenderNodeKind};
 use vello_common::strip_generator::{StripGenerator, StripStorage};
 
@@ -89,15 +89,16 @@ impl SingleThreadedDispatcher {
     #[cfg(feature = "f32_pipeline")]
     fn rasterize_f32(
         &self,
-        buffer: &mut [u8],
-        width: u16,
-        height: u16,
+        target: PixmapMut<'_>,
+        scene_width: u16,
+        scene_height: u16,
+        settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
         use crate::fine::F32Kernel;
         use vello_common::fearless_simd::dispatch;
-        dispatch!(self.level, simd => self.rasterize_with::<_, F32Kernel>(simd, buffer, width, height, encoded_paints, image_resolver));
+        dispatch!(self.level, simd => self.rasterize_with::<_, F32Kernel>(simd, target, scene_width, scene_height, settings, encoded_paints, image_resolver));
     }
 
     /// Rasterizes the scene using u8 precision (fast).
@@ -107,15 +108,16 @@ impl SingleThreadedDispatcher {
     #[cfg(feature = "u8_pipeline")]
     fn rasterize_u8(
         &self,
-        buffer: &mut [u8],
-        width: u16,
-        height: u16,
+        target: PixmapMut<'_>,
+        scene_width: u16,
+        scene_height: u16,
+        settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
         use crate::fine::U8Kernel;
         use vello_common::fearless_simd::dispatch;
-        dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, buffer, width, height, encoded_paints, image_resolver));
+        dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, target, scene_width, scene_height, settings, encoded_paints, image_resolver));
     }
 
     // Note: We purposefully don't add `vectorize` to each of the functions
@@ -133,9 +135,10 @@ impl SingleThreadedDispatcher {
     fn rasterize_with<S: Simd, F: FineKernel<S>>(
         &self,
         simd: S,
-        buffer: &mut [u8],
-        width: u16,
-        height: u16,
+        target: PixmapMut<'_>,
+        scene_width: u16,
+        scene_height: u16,
+        settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
@@ -145,9 +148,10 @@ impl SingleThreadedDispatcher {
             // Use filter-aware path that maintains layer buffers for filter effects.
             self.rasterize_with_filters::<S, F>(
                 simd,
-                buffer,
-                width,
-                height,
+                target,
+                scene_width,
+                scene_height,
+                settings,
                 encoded_paints,
                 image_resolver,
                 &mut layer_manager,
@@ -156,9 +160,10 @@ impl SingleThreadedDispatcher {
             // Use simple direct rasterization for scenes without filters.
             self.rasterize_simple::<S, F>(
                 simd,
-                buffer,
-                width,
-                height,
+                target,
+                scene_width,
+                scene_height,
+                settings,
                 encoded_paints,
                 image_resolver,
             );
@@ -178,9 +183,10 @@ impl SingleThreadedDispatcher {
     fn rasterize_with_filters<S: Simd, F: FineKernel<S>>(
         &self,
         simd: S,
-        buffer: &mut [u8],
-        width: u16,
-        height: u16,
+        mut target: PixmapMut<'_>,
+        scene_width: u16,
+        scene_height: u16,
+        settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
         layer_manager: &mut LayerManager,
@@ -218,7 +224,7 @@ impl SingleThreadedDispatcher {
                             x,
                             y,
                             *layer_id,
-                            PremulColor::from_alpha_color(TRANSPARENT),
+                            Some(PremulColor::from_alpha_color(TRANSPARENT)),
                             layer_manager,
                             encoded_paints,
                             image_resolver,
@@ -248,16 +254,34 @@ impl SingleThreadedDispatcher {
                     wtile_bbox: _,
                 } => {
                     // Final composition directly to output buffer.
-                    let mut regions = Regions::new(width, height, buffer);
+                    let target_width = target.width();
+                    let target_height = target.height();
+                    let mut regions = Regions::new_at_offset(
+                        (scene_width, scene_height),
+                        settings.offset,
+                        (target_width, target_height),
+                        target.data_mut(),
+                    );
                     regions.update_regions(|region| {
                         // Use the background color from the wide tile.
                         let bg = self.wide.get(region.x, region.y).bg;
+                        let clear_color = if settings.composite_mode == CompositeMode::Replace
+                            || bg.is_opaque()
+                        {
+                            Some(bg)
+                        } else {
+                            // See the comment in `rasterize_simple`.
+                            fine.set_coords(region.x, region.y);
+                            fine.unpack(region);
+
+                            None
+                        };
                         self.process_layer_tile(
                             &mut fine,
                             region.x,
                             region.y,
                             *layer_id,
-                            bg,
+                            clear_color,
                             layer_manager,
                             encoded_paints,
                             image_resolver,
@@ -298,14 +322,16 @@ impl SingleThreadedDispatcher {
         x: u16,
         y: u16,
         layer_id: u32,
-        clear_color: PremulColor,
+        clear_color: Option<PremulColor>,
         layer_manager: &mut LayerManager,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
         let wtile = &self.wide.get(x, y);
         fine.set_coords(x, y);
-        fine.clear(clear_color);
+        if let Some(clear_color) = clear_color {
+            fine.clear(clear_color);
+        }
 
         // Process all commands in this layer's render range.
         // It can happen that the layer has no associated ranges in this wide tile in
@@ -396,13 +422,21 @@ impl SingleThreadedDispatcher {
     fn rasterize_simple<S: Simd, F: FineKernel<S>>(
         &self,
         simd: S,
-        buffer: &mut [u8],
-        width: u16,
-        height: u16,
+        mut target: PixmapMut<'_>,
+        scene_width: u16,
+        scene_height: u16,
+        settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
-        let mut regions = Regions::new(width, height, buffer);
+        let target_width = target.width();
+        let target_height = target.height();
+        let mut regions = Regions::new_at_offset(
+            (scene_width, scene_height),
+            settings.offset,
+            (target_width, target_height),
+            target.data_mut(),
+        );
         let mut fine = Fine::<S, F>::new(simd);
 
         regions.update_regions(|region| {
@@ -412,8 +446,15 @@ impl SingleThreadedDispatcher {
             let wtile = self.wide.get(x, y);
             fine.set_coords(x, y);
 
-            // Clear to background and process all commands in order.
-            fine.clear(wtile.bg);
+            if settings.composite_mode == CompositeMode::Replace || wtile.bg.is_opaque() {
+                fine.clear(wtile.bg);
+            } else {
+                // If the background is not opaque, it means that it is _fully_ transparent
+                // (the background mechanism doesn't trigger for partially-transparent paints).
+                // Therefore, we never need any background color and just need to unpack
+                // to implement the src-over semantics.
+                fine.unpack(region);
+            }
             for cmd in &wtile.cmds {
                 fine.run_cmd(
                     cmd,
@@ -431,99 +472,6 @@ impl SingleThreadedDispatcher {
     /// Returns true if the scene contains any filter effects.
     fn has_filters(&self) -> bool {
         self.render_graph.has_filters()
-    }
-
-    /// Composites at an offset using f32 precision (high quality).
-    #[cfg(feature = "f32_pipeline")]
-    fn composite_at_offset_f32(
-        &self,
-        buffer: &mut [u8],
-        width: u16,
-        height: u16,
-        dst_x: u16,
-        dst_y: u16,
-        dst_buffer_width: u16,
-        dst_buffer_height: u16,
-        encoded_paints: &[EncodedPaint],
-        image_resolver: &dyn ImageResolver,
-    ) {
-        use crate::fine::F32Kernel;
-        use vello_common::fearless_simd::dispatch;
-        dispatch!(self.level, simd => self.composite_at_offset_with::<_, F32Kernel>(
-            simd, buffer, width, height, dst_x, dst_y, dst_buffer_width, dst_buffer_height, encoded_paints, image_resolver
-        ));
-    }
-
-    /// Composites at an offset using u8 precision (fast).
-    #[cfg(feature = "u8_pipeline")]
-    fn composite_at_offset_u8(
-        &self,
-        buffer: &mut [u8],
-        width: u16,
-        height: u16,
-        dst_x: u16,
-        dst_y: u16,
-        dst_buffer_width: u16,
-        dst_buffer_height: u16,
-        encoded_paints: &[EncodedPaint],
-        image_resolver: &dyn ImageResolver,
-    ) {
-        use crate::fine::U8Kernel;
-        use vello_common::fearless_simd::dispatch;
-        dispatch!(self.level, simd => self.composite_at_offset_with::<_, U8Kernel>(
-            simd, buffer, width, height, dst_x, dst_y, dst_buffer_width, dst_buffer_height, encoded_paints, image_resolver
-        ));
-    }
-
-    /// Core implementation for compositing at an offset.
-    ///
-    /// Composites tiles sequentially, writing directly to the destination buffer
-    /// at the specified offset.
-    fn composite_at_offset_with<S: Simd, F: FineKernel<S>>(
-        &self,
-        simd: S,
-        buffer: &mut [u8],
-        width: u16,
-        height: u16,
-        dst_x: u16,
-        dst_y: u16,
-        dst_buffer_width: u16,
-        dst_buffer_height: u16,
-        encoded_paints: &[EncodedPaint],
-        image_resolver: &dyn ImageResolver,
-    ) {
-        let mut regions = Regions::new_at_offset(
-            width,
-            height,
-            dst_x,
-            dst_y,
-            dst_buffer_width,
-            dst_buffer_height,
-            buffer,
-        );
-        let mut fine = Fine::<S, F>::new(simd);
-
-        regions.update_regions(|region| {
-            let x = region.x;
-            let y = region.y;
-
-            let wtile = self.wide.get(x, y);
-            fine.set_coords(x, y);
-
-            // Unpack existing pixel data from the region instead of clearing,
-            // so that rendering composites onto the existing pixmap contents.
-            fine.unpack(region);
-            for cmd in &wtile.cmds {
-                fine.run_cmd(
-                    cmd,
-                    &self.strip_storage.alphas,
-                    encoded_paints,
-                    image_resolver,
-                    &self.wide.attrs,
-                );
-            }
-            fine.pack(region);
-        });
     }
 }
 
@@ -703,37 +651,63 @@ impl Dispatcher for SingleThreadedDispatcher {
 
     fn rasterize(
         &self,
-        buffer: &mut [u8],
-        render_mode: RenderMode,
-        width: u16,
-        height: u16,
+        target: PixmapMut<'_>,
+        scene_width: u16,
+        scene_height: u16,
+        settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
-        // If only the u8 pipeline is enabled, then use it
+        // If only the u8 pipeline is enabled, then use it.
         #[cfg(all(feature = "u8_pipeline", not(feature = "f32_pipeline")))]
         {
-            let _ = render_mode;
-            self.rasterize_u8(buffer, width, height, encoded_paints, image_resolver);
+            self.rasterize_u8(
+                target,
+                scene_width,
+                scene_height,
+                settings,
+                encoded_paints,
+                image_resolver,
+            );
         }
 
-        // If only the f32 pipeline is enabled, then use it
+        // If only the f32 pipeline is enabled, then use it.
         #[cfg(all(feature = "f32_pipeline", not(feature = "u8_pipeline")))]
         {
-            let _ = render_mode;
-            self.rasterize_f32(buffer, width, height, encoded_paints, image_resolver);
+            self.rasterize_f32(
+                target,
+                scene_width,
+                scene_height,
+                settings,
+                encoded_paints,
+                image_resolver,
+            );
         }
 
         // If both pipelines are enabled, select precision based on render mode parameter.
         #[cfg(all(feature = "u8_pipeline", feature = "f32_pipeline"))]
-        match render_mode {
-            RenderMode::OptimizeSpeed => {
+        match settings.render_mode {
+            crate::RenderMode::OptimizeSpeed => {
                 // Use u8 precision for faster rendering.
-                self.rasterize_u8(buffer, width, height, encoded_paints, image_resolver);
+                self.rasterize_u8(
+                    target,
+                    scene_width,
+                    scene_height,
+                    settings,
+                    encoded_paints,
+                    image_resolver,
+                );
             }
-            RenderMode::OptimizeQuality => {
+            crate::RenderMode::OptimizeQuality => {
                 // Use f32 precision for higher quality.
-                self.rasterize_f32(buffer, width, height, encoded_paints, image_resolver);
+                self.rasterize_f32(
+                    target,
+                    scene_width,
+                    scene_height,
+                    settings,
+                    encoded_paints,
+                    image_resolver,
+                );
             }
         }
 
@@ -742,102 +716,10 @@ impl Dispatcher for SingleThreadedDispatcher {
             // This case never gets hit because there is a compile_error in the root.
             // But have this code disables some warnings and makes the compile error easier to read
             let _ = (
-                buffer,
-                render_mode,
-                width,
-                height,
-                encoded_paints,
-                image_resolver,
-            );
-        }
-    }
-
-    fn composite_at_offset(
-        &self,
-        buffer: &mut [u8],
-        width: u16,
-        height: u16,
-        dst_x: u16,
-        dst_y: u16,
-        dst_buffer_width: u16,
-        dst_buffer_height: u16,
-        render_mode: RenderMode,
-        encoded_paints: &[EncodedPaint],
-        image_resolver: &dyn ImageResolver,
-    ) {
-        #[cfg(all(feature = "u8_pipeline", not(feature = "f32_pipeline")))]
-        {
-            let _ = render_mode;
-            self.composite_at_offset_u8(
-                buffer,
-                width,
-                height,
-                dst_x,
-                dst_y,
-                dst_buffer_width,
-                dst_buffer_height,
-                encoded_paints,
-                image_resolver,
-            );
-        }
-
-        #[cfg(all(feature = "f32_pipeline", not(feature = "u8_pipeline")))]
-        {
-            let _ = render_mode;
-            self.composite_at_offset_f32(
-                buffer,
-                width,
-                height,
-                dst_x,
-                dst_y,
-                dst_buffer_width,
-                dst_buffer_height,
-                encoded_paints,
-                image_resolver,
-            );
-        }
-
-        #[cfg(all(feature = "u8_pipeline", feature = "f32_pipeline"))]
-        match render_mode {
-            RenderMode::OptimizeSpeed => {
-                self.composite_at_offset_u8(
-                    buffer,
-                    width,
-                    height,
-                    dst_x,
-                    dst_y,
-                    dst_buffer_width,
-                    dst_buffer_height,
-                    encoded_paints,
-                    image_resolver,
-                );
-            }
-            RenderMode::OptimizeQuality => {
-                self.composite_at_offset_f32(
-                    buffer,
-                    width,
-                    height,
-                    dst_x,
-                    dst_y,
-                    dst_buffer_width,
-                    dst_buffer_height,
-                    encoded_paints,
-                    image_resolver,
-                );
-            }
-        }
-
-        #[cfg(all(not(feature = "u8_pipeline"), not(feature = "f32_pipeline")))]
-        {
-            let _ = (
-                buffer,
-                width,
-                height,
-                dst_x,
-                dst_y,
-                dst_buffer_width,
-                dst_buffer_height,
-                render_mode,
+                target,
+                scene_width,
+                scene_height,
+                settings,
                 encoded_paints,
                 image_resolver,
             );

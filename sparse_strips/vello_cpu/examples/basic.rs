@@ -8,7 +8,7 @@
 use vello_cpu::color::palette::css::YELLOW;
 use vello_cpu::kurbo::Affine;
 use vello_cpu::{
-    Level, Pixmap, RenderContext, RenderMode, RenderSettings, Resources,
+    Level, Pixmap, RasterizerSettings, RenderContext, RenderMode, RenderSettings, Resources,
     color::palette::css::{BLUE, GREEN, RED},
     kurbo::{Circle, Rect, Shape},
 };
@@ -52,6 +52,8 @@ fn main() {
         // using 4+ threads might result in diminishing results, depending on
         // the workload.
         num_threads: 0,
+    };
+    let rasterizer_settings = RasterizerSettings {
         // Define whether the renderer should prioritize speed or quality
         // during rendering. Currently, the only difference is that
         // `OptimizeSpeed` will use u8/u16 for the rasterization
@@ -60,6 +62,7 @@ fn main() {
         // worse due to quantization. Unless you really care about that, it is
         // highly recommended to use the `OptimizeSpeed` rendering mode.
         render_mode: RenderMode::OptimizeSpeed,
+        ..Default::default()
     };
 
     // Vello CPU embraces a slightly different paradigm than a lot of other 2D
@@ -126,12 +129,12 @@ fn main() {
 
     // Now the second step is to copy the results of the render context into the
     // pixmap. We do this by creating a new pixmap (or reusing an existing one).
-    // Please note that the pixmap and the render context need to have the same
-    // dimensions! Otherwise, the renderer will panic.
+    // The pixmap and render context can have different dimensions. See the documentation
+    // of the `render` method for more information.
     let mut pixmap_1 = Pixmap::new(100, 100);
     // Now, simply extract the results from the render context into the
     // pixmap.
-    ctx.render_to_pixmap(&mut resources, &mut pixmap_1);
+    ctx.render(&mut pixmap_1, &mut resources, rasterizer_settings);
 
     // Now you can do whatever you want with the pixmap, which provides raw
     // access to the premultiplied RGBA pixels of the image. If you have enabled
@@ -155,11 +158,11 @@ fn main() {
 
     // Once again, we render the results into a pixmap again. If you can,
     // you can just reuse existing pixmaps (assuming they have the correct
-    // dimension), since all previous pixels in the pixmap will be
-    // discarded. In our case, we need to create a new one since our call
-    // to `into_png` consumed the pixmap.
+    // dimension), since all previous pixels in the pixmap will be cleared by
+    // the default replace mode. In our case, we need to create a new one since
+    // our call to `into_png` consumed the pixmap.
     let mut pixmap_2 = Pixmap::new(100, 100);
-    ctx.render_to_pixmap(&mut resources, &mut pixmap_2);
+    ctx.render(&mut pixmap_2, &mut resources, rasterizer_settings);
     let png_2 = pixmap_2.into_png().unwrap();
     std::fs::write("example_basic2.png", png_2).unwrap();
 }

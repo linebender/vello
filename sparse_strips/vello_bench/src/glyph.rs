@@ -9,7 +9,7 @@ use parley::{
     PositionedLayoutItem,
 };
 use vello_common::pixmap::Pixmap;
-use vello_cpu::{Glyph, RenderContext, RenderMode, RenderSettings, Resources};
+use vello_cpu::{Glyph, RasterizerSettings, RenderContext, RenderSettings, Resources};
 
 pub fn glyph(c: &mut Criterion) {
     let mut g = c.benchmark_group("glyph");
@@ -30,10 +30,7 @@ pub fn glyph(c: &mut Criterion) {
         layout
     };
 
-    let settings = RenderSettings {
-        render_mode: RenderMode::OptimizeSpeed,
-        ..Default::default()
-    };
+    let settings = RenderSettings::default();
     let layout = layout_for(TEXT, 1.0);
 
     for (hint_name, hint) in [("hinted", true), ("unhinted", false)] {
@@ -114,9 +111,11 @@ fn render_layout(
         }
     }
 
-    renderer
-        .ctx
-        .render_to_pixmap(&mut renderer.resources, &mut renderer.pixmap);
+    renderer.ctx.render(
+        &mut renderer.pixmap,
+        &mut renderer.resources,
+        RasterizerSettings::default(),
+    );
 }
 
 fn render_glyph_run(

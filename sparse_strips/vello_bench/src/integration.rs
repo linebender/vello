@@ -12,7 +12,7 @@ use vello_common::peniko::ImageSampler;
 use vello_common::peniko::{Extend, ImageQuality};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::color::AlphaColor;
-use vello_cpu::{RenderContext, Resources};
+use vello_cpu::{RasterizerSettings, RenderContext, Resources};
 
 /// Image scene rendering benchmark.
 pub fn images(c: &mut Criterion) {
@@ -57,7 +57,7 @@ pub fn images(c: &mut Criterion) {
             }
 
             renderer.flush();
-            renderer.render_to_pixmap(&mut resources, &mut pixmap);
+            renderer.render(&mut pixmap, &mut resources, RasterizerSettings::default());
             std::hint::black_box(&pixmap);
         });
     });

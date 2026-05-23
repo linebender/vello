@@ -28,7 +28,7 @@ use vello_common::mask::Mask;
 use vello_common::paint::{ImageId, ImageResolver, Paint, PaintType, Tint};
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Fill};
-use vello_common::pixmap::Pixmap;
+use vello_common::pixmap::{Pixmap, PixmapMut};
 use vello_common::render_state::RenderState;
 use vello_common::util::is_axis_aligned;
 
@@ -71,14 +71,73 @@ impl Resources {
         Self::default()
     }
 
-    pub(crate) fn before_render(&mut self) {
+    pub(crate) fn before_render(&mut self, render_mode: RenderMode) {
         #[cfg(feature = "text")]
-        self.prepare_glyph_cache();
+        self.prepare_glyph_cache(render_mode);
+
+        #[cfg(not(feature = "text"))]
+        let _ = render_mode;
     }
 
     pub(crate) fn after_render(&mut self) {
         #[cfg(feature = "text")]
         self.maintain_glyph_cache();
+    }
+}
+
+/// The composition mode that should be used when rendering into a pixmap.
+///
+/// For performance reason it is _highly_ recommended that you use `CompositeMode::Replace`, even
+/// if you know that the pixmap is already cleared. Only use `SrcOver` if you really have to
+/// preserve existing contents.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum CompositeMode {
+    /// Clear the destination pixmap and render the scene into it.
+    #[default]
+    Replace,
+    /// Render the scene into the pixmap using src-over compositing.
+    SrcOver,
+}
+
+/// The pixel format to assume for the destination pixmap.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum PixelFormat {
+    /// Premultiplied RGBA8.
+    #[default]
+    Rgba8,
+}
+
+/// Settings used when rasterizing a scene into a pixmap.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct RasterizerSettings {
+    /// Whether to prioritize speed or quality when rendering.
+    ///
+    /// For most cases (especially for real-time rendering), it is highly recommended to set
+    /// this to [`RenderMode::OptimizeSpeed`]. If color accuracy is a more significant concern,
+    /// then you can set this to [`RenderMode::OptimizeQuality`].
+    ///
+    /// Currently, the only difference this makes is that when choosing [`RenderMode::OptimizeSpeed`],
+    /// rasterization will happen using u8/u16,
+    /// while [`RenderMode::OptimizeQuality`] will use a f32-based pipeline.
+    pub render_mode: RenderMode,
+    /// How rendered content is composited into the destination.
+    pub composite_mode: CompositeMode,
+    /// Pixel format of the destination.
+    pub pixel_format: PixelFormat,
+    /// Offset in destination pixels where the render context origin is placed.
+    ///
+    /// See [`RenderContext::render`] for more information.
+    pub offset: (u16, u16),
+}
+
+impl Default for RasterizerSettings {
+    fn default() -> Self {
+        Self {
+            render_mode: RenderMode::OptimizeSpeed,
+            composite_mode: CompositeMode::Replace,
+            pixel_format: PixelFormat::Rgba8,
+            offset: (0, 0),
+        }
     }
 }
 
@@ -119,15 +178,6 @@ pub struct RenderSettings {
     /// The number of worker threads that should be used for rendering. Only has an effect
     /// if the `multithreading` feature is active.
     pub num_threads: u16,
-    /// Whether to prioritize speed or quality when rendering.
-    ///
-    /// For most cases (especially for real-time rendering), it is highly recommended to set
-    /// this to `OptimizeSpeed`. If accuracy is a more significant concern (for example for visual
-    /// regression testing), then you can set this to `OptimizeQuality`.
-    ///
-    /// Currently, the only difference this makes is that when choosing `OptimizeSpeed`, rasterization
-    /// will happen using u8/u16, while `OptimizeQuality` will use a f32-based pipeline.
-    pub render_mode: RenderMode,
 }
 
 impl Default for RenderSettings {
@@ -142,7 +192,6 @@ impl Default for RenderSettings {
                 .min(8),
             #[cfg(not(feature = "multithreading"))]
             num_threads: 0,
-            render_mode: RenderMode::OptimizeSpeed,
         }
     }
 }
@@ -622,35 +671,66 @@ impl RenderContext {
         self.dispatcher.flush(&self.encoded_paints);
     }
 
-    /// Render the current context into a buffer.
-    /// The buffer is expected to be in premultiplied RGBA8 format with length `width * height * 4`
-    pub fn render_to_buffer(
+    /// Render the current context into a target.
+    ///
+    /// See the documentation of [`RasterizerSettings`] to understand the tunable parameters for
+    /// rasterization.
+    ///
+    /// There is an important note to make about render sizes. [`RenderContext`] can be configured with
+    /// a specific width/height, but so can [`Pixmap`]. In the vast majority of cases, you will simply
+    /// want to configure them both to have the same size. However, it _is_ very much possible for them
+    /// to have different sizes, which can be useful in certain situations. In principle, the size
+    /// that you specify when creating a [`RenderContext`] defines the bound of the scene itself. Any
+    /// content that is to the top/left of (0, 0) and to the right/bottom of (width/height) will be
+    /// removed. However, the offset in [`RasterizerSettings`] as well as the width/height of
+    /// the [`PixmapMut`] define at which location the scene will be rasterized into, and allows
+    /// for further clipping certain parts of the scene away. The semantics are defined as follows:
+    ///
+    /// 1. [`RasterizerSettings::offset`] defines the where the top-left corner will be positioned
+    ///    on the pixmap, assuming a y-down coordinate system. In most cases (0, 0) will be the
+    ///    appropriate choice, but other values are certainly sensible. For example, if you want to
+    ///    implement a custom glyph-atlas, you can construct the scene assuming (0, 0) as the origin
+    ///    and then position the glyphs at rasterization time using this feature.
+    ///
+    /// 2. In case the pixmap width/height is larger than the offset plus the width/height of the
+    ///    [`RenderContext`], any remaining rows/columns are simply treated as padding (**however**,
+    ///    when using [`CompositeMode::Replace`], then the _whole_ destination pixmap will
+    ///    be cleared, not just the area covered by the scene). One potential reason for doing this
+    ///    is that certain platforms, for example macOS, require a specific byte stride for buffers.
+    ///    For example, let's say that a byte stride of 128 is imposed by the platform, but the actual
+    ///    size of the scene you are drawing is only 20x20. In this case, you can create a pixmap
+    ///    of size 32x20, and the last 12 columns are essentially treated as padding.
+    ///
+    /// 3. In case the width/height of the pixmap is _smaller_ than the offset + width/height of the
+    ///    scene, then anything that exceeds the pixmap boundaries is simply cut off. This can be useful
+    ///    if for some reason you only want to rasterize a small cut-out of the original scene.
+    pub fn render<'a>(
         &self,
+        target: impl Into<PixmapMut<'a>>,
         resources: &mut Resources,
-        buffer: &mut [u8],
-        width: u16,
-        height: u16,
-        render_mode: RenderMode,
+        settings: RasterizerSettings,
     ) {
         // TODO: Maybe we should move those checks into the dispatcher.
         let wide = self.dispatcher.wide();
         assert!(!wide.has_layers(), "some layers haven't been popped yet");
-        assert_eq!(
-            buffer.len(),
-            (width as usize) * (height as usize) * 4,
-            "provided width ({}) and height ({}) do not match buffer size ({})",
-            width,
-            height,
-            buffer.len(),
-        );
 
-        resources.before_render();
+        resources.before_render(settings.render_mode);
+        let mut target = target.into();
+        let target_fully_covered = settings.offset == (0, 0)
+            && self.width >= target.width()
+            && self.height >= target.height();
+        // If the scene covers the whole pixmap than packing will take care
+        // of clearing everything anyway, so no reason to clear it explicitly
+        // here.
+        if settings.composite_mode == CompositeMode::Replace && !target_fully_covered {
+            target.data_mut().fill(0);
+        }
 
         self.dispatcher.rasterize(
-            buffer,
-            render_mode,
-            width,
-            height,
+            target,
+            self.width,
+            self.height,
+            settings,
             &self.encoded_paints,
             &resources.image_registry,
         );
@@ -662,65 +742,12 @@ impl RenderContext {
         resources.after_render();
     }
 
-    /// Render the current context into a pixmap.
-    pub fn render_to_pixmap(&self, resources: &mut Resources, pixmap: &mut Pixmap) {
-        let width = pixmap.width();
-        let height = pixmap.height();
-        self.render_to_buffer(
-            resources,
-            pixmap.data_as_u8_slice_mut(),
-            width,
-            height,
-            self.render_settings.render_mode,
-        );
-    }
-
-    /// Composite the current context into a region of a pixmap.
-    ///
-    /// The context's content (sized `self.width × self.height`) is composited
-    /// directly to the destination pixmap starting at `(dst_x, dst_y)`.
-    /// If the region extends beyond the pixmap bounds, it is clipped.
-    ///
-    /// Unlike [`render_to_pixmap`](Self::render_to_pixmap), this method composites on top of
-    /// existing pixmap content rather than clearing it first, allowing multiple
-    /// renders to accumulate.
-    ///
-    /// This is useful for rendering individual elements (like glyphs) into
-    /// a spritesheet at specific coordinates.
-    ///
-    /// # Panics
-    ///
-    /// This method is only supported with the single-threaded dispatcher and will
-    /// **panic** if called on a `RenderContext` using the multi-threaded dispatcher.
-    pub fn composite_to_pixmap_at_offset(
-        &self,
-        resources: &Resources,
-        pixmap: &mut Pixmap,
-        dst_x: u16,
-        dst_y: u16,
-    ) {
-        let dst_buffer_width = pixmap.width();
-        let dst_buffer_height = pixmap.height();
-        self.dispatcher.composite_at_offset(
-            pixmap.data_as_u8_slice_mut(),
-            self.width,
-            self.height,
-            dst_x,
-            dst_y,
-            dst_buffer_width,
-            dst_buffer_height,
-            self.render_settings.render_mode,
-            &self.encoded_paints,
-            &resources.image_registry,
-        );
-    }
-
-    /// Return the width of the pixmap.
+    /// Return the width of the scene.
     pub fn width(&self) -> u16 {
         self.width
     }
 
-    /// Return the height of the pixmap.
+    /// Return the height of the scene.
     pub fn height(&self) -> u16 {
         self.height
     }
@@ -840,15 +867,54 @@ impl ImageResolver for ImageRegistry {
 
 #[cfg(test)]
 mod tests {
-    use crate::RenderContext;
     #[cfg(feature = "text")]
     use crate::peniko::{Blob, FontData};
+    use crate::{CompositeMode, RasterizerSettings, RenderContext, Resources};
     #[cfg(feature = "text")]
     use alloc::sync::Arc;
+    use alloc::vec;
     #[cfg(feature = "text")]
     use glifo::Glyph;
+    use vello_common::color::PremulRgba8;
+    use vello_common::color::palette::css::{BLUE, RED};
     use vello_common::kurbo::{Rect, Shape};
+    use vello_common::pixmap::{Pixmap, PixmapMut};
     use vello_common::tile::Tile;
+
+    const GRAY: PremulRgba8 = PremulRgba8 {
+        r: 9,
+        g: 10,
+        b: 11,
+        a: 255,
+    };
+
+    fn red_pixel() -> PremulRgba8 {
+        RED.premultiply().to_rgba8()
+    }
+
+    fn blue_pixel() -> PremulRgba8 {
+        BLUE.premultiply().to_rgba8()
+    }
+
+    fn transparent_pixel() -> PremulRgba8 {
+        PremulRgba8::from_u32(0)
+    }
+
+    fn solid_pixmap(width: u16, height: u16, color: PremulRgba8) -> Pixmap {
+        Pixmap::from_parts(
+            vec![color; usize::from(width) * usize::from(height)],
+            width,
+            height,
+        )
+    }
+
+    fn red_rect_context(width: u16, height: u16, rect: Rect) -> RenderContext {
+        let mut ctx = RenderContext::new(width, height);
+        ctx.set_paint(RED);
+        ctx.fill_rect(&rect);
+        ctx.flush();
+        ctx
+    }
 
     #[test]
     fn clip_overflow() {
@@ -863,27 +929,196 @@ mod tests {
         ctx.flush();
     }
 
+    #[test]
+    fn render_with_offset_clears_pixels_outside_scene() {
+        let ctx = red_rect_context(2, 2, Rect::new(0.0, 0.0, 2.0, 2.0));
+        let mut resources = Resources::new();
+        let mut pixmap = solid_pixmap(4, 3, GRAY);
+
+        ctx.render(
+            &mut pixmap,
+            &mut resources,
+            RasterizerSettings {
+                offset: (1, 1),
+                ..Default::default()
+            },
+        );
+
+        for y in 0..3 {
+            for x in 0..4 {
+                let expected = if (1..=2).contains(&x) && (1..=2).contains(&y) {
+                    red_pixel()
+                } else {
+                    transparent_pixel()
+                };
+
+                assert_eq!(pixmap.sample(x, y), expected, "pixel at ({x}, {y})");
+            }
+        }
+    }
+
+    #[test]
+    fn render_clips_scene_to_target_bounds() {
+        let ctx = red_rect_context(3, 3, Rect::new(0.0, 0.0, 3.0, 3.0));
+        let mut resources = Resources::new();
+        let mut pixmap = solid_pixmap(4, 4, GRAY);
+
+        ctx.render(
+            &mut pixmap,
+            &mut resources,
+            RasterizerSettings {
+                offset: (2, 1),
+                ..Default::default()
+            },
+        );
+
+        for y in 0..4 {
+            for x in 0..4 {
+                let expected = if (2..=3).contains(&x) && (1..=3).contains(&y) {
+                    red_pixel()
+                } else {
+                    transparent_pixel()
+                };
+                assert_eq!(pixmap.sample(x, y), expected, "pixel at ({x}, {y})");
+            }
+        }
+    }
+
+    #[test]
+    fn render_into_padded_pixmap() {
+        let ctx = red_rect_context(2, 2, Rect::new(0.0, 0.0, 2.0, 2.0));
+        let mut resources = Resources::new();
+        let mut pixmap = solid_pixmap(4, 2, GRAY);
+
+        ctx.render(&mut pixmap, &mut resources, RasterizerSettings::default());
+
+        for y in 0..2 {
+            for x in 0..4 {
+                let expected = if x < 2 {
+                    red_pixel()
+                } else {
+                    transparent_pixel()
+                };
+                assert_eq!(pixmap.sample(x, y), expected, "pixel at ({x}, {y})");
+            }
+        }
+    }
+
+    #[test]
+    fn render_into_raw_buffer() {
+        let ctx = red_rect_context(2, 1, Rect::new(0.0, 0.0, 2.0, 1.0));
+        let mut resources = Resources::new();
+        let mut buffer = vec![0; 3 * 2 * 4];
+        for pixel in buffer.chunks_exact_mut(4) {
+            pixel.copy_from_slice(&[GRAY.r, GRAY.g, GRAY.b, GRAY.a]);
+        }
+
+        {
+            let pixmap = PixmapMut::new(3, 2, &mut buffer).unwrap();
+            ctx.render(
+                pixmap,
+                &mut resources,
+                RasterizerSettings {
+                    offset: (1, 1),
+                    ..Default::default()
+                },
+            );
+        }
+
+        let expected = [
+            transparent_pixel(),
+            transparent_pixel(),
+            transparent_pixel(),
+            transparent_pixel(),
+            red_pixel(),
+            red_pixel(),
+        ];
+        for (pixel, expected) in buffer.chunks_exact(4).zip(expected) {
+            assert_eq!(pixel, [expected.r, expected.g, expected.b, expected.a]);
+        }
+    }
+
+    #[test]
+    fn pixmap_mut_validates_buffer_length() {
+        let mut short_buffer = vec![0; 3 * 2 * 4 - 1];
+        assert!(PixmapMut::new(3, 2, &mut short_buffer).is_none());
+
+        let mut exact_buffer = vec![0; 3 * 2 * 4];
+        assert!(PixmapMut::new(3, 2, &mut exact_buffer).is_some());
+    }
+
+    #[test]
+    fn render_src_over_opaque() {
+        let ctx = red_rect_context(2, 1, Rect::new(0.0, 0.0, 1.0, 1.0));
+        let mut resources = Resources::new();
+        let mut pixmap = solid_pixmap(2, 1, blue_pixel());
+
+        ctx.render(
+            &mut pixmap,
+            &mut resources,
+            RasterizerSettings {
+                composite_mode: CompositeMode::SrcOver,
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(pixmap.sample(0, 0), red_pixel());
+        assert_eq!(pixmap.sample(1, 0), blue_pixel());
+    }
+
+    #[test]
+    fn render_src_over_transparent() {
+        let mut ctx = RenderContext::new(1, 1);
+        ctx.set_paint(RED.with_alpha(0.5));
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 1.0, 1.0));
+        ctx.flush();
+
+        let mut resources = Resources::new();
+        let mut pixmap = solid_pixmap(1, 1, blue_pixel());
+
+        ctx.render(
+            &mut pixmap,
+            &mut resources,
+            RasterizerSettings {
+                composite_mode: CompositeMode::SrcOver,
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(
+            pixmap.sample(0, 0),
+            PremulRgba8 {
+                r: 128,
+                g: 0,
+                b: 127,
+                a: 255,
+            }
+        );
+    }
+
     #[cfg(feature = "multithreading")]
     #[test]
     fn multithreaded_crash_after_reset() {
-        use crate::{Level, RenderMode, RenderSettings};
-        use vello_common::pixmap::Pixmap;
+        use crate::{Level, RasterizerSettings, RenderMode, RenderSettings};
 
         let mut pixmap = Pixmap::new(200, 200);
         let settings = RenderSettings {
             level: Level::try_detect().unwrap_or(Level::baseline()),
             num_threads: 1,
+        };
+        let rasterizer_settings = RasterizerSettings {
             render_mode: RenderMode::OptimizeQuality,
+            ..Default::default()
         };
 
-        let mut resources = crate::Resources::new();
+        let mut resources = Resources::new();
         let mut ctx = RenderContext::new_with(200, 200, settings);
         ctx.reset();
         ctx.fill_path(&Rect::new(0.0, 0.0, 100.0, 100.0).to_path(0.1));
         ctx.flush();
-        ctx.render_to_pixmap(&mut resources, &mut pixmap);
+        ctx.render(&mut pixmap, &mut resources, rasterizer_settings);
         ctx.flush();
-        ctx.render_to_pixmap(&mut resources, &mut pixmap);
+        ctx.render(&mut pixmap, &mut resources, rasterizer_settings);
     }
 
     #[cfg(feature = "text")]
@@ -899,7 +1134,7 @@ mod tests {
             y: 0.0,
         }];
 
-        let mut resources = crate::Resources::new();
+        let mut resources = Resources::new();
         let mut ctx = RenderContext::new(100, 100);
 
         ctx.fill_rect(&Rect::new(0.0, 0.0, 10.0, 10.0));
