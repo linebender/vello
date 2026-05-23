@@ -5,10 +5,9 @@ use crate::RenderMode;
 use crate::dispatch::Dispatcher;
 use crate::dispatch::multi_threaded::cost::{COST_THRESHOLD, estimate_render_task_cost};
 use crate::dispatch::multi_threaded::worker::Worker;
-use crate::fine::{Fine, FineKernel};
+use crate::fine::FineKernel;
 use crate::kurbo::{Affine, BezPath, PathEl, Point, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
-use crate::region::Regions;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec;
@@ -22,7 +21,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Barrier, Mutex};
 use thread_local::ThreadLocal;
 use vello_common::clip::ClipContext;
-use vello_common::coarse::{Cmd, MODE_CPU, Wide};
+use vello_common::coarse::{MODE_CPU, Wide};
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, dispatch};
 use vello_common::filter_effects::Filter;
@@ -360,51 +359,14 @@ impl MultiThreadedDispatcher {
 
     fn rasterize_with<S: Simd, F: FineKernel<S>>(
         &self,
-        simd: S,
-        buffer: &mut [u8],
-        width: u16,
-        height: u16,
-        encoded_paints: &[EncodedPaint],
-        image_resolver: &dyn ImageResolver,
+        _simd: S,
+        _buffer: &mut [u8],
+        _width: u16,
+        _height: u16,
+        _encoded_paints: &[EncodedPaint],
+        _image_resolver: &dyn ImageResolver,
     ) {
-        let mut buffer = Regions::new(width, height, buffer);
-        let fines = ThreadLocal::new();
-        let wide = &self.wide;
-        let alpha_slots = self.alpha_storage.take();
-
-        self.thread_pool.install(|| {
-            buffer.update_regions_par(|region| {
-                let x = region.x;
-                let y = region.y;
-
-                let mut fine = fines
-                    .get_or(|| RefCell::new(Fine::<S, F>::new(simd)))
-                    .borrow_mut();
-
-                let wtile = wide.get(x, y);
-                fine.set_coords(x, y);
-
-                fine.clear(wtile.bg);
-                for cmd in &wtile.cmds {
-                    let thread_idx = match cmd {
-                        Cmd::AlphaFill(a) => Some(wide.attrs.fill[a.attrs_idx as usize].thread_idx),
-                        Cmd::ClipStrip(a) => Some(wide.attrs.clip[a.attrs_idx as usize].thread_idx),
-                        _ => None,
-                    };
-
-                    let alphas = thread_idx
-                        .map(|i| alpha_slots[i as usize].as_slice())
-                        .unwrap_or(&[]);
-                    fine.run_cmd(cmd, alphas, encoded_paints, image_resolver, &wide.attrs);
-                }
-
-                fine.pack(region);
-            });
-        });
-
-        // Don't forget to put back the alpha buffers, so that they can be re-used in
-        // the next path rendering iteration!
-        self.alpha_storage.init(alpha_slots);
+        panic!("multi-threaded row fine rasterization is not wired up yet");
     }
 }
 

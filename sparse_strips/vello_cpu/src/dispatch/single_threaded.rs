@@ -6,10 +6,10 @@ use crate::dispatch::Dispatcher;
 use crate::fine::FineKernel;
 use crate::kurbo::{Affine, BezPath, PathEl, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
-use crate::row::{CommandBucketer, LayerClip, RowRenderKernel};
+use crate::row::{CommandBucketer, LayerClip};
 use alloc::vec::Vec;
+use core::cell::RefCell;
 use core::ops::Range;
-use std::sync::Mutex;
 use vello_common::clip::ClipContext;
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd};
@@ -19,7 +19,7 @@ use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 enum RecordedCmd {
     Fill {
         strip_range: Range<usize>,
@@ -39,7 +39,7 @@ enum RecordedCmd {
 /// Single-threaded dispatcher for the row-bucket prototype.
 #[derive(Debug)]
 pub(crate) struct SingleThreadedDispatcher {
-    bucketer: Mutex<CommandBucketer>,
+    bucketer: RefCell<CommandBucketer>,
     clip_context: ClipContext,
     cmds: Vec<RecordedCmd>,
     strip_generator: StripGenerator,
@@ -51,7 +51,7 @@ pub(crate) struct SingleThreadedDispatcher {
 impl SingleThreadedDispatcher {
     pub(crate) fn new(width: u16, height: u16, level: Level) -> Self {
         Self {
-            bucketer: Mutex::new(CommandBucketer::new(width, height)),
+            bucketer: RefCell::new(CommandBucketer::new(width, height)),
             clip_context: ClipContext::new(),
             cmds: Vec::new(),
             strip_generator: StripGenerator::new(width, height, level),
@@ -89,7 +89,7 @@ impl SingleThreadedDispatcher {
         dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, buffer, width, height, encoded_paints, image_resolver));
     }
 
-    fn rasterize_with<S: Simd, F: FineKernel<S> + RowRenderKernel<S>>(
+    fn rasterize_with<S: Simd, F: FineKernel<S>>(
         &self,
         simd: S,
         buffer: &mut [u8],
@@ -98,9 +98,9 @@ impl SingleThreadedDispatcher {
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
-        let mut bucketer = self.bucketer.lock().unwrap();
+        let mut bucketer = self.bucketer.borrow_mut();
         bucketer.reset();
-        for cmd in self.cmds.iter().cloned() {
+        for cmd in &self.cmds {
             match cmd {
                 RecordedCmd::Fill {
                     strip_range,
@@ -108,10 +108,10 @@ impl SingleThreadedDispatcher {
                     blend_mode,
                     mask,
                 } => bucketer.generate_fill(
-                    &self.strip_storage.strips[strip_range],
-                    paint,
-                    blend_mode,
-                    mask,
+                    &self.strip_storage.strips[strip_range.clone()],
+                    paint.clone(),
+                    *blend_mode,
+                    mask.clone(),
                     encoded_paints,
                 ),
                 RecordedCmd::PushLayer {
@@ -119,12 +119,12 @@ impl SingleThreadedDispatcher {
                     opacity,
                     mask,
                     clip,
-                } => bucketer.push_layer(blend_mode, opacity, mask, clip),
+                } => bucketer.push_layer(*blend_mode, *opacity, mask.clone(), clip.clone()),
                 RecordedCmd::PopLayer => bucketer.pop_layer(&self.strip_storage.strips),
             }
         }
 
-        crate::row::rasterize::<S, F>(
+        crate::fine::rasterize::<S, F>(
             simd,
             &bucketer,
             &self.strip_storage.alphas,
@@ -336,7 +336,7 @@ impl Dispatcher for SingleThreadedDispatcher {
     }
 
     fn reset(&mut self) {
-        self.bucketer.lock().unwrap().reset();
+        self.bucketer.borrow_mut().reset();
         self.clip_context.reset();
         self.cmds.clear();
         self.strip_generator.reset();

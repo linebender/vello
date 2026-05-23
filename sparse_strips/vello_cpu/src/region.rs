@@ -241,10 +241,6 @@ impl<'a> Region<'a> {
         ))
     }
 
-    pub(crate) fn row_mut(&mut self, y: u16) -> &mut [u8] {
-        self.areas[usize::from(y)]
-    }
-
     pub fn areas(&mut self) -> &mut [&'a mut [u8]; Tile::HEIGHT as usize] {
         &mut self.areas
     }

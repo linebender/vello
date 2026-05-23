@@ -20,13 +20,12 @@ use crate::fine::common::image::{FilteredImagePainter, NNImagePainter, PlainNNIm
 use crate::fine::common::rounded_blurred_rect::BlurredRoundedRectFiller;
 use crate::layer_manager::LayerManager;
 use crate::peniko::{BlendMode, ImageQuality};
-use crate::region::Region;
+use crate::row::{Cmd, CommandBucketer, FillAttrs, FillCmd};
 use crate::util::EncodedImageExt;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::iter;
-use vello_common::coarse::{Cmd, CommandAttrs, WideTile};
 use vello_common::encode::{
     EncodedBlurredRoundedRectangle, EncodedGradient, EncodedImage, EncodedKind, EncodedPaint,
 };
@@ -48,20 +47,13 @@ pub use lowp::U8Kernel;
 
 /// Offset to shift from pixel corner to pixel center for sampling.
 const PIXEL_CENTER_OFFSET: f64 = 0.5;
+const DEPTH_BUCKET_WIDTH: u16 = 32;
 
 /// Number of color components per pixel (RGBA).
 pub(crate) const COLOR_COMPONENTS: usize = 4;
 
 /// Number of color components in a single column of a tile (height * components).
 pub(crate) const TILE_HEIGHT_COMPONENTS: usize = Tile::HEIGHT as usize * COLOR_COMPONENTS;
-
-/// Size of the scratch buffer used for intermediate rendering operations.
-/// Sized to hold a full wide tile with all color components.
-pub const SCRATCH_BUF_SIZE: usize =
-    WideTile::WIDTH as usize * Tile::HEIGHT as usize * COLOR_COMPONENTS;
-
-/// Type alias for a scratch buffer that can hold a full wide tile's worth of data.
-pub type ScratchBuf<F> = [F; SCRATCH_BUF_SIZE];
 
 /// Trait for numeric types used in fine rasterization.
 ///
@@ -228,18 +220,6 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     /// Converts RGBA components from the standard premultiplied color format to
     /// the kernel's internal representation (e.g., 0.0-1.0 for f32, 0-255 for u8).
     fn extract_color(color: PremulColor) -> [Self::Numeric; 4];
-
-    /// Pack the blend buffer contents into the output region.
-    ///
-    /// Converts from the internal scratch buffer format to the output tile format,
-    /// writing the results to the provided region.
-    fn pack(simd: S, region: &mut Region<'_>, blend_buf: &[Self::Numeric]);
-
-    /// Unpack the region contents back into the blend buffer.
-    ///
-    /// Performs the reverse of `pack`, reading pixel data from the tile region
-    /// and loading it into the scratch buffer for further processing.
-    fn unpack(simd: S, region: &mut Region<'_>, blend_buf: &mut [Self::Numeric]);
 
     /// Apply a filter to a layer.
     ///
@@ -444,539 +424,837 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
         alphas: Option<&[u8]>,
         mask: Option<&Mask>,
     );
+
+    /// Fill a row scratch span with a solid color, optionally modulated by per-pixel alphas.
+    #[inline(always)]
+    fn fill_solid(simd: S, dest: &mut [Self::Numeric], color: PremulColor, alphas: Option<&[u8]>) {
+        let color = Self::extract_color(color);
+        if color[3] == Self::Numeric::ONE && alphas.is_none() {
+            Self::copy_solid(simd, dest, color);
+        } else {
+            Self::alpha_composite_solid(simd, dest, color, alphas);
+        }
+    }
+
+    /// Pack tile-aligned row scratch blocks into a row-major output buffer.
+    fn pack_block(
+        simd: S,
+        scratch: &[Self::Numeric],
+        x: usize,
+        width: usize,
+        out_width: usize,
+        out: &mut [u8],
+    );
+
+    /// Pack an arbitrary-width/height row scratch tail into a row-major output buffer.
+    fn pack_tail(
+        scratch: &[Self::Numeric],
+        x: usize,
+        width: usize,
+        height: usize,
+        out_width: usize,
+        out: &mut [u8],
+    );
 }
 
-/// Fine rasterizer for processing tiles at the pixel level.
-///
-/// This structure maintains the state and scratch buffers needed for tile-based rendering.
-/// It processes rendering commands and manages a stack of blend buffers for layer composition.
 #[derive(Debug)]
-pub struct Fine<S: Simd, T: FineKernel<S>> {
-    /// The (x, y) coordinates of the currently active wide tile being rendered.
-    pub(crate) wide_coords: (u16, u16),
-
-    /// Stack of blend buffers for managing layers and composition.
-    ///
-    /// Each layer pushes a new buffer onto this stack, and layers are composited
-    /// by popping and blending with the buffer below.
-    pub(crate) blend_buf: Vec<ScratchBuf<T::Numeric>>,
-
-    /// Intermediate buffer used by painters to store generated pixel data before compositing.
-    pub(crate) paint_buf: ScratchBuf<T::Numeric>,
-
-    /// Buffer for storing gradient interpolation parameters (t values).
-    ///
-    /// Gradients pre-compute these values for efficiency before color lookup.
-    pub(crate) f32_buf: Vec<f32>,
-
-    /// The SIMD context used for vectorized operations.
-    pub(crate) simd: S,
+pub(crate) struct Fine<S: Simd, T: FineKernel<S>> {
+    simd: S,
+    out_width: u16,
+    buffers: Vec<Vec<T::Numeric>>,
+    buffer_pool: Vec<Vec<T::Numeric>>,
+    paint_buf: Vec<T::Numeric>,
+    f32_buf: Vec<f32>,
+    depth: Vec<u32>,
 }
 
 impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
-    /// Create a new fine rasterizer with the given SIMD context.
-    ///
-    /// Initializes all scratch buffers and sets up the initial blend buffer.
-    pub fn new(simd: S) -> Self {
+    pub(crate) fn new(simd: S, out_width: u16, buffer_width: u16) -> Self {
+        let scratch_len = usize::from(buffer_width) * TILE_HEIGHT_COMPONENTS;
         Self {
             simd,
-            wide_coords: (0, 0),
-            blend_buf: vec![[T::Numeric::ZERO; SCRATCH_BUF_SIZE]],
-            f32_buf: vec![0.0; SCRATCH_BUF_SIZE / 4],
-            paint_buf: [T::Numeric::ZERO; SCRATCH_BUF_SIZE],
+            out_width,
+            buffers: vec![vec![T::Numeric::ZERO; scratch_len]],
+            buffer_pool: Vec::new(),
+            paint_buf: Vec::new(),
+            f32_buf: Vec::new(),
+            depth: vec![0; usize::from(buffer_width.div_ceil(DEPTH_BUCKET_WIDTH))],
         }
     }
 
-    /// Set the coordinates of the wide tile currently being rendered.
-    ///
-    /// This is used by painters and other operations to compute absolute pixel positions.
-    pub fn set_coords(&mut self, x: u16, y: u16) {
-        self.wide_coords = (x, y);
+    fn clear_range(&mut self, x: u16, width: u16) {
+        let scratch_start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
+        let scratch_len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
+        let depth_start = usize::from(x / DEPTH_BUCKET_WIDTH);
+        let depth_end = ((usize::from(x) + usize::from(width))
+            .div_ceil(usize::from(DEPTH_BUCKET_WIDTH)))
+        .min(self.depth.len());
+
+        self.buffers[0][scratch_start..scratch_start + scratch_len].fill(T::Numeric::ZERO);
+        self.depth[depth_start..depth_end].fill(0);
     }
 
-    /// Clear the current blend buffer to a solid color.
-    ///
-    /// This efficiently fills the entire buffer with the given premultiplied color.
-    pub fn clear(&mut self, premul_color: PremulColor) {
-        let converted_color = T::extract_color(premul_color);
-        let blend_buf = self.blend_buf.last_mut().unwrap();
-
-        T::copy_solid(self.simd, blend_buf, converted_color);
+    fn push_layer(&mut self, x: u16, width: u16) {
+        let mut buf = self
+            .buffer_pool
+            .pop()
+            .unwrap_or_else(|| vec![T::Numeric::ZERO; self.buffers[0].len()]);
+        let scratch_start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
+        let scratch_len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
+        buf[scratch_start..scratch_start + scratch_len].fill(T::Numeric::ZERO);
+        self.buffers.push(buf);
     }
 
-    /// Writes the current blend buffer contents to the output region.
-    ///
-    /// This copies pixel data from the internal scratch buffer to the tile region,
-    /// converting the layout from the internal representation to the output format.
-    pub fn pack(&self, region: &mut Region<'_>) {
-        let blend_buf = self.blend_buf.last().unwrap();
+    fn opacity(&mut self, x: u16, width: u16, opacity: f32) {
+        let scratch_start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
+        let scratch_len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
+        let target = self.buffers.last_mut().unwrap();
+        let target = &mut target[scratch_start..scratch_start + scratch_len];
 
-        T::pack(self.simd, region, blend_buf);
+        T::apply_mask(
+            self.simd,
+            target,
+            iter::repeat(T::NumericVec::from_f32(
+                self.simd,
+                f32x16::splat(self.simd, opacity),
+            )),
+        );
     }
 
-    /// Reads the region contents back into the blend buffer.
-    ///
-    /// This copies pixel data from the tile region to the internal scratch buffer,
-    /// performing the reverse operation of `pack`. This is typically used when a layer
-    /// needs to be read back for further processing.
-    pub fn unpack(&mut self, region: &mut Region<'_>) {
-        let blend_buf = self.blend_buf.last_mut().unwrap();
+    fn mask(&mut self, row_y: u16, x: u16, width: u16, mask: &Mask) {
+        let scratch_start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
+        let scratch_len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
+        let target = self.buffers.last_mut().unwrap();
+        let target = &mut target[scratch_start..scratch_start + scratch_len];
 
-        T::unpack(self.simd, region, blend_buf);
+        Self::apply_mask(self.simd, target, x, row_y, width, mask);
     }
 
-    /// Apply a filter to a layer.
-    ///
-    /// This applies the filter using the kernel's implementation, mutating the layer.
-    pub fn filter_layer(
-        &self,
-        pixmap: &mut Pixmap,
-        filter: &Filter,
-        layer_manager: &mut LayerManager,
-        transform: Affine,
-    ) {
-        T::filter_layer(pixmap, filter, layer_manager, transform);
+    fn blend_fill(&mut self, row_y: u16, x: u16, width: u16, blend_mode: BlendMode) {
+        self.blend(row_y, x, width, blend_mode, None);
     }
 
-    /// Execute a rendering command on the current tile.
-    ///
-    /// This is the main dispatch method that processes different command types including
-    /// fills, clips, blends, filters, masks, and buffer operations.
-    #[allow(
-        dead_code,
-        reason = "the row-bucket prototype bypasses wide-tile commands"
-    )]
-    pub(crate) fn run_cmd(
+    fn blend_alpha_fill(
         &mut self,
-        cmd: &Cmd,
-        alphas: &[u8],
-        paints: &[EncodedPaint],
-        image_resolver: &dyn ImageResolver,
-        attrs: &CommandAttrs,
-    ) {
-        match cmd {
-            Cmd::Fill(f) => {
-                let fill_attrs = &attrs.fill[f.attrs_idx as usize];
-                self.fill(
-                    usize::from(f.x),
-                    usize::from(f.width),
-                    &fill_attrs.paint,
-                    fill_attrs.blend_mode,
-                    paints,
-                    image_resolver,
-                    None,
-                    fill_attrs.mask.as_ref(),
-                );
-            }
-            Cmd::AlphaFill(s) => {
-                let fill_attrs = &attrs.fill[s.attrs_idx as usize];
-                let alpha_idx = fill_attrs.alpha_idx(s.alpha_offset) as usize;
-                self.fill(
-                    usize::from(s.x),
-                    usize::from(s.width),
-                    &fill_attrs.paint,
-                    fill_attrs.blend_mode,
-                    paints,
-                    image_resolver,
-                    Some(&alphas[alpha_idx..]),
-                    fill_attrs.mask.as_ref(),
-                );
-            }
-            Cmd::Filter(_filter, _) => {
-                // TODO: Apply non-spatial filters here; spatial filters need layer-level processing
-                //
-                // Spatial filters (e.g., Gaussian blur) need neighboring pixels and must be
-                // rendered to a pixmap for layer-level processing. Non-spatial effects (e.g.,
-                // color matrix, component transfer) can be processed here directly on the
-                // blend buffer per-pixel as wide commands.
-            }
-            Cmd::PushBuf(_layer_kind, _) => {
-                self.blend_buf.push([T::Numeric::ZERO; SCRATCH_BUF_SIZE]);
-            }
-            Cmd::PopBuf => {
-                self.blend_buf.pop();
-            }
-            Cmd::ClipFill(cf) => {
-                self.clip(cf.x as usize, cf.width as usize, None);
-            }
-            Cmd::ClipStrip(cs) => {
-                let clip_attrs = &attrs.clip[cs.attrs_idx as usize];
-                let alpha_idx = clip_attrs.alpha_idx(cs.alpha_offset) as usize;
-                self.clip(cs.x as usize, cs.width as usize, Some(&alphas[alpha_idx..]));
-            }
-            Cmd::Blend(b) => self.blend(*b),
-            Cmd::Mask(m) => {
-                let start_x = self.wide_coords.0 * WideTile::WIDTH;
-                let start_y = self.wide_coords.1 * Tile::HEIGHT;
-
-                let blend_buf = self.blend_buf.last_mut().unwrap();
-
-                let width = (blend_buf.len() / (Tile::HEIGHT as usize * COLOR_COMPONENTS)) as u16;
-                let y = start_y as u32 + u32x4::from_slice(self.simd, &[0, 1, 2, 3]);
-
-                let iter = (start_x..(start_x + width)).map(|x| {
-                    let x_in_range = x < m.width();
-
-                    macro_rules! sample {
-                        ($idx:expr) => {
-                            if x_in_range && (y[$idx] as u16) < m.height() {
-                                m.sample(x, y[$idx] as u16)
-                            } else {
-                                0
-                            }
-                        };
-                    }
-
-                    let s1 = sample!(0);
-                    let s2 = sample!(1);
-                    let s3 = sample!(2);
-                    let s4 = sample!(3);
-
-                    let samples = u8x16::from_slice(
-                        self.simd,
-                        &[
-                            s1, s1, s1, s1, s2, s2, s2, s2, s3, s3, s3, s3, s4, s4, s4, s4,
-                        ],
-                    );
-                    T::NumericVec::from_u8(self.simd, samples)
-                });
-
-                T::apply_mask(self.simd, blend_buf, iter);
-            }
-            Cmd::Opacity(o) => {
-                if *o != 1.0 {
-                    let blend_buf = self.blend_buf.last_mut().unwrap();
-
-                    T::apply_mask(
-                        self.simd,
-                        blend_buf,
-                        iter::repeat(T::NumericVec::from_f32(
-                            self.simd,
-                            f32x16::splat(self.simd, *o),
-                        )),
-                    );
-                }
-            }
-            Cmd::PushZeroClip(_) | Cmd::PopZeroClip => {
-                // These commands are handled by the dispatcher and should not reach fine rasterization
-                unreachable!();
-            }
-            Cmd::BatchEnd => {}
-        }
-    }
-
-    /// Fill a horizontal strip within the current tile using the given paint.
-    ///
-    /// This is the core painting method that handles solid colors, gradients, images,
-    /// and blurred rounded rectangles. It applies the paint starting at the given x
-    /// coordinate with the specified width, using the provided blend mode.
-    ///
-    /// Note: For short strip segments, benchmarks showed that not inlining this method
-    /// leads to significantly worse performance.
-    pub fn fill(
-        &mut self,
-        x: usize,
-        width: usize,
-        fill: &Paint,
+        row_y: u16,
+        x: u16,
+        width: u16,
         blend_mode: BlendMode,
-        encoded_paints: &[EncodedPaint],
-        image_resolver: &dyn ImageResolver,
-        alphas: Option<&[u8]>,
-        mask: Option<&Mask>,
+        alphas: &[u8],
     ) {
-        let blend_buf = &mut self.blend_buf.last_mut().unwrap()[x * TILE_HEIGHT_COMPONENTS..]
-            [..TILE_HEIGHT_COMPONENTS * width];
-        let default_blend = blend_mode == BlendMode::default();
-
-        match fill {
-            Paint::Solid(color) => {
-                let color = T::extract_color(*color);
-
-                // If color is completely opaque, we can just directly override
-                // the blend buffer.
-                if color[3] == T::Numeric::ONE
-                    && default_blend
-                    && alphas.is_none()
-                    && mask.is_none()
-                {
-                    T::copy_solid(self.simd, blend_buf, color);
-
-                    return;
-                }
-
-                if default_blend && mask.is_none() {
-                    T::alpha_composite_solid(self.simd, blend_buf, color, alphas);
-                } else {
-                    let start_x = self.wide_coords.0 * WideTile::WIDTH + x as u16;
-                    let start_y = self.wide_coords.1 * Tile::HEIGHT;
-
-                    T::blend(
-                        self.simd,
-                        blend_buf,
-                        start_x,
-                        start_y,
-                        iter::repeat(T::Composite::from_color(self.simd, color)),
-                        blend_mode,
-                        alphas,
-                        mask,
-                    );
-                }
-            }
-            Paint::Indexed(paint) => {
-                let color_buf = &mut self.paint_buf[x * TILE_HEIGHT_COMPONENTS..]
-                    [..TILE_HEIGHT_COMPONENTS * width];
-
-                let encoded_paint = &encoded_paints[paint.index()];
-
-                let start_x = self.wide_coords.0 * WideTile::WIDTH + x as u16;
-                let start_y = self.wide_coords.1 * Tile::HEIGHT;
-
-                // Make sure sampling happens at the center of the pixel.
-                let sampler_x = start_x as f64 + PIXEL_CENTER_OFFSET;
-                let sampler_y = start_y as f64 + PIXEL_CENTER_OFFSET;
-
-                // We need to have this as a macro because closures cannot take generic arguments, and
-                // we would have to repeatedly provide all arguments if we made it a function.
-                macro_rules! fill_complex_paint {
-                    ($may_have_transparency:expr, $filler:expr) => {
-                        fill_complex_paint!($may_have_transparency, $filler, None::<&Tint>)
-                    };
-                    ($may_have_transparency:expr, $filler:expr, $tint:expr) => {
-                        if $may_have_transparency || alphas.is_some() {
-                            T::apply_painter(self.simd, color_buf, $filler);
-                            if let Some(t) = $tint {
-                                T::apply_tint(self.simd, color_buf, t);
-                            }
-
-                            if default_blend && mask.is_none() {
-                                T::alpha_composite_buffer(self.simd, blend_buf, color_buf, alphas);
-                            } else {
-                                T::blend(
-                                    self.simd,
-                                    blend_buf,
-                                    start_x,
-                                    start_y,
-                                    color_buf
-                                        .chunks_exact(T::Composite::LENGTH)
-                                        .map(|s| T::Composite::from_slice(self.simd, s)),
-                                    blend_mode,
-                                    alphas,
-                                    mask,
-                                );
-                            }
-                        } else {
-                            // Similarly to solid colors we can just override the previous values
-                            // if all colors in the gradient are fully opaque.
-                            T::apply_painter(self.simd, blend_buf, $filler);
-                            if let Some(t) = $tint {
-                                T::apply_tint(self.simd, blend_buf, t);
-                            }
-                        }
-                    };
-                }
-
-                match encoded_paint {
-                    EncodedPaint::BlurredRoundedRect(b) => {
-                        fill_complex_paint!(
-                            true,
-                            T::blurred_rounded_rectangle_painter(
-                                self.simd, b, sampler_x, sampler_y
-                            )
-                        );
-                    }
-                    EncodedPaint::Gradient(g) => {
-                        // Note that we are calculating the t values first, store them in a separate
-                        // buffer and then pass that buffer to the iterator instead of calculating
-                        // the t values on the fly in the iterator. The latter would be faster, but
-                        // it would probably increase code size a lot, because the functions for
-                        // position calculation need to be inlined for good performance.
-                        let f32_buf = &mut self.f32_buf[..width * Tile::HEIGHT as usize];
-
-                        match &g.kind {
-                            EncodedKind::Linear(l) => {
-                                calculate_t_vals(
-                                    self.simd,
-                                    SimdLinearKind::new(self.simd, *l),
-                                    f32_buf,
-                                    g,
-                                    sampler_x,
-                                    sampler_y,
-                                );
-
-                                fill_complex_paint!(
-                                    g.may_have_transparency,
-                                    T::gradient_painter(self.simd, g, f32_buf)
-                                );
-                            }
-                            EncodedKind::Sweep(s) => {
-                                calculate_t_vals(
-                                    self.simd,
-                                    SimdSweepKind::new(self.simd, s),
-                                    f32_buf,
-                                    g,
-                                    sampler_x,
-                                    sampler_y,
-                                );
-
-                                fill_complex_paint!(
-                                    g.may_have_transparency,
-                                    T::gradient_painter(self.simd, g, f32_buf)
-                                );
-                            }
-                            EncodedKind::Radial(r) => {
-                                calculate_t_vals(
-                                    self.simd,
-                                    SimdRadialKind::new(self.simd, r),
-                                    f32_buf,
-                                    g,
-                                    sampler_x,
-                                    sampler_y,
-                                );
-
-                                if r.has_undefined() {
-                                    fill_complex_paint!(
-                                        g.may_have_transparency,
-                                        T::gradient_painter_with_undefined(self.simd, g, f32_buf)
-                                    );
-                                } else {
-                                    fill_complex_paint!(
-                                        g.may_have_transparency,
-                                        T::gradient_painter(self.simd, g, f32_buf)
-                                    );
-                                }
-                            }
-                        }
-                    }
-                    EncodedPaint::Image(i) => {
-                        let pixmap = match &i.source {
-                            ImageSource::Pixmap(p) => p.clone(),
-                            ImageSource::OpaqueId { id, .. } => image_resolver
-                                .resolve(*id)
-                                .unwrap_or_else(|| panic!("Image {:?} not found in registry", id)),
-                        };
-
-                        let tint = i.tint.as_ref();
-
-                        match (i.has_skew(), i.nearest_neighbor()) {
-                            (false, false) => {
-                                // Axis-aligned with filtering - use optimized plain painters
-                                if i.sampler.quality == ImageQuality::Medium {
-                                    fill_complex_paint!(
-                                        i.may_have_transparency,
-                                        T::plain_medium_quality_image_painter(
-                                            self.simd, i, &pixmap, sampler_x, sampler_y
-                                        ),
-                                        tint
-                                    );
-                                } else {
-                                    fill_complex_paint!(
-                                        i.may_have_transparency,
-                                        T::high_quality_image_painter(
-                                            self.simd, i, &pixmap, sampler_x, sampler_y
-                                        ),
-                                        tint
-                                    );
-                                }
-                            }
-                            (true, false) => {
-                                // Skewed with filtering - use generic filtered painters
-                                if i.sampler.quality == ImageQuality::Medium {
-                                    fill_complex_paint!(
-                                        i.may_have_transparency,
-                                        T::medium_quality_image_painter(
-                                            self.simd, i, &pixmap, sampler_x, sampler_y
-                                        ),
-                                        tint
-                                    );
-                                } else {
-                                    fill_complex_paint!(
-                                        i.may_have_transparency,
-                                        T::high_quality_image_painter(
-                                            self.simd, i, &pixmap, sampler_x, sampler_y
-                                        ),
-                                        tint
-                                    );
-                                }
-                            }
-                            (false, true) => {
-                                fill_complex_paint!(
-                                    i.may_have_transparency,
-                                    T::plain_nn_image_painter(
-                                        self.simd, i, &pixmap, sampler_x, sampler_y
-                                    ),
-                                    tint
-                                );
-                            }
-                            (true, true) => {
-                                fill_complex_paint!(
-                                    i.may_have_transparency,
-                                    T::nn_image_painter(
-                                        self.simd, i, &pixmap, sampler_x, sampler_y
-                                    ),
-                                    tint
-                                );
-                            }
-                        }
-                    }
-                    EncodedPaint::ExternalTexture(_) => {
-                        unimplemented!("External textures are not supported by `vello_cpu`")
-                    }
-                }
-            }
-        }
+        self.blend(row_y, x, width, blend_mode, Some(alphas));
     }
 
-    /// Blend the top blend buffer into the buffer below it.
-    ///
-    /// This pops the top buffer from the blend stack and composites it onto the
-    /// buffer below using the specified blend mode. This is the core operation for
-    /// layer composition.
-    #[allow(
-        dead_code,
-        reason = "the row-bucket prototype bypasses wide-tile commands"
-    )]
-    pub(crate) fn blend(&mut self, blend_mode: BlendMode) {
-        let (source_buffer, rest) = self.blend_buf.split_last_mut().unwrap();
-        let target_buffer = rest.last_mut().unwrap();
+    fn blend(
+        &mut self,
+        row_y: u16,
+        x: u16,
+        width: u16,
+        blend_mode: BlendMode,
+        alphas: Option<&[u8]>,
+    ) {
+        let scratch_start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
+        let scratch_len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
+        let (source, rest) = self.buffers.split_last_mut().unwrap();
+        let target = rest.last_mut().unwrap();
+        let source = &mut source[scratch_start..scratch_start + scratch_len];
+        let target = &mut target[scratch_start..scratch_start + scratch_len];
 
         if blend_mode == BlendMode::default() {
-            T::alpha_composite_buffer(self.simd, target_buffer, source_buffer, None);
+            T::alpha_composite_buffer(self.simd, target, source, alphas);
         } else {
             T::blend(
                 self.simd,
-                target_buffer,
-                // `start_x` and `start_y` are only needed to sample the correct position
-                // of a mask, so we can just pass dummy values here.
-                0,
-                0,
-                source_buffer
+                target,
+                x,
+                row_y,
+                source
                     .chunks_exact(T::Composite::LENGTH)
                     .map(|s| T::Composite::from_slice(self.simd, s)),
                 blend_mode,
-                None,
+                alphas,
                 None,
             );
         }
     }
 
-    /// Apply a clipping mask from the top buffer to the buffer below.
-    ///
-    /// Uses the top buffer's alpha channel as a mask, multiplying it with the buffer
-    /// below. This implements clipping by masking out pixels outside the clip region.
-    #[allow(
-        dead_code,
-        reason = "the row-bucket prototype bypasses wide-tile commands"
-    )]
-    fn clip(&mut self, x: usize, width: usize, alphas: Option<&[u8]>) {
-        let (source_buffer, rest) = self.blend_buf.split_last_mut().unwrap();
-        let target_buffer = rest.last_mut().unwrap();
+    fn pop_buf(&mut self) {
+        let popped = self.buffers.pop().unwrap();
+        self.buffer_pool.push(popped);
+    }
 
-        let source_buffer =
-            &mut source_buffer[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
-        let target_buffer =
-            &mut target_buffer[x * TILE_HEIGHT_COMPONENTS..][..TILE_HEIGHT_COMPONENTS * width];
+    fn apply_mask(simd: S, target: &mut [T::Numeric], x: u16, y: u16, width: u16, mask: &Mask) {
+        let y = u32::from(y) + u32x4::from_slice(simd, &[0, 1, 2, 3]);
+        let iter = (x..x.saturating_add(width)).map(|x| {
+            let x_in_range = x < mask.width();
 
-        T::alpha_composite_buffer(self.simd, target_buffer, source_buffer, alphas);
+            macro_rules! sample {
+                ($idx:expr) => {
+                    if x_in_range && (y[$idx] as u16) < mask.height() {
+                        mask.sample(x, y[$idx] as u16)
+                    } else {
+                        0
+                    }
+                };
+            }
+
+            let s1 = sample!(0);
+            let s2 = sample!(1);
+            let s3 = sample!(2);
+            let s4 = sample!(3);
+
+            let samples = u8x16::from_slice(
+                simd,
+                &[
+                    s1, s1, s1, s1, s2, s2, s2, s2, s3, s3, s3, s3, s4, s4, s4, s4,
+                ],
+            );
+            T::NumericVec::from_u8(simd, samples)
+        });
+
+        T::apply_mask(simd, target, iter);
+    }
+
+    #[inline(always)]
+    fn fill_solid(&mut self, x: u16, width: u16, color: PremulColor, alphas: Option<&[u8]>) {
+        if width == 0 {
+            return;
+        }
+
+        let start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
+        let len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
+        let simd = self.simd;
+        let scratch = self.buffers.last_mut().unwrap();
+        T::fill_solid(simd, &mut scratch[start..start + len], color, alphas);
+    }
+
+    #[inline(always)]
+    fn fill_solid_with_attrs(
+        &mut self,
+        x: u16,
+        y: u16,
+        width: u16,
+        color: PremulColor,
+        blend_mode: BlendMode,
+        mask: Option<&Mask>,
+        alphas: Option<&[u8]>,
+    ) {
+        if blend_mode == BlendMode::default() && mask.is_none() {
+            self.fill_solid(x, width, color, alphas);
+            return;
+        }
+
+        if width == 0 {
+            return;
+        }
+
+        let start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
+        let len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
+        let color = T::extract_color(color);
+        let simd = self.simd;
+        let color = T::Composite::from_color(simd, color);
+        let scratch = self.buffers.last_mut().unwrap();
+        T::blend(
+            simd,
+            &mut scratch[start..start + len],
+            x,
+            y,
+            iter::repeat(color),
+            blend_mode,
+            alphas,
+            mask,
+        );
+    }
+
+    fn fill_indexed(
+        &mut self,
+        x: u16,
+        y: u16,
+        width: u16,
+        paint_index: usize,
+        blend_mode: BlendMode,
+        mask: Option<&Mask>,
+        encoded_paints: &[EncodedPaint],
+        image_resolver: &dyn ImageResolver,
+        alphas: Option<&[u8]>,
+    ) {
+        let len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
+        if self.paint_buf.len() < len {
+            self.paint_buf.resize(len, T::Numeric::ZERO);
+        }
+
+        let t_len = usize::from(width) * Tile::HEIGHT as usize;
+        if self.f32_buf.len() < t_len {
+            self.f32_buf.resize(t_len, 0.0);
+        }
+
+        let scratch = self.buffers.last_mut().unwrap();
+        fill_indexed_paint::<S, T>(
+            self.simd,
+            scratch,
+            &mut self.paint_buf,
+            &mut self.f32_buf,
+            x,
+            y,
+            width,
+            paint_index,
+            blend_mode,
+            mask,
+            encoded_paints,
+            image_resolver,
+            alphas,
+        );
+    }
+
+    #[inline(always)]
+    fn render_opaque(
+        &mut self,
+        cmd: FillCmd,
+        row_y: u16,
+        attrs: &FillAttrs,
+        encoded_paints: &[EncodedPaint],
+        image_resolver: &dyn ImageResolver,
+    ) {
+        let start = usize::from(cmd.x / DEPTH_BUCKET_WIDTH);
+        let end = usize::from((cmd.x + cmd.width) / DEPTH_BUCKET_WIDTH);
+
+        if start + 1 == end {
+            if self.depth[start] == 0 {
+                match &attrs.paint {
+                    Paint::Solid(color) => self.fill_solid(cmd.x, cmd.width, *color, None),
+                    Paint::Indexed(index) => self.fill_indexed(
+                        cmd.x,
+                        row_y,
+                        cmd.width,
+                        index.index(),
+                        attrs.blend_mode,
+                        attrs.mask.as_ref(),
+                        encoded_paints,
+                        image_resolver,
+                        None,
+                    ),
+                }
+                self.depth[start] = attrs.path_id;
+            }
+            return;
+        }
+
+        let mut idx = start;
+        while idx < end {
+            while idx < end && self.depth[idx] != 0 {
+                idx += 1;
+            }
+
+            let run_start = idx;
+            while idx < end && self.depth[idx] == 0 {
+                idx += 1;
+            }
+
+            if run_start == idx {
+                continue;
+            }
+
+            let x = (run_start as u16) * DEPTH_BUCKET_WIDTH;
+            let width = (idx - run_start) as u16 * DEPTH_BUCKET_WIDTH;
+            match &attrs.paint {
+                Paint::Solid(color) => self.fill_solid(x, width, *color, None),
+                Paint::Indexed(index) => self.fill_indexed(
+                    x,
+                    row_y,
+                    width,
+                    index.index(),
+                    attrs.blend_mode,
+                    attrs.mask.as_ref(),
+                    encoded_paints,
+                    image_resolver,
+                    None,
+                ),
+            }
+            for depth in &mut self.depth[run_start..idx] {
+                *depth = attrs.path_id;
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn render_cmd(
+        &mut self,
+        cmd: &Cmd,
+        row_y: u16,
+        alphas: &[u8],
+        attrs: &FillAttrs,
+        encoded_paints: &[EncodedPaint],
+        image_resolver: &dyn ImageResolver,
+        use_depth: bool,
+    ) {
+        let cmd_x = cmd.fill_x();
+        let cmd_end = (cmd_x + cmd.fill_width()).min(self.out_width);
+        if cmd_x >= cmd_end {
+            return;
+        }
+
+        if !use_depth {
+            self.render_cmd_span(
+                cmd,
+                cmd_x,
+                cmd_end,
+                row_y,
+                alphas,
+                attrs,
+                encoded_paints,
+                image_resolver,
+            );
+            return;
+        }
+
+        let start = usize::from(cmd_x / DEPTH_BUCKET_WIDTH);
+        let end = usize::from(cmd_end.div_ceil(DEPTH_BUCKET_WIDTH));
+
+        if start + 1 == end {
+            if self.depth[start] <= attrs.path_id {
+                self.render_cmd_span(
+                    cmd,
+                    cmd_x,
+                    cmd_end,
+                    row_y,
+                    alphas,
+                    attrs,
+                    encoded_paints,
+                    image_resolver,
+                );
+            }
+            return;
+        }
+
+        let mut idx = start;
+        while idx < end {
+            while idx < end && self.depth[idx] > attrs.path_id {
+                idx += 1;
+            }
+
+            let run_start = idx;
+            while idx < end && self.depth[idx] <= attrs.path_id {
+                idx += 1;
+            }
+
+            if run_start == idx {
+                continue;
+            }
+
+            let x = cmd_x.max(run_start as u16 * DEPTH_BUCKET_WIDTH);
+            let end = cmd_end.min(idx as u16 * DEPTH_BUCKET_WIDTH);
+            self.render_cmd_span(
+                cmd,
+                x,
+                end,
+                row_y,
+                alphas,
+                attrs,
+                encoded_paints,
+                image_resolver,
+            );
+        }
+    }
+
+    #[inline(always)]
+    fn render_cmd_span(
+        &mut self,
+        cmd: &Cmd,
+        x: u16,
+        end: u16,
+        row_y: u16,
+        alphas: &[u8],
+        attrs: &FillAttrs,
+        encoded_paints: &[EncodedPaint],
+        image_resolver: &dyn ImageResolver,
+    ) {
+        match cmd {
+            Cmd::Fill(_) => match &attrs.paint {
+                Paint::Solid(color) => self.fill_solid_with_attrs(
+                    x,
+                    row_y,
+                    end - x,
+                    *color,
+                    attrs.blend_mode,
+                    attrs.mask.as_ref(),
+                    None,
+                ),
+                Paint::Indexed(index) => self.fill_indexed(
+                    x,
+                    row_y,
+                    end - x,
+                    index.index(),
+                    attrs.blend_mode,
+                    attrs.mask.as_ref(),
+                    encoded_paints,
+                    image_resolver,
+                    None,
+                ),
+            },
+            Cmd::AlphaFill(fill) => {
+                let alpha_offset =
+                    fill.alpha_idx as usize + usize::from(x - fill.x) * Tile::HEIGHT as usize;
+                match &attrs.paint {
+                    Paint::Solid(color) => self.fill_solid_with_attrs(
+                        x,
+                        row_y,
+                        end - x,
+                        *color,
+                        attrs.blend_mode,
+                        attrs.mask.as_ref(),
+                        Some(&alphas[alpha_offset..]),
+                    ),
+                    Paint::Indexed(index) => {
+                        self.fill_indexed(
+                            x,
+                            row_y,
+                            end - x,
+                            index.index(),
+                            attrs.blend_mode,
+                            attrs.mask.as_ref(),
+                            encoded_paints,
+                            image_resolver,
+                            Some(&alphas[alpha_offset..]),
+                        );
+                    }
+                }
+            }
+            Cmd::PushLayer
+            | Cmd::PopBuf
+            | Cmd::Opacity(_)
+            | Cmd::Mask(_)
+            | Cmd::BlendFill(_)
+            | Cmd::BlendAlphaFill(_) => unreachable!(),
+        }
+    }
+
+    fn pack(&self, row_idx: usize, row_height: usize, x: u16, width: u16, buffer: &mut [u8]) {
+        let out_width = usize::from(self.out_width);
+        let offset = row_idx * Tile::HEIGHT as usize * out_width * COLOR_COMPONENTS;
+        let len = row_height * out_width * COLOR_COMPONENTS;
+        let out = &mut buffer[offset..offset + len];
+        let x = usize::from(x);
+        let width = usize::from(width);
+        let end = x + width;
+        let scratch = self.buffers.last().unwrap();
+
+        let block_start = if row_height == Tile::HEIGHT as usize {
+            x.next_multiple_of(Tile::WIDTH as usize).min(end)
+        } else {
+            end
+        };
+
+        if x < block_start {
+            T::pack_tail(scratch, x, block_start - x, row_height, out_width, out);
+        }
+
+        let block_width = if row_height == Tile::HEIGHT as usize {
+            (end - block_start) / Tile::WIDTH as usize * Tile::WIDTH as usize
+        } else {
+            0
+        };
+
+        if block_width > 0 {
+            T::pack_block(self.simd, scratch, block_start, block_width, out_width, out);
+        }
+
+        let tail_start = block_start + block_width;
+        if tail_start < end {
+            T::pack_tail(
+                scratch,
+                tail_start,
+                end - tail_start,
+                row_height,
+                out_width,
+                out,
+            );
+        }
+    }
+}
+
+fn fill_indexed_paint<S: Simd, T: FineKernel<S>>(
+    simd: S,
+    scratch: &mut [T::Numeric],
+    paint_buf: &mut [T::Numeric],
+    f32_buf: &mut [f32],
+    x: u16,
+    y: u16,
+    width: u16,
+    paint_index: usize,
+    blend_mode: BlendMode,
+    mask: Option<&Mask>,
+    encoded_paints: &[EncodedPaint],
+    image_resolver: &dyn ImageResolver,
+    alphas: Option<&[u8]>,
+) {
+    if width == 0 {
+        return;
+    }
+
+    let width = usize::from(width);
+    let start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
+    let len = width * TILE_HEIGHT_COMPONENTS;
+    let dest = &mut scratch[start..start + len];
+    let color_buf = &mut paint_buf[..len];
+    let encoded_paint = &encoded_paints[paint_index];
+
+    let sampler_x = f64::from(x) + PIXEL_CENTER_OFFSET;
+    let sampler_y = f64::from(y) + PIXEL_CENTER_OFFSET;
+    let default_blend = blend_mode == BlendMode::default();
+
+    macro_rules! fill_complex_paint {
+        ($may_have_transparency:expr, $filler:expr) => {
+            fill_complex_paint!($may_have_transparency, $filler, None::<&Tint>)
+        };
+        ($may_have_transparency:expr, $filler:expr, $tint:expr) => {
+            if $may_have_transparency || alphas.is_some() || !default_blend || mask.is_some() {
+                T::apply_painter(simd, color_buf, $filler);
+                if let Some(tint) = $tint {
+                    T::apply_tint(simd, color_buf, tint);
+                }
+
+                if default_blend && mask.is_none() {
+                    T::alpha_composite_buffer(simd, dest, color_buf, alphas);
+                } else {
+                    T::blend(
+                        simd,
+                        dest,
+                        x,
+                        y,
+                        color_buf
+                            .chunks_exact(T::Composite::LENGTH)
+                            .map(|s| T::Composite::from_slice(simd, s)),
+                        blend_mode,
+                        alphas,
+                        mask,
+                    );
+                }
+            } else {
+                T::apply_painter(simd, dest, $filler);
+                if let Some(tint) = $tint {
+                    T::apply_tint(simd, dest, tint);
+                }
+            }
+        };
+    }
+
+    match encoded_paint {
+        EncodedPaint::BlurredRoundedRect(rect) => {
+            fill_complex_paint!(
+                true,
+                T::blurred_rounded_rectangle_painter(simd, rect, sampler_x, sampler_y)
+            );
+        }
+        EncodedPaint::Gradient(gradient) => {
+            let t_vals = &mut f32_buf[..width * Tile::HEIGHT as usize];
+
+            match &gradient.kind {
+                EncodedKind::Linear(kind) => {
+                    calculate_t_vals(
+                        simd,
+                        SimdLinearKind::new(simd, *kind),
+                        t_vals,
+                        gradient,
+                        sampler_x,
+                        sampler_y,
+                    );
+                    fill_complex_paint!(
+                        gradient.may_have_transparency,
+                        T::gradient_painter(simd, gradient, t_vals)
+                    );
+                }
+                EncodedKind::Sweep(kind) => {
+                    calculate_t_vals(
+                        simd,
+                        SimdSweepKind::new(simd, kind),
+                        t_vals,
+                        gradient,
+                        sampler_x,
+                        sampler_y,
+                    );
+                    fill_complex_paint!(
+                        gradient.may_have_transparency,
+                        T::gradient_painter(simd, gradient, t_vals)
+                    );
+                }
+                EncodedKind::Radial(kind) => {
+                    calculate_t_vals(
+                        simd,
+                        SimdRadialKind::new(simd, kind),
+                        t_vals,
+                        gradient,
+                        sampler_x,
+                        sampler_y,
+                    );
+
+                    if kind.has_undefined() {
+                        fill_complex_paint!(
+                            gradient.may_have_transparency,
+                            T::gradient_painter_with_undefined(simd, gradient, t_vals)
+                        );
+                    } else {
+                        fill_complex_paint!(
+                            gradient.may_have_transparency,
+                            T::gradient_painter(simd, gradient, t_vals)
+                        );
+                    }
+                }
+            }
+        }
+        EncodedPaint::Image(image) => {
+            let pixmap = match &image.source {
+                ImageSource::Pixmap(pixmap) => pixmap.clone(),
+                ImageSource::OpaqueId { id, .. } => image_resolver
+                    .resolve(*id)
+                    .unwrap_or_else(|| panic!("Image {:?} not found in registry", id)),
+            };
+            let tint = image.tint.as_ref();
+
+            match (image.has_skew(), image.nearest_neighbor()) {
+                (false, false) => {
+                    if image.sampler.quality == ImageQuality::Medium {
+                        fill_complex_paint!(
+                            image.may_have_transparency,
+                            T::plain_medium_quality_image_painter(
+                                simd, image, &pixmap, sampler_x, sampler_y
+                            ),
+                            tint
+                        );
+                    } else {
+                        fill_complex_paint!(
+                            image.may_have_transparency,
+                            T::high_quality_image_painter(
+                                simd, image, &pixmap, sampler_x, sampler_y
+                            ),
+                            tint
+                        );
+                    }
+                }
+                (true, false) => {
+                    if image.sampler.quality == ImageQuality::Medium {
+                        fill_complex_paint!(
+                            image.may_have_transparency,
+                            T::medium_quality_image_painter(
+                                simd, image, &pixmap, sampler_x, sampler_y
+                            ),
+                            tint
+                        );
+                    } else {
+                        fill_complex_paint!(
+                            image.may_have_transparency,
+                            T::high_quality_image_painter(
+                                simd, image, &pixmap, sampler_x, sampler_y
+                            ),
+                            tint
+                        );
+                    }
+                }
+                (false, true) => {
+                    fill_complex_paint!(
+                        image.may_have_transparency,
+                        T::plain_nn_image_painter(simd, image, &pixmap, sampler_x, sampler_y),
+                        tint
+                    );
+                }
+                (true, true) => {
+                    fill_complex_paint!(
+                        image.may_have_transparency,
+                        T::nn_image_painter(simd, image, &pixmap, sampler_x, sampler_y),
+                        tint
+                    );
+                }
+            }
+        }
+        EncodedPaint::ExternalTexture(_) => {
+            unimplemented!("External textures are not supported by `vello_cpu`")
+        }
+    }
+}
+
+pub(crate) fn rasterize<S: Simd, T: FineKernel<S>>(
+    simd: S,
+    bucketer: &CommandBucketer,
+    alphas: &[u8],
+    buffer: &mut [u8],
+    width: u16,
+    height: u16,
+    encoded_paints: &[EncodedPaint],
+    image_resolver: &dyn ImageResolver,
+) {
+    let mut fine = Fine::<S, T>::new(simd, width, bucketer.width());
+    buffer.fill(0);
+
+    for (row_idx, row) in bucketer.rows().iter().enumerate() {
+        let row_y = row_idx as u16 * Tile::HEIGHT;
+        if row_y >= height {
+            break;
+        }
+
+        let row_height = usize::from((height - row_y).min(Tile::HEIGHT));
+        let Some((row_start, row_end)) = row.bounds() else {
+            continue;
+        };
+
+        fine.clear_range(row_start, row_end - row_start);
+
+        for &cmd in row.opaque.iter().rev() {
+            let attrs = &bucketer.attrs()[cmd.attrs_idx as usize];
+            fine.render_opaque(cmd, row_y, attrs, encoded_paints, image_resolver);
+        }
+        for cmd in &row.cmds {
+            match cmd {
+                Cmd::Fill(_) | Cmd::AlphaFill(_) => {
+                    let attrs = &bucketer.attrs()[cmd.fill_attrs_idx() as usize];
+                    let use_depth =
+                        row.depth_affects(cmd.fill_x(), cmd.fill_width(), attrs.path_id);
+                    fine.render_cmd(
+                        cmd,
+                        row_y,
+                        alphas,
+                        attrs,
+                        encoded_paints,
+                        image_resolver,
+                        use_depth,
+                    );
+                }
+                Cmd::PushLayer => {
+                    fine.push_layer(row_start, row_end - row_start);
+                }
+                Cmd::PopBuf => {
+                    fine.pop_buf();
+                }
+                Cmd::Opacity(opacity) => {
+                    fine.opacity(row_start, row_end - row_start, *opacity);
+                }
+                Cmd::Mask(mask) => {
+                    fine.mask(row_y, row_start, row_end - row_start, mask);
+                }
+                Cmd::BlendFill(cmd) => {
+                    fine.blend_fill(row_y, cmd.x, cmd.width, cmd.blend_mode);
+                }
+                Cmd::BlendAlphaFill(cmd) => {
+                    fine.blend_alpha_fill(
+                        row_y,
+                        cmd.x,
+                        cmd.width,
+                        cmd.blend_mode,
+                        &alphas[cmd.alpha_idx as usize..],
+                    );
+                }
+            }
+        }
+
+        let pack_start = row_start.min(width);
+        let pack_end = row_end.min(width);
+        if pack_start < pack_end {
+            fine.pack(
+                row_idx,
+                row_height,
+                pack_start,
+                pack_end - pack_start,
+                buffer,
+            );
+        }
     }
 }
 

@@ -18,7 +18,7 @@ use vello_common::filter_effects::Filter;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
 
-pub(crate) trait Dispatcher: Debug + Send + Sync {
+pub(crate) trait Dispatcher: Debug + Send {
     fn has_unpopped_layers(&self) -> bool;
     fn fill_path(
         &mut self,
