@@ -15,7 +15,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 #[cfg(feature = "u8_pipeline")]
 use bytemuck::cast_slice;
-use core::{iter, marker::PhantomData};
+use core::{iter, marker::PhantomData, ops::Range};
 use vello_common::encode::{EncodedKind, EncodedPaint};
 use vello_common::fearless_simd::*;
 use vello_common::geometry::RectU16;
@@ -151,7 +151,7 @@ pub(crate) struct FillAttrs {
 
 #[derive(Debug, Clone)]
 pub(crate) struct LayerClip {
-    pub(crate) strips: Vec<Strip>,
+    pub(crate) strip_range: Range<usize>,
     pub(crate) bbox: RectU16,
 }
 
@@ -383,10 +383,6 @@ impl CommandBucketer {
         &self.attrs
     }
 
-    pub(crate) fn has_unpopped_layers(&self) -> bool {
-        !self.active_layers.is_empty()
-    }
-
     pub(crate) fn reset(&mut self) {
         for row in &mut self.rows {
             row.clear();
@@ -426,7 +422,7 @@ impl CommandBucketer {
         }
     }
 
-    pub(crate) fn pop_layer(&mut self) {
+    pub(crate) fn pop_layer(&mut self, strips: &[Strip]) {
         let mut layer = self.active_layers.pop().unwrap();
         let mask = layer.mask.clone();
         let opacity = layer.opacity;
@@ -434,6 +430,7 @@ impl CommandBucketer {
         let full_width = self.width();
         if let Some(clip) = layer.clip {
             self.clip_bboxes.pop();
+            let clip_strips = &strips[clip.strip_range];
 
             let mut occupied_rows = vec![false; self.rows.len()];
             for &row_idx in &layer.occupied_rows {
@@ -444,7 +441,7 @@ impl CommandBucketer {
             }
 
             self.generate(
-                &clip.strips,
+                clip_strips,
                 |bucketer, row_idx, fill| {
                     if occupied_rows[row_idx] {
                         bucketer.rows[row_idx].push_blend_fill(fill, blend_mode, full_width);

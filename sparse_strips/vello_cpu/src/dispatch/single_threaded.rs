@@ -7,6 +7,9 @@ use crate::fine::FineKernel;
 use crate::kurbo::{Affine, BezPath, PathEl, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::row::{CommandBucketer, LayerClip, RowRenderKernel};
+use alloc::vec::Vec;
+use core::ops::Range;
+use std::sync::Mutex;
 use vello_common::clip::ClipContext;
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd};
@@ -14,25 +17,46 @@ use vello_common::filter_effects::Filter;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
-use vello_common::strip_generator::{StripGenerator, StripStorage};
+use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
+
+#[derive(Debug, Clone)]
+enum RecordedCmd {
+    Fill {
+        strip_range: Range<usize>,
+        paint: Paint,
+        blend_mode: BlendMode,
+        mask: Option<Mask>,
+    },
+    PushLayer {
+        blend_mode: BlendMode,
+        opacity: f32,
+        mask: Option<Mask>,
+        clip: Option<LayerClip>,
+    },
+    PopLayer,
+}
 
 /// Single-threaded dispatcher for the row-bucket prototype.
 #[derive(Debug)]
 pub(crate) struct SingleThreadedDispatcher {
-    bucketer: CommandBucketer,
+    bucketer: Mutex<CommandBucketer>,
     clip_context: ClipContext,
+    cmds: Vec<RecordedCmd>,
     strip_generator: StripGenerator,
     strip_storage: StripStorage,
+    layer_depth: usize,
     level: Level,
 }
 
 impl SingleThreadedDispatcher {
     pub(crate) fn new(width: u16, height: u16, level: Level) -> Self {
         Self {
-            bucketer: CommandBucketer::new(width, height),
+            bucketer: Mutex::new(CommandBucketer::new(width, height)),
             clip_context: ClipContext::new(),
+            cmds: Vec::new(),
             strip_generator: StripGenerator::new(width, height, level),
-            strip_storage: StripStorage::default(),
+            strip_storage: StripStorage::new(GenerationMode::Append),
+            layer_depth: 0,
             level,
         }
     }
@@ -74,9 +98,35 @@ impl SingleThreadedDispatcher {
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
+        let mut bucketer = self.bucketer.lock().unwrap();
+        bucketer.reset();
+        for cmd in self.cmds.iter().cloned() {
+            match cmd {
+                RecordedCmd::Fill {
+                    strip_range,
+                    paint,
+                    blend_mode,
+                    mask,
+                } => bucketer.generate_fill(
+                    &self.strip_storage.strips[strip_range],
+                    paint,
+                    blend_mode,
+                    mask,
+                    encoded_paints,
+                ),
+                RecordedCmd::PushLayer {
+                    blend_mode,
+                    opacity,
+                    mask,
+                    clip,
+                } => bucketer.push_layer(blend_mode, opacity, mask, clip),
+                RecordedCmd::PopLayer => bucketer.pop_layer(&self.strip_storage.strips),
+            }
+        }
+
         crate::row::rasterize::<S, F>(
             simd,
-            &self.bucketer,
+            &bucketer,
             &self.strip_storage.alphas,
             buffer,
             width,
@@ -84,6 +134,21 @@ impl SingleThreadedDispatcher {
             encoded_paints,
             image_resolver,
         );
+    }
+
+    fn record_fill(
+        &mut self,
+        strip_start: usize,
+        paint: Paint,
+        blend_mode: BlendMode,
+        mask: Option<Mask>,
+    ) {
+        self.cmds.push(RecordedCmd::Fill {
+            strip_range: strip_start..self.strip_storage.strips.len(),
+            paint,
+            blend_mode,
+            mask,
+        });
     }
 }
 
@@ -122,7 +187,7 @@ fn control_point_bbox(path: &BezPath, transform: Affine) -> RectU16 {
 
 impl Dispatcher for SingleThreadedDispatcher {
     fn has_unpopped_layers(&self) -> bool {
-        self.bucketer.has_unpopped_layers()
+        self.layer_depth != 0
     }
 
     fn fill_path(
@@ -134,9 +199,10 @@ impl Dispatcher for SingleThreadedDispatcher {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
-        encoded_paints: &[EncodedPaint],
+        _encoded_paints: &[EncodedPaint],
     ) {
         let clip_path = self.clip_context.get();
+        let strip_start = self.strip_storage.strips.len();
         let strip_generator = &mut self.strip_generator;
         let strip_storage = &mut self.strip_storage;
         strip_generator.generate_filled_path(
@@ -147,13 +213,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             strip_storage,
             clip_path,
         );
-        self.bucketer.generate_fill(
-            &self.strip_storage.strips,
-            paint,
-            blend_mode,
-            mask,
-            encoded_paints,
-        );
+        self.record_fill(strip_start, paint, blend_mode, mask);
     }
 
     fn stroke_path(
@@ -165,9 +225,10 @@ impl Dispatcher for SingleThreadedDispatcher {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
-        encoded_paints: &[EncodedPaint],
+        _encoded_paints: &[EncodedPaint],
     ) {
         let clip_path = self.clip_context.get();
+        let strip_start = self.strip_storage.strips.len();
         let strip_generator = &mut self.strip_generator;
         let strip_storage = &mut self.strip_storage;
         strip_generator.generate_stroked_path(
@@ -178,13 +239,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             strip_storage,
             clip_path,
         );
-        self.bucketer.generate_fill(
-            &self.strip_storage.strips,
-            paint,
-            blend_mode,
-            mask,
-            encoded_paints,
-        );
+        self.record_fill(strip_start, paint, blend_mode, mask);
     }
 
     fn fill_rect_fast(
@@ -193,19 +248,14 @@ impl Dispatcher for SingleThreadedDispatcher {
         paint: Paint,
         blend_mode: BlendMode,
         mask: Option<Mask>,
-        encoded_paints: &[EncodedPaint],
+        _encoded_paints: &[EncodedPaint],
     ) {
         let clip_path = self.clip_context.get();
+        let strip_start = self.strip_storage.strips.len();
         let strip_generator = &mut self.strip_generator;
         let strip_storage = &mut self.strip_storage;
         strip_generator.generate_filled_rect_fast(rect, strip_storage, clip_path);
-        self.bucketer.generate_fill(
-            &self.strip_storage.strips,
-            paint,
-            blend_mode,
-            mask,
-            encoded_paints,
-        );
+        self.record_fill(strip_start, paint, blend_mode, mask);
     }
 
     fn push_clip_path(
@@ -252,6 +302,7 @@ impl Dispatcher for SingleThreadedDispatcher {
                 bbox.y1 = bbox.y1.min(self.strip_generator.height());
             }
 
+            let strip_start = self.strip_storage.strips.len();
             self.strip_generator.generate_filled_path(
                 clip_path,
                 fill_rule,
@@ -262,24 +313,35 @@ impl Dispatcher for SingleThreadedDispatcher {
             );
 
             LayerClip {
-                strips: self.strip_storage.strips.clone(),
+                strip_range: strip_start..self.strip_storage.strips.len(),
                 bbox,
             }
         });
 
-        self.bucketer
-            .push_layer(blend_mode, opacity, mask, clip_path);
+        self.cmds.push(RecordedCmd::PushLayer {
+            blend_mode,
+            opacity,
+            mask,
+            clip: clip_path,
+        });
+        self.layer_depth += 1;
     }
 
     fn pop_layer(&mut self) {
-        self.bucketer.pop_layer();
+        self.cmds.push(RecordedCmd::PopLayer);
+        self.layer_depth = self
+            .layer_depth
+            .checked_sub(1)
+            .expect("layer stack underflow");
     }
 
     fn reset(&mut self) {
-        self.bucketer.reset();
+        self.bucketer.lock().unwrap().reset();
         self.clip_context.reset();
+        self.cmds.clear();
         self.strip_generator.reset();
         self.strip_storage.clear();
+        self.layer_depth = 0;
     }
 
     fn flush(&mut self, _encoded_paints: &[EncodedPaint]) {}

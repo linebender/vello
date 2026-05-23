@@ -852,9 +852,10 @@ mod tests {
     use vello_common::tile::Tile;
 
     #[test]
-    #[should_panic(expected = "row-bucket prototype does not support layers")]
     fn clip_overflow() {
+        let mut resources = Resources::new();
         let mut ctx = RenderContext::new(100, 100);
+        let mut buffer = vec![0; 100 * 100 * 4];
 
         for _ in 0..(usize::from(u16::MAX) + 1).div_ceil(usize::from(Tile::HEIGHT * Tile::WIDTH)) {
             ctx.fill_rect(&Rect::new(0.0, 0.0, 1.0, 1.0));
@@ -863,6 +864,13 @@ mod tests {
         ctx.push_clip_layer(&Rect::new(20.0, 20.0, 180.0, 180.0).to_path(0.1));
         ctx.pop_layer();
         ctx.flush();
+        ctx.render_to_buffer(
+            &mut resources,
+            &mut buffer,
+            100,
+            100,
+            ctx.render_settings().render_mode,
+        );
     }
 
     #[test]
