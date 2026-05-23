@@ -7,6 +7,8 @@ use crate::fine::FineKernel;
 use crate::kurbo::{Affine, BezPath, PathEl, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::row::{CommandBucketer, LayerClip};
+use crate::util::scalar::div_255;
+use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::ops::Range;
@@ -149,6 +151,42 @@ impl SingleThreadedDispatcher {
             blend_mode,
             mask,
         });
+    }
+}
+
+fn composite_src_over_at_offset(
+    src: &[u8],
+    src_width: u16,
+    src_height: u16,
+    dst: &mut [u8],
+    dst_x: u16,
+    dst_y: u16,
+    dst_width: u16,
+    dst_height: u16,
+) {
+    if dst_x >= dst_width || dst_y >= dst_height {
+        return;
+    }
+
+    let width = usize::from(src_width.min(dst_width - dst_x));
+    let height = usize::from(src_height.min(dst_height - dst_y));
+    let src_stride = usize::from(src_width) * 4;
+    let dst_stride = usize::from(dst_width) * 4;
+    let dst_x = usize::from(dst_x);
+    let dst_y = usize::from(dst_y);
+
+    for y in 0..height {
+        let src_row = &src[y * src_stride..][..width * 4];
+        let dst_start = (dst_y + y) * dst_stride + dst_x * 4;
+        let dst_row = &mut dst[dst_start..][..width * 4];
+
+        for (src, dst) in src_row.chunks_exact(4).zip(dst_row.chunks_exact_mut(4)) {
+            let inv_alpha = u16::from(255 - src[3]);
+            dst[0] = (u16::from(src[0]) + div_255(u16::from(dst[0]) * inv_alpha)).min(255) as u8;
+            dst[1] = (u16::from(src[1]) + div_255(u16::from(dst[1]) * inv_alpha)).min(255) as u8;
+            dst[2] = (u16::from(src[2]) + div_255(u16::from(dst[2]) * inv_alpha)).min(255) as u8;
+            dst[3] = (u16::from(src[3]) + div_255(u16::from(dst[3]) * inv_alpha)).min(255) as u8;
+        }
     }
 }
 
@@ -392,17 +430,35 @@ impl Dispatcher for SingleThreadedDispatcher {
 
     fn composite_at_offset(
         &self,
-        _buffer: &mut [u8],
-        _width: u16,
-        _height: u16,
-        _dst_x: u16,
-        _dst_y: u16,
-        _dst_buffer_width: u16,
-        _dst_buffer_height: u16,
-        _render_mode: RenderMode,
-        _encoded_paints: &[EncodedPaint],
-        _image_resolver: &dyn ImageResolver,
+        buffer: &mut [u8],
+        width: u16,
+        height: u16,
+        dst_x: u16,
+        dst_y: u16,
+        dst_buffer_width: u16,
+        dst_buffer_height: u16,
+        render_mode: RenderMode,
+        encoded_paints: &[EncodedPaint],
+        image_resolver: &dyn ImageResolver,
     ) {
-        unimplemented!("row-bucket prototype does not support compositing at an offset");
+        let mut src = vec![0; usize::from(width) * usize::from(height) * 4];
+        self.rasterize(
+            &mut src,
+            render_mode,
+            width,
+            height,
+            encoded_paints,
+            image_resolver,
+        );
+        composite_src_over_at_offset(
+            &src,
+            width,
+            height,
+            buffer,
+            dst_x,
+            dst_y,
+            dst_buffer_width,
+            dst_buffer_height,
+        );
     }
 }
