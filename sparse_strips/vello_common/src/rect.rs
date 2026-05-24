@@ -59,19 +59,19 @@ fn render_impl<S: Simd>(s: S, rect: Rect, strip_buf: &mut Vec<Strip>, alpha_buf:
     // Inclusive, so don't use `ceil` here but just `rect_x1` directly.
     let right_tile_x = (rect_x1 as u16 / Tile::WIDTH) * Tile::WIDTH;
 
-    let y0 = (px_y0 / Tile::HEIGHT) * Tile::HEIGHT;
-    // Note: y1 is exclusive, but it's gonna break for the very last tile if we have a height of u16::MAX.
-    let y1 = (px_y1.saturating_add(Tile::HEIGHT - 1) / Tile::HEIGHT) * Tile::HEIGHT;
+    let y0 = u32::from((px_y0 / Tile::HEIGHT) * Tile::HEIGHT);
+    let y1 = (u32::from(px_y1) + u32::from(Tile::HEIGHT - 1)) / u32::from(Tile::HEIGHT)
+        * u32::from(Tile::HEIGHT);
     // Include one tile past the right edge so the right-edge tile column is
     // covered by the edge-row wide-strip loop.
-    let x_end = right_tile_x.saturating_add(Tile::WIDTH);
+    let x_end = u32::from(right_tile_x) + u32::from(Tile::WIDTH);
 
-    if x_end <= left_tile_x || y1 <= y0 {
+    if x_end <= u32::from(left_tile_x) || y1 <= y0 {
         return;
     }
 
-    let tile_start_y = y0 / Tile::HEIGHT;
-    let tile_end_y = y1 / Tile::HEIGHT;
+    let tile_start_y = y0 / u32::from(Tile::HEIGHT);
+    let tile_end_y = y1 / u32::from(Tile::HEIGHT);
 
     // A right strip is only needed when the rect spans more than one tile column.
     let needs_right_strip = right_tile_x > left_tile_x;
@@ -82,7 +82,8 @@ fn render_impl<S: Simd>(s: S, rect: Rect, strip_buf: &mut Vec<Strip>, alpha_buf:
     let right_x_mask = alpha_mask_from_x_coverage(s, &right_x_cov);
 
     for tile_y in tile_start_y..tile_end_y {
-        let strip_y = tile_y * Tile::HEIGHT;
+        let strip_y = tile_y * u32::from(Tile::HEIGHT);
+        let strip_y = strip_y as u16;
         let strip_y_f = strip_y as f32;
         let strip_y_end_f = strip_y as f32 + Tile::HEIGHT as f32;
 
@@ -95,15 +96,14 @@ fn render_impl<S: Simd>(s: S, rect: Rect, strip_buf: &mut Vec<Strip>, alpha_buf:
             let alpha_start = alpha_buf.len() as u32;
 
             let y_cov = coverage(strip_y, rect_y0, rect_y1);
-            let mut col = left_tile_x;
-            // TODO: Can this result in an infinite loop in case x_end == u16::MAX?
-            while col + Tile::WIDTH <= x_end {
+            let mut col = u32::from(left_tile_x);
+            while col + u32::from(Tile::WIDTH) <= x_end {
                 // TODO: We could optimize this so this is only computed for the left-most and right-most
                 // tile of the edge, all intermediate tiles have full horizontal coverage.
-                let x_cov = coverage(col, rect_x0, rect_x1);
+                let x_cov = coverage(col as u16, rect_x0, rect_x1);
                 let combined = combined_tile_alpha(s, &x_cov, &y_cov);
                 alpha_buf.extend_from_slice(combined.as_slice());
-                col += Tile::WIDTH;
+                col += u32::from(Tile::WIDTH);
             }
 
             strip_buf.push(Strip::new(left_tile_x, strip_y, alpha_start, false));
@@ -123,7 +123,7 @@ fn render_impl<S: Simd>(s: S, rect: Rect, strip_buf: &mut Vec<Strip>, alpha_buf:
     }
 
     // Sentinel strip: marks the end of the strip list for this shape.
-    let last_strip_y = (tile_end_y - 1) * Tile::HEIGHT;
+    let last_strip_y = ((tile_end_y - 1) * u32::from(Tile::HEIGHT)) as u16;
     strip_buf.push(Strip::new(
         u16::MAX,
         last_strip_y,
@@ -177,4 +177,46 @@ fn combined_tile_alpha<S: Simd>(
     }
 
     u8x16::from_slice(s, &buf)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec::Vec;
+
+    #[test]
+    fn render_edge_row_at_u16_right_edge() {
+        let mut strips = Vec::new();
+        let mut alphas = Vec::new();
+        let rect = Rect::new(f64::from(u16::MAX - 3), 0.5, f64::from(u16::MAX), 3.5);
+
+        render(Level::baseline(), rect, &mut strips, &mut alphas);
+
+        assert_eq!(strips.len(), 2);
+        assert_eq!(strips[0].x, u16::MAX - 3);
+        assert_eq!(strips[0].alpha_idx(), 0);
+        assert_eq!(
+            alphas.len(),
+            usize::from(Tile::WIDTH) * usize::from(Tile::HEIGHT)
+        );
+        assert!(strips[1].is_sentinel());
+    }
+
+    #[test]
+    fn render_edge_row_at_u16_bottom_edge() {
+        let mut strips = Vec::new();
+        let mut alphas = Vec::new();
+        let rect = Rect::new(0.5, f64::from(u16::MAX - 3), 3.5, f64::from(u16::MAX));
+
+        render(Level::baseline(), rect, &mut strips, &mut alphas);
+
+        assert_eq!(strips.len(), 2);
+        assert_eq!(strips[0].y, u16::MAX - 3);
+        assert_eq!(strips[0].alpha_idx(), 0);
+        assert_eq!(
+            alphas.len(),
+            usize::from(Tile::WIDTH) * usize::from(Tile::HEIGHT)
+        );
+        assert!(strips[1].is_sentinel());
+    }
 }
