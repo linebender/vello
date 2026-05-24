@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::RenderMode;
-use crate::dispatch::Dispatcher;
+use crate::dispatch::{Dispatcher, RecordedCmd};
 use crate::fine::FineKernel;
 use crate::kurbo::{Affine, BezPath, PathEl, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
@@ -11,7 +11,6 @@ use crate::util::scalar::div_255;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
-use core::ops::Range;
 use vello_common::clip::ClipContext;
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd};
@@ -20,23 +19,6 @@ use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
-
-#[derive(Debug)]
-enum RecordedCmd {
-    Fill {
-        strip_range: Range<usize>,
-        paint: Paint,
-        blend_mode: BlendMode,
-        mask: Option<Mask>,
-    },
-    PushLayer {
-        blend_mode: BlendMode,
-        opacity: f32,
-        mask: Option<Mask>,
-        clip: Option<LayerClip>,
-    },
-    PopLayer,
-}
 
 /// Single-threaded dispatcher for the row-bucket prototype.
 #[derive(Debug)]
@@ -91,20 +73,12 @@ impl SingleThreadedDispatcher {
         dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, buffer, width, height, encoded_paints, image_resolver));
     }
 
-    fn rasterize_with<S: Simd, F: FineKernel<S>>(
-        &self,
-        simd: S,
-        buffer: &mut [u8],
-        width: u16,
-        height: u16,
-        encoded_paints: &[EncodedPaint],
-        image_resolver: &dyn ImageResolver,
-    ) {
-        let mut bucketer = self.bucketer.borrow_mut();
+    fn replay_commands(&self, bucketer: &mut CommandBucketer, encoded_paints: &[EncodedPaint]) {
         bucketer.reset();
         for cmd in &self.cmds {
             match cmd {
                 RecordedCmd::Fill {
+                    thread_idx,
                     strip_range,
                     paint,
                     blend_mode,
@@ -114,6 +88,7 @@ impl SingleThreadedDispatcher {
                     paint.clone(),
                     *blend_mode,
                     mask.clone(),
+                    *thread_idx,
                     encoded_paints,
                 ),
                 RecordedCmd::PushLayer {
@@ -125,11 +100,24 @@ impl SingleThreadedDispatcher {
                 RecordedCmd::PopLayer => bucketer.pop_layer(&self.strip_storage.strips),
             }
         }
+    }
+
+    fn rasterize_with<S: Simd, F: FineKernel<S>>(
+        &self,
+        simd: S,
+        buffer: &mut [u8],
+        width: u16,
+        height: u16,
+        encoded_paints: &[EncodedPaint],
+        image_resolver: &dyn ImageResolver,
+    ) {
+        let mut bucketer = self.bucketer.borrow_mut();
+        self.replay_commands(&mut bucketer, encoded_paints);
 
         crate::fine::rasterize::<S, F>(
             simd,
             &bucketer,
-            &self.strip_storage.alphas,
+            &[self.strip_storage.alphas.as_slice()],
             buffer,
             width,
             height,
@@ -146,6 +134,7 @@ impl SingleThreadedDispatcher {
         mask: Option<Mask>,
     ) {
         self.cmds.push(RecordedCmd::Fill {
+            thread_idx: 0,
             strip_range: strip_start..self.strip_storage.strips.len(),
             paint,
             blend_mode,
@@ -352,6 +341,7 @@ impl Dispatcher for SingleThreadedDispatcher {
 
             LayerClip {
                 strip_range: strip_start..self.strip_storage.strips.len(),
+                thread_idx: 0,
                 bbox,
             }
         });

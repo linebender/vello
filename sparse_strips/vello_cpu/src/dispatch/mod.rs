@@ -2,21 +2,37 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 #[cfg(feature = "multithreading")]
-#[allow(
-    dead_code,
-    reason = "the row-bucket prototype disables multi-threaded rendering"
-)]
 pub(crate) mod multi_threaded;
 pub(crate) mod single_threaded;
 
 use crate::RenderMode;
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
+use crate::row::LayerClip;
 use core::fmt::Debug;
+use core::ops::Range;
 use vello_common::encode::EncodedPaint;
 use vello_common::filter_effects::Filter;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
+
+#[derive(Debug)]
+pub(crate) enum RecordedCmd {
+    Fill {
+        thread_idx: u8,
+        strip_range: Range<usize>,
+        paint: Paint,
+        blend_mode: BlendMode,
+        mask: Option<Mask>,
+    },
+    PushLayer {
+        blend_mode: BlendMode,
+        opacity: f32,
+        mask: Option<Mask>,
+        clip: Option<LayerClip>,
+    },
+    PopLayer,
+}
 
 pub(crate) trait Dispatcher: Debug + Send {
     fn has_unpopped_layers(&self) -> bool;

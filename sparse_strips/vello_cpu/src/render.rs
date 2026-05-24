@@ -5,6 +5,8 @@
 
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
+#[cfg(feature = "multithreading")]
+use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
 #[cfg(feature = "text")]
 use crate::text::{GlyphAtlasResources, GlyphRunBuilder};
 #[cfg(feature = "text")]
@@ -155,11 +157,16 @@ impl RenderContext {
     pub fn new_with(width: u16, height: u16, settings: RenderSettings) -> Self {
         #[cfg(feature = "multithreading")]
         let dispatcher: Box<dyn Dispatcher> = {
-            assert_eq!(
-                settings.num_threads, 0,
-                "row-bucket prototype does not support multi-threaded rendering"
-            );
-            Box::new(SingleThreadedDispatcher::new(width, height, settings.level))
+            if settings.num_threads == 0 {
+                Box::new(SingleThreadedDispatcher::new(width, height, settings.level))
+            } else {
+                Box::new(MultiThreadedDispatcher::new(
+                    width,
+                    height,
+                    settings.num_threads,
+                    settings.level,
+                ))
+            }
         };
 
         #[cfg(not(feature = "multithreading"))]
@@ -999,8 +1006,7 @@ mod tests {
 
     #[cfg(feature = "multithreading")]
     #[test]
-    #[should_panic(expected = "row-bucket prototype does not support multi-threaded rendering")]
-    fn multithreaded_crash_after_reset() {
+    fn multithreaded_render_after_reset() {
         use crate::{Level, RenderMode, RenderSettings};
         use vello_common::pixmap::Pixmap;
 

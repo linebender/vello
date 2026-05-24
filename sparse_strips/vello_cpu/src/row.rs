@@ -112,6 +112,7 @@ pub(crate) struct BlendAlphaFillCmd {
     pub(crate) x: u16,
     pub(crate) width: u16,
     pub(crate) alpha_idx: u32,
+    pub(crate) thread_idx: u8,
     pub(crate) blend_mode: BlendMode,
 }
 
@@ -134,11 +135,13 @@ pub(crate) struct FillAttrs {
     pub(crate) blend_mode: BlendMode,
     pub(crate) mask: Option<Mask>,
     pub(crate) path_id: u32,
+    pub(crate) thread_idx: u8,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct LayerClip {
     pub(crate) strip_range: Range<usize>,
+    pub(crate) thread_idx: u8,
     pub(crate) bbox: RectU16,
 }
 
@@ -241,6 +244,7 @@ impl RowCommands {
         &mut self,
         fill: GeneratedAlphaFill,
         blend_mode: BlendMode,
+        thread_idx: u8,
         full_width: u16,
     ) {
         self.push_cmd(
@@ -248,6 +252,7 @@ impl RowCommands {
                 x: fill.x,
                 width: fill.width,
                 alpha_idx: fill.alpha_idx,
+                thread_idx,
                 blend_mode,
             }),
             full_width,
@@ -436,7 +441,12 @@ impl CommandBucketer {
                 },
                 |bucketer, row_idx, fill| {
                     if occupied_rows[row_idx] {
-                        bucketer.rows[row_idx].push_blend_alpha_fill(fill, blend_mode, full_width);
+                        bucketer.rows[row_idx].push_blend_alpha_fill(
+                            fill,
+                            blend_mode,
+                            clip.thread_idx,
+                            full_width,
+                        );
                     }
                 },
             );
@@ -489,6 +499,7 @@ impl CommandBucketer {
         paint: Paint,
         blend_mode: BlendMode,
         mask: Option<Mask>,
+        thread_idx: u8,
         encoded_paints: &[EncodedPaint],
     ) {
         if strip_buf.is_empty() {
@@ -506,6 +517,7 @@ impl CommandBucketer {
             blend_mode,
             mask: mask.clone(),
             path_id,
+            thread_idx,
         });
         let depth_cull_path_id = (self.active_layers.is_empty()
             && blend_mode == BlendMode::default()
@@ -718,6 +730,7 @@ mod tests {
             Paint::Solid(color(RED)),
             BlendMode::default(),
             None,
+            0,
             &[],
         );
 
@@ -739,7 +752,14 @@ mod tests {
             .with_stops([ColorStop::from((0.0, RED)), ColorStop::from((1.0, BLUE))])
             .encode_into(&mut encoded_paints, Affine::IDENTITY, None);
 
-        bucketer.generate_fill(&strips, paint, BlendMode::default(), None, &encoded_paints);
+        bucketer.generate_fill(
+            &strips,
+            paint,
+            BlendMode::default(),
+            None,
+            0,
+            &encoded_paints,
+        );
 
         let row = &bucketer.rows()[0];
         assert_eq!(row.opaque.len(), 1);
@@ -760,6 +780,7 @@ mod tests {
             Paint::Solid(color(AlphaColor::from_rgba8(255, 0, 0, 128))),
             BlendMode::default(),
             None,
+            0,
             &[],
         );
 
@@ -779,6 +800,7 @@ mod tests {
             Paint::Solid(color(BLUE)),
             BlendMode::default(),
             None,
+            0,
             &[],
         );
 
@@ -800,6 +822,7 @@ mod tests {
             Paint::Solid(color(RED)),
             BlendMode::default(),
             None,
+            0,
             &[],
         );
 

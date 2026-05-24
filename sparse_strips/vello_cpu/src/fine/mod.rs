@@ -970,6 +970,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             );
         }
     }
+
 }
 
 fn fill_indexed_paint<S: Simd, T: FineKernel<S>>(
@@ -1174,7 +1175,7 @@ fn fill_indexed_paint<S: Simd, T: FineKernel<S>>(
 pub(crate) fn rasterize<S: Simd, T: FineKernel<S>>(
     simd: S,
     bucketer: &CommandBucketer,
-    alphas: &[u8],
+    alpha_buffers: &[&[u8]],
     buffer: &mut [u8],
     width: u16,
     height: u16,
@@ -1205,6 +1206,7 @@ pub(crate) fn rasterize<S: Simd, T: FineKernel<S>>(
             match cmd {
                 Cmd::Fill(_) | Cmd::AlphaFill(_) => {
                     let attrs = &bucketer.attrs()[cmd.fill_attrs_idx() as usize];
+                    let alphas = alpha_buffers[attrs.thread_idx as usize];
                     let use_depth =
                         row.depth_affects(cmd.fill_x(), cmd.fill_width(), attrs.path_id);
                     fine.render_cmd(
@@ -1233,6 +1235,7 @@ pub(crate) fn rasterize<S: Simd, T: FineKernel<S>>(
                     fine.blend_fill(row_y, cmd.x, cmd.width, cmd.blend_mode);
                 }
                 Cmd::BlendAlphaFill(cmd) => {
+                    let alphas = alpha_buffers[cmd.thread_idx as usize];
                     fine.blend_alpha_fill(
                         row_y,
                         cmd.x,

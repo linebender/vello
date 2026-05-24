@@ -142,7 +142,7 @@ impl Worker {
                     fill_rule,
                     aliasing_threshold,
                 } => {
-                    let clip = if let Some((path_range, transform)) = clip_path {
+                    let (clip, clip_bbox) = if let Some((path_range, transform, bbox)) = clip_path {
                         let start = self.strip_storage.strips.len() as u32;
                         let path = &render_task.allocation_group.path
                             [path_range.start as usize..path_range.end as usize];
@@ -158,14 +158,15 @@ impl Worker {
 
                         let end = self.strip_storage.strips.len() as u32;
 
-                        Some(start..end)
+                        (Some(start..end), Some(bbox))
                     } else {
-                        None
+                        (None, None)
                     };
 
                     let coarse_command = CoarseTaskType::PushLayer {
                         thread_id: self.thread_id,
                         clip_path: clip,
+                        clip_bbox,
                         blend_mode,
                         mask,
                         opacity,
