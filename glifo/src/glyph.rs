@@ -374,6 +374,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             // we never cache stroked outlines for now. For COLR and bitmap, this doesn't matter
             // because they are always filled anyway.
             && style == Style::Fill
+            // We use image tinting to color cached glyphs, which is not 
+            // supported for complex paints.
             && matches!(renderer.current_paint(), PaintType::Solid(_));
 
         let context_color = renderer.get_context_color();
