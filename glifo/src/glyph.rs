@@ -150,6 +150,8 @@ pub(crate) struct PreparedGlyph<'a> {
     pub(crate) glyph_type: GlyphType<'a>,
     /// The global transform of the glyph.
     pub(crate) transform: Affine,
+    /// The transform of the paint, relative to [`PreparedGlyph::transform`].
+    pub(crate) relative_paint_transform: Affine,
     /// Cache key for renderers that implement glyph caching.
     /// This is `Some` for glyphs that can be cached, `None` otherwise.
     ///
@@ -350,6 +352,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
         );
         let PreparedGlyphRun {
             draw_props,
+            absolute_paint_transform,
             run_size: _,
             font_embolden,
             normalized_coords,
@@ -389,6 +392,14 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             // On a miss we keep both for reuse in the outline branch below.
             let outline_transform =
                 calculate_outline_transform(glyph, draw_props, hinting_instance);
+
+            // We assume that the backend calculates the absolute paint transform
+            // by concatenating scene transform and (relative) paint transform.
+            // (This is currently the case for Vello CPU / Vello Hybrid, but will
+            // also be assumed to be the case for any other potential backend.)
+            // Therefore, we can calculate the relative paint transform for
+            // the glyph by pre-concatenating it with the inverted outline transform.
+            let relative_paint_transform = outline_transform.inverse() * absolute_paint_transform;
             let outline_cache_key = outline_cache_enabled.then(|| {
                 let fractional_x = outline_transform.translation().x.fract() as f32;
                 GlyphCacheKey::new(
@@ -475,6 +486,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                 let prepared_glyph = PreparedGlyph {
                     glyph_type,
                     transform,
+                    relative_paint_transform: Affine::IDENTITY,
                     cache_key,
                 };
                 match style {
@@ -546,6 +558,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                 let prepared_glyph = PreparedGlyph {
                     glyph_type,
                     transform,
+                    relative_paint_transform: Affine::IDENTITY,
                     cache_key,
                 };
                 match style {
@@ -581,6 +594,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             let prepared_glyph = PreparedGlyph {
                 glyph_type,
                 transform: outline_transform,
+                relative_paint_transform,
                 cache_key: outline_cache_key,
             };
             match style {
@@ -780,8 +794,8 @@ pub struct GlyphRunBuilder<'a, B> {
 }
 
 impl<'a, B> GlyphRunBuilder<'a, B> {
-    /// Creates a new builder for drawing glyphs with a pre-bound backend.
-    pub fn new(font: FontData, transform: Affine, backend: B) -> Self {
+    /// Creates a new builder for drawing glyphs with a pre-bound backend and paint transform.
+    pub fn new(font: FontData, transform: Affine, paint_transform: Affine, backend: B) -> Self {
         Self {
             // Note: This needs to be kept in sync with the default in vello_common!
             run: GlyphRun {
@@ -789,6 +803,7 @@ impl<'a, B> GlyphRunBuilder<'a, B> {
                 font_size: 16.0,
                 font_embolden: FontEmbolden::default(),
                 transform,
+                absolute_paint_transform: transform * paint_transform,
                 glyph_transform: None,
                 hint: true,
                 normalized_coords: &[],
@@ -1358,6 +1373,8 @@ pub struct GlyphRun<'a> {
     font_embolden: FontEmbolden,
     /// Global transform.
     transform: Affine,
+    /// Absolute paint transform for the glyph run.
+    absolute_paint_transform: Affine,
     /// Per-glyph transform. Use [`Affine::skew`] with horizontal-skew only to simulate italic
     /// text.
     glyph_transform: Option<Affine>,
@@ -1402,6 +1419,8 @@ struct PreparedGlyphRun<'a> {
     // Therefore, we need to track a separate set of fields for glyph-drawing operations.
     /// Properties for turning glyph-local positions into final draw transforms.
     draw_props: DrawProps,
+    /// The original absolute transform for the paint.
+    absolute_paint_transform: Affine,
     normalized_coords: &'a [skrifa::instance::NormalizedCoord],
     hinting_instance: Option<&'a HintingInstance>,
 }
@@ -1558,6 +1577,7 @@ fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> Pr
             effective_transform,
             font_size: draw_font_size,
         },
+        absolute_paint_transform: run.absolute_paint_transform,
         normalized_coords: run.normalized_coords,
         hinting_instance,
     }
