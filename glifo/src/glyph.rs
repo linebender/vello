@@ -394,6 +394,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             // On a miss we keep both for reuse in the outline branch below.
             let outline_transform =
                 calculate_outline_transform(glyph, draw_props, hinting_instance);
+            let outline_draw_transform = outline_transform.pre_scale(scale_props.draw_scale);
 
             // We assume that the backend calculates the absolute paint transform
             // by concatenating scene transform and (relative) paint transform.
@@ -401,7 +402,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             // also be assumed to be the case for any other potential backend.)
             // Therefore, we can calculate the relative paint transform for
             // the glyph by pre-concatenating it with the inverted outline transform.
-            let relative_paint_transform = outline_transform.inverse() * absolute_paint_transform;
+            let relative_paint_transform =
+                outline_draw_transform.inverse() * absolute_paint_transform;
             let outline_cache_key = outline_cache_enabled.then(|| {
                 let fractional_x = outline_transform.translation().x.fract() as f32;
                 GlyphCacheKey::new(

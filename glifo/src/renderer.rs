@@ -50,7 +50,13 @@ pub(crate) fn fill_glyph(
 
         return match prepared_glyph.glyph_type {
             GlyphType::Outline(glyph) => {
-                fill_uncached_outline_glyph(renderer, &glyph.path, glyph.scale, transform, paint_transform);
+                fill_uncached_outline_glyph(
+                    renderer,
+                    &glyph.path,
+                    glyph.scale,
+                    transform,
+                    paint_transform,
+                );
             }
             GlyphType::Bitmap(glyph) => render_uncached_bitmap_glyph(renderer, glyph, transform),
             GlyphType::Colr(glyph) => {
@@ -81,7 +87,13 @@ pub(crate) fn fill_glyph(
                 return;
             }
 
-            fill_uncached_outline_glyph(renderer, &glyph.path, glyph.scale, transform, paint_transform);
+            fill_uncached_outline_glyph(
+                renderer,
+                &glyph.path,
+                glyph.scale,
+                transform,
+                paint_transform,
+            );
         }
         GlyphType::Bitmap(glyph) => {
             if let Some(key) = cache_key.take()
@@ -131,7 +143,13 @@ pub(crate) fn stroke_glyph(
         let paint_transform = prepared_glyph.relative_paint_transform;
         return match prepared_glyph.glyph_type {
             GlyphType::Outline(glyph) => {
-                stroke_uncached_outline_glyph(renderer, &glyph.path, glyph.scale, transform, paint_transform);
+                stroke_uncached_outline_glyph(
+                    renderer,
+                    &glyph.path,
+                    glyph.scale,
+                    transform,
+                    paint_transform,
+                );
             }
             GlyphType::Bitmap(_) | GlyphType::Colr(_) => {
                 fill_glyph(renderer, prepared_glyph, atlas_cacher);
@@ -160,7 +178,13 @@ pub(crate) fn stroke_glyph(
                 return;
             }
 
-            stroke_uncached_outline_glyph(renderer, &glyph.path, glyph.scale, transform, paint_transform);
+            stroke_uncached_outline_glyph(
+                renderer,
+                &glyph.path,
+                glyph.scale,
+                transform,
+                paint_transform,
+            );
         }
         GlyphType::Bitmap(_) | GlyphType::Colr(_) => {
             fill_glyph(renderer, prepared_glyph, atlas_cacher);
