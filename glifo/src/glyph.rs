@@ -2114,7 +2114,7 @@ mod tests {
     use crate::peniko::Blob;
     use crate::peniko::color::{AlphaColor, Srgb};
     use alloc::sync::Arc;
-    use vello_common::paint::{Image, ImageId, ImageSource, Tint};
+    use vello_common::paint::{Image, ImageId, ImageSource, PaintType, Tint};
 
     const _NORMALISED_COORD_SIZE_MATCHES: () =
         assert!(size_of::<skrifa::instance::NormalizedCoord>() == size_of::<NormalizedCoord>());
@@ -2136,6 +2136,8 @@ mod tests {
 
     #[derive(Default)]
     struct NoopRenderer;
+
+    static BLACK_PAINT: PaintType = PaintType::Solid(BLACK);
 
     struct TestResources {
         renderer: NoopRenderer,
@@ -2201,6 +2203,10 @@ mod tests {
             BLACK
         }
 
+        fn current_paint(&self) -> &PaintType {
+            &BLACK_PAINT
+        }
+
         fn atlas_image_source(&self, atlas_slot: &AtlasSlot) -> ImageSource {
             ImageSource::opaque_id(ImageId::new(atlas_slot.page_index))
         }
@@ -2248,11 +2254,13 @@ mod tests {
             AtlasCacher::Disabled
         };
 
+        let transform = Affine::translate((0.0, 20.0));
         let mut run = GlyphRun {
             font: font.clone(),
             font_size: 20.0,
             font_embolden: FontEmbolden::default(),
-            transform: Affine::translate((0.0, 20.0)),
+            transform,
+            absolute_paint_transform: transform,
             glyph_transform: None,
             normalized_coords: &[],
             hint: false,
