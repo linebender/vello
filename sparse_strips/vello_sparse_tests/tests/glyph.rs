@@ -6,14 +6,17 @@
 use crate::renderer::Renderer;
 #[cfg(target_os = "macos")]
 use crate::util::layout_glyphs_apple_color_emoji;
-use crate::util::{layout_glyphs_noto_cbtf, layout_glyphs_noto_colr, layout_glyphs_roboto};
+use crate::util::{
+    layout_glyphs_noto_cbtf, layout_glyphs_noto_colr, layout_glyphs_roboto,
+    stops_blue_green_red_yellow,
+};
 use glifo::{FontEmbolden, Glyph};
 use std::f64::consts::FRAC_PI_4;
 use std::iter;
 use std::sync::Arc;
 use vello_common::color::palette::css::{BLACK, BLUE, GREEN, REBECCA_PURPLE};
-use vello_common::kurbo::{Affine, Diagonal2, Stroke};
-use vello_common::peniko::{Blob, FontData};
+use vello_common::kurbo::{Affine, Diagonal2, Point, Stroke};
+use vello_common::peniko::{Blob, FontData, Gradient, LinearGradientPosition};
 use vello_dev_macros::vello_test;
 
 fn render_transform_composition_rows(
@@ -415,6 +418,88 @@ fn glyphs_glyph_transform_unhinted(ctx: &mut impl Renderer, enable_caching: bool
         .glyph_transform(Affine::translate((10., 10.)))
         .hint(false)
         .fill_glyphs(glyphs.into_iter());
+}
+
+fn glyphs_with_gradient_inner(ctx: &mut impl Renderer, enable_caching: bool, mode: DrawMode) {
+    const SCENE_WIDTH: f64 = 300.0;
+    const GRADIENT_WIDTH: f64 = SCENE_WIDTH / 2.0;
+    const BASELINE_DELTA: f64 = 40.0;
+
+    let font_size = 36.0_f32;
+    let (font, glyphs) = layout_glyphs_roboto("Hello World", font_size);
+    let text_width = glyphs
+        .last()
+        .map_or(0.0, |glyph| f64::from(glyph.x) + f64::from(font_size) * 0.6);
+    let centered_x = ((SCENE_WIDTH - text_width) / 2.0) as f32;
+    let gradient = Gradient {
+        kind: LinearGradientPosition {
+            start: Point::new(0.0, 0.0),
+            end: Point::new(GRADIENT_WIDTH, 0.0),
+        }
+        .into(),
+        stops: stops_blue_green_red_yellow(),
+        ..Default::default()
+    };
+
+    ctx.set_paint(gradient);
+    ctx.set_stroke(Stroke {
+        width: 1.5,
+        ..Stroke::default()
+    });
+
+    let mut baseline_y = 42.0;
+    // 1) Visible gradient starts at green since we only translate the
+    // glyph X, which shouldn't affect the paint transform.
+    // 2) Visible gradient starts at 2, since paint is transformed along with
+    // the path transform.
+    // 3) Same as 2), just that the source is the paint transform instead of the
+    // scene transform.
+    // 4) Gradient should be shifted to the right, since it's affected by
+    // scene transform + paint transform.
+    for (use_render_transform, shift_gradient) in
+        [(false, false), (true, false), (false, true), (true, true)]
+    {
+        let (transform, glyph_x) = if use_render_transform {
+            (Affine::translate((centered_x as f64, baseline_y)), 0.0)
+        } else {
+            (Affine::translate((0.0, baseline_y)), centered_x)
+        };
+        let paint_transform = if shift_gradient {
+            Affine::translate((centered_x as f64, 0.0))
+        } else {
+            Affine::IDENTITY
+        };
+        let row_glyphs = glyphs.iter().map(|glyph| Glyph {
+            id: glyph.id,
+            x: glyph.x + glyph_x,
+            y: glyph.y,
+        });
+
+        ctx.set_transform(transform);
+        ctx.set_paint_transform(paint_transform);
+        let builder = ctx
+            .glyph_run(&font)
+            .font_size(font_size)
+            .atlas_cache(enable_caching)
+            .hint(false);
+
+        match mode {
+            DrawMode::Fill => builder.fill_glyphs(row_glyphs),
+            DrawMode::Stroke => builder.stroke_glyphs(row_glyphs),
+        }
+
+        baseline_y += BASELINE_DELTA;
+    }
+}
+
+#[vello_test(width = 300, height = 180, glyph)]
+fn glyphs_with_gradient(ctx: &mut impl Renderer, enable_caching: bool) {
+    glyphs_with_gradient_inner(ctx, enable_caching, DrawMode::Fill);
+}
+
+#[vello_test(width = 300, height = 180, glyph)]
+fn glyphs_with_gradient_stroked(ctx: &mut impl Renderer, enable_caching: bool) {
+    glyphs_with_gradient_inner(ctx, enable_caching, DrawMode::Stroke);
 }
 
 #[vello_test(width = 110, height = 410, glyph, hybrid_tolerance = 1)]
