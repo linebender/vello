@@ -800,7 +800,7 @@ pub struct GlyphRunBuilder<'a, B> {
 }
 
 impl<'a, B> GlyphRunBuilder<'a, B> {
-    /// Creates a new builder for drawing glyphs with a pre-bound backend and paint transform.
+    /// Creates a new builder for drawing glyphs with a pre-bound backend.
     pub fn new(font: FontData, transform: Affine, paint_transform: Affine, backend: B) -> Self {
         Self {
             // Note: This needs to be kept in sync with the default in vello_common!
