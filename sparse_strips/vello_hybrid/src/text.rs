@@ -325,6 +325,11 @@ impl glifo::GlyphRenderer for Scene {
     }
 
     #[inline]
+    fn current_paint(&self) -> &PaintType {
+        self.paint()
+    }
+
+    #[inline]
     fn atlas_image_source(&self, atlas_slot: &AtlasSlot) -> ImageSource {
         ImageSource::opaque_id(atlas_slot.image_id)
     }

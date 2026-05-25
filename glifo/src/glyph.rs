@@ -41,6 +41,7 @@ use skrifa::raw::TableProvider;
 use skrifa::{FontRef, OutlineGlyphCollection};
 use skrifa::{GlyphId, MetadataProvider};
 use smallvec::SmallVec;
+use vello_common::paint::PaintType;
 
 /// Positioned glyph.
 #[derive(Copy, Clone, Default, Debug)]
@@ -372,7 +373,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             // Due to the various parameters that would need to be considered in the cache key,
             // we never cache stroked outlines for now. For COLR and bitmap, this doesn't matter
             // because they are always filled anyway.
-            && style == Style::Fill;
+            && style == Style::Fill
+            && matches!(renderer.current_paint(), PaintType::Solid(_));
 
         let context_color = renderer.get_context_color();
         let context_color_packed = pack_color(context_color);
