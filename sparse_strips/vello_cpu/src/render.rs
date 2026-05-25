@@ -360,6 +360,7 @@ impl RenderContext {
         glifo::GlyphRunBuilder::new(
             font.clone(),
             self.state.transform,
+            self.state.paint_transform,
             crate::text::CpuGlyphRunBackend {
                 ctx: self,
                 resources,
