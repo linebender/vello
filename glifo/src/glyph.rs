@@ -355,7 +355,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
         );
         let PreparedGlyphRun {
             draw_props,
-            absolute_paint_transform,
+            scene_paint_transform,
             run_size: _,
             font_embolden,
             normalized_coords,
@@ -406,8 +406,6 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             // also be assumed to be the case for any other potential backend.)
             // Therefore, we can calculate the relative paint transform for
             // the glyph by pre-concatenating it with the inverted outline transform.
-            let relative_paint_transform =
-                outline_draw_transform.inverse() * absolute_paint_transform;
             let outline_cache_key = outline_cache_enabled.then(|| {
                 let fractional_x = outline_transform.translation().x.fract() as f32;
                 GlyphCacheKey::new(
@@ -603,6 +601,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                 hinting_instance,
                 normalized_coords,
             );
+
+            let relative_paint_transform = outline_draw_transform.inverse() * scene_paint_transform;
 
             let prepared_glyph = PreparedGlyph {
                 glyph_type,
@@ -816,7 +816,7 @@ impl<'a, B> GlyphRunBuilder<'a, B> {
                 font_size: 16.0,
                 font_embolden: FontEmbolden::default(),
                 transform,
-                absolute_paint_transform: transform * paint_transform,
+                scene_paint_transform: transform * paint_transform,
                 glyph_transform: None,
                 hint: true,
                 normalized_coords: &[],
@@ -1386,8 +1386,8 @@ pub struct GlyphRun<'a> {
     font_embolden: FontEmbolden,
     /// Global transform.
     transform: Affine,
-    /// Absolute paint transform for the glyph run.
-    absolute_paint_transform: Affine,
+    /// Paint transform for the glyph run in scene space.
+    scene_paint_transform: Affine,
     /// Per-glyph transform. Use [`Affine::skew`] with horizontal-skew only to simulate italic
     /// text.
     glyph_transform: Option<Affine>,
@@ -1432,8 +1432,8 @@ struct PreparedGlyphRun<'a> {
     // Therefore, we need to track a separate set of fields for glyph-drawing operations.
     /// Properties for turning glyph-local positions into final draw transforms.
     draw_props: DrawProps,
-    /// The original absolute transform for the paint.
-    absolute_paint_transform: Affine,
+    /// The original transform for the paint in scene space.
+    scene_paint_transform: Affine,
     normalized_coords: &'a [skrifa::instance::NormalizedCoord],
     hinting_instance: Option<&'a HintingInstance>,
 }
@@ -1590,7 +1590,7 @@ fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> Pr
             effective_transform,
             font_size: draw_font_size,
         },
-        absolute_paint_transform: run.absolute_paint_transform,
+        scene_paint_transform: run.scene_paint_transform,
         normalized_coords: run.normalized_coords,
         hinting_instance,
     }
@@ -2267,7 +2267,7 @@ mod tests {
             font_size: 20.0,
             font_embolden: FontEmbolden::default(),
             transform,
-            absolute_paint_transform: transform,
+            scene_paint_transform: transform,
             glyph_transform: None,
             normalized_coords: &[],
             hint: false,
