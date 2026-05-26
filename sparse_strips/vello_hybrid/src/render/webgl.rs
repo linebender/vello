@@ -488,7 +488,7 @@ impl WebGlRenderer {
     ///
     /// This method will return a handle that allows inspecting the results of the probe once the
     /// results of the probe scene can be copied back from GPU to CPU. For performance reasons,
-    /// anything in-between mostly happens asychronously.
+    /// anything in-between mostly happens asynchronously.
     #[cfg(feature = "probe")]
     pub fn probe(&mut self) -> Result<WebGlPendingProbe, WebGlProbeError> {
         self.probe_inner().map_err(WebGlProbeError::Render)
