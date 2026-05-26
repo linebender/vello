@@ -149,8 +149,9 @@ pub(crate) enum CachedGlyphType {
 pub(crate) struct PreparedGlyph<'a> {
     /// The type of glyph.
     pub(crate) glyph_type: GlyphType<'a>,
-    /// The global transform of the glyph.
-    pub(crate) transform: Affine,
+    /// Per-glyph outline transform: maps the draw-unit glyph outline
+    /// (after font-size absorption) to scene coordinates.
+    pub(crate) outline_transform: Affine,
     /// The transform of the paint, relative to [`PreparedGlyph::transform`] *
     /// [`GlyphScaleProperties::draw_scale`].
     pub(crate) relative_paint_transform: Affine,
@@ -446,7 +447,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     &color_glyph,
                     location,
                 );
-                let transform = calculate_colr_transform(&metrics);
+                let outline_transform = calculate_colr_transform(&metrics);
 
                 // COLR glyphs are never hinted and have no sub-pixel offset;
                 // context_color is part of the key because it affects painted layers.
@@ -480,7 +481,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     render_cached_glyph(
                         renderer,
                         cached_slot,
-                        transform,
+                        outline_transform,
                         CachedGlyphType::Colr(area),
                     );
                     continue;
@@ -492,7 +493,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
 
                 let prepared_glyph = PreparedGlyph {
                     glyph_type,
-                    transform,
+                    outline_transform,
                     relative_paint_transform: Affine::IDENTITY,
                     cache_key,
                 };
@@ -523,7 +524,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                 // Bitmaps use the strike's own ppem, not the run's, because the
                 // image was pre-rendered at that specific size.
                 let bitmap_ppem = bitmap_glyph.ppem_x;
-                let transform = calculate_bitmap_transform(
+                let outline_transform = calculate_bitmap_transform(
                     glyph,
                     &pixmap,
                     draw_props,
@@ -555,7 +556,12 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                 if let Some(ref key) = cache_key
                     && let Some(cached_slot) = self.atlas_cacher.get(key)
                 {
-                    render_cached_glyph(renderer, cached_slot, transform, CachedGlyphType::Bitmap);
+                    render_cached_glyph(
+                        renderer,
+                        cached_slot,
+                        outline_transform,
+                        CachedGlyphType::Bitmap,
+                    );
                     continue;
                 }
 
@@ -564,7 +570,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
 
                 let prepared_glyph = PreparedGlyph {
                     glyph_type,
-                    transform,
+                    outline_transform,
                     relative_paint_transform: Affine::IDENTITY,
                     cache_key,
                 };
@@ -600,7 +606,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
 
             let prepared_glyph = PreparedGlyph {
                 glyph_type,
-                transform: outline_transform,
+                outline_transform,
                 relative_paint_transform,
                 cache_key: outline_cache_key,
             };
