@@ -45,7 +45,7 @@ pub const MAX_LINES_PER_PATH: u32 = 1 << (32 - INT_MASK_SHIFT);
 pub struct CulledWindings {
     /// Fractional winding coverage for each individual scanline in a row.
     pub partial: Vec<[f32; Tile::HEIGHT as usize]>,
-    // Note that this will cause issues if we have windings greater/less than i8,
+    // Note that this will cause issues if we have windings greater/less than i6,
     // but this should only occur in pathological cases.
     /// Accumulated integer winding deltas for each tile row.
     pub coarse: Vec<i16>,
