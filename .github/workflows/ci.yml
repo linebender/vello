@@ -69,6 +69,11 @@ on:
     branches:
       - main
 
+# Cancel superseded CI runs for the same PR to save runner time.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   fmt:
     name: formatting
