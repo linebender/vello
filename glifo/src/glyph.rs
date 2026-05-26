@@ -152,7 +152,7 @@ pub(crate) struct PreparedGlyph<'a> {
     /// Per-glyph outline transform: maps the draw-unit glyph outline
     /// (after font-size absorption) to scene coordinates.
     pub(crate) outline_transform: Affine,
-    /// The transform of the paint, relative to [`PreparedGlyph::transform`] *
+    /// The transform of the paint, relative to [`PreparedGlyph::outline_transform`] *
     /// [`GlyphScaleProperties::draw_scale`].
     pub(crate) relative_paint_transform: Affine,
     /// Cache key for renderers that implement glyph caching.
