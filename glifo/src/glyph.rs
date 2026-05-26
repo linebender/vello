@@ -151,7 +151,8 @@ pub(crate) struct PreparedGlyph<'a> {
     pub(crate) glyph_type: GlyphType<'a>,
     /// The global transform of the glyph.
     pub(crate) transform: Affine,
-    /// The transform of the paint, relative to [`PreparedGlyph::transform`].
+    /// The transform of the paint, relative to [`PreparedGlyph::transform`] *
+    /// [`GlyphScaleProperties::draw_scale`].
     pub(crate) relative_paint_transform: Affine,
     /// Cache key for renderers that implement glyph caching.
     /// This is `Some` for glyphs that can be cached, `None` otherwise.
