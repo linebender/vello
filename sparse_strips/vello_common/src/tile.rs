@@ -48,7 +48,7 @@ pub struct CulledWindings {
     // Note that this will cause issues if we have windings greater/less than i8,
     // but this should only occur in pathological cases.
     /// Accumulated integer winding deltas for each tile row.
-    pub coarse: Vec<i8>,
+    pub coarse: Vec<i16>,
     /// Bitmask tracking which rows contain active geometry or winding data.
     pub active: Vec<u32>,
     /// Flag indicating if any geometry was early-culled outside the viewport.
