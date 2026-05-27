@@ -6,18 +6,22 @@
 use crate::atlas::commands::AtlasPaint;
 use crate::color::Srgb;
 use crate::color::{AlphaColor, DynamicColor};
-use crate::glyph::{GlyphColr, OutlinePath};
+use crate::glyph::{
+    CachedOutline, FontEmbolden, FontInfo, GlyphColr, OutlineCacheSession, OutlinePath,
+    VarLookupKey,
+};
 use crate::interface::DrawSink;
 use crate::kurbo::{Affine, Point, Rect, Shape};
 use crate::peniko::{self, BlendMode, ColorStops, Compose, Extend, Gradient, Mix};
 use crate::util::FloatExt;
+use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use peniko::{LinearGradientPosition, RadialGradientPosition, SweepGradientPosition};
 use skrifa::color::{Brush, ColorPainter, ColorStop, CompositeMode, Transform};
 use skrifa::instance::LocationRef;
-use skrifa::outline::{DrawSettings, OutlineGlyphCollection, pen::ControlBoundsPen};
+use skrifa::outline::OutlineGlyphCollection;
 use skrifa::raw::TableProvider;
 use skrifa::raw::types::BoundingBox;
 use skrifa::{FontRef, GlyphId, MetadataProvider};
@@ -41,10 +45,11 @@ trait ColrDrawSinkExt: DrawSink {
 impl<T: DrawSink + ?Sized> ColrDrawSinkExt for T {}
 
 /// An abstraction for painting COLR glyphs.
-pub(crate) struct ColrPainter<'a> {
+pub(crate) struct ColrPainter<'a, 'b> {
     transforms: Vec<Affine>,
     colr_glyph: &'a GlyphColr<'a>,
     outline_glyphs: OutlineGlyphCollection<'a>,
+    outline_cache: &'a mut OutlineCacheSession<'b>,
     clip_outline: OutlinePath,
     context_color: AlphaColor<Srgb>,
     painter: &'a mut dyn DrawSink,
@@ -58,23 +63,25 @@ enum ColrStackEntry {
     BlendLayer,
 }
 
-impl Debug for ColrPainter<'_> {
+impl Debug for ColrPainter<'_, '_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("ColrPainter()").finish()
     }
 }
 
-impl<'a> ColrPainter<'a> {
+impl<'a, 'b> ColrPainter<'a, 'b> {
     /// Create a new COLR painter.
     pub(crate) fn new(
         colr_glyph: &'a GlyphColr<'a>,
         context_color: AlphaColor<Srgb>,
         painter: &'a mut dyn DrawSink,
+        outline_cache: &'a mut OutlineCacheSession<'b>,
     ) -> Self {
         Self {
             transforms: vec![colr_glyph.draw_transform],
             colr_glyph,
             outline_glyphs: colr_glyph.font_ref.outline_glyphs(),
+            outline_cache,
             clip_outline: OutlinePath::new(),
             context_color,
             painter,
@@ -104,6 +111,20 @@ impl<'a> ColrPainter<'a> {
 
     fn cur_transform(&self) -> Affine {
         self.transforms.last().copied().unwrap_or_default()
+    }
+
+    fn get_outline(&mut self, glyph_id: GlyphId) -> Option<CachedOutline<'_>> {
+        let outline_glyph = self.outline_glyphs.get(glyph_id)?;
+
+        Some(self.outline_cache.get_or_insert(
+            glyph_id.to_u32(),
+            self.colr_glyph.font_info,
+            self.colr_glyph.font_info.upem,
+            FontEmbolden::default(),
+            VarLookupKey::new(self.colr_glyph.location.coords()),
+            &outline_glyph,
+            None,
+        ))
     }
 
     fn palette_index_to_color(&self, palette_index: u16, alpha: f32) -> Option<AlphaColor<Srgb>> {
@@ -205,34 +226,45 @@ pub(crate) struct ColrGlyphInfo {
     pub(crate) has_non_default_blend: bool,
 }
 
-pub(crate) fn get_colr_info<'a>(
+pub(crate) fn get_colr_info<'a, 'b>(
     font_ref: &'a FontRef<'a>,
     color_glyph: &skrifa::color::ColorGlyph<'a>,
     location: LocationRef<'a>,
+    outline_cache: &'a mut OutlineCacheSession<'b>,
+    font_info: FontInfo,
 ) -> ColrGlyphInfo {
-    let mut extractor = GlyphInfoExtractor::new(font_ref, location);
+    let mut extractor = GlyphInfoExtractor::new(font_ref, location, outline_cache, font_info);
     let _ = color_glyph.paint(location, &mut extractor);
     extractor.finish()
 }
 
-struct GlyphInfoExtractor<'a> {
+struct GlyphInfoExtractor<'a, 'b> {
     transforms: Vec<Affine>,
     clip_stack: Vec<Rect>,
     coarse_bbox: Option<Rect>,
     has_non_default_blend: bool,
     outline_glyphs: OutlineGlyphCollection<'a>,
+    outline_cache: &'a mut OutlineCacheSession<'b>,
     location: LocationRef<'a>,
+    font_info: FontInfo,
 }
 
-impl<'a> GlyphInfoExtractor<'a> {
-    fn new(font_ref: &'a FontRef<'a>, location: LocationRef<'a>) -> Self {
+impl<'a, 'b> GlyphInfoExtractor<'a, 'b> {
+    fn new(
+        font_ref: &'a FontRef<'a>,
+        location: LocationRef<'a>,
+        outline_cache: &'a mut OutlineCacheSession<'b>,
+        font_info: FontInfo,
+    ) -> Self {
         Self {
             transforms: vec![Affine::IDENTITY],
             clip_stack: Vec::new(),
             coarse_bbox: None,
             has_non_default_blend: false,
             outline_glyphs: font_ref.outline_glyphs(),
+            outline_cache,
             location,
+            font_info,
         }
     }
 
@@ -257,6 +289,20 @@ impl<'a> GlyphInfoExtractor<'a> {
         self.cur_transform().transform_rect_bbox(rect)
     }
 
+    fn get_outline(&mut self, glyph_id: GlyphId) -> Option<CachedOutline<'_>> {
+        let outline_glyph = self.outline_glyphs.get(glyph_id)?;
+
+        Some(self.outline_cache.get_or_insert(
+            glyph_id.to_u32(),
+            self.font_info,
+            self.font_info.upem,
+            FontEmbolden::default(),
+            VarLookupKey::new(self.location.coords()),
+            &outline_glyph,
+            None,
+        ))
+    }
+
     fn finish(self) -> ColrGlyphInfo {
         ColrGlyphInfo {
             bbox: self.coarse_bbox,
@@ -265,7 +311,7 @@ impl<'a> GlyphInfoExtractor<'a> {
     }
 }
 
-impl ColorPainter for ColrPainter<'_> {
+impl ColorPainter for ColrPainter<'_, '_> {
     fn push_transform(&mut self, t: Transform) {
         self.transforms
             .push(self.cur_transform() * convert_affine(t));
@@ -276,18 +322,17 @@ impl ColorPainter for ColrPainter<'_> {
     }
 
     fn push_clip_glyph(&mut self, glyph_id: GlyphId) {
-        // TODO: Make it possible to use the outline cache for this.
-        let Some(outline_glyph) = self.outline_glyphs.get(glyph_id) else {
-            return;
+        let outline = {
+            let Some(outline) = self.get_outline(glyph_id) else {
+                return;
+            };
+            Arc::clone(outline.path)
         };
 
         self.clip_outline.reuse();
-        let _ = outline_glyph.draw(
-            DrawSettings::unhinted(skrifa::instance::Size::unscaled(), self.colr_glyph.location),
-            &mut self.clip_outline,
-        );
-
-        // Note that the bbox will become stale, but we don't need it anyway here.
+        // TODO: We can make use of `DrawSink::set_transform` to let the client
+        // take care of applying it, so we can avoid copying the path.
+        self.clip_outline.path.extend(outline.iter());
         self.clip_outline.path.apply_affine(self.cur_transform());
         self.push_clip();
     }
@@ -464,7 +509,7 @@ impl ColorPainter for ColrPainter<'_> {
     }
 }
 
-impl ColorPainter for GlyphInfoExtractor<'_> {
+impl ColorPainter for GlyphInfoExtractor<'_, '_> {
     fn push_transform(&mut self, t: Transform) {
         self.transforms
             .push(self.cur_transform() * convert_affine(t));
@@ -475,21 +520,14 @@ impl ColorPainter for GlyphInfoExtractor<'_> {
     }
 
     fn push_clip_glyph(&mut self, glyph_id: GlyphId) {
-        let mut outline_bbox = ControlBoundsPen::default();
-
-        // TODO: Make it possible to use the outline cache for this.
-        let Some(outline_glyph) = self.outline_glyphs.get(glyph_id) else {
-            return;
+        let outline_bbox = {
+            let Some(outline) = self.get_outline(glyph_id) else {
+                return;
+            };
+            outline.bbox
         };
 
-        let _ = outline_glyph.draw(
-            DrawSettings::unhinted(skrifa::instance::Size::unscaled(), self.location),
-            &mut outline_bbox,
-        );
-
-        if let Some(outline_bbox) = outline_bbox.bounding_box().map(convert_bounding_box) {
-            self.push_clip_bbox(self.transform_rect(outline_bbox));
-        }
+        self.push_clip_bbox(self.transform_rect(outline_bbox));
     }
 
     fn push_clip_box(&mut self, clip_box: BoundingBox<f32>) {
