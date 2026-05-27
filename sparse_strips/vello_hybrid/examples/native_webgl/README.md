@@ -4,7 +4,9 @@ Uses Vello Hybrid with a native WebGL2 backend in the browser. This example does
 
 ## Development
 
-Run with `cargo run_wasm -p native_webgl --release`.
+Run with `RUSTFLAGS="-Ctarget-feature=+simd128" cargo run_wasm -p native_webgl --release`.
+
+If you don't want to enable SIMD, you can remove the `RUSTFLAGS="-Ctarget-feature=+simd128"` part.
 
 ## Testing
 
