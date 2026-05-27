@@ -7,65 +7,79 @@ use vello_common::fearless_simd::*;
 use vello_common::util::{Div255Ext, f32_to_u8, normalized_mul_u8x32};
 
 // TODO: Make sure this vectorizes properly (also the f32 pipeline) by inlining if needed.
+#[inline(always)]
 pub(crate) fn mix<S: Simd>(src_c: u8x32<S>, bg_c: u8x32<S>, blend_mode: BlendMode) -> u8x32<S> {
-    if let Some(res) = try_u8_mix(blend_mode, src_c, bg_c) {
-        return res;
-    }
+    src_c.simd.vectorize(
+        #[inline(always)]
+        || {
+            if let Some(res) = try_u8_mix(blend_mode, src_c, bg_c) {
+                return res;
+            }
 
-    // Fallback for blend modes that aren't supported in u8.
+            // Fallback for blend modes that aren't supported in u8.
 
-    let to_f32 = |val: u8x32<S>| {
-        let (a, b) = src_c.simd.split_u8x32(val);
-        let mut a = u8_to_f32(a);
-        let mut b = u8_to_f32(b);
-        a *= f32x16::splat(src_c.simd, 1.0 / 255.0);
-        b *= f32x16::splat(src_c.simd, 1.0 / 255.0);
-        (a, b)
-    };
+            let to_f32 = |val: u8x32<S>| {
+                let (a, b) = src_c.simd.split_u8x32(val);
+                let mut a = u8_to_f32(a);
+                let mut b = u8_to_f32(b);
+                a *= f32x16::splat(src_c.simd, 1.0 / 255.0);
+                b *= f32x16::splat(src_c.simd, 1.0 / 255.0);
+                (a, b)
+            };
 
-    let to_u8 = |val1: f32x16<S>, val2: f32x16<S>| {
-        let val1 =
-            f32_to_u8(f32x16::splat(val1.simd, 255.0).mul_add(val1, f32x16::splat(val1.simd, 0.5)));
-        let val2 =
-            f32_to_u8(f32x16::splat(val2.simd, 255.0).mul_add(val2, f32x16::splat(val2.simd, 0.5)));
+            let to_u8 = |val1: f32x16<S>, val2: f32x16<S>| {
+                let val1 = f32_to_u8(
+                    f32x16::splat(val1.simd, 255.0).mul_add(val1, f32x16::splat(val1.simd, 0.5)),
+                );
+                let val2 = f32_to_u8(
+                    f32x16::splat(val2.simd, 255.0).mul_add(val2, f32x16::splat(val2.simd, 0.5)),
+                );
 
-        val1.simd.combine_u8x16(val1, val2)
-    };
+                val1.simd.combine_u8x16(val1, val2)
+            };
 
-    let (mut src_1, mut src_2) = to_f32(src_c);
-    let (bg_1, bg_2) = to_f32(bg_c);
+            let (mut src_1, mut src_2) = to_f32(src_c);
+            let (bg_1, bg_2) = to_f32(bg_c);
 
-    src_1 = highp::blend::mix(src_1, bg_1, blend_mode);
-    src_2 = highp::blend::mix(src_2, bg_2, blend_mode);
+            src_1 = highp::blend::mix(src_1, bg_1, blend_mode);
+            src_2 = highp::blend::mix(src_2, bg_2, blend_mode);
 
-    to_u8(src_1, src_2)
+            to_u8(src_1, src_2)
+        },
+    )
 }
 
+#[inline(always)]
 fn try_u8_mix<S: Simd>(blend_mode: BlendMode, src_c: u8x32<S>, bg_c: u8x32<S>) -> Option<u8x32<S>> {
-    // We implement the u8 fast path for blend modes that
-    // 1) are separable.
-    // 2) don't have too many divisions, since integer normalization is
-    // relatively expensive.
-    // In the future, it's possible to do further experimentation to see whether
-    // some more blend modes are worth doing in integer space.
-    Some(match blend_mode.mix {
-        Mix::Normal => src_c,
-        Mix::Multiply => Multiply::mix(src_c, bg_c),
-        Mix::Screen => Screen::mix(src_c, bg_c),
-        Mix::Overlay => Overlay::mix(src_c, bg_c),
-        Mix::Darken => Darken::mix(src_c, bg_c),
-        Mix::Lighten => Lighten::mix(src_c, bg_c),
-        Mix::HardLight => HardLight::mix(src_c, bg_c),
-        Mix::Difference => Difference::mix(src_c, bg_c),
-        Mix::Exclusion => Exclusion::mix(src_c, bg_c),
-        Mix::ColorDodge
-        | Mix::ColorBurn
-        | Mix::SoftLight
-        | Mix::Luminosity
-        | Mix::Color
-        | Mix::Hue
-        | Mix::Saturation => return None,
-    })
+    src_c.simd.vectorize(
+        #[inline(always)]
+        || {
+            // We implement the u8 fast path for blend modes that
+            // 1) are separable.
+            // 2) don't have too many divisions, since integer normalization is
+            // relatively expensive.
+            // In the future, it's possible to do further experimentation to see whether
+            // some more blend modes are worth doing in integer space.
+            match blend_mode.mix {
+                Mix::Normal => Some(src_c),
+                Mix::Multiply => Some(Multiply::mix(src_c, bg_c)),
+                Mix::Screen => Some(Screen::mix(src_c, bg_c)),
+                Mix::Overlay => Some(Overlay::mix(src_c, bg_c)),
+                Mix::Darken => Some(Darken::mix(src_c, bg_c)),
+                Mix::Lighten => Some(Lighten::mix(src_c, bg_c)),
+                Mix::HardLight => Some(HardLight::mix(src_c, bg_c)),
+                Mix::Difference => Some(Difference::mix(src_c, bg_c)),
+                Mix::Exclusion => Some(Exclusion::mix(src_c, bg_c)),
+                Mix::ColorDodge
+                | Mix::ColorBurn
+                | Mix::SoftLight
+                | Mix::Luminosity
+                | Mix::Color
+                | Mix::Hue
+                | Mix::Saturation => None,
+            }
+        },
+    )
 }
 
 macro_rules! u8_mix {

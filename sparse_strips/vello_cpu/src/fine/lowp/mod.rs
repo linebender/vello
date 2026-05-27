@@ -358,6 +358,7 @@ mod fill {
     use vello_common::util::normalized_mul_u8x32;
 
     /// Applies blend mode compositing to a buffer without per-pixel masks.
+    #[inline(always)]
     pub(super) fn blend<S: Simd, T: Iterator<Item = u8x32<S>>>(
         simd: S,
         dest: &mut [u8],
@@ -385,6 +386,7 @@ mod fill {
     /// Composites a solid color onto a buffer using alpha blending.
     ///
     /// Uses the "over" operator: `result = src + bg * (1 - src_alpha)`
+    #[inline(always)]
     pub(super) fn alpha_composite_solid<S: Simd>(s: S, dest: &mut [u8], src: [u8; 4]) {
         s.vectorize(
             #[inline(always)]
@@ -409,6 +411,7 @@ mod fill {
     /// Composites a buffer of colors onto another buffer using alpha blending.
     ///
     /// Each source pixel is composited individually based on its alpha channel.
+    #[inline(always)]
     pub(super) fn alpha_composite<S: Simd, T: Iterator<Item = u8x32<S>>>(
         simd: S,
         dest: &mut [u8],
@@ -456,6 +459,7 @@ mod alpha_fill {
     use vello_common::util::{Div255Ext, normalized_mul_u8x32};
 
     /// Applies blend mode compositing with per-pixel alpha masks.
+    #[inline(always)]
     pub(super) fn blend<S: Simd, T: Iterator<Item = u8x32<S>>>(
         simd: S,
         dest: &mut [u8],

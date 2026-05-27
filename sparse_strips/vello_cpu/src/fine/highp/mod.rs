@@ -379,18 +379,24 @@ mod fill {
     }
 
     /// Applies blend mode compositing to a buffer without per-pixel masks.
+    #[inline(always)]
     pub(super) fn blend<S: Simd, T: Iterator<Item = f32x16<S>>>(
         simd: S,
         dest: &mut [f32],
         src: T,
         blend_mode: BlendMode,
     ) {
-        for (next_dest, next_src) in dest.chunks_exact_mut(16).zip(src) {
-            let bg_v = f32x16::from_slice(simd, next_dest);
-            let src_c = blend::mix(next_src, bg_v, blend_mode);
-            let res = blend_mode.compose(simd, src_c, bg_v, None);
-            res.store_slice(next_dest);
-        }
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                for (next_dest, next_src) in dest.chunks_exact_mut(16).zip(src) {
+                    let bg_v = f32x16::from_slice(simd, next_dest);
+                    let src_c = blend::mix(next_src, bg_v, blend_mode);
+                    let res = blend_mode.compose(simd, src_c, bg_v, None);
+                    res.store_slice(next_dest);
+                }
+            },
+        );
     }
 
     /// Performs the core alpha compositing calculation.
@@ -449,6 +455,7 @@ mod alpha_fill {
     /// Composites a buffer of colors with per-pixel alpha masks.
     ///
     /// Each pixel's source alpha is modulated by its corresponding mask value.
+    #[inline(always)]
     pub(super) fn alpha_composite_arbitrary<S: Simd, T: Iterator<Item = f32x16<S>>>(
         simd: S,
         dest: &mut [f32],
@@ -471,6 +478,7 @@ mod alpha_fill {
     }
 
     /// Applies blend mode compositing with per-pixel alpha masks.
+    #[inline(always)]
     pub(super) fn blend<S: Simd, T: Iterator<Item = f32x16<S>>>(
         simd: S,
         dest: &mut [f32],

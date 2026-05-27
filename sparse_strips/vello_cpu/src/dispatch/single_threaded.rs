@@ -126,6 +126,7 @@ impl SingleThreadedDispatcher {
     ///
     /// If the scene contains filter effects, uses the filter-aware path which maintains
     /// intermediate layer buffers. Otherwise, uses the simpler direct rasterization path.
+    #[inline(always)]
     fn rasterize_with<S: Simd, F: FineKernel<S>>(
         &self,
         simd: S,
@@ -135,30 +136,35 @@ impl SingleThreadedDispatcher {
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
-        let mut layer_manager = LayerManager::new();
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                let mut layer_manager = LayerManager::new();
 
-        if self.has_filters() {
-            // Use filter-aware path that maintains layer buffers for filter effects.
-            self.rasterize_with_filters::<S, F>(
-                simd,
-                buffer,
-                width,
-                height,
-                encoded_paints,
-                image_resolver,
-                &mut layer_manager,
-            );
-        } else {
-            // Use simple direct rasterization for scenes without filters.
-            self.rasterize_simple::<S, F>(
-                simd,
-                buffer,
-                width,
-                height,
-                encoded_paints,
-                image_resolver,
-            );
-        }
+                if self.has_filters() {
+                    // Use filter-aware path that maintains layer buffers for filter effects.
+                    self.rasterize_with_filters::<S, F>(
+                        simd,
+                        buffer,
+                        width,
+                        height,
+                        encoded_paints,
+                        image_resolver,
+                        &mut layer_manager,
+                    );
+                } else {
+                    // Use simple direct rasterization for scenes without filters.
+                    self.rasterize_simple::<S, F>(
+                        simd,
+                        buffer,
+                        width,
+                        height,
+                        encoded_paints,
+                        image_resolver,
+                    );
+                }
+            },
+        );
     }
 
     /// Rasterizes a scene with filter effects using dependency-ordered execution.
@@ -171,6 +177,7 @@ impl SingleThreadedDispatcher {
     /// # Render Graph Execution
     /// - `FilterLayer` nodes: Render to intermediate buffer, apply filter, store result.
     /// - `RootLayer` node: Final composition to output buffer.
+    #[inline(always)]
     fn rasterize_with_filters<S: Simd, F: FineKernel<S>>(
         &self,
         simd: S,
@@ -181,30 +188,36 @@ impl SingleThreadedDispatcher {
         image_resolver: &dyn ImageResolver,
         layer_manager: &mut LayerManager,
     ) {
-        let mut fine = Fine::<S, F>::new(simd);
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                let mut fine = Fine::<S, F>::new(simd);
 
-        // Process nodes in dependency order (filtered layers before their consumers).
-        for node_id in self.render_graph.execution_order() {
-            let node = &self.render_graph.nodes[node_id];
+                // Process nodes in dependency order (filtered layers before their consumers).
+                for node_id in self.render_graph.execution_order() {
+                    let node = &self.render_graph.nodes[node_id];
 
-            match &node.kind {
-                RenderNodeKind::FilterLayer {
-                    layer_id,
-                    filter,
-                    wtile_bbox,
-                    transform,
-                } => {
-                    // Allocate intermediate buffer for this filtered layer.
-                    let bbox_width = wtile_bbox.width_px();
-                    let bbox_height = wtile_bbox.height_px();
-                    let mut pixmap = Pixmap::new(bbox_width, bbox_height);
-                    // TODO: Re-use this allocation by adding a .configure() or similar method
-                    // to avoid allocating the internal Vec<Region> on every filtered layer.
-                    let mut regions =
-                        Regions::new(bbox_width, bbox_height, pixmap.data_as_u8_slice_mut());
+                    match &node.kind {
+                        RenderNodeKind::FilterLayer {
+                            layer_id,
+                            filter,
+                            wtile_bbox,
+                            transform,
+                        } => {
+                            // Allocate intermediate buffer for this filtered layer.
+                            let bbox_width = wtile_bbox.width_px();
+                            let bbox_height = wtile_bbox.height_px();
+                            let mut pixmap = Pixmap::new(bbox_width, bbox_height);
+                            // TODO: Re-use this allocation by adding a .configure() or similar method
+                            // to avoid allocating the internal Vec<Region> on every filtered layer.
+                            let mut regions = Regions::new(
+                                bbox_width,
+                                bbox_height,
+                                pixmap.data_as_u8_slice_mut(),
+                            );
 
-                    // Render each tile in the layer's bounding box.
-                    regions.update_regions(|region| {
+                            // Render each tile in the layer's bounding box.
+                            regions.update_regions(|region| {
                         // Convert region-local coords to global wtile coords.
                         let x = wtile_bbox.x0() + region.x;
                         let y = wtile_bbox.y0() + region.y;
@@ -229,23 +242,23 @@ impl SingleThreadedDispatcher {
                         fine.pack(region);
                     });
 
-                    // Apply the filter effect to the completed layer.
-                    fine.filter_layer(&mut pixmap, filter, layer_manager, *transform);
+                            // Apply the filter effect to the completed layer.
+                            fine.filter_layer(&mut pixmap, filter, layer_manager, *transform);
 
-                    // Save the filtered pixmap to disk for debugging.
-                    // #[cfg(all(debug_assertions, feature = "std", feature = "png"))]
-                    // save_filtered_layer_debug(&pixmap, *layer_id);
+                            // Save the filtered pixmap to disk for debugging.
+                            // #[cfg(all(debug_assertions, feature = "std", feature = "png"))]
+                            // save_filtered_layer_debug(&pixmap, *layer_id);
 
-                    // Store the filtered result for use by dependent layers.
-                    layer_manager.register_layer(*layer_id, *wtile_bbox, pixmap);
-                }
-                RenderNodeKind::RootLayer {
-                    layer_id,
-                    wtile_bbox: _,
-                } => {
-                    // Final composition directly to output buffer.
-                    let mut regions = Regions::new(width, height, buffer);
-                    regions.update_regions(|region| {
+                            // Store the filtered result for use by dependent layers.
+                            layer_manager.register_layer(*layer_id, *wtile_bbox, pixmap);
+                        }
+                        RenderNodeKind::RootLayer {
+                            layer_id,
+                            wtile_bbox: _,
+                        } => {
+                            // Final composition directly to output buffer.
+                            let mut regions = Regions::new(width, height, buffer);
+                            regions.update_regions(|region| {
                         // Use the background color from the wide tile.
                         let bg = self.wide.get(region.x, region.y).bg;
                         self.process_layer_tile(
@@ -267,9 +280,11 @@ impl SingleThreadedDispatcher {
 
                         fine.pack(region);
                     });
+                        }
+                    }
                 }
-            }
-        }
+            },
+        );
     }
 
     /// Processes all rendering commands for a single layer within a specific tile.
@@ -288,6 +303,7 @@ impl SingleThreadedDispatcher {
     /// * `layer_manager` - Storage for filtered layer buffers.
     /// * `encoded_paints` - Paint definitions for the scene.
     /// * `image_resolver` - Resolver for looking up opaque image IDs.
+    #[inline(always)]
     fn process_layer_tile<S: Simd, F: FineKernel<S>>(
         &self,
         fine: &mut Fine<S, F>,
@@ -299,89 +315,96 @@ impl SingleThreadedDispatcher {
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
-        let wtile = &self.wide.get(x, y);
-        fine.set_coords(x, y);
-        fine.clear(clear_color);
+        fine.simd.vectorize(
+            #[inline(always)]
+            || {
+                let wtile = &self.wide.get(x, y);
+                fine.set_coords(x, y);
+                fine.clear(clear_color);
 
-        // Process all commands in this layer's render range.
-        // It can happen that the layer has no associated ranges in this wide tile in
-        // case they have been cleared by setting a new wide tile background, for example
-        // when filling a full-tile opaque solid color.
-        let Some(ranges) = wtile.layer_cmd_ranges.get(&layer_id) else {
-            return;
-        };
+                // Process all commands in this layer's render range.
+                // It can happen that the layer has no associated ranges in this wide tile in
+                // case they have been cleared by setting a new wide tile background, for example
+                // when filling a full-tile opaque solid color.
+                let Some(ranges) = wtile.layer_cmd_ranges.get(&layer_id) else {
+                    return;
+                };
 
-        let mut cmd_idx = ranges.render_range.start;
-        while cmd_idx < ranges.render_range.end {
-            let cmd: &Cmd = &wtile.cmds[cmd_idx];
+                let mut cmd_idx = ranges.render_range.start;
+                while cmd_idx < ranges.render_range.end {
+                    let cmd: &Cmd = &wtile.cmds[cmd_idx];
 
-            fine.run_cmd(
-                cmd,
-                &self.strip_storage.alphas,
-                encoded_paints,
-                image_resolver,
-                &self.wide.attrs,
-            );
+                    fine.run_cmd(
+                        cmd,
+                        &self.strip_storage.alphas,
+                        encoded_paints,
+                        image_resolver,
+                        &self.wide.attrs,
+                    );
 
-            // Special handling for filtered layer composition.
-            // Filtered layers have already been rendered and stored in layer_manager.
-            // Here we composite them into the current buffer, with special handling for clipping.
-            if let Cmd::PushBuf(LayerKind::Filtered(child_layer_id), _) = cmd {
-                // Unlike above, the unwrap is safe here because as long as the filtered layer
-                // is referenced in the wide tile, it must have associated layer ranges.
-                let filtered_ranges = wtile.layer_cmd_ranges.get(child_layer_id).unwrap();
+                    // Special handling for filtered layer composition.
+                    // Filtered layers have already been rendered and stored in layer_manager.
+                    // Here we composite them into the current buffer, with special handling for clipping.
+                    if let Cmd::PushBuf(LayerKind::Filtered(child_layer_id), _) = cmd {
+                        // Unlike above, the unwrap is safe here because as long as the filtered layer
+                        // is referenced in the wide tile, it must have associated layer ranges.
+                        let filtered_ranges = wtile.layer_cmd_ranges.get(child_layer_id).unwrap();
 
-                // Check what comes after the filtered layer push to determine clipping state
-                match wtile.cmds.get(cmd_idx + 1) {
-                    // Zero-clip region: tile is completely outside the clip path.
-                    // The layer was already rendered for filtering, but we skip compositing
-                    // since this tile is entirely clipped out.
-                    // (PushZeroClip only appears for clipped filter layers)
-                    // See https://github.com/linebender/vello/pull/1541/ for why we
-                    // add the ID check.
-                    Some(Cmd::PushZeroClip(id)) if *id == *child_layer_id => {
-                        // If we have a zero-clip, it means that the whole layer should not be drawn.
-                        // Therefore, we want to skip to the very end so that only `PopBuf` will
-                        // be run. Therefore, we jump to `filtered_ranges.full_range.end - 1`.
-                        cmd_idx = filtered_ranges.full_range.end - 1;
-                        continue;
-                    }
+                        // Check what comes after the filtered layer push to determine clipping state
+                        match wtile.cmds.get(cmd_idx + 1) {
+                            // Zero-clip region: tile is completely outside the clip path.
+                            // The layer was already rendered for filtering, but we skip compositing
+                            // since this tile is entirely clipped out.
+                            // (PushZeroClip only appears for clipped filter layers)
+                            // See https://github.com/linebender/vello/pull/1541/ for why we
+                            // add the ID check.
+                            Some(Cmd::PushZeroClip(id)) if *id == *child_layer_id => {
+                                // If we have a zero-clip, it means that the whole layer should not be drawn.
+                                // Therefore, we want to skip to the very end so that only `PopBuf` will
+                                // be run. Therefore, we jump to `filtered_ranges.full_range.end - 1`.
+                                cmd_idx = filtered_ranges.full_range.end - 1;
+                                continue;
+                            }
 
-                    // Partial clip: push the clip buffer, then composite the filtered layer
-                    Some(Cmd::PushBuf(LayerKind::Clip(id), _)) if *id == *child_layer_id => {
-                        fine.run_cmd(
-                            &wtile.cmds[cmd_idx + 1],
-                            &self.strip_storage.alphas,
-                            encoded_paints,
-                            image_resolver,
-                            &self.wide.attrs,
-                        );
+                            // Partial clip: push the clip buffer, then composite the filtered layer
+                            Some(Cmd::PushBuf(LayerKind::Clip(id), _))
+                                if *id == *child_layer_id =>
+                            {
+                                fine.run_cmd(
+                                    &wtile.cmds[cmd_idx + 1],
+                                    &self.strip_storage.alphas,
+                                    encoded_paints,
+                                    image_resolver,
+                                    &self.wide.attrs,
+                                );
+                                cmd_idx += 1;
+
+                                if let Some(mut region) =
+                                    layer_manager.layer_tile_region_mut(*child_layer_id, x, y)
+                                {
+                                    fine.unpack(&mut region);
+                                }
+                            }
+
+                            // No clip or fully inside clip: composite the filtered layer directly
+                            _ => {
+                                if let Some(mut region) =
+                                    layer_manager.layer_tile_region_mut(*child_layer_id, x, y)
+                                {
+                                    fine.unpack(&mut region);
+                                }
+                            }
+                        }
+
+                        // Skip past the filtered layer's internal commands, as they were already
+                        // rendered when the FilterLayer node was processed earlier.
+                        cmd_idx = filtered_ranges.render_range.end.max(cmd_idx + 1);
+                    } else {
                         cmd_idx += 1;
-
-                        if let Some(mut region) =
-                            layer_manager.layer_tile_region_mut(*child_layer_id, x, y)
-                        {
-                            fine.unpack(&mut region);
-                        }
-                    }
-
-                    // No clip or fully inside clip: composite the filtered layer directly
-                    _ => {
-                        if let Some(mut region) =
-                            layer_manager.layer_tile_region_mut(*child_layer_id, x, y)
-                        {
-                            fine.unpack(&mut region);
-                        }
                     }
                 }
-
-                // Skip past the filtered layer's internal commands, as they were already
-                // rendered when the FilterLayer node was processed earlier.
-                cmd_idx = filtered_ranges.render_range.end.max(cmd_idx + 1);
-            } else {
-                cmd_idx += 1;
-            }
-        }
+            },
+        );
     }
 
     /// Simple rasterization path for scenes without filter effects.
@@ -389,6 +412,7 @@ impl SingleThreadedDispatcher {
     /// This directly processes each tile's commands without maintaining intermediate
     /// layer buffers. All rendering happens in a single pass directly to the output buffer.
     /// This is more efficient than the filter-aware path when no filters are present.
+    #[inline(always)]
     fn rasterize_simple<S: Simd, F: FineKernel<S>>(
         &self,
         simd: S,
@@ -398,30 +422,35 @@ impl SingleThreadedDispatcher {
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
-        let mut regions = Regions::new(width, height, buffer);
-        let mut fine = Fine::<S, F>::new(simd);
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                let mut regions = Regions::new(width, height, buffer);
+                let mut fine = Fine::<S, F>::new(simd);
 
-        regions.update_regions(|region| {
-            let x = region.x;
-            let y = region.y;
+                regions.update_regions(|region| {
+                    let x = region.x;
+                    let y = region.y;
 
-            let wtile = self.wide.get(x, y);
-            fine.set_coords(x, y);
+                    let wtile = self.wide.get(x, y);
+                    fine.set_coords(x, y);
 
-            // Clear to background and process all commands in order.
-            fine.clear(wtile.bg);
-            for cmd in &wtile.cmds {
-                fine.run_cmd(
-                    cmd,
-                    &self.strip_storage.alphas,
-                    encoded_paints,
-                    image_resolver,
-                    &self.wide.attrs,
-                );
-            }
+                    // Clear to background and process all commands in order.
+                    fine.clear(wtile.bg);
+                    for cmd in &wtile.cmds {
+                        fine.run_cmd(
+                            cmd,
+                            &self.strip_storage.alphas,
+                            encoded_paints,
+                            image_resolver,
+                            &self.wide.attrs,
+                        );
+                    }
 
-            fine.pack(region);
-        });
+                    fine.pack(region);
+                });
+            },
+        );
     }
 
     /// Returns true if the scene contains any filter effects.
@@ -475,6 +504,7 @@ impl SingleThreadedDispatcher {
     ///
     /// Composites tiles sequentially, writing directly to the destination buffer
     /// at the specified offset.
+    #[inline(always)]
     fn composite_at_offset_with<S: Simd, F: FineKernel<S>>(
         &self,
         simd: S,
@@ -488,38 +518,43 @@ impl SingleThreadedDispatcher {
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
-        let mut regions = Regions::new_at_offset(
-            width,
-            height,
-            dst_x,
-            dst_y,
-            dst_buffer_width,
-            dst_buffer_height,
-            buffer,
-        );
-        let mut fine = Fine::<S, F>::new(simd);
-
-        regions.update_regions(|region| {
-            let x = region.x;
-            let y = region.y;
-
-            let wtile = self.wide.get(x, y);
-            fine.set_coords(x, y);
-
-            // Unpack existing pixel data from the region instead of clearing,
-            // so that rendering composites onto the existing pixmap contents.
-            fine.unpack(region);
-            for cmd in &wtile.cmds {
-                fine.run_cmd(
-                    cmd,
-                    &self.strip_storage.alphas,
-                    encoded_paints,
-                    image_resolver,
-                    &self.wide.attrs,
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                let mut regions = Regions::new_at_offset(
+                    width,
+                    height,
+                    dst_x,
+                    dst_y,
+                    dst_buffer_width,
+                    dst_buffer_height,
+                    buffer,
                 );
-            }
-            fine.pack(region);
-        });
+                let mut fine = Fine::<S, F>::new(simd);
+
+                regions.update_regions(|region| {
+                    let x = region.x;
+                    let y = region.y;
+
+                    let wtile = self.wide.get(x, y);
+                    fine.set_coords(x, y);
+
+                    // Unpack existing pixel data from the region instead of clearing,
+                    // so that rendering composites onto the existing pixmap contents.
+                    fine.unpack(region);
+                    for cmd in &wtile.cmds {
+                        fine.run_cmd(
+                            cmd,
+                            &self.strip_storage.alphas,
+                            encoded_paints,
+                            image_resolver,
+                            &self.wide.attrs,
+                        );
+                    }
+                    fine.pack(region);
+                });
+            },
+        );
     }
 }
 

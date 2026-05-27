@@ -778,15 +778,27 @@ pub struct EncodedGradient {
 
 impl EncodedGradient {
     /// Get the lookup table for sampling u8-based gradient values.
+    #[inline(always)]
     pub fn u8_lut<S: Simd>(&self, simd: S) -> &GradientLut<u8> {
-        self.u8_lut
-            .get_or_init(|| GradientLut::new(simd, &self.ranges))
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                self.u8_lut
+                    .get_or_init(|| GradientLut::new(simd, &self.ranges))
+            },
+        )
     }
 
     /// Get the lookup table for sampling f32-based gradient values.
+    #[inline(always)]
     pub fn f32_lut<S: Simd>(&self, simd: S) -> &GradientLut<f32> {
-        self.f32_lut
-            .get_or_init(|| GradientLut::new(simd, &self.ranges))
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                self.f32_lut
+                    .get_or_init(|| GradientLut::new(simd, &self.ranges))
+            },
+        )
     }
 }
 
@@ -985,24 +997,34 @@ pub trait FromF32Color: Sized + Debug + Copy + Clone {
 impl FromF32Color for f32 {
     const ZERO: Self = 0.0;
 
+    #[inline(always)]
     fn from_f32<S: Simd>(color: f32x4<S>) -> [Self; 4] {
-        color.into()
+        color.simd.vectorize(
+            #[inline(always)]
+            || color.into(),
+        )
     }
 }
 
 impl FromF32Color for u8 {
     const ZERO: Self = 0;
 
+    #[inline(always)]
     fn from_f32<S: Simd>(mut color: f32x4<S>) -> [Self; 4] {
-        let simd = color.simd;
-        color = color.mul_add(f32x4::splat(simd, 255.0), f32x4::splat(simd, 0.5));
+        color.simd.vectorize(
+            #[inline(always)]
+            || {
+                let simd = color.simd;
+                color = color.mul_add(f32x4::splat(simd, 255.0), f32x4::splat(simd, 0.5));
 
-        [
-            color[0] as Self,
-            color[1] as Self,
-            color[2] as Self,
-            color[3] as Self,
-        ]
+                [
+                    color[0] as Self,
+                    color[1] as Self,
+                    color[2] as Self,
+                    color[3] as Self,
+                ]
+            },
+        )
     }
 }
 
@@ -1015,68 +1037,79 @@ pub struct GradientLut<T: FromF32Color> {
 
 impl<T: FromF32Color> GradientLut<T> {
     /// Create a new lookup table.
+    #[inline(always)]
     fn new<S: Simd>(simd: S, ranges: &[GradientRange]) -> Self {
-        let lut_size = determine_lut_size(ranges);
-        let mut lut = vec![[T::ZERO; 4]; lut_size];
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                let lut_size = determine_lut_size(ranges);
+                let mut lut = vec![[T::ZERO; 4]; lut_size];
 
-        // Calculate how many indices are covered by each range.
-        let ramps = {
-            let mut ramps = Vec::with_capacity(ranges.len());
-            let mut prev_idx = 0;
+                // Calculate how many indices are covered by each range.
+                let ramps = {
+                    let mut ramps = Vec::with_capacity(ranges.len());
+                    let mut prev_idx = 0;
 
-            for range in ranges {
-                let max_idx = (range.x1 * lut_size as f32) as usize;
+                    for range in ranges {
+                        let max_idx = (range.x1 * lut_size as f32) as usize;
 
-                ramps.push((prev_idx..max_idx, range));
-                prev_idx = max_idx;
-            }
+                        ramps.push((prev_idx..max_idx, range));
+                        prev_idx = max_idx;
+                    }
 
-            ramps
-        };
+                    ramps
+                };
 
-        let scale = lut_size as f32 - 1.0;
+                let scale = lut_size as f32 - 1.0;
 
-        let inv_lut_scale = f32x4::splat(simd, 1.0 / scale);
-        let add_factor = f32x4::from_slice(simd, &[0.0, 1.0, 2.0, 3.0]) * inv_lut_scale;
+                let inv_lut_scale = f32x4::splat(simd, 1.0 / scale);
+                let add_factor = f32x4::from_slice(simd, &[0.0, 1.0, 2.0, 3.0]) * inv_lut_scale;
 
-        for (ramp_range, range) in ramps {
-            let biases = f32x16::block_splat(f32x4::from_slice(simd, &range.bias));
-            let scales = f32x16::block_splat(f32x4::from_slice(simd, &range.scale));
+                for (ramp_range, range) in ramps {
+                    let biases = f32x16::block_splat(f32x4::from_slice(simd, &range.bias));
+                    let scales = f32x16::block_splat(f32x4::from_slice(simd, &range.scale));
 
-            ramp_range.clone().step_by(4).for_each(|idx| {
-                let t_vals = f32x4::splat(simd, idx as f32).mul_add(inv_lut_scale, add_factor);
+                    ramp_range.clone().step_by(4).for_each(|idx| {
+                        let t_vals =
+                            f32x4::splat(simd, idx as f32).mul_add(inv_lut_scale, add_factor);
 
-                let t_vals = element_wise_splat(simd, t_vals);
+                        let t_vals = element_wise_splat(simd, t_vals);
 
-                let mut result = scales.mul_add(t_vals, biases);
-                let alphas = result.splat_4th();
-                // Premultiply colors, since we did interpolation in unpremultiplied space.
-                if range.interpolation_alpha_space == InterpolationAlphaSpace::Unpremultiplied {
-                    result = {
-                        let mask =
-                            mask32x16::block_splat(mask32x4::from_slice(simd, &[-1, -1, -1, 0]));
-                        simd.select_f32x16(mask, result * alphas, alphas)
-                    };
+                        let mut result = scales.mul_add(t_vals, biases);
+                        let alphas = result.splat_4th();
+                        // Premultiply colors, since we did interpolation in unpremultiplied space.
+                        if range.interpolation_alpha_space
+                            == InterpolationAlphaSpace::Unpremultiplied
+                        {
+                            result = {
+                                let mask = mask32x16::block_splat(mask32x4::from_slice(
+                                    simd,
+                                    &[-1, -1, -1, 0],
+                                ));
+                                simd.select_f32x16(mask, result * alphas, alphas)
+                            };
+                        }
+
+                        // Due to floating-point impreciseness, it can happen that
+                        // values either become greater than 1 or the RGB channels
+                        // become greater than the alpha channel. To prevent overflows
+                        // in later parts of the pipeline, we need to take the minimum here.
+                        result = result.min(1.0).min(alphas);
+                        let (im1, im2) = simd.split_f32x16(result);
+                        let (r1, r2) = simd.split_f32x8(im1);
+                        let (r3, r4) = simd.split_f32x8(im2);
+                        let rs = [r1, r2, r3, r4].map(T::from_f32);
+
+                        // We always compute 4 samples at a time, but a gradient ramp does not necessarily
+                        // start at a multiple of 4, therefore we might have to truncate.
+                        let lut = &mut lut[idx..(idx + 4).min(lut_size)];
+                        lut.copy_from_slice(&rs[..lut.len()]);
+                    });
                 }
 
-                // Due to floating-point impreciseness, it can happen that
-                // values either become greater than 1 or the RGB channels
-                // become greater than the alpha channel. To prevent overflows
-                // in later parts of the pipeline, we need to take the minimum here.
-                result = result.min(1.0).min(alphas);
-                let (im1, im2) = simd.split_f32x16(result);
-                let (r1, r2) = simd.split_f32x8(im1);
-                let (r3, r4) = simd.split_f32x8(im2);
-                let rs = [r1, r2, r3, r4].map(T::from_f32);
-
-                // We always compute 4 samples at a time, but a gradient ramp does not necessarily
-                // start at a multiple of 4, therefore we might have to truncate.
-                let lut = &mut lut[idx..(idx + 4).min(lut_size)];
-                lut.copy_from_slice(&rs[..lut.len()]);
-            });
-        }
-
-        Self { lut, scale }
+                Self { lut, scale }
+            },
+        )
     }
 
     /// Get the sample value at a specific index.

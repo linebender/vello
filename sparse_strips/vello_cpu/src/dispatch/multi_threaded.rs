@@ -358,6 +358,7 @@ impl MultiThreadedDispatcher {
         }
     }
 
+    #[inline(always)]
     fn rasterize_with<S: Simd, F: FineKernel<S>>(
         &self,
         simd: S,
@@ -367,44 +368,53 @@ impl MultiThreadedDispatcher {
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
-        let mut buffer = Regions::new(width, height, buffer);
-        let fines = ThreadLocal::new();
-        let wide = &self.wide;
-        let alpha_slots = self.alpha_storage.take();
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                let mut buffer = Regions::new(width, height, buffer);
+                let fines = ThreadLocal::new();
+                let wide = &self.wide;
+                let alpha_slots = self.alpha_storage.take();
 
-        self.thread_pool.install(|| {
-            buffer.update_regions_par(|region| {
-                let x = region.x;
-                let y = region.y;
+                self.thread_pool.install(|| {
+                    buffer.update_regions_par(|region| {
+                        let x = region.x;
+                        let y = region.y;
 
-                let mut fine = fines
-                    .get_or(|| RefCell::new(Fine::<S, F>::new(simd)))
-                    .borrow_mut();
+                        let mut fine = fines
+                            .get_or(|| RefCell::new(Fine::<S, F>::new(simd)))
+                            .borrow_mut();
 
-                let wtile = wide.get(x, y);
-                fine.set_coords(x, y);
+                        let wtile = wide.get(x, y);
+                        fine.set_coords(x, y);
 
-                fine.clear(wtile.bg);
-                for cmd in &wtile.cmds {
-                    let thread_idx = match cmd {
-                        Cmd::AlphaFill(a) => Some(wide.attrs.fill[a.attrs_idx as usize].thread_idx),
-                        Cmd::ClipStrip(a) => Some(wide.attrs.clip[a.attrs_idx as usize].thread_idx),
-                        _ => None,
-                    };
+                        fine.clear(wtile.bg);
+                        for cmd in &wtile.cmds {
+                            let thread_idx = match cmd {
+                                Cmd::AlphaFill(a) => {
+                                    Some(wide.attrs.fill[a.attrs_idx as usize].thread_idx)
+                                }
+                                Cmd::ClipStrip(a) => {
+                                    Some(wide.attrs.clip[a.attrs_idx as usize].thread_idx)
+                                }
+                                _ => None,
+                            };
 
-                    let alphas = thread_idx
-                        .map(|i| alpha_slots[i as usize].as_slice())
-                        .unwrap_or(&[]);
-                    fine.run_cmd(cmd, alphas, encoded_paints, image_resolver, &wide.attrs);
-                }
+                            let alphas = thread_idx
+                                .map(|i| alpha_slots[i as usize].as_slice())
+                                .unwrap_or(&[]);
+                            fine.run_cmd(cmd, alphas, encoded_paints, image_resolver, &wide.attrs);
+                        }
 
-                fine.pack(region);
-            });
-        });
+                        fine.pack(region);
+                    });
+                });
 
-        // Don't forget to put back the alpha buffers, so that they can be re-used in
-        // the next path rendering iteration!
-        self.alpha_storage.init(alpha_slots);
+                // Don't forget to put back the alpha buffers, so that they can be re-used in
+                // the next path rendering iteration!
+                self.alpha_storage.init(alpha_slots);
+            },
+        );
     }
 }
 

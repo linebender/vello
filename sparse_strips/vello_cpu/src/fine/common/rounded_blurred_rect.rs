@@ -210,40 +210,52 @@ impl<S: Simd> SimdRoundedBlurredRect<S> {
 trait FloatExt<S: Simd> {
     // See https://raphlinus.github.io/audio/2018/09/05/sigmoid.html for a little
     // explanation of this approximation to the erf function.
-    // Doing `inline(always)` seems to reduce performance for some reason.
+    // Keep an explicit `vectorize` cut point in the implementation; forcing this whole body to
+    // inline regresses performance.
     /// Approximate the erf function.
     fn compute_erf7(simd: S, x: Self) -> Self;
     fn powf(self, x: f32) -> Self;
 }
 
 impl<S: Simd> FloatExt<S> for f32x8<S> {
+    #[inline(always)]
     fn compute_erf7(simd: S, x: Self) -> Self {
-        // Clamp `x`, because for large `x` the terms here become `inf`, causing the result to be 0 or
-        // `NaN`. This clamping doesn't lose any information, because `erf(±10) ≈ 1` well within `f64`
-        // machine precision, let alone `f32`.
-        let x = x.max(Self::splat(simd, -10.0)).min(Self::splat(simd, 10.0));
-        let x = x * Self::splat(simd, core::f32::consts::FRAC_2_SQRT_PI);
-        let xx = x * x;
-        let p1 = Self::splat(simd, 0.0104).mul_add(xx, Self::splat(simd, 0.03395));
-        let p2 = p1.mul_add(xx, Self::splat(simd, 0.24295));
-        let p3 = x * xx;
-        let x = p2.mul_add(p3, x);
-        let denom = x.mul_add(x, Self::splat(simd, 1.0)).sqrt();
-        x / denom
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                // Clamp `x`, because for large `x` the terms here become `inf`, causing the result to be 0 or
+                // `NaN`. This clamping doesn't lose any information, because `erf(±10) ≈ 1` well within `f64`
+                // machine precision, let alone `f32`.
+                let x = x.max(Self::splat(simd, -10.0)).min(Self::splat(simd, 10.0));
+                let x = x * Self::splat(simd, core::f32::consts::FRAC_2_SQRT_PI);
+                let xx = x * x;
+                let p1 = Self::splat(simd, 0.0104).mul_add(xx, Self::splat(simd, 0.03395));
+                let p2 = p1.mul_add(xx, Self::splat(simd, 0.24295));
+                let p3 = x * xx;
+                let x = p2.mul_add(p3, x);
+                let denom = x.mul_add(x, Self::splat(simd, 1.0)).sqrt();
+                x / denom
+            },
+        )
     }
 
-    #[inline]
+    #[inline(always)]
     fn powf(mut self, x: f32) -> Self {
-        // TODO: SIMD
-        self[0] = self[0].powf(x);
-        self[1] = self[1].powf(x);
-        self[2] = self[2].powf(x);
-        self[3] = self[3].powf(x);
-        self[4] = self[4].powf(x);
-        self[5] = self[5].powf(x);
-        self[6] = self[6].powf(x);
-        self[7] = self[7].powf(x);
+        self.simd.vectorize(
+            #[inline(always)]
+            || {
+                // TODO: SIMD
+                self[0] = self[0].powf(x);
+                self[1] = self[1].powf(x);
+                self[2] = self[2].powf(x);
+                self[3] = self[3].powf(x);
+                self[4] = self[4].powf(x);
+                self[5] = self[5].powf(x);
+                self[6] = self[6].powf(x);
+                self[7] = self[7].powf(x);
 
-        self
+                self
+            },
+        )
     }
 }

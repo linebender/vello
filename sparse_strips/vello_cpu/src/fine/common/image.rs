@@ -457,6 +457,7 @@ pub(crate) fn extend<S: Simd>(
 }
 
 /// Calculate the weights for a single fractional value.
+#[inline(always)]
 fn weights<S: Simd>(simd: S, fract: f32x4<S>) -> [f32x4<S>; 4] {
     simd.vectorize(
         #[inline(always)]
