@@ -1602,14 +1602,9 @@ impl WebGlPrograms {
         // Temporarily pad the length of the alphas to the texture size before uploading.
         alphas.resize(total_size, 0);
 
-        gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-        gl.bind_texture(
-            WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.resources.alphas_texture),
-        );
-
         upload_data_to_rgba32_texture(
             gl,
+            &self.resources.alphas_texture,
             bytemuck::cast_slice::<u8, u32>(alphas),
             alpha_texture_width,
             alpha_texture_height,
@@ -1631,14 +1626,9 @@ impl WebGlPrograms {
 
             GpuEncodedPaint::serialize_to_buffer(encoded_paints, &mut self.encoded_paints_data);
 
-            gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-            gl.bind_texture(
-                WebGl2RenderingContext::TEXTURE_2D,
-                Some(&self.resources.encoded_paints_texture),
-            );
-
             upload_data_to_rgba32_texture(
                 gl,
+                &self.resources.encoded_paints_texture,
                 bytemuck::cast_slice::<u8, u32>(&self.encoded_paints_data),
                 encoded_paints_texture_width,
                 encoded_paints_texture_height,
@@ -3318,10 +3308,14 @@ fn copy_to_texture_array_layer(
 // Upload the data to the currently bound texture assuming a RGBA32UI format.
 fn upload_data_to_rgba32_texture(
     gl: &WebGl2RenderingContext,
+    texture: &WebGlTexture,
     data: &[u32],
     texture_width: u32,
     texture_height: u32,
 ) {
+    gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+    gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(texture));
+
     // Safety: This calling `Uint32Array::view` is unsafe because it provides a view into
     // WASM linear memory, and any additional allocations might invalidate that view.
     // In our case, this is not an issue because we only use this view once for uploading
