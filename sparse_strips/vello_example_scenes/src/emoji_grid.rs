@@ -238,14 +238,14 @@ fn emoji_font_metrics(font: &FontData) -> (Vec<EmojiGlyph>, f32, f32, f32) {
     );
     let fallback_bbox = Rect::new(0.0, 0.0, f64::from(upem), f64::from(upem));
     let color_glyphs = font_ref.color_glyphs();
-    let glyph_count = usize::from(font_ref.maxp().expect("emoji font maxp table").num_glyphs());
+    let glyph_count = u32::from(font_ref.maxp().expect("emoji font maxp table").num_glyphs());
 
     let mut glyphs = Vec::new();
-    let mut unit_cell_width = 0.0f32;
-    let mut unit_cell_height = 0.0f32;
+    let mut unit_cell_width = 0.0_f32;
+    let mut unit_cell_height = 0.0_f32;
 
     for glyph_index in 0..glyph_count {
-        let glyph_id = GlyphId::new(glyph_index as u32);
+        let glyph_id = GlyphId::new(glyph_index);
         let Some(color_glyph) = color_glyphs.get(glyph_id) else {
             continue;
         };
@@ -253,12 +253,12 @@ fn emoji_font_metrics(font: &FontData) -> (Vec<EmojiGlyph>, f32, f32, f32) {
             .bounding_box(LocationRef::default(), Size::unscaled())
             .map(convert_bbox)
             .unwrap_or(fallback_bbox);
-        unit_cell_width = unit_cell_width.max(bbox.width() as f32);
-        unit_cell_height = unit_cell_height.max(bbox.height() as f32);
+        unit_cell_width = unit_cell_width.max(f64_to_f32(bbox.width()));
+        unit_cell_height = unit_cell_height.max(f64_to_f32(bbox.height()));
         glyphs.push(EmojiGlyph {
             id: glyph_id.to_u32(),
-            bbox_x0: bbox.x0 as f32,
-            bbox_y1: bbox.y1 as f32,
+            bbox_x0: f64_to_f32(bbox.x0),
+            bbox_y1: f64_to_f32(bbox.y1),
         });
     }
 
@@ -277,4 +277,12 @@ fn convert_bbox(bbox: skrifa::raw::types::BoundingBox<f32>) -> Rect {
         f64::from(bbox.x_max),
         f64::from(bbox.y_max),
     )
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "emoji font metrics are small enough to fit in f32 for this demo scene"
+)]
+fn f64_to_f32(value: f64) -> f32 {
+    value as f32
 }
