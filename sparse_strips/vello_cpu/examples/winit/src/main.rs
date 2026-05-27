@@ -476,9 +476,7 @@ impl ApplicationHandler for App {
                 buffer.present().unwrap();
 
                 // Request continuous redraw for FPS measurement
-                if self.rotating || self.shearing {
-                    window.request_redraw();
-                }
+                window.request_redraw();
             }
             _ => {}
         }
