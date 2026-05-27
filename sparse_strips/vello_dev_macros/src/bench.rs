@@ -4,7 +4,7 @@
 use proc_macro::TokenStream;
 use proc_macro2::Ident;
 use quote::quote;
-use syn::{ItemFn, parse_macro_input};
+use syn::{ItemFn, parse_macro_input, parse_quote};
 
 pub(crate) fn vello_bench_inner(_: TokenStream, item: TokenStream) -> TokenStream {
     let mut input_fn = parse_macro_input!(item as ItemFn);
@@ -14,6 +14,7 @@ pub(crate) fn vello_bench_inner(_: TokenStream, item: TokenStream) -> TokenStrea
     let inner_fn_name = Ident::new(&format!("{input_fn_name}_inner"), input_fn_name.span());
 
     input_fn.sig.ident = inner_fn_name.clone();
+    input_fn.attrs.push(parse_quote!(#[inline(always)]));
 
     let expanded = quote! {
         #input_fn
@@ -37,14 +38,26 @@ pub(crate) fn vello_bench_inner(_: TokenStream, item: TokenStream) -> TokenStrea
                 format!("{}/{}_{}", module, suffix1, suffix2)
             }
 
+            #[inline(always)]
             fn run_integer<S: Simd>(b: &mut Bencher, simd: S) {
-                let mut fine = Fine::<S, U8Kernel>::new(simd);
-                #inner_fn_name(b, &mut fine);
+                simd.vectorize(
+                    #[inline(always)]
+                    || {
+                        let mut fine = Fine::<S, U8Kernel>::new(simd);
+                        #inner_fn_name(b, &mut fine);
+                    },
+                );
             }
 
+            #[inline(always)]
             fn run_float<S: Simd>(b: &mut Bencher, simd: S) {
-                let mut fine = Fine::<S, F32Kernel>::new(simd);
-                #inner_fn_name(b, &mut fine);
+                simd.vectorize(
+                    #[inline(always)]
+                    || {
+                        let mut fine = Fine::<S, F32Kernel>::new(simd);
+                        #inner_fn_name(b, &mut fine);
+                    },
+                );
             }
 
             // Uncomment this to enable u8_scalar benchmarks.
