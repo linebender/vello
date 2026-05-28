@@ -67,16 +67,34 @@ pub trait Numeric: Copy + Default + Clone + Debug + PartialEq + Send + Sync + 's
 
     /// The maximum opacity value for this numeric type (1.0 for f32, 255 for u8).
     const ONE: Self;
+
+    fn from_u8_component(value: u8) -> Self;
 }
 
 impl Numeric for f32 {
     const ZERO: Self = 0.0;
     const ONE: Self = 1.0;
+
+    #[inline(always)]
+    fn from_u8_component(value: u8) -> Self {
+        f32::from(value) / 255.0
+    }
 }
 
 impl Numeric for u8 {
     const ZERO: Self = 0;
     const ONE: Self = 255;
+
+    #[inline(always)]
+    fn from_u8_component(value: u8) -> Self {
+        value
+    }
+}
+
+pub(crate) struct RenderedFilterLayer {
+    pub(crate) data: Vec<u8>,
+    pub(crate) width: u16,
+    pub(crate) height: u16,
 }
 
 /// Trait for SIMD vector types that can convert between f32 and u8 representations.
@@ -925,8 +943,129 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             | Cmd::PopBuf
             | Cmd::Opacity(_)
             | Cmd::Mask(_)
+            | Cmd::FilterLayer(_)
             | Cmd::BlendFill(_)
             | Cmd::BlendAlphaFill(_) => unreachable!(),
+        }
+    }
+
+    fn composite_filter_layer(
+        &mut self,
+        x: u16,
+        width: u16,
+        src_x: u16,
+        src_y: u16,
+        dst_y_offset: u8,
+        height: u8,
+        layer: &RenderedFilterLayer,
+    ) {
+        if width == 0 || height == 0 || src_y >= layer.height || src_x >= layer.width {
+            return;
+        }
+
+        let width = width.min(layer.width - src_x);
+        let len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
+        if self.paint_buf.len() < len {
+            self.paint_buf.resize(len, T::Numeric::ZERO);
+        }
+        self.paint_buf[..len].fill(T::Numeric::ZERO);
+
+        let src_stride = usize::from(layer.width) * COLOR_COMPONENTS;
+        for col in 0..usize::from(width) {
+            for row in 0..usize::from(height) {
+                let src_y = usize::from(src_y) + row;
+                if src_y >= usize::from(layer.height) {
+                    break;
+                }
+                let src_x = usize::from(src_x) + col;
+                let src_idx = src_y * src_stride + src_x * COLOR_COMPONENTS;
+                let dst_row = usize::from(dst_y_offset) + row;
+                if dst_row >= Tile::HEIGHT as usize {
+                    break;
+                }
+                let dst_idx = col * TILE_HEIGHT_COMPONENTS + dst_row * COLOR_COMPONENTS;
+                for component in 0..COLOR_COMPONENTS {
+                    self.paint_buf[dst_idx + component] =
+                        T::Numeric::from_u8_component(layer.data[src_idx + component]);
+                }
+            }
+        }
+
+        let start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
+        let len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
+        let target = &mut self.buffers.last_mut().unwrap()[start..start + len];
+        T::alpha_composite_buffer(self.simd, target, &self.paint_buf[..len], None);
+    }
+
+    fn composite_filter_layer_cmd(
+        &mut self,
+        cmd: &crate::row::FilterLayerCmd,
+        layer: &RenderedFilterLayer,
+        use_depth: bool,
+    ) {
+        let cmd_x = cmd.x;
+        let cmd_end = cmd.x.saturating_add(cmd.width).min(self.buffer_width);
+        if cmd_x >= cmd_end {
+            return;
+        }
+
+        if !use_depth {
+            self.composite_filter_layer(
+                cmd_x,
+                cmd_end - cmd_x,
+                cmd.src_x,
+                cmd.src_y,
+                cmd.dst_y_offset,
+                cmd.height,
+                layer,
+            );
+            return;
+        }
+
+        let start = usize::from(cmd_x / DEPTH_BUCKET_WIDTH);
+        let end = usize::from(cmd_end.div_ceil(DEPTH_BUCKET_WIDTH));
+
+        if start + 1 == end {
+            if self.depth[start] <= cmd.path_id {
+                self.composite_filter_layer(
+                    cmd_x,
+                    cmd_end - cmd_x,
+                    cmd.src_x,
+                    cmd.src_y,
+                    cmd.dst_y_offset,
+                    cmd.height,
+                    layer,
+                );
+            }
+            return;
+        }
+
+        let mut idx = start;
+        while idx < end {
+            while idx < end && self.depth[idx] > cmd.path_id {
+                idx += 1;
+            }
+
+            let run_start = idx;
+            while idx < end && self.depth[idx] <= cmd.path_id {
+                idx += 1;
+            }
+
+            if run_start == idx {
+                continue;
+            }
+
+            let x = cmd_x.max(run_start as u16 * DEPTH_BUCKET_WIDTH);
+            let end = cmd_end.min(idx as u16 * DEPTH_BUCKET_WIDTH);
+            self.composite_filter_layer(
+                x,
+                end - x,
+                cmd.src_x + (x - cmd.x),
+                cmd.src_y,
+                cmd.dst_y_offset,
+                cmd.height,
+                layer,
+            );
         }
     }
 
@@ -1177,6 +1316,7 @@ pub(crate) fn rasterize<S: Simd, T: FineKernel<S>>(
     simd: S,
     bucketer: &CommandBucketer,
     alpha_buffers: &[&[u8]],
+    filter_layers: &[Option<RenderedFilterLayer>],
     buffer: &mut [u8],
     width: u16,
     height: u16,
@@ -1231,6 +1371,12 @@ pub(crate) fn rasterize<S: Simd, T: FineKernel<S>>(
                 }
                 Cmd::Mask(mask) => {
                     fine.mask(row_y, row_start, row_end - row_start, mask);
+                }
+                Cmd::FilterLayer(cmd) => {
+                    if let Some(layer) = filter_layers.get(cmd.layer_id).and_then(Option::as_ref) {
+                        let use_depth = row.depth_affects(cmd.x, cmd.width, cmd.path_id);
+                        fine.composite_filter_layer_cmd(cmd, layer, use_depth);
+                    }
                 }
                 Cmd::BlendFill(cmd) => {
                     fine.blend_fill(row_y, cmd.x, cmd.width, cmd.blend_mode);

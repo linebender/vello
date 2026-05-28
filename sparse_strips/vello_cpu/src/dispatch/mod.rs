@@ -33,6 +33,16 @@ pub(crate) enum RecordedCmd {
         clip: Option<LayerClip>,
         content_bbox: RectU16,
     },
+    CompositeFilterLayer {
+        layer_id: usize,
+        bbox: RectU16,
+        src_x: u16,
+        src_y: u16,
+        blend_mode: BlendMode,
+        opacity: f32,
+        mask: Option<Mask>,
+        clip: Option<LayerClip>,
+    },
     PopLayer,
 }
 

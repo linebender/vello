@@ -432,6 +432,11 @@ impl MultiThreadedDispatcher {
                     clip,
                     ..
                 } => bucketer.push_layer(*blend_mode, *opacity, mask.clone(), clip.clone()),
+                RecordedCmd::CompositeFilterLayer { .. } => {
+                    unimplemented!(
+                        "Filter effects are not yet supported in multi-threaded rendering"
+                    );
+                }
                 RecordedCmd::PopLayer => bucketer.pop_layer(&self.strip_storage.strips),
             }
         }
@@ -443,6 +448,7 @@ impl MultiThreadedDispatcher {
                 simd,
                 &bucketer,
                 &alpha_buffers,
+                &[],
                 buffer,
                 width,
                 height,

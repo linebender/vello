@@ -30,6 +30,7 @@ use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Fill};
 use vello_common::pixmap::Pixmap;
 use vello_common::render_state::RenderState;
+use vello_common::tile::Tile;
 use vello_common::util::is_axis_aligned;
 
 #[cfg(feature = "text")]
@@ -97,6 +98,7 @@ pub struct RenderContext {
     pub(crate) state: RenderState,
     /// Stack of transforms applied before the user-visible render state transform.
     root_transforms: Vec<Affine>,
+    filter_root_stack: Vec<bool>,
     /// The current mask in place.
     pub(crate) mask: Option<Mask>,
     /// Temporary path buffer to avoid repeated allocations.
@@ -185,6 +187,7 @@ impl RenderContext {
             dispatcher,
             state: RenderState::default(),
             root_transforms: vec![Affine::IDENTITY],
+            filter_root_stack: Vec::new(),
             aliasing_threshold,
             render_settings: settings,
             mask: None,
@@ -391,10 +394,9 @@ impl RenderContext {
         resources: &'a mut Resources,
         font: &crate::peniko::FontData,
     ) -> GlyphRunBuilder<'a> {
-        let transform = self.effective_transform();
         glifo::GlyphRunBuilder::new(
             font.clone(),
-            transform,
+            self.state.transform,
             crate::text::CpuGlyphRunBackend {
                 ctx: self,
                 resources,
@@ -426,6 +428,20 @@ impl RenderContext {
 
         let blend_mode = blend_mode.unwrap_or_default();
         let opacity = opacity.unwrap_or(1.0);
+        let pushed_filter_root = if let Some(filter) = &filter {
+            let expansion = filter.bounds_expansion(&self.effective_transform());
+            let left = ((-expansion.x0).max(0.0).ceil() as u16)
+                .checked_next_multiple_of(Tile::WIDTH)
+                .unwrap_or(u16::MAX);
+            let top = ((-expansion.y0).max(0.0).ceil() as u16)
+                .checked_next_multiple_of(Tile::HEIGHT)
+                .unwrap_or(u16::MAX);
+            let root = self.root_transform() * Affine::translate((f64::from(left), f64::from(top)));
+            self.push_root_transform(root);
+            true
+        } else {
+            false
+        };
         let transform = self.effective_transform();
 
         self.dispatcher.push_layer(
@@ -438,6 +454,7 @@ impl RenderContext {
             mask,
             filter,
         );
+        self.filter_root_stack.push(pushed_filter_root);
     }
 
     /// Push a new clip layer.
@@ -495,6 +512,13 @@ impl RenderContext {
     /// Pop the last-pushed layer.
     pub fn pop_layer(&mut self) {
         self.dispatcher.pop_layer();
+        if self
+            .filter_root_stack
+            .pop()
+            .expect("render context layer stack underflow")
+        {
+            self.pop_root_transform();
+        }
     }
 
     /// Set the current stroke.
@@ -626,6 +650,7 @@ impl RenderContext {
         self.mask = None;
         self.root_transforms.clear();
         self.root_transforms.push(Affine::IDENTITY);
+        self.filter_root_stack.clear();
         self.state.reset();
     }
 

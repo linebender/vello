@@ -23,6 +23,7 @@ pub(crate) enum Cmd {
     Opacity(f32),
     Mask(Mask),
     BlendFill(BlendFillCmd),
+    FilterLayer(FilterLayerCmd),
     #[allow(
         dead_code,
         reason = "will be used once layer clip alphas are emitted as row commands"
@@ -37,6 +38,7 @@ impl Cmd {
             Self::Fill(cmd) => Some((cmd.x, cmd.width)),
             Self::AlphaFill(cmd) => Some((cmd.x, cmd.width)),
             Self::BlendFill(cmd) => Some((cmd.x, cmd.width)),
+            Self::FilterLayer(cmd) => Some((cmd.x, cmd.width)),
             Self::BlendAlphaFill(cmd) => Some((cmd.x, cmd.width)),
             Self::PushLayer | Self::PopBuf | Self::Opacity(_) | Self::Mask(_) => None,
         }
@@ -51,6 +53,7 @@ impl Cmd {
             | Self::PopBuf
             | Self::Opacity(_)
             | Self::Mask(_)
+            | Self::FilterLayer(_)
             | Self::BlendFill(_)
             | Self::BlendAlphaFill(_) => unreachable!(),
         }
@@ -65,6 +68,7 @@ impl Cmd {
             | Self::PopBuf
             | Self::Opacity(_)
             | Self::Mask(_)
+            | Self::FilterLayer(_)
             | Self::BlendFill(_)
             | Self::BlendAlphaFill(_) => unreachable!(),
         }
@@ -79,6 +83,7 @@ impl Cmd {
             | Self::PopBuf
             | Self::Opacity(_)
             | Self::Mask(_)
+            | Self::FilterLayer(_)
             | Self::BlendFill(_)
             | Self::BlendAlphaFill(_) => unreachable!(),
         }
@@ -105,6 +110,18 @@ pub(crate) struct BlendFillCmd {
     pub(crate) x: u16,
     pub(crate) width: u16,
     pub(crate) blend_mode: BlendMode,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct FilterLayerCmd {
+    pub(crate) x: u16,
+    pub(crate) width: u16,
+    pub(crate) layer_id: usize,
+    pub(crate) path_id: u32,
+    pub(crate) src_x: u16,
+    pub(crate) src_y: u16,
+    pub(crate) dst_y_offset: u8,
+    pub(crate) height: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -543,6 +560,53 @@ impl CommandBucketer {
                 );
             },
         );
+    }
+
+    pub(crate) fn generate_filter_layer(
+        &mut self,
+        layer_id: usize,
+        bbox: RectU16,
+        src_origin: (u16, u16),
+    ) {
+        let clip_bbox = *self.clip_bboxes.last().unwrap();
+        let src_bbox = bbox;
+        let bbox = bbox.intersect(clip_bbox);
+        if bbox.is_empty() {
+            return;
+        }
+
+        let path_id = self.next_path_id;
+        self.next_path_id = self
+            .next_path_id
+            .checked_add(1)
+            .expect("row-bucket path ID overflow");
+        let full_width = self.width();
+        let row_start = usize::from(bbox.y0 / Tile::HEIGHT);
+        let row_end = usize::from(bbox.y1.div_ceil(Tile::HEIGHT)).min(self.rows.len());
+        for row_idx in row_start..row_end {
+            self.ensure_row_layers(row_idx);
+            let row_y = row_idx as u16 * Tile::HEIGHT;
+            let row_y1 = row_y.saturating_add(Tile::HEIGHT);
+            if row_y1 <= bbox.y0 || row_y >= bbox.y1 {
+                continue;
+            }
+            let draw_y = row_y.max(bbox.y0);
+            let draw_y1 = row_y1.min(bbox.y1);
+
+            self.rows[row_idx].push_cmd(
+                Cmd::FilterLayer(FilterLayerCmd {
+                    x: bbox.x0,
+                    width: bbox.width(),
+                    layer_id,
+                    path_id,
+                    src_x: src_origin.0 + (bbox.x0 - src_bbox.x0),
+                    src_y: src_origin.1 + (draw_y - src_bbox.y0),
+                    dst_y_offset: (draw_y - row_y) as u8,
+                    height: (draw_y1 - draw_y) as u8,
+                }),
+                full_width,
+            );
+        }
     }
 
     pub(crate) fn generate<F, A>(
