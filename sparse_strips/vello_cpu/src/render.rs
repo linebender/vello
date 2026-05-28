@@ -428,8 +428,9 @@ impl RenderContext {
 
         let blend_mode = blend_mode.unwrap_or_default();
         let opacity = opacity.unwrap_or(1.0);
+        let layer_transform = self.effective_transform();
         let pushed_filter_root = if let Some(filter) = &filter {
-            let expansion = filter.bounds_expansion(&self.effective_transform());
+            let expansion = filter.bounds_expansion(&layer_transform);
             let left = ((-expansion.x0).max(0.0).ceil() as u16)
                 .checked_next_multiple_of(Tile::WIDTH)
                 .unwrap_or(u16::MAX);
@@ -442,7 +443,11 @@ impl RenderContext {
         } else {
             false
         };
-        let transform = self.effective_transform();
+        let transform = if filter.is_some() {
+            layer_transform
+        } else {
+            self.effective_transform()
+        };
 
         self.dispatcher.push_layer(
             clip_path,
