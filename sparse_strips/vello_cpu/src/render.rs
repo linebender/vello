@@ -95,6 +95,8 @@ pub struct RenderContext {
     pub(crate) height: u16,
     /// The current rendering state.
     pub(crate) state: RenderState,
+    /// Stack of transforms applied before the user-visible render state transform.
+    root_transforms: Vec<Affine>,
     /// The current mask in place.
     pub(crate) mask: Option<Mask>,
     /// Temporary path buffer to avoid repeated allocations.
@@ -182,6 +184,7 @@ impl RenderContext {
             height,
             dispatcher,
             state: RenderState::default(),
+            root_transforms: vec![Affine::IDENTITY],
             aliasing_threshold,
             render_settings: settings,
             mask: None,
@@ -192,32 +195,57 @@ impl RenderContext {
     }
 
     fn encode_current_paint(&mut self) -> Paint {
+        let transform = self.effective_paint_transform();
         match self.state.paint.clone() {
             PaintType::Solid(s) => s.into(),
             PaintType::Gradient(g) => {
                 // TODO: Add caching?
-                g.encode_into(
-                    &mut self.encoded_paints,
-                    self.state.transform * self.state.paint_transform,
-                    None,
-                )
+                g.encode_into(&mut self.encoded_paints, transform, None)
             }
-            PaintType::Image(i) => i.encode_into(
-                &mut self.encoded_paints,
-                self.state.transform * self.state.paint_transform,
-                self.state.tint,
-            ),
+            PaintType::Image(i) => {
+                i.encode_into(&mut self.encoded_paints, transform, self.state.tint)
+            }
         }
+    }
+
+    fn root_transform(&self) -> Affine {
+        *self
+            .root_transforms
+            .last()
+            .expect("root transform stack should never be empty")
+    }
+
+    fn effective_transform(&self) -> Affine {
+        self.root_transform() * self.state.transform
+    }
+
+    fn effective_paint_transform(&self) -> Affine {
+        self.effective_transform() * self.state.paint_transform
+    }
+
+    #[allow(dead_code, reason = "used by filter layer recording prototype")]
+    pub(crate) fn push_root_transform(&mut self, transform: Affine) {
+        self.root_transforms.push(transform);
+    }
+
+    #[allow(dead_code, reason = "used by filter layer recording prototype")]
+    pub(crate) fn pop_root_transform(&mut self) {
+        assert!(
+            self.root_transforms.len() > 1,
+            "cannot pop the base root transform"
+        );
+        self.root_transforms.pop();
     }
 
     /// Fill a path.
     pub fn fill_path(&mut self, path: &BezPath) {
         self.with_optional_filter(|ctx| {
             let paint = ctx.encode_current_paint();
+            let transform = ctx.effective_transform();
             ctx.dispatcher.fill_path(
                 path,
                 ctx.state.fill_rule,
-                ctx.state.transform,
+                transform,
                 paint,
                 ctx.state.blend_mode,
                 ctx.aliasing_threshold,
@@ -231,10 +259,11 @@ impl RenderContext {
     pub fn stroke_path(&mut self, path: &BezPath) {
         self.with_optional_filter(|ctx| {
             let paint = ctx.encode_current_paint();
+            let transform = ctx.effective_transform();
             ctx.dispatcher.stroke_path(
                 path,
                 &ctx.state.stroke,
-                ctx.state.transform,
+                transform,
                 paint,
                 ctx.state.blend_mode,
                 ctx.aliasing_threshold,
@@ -248,13 +277,14 @@ impl RenderContext {
     pub fn fill_rect(&mut self, rect: &Rect) {
         self.with_optional_filter(|ctx| {
             let paint = ctx.encode_current_paint();
+            let transform = ctx.effective_transform();
 
             // Fast path: Use optimized rect filling if we have no skew in the path transform
             // and anti-aliasing is enabled.
             // TODO: Maybe also support no anti-aliasing in the fast path
-            if is_axis_aligned(&ctx.state.transform) && ctx.aliasing_threshold.is_none() {
+            if is_axis_aligned(&transform) && ctx.aliasing_threshold.is_none() {
                 // Transform the rect to screen coordinates.
-                let transformed_rect = ctx.state.transform.transform_rect_bbox(*rect);
+                let transformed_rect = transform.transform_rect_bbox(*rect);
                 ctx.dispatcher.fill_rect_fast(
                     &transformed_rect,
                     paint,
@@ -268,7 +298,7 @@ impl RenderContext {
                 ctx.dispatcher.fill_path(
                     &ctx.temp_path,
                     ctx.state.fill_rule,
-                    ctx.state.transform,
+                    transform,
                     paint,
                     ctx.state.blend_mode,
                     ctx.aliasing_threshold,
@@ -284,10 +314,11 @@ impl RenderContext {
         self.with_optional_filter(|ctx| {
             ctx.rect_to_temp_path(rect);
             let paint = ctx.encode_current_paint();
+            let transform = ctx.effective_transform();
             ctx.dispatcher.stroke_path(
                 &ctx.temp_path,
                 &ctx.state.stroke,
-                ctx.state.transform,
+                transform,
                 paint,
                 ctx.state.blend_mode,
                 ctx.aliasing_threshold,
@@ -335,15 +366,16 @@ impl RenderContext {
         // For performance reason we cut off the filter at some extent where the response is close to zero.
         let kernel_size = 2.5 * std_dev;
         let inflated_rect = rect.inflate(f64::from(kernel_size), f64::from(kernel_size));
-        let transform = self.state.transform * self.state.paint_transform;
+        let transform = self.effective_transform();
+        let paint_transform = transform * self.state.paint_transform;
 
         self.rect_to_temp_path(&inflated_rect);
 
-        let paint = blurred_rect.encode_into(&mut self.encoded_paints, transform, None);
+        let paint = blurred_rect.encode_into(&mut self.encoded_paints, paint_transform, None);
         self.dispatcher.fill_path(
             &self.temp_path,
             Fill::NonZero,
-            self.state.transform,
+            transform,
             paint,
             self.state.blend_mode,
             self.aliasing_threshold,
@@ -359,9 +391,10 @@ impl RenderContext {
         resources: &'a mut Resources,
         font: &crate::peniko::FontData,
     ) -> GlyphRunBuilder<'a> {
+        let transform = self.effective_transform();
         glifo::GlyphRunBuilder::new(
             font.clone(),
-            self.state.transform,
+            transform,
             crate::text::CpuGlyphRunBackend {
                 ctx: self,
                 resources,
@@ -393,11 +426,12 @@ impl RenderContext {
 
         let blend_mode = blend_mode.unwrap_or_default();
         let opacity = opacity.unwrap_or(1.0);
+        let transform = self.effective_transform();
 
         self.dispatcher.push_layer(
             clip_path,
             self.state.fill_rule,
-            self.state.transform,
+            transform,
             blend_mode,
             opacity,
             self.aliasing_threshold,
@@ -590,6 +624,8 @@ impl RenderContext {
         self.dispatcher.reset();
         self.encoded_paints.clear();
         self.mask = None;
+        self.root_transforms.clear();
+        self.root_transforms.push(Affine::IDENTITY);
         self.state.reset();
     }
 
@@ -598,10 +634,11 @@ impl RenderContext {
     /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
     /// example for how this method differs from `push_clip_layer`.
     pub fn push_clip_path(&mut self, path: &BezPath) {
+        let transform = self.effective_transform();
         self.dispatcher.push_clip_path(
             path,
             self.state.fill_rule,
-            self.state.transform,
+            transform,
             self.aliasing_threshold,
         );
     }
@@ -852,7 +889,7 @@ mod tests {
     #[cfg(feature = "text")]
     use glifo::Glyph;
     use vello_common::color::palette::css::{BLUE, GREEN, RED};
-    use vello_common::kurbo::{Rect, Shape};
+    use vello_common::kurbo::{Affine, Rect, Shape};
     use vello_common::mask::Mask;
     use vello_common::peniko::{BlendMode, Compose, Mix};
     use vello_common::peniko::{ColorStop, Gradient};
@@ -898,6 +935,28 @@ mod tests {
 
         assert_eq!(&buffer[..4], &[0, 0, 0, 0]);
         assert!(buffer[(5 * 16 + 5) * 4 + 3] > 0);
+    }
+
+    #[test]
+    fn root_transform_offsets_geometry() {
+        let mut resources = Resources::new();
+        let mut ctx = RenderContext::new(16, 16);
+        let mut buffer = vec![0; 16 * 16 * 4];
+
+        ctx.push_root_transform(Affine::translate((4.0, 0.0)));
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 4.0));
+        ctx.pop_root_transform();
+        ctx.flush();
+        ctx.render_to_buffer(
+            &mut resources,
+            &mut buffer,
+            16,
+            16,
+            ctx.render_settings().render_mode,
+        );
+
+        assert_eq!(&buffer[..4], &[0, 0, 0, 0]);
+        assert!(buffer[(2 * 16 + 5) * 4 + 3] > 0);
     }
 
     #[test]
