@@ -98,6 +98,12 @@ impl Resources {
         self.maintain_glyph_cache();
     }
 
+    /// Returns image cache.
+    #[cfg(feature = "text")]
+    pub fn image_cache(&self) -> &ImageCache {
+        &self.image_cache
+    }
+
     /// Returns atlas pages.
     #[cfg(feature = "text")]
     pub fn pixmaps(&self) -> Option<Vec<Arc<Pixmap>>> {
