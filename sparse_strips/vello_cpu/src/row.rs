@@ -153,6 +153,7 @@ pub(crate) struct FillAttrs {
     pub(crate) mask: Option<Mask>,
     pub(crate) path_id: u32,
     pub(crate) thread_idx: u8,
+    pub(crate) paint_offset: (u16, u16),
 }
 
 #[derive(Debug, Clone)]
@@ -517,6 +518,7 @@ impl CommandBucketer {
         blend_mode: BlendMode,
         mask: Option<Mask>,
         thread_idx: u8,
+        paint_offset: (u16, u16),
         encoded_paints: &[EncodedPaint],
     ) {
         if strip_buf.is_empty() {
@@ -535,6 +537,7 @@ impl CommandBucketer {
             mask: mask.clone(),
             path_id,
             thread_idx,
+            paint_offset,
         });
         let depth_cull_path_id = (self.active_layers.is_empty()
             && blend_mode == BlendMode::default()
@@ -792,6 +795,7 @@ mod tests {
             BlendMode::default(),
             None,
             0,
+            (0, 0),
             &[],
         );
 
@@ -819,6 +823,7 @@ mod tests {
             BlendMode::default(),
             None,
             0,
+            (0, 0),
             &encoded_paints,
         );
 
@@ -842,6 +847,7 @@ mod tests {
             BlendMode::default(),
             None,
             0,
+            (0, 0),
             &[],
         );
 
@@ -862,6 +868,7 @@ mod tests {
             BlendMode::default(),
             None,
             0,
+            (0, 0),
             &[],
         );
 
@@ -894,6 +901,7 @@ mod tests {
             BlendMode::default(),
             None,
             0,
+            (0, 0),
             &[],
         );
 
@@ -916,6 +924,7 @@ mod tests {
             BlendMode::default(),
             None,
             0,
+            (0, 0),
             &[],
         );
 

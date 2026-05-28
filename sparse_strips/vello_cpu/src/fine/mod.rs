@@ -690,6 +690,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         &mut self,
         x: u16,
         y: u16,
+        sample_x: u16,
+        sample_y: u16,
         width: u16,
         paint_index: usize,
         blend_mode: BlendMode,
@@ -716,6 +718,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             &mut self.f32_buf,
             x,
             y,
+            sample_x,
+            sample_y,
             width,
             paint_index,
             blend_mode,
@@ -745,6 +749,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     Paint::Indexed(index) => self.fill_indexed(
                         cmd.x,
                         row_y,
+                        cmd.x.saturating_add(attrs.paint_offset.0),
+                        row_y.saturating_add(attrs.paint_offset.1),
                         cmd.width,
                         index.index(),
                         attrs.blend_mode,
@@ -781,6 +787,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 Paint::Indexed(index) => self.fill_indexed(
                     x,
                     row_y,
+                    x.saturating_add(attrs.paint_offset.0),
+                    row_y.saturating_add(attrs.paint_offset.1),
                     width,
                     index.index(),
                     attrs.blend_mode,
@@ -902,6 +910,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 Paint::Indexed(index) => self.fill_indexed(
                     x,
                     row_y,
+                    x.saturating_add(attrs.paint_offset.0),
+                    row_y.saturating_add(attrs.paint_offset.1),
                     end - x,
                     index.index(),
                     attrs.blend_mode,
@@ -928,6 +938,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                         self.fill_indexed(
                             x,
                             row_y,
+                            x.saturating_add(attrs.paint_offset.0),
+                            row_y.saturating_add(attrs.paint_offset.1),
                             end - x,
                             index.index(),
                             attrs.blend_mode,
@@ -1120,6 +1132,8 @@ fn fill_indexed_paint<S: Simd, T: FineKernel<S>>(
     f32_buf: &mut [f32],
     x: u16,
     y: u16,
+    sample_x: u16,
+    sample_y: u16,
     width: u16,
     paint_index: usize,
     blend_mode: BlendMode,
@@ -1139,8 +1153,8 @@ fn fill_indexed_paint<S: Simd, T: FineKernel<S>>(
     let color_buf = &mut paint_buf[..len];
     let encoded_paint = &encoded_paints[paint_index];
 
-    let sampler_x = f64::from(x) + PIXEL_CENTER_OFFSET;
-    let sampler_y = f64::from(y) + PIXEL_CENTER_OFFSET;
+    let sampler_x = f64::from(sample_x) + PIXEL_CENTER_OFFSET;
+    let sampler_y = f64::from(sample_y) + PIXEL_CENTER_OFFSET;
     let default_blend = blend_mode == BlendMode::default();
 
     macro_rules! fill_complex_paint {

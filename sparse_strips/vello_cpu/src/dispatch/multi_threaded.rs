@@ -423,6 +423,7 @@ impl MultiThreadedDispatcher {
                     *blend_mode,
                     mask.clone(),
                     *thread_idx,
+                    (0, 0),
                     encoded_paints,
                 ),
                 RecordedCmd::PushLayer {

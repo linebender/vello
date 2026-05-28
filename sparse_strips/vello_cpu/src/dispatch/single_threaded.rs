@@ -170,6 +170,7 @@ impl SingleThreadedDispatcher {
                         *blend_mode,
                         mask.clone(),
                         *thread_idx,
+                        origin,
                         encoded_paints,
                     );
                 }
