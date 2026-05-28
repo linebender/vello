@@ -584,19 +584,15 @@ impl CommandBucketer {
             let strip_width = next_col.saturating_sub(col) as u16;
             let x0 = strip.x;
             let x1 = x0.saturating_add(strip_width);
-            let clipped_x0 = x0.max(clip_x0);
-            let clipped_x1 = x1.min(clip_x1);
 
-            if clipped_x0 < clipped_x1 {
-                let alpha_idx =
-                    strip.alpha_idx() + u32::from(clipped_x0 - x0) * u32::from(Tile::HEIGHT);
+            if x0 < clip_x1 && x1 > clip_x0 {
                 alpha_fill_cmd(
                     self,
                     row_idx,
                     GeneratedAlphaFill {
-                        x: clipped_x0,
-                        width: clipped_x1 - clipped_x0,
-                        alpha_idx,
+                        x: x0,
+                        width: strip_width,
+                        alpha_idx: strip.alpha_idx(),
                     },
                 );
             }
@@ -706,11 +702,12 @@ fn paint_is_opaque(paint: &Paint, encoded_paints: &[EncodedPaint]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cmd, CommandBucketer};
+    use super::{Cmd, CommandBucketer, LayerClip};
     use alloc::vec::Vec;
     use vello_common::color::palette::css::{BLUE, RED};
     use vello_common::color::{AlphaColor, Srgb};
     use vello_common::encode::EncodeExt;
+    use vello_common::geometry::RectU16;
     use vello_common::kurbo::Affine;
     use vello_common::paint::{Paint, PremulColor};
     use vello_common::peniko::{BlendMode, ColorStop, Gradient};
@@ -809,6 +806,38 @@ mod tests {
         assert_eq!(row.cmds.len(), 1);
         assert!(
             matches!(row.cmds[0], Cmd::AlphaFill(cmd) if cmd.x == 0 && cmd.width == 8 && cmd.alpha_idx == 0)
+        );
+    }
+
+    #[test]
+    fn alpha_fill_keeps_full_strip_when_clipped() {
+        let mut bucketer = CommandBucketer::new(128, 4);
+        let strips = [Strip::new(0, 0, 0, false), Strip::new(8, 0, 32, false)];
+
+        bucketer.push_layer(
+            BlendMode::default(),
+            1.0,
+            None,
+            Some(LayerClip {
+                strip_range: 0..0,
+                thread_idx: 0,
+                bbox: RectU16::new(1, 0, 7, 4),
+            }),
+        );
+        bucketer.generate_fill(
+            &strips,
+            Paint::Solid(color(BLUE)),
+            BlendMode::default(),
+            None,
+            0,
+            &[],
+        );
+
+        let row = &bucketer.rows()[0];
+        assert_eq!(row.cmds.len(), 2);
+        assert!(matches!(row.cmds[0], Cmd::PushLayer));
+        assert!(
+            matches!(row.cmds[1], Cmd::AlphaFill(cmd) if cmd.x == 0 && cmd.width == 8 && cmd.alpha_idx == 0)
         );
     }
 

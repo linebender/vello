@@ -972,7 +972,6 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             );
         }
     }
-
 }
 
 fn fill_indexed_paint<S: Simd, T: FineKernel<S>>(
