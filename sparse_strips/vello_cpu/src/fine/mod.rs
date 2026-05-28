@@ -461,6 +461,7 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
 pub(crate) struct Fine<S: Simd, T: FineKernel<S>> {
     simd: S,
     out_width: u16,
+    buffer_width: u16,
     buffers: Vec<Vec<T::Numeric>>,
     buffer_pool: Vec<Vec<T::Numeric>>,
     paint_buf: Vec<T::Numeric>,
@@ -474,6 +475,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         Self {
             simd,
             out_width,
+            buffer_width,
             buffers: vec![vec![T::Numeric::ZERO; scratch_len]],
             buffer_pool: Vec::new(),
             paint_buf: Vec::new(),
@@ -788,7 +790,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         use_depth: bool,
     ) {
         let cmd_x = cmd.fill_x();
-        let cmd_end = (cmd_x + cmd.fill_width()).min(self.out_width);
+        let cmd_end = (cmd_x + cmd.fill_width()).min(self.buffer_width);
         if cmd_x >= cmd_end {
             return;
         }
