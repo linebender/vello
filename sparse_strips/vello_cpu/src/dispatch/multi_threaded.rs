@@ -374,6 +374,7 @@ impl MultiThreadedDispatcher {
                                     opacity,
                                     mask,
                                     clip: clip_path,
+                                    content_bbox: RectU16::INVERTED,
                                 });
                             }
                             CoarseTaskType::PopLayer => {
@@ -429,6 +430,7 @@ impl MultiThreadedDispatcher {
                     opacity,
                     mask,
                     clip,
+                    ..
                 } => bucketer.push_layer(*blend_mode, *opacity, mask.clone(), clip.clone()),
                 RecordedCmd::PopLayer => bucketer.pop_layer(&self.strip_storage.strips),
             }

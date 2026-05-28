@@ -585,7 +585,7 @@ impl CommandBucketer {
             let x0 = strip.x;
             let x1 = x0.saturating_add(strip_width);
 
-            if x0 < clip_x1 && x1 > clip_x0 {
+            if strip_width > 0 && x0 < clip_x1 && x1 > clip_x0 {
                 alpha_fill_cmd(
                     self,
                     row_idx,

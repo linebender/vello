@@ -18,7 +18,15 @@ use vello_common::filter_effects::Filter;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
+use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
+use vello_common::tile::Tile;
+
+#[derive(Debug)]
+struct RecordedLayer {
+    push_cmd_idx: usize,
+    content_bbox: RectU16,
+}
 
 /// Single-threaded dispatcher for the row-bucket prototype.
 #[derive(Debug)]
@@ -26,6 +34,7 @@ pub(crate) struct SingleThreadedDispatcher {
     bucketer: RefCell<CommandBucketer>,
     clip_context: ClipContext,
     cmds: Vec<RecordedCmd>,
+    layer_stack: Vec<RecordedLayer>,
     strip_generator: StripGenerator,
     strip_storage: StripStorage,
     layer_depth: usize,
@@ -38,6 +47,7 @@ impl SingleThreadedDispatcher {
             bucketer: RefCell::new(CommandBucketer::new(width, height)),
             clip_context: ClipContext::new(),
             cmds: Vec::new(),
+            layer_stack: Vec::new(),
             strip_generator: StripGenerator::new(width, height, level),
             strip_storage: StripStorage::new(GenerationMode::Append),
             layer_depth: 0,
@@ -96,6 +106,7 @@ impl SingleThreadedDispatcher {
                     opacity,
                     mask,
                     clip,
+                    ..
                 } => bucketer.push_layer(*blend_mode, *opacity, mask.clone(), clip.clone()),
                 RecordedCmd::PopLayer => bucketer.pop_layer(&self.strip_storage.strips),
             }
@@ -140,6 +151,17 @@ impl SingleThreadedDispatcher {
             blend_mode,
             mask,
         });
+        let content_bbox = strip_bbox(&self.strip_storage.strips[strip_start..]);
+        self.include_content_bbox(content_bbox);
+    }
+
+    fn include_content_bbox(&mut self, bbox: RectU16) {
+        if bbox.is_empty() {
+            return;
+        }
+        if let Some(layer) = self.layer_stack.last_mut() {
+            layer.content_bbox.union(bbox);
+        }
     }
 }
 
@@ -210,6 +232,38 @@ fn control_point_bbox(path: &BezPath, transform: Affine) -> RectU16 {
         bbox.x1.ceil() as u16,
         bbox.y1.ceil() as u16,
     )
+}
+
+fn strip_bbox(strips: &[Strip]) -> RectU16 {
+    if strips.len() < 2 {
+        return RectU16::INVERTED;
+    }
+
+    let mut bbox = RectU16::INVERTED;
+    for pair in strips.windows(2) {
+        let strip = pair[0];
+        let next_strip = pair[1];
+        if strip.is_sentinel() {
+            continue;
+        }
+
+        let strip_y = strip.strip_y();
+        let row_y = strip_y.saturating_mul(Tile::HEIGHT);
+        let row_y1 = row_y.saturating_add(Tile::HEIGHT);
+        let col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
+        let next_col = next_strip.alpha_idx() / u32::from(Tile::HEIGHT);
+        let strip_width = next_col.saturating_sub(col) as u16;
+        let strip_x1 = strip.x.saturating_add(strip_width);
+
+        if strip_width > 0 {
+            bbox.union(RectU16::new(strip.x, row_y, strip_x1, row_y1));
+        }
+
+        if next_strip.fill_gap() && strip_y == next_strip.strip_y() && strip_x1 < next_strip.x {
+            bbox.union(RectU16::new(strip_x1, row_y, next_strip.x, row_y1));
+        }
+    }
+    bbox
 }
 
 impl Dispatcher for SingleThreadedDispatcher {
@@ -346,16 +400,31 @@ impl Dispatcher for SingleThreadedDispatcher {
             }
         });
 
+        let push_cmd_idx = self.cmds.len();
         self.cmds.push(RecordedCmd::PushLayer {
             blend_mode,
             opacity,
             mask,
             clip: clip_path,
+            content_bbox: RectU16::INVERTED,
+        });
+        self.layer_stack.push(RecordedLayer {
+            push_cmd_idx,
+            content_bbox: RectU16::INVERTED,
         });
         self.layer_depth += 1;
     }
 
     fn pop_layer(&mut self) {
+        let layer = self.layer_stack.pop().expect("layer stack underflow");
+        let content_bbox = layer.content_bbox;
+        match &mut self.cmds[layer.push_cmd_idx] {
+            RecordedCmd::PushLayer {
+                content_bbox: bbox, ..
+            } => *bbox = content_bbox,
+            _ => unreachable!("layer stack referenced a non-layer command"),
+        }
+        self.include_content_bbox(content_bbox);
         self.cmds.push(RecordedCmd::PopLayer);
         self.layer_depth = self
             .layer_depth
@@ -367,6 +436,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         self.bucketer.borrow_mut().reset();
         self.clip_context.reset();
         self.cmds.clear();
+        self.layer_stack.clear();
         self.strip_generator.reset();
         self.strip_storage.clear();
         self.layer_depth = 0;
@@ -449,6 +519,107 @@ impl Dispatcher for SingleThreadedDispatcher {
             dst_y,
             dst_buffer_width,
             dst_buffer_height,
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kurbo::Shape;
+    use vello_common::color::palette::css::BLUE;
+    use vello_common::paint::PremulColor;
+
+    fn paint() -> Paint {
+        Paint::Solid(PremulColor::from_alpha_color(BLUE))
+    }
+
+    fn layer_content_bbox(dispatcher: &SingleThreadedDispatcher, cmd_idx: usize) -> RectU16 {
+        match &dispatcher.cmds[cmd_idx] {
+            RecordedCmd::PushLayer { content_bbox, .. } => *content_bbox,
+            _ => panic!("expected push layer command"),
+        }
+    }
+
+    #[test]
+    fn tracks_layer_content_bbox_ignoring_layer_clip() {
+        let mut dispatcher = SingleThreadedDispatcher::new(64, 64, Level::new());
+        let clip = Rect::new(0.0, 0.0, 8.0, 8.0).to_path(0.1);
+
+        dispatcher.push_layer(
+            Some(&clip),
+            Fill::NonZero,
+            Affine::IDENTITY,
+            BlendMode::default(),
+            1.0,
+            None,
+            None,
+            None,
+        );
+        dispatcher.fill_rect_fast(
+            &Rect::new(20.0, 12.0, 36.0, 20.0),
+            paint(),
+            BlendMode::default(),
+            None,
+            &[],
+        );
+        dispatcher.pop_layer();
+
+        assert_eq!(
+            layer_content_bbox(&dispatcher, 0),
+            RectU16::new(20, 12, 40, 20)
+        );
+    }
+
+    #[test]
+    fn nested_layer_content_bbox_is_propagated_to_parent() {
+        let mut dispatcher = SingleThreadedDispatcher::new(64, 64, Level::new());
+
+        dispatcher.push_layer(
+            None,
+            Fill::NonZero,
+            Affine::IDENTITY,
+            BlendMode::default(),
+            1.0,
+            None,
+            None,
+            None,
+        );
+        dispatcher.fill_rect_fast(
+            &Rect::new(4.0, 4.0, 12.0, 12.0),
+            paint(),
+            BlendMode::default(),
+            None,
+            &[],
+        );
+
+        dispatcher.push_layer(
+            None,
+            Fill::NonZero,
+            Affine::IDENTITY,
+            BlendMode::default(),
+            1.0,
+            None,
+            None,
+            None,
+        );
+        dispatcher.fill_rect_fast(
+            &Rect::new(24.0, 24.0, 32.0, 32.0),
+            paint(),
+            BlendMode::default(),
+            None,
+            &[],
+        );
+        dispatcher.pop_layer();
+        dispatcher.pop_layer();
+
+        assert_eq!(
+            layer_content_bbox(&dispatcher, 0),
+            RectU16::new(4, 4, 36, 32)
+        );
+        assert_eq!(
+            layer_content_bbox(&dispatcher, 2),
+            RectU16::new(24, 24, 36, 32)
         );
     }
 }

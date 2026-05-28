@@ -13,6 +13,7 @@ use core::fmt::Debug;
 use core::ops::Range;
 use vello_common::encode::EncodedPaint;
 use vello_common::filter_effects::Filter;
+use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
 
@@ -30,6 +31,7 @@ pub(crate) enum RecordedCmd {
         opacity: f32,
         mask: Option<Mask>,
         clip: Option<LayerClip>,
+        content_bbox: RectU16,
     },
     PopLayer,
 }
