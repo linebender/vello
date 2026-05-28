@@ -3,7 +3,7 @@
 
 //! Native WebGL2 rendering module for the sparse strips CPU/GPU rendering engine.
 //!
-//! This module provides identical functionality as the [`render_wgpu`] module, however the graphics
+//! This module provides identical functionality as the [`wgpu`] module, however the graphics
 //! context is the browser's native [`WebGl2RenderingContext`]. Hence, this module is only available
 //! when targeting `wasm32` with the "webgl" feature flag active.
 //!
