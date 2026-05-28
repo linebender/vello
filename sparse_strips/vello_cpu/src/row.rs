@@ -559,8 +559,8 @@ impl CommandBucketer {
         }
 
         let clip_bbox = *self.clip_bboxes.last().unwrap();
-        let clip_x0 = clip_bbox.x0;
-        let clip_x1 = clip_bbox.x1;
+        let clip_x0 = (clip_bbox.x0 / Tile::WIDTH) * Tile::WIDTH;
+        let clip_x1 = Self::ceil_to_tile_width(clip_bbox.x1).min(self.width());
         for i in 0..strip_buf.len() - 1 {
             let strip = &strip_buf[i];
             let strip_y = strip.strip_y();
