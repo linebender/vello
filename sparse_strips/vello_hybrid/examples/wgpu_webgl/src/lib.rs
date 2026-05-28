@@ -266,6 +266,14 @@ impl AppState {
         self.need_render = true;
     }
 
+    fn handle_key(&mut self, key: &str) {
+        if let Some(scene) = self.scenes.get_mut(self.current_scene)
+            && scene.handle_key(key)
+        {
+            self.need_render = true;
+        }
+    }
+
     fn handle_mouse_down(&mut self, x: f64, y: f64) {
         self.mouse_down = true;
         self.last_cursor_position = Some(Point { x, y });
@@ -538,15 +546,15 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
     {
         let app_state = app_state.clone();
         let document = web_sys::window().unwrap().document().unwrap();
-        let closure =
-            Closure::wrap(
-                Box::new(move |event: KeyboardEvent| match event.key().as_str() {
-                    "ArrowRight" => app_state.borrow_mut().next_scene(),
-                    "ArrowLeft" => app_state.borrow_mut().prev_scene(),
-                    " " => app_state.borrow_mut().reset_transform(),
-                    _ => {}
-                }) as Box<dyn FnMut(_)>,
-            );
+        let closure = Closure::wrap(Box::new(move |event: KeyboardEvent| {
+            let key = event.key();
+            match key.as_str() {
+                "ArrowRight" => app_state.borrow_mut().next_scene(),
+                "ArrowLeft" => app_state.borrow_mut().prev_scene(),
+                " " => app_state.borrow_mut().reset_transform(),
+                _ => app_state.borrow_mut().handle_key(key.as_str()),
+            }
+        }) as Box<dyn FnMut(_)>);
         document
             .add_event_listener_with_callback("keydown", closure.as_ref().unchecked_ref())
             .unwrap();
