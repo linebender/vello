@@ -24,8 +24,10 @@ vello_example_scenes = { workspace = true }
 wasm-bindgen = "0.2.121"
 wasm-bindgen-futures = "0.4.71"
 web-sys = { version = "0.3.98", features = [
+    "AddEventListenerOptions",
     "Window",
     "Document",
+    "DomRect",
     "Element",
     "HtmlElement",
     "HtmlCanvasElement",

@@ -34,6 +34,22 @@ impl RendererWrapper {
     }
 }
 
+fn client_to_canvas_px(canvas: &HtmlCanvasElement, client_x: f64, client_y: f64) -> Vec2 {
+    let rect = canvas.get_bounding_client_rect();
+    let width = rect.width().max(1.0);
+    let height = rect.height().max(1.0);
+    let x = ((client_x - rect.left()) / width).clamp(0.0, 1.0);
+    let y = ((client_y - rect.top()) / height).clamp(0.0, 1.0);
+    Vec2::new(x * canvas.width() as f64, y * canvas.height() as f64)
+}
+
+fn client_delta_to_canvas_px(canvas: &HtmlCanvasElement, delta_x: f64, delta_y: f64) -> Vec2 {
+    let rect = canvas.get_bounding_client_rect();
+    let scale_x = canvas.width() as f64 / rect.width().max(1.0);
+    let scale_y = canvas.height() as f64 / rect.height().max(1.0);
+    Vec2::new(delta_x * scale_x, delta_y * scale_y)
+}
+
 /// State that handles scene rendering and interactions
 struct AppState {
     scenes: Box<[AnyScene<Scene>]>,
@@ -43,6 +59,7 @@ struct AppState {
     transform: Affine,
     mouse_down: bool,
     last_cursor_position: Option<Vec2>,
+    last_drag_client_position: Option<Vec2>,
     width: u32,
     height: u32,
     renderer_wrapper: RendererWrapper,
@@ -66,6 +83,7 @@ impl AppState {
             transform: Affine::IDENTITY,
             mouse_down: false,
             last_cursor_position: None,
+            last_drag_client_position: None,
             width,
             height,
             renderer_wrapper,
@@ -148,54 +166,60 @@ impl AppState {
 
     fn handle_mouse_down(&mut self, x: f64, y: f64) {
         self.mouse_down = true;
-        self.last_cursor_position = Some(Vec2::new(x, y));
+        self.last_cursor_position = Some(client_to_canvas_px(&self.canvas, x, y));
+        self.last_drag_client_position = Some(Vec2::new(x, y));
     }
 
     fn handle_mouse_up(&mut self) {
         self.mouse_down = false;
         self.last_cursor_position = None;
+        self.last_drag_client_position = None;
     }
 
     fn handle_mouse_move(&mut self, x: f64, y: f64) {
-        let current_pos = Vec2::new(x, y);
+        let current_pos = client_to_canvas_px(&self.canvas, x, y);
 
         if self.mouse_down
-            && let Some(last_pos) = self.last_cursor_position
+            && let Some(last_client_pos) = self.last_drag_client_position
         {
-            let delta = current_pos - last_pos;
+            let delta = client_delta_to_canvas_px(
+                &self.canvas,
+                x - last_client_pos.x,
+                y - last_client_pos.y,
+            );
             self.transform = Affine::translate(delta) * self.transform;
             self.need_render = true;
         }
 
         self.last_cursor_position = Some(current_pos);
+        self.last_drag_client_position = Some(Vec2::new(x, y));
     }
 
-    fn handle_wheel(&mut self, delta_y: f64) {
-        const ZOOM_STEP: f64 = 0.1;
+    fn handle_wheel(
+        &mut self,
+        client_x: f64,
+        client_y: f64,
+        delta_y: f64,
+        ctrl_key: bool,
+        delta_mode: u32,
+    ) {
+        let cursor_pos = client_to_canvas_px(&self.canvas, client_x, client_y);
+        self.last_cursor_position = Some(cursor_pos);
 
-        if let Some(cursor_pos) = self.last_cursor_position {
-            let zoom_factor = (1.0 + delta_y * ZOOM_STEP).max(0.1);
-
-            // Zoom centered at cursor position
-            self.transform = Affine::translate(cursor_pos)
-                * Affine::scale(zoom_factor)
-                * Affine::translate(-cursor_pos)
-                * self.transform;
-
-            self.need_render = true;
+        let scale = if ctrl_key {
+            0.01
         } else {
-            // If no cursor position is known, zoom centered on screen
-            let center = Vec2::new(self.width as f64 / 2.0, self.height as f64 / 2.0);
+            let line_mult = if delta_mode == 1 { 16.0 } else { 1.0 };
+            0.002 * line_mult
+        };
+        let zoom_factor = (-delta_y * scale).exp();
 
-            let zoom_factor = (1.0 + delta_y * ZOOM_STEP).max(0.1);
+        self.transform = Affine::translate(cursor_pos)
+            * Affine::scale(zoom_factor)
+            * Affine::translate(-cursor_pos)
+            * self.transform;
 
-            self.transform = Affine::translate(center)
-                * Affine::scale(zoom_factor)
-                * Affine::translate(-center)
-                * self.transform;
-
-            self.need_render = true;
-        }
+        self.need_render = true;
     }
 
     /// Upload images to the WebGL atlas texture
@@ -377,10 +401,11 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
     // Mouse up
     {
         let app_state = app_state.clone();
+        let window = web_sys::window().unwrap();
         let closure = Closure::wrap(Box::new(move |_event: MouseEvent| {
             app_state.borrow_mut().handle_mouse_up();
         }) as Box<dyn FnMut(_)>);
-        canvas
+        window
             .add_event_listener_with_callback("mouseup", closure.as_ref().unchecked_ref())
             .unwrap();
         closure.forget();
@@ -389,12 +414,13 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
     // Mouse move
     {
         let app_state = app_state.clone();
+        let window = web_sys::window().unwrap();
         let closure = Closure::wrap(Box::new(move |event: MouseEvent| {
             app_state
                 .borrow_mut()
                 .handle_mouse_move(event.client_x() as f64, event.client_y() as f64);
         }) as Box<dyn FnMut(_)>);
-        canvas
+        window
             .add_event_listener_with_callback("mousemove", closure.as_ref().unchecked_ref())
             .unwrap();
         closure.forget();
@@ -405,11 +431,21 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
         let app_state = app_state.clone();
         let closure = Closure::wrap(Box::new(move |event: WheelEvent| {
             event.prevent_default();
-            let delta = -event.delta_y() / 100.0; // Normalize and invert
-            app_state.borrow_mut().handle_wheel(delta);
+            app_state.borrow_mut().handle_wheel(
+                event.client_x() as f64,
+                event.client_y() as f64,
+                event.delta_y(),
+                event.ctrl_key(),
+                event.delta_mode(),
+            );
         }) as Box<dyn FnMut(_)>);
+        let opts = web_sys::AddEventListenerOptions::new();
         canvas
-            .add_event_listener_with_callback("wheel", closure.as_ref().unchecked_ref())
+            .add_event_listener_with_callback_and_add_event_listener_options(
+                "wheel",
+                closure.as_ref().unchecked_ref(),
+                &opts,
+            )
             .unwrap();
         closure.forget();
     }
