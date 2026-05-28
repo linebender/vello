@@ -44,6 +44,7 @@ struct RecordedFilterLayer {
     filter: Filter,
     transform: Affine,
     expansion: Rect,
+    source_origin: (u16, u16),
     content_bbox: RectU16,
     bbox: RectU16,
 }
@@ -335,8 +336,9 @@ impl SingleThreadedDispatcher {
     ) {
         self.filter_layers[layer_id].content_bbox = bbox;
         let expansion = self.filter_layers[layer_id].expansion;
+        let source_origin = self.filter_layers[layer_id].source_origin;
         let render_bbox = expand_bbox(bbox, expansion);
-        let (output_bbox, src_x, src_y) = shift_bbox_to_parent(render_bbox, expansion);
+        let (output_bbox, src_x, src_y) = shift_bbox_to_parent(render_bbox, source_origin);
         self.filter_layers[layer_id].bbox = render_bbox;
         match &mut self.stream_cmds_mut(parent_stream_id)[composite_cmd_idx] {
             RecordedCmd::CompositeFilterLayer {
@@ -558,8 +560,8 @@ fn expansion_padding(expansion: Rect) -> (u16, u16, u16, u16) {
     (left, top, right, bottom)
 }
 
-fn shift_bbox_to_parent(bbox: RectU16, expansion: Rect) -> (RectU16, u16, u16) {
-    let (left, top) = expansion_left_top(expansion);
+fn shift_bbox_to_parent(bbox: RectU16, origin: (u16, u16)) -> (RectU16, u16, u16) {
+    let (left, top) = origin;
     let src_x = left.saturating_sub(bbox.x0);
     let src_y = top.saturating_sub(bbox.y0);
     (
@@ -681,7 +683,10 @@ impl Dispatcher for SingleThreadedDispatcher {
         let filter_expansion = filter
             .as_ref()
             .map(|filter| filter.bounds_expansion(&clip_transform));
-        if let Some(expansion) = filter_expansion {
+        let filter_source_expansion = filter
+            .as_ref()
+            .map(|filter| filter.source_expansion(&clip_transform));
+        if let Some(expansion) = filter_source_expansion {
             self.push_filter_viewport(expansion);
         }
 
@@ -716,6 +721,8 @@ impl Dispatcher for SingleThreadedDispatcher {
         let (push_cmd_idx, kind) = if let Some(filter) = filter {
             let layer_id = self.filter_layers.len();
             let expansion = filter_expansion.expect("filter expansion missing");
+            let source_expansion =
+                filter_source_expansion.expect("filter source expansion missing");
             let push_cmd_idx = self.push_recorded_cmd(RecordedCmd::CompositeFilterLayer {
                 layer_id,
                 bbox: RectU16::INVERTED,
@@ -731,6 +738,7 @@ impl Dispatcher for SingleThreadedDispatcher {
                 filter,
                 transform: clip_transform,
                 expansion,
+                source_origin: expansion_left_top(source_expansion),
                 content_bbox: RectU16::INVERTED,
                 bbox: RectU16::INVERTED,
             });

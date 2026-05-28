@@ -573,6 +573,12 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         blend_mode: BlendMode,
         alphas: Option<&[u8]>,
     ) {
+        let end = x.saturating_add(width).min(self.buffer_width);
+        if x >= end {
+            return;
+        }
+
+        let width = end - x;
         let scratch_start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
         let scratch_len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
         let (source, rest) = self.buffers.split_last_mut().unwrap();
@@ -1122,6 +1128,41 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 out,
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vello_common::fearless_simd::Fallback;
+
+    #[test]
+    fn blend_clips_spans_to_buffer_width() {
+        let simd = Fallback::new();
+        let mut fine = Fine::<_, U8Kernel>::new(simd, 8, 8);
+
+        fine.push_layer(0, 8);
+        fine.buffers.last_mut().unwrap()[6 * TILE_HEIGHT_COMPONENTS..8 * TILE_HEIGHT_COMPONENTS]
+            .fill(u8::MAX);
+
+        fine.blend_fill(0, 6, 4, BlendMode::default());
+
+        assert!(
+            fine.buffers[0][6 * TILE_HEIGHT_COMPONENTS..8 * TILE_HEIGHT_COMPONENTS]
+                .iter()
+                .all(|&component| component == u8::MAX)
+        );
+    }
+
+    #[test]
+    fn blend_ignores_spans_past_buffer_width() {
+        let simd = Fallback::new();
+        let mut fine = Fine::<_, U8Kernel>::new(simd, 8, 8);
+
+        fine.push_layer(0, 8);
+        fine.blend_fill(0, 8, 4, BlendMode::default());
+
+        assert!(fine.buffers[0].iter().all(|&component| component == 0));
     }
 }
 

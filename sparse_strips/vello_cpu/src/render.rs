@@ -430,14 +430,14 @@ impl RenderContext {
         let opacity = opacity.unwrap_or(1.0);
         let layer_transform = self.effective_transform();
         let pushed_filter_root = if let Some(filter) = &filter {
-            let expansion = filter.bounds_expansion(&layer_transform);
+            let expansion = filter.source_expansion(&layer_transform);
             let left = ((-expansion.x0).max(0.0).ceil() as u16)
                 .checked_next_multiple_of(Tile::WIDTH)
                 .unwrap_or(u16::MAX);
             let top = ((-expansion.y0).max(0.0).ceil() as u16)
                 .checked_next_multiple_of(Tile::HEIGHT)
                 .unwrap_or(u16::MAX);
-            let root = self.root_transform() * Affine::translate((f64::from(left), f64::from(top)));
+            let root = Affine::translate((f64::from(left), f64::from(top))) * self.root_transform();
             self.push_root_transform(root);
             true
         } else {
@@ -918,7 +918,9 @@ mod tests {
     use alloc::vec;
     #[cfg(feature = "text")]
     use glifo::Glyph;
+    use vello_common::color::AlphaColor;
     use vello_common::color::palette::css::{BLUE, GREEN, RED};
+    use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
     use vello_common::kurbo::{Affine, Rect, Shape};
     use vello_common::mask::Mask;
     use vello_common::peniko::{BlendMode, Compose, Mix};
@@ -987,6 +989,71 @@ mod tests {
 
         assert_eq!(&buffer[..4], &[0, 0, 0, 0]);
         assert!(buffer[(2 * 16 + 5) * 4 + 3] > 0);
+    }
+
+    #[test]
+    fn filter_padding_shift_is_in_device_space() {
+        let mut resources = Resources::new();
+        let mut ctx = RenderContext::new(64, 64);
+        let mut buffer = vec![0; 64 * 64 * 4];
+
+        let filter = Filter::from_primitive(FilterPrimitive::DropShadow {
+            dx: 0.0,
+            dy: 0.0,
+            std_deviation: 1.0,
+            color: AlphaColor::from_rgba8(0, 0, 0, 128),
+            edge_mode: EdgeMode::None,
+        });
+
+        ctx.push_root_transform(Affine::scale(2.0));
+        ctx.push_filter_layer(filter);
+        ctx.set_paint(RED);
+        ctx.fill_rect(&Rect::new(10.0, 10.0, 20.0, 20.0));
+        ctx.pop_layer();
+        ctx.pop_root_transform();
+        ctx.flush();
+        ctx.render_to_buffer(
+            &mut resources,
+            &mut buffer,
+            64,
+            64,
+            ctx.render_settings().render_mode,
+        );
+
+        let original_rect_pixel = (22 * 64 + 22) * 4;
+        assert_eq!(buffer[original_rect_pixel], 255);
+        assert_eq!(buffer[original_rect_pixel + 3], 255);
+    }
+
+    #[test]
+    fn drop_shadow_draws_offscreen_source_from_top_left() {
+        let mut resources = Resources::new();
+        let mut ctx = RenderContext::new(64, 64);
+        let mut buffer = vec![0; 64 * 64 * 4];
+
+        let filter = Filter::from_primitive(FilterPrimitive::DropShadow {
+            dx: 20.0,
+            dy: 20.0,
+            std_deviation: 0.0,
+            color: AlphaColor::from_rgba8(0, 0, 0, 255),
+            edge_mode: EdgeMode::None,
+        });
+
+        ctx.push_filter_layer(filter);
+        ctx.set_paint(RED);
+        ctx.fill_rect(&Rect::new(-10.0, -10.0, 0.0, 0.0));
+        ctx.pop_layer();
+        ctx.flush();
+        ctx.render_to_buffer(
+            &mut resources,
+            &mut buffer,
+            64,
+            64,
+            ctx.render_settings().render_mode,
+        );
+
+        assert_eq!(buffer[(2 * 64 + 2) * 4 + 3], 0);
+        assert!(buffer[(12 * 64 + 12) * 4 + 3] > 0);
     }
 
     #[test]

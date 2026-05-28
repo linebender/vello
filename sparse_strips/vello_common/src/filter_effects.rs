@@ -123,6 +123,14 @@ impl Filter {
 
         self.graph.bounds_expansion(&linear_only)
     }
+
+    /// Calculate how far outside the viewport source content must be drawn.
+    pub fn source_expansion(&self, transform: &Affine) -> Rect {
+        let [a, b, c, d, _e, _f] = transform.as_coeffs();
+        let linear_only = Affine::new([a, b, c, d, 0.0, 0.0]);
+
+        self.graph.source_expansion(&linear_only)
+    }
 }
 
 /// A directed acyclic graph (DAG) of filter operations.
@@ -141,6 +149,8 @@ pub struct FilterGraph {
     /// This is the axis-aligned bounding box of the expansion region (centered at origin),
     /// which can be transformed to device space when needed.
     expansion_rect: Rect,
+    /// Accumulated source expansion from all primitives in the graph, cached in user space.
+    source_rect: Rect,
 }
 
 impl Default for FilterGraph {
@@ -157,6 +167,7 @@ impl FilterGraph {
             output: FilterId(0),
             next_id: 0,
             expansion_rect: Rect::ZERO,
+            source_rect: Rect::ZERO,
         }
     }
 
@@ -171,6 +182,8 @@ impl FilterGraph {
         // Update accumulated expansion by taking the union of rects
         let primitive_rect = primitive.expansion_rect();
         self.expansion_rect = self.expansion_rect.union(primitive_rect);
+        let primitive_source_rect = primitive.source_rect();
+        self.source_rect = self.source_rect.union(primitive_source_rect);
 
         self.primitives.push(primitive);
 
@@ -196,6 +209,11 @@ impl FilterGraph {
         // Transform the cached expansion rect to device space
         // transform_rect_bbox computes the axis-aligned bounding box of the transformed rect
         transform.transform_rect_bbox(self.expansion_rect)
+    }
+
+    /// Get the accumulated source expansion for all primitives in this graph.
+    pub fn source_expansion(&self, transform: &Affine) -> Rect {
+        transform.transform_rect_bbox(self.source_rect)
     }
 }
 
@@ -595,6 +613,39 @@ impl FilterPrimitive {
                 )
             }
             // Most other filters don't expand bounds
+            _ => Rect::ZERO,
+        }
+    }
+
+    /// Calculate how much source input outside the viewport can affect visible output.
+    pub fn source_rect(&self) -> Rect {
+        match self {
+            Self::GaussianBlur { std_deviation, .. } => {
+                let radius = (*std_deviation * 3.0) as f64;
+                Rect::new(-radius, -radius, radius, radius)
+            }
+            Self::Offset { dx, dy } => {
+                let dx = *dx as f64;
+                let dy = *dy as f64;
+                Rect::new(-dx.max(0.0), -dy.max(0.0), (-dx).max(0.0), (-dy).max(0.0))
+            }
+            Self::DropShadow {
+                std_deviation,
+                dx,
+                dy,
+                ..
+            } => {
+                let blur_radius = (*std_deviation * 3.0) as f64;
+                let dx = *dx as f64;
+                let dy = *dy as f64;
+
+                Rect::new(
+                    -(blur_radius + dx.max(0.0)),
+                    -(blur_radius + dy.max(0.0)),
+                    blur_radius + (-dx).max(0.0),
+                    blur_radius + (-dy).max(0.0),
+                )
+            }
             _ => Rect::ZERO,
         }
     }
