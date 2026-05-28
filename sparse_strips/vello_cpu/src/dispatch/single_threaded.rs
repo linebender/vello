@@ -524,10 +524,7 @@ fn expand_bbox(bbox: RectU16, expansion: Rect) -> RectU16 {
         return bbox;
     }
 
-    let left = (-expansion.x0).max(0.0).ceil() as u16;
-    let top = (-expansion.y0).max(0.0).ceil() as u16;
-    let right = expansion.x1.max(0.0).ceil() as u16;
-    let bottom = expansion.y1.max(0.0).ceil() as u16;
+    let (left, top, right, bottom) = expansion_padding(expansion);
     RectU16::new(
         bbox.x0.saturating_sub(left),
         bbox.y0.saturating_sub(top),
