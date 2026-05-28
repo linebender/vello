@@ -189,7 +189,7 @@ pub(crate) fn pack_color(color: AlphaColor<Srgb>) -> u32 {
     reason = "result is clamped to SUBPIXEL_BUCKETS-1 which fits in u8"
 )]
 #[inline]
-pub(crate) fn quantize_subpixel(frac: f32) -> u8 {
+pub fn quantize_subpixel(frac: f32) -> u8 {
     let normalized = frac.fract();
     let normalized = if normalized < 0.0 {
         normalized + 1.0
