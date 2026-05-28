@@ -485,19 +485,6 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
 
         let mut first_skipped = None;
         let mut skipped_count = 0;
-        // A temporary glyph cache key.
-        let temp_glyph_cache_key = GlyphCacheKey {
-            font_id: font_info.id,
-            font_index: font_info.index,
-            ..GlyphCacheKey::DEFAULT
-        };
-
-        // A temporary glyph cache key.
-        let temp_glyph_cache_key = GlyphCacheKey {
-            font_id: font_info.id,
-            font_index: font_info.index,
-            ..GlyphCacheKey::DEFAULT
-        };
 
         for (index, glyph) in self.glyph_iterator.clone().enumerate() {
             // TODO: Add a mechanism such that glyphs that are completely outside of the viewport

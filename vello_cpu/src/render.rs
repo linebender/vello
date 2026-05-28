@@ -109,7 +109,7 @@ impl Resources {
         &self.image_cache
     }
 
-    /// Returns glyph atlas pages.
+    /// Returns atlas pages.
     #[cfg(feature = "text")]
     pub fn pixmaps(&self) -> Option<Vec<Arc<Pixmap>>> {
         self.glyph_resources
