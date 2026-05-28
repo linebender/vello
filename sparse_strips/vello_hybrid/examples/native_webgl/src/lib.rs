@@ -432,7 +432,6 @@ pub async fn run_interactive(canvas_width: u16, canvas_height: u16) {
             );
         }) as Box<dyn FnMut(_)>);
         let opts = web_sys::AddEventListenerOptions::new();
-        opts.set_passive(false);
         canvas
             .add_event_listener_with_callback_and_add_event_listener_options(
                 "wheel",
