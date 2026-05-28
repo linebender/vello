@@ -400,6 +400,13 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
         let scale_props =
             GlyphScaleProperties::new(draw_props.font_size, font_info.upem, hinted, style);
 
+        // A temporary glyph cache key.
+        let temp_glyph_cache_key = GlyphCacheKey {
+            font_id: font_info.id,
+            font_index: font_info.index,
+            ..GlyphCacheKey::DEFAULT
+        };
+
         for glyph in self.glyph_iterator.clone() {
             // TODO: Add a mechanism such that glyphs that are completely outside of the viewport
             // (especially for more expensive COLR glyphs), we don't do any processing in the
@@ -408,10 +415,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
 
             // A temporary glyph cache key.
             let temp_glyph_cache_key = GlyphCacheKey {
-                font_id: font_info.id,
-                font_index: font_info.index,
                 glyph_id: glyph.id,
-                ..GlyphCacheKey::DEFAULT
+                ..temp_glyph_cache_key.clone()
             };
 
             // ── Speculative outline cache check ─────────────────────────
