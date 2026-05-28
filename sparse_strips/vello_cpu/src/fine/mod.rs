@@ -476,7 +476,8 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
 }
 
 #[derive(Debug)]
-pub(crate) struct Fine<S: Simd, T: FineKernel<S>> {
+#[doc(hidden)]
+pub struct Fine<S: Simd, T: FineKernel<S>> {
     simd: S,
     out_width: u16,
     buffer_width: u16,
@@ -485,10 +486,13 @@ pub(crate) struct Fine<S: Simd, T: FineKernel<S>> {
     paint_buf: Vec<T::Numeric>,
     f32_buf: Vec<f32>,
     depth: Vec<u32>,
+    row_y: u16,
+    paint_offset: (u16, u16),
 }
 
 impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
-    pub(crate) fn new(simd: S, out_width: u16, buffer_width: u16) -> Self {
+    #[doc(hidden)]
+    pub fn new(simd: S, out_width: u16, buffer_width: u16) -> Self {
         let scratch_len = usize::from(buffer_width) * TILE_HEIGHT_COMPONENTS;
         Self {
             simd,
@@ -499,7 +503,17 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             paint_buf: Vec::new(),
             f32_buf: Vec::new(),
             depth: vec![0; usize::from(buffer_width.div_ceil(DEPTH_BUCKET_WIDTH))],
+            row_y: 0,
+            paint_offset: (0, 0),
         }
+    }
+
+    fn set_row_y(&mut self, row_y: u16) {
+        self.row_y = row_y;
+    }
+
+    fn set_paint_offset(&mut self, paint_offset: (u16, u16)) {
+        self.paint_offset = paint_offset;
     }
 
     fn clear_range(&mut self, x: u16, width: u16) {
@@ -736,36 +750,65 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         );
     }
 
+    #[doc(hidden)]
+    #[inline(always)]
+    pub fn fill(
+        &mut self,
+        x: u16,
+        width: u16,
+        paint: &Paint,
+        blend_mode: BlendMode,
+        encoded_paints: &[EncodedPaint],
+        image_resolver: &dyn ImageResolver,
+        alphas: Option<&[u8]>,
+        mask: Option<&Mask>,
+    ) {
+        match paint {
+            Paint::Solid(color) => {
+                self.fill_solid_with_attrs(x, self.row_y, width, *color, blend_mode, mask, alphas);
+            }
+            Paint::Indexed(index) => {
+                self.fill_indexed(
+                    x,
+                    self.row_y,
+                    x.saturating_add(self.paint_offset.0),
+                    self.row_y.saturating_add(self.paint_offset.1),
+                    width,
+                    index.index(),
+                    blend_mode,
+                    mask,
+                    encoded_paints,
+                    image_resolver,
+                    alphas,
+                );
+            }
+        }
+    }
+
     #[inline(always)]
     fn render_opaque(
         &mut self,
         cmd: FillCmd,
-        row_y: u16,
         attrs: &FillAttrs,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
+        self.set_paint_offset(attrs.paint_offset);
         let start = usize::from(cmd.x / DEPTH_BUCKET_WIDTH);
         let end = usize::from((cmd.x + cmd.width) / DEPTH_BUCKET_WIDTH);
 
         if start + 1 == end {
             if self.depth[start] == 0 {
-                match &attrs.paint {
-                    Paint::Solid(color) => self.fill_solid(cmd.x, cmd.width, *color, None),
-                    Paint::Indexed(index) => self.fill_indexed(
-                        cmd.x,
-                        row_y,
-                        cmd.x.saturating_add(attrs.paint_offset.0),
-                        row_y.saturating_add(attrs.paint_offset.1),
-                        cmd.width,
-                        index.index(),
-                        attrs.blend_mode,
-                        attrs.mask.as_ref(),
-                        encoded_paints,
-                        image_resolver,
-                        None,
-                    ),
-                }
+                self.fill(
+                    cmd.x,
+                    cmd.width,
+                    &attrs.paint,
+                    attrs.blend_mode,
+                    encoded_paints,
+                    image_resolver,
+                    None,
+                    attrs.mask.as_ref(),
+                );
                 self.depth[start] = attrs.path_id;
             }
             return;
@@ -788,22 +831,16 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
             let x = (run_start as u16) * DEPTH_BUCKET_WIDTH;
             let width = (idx - run_start) as u16 * DEPTH_BUCKET_WIDTH;
-            match &attrs.paint {
-                Paint::Solid(color) => self.fill_solid(x, width, *color, None),
-                Paint::Indexed(index) => self.fill_indexed(
-                    x,
-                    row_y,
-                    x.saturating_add(attrs.paint_offset.0),
-                    row_y.saturating_add(attrs.paint_offset.1),
-                    width,
-                    index.index(),
-                    attrs.blend_mode,
-                    attrs.mask.as_ref(),
-                    encoded_paints,
-                    image_resolver,
-                    None,
-                ),
-            }
+            self.fill(
+                x,
+                width,
+                &attrs.paint,
+                attrs.blend_mode,
+                encoded_paints,
+                image_resolver,
+                None,
+                attrs.mask.as_ref(),
+            );
             for depth in &mut self.depth[run_start..idx] {
                 *depth = attrs.path_id;
             }
@@ -814,7 +851,6 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     fn render_cmd(
         &mut self,
         cmd: &Cmd,
-        row_y: u16,
         alphas: &[u8],
         attrs: &FillAttrs,
         encoded_paints: &[EncodedPaint],
@@ -832,7 +868,6 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 cmd,
                 cmd_x,
                 cmd_end,
-                row_y,
                 alphas,
                 attrs,
                 encoded_paints,
@@ -850,7 +885,6 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     cmd,
                     cmd_x,
                     cmd_end,
-                    row_y,
                     alphas,
                     attrs,
                     encoded_paints,
@@ -877,16 +911,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
             let x = cmd_x.max(run_start as u16 * DEPTH_BUCKET_WIDTH);
             let end = cmd_end.min(idx as u16 * DEPTH_BUCKET_WIDTH);
-            self.render_cmd_span(
-                cmd,
-                x,
-                end,
-                row_y,
-                alphas,
-                attrs,
-                encoded_paints,
-                image_resolver,
-            );
+            self.render_cmd_span(cmd, x, end, alphas, attrs, encoded_paints, image_resolver);
         }
     }
 
@@ -896,66 +921,36 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         cmd: &Cmd,
         x: u16,
         end: u16,
-        row_y: u16,
         alphas: &[u8],
         attrs: &FillAttrs,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
+        self.set_paint_offset(attrs.paint_offset);
         match cmd {
-            Cmd::Fill(_) => match &attrs.paint {
-                Paint::Solid(color) => self.fill_solid_with_attrs(
-                    x,
-                    row_y,
-                    end - x,
-                    *color,
-                    attrs.blend_mode,
-                    attrs.mask.as_ref(),
-                    None,
-                ),
-                Paint::Indexed(index) => self.fill_indexed(
-                    x,
-                    row_y,
-                    x.saturating_add(attrs.paint_offset.0),
-                    row_y.saturating_add(attrs.paint_offset.1),
-                    end - x,
-                    index.index(),
-                    attrs.blend_mode,
-                    attrs.mask.as_ref(),
-                    encoded_paints,
-                    image_resolver,
-                    None,
-                ),
-            },
+            Cmd::Fill(_) => self.fill(
+                x,
+                end - x,
+                &attrs.paint,
+                attrs.blend_mode,
+                encoded_paints,
+                image_resolver,
+                None,
+                attrs.mask.as_ref(),
+            ),
             Cmd::AlphaFill(fill) => {
                 let alpha_offset =
                     fill.alpha_idx as usize + usize::from(x - fill.x) * Tile::HEIGHT as usize;
-                match &attrs.paint {
-                    Paint::Solid(color) => self.fill_solid_with_attrs(
-                        x,
-                        row_y,
-                        end - x,
-                        *color,
-                        attrs.blend_mode,
-                        attrs.mask.as_ref(),
-                        Some(&alphas[alpha_offset..]),
-                    ),
-                    Paint::Indexed(index) => {
-                        self.fill_indexed(
-                            x,
-                            row_y,
-                            x.saturating_add(attrs.paint_offset.0),
-                            row_y.saturating_add(attrs.paint_offset.1),
-                            end - x,
-                            index.index(),
-                            attrs.blend_mode,
-                            attrs.mask.as_ref(),
-                            encoded_paints,
-                            image_resolver,
-                            Some(&alphas[alpha_offset..]),
-                        );
-                    }
-                }
+                self.fill(
+                    x,
+                    end - x,
+                    &attrs.paint,
+                    attrs.blend_mode,
+                    encoded_paints,
+                    image_resolver,
+                    Some(&alphas[alpha_offset..]),
+                    attrs.mask.as_ref(),
+                );
             }
             Cmd::PushLayer
             | Cmd::PopBuf
@@ -1087,7 +1082,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         }
     }
 
-    fn pack(&self, row_idx: usize, row_height: usize, x: u16, width: u16, buffer: &mut [u8]) {
+    #[doc(hidden)]
+    pub fn pack(&self, row_idx: usize, row_height: usize, x: u16, width: u16, buffer: &mut [u8]) {
         let out_width = usize::from(self.out_width);
         let offset = row_idx * Tile::HEIGHT as usize * out_width * COLOR_COMPONENTS;
         let len = row_height * out_width * COLOR_COMPONENTS;
@@ -1392,11 +1388,12 @@ pub(crate) fn rasterize<S: Simd, T: FineKernel<S>>(
             continue;
         };
 
+        fine.set_row_y(row_y);
         fine.clear_range(row_start, row_end - row_start);
 
         for &cmd in row.opaque.iter().rev() {
             let attrs = &bucketer.attrs()[cmd.attrs_idx as usize];
-            fine.render_opaque(cmd, row_y, attrs, encoded_paints, image_resolver);
+            fine.render_opaque(cmd, attrs, encoded_paints, image_resolver);
         }
         for cmd in &row.cmds {
             match cmd {
@@ -1407,7 +1404,6 @@ pub(crate) fn rasterize<S: Simd, T: FineKernel<S>>(
                         row.depth_affects(cmd.fill_x(), cmd.fill_width(), attrs.path_id);
                     fine.render_cmd(
                         cmd,
-                        row_y,
                         alphas,
                         attrs,
                         encoded_paints,

@@ -71,7 +71,7 @@ fn strip_single<S: Simd, N: FineKernel<S>>(
     b.iter(|| {
         fine.fill(
             0,
-            width,
+            width as u16,
             paint,
             default_blend(),
             encoded_paints,
