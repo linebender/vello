@@ -432,7 +432,8 @@ impl GlyphAtlas {
 
     /// Reset the frame counter.
     ///
-    /// This is used when `vello_cpu` renders a large amount of text and the old image is being grabbed by the new one.
+    /// This is used when `vello_cpu` renders a large amount of text
+    /// and the old image is being grabbed by the new one.
     pub fn clear_tick(&mut self) {
         self.serial = 0;
     }
