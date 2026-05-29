@@ -4198,6 +4198,7 @@ dependencies = [
  "image",
  "log",
  "parley",
+ "skrifa",
  "smallvec",
  "vello_common",
  "vello_cpu",

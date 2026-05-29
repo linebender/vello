@@ -6,6 +6,7 @@
 pub mod blend;
 pub mod blurred_rounded_rect;
 pub mod clip;
+pub mod emoji_grid;
 pub mod filter;
 pub mod filter_elements;
 pub mod gradient;
@@ -486,6 +487,7 @@ where
     }
 
     scenes.push(AnyScene::new(text::TextScene::new("Hello, Vello!")));
+    scenes.push(AnyScene::new(emoji_grid::EmojiGridScene::new()));
     scenes.push(AnyScene::new(random_text::RandomTextScene::new()));
     scenes.push(AnyScene::new(simple::SimpleScene::new()));
     scenes.push(AnyScene::new(
@@ -529,6 +531,7 @@ where
     let mut scenes = vec![
         AnyScene::new(svg::SvgScene::tiger()),
         AnyScene::new(text::TextScene::new("Hello, Vello!")),
+        AnyScene::new(emoji_grid::EmojiGridScene::new()),
         AnyScene::new(random_text::RandomTextScene::new()),
         AnyScene::new(simple::SimpleScene::new()),
         AnyScene::new(blurred_rounded_rect::BlurredRoundedRectScene::new()),

@@ -8,7 +8,8 @@ use crate::atlas::key::subpixel_offset;
 use crate::atlas::{AtlasSlot, GlyphAtlas, GlyphCacheKey, ImageCache, RasterMetrics};
 use crate::colr::ColrPainter;
 use crate::glyph::{
-    AtlasCacher, CachedGlyphType, GlyphBitmap, GlyphColr, GlyphOutline, GlyphType, PreparedGlyph,
+    AtlasCacher, CachedGlyphType, GlyphBitmap, GlyphColr, GlyphOutline, GlyphType,
+    OutlineCacheSession, PreparedGlyph,
 };
 use crate::interface::{DrawSink, GlyphRenderer};
 use crate::util::AffineExt;
@@ -43,6 +44,7 @@ pub(crate) fn fill_glyph(
     renderer: &mut impl GlyphRenderer,
     prepared_glyph: PreparedGlyph<'_>,
     atlas_cacher: &mut AtlasCacher<'_>,
+    outline_cache: &mut OutlineCacheSession<'_>,
 ) {
     let AtlasCacher::Enabled(glyph_atlas, image_cache) = atlas_cacher else {
         let transform = prepared_glyph.outline_transform;
@@ -61,7 +63,13 @@ pub(crate) fn fill_glyph(
             GlyphType::Bitmap(glyph) => render_uncached_bitmap_glyph(renderer, glyph, transform),
             GlyphType::Colr(glyph) => {
                 let context_color = renderer.get_context_color();
-                render_uncached_colr_glyph(renderer, &glyph, transform, context_color);
+                render_uncached_colr_glyph(
+                    renderer,
+                    &glyph,
+                    transform,
+                    context_color,
+                    outline_cache,
+                );
             }
         };
     };
@@ -120,13 +128,14 @@ pub(crate) fn fill_glyph(
                     key,
                     glyph_atlas,
                     image_cache,
+                    outline_cache,
                 )
             {
                 return;
             }
 
             let context_color = renderer.get_context_color();
-            render_uncached_colr_glyph(renderer, &glyph, transform, context_color);
+            render_uncached_colr_glyph(renderer, &glyph, transform, context_color, outline_cache);
         }
     }
 }
@@ -137,6 +146,7 @@ pub(crate) fn stroke_glyph(
     renderer: &mut impl GlyphRenderer,
     prepared_glyph: PreparedGlyph<'_>,
     atlas_cacher: &mut AtlasCacher<'_>,
+    outline_cache: &mut OutlineCacheSession<'_>,
 ) {
     let AtlasCacher::Enabled(glyph_atlas, image_cache) = atlas_cacher else {
         let outline_transform = prepared_glyph.outline_transform;
@@ -152,7 +162,7 @@ pub(crate) fn stroke_glyph(
                 );
             }
             GlyphType::Bitmap(_) | GlyphType::Colr(_) => {
-                fill_glyph(renderer, prepared_glyph, atlas_cacher);
+                fill_glyph(renderer, prepared_glyph, atlas_cacher, outline_cache);
             }
         };
     };
@@ -187,7 +197,7 @@ pub(crate) fn stroke_glyph(
             );
         }
         GlyphType::Bitmap(_) | GlyphType::Colr(_) => {
-            fill_glyph(renderer, prepared_glyph, atlas_cacher);
+            fill_glyph(renderer, prepared_glyph, atlas_cacher, outline_cache);
         }
     }
 }
@@ -247,6 +257,7 @@ fn render_uncached_colr_glyph(
     glyph: &GlyphColr<'_>,
     outline_transform: Affine,
     context_color: AlphaColor<Srgb>,
+    outline_cache: &mut OutlineCacheSession<'_>,
 ) {
     let state = renderer.save_state();
     renderer.set_transform(outline_transform);
@@ -264,7 +275,7 @@ fn render_uncached_colr_glyph(
     }
 
     // TODO: Maybe ColrPainter can be reused across glyphs?
-    let mut colr_painter = ColrPainter::new(glyph, context_color, renderer);
+    let mut colr_painter = ColrPainter::new(glyph, context_color, renderer, outline_cache);
     colr_painter.paint();
     if glyph.has_non_default_blend {
         renderer.pop_layer();
@@ -352,6 +363,7 @@ fn render_colr_to_atlas(
     context_color: AlphaColor<Srgb>,
     recorder: &mut AtlasCommandRecorder,
     atlas_slot: AtlasSlot,
+    outline_cache: &mut OutlineCacheSession<'_>,
 ) {
     recorder.set_transform(Affine::translate((
         atlas_slot.x as f64,
@@ -366,7 +378,7 @@ fn render_colr_to_atlas(
     }
 
     // TODO: Maybe ColrPainter can be reused across glyphs?
-    let mut colr_painter = ColrPainter::new(glyph, context_color, recorder);
+    let mut colr_painter = ColrPainter::new(glyph, context_color, recorder, outline_cache);
     colr_painter.paint();
 
     if glyph.has_non_default_blend {
@@ -467,6 +479,7 @@ fn insert_and_render_colr(
     cache_key: GlyphCacheKey,
     glyph_atlas: &mut GlyphAtlas,
     image_cache: &mut ImageCache,
+    outline_cache: &mut OutlineCacheSession<'_>,
 ) -> CacheResult {
     if !supports_atlas_caching(&outline_transform, CachedGlyphType::Colr(Rect::ZERO)) {
         return CacheResult::UnsupportedTransform;
@@ -490,7 +503,7 @@ fn insert_and_render_colr(
         return CacheResult::AtlasFull;
     };
 
-    render_colr_to_atlas(glyph, context_color, recorder, atlas_slot);
+    render_colr_to_atlas(glyph, context_color, recorder, atlas_slot, outline_cache);
 
     render_from_atlas(
         renderer,

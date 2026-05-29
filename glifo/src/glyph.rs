@@ -183,6 +183,17 @@ pub(crate) struct GlyphBitmap {
     pub(crate) area: Rect,
 }
 
+/// Basic metadata about a font.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FontInfo {
+    /// Unique identifier for the font data.
+    pub(crate) id: u64,
+    /// Index of the font within the font data.
+    pub(crate) index: u32,
+    /// Font units per em.
+    pub(crate) upem: f32,
+}
+
 /// A glyph defined by a COLR glyph description.
 ///
 /// Clients are supposed to first draw the glyph into an intermediate image texture/pixmap
@@ -195,6 +206,8 @@ pub struct GlyphColr<'a> {
     pub location: LocationRef<'a>,
     /// The font reference.
     pub font_ref: &'a FontRef<'a>,
+    /// Basic metadata about the font.
+    pub(crate) font_info: FontInfo,
     /// The transform to apply to the glyph.
     pub draw_transform: Affine,
     /// The rectangular area that should be filled with the rendered representation of the
@@ -351,20 +364,19 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
 
         let mut outline_cache_session = OutlineCacheSession::new(
             self.outline_cache,
-            VarLookupKey(self.prepared_run.normalized_coords),
+            VarLookupKey::new(self.prepared_run.normalized_coords),
         );
         let PreparedGlyphRun {
             draw_props,
             scene_paint_transform,
             run_size: _,
+            font_info,
             font_embolden,
             normalized_coords,
             hinting_instance,
             ..
         } = self.prepared_run;
 
-        let font_id = self.prepared_run.font.data.id();
-        let font_index = self.prepared_run.font.index;
         let hinted = hinting_instance.is_some();
 
         let colr_bitmap_cache_enabled = self
@@ -383,7 +395,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
         let context_color = renderer.get_context_color();
         let context_color_packed = pack_color(context_color);
         let scale_props =
-            GlyphScaleProperties::new(draw_props.font_size, self.prepared_run.upem, hinted, style);
+            GlyphScaleProperties::new(draw_props.font_size, font_info.upem, hinted, style);
 
         for glyph in self.glyph_iterator.clone() {
             // TODO: Add a mechanism such that glyphs that are completely outside of the viewport
@@ -409,8 +421,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             let outline_cache_key = outline_cache_enabled.then(|| {
                 let fractional_x = outline_transform.translation().x.fract() as f32;
                 GlyphCacheKey::new(
-                    font_id,
-                    font_index,
+                    font_info.id,
+                    font_info.index,
                     glyph.id,
                     draw_props.font_size,
                     hinted,
@@ -438,20 +450,21 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                 let location = LocationRef::new(normalized_coords);
                 let metrics = calculate_colr_metrics(
                     draw_props.font_size,
-                    self.prepared_run.upem,
                     draw_props,
                     glyph,
                     &font_ref,
                     &color_glyph,
                     location,
+                    &mut outline_cache_session,
+                    font_info,
                 );
                 let outline_transform = calculate_colr_transform(&metrics);
 
                 // COLR glyphs are never hinted and have no sub-pixel offset;
                 // context_color is part of the key because it affects painted layers.
                 let cache_key = colr_bitmap_cache_enabled.then(|| GlyphCacheKey {
-                    font_id,
-                    font_index,
+                    font_id: font_info.id,
+                    font_index: font_info.index,
                     glyph_id: glyph.id,
                     size_bits: draw_props.font_size.to_bits(),
                     hinted: false,
@@ -486,8 +499,13 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                 }
 
                 // Cache miss — rasterize the COLR glyph from scratch.
-                let glyph_type =
-                    create_colr_glyph(&font_ref, &metrics, color_glyph, normalized_coords);
+                let glyph_type = create_colr_glyph(
+                    &font_ref,
+                    &metrics,
+                    color_glyph,
+                    normalized_coords,
+                    font_info,
+                );
 
                 let prepared_glyph = PreparedGlyph {
                     glyph_type,
@@ -496,8 +514,18 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     cache_key,
                 };
                 match style {
-                    Style::Fill => fill_glyph(renderer, prepared_glyph, &mut self.atlas_cacher),
-                    Style::Stroke => stroke_glyph(renderer, prepared_glyph, &mut self.atlas_cacher),
+                    Style::Fill => fill_glyph(
+                        renderer,
+                        prepared_glyph,
+                        &mut self.atlas_cacher,
+                        &mut outline_cache_session,
+                    ),
+                    Style::Stroke => stroke_glyph(
+                        renderer,
+                        prepared_glyph,
+                        &mut self.atlas_cacher,
+                        &mut outline_cache_session,
+                    ),
                 }
                 continue;
             }
@@ -527,7 +555,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     &pixmap,
                     draw_props,
                     draw_props.font_size,
-                    self.prepared_run.upem,
+                    font_info.upem,
                     &bitmap_glyph,
                     &bitmaps,
                 );
@@ -535,8 +563,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                 // Bitmaps are not hinted and have no sub-pixel offset or
                 // context color; variation coords are irrelevant for fixed strikes.
                 let cache_key = colr_bitmap_cache_enabled.then(|| GlyphCacheKey {
-                    font_id,
-                    font_index,
+                    font_id: font_info.id,
+                    font_index: font_info.index,
                     glyph_id: glyph.id,
                     size_bits: bitmap_ppem.to_bits(),
                     hinted: false,
@@ -573,8 +601,18 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                     cache_key,
                 };
                 match style {
-                    Style::Fill => fill_glyph(renderer, prepared_glyph, &mut self.atlas_cacher),
-                    Style::Stroke => stroke_glyph(renderer, prepared_glyph, &mut self.atlas_cacher),
+                    Style::Fill => fill_glyph(
+                        renderer,
+                        prepared_glyph,
+                        &mut self.atlas_cacher,
+                        &mut outline_cache_session,
+                    ),
+                    Style::Stroke => stroke_glyph(
+                        renderer,
+                        prepared_glyph,
+                        &mut self.atlas_cacher,
+                        &mut outline_cache_session,
+                    ),
                 }
                 continue;
             }
@@ -591,8 +629,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
 
             let glyph_type = create_outline_glyph(
                 glyph.id,
-                font_id,
-                font_index,
+                font_info,
                 &mut outline_cache_session,
                 scale_props.cache_size,
                 scale_props.draw_scale,
@@ -611,8 +648,18 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                 cache_key: outline_cache_key,
             };
             match style {
-                Style::Fill => fill_glyph(renderer, prepared_glyph, &mut self.atlas_cacher),
-                Style::Stroke => stroke_glyph(renderer, prepared_glyph, &mut self.atlas_cacher),
+                Style::Fill => fill_glyph(
+                    renderer,
+                    prepared_glyph,
+                    &mut self.atlas_cacher,
+                    &mut outline_cache_session,
+                ),
+                Style::Stroke => stroke_glyph(
+                    renderer,
+                    prepared_glyph,
+                    &mut self.atlas_cacher,
+                    &mut outline_cache_session,
+                ),
             }
         }
     }
@@ -665,6 +712,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
 
         let PreparedGlyphRun {
             draw_props,
+            font_info,
             font_embolden,
             hinting_instance,
             ..
@@ -679,7 +727,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
         // simply drawing in global space, but we need to invert it for drawing decorations.
         let scale_props = GlyphScaleProperties::new(
             draw_props.font_size,
-            self.prepared_run.upem,
+            font_info.upem,
             hinting_instance.is_some(),
             Style::Fill,
         );
@@ -705,7 +753,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
         let layout_y1 = f64::from(-offset + size);
 
         // Get a cache session for this font's variation coordinates
-        let var_key = VarLookupKey(self.prepared_run.normalized_coords);
+        let var_key = VarLookupKey::new(self.prepared_run.normalized_coords);
         let mut outline_cache_session = OutlineCacheSession::new(self.outline_cache, var_key);
 
         // Collect and merge exclusion zones from all glyphs.
@@ -721,8 +769,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
 
             let cached = outline_cache_session.get_or_insert(
                 glyph.id,
-                self.prepared_run.font.data.id(),
-                self.prepared_run.font.index,
+                font_info,
                 scale_props.cache_size,
                 font_embolden,
                 var_key,
@@ -1046,9 +1093,8 @@ fn expand_rect_with_segment(rect: &mut Rect, seg: PathSeg, y_span: RangeInclusiv
 /// without any positioning information.
 fn create_outline_glyph<'a>(
     glyph_id: u32,
-    font_id: u64,
-    font_index: u32,
-    outline_cache: &'a mut OutlineCacheSession<'_>,
+    font_info: FontInfo,
+    outline_cache: &mut OutlineCacheSession<'_>,
     size: f32,
     scale: f64,
     embolden: FontEmbolden,
@@ -1058,11 +1104,10 @@ fn create_outline_glyph<'a>(
 ) -> GlyphType<'a> {
     let cached = outline_cache.get_or_insert(
         glyph_id,
-        font_id,
-        font_index,
+        font_info,
         size,
         embolden,
-        VarLookupKey(normalized_coords),
+        VarLookupKey::new(normalized_coords),
         outline_glyph,
         hinting_instance,
     );
@@ -1225,17 +1270,18 @@ struct ColrMetrics {
 ///
 /// This computes the intermediate values needed for both creating the `GlyphColr`
 /// and calculating its positioning transform.
-fn calculate_colr_metrics(
+fn calculate_colr_metrics<'a>(
     font_size: f32,
-    upem: f32,
     draw_props: DrawProps,
     glyph: Glyph,
-    font_ref: &FontRef<'_>,
-    color_glyph: &skrifa::color::ColorGlyph<'_>,
-    location: LocationRef<'_>,
+    font_ref: &'a FontRef<'a>,
+    color_glyph: &skrifa::color::ColorGlyph<'a>,
+    location: LocationRef<'a>,
+    outline_cache: &mut OutlineCacheSession<'_>,
+    font_info: FontInfo,
 ) -> ColrMetrics {
     // The scale factor we need to apply to scale from font units to our font size.
-    let font_size_scale = (font_size / upem) as f64;
+    let font_size_scale = (font_size / font_info.upem) as f64;
     let transform = draw_props.positioned_transform(glyph);
 
     // Estimate the size of the intermediate pixmap. Ideally, the intermediate bitmap should have
@@ -1247,7 +1293,7 @@ fn calculate_colr_metrics(
     };
 
     // TODO: Cache this across frames.
-    let colr_info = get_colr_info(font_ref, color_glyph, location);
+    let colr_info = get_colr_info(font_ref, color_glyph, location, outline_cache, font_info);
     let bbox = color_glyph
         // First try to get the clip bbox from the COLR table,
         // as this one has the highest priority.
@@ -1320,6 +1366,7 @@ fn create_colr_glyph<'a>(
     metrics: &ColrMetrics,
     color_glyph: skrifa::color::ColorGlyph<'a>,
     normalized_coords: &'a [skrifa::instance::NormalizedCoord],
+    font_info: FontInfo,
 ) -> GlyphType<'a> {
     let (pix_width, pix_height) = (
         metrics.scaled_bbox.width().ceil() as u16,
@@ -1353,6 +1400,7 @@ fn create_colr_glyph<'a>(
         pix_height,
         draw_transform,
         has_non_default_blend: metrics.has_non_default_blend,
+        font_info,
     }))
 }
 
@@ -1400,8 +1448,8 @@ pub struct GlyphRun<'a> {
 struct PreparedGlyphRun<'a> {
     /// The underlying font data.
     font: FontData,
-    /// Font units per em for the underlying font.
-    upem: f32,
+    /// Basic metadata about the underlying font.
+    font_info: FontInfo,
     // The fact that we store `run_size` and `glyph_transform` here, as well
     // as having more transforms and an effective font size inside of the `draw_props` field is pretty
     // confusing, so here is a brief explanation:
@@ -1479,7 +1527,7 @@ impl Debug for PreparedGlyphRun<'_> {
         // HintingInstance doesn't implement Debug so we have to do this manually :(
         f.debug_struct("PreparedGlyphRun")
             .field("font", &self.font)
-            .field("upem", &self.upem)
+            .field("font_info", &self.font_info)
             .field("run_size", &self.run_size)
             .field("font_embolden", &self.font_embolden)
             .field("glyph_transform", &self.glyph_transform)
@@ -1574,10 +1622,15 @@ fn prepare_glyph_run<'a>(run: GlyphRun<'a>, hint_cache: &'a mut HintCache) -> Pr
         .map(|h| h.units_per_em())
         .unwrap()
         .into();
+    let font_info = FontInfo {
+        id: run.font.data.id(),
+        index: run.font.index,
+        upem,
+    };
 
     PreparedGlyphRun {
         font: run.font,
-        upem,
+        font_info,
         run_size: run.font_size,
         font_embolden: run.font_embolden,
         glyph_transform: run.glyph_transform,
@@ -1851,7 +1904,7 @@ impl OutlineCache {
     }
 }
 
-struct OutlineCacheSession<'a> {
+pub(crate) struct OutlineCacheSession<'a> {
     map: &'a mut HashMap<OutlineKey, OutlineEntry>,
     free_list: &'a mut Vec<OutlinePath>,
     serial: u32,
@@ -1860,7 +1913,7 @@ struct OutlineCacheSession<'a> {
 
 impl<'a> OutlineCacheSession<'a> {
     fn new(outline_cache: &'a mut OutlineCache, var_key: VarLookupKey<'_>) -> Self {
-        let map = if var_key.0.is_empty() {
+        let map = if var_key.coords().is_empty() {
             &mut outline_cache.static_map
         } else {
             match outline_cache
@@ -1880,11 +1933,10 @@ impl<'a> OutlineCacheSession<'a> {
         }
     }
 
-    fn get_or_insert(
+    pub(crate) fn get_or_insert(
         &mut self,
         glyph_id: u32,
-        font_id: u64,
-        font_index: u32,
+        font_info: FontInfo,
         size: f32,
         embolden: FontEmbolden,
         var_key: VarLookupKey<'_>,
@@ -1893,8 +1945,8 @@ impl<'a> OutlineCacheSession<'a> {
     ) -> CachedOutline<'_> {
         let key = OutlineKey {
             glyph_id,
-            font_id,
-            font_index,
+            font_id: font_info.id,
+            font_index: font_info.index,
             size_bits: size.to_bits(),
             embolden_x_bits: f32_bits(embolden.amount.xx),
             embolden_y_bits: f32_bits(embolden.amount.yy),
@@ -1920,7 +1972,7 @@ impl<'a> OutlineCacheSession<'a> {
                 let draw_settings = if let Some(hinting_instance) = hinting_instance {
                     DrawSettings::hinted(hinting_instance, false)
                 } else {
-                    DrawSettings::unhinted(Size::new(size), var_key.0)
+                    DrawSettings::unhinted(Size::new(size), var_key.coords())
                 };
 
                 drawing_buf.reuse();
@@ -1956,7 +2008,17 @@ type VarKey = SmallVec<[skrifa::instance::NormalizedCoord; 4]>;
 
 /// Lookup key for variable font caches.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-struct VarLookupKey<'a>(&'a [skrifa::instance::NormalizedCoord]);
+pub(crate) struct VarLookupKey<'a>(&'a [skrifa::instance::NormalizedCoord]);
+
+impl<'a> VarLookupKey<'a> {
+    pub(crate) fn new(coords: &'a [skrifa::instance::NormalizedCoord]) -> Self {
+        Self(coords)
+    }
+
+    fn coords(self) -> &'a [skrifa::instance::NormalizedCoord] {
+        self.0
+    }
+}
 
 impl Equivalent<VarKey> for VarLookupKey<'_> {
     fn equivalent(&self, other: &VarKey) -> bool {
