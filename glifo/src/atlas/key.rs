@@ -164,7 +164,7 @@ impl PartialEq for GlyphCacheKey {
 impl Eq for GlyphCacheKey {}
 
 /// Pre-packed `BLACK` color as a `u32` for use in `GlyphCacheKey`.
-const BLACK_PACKED: u32 = PremulRgba8 {
+pub(crate) const BLACK_PACKED: u32 = PremulRgba8 {
     r: 0,
     g: 0,
     b: 0,
