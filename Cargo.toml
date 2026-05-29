@@ -120,13 +120,14 @@ crossbeam-channel = "0.5.15"
 ordered-channel = { version = "1.2.0", features = ["crossbeam-channel"] }
 fearless_simd = { version = "0.4.0", default-features = false }
 
-# wasm-bindgen family of crates
-js-sys = "0.3.98"
+# Unlike the other crates, please do not update these before a release
+# unless absolutely necessary.
+js-sys = "0.3.91"
 # If updating, also update in .github/workflows/web-demo.yml.
-wasm-bindgen = "=0.2.121"
-wasm-bindgen-futures = "0.4.71"
-wasm-bindgen-test = "0.3.71"
-web-sys = "0.3.98"
+wasm-bindgen = "0.2.114"
+wasm-bindgen-futures = "0.4.64"
+wasm-bindgen-test = "0.3.64"
+web-sys = "0.3.91"
 
 # The below crates are experimental!
 vello_common = { version = "0.0.9", path = "sparse_strips/vello_common", default-features = false }
