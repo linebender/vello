@@ -47,11 +47,18 @@ pub(crate) fn fill_glyph(
     outline_cache: &mut OutlineCacheSession<'_>,
 ) {
     let AtlasCacher::Enabled(glyph_atlas, image_cache) = atlas_cacher else {
-        let transform = prepared_glyph.transform;
+        let transform = prepared_glyph.outline_transform;
+        let paint_transform = prepared_glyph.relative_paint_transform;
 
         return match prepared_glyph.glyph_type {
             GlyphType::Outline(glyph) => {
-                fill_uncached_outline_glyph(renderer, &glyph.path, glyph.scale, transform);
+                fill_uncached_outline_glyph(
+                    renderer,
+                    &glyph.path,
+                    glyph.scale,
+                    transform,
+                    paint_transform,
+                );
             }
             GlyphType::Bitmap(glyph) => render_uncached_bitmap_glyph(renderer, glyph, transform),
             GlyphType::Colr(glyph) => {
@@ -68,7 +75,8 @@ pub(crate) fn fill_glyph(
     };
 
     let mut cache_key = prepared_glyph.cache_key;
-    let transform = prepared_glyph.transform;
+    let transform = prepared_glyph.outline_transform;
+    let paint_transform = prepared_glyph.relative_paint_transform;
 
     match prepared_glyph.glyph_type {
         GlyphType::Outline(glyph) => {
@@ -87,7 +95,13 @@ pub(crate) fn fill_glyph(
                 return;
             }
 
-            fill_uncached_outline_glyph(renderer, &glyph.path, glyph.scale, transform);
+            fill_uncached_outline_glyph(
+                renderer,
+                &glyph.path,
+                glyph.scale,
+                transform,
+                paint_transform,
+            );
         }
         GlyphType::Bitmap(glyph) => {
             if let Some(key) = cache_key.take()
@@ -135,10 +149,17 @@ pub(crate) fn stroke_glyph(
     outline_cache: &mut OutlineCacheSession<'_>,
 ) {
     let AtlasCacher::Enabled(glyph_atlas, image_cache) = atlas_cacher else {
-        let transform = prepared_glyph.transform;
+        let outline_transform = prepared_glyph.outline_transform;
+        let paint_transform = prepared_glyph.relative_paint_transform;
         return match prepared_glyph.glyph_type {
             GlyphType::Outline(glyph) => {
-                stroke_uncached_outline_glyph(renderer, &glyph.path, glyph.scale, transform);
+                stroke_uncached_outline_glyph(
+                    renderer,
+                    &glyph.path,
+                    glyph.scale,
+                    outline_transform,
+                    paint_transform,
+                );
             }
             GlyphType::Bitmap(_) | GlyphType::Colr(_) => {
                 fill_glyph(renderer, prepared_glyph, atlas_cacher, outline_cache);
@@ -149,14 +170,15 @@ pub(crate) fn stroke_glyph(
     match prepared_glyph.glyph_type {
         GlyphType::Outline(glyph) => {
             let mut cache_key = prepared_glyph.cache_key;
-            let transform = prepared_glyph.transform;
+            let outline_transform = prepared_glyph.outline_transform;
+            let paint_transform = prepared_glyph.relative_paint_transform;
             let tint_color = renderer.get_context_color();
 
             if let Some(key) = cache_key.take()
                 && let CacheResult::CachedAndRendered = insert_and_render_outline(
                     renderer,
                     &glyph,
-                    transform,
+                    outline_transform,
                     key,
                     glyph_atlas,
                     image_cache,
@@ -166,7 +188,13 @@ pub(crate) fn stroke_glyph(
                 return;
             }
 
-            stroke_uncached_outline_glyph(renderer, &glyph.path, glyph.scale, transform);
+            stroke_uncached_outline_glyph(
+                renderer,
+                &glyph.path,
+                glyph.scale,
+                outline_transform,
+                paint_transform,
+            );
         }
         GlyphType::Bitmap(_) | GlyphType::Colr(_) => {
             fill_glyph(renderer, prepared_glyph, atlas_cacher, outline_cache);
@@ -178,10 +206,12 @@ fn fill_uncached_outline_glyph(
     renderer: &mut impl GlyphRenderer,
     path: &BezPath,
     scale: f64,
-    transform: Affine,
+    outline_transform: Affine,
+    paint_transform: Affine,
 ) {
     let state = renderer.save_state();
-    renderer.set_transform(transform.pre_scale(scale));
+    renderer.set_transform(outline_transform.pre_scale(scale));
+    renderer.set_paint_transform(paint_transform);
     renderer.fill_path(path);
     renderer.restore_state(state);
 }
@@ -190,10 +220,12 @@ fn stroke_uncached_outline_glyph(
     renderer: &mut impl GlyphRenderer,
     path: &BezPath,
     scale: f64,
-    transform: Affine,
+    outline_transform: Affine,
+    paint_transform: Affine,
 ) {
     let state = renderer.save_state();
-    renderer.set_transform(transform.pre_scale(scale));
+    renderer.set_transform(outline_transform.pre_scale(scale));
+    renderer.set_paint_transform(paint_transform);
     renderer.stroke_path(path);
     renderer.restore_state(state);
 }
@@ -201,20 +233,20 @@ fn stroke_uncached_outline_glyph(
 fn render_uncached_bitmap_glyph(
     renderer: &mut impl GlyphRenderer,
     glyph: GlyphBitmap,
-    transform: Affine,
+    outline_transform: Affine,
 ) {
     let image = Image {
         image: ImageSource::Pixmap(glyph.pixmap),
         sampler: ImageSampler {
             x_extend: Extend::Pad,
             y_extend: Extend::Pad,
-            quality: quality_for_scale(&transform),
+            quality: quality_for_scale(&outline_transform),
             alpha: 1.0,
         },
     };
 
     let state = renderer.save_state();
-    renderer.set_transform(transform);
+    renderer.set_transform(outline_transform);
     renderer.set_paint_image(image);
     renderer.fill_rect(&glyph.area);
     renderer.restore_state(state);
@@ -223,12 +255,12 @@ fn render_uncached_bitmap_glyph(
 fn render_uncached_colr_glyph(
     renderer: &mut impl GlyphRenderer,
     glyph: &GlyphColr<'_>,
-    transform: Affine,
+    outline_transform: Affine,
     context_color: AlphaColor<Srgb>,
     outline_cache: &mut OutlineCacheSession<'_>,
 ) {
     let state = renderer.save_state();
-    renderer.set_transform(transform);
+    renderer.set_transform(outline_transform);
     // Two reasons why we wrap COLR glyphs in a clip layer:
     // 1) We need a layer to make sure they are isolated and don't blend into the main surface (unless
     // the glyph is guaranteed to only use default blending, in which case we don't need this).
@@ -364,13 +396,13 @@ fn render_colr_to_atlas(
 fn insert_and_render_outline(
     renderer: &mut impl GlyphRenderer,
     glyph: &GlyphOutline,
-    transform: Affine,
+    outline_transform: Affine,
     cache_key: GlyphCacheKey,
     glyph_atlas: &mut GlyphAtlas,
     image_cache: &mut ImageCache,
     tint_color: AlphaColor<Srgb>,
 ) -> CacheResult {
-    if !supports_atlas_caching(&transform, CachedGlyphType::Outline) {
+    if !supports_atlas_caching(&outline_transform, CachedGlyphType::Outline) {
         return CacheResult::UnsupportedTransform;
     }
 
@@ -393,7 +425,7 @@ fn insert_and_render_outline(
         raster_metrics,
     );
 
-    render_outline_glyph_from_atlas(renderer, atlas_slot, transform, tint_color);
+    render_outline_glyph_from_atlas(renderer, atlas_slot, outline_transform, tint_color);
     CacheResult::CachedAndRendered
 }
 
@@ -443,13 +475,13 @@ fn insert_and_render_bitmap(
 fn insert_and_render_colr(
     renderer: &mut impl GlyphRenderer,
     glyph: &GlyphColr<'_>,
-    transform: Affine,
+    outline_transform: Affine,
     cache_key: GlyphCacheKey,
     glyph_atlas: &mut GlyphAtlas,
     image_cache: &mut ImageCache,
     outline_cache: &mut OutlineCacheSession<'_>,
 ) -> CacheResult {
-    if !supports_atlas_caching(&transform, CachedGlyphType::Colr(Rect::ZERO)) {
+    if !supports_atlas_caching(&outline_transform, CachedGlyphType::Colr(Rect::ZERO)) {
         return CacheResult::UnsupportedTransform;
     }
 
@@ -476,9 +508,9 @@ fn insert_and_render_colr(
     render_from_atlas(
         renderer,
         atlas_slot,
-        transform,
+        outline_transform,
         area,
-        quality_for_skew(&transform),
+        quality_for_skew(&outline_transform),
         None,
     );
     CacheResult::CachedAndRendered
@@ -489,10 +521,10 @@ fn insert_and_render_colr(
 fn render_outline_glyph_from_atlas(
     renderer: &mut impl GlyphRenderer,
     atlas_slot: AtlasSlot,
-    transform: Affine,
+    outline_transform: Affine,
     tint_color: AlphaColor<Srgb>,
 ) {
-    let [_, _, _, _, tx, ty] = transform.as_coeffs();
+    let [_, _, _, _, tx, ty] = outline_transform.as_coeffs();
     let rect_transform = Affine::translate((
         tx.floor() + atlas_slot.bearing_x as f64,
         ty.floor() + atlas_slot.bearing_y as f64,

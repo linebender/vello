@@ -807,6 +807,7 @@ impl Scene {
         glifo::GlyphRunBuilder::new(
             font.clone(),
             self.render_state.transform,
+            self.render_state.paint_transform,
             crate::text::HybridGlyphRunBackend {
                 scene: self,
                 resources,
