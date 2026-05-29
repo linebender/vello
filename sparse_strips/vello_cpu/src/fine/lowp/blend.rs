@@ -222,3 +222,78 @@ fn with_src_alpha<S: Simd>(simd: S, rgb: u8x32<S>, src_c: u8x32<S>) -> u8x32<S> 
 
     (rgb & !alpha_mask) | (src_c & alpha_mask)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::peniko::Compose;
+    use vello_common::fearless_simd::Fallback;
+
+    fn lowp_first_pixel_for_mix(blend: Mix, src: [u8; 4], bg: [u8; 4]) -> [u8; 4] {
+        let simd = Fallback::new();
+        let src = u8x32::from_slice(simd, &src.repeat(8));
+        let bg = u8x32::from_slice(simd, &bg.repeat(8));
+        let blend_mode = BlendMode::new(blend, Compose::SrcOver);
+        let res = mix(src, bg, blend_mode);
+        let mut out = [0; 32];
+        res.store_slice(&mut out);
+        out[..4].try_into().unwrap()
+    }
+
+    fn highp_first_pixel_for_mix(mix: Mix, src: [u8; 4], bg: [u8; 4]) -> [u8; 4] {
+        let simd = Fallback::new();
+        let to_f32 = |pixel: [u8; 4]| {
+            let pixel = pixel.map(|component| component as f32 * (1.0 / 255.0));
+            f32x16::from_slice(simd, &pixel.repeat(4))
+        };
+        let src = to_f32(src);
+        let bg = to_f32(bg);
+        let blend_mode = BlendMode::new(mix, Compose::SrcOver);
+
+        let res = highp::blend::mix(src, bg, blend_mode);
+        let res = f32_to_u8(f32x16::splat(simd, 255.0).mul_add(res, f32x16::splat(simd, 0.5)));
+        let mut out = [0; 16];
+        res.store_slice(&mut out);
+        out[..4].try_into().unwrap()
+    }
+
+    fn assert_lowp_matches_highp(mix: Mix, src: [u8; 4], bg: [u8; 4]) {
+        const MAX_DELTA: u8 = 2;
+
+        let lowp = lowp_first_pixel_for_mix(mix, src, bg);
+        let highp = highp_first_pixel_for_mix(mix, src, bg);
+
+        for (component, (&lowp, &highp)) in lowp.iter().zip(highp.iter()).enumerate() {
+            let delta = lowp.abs_diff(highp);
+            assert!(
+                delta <= MAX_DELTA,
+                "{mix:?} component {component} differed by {delta}: lowp={lowp}, highp={highp}, src={src:?}, bg={bg:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn multiply_does_not_wrap() {
+        assert_lowp_matches_highp(Mix::Multiply, [128, 128, 128, 1], [255, 255, 255, 0]);
+    }
+
+    #[test]
+    fn lighten_does_not_wrap() {
+        assert_lowp_matches_highp(Mix::Lighten, [255, 255, 255, 1], [1, 1, 1, 0]);
+    }
+
+    #[test]
+    fn difference_does_not_wrap() {
+        assert_lowp_matches_highp(Mix::Difference, [255, 255, 255, 1], [1, 1, 1, 0]);
+    }
+
+    #[test]
+    fn hard_light_does_not_wrap() {
+        assert_lowp_matches_highp(Mix::HardLight, [255, 255, 255, 1], [128, 128, 128, 0]);
+    }
+
+    #[test]
+    fn overlay_does_not_wrap() {
+        assert_lowp_matches_highp(Mix::Overlay, [255, 255, 255, 1], [128, 128, 128, 0]);
+    }
+}
