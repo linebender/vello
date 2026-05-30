@@ -842,14 +842,27 @@ impl WgpuEngine {
         entries: Vec<wgpu::BindGroupLayoutEntry>,
         cache: Option<&PipelineCache>,
     ) -> WgpuShader {
-        // SAFETY: We only call this with trusted shaders (written by Vello developers)
+        // SAFETY: We only call this with trusted shaders (written by Vello developers).
+        //
+        // #680: the `binning` and `coarse` stages index fixed-size per-bin arrays (sized
+        // N_TILE = 256) by the bin index, which exceeds that bound when the target is larger than
+        // 256 bins. With checks disabled those out-of-range accesses are undefined behavior that
+        // corrupts GPU memory and hangs the machine; with bounds checks enabled they are
+        // clamped/zeroed, so vello renders the first 256 bins and the overflow renders empty rather
+        // than crashing. Keep bounds checks on for just these two shaders; all others stay unchecked
+        // for performance. See https://github.com/linebender/vello/issues/680.
+        let runtime_checks = if label.ends_with("binning") || label.ends_with("coarse") {
+            wgpu::ShaderRuntimeChecks::checked()
+        } else {
+            wgpu::ShaderRuntimeChecks::unchecked()
+        };
         let shader_module = unsafe {
             device.create_shader_module_trusted(
                 wgpu::ShaderModuleDescriptor {
                     label: Some(label),
                     source: wgpu::ShaderSource::Wgsl(wgsl),
                 },
-                wgpu::ShaderRuntimeChecks::unchecked(),
+                runtime_checks,
             )
         };
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
