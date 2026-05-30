@@ -121,7 +121,7 @@ impl SingleThreadedDispatcher {
     // Note: We purposefully don't add `vectorize` to each of the functions
     // like `rasterize_with`, `composite_at_offset`, etc. since vectoriation
     // instead is applied wherever necessary in child functions.
-    
+
     /// Core rasterization dispatcher that chooses between simple and filter-aware paths.
     ///
     /// # Type Parameters

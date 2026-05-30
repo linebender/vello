@@ -358,7 +358,7 @@ impl MultiThreadedDispatcher {
         }
     }
 
-    // No need to vectorize here, as vectorization happens in each of the 
+    // No need to vectorize here, as vectorization happens in each of the
     // functions that are called within.
     fn rasterize_with<S: Simd, F: FineKernel<S>>(
         &self,
