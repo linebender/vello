@@ -503,6 +503,7 @@ impl Tiles {
         ))
     }
 
+    #[inline(always)]
     fn make_tiles_analytic_aa_impl<S: Simd>(
         &mut self,
         s: S,
