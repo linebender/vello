@@ -274,6 +274,7 @@ mod tests {
         let highp = highp_first_pixel_for_mix(mix, src, bg);
 
         let lowp_alpha = lowp[3];
+        assert_eq!(lowp_alpha, src[3]);
         for (component, &component_value) in lowp[..3].iter().enumerate() {
             assert!(
                 component_value <= lowp_alpha,
