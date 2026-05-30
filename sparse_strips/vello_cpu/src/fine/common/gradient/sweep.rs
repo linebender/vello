@@ -15,11 +15,14 @@ pub(crate) struct SimdSweepKind<S: Simd> {
 
 impl<S: Simd> SimdSweepKind<S> {
     pub(crate) fn new(simd: S, kind: &SweepKind) -> Self {
-        Self {
-            start_angle: f32x8::splat(simd, kind.start_angle),
-            inv_angle_delta: f32x8::splat(simd, kind.inv_angle_delta),
-            simd,
-        }
+        simd.vectorize(
+            #[inline(always)]
+            || Self {
+                start_angle: f32x8::splat(simd, kind.start_angle),
+                inv_angle_delta: f32x8::splat(simd, kind.inv_angle_delta),
+                simd,
+            },
+        )
     }
 }
 

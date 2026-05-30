@@ -29,23 +29,33 @@ impl<S: Simd> BlurredRoundedRectFiller<S> {
         start_x: f64,
         start_y: f64,
     ) -> Self {
-        let start_pos = rect.transform * Point::new(start_x, start_y);
-        let color_components = rect.color.as_premul_f32().components;
-        let r = f32x8::splat(simd, color_components[0]);
-        let g = f32x8::splat(simd, color_components[1]);
-        let b = f32x8::splat(simd, color_components[2]);
-        let a = f32x8::splat(simd, color_components[3]);
-        let simd_rect = SimdRoundedBlurredRect::new(rect, simd);
-        let alpha_calculator =
-            AlphaCalculator::new(start_pos, rect.x_advance, rect.y_advance, simd_rect, simd);
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                let start_pos = rect.transform * Point::new(start_x, start_y);
+                let color_components = rect.color.as_premul_f32().components;
+                let r = f32x8::splat(simd, color_components[0]);
+                let g = f32x8::splat(simd, color_components[1]);
+                let b = f32x8::splat(simd, color_components[2]);
+                let a = f32x8::splat(simd, color_components[3]);
+                let simd_rect = SimdRoundedBlurredRect::new(rect, simd);
+                let alpha_calculator = AlphaCalculator::new(
+                    start_pos,
+                    rect.x_advance,
+                    rect.y_advance,
+                    simd_rect,
+                    simd,
+                );
 
-        Self {
-            alpha_calculator,
-            r,
-            g,
-            b,
-            a,
-        }
+                Self {
+                    alpha_calculator,
+                    r,
+                    g,
+                    b,
+                    a,
+                }
+            },
+        )
     }
 }
 
@@ -177,33 +187,38 @@ struct SimdRoundedBlurredRect<S: Simd> {
 
 impl<S: Simd> SimdRoundedBlurredRect<S> {
     fn new(encoded: &EncodedBlurredRoundedRectangle, s: S) -> Self {
-        let h = f32x8::splat(s, encoded.h);
-        let w = f32x8::splat(s, encoded.w);
-        let width = f32x8::splat(s, encoded.width);
-        let height = f32x8::splat(s, encoded.height);
-        let r1 = f32x8::splat(s, encoded.r1);
-        let exponent = encoded.exponent;
-        let recip_exponent = encoded.recip_exponent;
-        let scale = f32x8::splat(s, encoded.scale);
-        let min_edge = f32x8::splat(s, encoded.min_edge);
-        let std_dev_inv = f32x8::splat(s, encoded.std_dev_inv);
-        let v0 = f32x8::splat(s, 0.0);
-        let v1 = f32x8::splat(s, 0.5);
+        s.vectorize(
+            #[inline(always)]
+            || {
+                let h = f32x8::splat(s, encoded.h);
+                let w = f32x8::splat(s, encoded.w);
+                let width = f32x8::splat(s, encoded.width);
+                let height = f32x8::splat(s, encoded.height);
+                let r1 = f32x8::splat(s, encoded.r1);
+                let exponent = encoded.exponent;
+                let recip_exponent = encoded.recip_exponent;
+                let scale = f32x8::splat(s, encoded.scale);
+                let min_edge = f32x8::splat(s, encoded.min_edge);
+                let std_dev_inv = f32x8::splat(s, encoded.std_dev_inv);
+                let v0 = f32x8::splat(s, 0.0);
+                let v1 = f32x8::splat(s, 0.5);
 
-        Self {
-            exponent,
-            recip_exponent,
-            scale,
-            std_dev_inv,
-            min_edge,
-            w,
-            v0,
-            v1,
-            h,
-            width,
-            height,
-            r1,
-        }
+                Self {
+                    exponent,
+                    recip_exponent,
+                    scale,
+                    std_dev_inv,
+                    min_edge,
+                    w,
+                    v0,
+                    v1,
+                    h,
+                    width,
+                    height,
+                    r1,
+                }
+            },
+        )
     }
 }
 

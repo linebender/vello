@@ -29,33 +29,38 @@ impl<'a, S: Simd> PlainNNImagePainter<'a, S> {
     ) -> Self {
         let data = ImagePainterData::new(simd, image, pixmap, start_x, start_y);
 
-        let y_positions = extend(
-            simd,
-            f32x4::splat_pos(
-                simd,
-                data.cur_pos.y as f32,
-                data.x_advances.1,
-                data.y_advances.1,
-            ),
-            image.sampler.y_extend,
-            data.height,
-            data.height_inv,
-        );
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                let y_positions = extend(
+                    simd,
+                    f32x4::splat_pos(
+                        simd,
+                        data.cur_pos.y as f32,
+                        data.x_advances.1,
+                        data.y_advances.1,
+                    ),
+                    image.sampler.y_extend,
+                    data.height,
+                    data.height_inv,
+                );
 
-        let cur_x_pos = f32x4::splat_pos(
-            simd,
-            data.cur_pos.x as f32,
-            data.x_advances.0,
-            data.y_advances.0,
-        );
+                let cur_x_pos = f32x4::splat_pos(
+                    simd,
+                    data.cur_pos.x as f32,
+                    data.x_advances.0,
+                    data.y_advances.0,
+                );
 
-        Self {
-            data,
-            advance: image.x_advance.x as f32,
-            y_positions,
-            cur_x_pos,
-            simd,
-        }
+                Self {
+                    data,
+                    advance: image.x_advance.x as f32,
+                    y_positions,
+                    cur_x_pos,
+                    simd,
+                }
+            },
+        )
     }
 }
 
@@ -366,31 +371,36 @@ impl<'a, S: Simd> ImagePainterData<'a, S> {
         start_x: f64,
         start_y: f64,
     ) -> Self {
-        let width = pixmap.width() as f32;
-        let height = pixmap.height() as f32;
-        let start_pos = image.transform * Point::new(start_x, start_y);
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                let width = pixmap.width() as f32;
+                let height = pixmap.height() as f32;
+                let start_pos = image.transform * Point::new(start_x, start_y);
 
-        let width_inv = f32x4::splat(simd, 1.0 / width);
-        let height_inv = f32x4::splat(simd, 1.0 / height);
-        let width = f32x4::splat(simd, width);
-        let width_u32 = u32x4::splat(simd, pixmap.width() as u32);
-        let height = f32x4::splat(simd, height);
+                let width_inv = f32x4::splat(simd, 1.0 / width);
+                let height_inv = f32x4::splat(simd, 1.0 / height);
+                let width = f32x4::splat(simd, width);
+                let width_u32 = u32x4::splat(simd, pixmap.width() as u32);
+                let height = f32x4::splat(simd, height);
 
-        let x_advances = (image.x_advance.x as f32, image.x_advance.y as f32);
-        let y_advances = (image.y_advance.x as f32, image.y_advance.y as f32);
+                let x_advances = (image.x_advance.x as f32, image.x_advance.y as f32);
+                let y_advances = (image.y_advance.x as f32, image.y_advance.y as f32);
 
-        Self {
-            cur_pos: start_pos,
-            pixmap,
-            x_advances,
-            y_advances,
-            image,
-            width,
-            height,
-            width_u32,
-            width_inv,
-            height_inv,
-        }
+                Self {
+                    cur_pos: start_pos,
+                    pixmap,
+                    x_advances,
+                    y_advances,
+                    image,
+                    width,
+                    height,
+                    width_u32,
+                    width_inv,
+                    height_inv,
+                }
+            },
+        )
     }
 }
 
