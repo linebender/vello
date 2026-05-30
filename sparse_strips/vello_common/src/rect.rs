@@ -40,6 +40,7 @@ pub fn render(level: Level, rect: Rect, strip_buf: &mut Vec<Strip>, alpha_buf: &
 ///
 /// The x-alpha masks for the left/right edge tiles are y-independent, so they
 /// are precomputed once and reused across all interior rows.
+#[inline(always)]
 fn render_impl<S: Simd>(s: S, rect: Rect, strip_buf: &mut Vec<Strip>, alpha_buf: &mut Vec<u8>) {
     if rect.is_zero_area() {
         return;

@@ -34,6 +34,7 @@ impl<'a, S: Simd> BilinearImagePainter<'a, S> {
 impl<S: Simd> Iterator for BilinearImagePainter<'_, S> {
     type Item = u8x16<S>;
 
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         let x_positions = f32x4::splat_pos(
             self.simd,
@@ -145,55 +146,60 @@ impl<'a, S: Simd> PlainBilinearImagePainter<'a, S> {
     ) -> Self {
         let data = ImagePainterData::new(simd, image, pixmap, start_x, start_y);
 
-        // For axis-aligned images, y doesn't change across the strip
-        let y_positions = f32x4::splat_pos(
-            simd,
-            data.cur_pos.y as f32,
-            data.x_advances.1,
-            data.y_advances.1,
-        );
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                // For axis-aligned images, y doesn't change across the strip
+                let y_positions = f32x4::splat_pos(
+                    simd,
+                    data.cur_pos.y as f32,
+                    data.x_advances.1,
+                    data.y_advances.1,
+                );
 
-        // Pre-compute y extend positions
-        let y_pos1 = extend(
-            simd,
-            y_positions - 0.5,
-            image.sampler.y_extend,
-            data.height,
-            data.height_inv,
-        );
-        let y_pos2 = extend(
-            simd,
-            y_positions + 0.5,
-            image.sampler.y_extend,
-            data.height,
-            data.height_inv,
-        );
+                // Pre-compute y extend positions
+                let y_pos1 = extend(
+                    simd,
+                    y_positions - 0.5,
+                    image.sampler.y_extend,
+                    data.height,
+                    data.height_inv,
+                );
+                let y_pos2 = extend(
+                    simd,
+                    y_positions + 0.5,
+                    image.sampler.y_extend,
+                    data.height,
+                    data.height_inv,
+                );
 
-        // Pre-compute y interpolation weights
-        let fy = f32_to_u8(element_wise_splat(
-            simd,
-            fract_floor(y_positions + 0.5).mul_add(255.0, 0.5),
-        ));
-        let fy = simd.widen_u8x16(fy);
-        let fy_inv = u16x16::splat(simd, 255) - fy;
+                // Pre-compute y interpolation weights
+                let fy = f32_to_u8(element_wise_splat(
+                    simd,
+                    fract_floor(y_positions + 0.5).mul_add(255.0, 0.5),
+                ));
+                let fy = simd.widen_u8x16(fy);
+                let fy_inv = u16x16::splat(simd, 255) - fy;
 
-        let cur_x_pos = f32x4::splat_pos(
-            simd,
-            data.cur_pos.x as f32,
-            data.x_advances.0,
-            data.y_advances.0,
-        );
+                let cur_x_pos = f32x4::splat_pos(
+                    simd,
+                    data.cur_pos.x as f32,
+                    data.x_advances.0,
+                    data.y_advances.0,
+                );
 
-        Self {
-            data,
-            y_pos1,
-            y_pos2,
-            fy,
-            fy_inv,
-            cur_x_pos,
-            advance: image.x_advance.x as f32,
-            simd,
-        }
+                Self {
+                    data,
+                    y_pos1,
+                    y_pos2,
+                    fy,
+                    fy_inv,
+                    cur_x_pos,
+                    advance: image.x_advance.x as f32,
+                    simd,
+                }
+            },
+        )
     }
 }
 

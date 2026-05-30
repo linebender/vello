@@ -641,15 +641,12 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             Cmd::Opacity(o) => {
                 if *o != 1.0 {
                     let blend_buf = self.blend_buf.last_mut().unwrap();
-
-                    T::apply_mask(
-                        self.simd,
-                        blend_buf,
-                        iter::repeat(T::NumericVec::from_f32(
-                            self.simd,
-                            f32x16::splat(self.simd, *o),
-                        )),
+                    let opacity = self.simd.vectorize(
+                        #[inline(always)]
+                        || T::NumericVec::from_f32(self.simd, f32x16::splat(self.simd, *o)),
                     );
+
+                    T::apply_mask(self.simd, blend_buf, iter::repeat(opacity));
                 }
             }
             Cmd::PushZeroClip(_) | Cmd::PopZeroClip => {
@@ -704,13 +701,17 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 } else {
                     let start_x = self.wide_coords.0 * WideTile::WIDTH + x as u16;
                     let start_y = self.wide_coords.1 * Tile::HEIGHT;
+                    let src = self.simd.vectorize(
+                        #[inline(always)]
+                        || T::Composite::from_color(self.simd, color),
+                    );
 
                     T::blend(
                         self.simd,
                         blend_buf,
                         start_x,
                         start_y,
-                        iter::repeat(T::Composite::from_color(self.simd, color)),
+                        iter::repeat(src),
                         blend_mode,
                         alphas,
                         mask,

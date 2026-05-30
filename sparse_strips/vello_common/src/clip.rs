@@ -230,6 +230,7 @@ pub fn intersect(
 ///
 /// This is all that this method does. It just looks more complicated as the logic for iterating
 /// in lock step is a bit tricky.
+#[inline(always)]
 fn intersect_impl<S: Simd>(
     simd: S,
     path_1: PathDataRef<'_>,

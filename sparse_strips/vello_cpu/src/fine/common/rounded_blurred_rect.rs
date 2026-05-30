@@ -29,29 +29,40 @@ impl<S: Simd> BlurredRoundedRectFiller<S> {
         start_x: f64,
         start_y: f64,
     ) -> Self {
-        let start_pos = rect.transform * Point::new(start_x, start_y);
-        let color_components = rect.color.as_premul_f32().components;
-        let r = f32x8::splat(simd, color_components[0]);
-        let g = f32x8::splat(simd, color_components[1]);
-        let b = f32x8::splat(simd, color_components[2]);
-        let a = f32x8::splat(simd, color_components[3]);
-        let simd_rect = SimdRoundedBlurredRect::new(rect, simd);
-        let alpha_calculator =
-            AlphaCalculator::new(start_pos, rect.x_advance, rect.y_advance, simd_rect, simd);
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                let start_pos = rect.transform * Point::new(start_x, start_y);
+                let color_components = rect.color.as_premul_f32().components;
+                let r = f32x8::splat(simd, color_components[0]);
+                let g = f32x8::splat(simd, color_components[1]);
+                let b = f32x8::splat(simd, color_components[2]);
+                let a = f32x8::splat(simd, color_components[3]);
+                let simd_rect = SimdRoundedBlurredRect::new(rect, simd);
+                let alpha_calculator = AlphaCalculator::new(
+                    start_pos,
+                    rect.x_advance,
+                    rect.y_advance,
+                    simd_rect,
+                    simd,
+                );
 
-        Self {
-            alpha_calculator,
-            r,
-            g,
-            b,
-            a,
-        }
+                Self {
+                    alpha_calculator,
+                    r,
+                    g,
+                    b,
+                    a,
+                }
+            },
+        )
     }
 }
 
 impl<S: Simd> Iterator for BlurredRoundedRectFiller<S> {
     type Item = ShaderResultF32<S>;
 
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         let next = self.alpha_calculator.next().unwrap();
         let r = self.r * next;
@@ -65,30 +76,44 @@ impl<S: Simd> Iterator for BlurredRoundedRectFiller<S> {
 
 impl<S: Simd> crate::fine::Painter for BlurredRoundedRectFiller<S> {
     fn paint_u8(&mut self, buf: &mut [u8]) {
-        for chunk in buf.chunks_exact_mut(64) {
-            let first = self.next().unwrap();
-            let simd = first.r.simd;
-            let second = self.next().unwrap();
+        self.a.simd.vectorize(
+            #[inline(always)]
+            || {
+                for chunk in buf.chunks_exact_mut(64) {
+                    let first = self.next().unwrap();
+                    let simd = first.r.simd;
+                    let second = self.next().unwrap();
 
-            let r = u8x16::from_f32(simd, simd.combine_f32x8(first.r, second.r));
-            let g = u8x16::from_f32(simd, simd.combine_f32x8(first.g, second.g));
-            let b = u8x16::from_f32(simd, simd.combine_f32x8(first.b, second.b));
-            let a = u8x16::from_f32(simd, simd.combine_f32x8(first.a, second.a));
+                    let r = u8x16::from_f32(simd, simd.combine_f32x8(first.r, second.r));
+                    let g = u8x16::from_f32(simd, simd.combine_f32x8(first.g, second.g));
+                    let b = u8x16::from_f32(simd, simd.combine_f32x8(first.b, second.b));
+                    let a = u8x16::from_f32(simd, simd.combine_f32x8(first.a, second.a));
 
-            let combined = simd.combine_u8x32(simd.combine_u8x16(r, g), simd.combine_u8x16(b, a));
+                    let combined =
+                        simd.combine_u8x32(simd.combine_u8x16(r, g), simd.combine_u8x16(b, a));
 
-            simd.store_interleaved_128_u8x64(combined, (&mut chunk[..]).try_into().unwrap());
-        }
+                    simd.store_interleaved_128_u8x64(
+                        combined,
+                        (&mut chunk[..]).try_into().unwrap(),
+                    );
+                }
+            },
+        );
     }
 
     fn paint_f32(&mut self, buf: &mut [f32]) {
-        for chunk in buf.chunks_exact_mut(32) {
-            let (c1, c2) = self.next().unwrap().get();
-            c1.simd
-                .store_interleaved_128_f32x16(c1, (&mut chunk[..16]).try_into().unwrap());
-            c2.simd
-                .store_interleaved_128_f32x16(c2, (&mut chunk[16..]).try_into().unwrap());
-        }
+        self.a.simd.vectorize(
+            #[inline(always)]
+            || {
+                for chunk in buf.chunks_exact_mut(32) {
+                    let (c1, c2) = self.next().unwrap().get();
+                    c1.simd
+                        .store_interleaved_128_f32x16(c1, (&mut chunk[..16]).try_into().unwrap());
+                    c2.simd
+                        .store_interleaved_128_f32x16(c2, (&mut chunk[16..]).try_into().unwrap());
+                }
+            },
+        );
     }
 }
 
@@ -122,6 +147,7 @@ impl<S: Simd> AlphaCalculator<S> {
 impl<S: Simd> Iterator for AlphaCalculator<S> {
     type Item = f32x8<S>;
 
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         let i = f32x8::splat_pos(
             self.simd,
@@ -177,46 +203,51 @@ struct SimdRoundedBlurredRect<S: Simd> {
 
 impl<S: Simd> SimdRoundedBlurredRect<S> {
     fn new(encoded: &EncodedBlurredRoundedRectangle, s: S) -> Self {
-        let h = f32x8::splat(s, encoded.h);
-        let w = f32x8::splat(s, encoded.w);
-        let width = f32x8::splat(s, encoded.width);
-        let height = f32x8::splat(s, encoded.height);
-        let r1 = f32x8::splat(s, encoded.r1);
-        let exponent = encoded.exponent;
-        let recip_exponent = encoded.recip_exponent;
-        let scale = f32x8::splat(s, encoded.scale);
-        let min_edge = f32x8::splat(s, encoded.min_edge);
-        let std_dev_inv = f32x8::splat(s, encoded.std_dev_inv);
-        let v0 = f32x8::splat(s, 0.0);
-        let v1 = f32x8::splat(s, 0.5);
+        s.vectorize(
+            #[inline(always)]
+            || {
+                let h = f32x8::splat(s, encoded.h);
+                let w = f32x8::splat(s, encoded.w);
+                let width = f32x8::splat(s, encoded.width);
+                let height = f32x8::splat(s, encoded.height);
+                let r1 = f32x8::splat(s, encoded.r1);
+                let exponent = encoded.exponent;
+                let recip_exponent = encoded.recip_exponent;
+                let scale = f32x8::splat(s, encoded.scale);
+                let min_edge = f32x8::splat(s, encoded.min_edge);
+                let std_dev_inv = f32x8::splat(s, encoded.std_dev_inv);
+                let v0 = f32x8::splat(s, 0.0);
+                let v1 = f32x8::splat(s, 0.5);
 
-        Self {
-            exponent,
-            recip_exponent,
-            scale,
-            std_dev_inv,
-            min_edge,
-            w,
-            v0,
-            v1,
-            h,
-            width,
-            height,
-            r1,
-        }
+                Self {
+                    exponent,
+                    recip_exponent,
+                    scale,
+                    std_dev_inv,
+                    min_edge,
+                    w,
+                    v0,
+                    v1,
+                    h,
+                    width,
+                    height,
+                    r1,
+                }
+            },
+        )
     }
 }
 
 trait FloatExt<S: Simd> {
     // See https://raphlinus.github.io/audio/2018/09/05/sigmoid.html for a little
     // explanation of this approximation to the erf function.
-    // Doing `inline(always)` seems to reduce performance for some reason.
     /// Approximate the erf function.
     fn compute_erf7(simd: S, x: Self) -> Self;
     fn powf(self, x: f32) -> Self;
 }
 
 impl<S: Simd> FloatExt<S> for f32x8<S> {
+    #[inline(always)]
     fn compute_erf7(simd: S, x: Self) -> Self {
         // Clamp `x`, because for large `x` the terms here become `inf`, causing the result to be 0 or
         // `NaN`. This clamping doesn't lose any information, because `erf(±10) ≈ 1` well within `f64`

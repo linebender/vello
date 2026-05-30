@@ -23,29 +23,23 @@ impl<S: Simd> Channels<S> {
     }
 }
 
-// TODO: blending is still extremely slow, investigate whether there is something obvious we are
-// missing that other renderers do.
 pub(crate) fn mix<S: Simd>(src_c: f32x16<S>, bg: f32x16<S>, blend_mode: BlendMode) -> f32x16<S> {
+    src_c.simd.vectorize(
+        #[inline(always)]
+        || mix_inner(src_c, bg, blend_mode),
+    )
+}
+
+#[inline(always)]
+fn mix_inner<S: Simd>(src_c: f32x16<S>, bg: f32x16<S>, blend_mode: BlendMode) -> f32x16<S> {
     if matches!(blend_mode.mix, Mix::Normal) {
         return src_c;
     }
     // See https://www.w3.org/TR/compositing-1/#blending
     let simd = src_c.simd;
 
-    let split = |input: f32x16<S>| {
-        let mut storage = [0.0; 16];
-        simd.store_interleaved_128_f32x16(input, &mut storage);
-        let input_v = f32x16::from_slice(simd, &storage);
-
-        let p1 = simd.split_f32x16(input_v);
-        let (r, g) = simd.split_f32x8(p1.0);
-        let (b, a) = simd.split_f32x8(p1.1);
-
-        (Channels { r, g, b }, a)
-    };
-
-    let (bg_channels, bg_a) = split(bg);
-    let (src_channels, src_a) = split(src_c);
+    let (bg_channels, bg_a) = split(simd, bg);
+    let (src_channels, src_a) = split(simd, src_c);
 
     let unpremultiplied_bg = bg_channels.unpremultiply(bg_a);
     let unpremultiplied_src = src_channels.unpremultiply(src_a);
@@ -53,18 +47,9 @@ pub(crate) fn mix<S: Simd>(src_c: f32x16<S>, bg: f32x16<S>, blend_mode: BlendMod
     let mut res_bg = unpremultiplied_bg;
     let mix_src = blend_mode.mix(unpremultiplied_src, unpremultiplied_bg);
 
-    let apply_alpha = |unpremultiplied_src_channel: f32x4<S>,
-                       mix_src_channel: f32x4<S>,
-                       dest_channel: &mut f32x4<S>| {
-        let p1 = (1.0 - bg_a) * unpremultiplied_src_channel;
-        let p2 = bg_a * mix_src_channel;
-
-        *dest_channel = (p1 + p2).premultiply(src_a);
-    };
-
-    apply_alpha(unpremultiplied_src.r, mix_src.r, &mut res_bg.r);
-    apply_alpha(unpremultiplied_src.g, mix_src.g, &mut res_bg.g);
-    apply_alpha(unpremultiplied_src.b, mix_src.b, &mut res_bg.b);
+    res_bg.r = apply_alpha(bg_a, src_a, unpremultiplied_src.r, mix_src.r);
+    res_bg.g = apply_alpha(bg_a, src_a, unpremultiplied_src.g, mix_src.g);
+    res_bg.b = apply_alpha(bg_a, src_a, unpremultiplied_src.b, mix_src.b);
 
     let combined = simd.combine_f32x8(
         simd.combine_f32x4(res_bg.r, res_bg.g),
@@ -76,11 +61,38 @@ pub(crate) fn mix<S: Simd>(src_c: f32x16<S>, bg: f32x16<S>, blend_mode: BlendMod
     f32x16::from_slice(simd, &storage)
 }
 
+#[inline(always)]
+fn split<S: Simd>(simd: S, input: f32x16<S>) -> (Channels<S>, f32x4<S>) {
+    let mut storage = [0.0; 16];
+    simd.store_interleaved_128_f32x16(input, &mut storage);
+    let input_v = f32x16::from_slice(simd, &storage);
+
+    let p1 = simd.split_f32x16(input_v);
+    let (r, g) = simd.split_f32x8(p1.0);
+    let (b, a) = simd.split_f32x8(p1.1);
+
+    (Channels { r, g, b }, a)
+}
+
+#[inline(always)]
+fn apply_alpha<S: Simd>(
+    bg_a: f32x4<S>,
+    src_a: f32x4<S>,
+    unpremultiplied_src_channel: f32x4<S>,
+    mix_src_channel: f32x4<S>,
+) -> f32x4<S> {
+    let p1 = (1.0 - bg_a) * unpremultiplied_src_channel;
+    let p2 = bg_a * mix_src_channel;
+
+    (p1 + p2).premultiply(src_a)
+}
+
 trait MixExt {
     fn mix<S: Simd>(&self, src: Channels<S>, bg: Channels<S>) -> Channels<S>;
 }
 
 impl MixExt for BlendMode {
+    #[inline(always)]
     fn mix<S: Simd>(&self, src: Channels<S>, bg: Channels<S>) -> Channels<S> {
         match self.mix {
             Mix::Normal => src,
@@ -118,6 +130,7 @@ impl Screen {
 }
 
 impl HardLight {
+    #[inline(always)]
     fn single<S: Simd>(src: f32x4<S>, bg: f32x4<S>) -> f32x4<S> {
         let two = f32x4::splat(src.simd, 2.0);
 
@@ -254,14 +267,17 @@ non_separable_mix!(Luminosity, |cs: &mut Channels<S>, cb: &mut Channels<S>| {
     *cb
 });
 
+#[inline(always)]
 fn lum<S: Simd>(r: f32x4<S>, g: f32x4<S>, b: f32x4<S>) -> f32x4<S> {
     0.3 * r + 0.59 * g + 0.11 * b
 }
 
+#[inline(always)]
 fn sat<S: Simd>(r: f32x4<S>, g: f32x4<S>, b: f32x4<S>) -> f32x4<S> {
     r.max(g).max(b) - r.min(g).min(b)
 }
 
+#[inline(always)]
 fn clip_color<S: Simd>(r: &mut f32x4<S>, g: &mut f32x4<S>, b: &mut f32x4<S>) {
     let simd = r.simd;
 
@@ -284,6 +300,7 @@ fn clip_color<S: Simd>(r: &mut f32x4<S>, g: &mut f32x4<S>, b: &mut f32x4<S>) {
     }
 }
 
+#[inline(always)]
 fn set_lum<S: Simd>(r: &mut f32x4<S>, g: &mut f32x4<S>, b: &mut f32x4<S>, l: f32x4<S>) {
     let d = l - lum(*r, *g, *b);
     *r += d;
@@ -294,17 +311,24 @@ fn set_lum<S: Simd>(r: &mut f32x4<S>, g: &mut f32x4<S>, b: &mut f32x4<S>, l: f32
 }
 
 // Adapted from tiny-skia
+#[inline(always)]
 fn set_sat<S: Simd>(r: &mut f32x4<S>, g: &mut f32x4<S>, b: &mut f32x4<S>, s: f32x4<S>) {
-    let simd = r.simd;
-    let zero = f32x4::splat(simd, 0.0);
     let mn = r.min(g.min(*b));
     let mx = r.max(g.max(*b));
     let sat = mx - mn;
 
     // Map min channel to 0, max channel to s, and scale the middle proportionally.
-    let scale = |c| simd.select_f32x4(simd.simd_eq_f32x4(sat, zero), zero, (c - mn) * s / sat);
+    *r = scale_sat_channel(*r, mn, sat, s);
+    *g = scale_sat_channel(*g, mn, sat, s);
+    *b = scale_sat_channel(*b, mn, sat, s);
+}
 
-    *r = scale(*r);
-    *g = scale(*g);
-    *b = scale(*b);
+#[inline(always)]
+fn scale_sat_channel<S: Simd>(c: f32x4<S>, mn: f32x4<S>, sat: f32x4<S>, s: f32x4<S>) -> f32x4<S> {
+    let simd = c.simd;
+    simd.select_f32x4(
+        simd.simd_eq_f32x4(sat, f32x4::splat(simd, 0.0)),
+        f32x4::splat(simd, 0.0),
+        (c - mn) * s / sat,
+    )
 }

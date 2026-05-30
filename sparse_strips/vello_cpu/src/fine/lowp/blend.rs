@@ -6,31 +6,20 @@ use crate::peniko::{BlendMode, Mix};
 use vello_common::fearless_simd::*;
 use vello_common::util::{Div255Ext, f32_to_u8, normalized_mul_u8x32};
 
-// TODO: Make sure this vectorizes properly (also the f32 pipeline) by inlining if needed.
 pub(crate) fn mix<S: Simd>(src_c: u8x32<S>, bg_c: u8x32<S>, blend_mode: BlendMode) -> u8x32<S> {
+    src_c.simd.vectorize(
+        #[inline(always)]
+        || mix_inner(src_c, bg_c, blend_mode),
+    )
+}
+
+#[inline(always)]
+fn mix_inner<S: Simd>(src_c: u8x32<S>, bg_c: u8x32<S>, blend_mode: BlendMode) -> u8x32<S> {
     if let Some(res) = try_u8_mix(blend_mode, src_c, bg_c) {
         return res;
     }
 
     // Fallback for blend modes that aren't supported in u8.
-
-    let to_f32 = |val: u8x32<S>| {
-        let (a, b) = src_c.simd.split_u8x32(val);
-        let mut a = u8_to_f32(a);
-        let mut b = u8_to_f32(b);
-        a *= f32x16::splat(src_c.simd, 1.0 / 255.0);
-        b *= f32x16::splat(src_c.simd, 1.0 / 255.0);
-        (a, b)
-    };
-
-    let to_u8 = |val1: f32x16<S>, val2: f32x16<S>| {
-        let val1 =
-            f32_to_u8(f32x16::splat(val1.simd, 255.0).mul_add(val1, f32x16::splat(val1.simd, 0.5)));
-        let val2 =
-            f32_to_u8(f32x16::splat(val2.simd, 255.0).mul_add(val2, f32x16::splat(val2.simd, 0.5)));
-
-        val1.simd.combine_u8x16(val1, val2)
-    };
 
     let (mut src_1, mut src_2) = to_f32(src_c);
     let (bg_1, bg_2) = to_f32(bg_c);
@@ -41,6 +30,28 @@ pub(crate) fn mix<S: Simd>(src_c: u8x32<S>, bg_c: u8x32<S>, blend_mode: BlendMod
     to_u8(src_1, src_2)
 }
 
+#[inline(always)]
+fn to_f32<S: Simd>(val: u8x32<S>) -> (f32x16<S>, f32x16<S>) {
+    let simd = val.simd;
+    let (a, b) = simd.split_u8x32(val);
+    let mut a = u8_to_f32(a);
+    let mut b = u8_to_f32(b);
+    a *= f32x16::splat(simd, 1.0 / 255.0);
+    b *= f32x16::splat(simd, 1.0 / 255.0);
+    (a, b)
+}
+
+#[inline(always)]
+fn to_u8<S: Simd>(val1: f32x16<S>, val2: f32x16<S>) -> u8x32<S> {
+    let val1 =
+        f32_to_u8(f32x16::splat(val1.simd, 255.0).mul_add(val1, f32x16::splat(val1.simd, 0.5)));
+    let val2 =
+        f32_to_u8(f32x16::splat(val2.simd, 255.0).mul_add(val2, f32x16::splat(val2.simd, 0.5)));
+
+    val1.simd.combine_u8x16(val1, val2)
+}
+
+#[inline(always)]
 fn try_u8_mix<S: Simd>(blend_mode: BlendMode, src_c: u8x32<S>, bg_c: u8x32<S>) -> Option<u8x32<S>> {
     // We implement the u8 fast path for blend modes that
     // 1) are separable.

@@ -778,12 +778,14 @@ pub struct EncodedGradient {
 
 impl EncodedGradient {
     /// Get the lookup table for sampling u8-based gradient values.
+    // No need to vectorize here, as vectorization happens in the constructor.
     pub fn u8_lut<S: Simd>(&self, simd: S) -> &GradientLut<u8> {
         self.u8_lut
             .get_or_init(|| GradientLut::new(simd, &self.ranges))
     }
 
     /// Get the lookup table for sampling f32-based gradient values.
+    // No need to vectorize here, as vectorization happens in the constructor.
     pub fn f32_lut<S: Simd>(&self, simd: S) -> &GradientLut<f32> {
         self.f32_lut
             .get_or_init(|| GradientLut::new(simd, &self.ranges))
@@ -985,6 +987,7 @@ pub trait FromF32Color: Sized + Debug + Copy + Clone {
 impl FromF32Color for f32 {
     const ZERO: Self = 0.0;
 
+    #[inline(always)]
     fn from_f32<S: Simd>(color: f32x4<S>) -> [Self; 4] {
         color.into()
     }
@@ -993,6 +996,7 @@ impl FromF32Color for f32 {
 impl FromF32Color for u8 {
     const ZERO: Self = 0;
 
+    #[inline(always)]
     fn from_f32<S: Simd>(mut color: f32x4<S>) -> [Self; 4] {
         let simd = color.simd;
         color = color.mul_add(f32x4::splat(simd, 255.0), f32x4::splat(simd, 0.5));
@@ -1016,6 +1020,14 @@ pub struct GradientLut<T: FromF32Color> {
 impl<T: FromF32Color> GradientLut<T> {
     /// Create a new lookup table.
     fn new<S: Simd>(simd: S, ranges: &[GradientRange]) -> Self {
+        simd.vectorize(
+            #[inline(always)]
+            || Self::new_inner(simd, ranges),
+        )
+    }
+
+    #[inline(always)]
+    fn new_inner<S: Simd>(simd: S, ranges: &[GradientRange]) -> Self {
         let lut_size = determine_lut_size(ranges);
         let mut lut = vec![[T::ZERO; 4]; lut_size];
 

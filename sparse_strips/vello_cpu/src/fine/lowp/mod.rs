@@ -203,24 +203,27 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         let [r, g, b, a] = premul.components;
         let to_u8 = |v: f32| (v * 255.0 + 0.5) as u8;
         let color = u32::from_ne_bytes([to_u8(r), to_u8(g), to_u8(b), to_u8(a)]);
-        let tint_v = u32x8::block_splat(u32x4::splat(simd, color)).to_bytes();
 
         simd.vectorize(
             #[inline(always)]
-            || match tint.mode {
-                TintMode::AlphaMask => {
-                    for chunk in dest.chunks_exact_mut(32) {
-                        let pixel = u8x32::from_slice(simd, chunk);
-                        let alphas = pixel.splat_4th();
-                        let tinted = tint_v.normalized_mul(alphas);
-                        tinted.store_slice(chunk);
+            || {
+                let tint_v = u32x8::block_splat(u32x4::splat(simd, color)).to_bytes();
+
+                match tint.mode {
+                    TintMode::AlphaMask => {
+                        for chunk in dest.chunks_exact_mut(32) {
+                            let pixel = u8x32::from_slice(simd, chunk);
+                            let alphas = pixel.splat_4th();
+                            let tinted = tint_v.normalized_mul(alphas);
+                            tinted.store_slice(chunk);
+                        }
                     }
-                }
-                TintMode::Multiply => {
-                    for chunk in dest.chunks_exact_mut(32) {
-                        let pixel = u8x32::from_slice(simd, chunk);
-                        let tinted = pixel.normalized_mul(tint_v);
-                        tinted.store_slice(chunk);
+                    TintMode::Multiply => {
+                        for chunk in dest.chunks_exact_mut(32) {
+                            let pixel = u8x32::from_slice(simd, chunk);
+                            let tinted = pixel.normalized_mul(tint_v);
+                            tinted.store_slice(chunk);
+                        }
                     }
                 }
             },
