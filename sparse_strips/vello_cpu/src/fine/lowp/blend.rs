@@ -273,6 +273,14 @@ mod tests {
         let lowp = lowp_first_pixel_for_mix(mix, src, bg);
         let highp = highp_first_pixel_for_mix(mix, src, bg);
 
+        let lowp_alpha = lowp[3];
+        for (component, &component_value) in lowp[..3].iter().enumerate() {
+            assert!(
+                component_value <= lowp_alpha,
+                "{mix:?} component {component} exceeded alpha: lowp={lowp:?}, src={src:?}, bg={bg:?}"
+            );
+        }
+
         for (component, (&lowp, &highp)) in lowp.iter().zip(highp.iter()).enumerate() {
             let delta = lowp.abs_diff(highp);
             assert!(
@@ -288,6 +296,16 @@ mod tests {
     }
 
     #[test]
+    fn screen_does_not_wrap() {
+        assert_lowp_matches_highp(Mix::Screen, [255, 255, 255, 255], [255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn darken_does_not_wrap() {
+        assert_lowp_matches_highp(Mix::Darken, [20, 20, 20, 20], [92, 92, 92, 92]);
+    }
+
+    #[test]
     fn lighten_does_not_wrap() {
         assert_lowp_matches_highp(Mix::Lighten, [1, 1, 1, 2], [129, 129, 129, 131]);
     }
@@ -295,6 +313,11 @@ mod tests {
     #[test]
     fn difference_does_not_wrap() {
         assert_lowp_matches_highp(Mix::Difference, [1, 1, 1, 2], [129, 129, 129, 193]);
+    }
+
+    #[test]
+    fn exclusion_does_not_wrap() {
+        assert_lowp_matches_highp(Mix::Exclusion, [128, 128, 128, 255], [128, 128, 128, 255]);
     }
 
     #[test]
