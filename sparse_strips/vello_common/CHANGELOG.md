@@ -12,6 +12,18 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+## [0.0.9][] - 2026-05-30
+
+This release has an [MSRV][] of 1.88.
+
+### Fixed
+
+- Rendering of paths with high winding counts. ([#1673][] by [@b0nes164][])
+
+### Optimized
+
+- Tiling of line segments fully contained in the viewport. ([#1635][] by [@LaurenzV][])
+
 ## [0.0.8][] - 2026-05-15
 
 This release has an [MSRV][] of 1.88.
@@ -232,8 +244,11 @@ See also the [vello_cpu 0.0.1](../vello_cpu/CHANGELOG.md#001---2025-05-10) relea
 [#1613]: https://github.com/linebender/vello/pull/1613
 [#1616]: https://github.com/linebender/vello/pull/1616
 [#1634]: https://github.com/linebender/vello/pull/1634
+[#1635]: https://github.com/linebender/vello/pull/1635
+[#1673]: https://github.com/linebender/vello/pull/1673
 
-[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.8...HEAD
+[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...HEAD
+[0.0.9]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.8...sparse-strips-v0.0.9
 [0.0.8]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.7...sparse-strips-v0.0.8
 [0.0.7]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.6...sparse-strips-v0.0.7
 [0.0.6]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.5...sparse-strips-v0.0.6
