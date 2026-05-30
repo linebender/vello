@@ -385,12 +385,17 @@ mod fill {
         src: T,
         blend_mode: BlendMode,
     ) {
-        for (next_dest, next_src) in dest.chunks_exact_mut(16).zip(src) {
-            let bg_v = f32x16::from_slice(simd, next_dest);
-            let src_c = blend::mix(next_src, bg_v, blend_mode);
-            let res = blend_mode.compose(simd, src_c, bg_v, None);
-            res.store_slice(next_dest);
-        }
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                for (next_dest, next_src) in dest.chunks_exact_mut(16).zip(src) {
+                    let bg_v = f32x16::from_slice(simd, next_dest);
+                    let src_c = blend::mix(next_src, bg_v, blend_mode);
+                    let res = blend_mode.compose(simd, src_c, bg_v, None);
+                    res.store_slice(next_dest);
+                }
+            },
+        );
     }
 
     /// Performs the core alpha compositing calculation.
