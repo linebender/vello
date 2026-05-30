@@ -778,12 +778,14 @@ pub struct EncodedGradient {
 
 impl EncodedGradient {
     /// Get the lookup table for sampling u8-based gradient values.
+    // No need to vectorize here, as vectorization happens in the constructor.
     pub fn u8_lut<S: Simd>(&self, simd: S) -> &GradientLut<u8> {
         self.u8_lut
             .get_or_init(|| GradientLut::new(simd, &self.ranges))
     }
 
     /// Get the lookup table for sampling f32-based gradient values.
+    // No need to vectorize here, as vectorization happens in the constructor.
     pub fn f32_lut<S: Simd>(&self, simd: S) -> &GradientLut<f32> {
         self.f32_lut
             .get_or_init(|| GradientLut::new(simd, &self.ranges))

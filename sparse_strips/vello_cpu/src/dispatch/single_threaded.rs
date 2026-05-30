@@ -118,6 +118,10 @@ impl SingleThreadedDispatcher {
         dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, buffer, width, height, encoded_paints, image_resolver));
     }
 
+    // Note: We purposefully don't add `vectorize` to each of the functions
+    // like `rasterize_with`, `composite_at_offset`, etc. since vectoriation
+    // instead is applied wherever necessary in child functions.
+    
     /// Core rasterization dispatcher that chooses between simple and filter-aware paths.
     ///
     /// # Type Parameters
