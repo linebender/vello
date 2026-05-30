@@ -985,6 +985,7 @@ pub trait FromF32Color: Sized + Debug + Copy + Clone {
 impl FromF32Color for f32 {
     const ZERO: Self = 0.0;
 
+    #[inline(always)]
     fn from_f32<S: Simd>(color: f32x4<S>) -> [Self; 4] {
         color.into()
     }
@@ -993,6 +994,7 @@ impl FromF32Color for f32 {
 impl FromF32Color for u8 {
     const ZERO: Self = 0;
 
+    #[inline(always)]
     fn from_f32<S: Simd>(mut color: f32x4<S>) -> [Self; 4] {
         let simd = color.simd;
         color = color.mul_add(f32x4::splat(simd, 255.0), f32x4::splat(simd, 0.5));
@@ -1016,6 +1018,14 @@ pub struct GradientLut<T: FromF32Color> {
 impl<T: FromF32Color> GradientLut<T> {
     /// Create a new lookup table.
     fn new<S: Simd>(simd: S, ranges: &[GradientRange]) -> Self {
+        simd.vectorize(
+            #[inline(always)]
+            || Self::new_inner(simd, ranges),
+        )
+    }
+
+    #[inline(always)]
+    fn new_inner<S: Simd>(simd: S, ranges: &[GradientRange]) -> Self {
         let lut_size = determine_lut_size(ranges);
         let mut lut = vec![[T::ZERO; 4]; lut_size];
 

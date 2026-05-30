@@ -162,28 +162,30 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
         painter.paint_f32(dest);
     }
 
-    #[inline(always)]
     fn apply_tint(simd: S, dest: &mut [Self::Numeric], tint: &Tint) {
         let premul = tint.color.premultiply();
         let [r, g, b, a] = premul.components;
-        let tint_v = f32x16::block_splat(f32x4::from_slice(simd, &[r, g, b, a]));
 
         simd.vectorize(
             #[inline(always)]
-            || match tint.mode {
-                TintMode::AlphaMask => {
-                    for chunk in dest.chunks_exact_mut(16) {
-                        let pixel = f32x16::from_slice(simd, chunk);
-                        let alphas = pixel.splat_4th();
-                        let tinted = tint_v * alphas;
-                        tinted.store_slice(chunk);
+            || {
+                let tint_v = f32x16::block_splat(f32x4::from_slice(simd, &[r, g, b, a]));
+
+                match tint.mode {
+                    TintMode::AlphaMask => {
+                        for chunk in dest.chunks_exact_mut(16) {
+                            let pixel = f32x16::from_slice(simd, chunk);
+                            let alphas = pixel.splat_4th();
+                            let tinted = tint_v * alphas;
+                            tinted.store_slice(chunk);
+                        }
                     }
-                }
-                TintMode::Multiply => {
-                    for chunk in dest.chunks_exact_mut(16) {
-                        let pixel = f32x16::from_slice(simd, chunk);
-                        let tinted = pixel * tint_v;
-                        tinted.store_slice(chunk);
+                    TintMode::Multiply => {
+                        for chunk in dest.chunks_exact_mut(16) {
+                            let pixel = f32x16::from_slice(simd, chunk);
+                            let tinted = pixel * tint_v;
+                            tinted.store_slice(chunk);
+                        }
                     }
                 }
             },
