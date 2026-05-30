@@ -1228,7 +1228,7 @@ dependencies = [
 
 [[package]]
 name = "glifo"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bytemuck",
  "core_maths",
@@ -4126,7 +4126,7 @@ dependencies = [
 
 [[package]]
 name = "vello_common"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "bytemuck",
  "fearless_simd",
@@ -4143,7 +4143,7 @@ dependencies = [
 
 [[package]]
 name = "vello_cpu"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "bytemuck",
  "crossbeam-channel",
@@ -4211,7 +4211,7 @@ version = "0.9.0"
 
 [[package]]
 name = "vello_hybrid"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "bytemuck",
  "glifo",
@@ -4253,7 +4253,7 @@ dependencies = [
 
 [[package]]
 name = "vello_sparse_shaders"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "naga",
 ]

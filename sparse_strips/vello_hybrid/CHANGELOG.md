@@ -12,6 +12,16 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 This release has an [MSRV][] of 1.88.
 
+## [0.0.9][] - 2026-05-30
+
+This release has an [MSRV][] of 1.88.
+
+### Fixed
+
+- WebGL rendering on certain Adreno GPUs. ([#1619][], [#1620][], [#1659][] by [@LaurenzV][], [@grebmeg][])
+- Rendering of glyphs with complex paints. ([#1668][] by [@LaurenzV][])
+- Rendering of paths with high winding counts. ([#1673][] by [@b0nes164][])
+
 ## [0.0.8][] - 2026-05-15
 
 This release has an [MSRV][] of 1.88.
@@ -132,6 +142,7 @@ This is the initial release. No changelog was kept for this release.
 See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [vello_common 0.0.4](../vello_common/CHANGELOG.md#004---2025-10-17) releases.
 
 [@DJMcNab]: https://github.com/DJMcNab
+[@b0nes164]: https://github.com/b0nes164
 [@grebmeg]: https://github.com/grebmeg
 [@jrmoulton]: https://github.com/jrmoulton
 [@LaurenzV]: https://github.com/LaurenzV
@@ -193,10 +204,16 @@ See also the [vello_cpu 0.0.4](../vello_cpu/CHANGELOG.md#004---2025-10-17) and [
 [#1612]: https://github.com/linebender/vello/pull/1612
 [#1613]: https://github.com/linebender/vello/pull/1613
 [#1614]: https://github.com/linebender/vello/pull/1614
+[#1619]: https://github.com/linebender/vello/pull/1619
+[#1620]: https://github.com/linebender/vello/pull/1620
 [#1628]: https://github.com/linebender/vello/pull/1628
 [#1639]: https://github.com/linebender/vello/pull/1639
+[#1659]: https://github.com/linebender/vello/pull/1659
+[#1668]: https://github.com/linebender/vello/pull/1668
+[#1673]: https://github.com/linebender/vello/pull/1673
 
-[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.8...HEAD
+[Unreleased]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.9...HEAD
+[0.0.9]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.8...sparse-strips-v0.0.9
 [0.0.8]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.7...sparse-strips-v0.0.8
 [0.0.7]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.6...sparse-strips-v0.0.7
 [0.0.6]: https://github.com/linebender/vello/compare/sparse-strips-v0.0.5...sparse-strips-v0.0.6
