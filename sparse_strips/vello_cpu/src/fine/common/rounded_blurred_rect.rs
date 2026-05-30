@@ -62,6 +62,7 @@ impl<S: Simd> BlurredRoundedRectFiller<S> {
 impl<S: Simd> Iterator for BlurredRoundedRectFiller<S> {
     type Item = ShaderResultF32<S>;
 
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         let next = self.alpha_calculator.next().unwrap();
         let r = self.r * next;
@@ -75,30 +76,44 @@ impl<S: Simd> Iterator for BlurredRoundedRectFiller<S> {
 
 impl<S: Simd> crate::fine::Painter for BlurredRoundedRectFiller<S> {
     fn paint_u8(&mut self, buf: &mut [u8]) {
-        for chunk in buf.chunks_exact_mut(64) {
-            let first = self.next().unwrap();
-            let simd = first.r.simd;
-            let second = self.next().unwrap();
+        self.a.simd.vectorize(
+            #[inline(always)]
+            || {
+                for chunk in buf.chunks_exact_mut(64) {
+                    let first = self.next().unwrap();
+                    let simd = first.r.simd;
+                    let second = self.next().unwrap();
 
-            let r = u8x16::from_f32(simd, simd.combine_f32x8(first.r, second.r));
-            let g = u8x16::from_f32(simd, simd.combine_f32x8(first.g, second.g));
-            let b = u8x16::from_f32(simd, simd.combine_f32x8(first.b, second.b));
-            let a = u8x16::from_f32(simd, simd.combine_f32x8(first.a, second.a));
+                    let r = u8x16::from_f32(simd, simd.combine_f32x8(first.r, second.r));
+                    let g = u8x16::from_f32(simd, simd.combine_f32x8(first.g, second.g));
+                    let b = u8x16::from_f32(simd, simd.combine_f32x8(first.b, second.b));
+                    let a = u8x16::from_f32(simd, simd.combine_f32x8(first.a, second.a));
 
-            let combined = simd.combine_u8x32(simd.combine_u8x16(r, g), simd.combine_u8x16(b, a));
+                    let combined =
+                        simd.combine_u8x32(simd.combine_u8x16(r, g), simd.combine_u8x16(b, a));
 
-            simd.store_interleaved_128_u8x64(combined, (&mut chunk[..]).try_into().unwrap());
-        }
+                    simd.store_interleaved_128_u8x64(
+                        combined,
+                        (&mut chunk[..]).try_into().unwrap(),
+                    );
+                }
+            },
+        );
     }
 
     fn paint_f32(&mut self, buf: &mut [f32]) {
-        for chunk in buf.chunks_exact_mut(32) {
-            let (c1, c2) = self.next().unwrap().get();
-            c1.simd
-                .store_interleaved_128_f32x16(c1, (&mut chunk[..16]).try_into().unwrap());
-            c2.simd
-                .store_interleaved_128_f32x16(c2, (&mut chunk[16..]).try_into().unwrap());
-        }
+        self.a.simd.vectorize(
+            #[inline(always)]
+            || {
+                for chunk in buf.chunks_exact_mut(32) {
+                    let (c1, c2) = self.next().unwrap().get();
+                    c1.simd
+                        .store_interleaved_128_f32x16(c1, (&mut chunk[..16]).try_into().unwrap());
+                    c2.simd
+                        .store_interleaved_128_f32x16(c2, (&mut chunk[16..]).try_into().unwrap());
+                }
+            },
+        );
     }
 }
 
@@ -132,6 +147,7 @@ impl<S: Simd> AlphaCalculator<S> {
 impl<S: Simd> Iterator for AlphaCalculator<S> {
     type Item = f32x8<S>;
 
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         let i = f32x8::splat_pos(
             self.simd,
@@ -225,13 +241,13 @@ impl<S: Simd> SimdRoundedBlurredRect<S> {
 trait FloatExt<S: Simd> {
     // See https://raphlinus.github.io/audio/2018/09/05/sigmoid.html for a little
     // explanation of this approximation to the erf function.
-    // Doing `inline(always)` seems to reduce performance for some reason.
     /// Approximate the erf function.
     fn compute_erf7(simd: S, x: Self) -> Self;
     fn powf(self, x: f32) -> Self;
 }
 
 impl<S: Simd> FloatExt<S> for f32x8<S> {
+    #[inline(always)]
     fn compute_erf7(simd: S, x: Self) -> Self {
         // Clamp `x`, because for large `x` the terms here become `inf`, causing the result to be 0 or
         // `NaN`. This clamping doesn't lose any information, because `erf(±10) ≈ 1` well within `f64`

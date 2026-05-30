@@ -111,6 +111,7 @@ impl<'a, S: Simd> NNImagePainter<'a, S> {
 impl<S: Simd> Iterator for NNImagePainter<'_, S> {
     type Item = u8x16<S>;
 
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         let x_positions = extend(
             self.simd,
@@ -180,6 +181,7 @@ impl<'a, S: Simd, const QUALITY: u8> FilteredImagePainter<'a, S, QUALITY> {
 impl<S: Simd, const QUALITY: u8> Iterator for FilteredImagePainter<'_, S, QUALITY> {
     type Item = f32x16<S>;
 
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         let x_positions = f32x4::splat_pos(
             self.simd,

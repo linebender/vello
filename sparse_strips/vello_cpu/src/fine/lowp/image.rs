@@ -34,6 +34,7 @@ impl<'a, S: Simd> BilinearImagePainter<'a, S> {
 impl<S: Simd> Iterator for BilinearImagePainter<'_, S> {
     type Item = u8x16<S>;
 
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         let x_positions = f32x4::splat_pos(
             self.simd,
