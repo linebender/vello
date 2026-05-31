@@ -243,7 +243,7 @@ fn intersect_impl<S: Simd>(
 
     // Ignore any y values that are outside the bounding box of either of the two paths, as
     // those are guaranteed to have neither fill nor strip regions.
-    let mut cur_y = path_1.strips[0].strip_y().min(path_2.strips[0].strip_y());
+    let mut cur_y = path_1.strips[0].strip_y().max(path_2.strips[0].strip_y());
     let end_y = path_1.strips[path_1.strips.len() - 1]
         .strip_y()
         .min(path_2.strips[path_2.strips.len() - 1].strip_y());
