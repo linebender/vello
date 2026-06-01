@@ -37,14 +37,14 @@ pub(crate) enum RenderCmd {
     PopLayer,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum FineCmd {
     Fill(FillCmd),
     AlphaFill(AlphaFillCmd),
     PushLayer,
     PopBuf,
     Opacity(f32),
-    Mask(Mask),
+    Mask(u32),
     BlendFill(BlendFillCmd),
     FilterLayer(FilterLayerCmd),
     BlendAlphaFill(BlendAlphaFillCmd),
@@ -138,7 +138,7 @@ pub(crate) struct FilterLayerCmd {
     pub(crate) attrs_idx: u32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct BlendAlphaFillCmd {
     pub(crate) x: u16,
     pub(crate) width: u16,
@@ -183,4 +183,15 @@ pub(crate) struct FilterLayerAttrs {
     pub(crate) src_y: u16,
     pub(crate) y0: u16,
     pub(crate) y1: u16,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FineCmd;
+
+    #[test]
+    fn fine_cmd_assertions() {
+        assert_eq!(core::mem::size_of::<FineCmd>(), 16);
+        assert!(!core::mem::needs_drop::<FineCmd>());
+    }
 }

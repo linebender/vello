@@ -466,8 +466,9 @@ impl RenderContext {
             // Note: In theory, we don't need to snap to tile coordinates
             // horizontally, but we do need it vertically. We want to make
             // sure that we can always use fill commands for compositing filter
-            // layers back into the parent layer, which only works if no additional
-            // alpha needs to be associated with the command.
+            // layers back into the parent layer (instead of having to use
+            // alpha fills for the edges), which only works if the filter pixmap
+            // is snapped to tile coordinates.
             let expansion = filter
                 .source_expansion(&layer_transform)
                 .snap_to_tile_coordinates();

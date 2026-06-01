@@ -8,7 +8,7 @@ use vello_common::geometry::RectU16;
 use vello_common::pixmap::PixmapMut;
 use vello_common::tile::Tile;
 
-/// A view into a single part of a single strip row of a pixmap.
+/// A view into a part of a single strip row of a pixmap.
 #[derive(Default, Debug)]
 pub struct Region<'a> {
     pub(crate) height: u16,

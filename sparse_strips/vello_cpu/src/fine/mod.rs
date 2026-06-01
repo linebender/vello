@@ -1788,7 +1788,8 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
             FineCmd::Opacity(opacity) => {
                 fine.opacity(row_start, row_end - row_start, *opacity);
             }
-            FineCmd::Mask(mask) => {
+            FineCmd::Mask(mask_idx) => {
+                let mask = &bucketer.masks()[*mask_idx as usize];
                 fine.mask(row_y, row_start, row_end - row_start, mask);
             }
             FineCmd::FilterLayer(cmd) => {

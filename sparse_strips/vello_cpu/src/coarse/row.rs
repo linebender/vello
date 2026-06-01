@@ -5,7 +5,6 @@ use super::cmd::{
     BlendAlphaFillCmd, BlendFillCmd, FillCmd, FineCmd, GeneratedAlphaFill, GeneratedFill,
 };
 use alloc::vec::Vec;
-use vello_common::mask::Mask;
 use vello_common::util::Clear;
 
 #[derive(Debug, Default)]
@@ -55,12 +54,12 @@ impl RowCommands {
         &mut self,
         x: u16,
         width: u16,
-        mask: Option<&Mask>,
+        mask_idx: Option<u32>,
         opacity: f32,
         blend_attrs_idx: u32,
     ) {
-        if let Some(mask) = mask {
-            self.cmds.push(FineCmd::Mask(mask.clone()));
+        if let Some(mask_idx) = mask_idx {
+            self.cmds.push(FineCmd::Mask(mask_idx));
         }
         if opacity != 1.0 {
             self.cmds.push(FineCmd::Opacity(opacity));
@@ -73,9 +72,9 @@ impl RowCommands {
         self.pop_buf();
     }
 
-    pub(super) fn push_layer_props(&mut self, mask: Option<&Mask>, opacity: f32) {
-        if let Some(mask) = mask {
-            self.cmds.push(FineCmd::Mask(mask.clone()));
+    pub(super) fn push_layer_props(&mut self, mask_idx: Option<u32>, opacity: f32) {
+        if let Some(mask_idx) = mask_idx {
+            self.cmds.push(FineCmd::Mask(mask_idx));
         }
         if opacity != 1.0 {
             self.cmds.push(FineCmd::Opacity(opacity));

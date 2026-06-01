@@ -20,6 +20,7 @@ pub(crate) struct CommandBucketer {
     pub(super) attrs: Vec<FillAttrs>,
     pub(super) blend_attrs: Vec<BlendAttrs>,
     pub(super) filter_attrs: Vec<FilterLayerAttrs>,
+    pub(super) masks: Vec<Mask>,
     pub(super) active_layers: Vec<ActiveLayer>,
     pub(super) next_path_id: u32,
 }
@@ -34,6 +35,7 @@ impl CommandBucketer {
             attrs: Vec::new(),
             blend_attrs: Vec::new(),
             filter_attrs: Vec::new(),
+            masks: Vec::new(),
             active_layers: Vec::new(),
             next_path_id: 1,
         }
@@ -81,6 +83,10 @@ impl CommandBucketer {
         &self.filter_attrs
     }
 
+    pub(crate) fn masks(&self) -> &[Mask] {
+        &self.masks
+    }
+
     pub(crate) fn reset(&mut self, width: u16, height: u16) {
         let full_clip_bbox = Self::full_clip_bbox(width, height);
         let num_rows = usize::from(full_clip_bbox.height() / Tile::HEIGHT);
@@ -89,6 +95,7 @@ impl CommandBucketer {
         self.attrs.clear();
         self.blend_attrs.clear();
         self.filter_attrs.clear();
+        self.masks.clear();
         self.active_layers.clear();
         self.next_path_id = 1;
         self.clip_bboxes.truncate(1);
@@ -126,7 +133,11 @@ impl CommandBucketer {
 
     pub(crate) fn pop_layer(&mut self, strips: &[Strip]) {
         let mut layer = self.active_layers.pop().unwrap();
-        let mask = layer.mask.clone();
+        let mask_idx = layer.mask.as_ref().map(|mask| {
+            let idx = self.masks.len() as u32;
+            self.masks.push(mask.clone());
+            idx
+        });
         let opacity = layer.opacity;
         let blend_mode = layer.blend_mode;
         let full_width = self.width();
@@ -144,7 +155,7 @@ impl CommandBucketer {
                 occupied_rows[row_idx] = true;
                 let row = &mut self.rows[row_idx];
                 debug_assert_eq!(row.layer_depth, self.active_layers.len() + 1);
-                row.push_layer_props(mask.as_ref(), opacity);
+                row.push_layer_props(mask_idx, opacity);
             }
 
             self.generate(
@@ -182,13 +193,7 @@ impl CommandBucketer {
             for row_idx in layer.occupied_rows.drain(..) {
                 let row = &mut self.rows[row_idx];
                 debug_assert_eq!(row.layer_depth, self.active_layers.len() + 1);
-                row.pop_layer(
-                    blend_x,
-                    blend_width,
-                    mask.as_ref(),
-                    opacity,
-                    blend_attrs_idx,
-                );
+                row.pop_layer(blend_x, blend_width, mask_idx, opacity, blend_attrs_idx);
             }
         }
     }
