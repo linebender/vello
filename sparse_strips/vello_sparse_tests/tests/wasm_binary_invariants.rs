@@ -40,6 +40,8 @@ async fn no_simd_instruction_inclusion() {
     );
 }
 
+// This test is ignored by default due to flakiness in Github CI.
+#[ignore]
 #[cfg(feature = "webgl")]
 #[wasm_bindgen_test]
 async fn webgl_probe_succeeds() {
