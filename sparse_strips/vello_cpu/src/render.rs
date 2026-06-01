@@ -300,7 +300,6 @@ impl RenderContext {
                 ctx.state.blend_mode,
                 ctx.aliasing_threshold,
                 ctx.mask.clone(),
-                &ctx.encoded_paints,
             );
         });
     }
@@ -318,7 +317,6 @@ impl RenderContext {
                 ctx.state.blend_mode,
                 ctx.aliasing_threshold,
                 ctx.mask.clone(),
-                &ctx.encoded_paints,
             );
         });
     }
@@ -340,7 +338,6 @@ impl RenderContext {
                     paint,
                     ctx.state.blend_mode,
                     ctx.mask.clone(),
-                    &ctx.encoded_paints,
                 );
             } else {
                 // Fall back to path-based rendering for rotated/skewed transforms.
@@ -353,7 +350,6 @@ impl RenderContext {
                     ctx.state.blend_mode,
                     ctx.aliasing_threshold,
                     ctx.mask.clone(),
-                    &ctx.encoded_paints,
                 );
             }
         });
@@ -373,7 +369,6 @@ impl RenderContext {
                 ctx.state.blend_mode,
                 ctx.aliasing_threshold,
                 ctx.mask.clone(),
-                &ctx.encoded_paints,
             );
         });
     }
@@ -430,7 +425,6 @@ impl RenderContext {
             self.state.blend_mode,
             self.aliasing_threshold,
             self.mask.clone(),
-            &self.encoded_paints,
         );
     }
 
@@ -735,7 +729,7 @@ impl RenderContext {
     /// For multi-threaded rendering, you _have_ to call this before rasterizing, otherwise
     /// the program will panic.
     pub fn flush(&mut self) {
-        self.dispatcher.flush(&self.encoded_paints);
+        self.dispatcher.flush();
     }
 
     /// Render the current context into a target.

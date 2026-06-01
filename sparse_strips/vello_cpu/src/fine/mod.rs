@@ -1527,7 +1527,7 @@ pub(crate) fn rasterize_at_offset<S: Simd, T: FineKernel<S>>(
 }
 
 #[cfg(feature = "multithreading")]
-pub(crate) fn rasterize_at_offset<S: Simd, T: FineKernel<S>>(
+pub(crate) fn rasterize_at_offset_parallel<S: Simd, T: FineKernel<S>>(
     simd: S,
     bucketer: &CommandBucketer,
     alpha_buffers: &[&[u8]],

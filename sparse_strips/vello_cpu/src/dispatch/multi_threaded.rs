@@ -453,7 +453,7 @@ impl MultiThreadedDispatcher {
             let unpack_dest = settings.composite_mode == CompositeMode::SrcOver;
 
             self.thread_pool.install(|| {
-                crate::fine::rasterize_at_offset::<S, F>(
+                crate::fine::rasterize_at_offset_parallel::<S, F>(
                     simd,
                     &bucketer,
                     &alpha_buffers,
@@ -487,7 +487,6 @@ impl Dispatcher for MultiThreadedDispatcher {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
-        _encoded_paints: &[EncodedPaint],
     ) {
         let start = self.allocation_group.path.len() as u32;
         self.allocation_group.path.extend(path);
@@ -512,7 +511,6 @@ impl Dispatcher for MultiThreadedDispatcher {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
-        _encoded_paints: &[EncodedPaint],
     ) {
         let start = self.allocation_group.path.len() as u32;
         self.allocation_group.path.extend(path);
@@ -534,7 +532,6 @@ impl Dispatcher for MultiThreadedDispatcher {
         paint: Paint,
         blend_mode: BlendMode,
         mask: Option<Mask>,
-        _encoded_paints: &[EncodedPaint],
     ) {
         // For multi-threaded, fall back to path-based rendering.
         // TODO: Implement optimized rect strip generation in worker threads.
@@ -645,7 +642,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         self.init();
     }
 
-    fn flush(&mut self, encoded_paints: &[EncodedPaint]) {
+    fn flush(&mut self) {
         if self.flushed {
             return;
         }
@@ -655,7 +652,6 @@ impl Dispatcher for MultiThreadedDispatcher {
         // Note that dropping the sender will signal to the workers that no more new paths
         // can arrive.
         drop(sender);
-        let _ = encoded_paints;
         self.run_coarse(false);
 
         self.flushed = true;
@@ -978,9 +974,8 @@ mod tests {
                 BlendMode::default(),
                 None,
                 None,
-                &[],
             );
-            dispatcher.flush(&[]);
+            dispatcher.flush();
         }
 
         assert_eq!(dispatcher.allocations.paths.entries.len(), 1);

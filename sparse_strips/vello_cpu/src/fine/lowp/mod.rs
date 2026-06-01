@@ -320,12 +320,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         }
     }
 
-    fn unpack_block(
-        simd: S,
-        region: &mut Region<'_>,
-        _width: usize,
-        scratch: &mut [Self::Numeric],
-    ) {
+    fn unpack_block(simd: S, region: &mut Region<'_>, _: usize, scratch: &mut [Self::Numeric]) {
         simd.vectorize(
             #[inline(always)]
             || {

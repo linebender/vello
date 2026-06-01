@@ -58,7 +58,6 @@ pub(crate) trait Dispatcher: Debug + Send {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
-        encoded_paints: &[EncodedPaint],
     );
     fn stroke_path(
         &mut self,
@@ -69,7 +68,6 @@ pub(crate) trait Dispatcher: Debug + Send {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
-        encoded_paints: &[EncodedPaint],
     );
     /// Fill a pixel-aligned rectangle with the current paint.
     fn fill_rect_fast(
@@ -78,7 +76,6 @@ pub(crate) trait Dispatcher: Debug + Send {
         paint: Paint,
         blend_mode: BlendMode,
         mask: Option<Mask>,
-        encoded_paints: &[EncodedPaint],
     );
     fn push_clip_path(
         &mut self,
@@ -101,7 +98,7 @@ pub(crate) trait Dispatcher: Debug + Send {
     );
     fn pop_layer(&mut self);
     fn reset(&mut self);
-    fn flush(&mut self, encoded_paints: &[EncodedPaint]);
+    fn flush(&mut self);
     fn rasterize(
         &self,
         target: PixmapMut<'_>,

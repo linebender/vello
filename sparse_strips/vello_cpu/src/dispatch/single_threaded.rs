@@ -564,7 +564,6 @@ impl Dispatcher for SingleThreadedDispatcher {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
-        _encoded_paints: &[EncodedPaint],
     ) {
         let clip_path = self.clip_context.get();
         let strip_start = self.strip_storage.strips.len();
@@ -590,7 +589,6 @@ impl Dispatcher for SingleThreadedDispatcher {
         blend_mode: BlendMode,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
-        _encoded_paints: &[EncodedPaint],
     ) {
         let clip_path = self.clip_context.get();
         let strip_start = self.strip_storage.strips.len();
@@ -613,7 +611,6 @@ impl Dispatcher for SingleThreadedDispatcher {
         paint: Paint,
         blend_mode: BlendMode,
         mask: Option<Mask>,
-        _encoded_paints: &[EncodedPaint],
     ) {
         let clip_path = self.clip_context.get();
         let strip_start = self.strip_storage.strips.len();
@@ -778,7 +775,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         self.layer_depth = 0;
     }
 
-    fn flush(&mut self, _encoded_paints: &[EncodedPaint]) {}
+    fn flush(&mut self) {}
 
     fn rasterize(
         &self,
@@ -889,7 +886,6 @@ mod tests {
             paint(),
             BlendMode::default(),
             None,
-            &[],
         );
         dispatcher.pop_layer();
 
@@ -918,7 +914,6 @@ mod tests {
             paint(),
             BlendMode::default(),
             None,
-            &[],
         );
 
         dispatcher.push_layer(
@@ -936,7 +931,6 @@ mod tests {
             paint(),
             BlendMode::default(),
             None,
-            &[],
         );
         dispatcher.pop_layer();
         dispatcher.pop_layer();

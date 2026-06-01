@@ -115,7 +115,7 @@ impl Filter {
     /// # Arguments
     /// * `transform` - The transform applied to this filter layer
     pub fn filter_expansion(&self, transform: &Affine) -> Rect {
-        let [a, b, c, d, _e, _f] = transform.as_coeffs();
+        let [a, b, c, d, ..] = transform.as_coeffs();
         let linear_only = Affine::new([a, b, c, d, 0.0, 0.0]);
 
         self.graph.filter_expansion(&linear_only)
@@ -134,7 +134,7 @@ impl Filter {
     /// In this case, we need to expand the source area by twenty pixels to the _top/left_
     /// to ensure that the drop shadow is not cut off.
     pub fn source_expansion(&self, transform: &Affine) -> Rect {
-        let [a, b, c, d, _e, _f] = transform.as_coeffs();
+        let [a, b, c, d, ..] = transform.as_coeffs();
         let linear_only = Affine::new([a, b, c, d, 0.0, 0.0]);
 
         self.graph.source_expansion(&linear_only)
