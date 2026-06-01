@@ -613,6 +613,8 @@ impl WebGlRenderer {
             atlas_texture_array: probe_atlas_texture_array,
         };
 
+        // We do this here instead of above such that in case the render result is not
+        // valid, we still properly restore the state (e.g. the old atlas texture array).
         render_result?;
 
         let pending = launch_probe(&self.gl, probe_resources, width, height);
