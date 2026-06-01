@@ -143,7 +143,7 @@ fn translate_bbox(bbox: RectU16, origin: (u16, u16)) -> RectU16 {
 }
 
 pub(crate) trait Dispatcher: Debug + Send {
-    fn has_unpopped_layers(&self) -> bool;
+    fn has_layers(&self) -> bool;
     fn fill_path(
         &mut self,
         path: &BezPath,

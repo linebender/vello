@@ -157,7 +157,6 @@ pub struct RenderContext {
     pub(crate) state: RenderState,
     /// Stack of root transforms.
     root_transforms: Vec<Affine>,
-    filter_root_stack: Vec<bool>,
     /// The current mask in place.
     pub(crate) mask: Option<Mask>,
     /// Temporary path buffer to avoid repeated allocations.
@@ -234,7 +233,6 @@ impl RenderContext {
             dispatcher,
             state: RenderState::default(),
             root_transforms: vec![Affine::IDENTITY],
-            filter_root_stack: Vec::new(),
             aliasing_threshold,
             render_settings: settings,
             mask: None,
@@ -274,14 +272,10 @@ impl RenderContext {
     }
 
     pub(crate) fn push_root_transform(&mut self, transform: Affine) {
-        self.root_transforms.push(transform);
+        self.root_transforms.push(transform * self.root_transform());
     }
 
     pub(crate) fn pop_root_transform(&mut self) {
-        assert!(
-            self.root_transforms.len() > 1,
-            "cannot pop the base root transform"
-        );
         self.root_transforms.pop();
     }
 
@@ -410,7 +404,7 @@ impl RenderContext {
         let kernel_size = 2.5 * std_dev;
         let inflated_rect = rect.inflate(f64::from(kernel_size), f64::from(kernel_size));
         let transform = self.effective_path_transform();
-        let paint_transform = transform * self.state.paint_transform;
+        let paint_transform = self.effective_paint_transform();
 
         self.rect_to_temp_path(&inflated_rect);
 
@@ -469,7 +463,7 @@ impl RenderContext {
         let blend_mode = blend_mode.unwrap_or_default();
         let opacity = opacity.unwrap_or(1.0);
         let layer_transform = self.effective_path_transform();
-        let pushed_filter_root = if let Some(filter) = &filter {
+        let layer_root_transform = if let Some(filter) = &filter {
             let expansion = filter.source_expansion(&layer_transform);
             let left = ((-expansion.x0).max(0.0).ceil() as u16)
                 .checked_next_multiple_of(Tile::WIDTH)
@@ -477,29 +471,22 @@ impl RenderContext {
             let top = ((-expansion.y0).max(0.0).ceil() as u16)
                 .checked_next_multiple_of(Tile::HEIGHT)
                 .unwrap_or(u16::MAX);
-            let root = Affine::translate((f64::from(left), f64::from(top))) * self.root_transform();
-            self.push_root_transform(root);
-            true
+            Affine::translate((f64::from(left), f64::from(top)))
         } else {
-            false
+            Affine::IDENTITY
         };
-        let transform = if filter.is_some() {
-            layer_transform
-        } else {
-            self.effective_path_transform()
-        };
+        self.push_root_transform(layer_root_transform);
 
         self.dispatcher.push_layer(
             clip_path,
             self.state.fill_rule,
-            transform,
+            layer_transform,
             blend_mode,
             opacity,
             self.aliasing_threshold,
             mask,
             filter,
         );
-        self.filter_root_stack.push(pushed_filter_root);
     }
 
     /// Push a new clip layer.
@@ -557,13 +544,7 @@ impl RenderContext {
     /// Pop the last-pushed layer.
     pub fn pop_layer(&mut self) {
         self.dispatcher.pop_layer();
-        if self
-            .filter_root_stack
-            .pop()
-            .expect("render context layer stack underflow")
-        {
-            self.pop_root_transform();
-        }
+        self.pop_root_transform();
     }
 
     /// Set the current stroke.
@@ -695,7 +676,6 @@ impl RenderContext {
         self.mask = None;
         self.root_transforms.clear();
         self.root_transforms.push(Affine::IDENTITY);
-        self.filter_root_stack.clear();
         self.state.reset();
     }
 
@@ -771,7 +751,7 @@ impl RenderContext {
     ) {
         // TODO: Maybe we should move those checks into the dispatcher.
         assert!(
-            !self.dispatcher.has_unpopped_layers(),
+            !self.dispatcher.has_layers(),
             "some layers haven't been popped yet"
         );
 

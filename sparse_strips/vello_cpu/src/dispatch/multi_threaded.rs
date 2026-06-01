@@ -450,7 +450,7 @@ impl MultiThreadedDispatcher {
 }
 
 impl Dispatcher for MultiThreadedDispatcher {
-    fn has_unpopped_layers(&self) -> bool {
+    fn has_layers(&self) -> bool {
         self.layer_depth != 0
     }
 

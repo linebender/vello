@@ -466,7 +466,7 @@ fn shift_bbox_to_parent(bbox: RectU16, origin: (u16, u16)) -> (RectU16, u16, u16
 }
 
 impl Dispatcher for SingleThreadedDispatcher {
-    fn has_unpopped_layers(&self) -> bool {
+    fn has_layers(&self) -> bool {
         self.layer_depth != 0
     }
 
