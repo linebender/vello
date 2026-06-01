@@ -11,6 +11,7 @@ mod common;
 mod highp;
 mod lowp;
 
+use crate::FilterScratch;
 use crate::coarse::{Cmd, CommandBucketer, FillAttrs, FillCmd};
 use crate::fine::common::gradient::GradientPainter;
 pub(crate) use crate::fine::common::gradient::calculate_t_vals;
@@ -19,7 +20,6 @@ pub(crate) use crate::fine::common::gradient::radial::SimdRadialKind;
 pub(crate) use crate::fine::common::gradient::sweep::SimdSweepKind;
 use crate::fine::common::image::{FilteredImagePainter, NNImagePainter, PlainNNImagePainter};
 use crate::fine::common::rounded_blurred_rect::BlurredRoundedRectFiller;
-use crate::layer_manager::LayerManager;
 use crate::peniko::{BlendMode, ImageQuality};
 use crate::region::Region;
 use crate::util::EncodedImageExt;
@@ -252,7 +252,7 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     fn filter_layer(
         pixmap: &mut Pixmap,
         filter: &Filter,
-        layer_manager: &mut LayerManager,
+        filter_scratch: &mut FilterScratch,
         transform: Affine,
     );
 

@@ -13,10 +13,10 @@
 //! - Debugging and reference implementations
 //! - Platforms where SIMD f32 operations are well-optimized
 
+use crate::FilterScratch;
 use crate::filter::filter_highp;
 use crate::fine::FineKernel;
 use crate::fine::{COLOR_COMPONENTS, Painter, Splat4thExt};
-use crate::layer_manager::LayerManager;
 use crate::peniko::BlendMode;
 use crate::region::Region;
 use vello_common::fearless_simd::*;
@@ -51,10 +51,10 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
     fn filter_layer(
         pixmap: &mut Pixmap,
         filter: &Filter,
-        layer_manager: &mut LayerManager,
+        filter_scratch: &mut FilterScratch,
         transform: Affine,
     ) {
-        filter_highp(filter, pixmap, layer_manager, transform);
+        filter_highp(filter, pixmap, filter_scratch, transform);
     }
 
     /// Fills a buffer with a solid color using SIMD operations.

@@ -5,8 +5,8 @@
 //!
 //! This module provides CPU-based implementations of SVG filter effects,
 //! supporting both low-precision (u8) and high-precision (f32) rendering paths.
-//! Filters are applied to layers through the layer manager, which handles
-//! intermediate storage.
+//! Filters are applied to rendered layer pixmaps and may use scratch storage for
+//! intermediate buffers.
 
 mod drop_shadow;
 mod flood;
@@ -14,11 +14,39 @@ mod gaussian_blur;
 mod offset;
 mod shift;
 
-use crate::layer_manager::LayerManager;
 use vello_common::filter::PreparedFilter;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::Affine;
 use vello_common::pixmap::Pixmap;
+
+// TODO: Make private?
+/// Reusable scratch storage for filter effects.
+#[derive(Debug, Default)]
+pub struct FilterScratch {
+    scratch_buffer: Option<Pixmap>,
+}
+
+impl FilterScratch {
+    /// Create empty scratch storage.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Get or create a scratch buffer of at least the requested dimensions.
+    pub fn get_scratch_buffer(&mut self, width: u16, height: u16) -> &mut Pixmap {
+        match &mut self.scratch_buffer {
+            None => {
+                self.scratch_buffer = Some(Pixmap::new(width, height));
+            }
+            Some(buf) if buf.width() < width || buf.height() < height => {
+                buf.resize(width, height);
+            }
+            Some(_) => {}
+        }
+
+        self.scratch_buffer.as_mut().unwrap()
+    }
+}
 
 /// Trait for filter effects that can be applied to layers.
 ///
@@ -32,15 +60,15 @@ pub(crate) trait FilterEffect {
     ///
     /// # Arguments
     /// * `pixmap` - The target pixmap containing rendering metadata
-    /// * `layer_manager` - Manager for allocating and accessing intermediate layers
-    fn execute_lowp(&self, pixmap: &mut Pixmap, layer_manager: &mut LayerManager);
+    /// * `filter_scratch` - Reusable scratch storage for intermediate buffers
+    fn execute_lowp(&self, pixmap: &mut Pixmap, filter_scratch: &mut FilterScratch);
 
     /// Apply the high-precision (f32) version of the filter.
     ///
     /// # Arguments
     /// * `pixmap` - The target pixmap containing rendering metadata
-    /// * `layer_manager` - Manager for allocating and accessing intermediate layers
-    fn execute_highp(&self, pixmap: &mut Pixmap, layer_manager: &mut LayerManager);
+    /// * `filter_scratch` - Reusable scratch storage for intermediate buffers
+    fn execute_highp(&self, pixmap: &mut Pixmap, filter_scratch: &mut FilterScratch);
 }
 
 /// Apply the low-precision (u8) version of a filter effect to a layer.
@@ -51,7 +79,7 @@ pub(crate) trait FilterEffect {
 /// # Arguments
 /// * `filter` - The filter containing the graph of primitives to apply
 /// * `pixmap` - The target pixmap containing rendering metadata
-/// * `layer_manager` - Manager for allocating and accessing intermediate layers
+/// * `filter_scratch` - Reusable scratch storage for intermediate buffers
 /// * `transform` - The transformation matrix to extract scale from for filter parameters
 ///
 /// # Limitations
@@ -60,23 +88,23 @@ pub(crate) trait FilterEffect {
 pub(crate) fn filter_lowp(
     filter: &Filter,
     pixmap: &mut Pixmap,
-    layer_manager: &mut LayerManager,
+    filter_scratch: &mut FilterScratch,
     transform: Affine,
 ) {
     let prepared_filter = PreparedFilter::new(filter, &transform);
 
     match prepared_filter {
         PreparedFilter::Flood(flood) => {
-            flood.execute_lowp(pixmap, layer_manager);
+            flood.execute_lowp(pixmap, filter_scratch);
         }
         PreparedFilter::GaussianBlur(blur) => {
-            blur.execute_lowp(pixmap, layer_manager);
+            blur.execute_lowp(pixmap, filter_scratch);
         }
         PreparedFilter::Offset(offset) => {
-            offset.execute_lowp(pixmap, layer_manager);
+            offset.execute_lowp(pixmap, filter_scratch);
         }
         PreparedFilter::DropShadow(drop_shadow) => {
-            drop_shadow.execute_lowp(pixmap, layer_manager);
+            drop_shadow.execute_lowp(pixmap, filter_scratch);
         }
     }
 }
@@ -89,7 +117,7 @@ pub(crate) fn filter_lowp(
 /// # Arguments
 /// * `filter` - The filter containing the graph of primitives to apply
 /// * `pixmap` - The target pixmap containing rendering metadata
-/// * `layer_manager` - Manager for allocating and accessing intermediate layers
+/// * `filter_scratch` - Reusable scratch storage for intermediate buffers
 /// * `transform` - The transformation matrix to extract scale from for filter parameters
 ///
 /// # Limitations
@@ -98,23 +126,23 @@ pub(crate) fn filter_lowp(
 pub(crate) fn filter_highp(
     filter: &Filter,
     pixmap: &mut Pixmap,
-    layer_manager: &mut LayerManager,
+    filter_scratch: &mut FilterScratch,
     transform: Affine,
 ) {
     let prepared_filter = PreparedFilter::new(filter, &transform);
 
     match prepared_filter {
         PreparedFilter::Flood(flood) => {
-            flood.execute_highp(pixmap, layer_manager);
+            flood.execute_highp(pixmap, filter_scratch);
         }
         PreparedFilter::GaussianBlur(blur) => {
-            blur.execute_highp(pixmap, layer_manager);
+            blur.execute_highp(pixmap, filter_scratch);
         }
         PreparedFilter::Offset(offset) => {
-            offset.execute_highp(pixmap, layer_manager);
+            offset.execute_highp(pixmap, filter_scratch);
         }
         PreparedFilter::DropShadow(drop_shadow) => {
-            drop_shadow.execute_highp(pixmap, layer_manager);
+            drop_shadow.execute_highp(pixmap, filter_scratch);
         }
     }
 }

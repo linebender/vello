@@ -1,11 +1,11 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use crate::FilterScratch;
 use crate::coarse::{CommandBucketer, LayerClip};
 use crate::dispatch::{Dispatcher, RecordedCmd, replay_recorded_commands};
 use crate::fine::{FineKernel, RenderedFilterLayer};
 use crate::kurbo::{Affine, BezPath, PathEl, Rect, Stroke};
-use crate::layer_manager::LayerManager;
 use crate::peniko::{BlendMode, Fill};
 use crate::{CompositeMode, RasterizerSettings};
 use alloc::vec::Vec;
@@ -242,11 +242,11 @@ impl SingleThreadedDispatcher {
                 image_resolver,
             );
 
-            let mut layer_manager = LayerManager::new();
+            let mut filter_scratch = FilterScratch::new();
             F::filter_layer(
                 &mut pixmap,
                 &layer.filter,
-                &mut layer_manager,
+                &mut filter_scratch,
                 layer.transform,
             );
             rendered[layer_id] = Some(RenderedFilterLayer {

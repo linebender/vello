@@ -13,10 +13,10 @@ mod compose;
 mod gradient;
 mod image;
 
+use crate::FilterScratch;
 use crate::filter::filter_lowp;
 use crate::fine::lowp::image::{BilinearImagePainter, PlainBilinearImagePainter};
 use crate::fine::{COLOR_COMPONENTS, FineKernel, Painter, Splat4thExt, TILE_HEIGHT_COMPONENTS};
-use crate::layer_manager::LayerManager;
 use crate::peniko::BlendMode;
 use crate::region::Region;
 use crate::util::NormalizedMulExt;
@@ -54,10 +54,10 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
     fn filter_layer(
         pixmap: &mut Pixmap,
         filter: &Filter,
-        layer_manager: &mut LayerManager,
+        filter_scratch: &mut FilterScratch,
         transform: Affine,
     ) {
-        filter_lowp(filter, pixmap, layer_manager, transform);
+        filter_lowp(filter, pixmap, filter_scratch, transform);
     }
 
     /// Fills a buffer with a solid color using SIMD operations.
