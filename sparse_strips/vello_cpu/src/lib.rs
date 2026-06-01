@@ -159,9 +159,9 @@ mod util;
 pub mod fine;
 #[doc(hidden)]
 pub mod region;
-
 #[doc(hidden)]
 pub use filter::FilterScratch;
+
 pub use render::{
     CompositeMode, PixelFormat, RasterizerSettings, RenderContext, RenderSettings, Resources,
 };

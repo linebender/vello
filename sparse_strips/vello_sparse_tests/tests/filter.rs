@@ -122,7 +122,7 @@ fn fill_gradient_rect_40(ctx: &mut impl Renderer) {
             start: Point::new(30.0, 30.0),
             end: Point::new(70.0, 70.0),
         }
-            .into(),
+        .into(),
         stops: stops_blue_green_red_yellow(),
         ..Default::default()
     };

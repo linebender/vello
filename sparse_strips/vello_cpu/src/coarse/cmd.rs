@@ -1,12 +1,44 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use super::LayerClip;
 use crate::peniko::BlendMode;
+use core::ops::Range;
+use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 
+#[derive(Debug)]
+pub(crate) enum RenderCmd {
+    Fill {
+        thread_idx: u8,
+        strip_range: Range<usize>,
+        paint: Paint,
+        blend_mode: BlendMode,
+        mask: Option<Mask>,
+    },
+    PushLayer {
+        blend_mode: BlendMode,
+        opacity: f32,
+        mask: Option<Mask>,
+        clip: Option<LayerClip>,
+        content_bbox: RectU16,
+    },
+    CompositeFilterLayer {
+        layer_id: usize,
+        bbox: RectU16,
+        src_x: u16,
+        src_y: u16,
+        blend_mode: BlendMode,
+        opacity: f32,
+        mask: Option<Mask>,
+        clip: Option<LayerClip>,
+    },
+    PopLayer,
+}
+
 #[derive(Debug, Clone)]
-pub(crate) enum Cmd {
+pub(crate) enum FineCmd {
     Fill(FillCmd),
     AlphaFill(AlphaFillCmd),
     PushLayer,
@@ -18,7 +50,7 @@ pub(crate) enum Cmd {
     BlendAlphaFill(BlendAlphaFillCmd),
 }
 
-impl Cmd {
+impl FineCmd {
     #[inline(always)]
     pub(super) fn generated_span(&self) -> Option<(u16, u16)> {
         match self {

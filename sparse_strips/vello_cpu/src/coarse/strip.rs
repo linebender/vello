@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use super::bucketer::CommandBucketer;
-use super::cmd::{AlphaFillCmd, Cmd, FillAttrs, FillCmd, GeneratedAlphaFill, GeneratedFill};
+use super::cmd::{AlphaFillCmd, FillAttrs, FillCmd, FineCmd, GeneratedAlphaFill, GeneratedFill};
 use crate::peniko::BlendMode;
 use vello_common::encode::EncodedPaint;
 use vello_common::mask::Mask;
@@ -55,7 +55,7 @@ impl CommandBucketer {
                 bucketer.ensure_row_layers(row_idx);
                 let full_width = bucketer.width();
                 bucketer.rows[row_idx].push_cmd(
-                    Cmd::AlphaFill(AlphaFillCmd {
+                    FineCmd::AlphaFill(AlphaFillCmd {
                         x: fill.x,
                         width: fill.width,
                         alpha_idx: fill.alpha_idx,
@@ -148,7 +148,7 @@ impl CommandBucketer {
         let row = &mut self.rows[row_idx];
         let Some(path_id) = depth_cull_path_id else {
             row.push_cmd(
-                Cmd::Fill(FillCmd {
+                FineCmd::Fill(FillCmd {
                     x: fill.x,
                     width: fill.width,
                     attrs_idx,
@@ -164,7 +164,7 @@ impl CommandBucketer {
 
         if aligned_x >= aligned_end {
             row.push_cmd(
-                Cmd::Fill(FillCmd {
+                FineCmd::Fill(FillCmd {
                     x: fill.x,
                     width: fill.width,
                     attrs_idx,
@@ -176,7 +176,7 @@ impl CommandBucketer {
 
         if fill.x < aligned_x {
             row.push_cmd(
-                Cmd::Fill(FillCmd {
+                FineCmd::Fill(FillCmd {
                     x: fill.x,
                     width: aligned_x - fill.x,
                     attrs_idx,
@@ -199,7 +199,7 @@ impl CommandBucketer {
 
         if aligned_end < end {
             row.push_cmd(
-                Cmd::Fill(FillCmd {
+                FineCmd::Fill(FillCmd {
                     x: aligned_end,
                     width: end - aligned_end,
                     attrs_idx,
@@ -225,7 +225,7 @@ fn paint_is_opaque(paint: &Paint, encoded_paints: &[EncodedPaint]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::CommandBucketer;
-    use crate::coarse::cmd::Cmd;
+    use crate::coarse::cmd::FineCmd;
     use crate::coarse::layer::LayerClip;
     use alloc::vec::Vec;
     use vello_common::color::palette::css::{BLUE, RED};
@@ -261,8 +261,8 @@ mod tests {
         assert_eq!(row.opaque[0].x, 32);
         assert_eq!(row.opaque[0].width, 64);
         assert_eq!(row.cmds.len(), 2);
-        assert!(matches!(row.cmds[0], Cmd::Fill(cmd) if cmd.x == 3 && cmd.width == 29));
-        assert!(matches!(row.cmds[1], Cmd::Fill(cmd) if cmd.x == 96 && cmd.width == 4));
+        assert!(matches!(row.cmds[0], FineCmd::Fill(cmd) if cmd.x == 3 && cmd.width == 29));
+        assert!(matches!(row.cmds[1], FineCmd::Fill(cmd) if cmd.x == 96 && cmd.width == 4));
     }
 
     #[test]
@@ -289,8 +289,8 @@ mod tests {
         assert_eq!(row.opaque[0].x, 32);
         assert_eq!(row.opaque[0].width, 64);
         assert_eq!(row.cmds.len(), 2);
-        assert!(matches!(row.cmds[0], Cmd::Fill(cmd) if cmd.x == 3 && cmd.width == 29));
-        assert!(matches!(row.cmds[1], Cmd::Fill(cmd) if cmd.x == 96 && cmd.width == 4));
+        assert!(matches!(row.cmds[0], FineCmd::Fill(cmd) if cmd.x == 3 && cmd.width == 29));
+        assert!(matches!(row.cmds[1], FineCmd::Fill(cmd) if cmd.x == 96 && cmd.width == 4));
     }
 
     #[test]
@@ -311,7 +311,7 @@ mod tests {
         let row = &bucketer.rows()[0];
         assert!(row.opaque.is_empty());
         assert_eq!(row.cmds.len(), 1);
-        assert!(matches!(row.cmds[0], Cmd::Fill(cmd) if cmd.x == 0 && cmd.width == 96));
+        assert!(matches!(row.cmds[0], FineCmd::Fill(cmd) if cmd.x == 0 && cmd.width == 96));
     }
 
     #[test]
@@ -333,7 +333,7 @@ mod tests {
         assert!(row.opaque.is_empty());
         assert_eq!(row.cmds.len(), 1);
         assert!(
-            matches!(row.cmds[0], Cmd::AlphaFill(cmd) if cmd.x == 0 && cmd.width == 8 && cmd.alpha_idx == 0)
+            matches!(row.cmds[0], FineCmd::AlphaFill(cmd) if cmd.x == 0 && cmd.width == 8 && cmd.alpha_idx == 0)
         );
     }
 
@@ -364,9 +364,9 @@ mod tests {
 
         let row = &bucketer.rows()[0];
         assert_eq!(row.cmds.len(), 2);
-        assert!(matches!(row.cmds[0], Cmd::PushLayer));
+        assert!(matches!(row.cmds[0], FineCmd::PushLayer));
         assert!(
-            matches!(row.cmds[1], Cmd::AlphaFill(cmd) if cmd.x == 0 && cmd.width == 8 && cmd.alpha_idx == 0)
+            matches!(row.cmds[1], FineCmd::AlphaFill(cmd) if cmd.x == 0 && cmd.width == 8 && cmd.alpha_idx == 0)
         );
     }
 
@@ -388,6 +388,6 @@ mod tests {
         let row = &bucketer.rows()[0];
         assert!(row.opaque.is_empty());
         assert_eq!(row.cmds.len(), 1);
-        assert!(matches!(row.cmds[0], Cmd::Fill(cmd) if cmd.x == 8 && cmd.width == 8));
+        assert!(matches!(row.cmds[0], FineCmd::Fill(cmd) if cmd.x == 8 && cmd.width == 8));
     }
 }

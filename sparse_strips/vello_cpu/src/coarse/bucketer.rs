@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use super::cmd::{Cmd, FillAttrs, FilterLayerCmd};
+use super::cmd::{FillAttrs, FilterLayerCmd, FineCmd};
 use super::layer::{ActiveLayer, LayerClip};
 use super::row::RowCommands;
 use crate::peniko::BlendMode;
@@ -221,7 +221,7 @@ impl CommandBucketer {
             let draw_y1 = row_y1.min(bbox.y1);
 
             self.rows[row_idx].push_cmd(
-                Cmd::FilterLayer(FilterLayerCmd {
+                FineCmd::FilterLayer(FilterLayerCmd {
                     x: bbox.x0,
                     width: bbox.width(),
                     layer_id,

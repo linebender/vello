@@ -12,7 +12,7 @@ mod highp;
 mod lowp;
 
 use crate::FilterScratch;
-use crate::coarse::{Cmd, CommandBucketer, FillAttrs, FillCmd};
+use crate::coarse::{CommandBucketer, FillAttrs, FillCmd, FineCmd};
 use crate::fine::common::gradient::GradientPainter;
 pub(crate) use crate::fine::common::gradient::calculate_t_vals;
 pub(crate) use crate::fine::common::gradient::linear::SimdLinearKind;
@@ -842,7 +842,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     #[inline(always)]
     fn render_cmd(
         &mut self,
-        cmd: &Cmd,
+        cmd: &FineCmd,
         alphas: &[u8],
         attrs: &FillAttrs,
         encoded_paints: &[EncodedPaint],
@@ -910,7 +910,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     #[inline(always)]
     fn render_cmd_span(
         &mut self,
-        cmd: &Cmd,
+        cmd: &FineCmd,
         x: u16,
         end: u16,
         alphas: &[u8],
@@ -920,7 +920,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     ) {
         self.set_paint_offset(attrs.paint_offset);
         match cmd {
-            Cmd::Fill(_) => self.fill(
+            FineCmd::Fill(_) => self.fill(
                 x,
                 end - x,
                 &attrs.paint,
@@ -930,7 +930,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 None,
                 attrs.mask.as_ref(),
             ),
-            Cmd::AlphaFill(fill) => {
+            FineCmd::AlphaFill(fill) => {
                 let alpha_offset =
                     fill.alpha_idx as usize + usize::from(x - fill.x) * Tile::HEIGHT as usize;
                 self.fill(
@@ -944,13 +944,13 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     attrs.mask.as_ref(),
                 );
             }
-            Cmd::PushLayer
-            | Cmd::PopBuf
-            | Cmd::Opacity(_)
-            | Cmd::Mask(_)
-            | Cmd::FilterLayer(_)
-            | Cmd::BlendFill(_)
-            | Cmd::BlendAlphaFill(_) => unreachable!(),
+            FineCmd::PushLayer
+            | FineCmd::PopBuf
+            | FineCmd::Opacity(_)
+            | FineCmd::Mask(_)
+            | FineCmd::FilterLayer(_)
+            | FineCmd::BlendFill(_)
+            | FineCmd::BlendAlphaFill(_) => unreachable!(),
         }
     }
 
@@ -1696,7 +1696,7 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
     }
     for cmd in &row.cmds {
         match cmd {
-            Cmd::Fill(_) | Cmd::AlphaFill(_) => {
+            FineCmd::Fill(_) | FineCmd::AlphaFill(_) => {
                 let attrs = &bucketer.attrs()[cmd.fill_attrs_idx() as usize];
                 let alphas = alpha_buffers[attrs.thread_idx as usize];
                 let use_depth = row.depth_affects(cmd.fill_x(), cmd.fill_width(), attrs.path_id);
@@ -1709,28 +1709,28 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
                     use_depth,
                 );
             }
-            Cmd::PushLayer => {
+            FineCmd::PushLayer => {
                 fine.push_layer(row_start, row_end - row_start);
             }
-            Cmd::PopBuf => {
+            FineCmd::PopBuf => {
                 fine.pop_buf();
             }
-            Cmd::Opacity(opacity) => {
+            FineCmd::Opacity(opacity) => {
                 fine.opacity(row_start, row_end - row_start, *opacity);
             }
-            Cmd::Mask(mask) => {
+            FineCmd::Mask(mask) => {
                 fine.mask(row_y, row_start, row_end - row_start, mask);
             }
-            Cmd::FilterLayer(cmd) => {
+            FineCmd::FilterLayer(cmd) => {
                 if let Some(layer) = filter_layers.get(cmd.layer_id).and_then(Option::as_ref) {
                     let use_depth = row.depth_affects(cmd.x, cmd.width, cmd.path_id);
                     fine.composite_filter_layer_cmd(cmd, layer, use_depth);
                 }
             }
-            Cmd::BlendFill(cmd) => {
+            FineCmd::BlendFill(cmd) => {
                 fine.blend_fill(row_y, cmd.x, cmd.width, cmd.blend_mode);
             }
-            Cmd::BlendAlphaFill(cmd) => {
+            FineCmd::BlendAlphaFill(cmd) => {
                 let alphas = alpha_buffers[cmd.thread_idx as usize];
                 fine.blend_alpha_fill(
                     row_y,

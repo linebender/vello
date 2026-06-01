@@ -1,10 +1,10 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::coarse::{CommandBucketer, LayerClip};
+use crate::coarse::{CommandBucketer, LayerClip, RenderCmd};
 use crate::dispatch::multi_threaded::cost::{COST_THRESHOLD, estimate_render_task_cost};
 use crate::dispatch::multi_threaded::worker::Worker;
-use crate::dispatch::{Dispatcher, RecordedCmd, replay_recorded_commands};
+use crate::dispatch::{Dispatcher, replay_render_commands};
 use crate::fine::FineKernel;
 use crate::kurbo::{Affine, BezPath, PathEl, Point, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
@@ -85,7 +85,7 @@ fn control_point_bbox(path: &BezPath, transform: Affine) -> RectU16 {
 pub(crate) struct MultiThreadedDispatcher {
     bucketer: Mutex<CommandBucketer>,
     clip_context: ClipContext,
-    cmds: Vec<RecordedCmd>,
+    cmds: Vec<RenderCmd>,
     strip_storage: StripStorage,
     /// The thread pool that is used for dispatching tasks.
     thread_pool: ThreadPool,
@@ -344,7 +344,7 @@ impl MultiThreadedDispatcher {
                                     &task.allocation_group.strips
                                         [strip_range.start as usize..strip_range.end as usize],
                                 );
-                                self.cmds.push(RecordedCmd::Fill {
+                                self.cmds.push(RenderCmd::Fill {
                                     thread_idx: thread_id,
                                     strip_range,
                                     paint: paint.clone(),
@@ -372,7 +372,7 @@ impl MultiThreadedDispatcher {
                                     }
                                 });
 
-                                self.cmds.push(RecordedCmd::PushLayer {
+                                self.cmds.push(RenderCmd::PushLayer {
                                     blend_mode,
                                     opacity,
                                     mask,
@@ -381,7 +381,7 @@ impl MultiThreadedDispatcher {
                                 });
                             }
                             CoarseTaskType::PopLayer => {
-                                self.cmds.push(RecordedCmd::PopLayer);
+                                self.cmds.push(RenderCmd::PopLayer);
                             }
                         }
                     }
@@ -415,7 +415,7 @@ impl MultiThreadedDispatcher {
     ) {
         let mut bucketer = self.bucketer.lock().unwrap();
         bucketer.reset(scene_width, scene_height);
-        replay_recorded_commands(
+        replay_render_commands(
             &self.cmds,
             &self.strip_storage.strips,
             &mut bucketer,

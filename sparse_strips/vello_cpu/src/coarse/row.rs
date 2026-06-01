@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use super::cmd::{
-    BlendAlphaFillCmd, BlendFillCmd, Cmd, FillCmd, GeneratedAlphaFill, GeneratedFill,
+    BlendAlphaFillCmd, BlendFillCmd, FillCmd, FineCmd, GeneratedAlphaFill, GeneratedFill,
 };
 use crate::peniko::BlendMode;
 use alloc::vec::Vec;
@@ -11,7 +11,7 @@ use vello_common::util::Clear;
 
 #[derive(Debug, Default)]
 pub(crate) struct RowCommands {
-    pub(crate) cmds: Vec<Cmd>,
+    pub(crate) cmds: Vec<FineCmd>,
     pub(crate) opaque: Vec<FillCmd>,
     bounds: Option<(u16, u16)>,
     opaque_bounds: Option<(u16, u16)>,
@@ -40,7 +40,7 @@ impl RowCommands {
         self.layer_depth = 0;
     }
 
-    pub(super) fn push_cmd(&mut self, cmd: Cmd, width: u16) {
+    pub(super) fn push_cmd(&mut self, cmd: FineCmd, width: u16) {
         if let Some((x, cmd_width)) = cmd.generated_span() {
             self.include_bounds(x, cmd_width, width);
         }
@@ -48,7 +48,7 @@ impl RowCommands {
     }
 
     pub(super) fn push_layer(&mut self) {
-        self.cmds.push(Cmd::PushLayer);
+        self.cmds.push(FineCmd::PushLayer);
         self.layer_depth += 1;
     }
 
@@ -61,12 +61,12 @@ impl RowCommands {
         blend_mode: BlendMode,
     ) {
         if let Some(mask) = mask {
-            self.cmds.push(Cmd::Mask(mask.clone()));
+            self.cmds.push(FineCmd::Mask(mask.clone()));
         }
         if opacity != 1.0 {
-            self.cmds.push(Cmd::Opacity(opacity));
+            self.cmds.push(FineCmd::Opacity(opacity));
         }
-        self.cmds.push(Cmd::BlendFill(BlendFillCmd {
+        self.cmds.push(FineCmd::BlendFill(BlendFillCmd {
             x,
             width,
             blend_mode,
@@ -76,10 +76,10 @@ impl RowCommands {
 
     pub(super) fn push_layer_props(&mut self, mask: Option<&Mask>, opacity: f32) {
         if let Some(mask) = mask {
-            self.cmds.push(Cmd::Mask(mask.clone()));
+            self.cmds.push(FineCmd::Mask(mask.clone()));
         }
         if opacity != 1.0 {
-            self.cmds.push(Cmd::Opacity(opacity));
+            self.cmds.push(FineCmd::Opacity(opacity));
         }
     }
 
@@ -90,7 +90,7 @@ impl RowCommands {
         full_width: u16,
     ) {
         self.push_cmd(
-            Cmd::BlendFill(BlendFillCmd {
+            FineCmd::BlendFill(BlendFillCmd {
                 x: fill.x,
                 width: fill.width,
                 blend_mode,
@@ -107,7 +107,7 @@ impl RowCommands {
         full_width: u16,
     ) {
         self.push_cmd(
-            Cmd::BlendAlphaFill(BlendAlphaFillCmd {
+            FineCmd::BlendAlphaFill(BlendAlphaFillCmd {
                 x: fill.x,
                 width: fill.width,
                 alpha_idx: fill.alpha_idx,
@@ -119,7 +119,7 @@ impl RowCommands {
     }
 
     pub(super) fn pop_buf(&mut self) {
-        self.cmds.push(Cmd::PopBuf);
+        self.cmds.push(FineCmd::PopBuf);
         self.layer_depth -= 1;
     }
 

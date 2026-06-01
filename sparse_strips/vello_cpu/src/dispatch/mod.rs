@@ -6,12 +6,11 @@ pub(crate) mod multi_threaded;
 pub(crate) mod single_threaded;
 
 use crate::RasterizerSettings;
-use crate::coarse::{CommandBucketer, LayerClip};
+use crate::coarse::{CommandBucketer, RenderCmd};
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use alloc::vec::Vec;
 use core::fmt::Debug;
-use core::ops::Range;
 use vello_common::encode::EncodedPaint;
 use vello_common::filter_effects::Filter;
 use vello_common::geometry::RectU16;
@@ -20,37 +19,8 @@ use vello_common::paint::{ImageResolver, Paint};
 use vello_common::pixmap::PixmapMut;
 use vello_common::strip::Strip;
 
-#[derive(Debug)]
-pub(crate) enum RecordedCmd {
-    Fill {
-        thread_idx: u8,
-        strip_range: Range<usize>,
-        paint: Paint,
-        blend_mode: BlendMode,
-        mask: Option<Mask>,
-    },
-    PushLayer {
-        blend_mode: BlendMode,
-        opacity: f32,
-        mask: Option<Mask>,
-        clip: Option<LayerClip>,
-        content_bbox: RectU16,
-    },
-    CompositeFilterLayer {
-        layer_id: usize,
-        bbox: RectU16,
-        src_x: u16,
-        src_y: u16,
-        blend_mode: BlendMode,
-        opacity: f32,
-        mask: Option<Mask>,
-        clip: Option<LayerClip>,
-    },
-    PopLayer,
-}
-
-pub(crate) fn replay_recorded_commands(
-    cmds: &[RecordedCmd],
+pub(crate) fn replay_render_commands(
+    cmds: &[RenderCmd],
     strips: &[Strip],
     bucketer: &mut CommandBucketer,
     encoded_paints: &[EncodedPaint],
@@ -72,7 +42,7 @@ pub(crate) fn replay_recorded_commands(
 
     for cmd in cmds {
         match cmd {
-            RecordedCmd::Fill {
+            RenderCmd::Fill {
                 thread_idx,
                 strip_range,
                 paint,
@@ -89,14 +59,14 @@ pub(crate) fn replay_recorded_commands(
                     encoded_paints,
                 );
             }
-            RecordedCmd::PushLayer {
+            RenderCmd::PushLayer {
                 blend_mode,
                 opacity,
                 mask,
                 clip,
                 ..
             } => bucketer.push_layer(*blend_mode, *opacity, mask.clone(), clip.clone()),
-            RecordedCmd::CompositeFilterLayer {
+            RenderCmd::CompositeFilterLayer {
                 layer_id,
                 bbox,
                 src_x,
@@ -111,7 +81,7 @@ pub(crate) fn replay_recorded_commands(
                 bucketer.generate_filter_layer(*layer_id, bbox, (*src_x, *src_y));
                 bucketer.pop_layer(strips);
             }
-            RecordedCmd::PopLayer => bucketer.pop_layer(strips),
+            RenderCmd::PopLayer => bucketer.pop_layer(strips),
         }
     }
 }

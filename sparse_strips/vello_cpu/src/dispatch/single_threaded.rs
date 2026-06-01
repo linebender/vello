@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::FilterScratch;
-use crate::coarse::{CommandBucketer, LayerClip};
-use crate::dispatch::{Dispatcher, RecordedCmd, replay_recorded_commands};
+use crate::coarse::{CommandBucketer, LayerClip, RenderCmd};
+use crate::dispatch::{Dispatcher, replay_render_commands};
 use crate::fine::{FineKernel, RenderedFilterLayer};
 use crate::kurbo::{Affine, BezPath, PathEl, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
@@ -39,7 +39,7 @@ enum RecordedLayerKind {
 
 #[derive(Debug)]
 struct RecordedFilterLayer {
-    cmds: Vec<RecordedCmd>,
+    cmds: Vec<RenderCmd>,
     filter: Filter,
     transform: Affine,
     expansion: Rect,
@@ -53,7 +53,7 @@ struct RecordedFilterLayer {
 pub(crate) struct SingleThreadedDispatcher {
     bucketer: RefCell<CommandBucketer>,
     clip_context: ClipContext,
-    cmds: Vec<RecordedCmd>,
+    cmds: Vec<RenderCmd>,
     filter_layers: Vec<RecordedFilterLayer>,
     recording_stack: Vec<usize>,
     layer_stack: Vec<RecordedLayer>,
@@ -119,7 +119,7 @@ impl SingleThreadedDispatcher {
         self.recording_stack.last().copied()
     }
 
-    fn active_cmds_mut(&mut self) -> &mut Vec<RecordedCmd> {
+    fn active_cmds_mut(&mut self) -> &mut Vec<RenderCmd> {
         if let Some(layer_id) = self.active_stream_id() {
             &mut self.filter_layers[layer_id].cmds
         } else {
@@ -127,7 +127,7 @@ impl SingleThreadedDispatcher {
         }
     }
 
-    fn stream_cmds_mut(&mut self, stream_id: Option<usize>) -> &mut Vec<RecordedCmd> {
+    fn stream_cmds_mut(&mut self, stream_id: Option<usize>) -> &mut Vec<RenderCmd> {
         if let Some(layer_id) = stream_id {
             &mut self.filter_layers[layer_id].cmds
         } else {
@@ -150,7 +150,7 @@ impl SingleThreadedDispatcher {
         let filter_layers = self.render_filter_layers::<S, F>(simd, encoded_paints, image_resolver);
         let mut bucketer = self.bucketer.borrow_mut();
         bucketer.reset(scene_width, scene_height);
-        replay_recorded_commands(
+        replay_render_commands(
             &self.cmds,
             &self.strip_storage.strips,
             &mut bucketer,
@@ -185,7 +185,7 @@ impl SingleThreadedDispatcher {
         mask: Option<Mask>,
     ) {
         let strip_end = self.strip_storage.strips.len();
-        self.active_cmds_mut().push(RecordedCmd::Fill {
+        self.active_cmds_mut().push(RenderCmd::Fill {
             thread_idx: 0,
             strip_range: strip_start..strip_end,
             paint,
@@ -220,7 +220,7 @@ impl SingleThreadedDispatcher {
             let mut pixmap = Pixmap::new(width, height);
             let mut bucketer = self.bucketer.borrow_mut();
             bucketer.reset(width, height);
-            replay_recorded_commands(
+            replay_render_commands(
                 &layer.cmds,
                 &self.strip_storage.strips,
                 &mut bucketer,
@@ -258,7 +258,7 @@ impl SingleThreadedDispatcher {
         rendered
     }
 
-    fn push_recorded_cmd(&mut self, cmd: RecordedCmd) -> usize {
+    fn push_render_cmd(&mut self, cmd: RenderCmd) -> usize {
         let cmds = self.active_cmds_mut();
         let idx = cmds.len();
         cmds.push(cmd);
@@ -272,7 +272,7 @@ impl SingleThreadedDispatcher {
         content_bbox: RectU16,
     ) {
         match &mut self.stream_cmds_mut(stream_id)[push_cmd_idx] {
-            RecordedCmd::PushLayer {
+            RenderCmd::PushLayer {
                 content_bbox: bbox, ..
             } => *bbox = content_bbox,
             _ => unreachable!("layer stack referenced a non-layer command"),
@@ -293,7 +293,7 @@ impl SingleThreadedDispatcher {
         let (output_bbox, src_x, src_y) = shift_bbox_to_parent(render_bbox, source_origin);
         self.filter_layers[layer_id].bbox = render_bbox;
         match &mut self.stream_cmds_mut(parent_stream_id)[composite_cmd_idx] {
-            RecordedCmd::CompositeFilterLayer {
+            RenderCmd::CompositeFilterLayer {
                 bbox,
                 src_x: cmd_src_x,
                 src_y: cmd_src_y,
@@ -599,7 +599,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             let expansion = filter_expansion.expect("filter expansion missing");
             let source_expansion =
                 filter_source_expansion.expect("filter source expansion missing");
-            let push_cmd_idx = self.push_recorded_cmd(RecordedCmd::CompositeFilterLayer {
+            let push_cmd_idx = self.push_render_cmd(RenderCmd::CompositeFilterLayer {
                 layer_id,
                 bbox: RectU16::INVERTED,
                 src_x: 0,
@@ -621,7 +621,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             self.recording_stack.push(layer_id);
             (push_cmd_idx, RecordedLayerKind::Filter { layer_id })
         } else {
-            let push_cmd_idx = self.push_recorded_cmd(RecordedCmd::PushLayer {
+            let push_cmd_idx = self.push_render_cmd(RenderCmd::PushLayer {
                 blend_mode,
                 opacity,
                 mask,
@@ -646,7 +646,7 @@ impl Dispatcher for SingleThreadedDispatcher {
             RecordedLayerKind::Regular => {
                 self.set_push_layer_content_bbox(layer.stream_id, layer.push_cmd_idx, content_bbox);
                 self.include_content_bbox(content_bbox);
-                self.active_cmds_mut().push(RecordedCmd::PopLayer);
+                self.active_cmds_mut().push(RenderCmd::PopLayer);
             }
             RecordedLayerKind::Filter { layer_id, .. } => {
                 let popped = self.recording_stack.pop().expect("filter stack underflow");
@@ -766,7 +766,7 @@ mod tests {
 
     fn layer_content_bbox(dispatcher: &SingleThreadedDispatcher, cmd_idx: usize) -> RectU16 {
         match &dispatcher.cmds[cmd_idx] {
-            RecordedCmd::PushLayer { content_bbox, .. } => *content_bbox,
+            RenderCmd::PushLayer { content_bbox, .. } => *content_bbox,
             _ => panic!("expected push layer command"),
         }
     }
