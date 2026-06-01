@@ -130,11 +130,6 @@ pub struct WebGlPendingProbe {
     gl: WebGl2RenderingContext,
     sync: Option<WebGlSync>,
     buffer: Option<WebGlBuffer>,
-    // Just to make sure they are kept alive until the probe
-    // finished. This is _probably_ not necessary because WebGl is a synchronous API
-    // so the `delete_` commands should only be executed once rendering has finished, but
-    // safe is safe.
-    _resources: WebGlProbeResources,
     width: u16,
     height: u16,
 }
@@ -2039,7 +2034,6 @@ fn launch_probe(
         gl: gl.clone(),
         sync: Some(sync),
         buffer: Some(pixel_pack_buffer),
-        _resources: resources,
         width,
         height,
     }
