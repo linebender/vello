@@ -115,6 +115,48 @@ fn filter_gaussian_blur_with_decimation(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
+fn fill_gradient_rect_40(ctx: &mut impl Renderer) {
+    let rect = Rect::new(30.0, 30.0, 70.0, 70.0);
+    let gradient = Gradient {
+        kind: LinearGradientPosition {
+            start: Point::new(30.0, 30.0),
+            end: Point::new(70.0, 70.0),
+        }
+            .into(),
+        stops: stops_blue_green_red_yellow(),
+        ..Default::default()
+    };
+
+    ctx.set_paint(gradient);
+    ctx.fill_rect(&rect);
+}
+
+#[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
+fn filter_gradient_blur(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 3.0,
+        edge_mode: EdgeMode::None,
+    });
+
+    ctx.push_filter_layer(filter);
+    fill_gradient_rect_40(ctx);
+    ctx.pop_layer();
+}
+
+#[vello_test(skip_multithreaded, hybrid_tolerance = 2)]
+fn filter_gradient_blur_nested(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
+        std_deviation: 3.0,
+        edge_mode: EdgeMode::None,
+    });
+
+    ctx.push_filter_layer(filter.clone());
+    ctx.push_filter_layer(filter);
+    fill_gradient_rect_40(ctx);
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
 /// Test drop shadow filter on text glyph.
 /// Creates a blurred, offset shadow beneath the original graphic.
 #[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
