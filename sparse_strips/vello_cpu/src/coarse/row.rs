@@ -7,8 +7,9 @@ use super::cmd::{
 use crate::peniko::BlendMode;
 use alloc::vec::Vec;
 use vello_common::mask::Mask;
+use vello_common::util::Clear;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct RowCommands {
     pub(crate) cmds: Vec<Cmd>,
     pub(crate) opaque: Vec<FillCmd>,
@@ -30,7 +31,7 @@ impl RowCommands {
         }
     }
 
-    pub(super) fn clear(&mut self) {
+    fn clear(&mut self) {
         self.cmds.clear();
         self.opaque.clear();
         self.bounds = None;
@@ -174,5 +175,11 @@ impl RowCommands {
             Some((old_start, old_end)) => (old_start.min(start), old_end.max(end)),
             None => (start, end),
         });
+    }
+}
+
+impl Clear for RowCommands {
+    fn clear(&mut self) {
+        Self::clear(self);
     }
 }

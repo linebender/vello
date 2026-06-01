@@ -4,6 +4,8 @@
 //! Utility functions.
 
 use crate::math::FloatExt;
+use alloc::vec::Vec;
+use core::ops::{Index, IndexMut};
 use fearless_simd::{
     Bytes, Simd, SimdBase, SimdFloat, f32x16, u8x16, u8x32, u16x16, u16x32, u32x16,
 };
@@ -124,3 +126,99 @@ pub fn extract_scales(transform: &Affine) -> (f32, f32) {
 
     (scale_x.max(1e-6), scale_y.max(1e-6))
 }
+
+/// A type that can be cleared.
+pub trait Clear {
+    /// Clear the object to its default state.
+    fn clear(&mut self);
+}
+
+/// A resizable vector that retains inner elements upon resizing.
+#[derive(Debug)]
+pub struct RetainVec<T> {
+    inner: Vec<T>,
+    len: usize,
+}
+
+impl<T: Clear> RetainVec<T> {
+    /// Create an empty `RetainVec`.
+    pub fn new() -> Self {
+        Self {
+            inner: Vec::new(),
+            len: 0,
+        }
+    }
+
+    /// Create a `RetainVec` with `len` initialized entries.
+    pub fn with_len(len: usize, mut init: impl FnMut() -> T) -> Self {
+        let mut inner = Vec::with_capacity(len);
+        inner.resize_with(len, &mut init);
+        Self { inner, len }
+    }
+
+    /// Return the length.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Return `true` if the vector is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Return the entries as a slice.
+    pub fn as_slice(&self) -> &[T] {
+        &self.inner[..self.len]
+    }
+
+    /// Return the entries as a mutable slice.
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        &mut self.inner[..self.len]
+    }
+
+    /// Iterate mutably over active entries.
+    pub fn iter_mut(&mut self) -> core::slice::IterMut<'_, T> {
+        self.as_mut_slice().iter_mut()
+    }
+
+    /// Clear the elements in this vector.
+    pub fn clear(&mut self) {
+        self.len = 0;
+    }
+
+    /// Resize the vector.
+    pub fn resize_with(&mut self, new_len: usize, mut init: impl FnMut() -> T) {
+        let old_len = self.len;
+        if new_len > self.inner.len() {
+            self.inner.resize_with(new_len, &mut init);
+        }
+        self.len = new_len;
+        if new_len > old_len {
+            for item in &mut self.inner[old_len..new_len] {
+                item.clear();
+            }
+        }
+    }
+}
+
+impl<T: Clear> Default for RetainVec<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T> Index<usize> for RetainVec<T> {
+    type Output = T;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.inner[..self.len][index]
+    }
+}
+
+impl<T> IndexMut<usize> for RetainVec<T> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.inner[..self.len][index]
+    }
+}
+
+// TODO: Add tests

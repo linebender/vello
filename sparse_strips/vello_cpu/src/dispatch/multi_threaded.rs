@@ -413,10 +413,7 @@ impl MultiThreadedDispatcher {
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
-        let mut bucketer = self
-            .bucketer
-            .lock()
-            .unwrap();
+        let mut bucketer = self.bucketer.lock().unwrap();
         bucketer.reset(scene_width, scene_height);
         replay_recorded_commands(
             &self.cmds,

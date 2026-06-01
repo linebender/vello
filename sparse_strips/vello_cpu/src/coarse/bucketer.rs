@@ -11,11 +11,12 @@ use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::strip::Strip;
 use vello_common::tile::Tile;
+use vello_common::util::{Clear, RetainVec};
 
 #[derive(Debug)]
 pub(crate) struct CommandBucketer {
     pub(super) clip_bboxes: Vec<RectU16>,
-    pub(super) rows: Vec<RowCommands>,
+    pub(super) rows: RetainVec<RowCommands>,
     pub(super) attrs: Vec<FillAttrs>,
     pub(super) active_layers: Vec<ActiveLayer>,
     pub(super) next_path_id: u32,
@@ -27,7 +28,7 @@ impl CommandBucketer {
         let num_rows = usize::from(full_clip_bbox.height() / Tile::HEIGHT);
         Self {
             clip_bboxes: vec![full_clip_bbox],
-            rows: (0..num_rows).map(|_| RowCommands::new()).collect(),
+            rows: RetainVec::with_len(num_rows, RowCommands::new),
             attrs: Vec::new(),
             active_layers: Vec::new(),
             next_path_id: 1,
@@ -56,7 +57,7 @@ impl CommandBucketer {
     }
 
     pub(crate) fn rows(&self) -> &[RowCommands] {
-        &self.rows
+        self.rows.as_slice()
     }
 
     pub(crate) fn width(&self) -> u16 {
@@ -71,13 +72,8 @@ impl CommandBucketer {
     pub(crate) fn reset(&mut self, width: u16, height: u16) {
         let full_clip_bbox = Self::full_clip_bbox(width, height);
         let num_rows = usize::from(full_clip_bbox.height() / Tile::HEIGHT);
-        if self.rows.len() != num_rows {
-            self.rows.resize_with(num_rows, RowCommands::new);
-        }
-
-        for row in &mut self.rows {
-            row.clear();
-        }
+        self.rows.clear();
+        self.rows.resize_with(num_rows, RowCommands::new);
         self.attrs.clear();
         self.active_layers.clear();
         self.next_path_id = 1;
