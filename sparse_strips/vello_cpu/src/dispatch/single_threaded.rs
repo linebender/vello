@@ -21,6 +21,7 @@ use vello_common::pixmap::{Pixmap, PixmapMut};
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use vello_common::tile::Tile;
+use vello_common::util::RectExt;
 
 #[derive(Debug)]
 struct RecordedLayer {
@@ -430,22 +431,11 @@ fn expansion_left_top(expansion: Rect) -> (u16, u16) {
 }
 
 fn expansion_padding(expansion: Rect) -> (u16, u16, u16, u16) {
-    let left = (-expansion.x0).max(0.0).ceil() as u16;
-    let top = (-expansion.y0).max(0.0).ceil() as u16;
-    let right = expansion.x1.max(0.0).ceil() as u16;
-    let bottom = expansion.y1.max(0.0).ceil() as u16;
-    let left = left
-        .checked_next_multiple_of(Tile::WIDTH)
-        .unwrap_or(u16::MAX);
-    let top = top
-        .checked_next_multiple_of(Tile::HEIGHT)
-        .unwrap_or(u16::MAX);
-    let right = right
-        .checked_next_multiple_of(Tile::WIDTH)
-        .unwrap_or(u16::MAX);
-    let bottom = bottom
-        .checked_next_multiple_of(Tile::HEIGHT)
-        .unwrap_or(u16::MAX);
+    let expansion = expansion.snap_to_tile_coordinates();
+    let left = (-expansion.x0).max(0.0) as u16;
+    let top = (-expansion.y0).max(0.0) as u16;
+    let right = expansion.x1.max(0.0) as u16;
+    let bottom = expansion.y1.max(0.0) as u16;
     (left, top, right, bottom)
 }
 

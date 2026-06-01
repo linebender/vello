@@ -30,8 +30,7 @@ use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Fill};
 use vello_common::pixmap::{Pixmap, PixmapMut};
 use vello_common::render_state::RenderState;
-use vello_common::tile::Tile;
-use vello_common::util::is_axis_aligned;
+use vello_common::util::{RectExt, is_axis_aligned};
 
 #[cfg(feature = "text")]
 pub(crate) const DEFAULT_GLYPH_ATLAS_SIZE: u16 = 4096;
@@ -464,14 +463,17 @@ impl RenderContext {
         let opacity = opacity.unwrap_or(1.0);
         let layer_transform = self.effective_path_transform();
         let layer_root_transform = if let Some(filter) = &filter {
-            let expansion = filter.source_expansion(&layer_transform);
-            let left = ((-expansion.x0).max(0.0).ceil() as u16)
-                .checked_next_multiple_of(Tile::WIDTH)
-                .unwrap_or(u16::MAX);
-            let top = ((-expansion.y0).max(0.0).ceil() as u16)
-                .checked_next_multiple_of(Tile::HEIGHT)
-                .unwrap_or(u16::MAX);
-            Affine::translate((f64::from(left), f64::from(top)))
+            // Note: In theory, we don't need to snap to tile coordinates
+            // horizontally, but we do need it vertically. We want to make
+            // sure that we can always use fill commands for compositing filter
+            // layers back into the parent layer, which only works if no additional
+            // alpha needs to be associated with the command.
+            let expansion = filter
+                .source_expansion(&layer_transform)
+                .snap_to_tile_coordinates();
+            // Make sure that any area that might be needed by the filter layer
+            // is included in the canvas.
+            Affine::translate(((-expansion.x0).max(0.0), (-expansion.y0).max(0.0)))
         } else {
             Affine::IDENTITY
         };

@@ -4,14 +4,15 @@
 //! Utility functions.
 
 use crate::math::FloatExt;
+use crate::tile::Tile;
 use alloc::vec::Vec;
 use core::ops::{Index, IndexMut};
 use fearless_simd::{
     Bytes, Simd, SimdBase, SimdFloat, f32x16, u8x16, u8x32, u16x16, u16x32, u32x16,
 };
-use peniko::kurbo::Affine;
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
+use peniko::kurbo::{Affine, Rect};
 
 /// Convert f32x16 to u8x16.
 ///
@@ -127,6 +128,36 @@ pub fn extract_scales(transform: &Affine) -> (f32, f32) {
     (scale_x.max(1e-6), scale_y.max(1e-6))
 }
 
+/// Extension methods for rectangles.
+pub trait RectExt {
+    /// Snap the rect to whole tile coordinates.
+    fn snap_to_tile_coordinates(self) -> Rect;
+}
+
+impl RectExt for Rect {
+    #[inline]
+    fn snap_to_tile_coordinates(self) -> Rect {
+        Rect::new(
+            snap_down(self.x0, Tile::WIDTH),
+            snap_down(self.y0, Tile::HEIGHT),
+            snap_up(self.x1, Tile::WIDTH),
+            snap_up(self.y1, Tile::HEIGHT),
+        )
+    }
+}
+
+#[inline]
+fn snap_down(value: f64, step: u16) -> f64 {
+    let step = f64::from(step);
+    (value / step).floor() * step
+}
+
+#[inline]
+fn snap_up(value: f64, step: u16) -> f64 {
+    let step = f64::from(step);
+    (value / step).ceil() * step
+}
+
 /// A type that can be cleared.
 pub trait Clear {
     /// Clear the object to its default state.
@@ -221,4 +252,14 @@ impl<T> IndexMut<usize> for RetainVec<T> {
     }
 }
 
-// TODO: Add tests
+#[cfg(test)]
+mod tests {
+    use super::RectExt;
+    use peniko::kurbo::Rect;
+
+    #[test]
+    fn snap_to_tile_coordinates_rounds_outward() {
+        let rect = Rect::new(-4.1, -0.1, 4.1, 8.0).snap_to_tile_coordinates();
+        assert_eq!(rect, Rect::new(-8.0, -4.0, 8.0, 8.0));
+    }
+}
