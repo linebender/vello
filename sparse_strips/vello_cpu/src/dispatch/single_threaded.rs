@@ -221,32 +221,20 @@ impl SingleThreadedDispatcher {
         let unpack_dest = settings.composite_mode == CompositeMode::SrcOver;
         let alpha_buffers = &[self.strip_storage.alphas.as_slice()];
 
-        if settings.offset == (0, 0) && !unpack_dest {
-            crate::fine::rasterize::<S, F>(
-                simd,
-                &bucketer,
-                alpha_buffers,
-                &filter_layers,
-                target,
-                encoded_paints,
-                image_resolver,
-            );
-        } else {
-            crate::fine::rasterize_at_offset::<S, F>(
-                simd,
-                &bucketer,
-                alpha_buffers,
-                &filter_layers,
-                target,
-                scene_width,
-                scene_height,
-                settings.offset.0,
-                settings.offset.1,
-                unpack_dest,
-                encoded_paints,
-                image_resolver,
-            );
-        }
+        crate::fine::rasterize_at_offset::<S, F>(
+            simd,
+            &bucketer,
+            alpha_buffers,
+            &filter_layers,
+            target,
+            scene_width,
+            scene_height,
+            settings.offset.0,
+            settings.offset.1,
+            unpack_dest,
+            encoded_paints,
+            image_resolver,
+        );
     }
 
     fn record_fill(
@@ -297,12 +285,17 @@ impl SingleThreadedDispatcher {
                 encoded_paints,
                 (layer.bbox.x0, layer.bbox.y0),
             );
-            crate::fine::rasterize::<S, F>(
+            crate::fine::rasterize_at_offset::<S, F>(
                 simd,
                 &bucketer,
                 &[self.strip_storage.alphas.as_slice()],
                 &rendered,
                 (&mut pixmap).into(),
+                width,
+                height,
+                0,
+                0,
+                false,
                 encoded_paints,
                 image_resolver,
             );

@@ -1488,39 +1488,12 @@ fn fill_indexed_paint<S: Simd, T: FineKernel<S>>(
     }
 }
 
-pub(crate) fn rasterize<S: Simd, T: FineKernel<S>>(
-    simd: S,
-    bucketer: &CommandBucketer,
-    alpha_buffers: &[&[u8]],
-    filter_layers: &[Option<RenderedFilterLayer>],
-    mut target: PixmapMut<'_>,
-    encoded_paints: &[EncodedPaint],
-    image_resolver: &dyn ImageResolver,
-) {
-    let width = target.width();
-    let mut fine = Fine::<S, T>::new(simd, width, bucketer.width());
-    target.data_mut().fill(0);
-    rasterize_rows::<S, T>(
-        &mut fine,
-        bucketer,
-        alpha_buffers,
-        filter_layers,
-        target,
-        None,
-        0,
-        0,
-        false,
-        encoded_paints,
-        image_resolver,
-    );
-}
-
 pub(crate) fn rasterize_at_offset<S: Simd, T: FineKernel<S>>(
     simd: S,
     bucketer: &CommandBucketer,
     alpha_buffers: &[&[u8]],
     filter_layers: &[Option<RenderedFilterLayer>],
-    target: PixmapMut<'_>,
+    mut target: PixmapMut<'_>,
     width: u16,
     height: u16,
     dst_x: u16,
@@ -1531,6 +1504,10 @@ pub(crate) fn rasterize_at_offset<S: Simd, T: FineKernel<S>>(
 ) {
     if dst_x >= target.width() || dst_y >= target.height() {
         return;
+    }
+
+    if !unpack_dest {
+        target.data_mut().fill(0);
     }
 
     let mut fine = Fine::<S, T>::new(simd, target.width(), bucketer.width());
@@ -1550,36 +1527,7 @@ pub(crate) fn rasterize_at_offset<S: Simd, T: FineKernel<S>>(
 }
 
 #[cfg(feature = "multithreading")]
-pub(crate) fn rasterize_parallel<S: Simd, T: FineKernel<S>>(
-    simd: S,
-    bucketer: &CommandBucketer,
-    alpha_buffers: &[&[u8]],
-    filter_layers: &[Option<RenderedFilterLayer>],
-    mut target: PixmapMut<'_>,
-    encoded_paints: &[EncodedPaint],
-    image_resolver: &dyn ImageResolver,
-) {
-    let width = target.width();
-    let height = target.height();
-    target.data_mut().fill(0);
-    rasterize_at_offset_parallel::<S, T>(
-        simd,
-        bucketer,
-        alpha_buffers,
-        filter_layers,
-        target,
-        width,
-        height,
-        0,
-        0,
-        false,
-        encoded_paints,
-        image_resolver,
-    );
-}
-
-#[cfg(feature = "multithreading")]
-pub(crate) fn rasterize_at_offset_parallel<S: Simd, T: FineKernel<S>>(
+pub(crate) fn rasterize_at_offset<S: Simd, T: FineKernel<S>>(
     simd: S,
     bucketer: &CommandBucketer,
     alpha_buffers: &[&[u8]],
@@ -1604,6 +1552,10 @@ pub(crate) fn rasterize_at_offset_parallel<S: Simd, T: FineKernel<S>>(
     let height = height.min(target.height().saturating_sub(dst_y));
     if width == 0 || height == 0 {
         return;
+    }
+
+    if !unpack_dest {
+        target.data_mut().fill(0);
     }
 
     struct RowBand<'a> {

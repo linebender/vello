@@ -453,32 +453,20 @@ impl MultiThreadedDispatcher {
             let unpack_dest = settings.composite_mode == CompositeMode::SrcOver;
 
             self.thread_pool.install(|| {
-                if settings.offset == (0, 0) && !unpack_dest {
-                    crate::fine::rasterize_parallel::<S, F>(
-                        simd,
-                        &bucketer,
-                        &alpha_buffers,
-                        &[],
-                        target,
-                        encoded_paints,
-                        image_resolver,
-                    );
-                } else {
-                    crate::fine::rasterize_at_offset_parallel::<S, F>(
-                        simd,
-                        &bucketer,
-                        &alpha_buffers,
-                        &[],
-                        target,
-                        scene_width,
-                        scene_height,
-                        settings.offset.0,
-                        settings.offset.1,
-                        unpack_dest,
-                        encoded_paints,
-                        image_resolver,
-                    );
-                }
+                crate::fine::rasterize_at_offset::<S, F>(
+                    simd,
+                    &bucketer,
+                    &alpha_buffers,
+                    &[],
+                    target,
+                    scene_width,
+                    scene_height,
+                    settings.offset.0,
+                    settings.offset.1,
+                    unpack_dest,
+                    encoded_paints,
+                    image_resolver,
+                );
             });
         }
         self.alpha_storage.init(alpha_slots);
