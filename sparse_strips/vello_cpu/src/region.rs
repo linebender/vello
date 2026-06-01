@@ -44,10 +44,7 @@ impl<'a> Region<'a> {
             remaining = &mut rest[skip..];
         }
 
-        Some(Self {
-            areas,
-            height,
-        })
+        Some(Self { areas, height })
     }
 
     pub(crate) fn row_mut(&mut self, y: u16) -> &mut [u8] {

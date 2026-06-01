@@ -509,16 +509,73 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         self.paint_offset = paint_offset;
     }
 
-    fn clear_range(&mut self, x: u16, width: u16) {
+    fn reset_depth_range(&mut self, x: u16, width: u16) {
+        let (depth_start, depth_end) = self.depth_range(x, width);
+        self.depth[depth_start..depth_end].fill(0);
+    }
+
+    fn clear_buffer_range(&mut self, x: u16, width: u16) {
         let scratch_start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
         let scratch_len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
+        self.buffers[0][scratch_start..scratch_start + scratch_len].fill(T::Numeric::ZERO);
+    }
+
+    fn depth_range(&self, x: u16, width: u16) -> (usize, usize) {
         let depth_start = usize::from(x / DEPTH_BUCKET_WIDTH);
         let depth_end = ((usize::from(x) + usize::from(width))
             .div_ceil(usize::from(DEPTH_BUCKET_WIDTH)))
         .min(self.depth.len());
 
-        self.buffers[0][scratch_start..scratch_start + scratch_len].fill(T::Numeric::ZERO);
-        self.depth[depth_start..depth_end].fill(0);
+        (depth_start, depth_end)
+    }
+
+    fn init_uncovered_range(
+        &mut self,
+        dst_y: u16,
+        row_height: usize,
+        scratch_x: u16,
+        dst_x: u16,
+        width: u16,
+        target: &mut PixmapMut<'_>,
+        unpack_dest: bool,
+    ) {
+        let (depth_start, depth_end) = self.depth_range(scratch_x, width);
+        let scratch_end = scratch_x + width;
+
+        let mut idx = depth_start;
+        while idx < depth_end {
+            while idx < depth_end && self.depth[idx] != 0 {
+                idx += 1;
+            }
+
+            let run_start = idx;
+            while idx < depth_end && self.depth[idx] == 0 {
+                idx += 1;
+            }
+
+            if run_start == idx {
+                continue;
+            }
+
+            let x = scratch_x.max(run_start as u16 * DEPTH_BUCKET_WIDTH);
+            let end = scratch_end.min(idx as u16 * DEPTH_BUCKET_WIDTH);
+            if x >= end {
+                continue;
+            }
+
+            if unpack_dest {
+                self.unpack_at(
+                    dst_y,
+                    row_height,
+                    dst_x + (x - scratch_x),
+                    x,
+                    end - x,
+                    target,
+                );
+            } else {
+                self.clear_buffer_range(x, end - x);
+            }
+        }
     }
 
     fn push_layer(&mut self, x: u16, width: u16) {
@@ -1690,22 +1747,23 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
 
     let row_height = usize::from(row_height);
     fine.set_row_y(row_y);
-    fine.clear_range(row_start, row_end - row_start);
-    if unpack_dest {
-        fine.unpack_at(
-            buffer_y,
-            row_height,
-            dst_x + row_start,
-            row_start,
-            row_end - row_start,
-            target,
-        );
-    }
+    fine.reset_depth_range(row_start, row_end - row_start);
 
     for &cmd in row.opaque.iter().rev() {
         let attrs = &bucketer.attrs()[cmd.attrs_idx as usize];
         fine.render_opaque(cmd, attrs, encoded_paints, image_resolver);
     }
+
+    fine.init_uncovered_range(
+        buffer_y,
+        row_height,
+        row_start,
+        dst_x + row_start,
+        row_end - row_start,
+        target,
+        unpack_dest,
+    );
+
     for cmd in &row.cmds {
         match cmd {
             FineCmd::Fill(_) | FineCmd::AlphaFill(_) => {
