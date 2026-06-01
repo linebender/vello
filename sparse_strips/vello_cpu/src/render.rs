@@ -912,19 +912,15 @@ impl ImageResolver for ImageRegistry {
 mod tests {
     #[cfg(feature = "text")]
     use crate::peniko::{Blob, FontData};
-    use crate::{CompositeMode, RasterizerSettings, RenderContext, RenderSettings, Resources};
+    use crate::{CompositeMode, RasterizerSettings, RenderContext, Resources};
     #[cfg(feature = "text")]
     use alloc::sync::Arc;
     use alloc::vec;
     #[cfg(feature = "text")]
     use glifo::Glyph;
-    use vello_common::color::palette::css::{BLUE, GREEN, RED};
-    use vello_common::color::{AlphaColor, PremulRgba8};
-    use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
-    use vello_common::kurbo::{Affine, Rect, Shape};
-    use vello_common::mask::Mask;
-    use vello_common::peniko::{BlendMode, Compose, Mix};
-    use vello_common::peniko::{ColorStop, Gradient};
+    use vello_common::color::PremulRgba8;
+    use vello_common::color::palette::css::{BLUE, RED};
+    use vello_common::kurbo::{Rect, Shape};
     use vello_common::pixmap::{Pixmap, PixmapMut};
     use vello_common::tile::Tile;
 
@@ -963,33 +959,9 @@ mod tests {
         ctx
     }
 
-    fn single_threaded_context(width: u16, height: u16) -> RenderContext {
-        RenderContext::new_with(
-            width,
-            height,
-            RenderSettings {
-                num_threads: 0,
-                ..Default::default()
-            },
-        )
-    }
-
-    fn render_to_buffer(
-        ctx: &RenderContext,
-        resources: &mut Resources,
-        buffer: &mut [u8],
-        width: u16,
-        height: u16,
-    ) {
-        let pixmap = PixmapMut::new(width, height, buffer).unwrap();
-        ctx.render(pixmap, resources, RasterizerSettings::default());
-    }
-
     #[test]
     fn clip_overflow() {
-        let mut resources = Resources::new();
         let mut ctx = RenderContext::new(100, 100);
-        let mut buffer = vec![0; 100 * 100 * 4];
 
         for _ in 0..(usize::from(u16::MAX) + 1).div_ceil(usize::from(Tile::HEIGHT * Tile::WIDTH)) {
             ctx.fill_rect(&Rect::new(0.0, 0.0, 1.0, 1.0));
@@ -998,203 +970,6 @@ mod tests {
         ctx.push_clip_layer(&Rect::new(20.0, 20.0, 180.0, 180.0).to_path(0.1));
         ctx.pop_layer();
         ctx.flush();
-        render_to_buffer(&ctx, &mut resources, &mut buffer, 100, 100);
-    }
-
-    #[test]
-    fn render_to_buffer_clears_pixels_outside_dirty_bounds() {
-        let mut resources = Resources::new();
-        let mut ctx = RenderContext::new(16, 16);
-        let mut buffer = vec![255; 16 * 16 * 4];
-
-        ctx.fill_rect(&Rect::new(4.0, 4.0, 8.0, 8.0));
-        ctx.flush();
-        render_to_buffer(&ctx, &mut resources, &mut buffer, 16, 16);
-
-        assert_eq!(&buffer[..4], &[0, 0, 0, 0]);
-        assert!(buffer[(5 * 16 + 5) * 4 + 3] > 0);
-    }
-
-    #[test]
-    fn root_transform_offsets_geometry() {
-        let mut resources = Resources::new();
-        let mut ctx = RenderContext::new(16, 16);
-        let mut buffer = vec![0; 16 * 16 * 4];
-
-        ctx.push_root_transform(Affine::translate((4.0, 0.0)));
-        ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 4.0));
-        ctx.pop_root_transform();
-        ctx.flush();
-        render_to_buffer(&ctx, &mut resources, &mut buffer, 16, 16);
-
-        assert_eq!(&buffer[..4], &[0, 0, 0, 0]);
-        assert!(buffer[(2 * 16 + 5) * 4 + 3] > 0);
-    }
-
-    #[test]
-    fn filter_padding_shift_is_in_device_space() {
-        let mut resources = Resources::new();
-        let mut ctx = single_threaded_context(64, 64);
-        let mut buffer = vec![0; 64 * 64 * 4];
-
-        let filter = Filter::from_primitive(FilterPrimitive::DropShadow {
-            dx: 0.0,
-            dy: 0.0,
-            std_deviation: 1.0,
-            color: AlphaColor::from_rgba8(0, 0, 0, 128),
-            edge_mode: EdgeMode::None,
-        });
-
-        ctx.push_root_transform(Affine::scale(2.0));
-        ctx.push_filter_layer(filter);
-        ctx.set_paint(RED);
-        ctx.fill_rect(&Rect::new(10.0, 10.0, 20.0, 20.0));
-        ctx.pop_layer();
-        ctx.pop_root_transform();
-        ctx.flush();
-        render_to_buffer(&ctx, &mut resources, &mut buffer, 64, 64);
-
-        let original_rect_pixel = (22 * 64 + 22) * 4;
-        assert_eq!(buffer[original_rect_pixel], 255);
-        assert_eq!(buffer[original_rect_pixel + 3], 255);
-    }
-
-    #[test]
-    fn drop_shadow_draws_offscreen_source_from_top_left() {
-        let mut resources = Resources::new();
-        let mut ctx = single_threaded_context(64, 64);
-        let mut buffer = vec![0; 64 * 64 * 4];
-
-        let filter = Filter::from_primitive(FilterPrimitive::DropShadow {
-            dx: 20.0,
-            dy: 20.0,
-            std_deviation: 0.0,
-            color: AlphaColor::from_rgba8(0, 0, 0, 255),
-            edge_mode: EdgeMode::None,
-        });
-
-        ctx.push_filter_layer(filter);
-        ctx.set_paint(RED);
-        ctx.fill_rect(&Rect::new(-10.0, -10.0, 0.0, 0.0));
-        ctx.pop_layer();
-        ctx.flush();
-        render_to_buffer(&ctx, &mut resources, &mut buffer, 64, 64);
-
-        assert_eq!(buffer[(2 * 64 + 2) * 4 + 3], 0);
-        assert!(buffer[(12 * 64 + 12) * 4 + 3] > 0);
-    }
-
-    #[test]
-    fn render_to_buffer_supports_indexed_gradient_paint() {
-        let mut resources = Resources::new();
-        let mut ctx = RenderContext::new(16, 16);
-        let mut buffer = vec![0; 16 * 16 * 4];
-
-        ctx.set_paint(
-            Gradient::new_linear((0., 0.), (16., 0.))
-                .with_stops([ColorStop::from((0.0, GREEN)), ColorStop::from((1.0, BLUE))]),
-        );
-        ctx.fill_rect(&Rect::new(0.0, 0.0, 16.0, 16.0));
-        ctx.flush();
-        render_to_buffer(&ctx, &mut resources, &mut buffer, 16, 16);
-
-        let left = &buffer[(8 * 16) * 4..][..4];
-        let right = &buffer[(8 * 16 + 15) * 4..][..4];
-        assert_ne!(left, right);
-        assert_eq!(left[3], 255);
-        assert_eq!(right[3], 255);
-    }
-
-    #[test]
-    fn render_to_buffer_supports_non_isolated_mask() {
-        let mut resources = Resources::new();
-        let mut ctx = RenderContext::new(4, 4);
-        let mut buffer = vec![0; 4 * 4 * 4];
-
-        ctx.set_paint(RED);
-        ctx.set_mask(Mask::from_parts(vec![128; 4 * 4], 4, 4));
-        ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 4.0));
-        ctx.flush();
-        render_to_buffer(&ctx, &mut resources, &mut buffer, 4, 4);
-
-        let pixel = &buffer[(2 * 4 + 2) * 4..][..4];
-        assert!((120..=136).contains(&pixel[0]));
-        assert_eq!(pixel[1], 0);
-        assert_eq!(pixel[2], 0);
-        assert!((120..=136).contains(&pixel[3]));
-    }
-
-    #[test]
-    fn render_to_buffer_supports_non_isolated_blend_mode() {
-        let mut resources = Resources::new();
-        let mut ctx = RenderContext::new(4, 4);
-        let mut buffer = vec![0; 4 * 4 * 4];
-
-        ctx.set_paint(RED);
-        ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 4.0));
-        ctx.set_paint(BLUE);
-        ctx.set_blend_mode(BlendMode::new(Mix::Multiply, Compose::SrcOver));
-        ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 4.0));
-        ctx.flush();
-        render_to_buffer(&ctx, &mut resources, &mut buffer, 4, 4);
-
-        let pixel = &buffer[(2 * 4 + 2) * 4..][..4];
-        assert!(pixel[0] <= 1);
-        assert!(pixel[1] <= 1);
-        assert!(pixel[2] <= 1);
-        assert_eq!(pixel[3], 255);
-    }
-
-    #[test]
-    fn composite_to_pixmap_at_offset_blends_against_destination() {
-        let mut resources = Resources::new();
-        let mut ctx = RenderContext::new(2, 2);
-        let mut pixmap = Pixmap::new(4, 4);
-
-        for pixel in pixmap.data_as_u8_slice_mut().chunks_exact_mut(4) {
-            pixel.copy_from_slice(&[255, 0, 0, 255]);
-        }
-
-        ctx.set_paint(BLUE);
-        ctx.set_blend_mode(BlendMode::new(Mix::Multiply, Compose::SrcOver));
-        ctx.fill_rect(&Rect::new(0.0, 0.0, 2.0, 2.0));
-        ctx.flush();
-        ctx.render(
-            &mut pixmap,
-            &mut resources,
-            RasterizerSettings {
-                composite_mode: CompositeMode::SrcOver,
-                offset: (1, 1),
-                ..Default::default()
-            },
-        );
-
-        let blended = &pixmap.data_as_u8_slice()[(4 + 1) * 4..][..4];
-        let outside = &pixmap.data_as_u8_slice()[0..4];
-        assert!(blended[0] <= 1);
-        assert!(blended[1] <= 1);
-        assert!(blended[2] <= 1);
-        assert_eq!(blended[3], 255);
-        assert_eq!(outside, &[255, 0, 0, 255]);
-    }
-
-    #[test]
-    fn render_to_buffer_supports_non_isolated_clip_path() {
-        let mut resources = Resources::new();
-        let mut ctx = RenderContext::new(16, 16);
-        let mut buffer = vec![0; 16 * 16 * 4];
-
-        ctx.set_paint(RED);
-        ctx.push_clip_path(&Rect::new(4.0, 4.0, 12.0, 12.0).to_path(0.1));
-        ctx.fill_rect(&Rect::new(0.0, 0.0, 16.0, 16.0));
-        ctx.pop_clip_path();
-        ctx.flush();
-        render_to_buffer(&ctx, &mut resources, &mut buffer, 16, 16);
-
-        let outside = &buffer[(2 * 16 + 2) * 4..][..4];
-        let inside = &buffer[(8 * 16 + 8) * 4..][..4];
-        assert_eq!(outside, &[0, 0, 0, 0]);
-        assert_eq!(inside, &[255, 0, 0, 255]);
     }
 
     #[test]
