@@ -4,6 +4,8 @@
 //! Splitting a single mutable buffer into regions that can be accessed concurrently.
 
 use crate::fine::COLOR_COMPONENTS;
+use vello_common::geometry::RectU16;
+use vello_common::pixmap::PixmapMut;
 use vello_common::tile::Tile;
 
 /// A rectangular row-major view into a pixmap.
@@ -19,44 +21,24 @@ pub struct Region<'a> {
 }
 
 impl<'a> Region<'a> {
-    pub(crate) fn new(
-        areas: [&'a mut [u8]; Tile::HEIGHT as usize],
-        width: u16,
-        height: u16,
-    ) -> Self {
-        Self {
-            areas,
-            width,
-            height,
+    pub(crate) fn new(pixmap: &'a mut PixmapMut<'_>, rect: RectU16) -> Option<Self> {
+        let pixmap_bounds = RectU16::new(0, 0, pixmap.width(), pixmap.height());
+        let rect = rect.intersect(pixmap_bounds);
+        if rect.is_empty() {
+            return None;
         }
-    }
 
-    pub(crate) fn from_buffer_at(
-        buffer: &'a mut [u8],
-        x: u16,
-        y: u16,
-        width: u16,
-        height: u16,
-        buffer_width: u16,
-    ) -> Option<Self> {
-        let row_stride = usize::from(buffer_width) * COLOR_COMPONENTS;
+        let row_stride = usize::from(pixmap.width()) * COLOR_COMPONENTS;
         if row_stride == 0 {
             return None;
         }
 
-        let buffer_height = buffer.len() / row_stride;
-        if usize::from(x) >= usize::from(buffer_width) || usize::from(y) >= buffer_height {
-            return None;
-        }
-
-        let width = width.min(buffer_width - x);
-        let height = height.min(u16::try_from(buffer_height - usize::from(y)).unwrap_or(u16::MAX));
-        if width == 0 || height == 0 {
-            return None;
-        }
-
-        let start_offset = usize::from(y) * row_stride + usize::from(x) * COLOR_COMPONENTS;
+        let width = rect.width();
+        let height = rect.height().min(Tile::HEIGHT);
+        let start_offset =
+            usize::from(rect.y0) * row_stride + usize::from(rect.x0) * COLOR_COMPONENTS;
         let row_width_bytes = usize::from(width) * COLOR_COMPONENTS;
+        let buffer = pixmap.data_mut();
         let mut remaining = &mut buffer[start_offset..];
         let mut areas: [&mut [u8]; Tile::HEIGHT as usize] = [&mut [], &mut [], &mut [], &mut []];
 
@@ -67,7 +49,11 @@ impl<'a> Region<'a> {
             remaining = &mut rest[skip..];
         }
 
-        Some(Self::new(areas, width, height))
+        Some(Self {
+            areas,
+            width,
+            height,
+        })
     }
 
     pub(crate) fn row_mut(&mut self, y: u16) -> &mut [u8] {

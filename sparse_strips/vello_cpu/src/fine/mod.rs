@@ -35,6 +35,7 @@ use vello_common::fearless_simd::{
     u32x8,
 };
 use vello_common::filter_effects::Filter;
+use vello_common::geometry::RectU16;
 use vello_common::kurbo::Affine;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, ImageSource, Paint, PremulColor, Tint};
@@ -472,7 +473,6 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
 #[doc(hidden)]
 pub struct Fine<S: Simd, T: FineKernel<S>> {
     simd: S,
-    out_width: u16,
     buffer_width: u16,
     buffers: Vec<Vec<T::Numeric>>,
     buffer_pool: Vec<Vec<T::Numeric>>,
@@ -485,11 +485,10 @@ pub struct Fine<S: Simd, T: FineKernel<S>> {
 
 impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     #[doc(hidden)]
-    pub fn new(simd: S, out_width: u16, buffer_width: u16) -> Self {
+    pub fn new(simd: S, _out_width: u16, buffer_width: u16) -> Self {
         let scratch_len = usize::from(buffer_width) * TILE_HEIGHT_COMPONENTS;
         Self {
             simd,
-            out_width,
             buffer_width,
             buffers: vec![vec![T::Numeric::ZERO; scratch_len]],
             buffer_pool: Vec::new(),
@@ -1076,14 +1075,21 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     }
 
     #[doc(hidden)]
-    pub fn pack(&self, row_idx: usize, row_height: usize, x: u16, width: u16, buffer: &mut [u8]) {
+    pub fn pack(
+        &self,
+        row_idx: usize,
+        row_height: usize,
+        x: u16,
+        width: u16,
+        target: &mut PixmapMut<'_>,
+    ) {
         self.pack_at(
             row_idx as u16 * Tile::HEIGHT,
             row_height,
             x,
             x,
             width,
-            buffer,
+            target,
         );
     }
 
@@ -1095,7 +1101,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         scratch_x: u16,
         dst_x: u16,
         width: u16,
-        buffer: &mut [u8],
+        target: &mut PixmapMut<'_>,
     ) {
         let scratch_x = usize::from(scratch_x);
         let dst_x = usize::from(dst_x);
@@ -1110,14 +1116,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         };
 
         if scratch_x < block_start {
-            if let Some(mut region) = Region::from_buffer_at(
-                buffer,
-                dst_x as u16,
-                dst_y,
-                (block_start - scratch_x) as u16,
-                row_height as u16,
-                self.out_width,
-            ) {
+            let rect = row_rect(dst_x, dst_y, block_start - scratch_x, row_height);
+            if let Some(mut region) = Region::new(target, rect) {
                 T::pack_tail(
                     &scratch[scratch_x * TILE_HEIGHT_COMPONENTS..],
                     block_start - scratch_x,
@@ -1133,14 +1133,13 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         };
 
         if block_width > 0 {
-            if let Some(mut region) = Region::from_buffer_at(
-                buffer,
-                (dst_x + (block_start - scratch_x)) as u16,
+            let rect = row_rect(
+                dst_x + (block_start - scratch_x),
                 dst_y,
-                block_width as u16,
-                row_height as u16,
-                self.out_width,
-            ) {
+                block_width,
+                row_height,
+            );
+            if let Some(mut region) = Region::new(target, rect) {
                 T::pack_block(
                     self.simd,
                     &scratch[block_start * TILE_HEIGHT_COMPONENTS..],
@@ -1152,14 +1151,13 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
         let tail_start = block_start + block_width;
         if tail_start < end {
-            if let Some(mut region) = Region::from_buffer_at(
-                buffer,
-                (dst_x + (tail_start - scratch_x)) as u16,
+            let rect = row_rect(
+                dst_x + (tail_start - scratch_x),
                 dst_y,
-                (end - tail_start) as u16,
-                row_height as u16,
-                self.out_width,
-            ) {
+                end - tail_start,
+                row_height,
+            );
+            if let Some(mut region) = Region::new(target, rect) {
                 T::pack_tail(
                     &scratch[tail_start * TILE_HEIGHT_COMPONENTS..],
                     end - tail_start,
@@ -1177,7 +1175,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         src_x: u16,
         scratch_x: u16,
         width: u16,
-        buffer: &mut [u8],
+        target: &mut PixmapMut<'_>,
     ) {
         let src_x = usize::from(src_x);
         let scratch_x = usize::from(scratch_x);
@@ -1192,14 +1190,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         };
 
         if scratch_x < block_start {
-            if let Some(mut region) = Region::from_buffer_at(
-                buffer,
-                src_x as u16,
-                src_y,
-                (block_start - scratch_x) as u16,
-                row_height as u16,
-                self.out_width,
-            ) {
+            let rect = row_rect(src_x, src_y, block_start - scratch_x, row_height);
+            if let Some(mut region) = Region::new(target, rect) {
                 T::unpack_tail(
                     &mut region,
                     block_start - scratch_x,
@@ -1215,14 +1207,13 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         };
 
         if block_width > 0 {
-            if let Some(mut region) = Region::from_buffer_at(
-                buffer,
-                (src_x + (block_start - scratch_x)) as u16,
+            let rect = row_rect(
+                src_x + (block_start - scratch_x),
                 src_y,
-                block_width as u16,
-                row_height as u16,
-                self.out_width,
-            ) {
+                block_width,
+                row_height,
+            );
+            if let Some(mut region) = Region::new(target, rect) {
                 T::unpack_block(
                     self.simd,
                     &mut region,
@@ -1234,14 +1225,13 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
         let tail_start = block_start + block_width;
         if tail_start < end {
-            if let Some(mut region) = Region::from_buffer_at(
-                buffer,
-                (src_x + (tail_start - scratch_x)) as u16,
+            let rect = row_rect(
+                src_x + (tail_start - scratch_x),
                 src_y,
-                (end - tail_start) as u16,
-                row_height as u16,
-                self.out_width,
-            ) {
+                end - tail_start,
+                row_height,
+            );
+            if let Some(mut region) = Region::new(target, rect) {
                 T::unpack_tail(
                     &mut region,
                     end - tail_start,
@@ -1250,6 +1240,13 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             }
         }
     }
+}
+
+fn row_rect(x: usize, y: u16, width: usize, height: usize) -> RectU16 {
+    let x0 = u16::try_from(x).unwrap_or(u16::MAX);
+    let width = u16::try_from(width).unwrap_or(u16::MAX);
+    let height = u16::try_from(height).unwrap_or(u16::MAX);
+    RectU16::new(x0, y, x0.saturating_add(width), y.saturating_add(height))
 }
 
 #[cfg(test)]
@@ -1561,7 +1558,7 @@ pub(crate) fn rasterize_at_offset_parallel<S: Simd, T: FineKernel<S>>(
     struct RowBand<'a> {
         row_idx: usize,
         row_height: u16,
-        buffer: &'a mut [u8],
+        target: PixmapMut<'a>,
     }
 
     let stride = usize::from(target_width) * COLOR_COMPONENTS;
@@ -1578,11 +1575,12 @@ pub(crate) fn rasterize_at_offset_parallel<S: Simd, T: FineKernel<S>>(
         let row_y = row_idx as u16 * Tile::HEIGHT;
         let row_height = (height - row_y).min(Tile::HEIGHT);
         let band_len = usize::from(row_height) * stride;
-        let (band, rest) = remaining.split_at_mut(band_len);
+        let (buffer, rest) = remaining.split_at_mut(band_len);
         bands.push(RowBand {
             row_idx,
             row_height,
-            buffer: band,
+            target: PixmapMut::new(target_width, row_height, buffer)
+                .expect("row band has the expected pixmap dimensions"),
         });
         remaining = rest;
     }
@@ -1597,7 +1595,7 @@ pub(crate) fn rasterize_at_offset_parallel<S: Simd, T: FineKernel<S>>(
             row_y,
             alpha_buffers,
             filter_layers,
-            &mut *band.buffer,
+            &mut band.target,
             width,
             band.row_height,
             dst_x,
@@ -1626,7 +1624,6 @@ fn rasterize_rows<S: Simd, T: FineKernel<S>>(
     let (width, height) = scene_size.unwrap_or((target.width(), target.height()));
     let width = width.min(target.width().saturating_sub(dst_x));
     let height = height.min(target.height().saturating_sub(dst_y));
-    let buffer = target.data_mut();
 
     for (row_idx, row) in bucketer.rows().iter().enumerate() {
         let row_y = row_idx as u16 * Tile::HEIGHT;
@@ -1641,7 +1638,7 @@ fn rasterize_rows<S: Simd, T: FineKernel<S>>(
             row_y,
             alpha_buffers,
             filter_layers,
-            buffer,
+            &mut target,
             width,
             row_height,
             dst_x,
@@ -1660,7 +1657,7 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
     row_y: u16,
     alpha_buffers: &[&[u8]],
     filter_layers: &[Option<RenderedFilterLayer>],
-    buffer: &mut [u8],
+    target: &mut PixmapMut<'_>,
     width: u16,
     row_height: u16,
     dst_x: u16,
@@ -1689,7 +1686,7 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
             dst_x + row_start,
             row_start,
             row_end - row_start,
-            buffer,
+            target,
         );
     }
 
@@ -1755,7 +1752,7 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
             pack_start,
             dst_x + pack_start,
             pack_end - pack_start,
-            buffer,
+            target,
         );
     }
 }
