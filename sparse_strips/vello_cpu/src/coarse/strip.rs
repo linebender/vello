@@ -1,6 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use super::DEPTH_BUCKET_WIDTH;
 use super::bucketer::CommandBucketer;
 use super::cmd::{AlphaFillCmd, FillAttrs, FillCmd, FineCmd, GeneratedAlphaFill, GeneratedFill};
 use crate::peniko::BlendMode;
@@ -9,8 +10,6 @@ use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 use vello_common::strip::Strip;
 use vello_common::tile::Tile;
-
-const DEPTH_BUCKET_WIDTH: u16 = 32;
 
 impl CommandBucketer {
     pub(crate) fn generate_fill(
@@ -225,6 +224,7 @@ fn paint_is_opaque(paint: &Paint, encoded_paints: &[EncodedPaint]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::CommandBucketer;
+    use super::DEPTH_BUCKET_WIDTH;
     use crate::coarse::cmd::FineCmd;
     use crate::coarse::layer::LayerClip;
     use alloc::vec::Vec;
@@ -243,8 +243,9 @@ mod tests {
 
     #[test]
     fn opaque_fill_splits_to_aligned_middle() {
-        let mut bucketer = CommandBucketer::new(128, 4);
-        let strips = [Strip::new(3, 0, 0, false), Strip::new(100, 0, 0, true)];
+        let end = DEPTH_BUCKET_WIDTH * 3 + 4;
+        let mut bucketer = CommandBucketer::new(DEPTH_BUCKET_WIDTH * 4, 4);
+        let strips = [Strip::new(3, 0, 0, false), Strip::new(end, 0, 0, true)];
 
         bucketer.generate_fill(
             &strips,
@@ -258,17 +259,22 @@ mod tests {
 
         let row = &bucketer.rows()[0];
         assert_eq!(row.opaque.len(), 1);
-        assert_eq!(row.opaque[0].x, 32);
-        assert_eq!(row.opaque[0].width, 64);
+        assert_eq!(row.opaque[0].x, DEPTH_BUCKET_WIDTH);
+        assert_eq!(row.opaque[0].width, DEPTH_BUCKET_WIDTH * 2);
         assert_eq!(row.cmds.len(), 2);
-        assert!(matches!(row.cmds[0], FineCmd::Fill(cmd) if cmd.x == 3 && cmd.width == 29));
-        assert!(matches!(row.cmds[1], FineCmd::Fill(cmd) if cmd.x == 96 && cmd.width == 4));
+        assert!(
+            matches!(row.cmds[0], FineCmd::Fill(cmd) if cmd.x == 3 && cmd.width == DEPTH_BUCKET_WIDTH - 3)
+        );
+        assert!(
+            matches!(row.cmds[1], FineCmd::Fill(cmd) if cmd.x == DEPTH_BUCKET_WIDTH * 3 && cmd.width == 4)
+        );
     }
 
     #[test]
     fn opaque_indexed_fill_splits_to_aligned_middle() {
-        let mut bucketer = CommandBucketer::new(128, 4);
-        let strips = [Strip::new(3, 0, 0, false), Strip::new(100, 0, 0, true)];
+        let end = DEPTH_BUCKET_WIDTH * 3 + 4;
+        let mut bucketer = CommandBucketer::new(DEPTH_BUCKET_WIDTH * 4, 4);
+        let strips = [Strip::new(3, 0, 0, false), Strip::new(end, 0, 0, true)];
         let mut encoded_paints = Vec::new();
         let paint = Gradient::new_linear((0., 0.), (128., 0.))
             .with_stops([ColorStop::from((0.0, RED)), ColorStop::from((1.0, BLUE))])
@@ -286,11 +292,15 @@ mod tests {
 
         let row = &bucketer.rows()[0];
         assert_eq!(row.opaque.len(), 1);
-        assert_eq!(row.opaque[0].x, 32);
-        assert_eq!(row.opaque[0].width, 64);
+        assert_eq!(row.opaque[0].x, DEPTH_BUCKET_WIDTH);
+        assert_eq!(row.opaque[0].width, DEPTH_BUCKET_WIDTH * 2);
         assert_eq!(row.cmds.len(), 2);
-        assert!(matches!(row.cmds[0], FineCmd::Fill(cmd) if cmd.x == 3 && cmd.width == 29));
-        assert!(matches!(row.cmds[1], FineCmd::Fill(cmd) if cmd.x == 96 && cmd.width == 4));
+        assert!(
+            matches!(row.cmds[0], FineCmd::Fill(cmd) if cmd.x == 3 && cmd.width == DEPTH_BUCKET_WIDTH - 3)
+        );
+        assert!(
+            matches!(row.cmds[1], FineCmd::Fill(cmd) if cmd.x == DEPTH_BUCKET_WIDTH * 3 && cmd.width == 4)
+        );
     }
 
     #[test]

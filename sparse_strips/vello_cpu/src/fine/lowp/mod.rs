@@ -311,7 +311,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
     }
 
     fn pack_tail(scratch: &[Self::Numeric], width: usize, region: &mut Region<'_>) {
-        for y in 0..region.height() {
+        for y in 0..region.height {
             let row = &mut region.row_mut(y)[..width * COLOR_COMPONENTS];
             for (dx, pixel) in row.chunks_exact_mut(COLOR_COMPONENTS).enumerate() {
                 let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * dx + usize::from(y));
@@ -330,7 +330,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
     }
 
     fn unpack_tail(region: &mut Region<'_>, width: usize, scratch: &mut [Self::Numeric]) {
-        for y in 0..region.height() {
+        for y in 0..region.height {
             let row = &region.row_mut(y)[..width * COLOR_COMPONENTS];
             for (dx, pixel) in row.chunks_exact(COLOR_COMPONENTS).enumerate() {
                 let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * dx + usize::from(y));

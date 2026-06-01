@@ -11,7 +11,7 @@ use vello_common::tile::Tile;
 /// A view into a single part of a single strip row of a pixmap.
 #[derive(Default, Debug)]
 pub struct Region<'a> {
-    pub width: u16,
+    pub(crate) height: u16,
     areas: [&'a mut [u8]; Tile::HEIGHT as usize],
 }
 
@@ -44,11 +44,10 @@ impl<'a> Region<'a> {
             remaining = &mut rest[skip..];
         }
 
-        Some(Self { areas, width })
-    }
-
-    pub(crate) fn height(&self) -> u16 {
-        self.areas.len() as u16
+        Some(Self {
+            areas,
+            height,
+        })
     }
 
     pub(crate) fn row_mut(&mut self, y: u16) -> &mut [u8] {

@@ -12,7 +12,9 @@ mod highp;
 mod lowp;
 
 use crate::FilterScratch;
-use crate::coarse::{CommandBucketer, FillAttrs, FillCmd, FilterLayerAttrs, FineCmd};
+use crate::coarse::{
+    CommandBucketer, DEPTH_BUCKET_WIDTH, FillAttrs, FillCmd, FilterLayerAttrs, FineCmd,
+};
 use crate::fine::common::gradient::GradientPainter;
 pub(crate) use crate::fine::common::gradient::calculate_t_vals;
 pub(crate) use crate::fine::common::gradient::linear::SimdLinearKind;
@@ -49,7 +51,6 @@ pub use lowp::U8Kernel;
 
 /// Offset to shift from pixel corner to pixel center for sampling.
 const PIXEL_CENTER_OFFSET: f64 = 0.5;
-const DEPTH_BUCKET_WIDTH: u16 = 32;
 
 /// Number of color components per pixel (RGBA).
 pub(crate) const COLOR_COMPONENTS: usize = 4;
