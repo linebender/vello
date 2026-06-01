@@ -38,7 +38,7 @@ use vello_common::filter_effects::Filter;
 use vello_common::kurbo::Affine;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, ImageSource, Paint, PremulColor, Tint};
-use vello_common::pixmap::Pixmap;
+use vello_common::pixmap::{Pixmap, PixmapMut};
 use vello_common::simd::Splat4thExt;
 use vello_common::tile::Tile;
 use vello_common::util::f32_to_u8;
@@ -1493,13 +1493,14 @@ pub(crate) fn rasterize<S: Simd, T: FineKernel<S>>(
     bucketer: &CommandBucketer,
     alpha_buffers: &[&[u8]],
     filter_layers: &[Option<RenderedFilterLayer>],
-    buffer: &mut [u8],
-    width: u16,
-    height: u16,
+    mut target: PixmapMut<'_>,
     encoded_paints: &[EncodedPaint],
     image_resolver: &dyn ImageResolver,
 ) {
+    let width = target.width();
+    let height = target.height();
     let mut fine = Fine::<S, T>::new(simd, width, bucketer.width());
+    let buffer = target.data_mut();
     buffer.fill(0);
     rasterize_rows::<S, T>(
         &mut fine,
@@ -1522,17 +1523,17 @@ pub(crate) fn rasterize_at_offset<S: Simd, T: FineKernel<S>>(
     bucketer: &CommandBucketer,
     alpha_buffers: &[&[u8]],
     filter_layers: &[Option<RenderedFilterLayer>],
-    buffer: &mut [u8],
+    mut target: PixmapMut<'_>,
     width: u16,
     height: u16,
     dst_x: u16,
     dst_y: u16,
-    dst_width: u16,
-    dst_height: u16,
     unpack_dest: bool,
     encoded_paints: &[EncodedPaint],
     image_resolver: &dyn ImageResolver,
 ) {
+    let dst_width = target.width();
+    let dst_height = target.height();
     if dst_x >= dst_width || dst_y >= dst_height {
         return;
     }
@@ -1540,6 +1541,7 @@ pub(crate) fn rasterize_at_offset<S: Simd, T: FineKernel<S>>(
     let width = width.min(dst_width - dst_x);
     let height = height.min(dst_height - dst_y);
     let mut fine = Fine::<S, T>::new(simd, dst_width, bucketer.width());
+    let buffer = target.data_mut();
     rasterize_rows::<S, T>(
         &mut fine,
         bucketer,

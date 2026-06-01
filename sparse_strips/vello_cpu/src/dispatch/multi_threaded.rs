@@ -406,7 +406,7 @@ impl MultiThreadedDispatcher {
     fn rasterize_with<S: Simd, F: FineKernel<S>>(
         &self,
         simd: S,
-        mut target: PixmapMut<'_>,
+        target: PixmapMut<'_>,
         scene_width: u16,
         scene_height: u16,
         settings: RasterizerSettings,
@@ -451,8 +451,6 @@ impl MultiThreadedDispatcher {
         let alpha_slots = self.alpha_storage.take();
         {
             let alpha_buffers = alpha_slots.iter().map(Vec::as_slice).collect::<Vec<_>>();
-            let target_width = target.width();
-            let target_height = target.height();
             let unpack_dest = settings.composite_mode == CompositeMode::SrcOver;
 
             if settings.offset == (0, 0) && !unpack_dest {
@@ -461,9 +459,7 @@ impl MultiThreadedDispatcher {
                     &bucketer,
                     &alpha_buffers,
                     &[],
-                    target.data_mut(),
-                    target_width,
-                    target_height,
+                    target,
                     encoded_paints,
                     image_resolver,
                 );
@@ -473,13 +469,11 @@ impl MultiThreadedDispatcher {
                     &bucketer,
                     &alpha_buffers,
                     &[],
-                    target.data_mut(),
+                    target,
                     scene_width,
                     scene_height,
                     settings.offset.0,
                     settings.offset.1,
-                    target_width,
-                    target_height,
                     unpack_dest,
                     encoded_paints,
                     image_resolver,

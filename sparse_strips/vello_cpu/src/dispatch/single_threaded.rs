@@ -8,7 +8,6 @@ use crate::kurbo::{Affine, BezPath, PathEl, Rect, Stroke};
 use crate::layer_manager::LayerManager;
 use crate::peniko::{BlendMode, Fill};
 use crate::{CompositeMode, RasterizerSettings};
-use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use vello_common::clip::ClipContext;
@@ -208,7 +207,7 @@ impl SingleThreadedDispatcher {
     fn rasterize_with<S: Simd, F: FineKernel<S>>(
         &self,
         simd: S,
-        mut target: PixmapMut<'_>,
+        target: PixmapMut<'_>,
         scene_width: u16,
         scene_height: u16,
         settings: RasterizerSettings,
@@ -219,8 +218,6 @@ impl SingleThreadedDispatcher {
         let mut bucketer = self.bucketer.borrow_mut();
         self.replay_commands(&self.cmds, &mut bucketer, encoded_paints, (0, 0));
 
-        let target_width = target.width();
-        let target_height = target.height();
         let unpack_dest = settings.composite_mode == CompositeMode::SrcOver;
         let alpha_buffers = &[self.strip_storage.alphas.as_slice()];
 
@@ -230,9 +227,7 @@ impl SingleThreadedDispatcher {
                 &bucketer,
                 alpha_buffers,
                 &filter_layers,
-                target.data_mut(),
-                target_width,
-                target_height,
+                target,
                 encoded_paints,
                 image_resolver,
             );
@@ -242,13 +237,11 @@ impl SingleThreadedDispatcher {
                 &bucketer,
                 alpha_buffers,
                 &filter_layers,
-                target.data_mut(),
+                target,
                 scene_width,
                 scene_height,
                 settings.offset.0,
                 settings.offset.1,
-                target_width,
-                target_height,
                 unpack_dest,
                 encoded_paints,
                 image_resolver,
@@ -296,7 +289,7 @@ impl SingleThreadedDispatcher {
 
             let width = layer.bbox.width();
             let height = layer.bbox.height();
-            let mut data = vec![0; usize::from(width) * usize::from(height) * 4];
+            let mut pixmap = Pixmap::new(width, height);
             let mut bucketer = CommandBucketer::new(width, height);
             self.replay_commands(
                 &layer.cmds,
@@ -309,15 +302,11 @@ impl SingleThreadedDispatcher {
                 &bucketer,
                 &[self.strip_storage.alphas.as_slice()],
                 &rendered,
-                &mut data,
-                width,
-                height,
+                (&mut pixmap).into(),
                 encoded_paints,
                 image_resolver,
             );
 
-            let mut pixmap = Pixmap::new(width, height);
-            pixmap.data_as_u8_slice_mut().copy_from_slice(&data);
             let mut layer_manager = LayerManager::new();
             F::filter_layer(
                 &mut pixmap,

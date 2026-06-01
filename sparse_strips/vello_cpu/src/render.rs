@@ -275,12 +275,10 @@ impl RenderContext {
         self.effective_transform() * self.state.paint_transform
     }
 
-    #[allow(dead_code, reason = "used by filter layer recording prototype")]
     pub(crate) fn push_root_transform(&mut self, transform: Affine) {
         self.root_transforms.push(transform);
     }
 
-    #[allow(dead_code, reason = "used by filter layer recording prototype")]
     pub(crate) fn pop_root_transform(&mut self) {
         assert!(
             self.root_transforms.len() > 1,

@@ -15,10 +15,6 @@ pub(crate) enum Cmd {
     Mask(Mask),
     BlendFill(BlendFillCmd),
     FilterLayer(FilterLayerCmd),
-    #[allow(
-        dead_code,
-        reason = "will be used once layer clip alphas are emitted as row commands"
-    )]
     BlendAlphaFill(BlendAlphaFillCmd),
 }
 
