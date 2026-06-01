@@ -77,9 +77,17 @@ pub(crate) fn replay_render_commands(
                 clip,
             } => {
                 let bbox = translate_bbox(*bbox, origin);
-                bucketer.push_layer(*blend_mode, *opacity, mask.clone(), clip.clone());
+                let needs_layer = *blend_mode != BlendMode::default()
+                    || *opacity != 1.0
+                    || mask.is_some()
+                    || clip.is_some();
+                if needs_layer {
+                    bucketer.push_layer(*blend_mode, *opacity, mask.clone(), clip.clone());
+                }
                 bucketer.generate_filter_layer(*layer_id, bbox, (*src_x, *src_y));
-                bucketer.pop_layer(strips);
+                if needs_layer {
+                    bucketer.pop_layer(strips);
+                }
             }
             RenderCmd::PopLayer => bucketer.pop_layer(strips),
         }
