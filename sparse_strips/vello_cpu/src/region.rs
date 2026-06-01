@@ -8,11 +8,11 @@ use vello_common::coarse::WideTile;
 use vello_common::pixmap::Pixmap;
 use vello_common::tile::Tile;
 
-/// A rectangular region containing the pixels from one wide tile.
+/// A rectangular row-major view into a pixmap.
 ///
-/// For wide tiles at the right/bottom edge, it might contain less pixels
-/// than the actual wide tile, if the pixmap width/height isn't a multiple of the
-/// tile width/height.
+/// Most callers create regions only for the row span they are about to pack or
+/// unpack. The region can be narrower than a wide tile and can also be shorter
+/// than [`Tile::HEIGHT`] at the bottom edge.
 #[derive(Default, Debug)]
 pub struct Region<'a> {
     pub width: u16,

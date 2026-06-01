@@ -10,3 +10,4 @@ mod strip;
 pub(crate) use bucketer::CommandBucketer;
 pub(crate) use cmd::{Cmd, FillAttrs, FillCmd, FilterLayerCmd};
 pub(crate) use layer::LayerClip;
+pub(crate) use row::RowCommands;

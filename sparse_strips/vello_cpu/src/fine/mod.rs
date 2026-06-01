@@ -1498,18 +1498,15 @@ pub(crate) fn rasterize<S: Simd, T: FineKernel<S>>(
     image_resolver: &dyn ImageResolver,
 ) {
     let width = target.width();
-    let height = target.height();
     let mut fine = Fine::<S, T>::new(simd, width, bucketer.width());
-    let buffer = target.data_mut();
-    buffer.fill(0);
+    target.data_mut().fill(0);
     rasterize_rows::<S, T>(
         &mut fine,
         bucketer,
         alpha_buffers,
         filter_layers,
-        buffer,
-        width,
-        height,
+        target,
+        None,
         0,
         0,
         false,
@@ -1523,6 +1520,70 @@ pub(crate) fn rasterize_at_offset<S: Simd, T: FineKernel<S>>(
     bucketer: &CommandBucketer,
     alpha_buffers: &[&[u8]],
     filter_layers: &[Option<RenderedFilterLayer>],
+    target: PixmapMut<'_>,
+    width: u16,
+    height: u16,
+    dst_x: u16,
+    dst_y: u16,
+    unpack_dest: bool,
+    encoded_paints: &[EncodedPaint],
+    image_resolver: &dyn ImageResolver,
+) {
+    if dst_x >= target.width() || dst_y >= target.height() {
+        return;
+    }
+
+    let mut fine = Fine::<S, T>::new(simd, target.width(), bucketer.width());
+    rasterize_rows::<S, T>(
+        &mut fine,
+        bucketer,
+        alpha_buffers,
+        filter_layers,
+        target,
+        Some((width, height)),
+        dst_x,
+        dst_y,
+        unpack_dest,
+        encoded_paints,
+        image_resolver,
+    );
+}
+
+#[cfg(feature = "multithreading")]
+pub(crate) fn rasterize_parallel<S: Simd, T: FineKernel<S>>(
+    simd: S,
+    bucketer: &CommandBucketer,
+    alpha_buffers: &[&[u8]],
+    filter_layers: &[Option<RenderedFilterLayer>],
+    mut target: PixmapMut<'_>,
+    encoded_paints: &[EncodedPaint],
+    image_resolver: &dyn ImageResolver,
+) {
+    let width = target.width();
+    let height = target.height();
+    target.data_mut().fill(0);
+    rasterize_at_offset_parallel::<S, T>(
+        simd,
+        bucketer,
+        alpha_buffers,
+        filter_layers,
+        target,
+        width,
+        height,
+        0,
+        0,
+        false,
+        encoded_paints,
+        image_resolver,
+    );
+}
+
+#[cfg(feature = "multithreading")]
+pub(crate) fn rasterize_at_offset_parallel<S: Simd, T: FineKernel<S>>(
+    simd: S,
+    bucketer: &CommandBucketer,
+    alpha_buffers: &[&[u8]],
+    filter_layers: &[Option<RenderedFilterLayer>],
     mut target: PixmapMut<'_>,
     width: u16,
     height: u16,
@@ -1532,30 +1593,69 @@ pub(crate) fn rasterize_at_offset<S: Simd, T: FineKernel<S>>(
     encoded_paints: &[EncodedPaint],
     image_resolver: &dyn ImageResolver,
 ) {
-    let dst_width = target.width();
-    let dst_height = target.height();
-    if dst_x >= dst_width || dst_y >= dst_height {
+    use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+
+    if dst_x >= target.width() || dst_y >= target.height() {
         return;
     }
 
-    let width = width.min(dst_width - dst_x);
-    let height = height.min(dst_height - dst_y);
-    let mut fine = Fine::<S, T>::new(simd, dst_width, bucketer.width());
-    let buffer = target.data_mut();
-    rasterize_rows::<S, T>(
-        &mut fine,
-        bucketer,
-        alpha_buffers,
-        filter_layers,
-        buffer,
-        width,
-        height,
-        dst_x,
-        dst_y,
-        unpack_dest,
-        encoded_paints,
-        image_resolver,
-    );
+    let target_width = target.width();
+    let width = width.min(target_width.saturating_sub(dst_x));
+    let height = height.min(target.height().saturating_sub(dst_y));
+    if width == 0 || height == 0 {
+        return;
+    }
+
+    struct RowBand<'a> {
+        row_idx: usize,
+        row_height: u16,
+        buffer: &'a mut [u8],
+    }
+
+    let stride = usize::from(target_width) * COLOR_COMPONENTS;
+    let render_bytes = usize::from(height) * stride;
+    let buffer = &mut target.data_mut()[usize::from(dst_y) * stride..][..render_bytes];
+    let row_count = bucketer
+        .rows()
+        .len()
+        .min(usize::from(height).div_ceil(Tile::HEIGHT as usize));
+    let mut remaining = buffer;
+    let mut bands = Vec::with_capacity(row_count);
+
+    for row_idx in 0..row_count {
+        let row_y = row_idx as u16 * Tile::HEIGHT;
+        let row_height = (height - row_y).min(Tile::HEIGHT);
+        let band_len = usize::from(row_height) * stride;
+        let (band, rest) = remaining.split_at_mut(band_len);
+        bands.push(RowBand {
+            row_idx,
+            row_height,
+            buffer: band,
+        });
+        remaining = rest;
+    }
+
+    bands.par_iter_mut().for_each(|band| {
+        let row_y = band.row_idx as u16 * Tile::HEIGHT;
+        let row = &bucketer.rows()[band.row_idx];
+        let mut fine = Fine::<S, T>::new(simd, target_width, bucketer.width());
+        rasterize_row::<S, T>(
+            &mut fine,
+            row,
+            row_y,
+            alpha_buffers,
+            filter_layers,
+            &mut *band.buffer,
+            width,
+            band.row_height,
+            dst_x,
+            0,
+            unpack_dest,
+            encoded_paints,
+            image_resolver,
+            bucketer,
+        );
+    });
 }
 
 fn rasterize_rows<S: Simd, T: FineKernel<S>>(
@@ -1563,110 +1663,148 @@ fn rasterize_rows<S: Simd, T: FineKernel<S>>(
     bucketer: &CommandBucketer,
     alpha_buffers: &[&[u8]],
     filter_layers: &[Option<RenderedFilterLayer>],
-    buffer: &mut [u8],
-    width: u16,
-    height: u16,
+    mut target: PixmapMut<'_>,
+    scene_size: Option<(u16, u16)>,
     dst_x: u16,
     dst_y: u16,
     unpack_dest: bool,
     encoded_paints: &[EncodedPaint],
     image_resolver: &dyn ImageResolver,
 ) {
+    let (width, height) = scene_size.unwrap_or((target.width(), target.height()));
+    let width = width.min(target.width().saturating_sub(dst_x));
+    let height = height.min(target.height().saturating_sub(dst_y));
+    let buffer = target.data_mut();
+
     for (row_idx, row) in bucketer.rows().iter().enumerate() {
         let row_y = row_idx as u16 * Tile::HEIGHT;
         if row_y >= height {
             break;
         }
 
-        let row_height = usize::from((height - row_y).min(Tile::HEIGHT));
-        let Some((mut row_start, mut row_end)) = row.bounds() else {
-            continue;
-        };
-        row_start = row_start.min(width);
-        row_end = row_end.min(width);
-        if row_start >= row_end {
-            continue;
-        }
+        let row_height = (height - row_y).min(Tile::HEIGHT);
+        rasterize_row::<S, T>(
+            fine,
+            row,
+            row_y,
+            alpha_buffers,
+            filter_layers,
+            buffer,
+            width,
+            row_height,
+            dst_x,
+            dst_y + row_y,
+            unpack_dest,
+            encoded_paints,
+            image_resolver,
+            bucketer,
+        );
+    }
+}
 
-        fine.set_row_y(row_y);
-        fine.clear_range(row_start, row_end - row_start);
-        if unpack_dest {
-            fine.unpack_at(
-                dst_y + row_y,
-                row_height,
-                dst_x + row_start,
-                row_start,
-                row_end - row_start,
-                buffer,
-            );
-        }
+fn rasterize_row<S: Simd, T: FineKernel<S>>(
+    fine: &mut Fine<S, T>,
+    row: &crate::coarse::RowCommands,
+    row_y: u16,
+    alpha_buffers: &[&[u8]],
+    filter_layers: &[Option<RenderedFilterLayer>],
+    buffer: &mut [u8],
+    width: u16,
+    row_height: u16,
+    dst_x: u16,
+    buffer_y: u16,
+    unpack_dest: bool,
+    encoded_paints: &[EncodedPaint],
+    image_resolver: &dyn ImageResolver,
+    bucketer: &CommandBucketer,
+) {
+    let Some((mut row_start, mut row_end)) = row.bounds() else {
+        return;
+    };
+    row_start = row_start.min(width);
+    row_end = row_end.min(width);
+    if row_start >= row_end {
+        return;
+    }
 
-        for &cmd in row.opaque.iter().rev() {
-            let attrs = &bucketer.attrs()[cmd.attrs_idx as usize];
-            fine.render_opaque(cmd, attrs, encoded_paints, image_resolver);
-        }
-        for cmd in &row.cmds {
-            match cmd {
-                Cmd::Fill(_) | Cmd::AlphaFill(_) => {
-                    let attrs = &bucketer.attrs()[cmd.fill_attrs_idx() as usize];
-                    let alphas = alpha_buffers[attrs.thread_idx as usize];
-                    let use_depth =
-                        row.depth_affects(cmd.fill_x(), cmd.fill_width(), attrs.path_id);
-                    fine.render_cmd(
-                        cmd,
-                        alphas,
-                        attrs,
-                        encoded_paints,
-                        image_resolver,
-                        use_depth,
-                    );
-                }
-                Cmd::PushLayer => {
-                    fine.push_layer(row_start, row_end - row_start);
-                }
-                Cmd::PopBuf => {
-                    fine.pop_buf();
-                }
-                Cmd::Opacity(opacity) => {
-                    fine.opacity(row_start, row_end - row_start, *opacity);
-                }
-                Cmd::Mask(mask) => {
-                    fine.mask(row_y, row_start, row_end - row_start, mask);
-                }
-                Cmd::FilterLayer(cmd) => {
-                    if let Some(layer) = filter_layers.get(cmd.layer_id).and_then(Option::as_ref) {
-                        let use_depth = row.depth_affects(cmd.x, cmd.width, cmd.path_id);
-                        fine.composite_filter_layer_cmd(cmd, layer, use_depth);
-                    }
-                }
-                Cmd::BlendFill(cmd) => {
-                    fine.blend_fill(row_y, cmd.x, cmd.width, cmd.blend_mode);
-                }
-                Cmd::BlendAlphaFill(cmd) => {
-                    let alphas = alpha_buffers[cmd.thread_idx as usize];
-                    fine.blend_alpha_fill(
-                        row_y,
-                        cmd.x,
-                        cmd.width,
-                        cmd.blend_mode,
-                        &alphas[cmd.alpha_idx as usize..],
-                    );
+    let row_height = usize::from(row_height);
+    fine.set_row_y(row_y);
+    fine.clear_range(row_start, row_end - row_start);
+    if unpack_dest {
+        fine.unpack_at(
+            buffer_y,
+            row_height,
+            dst_x + row_start,
+            row_start,
+            row_end - row_start,
+            buffer,
+        );
+    }
+
+    for &cmd in row.opaque.iter().rev() {
+        let attrs = &bucketer.attrs()[cmd.attrs_idx as usize];
+        fine.render_opaque(cmd, attrs, encoded_paints, image_resolver);
+    }
+    for cmd in &row.cmds {
+        match cmd {
+            Cmd::Fill(_) | Cmd::AlphaFill(_) => {
+                let attrs = &bucketer.attrs()[cmd.fill_attrs_idx() as usize];
+                let alphas = alpha_buffers[attrs.thread_idx as usize];
+                let use_depth = row.depth_affects(cmd.fill_x(), cmd.fill_width(), attrs.path_id);
+                fine.render_cmd(
+                    cmd,
+                    alphas,
+                    attrs,
+                    encoded_paints,
+                    image_resolver,
+                    use_depth,
+                );
+            }
+            Cmd::PushLayer => {
+                fine.push_layer(row_start, row_end - row_start);
+            }
+            Cmd::PopBuf => {
+                fine.pop_buf();
+            }
+            Cmd::Opacity(opacity) => {
+                fine.opacity(row_start, row_end - row_start, *opacity);
+            }
+            Cmd::Mask(mask) => {
+                fine.mask(row_y, row_start, row_end - row_start, mask);
+            }
+            Cmd::FilterLayer(cmd) => {
+                if let Some(layer) = filter_layers.get(cmd.layer_id).and_then(Option::as_ref) {
+                    let use_depth = row.depth_affects(cmd.x, cmd.width, cmd.path_id);
+                    fine.composite_filter_layer_cmd(cmd, layer, use_depth);
                 }
             }
+            Cmd::BlendFill(cmd) => {
+                fine.blend_fill(row_y, cmd.x, cmd.width, cmd.blend_mode);
+            }
+            Cmd::BlendAlphaFill(cmd) => {
+                let alphas = alpha_buffers[cmd.thread_idx as usize];
+                fine.blend_alpha_fill(
+                    row_y,
+                    cmd.x,
+                    cmd.width,
+                    cmd.blend_mode,
+                    &alphas[cmd.alpha_idx as usize..],
+                );
+            }
         }
+    }
 
-        let pack_start = row_start.min(width);
-        let pack_end = row_end.min(width);
-        if pack_start < pack_end {
-            fine.pack_at(
-                dst_y + row_y,
-                row_height,
-                pack_start,
-                dst_x + pack_start,
-                pack_end - pack_start,
-                buffer,
-            );
-        }
+    let pack_start = row_start.min(width);
+    let pack_end = row_end.min(width);
+    if pack_start < pack_end {
+        fine.pack_at(
+            buffer_y,
+            row_height,
+            pack_start,
+            dst_x + pack_start,
+            pack_end - pack_start,
+            buffer,
+        );
     }
 }
 

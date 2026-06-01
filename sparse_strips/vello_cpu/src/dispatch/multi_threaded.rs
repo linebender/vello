@@ -413,8 +413,7 @@ impl MultiThreadedDispatcher {
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
-        let mut bucketer = self.bucketer.borrow_mut();
-        bucketer.reset();
+        let mut bucketer = CommandBucketer::new(scene_width, scene_height);
         for cmd in &self.cmds {
             match cmd {
                 RecordedCmd::Fill {
@@ -453,32 +452,34 @@ impl MultiThreadedDispatcher {
             let alpha_buffers = alpha_slots.iter().map(Vec::as_slice).collect::<Vec<_>>();
             let unpack_dest = settings.composite_mode == CompositeMode::SrcOver;
 
-            if settings.offset == (0, 0) && !unpack_dest {
-                crate::fine::rasterize::<S, F>(
-                    simd,
-                    &bucketer,
-                    &alpha_buffers,
-                    &[],
-                    target,
-                    encoded_paints,
-                    image_resolver,
-                );
-            } else {
-                crate::fine::rasterize_at_offset::<S, F>(
-                    simd,
-                    &bucketer,
-                    &alpha_buffers,
-                    &[],
-                    target,
-                    scene_width,
-                    scene_height,
-                    settings.offset.0,
-                    settings.offset.1,
-                    unpack_dest,
-                    encoded_paints,
-                    image_resolver,
-                );
-            }
+            self.thread_pool.install(|| {
+                if settings.offset == (0, 0) && !unpack_dest {
+                    crate::fine::rasterize_parallel::<S, F>(
+                        simd,
+                        &bucketer,
+                        &alpha_buffers,
+                        &[],
+                        target,
+                        encoded_paints,
+                        image_resolver,
+                    );
+                } else {
+                    crate::fine::rasterize_at_offset_parallel::<S, F>(
+                        simd,
+                        &bucketer,
+                        &alpha_buffers,
+                        &[],
+                        target,
+                        scene_width,
+                        scene_height,
+                        settings.offset.0,
+                        settings.offset.1,
+                        unpack_dest,
+                        encoded_paints,
+                        image_resolver,
+                    );
+                }
+            });
         }
         self.alpha_storage.init(alpha_slots);
     }

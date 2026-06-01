@@ -938,7 +938,7 @@ impl ImageResolver for ImageRegistry {
 mod tests {
     #[cfg(feature = "text")]
     use crate::peniko::{Blob, FontData};
-    use crate::{CompositeMode, RasterizerSettings, RenderContext, Resources};
+    use crate::{CompositeMode, RasterizerSettings, RenderContext, RenderSettings, Resources};
     #[cfg(feature = "text")]
     use alloc::sync::Arc;
     use alloc::vec;
@@ -987,6 +987,17 @@ mod tests {
         ctx.fill_rect(&rect);
         ctx.flush();
         ctx
+    }
+
+    fn single_threaded_context(width: u16, height: u16) -> RenderContext {
+        RenderContext::new_with(
+            width,
+            height,
+            RenderSettings {
+                num_threads: 0,
+                ..Default::default()
+            },
+        )
     }
 
     fn render_to_buffer(
@@ -1049,7 +1060,7 @@ mod tests {
     #[test]
     fn filter_padding_shift_is_in_device_space() {
         let mut resources = Resources::new();
-        let mut ctx = RenderContext::new(64, 64);
+        let mut ctx = single_threaded_context(64, 64);
         let mut buffer = vec![0; 64 * 64 * 4];
 
         let filter = Filter::from_primitive(FilterPrimitive::DropShadow {
@@ -1077,7 +1088,7 @@ mod tests {
     #[test]
     fn drop_shadow_draws_offscreen_source_from_top_left() {
         let mut resources = Resources::new();
-        let mut ctx = RenderContext::new(64, 64);
+        let mut ctx = single_threaded_context(64, 64);
         let mut buffer = vec![0; 64 * 64 * 4];
 
         let filter = Filter::from_primitive(FilterPrimitive::DropShadow {
