@@ -155,7 +155,7 @@ pub struct RenderContext {
     pub(crate) height: u16,
     /// The current rendering state.
     pub(crate) state: RenderState,
-    /// Stack of transforms applied before the user-visible render state transform.
+    /// Stack of root transforms.
     root_transforms: Vec<Affine>,
     filter_root_stack: Vec<bool>,
     /// The current mask in place.
@@ -209,17 +209,15 @@ impl RenderContext {
     /// Create a new render context with specific settings.
     pub fn new_with(width: u16, height: u16, settings: RenderSettings) -> Self {
         #[cfg(feature = "multithreading")]
-        let dispatcher: Box<dyn Dispatcher> = {
-            if settings.num_threads == 0 {
-                Box::new(SingleThreadedDispatcher::new(width, height, settings.level))
-            } else {
-                Box::new(MultiThreadedDispatcher::new(
-                    width,
-                    height,
-                    settings.num_threads,
-                    settings.level,
-                ))
-            }
+        let dispatcher: Box<dyn Dispatcher> = if settings.num_threads == 0 {
+            Box::new(SingleThreadedDispatcher::new(width, height, settings.level))
+        } else {
+            Box::new(MultiThreadedDispatcher::new(
+                width,
+                height,
+                settings.num_threads,
+                settings.level,
+            ))
         };
 
         #[cfg(not(feature = "multithreading"))]
@@ -267,12 +265,12 @@ impl RenderContext {
             .expect("root transform stack should never be empty")
     }
 
-    fn effective_transform(&self) -> Affine {
+    fn effective_path_transform(&self) -> Affine {
         self.root_transform() * self.state.transform
     }
 
     fn effective_paint_transform(&self) -> Affine {
-        self.effective_transform() * self.state.paint_transform
+        self.effective_path_transform() * self.state.paint_transform
     }
 
     pub(crate) fn push_root_transform(&mut self, transform: Affine) {
@@ -291,7 +289,7 @@ impl RenderContext {
     pub fn fill_path(&mut self, path: &BezPath) {
         self.with_optional_filter(|ctx| {
             let paint = ctx.encode_current_paint();
-            let transform = ctx.effective_transform();
+            let transform = ctx.effective_path_transform();
             ctx.dispatcher.fill_path(
                 path,
                 ctx.state.fill_rule,
@@ -308,7 +306,7 @@ impl RenderContext {
     pub fn stroke_path(&mut self, path: &BezPath) {
         self.with_optional_filter(|ctx| {
             let paint = ctx.encode_current_paint();
-            let transform = ctx.effective_transform();
+            let transform = ctx.effective_path_transform();
             ctx.dispatcher.stroke_path(
                 path,
                 &ctx.state.stroke,
@@ -325,7 +323,7 @@ impl RenderContext {
     pub fn fill_rect(&mut self, rect: &Rect) {
         self.with_optional_filter(|ctx| {
             let paint = ctx.encode_current_paint();
-            let transform = ctx.effective_transform();
+            let transform = ctx.effective_path_transform();
 
             // Fast path: Use optimized rect filling if we have no skew in the path transform
             // and anti-aliasing is enabled.
@@ -360,7 +358,7 @@ impl RenderContext {
         self.with_optional_filter(|ctx| {
             ctx.rect_to_temp_path(rect);
             let paint = ctx.encode_current_paint();
-            let transform = ctx.effective_transform();
+            let transform = ctx.effective_path_transform();
             ctx.dispatcher.stroke_path(
                 &ctx.temp_path,
                 &ctx.state.stroke,
@@ -411,7 +409,7 @@ impl RenderContext {
         // For performance reason we cut off the filter at some extent where the response is close to zero.
         let kernel_size = 2.5 * std_dev;
         let inflated_rect = rect.inflate(f64::from(kernel_size), f64::from(kernel_size));
-        let transform = self.effective_transform();
+        let transform = self.effective_path_transform();
         let paint_transform = transform * self.state.paint_transform;
 
         self.rect_to_temp_path(&inflated_rect);
@@ -470,7 +468,7 @@ impl RenderContext {
 
         let blend_mode = blend_mode.unwrap_or_default();
         let opacity = opacity.unwrap_or(1.0);
-        let layer_transform = self.effective_transform();
+        let layer_transform = self.effective_path_transform();
         let pushed_filter_root = if let Some(filter) = &filter {
             let expansion = filter.source_expansion(&layer_transform);
             let left = ((-expansion.x0).max(0.0).ceil() as u16)
@@ -488,7 +486,7 @@ impl RenderContext {
         let transform = if filter.is_some() {
             layer_transform
         } else {
-            self.effective_transform()
+            self.effective_path_transform()
         };
 
         self.dispatcher.push_layer(
@@ -706,7 +704,7 @@ impl RenderContext {
     /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
     /// example for how this method differs from `push_clip_layer`.
     pub fn push_clip_path(&mut self, path: &BezPath) {
-        let transform = self.effective_transform();
+        let transform = self.effective_path_transform();
         self.dispatcher.push_clip_path(
             path,
             self.state.fill_rule,

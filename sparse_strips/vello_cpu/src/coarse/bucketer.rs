@@ -11,7 +11,7 @@ use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::strip::Strip;
 use vello_common::tile::Tile;
-use vello_common::util::{Clear, RetainVec};
+use vello_common::util::RetainVec;
 
 #[derive(Debug)]
 pub(crate) struct CommandBucketer {
