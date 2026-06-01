@@ -4,7 +4,6 @@
 use super::cmd::{
     BlendAlphaFillCmd, BlendFillCmd, FillCmd, FineCmd, GeneratedAlphaFill, GeneratedFill,
 };
-use crate::peniko::BlendMode;
 use alloc::vec::Vec;
 use vello_common::mask::Mask;
 use vello_common::util::Clear;
@@ -58,7 +57,7 @@ impl RowCommands {
         width: u16,
         mask: Option<&Mask>,
         opacity: f32,
-        blend_mode: BlendMode,
+        blend_attrs_idx: u32,
     ) {
         if let Some(mask) = mask {
             self.cmds.push(FineCmd::Mask(mask.clone()));
@@ -69,7 +68,7 @@ impl RowCommands {
         self.cmds.push(FineCmd::BlendFill(BlendFillCmd {
             x,
             width,
-            blend_mode,
+            attrs_idx: blend_attrs_idx,
         }));
         self.pop_buf();
     }
@@ -86,14 +85,14 @@ impl RowCommands {
     pub(super) fn push_blend_fill(
         &mut self,
         fill: GeneratedFill,
-        blend_mode: BlendMode,
+        blend_attrs_idx: u32,
         full_width: u16,
     ) {
         self.push_cmd(
             FineCmd::BlendFill(BlendFillCmd {
                 x: fill.x,
                 width: fill.width,
-                blend_mode,
+                attrs_idx: blend_attrs_idx,
             }),
             full_width,
         );
@@ -102,8 +101,7 @@ impl RowCommands {
     pub(super) fn push_blend_alpha_fill(
         &mut self,
         fill: GeneratedAlphaFill,
-        blend_mode: BlendMode,
-        thread_idx: u8,
+        blend_attrs_idx: u32,
         full_width: u16,
     ) {
         self.push_cmd(
@@ -111,8 +109,7 @@ impl RowCommands {
                 x: fill.x,
                 width: fill.width,
                 alpha_idx: fill.alpha_idx,
-                thread_idx,
-                blend_mode,
+                attrs_idx: blend_attrs_idx,
             }),
             full_width,
         );

@@ -2202,7 +2202,7 @@ impl LayerCommandRanges {
 
 #[cfg(test)]
 mod tests {
-    use crate::coarse::{FillHint, LayerKind, MODE_CPU, NeedsBufLayerStack, Wide, WideTile};
+    use crate::coarse::{FillHint, LayerKind, MODE_CPU, NeedsBufLayerStack, Wide, WideTile, Cmd};
     use crate::kurbo::Affine;
     use crate::paint::{Paint, PremulColor};
     use crate::peniko;

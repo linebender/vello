@@ -12,7 +12,7 @@ mod highp;
 mod lowp;
 
 use crate::FilterScratch;
-use crate::coarse::{CommandBucketer, FillAttrs, FillCmd, FineCmd};
+use crate::coarse::{CommandBucketer, FillAttrs, FillCmd, FilterLayerAttrs, FineCmd};
 use crate::fine::common::gradient::GradientPainter;
 pub(crate) use crate::fine::common::gradient::calculate_t_vals;
 pub(crate) use crate::fine::common::gradient::linear::SimdLinearKind;
@@ -1005,6 +1005,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     fn composite_filter_layer_cmd(
         &mut self,
         cmd: &crate::coarse::FilterLayerCmd,
+        attrs: &FilterLayerAttrs,
+        row_y: u16,
         layer: &RenderedFilterLayer,
         use_depth: bool,
     ) {
@@ -1013,15 +1015,24 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         if cmd_x >= cmd_end {
             return;
         }
+        let row_y1 = row_y.saturating_add(Tile::HEIGHT);
+        let draw_y = row_y.max(attrs.y0);
+        let draw_y1 = row_y1.min(attrs.y1);
+        if draw_y >= draw_y1 {
+            return;
+        }
+        let src_y = attrs.src_y + (draw_y - attrs.y0);
+        let dst_y_offset = (draw_y - row_y) as u8;
+        let height = (draw_y1 - draw_y) as u8;
 
         if !use_depth {
             self.composite_filter_layer(
                 cmd_x,
                 cmd_end - cmd_x,
-                cmd.src_x,
-                cmd.src_y,
-                cmd.dst_y_offset,
-                cmd.height,
+                attrs.src_x,
+                src_y,
+                dst_y_offset,
+                height,
                 layer,
             );
             return;
@@ -1031,14 +1042,14 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         let end = usize::from(cmd_end.div_ceil(DEPTH_BUCKET_WIDTH));
 
         if start + 1 == end {
-            if self.depth[start] <= cmd.path_id {
+            if self.depth[start] <= attrs.path_id {
                 self.composite_filter_layer(
                     cmd_x,
                     cmd_end - cmd_x,
-                    cmd.src_x,
-                    cmd.src_y,
-                    cmd.dst_y_offset,
-                    cmd.height,
+                    attrs.src_x,
+                    src_y,
+                    dst_y_offset,
+                    height,
                     layer,
                 );
             }
@@ -1047,12 +1058,12 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
         let mut idx = start;
         while idx < end {
-            while idx < end && self.depth[idx] > cmd.path_id {
+            while idx < end && self.depth[idx] > attrs.path_id {
                 idx += 1;
             }
 
             let run_start = idx;
-            while idx < end && self.depth[idx] <= cmd.path_id {
+            while idx < end && self.depth[idx] <= attrs.path_id {
                 idx += 1;
             }
 
@@ -1065,10 +1076,10 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             self.composite_filter_layer(
                 x,
                 end - x,
-                cmd.src_x + (x - cmd.x),
-                cmd.src_y,
-                cmd.dst_y_offset,
-                cmd.height,
+                attrs.src_x + (x - cmd.x),
+                src_y,
+                dst_y_offset,
+                height,
                 layer,
             );
         }
@@ -1722,21 +1733,24 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
                 fine.mask(row_y, row_start, row_end - row_start, mask);
             }
             FineCmd::FilterLayer(cmd) => {
-                if let Some(layer) = filter_layers.get(cmd.layer_id).and_then(Option::as_ref) {
-                    let use_depth = row.depth_affects(cmd.x, cmd.width, cmd.path_id);
-                    fine.composite_filter_layer_cmd(cmd, layer, use_depth);
+                let attrs = &bucketer.filter_attrs()[cmd.attrs_idx as usize];
+                if let Some(layer) = filter_layers.get(attrs.layer_id).and_then(Option::as_ref) {
+                    let use_depth = row.depth_affects(cmd.x, cmd.width, attrs.path_id);
+                    fine.composite_filter_layer_cmd(cmd, attrs, row_y, layer, use_depth);
                 }
             }
             FineCmd::BlendFill(cmd) => {
-                fine.blend_fill(row_y, cmd.x, cmd.width, cmd.blend_mode);
+                let attrs = &bucketer.blend_attrs()[cmd.attrs_idx as usize];
+                fine.blend_fill(row_y, cmd.x, cmd.width, attrs.blend_mode);
             }
             FineCmd::BlendAlphaFill(cmd) => {
-                let alphas = alpha_buffers[cmd.thread_idx as usize];
+                let attrs = &bucketer.blend_attrs()[cmd.attrs_idx as usize];
+                let alphas = alpha_buffers[attrs.thread_idx as usize];
                 fine.blend_alpha_fill(
                     row_y,
                     cmd.x,
                     cmd.width,
-                    cmd.blend_mode,
+                    attrs.blend_mode,
                     &alphas[cmd.alpha_idx as usize..],
                 );
             }

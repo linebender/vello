@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use super::cmd::{FillAttrs, FilterLayerCmd, FineCmd};
+use super::cmd::{BlendAttrs, FillAttrs, FilterLayerAttrs, FilterLayerCmd, FineCmd};
 use super::layer::{ActiveLayer, LayerClip};
 use super::row::RowCommands;
 use crate::peniko::BlendMode;
@@ -18,6 +18,8 @@ pub(crate) struct CommandBucketer {
     pub(super) clip_bboxes: Vec<RectU16>,
     pub(super) rows: RetainVec<RowCommands>,
     pub(super) attrs: Vec<FillAttrs>,
+    pub(super) blend_attrs: Vec<BlendAttrs>,
+    pub(super) filter_attrs: Vec<FilterLayerAttrs>,
     pub(super) active_layers: Vec<ActiveLayer>,
     pub(super) next_path_id: u32,
 }
@@ -30,6 +32,8 @@ impl CommandBucketer {
             clip_bboxes: vec![full_clip_bbox],
             rows: RetainVec::with_len(num_rows, RowCommands::new),
             attrs: Vec::new(),
+            blend_attrs: Vec::new(),
+            filter_attrs: Vec::new(),
             active_layers: Vec::new(),
             next_path_id: 1,
         }
@@ -69,12 +73,22 @@ impl CommandBucketer {
         &self.attrs
     }
 
+    pub(crate) fn blend_attrs(&self) -> &[BlendAttrs] {
+        &self.blend_attrs
+    }
+
+    pub(crate) fn filter_attrs(&self) -> &[FilterLayerAttrs] {
+        &self.filter_attrs
+    }
+
     pub(crate) fn reset(&mut self, width: u16, height: u16) {
         let full_clip_bbox = Self::full_clip_bbox(width, height);
         let num_rows = usize::from(full_clip_bbox.height() / Tile::HEIGHT);
         self.rows.clear();
         self.rows.resize_with(num_rows, RowCommands::new);
         self.attrs.clear();
+        self.blend_attrs.clear();
+        self.filter_attrs.clear();
         self.active_layers.clear();
         self.next_path_id = 1;
         self.clip_bboxes.truncate(1);
@@ -117,6 +131,11 @@ impl CommandBucketer {
         let blend_mode = layer.blend_mode;
         let full_width = self.width();
         if let Some(clip) = layer.clip {
+            let blend_attrs_idx = self.blend_attrs.len() as u32;
+            self.blend_attrs.push(BlendAttrs {
+                blend_mode,
+                thread_idx: clip.thread_idx,
+            });
             self.clip_bboxes.pop();
             let clip_strips = &strips[clip.strip_range];
 
@@ -132,15 +151,14 @@ impl CommandBucketer {
                 clip_strips,
                 |bucketer, row_idx, fill| {
                     if occupied_rows[row_idx] {
-                        bucketer.rows[row_idx].push_blend_fill(fill, blend_mode, full_width);
+                        bucketer.rows[row_idx].push_blend_fill(fill, blend_attrs_idx, full_width);
                     }
                 },
                 |bucketer, row_idx, fill| {
                     if occupied_rows[row_idx] {
                         bucketer.rows[row_idx].push_blend_alpha_fill(
                             fill,
-                            blend_mode,
-                            clip.thread_idx,
+                            blend_attrs_idx,
                             full_width,
                         );
                     }
@@ -156,10 +174,21 @@ impl CommandBucketer {
             } else {
                 (0, full_width)
             };
+            let blend_attrs_idx = self.blend_attrs.len() as u32;
+            self.blend_attrs.push(BlendAttrs {
+                blend_mode,
+                thread_idx: 0,
+            });
             for row_idx in layer.occupied_rows.drain(..) {
                 let row = &mut self.rows[row_idx];
                 debug_assert_eq!(row.layer_depth, self.active_layers.len() + 1);
-                row.pop_layer(blend_x, blend_width, mask.as_ref(), opacity, blend_mode);
+                row.pop_layer(
+                    blend_x,
+                    blend_width,
+                    mask.as_ref(),
+                    opacity,
+                    blend_attrs_idx,
+                );
             }
         }
     }
@@ -207,6 +236,15 @@ impl CommandBucketer {
             .next_path_id
             .checked_add(1)
             .expect("row-bucket path ID overflow");
+        let filter_attrs_idx = self.filter_attrs.len() as u32;
+        self.filter_attrs.push(FilterLayerAttrs {
+            layer_id,
+            path_id,
+            src_x: src_origin.0 + (bbox.x0 - src_bbox.x0),
+            src_y: src_origin.1 + (bbox.y0 - src_bbox.y0),
+            y0: bbox.y0,
+            y1: bbox.y1,
+        });
         let full_width = self.width();
         let row_start = usize::from(bbox.y0 / Tile::HEIGHT);
         let row_end = usize::from(bbox.y1.div_ceil(Tile::HEIGHT)).min(self.rows.len());
@@ -217,19 +255,11 @@ impl CommandBucketer {
             if row_y1 <= bbox.y0 || row_y >= bbox.y1 {
                 continue;
             }
-            let draw_y = row_y.max(bbox.y0);
-            let draw_y1 = row_y1.min(bbox.y1);
-
             self.rows[row_idx].push_cmd(
                 FineCmd::FilterLayer(FilterLayerCmd {
                     x: bbox.x0,
                     width: bbox.width(),
-                    layer_id,
-                    path_id,
-                    src_x: src_origin.0 + (bbox.x0 - src_bbox.x0),
-                    src_y: src_origin.1 + (draw_y - src_bbox.y0),
-                    dst_y_offset: (draw_y - row_y) as u8,
-                    height: (draw_y1 - draw_y) as u8,
+                    attrs_idx: filter_attrs_idx,
                 }),
                 full_width,
             );

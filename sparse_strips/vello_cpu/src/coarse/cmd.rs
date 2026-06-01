@@ -128,19 +128,14 @@ pub(crate) struct AlphaFillCmd {
 pub(crate) struct BlendFillCmd {
     pub(crate) x: u16,
     pub(crate) width: u16,
-    pub(crate) blend_mode: BlendMode,
+    pub(crate) attrs_idx: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FilterLayerCmd {
     pub(crate) x: u16,
     pub(crate) width: u16,
-    pub(crate) layer_id: usize,
-    pub(crate) path_id: u32,
-    pub(crate) src_x: u16,
-    pub(crate) src_y: u16,
-    pub(crate) dst_y_offset: u8,
-    pub(crate) height: u8,
+    pub(crate) attrs_idx: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -148,8 +143,7 @@ pub(crate) struct BlendAlphaFillCmd {
     pub(crate) x: u16,
     pub(crate) width: u16,
     pub(crate) alpha_idx: u32,
-    pub(crate) thread_idx: u8,
-    pub(crate) blend_mode: BlendMode,
+    pub(crate) attrs_idx: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -173,4 +167,20 @@ pub(crate) struct FillAttrs {
     pub(crate) path_id: u32,
     pub(crate) thread_idx: u8,
     pub(crate) paint_offset: (u16, u16),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct BlendAttrs {
+    pub(crate) blend_mode: BlendMode,
+    pub(crate) thread_idx: u8,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct FilterLayerAttrs {
+    pub(crate) layer_id: usize,
+    pub(crate) path_id: u32,
+    pub(crate) src_x: u16,
+    pub(crate) src_y: u16,
+    pub(crate) y0: u16,
+    pub(crate) y1: u16,
 }
