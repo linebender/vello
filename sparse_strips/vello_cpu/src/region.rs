@@ -8,15 +8,10 @@ use vello_common::geometry::RectU16;
 use vello_common::pixmap::PixmapMut;
 use vello_common::tile::Tile;
 
-/// A rectangular row-major view into a pixmap.
-///
-/// Most callers create regions only for the row span they are about to pack or
-/// unpack. The region can be narrower than a tile-width block and can also be
-/// shorter than [`Tile::HEIGHT`] at the bottom edge.
+/// A view into a single part of a single strip row of a pixmap.
 #[derive(Default, Debug)]
 pub struct Region<'a> {
     pub width: u16,
-    pub height: u16,
     areas: [&'a mut [u8]; Tile::HEIGHT as usize],
 }
 
@@ -52,15 +47,18 @@ impl<'a> Region<'a> {
         Some(Self {
             areas,
             width,
-            height,
         })
+    }
+
+    pub(crate) fn height(&self) -> u16 {
+        self.areas.len() as u16
     }
 
     pub(crate) fn row_mut(&mut self, y: u16) -> &mut [u8] {
         self.areas[usize::from(y)]
     }
 
-    pub fn areas(&mut self) -> &mut [&'a mut [u8]; Tile::HEIGHT as usize] {
+    pub(crate) fn areas(&mut self) -> &mut [&'a mut [u8]; Tile::HEIGHT as usize] {
         &mut self.areas
     }
 }
