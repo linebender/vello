@@ -4,7 +4,7 @@
 use crate::coarse::{CommandBucketer, LayerClip};
 use crate::dispatch::multi_threaded::cost::{COST_THRESHOLD, estimate_render_task_cost};
 use crate::dispatch::multi_threaded::worker::Worker;
-use crate::dispatch::{Dispatcher, RecordedCmd};
+use crate::dispatch::{Dispatcher, RecordedCmd, replay_recorded_commands};
 use crate::fine::FineKernel;
 use crate::kurbo::{Affine, BezPath, PathEl, Point, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
@@ -83,7 +83,7 @@ fn control_point_bbox(path: &BezPath, transform: Affine) -> RectU16 {
 /// The below comments will hopefully help with understanding the overall structure and lifecycles
 /// a bit better.
 pub(crate) struct MultiThreadedDispatcher {
-    bucketer: RefCell<CommandBucketer>,
+    bucketer: Mutex<CommandBucketer>,
     clip_context: ClipContext,
     cmds: Vec<RecordedCmd>,
     strip_storage: StripStorage,
@@ -168,7 +168,7 @@ impl MultiThreadedDispatcher {
         let flushed = false;
 
         let mut dispatcher = Self {
-            bucketer: RefCell::new(CommandBucketer::new(width, height)),
+            bucketer: Mutex::new(CommandBucketer::new(width, height)),
             thread_pool,
             allocations: Allocations::default(),
             allocation_group: AllocationGroup::default(),
@@ -413,39 +413,18 @@ impl MultiThreadedDispatcher {
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
-        let mut bucketer = CommandBucketer::new(scene_width, scene_height);
-        for cmd in &self.cmds {
-            match cmd {
-                RecordedCmd::Fill {
-                    thread_idx,
-                    strip_range,
-                    paint,
-                    blend_mode,
-                    mask,
-                } => bucketer.generate_fill(
-                    &self.strip_storage.strips[strip_range.clone()],
-                    paint.clone(),
-                    *blend_mode,
-                    mask.clone(),
-                    *thread_idx,
-                    (0, 0),
-                    encoded_paints,
-                ),
-                RecordedCmd::PushLayer {
-                    blend_mode,
-                    opacity,
-                    mask,
-                    clip,
-                    ..
-                } => bucketer.push_layer(*blend_mode, *opacity, mask.clone(), clip.clone()),
-                RecordedCmd::CompositeFilterLayer { .. } => {
-                    unimplemented!(
-                        "Filter effects are not yet supported in multi-threaded rendering"
-                    );
-                }
-                RecordedCmd::PopLayer => bucketer.pop_layer(&self.strip_storage.strips),
-            }
-        }
+        let mut bucketer = self
+            .bucketer
+            .lock()
+            .unwrap();
+        bucketer.reset(scene_width, scene_height);
+        replay_recorded_commands(
+            &self.cmds,
+            &self.strip_storage.strips,
+            &mut bucketer,
+            encoded_paints,
+            (0, 0),
+        );
 
         let alpha_slots = self.alpha_storage.take();
         {
@@ -607,7 +586,7 @@ impl Dispatcher for MultiThreadedDispatcher {
     }
 
     fn reset(&mut self) {
-        self.bucketer.borrow_mut().reset();
+        // Bucketer will be reset on demand.
         self.clip_context.reset();
         self.cmds.clear();
         self.strip_storage.clear();

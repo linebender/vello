@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::coarse::{CommandBucketer, LayerClip};
-use crate::dispatch::{Dispatcher, RecordedCmd};
+use crate::dispatch::{Dispatcher, RecordedCmd, replay_recorded_commands};
 use crate::fine::{FineKernel, RenderedFilterLayer};
 use crate::kurbo::{Affine, BezPath, PathEl, Rect, Stroke};
 use crate::layer_manager::LayerManager;
@@ -134,74 +134,6 @@ impl SingleThreadedDispatcher {
         }
     }
 
-    fn replay_commands(
-        &self,
-        cmds: &[RecordedCmd],
-        bucketer: &mut CommandBucketer,
-        encoded_paints: &[EncodedPaint],
-        origin: (u16, u16),
-    ) {
-        bucketer.reset();
-        let translated_strips = if origin == (0, 0) {
-            Vec::new()
-        } else {
-            self.strip_storage
-                .strips
-                .iter()
-                .map(|strip| translate_strip(*strip, origin))
-                .collect::<Vec<_>>()
-        };
-        let strips = if origin == (0, 0) {
-            self.strip_storage.strips.as_slice()
-        } else {
-            translated_strips.as_slice()
-        };
-        for cmd in cmds {
-            match cmd {
-                RecordedCmd::Fill {
-                    thread_idx,
-                    strip_range,
-                    paint,
-                    blend_mode,
-                    mask,
-                } => {
-                    bucketer.generate_fill(
-                        &strips[strip_range.clone()],
-                        paint.clone(),
-                        *blend_mode,
-                        mask.clone(),
-                        *thread_idx,
-                        origin,
-                        encoded_paints,
-                    );
-                }
-                RecordedCmd::PushLayer {
-                    blend_mode,
-                    opacity,
-                    mask,
-                    clip,
-                    ..
-                } => bucketer.push_layer(*blend_mode, *opacity, mask.clone(), clip.clone()),
-                RecordedCmd::CompositeFilterLayer {
-                    layer_id,
-                    bbox,
-                    src_x,
-                    src_y,
-                    blend_mode,
-                    opacity,
-                    mask,
-                    clip,
-                } => {
-                    let bbox = translate_bbox(*bbox, origin);
-                    bucketer.push_layer(*blend_mode, *opacity, mask.clone(), clip.clone());
-                    bucketer.generate_filter_layer(*layer_id, bbox, (*src_x, *src_y));
-                    bucketer.pop_layer(strips);
-                }
-                RecordedCmd::PopLayer => bucketer.pop_layer(strips),
-            }
-        }
-    }
-
     // Note: We purposefully don't add `vectorize` to each of these helpers,
     // since vectorization is applied wherever necessary in child functions.
     fn rasterize_with<S: Simd, F: FineKernel<S>>(
@@ -216,7 +148,14 @@ impl SingleThreadedDispatcher {
     ) {
         let filter_layers = self.render_filter_layers::<S, F>(simd, encoded_paints, image_resolver);
         let mut bucketer = self.bucketer.borrow_mut();
-        self.replay_commands(&self.cmds, &mut bucketer, encoded_paints, (0, 0));
+        bucketer.reset(scene_width, scene_height);
+        replay_recorded_commands(
+            &self.cmds,
+            &self.strip_storage.strips,
+            &mut bucketer,
+            encoded_paints,
+            (0, 0),
+        );
 
         let unpack_dest = settings.composite_mode == CompositeMode::SrcOver;
         let alpha_buffers = &[self.strip_storage.alphas.as_slice()];
@@ -278,9 +217,11 @@ impl SingleThreadedDispatcher {
             let width = layer.bbox.width();
             let height = layer.bbox.height();
             let mut pixmap = Pixmap::new(width, height);
-            let mut bucketer = CommandBucketer::new(width, height);
-            self.replay_commands(
+            let mut bucketer = self.bucketer.borrow_mut();
+            bucketer.reset(width, height);
+            replay_recorded_commands(
                 &layer.cmds,
+                &self.strip_storage.strips,
                 &mut bucketer,
                 encoded_paints,
                 (layer.bbox.x0, layer.bbox.y0),
@@ -467,32 +408,6 @@ fn strip_bbox(strips: &[Strip], width: u16, height: u16) -> RectU16 {
         }
     }
     bbox
-}
-
-fn translate_strip(strip: Strip, origin: (u16, u16)) -> Strip {
-    let x = if strip.is_sentinel() {
-        strip.x
-    } else {
-        strip.x.saturating_sub(origin.0)
-    };
-    Strip::new(
-        x,
-        strip.y.saturating_sub(origin.1),
-        strip.alpha_idx(),
-        strip.fill_gap(),
-    )
-}
-
-fn translate_bbox(bbox: RectU16, origin: (u16, u16)) -> RectU16 {
-    if bbox.is_empty() {
-        return bbox;
-    }
-    RectU16::new(
-        bbox.x0.saturating_sub(origin.0),
-        bbox.y0.saturating_sub(origin.1),
-        bbox.x1.saturating_sub(origin.0),
-        bbox.y1.saturating_sub(origin.1),
-    )
 }
 
 fn expand_bbox(bbox: RectU16, expansion: Rect) -> RectU16 {
@@ -762,7 +677,7 @@ impl Dispatcher for SingleThreadedDispatcher {
     }
 
     fn reset(&mut self) {
-        self.bucketer.borrow_mut().reset();
+        // Bucketer will be reset on demand.
         self.clip_context.reset();
         self.cmds.clear();
         self.filter_layers.clear();

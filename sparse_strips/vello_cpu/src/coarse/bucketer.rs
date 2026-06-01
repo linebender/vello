@@ -68,7 +68,13 @@ impl CommandBucketer {
         &self.attrs
     }
 
-    pub(crate) fn reset(&mut self) {
+    pub(crate) fn reset(&mut self, width: u16, height: u16) {
+        let full_clip_bbox = Self::full_clip_bbox(width, height);
+        let num_rows = usize::from(full_clip_bbox.height() / Tile::HEIGHT);
+        if self.rows.len() != num_rows {
+            self.rows.resize_with(num_rows, RowCommands::new);
+        }
+
         for row in &mut self.rows {
             row.clear();
         }
@@ -76,6 +82,7 @@ impl CommandBucketer {
         self.active_layers.clear();
         self.next_path_id = 1;
         self.clip_bboxes.truncate(1);
+        self.clip_bboxes[0] = full_clip_bbox;
     }
 
     pub(crate) fn push_layer(
