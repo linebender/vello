@@ -27,7 +27,7 @@ pub(crate) enum RenderCmd {
         content_bbox: RectU16,
     },
     CompositeFilterLayer {
-        layer_id: usize,
+        id: usize,
         bbox: RectU16,
         src_x: u16,
         src_y: u16,
@@ -189,7 +189,7 @@ pub(crate) struct BlendAttrs {
 
 #[derive(Debug, Clone)]
 pub(crate) struct FilterLayerAttrs {
-    pub(crate) layer_id: usize,
+    pub(crate) id: usize,
     pub(crate) path_id: u32,
     pub(crate) src_x: u16,
     pub(crate) src_y: u16,

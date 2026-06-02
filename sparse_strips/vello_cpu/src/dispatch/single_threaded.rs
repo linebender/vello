@@ -154,8 +154,8 @@ impl SingleThreadedDispatcher {
         image_resolver: &dyn ImageResolver,
     ) -> FilterContext {
         let mut layer_manager = FilterContext::new(self.recorder.filter_layers().len());
-        for layer_id in (0..self.recorder.filter_layers().len()).rev() {
-            let layer = &self.recorder.filter_layers()[layer_id];
+        for id in (0..self.recorder.filter_layers().len()).rev() {
+            let layer = &self.recorder.filter_layers()[id];
             if layer.bbox.is_empty() {
                 continue;
             }
@@ -193,7 +193,7 @@ impl SingleThreadedDispatcher {
                 layer_manager.scratch(),
                 layer.transform,
             );
-            layer_manager.set_layer(layer_id, pixmap);
+            layer_manager.set_layer(id, pixmap);
         }
 
         layer_manager

@@ -18,7 +18,7 @@ struct RecordedLayer {
     ///
     /// `None` means the root command list; `Some(id)` means the command list
     /// for the filter layer with that id.
-    cmd_layer_id: Option<usize>,
+    cmd_filter_layer_id: Option<usize>,
     push_cmd_idx: usize,
     content_bbox: RectU16,
     kind: RecordedLayerKind,
@@ -30,7 +30,7 @@ enum RecordedLayerKind {
     /// Filter layers get a stable id while recording. The id is the index into
     /// [`CommandRecorder::filter_layers`].
     Filter {
-        layer_id: usize,
+        id: usize,
     },
 }
 
@@ -147,7 +147,7 @@ impl CommandRecorder {
         mask: Option<Mask>,
         clip: Option<LayerClip>,
     ) {
-        let cmd_layer_id = self.active_layer_id();
+        let cmd_filter_layer_id = self.active_filter_layer_id();
         let push_cmd_idx = self.push_render_cmd(RenderCmd::PushLayer {
             blend_mode,
             opacity,
@@ -156,7 +156,7 @@ impl CommandRecorder {
             content_bbox: RectU16::INVERTED,
         });
         self.layer_stack.push(RecordedLayer {
-            cmd_layer_id,
+            cmd_filter_layer_id,
             push_cmd_idx,
             content_bbox: RectU16::INVERTED,
             kind: RecordedLayerKind::Regular,
@@ -176,10 +176,10 @@ impl CommandRecorder {
         mask: Option<Mask>,
         clip: Option<LayerClip>,
     ) {
-        let parent_layer_id = self.active_layer_id();
-        let layer_id = self.filter_layers.len();
+        let parent_filter_layer_id = self.active_filter_layer_id();
+        let filter_layer_id = self.filter_layers.len();
         let push_cmd_idx = self.push_render_cmd(RenderCmd::CompositeFilterLayer {
-            layer_id,
+            id: filter_layer_id,
             bbox: RectU16::INVERTED,
             src_x: 0,
             src_y: 0,
@@ -198,12 +198,14 @@ impl CommandRecorder {
             content_bbox: RectU16::INVERTED,
             bbox: RectU16::INVERTED,
         });
-        self.active_filter_layer_stack.push(layer_id);
+        self.active_filter_layer_stack.push(filter_layer_id);
         self.layer_stack.push(RecordedLayer {
-            cmd_layer_id: parent_layer_id,
+            cmd_filter_layer_id: parent_filter_layer_id,
             push_cmd_idx,
             content_bbox: RectU16::INVERTED,
-            kind: RecordedLayerKind::Filter { layer_id },
+            kind: RecordedLayerKind::Filter {
+                id: filter_layer_id,
+            },
         });
     }
 
@@ -215,7 +217,7 @@ impl CommandRecorder {
         let popped = match layer.kind {
             RecordedLayerKind::Regular => {
                 self.set_push_layer_content_bbox(
-                    layer.cmd_layer_id,
+                    layer.cmd_filter_layer_id,
                     layer.push_cmd_idx,
                     content_bbox,
                 );
@@ -223,15 +225,17 @@ impl CommandRecorder {
                 self.active_cmds_mut().push(RenderCmd::PopLayer);
                 PoppedLayer::Regular
             }
-            RecordedLayerKind::Filter { layer_id } => {
+            RecordedLayerKind::Filter {
+                id: filter_layer_id,
+            } => {
                 let popped = self
                     .active_filter_layer_stack
                     .pop()
                     .expect("filter stack underflow");
-                assert_eq!(popped, layer_id, "filter layer stack mismatch");
+                assert_eq!(popped, filter_layer_id, "filter layer stack mismatch");
                 self.set_filter_layer_bbox(
-                    layer_id,
-                    layer.cmd_layer_id,
+                    filter_layer_id,
+                    layer.cmd_filter_layer_id,
                     layer.push_cmd_idx,
                     content_bbox,
                 );
@@ -241,21 +245,21 @@ impl CommandRecorder {
         popped
     }
 
-    fn active_layer_id(&self) -> Option<usize> {
+    fn active_filter_layer_id(&self) -> Option<usize> {
         self.active_filter_layer_stack.last().copied()
     }
 
     fn active_cmds_mut(&mut self) -> &mut Vec<RenderCmd> {
-        if let Some(layer_id) = self.active_layer_id() {
-            &mut self.filter_layers[layer_id].cmds
+        if let Some(id) = self.active_filter_layer_id() {
+            &mut self.filter_layers[id].cmds
         } else {
             &mut self.cmds
         }
     }
 
-    fn layer_cmds_mut(&mut self, layer_id: Option<usize>) -> &mut Vec<RenderCmd> {
-        if let Some(layer_id) = layer_id {
-            &mut self.filter_layers[layer_id].cmds
+    fn filter_layer_cmds_mut(&mut self, filter_layer_id: Option<usize>) -> &mut Vec<RenderCmd> {
+        if let Some(id) = filter_layer_id {
+            &mut self.filter_layers[id].cmds
         } else {
             &mut self.cmds
         }
@@ -270,11 +274,11 @@ impl CommandRecorder {
 
     fn set_push_layer_content_bbox(
         &mut self,
-        layer_id: Option<usize>,
+        filter_layer_id: Option<usize>,
         push_cmd_idx: usize,
         content_bbox: RectU16,
     ) {
-        match &mut self.layer_cmds_mut(layer_id)[push_cmd_idx] {
+        match &mut self.filter_layer_cmds_mut(filter_layer_id)[push_cmd_idx] {
             RenderCmd::PushLayer {
                 content_bbox: bbox, ..
             } => *bbox = content_bbox,
@@ -284,18 +288,18 @@ impl CommandRecorder {
 
     fn set_filter_layer_bbox(
         &mut self,
-        layer_id: usize,
-        parent_layer_id: Option<usize>,
+        filter_layer_id: usize,
+        parent_filter_layer_id: Option<usize>,
         composite_cmd_idx: usize,
         bbox: RectU16,
     ) {
-        self.filter_layers[layer_id].content_bbox = bbox;
-        let expansion = self.filter_layers[layer_id].expansion;
-        let source_origin = self.filter_layers[layer_id].source_origin;
+        self.filter_layers[filter_layer_id].content_bbox = bbox;
+        let expansion = self.filter_layers[filter_layer_id].expansion;
+        let source_origin = self.filter_layers[filter_layer_id].source_origin;
         let render_bbox = snap_bbox_to_tile(expand_bbox(bbox, expansion));
         let (output_bbox, src_x, src_y) = shift_bbox_to_parent(render_bbox, source_origin);
-        self.filter_layers[layer_id].bbox = render_bbox;
-        match &mut self.layer_cmds_mut(parent_layer_id)[composite_cmd_idx] {
+        self.filter_layers[filter_layer_id].bbox = render_bbox;
+        match &mut self.filter_layer_cmds_mut(parent_filter_layer_id)[composite_cmd_idx] {
             RenderCmd::CompositeFilterLayer {
                 bbox,
                 src_x: cmd_src_x,

@@ -245,7 +245,7 @@ impl CommandBucketer {
 
     pub(crate) fn generate_filter_layer(
         &mut self,
-        layer_id: usize,
+        filter_layer_id: usize,
         bbox: RectU16,
         src_origin: (u16, u16),
     ) {
@@ -265,7 +265,7 @@ impl CommandBucketer {
         let span = Self::bbox_span(bbox);
         let filter_attrs_idx = self.filter_attrs.len() as u32;
         self.filter_attrs.push(FilterLayerAttrs {
-            layer_id,
+            id: filter_layer_id,
             path_id,
             src_x: src_origin.0 + span.pixel_x().saturating_sub(src_bbox.x0),
             src_y: src_origin.1 + (bbox.y0 - src_bbox.y0),

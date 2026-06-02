@@ -67,7 +67,7 @@ pub(crate) fn replay_render_commands(
                 ..
             } => bucketer.push_layer(*blend_mode, *opacity, mask.clone(), clip.clone()),
             RenderCmd::CompositeFilterLayer {
-                layer_id,
+                id,
                 bbox,
                 src_x,
                 src_y,
@@ -84,7 +84,7 @@ pub(crate) fn replay_render_commands(
                 if needs_layer {
                     bucketer.push_layer(*blend_mode, *opacity, mask.clone(), clip.clone());
                 }
-                bucketer.generate_filter_layer(*layer_id, bbox, (*src_x, *src_y));
+                bucketer.generate_filter_layer(*id, bbox, (*src_x, *src_y));
                 if needs_layer {
                     bucketer.pop_layer(strips);
                 }

@@ -23,15 +23,15 @@ impl FilterContext {
         &mut self.scratch
     }
 
-    pub(crate) fn set_layer(&mut self, layer_id: usize, pixmap: Pixmap) {
-        if layer_id >= self.layers.len() {
-            self.layers.resize_with(layer_id + 1, || None);
+    pub(crate) fn set_layer(&mut self, id: usize, pixmap: Pixmap) {
+        if id >= self.layers.len() {
+            self.layers.resize_with(id + 1, || None);
         }
-        self.layers[layer_id] = Some(pixmap);
+        self.layers[id] = Some(pixmap);
     }
 
-    pub(crate) fn layer(&self, layer_id: usize) -> Option<&Pixmap> {
-        self.layers.get(layer_id).and_then(Option::as_ref)
+    pub(crate) fn filter_layer(&self, id: usize) -> Option<&Pixmap> {
+        self.layers.get(id).and_then(Option::as_ref)
     }
 }
 
