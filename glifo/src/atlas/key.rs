@@ -178,7 +178,7 @@ pub(crate) fn pack_color(color: AlphaColor<Srgb>) -> u32 {
     color.premultiply().to_rgba8().to_u32()
 }
 
-/// Quantize a fractional pixel offset into one of [`SUBPIXEL_BUCKETS`] buckets.
+/// Quantize a fractional pixel offset into one of `SUBPIXEL_BUCKETS` buckets.
 ///
 /// Values near 1.0 (>= 0.875 with 4 buckets) are clamped to the last bucket
 /// rather than wrapping to 0. Wrapping to bucket 0 without also incrementing the
