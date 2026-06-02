@@ -11,7 +11,7 @@ mod common;
 mod highp;
 mod lowp;
 
-use crate::FilterScratch;
+use crate::filter::context::ScratchBuffer;
 use crate::coarse::{
     CommandBucketer, DEPTH_BUCKET_WIDTH, FillAttrs, FillCmd, FilterLayerAttrs, FineCmd,
 };
@@ -22,6 +22,7 @@ pub(crate) use crate::fine::common::gradient::radial::SimdRadialKind;
 pub(crate) use crate::fine::common::gradient::sweep::SimdSweepKind;
 use crate::fine::common::image::{FilteredImagePainter, NNImagePainter, PlainNNImagePainter};
 use crate::fine::common::rounded_blurred_rect::BlurredRoundedRectFiller;
+use crate::filter::context::FilterContext;
 use crate::peniko::{BlendMode, ImageQuality};
 use crate::region::Region;
 use crate::util::EncodedImageExt;
@@ -92,12 +93,6 @@ impl Numeric for u8 {
     fn from_u8_component(value: u8) -> Self {
         value
     }
-}
-
-pub(crate) struct RenderedFilterLayer {
-    pub(crate) data: Vec<u8>,
-    pub(crate) width: u16,
-    pub(crate) height: u16,
 }
 
 /// Trait for SIMD vector types that can convert between f32 and u8 representations.
@@ -251,10 +246,11 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     /// The transform parameter is used to scale filter parameters based on the current
     /// transformation matrix (e.g., zoom level), ensuring filters look consistent
     /// regardless of scale.
+    #[expect(private_interfaces, reason = "`FineKernel` is public but this specific method is not needed.")]
     fn filter_layer(
         pixmap: &mut Pixmap,
         filter: &Filter,
-        filter_scratch: &mut FilterScratch,
+        filter_scratch: &mut ScratchBuffer,
         transform: Affine,
     );
 
@@ -1020,24 +1016,25 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         src_y: u16,
         dst_y_offset: u8,
         height: u8,
-        layer: &RenderedFilterLayer,
+        layer: &Pixmap,
     ) {
-        if width == 0 || height == 0 || src_y >= layer.height || src_x >= layer.width {
+        if width == 0 || height == 0 || src_y >= layer.height() || src_x >= layer.width() {
             return;
         }
 
-        let width = width.min(layer.width - src_x);
+        let width = width.min(layer.width() - src_x);
         let len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
         if self.paint_buf.len() < len {
             self.paint_buf.resize(len, T::Numeric::ZERO);
         }
         self.paint_buf[..len].fill(T::Numeric::ZERO);
 
-        let src_stride = usize::from(layer.width) * COLOR_COMPONENTS;
+        let src_stride = usize::from(layer.width()) * COLOR_COMPONENTS;
+        let data = layer.data_as_u8_slice();
         for col in 0..usize::from(width) {
             for row in 0..usize::from(height) {
                 let src_y = usize::from(src_y) + row;
-                if src_y >= usize::from(layer.height) {
+                if src_y >= usize::from(layer.height()) {
                     break;
                 }
                 let src_x = usize::from(src_x) + col;
@@ -1049,7 +1046,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 let dst_idx = col * TILE_HEIGHT_COMPONENTS + dst_row * COLOR_COMPONENTS;
                 for component in 0..COLOR_COMPONENTS {
                     self.paint_buf[dst_idx + component] =
-                        T::Numeric::from_u8_component(layer.data[src_idx + component]);
+                        T::Numeric::from_u8_component(data[src_idx + component]);
                 }
             }
         }
@@ -1065,7 +1062,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         cmd: &crate::coarse::FilterLayerCmd,
         attrs: &FilterLayerAttrs,
         row_y: u16,
-        layer: &RenderedFilterLayer,
+        layer: &Pixmap,
         use_depth: bool,
     ) {
         let cmd_x = cmd.x;
@@ -1558,7 +1555,7 @@ pub(crate) fn rasterize_at_offset<S: Simd, T: FineKernel<S>>(
     simd: S,
     bucketer: &CommandBucketer,
     alpha_buffers: &[&[u8]],
-    filter_layers: &[Option<RenderedFilterLayer>],
+    layer_manager: &FilterContext,
     mut target: PixmapMut<'_>,
     width: u16,
     height: u16,
@@ -1581,7 +1578,7 @@ pub(crate) fn rasterize_at_offset<S: Simd, T: FineKernel<S>>(
         &mut fine,
         bucketer,
         alpha_buffers,
-        filter_layers,
+        layer_manager,
         target,
         Some((width, height)),
         dst_x,
@@ -1597,7 +1594,7 @@ pub(crate) fn rasterize_at_offset_parallel<S: Simd, T: FineKernel<S>>(
     simd: S,
     bucketer: &CommandBucketer,
     alpha_buffers: &[&[u8]],
-    filter_layers: &[Option<RenderedFilterLayer>],
+    layer_manager: &FilterContext,
     mut target: PixmapMut<'_>,
     width: u16,
     height: u16,
@@ -1663,7 +1660,7 @@ pub(crate) fn rasterize_at_offset_parallel<S: Simd, T: FineKernel<S>>(
             row,
             row_y,
             alpha_buffers,
-            filter_layers,
+            layer_manager,
             &mut band.target,
             width,
             band.row_height,
@@ -1681,7 +1678,7 @@ fn rasterize_rows<S: Simd, T: FineKernel<S>>(
     fine: &mut Fine<S, T>,
     bucketer: &CommandBucketer,
     alpha_buffers: &[&[u8]],
-    filter_layers: &[Option<RenderedFilterLayer>],
+    layer_manager: &FilterContext,
     mut target: PixmapMut<'_>,
     scene_size: Option<(u16, u16)>,
     dst_x: u16,
@@ -1706,7 +1703,7 @@ fn rasterize_rows<S: Simd, T: FineKernel<S>>(
             row,
             row_y,
             alpha_buffers,
-            filter_layers,
+            layer_manager,
             &mut target,
             width,
             row_height,
@@ -1725,7 +1722,7 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
     row: &crate::coarse::RowCommands,
     row_y: u16,
     alpha_buffers: &[&[u8]],
-    filter_layers: &[Option<RenderedFilterLayer>],
+    layer_manager: &FilterContext,
     target: &mut PixmapMut<'_>,
     width: u16,
     row_height: u16,
@@ -1794,7 +1791,7 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
             }
             FineCmd::FilterLayer(cmd) => {
                 let attrs = &bucketer.filter_attrs()[cmd.attrs_idx as usize];
-                if let Some(layer) = filter_layers.get(attrs.layer_id).and_then(Option::as_ref) {
+                if let Some(layer) = layer_manager.layer(attrs.layer_id) {
                     let use_depth = row.depth_affects(cmd.x, cmd.width, attrs.path_id);
                     fine.composite_filter_layer_cmd(cmd, attrs, row_y, layer, use_depth);
                 }

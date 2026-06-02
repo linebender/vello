@@ -1,14 +1,14 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::FilterScratch;
 use crate::coarse::{CommandBucketer, LayerClip};
 use crate::dispatch::recording::{
     CommandRecorder, PoppedLayer, expansion_left_top, expansion_padding,
 };
 use crate::dispatch::{Dispatcher, replay_render_commands};
-use crate::fine::{FineKernel, RenderedFilterLayer};
+use crate::fine::FineKernel;
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
+use crate::filter::context::FilterContext;
 use crate::peniko::{BlendMode, Fill};
 use crate::{CompositeMode, RasterizerSettings};
 use alloc::vec::Vec;
@@ -96,7 +96,7 @@ impl SingleThreadedDispatcher {
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
-        let filter_layers = self.render_filter_layers::<S, F>(simd, encoded_paints, image_resolver);
+        let layer_manager = self.render_filter_layers::<S, F>(simd, encoded_paints, image_resolver);
         let mut bucketer = self.bucketer.borrow_mut();
         bucketer.reset(scene_width, scene_height);
         replay_render_commands(
@@ -114,7 +114,7 @@ impl SingleThreadedDispatcher {
             simd,
             &bucketer,
             alpha_buffers,
-            &filter_layers,
+            &layer_manager,
             target,
             scene_width,
             scene_height,
@@ -154,10 +154,8 @@ impl SingleThreadedDispatcher {
         simd: S,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
-    ) -> Vec<Option<RenderedFilterLayer>> {
-        let mut rendered = (0..self.recorder.filter_layers().len())
-            .map(|_| None)
-            .collect::<Vec<_>>();
+    ) -> FilterContext {
+        let mut layer_manager = FilterContext::new(self.recorder.filter_layers().len());
         for layer_id in (0..self.recorder.filter_layers().len()).rev() {
             let layer = &self.recorder.filter_layers()[layer_id];
             if layer.bbox.is_empty() {
@@ -180,7 +178,7 @@ impl SingleThreadedDispatcher {
                 simd,
                 &bucketer,
                 &[self.strip_storage.alphas.as_slice()],
-                &rendered,
+                &layer_manager,
                 (&mut pixmap).into(),
                 width,
                 height,
@@ -191,20 +189,16 @@ impl SingleThreadedDispatcher {
                 image_resolver,
             );
 
-            let mut filter_scratch = FilterScratch::new();
             F::filter_layer(
                 &mut pixmap,
                 &layer.filter,
-                &mut filter_scratch,
+                layer_manager.scratch(),
                 layer.transform,
             );
-            rendered[layer_id] = Some(RenderedFilterLayer {
-                data: pixmap.data_as_u8_slice().to_vec(),
-                width,
-                height,
-            });
+            layer_manager.set_layer(layer_id, pixmap);
         }
-        rendered
+
+        layer_manager
     }
 
     fn push_filter_viewport(&mut self, expansion: Rect) {

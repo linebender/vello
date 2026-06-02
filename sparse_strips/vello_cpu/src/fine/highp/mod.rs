@@ -13,7 +13,7 @@
 //! - Debugging and reference implementations
 //! - Platforms where SIMD f32 operations are well-optimized
 
-use crate::FilterScratch;
+use crate::filter::context::ScratchBuffer;
 use crate::filter::filter_highp;
 use crate::fine::FineKernel;
 use crate::fine::{COLOR_COMPONENTS, Painter, Splat4thExt};
@@ -48,10 +48,11 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
     /// Applies a filter effect to a rendered layer.
     ///
     /// Delegates to the f32-specific filter implementation.
+    #[expect(private_interfaces, reason = "`FineKernel` is public but this specific method is not needed.")]
     fn filter_layer(
         pixmap: &mut Pixmap,
         filter: &Filter,
-        filter_scratch: &mut FilterScratch,
+        filter_scratch: &mut ScratchBuffer,
         transform: Affine,
     ) {
         filter_highp(filter, pixmap, filter_scratch, transform);

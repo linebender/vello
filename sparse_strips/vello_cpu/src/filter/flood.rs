@@ -4,23 +4,23 @@
 //! Flood filter implementation.
 
 use super::FilterEffect;
-use super::FilterScratch;
+use crate::filter::context::ScratchBuffer;
 use vello_common::filter::flood::Flood;
 use vello_common::pixmap::Pixmap;
 
 impl FilterEffect for Flood {
-    fn execute_lowp(&self, pixmap: &mut Pixmap, _filter_scratch: &mut FilterScratch) {
+    fn execute_lowp(&self, pixmap: &mut Pixmap, _filter_scratch: &mut ScratchBuffer) {
         pixmap.data_mut().fill(self.color.premultiply().to_rgba8());
     }
 
-    fn execute_highp(&self, pixmap: &mut Pixmap, _filter_scratch: &mut FilterScratch) {
+    fn execute_highp(&self, pixmap: &mut Pixmap, _filter_scratch: &mut ScratchBuffer) {
         pixmap.data_mut().fill(self.color.premultiply().to_rgba8());
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::FilterScratch;
+    use crate::filter::context::ScratchBuffer;
     use super::*;
     use crate::color::AlphaColor;
     use vello_common::color::{PremulRgba8, Srgb};
@@ -29,7 +29,7 @@ mod tests {
     #[test]
     fn test_flood_semi_transparent_lowp() {
         let mut pixmap = Pixmap::new(2, 2);
-        let mut filter_scratch = FilterScratch::new();
+        let mut filter_scratch = ScratchBuffer::new();
 
         // Semi-transparent white (50% alpha)
         let color = AlphaColor {
@@ -60,7 +60,7 @@ mod tests {
     #[test]
     fn test_flood_semi_transparent_highp() {
         let mut pixmap = Pixmap::new(2, 2);
-        let mut filter_scratch = FilterScratch::new();
+        let mut filter_scratch = ScratchBuffer::new();
 
         // Semi-transparent white (50% alpha)
         let color = AlphaColor {

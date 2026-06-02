@@ -14,7 +14,7 @@
 //! @see <https://drafts.fxtf.org/filter-effects-2/#feDropShadowElement>
 
 use super::FilterEffect;
-use super::FilterScratch;
+use crate::filter::context::ScratchBuffer;
 use super::gaussian_blur::apply_blur;
 use super::shift::offset_pixels;
 use vello_common::color::{AlphaColor, Srgb};
@@ -26,7 +26,7 @@ use vello_common::peniko::kurbo::common::FloatFuncs as _;
 use vello_common::pixmap::Pixmap;
 
 impl FilterEffect for DropShadow {
-    fn execute_lowp(&self, pixmap: &mut Pixmap, filter_scratch: &mut FilterScratch) {
+    fn execute_lowp(&self, pixmap: &mut Pixmap, filter_scratch: &mut ScratchBuffer) {
         apply_drop_shadow(
             pixmap,
             self.dx,
@@ -40,7 +40,7 @@ impl FilterEffect for DropShadow {
         );
     }
 
-    fn execute_highp(&self, pixmap: &mut Pixmap, filter_scratch: &mut FilterScratch) {
+    fn execute_highp(&self, pixmap: &mut Pixmap, filter_scratch: &mut ScratchBuffer) {
         // TODO: Currently only lowp is implemented and used for highp as well.
         // This needs to be updated to use proper high-precision arithmetic.
         Self::execute_lowp(self, pixmap, filter_scratch);
@@ -62,7 +62,7 @@ fn apply_drop_shadow(
     kernel: &[f32],
     color: AlphaColor<Srgb>,
     edge_mode: EdgeMode,
-    filter_scratch: &mut FilterScratch,
+    filter_scratch: &mut ScratchBuffer,
 ) {
     // Clone pixmap to create shadow buffer
     let mut shadow_pixmap = pixmap.clone();

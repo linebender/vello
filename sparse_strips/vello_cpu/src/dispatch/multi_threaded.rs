@@ -7,6 +7,7 @@ use crate::dispatch::multi_threaded::worker::Worker;
 use crate::dispatch::{Dispatcher, replay_render_commands};
 use crate::fine::FineKernel;
 use crate::kurbo::{Affine, BezPath, PathEl, Point, Rect, Stroke};
+use crate::filter::context::FilterContext;
 use crate::peniko::{BlendMode, Fill};
 use crate::{CompositeMode, RasterizerSettings};
 use alloc::boxed::Box;
@@ -394,13 +395,14 @@ impl MultiThreadedDispatcher {
         {
             let alpha_buffers = alpha_slots.iter().map(Vec::as_slice).collect::<Vec<_>>();
             let unpack_dest = settings.composite_mode == CompositeMode::SrcOver;
+            let layer_manager = FilterContext::new(0);
 
             self.thread_pool.install(|| {
                 crate::fine::rasterize_at_offset_parallel::<S, F>(
                     simd,
                     &bucketer,
                     &alpha_buffers,
-                    &[],
+                    &layer_manager,
                     target,
                     scene_width,
                     scene_height,

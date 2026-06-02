@@ -13,40 +13,13 @@ mod flood;
 mod gaussian_blur;
 mod offset;
 mod shift;
+pub(crate) mod context;
 
 use vello_common::filter::PreparedFilter;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::Affine;
 use vello_common::pixmap::Pixmap;
-
-// TODO: Make private?
-/// Reusable scratch storage for filter effects.
-#[derive(Debug, Default)]
-pub struct FilterScratch {
-    scratch_buffer: Option<Pixmap>,
-}
-
-impl FilterScratch {
-    /// Create empty scratch storage.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Get or create a scratch buffer of at least the requested dimensions.
-    pub fn get_scratch_buffer(&mut self, width: u16, height: u16) -> &mut Pixmap {
-        match &mut self.scratch_buffer {
-            None => {
-                self.scratch_buffer = Some(Pixmap::new(width, height));
-            }
-            Some(buf) if buf.width() < width || buf.height() < height => {
-                buf.resize(width, height);
-            }
-            Some(_) => {}
-        }
-
-        self.scratch_buffer.as_mut().unwrap()
-    }
-}
+use context::ScratchBuffer;
 
 /// Trait for filter effects that can be applied to layers.
 ///
@@ -61,14 +34,14 @@ pub(crate) trait FilterEffect {
     /// # Arguments
     /// * `pixmap` - The target pixmap containing rendering metadata
     /// * `filter_scratch` - Reusable scratch storage for intermediate buffers
-    fn execute_lowp(&self, pixmap: &mut Pixmap, filter_scratch: &mut FilterScratch);
+    fn execute_lowp(&self, pixmap: &mut Pixmap, filter_scratch: &mut ScratchBuffer);
 
     /// Apply the high-precision (f32) version of the filter.
     ///
     /// # Arguments
     /// * `pixmap` - The target pixmap containing rendering metadata
     /// * `filter_scratch` - Reusable scratch storage for intermediate buffers
-    fn execute_highp(&self, pixmap: &mut Pixmap, filter_scratch: &mut FilterScratch);
+    fn execute_highp(&self, pixmap: &mut Pixmap, filter_scratch: &mut ScratchBuffer);
 }
 
 /// Apply the low-precision (u8) version of a filter effect to a layer.
@@ -88,7 +61,7 @@ pub(crate) trait FilterEffect {
 pub(crate) fn filter_lowp(
     filter: &Filter,
     pixmap: &mut Pixmap,
-    filter_scratch: &mut FilterScratch,
+    filter_scratch: &mut ScratchBuffer,
     transform: Affine,
 ) {
     let prepared_filter = PreparedFilter::new(filter, &transform);
@@ -126,7 +99,7 @@ pub(crate) fn filter_lowp(
 pub(crate) fn filter_highp(
     filter: &Filter,
     pixmap: &mut Pixmap,
-    filter_scratch: &mut FilterScratch,
+    filter_scratch: &mut ScratchBuffer,
     transform: Affine,
 ) {
     let prepared_filter = PreparedFilter::new(filter, &transform);

@@ -7,22 +7,22 @@ use vello_common::filter::offset::Offset;
 use vello_common::pixmap::Pixmap;
 
 use super::FilterEffect;
-use super::FilterScratch;
+use crate::filter::context::ScratchBuffer;
 use super::shift::offset_pixels;
 
 impl FilterEffect for Offset {
-    fn execute_lowp(&self, pixmap: &mut Pixmap, _: &mut FilterScratch) {
+    fn execute_lowp(&self, pixmap: &mut Pixmap, _: &mut ScratchBuffer) {
         offset_pixels(pixmap, self.dx, self.dy);
     }
 
-    fn execute_highp(&self, pixmap: &mut Pixmap, _: &mut FilterScratch) {
+    fn execute_highp(&self, pixmap: &mut Pixmap, _: &mut ScratchBuffer) {
         offset_pixels(pixmap, self.dx, self.dy);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::FilterScratch;
+    use crate::filter::context::ScratchBuffer;
     use super::Offset;
     use crate::filter::FilterEffect;
     use vello_common::peniko::color::PremulRgba8;
@@ -30,7 +30,7 @@ mod tests {
 
     #[test]
     fn offset_moves_pixels_and_clears_uncovered_area() {
-        let mut filter_scratch = FilterScratch::new();
+        let mut filter_scratch = ScratchBuffer::new();
         let mut pixmap = Pixmap::new(4, 3);
         pixmap.set_pixel(1, 1, PremulRgba8::from_u32(0xff_00_00_ff)); // premul red, opaque
 
