@@ -3,6 +3,7 @@
 
 #[cfg(feature = "multithreading")]
 pub(crate) mod multi_threaded;
+pub(crate) mod recording;
 pub(crate) mod single_threaded;
 
 use crate::RasterizerSettings;

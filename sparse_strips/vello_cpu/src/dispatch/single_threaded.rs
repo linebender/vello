@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::FilterScratch;
-use crate::coarse::{CommandBucketer, LayerClip, RenderCmd};
+use crate::coarse::{CommandBucketer, LayerClip};
+use crate::dispatch::recording::{
+    CommandRecorder, PoppedLayer, expansion_left_top, expansion_padding,
+};
 use crate::dispatch::{Dispatcher, replay_render_commands};
 use crate::fine::{FineKernel, RenderedFilterLayer};
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
@@ -21,48 +24,18 @@ use vello_common::pixmap::{Pixmap, PixmapMut};
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use vello_common::tile::Tile;
-use vello_common::util::RectExt;
-
-#[derive(Debug)]
-struct RecordedLayer {
-    stream_id: Option<usize>,
-    push_cmd_idx: usize,
-    content_bbox: RectU16,
-    kind: RecordedLayerKind,
-}
-
-#[derive(Debug)]
-enum RecordedLayerKind {
-    Regular,
-    Filter { layer_id: usize },
-}
-
-#[derive(Debug)]
-struct RecordedFilterLayer {
-    cmds: Vec<RenderCmd>,
-    filter: Filter,
-    transform: Affine,
-    expansion: Rect,
-    source_origin: (u16, u16),
-    content_bbox: RectU16,
-    bbox: RectU16,
-}
 
 /// Single-threaded dispatcher for the row-bucket prototype.
 #[derive(Debug)]
 pub(crate) struct SingleThreadedDispatcher {
     bucketer: RefCell<CommandBucketer>,
     clip_context: ClipContext,
-    cmds: Vec<RenderCmd>,
-    filter_layers: Vec<RecordedFilterLayer>,
-    recording_stack: Vec<usize>,
-    layer_stack: Vec<RecordedLayer>,
+    recorder: CommandRecorder,
     strip_generator: StripGenerator,
     strip_storage: StripStorage,
     viewport_stack: Vec<(u16, u16)>,
     base_width: u16,
     base_height: u16,
-    layer_depth: usize,
     level: Level,
 }
 
@@ -71,16 +44,12 @@ impl SingleThreadedDispatcher {
         Self {
             bucketer: RefCell::new(CommandBucketer::new(width, height)),
             clip_context: ClipContext::new(),
-            cmds: Vec::new(),
-            filter_layers: Vec::new(),
-            recording_stack: Vec::new(),
-            layer_stack: Vec::new(),
+            recorder: CommandRecorder::new(),
             strip_generator: StripGenerator::new(width, height, level),
             strip_storage: StripStorage::new(GenerationMode::Append),
             viewport_stack: Vec::new(),
             base_width: width,
             base_height: height,
-            layer_depth: 0,
             level,
         }
     }
@@ -115,26 +84,6 @@ impl SingleThreadedDispatcher {
         dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, target, scene_width, scene_height, settings, encoded_paints, image_resolver));
     }
 
-    fn active_stream_id(&self) -> Option<usize> {
-        self.recording_stack.last().copied()
-    }
-
-    fn active_cmds_mut(&mut self) -> &mut Vec<RenderCmd> {
-        if let Some(layer_id) = self.active_stream_id() {
-            &mut self.filter_layers[layer_id].cmds
-        } else {
-            &mut self.cmds
-        }
-    }
-
-    fn stream_cmds_mut(&mut self, stream_id: Option<usize>) -> &mut Vec<RenderCmd> {
-        if let Some(layer_id) = stream_id {
-            &mut self.filter_layers[layer_id].cmds
-        } else {
-            &mut self.cmds
-        }
-    }
-
     // Note: We purposefully don't add `vectorize` to each of these helpers,
     // since vectorization is applied wherever necessary in child functions.
     fn rasterize_with<S: Simd, F: FineKernel<S>>(
@@ -151,7 +100,7 @@ impl SingleThreadedDispatcher {
         let mut bucketer = self.bucketer.borrow_mut();
         bucketer.reset(scene_width, scene_height);
         replay_render_commands(
-            &self.cmds,
+            self.recorder.root_cmds(),
             &self.strip_storage.strips,
             &mut bucketer,
             encoded_paints,
@@ -185,19 +134,19 @@ impl SingleThreadedDispatcher {
         mask: Option<Mask>,
     ) {
         let strip_end = self.strip_storage.strips.len();
-        self.active_cmds_mut().push(RenderCmd::Fill {
-            thread_idx: 0,
-            strip_range: strip_start..strip_end,
-            paint,
-            blend_mode,
-            mask,
-        });
         let content_bbox = strip_bbox(
             &self.strip_storage.strips[strip_start..],
             self.strip_generator.width(),
             self.strip_generator.height(),
         );
-        self.include_content_bbox(content_bbox);
+        self.recorder.record_fill(
+            strip_start..strip_end,
+            paint,
+            blend_mode,
+            mask,
+            0,
+            content_bbox,
+        );
     }
 
     fn render_filter_layers<S: Simd, F: FineKernel<S>>(
@@ -206,11 +155,11 @@ impl SingleThreadedDispatcher {
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) -> Vec<Option<RenderedFilterLayer>> {
-        let mut rendered = (0..self.filter_layers.len())
+        let mut rendered = (0..self.recorder.filter_layers().len())
             .map(|_| None)
             .collect::<Vec<_>>();
-        for layer_id in (0..self.filter_layers.len()).rev() {
-            let layer = &self.filter_layers[layer_id];
+        for layer_id in (0..self.recorder.filter_layers().len()).rev() {
+            let layer = &self.recorder.filter_layers()[layer_id];
             if layer.bbox.is_empty() {
                 continue;
             }
@@ -256,65 +205,6 @@ impl SingleThreadedDispatcher {
             });
         }
         rendered
-    }
-
-    fn push_render_cmd(&mut self, cmd: RenderCmd) -> usize {
-        let cmds = self.active_cmds_mut();
-        let idx = cmds.len();
-        cmds.push(cmd);
-        idx
-    }
-
-    fn set_push_layer_content_bbox(
-        &mut self,
-        stream_id: Option<usize>,
-        push_cmd_idx: usize,
-        content_bbox: RectU16,
-    ) {
-        match &mut self.stream_cmds_mut(stream_id)[push_cmd_idx] {
-            RenderCmd::PushLayer {
-                content_bbox: bbox, ..
-            } => *bbox = content_bbox,
-            _ => unreachable!("layer stack referenced a non-layer command"),
-        }
-    }
-
-    fn set_filter_layer_bbox(
-        &mut self,
-        layer_id: usize,
-        parent_stream_id: Option<usize>,
-        composite_cmd_idx: usize,
-        bbox: RectU16,
-    ) {
-        self.filter_layers[layer_id].content_bbox = bbox;
-        let expansion = self.filter_layers[layer_id].expansion;
-        let source_origin = self.filter_layers[layer_id].source_origin;
-        let render_bbox = expand_bbox(bbox, expansion);
-        let (output_bbox, src_x, src_y) = shift_bbox_to_parent(render_bbox, source_origin);
-        self.filter_layers[layer_id].bbox = render_bbox;
-        match &mut self.stream_cmds_mut(parent_stream_id)[composite_cmd_idx] {
-            RenderCmd::CompositeFilterLayer {
-                bbox,
-                src_x: cmd_src_x,
-                src_y: cmd_src_y,
-                ..
-            } => {
-                *bbox = output_bbox;
-                *cmd_src_x = src_x;
-                *cmd_src_y = src_y;
-            }
-            _ => unreachable!("filter layer stack referenced a non-filter command"),
-        }
-        self.include_content_bbox(output_bbox);
-    }
-
-    fn include_content_bbox(&mut self, bbox: RectU16) {
-        if bbox.is_empty() {
-            return;
-        }
-        if let Some(layer) = self.layer_stack.last_mut() {
-            layer.content_bbox.union(bbox);
-        }
     }
 
     fn push_filter_viewport(&mut self, expansion: Rect) {
@@ -378,53 +268,9 @@ fn strip_bbox(strips: &[Strip], width: u16, height: u16) -> RectU16 {
     bbox
 }
 
-fn expand_bbox(bbox: RectU16, expansion: Rect) -> RectU16 {
-    if bbox.is_empty() {
-        return bbox;
-    }
-
-    let (left, top, right, bottom) = expansion_padding(expansion);
-    RectU16::new(
-        bbox.x0.saturating_sub(left),
-        bbox.y0.saturating_sub(top),
-        bbox.x1.saturating_add(right),
-        bbox.y1.saturating_add(bottom),
-    )
-}
-
-fn expansion_left_top(expansion: Rect) -> (u16, u16) {
-    let (left, top, _, _) = expansion_padding(expansion);
-    (left, top)
-}
-
-fn expansion_padding(expansion: Rect) -> (u16, u16, u16, u16) {
-    let expansion = expansion.snap_to_tile_coordinates();
-    let left = (-expansion.x0).max(0.0) as u16;
-    let top = (-expansion.y0).max(0.0) as u16;
-    let right = expansion.x1.max(0.0) as u16;
-    let bottom = expansion.y1.max(0.0) as u16;
-    (left, top, right, bottom)
-}
-
-fn shift_bbox_to_parent(bbox: RectU16, origin: (u16, u16)) -> (RectU16, u16, u16) {
-    let (left, top) = origin;
-    let src_x = left.saturating_sub(bbox.x0);
-    let src_y = top.saturating_sub(bbox.y0);
-    (
-        RectU16::new(
-            bbox.x0.saturating_sub(left),
-            bbox.y0.saturating_sub(top),
-            bbox.x1.saturating_sub(left),
-            bbox.y1.saturating_sub(top),
-        ),
-        src_x,
-        src_y,
-    )
-}
-
 impl Dispatcher for SingleThreadedDispatcher {
     fn has_layers(&self) -> bool {
-        self.layer_depth != 0
+        self.recorder.has_layers()
     }
 
     fn fill_path(
@@ -560,91 +406,43 @@ impl Dispatcher for SingleThreadedDispatcher {
             }
         });
 
-        let stream_id = self.active_stream_id();
-        let (push_cmd_idx, kind) = if let Some(filter) = filter {
-            let layer_id = self.filter_layers.len();
+        if let Some(filter) = filter {
             let expansion = filter_expansion.expect("filter expansion missing");
             let source_expansion =
                 filter_source_expansion.expect("filter source expansion missing");
-            let push_cmd_idx = self.push_render_cmd(RenderCmd::CompositeFilterLayer {
-                layer_id,
-                bbox: RectU16::INVERTED,
-                src_x: 0,
-                src_y: 0,
-                blend_mode,
-                opacity,
-                mask,
-                clip: clip_path,
-            });
-            self.filter_layers.push(RecordedFilterLayer {
-                cmds: Vec::new(),
+            self.recorder.push_filter_layer(
                 filter,
-                transform: clip_transform,
+                clip_transform,
                 expansion,
-                source_origin: expansion_left_top(source_expansion),
-                content_bbox: RectU16::INVERTED,
-                bbox: RectU16::INVERTED,
-            });
-            self.recording_stack.push(layer_id);
-            (push_cmd_idx, RecordedLayerKind::Filter { layer_id })
-        } else {
-            let push_cmd_idx = self.push_render_cmd(RenderCmd::PushLayer {
+                expansion_left_top(source_expansion),
                 blend_mode,
                 opacity,
                 mask,
-                clip: clip_path,
-                content_bbox: RectU16::INVERTED,
-            });
-            (push_cmd_idx, RecordedLayerKind::Regular)
-        };
-        self.layer_stack.push(RecordedLayer {
-            stream_id,
-            push_cmd_idx,
-            content_bbox: RectU16::INVERTED,
-            kind,
-        });
-        self.layer_depth += 1;
+                clip_path,
+            );
+        } else {
+            self.recorder
+                .push_layer(blend_mode, opacity, mask, clip_path);
+        }
     }
 
     fn pop_layer(&mut self) {
-        let layer = self.layer_stack.pop().expect("layer stack underflow");
-        let content_bbox = layer.content_bbox;
-        match layer.kind {
-            RecordedLayerKind::Regular => {
-                self.set_push_layer_content_bbox(layer.stream_id, layer.push_cmd_idx, content_bbox);
-                self.include_content_bbox(content_bbox);
-                self.active_cmds_mut().push(RenderCmd::PopLayer);
-            }
-            RecordedLayerKind::Filter { layer_id, .. } => {
-                let popped = self.recording_stack.pop().expect("filter stack underflow");
-                assert_eq!(popped, layer_id, "filter layer stack mismatch");
-                self.set_filter_layer_bbox(
-                    layer_id,
-                    layer.stream_id,
-                    layer.push_cmd_idx,
-                    content_bbox,
-                );
+        match self.recorder.pop_layer() {
+            PoppedLayer::Regular => {}
+            PoppedLayer::Filter => {
                 self.pop_filter_viewport();
             }
         }
-        self.layer_depth = self
-            .layer_depth
-            .checked_sub(1)
-            .expect("layer stack underflow");
     }
 
     fn reset(&mut self) {
         // Bucketer will be reset on demand.
         self.clip_context.reset();
-        self.cmds.clear();
-        self.filter_layers.clear();
-        self.recording_stack.clear();
-        self.layer_stack.clear();
+        self.recorder.reset();
         self.viewport_stack.clear();
         self.strip_generator = StripGenerator::new(self.base_width, self.base_height, self.level);
         self.strip_generator.reset();
         self.strip_storage.clear();
-        self.layer_depth = 0;
     }
 
     fn flush(&mut self) {}
@@ -723,6 +521,7 @@ impl Dispatcher for SingleThreadedDispatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::coarse::RenderCmd;
     use crate::kurbo::Shape;
     use vello_common::color::palette::css::BLUE;
     use vello_common::paint::PremulColor;
@@ -732,7 +531,7 @@ mod tests {
     }
 
     fn layer_content_bbox(dispatcher: &SingleThreadedDispatcher, cmd_idx: usize) -> RectU16 {
-        match &dispatcher.cmds[cmd_idx] {
+        match &dispatcher.recorder.root_cmds()[cmd_idx] {
             RenderCmd::PushLayer { content_bbox, .. } => *content_bbox,
             _ => panic!("expected push layer command"),
         }
