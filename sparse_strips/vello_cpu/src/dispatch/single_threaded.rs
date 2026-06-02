@@ -15,13 +15,10 @@ use vello_common::clip::{ClipContext, control_point_bbox_u16};
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd};
 use vello_common::filter_effects::Filter;
-use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
 use vello_common::pixmap::{Pixmap, PixmapMut};
-use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
-use vello_common::tile::Tile;
 
 /// Single-threaded dispatcher for the row-bucket prototype.
 #[derive(Debug)]
@@ -132,18 +129,13 @@ impl SingleThreadedDispatcher {
         mask: Option<Mask>,
     ) {
         let strip_end = self.strip_storage.strips.len();
-        let content_bbox = strip_bbox(
-            &self.strip_storage.strips[strip_start..],
-            self.strip_generator.width(),
-            self.strip_generator.height(),
-        );
         self.recorder.record_fill(
             strip_start..strip_end,
+            &self.strip_storage.strips[strip_start..strip_end],
             paint,
             blend_mode,
             mask,
             0,
-            content_bbox,
         );
     }
 
@@ -223,41 +215,6 @@ impl SingleThreadedDispatcher {
             .expect("filter viewport stack underflow");
         self.strip_generator = StripGenerator::new(width, height, self.level);
     }
-}
-
-fn strip_bbox(strips: &[Strip], width: u16, height: u16) -> RectU16 {
-    if strips.len() < 2 {
-        return RectU16::INVERTED;
-    }
-
-    let mut bbox = RectU16::INVERTED;
-    for pair in strips.windows(2) {
-        let strip = pair[0];
-        let next_strip = pair[1];
-        if strip.is_sentinel() {
-            continue;
-        }
-
-        let strip_y = strip.strip_y();
-        let row_y = strip_y.saturating_mul(Tile::HEIGHT);
-        let row_y1 = row_y.saturating_add(Tile::HEIGHT).min(height);
-        let col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
-        let next_col = next_strip.alpha_idx() / u32::from(Tile::HEIGHT);
-        let strip_width = next_col.saturating_sub(col) as u16;
-        let strip_x1 = strip.x.saturating_add(strip_width).min(width);
-
-        if strip_width > 0 && strip.x < width && row_y < height {
-            bbox.union(RectU16::new(strip.x, row_y, strip_x1, row_y1));
-        }
-
-        if next_strip.fill_gap() && strip_y == next_strip.strip_y() && strip_x1 < next_strip.x {
-            let fill_x1 = next_strip.x.min(width);
-            if strip_x1 < fill_x1 && row_y < height {
-                bbox.union(RectU16::new(strip_x1, row_y, fill_x1, row_y1));
-            }
-        }
-    }
-    bbox
 }
 
 impl Dispatcher for SingleThreadedDispatcher {
@@ -516,6 +473,7 @@ mod tests {
     use crate::coarse::RenderCmd;
     use crate::kurbo::Shape;
     use vello_common::color::palette::css::BLUE;
+    use vello_common::geometry::RectU16;
     use vello_common::paint::PremulColor;
 
     fn paint() -> Paint {
