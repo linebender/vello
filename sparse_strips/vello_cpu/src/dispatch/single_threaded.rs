@@ -129,7 +129,7 @@ impl SingleThreadedDispatcher {
         mask: Option<Mask>,
     ) {
         let strip_end = self.strip_storage.strips.len();
-        self.recorder.record_fill(
+        self.recorder.push_fill(
             strip_start..strip_end,
             &self.strip_storage.strips[strip_start..strip_end],
             paint,

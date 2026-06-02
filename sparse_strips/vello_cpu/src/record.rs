@@ -136,7 +136,7 @@ impl CommandRecorder {
         self.layer_stack.clear();
     }
 
-    pub(crate) fn record_fill(
+    pub(crate) fn push_fill(
         &mut self,
         strip_range: core::ops::Range<usize>,
         strips: &[Strip],
@@ -161,7 +161,6 @@ impl CommandRecorder {
         self.record_bbox(bbox);
     }
 
-    /// Records the start of a regular blend/opacity/mask/clip layer.
     pub(crate) fn push_layer(
         &mut self,
         blend_mode: BlendMode,
@@ -273,11 +272,7 @@ impl CommandRecorder {
     }
 
     fn active_cmds_mut(&mut self) -> &mut Vec<RenderCmd> {
-        if let Some(id) = self.active_filter_layer_id() {
-            &mut self.filter_layers[id].cmds
-        } else {
-            &mut self.root_cmds
-        }
+        self.filter_layer_cmds_mut(self.active_filter_layer_id())
     }
 
     fn filter_layer_cmds_mut(&mut self, filter_layer_id: Option<usize>) -> &mut Vec<RenderCmd> {
@@ -303,7 +298,7 @@ impl CommandRecorder {
     ) {
         match &mut self.filter_layer_cmds_mut(filter_layer_id)[push_cmd_idx] {
             RenderCmd::PushLayer {
-                bbox: bbox, ..
+                bbox, ..
             } => *bbox = content_bbox,
             _ => unreachable!("layer stack referenced a non-layer command"),
         }
