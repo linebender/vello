@@ -57,7 +57,7 @@ pub fn images(c: &mut Criterion) {
             }
 
             renderer.flush();
-            renderer.render_to_pixmap(&mut resources, &mut pixmap);
+            renderer.render(&mut pixmap, &mut resources, RasterizerSettings::default());
             std::hint::black_box(&pixmap);
         });
     });
