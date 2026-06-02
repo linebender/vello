@@ -37,10 +37,29 @@ pub(crate) struct RecordedFilterLayer {
     pub(crate) bbox: RectU16,
 }
 
+/// A small pool for reusing [`Vec<RenderCmd>`] allocations across
+/// multiple frames for filter layers.
+#[derive(Debug, Default)]
+struct CommandPool {
+    cmds: Vec<Vec<RenderCmd>>,
+}
+
+impl CommandPool {
+    fn take(&mut self) -> Vec<RenderCmd> {
+        self.cmds.pop().unwrap_or_default()
+    }
+
+    fn submit(&mut self, mut cmds: Vec<RenderCmd>) {
+        cmds.clear();
+        self.cmds.push(cmds);
+    }
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct CommandRecorder {
     cmds: Vec<RenderCmd>,
     filter_layers: Vec<RecordedFilterLayer>,
+    cmd_pool: CommandPool,
     recording_stack: Vec<usize>,
     layer_stack: Vec<RecordedLayer>,
 }
@@ -64,7 +83,9 @@ impl CommandRecorder {
 
     pub(crate) fn reset(&mut self) {
         self.cmds.clear();
-        self.filter_layers.clear();
+        for layer in self.filter_layers.drain(..) {
+            self.cmd_pool.submit(layer.cmds);
+        }
         self.recording_stack.clear();
         self.layer_stack.clear();
     }
@@ -134,8 +155,9 @@ impl CommandRecorder {
             mask,
             clip,
         });
+        let cmds = self.cmd_pool.take();
         self.filter_layers.push(RecordedFilterLayer {
-            cmds: Vec::new(),
+            cmds,
             filter,
             transform,
             expansion,
