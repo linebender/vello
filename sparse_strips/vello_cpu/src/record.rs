@@ -9,6 +9,7 @@ use vello_common::filter_effects::Filter;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
+use vello_common::tile::Tile;
 use vello_common::util::RectExt;
 
 #[derive(Debug)]
@@ -235,7 +236,7 @@ impl CommandRecorder {
         self.filter_layers[layer_id].content_bbox = bbox;
         let expansion = self.filter_layers[layer_id].expansion;
         let source_origin = self.filter_layers[layer_id].source_origin;
-        let render_bbox = expand_bbox(bbox, expansion);
+        let render_bbox = snap_bbox_to_tile(expand_bbox(bbox, expansion));
         let (output_bbox, src_x, src_y) = shift_bbox_to_parent(render_bbox, source_origin);
         self.filter_layers[layer_id].bbox = render_bbox;
         match &mut self.stream_cmds_mut(parent_stream_id)[composite_cmd_idx] {
@@ -295,6 +296,23 @@ fn expand_bbox(bbox: RectU16, expansion: Rect) -> RectU16 {
         bbox.y0.saturating_sub(top),
         bbox.x1.saturating_add(right),
         bbox.y1.saturating_add(bottom),
+    )
+}
+
+fn snap_bbox_to_tile(bbox: RectU16) -> RectU16 {
+    if bbox.is_empty() {
+        return bbox;
+    }
+
+    RectU16::new(
+        (bbox.x0 / Tile::WIDTH) * Tile::WIDTH,
+        (bbox.y0 / Tile::HEIGHT) * Tile::HEIGHT,
+        bbox.x1
+            .checked_next_multiple_of(Tile::WIDTH)
+            .unwrap_or(u16::MAX),
+        bbox.y1
+            .checked_next_multiple_of(Tile::HEIGHT)
+            .unwrap_or(u16::MAX),
     )
 }
 

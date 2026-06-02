@@ -157,9 +157,9 @@ mod util;
 
 #[doc(hidden)]
 pub mod fine;
+pub(crate) mod record;
 #[doc(hidden)]
 pub mod region;
-pub(crate) mod record;
 
 pub use render::{
     CompositeMode, PixelFormat, RasterizerSettings, RenderContext, RenderSettings, Resources,

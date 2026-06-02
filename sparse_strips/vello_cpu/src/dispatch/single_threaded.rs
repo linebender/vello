@@ -2,14 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::coarse::{CommandBucketer, LayerClip};
-use crate::record::{
-    CommandRecorder, PoppedLayer, expansion_left_top, expansion_padding,
-};
 use crate::dispatch::{Dispatcher, replay_render_commands};
 use crate::filter::context::FilterContext;
 use crate::fine::FineKernel;
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
+use crate::record::{CommandRecorder, PoppedLayer, expansion_left_top, expansion_padding};
 use crate::{CompositeMode, RasterizerSettings};
 use alloc::vec::Vec;
 use core::cell::RefCell;

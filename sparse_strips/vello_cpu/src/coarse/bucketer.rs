@@ -261,19 +261,19 @@ impl CommandBucketer {
             .next_path_id
             .checked_add(1)
             .expect("row-bucket path ID overflow");
+        let full_width = self.width();
+        let span = Self::bbox_span(bbox);
         let filter_attrs_idx = self.filter_attrs.len() as u32;
         self.filter_attrs.push(FilterLayerAttrs {
             layer_id,
             path_id,
-            src_x: src_origin.0 + (bbox.x0 - src_bbox.x0),
+            src_x: src_origin.0 + span.pixel_x().saturating_sub(src_bbox.x0),
             src_y: src_origin.1 + (bbox.y0 - src_bbox.y0),
             y0: bbox.y0,
             y1: bbox.y1,
         });
-        let full_width = self.width();
         let row_start = usize::from(bbox.y0 / Tile::HEIGHT);
         let row_end = usize::from(bbox.y1.div_ceil(Tile::HEIGHT)).min(self.rows.len());
-        let span = Self::bbox_span(bbox);
         for row_idx in row_start..row_end {
             self.ensure_row_layers(row_idx);
             let row_y = row_idx as u16 * Tile::HEIGHT;
