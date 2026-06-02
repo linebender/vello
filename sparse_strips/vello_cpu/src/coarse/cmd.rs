@@ -52,7 +52,7 @@ pub(crate) enum FineCmd {
 
 impl FineCmd {
     #[inline]
-    pub(crate) fn generated_span(&self) -> Option<Span> {
+    pub(crate) fn generated_span(self) -> Option<Span> {
         match self {
             Self::Fill(cmd) => Some(cmd.span),
             Self::BlendFill(cmd) => Some(cmd.span),

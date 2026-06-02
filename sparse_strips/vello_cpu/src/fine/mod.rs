@@ -81,7 +81,7 @@ impl Numeric for f32 {
 
     #[inline(always)]
     fn from_u8_component(value: u8) -> Self {
-        f32::from(value) / 255.0
+        Self::from(value) / 255.0
     }
 }
 
@@ -886,7 +886,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     #[inline(always)]
     fn render_cmd(
         &mut self,
-        cmd: &FillCmd,
+        cmd: FillCmd,
         alphas: &[u8],
         attrs: &FillAttrs,
         encoded_paints: &[EncodedPaint],
@@ -954,7 +954,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     #[inline(always)]
     fn render_cmd_span(
         &mut self,
-        cmd: &FillCmd,
+        cmd: FillCmd,
         x: u16,
         end: u16,
         alphas: &[u8],
@@ -1031,7 +1031,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
     fn composite_filter_layer_cmd(
         &mut self,
-        cmd: &crate::coarse::FilterLayerCmd,
+        cmd: crate::coarse::FilterLayerCmd,
         attrs: &FilterLayerAttrs,
         row_y: u16,
         layer: &Pixmap,
@@ -1742,7 +1742,7 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
                 let alphas = alpha_buffers[attrs.thread_idx as usize];
                 let use_depth = row.depth_affects(cmd.span, attrs.path_id);
                 fine.render_cmd(
-                    cmd,
+                    *cmd,
                     alphas,
                     attrs,
                     encoded_paints,
@@ -1767,7 +1767,7 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
                 let attrs = &bucketer.filter_attrs()[cmd.attrs_idx as usize];
                 if let Some(layer) = layer_manager.layer(attrs.layer_id) {
                     let use_depth = row.depth_affects(cmd.span, attrs.path_id);
-                    fine.composite_filter_layer_cmd(cmd, attrs, row_y, layer, use_depth);
+                    fine.composite_filter_layer_cmd(*cmd, attrs, row_y, layer, use_depth);
                 }
             }
             FineCmd::BlendFill(cmd) => {

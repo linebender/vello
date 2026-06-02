@@ -12,7 +12,10 @@ use vello_common::strip::Strip;
 use vello_common::tile::Tile;
 
 const DEPTH_BUCKET_TILE_WIDTH: u16 = DEPTH_BUCKET_WIDTH / Tile::WIDTH;
-const _: () = assert!(DEPTH_BUCKET_WIDTH % Tile::WIDTH == 0);
+const _: () = assert!(
+    DEPTH_BUCKET_WIDTH.is_multiple_of(Tile::WIDTH),
+    "depth bucket width must be a multiple of tile width"
+);
 
 // Note: All methods here assume that strips are horizontally aligned to
 // tile boundaries. if that ever changes, the logic will have to be rewritten.
@@ -62,7 +65,7 @@ impl CommandBucketer {
         self.generate(
             strip_buf,
             |bucketer, row_idx, fill| {
-                bucketer.push_fill(row_idx, fill, attrs_idx, depth_cull_path_id)
+                bucketer.push_fill(row_idx, fill, attrs_idx, depth_cull_path_id);
             },
             |bucketer, row_idx, fill| {
                 bucketer.ensure_row_layers(row_idx);

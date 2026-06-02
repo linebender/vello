@@ -137,7 +137,7 @@ pub trait RectExt {
 impl RectExt for Rect {
     #[inline]
     fn snap_to_tile_coordinates(self) -> Rect {
-        Rect::new(
+        Self::new(
             snap_down(self.x0, Tile::WIDTH),
             snap_down(self.y0, Tile::HEIGHT),
             snap_up(self.x1, Tile::WIDTH),

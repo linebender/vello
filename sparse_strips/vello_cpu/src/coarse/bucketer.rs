@@ -160,7 +160,11 @@ impl CommandBucketer {
             for &row_idx in &layer.occupied_rows {
                 occupied_rows[row_idx] = true;
                 let row = &mut self.rows[row_idx];
-                debug_assert_eq!(row.layer_depth, self.active_layers.len() + 1);
+                debug_assert_eq!(
+                    row.layer_depth,
+                    self.active_layers.len() + 1,
+                    "occupied row must still be inside the popped layer"
+                );
                 row.push_layer_props(mask_idx, opacity);
             }
 
@@ -204,7 +208,11 @@ impl CommandBucketer {
             };
             for row_idx in layer.occupied_rows.drain(..) {
                 let row = &mut self.rows[row_idx];
-                debug_assert_eq!(row.layer_depth, self.active_layers.len() + 1);
+                debug_assert_eq!(
+                    row.layer_depth,
+                    self.active_layers.len() + 1,
+                    "occupied row must still be inside the popped layer"
+                );
                 row.pop_layer(blend_span, mask_idx, opacity, blend_attrs_idx);
             }
         }
