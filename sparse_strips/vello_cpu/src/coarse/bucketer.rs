@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use super::cmd::{BlendAttrs, FillAttrs, FilterLayerAttrs, FilterLayerCmd, FineCmd};
+use super::cmd::{BlendAttrs, FillAttrs, FilterLayerAttrs, FilterLayerCmd, FineCmd, Span};
 use super::layer::{ActiveLayer, LayerClip};
 use super::row::RowCommands;
 use crate::peniko::BlendMode;
@@ -54,6 +54,12 @@ impl CommandBucketer {
         width
             .checked_next_multiple_of(Tile::WIDTH)
             .unwrap_or(u16::MAX)
+    }
+
+    fn bbox_span(bbox: RectU16) -> Span {
+        let tile_x = bbox.x0 / Tile::WIDTH;
+        let tile_x1 = bbox.x1.div_ceil(Tile::WIDTH);
+        Span::new(tile_x, tile_x1.saturating_sub(tile_x))
     }
 
     fn ceil_to_tile_height(height: u16) -> u16 {
@@ -123,7 +129,7 @@ impl CommandBucketer {
             blend_mode,
             opacity,
             clip,
-            bbox,
+            span: Self::bbox_span(bbox),
             occupied_rows: Vec::new(),
         });
         if blend_mode.is_destructive() {
@@ -180,20 +186,20 @@ impl CommandBucketer {
                 self.rows[row_idx].pop_buf();
             }
         } else {
-            let (blend_x, blend_width) = if blend_mode.is_destructive() {
-                (layer.bbox.x0, layer.bbox.width())
-            } else {
-                (0, full_width)
-            };
             let blend_attrs_idx = self.blend_attrs.len() as u32;
             self.blend_attrs.push(BlendAttrs {
                 blend_mode,
                 thread_idx: 0,
             });
+            let blend_span = if blend_mode.is_destructive() {
+                layer.span
+            } else {
+                Span::new(0, full_width / Tile::WIDTH)
+            };
             for row_idx in layer.occupied_rows.drain(..) {
                 let row = &mut self.rows[row_idx];
                 debug_assert_eq!(row.layer_depth, self.active_layers.len() + 1);
-                row.pop_layer(blend_x, blend_width, mask_idx, opacity, blend_attrs_idx);
+                row.pop_layer(blend_span, mask_idx, opacity, blend_attrs_idx);
             }
         }
     }
@@ -253,6 +259,7 @@ impl CommandBucketer {
         let full_width = self.width();
         let row_start = usize::from(bbox.y0 / Tile::HEIGHT);
         let row_end = usize::from(bbox.y1.div_ceil(Tile::HEIGHT)).min(self.rows.len());
+        let span = Self::bbox_span(bbox);
         for row_idx in row_start..row_end {
             self.ensure_row_layers(row_idx);
             let row_y = row_idx as u16 * Tile::HEIGHT;
@@ -262,8 +269,7 @@ impl CommandBucketer {
             }
             self.rows[row_idx].push_cmd(
                 FineCmd::FilterLayer(FilterLayerCmd {
-                    x: bbox.x0,
-                    width: bbox.width(),
+                    span,
                     attrs_idx: filter_attrs_idx,
                 }),
                 full_width,

@@ -1,6 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use super::cmd::Span;
 use crate::peniko::BlendMode;
 use alloc::vec::Vec;
 use core::ops::Range;
@@ -20,6 +21,6 @@ pub(super) struct ActiveLayer {
     pub(super) blend_mode: BlendMode,
     pub(super) opacity: f32,
     pub(super) clip: Option<LayerClip>,
-    pub(super) bbox: RectU16,
+    pub(super) span: Span,
     pub(super) occupied_rows: Vec<usize>,
 }

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use super::cmd::{
-    BlendAlphaFillCmd, BlendFillCmd, FillCmd, FineCmd, GeneratedAlphaFill, GeneratedFill,
+    BlendAlphaFillCmd, BlendFillCmd, FillCmd, FineCmd, GeneratedAlphaFill, GeneratedFill, Span,
 };
 use alloc::vec::Vec;
 use vello_common::util::Clear;
@@ -11,8 +11,8 @@ use vello_common::util::Clear;
 pub(crate) struct RowCommands {
     pub(crate) cmds: Vec<FineCmd>,
     pub(crate) opaque: Vec<FillCmd>,
-    bounds: Option<(u16, u16)>,
-    opaque_bounds: Option<(u16, u16)>,
+    bounds: Option<Span>,
+    opaque_bounds: Option<Span>,
     max_opaque_path_id: u32,
     pub(super) layer_depth: usize,
 }
@@ -39,8 +39,8 @@ impl RowCommands {
     }
 
     pub(super) fn push_cmd(&mut self, cmd: FineCmd, width: u16) {
-        if let Some((x, cmd_width)) = cmd.generated_span() {
-            self.include_bounds(x, cmd_width, width);
+        if let Some(span) = cmd.generated_span() {
+            self.include_bounds(span, width);
         }
         self.cmds.push(cmd);
     }
@@ -52,8 +52,7 @@ impl RowCommands {
 
     pub(super) fn pop_layer(
         &mut self,
-        x: u16,
-        width: u16,
+        span: Span,
         mask_idx: Option<u32>,
         opacity: f32,
         blend_attrs_idx: u32,
@@ -65,8 +64,7 @@ impl RowCommands {
             self.cmds.push(FineCmd::Opacity(opacity));
         }
         self.cmds.push(FineCmd::BlendFill(BlendFillCmd {
-            x,
-            width,
+            span,
             attrs_idx: blend_attrs_idx,
         }));
         self.pop_buf();
@@ -89,8 +87,7 @@ impl RowCommands {
     ) {
         self.push_cmd(
             FineCmd::BlendFill(BlendFillCmd {
-                x: fill.x,
-                width: fill.width,
+                span: fill.span,
                 attrs_idx: blend_attrs_idx,
             }),
             full_width,
@@ -105,8 +102,7 @@ impl RowCommands {
     ) {
         self.push_cmd(
             FineCmd::BlendAlphaFill(BlendAlphaFillCmd {
-                x: fill.x,
-                width: fill.width,
+                span: fill.span,
                 alpha_idx: fill.alpha_idx,
                 attrs_idx: blend_attrs_idx,
             }),
@@ -120,26 +116,29 @@ impl RowCommands {
     }
 
     pub(super) fn push_opaque(&mut self, cmd: FillCmd, width: u16, path_id: u32) {
-        self.include_bounds(cmd.x, cmd.width, width);
-        self.include_opaque_bounds(cmd.x, cmd.width, width);
+        self.include_bounds(cmd.span, width);
+        self.include_opaque_bounds(cmd.span, width);
         self.max_opaque_path_id = self.max_opaque_path_id.max(path_id);
         self.opaque.push(cmd);
     }
 
-    pub(crate) fn bounds(&self) -> Option<(u16, u16)> {
+    pub(crate) fn bounds(&self) -> Option<Span> {
         self.bounds
     }
 
-    pub(crate) fn depth_affects(&self, x: u16, cmd_width: u16, path_id: u32) -> bool {
+    pub(crate) fn depth_affects(&self, span: Span, path_id: u32) -> bool {
         if path_id >= self.max_opaque_path_id {
             return false;
         }
 
-        let Some((opaque_start, opaque_end)) = self.opaque_bounds else {
+        let Some(opaque_bounds) = self.opaque_bounds else {
             return false;
         };
+        let opaque_start = opaque_bounds.pixel_x();
+        let opaque_end = opaque_bounds.pixel_end();
 
-        let end = x.saturating_add(cmd_width);
+        let x = span.pixel_x();
+        let end = span.pixel_end();
         if x >= opaque_end || end <= opaque_start {
             return false;
         }
@@ -147,30 +146,28 @@ impl RowCommands {
         true
     }
 
-    fn include_bounds(&mut self, x: u16, cmd_width: u16, width: u16) {
-        let start = x.min(width);
-        let end = start.saturating_add(cmd_width).min(width);
-        if start >= end {
+    fn include_bounds(&mut self, span: Span, width: u16) {
+        if span.pixel_x() >= width {
             return;
         }
 
-        self.bounds = Some(match self.bounds {
-            Some((old_start, old_end)) => (old_start.min(start), old_end.max(end)),
-            None => (start, end),
-        });
+        if let Some(bounds) = &mut self.bounds {
+            bounds.extend(span);
+        } else {
+            self.bounds = Some(span);
+        }
     }
 
-    fn include_opaque_bounds(&mut self, x: u16, cmd_width: u16, width: u16) {
-        let start = x.min(width);
-        let end = start.saturating_add(cmd_width).min(width);
-        if start >= end {
+    fn include_opaque_bounds(&mut self, span: Span, width: u16) {
+        if span.pixel_x() >= width {
             return;
         }
 
-        self.opaque_bounds = Some(match self.opaque_bounds {
-            Some((old_start, old_end)) => (old_start.min(start), old_end.max(end)),
-            None => (start, end),
-        });
+        if let Some(bounds) = &mut self.opaque_bounds {
+            bounds.extend(span);
+        } else {
+            self.opaque_bounds = Some(span);
+        }
     }
 }
 

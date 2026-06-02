@@ -840,14 +840,16 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         image_resolver: &dyn ImageResolver,
     ) {
         self.set_paint_offset(attrs.paint_offset);
-        let start = usize::from(cmd.x / DEPTH_BUCKET_WIDTH);
-        let end = usize::from((cmd.x + cmd.width) / DEPTH_BUCKET_WIDTH);
+        let cmd_x = cmd.span.pixel_x();
+        let cmd_width = cmd.span.pixel_width();
+        let start = usize::from(cmd_x / DEPTH_BUCKET_WIDTH);
+        let end = usize::from((cmd_x + cmd_width) / DEPTH_BUCKET_WIDTH);
 
         if start + 1 == end {
             if self.depth[start] == 0 {
                 self.fill(
-                    cmd.x,
-                    cmd.width,
+                    cmd_x,
+                    cmd_width,
                     &attrs.paint,
                     attrs.blend_mode,
                     encoded_paints,
@@ -985,8 +987,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 attrs.mask.as_ref(),
             ),
             FineCmd::AlphaFill(fill) => {
-                let alpha_offset =
-                    fill.alpha_idx as usize + usize::from(x - fill.x) * Tile::HEIGHT as usize;
+                let alpha_offset = fill.alpha_idx as usize
+                    + usize::from(x - fill.span.pixel_x()) * Tile::HEIGHT as usize;
                 self.fill(
                     x,
                     end - x,
@@ -1065,8 +1067,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         layer: &Pixmap,
         use_depth: bool,
     ) {
-        let cmd_x = cmd.x;
-        let cmd_end = cmd.x.saturating_add(cmd.width).min(self.buffer_width);
+        let cmd_x = cmd.span.pixel_x();
+        let cmd_end = cmd.span.pixel_end().min(self.buffer_width);
         if cmd_x >= cmd_end {
             return;
         }
@@ -1131,7 +1133,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             self.composite_filter_layer(
                 x,
                 end - x,
-                attrs.src_x + (x - cmd.x),
+                attrs.src_x + (x - cmd.span.pixel_x()),
                 src_y,
                 dst_y_offset,
                 height,
@@ -1733,9 +1735,11 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
     image_resolver: &dyn ImageResolver,
     bucketer: &CommandBucketer,
 ) {
-    let Some((mut row_start, mut row_end)) = row.bounds() else {
+    let Some(row_bounds) = row.bounds() else {
         return;
     };
+    let mut row_start = row_bounds.pixel_x();
+    let mut row_end = row_bounds.pixel_end();
     row_start = row_start.min(width);
     row_end = row_end.min(width);
     if row_start >= row_end {
@@ -1766,7 +1770,8 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
             FineCmd::Fill(_) | FineCmd::AlphaFill(_) => {
                 let attrs = &bucketer.attrs()[cmd.fill_attrs_idx() as usize];
                 let alphas = alpha_buffers[attrs.thread_idx as usize];
-                let use_depth = row.depth_affects(cmd.fill_x(), cmd.fill_width(), attrs.path_id);
+                let use_depth =
+                    row.depth_affects(cmd.generated_span().unwrap(), attrs.path_id);
                 fine.render_cmd(
                     cmd,
                     alphas,
@@ -1792,21 +1797,26 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
             FineCmd::FilterLayer(cmd) => {
                 let attrs = &bucketer.filter_attrs()[cmd.attrs_idx as usize];
                 if let Some(layer) = layer_manager.layer(attrs.layer_id) {
-                    let use_depth = row.depth_affects(cmd.x, cmd.width, attrs.path_id);
+                    let use_depth = row.depth_affects(cmd.span, attrs.path_id);
                     fine.composite_filter_layer_cmd(cmd, attrs, row_y, layer, use_depth);
                 }
             }
             FineCmd::BlendFill(cmd) => {
                 let attrs = &bucketer.blend_attrs()[cmd.attrs_idx as usize];
-                fine.blend_fill(row_y, cmd.x, cmd.width, attrs.blend_mode);
+                fine.blend_fill(
+                    row_y,
+                    cmd.span.pixel_x(),
+                    cmd.span.pixel_width(),
+                    attrs.blend_mode,
+                );
             }
             FineCmd::BlendAlphaFill(cmd) => {
                 let attrs = &bucketer.blend_attrs()[cmd.attrs_idx as usize];
                 let alphas = alpha_buffers[attrs.thread_idx as usize];
                 fine.blend_alpha_fill(
                     row_y,
-                    cmd.x,
-                    cmd.width,
+                    cmd.span.pixel_x(),
+                    cmd.span.pixel_width(),
                     attrs.blend_mode,
                     &alphas[cmd.alpha_idx as usize..],
                 );

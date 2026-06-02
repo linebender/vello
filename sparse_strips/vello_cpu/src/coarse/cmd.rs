@@ -7,6 +7,7 @@ use core::ops::Range;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
+use vello_common::tile::Tile;
 
 #[derive(Debug)]
 pub(crate) enum RenderCmd {
@@ -52,13 +53,13 @@ pub(crate) enum FineCmd {
 
 impl FineCmd {
     #[inline(always)]
-    pub(super) fn generated_span(&self) -> Option<(u16, u16)> {
+    pub(crate) fn generated_span(&self) -> Option<Span> {
         match self {
-            Self::Fill(cmd) => Some((cmd.x, cmd.width)),
-            Self::AlphaFill(cmd) => Some((cmd.x, cmd.width)),
-            Self::BlendFill(cmd) => Some((cmd.x, cmd.width)),
-            Self::FilterLayer(cmd) => Some((cmd.x, cmd.width)),
-            Self::BlendAlphaFill(cmd) => Some((cmd.x, cmd.width)),
+            Self::Fill(cmd) => Some(cmd.span),
+            Self::AlphaFill(cmd) => Some(cmd.span),
+            Self::BlendFill(cmd) => Some(cmd.span),
+            Self::FilterLayer(cmd) => Some(cmd.span),
+            Self::BlendAlphaFill(cmd) => Some(cmd.span),
             Self::PushLayer | Self::PopBuf | Self::Opacity(_) | Self::Mask(_) => None,
         }
     }
@@ -66,8 +67,8 @@ impl FineCmd {
     #[inline(always)]
     pub(crate) fn fill_x(&self) -> u16 {
         match self {
-            Self::Fill(cmd) => cmd.x,
-            Self::AlphaFill(cmd) => cmd.x,
+            Self::Fill(cmd) => cmd.span.pixel_x(),
+            Self::AlphaFill(cmd) => cmd.span.pixel_x(),
             Self::PushLayer
             | Self::PopBuf
             | Self::Opacity(_)
@@ -81,8 +82,8 @@ impl FineCmd {
     #[inline(always)]
     pub(crate) fn fill_width(&self) -> u16 {
         match self {
-            Self::Fill(cmd) => cmd.width,
-            Self::AlphaFill(cmd) => cmd.width,
+            Self::Fill(cmd) => cmd.span.pixel_width(),
+            Self::AlphaFill(cmd) => cmd.span.pixel_width(),
             Self::PushLayer
             | Self::PopBuf
             | Self::Opacity(_)
@@ -109,53 +110,104 @@ impl FineCmd {
     }
 }
 
+/// A horizontal tile-aligned span stored in tile coordinates.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Span {
+    /// The horizontal start position in tile coordinates.
+    tile_x: u16,
+    /// The horizontal span width in tile coordinates.
+    tile_width: u16,
+}
+
+impl Span {
+    /// Creates a span from tile coordinates.
+    #[inline(always)]
+    pub(crate) fn new(tile_x: u16, tile_width: u16) -> Self {
+        Self {
+            tile_x,
+            tile_width,
+        }
+    }
+
+    /// Returns the horizontal start position in tile coordinates.
+    #[inline(always)]
+    pub(crate) fn tile_x(self) -> u16 {
+        self.tile_x
+    }
+
+    /// Returns the exclusive horizontal end position in tile coordinates.
+    #[inline(always)]
+    pub(crate) fn tile_end(self) -> u16 {
+        self.tile_x.saturating_add(self.tile_width)
+    }
+
+    /// Extends this span to include another span.
+    #[inline(always)]
+    pub(crate) fn extend(&mut self, other: Self) {
+        let tile_x = self.tile_x.min(other.tile_x);
+        let tile_end = self.tile_end().max(other.tile_end());
+        *self = Self::new(tile_x, tile_end.saturating_sub(tile_x));
+    }
+
+    /// Returns the horizontal start position in pixels.
+    #[inline(always)]
+    pub(crate) fn pixel_x(self) -> u16 {
+        self.tile_x * Tile::WIDTH
+    }
+
+    /// Returns the horizontal span width in pixels.
+    #[inline(always)]
+    pub(crate) fn pixel_width(self) -> u16 {
+        self.tile_width * Tile::WIDTH
+    }
+
+    /// Returns the exclusive horizontal end position in pixels.
+    #[inline(always)]
+    pub(crate) fn pixel_end(self) -> u16 {
+        self.pixel_x().saturating_add(self.pixel_width())
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FillCmd {
-    pub(crate) x: u16,
-    pub(crate) width: u16,
+    pub(crate) span: Span,
     pub(crate) attrs_idx: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct AlphaFillCmd {
-    pub(crate) x: u16,
-    pub(crate) width: u16,
+    pub(crate) span: Span,
     pub(crate) alpha_idx: u32,
     pub(crate) attrs_idx: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BlendFillCmd {
-    pub(crate) x: u16,
-    pub(crate) width: u16,
+    pub(crate) span: Span,
     pub(crate) attrs_idx: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FilterLayerCmd {
-    pub(crate) x: u16,
-    pub(crate) width: u16,
+    pub(crate) span: Span,
     pub(crate) attrs_idx: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BlendAlphaFillCmd {
-    pub(crate) x: u16,
-    pub(crate) width: u16,
+    pub(crate) span: Span,
     pub(crate) alpha_idx: u32,
     pub(crate) attrs_idx: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct GeneratedFill {
-    pub(super) x: u16,
-    pub(super) width: u16,
+    pub(super) span: Span,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct GeneratedAlphaFill {
-    pub(super) x: u16,
-    pub(super) width: u16,
+    pub(super) span: Span,
     pub(super) alpha_idx: u32,
 }
 
@@ -188,10 +240,11 @@ pub(crate) struct FilterLayerAttrs {
 #[cfg(test)]
 mod tests {
     use super::FineCmd;
+    use core::mem::{needs_drop, size_of};
 
     #[test]
     fn fine_cmd_assertions() {
-        assert_eq!(core::mem::size_of::<FineCmd>(), 16);
-        assert!(!core::mem::needs_drop::<FineCmd>());
+        assert_eq!(size_of::<FineCmd>(), 16);
+        assert!(!needs_drop::<FineCmd>());
     }
 }
