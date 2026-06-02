@@ -6,9 +6,9 @@ use crate::dispatch::recording::{
     CommandRecorder, PoppedLayer, expansion_left_top, expansion_padding,
 };
 use crate::dispatch::{Dispatcher, replay_render_commands};
+use crate::filter::context::FilterContext;
 use crate::fine::FineKernel;
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
-use crate::filter::context::FilterContext;
 use crate::peniko::{BlendMode, Fill};
 use crate::{CompositeMode, RasterizerSettings};
 use alloc::vec::Vec;

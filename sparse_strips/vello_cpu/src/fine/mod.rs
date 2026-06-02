@@ -11,10 +11,11 @@ mod common;
 mod highp;
 mod lowp;
 
-use crate::filter::context::ScratchBuffer;
 use crate::coarse::{
     CommandBucketer, DEPTH_BUCKET_WIDTH, FillAttrs, FillCmd, FilterLayerAttrs, FineCmd,
 };
+use crate::filter::context::FilterContext;
+use crate::filter::context::ScratchBuffer;
 use crate::fine::common::gradient::GradientPainter;
 pub(crate) use crate::fine::common::gradient::calculate_t_vals;
 pub(crate) use crate::fine::common::gradient::linear::SimdLinearKind;
@@ -22,7 +23,6 @@ pub(crate) use crate::fine::common::gradient::radial::SimdRadialKind;
 pub(crate) use crate::fine::common::gradient::sweep::SimdSweepKind;
 use crate::fine::common::image::{FilteredImagePainter, NNImagePainter, PlainNNImagePainter};
 use crate::fine::common::rounded_blurred_rect::BlurredRoundedRectFiller;
-use crate::filter::context::FilterContext;
 use crate::peniko::{BlendMode, ImageQuality};
 use crate::region::Region;
 use crate::util::EncodedImageExt;
@@ -246,7 +246,10 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     /// The transform parameter is used to scale filter parameters based on the current
     /// transformation matrix (e.g., zoom level), ensuring filters look consistent
     /// regardless of scale.
-    #[expect(private_interfaces, reason = "`FineKernel` is public but this specific method is not needed.")]
+    #[expect(
+        private_interfaces,
+        reason = "`FineKernel` is public but this specific method is not needed."
+    )]
     fn filter_layer(
         pixmap: &mut Pixmap,
         filter: &Filter,
@@ -610,21 +613,6 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         Self::apply_mask(self.simd, target, x, row_y, width, mask);
     }
 
-    fn blend_fill(&mut self, row_y: u16, x: u16, width: u16, blend_mode: BlendMode) {
-        self.blend(row_y, x, width, blend_mode, None);
-    }
-
-    fn blend_alpha_fill(
-        &mut self,
-        row_y: u16,
-        x: u16,
-        width: u16,
-        blend_mode: BlendMode,
-        alphas: &[u8],
-    ) {
-        self.blend(row_y, x, width, blend_mode, Some(alphas));
-    }
-
     fn blend(
         &mut self,
         row_y: u16,
@@ -898,15 +886,15 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     #[inline(always)]
     fn render_cmd(
         &mut self,
-        cmd: &FineCmd,
+        cmd: &FillCmd,
         alphas: &[u8],
         attrs: &FillAttrs,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
         use_depth: bool,
     ) {
-        let cmd_x = cmd.fill_x();
-        let cmd_end = (cmd_x + cmd.fill_width()).min(self.buffer_width);
+        let cmd_x = cmd.span.pixel_x();
+        let cmd_end = cmd.span.pixel_end().min(self.buffer_width);
         if cmd_x >= cmd_end {
             return;
         }
@@ -966,7 +954,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     #[inline(always)]
     fn render_cmd_span(
         &mut self,
-        cmd: &FineCmd,
+        cmd: &FillCmd,
         x: u16,
         end: u16,
         alphas: &[u8],
@@ -975,39 +963,21 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         image_resolver: &dyn ImageResolver,
     ) {
         self.set_paint_offset(attrs.paint_offset);
-        match cmd {
-            FineCmd::Fill(_) => self.fill(
-                x,
-                end - x,
-                &attrs.paint,
-                attrs.blend_mode,
-                encoded_paints,
-                image_resolver,
-                None,
-                attrs.mask.as_ref(),
-            ),
-            FineCmd::AlphaFill(fill) => {
-                let alpha_offset = fill.alpha_idx as usize
-                    + usize::from(x - fill.span.pixel_x()) * Tile::HEIGHT as usize;
-                self.fill(
-                    x,
-                    end - x,
-                    &attrs.paint,
-                    attrs.blend_mode,
-                    encoded_paints,
-                    image_resolver,
-                    Some(&alphas[alpha_offset..]),
-                    attrs.mask.as_ref(),
-                );
-            }
-            FineCmd::PushLayer
-            | FineCmd::PopBuf
-            | FineCmd::Opacity(_)
-            | FineCmd::Mask(_)
-            | FineCmd::FilterLayer(_)
-            | FineCmd::BlendFill(_)
-            | FineCmd::BlendAlphaFill(_) => unreachable!(),
-        }
+        let alphas = cmd.alpha_idx().map(|alpha_idx| {
+            let alpha_offset =
+                alpha_idx as usize + usize::from(x - cmd.span.pixel_x()) * Tile::HEIGHT as usize;
+            &alphas[alpha_offset..]
+        });
+        self.fill(
+            x,
+            end - x,
+            &attrs.paint,
+            attrs.blend_mode,
+            encoded_paints,
+            image_resolver,
+            alphas,
+            attrs.mask.as_ref(),
+        );
     }
 
     fn composite_filter_layer(
@@ -1331,7 +1301,7 @@ mod tests {
         fine.buffers.last_mut().unwrap()[6 * TILE_HEIGHT_COMPONENTS..8 * TILE_HEIGHT_COMPONENTS]
             .fill(u8::MAX);
 
-        fine.blend_fill(0, 6, 4, BlendMode::default());
+        fine.blend(0, 6, 4, BlendMode::default(), None);
 
         assert!(
             fine.buffers[0][6 * TILE_HEIGHT_COMPONENTS..8 * TILE_HEIGHT_COMPONENTS]
@@ -1346,7 +1316,7 @@ mod tests {
         let mut fine = Fine::<_, U8Kernel>::new(simd, 8, 8);
 
         fine.push_layer(0, 8);
-        fine.blend_fill(0, 8, 4, BlendMode::default());
+        fine.blend(0, 8, 4, BlendMode::default(), None);
 
         assert!(fine.buffers[0].iter().all(|&component| component == 0));
     }
@@ -1767,11 +1737,10 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
 
     for cmd in &row.cmds {
         match cmd {
-            FineCmd::Fill(_) | FineCmd::AlphaFill(_) => {
-                let attrs = &bucketer.attrs()[cmd.fill_attrs_idx() as usize];
+            FineCmd::Fill(cmd) => {
+                let attrs = &bucketer.attrs()[cmd.attrs_idx as usize];
                 let alphas = alpha_buffers[attrs.thread_idx as usize];
-                let use_depth =
-                    row.depth_affects(cmd.generated_span().unwrap(), attrs.path_id);
+                let use_depth = row.depth_affects(cmd.span, attrs.path_id);
                 fine.render_cmd(
                     cmd,
                     alphas,
@@ -1803,22 +1772,15 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
             }
             FineCmd::BlendFill(cmd) => {
                 let attrs = &bucketer.blend_attrs()[cmd.attrs_idx as usize];
-                fine.blend_fill(
+                let alphas = cmd.alpha_idx().map(|alpha_idx| {
+                    &alpha_buffers[attrs.thread_idx as usize][alpha_idx as usize..]
+                });
+                fine.blend(
                     row_y,
                     cmd.span.pixel_x(),
                     cmd.span.pixel_width(),
                     attrs.blend_mode,
-                );
-            }
-            FineCmd::BlendAlphaFill(cmd) => {
-                let attrs = &bucketer.blend_attrs()[cmd.attrs_idx as usize];
-                let alphas = alpha_buffers[attrs.thread_idx as usize];
-                fine.blend_alpha_fill(
-                    row_y,
-                    cmd.span.pixel_x(),
-                    cmd.span.pixel_width(),
-                    attrs.blend_mode,
-                    &alphas[cmd.alpha_idx as usize..],
+                    alphas,
                 );
             }
         }

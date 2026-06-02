@@ -14,9 +14,9 @@
 //! @see <https://drafts.fxtf.org/filter-effects-2/#feDropShadowElement>
 
 use super::FilterEffect;
-use crate::filter::context::ScratchBuffer;
 use super::gaussian_blur::apply_blur;
 use super::shift::offset_pixels;
+use crate::filter::context::ScratchBuffer;
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::filter::drop_shadow::DropShadow;
 use vello_common::filter_effects::EdgeMode;

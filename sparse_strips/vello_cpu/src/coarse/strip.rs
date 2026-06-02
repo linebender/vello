@@ -1,11 +1,9 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use super::bucketer::CommandBucketer;
-use super::cmd::{
-    AlphaFillCmd, FillAttrs, FillCmd, FineCmd, GeneratedAlphaFill, GeneratedFill, Span,
-};
 use super::DEPTH_BUCKET_WIDTH;
+use super::bucketer::CommandBucketer;
+use super::cmd::{FillAttrs, FillCmd, FineCmd, Span};
 use crate::peniko::BlendMode;
 use vello_common::encode::EncodedPaint;
 use vello_common::mask::Mask;
@@ -18,6 +16,14 @@ const _: () = assert!(DEPTH_BUCKET_WIDTH % Tile::WIDTH == 0);
 
 // Note: All methods here assume that strips are horizontally aligned to
 // tile boundaries. if that ever changes, the logic will have to be rewritten.
+
+/// A generic alpha fill command that can later on either be
+/// turned into a normal fill or a blend fill.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct GeneratedAlphaFill {
+    pub(super) span: Span,
+    pub(super) alpha_idx: u32,
+}
 
 impl CommandBucketer {
     pub(crate) fn generate_fill(
@@ -62,11 +68,7 @@ impl CommandBucketer {
                 bucketer.ensure_row_layers(row_idx);
                 let full_width = bucketer.width();
                 bucketer.rows[row_idx].push_cmd(
-                    FineCmd::AlphaFill(AlphaFillCmd {
-                        span: fill.span,
-                        alpha_idx: fill.alpha_idx,
-                        attrs_idx,
-                    }),
+                    FineCmd::Fill(FillCmd::new(fill.span, Some(fill.alpha_idx), attrs_idx)),
                     full_width,
                 );
             },
@@ -79,7 +81,7 @@ impl CommandBucketer {
         mut fill_cmd: F,
         mut alpha_fill_cmd: A,
     ) where
-        F: FnMut(&mut Self, usize, GeneratedFill),
+        F: FnMut(&mut Self, usize, Span),
         A: FnMut(&mut Self, usize, GeneratedAlphaFill),
     {
         if strip_buf.is_empty() {
@@ -131,12 +133,7 @@ impl CommandBucketer {
                     fill_cmd(
                         self,
                         row_idx,
-                        GeneratedFill {
-                            span: Span::new(
-                                fill_x0 / Tile::WIDTH,
-                                (fill_x1 - fill_x0) / Tile::WIDTH,
-                            ),
-                        },
+                        Span::new(fill_x0 / Tile::WIDTH, (fill_x1 - fill_x0) / Tile::WIDTH),
                     );
                 }
             }
@@ -146,7 +143,7 @@ impl CommandBucketer {
     fn push_fill(
         &mut self,
         row_idx: usize,
-        fill: GeneratedFill,
+        span: Span,
         attrs_idx: u32,
         depth_cull_path_id: Option<u32>,
     ) {
@@ -155,26 +152,20 @@ impl CommandBucketer {
         let row = &mut self.rows[row_idx];
         let Some(path_id) = depth_cull_path_id else {
             row.push_cmd(
-                FineCmd::Fill(FillCmd {
-                    span: fill.span,
-                    attrs_idx,
-                }),
+                FineCmd::Fill(FillCmd::new(span, None, attrs_idx)),
                 full_width,
             );
             return;
         };
 
-        let fill_x = fill.span.tile_x();
-        let end = fill.span.tile_end();
+        let fill_x = span.tile_x();
+        let end = span.tile_end();
         let aligned_x = fill_x.next_multiple_of(DEPTH_BUCKET_TILE_WIDTH).min(end);
         let aligned_end = (end / DEPTH_BUCKET_TILE_WIDTH) * DEPTH_BUCKET_TILE_WIDTH;
 
         if aligned_x >= aligned_end {
             row.push_cmd(
-                FineCmd::Fill(FillCmd {
-                    span: fill.span,
-                    attrs_idx,
-                }),
+                FineCmd::Fill(FillCmd::new(span, None, attrs_idx)),
                 full_width,
             );
             return;
@@ -182,20 +173,22 @@ impl CommandBucketer {
 
         if fill_x < aligned_x {
             row.push_cmd(
-                FineCmd::Fill(FillCmd {
-                    span: Span::new(fill_x, aligned_x - fill_x),
+                FineCmd::Fill(FillCmd::new(
+                    Span::new(fill_x, aligned_x - fill_x),
+                    None,
                     attrs_idx,
-                }),
+                )),
                 full_width,
             );
         }
 
         if aligned_x < aligned_end {
             row.push_opaque(
-                FillCmd {
-                    span: Span::new(aligned_x, aligned_end - aligned_x),
+                FillCmd::new(
+                    Span::new(aligned_x, aligned_end - aligned_x),
+                    None,
                     attrs_idx,
-                },
+                ),
                 full_width,
                 path_id,
             );
@@ -203,10 +196,11 @@ impl CommandBucketer {
 
         if aligned_end < end {
             row.push_cmd(
-                FineCmd::Fill(FillCmd {
-                    span: Span::new(aligned_end, end - aligned_end),
+                FineCmd::Fill(FillCmd::new(
+                    Span::new(aligned_end, end - aligned_end),
+                    None,
                     attrs_idx,
-                }),
+                )),
                 full_width,
             );
         }
@@ -349,7 +343,7 @@ mod tests {
         assert!(row.opaque.is_empty());
         assert_eq!(row.cmds.len(), 1);
         assert!(
-            matches!(row.cmds[0], FineCmd::AlphaFill(cmd) if cmd.span.pixel_x() == 0 && cmd.span.pixel_width() == 8 && cmd.alpha_idx == 0)
+            matches!(row.cmds[0], FineCmd::Fill(cmd) if cmd.span.pixel_x() == 0 && cmd.span.pixel_width() == 8 && cmd.alpha_idx() == Some(0))
         );
     }
 
@@ -382,7 +376,7 @@ mod tests {
         assert_eq!(row.cmds.len(), 2);
         assert!(matches!(row.cmds[0], FineCmd::PushLayer));
         assert!(
-            matches!(row.cmds[1], FineCmd::AlphaFill(cmd) if cmd.span.pixel_x() == 0 && cmd.span.pixel_width() == 8 && cmd.alpha_idx == 0)
+            matches!(row.cmds[1], FineCmd::Fill(cmd) if cmd.span.pixel_x() == 0 && cmd.span.pixel_width() == 8 && cmd.alpha_idx() == Some(0))
         );
     }
 

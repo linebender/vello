@@ -3,6 +3,7 @@
 
 use super::LayerClip;
 use crate::peniko::BlendMode;
+use core::num::NonZeroU32;
 use core::ops::Range;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
@@ -41,76 +42,27 @@ pub(crate) enum RenderCmd {
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum FineCmd {
     Fill(FillCmd),
-    AlphaFill(AlphaFillCmd),
     PushLayer,
     PopBuf,
     Opacity(f32),
     Mask(u32),
     BlendFill(BlendFillCmd),
     FilterLayer(FilterLayerCmd),
-    BlendAlphaFill(BlendAlphaFillCmd),
 }
 
 impl FineCmd {
-    #[inline(always)]
+    #[inline]
     pub(crate) fn generated_span(&self) -> Option<Span> {
         match self {
             Self::Fill(cmd) => Some(cmd.span),
-            Self::AlphaFill(cmd) => Some(cmd.span),
             Self::BlendFill(cmd) => Some(cmd.span),
             Self::FilterLayer(cmd) => Some(cmd.span),
-            Self::BlendAlphaFill(cmd) => Some(cmd.span),
             Self::PushLayer | Self::PopBuf | Self::Opacity(_) | Self::Mask(_) => None,
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn fill_x(&self) -> u16 {
-        match self {
-            Self::Fill(cmd) => cmd.span.pixel_x(),
-            Self::AlphaFill(cmd) => cmd.span.pixel_x(),
-            Self::PushLayer
-            | Self::PopBuf
-            | Self::Opacity(_)
-            | Self::Mask(_)
-            | Self::FilterLayer(_)
-            | Self::BlendFill(_)
-            | Self::BlendAlphaFill(_) => unreachable!(),
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn fill_width(&self) -> u16 {
-        match self {
-            Self::Fill(cmd) => cmd.span.pixel_width(),
-            Self::AlphaFill(cmd) => cmd.span.pixel_width(),
-            Self::PushLayer
-            | Self::PopBuf
-            | Self::Opacity(_)
-            | Self::Mask(_)
-            | Self::FilterLayer(_)
-            | Self::BlendFill(_)
-            | Self::BlendAlphaFill(_) => unreachable!(),
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn fill_attrs_idx(&self) -> u32 {
-        match self {
-            Self::Fill(cmd) => cmd.attrs_idx,
-            Self::AlphaFill(cmd) => cmd.attrs_idx,
-            Self::PushLayer
-            | Self::PopBuf
-            | Self::Opacity(_)
-            | Self::Mask(_)
-            | Self::FilterLayer(_)
-            | Self::BlendFill(_)
-            | Self::BlendAlphaFill(_) => unreachable!(),
         }
     }
 }
 
-/// A horizontal tile-aligned span stored in tile coordinates.
+/// A horizontal tile-aligned span.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Span {
     /// The horizontal start position in tile coordinates.
@@ -121,28 +73,21 @@ pub(crate) struct Span {
 
 impl Span {
     /// Creates a span from tile coordinates.
-    #[inline(always)]
     pub(crate) fn new(tile_x: u16, tile_width: u16) -> Self {
-        Self {
-            tile_x,
-            tile_width,
-        }
+        Self { tile_x, tile_width }
     }
 
     /// Returns the horizontal start position in tile coordinates.
-    #[inline(always)]
     pub(crate) fn tile_x(self) -> u16 {
         self.tile_x
     }
 
     /// Returns the exclusive horizontal end position in tile coordinates.
-    #[inline(always)]
     pub(crate) fn tile_end(self) -> u16 {
         self.tile_x.saturating_add(self.tile_width)
     }
 
     /// Extends this span to include another span.
-    #[inline(always)]
     pub(crate) fn extend(&mut self, other: Self) {
         let tile_x = self.tile_x.min(other.tile_x);
         let tile_end = self.tile_end().max(other.tile_end());
@@ -150,19 +95,16 @@ impl Span {
     }
 
     /// Returns the horizontal start position in pixels.
-    #[inline(always)]
     pub(crate) fn pixel_x(self) -> u16 {
         self.tile_x * Tile::WIDTH
     }
 
     /// Returns the horizontal span width in pixels.
-    #[inline(always)]
     pub(crate) fn pixel_width(self) -> u16 {
         self.tile_width * Tile::WIDTH
     }
 
     /// Returns the exclusive horizontal end position in pixels.
-    #[inline(always)]
     pub(crate) fn pixel_end(self) -> u16 {
         self.pixel_x().saturating_add(self.pixel_width())
     }
@@ -171,44 +113,62 @@ impl Span {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FillCmd {
     pub(crate) span: Span,
+    alpha_idx: Option<AlphaIdx>,
     pub(crate) attrs_idx: u32,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct AlphaFillCmd {
-    pub(crate) span: Span,
-    pub(crate) alpha_idx: u32,
-    pub(crate) attrs_idx: u32,
+impl FillCmd {
+    pub(crate) fn new(span: Span, alpha_idx: Option<u32>, attrs_idx: u32) -> Self {
+        Self {
+            span,
+            alpha_idx: alpha_idx.map(AlphaIdx::new),
+            attrs_idx,
+        }
+    }
+
+    pub(crate) fn alpha_idx(self) -> Option<u32> {
+        self.alpha_idx.map(AlphaIdx::get)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BlendFillCmd {
     pub(crate) span: Span,
+    alpha_idx: Option<AlphaIdx>,
     pub(crate) attrs_idx: u32,
+}
+
+impl BlendFillCmd {
+    pub(crate) fn new(span: Span, alpha_idx: Option<u32>, attrs_idx: u32) -> Self {
+        Self {
+            span,
+            alpha_idx: alpha_idx.map(AlphaIdx::new),
+            attrs_idx,
+        }
+    }
+
+    pub(crate) fn alpha_idx(self) -> Option<u32> {
+        self.alpha_idx.map(AlphaIdx::get)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct AlphaIdx(NonZeroU32);
+
+impl AlphaIdx {
+    fn new(alpha_idx: u32) -> Self {
+        Self(NonZeroU32::new(alpha_idx.checked_add(1).expect("alpha index overflow")).unwrap())
+    }
+
+    fn get(self) -> u32 {
+        self.0.get() - 1
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FilterLayerCmd {
     pub(crate) span: Span,
     pub(crate) attrs_idx: u32,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct BlendAlphaFillCmd {
-    pub(crate) span: Span,
-    pub(crate) alpha_idx: u32,
-    pub(crate) attrs_idx: u32,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(super) struct GeneratedFill {
-    pub(super) span: Span,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(super) struct GeneratedAlphaFill {
-    pub(super) span: Span,
-    pub(super) alpha_idx: u32,
 }
 
 #[derive(Debug, Clone)]

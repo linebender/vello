@@ -8,18 +8,18 @@
 //! Filters are applied to rendered layer pixmaps and may use scratch storage for
 //! intermediate buffers.
 
+pub(crate) mod context;
 mod drop_shadow;
 mod flood;
 mod gaussian_blur;
 mod offset;
 mod shift;
-pub(crate) mod context;
 
+use context::ScratchBuffer;
 use vello_common::filter::PreparedFilter;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::Affine;
 use vello_common::pixmap::Pixmap;
-use context::ScratchBuffer;
 
 /// Trait for filter effects that can be applied to layers.
 ///

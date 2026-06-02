@@ -1,9 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use super::cmd::{
-    BlendAlphaFillCmd, BlendFillCmd, FillCmd, FineCmd, GeneratedAlphaFill, GeneratedFill, Span,
-};
+use super::cmd::{BlendFillCmd, FillCmd, FineCmd, Span};
 use alloc::vec::Vec;
 use vello_common::util::Clear;
 
@@ -63,10 +61,11 @@ impl RowCommands {
         if opacity != 1.0 {
             self.cmds.push(FineCmd::Opacity(opacity));
         }
-        self.cmds.push(FineCmd::BlendFill(BlendFillCmd {
+        self.cmds.push(FineCmd::BlendFill(BlendFillCmd::new(
             span,
-            attrs_idx: blend_attrs_idx,
-        }));
+            None,
+            blend_attrs_idx,
+        )));
         self.pop_buf();
     }
 
@@ -81,31 +80,13 @@ impl RowCommands {
 
     pub(super) fn push_blend_fill(
         &mut self,
-        fill: GeneratedFill,
+        span: Span,
+        alpha_idx: Option<u32>,
         blend_attrs_idx: u32,
         full_width: u16,
     ) {
         self.push_cmd(
-            FineCmd::BlendFill(BlendFillCmd {
-                span: fill.span,
-                attrs_idx: blend_attrs_idx,
-            }),
-            full_width,
-        );
-    }
-
-    pub(super) fn push_blend_alpha_fill(
-        &mut self,
-        fill: GeneratedAlphaFill,
-        blend_attrs_idx: u32,
-        full_width: u16,
-    ) {
-        self.push_cmd(
-            FineCmd::BlendAlphaFill(BlendAlphaFillCmd {
-                span: fill.span,
-                alpha_idx: fill.alpha_idx,
-                attrs_idx: blend_attrs_idx,
-            }),
+            FineCmd::BlendFill(BlendFillCmd::new(span, alpha_idx, blend_attrs_idx)),
             full_width,
         );
     }

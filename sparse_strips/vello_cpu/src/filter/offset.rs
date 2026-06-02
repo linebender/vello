@@ -7,8 +7,8 @@ use vello_common::filter::offset::Offset;
 use vello_common::pixmap::Pixmap;
 
 use super::FilterEffect;
-use crate::filter::context::ScratchBuffer;
 use super::shift::offset_pixels;
+use crate::filter::context::ScratchBuffer;
 
 impl FilterEffect for Offset {
     fn execute_lowp(&self, pixmap: &mut Pixmap, _: &mut ScratchBuffer) {
@@ -22,9 +22,9 @@ impl FilterEffect for Offset {
 
 #[cfg(test)]
 mod tests {
-    use crate::filter::context::ScratchBuffer;
     use super::Offset;
     use crate::filter::FilterEffect;
+    use crate::filter::context::ScratchBuffer;
     use vello_common::peniko::color::PremulRgba8;
     use vello_common::pixmap::Pixmap;
 

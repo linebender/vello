@@ -20,9 +20,9 @@ impl FilterEffect for Flood {
 
 #[cfg(test)]
 mod tests {
-    use crate::filter::context::ScratchBuffer;
     use super::*;
     use crate::color::AlphaColor;
+    use crate::filter::context::ScratchBuffer;
     use vello_common::color::{PremulRgba8, Srgb};
 
     /// Test flood with semi-transparent color - verifies correct premultiplication.

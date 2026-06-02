@@ -51,7 +51,10 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
     /// Applies a filter effect to a rendered layer.
     ///
     /// Delegates to the u8-specific filter implementation.
-    #[expect(private_interfaces, reason = "`FineKernel` is public but this specific method is not needed.")]
+    #[expect(
+        private_interfaces,
+        reason = "`FineKernel` is public but this specific method is not needed."
+    )]
     fn filter_layer(
         pixmap: &mut Pixmap,
         filter: &Filter,

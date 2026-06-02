@@ -168,13 +168,19 @@ impl CommandBucketer {
                 clip_strips,
                 |bucketer, row_idx, fill| {
                     if occupied_rows[row_idx] {
-                        bucketer.rows[row_idx].push_blend_fill(fill, blend_attrs_idx, full_width);
+                        bucketer.rows[row_idx].push_blend_fill(
+                            fill,
+                            None,
+                            blend_attrs_idx,
+                            full_width,
+                        );
                     }
                 },
                 |bucketer, row_idx, fill| {
                     if occupied_rows[row_idx] {
-                        bucketer.rows[row_idx].push_blend_alpha_fill(
-                            fill,
+                        bucketer.rows[row_idx].push_blend_fill(
+                            fill.span,
+                            Some(fill.alpha_idx),
                             blend_attrs_idx,
                             full_width,
                         );
