@@ -9,6 +9,7 @@ use crate::filter::context::FilterContext;
 use crate::fine::FineKernel;
 use crate::kurbo::{Affine, BezPath, PathEl, Point, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
+use crate::record::FilterLayerPlan;
 use crate::{CompositeMode, RasterizerSettings};
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -25,7 +26,6 @@ use thread_local::ThreadLocal;
 use vello_common::clip::{ClipContext, control_point_bbox_u16};
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, dispatch};
-use vello_common::filter_effects::Filter;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
@@ -509,12 +509,12 @@ impl Dispatcher for MultiThreadedDispatcher {
         opacity: f32,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
-        filter: Option<Filter>,
+        filter_plan: Option<FilterLayerPlan>,
     ) {
         // TODO: Implement filter support in multi-threaded dispatcher.
         // The single-threaded dispatcher has full filter support, but multi-threaded needs
         // additional infrastructure for cross-thread layer coordination.
-        if filter.is_some() {
+        if filter_plan.is_some() {
             unimplemented!("Filter effects are not yet supported in multi-threaded rendering");
         }
 

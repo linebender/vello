@@ -73,17 +73,52 @@ enum LayerKind {
 pub(crate) struct RecordedFilterLayer {
     /// Commands recorded while this filter layer is active.
     pub(crate) cmds: Vec<RenderCmd>,
-    pub(crate) filter: Filter,
-    pub(crate) transform: Affine,
-    /// Filter-specific output expansion, in layer coordinates.
-    expansion: Rect,
-    /// Position of the unexpanded source content inside this layer's pixmap.
-    pub(crate) source_origin: (u16, u16),
+    pub(crate) filter_plan: FilterLayerPlan,
     /// Bounds of the commands recorded into this layer, before filter expansion.
     pub(crate) content_bbox: RectU16,
     /// Bounds of the pixmap rendered for this layer, after filter expansion and
     /// tile snapping.
     pub(crate) bbox: RectU16,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct FilterLayerPlan {
+    pub(crate) filter: Filter,
+    pub(crate) transform: Affine,
+    pub(crate) filter_padding: RectU16,
+    pub(crate) source_padding: RectU16,
+    pub(crate) source_origin: (u16, u16),
+    pub(crate) root_transform: Affine,
+}
+
+impl FilterLayerPlan {
+    pub(crate) fn new(filter: Filter, transform: Affine) -> Self {
+        // Note: In theory, we don't need to snap to tile coordinates
+        // horizontally, but we do need it vertically. We want to make
+        // sure that we can always use fill commands for compositing filter
+        // layers back into the parent layer (instead of having to use
+        // alpha fills for the edges), which only works if the filter pixmap
+        // is snapped to tile coordinates.
+        let source_expansion = filter
+            .source_expansion(&transform)
+            .snap_to_tile_coordinates();
+        let source_padding = expansion_padding(source_expansion);
+        let filter_padding = expansion_padding(filter.filter_expansion(&transform));
+        let source_origin = (source_padding.x0, source_padding.y0);
+        // Make sure that any area that might be needed by the filter layer
+        // is included in the canvas.
+        let root_transform =
+            Affine::translate((f64::from(source_padding.x0), f64::from(source_padding.y0)));
+
+        Self {
+            filter,
+            transform,
+            filter_padding,
+            source_padding,
+            source_origin,
+            root_transform,
+        }
+    }
 }
 
 /// A small pool for reusing `Vec<RenderCmd>` allocations across multiple
@@ -103,7 +138,6 @@ impl CommandPool {
         self.cmds.push(cmds);
     }
 }
-
 
 #[derive(Debug, Default)]
 pub(crate) struct CommandRecorder {
@@ -168,7 +202,13 @@ impl CommandRecorder {
         opacity: f32,
         mask: Option<Mask>,
         clip: Option<LayerClip>,
+        filter_plan: Option<FilterLayerPlan>,
     ) {
+        if let Some(filter_plan) = filter_plan {
+            self.push_filter_layer(blend_mode, opacity, mask, clip, filter_plan);
+            return;
+        }
+
         let cmd_filter_layer_id = self.active_filter_layer_id();
         let push_cmd_idx = self.push_render_cmd(RenderCmd::PushLayer {
             blend_mode,
@@ -188,16 +228,13 @@ impl CommandRecorder {
 
     /// Records a filter layer composite command in the parent layer, then makes
     /// the new filter layer's command list active.
-    pub(crate) fn push_filter_layer(
+    fn push_filter_layer(
         &mut self,
-        filter: Filter,
-        transform: Affine,
-        expansion: Rect,
-        source_origin: (u16, u16),
         blend_mode: BlendMode,
         opacity: f32,
         mask: Option<Mask>,
         clip: Option<LayerClip>,
+        filter_plan: FilterLayerPlan,
     ) {
         let parent_filter_layer_id = self.active_filter_layer_id();
         let filter_layer_id = self.filter_layers.len();
@@ -214,10 +251,7 @@ impl CommandRecorder {
         let cmds = self.cmd_pool.take();
         self.filter_layers.push(RecordedFilterLayer {
             cmds,
-            filter,
-            transform,
-            expansion,
-            source_origin,
+            filter_plan,
             content_bbox: RectU16::INVERTED,
             bbox: RectU16::INVERTED,
         });
@@ -311,9 +345,10 @@ impl CommandRecorder {
         bbox: RectU16,
     ) {
         self.filter_layers[filter_layer_id].content_bbox = bbox;
-        let expansion = self.filter_layers[filter_layer_id].expansion;
-        let source_origin = self.filter_layers[filter_layer_id].source_origin;
-        let render_bbox = snap_bbox_to_tile(expand_bbox(bbox, expansion));
+        let filter_plan = &self.filter_layers[filter_layer_id].filter_plan;
+        let padding = filter_plan.filter_padding;
+        let source_origin = filter_plan.source_origin;
+        let render_bbox = snap_bbox_to_tile(expand_bbox(bbox, padding));
         let (output_bbox, src_x, src_y) = shift_bbox_to_parent(render_bbox, source_origin);
         self.filter_layers[filter_layer_id].bbox = render_bbox;
         match &mut self.filter_layer_cmds_mut(parent_filter_layer_id)[composite_cmd_idx] {
@@ -348,31 +383,26 @@ pub(crate) enum PoppedLayer {
     Filter,
 }
 
-pub(crate) fn expansion_left_top(expansion: Rect) -> (u16, u16) {
-    let (left, top, _, _) = expansion_padding(expansion);
-    (left, top)
-}
-
-pub(crate) fn expansion_padding(expansion: Rect) -> (u16, u16, u16, u16) {
+fn expansion_padding(expansion: Rect) -> RectU16 {
     let expansion = expansion.snap_to_tile_coordinates();
-    let left = (-expansion.x0).max(0.0) as u16;
-    let top = (-expansion.y0).max(0.0) as u16;
-    let right = expansion.x1.max(0.0) as u16;
-    let bottom = expansion.y1.max(0.0) as u16;
-    (left, top, right, bottom)
+    RectU16::new(
+        (-expansion.x0).max(0.0) as u16,
+        (-expansion.y0).max(0.0) as u16,
+        expansion.x1.max(0.0) as u16,
+        expansion.y1.max(0.0) as u16,
+    )
 }
 
-fn expand_bbox(bbox: RectU16, expansion: Rect) -> RectU16 {
+fn expand_bbox(bbox: RectU16, padding: RectU16) -> RectU16 {
     if bbox.is_empty() {
         return bbox;
     }
 
-    let (left, top, right, bottom) = expansion_padding(expansion);
     RectU16::new(
-        bbox.x0.saturating_sub(left),
-        bbox.y0.saturating_sub(top),
-        bbox.x1.saturating_add(right),
-        bbox.y1.saturating_add(bottom),
+        bbox.x0.saturating_sub(padding.x0),
+        bbox.y0.saturating_sub(padding.y0),
+        bbox.x1.saturating_add(padding.x1),
+        bbox.y1.saturating_add(padding.y1),
     )
 }
 
@@ -439,7 +469,7 @@ fn strip_bbox(strips: &[Strip], viewport_width: u16) -> RectU16 {
         }
 
         if next_strip.fill_gap() && strip_y == next_strip.strip_y() {
-            // TODO: We should probalby not emit sentinel strips with fill_gap = true
+            // TODO: We should probably not emit sentinel strips with fill_gap = true
             // in the first place...
             let fill_x1 = if next_strip.is_sentinel() {
                 viewport_width

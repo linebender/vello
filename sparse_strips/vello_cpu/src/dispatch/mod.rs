@@ -9,10 +9,10 @@ use crate::RasterizerSettings;
 use crate::coarse::{CommandBucketer, RenderCmd};
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
+use crate::record::FilterLayerPlan;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use vello_common::encode::EncodedPaint;
-use vello_common::filter_effects::Filter;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
@@ -167,7 +167,7 @@ pub(crate) trait Dispatcher: Debug + Send {
         opacity: f32,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
-        filter: Option<Filter>,
+        filter_plan: Option<FilterLayerPlan>,
     );
     fn pop_layer(&mut self);
     fn reset(&mut self);

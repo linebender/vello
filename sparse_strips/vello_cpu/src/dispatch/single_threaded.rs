@@ -7,14 +7,14 @@ use crate::filter::context::FilterContext;
 use crate::fine::FineKernel;
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
-use crate::record::{CommandRecorder, PoppedLayer, expansion_left_top, expansion_padding};
+use crate::record::{CommandRecorder, FilterLayerPlan, PoppedLayer};
 use crate::{CompositeMode, RasterizerSettings};
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use vello_common::clip::{ClipContext, control_point_bbox_u16};
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd};
-use vello_common::filter_effects::Filter;
+use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
 use vello_common::pixmap::{Pixmap, PixmapMut};
@@ -182,9 +182,9 @@ impl SingleThreadedDispatcher {
 
             F::filter_layer(
                 &mut pixmap,
-                &layer.filter,
+                &layer.filter_plan.filter,
                 layer_manager.scratch(),
-                layer.transform,
+                layer.filter_plan.transform,
             );
             layer_manager.set_layer(id, pixmap);
         }
@@ -192,18 +192,17 @@ impl SingleThreadedDispatcher {
         layer_manager
     }
 
-    fn push_filter_viewport(&mut self, expansion: Rect) {
-        let (left, top, right, bottom) = expansion_padding(expansion);
+    fn push_filter_viewport(&mut self, padding: RectU16) {
         let width = self
             .strip_generator
             .width()
-            .saturating_add(left)
-            .saturating_add(right);
+            .saturating_add(padding.x0)
+            .saturating_add(padding.x1);
         let height = self
             .strip_generator
             .height()
-            .saturating_add(top)
-            .saturating_add(bottom);
+            .saturating_add(padding.y0)
+            .saturating_add(padding.y1);
         self.viewport_stack
             .push((self.strip_generator.width(), self.strip_generator.height()));
         self.strip_generator = StripGenerator::new(width, height, self.level);
@@ -317,16 +316,10 @@ impl Dispatcher for SingleThreadedDispatcher {
         opacity: f32,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
-        filter: Option<Filter>,
+        filter_plan: Option<FilterLayerPlan>,
     ) {
-        let filter_expansion = filter
-            .as_ref()
-            .map(|filter| filter.filter_expansion(&clip_transform));
-        let filter_source_expansion = filter
-            .as_ref()
-            .map(|filter| filter.source_expansion(&clip_transform));
-        if let Some(expansion) = filter_source_expansion {
-            self.push_filter_viewport(expansion);
+        if let Some(plan) = &filter_plan {
+            self.push_filter_viewport(plan.source_padding);
         }
 
         let clip_path = clip_path.map(|clip_path| {
@@ -356,24 +349,8 @@ impl Dispatcher for SingleThreadedDispatcher {
             }
         });
 
-        if let Some(filter) = filter {
-            let expansion = filter_expansion.expect("filter expansion missing");
-            let source_expansion =
-                filter_source_expansion.expect("filter source expansion missing");
-            self.recorder.push_filter_layer(
-                filter,
-                clip_transform,
-                expansion,
-                expansion_left_top(source_expansion),
-                blend_mode,
-                opacity,
-                mask,
-                clip_path,
-            );
-        } else {
-            self.recorder
-                .push_layer(blend_mode, opacity, mask, clip_path);
-        }
+        self.recorder
+            .push_layer(blend_mode, opacity, mask, clip_path, filter_plan);
     }
 
     fn pop_layer(&mut self) {
