@@ -140,6 +140,7 @@ impl CommandRecorder {
         &mut self,
         strip_range: core::ops::Range<usize>,
         strips: &[Strip],
+        viewport_width: u16,
         paint: Paint,
         blend_mode: BlendMode,
         mask: Option<Mask>,
@@ -157,7 +158,7 @@ impl CommandRecorder {
             return;
         }
 
-        let bbox = strip_bbox(strips);
+        let bbox = strip_bbox(strips, viewport_width);
         self.record_bbox(bbox);
     }
 
@@ -297,9 +298,7 @@ impl CommandRecorder {
         content_bbox: RectU16,
     ) {
         match &mut self.filter_layer_cmds_mut(filter_layer_id)[push_cmd_idx] {
-            RenderCmd::PushLayer {
-                bbox, ..
-            } => *bbox = content_bbox,
+            RenderCmd::PushLayer { bbox, .. } => *bbox = content_bbox,
             _ => unreachable!("layer stack referenced a non-layer command"),
         }
     }
@@ -410,7 +409,7 @@ fn shift_bbox_to_parent(bbox: RectU16, origin: (u16, u16)) -> (RectU16, u16, u16
     )
 }
 
-fn strip_bbox(strips: &[Strip]) -> RectU16 {
+fn strip_bbox(strips: &[Strip], viewport_width: u16) -> RectU16 {
     let mut bbox = RectU16::INVERTED;
 
     // Need at least one strip (and the sentinel one).
@@ -439,8 +438,17 @@ fn strip_bbox(strips: &[Strip]) -> RectU16 {
             bbox.union(RectU16::new(strip.x, row_y, strip_x1, row_y1));
         }
 
-        if next_strip.fill_gap() && strip_y == next_strip.strip_y() && strip_x1 < next_strip.x {
-            bbox.union(RectU16::new(strip_x1, row_y, next_strip.x, row_y1));
+        if next_strip.fill_gap() && strip_y == next_strip.strip_y() {
+            // TODO: We should probalby not emit sentinel strips with fill_gap = true
+            // in the first place...
+            let fill_x1 = if next_strip.is_sentinel() {
+                viewport_width
+            } else {
+                next_strip.x
+            };
+            if strip_x1 < fill_x1 {
+                bbox.union(RectU16::new(strip_x1, row_y, fill_x1, row_y1));
+            }
         }
     }
 
@@ -455,11 +463,15 @@ mod tests {
         Strip::new(u16::MAX, y, alpha_idx, false)
     }
 
+    fn fill_gap_sentinel(y: u16, alpha_idx: u32) -> Strip {
+        Strip::new(u16::MAX, y, alpha_idx, true)
+    }
+
     #[test]
     fn empty_strip_bbox() {
         let strips = [sentinel(0, 0), sentinel(0, 0)];
 
-        assert_eq!(strip_bbox(&strips), RectU16::INVERTED);
+        assert_eq!(strip_bbox(&strips, 32), RectU16::INVERTED);
     }
 
     #[test]
@@ -469,7 +481,7 @@ mod tests {
             sentinel(4, u32::from(Tile::HEIGHT) * 4),
         ];
 
-        assert_eq!(strip_bbox(&strips), RectU16::new(8, 4, 12, 8));
+        assert_eq!(strip_bbox(&strips, 32), RectU16::new(8, 4, 12, 8));
     }
 
     #[test]
@@ -480,7 +492,17 @@ mod tests {
             sentinel(0, u32::from(Tile::HEIGHT) * 8),
         ];
 
-        assert_eq!(strip_bbox(&strips), RectU16::new(4, 0, 24, 4));
+        assert_eq!(strip_bbox(&strips, 32), RectU16::new(4, 0, 24, 4));
+    }
+
+    #[test]
+    fn strip_with_sentinel_fill_gap_bbox_is_clamped_to_viewport() {
+        let strips = [
+            Strip::new(4, 0, 0, false),
+            fill_gap_sentinel(0, u32::from(Tile::HEIGHT) * 4),
+        ];
+
+        assert_eq!(strip_bbox(&strips, 32), RectU16::new(4, 0, 32, 4));
     }
 
     #[test]
@@ -492,6 +514,6 @@ mod tests {
             sentinel(8, u32::from(Tile::HEIGHT) * 8),
         ];
 
-        assert_eq!(strip_bbox(&strips), RectU16::new(4, 0, 16, 12));
+        assert_eq!(strip_bbox(&strips, 32), RectU16::new(4, 0, 16, 12));
     }
 }

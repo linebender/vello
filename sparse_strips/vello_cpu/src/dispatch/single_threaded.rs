@@ -132,6 +132,7 @@ impl SingleThreadedDispatcher {
         self.recorder.push_fill(
             strip_start..strip_end,
             &self.strip_storage.strips[strip_start..strip_end],
+            self.strip_generator.width(),
             paint,
             blend_mode,
             mask,
@@ -482,7 +483,9 @@ mod tests {
 
     fn layer_content_bbox(dispatcher: &SingleThreadedDispatcher, cmd_idx: usize) -> RectU16 {
         match &dispatcher.recorder.root_cmds[cmd_idx] {
-            RenderCmd::PushLayer { bbox: content_bbox, .. } => *content_bbox,
+            RenderCmd::PushLayer {
+                bbox: content_bbox, ..
+            } => *content_bbox,
             _ => panic!("expected push layer command"),
         }
     }
