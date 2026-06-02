@@ -43,7 +43,6 @@ pub(crate) struct CommandRecorder {
     filter_layers: Vec<RecordedFilterLayer>,
     recording_stack: Vec<usize>,
     layer_stack: Vec<RecordedLayer>,
-    layer_depth: usize,
 }
 
 impl CommandRecorder {
@@ -60,7 +59,7 @@ impl CommandRecorder {
     }
 
     pub(crate) fn has_layers(&self) -> bool {
-        self.layer_depth != 0
+        !self.layer_stack.is_empty()
     }
 
     pub(crate) fn reset(&mut self) {
@@ -68,7 +67,6 @@ impl CommandRecorder {
         self.filter_layers.clear();
         self.recording_stack.clear();
         self.layer_stack.clear();
-        self.layer_depth = 0;
     }
 
     pub(crate) fn record_fill(
@@ -111,7 +109,6 @@ impl CommandRecorder {
             content_bbox: RectU16::INVERTED,
             kind: RecordedLayerKind::Regular,
         });
-        self.layer_depth += 1;
     }
 
     pub(crate) fn push_filter_layer(
@@ -153,7 +150,6 @@ impl CommandRecorder {
             content_bbox: RectU16::INVERTED,
             kind: RecordedLayerKind::Filter { layer_id },
         });
-        self.layer_depth += 1;
     }
 
     pub(crate) fn pop_layer(&mut self) -> PoppedLayer {
@@ -178,10 +174,6 @@ impl CommandRecorder {
                 PoppedLayer::Filter
             }
         };
-        self.layer_depth = self
-            .layer_depth
-            .checked_sub(1)
-            .expect("layer stack underflow");
         popped
     }
 
