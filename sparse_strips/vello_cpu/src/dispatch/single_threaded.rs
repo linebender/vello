@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::coarse::{CommandBucketer, LayerClip};
-use crate::dispatch::recording::{
+use crate::record::{
     CommandRecorder, PoppedLayer, expansion_left_top, expansion_padding,
 };
 use crate::dispatch::{Dispatcher, replay_render_commands};
