@@ -5,12 +5,12 @@ use crate::FilterScratch;
 use crate::coarse::{CommandBucketer, LayerClip, RenderCmd};
 use crate::dispatch::{Dispatcher, replay_render_commands};
 use crate::fine::{FineKernel, RenderedFilterLayer};
-use crate::kurbo::{Affine, BezPath, PathEl, Rect, Stroke};
+use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::{CompositeMode, RasterizerSettings};
 use alloc::vec::Vec;
 use core::cell::RefCell;
-use vello_common::clip::ClipContext;
+use vello_common::clip::{ClipContext, control_point_bbox_u16};
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd};
 use vello_common::filter_effects::Filter;
@@ -343,39 +343,6 @@ impl SingleThreadedDispatcher {
     }
 }
 
-fn control_point_bbox(path: &BezPath, transform: Affine) -> RectU16 {
-    let mut bbox = Rect::new(
-        f64::INFINITY,
-        f64::INFINITY,
-        f64::NEG_INFINITY,
-        f64::NEG_INFINITY,
-    );
-    for el in path.iter() {
-        match el {
-            PathEl::MoveTo(p) | PathEl::LineTo(p) => {
-                bbox = bbox.union_pt(transform * p);
-            }
-            PathEl::QuadTo(p1, p2) => {
-                bbox = bbox.union_pt(transform * p1);
-                bbox = bbox.union_pt(transform * p2);
-            }
-            PathEl::CurveTo(p1, p2, p3) => {
-                bbox = bbox.union_pt(transform * p1);
-                bbox = bbox.union_pt(transform * p2);
-                bbox = bbox.union_pt(transform * p3);
-            }
-            PathEl::ClosePath => {}
-        }
-    }
-
-    RectU16::new(
-        bbox.x0 as u16,
-        bbox.y0 as u16,
-        bbox.x1.ceil() as u16,
-        bbox.y1.ceil() as u16,
-    )
-}
-
 fn strip_bbox(strips: &[Strip], width: u16, height: u16) -> RectU16 {
     if strips.len() < 2 {
         return RectU16::INVERTED;
@@ -568,7 +535,7 @@ impl Dispatcher for SingleThreadedDispatcher {
 
         let clip_path = clip_path.map(|clip_path| {
             let existing_clip = self.clip_context.get();
-            let mut bbox = control_point_bbox(clip_path, clip_transform);
+            let mut bbox = control_point_bbox_u16(clip_path, clip_transform);
             if let Some(existing_clip) = existing_clip {
                 bbox = bbox.intersect(existing_clip.bbox);
             } else {

@@ -21,7 +21,7 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Barrier, Mutex};
 use thread_local::ThreadLocal;
-use vello_common::clip::ClipContext;
+use vello_common::clip::{ClipContext, control_point_bbox_u16};
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, dispatch};
 use vello_common::filter_effects::Filter;
@@ -38,39 +38,6 @@ mod worker;
 type RenderTaskSender = crossbeam_channel::Sender<RenderTask>;
 type CoarseTaskSender = ordered_channel::Sender<CoarseTask>;
 type CoarseTaskReceiver = ordered_channel::Receiver<CoarseTask>;
-
-fn control_point_bbox(path: &BezPath, transform: Affine) -> RectU16 {
-    let mut bbox = Rect::new(
-        f64::INFINITY,
-        f64::INFINITY,
-        f64::NEG_INFINITY,
-        f64::NEG_INFINITY,
-    );
-    for el in path.iter() {
-        match el {
-            PathEl::MoveTo(p) | PathEl::LineTo(p) => {
-                bbox = bbox.union_pt(transform * p);
-            }
-            PathEl::QuadTo(p1, p2) => {
-                bbox = bbox.union_pt(transform * p1);
-                bbox = bbox.union_pt(transform * p2);
-            }
-            PathEl::CurveTo(p1, p2, p3) => {
-                bbox = bbox.union_pt(transform * p1);
-                bbox = bbox.union_pt(transform * p2);
-                bbox = bbox.union_pt(transform * p3);
-            }
-            PathEl::ClosePath => {}
-        }
-    }
-
-    RectU16::new(
-        bbox.x0 as u16,
-        bbox.y0 as u16,
-        bbox.x1.ceil() as u16,
-        bbox.y1.ceil() as u16,
-    )
-}
 
 /// A dispatcher for multi-threaded rendering.
 ///
@@ -553,7 +520,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             let start = self.allocation_group.path.len() as u32;
             self.allocation_group.path.extend(c);
             let end = self.allocation_group.path.len() as u32;
-            let mut bbox = control_point_bbox(c, clip_transform);
+            let mut bbox = control_point_bbox_u16(c, clip_transform);
             if let Some(existing_clip) = self.clip_context.get() {
                 bbox = bbox.intersect(existing_clip.bbox);
             } else {

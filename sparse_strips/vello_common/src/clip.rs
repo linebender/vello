@@ -110,13 +110,7 @@ impl ClipContext {
         // flattening. If we ever take an iterator instead, or want to prevent iterating twice, we
         // could move this calculation into flattening (perhaps with a const-generic as to not
         // pessimize calls that don't require the bbox).
-        let path_bbox = control_point_bbox(clip_path, transform);
-        let mut bbox = RectU16::new(
-            path_bbox.x0 as u16,
-            path_bbox.y0 as u16,
-            path_bbox.x1.ceil() as u16,
-            path_bbox.y1.ceil() as u16,
-        );
+        let mut bbox = control_point_bbox_u16(clip_path, transform);
 
         // Intersect with the existing clip bounding box, or the viewport if this is the outermost
         // clip.
@@ -164,7 +158,7 @@ impl ClipContext {
 /// the transformed control points.
 ///
 /// If `path` is empty, this returns an infinite, inversed [`Rect`] (`left` > `right` and `top` > `bottom`).
-fn control_point_bbox(path: &BezPath, transform: Affine) -> Rect {
+pub fn control_point_bbox(path: &BezPath, transform: Affine) -> Rect {
     // Start with an infinite, inversed rectangle. Adding the first point immediately collapses it
     // without branching.
     let mut bbox = Rect::new(
@@ -191,6 +185,17 @@ fn control_point_bbox(path: &BezPath, transform: Affine) -> Rect {
         }
     }
     bbox
+}
+
+/// Compute a conservative bounding box for the transformed path in pixel coordinates.
+pub fn control_point_bbox_u16(path: &BezPath, transform: Affine) -> RectU16 {
+    let bbox = control_point_bbox(path, transform);
+    RectU16::new(
+        bbox.x0 as u16,
+        bbox.y0 as u16,
+        bbox.x1.ceil() as u16,
+        bbox.y1.ceil() as u16,
+    )
 }
 
 /// Borrowed data of a stripped path.
