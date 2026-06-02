@@ -98,7 +98,7 @@ impl SingleThreadedDispatcher {
         let mut bucketer = self.bucketer.borrow_mut();
         bucketer.reset(scene_width, scene_height);
         replay_render_commands(
-            self.recorder.root_cmds(),
+            &self.recorder.root_cmds,
             &self.strip_storage.strips,
             &mut bucketer,
             encoded_paints,
@@ -153,9 +153,9 @@ impl SingleThreadedDispatcher {
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) -> FilterContext {
-        let mut layer_manager = FilterContext::new(self.recorder.filter_layers().len());
-        for id in (0..self.recorder.filter_layers().len()).rev() {
-            let layer = &self.recorder.filter_layers()[id];
+        let mut layer_manager = FilterContext::new(self.recorder.filter_layers.len());
+        for id in (0..self.recorder.filter_layers.len()).rev() {
+            let layer = &self.recorder.filter_layers[id];
             if layer.bbox.is_empty() {
                 continue;
             }
@@ -523,7 +523,7 @@ mod tests {
     }
 
     fn layer_content_bbox(dispatcher: &SingleThreadedDispatcher, cmd_idx: usize) -> RectU16 {
-        match &dispatcher.recorder.root_cmds()[cmd_idx] {
+        match &dispatcher.recorder.root_cmds[cmd_idx] {
             RenderCmd::PushLayer { content_bbox, .. } => *content_bbox,
             _ => panic!("expected push layer command"),
         }

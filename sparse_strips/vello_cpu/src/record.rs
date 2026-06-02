@@ -1,6 +1,39 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+//! Recording rendering commands.
+//!
+//! Currently, the pipeline of Vello CPU can be split into roughly three parts:
+//! 1) Recording rendering commands by generating strips + layer metadata.
+//! 2) Bucketing the recorded commands per-strip row into render commands (coarse rasterization).
+//! 3) Executing the render commands (fine rasterization).
+//!
+//! Why do we need 1) instead of just doing 2) as soon as the user sends their commands? Well,
+//! this is actually what an earlier version of Vello CPU did. The main reason why we _don't_ do
+//! this anymore are **filter layers**. Unlike normal layers with blends/opacity/masks/clips,
+//! filter layers are special in two ways:
+//!
+//! - They always need to be rendered separately, independently from the parent layer
+//! command stream. This is because spatial filters might require sampling neighboring pixels,
+//! so the whole filter layer needs to be rendered as a whole before you can apply the filter and
+//! then composite it into the parent layer. Therefore, commands for filter layers cannot simply
+//! be inlined into the parent layer stream (this is what was done in previous versions of Vello CPU,
+//! and resulted in incredibly complex and fragile code).
+//!
+//! - Filter layers might have a different dimension than the main viewport. If you apply a big
+//! blur filter, you might have to render shapes that would normally be culled away because they
+//! exceed the viewport.
+//!
+//! If we decided to skip step 1) and do 2) directly, we would need to store and reuse instances
+//! of [`CommandBucketer`] for the root and each filter layer, which is especially cumbersome because
+//! conceptually, a command bucketer is a 2D array. This makes it very difficult to resize and reuse
+//! it while having the ability to retain and reuse inner allocations. By first recording all commands
+//! and their strips into a single [`Vec<RenderCmd>`], we can basically represent the commands of
+//! a single layer with just one flat buffer, making it much easier to reuse them across frames. It
+//! also allows us to collect useful metadata (e.g. the bounding box of a layer) and make appropriate
+//! decisions about how to render them (for example, where to place a filter layer and what size to
+//! allocate for it).
+
 use crate::coarse::{LayerClip, RenderCmd};
 use crate::kurbo::{Affine, Rect};
 use crate::peniko::BlendMode;
@@ -12,23 +45,26 @@ use vello_common::paint::Paint;
 use vello_common::tile::Tile;
 use vello_common::util::RectExt;
 
+/// Metadata about a layer.
+///
+/// This is mainly needed because we want the layer metadata to be in the `PushLayer` command
+/// instead of the `PopLayer` one, so it can be conveniently accessed when doing coarse rasterization.
+/// However, we only actually know the bounding box of a layer once we've finished rendering it,
+/// so we can only update this information once we actually pop the layer.
 #[derive(Debug)]
-struct RecordedLayer {
-    /// The command list that contains this layer's opening command.
-    ///
-    /// `None` means the root command list; `Some(id)` means the command list
-    /// for the filter layer with that id.
+struct LayerMetadata {
+    /// The filter layer id of the layer this layer is composited into.
     cmd_filter_layer_id: Option<usize>,
+    /// The index of the `PushLayer` render command of this layer.
     push_cmd_idx: usize,
-    content_bbox: RectU16,
-    kind: RecordedLayerKind,
+    /// A conservative bounding box of the layer.
+    bbox: RectU16,
+    kind: LayerKind,
 }
 
 #[derive(Debug)]
-enum RecordedLayerKind {
+enum LayerKind {
     Regular,
-    /// Filter layers get a stable id while recording. The id is the index into
-    /// [`CommandRecorder::filter_layers`].
     Filter {
         id: usize,
     },
@@ -59,47 +95,33 @@ struct CommandPool {
 }
 
 impl CommandPool {
-    /// Takes a command vector from the pool, or creates a fresh empty vector.
     fn take(&mut self) -> Vec<RenderCmd> {
         self.cmds.pop().unwrap_or_default()
     }
 
-    /// Returns a command vector to the pool after clearing its contents.
     fn submit(&mut self, mut cmds: Vec<RenderCmd>) {
         cmds.clear();
         self.cmds.push(cmds);
     }
 }
 
-/// Records root commands and filter-layer command lists while tracking layer
-/// content bounds.
+
 #[derive(Debug, Default)]
 pub(crate) struct CommandRecorder {
-    cmds: Vec<RenderCmd>,
-    filter_layers: Vec<RecordedFilterLayer>,
+    /// The commands of the root layer.
+    pub(crate) root_cmds: Vec<RenderCmd>,
+    /// Recorded filter layers, indexed by their ID.
+    pub(crate) filter_layers: Vec<RecordedFilterLayer>,
     cmd_pool: CommandPool,
-    /// Stack of active filter layer ids. The top selects which command list new
-    /// commands are recorded into.
+    /// Stack of currently active filter layers.
     active_filter_layer_stack: Vec<usize>,
-    /// Stack of open regular and filter layers, used to patch content bounds
-    /// back into the command that opened the layer when it is popped.
-    layer_stack: Vec<RecordedLayer>,
+    /// Stack of currently active layers, with their metadata.
+    layer_stack: Vec<LayerMetadata>,
 }
 
 impl CommandRecorder {
-    /// Creates an empty recorder.
     pub(crate) fn new() -> Self {
         Self::default()
-    }
-
-    /// Returns commands recorded into the root command list.
-    pub(crate) fn root_cmds(&self) -> &[RenderCmd] {
-        &self.cmds
-    }
-
-    /// Returns recorded filter layers indexed by filter layer id.
-    pub(crate) fn filter_layers(&self) -> &[RecordedFilterLayer] {
-        &self.filter_layers
     }
 
     /// Returns whether there are currently unpopped layers.
@@ -110,7 +132,7 @@ impl CommandRecorder {
     /// Clears recorded commands and returns filter-layer command vectors to the
     /// pool.
     pub(crate) fn reset(&mut self) {
-        self.cmds.clear();
+        self.root_cmds.clear();
         for layer in self.filter_layers.drain(..) {
             self.cmd_pool.submit(layer.cmds);
         }
@@ -155,11 +177,11 @@ impl CommandRecorder {
             clip,
             content_bbox: RectU16::INVERTED,
         });
-        self.layer_stack.push(RecordedLayer {
+        self.layer_stack.push(LayerMetadata {
             cmd_filter_layer_id,
             push_cmd_idx,
-            content_bbox: RectU16::INVERTED,
-            kind: RecordedLayerKind::Regular,
+            bbox: RectU16::INVERTED,
+            kind: LayerKind::Regular,
         });
     }
 
@@ -199,11 +221,11 @@ impl CommandRecorder {
             bbox: RectU16::INVERTED,
         });
         self.active_filter_layer_stack.push(filter_layer_id);
-        self.layer_stack.push(RecordedLayer {
+        self.layer_stack.push(LayerMetadata {
             cmd_filter_layer_id: parent_filter_layer_id,
             push_cmd_idx,
-            content_bbox: RectU16::INVERTED,
-            kind: RecordedLayerKind::Filter {
+            bbox: RectU16::INVERTED,
+            kind: LayerKind::Filter {
                 id: filter_layer_id,
             },
         });
@@ -213,9 +235,9 @@ impl CommandRecorder {
     /// the layer kind that was popped.
     pub(crate) fn pop_layer(&mut self) -> PoppedLayer {
         let layer = self.layer_stack.pop().expect("layer stack underflow");
-        let content_bbox = layer.content_bbox;
+        let content_bbox = layer.bbox;
         let popped = match layer.kind {
-            RecordedLayerKind::Regular => {
+            LayerKind::Regular => {
                 self.set_push_layer_content_bbox(
                     layer.cmd_filter_layer_id,
                     layer.push_cmd_idx,
@@ -225,7 +247,7 @@ impl CommandRecorder {
                 self.active_cmds_mut().push(RenderCmd::PopLayer);
                 PoppedLayer::Regular
             }
-            RecordedLayerKind::Filter {
+            LayerKind::Filter {
                 id: filter_layer_id,
             } => {
                 let popped = self
@@ -253,7 +275,7 @@ impl CommandRecorder {
         if let Some(id) = self.active_filter_layer_id() {
             &mut self.filter_layers[id].cmds
         } else {
-            &mut self.cmds
+            &mut self.root_cmds
         }
     }
 
@@ -261,7 +283,7 @@ impl CommandRecorder {
         if let Some(id) = filter_layer_id {
             &mut self.filter_layers[id].cmds
         } else {
-            &mut self.cmds
+            &mut self.root_cmds
         }
     }
 
@@ -320,7 +342,7 @@ impl CommandRecorder {
             return;
         }
         if let Some(layer) = self.layer_stack.last_mut() {
-            layer.content_bbox.union(bbox);
+            layer.bbox.union(bbox);
         }
     }
 }
