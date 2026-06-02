@@ -24,7 +24,7 @@ pub(crate) enum RenderCmd {
         opacity: f32,
         mask: Option<Mask>,
         clip: Option<LayerClip>,
-        content_bbox: RectU16,
+        bbox: RectU16,
     },
     CompositeFilterLayer {
         id: usize,

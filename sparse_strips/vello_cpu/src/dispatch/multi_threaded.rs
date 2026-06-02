@@ -345,7 +345,7 @@ impl MultiThreadedDispatcher {
                                     opacity,
                                     mask,
                                     clip: clip_path,
-                                    content_bbox: RectU16::INVERTED,
+                                    bbox: RectU16::INVERTED,
                                 });
                             }
                             CoarseTaskType::PopLayer => {

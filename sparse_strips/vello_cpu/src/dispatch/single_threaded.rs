@@ -482,7 +482,7 @@ mod tests {
 
     fn layer_content_bbox(dispatcher: &SingleThreadedDispatcher, cmd_idx: usize) -> RectU16 {
         match &dispatcher.recorder.root_cmds[cmd_idx] {
-            RenderCmd::PushLayer { content_bbox, .. } => *content_bbox,
+            RenderCmd::PushLayer { bbox: content_bbox, .. } => *content_bbox,
             _ => panic!("expected push layer command"),
         }
     }

@@ -157,8 +157,8 @@ impl CommandRecorder {
             return;
         }
 
-        let content_bbox = strip_bbox(strips);
-        self.include_content_bbox(content_bbox);
+        let bbox = strip_bbox(strips);
+        self.record_bbox(bbox);
     }
 
     /// Records the start of a regular blend/opacity/mask/clip layer.
@@ -175,7 +175,8 @@ impl CommandRecorder {
             opacity,
             mask,
             clip,
-            content_bbox: RectU16::INVERTED,
+            // Will be set upon `pop_layer`.
+            bbox: RectU16::INVERTED,
         });
         self.layer_stack.push(LayerMetadata {
             cmd_filter_layer_id,
@@ -243,7 +244,7 @@ impl CommandRecorder {
                     layer.push_cmd_idx,
                     content_bbox,
                 );
-                self.include_content_bbox(content_bbox);
+                self.record_bbox(content_bbox);
                 self.active_cmds_mut().push(RenderCmd::PopLayer);
                 PoppedLayer::Regular
             }
@@ -302,7 +303,7 @@ impl CommandRecorder {
     ) {
         match &mut self.filter_layer_cmds_mut(filter_layer_id)[push_cmd_idx] {
             RenderCmd::PushLayer {
-                content_bbox: bbox, ..
+                bbox: bbox, ..
             } => *bbox = content_bbox,
             _ => unreachable!("layer stack referenced a non-layer command"),
         }
@@ -334,10 +335,10 @@ impl CommandRecorder {
             }
             _ => unreachable!("filter layer stack referenced a non-filter command"),
         }
-        self.include_content_bbox(output_bbox);
+        self.record_bbox(output_bbox);
     }
 
-    fn include_content_bbox(&mut self, bbox: RectU16) {
+    fn record_bbox(&mut self, bbox: RectU16) {
         if bbox.is_empty() {
             return;
         }
