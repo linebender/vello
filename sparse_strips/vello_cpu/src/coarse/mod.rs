@@ -5,12 +5,10 @@ mod bucketer;
 mod cmd;
 pub(crate) mod depth;
 mod layer;
-mod row;
 mod strip;
 
-pub(crate) use bucketer::CommandBucketer;
+pub(crate) use bucketer::{CommandBucketer, RowCommands};
 pub(crate) use cmd::{
     FillAttrs, FillCmd, FilterLayerAttrs, FilterLayerCmd, FineCmd, RenderCmd, Span,
 };
 pub(crate) use layer::LayerClip;
-pub(crate) use row::RowCommands;
