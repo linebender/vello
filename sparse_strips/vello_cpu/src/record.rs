@@ -279,23 +279,23 @@ impl CommandRecorder {
         let bbox = layer.bbox;
         let popped = match layer.kind {
             LayerKind::Regular => {
-                self.set_push_layer_content_bbox(
-                    layer.cmd_filter_layer_id,
-                    layer.push_cmd_idx,
-                    bbox,
-                );
+                // Now we update the bbox inside of the corresponding `push_layer` command.
+                match &mut self.filter_layer_cmds_mut(layer.cmd_filter_layer_id)[layer.push_cmd_idx] {
+                    RenderCmd::PushLayer { bbox: layer_bbox, .. } => *layer_bbox = bbox,
+                    _ => unreachable!("layer stack referenced a non-layer command"),
+                }
                 self.record_bbox(|| bbox);
                 self.active_cmds_mut().push(RenderCmd::PopLayer);
+
                 PoppedLayer::Regular
             }
             LayerKind::Filter {
                 id: filter_layer_id,
             } => {
-                let popped = self
+                self
                     .active_filter_layer_stack
-                    .pop()
-                    .expect("filter stack underflow");
-                assert_eq!(popped, filter_layer_id, "filter layer stack mismatch");
+                    .pop();
+
                 self.set_filter_layer_bbox(
                     filter_layer_id,
                     layer.cmd_filter_layer_id,
@@ -329,18 +329,6 @@ impl CommandRecorder {
         let idx = cmds.len();
         cmds.push(cmd);
         idx
-    }
-
-    fn set_push_layer_content_bbox(
-        &mut self,
-        filter_layer_id: Option<usize>,
-        push_cmd_idx: usize,
-        content_bbox: RectU16,
-    ) {
-        match &mut self.filter_layer_cmds_mut(filter_layer_id)[push_cmd_idx] {
-            RenderCmd::PushLayer { bbox, .. } => *bbox = content_bbox,
-            _ => unreachable!("layer stack referenced a non-layer command"),
-        }
     }
 
     fn set_filter_layer_bbox(
