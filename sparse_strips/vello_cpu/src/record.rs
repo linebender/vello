@@ -379,9 +379,6 @@ impl CommandRecorder {
     }
 
     fn record_bbox(&mut self, bbox: RectU16) {
-        if bbox.is_empty() {
-            return;
-        }
         if let Some(layer) = self.layer_stack.last_mut() {
             layer.bbox.union(bbox);
         }
