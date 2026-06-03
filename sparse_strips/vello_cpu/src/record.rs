@@ -79,6 +79,7 @@ pub(crate) struct RecordedFilterLayer {
     pub(crate) placement: FilterLayerPlacement,
 }
 
+/// Metadata about a filter layer and how it should be composited back into the parent layer.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FilterLayerPlacement {
     /// The conceptual bounding box of the pixmap that needs to be allocated to render
@@ -101,21 +102,27 @@ impl FilterLayerPlacement {
         src_y: 0,
     };
 
-    fn new(content_bbox: RectU16, filter_plan: &FilterLayerPlan) -> Self {
+    fn new(bbox: RectU16, filter_plan: &FilterLayerPlan) -> Self {
         // Some more detailed explanations of what's going on here since this
-        // part can be a bit confusing.
-        //
-        // `content_bbox` is the tight bounding box across all strips in that
+        // part is a bit confusing.
+
+        // `content_bbox` is the tight bounding box across all strips in the filter
         // layer. We now need to expand it by the filter padding to know how
         // large of a pixmap we actually need to allocate. Also, as mentioned
         // in [`FilterLayerPlan::new`], we need to ensure the pixmap itself is
         // also a multiple of the tile width / tile height.
-        let pixmap_bbox = snap_bbox_to_tile(expand_bbox(content_bbox, filter_plan.filter_padding));
+        let pixmap_bbox = snap_bbox_to_tile(expand_bbox(bbox, filter_plan.filter_padding));
 
-        // Since filter layers are recorded with an eager source shift applied,
-        // convert the pixmap bbox back into parent-layer coordinates and keep
-        // track of the corresponding source offset inside the pixmap.
+        // Remember that in `RenderContext`, we eagerly shift everything drawn by `source_shift`
+        // to conservatively ensure that everything that might be needed for the filter is in the
+        // viewport area. Therefore, when compositing the filter layer back, we need to undo that
+        // shift.
         let (shift_x, shift_y) = filter_plan.source_shift();
+        // For example, if `shift_x` is 20 and `pixmap_bbox.x0` is 4,
+        // shifting the pixmap back would place its left edge at -16. Since we
+        // start compositing at x=0, we need to skip the first 16 pixels
+        // inside the cropped pixmap (`src_x = 20 - 4`). If `pixmap_bbox.x0`
+        // is already >= `shift_x`, nothing is clipped and `src_x` is 0.
         let src_x = shift_x.saturating_sub(pixmap_bbox.x0);
         let src_y = shift_y.saturating_sub(pixmap_bbox.y0);
         let composite_bbox = RectU16::new(
