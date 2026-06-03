@@ -98,16 +98,29 @@ pub(crate) struct FilterLayerPlan {
 
 impl FilterLayerPlan {
     pub(crate) fn new(filter: Filter, transform: Affine) -> Self {
-        // Note: In theory, we don't need to snap to tile coordinates
-        // horizontally, but we do need it vertically. We want to make
-        // sure that we can always use fill commands for compositing filter
-        // layers back into the parent layer (instead of having to use
-        // alpha fills for the edges), which only works if the filter pixmap
-        // is snapped to tile coordinates.
-        let source_expansion = filter
-            .source_expansion(&transform)
-            .snap_to_tile_coordinates();
-        let source_padding = expansion_padding(source_expansion);
+        fn expansion_padding(expansion: Rect) -> RectU16 {
+            // Note: We need to snap horizontally and vertically, because
+            // we want to be able to composite filter layers back using only "Fill" commands
+            // without any alpha. However, in order to do so we need to span the full height
+            // of all covered strip rows, and also make sure the commands are tile-aligned
+            // horizontally, since this is a fundamental assumption of fine rasterization.
+            //
+            // Also, just snapping the expansion itself is not enough (for example, assuming
+            // a tile height of 4, if our calculated bbox is 3x3, and we have a padding of 2x2,
+            // then just snapping the padding to 4x4 would give us a pixmap size of 7x7,
+            // even though it should be 8x8 for proper alignment. Therefore, we also need to
+            // snap the actual bbox, which happens further below.
+            let expansion = expansion.snap_to_tile_coordinates();
+            RectU16::new(
+                (-expansion.x0).max(0.0) as u16,
+                (-expansion.y0).max(0.0) as u16,
+                expansion.x1.max(0.0) as u16,
+                expansion.y1.max(0.0) as u16,
+            )
+        }
+
+        let source_padding = expansion_padding(filter
+            .source_expansion(&transform));
         let filter_padding = expansion_padding(filter.filter_expansion(&transform));
 
         Self {
@@ -118,7 +131,7 @@ impl FilterLayerPlan {
         }
     }
 
-    pub(crate) fn source_origin(&self) -> (u16, u16) {
+    pub(crate) fn source_shift(&self) -> (u16, u16) {
         (self.source_padding.x0, self.source_padding.y0)
     }
 
@@ -341,7 +354,7 @@ impl CommandRecorder {
         self.filter_layers[filter_layer_id].content_bbox = bbox;
         let filter_plan = &self.filter_layers[filter_layer_id].filter_plan;
         let padding = filter_plan.filter_padding;
-        let source_origin = filter_plan.source_origin();
+        let source_origin = filter_plan.source_shift();
         let render_bbox = snap_bbox_to_tile(expand_bbox(bbox, padding));
         let (output_bbox, src_x, src_y) = shift_bbox_to_parent(render_bbox, source_origin);
         self.filter_layers[filter_layer_id].bbox = render_bbox;
@@ -374,15 +387,6 @@ pub(crate) enum PoppedLayer {
     Filter,
 }
 
-fn expansion_padding(expansion: Rect) -> RectU16 {
-    let expansion = expansion.snap_to_tile_coordinates();
-    RectU16::new(
-        (-expansion.x0).max(0.0) as u16,
-        (-expansion.y0).max(0.0) as u16,
-        expansion.x1.max(0.0) as u16,
-        expansion.y1.max(0.0) as u16,
-    )
-}
 
 fn expand_bbox(bbox: RectU16, padding: RectU16) -> RectU16 {
     if bbox.is_empty() {
