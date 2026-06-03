@@ -478,3 +478,50 @@ pub(crate) struct LayerClip {
     pub(crate) thread_idx: u8,
     pub(crate) bbox: RectU16,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::CommandBucketer;
+    use crate::coarse::cmd::{FillAttrs, RenderCmd};
+    use crate::coarse::depth::DEPTH_BUCKET_WIDTH;
+    use vello_common::color::palette::css::RED;
+    use vello_common::color::{AlphaColor, Srgb};
+    use vello_common::paint::{Paint, PremulColor};
+    use vello_common::peniko::BlendMode;
+    use vello_common::strip::Strip;
+
+    fn color(alpha: AlphaColor<Srgb>) -> PremulColor {
+        PremulColor::from_alpha_color(alpha)
+    }
+
+    fn fill_attrs(paint: Paint) -> FillAttrs {
+        FillAttrs {
+            paint,
+            blend_mode: BlendMode::default(),
+            mask: None,
+            draw_id: 1,
+            thread_idx: 0,
+            pixmap_origin: (0, 0),
+        }
+    }
+
+    #[test]
+    fn opaque_fill_inside_layer_does_not_use_depth_write() {
+        let mut bucketer = CommandBucketer::new(DEPTH_BUCKET_WIDTH, 4);
+        let strips = [
+            Strip::new(0, 0, 0, false),
+            Strip::new(DEPTH_BUCKET_WIDTH, 0, 0, true),
+        ];
+
+        bucketer.push_layer(BlendMode::default(), 1.0, None, None);
+        bucketer.generate_fill(&strips, &fill_attrs(Paint::Solid(color(RED))), &[]);
+
+        let row = &bucketer.rows()[0];
+        assert_eq!(row.depth_writes.len(), 0);
+        assert_eq!(row.cmds.len(), 2);
+        assert!(matches!(row.cmds[0], RenderCmd::PushLayer));
+        assert!(
+            matches!(row.cmds[1], RenderCmd::Fill(cmd) if cmd.span.pixel_x() == 0 && cmd.span.pixel_width() == DEPTH_BUCKET_WIDTH)
+        );
+    }
+}

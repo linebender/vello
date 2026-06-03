@@ -35,16 +35,22 @@ impl CommandBucketer {
         let pixmap_origin = attrs.pixmap_origin;
         let attrs_idx = self.attrs.len() as u32;
         self.attrs.push(attrs.clone());
-        let depth_cull_draw_id = (self.active_layers.is_empty()
+
+        let draw_id =
+            // While in certain cases it _might_ be okay to use depth culling while inside of
+            // a layer, it can get very finnicky with blend modes etc., so we just outright
+            // reject those for now.
+            (self.active_layers.is_empty()
             && attrs.blend_mode == BlendMode::default()
             && attrs.mask.is_none()
             && !attrs.paint.may_have_transparency(encoded_paints))
         .then_some(attrs.draw_id);
+
         self.generate(
             strip_buf,
             pixmap_origin,
             |bucketer, row_idx, fill| {
-                bucketer.push_fill(row_idx, fill, attrs_idx, depth_cull_draw_id);
+                bucketer.push_fill(row_idx, fill, attrs_idx, draw_id);
             },
             |bucketer, row_idx, fill| {
                 bucketer.ensure_row_layers(row_idx);
@@ -125,16 +131,18 @@ impl CommandBucketer {
         }
     }
 
+    /// Note: If depth-culling should be disabled, pass `None` to `draw_id`.
     fn push_fill(
         &mut self,
         row_idx: usize,
         span: Span,
         attrs_idx: u32,
-        depth_cull_draw_id: Option<u32>,
+        draw_id: Option<u32>,
     ) {
         self.ensure_row_layers(row_idx);
         let row = &mut self.rows[row_idx];
-        let Some(draw_id) = depth_cull_draw_id else {
+        let draw_id = draw_id.filter(|_| row.layer_depth == 0);
+        let Some(draw_id) = draw_id else {
             row.push_cmd(RenderCmd::Fill(Fill::new(span, None, attrs_idx)));
             return;
         };
