@@ -136,6 +136,7 @@ impl BlendFillCmd {
     }
 }
 
+// We use `NonZeroU32` so that `Option<AlphaIdx>` still only needs 4 bytes.
 #[derive(Debug, Clone, Copy)]
 struct AlphaIdx(NonZeroU32);
 
@@ -183,8 +184,13 @@ pub(crate) struct FilterLayerAttrs {
 
 #[cfg(test)]
 mod tests {
-    use super::FineCmd;
+    use super::{AlphaIdx, FineCmd};
     use core::mem::{needs_drop, size_of};
+
+    #[test]
+    fn alpha_idx_size() {
+        assert_eq!(size_of::<Option<AlphaIdx>>(), 4);
+    }
 
     #[test]
     fn fine_cmd_assertions() {
