@@ -845,7 +845,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     None,
                     attrs.mask.as_ref(),
                 );
-                self.depth[start] = attrs.path_id;
+                self.depth[start] = attrs.draw_id;
             }
             return;
         }
@@ -878,7 +878,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 attrs.mask.as_ref(),
             );
             for depth in &mut self.depth[run_start..idx] {
-                *depth = attrs.path_id;
+                *depth = attrs.draw_id;
             }
         }
     }
@@ -916,7 +916,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         let end = usize::from(cmd_end.div_ceil(DEPTH_BUCKET_WIDTH));
 
         if start + 1 == end {
-            if self.depth[start] <= attrs.path_id {
+            if self.depth[start] <= attrs.draw_id {
                 self.render_cmd_span(
                     cmd,
                     cmd_x,
@@ -932,12 +932,12 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
         let mut idx = start;
         while idx < end {
-            while idx < end && self.depth[idx] > attrs.path_id {
+            while idx < end && self.depth[idx] > attrs.draw_id {
                 idx += 1;
             }
 
             let run_start = idx;
-            while idx < end && self.depth[idx] <= attrs.path_id {
+            while idx < end && self.depth[idx] <= attrs.draw_id {
                 idx += 1;
             }
 
@@ -1069,7 +1069,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         let end = usize::from(cmd_end.div_ceil(DEPTH_BUCKET_WIDTH));
 
         if start + 1 == end {
-            if self.depth[start] <= attrs.path_id {
+            if self.depth[start] <= attrs.draw_id {
                 self.composite_filter_layer(
                     cmd_x,
                     cmd_end - cmd_x,
@@ -1085,12 +1085,12 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
         let mut idx = start;
         while idx < end {
-            while idx < end && self.depth[idx] > attrs.path_id {
+            while idx < end && self.depth[idx] > attrs.draw_id {
                 idx += 1;
             }
 
             let run_start = idx;
-            while idx < end && self.depth[idx] <= attrs.path_id {
+            while idx < end && self.depth[idx] <= attrs.draw_id {
                 idx += 1;
             }
 
@@ -1740,7 +1740,7 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
             FineCmd::Fill(cmd) => {
                 let attrs = &bucketer.attrs()[cmd.attrs_idx as usize];
                 let alphas = alpha_buffers[attrs.thread_idx as usize];
-                let use_depth = row.depth_affects(cmd.span, attrs.path_id);
+                let use_depth = row.depth_affects(cmd.span, attrs.draw_id);
                 fine.render_cmd(
                     *cmd,
                     alphas,
@@ -1766,7 +1766,7 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
             FineCmd::FilterLayer(cmd) => {
                 let attrs = &bucketer.filter_attrs()[cmd.attrs_idx as usize];
                 if let Some(layer) = layer_manager.filter_layer(attrs.id) {
-                    let use_depth = row.depth_affects(cmd.span, attrs.path_id);
+                    let use_depth = row.depth_affects(cmd.span, attrs.draw_id);
                     fine.composite_filter_layer_cmd(*cmd, attrs, row_y, layer, use_depth);
                 }
             }

@@ -173,7 +173,7 @@ pub(crate) struct FillAttrs {
     pub(crate) paint: Paint,
     pub(crate) blend_mode: BlendMode,
     pub(crate) mask: Option<Mask>,
-    pub(crate) path_id: u32,
+    pub(crate) draw_id: u32,
     pub(crate) thread_idx: u8,
     pub(crate) paint_offset: (u16, u16),
 }
@@ -187,7 +187,7 @@ pub(crate) struct BlendAttrs {
 #[derive(Debug, Clone)]
 pub(crate) struct FilterLayerAttrs {
     pub(crate) id: usize,
-    pub(crate) path_id: u32,
+    pub(crate) draw_id: u32,
     pub(crate) src_x: u16,
     pub(crate) src_y: u16,
     pub(crate) y0: u16,

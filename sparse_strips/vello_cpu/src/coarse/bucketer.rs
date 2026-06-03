@@ -27,7 +27,7 @@ pub(crate) struct CommandBucketer {
     pub(super) filter_attrs: Vec<FilterLayerAttrs>,
     pub(super) masks: Vec<Mask>,
     pub(super) active_layers: Vec<ActiveLayer>,
-    pub(super) next_path_id: u32,
+    pub(super) next_draw_id: u32,
 }
 
 impl CommandBucketer {
@@ -42,7 +42,7 @@ impl CommandBucketer {
             filter_attrs: Vec::new(),
             masks: Vec::new(),
             active_layers: Vec::new(),
-            next_path_id: 1,
+            next_draw_id: 1,
         }
     }
 
@@ -91,7 +91,7 @@ impl CommandBucketer {
         self.filter_attrs.clear();
         self.masks.clear();
         self.active_layers.clear();
-        self.next_path_id = 1;
+        self.next_draw_id = 1;
         self.clip_bboxes.truncate(1);
         self.clip_bboxes[0] = full_clip_bbox;
     }
@@ -318,17 +318,17 @@ impl CommandBucketer {
             return;
         }
 
-        let path_id = self.next_path_id;
-        self.next_path_id = self
-            .next_path_id
+        let draw_id = self.next_draw_id;
+        self.next_draw_id = self
+            .next_draw_id
             .checked_add(1)
-            .expect("row-bucket path ID overflow");
+            .expect("row-bucket draw ID overflow");
         let full_width = self.width();
         let span = Self::bbox_span(bbox);
         let filter_attrs_idx = self.filter_attrs.len() as u32;
         self.filter_attrs.push(FilterLayerAttrs {
             id: filter_layer_id,
-            path_id,
+            draw_id,
             src_x: src_origin.0 + span.pixel_x().saturating_sub(src_bbox.x0),
             src_y: src_origin.1 + (bbox.y0 - src_bbox.y0),
             y0: bbox.y0,

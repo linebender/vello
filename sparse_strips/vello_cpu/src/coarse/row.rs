@@ -11,7 +11,7 @@ pub(crate) struct RowCommands {
     pub(crate) opaque: Vec<FillCmd>,
     bounds: Option<Span>,
     opaque_bounds: Option<Span>,
-    max_opaque_path_id: u32,
+    max_opaque_draw_id: u32,
     pub(super) layer_depth: usize,
 }
 
@@ -22,7 +22,7 @@ impl RowCommands {
             opaque: Vec::new(),
             bounds: None,
             opaque_bounds: None,
-            max_opaque_path_id: 0,
+            max_opaque_draw_id: 0,
             layer_depth: 0,
         }
     }
@@ -32,7 +32,7 @@ impl RowCommands {
         self.opaque.clear();
         self.bounds = None;
         self.opaque_bounds = None;
-        self.max_opaque_path_id = 0;
+        self.max_opaque_draw_id = 0;
         self.layer_depth = 0;
     }
 
@@ -96,10 +96,10 @@ impl RowCommands {
         self.layer_depth -= 1;
     }
 
-    pub(super) fn push_opaque(&mut self, cmd: FillCmd, width: u16, path_id: u32) {
+    pub(super) fn push_opaque(&mut self, cmd: FillCmd, width: u16, draw_id: u32) {
         self.include_bounds(cmd.span, width);
         self.include_opaque_bounds(cmd.span, width);
-        self.max_opaque_path_id = self.max_opaque_path_id.max(path_id);
+        self.max_opaque_draw_id = self.max_opaque_draw_id.max(draw_id);
         self.opaque.push(cmd);
     }
 
@@ -107,8 +107,8 @@ impl RowCommands {
         self.bounds
     }
 
-    pub(crate) fn depth_affects(&self, span: Span, path_id: u32) -> bool {
-        if path_id >= self.max_opaque_path_id {
+    pub(crate) fn depth_affects(&self, span: Span, draw_id: u32) -> bool {
+        if draw_id >= self.max_opaque_draw_id {
             return false;
         }
 

@@ -44,29 +44,29 @@ impl CommandBucketer {
             return;
         }
 
-        let path_id = self.next_path_id;
-        self.next_path_id = self
-            .next_path_id
+        let draw_id = self.next_draw_id;
+        self.next_draw_id = self
+            .next_draw_id
             .checked_add(1)
-            .expect("row-bucket path ID overflow");
+            .expect("row-bucket draw ID overflow");
         let attrs_idx = self.attrs.len() as u32;
         self.attrs.push(FillAttrs {
             paint: paint.clone(),
             blend_mode,
             mask: mask.clone(),
-            path_id,
+            draw_id,
             thread_idx,
             paint_offset,
         });
-        let depth_cull_path_id = (self.active_layers.is_empty()
+        let depth_cull_draw_id = (self.active_layers.is_empty()
             && blend_mode == BlendMode::default()
             && mask.is_none()
             && paint_is_opaque(&paint, encoded_paints))
-        .then_some(path_id);
+        .then_some(draw_id);
         self.generate(
             strip_buf,
             |bucketer, row_idx, fill| {
-                bucketer.push_fill(row_idx, fill, attrs_idx, depth_cull_path_id);
+                bucketer.push_fill(row_idx, fill, attrs_idx, depth_cull_draw_id);
             },
             |bucketer, row_idx, fill| {
                 bucketer.ensure_row_layers(row_idx);
@@ -149,12 +149,12 @@ impl CommandBucketer {
         row_idx: usize,
         span: Span,
         attrs_idx: u32,
-        depth_cull_path_id: Option<u32>,
+        depth_cull_draw_id: Option<u32>,
     ) {
         self.ensure_row_layers(row_idx);
         let full_width = self.width();
         let row = &mut self.rows[row_idx];
-        let Some(path_id) = depth_cull_path_id else {
+        let Some(draw_id) = depth_cull_draw_id else {
             row.push_cmd(
                 FineCmd::Fill(FillCmd::new(span, None, attrs_idx)),
                 full_width,
@@ -194,7 +194,7 @@ impl CommandBucketer {
                     attrs_idx,
                 ),
                 full_width,
-                path_id,
+                draw_id,
             );
         }
 
