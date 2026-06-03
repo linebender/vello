@@ -54,11 +54,13 @@ use vello_common::util::RectExt;
 /// so we can only update this information once we actually pop the layer.
 #[derive(Debug)]
 struct LayerMetadata {
-    /// The filter layer id of the layer this layer is composited into.
+    /// The id of the filter layer this layer is composited into.
+    ///
+    /// If `None`, it is composited into the root layer instead.
     cmd_filter_layer_id: Option<usize>,
-    /// The index of the `PushLayer` render command of this layer.
+    /// The index of the `PushLayer` render command in the parent filter/root layer's
+    /// command stream.
     push_cmd_idx: usize,
-    /// A conservative bounding box of the layer.
     bbox: RectU16,
     kind: LayerKind,
 }
@@ -74,11 +76,11 @@ pub(crate) struct RecordedFilterLayer {
     /// Commands recorded while this filter layer is active.
     pub(crate) cmds: Vec<RenderCmd>,
     pub(crate) filter_plan: FilterLayerPlan,
-    /// Bounds of the commands recorded into this layer, before filter expansion.
-    pub(crate) content_bbox: RectU16,
-    /// Bounds of the pixmap rendered for this layer, after filter expansion and
-    /// tile snapping.
+    /// Bounds of the commands recorded into this layer.
     pub(crate) bbox: RectU16,
+    /// Bounds of the area that needs to actually be rendered. Contains [`RecordedFilterLayer::bbox`]
+    /// but also any potential additional required padding.
+    pub(crate) pixmap_bbox: RectU16,
 }
 
 #[derive(Debug, Clone)]
@@ -263,8 +265,8 @@ impl CommandRecorder {
         self.filter_layers.push(RecordedFilterLayer {
             cmds,
             filter_plan,
-            content_bbox: RectU16::INVERTED,
             bbox: RectU16::INVERTED,
+            pixmap_bbox: RectU16::INVERTED,
         });
         self.active_filter_layer_stack.push(filter_layer_id);
         self.layer_stack.push(LayerMetadata {
@@ -299,13 +301,13 @@ impl CommandRecorder {
                     .active_filter_layer_stack
                     .pop();
 
-                self.filter_layers[filter_layer_id].content_bbox = bbox;
+                self.filter_layers[filter_layer_id].bbox = bbox;
                 let filter_plan = &self.filter_layers[filter_layer_id].filter_plan;
                 let padding = filter_plan.filter_padding;
                 let source_origin = filter_plan.source_shift();
                 let render_bbox = snap_bbox_to_tile(expand_bbox(bbox, padding));
                 let (output_bbox, src_x, src_y) = shift_bbox_to_parent(render_bbox, source_origin);
-                self.filter_layers[filter_layer_id].bbox = render_bbox;
+                self.filter_layers[filter_layer_id].pixmap_bbox = render_bbox;
                 match &mut self.filter_layer_cmds_mut(layer.cmd_filter_layer_id)[layer.push_cmd_idx] {
                     RenderCmd::CompositeFilterLayer {
                         bbox,

@@ -152,12 +152,12 @@ impl SingleThreadedDispatcher {
         let mut layer_manager = FilterContext::new(self.recorder.filter_layers.len());
         for id in (0..self.recorder.filter_layers.len()).rev() {
             let layer = &self.recorder.filter_layers[id];
-            if layer.bbox.is_empty() {
+            if layer.pixmap_bbox.is_empty() {
                 continue;
             }
 
-            let width = layer.bbox.width();
-            let height = layer.bbox.height();
+            let width = layer.pixmap_bbox.width();
+            let height = layer.pixmap_bbox.height();
             let mut pixmap = Pixmap::new(width, height);
             let mut bucketer = self.bucketer.borrow_mut();
             bucketer.reset(width, height);
@@ -166,7 +166,7 @@ impl SingleThreadedDispatcher {
                 &self.strip_storage.strips,
                 &mut bucketer,
                 encoded_paints,
-                (layer.bbox.x0, layer.bbox.y0),
+                (layer.pixmap_bbox.x0, layer.pixmap_bbox.y0),
             );
             crate::fine::rasterize_at_offset::<S, F>(
                 simd,
