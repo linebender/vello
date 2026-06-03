@@ -784,7 +784,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         depth: &mut DepthBuffer,
     ) {
         self.set_paint_offset(attrs.paint_offset);
-        depth.for_each_visible_run_with_write(cmd.span, attrs.draw_id, |span| {
+        depth.for_each_unset_run_and_write(cmd.span, attrs.draw_id, |span| {
             self.fill(
                 span,
                 &attrs.paint,
@@ -1424,6 +1424,8 @@ pub(crate) fn rasterize_at_offset_parallel<S: Simd, T: FineKernel<S>>(
     image_resolver: &dyn ImageResolver,
 ) {
     use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+    use std::cell::RefCell;
+    use thread_local::ThreadLocal;
 
     if dst_x >= target.width() || dst_y >= target.height() {
         return;
@@ -1470,14 +1472,23 @@ pub(crate) fn rasterize_at_offset_parallel<S: Simd, T: FineKernel<S>>(
         remaining = rest;
     }
 
+    let fine_state = ThreadLocal::new();
     bands.par_iter_mut().for_each(|band| {
+        let mut fine_state = fine_state
+            .get_or(|| {
+                RefCell::new((
+                    Fine::<S, T>::new(simd, target_width, bucketer.width()),
+                    DepthBuffer::new(bucketer.width()),
+                ))
+            })
+            .borrow_mut();
+        let (fine, depth) = &mut *fine_state;
+
         let row_y = band.row_idx as u16 * Tile::HEIGHT;
         let row = &bucketer.rows()[band.row_idx];
-        let mut fine = Fine::<S, T>::new(simd, target_width, bucketer.width());
-        let mut depth = DepthBuffer::new(bucketer.width());
         rasterize_row::<S, T>(
-            &mut fine,
-            &mut depth,
+            fine,
+            depth,
             row,
             row_y,
             alpha_buffers,
