@@ -131,17 +131,10 @@ impl FilterLayerPlan {
         }
     }
 
+    /// By how much to shift all rendered contents to ensure that all rendered contents
+    /// are visible in the viewport [0, 0, width, height].
     pub(crate) fn source_shift(&self) -> (u16, u16) {
         (self.source_padding.x0, self.source_padding.y0)
-    }
-
-    pub(crate) fn root_transform(&self) -> Affine {
-        // Make sure that any area that might be needed by the filter layer
-        // is included in the canvas.
-        Affine::translate((
-            f64::from(self.source_padding.x0),
-            f64::from(self.source_padding.y0),
-        ))
     }
 }
 
