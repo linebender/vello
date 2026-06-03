@@ -9,7 +9,7 @@ use crate::RasterizerSettings;
 use crate::coarse::{CommandBucketer, RenderCmd};
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
-use crate::record::FilterLayerPlan;
+use crate::record::{FilterLayerPlan, RecordedFilterLayer};
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use vello_common::encode::EncodedPaint;
@@ -21,6 +21,7 @@ use vello_common::strip::Strip;
 
 pub(crate) fn replay_render_commands(
     cmds: &[RenderCmd],
+    filter_layers: &[RecordedFilterLayer],
     strips: &[Strip],
     bucketer: &mut CommandBucketer,
     encoded_paints: &[EncodedPaint],
@@ -68,15 +69,13 @@ pub(crate) fn replay_render_commands(
             } => bucketer.push_layer(*blend_mode, *opacity, mask.clone(), clip.clone()),
             RenderCmd::CompositeFilterLayer {
                 id,
-                bbox,
-                src_x,
-                src_y,
                 blend_mode,
                 opacity,
                 mask,
                 clip,
             } => {
-                let bbox = translate_bbox(*bbox, origin);
+                let placement = filter_layers[*id].placement;
+                let bbox = translate_bbox(placement.composite_bbox, origin);
                 let needs_layer = *blend_mode != BlendMode::default()
                     || *opacity != 1.0
                     || mask.is_some()
@@ -84,7 +83,7 @@ pub(crate) fn replay_render_commands(
                 if needs_layer {
                     bucketer.push_layer(*blend_mode, *opacity, mask.clone(), clip.clone());
                 }
-                bucketer.generate_filter_layer(*id, bbox, (*src_x, *src_y));
+                bucketer.generate_filter_layer(*id, bbox, placement.src_origin());
                 if needs_layer {
                     bucketer.pop_layer(strips);
                 }

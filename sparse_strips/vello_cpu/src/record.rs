@@ -73,14 +73,62 @@ enum LayerKind {
 
 #[derive(Debug)]
 pub(crate) struct RecordedFilterLayer {
-    /// Commands recorded while this filter layer is active.
     pub(crate) cmds: Vec<RenderCmd>,
     pub(crate) filter_plan: FilterLayerPlan,
-    /// Bounds of the commands recorded into this layer.
     pub(crate) bbox: RectU16,
-    /// Bounds of the area that needs to actually be rendered. Contains [`RecordedFilterLayer::bbox`]
-    /// but also any potential additional required padding.
+    pub(crate) placement: FilterLayerPlacement,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct FilterLayerPlacement {
+    /// The conceptual bounding box of the pixmap that needs to be allocated to render
+    /// a layer correctly, including the area affected by the filter.
     pub(crate) pixmap_bbox: RectU16,
+    /// Bounds where the filtered pixmap is composited in the parent layer's
+    /// coordinate space.
+    pub(crate) composite_bbox: RectU16,
+    /// Source x offset used when sampling from the filter pixmap.
+    pub(crate) src_x: u16,
+    /// Source y offset used when sampling from the filter pixmap.
+    pub(crate) src_y: u16,
+}
+
+impl FilterLayerPlacement {
+    const EMPTY: Self = Self {
+        pixmap_bbox: RectU16::INVERTED,
+        composite_bbox: RectU16::INVERTED,
+        src_x: 0,
+        src_y: 0,
+    };
+
+    fn new(content_bbox: RectU16, filter_plan: &FilterLayerPlan) -> Self {
+        // Some more detailed explanations of what's going on here since this
+        // part can be a bit confusing.
+        //
+        // `content_bbox` is the tight bounding box across all strips in that
+        // layer. We now need to expand it by the filter padding to know how
+        // large of a pixmap we actually need to allocate. Also, as mentioned
+        // in [`FilterLayerPlan::new`], we need to ensure the pixmap itself is
+        // also a multiple of the tile width / tile height.
+        let pixmap_bbox = snap_bbox_to_tile(expand_bbox(content_bbox, filter_plan.filter_padding));
+
+        // Since filter layers are recorded with an eager source shift applied,
+        // convert the pixmap bbox back into parent-layer coordinates and keep
+        // track of the corresponding source offset inside the pixmap.
+        let (composite_bbox, src_x, src_y) =
+            shift_bbox_to_parent(pixmap_bbox, filter_plan.source_shift());
+
+        Self {
+            pixmap_bbox,
+            composite_bbox,
+            src_x,
+            src_y,
+        }
+    }
+
+    pub(crate) fn src_origin(self) -> (u16, u16) {
+        (self.src_x, self.src_y)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -121,8 +169,7 @@ impl FilterLayerPlan {
             )
         }
 
-        let source_padding = expansion_padding(filter
-            .source_expansion(&transform));
+        let source_padding = expansion_padding(filter.source_expansion(&transform));
         let filter_padding = expansion_padding(filter.filter_expansion(&transform));
 
         Self {
@@ -253,9 +300,6 @@ impl CommandRecorder {
         let filter_layer_id = self.filter_layers.len();
         let push_cmd_idx = self.push_render_cmd(RenderCmd::CompositeFilterLayer {
             id: filter_layer_id,
-            bbox: RectU16::INVERTED,
-            src_x: 0,
-            src_y: 0,
             blend_mode,
             opacity,
             mask,
@@ -266,7 +310,7 @@ impl CommandRecorder {
             cmds,
             filter_plan,
             bbox: RectU16::INVERTED,
-            pixmap_bbox: RectU16::INVERTED,
+            placement: FilterLayerPlacement::EMPTY,
         });
         self.active_filter_layer_stack.push(filter_layer_id);
         self.layer_stack.push(LayerMetadata {
@@ -285,8 +329,11 @@ impl CommandRecorder {
         let popped = match layer.kind {
             LayerKind::Regular => {
                 // Now we update the bbox inside of the corresponding `push_layer` command.
-                match &mut self.filter_layer_cmds_mut(layer.cmd_filter_layer_id)[layer.push_cmd_idx] {
-                    RenderCmd::PushLayer { bbox: layer_bbox, .. } => *layer_bbox = bbox,
+                match &mut self.filter_layer_cmds_mut(layer.cmd_filter_layer_id)[layer.push_cmd_idx]
+                {
+                    RenderCmd::PushLayer {
+                        bbox: layer_bbox, ..
+                    } => *layer_bbox = bbox,
                     _ => unreachable!("layer stack referenced a non-layer command"),
                 }
                 self.record_bbox(|| bbox);
@@ -297,41 +344,18 @@ impl CommandRecorder {
             LayerKind::Filter {
                 id: filter_layer_id,
             } => {
-                self
+                let popped = self
                     .active_filter_layer_stack
-                    .pop();
+                    .pop()
+                    .expect("filter stack underflow");
+                assert_eq!(popped, filter_layer_id, "filter layer stack mismatch");
 
-                self.filter_layers[filter_layer_id].bbox = bbox;
-                let filter_plan = &self.filter_layers[filter_layer_id].filter_plan;
+                let filter_layer = &mut self.filter_layers[filter_layer_id];
+                filter_layer.bbox = bbox;
+                filter_layer.placement = FilterLayerPlacement::new(bbox, &filter_layer.filter_plan);
+                let composite_bbox = filter_layer.placement.composite_bbox;
 
-                // Some more detailed explanations of what's going on here since this part can be
-                // a bit confusing.
-                let padding = filter_plan.filter_padding;
-                // `bbox` is the tight bounding box across all strips in that layer. We now need
-                // to expand it by the filter padding to know how large of a pixmap we actually need
-                // to allocate. Also, as mentioned in [`Filterplan::new`], we need to ensure the
-                // pixmap itself is also a multiple of the tile width / tile height.
-                let render_bbox = snap_bbox_to_tile(expand_bbox(bbox, padding));
-
-
-                let source_origin = filter_plan.source_shift();
-                let (output_bbox, src_x, src_y) = shift_bbox_to_parent(render_bbox, source_origin);
-                self.filter_layers[filter_layer_id].pixmap_bbox = render_bbox;
-                match &mut self.filter_layer_cmds_mut(layer.cmd_filter_layer_id)[layer.push_cmd_idx] {
-                    RenderCmd::CompositeFilterLayer {
-                        bbox,
-                        src_x: cmd_src_x,
-                        src_y: cmd_src_y,
-                        ..
-                    } => {
-                        *bbox = output_bbox;
-                        *cmd_src_x = src_x;
-                        *cmd_src_y = src_y;
-                    }
-                    _ => unreachable!("filter layer stack referenced a non-filter command"),
-                }
-
-                self.record_bbox(|| output_bbox);
+                self.record_bbox(|| composite_bbox);
                 PoppedLayer::Filter
             }
         };
@@ -373,7 +397,6 @@ pub(crate) enum PoppedLayer {
     Regular,
     Filter,
 }
-
 
 fn expand_bbox(bbox: RectU16, padding: RectU16) -> RectU16 {
     RectU16::new(

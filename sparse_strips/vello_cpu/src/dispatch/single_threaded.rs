@@ -98,6 +98,7 @@ impl SingleThreadedDispatcher {
         bucketer.reset(scene_width, scene_height);
         replay_render_commands(
             &self.recorder.root_cmds,
+            &self.recorder.filter_layers,
             &self.strip_storage.strips,
             &mut bucketer,
             encoded_paints,
@@ -152,21 +153,23 @@ impl SingleThreadedDispatcher {
         let mut layer_manager = FilterContext::new(self.recorder.filter_layers.len());
         for id in (0..self.recorder.filter_layers.len()).rev() {
             let layer = &self.recorder.filter_layers[id];
-            if layer.pixmap_bbox.is_empty() {
+            let pixmap_bbox = layer.placement.pixmap_bbox;
+            if pixmap_bbox.is_empty() {
                 continue;
             }
 
-            let width = layer.pixmap_bbox.width();
-            let height = layer.pixmap_bbox.height();
+            let width = pixmap_bbox.width();
+            let height = pixmap_bbox.height();
             let mut pixmap = Pixmap::new(width, height);
             let mut bucketer = self.bucketer.borrow_mut();
             bucketer.reset(width, height);
             replay_render_commands(
                 &layer.cmds,
+                &self.recorder.filter_layers,
                 &self.strip_storage.strips,
                 &mut bucketer,
                 encoded_paints,
-                (layer.pixmap_bbox.x0, layer.pixmap_bbox.y0),
+                (pixmap_bbox.x0, pixmap_bbox.y0),
             );
             crate::fine::rasterize_at_offset::<S, F>(
                 simd,

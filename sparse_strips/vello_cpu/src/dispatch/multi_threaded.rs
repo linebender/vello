@@ -385,6 +385,7 @@ impl MultiThreadedDispatcher {
         bucketer.reset(scene_width, scene_height);
         replay_render_commands(
             &self.cmds,
+            &[],
             &self.strip_storage.strips,
             &mut bucketer,
             encoded_paints,

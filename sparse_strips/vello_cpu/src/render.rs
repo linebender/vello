@@ -477,10 +477,7 @@ impl RenderContext {
                 .map_or(Affine::IDENTITY, |filter_plan| {
                     let (shift_x, shift_y) = filter_plan.source_shift();
 
-                    Affine::translate((
-                        f64::from(shift_x),
-                        f64::from(shift_y),
-                    ))
+                    Affine::translate((f64::from(shift_x), f64::from(shift_y)))
                 }),
         );
 
