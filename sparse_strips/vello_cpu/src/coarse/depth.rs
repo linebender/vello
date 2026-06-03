@@ -34,7 +34,7 @@
 //! against what's written in the depth buffer and skipping any commands that would be fully
 //! covered by existing content.
 
-use super::cmd::Span;
+use crate::util::Span;
 use alloc::vec;
 use alloc::vec::Vec;
 use vello_common::tile::Tile;

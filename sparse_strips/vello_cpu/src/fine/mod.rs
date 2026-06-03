@@ -13,7 +13,7 @@ mod lowp;
 
 use crate::coarse::depth::DepthBuffer;
 use crate::coarse::{
-    CommandBucketer, FillAttrs, FillCmd, FilterLayerAttrs, FineCmd, RowCommands, Span,
+    CommandBucketer, FillAttrs, FillCmd, FilterLayerAttrs, FineCmd, RowCommands,
 };
 use crate::filter::context::FilterContext;
 use crate::filter::context::ScratchBuffer;
@@ -26,7 +26,7 @@ use crate::fine::common::image::{FilteredImagePainter, NNImagePainter, PlainNNIm
 use crate::fine::common::rounded_blurred_rect::BlurredRoundedRectFiller;
 use crate::peniko::{BlendMode, ImageQuality};
 use crate::region::Region;
-use crate::util::EncodedImageExt;
+use crate::util::{EncodedImageExt, Span};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
@@ -35,8 +35,8 @@ use vello_common::encode::{
     EncodedBlurredRoundedRectangle, EncodedGradient, EncodedImage, EncodedKind, EncodedPaint,
 };
 use vello_common::fearless_simd::{
-    Bytes, Simd, SimdBase, SimdFloat, SimdInt, SimdInto, f32x4, f32x8, f32x16, u8x16, u8x32, u32x4,
-    u32x8,
+    f32x16, f32x4, f32x8, u32x4, u32x8, u8x16, u8x32, Bytes, Simd, SimdBase, SimdFloat, SimdInt,
+    SimdInto,
 };
 use vello_common::filter_effects::Filter;
 use vello_common::geometry::RectU16;

@@ -6,7 +6,7 @@ use core::num::NonZeroU32;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
-use vello_common::tile::Tile;
+use crate::util::Span;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum FineCmd {
@@ -28,69 +28,6 @@ impl FineCmd {
             Self::FilterLayer(cmd) => Some(cmd.span),
             Self::PushLayer | Self::PopBuf | Self::Opacity(_) | Self::Mask(_) => None,
         }
-    }
-}
-
-/// A horizontal span in pixel coordinates.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Span {
-    /// The horizontal start position in pixels.
-    x: u16,
-    /// The horizontal span width in pixels.
-    width: u16,
-}
-
-impl Span {
-    /// Creates a span from pixel coordinates.
-    pub(crate) fn new(x: u16, width: u16) -> Self {
-        Self { x, width }
-    }
-
-    /// Creates a span from tile coordinates.
-    pub(crate) fn new_tile(tile_x: u16, tile_width: u16) -> Self {
-        Self {
-            x: tile_x * Tile::WIDTH,
-            width: tile_width * Tile::WIDTH,
-        }
-    }
-
-    /// Returns the horizontal start position in tile coordinates.
-    pub(crate) fn tile_x(self) -> u16 {
-        self.x / Tile::WIDTH
-    }
-
-    /// Returns the exclusive horizontal end position in tile coordinates.
-    pub(crate) fn tile_end(self) -> u16 {
-        self.pixel_end().div_ceil(Tile::WIDTH)
-    }
-
-    /// Extends this span to include another span.
-    pub(crate) fn extend(&mut self, other: Self) {
-        let x = self.x.min(other.x);
-        let end = self.pixel_end().max(other.pixel_end());
-        *self = Self::new(x, end.saturating_sub(x));
-    }
-
-    /// Returns the intersection of this span with another span.
-    pub(crate) fn intersect(self, other: Self) -> Option<Self> {
-        let x = self.x.max(other.x);
-        let end = self.pixel_end().min(other.pixel_end());
-        (x < end).then(|| Self::new(x, end - x))
-    }
-
-    /// Returns the horizontal start position in pixels.
-    pub(crate) fn pixel_x(self) -> u16 {
-        self.x
-    }
-
-    /// Returns the horizontal span width in pixels.
-    pub(crate) fn pixel_width(self) -> u16 {
-        self.width
-    }
-
-    /// Returns the exclusive horizontal end position in pixels.
-    pub(crate) fn pixel_end(self) -> u16 {
-        self.pixel_x().saturating_add(self.pixel_width())
     }
 }
 

@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use super::cmd::{
-    BlendAttrs, BlendFillCmd, FillAttrs, FillCmd, FilterLayerAttrs, FilterLayerCmd, FineCmd, Span,
+    BlendAttrs, BlendFillCmd, FillAttrs, FillCmd, FilterLayerAttrs, FilterLayerCmd, FineCmd,
 };
 use super::depth::DepthState;
 use super::layer::{ActiveLayer, LayerClip};
 use crate::peniko::BlendMode;
-use crate::record::{RecordedFilterLayer, RecordedCmd};
-use crate::util::{bbox_relative_to, snap_bbox_to_tile};
+use crate::record::{RecordedCmd, RecordedFilterLayer};
+use crate::util::{bbox_relative_to, snap_bbox_to_tile, Span};
 use alloc::vec;
 use alloc::vec::Vec;
 use vello_common::encode::EncodedPaint;

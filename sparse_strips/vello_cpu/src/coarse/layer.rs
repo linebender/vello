@@ -1,7 +1,7 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use super::cmd::Span;
+use crate::util::Span;
 use crate::peniko::BlendMode;
 use alloc::vec::Vec;
 use core::ops::Range;
