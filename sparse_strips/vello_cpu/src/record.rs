@@ -481,7 +481,8 @@ fn strip_bbox(strips: &[Strip], viewport_width: u16) -> RectU16 {
 
         if next_strip.fill_gap() && strip_y == next_strip.strip_y() {
             // TODO: We should probably not emit sentinel strips with fill_gap = true
-            // in the first place...
+            // in the first place... Then we don't have to pass `viewport_width` to this
+            // method.
             let fill_x1 = if next_strip.is_sentinel() {
                 viewport_width
             } else {
