@@ -30,9 +30,9 @@ impl CommandBucketer {
             return;
         }
 
-        assert_ne!(attrs.draw_id, 0, "fill draw IDs start at 1");
+        assert_ne!(attrs.draw_id, 0, "fill draw IDs should start at 1");
 
-        let pixmap_origin = attrs.paint_offset;
+        let pixmap_origin = attrs.pixmap_origin;
         let attrs_idx = self.attrs.len() as u32;
         self.attrs.push(attrs.clone());
         let depth_cull_draw_id = (self.active_layers.is_empty()
@@ -184,7 +184,7 @@ mod tests {
             mask: None,
             draw_id: 1,
             thread_idx: 0,
-            paint_offset: (0, 0),
+            pixmap_origin: (0, 0),
         }
     }
 

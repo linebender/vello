@@ -783,7 +783,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         image_resolver: &dyn ImageResolver,
         depth: &mut DepthBuffer,
     ) {
-        self.set_paint_offset(attrs.paint_offset);
+        self.set_paint_offset(attrs.pixmap_origin);
         depth.for_each_unset_run_and_write(cmd.span, attrs.draw_id, |span| {
             self.fill(
                 span,
@@ -843,7 +843,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         image_resolver: &dyn ImageResolver,
     ) {
         let x = span.pixel_x();
-        self.set_paint_offset(attrs.paint_offset);
+        self.set_paint_offset(attrs.pixmap_origin);
         let alphas = cmd.alpha_idx().map(|alpha_idx| {
             let alpha_offset =
                 alpha_idx as usize + usize::from(x - cmd.span.pixel_x()) * Tile::HEIGHT as usize;

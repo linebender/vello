@@ -101,7 +101,8 @@ pub(crate) struct FillAttrs {
     pub(crate) mask: Option<Mask>,
     pub(crate) draw_id: u32,
     pub(crate) thread_idx: u8,
-    pub(crate) paint_offset: (u16, u16),
+    /// See the comment in `CommandBucketer::bucket_commands`.
+    pub(crate) pixmap_origin: (u16, u16),
 }
 
 #[derive(Debug, Clone)]

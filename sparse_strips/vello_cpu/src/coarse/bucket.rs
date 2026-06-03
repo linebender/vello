@@ -221,6 +221,10 @@ impl CommandBucketer {
         filter_layers: &[RecordedFilterLayer],
         strips: &[Strip],
         encoded_paints: &[EncodedPaint],
+        // When rendering filter layers, we always anchor them so that the top-left of the bounding
+        // box lands at (0, 0), even if the bounding box's top-left is for example at (200, 200).
+        // Therefore, we need to keep track of this offset so that for example paints know that
+        // they should actually be sampled at (200, 200) instead of (0, 0).
         pixmap_origin: (u16, u16),
     ) {
         assert_eq!(pixmap_origin.0 % Tile::WIDTH, 0);
@@ -242,7 +246,7 @@ impl CommandBucketer {
                         mask: mask.clone(),
                         draw_id,
                         thread_idx: *thread_idx,
-                        paint_offset: pixmap_origin,
+                        pixmap_origin,
                     };
                     self.generate_fill(&strips[strip_range.clone()], &attrs, encoded_paints);
                 }
