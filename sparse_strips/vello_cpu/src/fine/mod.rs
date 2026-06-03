@@ -12,7 +12,7 @@ mod highp;
 mod lowp;
 
 use crate::coarse::depth::DepthBuffer;
-use crate::coarse::{CommandBucketer, FillAttrs, FillCmd, FilterLayerAttrs, FineCmd};
+use crate::coarse::{CommandBucketer, FillAttrs, FillCmd, FilterLayerAttrs, FineCmd, Span};
 use crate::filter::context::FilterContext;
 use crate::filter::context::ScratchBuffer;
 use crate::fine::common::gradient::GradientPainter;
@@ -523,8 +523,9 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         depth: &DepthBuffer,
     ) {
         let scratch_end = scratch_x + width;
+        let span = Span::new(scratch_x, width);
 
-        depth.for_each_unset_run(scratch_x, scratch_end, |span| {
+        depth.for_each_unset_run(span, |span| {
             let x = span.pixel_x().max(scratch_x);
             let end = span.pixel_end().min(scratch_end);
             if x >= end {
@@ -798,9 +799,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         depth: &mut DepthBuffer,
     ) {
         self.set_paint_offset(attrs.paint_offset);
-        let cmd_x = cmd.span.pixel_x();
-        let cmd_end = cmd.span.pixel_end();
-        depth.mark_each_unset_run(cmd_x, cmd_end, attrs.draw_id, |span| {
+        depth.for_each_visible_run_with_write(cmd.span, attrs.draw_id, |span| {
             self.fill(
                 span.pixel_x(),
                 span.pixel_width(),
@@ -844,7 +843,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             return;
         }
 
-        depth.for_each_visible_run(cmd_x, cmd_end, attrs.draw_id, |span| {
+        let depth_span = Span::new(cmd_x, cmd_end - cmd_x);
+        depth.for_each_visible_run(depth_span, attrs.draw_id, |span| {
             self.render_cmd_span(
                 cmd,
                 span.pixel_x(),
@@ -972,7 +972,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             return;
         }
 
-        depth.for_each_visible_run(cmd_x, cmd_end, attrs.draw_id, |span| {
+        let depth_span = Span::new(cmd_x, cmd_end - cmd_x);
+        depth.for_each_visible_run(depth_span, attrs.draw_id, |span| {
             let x = span.pixel_x();
             self.composite_filter_layer(
                 x,

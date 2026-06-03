@@ -99,6 +99,13 @@ impl Span {
         *self = Self::new(x, end.saturating_sub(x));
     }
 
+    /// Returns the intersection of this span with another span.
+    pub(crate) fn intersect(self, other: Self) -> Option<Self> {
+        let x = self.x.max(other.x);
+        let end = self.pixel_end().min(other.pixel_end());
+        (x < end).then(|| Self::new(x, end - x))
+    }
+
     /// Returns the horizontal start position in pixels.
     pub(crate) fn pixel_x(self) -> u16 {
         self.x

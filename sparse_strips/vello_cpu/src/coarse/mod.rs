@@ -9,6 +9,8 @@ mod row;
 mod strip;
 
 pub(crate) use bucketer::CommandBucketer;
-pub(crate) use cmd::{FillAttrs, FillCmd, FilterLayerAttrs, FilterLayerCmd, FineCmd, RenderCmd};
+pub(crate) use cmd::{
+    FillAttrs, FillCmd, FilterLayerAttrs, FilterLayerCmd, FineCmd, RenderCmd, Span,
+};
 pub(crate) use layer::LayerClip;
 pub(crate) use row::RowCommands;

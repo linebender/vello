@@ -93,7 +93,7 @@ pub(crate) fn split_opaque_span(span: Span, mut segment: impl FnMut(Span, DepthS
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct DepthState {
     /// Coarse union of all depth-trackable opaque spans in this row.
-    opaque_bounds: Option<Span>,
+    bounds: Option<Span>,
     /// Maximum draw ID of any depth-trackable opaque command in this row.
     ///
     /// Draw IDs start at 1, so 0 represents "no opaque command".
@@ -106,10 +106,10 @@ impl DepthState {
     }
 
     pub(crate) fn include_span(&mut self, span: Span, draw_id: u32) {
-        if let Some(bounds) = &mut self.opaque_bounds {
+        if let Some(bounds) = &mut self.bounds {
             bounds.extend(span);
         } else {
-            self.opaque_bounds = Some(span);
+            self.bounds = Some(span);
         }
 
         self.max_draw_id = self.max_draw_id.max(draw_id);
@@ -121,7 +121,7 @@ impl DepthState {
             return true;
         }
 
-        let Some(opaque_bounds) = self.opaque_bounds else {
+        let Some(opaque_bounds) = self.bounds else {
             return true;
         };
 
@@ -134,7 +134,6 @@ impl DepthState {
     }
 }
 
-/// Fine-rasterization depth buffer for one row.
 #[derive(Debug)]
 pub(crate) struct DepthBuffer {
     data: Vec<u32>,
@@ -147,67 +146,57 @@ impl DepthBuffer {
         }
     }
 
-    /// Calls `f` for every unset depth run touched by `x..end`.
-    pub(crate) fn for_each_unset_run(&self, x: u16, end: u16, mut f: impl FnMut(Span)) {
-        let (mut idx, depth_end) = self.range(x, end);
-        while let Some((run_x, run_end, _)) = self.next_unset_run(&mut idx, depth_end) {
-            if let Some(span) = pixel_span(run_x, run_end) {
-                f(span);
-            }
+    /// Calls `f` for every unset depth run touched by `span`.
+    pub(crate) fn for_each_unset_run(&self, span: Span, mut f: impl FnMut(Span)) {
+        let (mut idx, depth_end) = self.range(span);
+        while let Some((span, _)) = self.next_unset_run(&mut idx, depth_end) {
+            f(span);
         }
     }
 
-    /// Calls `f` for every unset depth run in `x..end`, then marks it with `draw_id`.
-    pub(crate) fn mark_each_unset_run(
+    /// Calls `f` for every depth run visible to `draw_id` in `span`, and then marks it with
+    /// `draw_id`.
+    pub(crate) fn for_each_visible_run_with_write(
         &mut self,
-        x: u16,
-        end: u16,
+        span: Span,
         draw_id: u32,
         mut f: impl FnMut(Span),
     ) {
-        let (mut idx, depth_end) = self.range(x, end);
-        while let Some((run_x, run_end, depth_range)) = self.next_unset_run(&mut idx, depth_end) {
-            let x = x.max(run_x);
-            let end = end.min(run_end);
-            if let Some(span) = pixel_span(x, end) {
-                f(span);
-                self.mark(depth_range, draw_id);
-            }
+        let (mut idx, depth_end) = self.range(span);
+
+        while let Some((span, depth_range)) = self.next_unset_run(&mut idx, depth_end) {
+            f(span);
+            self.mark(depth_range, draw_id);
         }
     }
 
-    /// Calls `f` for every depth run visible to `draw_id` in `x..end`.
-    pub(crate) fn for_each_visible_run(
-        &self,
-        x: u16,
-        end: u16,
-        draw_id: u32,
-        mut f: impl FnMut(Span),
-    ) {
-        let (mut idx, depth_end) = self.range(x, end);
-        while let Some((run_x, run_end)) =
-            self.next_visible_run(&mut idx, depth_end, draw_id, x, end)
-        {
-            if let Some(span) = pixel_span(run_x, run_end) {
-                f(span);
-            }
+    /// Calls `f` for every depth run visible to `draw_id` in `span`.
+    pub(crate) fn for_each_visible_run(&self, span: Span, draw_id: u32, mut f: impl FnMut(Span)) {
+        let (mut idx, depth_end) = self.range(span);
+
+        while let Some(span) = self.next_visible_run(&mut idx, depth_end, draw_id, span) {
+            f(span);
         }
     }
 
-    /// Returns the depth-bucket index range touched by the pixel range `x..end`.
-    fn range(&self, x: u16, end: u16) -> (usize, usize) {
+    /// Returns the depth-bucket index range touched by `span`.
+    fn range(&self, span: Span) -> (usize, usize) {
+        (
+            usize::from(span.pixel_x() / DEPTH_BUCKET_WIDTH),
+            usize::from(span.pixel_end().div_ceil(DEPTH_BUCKET_WIDTH)).min(self.data.len()),
+        )
+    }
+
+    fn pixel_range_with_width(&self, x: u16, width: u16) -> (usize, usize) {
+        let end = x.saturating_add(width);
         (
             usize::from(x / DEPTH_BUCKET_WIDTH),
             usize::from(end.div_ceil(DEPTH_BUCKET_WIDTH)).min(self.data.len()),
         )
     }
 
-    fn range_with_width(&self, x: u16, width: u16) -> (usize, usize) {
-        self.range(x, x.saturating_add(width))
-    }
-
     pub(crate) fn clear_range(&mut self, x: u16, width: u16) {
-        let (start, end) = self.range_with_width(x, width);
+        let (start, end) = self.pixel_range_with_width(x, width);
         self.data[start..end].fill(0);
     }
 
@@ -224,7 +213,7 @@ impl DepthBuffer {
         &self,
         idx: &mut usize,
         end: usize,
-    ) -> Option<(u16, u16, core::ops::Range<usize>)> {
+    ) -> Option<(Span, core::ops::Range<usize>)> {
         while *idx < end && self.data[*idx] != 0 {
             *idx += 1;
         }
@@ -238,9 +227,7 @@ impl DepthBuffer {
             return None;
         }
 
-        let x = run_start as u16 * DEPTH_BUCKET_WIDTH;
-        let run_end = *idx as u16 * DEPTH_BUCKET_WIDTH;
-        Some((x, run_end, run_start..*idx))
+        Some((bucket_span(run_start, *idx), run_start..*idx))
     }
 
     /// Finds the next consecutive run visible to `draw_id`.
@@ -253,9 +240,8 @@ impl DepthBuffer {
         idx: &mut usize,
         end: usize,
         draw_id: u32,
-        x: u16,
-        x_end: u16,
-    ) -> Option<(u16, u16)> {
+        bounds: Span,
+    ) -> Option<Span> {
         while *idx < end && self.data[*idx] > draw_id {
             *idx += 1;
         }
@@ -269,18 +255,11 @@ impl DepthBuffer {
             return None;
         }
 
-        let run_x = x.max(run_start as u16 * DEPTH_BUCKET_WIDTH);
-        let run_end = x_end.min(*idx as u16 * DEPTH_BUCKET_WIDTH);
-        Some((run_x, run_end))
+        bucket_span(run_start, *idx).intersect(bounds)
     }
 }
 
-fn pixel_span(x: u16, end: u16) -> Option<Span> {
-    if x >= end {
-        return None;
-    }
-
-    debug_assert_eq!(x % Tile::WIDTH, 0);
-    debug_assert_eq!(end % Tile::WIDTH, 0);
-    Some(Span::new(x, end - x))
+fn bucket_span(start: usize, end: usize) -> Span {
+    let x = start as u16 * DEPTH_BUCKET_WIDTH;
+    Span::new(x, (end - start) as u16 * DEPTH_BUCKET_WIDTH)
 }
