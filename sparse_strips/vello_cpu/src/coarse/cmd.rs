@@ -8,14 +8,22 @@ use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 
+/// A bucketed render command.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum RenderCmd {
+    /// See [`Fill`].
     Fill(Fill),
+    /// Push a new temporary layer buffer.
     PushLayer,
+    /// Pop the last temporary layer buffer.
     PopBuf,
+    /// Apply an opacity to the current temporary layer buffer.
     Opacity(f32),
+    /// Apply a mask (with the given index) to the current temporary layer buffer.
     Mask(u32),
+    /// See [`BlendFill`].
     BlendFill(BlendFill),
+    /// See [`FilterLayer`].
     FilterLayer(FilterLayer),
 }
 
@@ -31,6 +39,7 @@ impl RenderCmd {
     }
 }
 
+/// Fill a span with the given paint and optionally some alpha coverage.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Fill {
     pub(crate) span: Span,
@@ -52,6 +61,8 @@ impl Fill {
     }
 }
 
+/// Blend a span from the current temporary layer buffer into the parent buffer
+/// and optionally apply some alpha coverage.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BlendFill {
     pub(crate) span: Span,
@@ -87,13 +98,13 @@ impl AlphaIdx {
     }
 }
 
+/// Composite a rendered filter layer pixmap into the current buffer.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FilterLayer {
     pub(crate) span: Span,
     pub(crate) attrs_idx: u32,
 }
 
-/// Attributes of a fill command.
 #[derive(Debug, Clone)]
 pub(crate) struct FillAttrs {
     pub(crate) paint: Paint,
@@ -111,9 +122,9 @@ pub(crate) struct BlendAttrs {
     pub(crate) thread_idx: u8,
 }
 
-/// Attributes of a filter layer.
 #[derive(Debug, Clone)]
 pub(crate) struct FilterLayerAttrs {
+    /// The ID of the filter layer.
     pub(crate) id: usize,
     pub(crate) draw_id: u32,
     pub(crate) dst_bbox: RectU16,
@@ -131,7 +142,7 @@ mod tests {
     }
 
     #[test]
-    fn fine_cmd_assertions() {
+    fn render_cmd_assertions() {
         assert_eq!(size_of::<RenderCmd>(), 16);
         assert!(!needs_drop::<RenderCmd>());
     }

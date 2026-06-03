@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use super::cmd::{
-    BlendAttrs, BlendFill, FillAttrs, Fill, FilterLayerAttrs, FilterLayer, RenderCmd,
+    BlendAttrs, BlendFill, Fill, FillAttrs, FilterLayer, FilterLayerAttrs, RenderCmd,
 };
 use super::depth::DepthState;
 use crate::peniko::BlendMode;

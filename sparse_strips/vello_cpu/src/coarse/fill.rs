@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use super::bucket::CommandBucketer;
-use super::cmd::{FillAttrs, Fill, RenderCmd};
+use super::cmd::{Fill, FillAttrs, RenderCmd};
 use super::depth::{self, DepthSegment};
 use crate::peniko::BlendMode;
 use crate::util::{Span, snap_bbox_to_tile};

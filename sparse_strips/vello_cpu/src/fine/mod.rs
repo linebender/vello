@@ -12,7 +12,7 @@ mod highp;
 mod lowp;
 
 use crate::coarse::depth::DepthBuffer;
-use crate::coarse::{CommandBucketer, FillAttrs, Fill, FilterLayerAttrs, RenderCmd, RowCommands};
+use crate::coarse::{CommandBucketer, Fill, FillAttrs, FilterLayerAttrs, RenderCmd, RowCommands};
 use crate::filter::context::FilterContext;
 use crate::filter::context::ScratchBuffer;
 use crate::fine::common::gradient::GradientPainter;
