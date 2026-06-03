@@ -276,15 +276,15 @@ impl CommandRecorder {
     /// the layer kind that was popped.
     pub(crate) fn pop_layer(&mut self) -> PoppedLayer {
         let layer = self.layer_stack.pop().expect("layer stack underflow");
-        let content_bbox = layer.bbox;
+        let bbox = layer.bbox;
         let popped = match layer.kind {
             LayerKind::Regular => {
                 self.set_push_layer_content_bbox(
                     layer.cmd_filter_layer_id,
                     layer.push_cmd_idx,
-                    content_bbox,
+                    bbox,
                 );
-                self.record_bbox(|| content_bbox);
+                self.record_bbox(|| bbox);
                 self.active_cmds_mut().push(RenderCmd::PopLayer);
                 PoppedLayer::Regular
             }
@@ -300,7 +300,7 @@ impl CommandRecorder {
                     filter_layer_id,
                     layer.cmd_filter_layer_id,
                     layer.push_cmd_idx,
-                    content_bbox,
+                    bbox,
                 );
                 PoppedLayer::Filter
             }
