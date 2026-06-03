@@ -5,6 +5,7 @@ use super::DEPTH_BUCKET_WIDTH;
 use super::bucketer::CommandBucketer;
 use super::cmd::{FillAttrs, FillCmd, FineCmd, Span};
 use crate::peniko::BlendMode;
+use crate::util::snap_bbox_to_tile;
 use vello_common::encode::EncodedPaint;
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
@@ -91,9 +92,9 @@ impl CommandBucketer {
             return;
         }
 
-        let clip_bbox = *self.clip_bboxes.last().unwrap();
-        let clip_x0 = (clip_bbox.x0 / Tile::WIDTH) * Tile::WIDTH;
-        let clip_x1 = Self::ceil_to_tile_width(clip_bbox.x1).min(self.width());
+        let clip_bbox = snap_bbox_to_tile(*self.clip_bboxes.last().unwrap());
+        let clip_x0 = clip_bbox.x0;
+        let clip_x1 = clip_bbox.x1.min(self.width());
         for i in 0..strip_buf.len() - 1 {
             let strip = &strip_buf[i];
             let strip_y = strip.strip_y();

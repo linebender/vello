@@ -37,7 +37,7 @@
 use crate::coarse::{LayerClip, RenderCmd};
 use crate::kurbo::{Affine, Rect};
 use crate::peniko::BlendMode;
-use crate::util::bbox_relative_to;
+use crate::util::{bbox_relative_to, snap_bbox_to_tile};
 use alloc::vec::Vec;
 use vello_common::filter_effects::Filter;
 use vello_common::geometry::RectU16;
@@ -414,19 +414,6 @@ fn expand_bbox(bbox: RectU16, padding: RectU16) -> RectU16 {
         bbox.y0.saturating_sub(padding.y0),
         bbox.x1.saturating_add(padding.x1),
         bbox.y1.saturating_add(padding.y1),
-    )
-}
-
-fn snap_bbox_to_tile(bbox: RectU16) -> RectU16 {
-    RectU16::new(
-        (bbox.x0 / Tile::WIDTH) * Tile::WIDTH,
-        (bbox.y0 / Tile::HEIGHT) * Tile::HEIGHT,
-        bbox.x1
-            .checked_next_multiple_of(Tile::WIDTH)
-            .unwrap_or(u16::MAX),
-        bbox.y1
-            .checked_next_multiple_of(Tile::HEIGHT)
-            .unwrap_or(u16::MAX),
     )
 }
 

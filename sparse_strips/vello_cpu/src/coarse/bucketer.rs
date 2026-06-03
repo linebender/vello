@@ -8,7 +8,7 @@ use super::layer::{ActiveLayer, LayerClip};
 use super::row::RowCommands;
 use crate::peniko::BlendMode;
 use crate::record::RecordedFilterLayer;
-use crate::util::bbox_relative_to;
+use crate::util::{bbox_relative_to, snap_bbox_to_tile};
 use alloc::vec;
 use alloc::vec::Vec;
 use vello_common::encode::EncodedPaint;
@@ -47,30 +47,13 @@ impl CommandBucketer {
     }
 
     fn full_clip_bbox(width: u16, height: u16) -> RectU16 {
-        RectU16::new(
-            0,
-            0,
-            Self::ceil_to_tile_width(width),
-            Self::ceil_to_tile_height(height),
-        )
-    }
-
-    pub(super) fn ceil_to_tile_width(width: u16) -> u16 {
-        width
-            .checked_next_multiple_of(Tile::WIDTH)
-            .unwrap_or(u16::MAX)
+        snap_bbox_to_tile(RectU16::new(0, 0, width, height))
     }
 
     fn bbox_span(bbox: RectU16) -> Span {
         let tile_x = bbox.x0 / Tile::WIDTH;
         let tile_x1 = bbox.x1.div_ceil(Tile::WIDTH);
         Span::new(tile_x, tile_x1.saturating_sub(tile_x))
-    }
-
-    fn ceil_to_tile_height(height: u16) -> u16 {
-        height
-            .checked_next_multiple_of(Tile::HEIGHT)
-            .unwrap_or(u16::MAX)
     }
 
     pub(crate) fn rows(&self) -> &[RowCommands] {

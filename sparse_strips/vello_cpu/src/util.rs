@@ -6,6 +6,7 @@ use vello_common::encode::EncodedImage;
 use vello_common::fearless_simd::{Simd, SimdBase, f32x4, u8x32};
 use vello_common::geometry::RectU16;
 use vello_common::math::FloatExt;
+use vello_common::tile::Tile;
 use vello_common::util::Div255Ext;
 
 pub(crate) mod scalar {
@@ -74,6 +75,19 @@ pub(crate) fn bbox_relative_to(bbox: RectU16, origin: (u16, u16)) -> RectU16 {
         bbox.y0.saturating_sub(origin.1),
         bbox.x1.saturating_sub(origin.0),
         bbox.y1.saturating_sub(origin.1),
+    )
+}
+
+pub(crate) fn snap_bbox_to_tile(bbox: RectU16) -> RectU16 {
+    RectU16::new(
+        (bbox.x0 / Tile::WIDTH) * Tile::WIDTH,
+        (bbox.y0 / Tile::HEIGHT) * Tile::HEIGHT,
+        bbox.x1
+            .checked_next_multiple_of(Tile::WIDTH)
+            .unwrap_or(u16::MAX),
+        bbox.y1
+            .checked_next_multiple_of(Tile::HEIGHT)
+            .unwrap_or(u16::MAX),
     )
 }
 
