@@ -7,15 +7,12 @@ use super::depth::{self, DepthSegment};
 use crate::peniko::BlendMode;
 use crate::util::{Span, snap_bbox_to_tile};
 use vello_common::encode::EncodedPaint;
-use vello_common::paint::Paint;
 use vello_common::strip::Strip;
 use vello_common::tile::Tile;
 
 // Note: All methods here assume that strips are horizontally aligned to
 // tile boundaries. if that ever changes, the logic will have to be rewritten.
 
-/// A generic alpha fill command that can later on either be
-/// turned into a normal fill or a blend fill.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct GeneratedAlphaFill {
     pub(super) span: Span,
@@ -41,7 +38,7 @@ impl CommandBucketer {
         let depth_cull_draw_id = (self.active_layers.is_empty()
             && attrs.blend_mode == BlendMode::default()
             && attrs.mask.is_none()
-            && paint_is_opaque(&attrs.paint, encoded_paints))
+            && !attrs.paint.may_have_transparency(encoded_paints))
         .then_some(attrs.draw_id);
         self.generate(
             strip_buf,
@@ -157,18 +154,6 @@ impl CommandBucketer {
                 row.push_opaque(FillCmd::new(span, None, attrs_idx), full_width, draw_id);
             }
         });
-    }
-}
-
-fn paint_is_opaque(paint: &Paint, encoded_paints: &[EncodedPaint]) -> bool {
-    match paint {
-        Paint::Solid(color) => color.is_opaque(),
-        Paint::Indexed(index) => match &encoded_paints[index.index()] {
-            EncodedPaint::Gradient(gradient) => !gradient.may_have_transparency,
-            EncodedPaint::Image(image) => !image.may_have_transparency,
-            EncodedPaint::ExternalTexture(texture) => !texture.may_have_transparency,
-            EncodedPaint::BlurredRoundedRect(_) => false,
-        },
     }
 }
 

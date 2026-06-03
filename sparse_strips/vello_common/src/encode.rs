@@ -548,6 +548,28 @@ pub enum EncodedPaint {
     BlurredRoundedRect(EncodedBlurredRoundedRectangle),
 }
 
+impl EncodedPaint {
+    /// Returns whether this encoded paint may produce non-opaque pixels.
+    pub fn may_have_transparency(&self) -> bool {
+        match self {
+            Self::Gradient(gradient) => gradient.may_have_transparency,
+            Self::Image(image) => image.may_have_transparency,
+            Self::ExternalTexture(texture) => texture.may_have_transparency,
+            Self::BlurredRoundedRect(_) => true,
+        }
+    }
+}
+
+impl Paint {
+    /// Returns whether this paint may produce non-opaque pixels.
+    pub fn may_have_transparency(&self, encoded_paints: &[EncodedPaint]) -> bool {
+        match self {
+            Self::Solid(color) => !color.is_opaque(),
+            Self::Indexed(index) => encoded_paints[index.index()].may_have_transparency(),
+        }
+    }
+}
+
 impl From<EncodedGradient> for EncodedPaint {
     fn from(value: EncodedGradient) -> Self {
         Self::Gradient(value)
