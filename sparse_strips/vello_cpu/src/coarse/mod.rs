@@ -3,11 +3,10 @@
 
 mod bucketer;
 mod cmd;
+pub(crate) mod depth;
 mod layer;
 mod row;
 mod strip;
-
-pub(crate) const DEPTH_BUCKET_WIDTH: u16 = 128;
 
 pub(crate) use bucketer::CommandBucketer;
 pub(crate) use cmd::{FillAttrs, FillCmd, FilterLayerAttrs, FilterLayerCmd, FineCmd, RenderCmd};

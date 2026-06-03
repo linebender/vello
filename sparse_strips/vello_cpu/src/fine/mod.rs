@@ -11,9 +11,8 @@ mod common;
 mod highp;
 mod lowp;
 
-use crate::coarse::{
-    CommandBucketer, DEPTH_BUCKET_WIDTH, FillAttrs, FillCmd, FilterLayerAttrs, FineCmd,
-};
+use crate::coarse::depth::DEPTH_BUCKET_WIDTH;
+use crate::coarse::{CommandBucketer, FillAttrs, FillCmd, FilterLayerAttrs, FineCmd, depth};
 use crate::filter::context::FilterContext;
 use crate::filter::context::ScratchBuffer;
 use crate::fine::common::gradient::GradientPainter;
@@ -830,46 +829,14 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         self.set_paint_offset(attrs.paint_offset);
         let cmd_x = cmd.span.pixel_x();
         let cmd_width = cmd.span.pixel_width();
-        let start = usize::from(cmd_x / DEPTH_BUCKET_WIDTH);
-        let end = usize::from((cmd_x + cmd_width) / DEPTH_BUCKET_WIDTH);
-
-        if start + 1 == end {
-            if self.depth[start] == 0 {
-                self.fill(
-                    cmd_x,
-                    cmd_width,
-                    &attrs.paint,
-                    attrs.blend_mode,
-                    encoded_paints,
-                    image_resolver,
-                    None,
-                    attrs.mask.as_ref(),
-                );
-                self.depth[start] = attrs.draw_id;
-            }
-            return;
-        }
-
-        let mut idx = start;
-        while idx < end {
-            while idx < end && self.depth[idx] != 0 {
-                idx += 1;
-            }
-
-            let run_start = idx;
-            while idx < end && self.depth[idx] == 0 {
-                idx += 1;
-            }
-
-            if run_start == idx {
-                continue;
-            }
-
-            let x = (run_start as u16) * DEPTH_BUCKET_WIDTH;
-            let width = (idx - run_start) as u16 * DEPTH_BUCKET_WIDTH;
+        let cmd_end = cmd_x.saturating_add(cmd_width);
+        let (mut idx, depth_end) = depth::depth_range(cmd_x, cmd_end);
+        while let Some((x, end, depth_range)) =
+            depth::next_unset_run(&self.depth, &mut idx, depth_end)
+        {
             self.fill(
                 x,
-                width,
+                end - x,
                 &attrs.paint,
                 attrs.blend_mode,
                 encoded_paints,
@@ -877,7 +844,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 None,
                 attrs.mask.as_ref(),
             );
-            for depth in &mut self.depth[run_start..idx] {
+            for depth in &mut self.depth[depth_range] {
                 *depth = attrs.draw_id;
             }
         }
@@ -912,41 +879,15 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             return;
         }
 
-        let start = usize::from(cmd_x / DEPTH_BUCKET_WIDTH);
-        let end = usize::from(cmd_end.div_ceil(DEPTH_BUCKET_WIDTH));
-
-        if start + 1 == end {
-            if self.depth[start] <= attrs.draw_id {
-                self.render_cmd_span(
-                    cmd,
-                    cmd_x,
-                    cmd_end,
-                    alphas,
-                    attrs,
-                    encoded_paints,
-                    image_resolver,
-                );
-            }
-            return;
-        }
-
-        let mut idx = start;
-        while idx < end {
-            while idx < end && self.depth[idx] > attrs.draw_id {
-                idx += 1;
-            }
-
-            let run_start = idx;
-            while idx < end && self.depth[idx] <= attrs.draw_id {
-                idx += 1;
-            }
-
-            if run_start == idx {
-                continue;
-            }
-
-            let x = cmd_x.max(run_start as u16 * DEPTH_BUCKET_WIDTH);
-            let end = cmd_end.min(idx as u16 * DEPTH_BUCKET_WIDTH);
+        let (mut idx, depth_end) = depth::depth_range(cmd_x, cmd_end);
+        while let Some((x, end)) = depth::next_visible_run(
+            &self.depth,
+            &mut idx,
+            depth_end,
+            attrs.draw_id,
+            cmd_x,
+            cmd_end,
+        ) {
             self.render_cmd_span(cmd, x, end, alphas, attrs, encoded_paints, image_resolver);
         }
     }
@@ -1065,41 +1006,15 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             return;
         }
 
-        let start = usize::from(cmd_x / DEPTH_BUCKET_WIDTH);
-        let end = usize::from(cmd_end.div_ceil(DEPTH_BUCKET_WIDTH));
-
-        if start + 1 == end {
-            if self.depth[start] <= attrs.draw_id {
-                self.composite_filter_layer(
-                    cmd_x,
-                    cmd_end - cmd_x,
-                    attrs.src_origin.0,
-                    src_y,
-                    dst_y_offset,
-                    height,
-                    layer,
-                );
-            }
-            return;
-        }
-
-        let mut idx = start;
-        while idx < end {
-            while idx < end && self.depth[idx] > attrs.draw_id {
-                idx += 1;
-            }
-
-            let run_start = idx;
-            while idx < end && self.depth[idx] <= attrs.draw_id {
-                idx += 1;
-            }
-
-            if run_start == idx {
-                continue;
-            }
-
-            let x = cmd_x.max(run_start as u16 * DEPTH_BUCKET_WIDTH);
-            let end = cmd_end.min(idx as u16 * DEPTH_BUCKET_WIDTH);
+        let (mut idx, depth_end) = depth::depth_range(cmd_x, cmd_end);
+        while let Some((x, end)) = depth::next_visible_run(
+            &self.depth,
+            &mut idx,
+            depth_end,
+            attrs.draw_id,
+            cmd_x,
+            cmd_end,
+        ) {
             self.composite_filter_layer(
                 x,
                 end - x,

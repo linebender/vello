@@ -106,7 +106,7 @@ impl CommandBucketer {
     ) {
         assert_eq!(pixmap_origin.0 % Tile::WIDTH, 0);
         assert_eq!(pixmap_origin.1 % Tile::HEIGHT, 0);
-        
+
         for cmd in cmds {
             match cmd {
                 RenderCmd::Fill {

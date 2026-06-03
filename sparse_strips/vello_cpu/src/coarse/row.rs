@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use super::cmd::{BlendFillCmd, FillCmd, FineCmd, Span};
+use super::depth;
 use alloc::vec::Vec;
 use vello_common::util::Clear;
 
@@ -108,23 +109,7 @@ impl RowCommands {
     }
 
     pub(crate) fn depth_affects(&self, span: Span, draw_id: u32) -> bool {
-        if draw_id >= self.max_opaque_draw_id {
-            return false;
-        }
-
-        let Some(opaque_bounds) = self.opaque_bounds else {
-            return false;
-        };
-        let opaque_start = opaque_bounds.pixel_x();
-        let opaque_end = opaque_bounds.pixel_end();
-
-        let x = span.pixel_x();
-        let end = span.pixel_end();
-        if x >= opaque_end || end <= opaque_start {
-            return false;
-        }
-
-        true
+        depth::affects_later_draw(span, draw_id, self.max_opaque_draw_id, self.opaque_bounds)
     }
 
     fn include_bounds(&mut self, span: Span, width: u16) {

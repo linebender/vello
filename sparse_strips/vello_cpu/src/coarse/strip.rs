@@ -1,9 +1,9 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use super::DEPTH_BUCKET_WIDTH;
 use super::bucketer::CommandBucketer;
 use super::cmd::{FillAttrs, FillCmd, FineCmd, Span};
+use super::depth::{self, DepthSegment};
 use crate::peniko::BlendMode;
 use crate::util::snap_bbox_to_tile;
 use vello_common::encode::EncodedPaint;
@@ -11,12 +11,6 @@ use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 use vello_common::strip::Strip;
 use vello_common::tile::Tile;
-
-const DEPTH_BUCKET_TILE_WIDTH: u16 = DEPTH_BUCKET_WIDTH / Tile::WIDTH;
-const _: () = assert!(
-    DEPTH_BUCKET_WIDTH.is_multiple_of(Tile::WIDTH),
-    "depth bucket width must be a multiple of tile width"
-);
 
 // Note: All methods here assume that strips are horizontally aligned to
 // tile boundaries. if that ever changes, the logic will have to be rewritten.
@@ -123,9 +117,7 @@ impl CommandBucketer {
             }
 
             let next_strip = &strip_buf[i + 1];
-            let col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
-            let next_col = next_strip.alpha_idx() / u32::from(Tile::HEIGHT);
-            let strip_width = next_col.saturating_sub(col) as u16;
+            let strip_width = strip.width_to(next_strip);
             let x0 = strip_x(strip);
             let x1 = x0.saturating_add(strip_width);
 
@@ -172,52 +164,17 @@ impl CommandBucketer {
             return;
         };
 
-        let fill_x = span.tile_x();
-        let end = span.tile_end();
-        let aligned_x = fill_x.next_multiple_of(DEPTH_BUCKET_TILE_WIDTH).min(end);
-        let aligned_end = (end / DEPTH_BUCKET_TILE_WIDTH) * DEPTH_BUCKET_TILE_WIDTH;
-
-        if aligned_x >= aligned_end {
-            row.push_cmd(
-                FineCmd::Fill(FillCmd::new(span, None, attrs_idx)),
-                full_width,
-            );
-            return;
-        }
-
-        if fill_x < aligned_x {
-            row.push_cmd(
-                FineCmd::Fill(FillCmd::new(
-                    Span::new(fill_x, aligned_x - fill_x),
-                    None,
-                    attrs_idx,
-                )),
-                full_width,
-            );
-        }
-
-        if aligned_x < aligned_end {
-            row.push_opaque(
-                FillCmd::new(
-                    Span::new(aligned_x, aligned_end - aligned_x),
-                    None,
-                    attrs_idx,
-                ),
-                full_width,
-                draw_id,
-            );
-        }
-
-        if aligned_end < end {
-            row.push_cmd(
-                FineCmd::Fill(FillCmd::new(
-                    Span::new(aligned_end, end - aligned_end),
-                    None,
-                    attrs_idx,
-                )),
-                full_width,
-            );
-        }
+        depth::split_opaque_span(span, |span, segment| match segment {
+            DepthSegment::Regular => {
+                row.push_cmd(
+                    FineCmd::Fill(FillCmd::new(span, None, attrs_idx)),
+                    full_width,
+                );
+            }
+            DepthSegment::Opaque => {
+                row.push_opaque(FillCmd::new(span, None, attrs_idx), full_width, draw_id);
+            }
+        });
     }
 }
 
@@ -236,8 +193,8 @@ fn paint_is_opaque(paint: &Paint, encoded_paints: &[EncodedPaint]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::CommandBucketer;
-    use super::DEPTH_BUCKET_WIDTH;
     use crate::coarse::cmd::FineCmd;
+    use crate::coarse::depth::DEPTH_BUCKET_WIDTH;
     use crate::coarse::layer::LayerClip;
     use alloc::vec::Vec;
     use vello_common::color::palette::css::{BLUE, RED};

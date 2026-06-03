@@ -435,11 +435,7 @@ fn strip_bbox(strips: &[Strip], viewport_width: u16) -> RectU16 {
         let strip_y = strip.strip_y();
         let row_y = strip_y.saturating_mul(Tile::HEIGHT);
         let row_y1 = row_y.saturating_add(Tile::HEIGHT);
-        let col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
-        let next_col = next_strip.alpha_idx() / u32::from(Tile::HEIGHT);
-        // TODO: We likely have a couple of other places that do the same
-        // calculation, maybe extract into a method.
-        let strip_width = next_col.saturating_sub(col) as u16;
+        let strip_width = strip.width_to(&next_strip);
         let strip_x1 = strip.x.saturating_add(strip_width);
 
         if strip_width > 0 {
