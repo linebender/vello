@@ -48,11 +48,11 @@ impl CommandBucketer {
             },
             |bucketer, row_idx, fill| {
                 bucketer.ensure_row_layers(row_idx);
-                let full_width = bucketer.width();
-                bucketer.rows[row_idx].push_cmd(
-                    FineCmd::Fill(FillCmd::new(fill.span, Some(fill.alpha_idx), attrs_idx)),
-                    full_width,
-                );
+                bucketer.rows[row_idx].push_cmd(FineCmd::Fill(FillCmd::new(
+                    fill.span,
+                    Some(fill.alpha_idx),
+                    attrs_idx,
+                )));
             },
         );
     }
@@ -133,25 +133,18 @@ impl CommandBucketer {
         depth_cull_draw_id: Option<u32>,
     ) {
         self.ensure_row_layers(row_idx);
-        let full_width = self.width();
         let row = &mut self.rows[row_idx];
         let Some(draw_id) = depth_cull_draw_id else {
-            row.push_cmd(
-                FineCmd::Fill(FillCmd::new(span, None, attrs_idx)),
-                full_width,
-            );
+            row.push_cmd(FineCmd::Fill(FillCmd::new(span, None, attrs_idx)));
             return;
         };
 
         depth::split_opaque_span(span, |span, segment| match segment {
             DepthSegment::Regular => {
-                row.push_cmd(
-                    FineCmd::Fill(FillCmd::new(span, None, attrs_idx)),
-                    full_width,
-                );
+                row.push_cmd(FineCmd::Fill(FillCmd::new(span, None, attrs_idx)));
             }
             DepthSegment::Opaque => {
-                row.push_depth_write(FillCmd::new(span, None, attrs_idx), full_width, draw_id);
+                row.push_depth_write(FillCmd::new(span, None, attrs_idx), draw_id);
             }
         });
     }

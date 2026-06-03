@@ -51,9 +51,9 @@ impl RowCommands {
         self.layer_depth = 0;
     }
 
-    pub(super) fn push_cmd(&mut self, cmd: FineCmd, width: u16) {
+    pub(super) fn push_cmd(&mut self, cmd: FineCmd) {
         if let Some(span) = cmd.generated_span() {
-            self.include_span(span, width);
+            self.include_span(span);
         }
         self.cmds.push(cmd);
     }
@@ -98,12 +98,12 @@ impl RowCommands {
         span: Span,
         alpha_idx: Option<u32>,
         blend_attrs_idx: u32,
-        full_width: u16,
     ) {
-        self.push_cmd(
-            FineCmd::BlendFill(BlendFillCmd::new(span, alpha_idx, blend_attrs_idx)),
-            full_width,
-        );
+        self.push_cmd(FineCmd::BlendFill(BlendFillCmd::new(
+            span,
+            alpha_idx,
+            blend_attrs_idx,
+        )));
     }
 
     pub(super) fn pop_buf(&mut self) {
@@ -111,8 +111,8 @@ impl RowCommands {
         self.layer_depth -= 1;
     }
 
-    pub(super) fn push_depth_write(&mut self, cmd: FillCmd, width: u16, draw_id: u32) {
-        self.include_span(cmd.span, width);
+    pub(super) fn push_depth_write(&mut self, cmd: FillCmd, draw_id: u32) {
+        self.include_span(cmd.span);
         self.depth.include_span(cmd.span, draw_id);
         self.depth_writes.push(cmd);
     }
@@ -125,11 +125,7 @@ impl RowCommands {
         self.depth.can_skip(span, draw_id)
     }
 
-    fn include_span(&mut self, span: Span, width: u16) {
-        if span.pixel_x() >= width {
-            return;
-        }
-
+    fn include_span(&mut self, span: Span) {
         if let Some(bounds) = &mut self.coarse_span {
             bounds.extend(span);
         } else {
@@ -359,12 +355,7 @@ impl CommandBucketer {
                 pixmap_origin,
                 |bucketer, row_idx, fill| {
                     if occupied_rows[row_idx] {
-                        bucketer.rows[row_idx].push_blend_fill(
-                            fill,
-                            None,
-                            blend_attrs_idx,
-                            full_width,
-                        );
+                        bucketer.rows[row_idx].push_blend_fill(fill, None, blend_attrs_idx);
                     }
                 },
                 |bucketer, row_idx, fill| {
@@ -373,7 +364,6 @@ impl CommandBucketer {
                             fill.span,
                             Some(fill.alpha_idx),
                             blend_attrs_idx,
-                            full_width,
                         );
                     }
                 },
@@ -444,7 +434,6 @@ impl CommandBucketer {
         }
 
         let draw_id = self.next_draw_id();
-        let full_width = self.width();
         let span = Self::bbox_span(bbox);
         let filter_attrs_idx = self.filter_attrs.len() as u32;
         self.filter_attrs.push(FilterLayerAttrs {
@@ -465,13 +454,10 @@ impl CommandBucketer {
             if row_y1 <= bbox.y0 || row_y >= bbox.y1 {
                 continue;
             }
-            self.rows[row_idx].push_cmd(
-                FineCmd::FilterLayer(FilterLayerCmd {
-                    span,
-                    attrs_idx: filter_attrs_idx,
-                }),
-                full_width,
-            );
+            self.rows[row_idx].push_cmd(FineCmd::FilterLayer(FilterLayerCmd {
+                span,
+                attrs_idx: filter_attrs_idx,
+            }));
         }
     }
 }
