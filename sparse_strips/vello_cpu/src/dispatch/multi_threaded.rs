@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::coarse::{CommandBucketer, LayerClip, RenderCmd};
+use crate::coarse::{CommandBucketer, LayerClip};
 use crate::dispatch::Dispatcher;
 use crate::dispatch::multi_threaded::cost::{COST_THRESHOLD, estimate_render_task_cost};
 use crate::dispatch::multi_threaded::worker::Worker;
@@ -9,7 +9,7 @@ use crate::filter::context::FilterContext;
 use crate::fine::FineKernel;
 use crate::kurbo::{Affine, BezPath, PathEl, Point, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
-use crate::record::FilterLayerPlan;
+use crate::record::{FilterLayerPlan, RecordedCmd};
 use crate::{CompositeMode, RasterizerSettings};
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -53,7 +53,7 @@ type CoarseTaskReceiver = ordered_channel::Receiver<CoarseTask>;
 pub(crate) struct MultiThreadedDispatcher {
     bucketer: Mutex<CommandBucketer>,
     clip_context: ClipContext,
-    cmds: Vec<RenderCmd>,
+    cmds: Vec<RecordedCmd>,
     strip_storage: StripStorage,
     /// The thread pool that is used for dispatching tasks.
     thread_pool: ThreadPool,
@@ -312,7 +312,7 @@ impl MultiThreadedDispatcher {
                                     &task.allocation_group.strips
                                         [strip_range.start as usize..strip_range.end as usize],
                                 );
-                                self.cmds.push(RenderCmd::Fill {
+                                self.cmds.push(RecordedCmd::Fill {
                                     thread_idx: thread_id,
                                     strip_range,
                                     paint: paint.clone(),
@@ -340,7 +340,7 @@ impl MultiThreadedDispatcher {
                                     }
                                 });
 
-                                self.cmds.push(RenderCmd::PushLayer {
+                                self.cmds.push(RecordedCmd::PushLayer {
                                     blend_mode,
                                     opacity,
                                     mask,
@@ -349,7 +349,7 @@ impl MultiThreadedDispatcher {
                                 });
                             }
                             CoarseTaskType::PopLayer => {
-                                self.cmds.push(RenderCmd::PopLayer);
+                                self.cmds.push(RecordedCmd::PopLayer);
                             }
                         }
                     }

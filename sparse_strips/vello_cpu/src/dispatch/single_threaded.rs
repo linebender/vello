@@ -455,8 +455,8 @@ impl Dispatcher for SingleThreadedDispatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::coarse::RenderCmd;
     use crate::kurbo::Shape;
+    use crate::record::RecordedCmd;
     use vello_common::color::palette::css::BLUE;
     use vello_common::geometry::RectU16;
     use vello_common::paint::PremulColor;
@@ -467,7 +467,7 @@ mod tests {
 
     fn layer_content_bbox(dispatcher: &SingleThreadedDispatcher, cmd_idx: usize) -> RectU16 {
         match &dispatcher.recorder.root_cmds[cmd_idx] {
-            RenderCmd::PushLayer {
+            RecordedCmd::PushLayer {
                 bbox: content_bbox, ..
             } => *content_bbox,
             _ => panic!("expected push layer command"),

@@ -28,17 +28,18 @@
 //! of [`CommandBucketer`] for the root and each filter layer, which is especially cumbersome because
 //! conceptually, a command bucketer is a 2D array. This makes it very difficult to resize and reuse
 //! it while having the ability to retain and reuse inner allocations. By first recording all commands
-//! and their strips into a single [`Vec<RenderCmd>`], we can basically represent the commands of
+//! and their strips into a single [`Vec<RecordedCmd>`], we can basically represent the commands of
 //! a single layer with just one flat buffer, making it much easier to reuse them across frames. It
 //! also allows us to collect useful metadata (e.g. the bounding box of a layer) and make appropriate
 //! decisions about how to render them (for example, where to place a filter layer and what size to
 //! allocate for it).
 
-use crate::coarse::{LayerClip, RenderCmd};
+use crate::coarse::LayerClip;
 use crate::kurbo::{Affine, Rect};
 use crate::peniko::BlendMode;
 use crate::util::{bbox_relative_to, snap_bbox_to_tile};
 use alloc::vec::Vec;
+use core::ops::Range;
 use vello_common::filter_effects::Filter;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
@@ -46,6 +47,32 @@ use vello_common::paint::Paint;
 use vello_common::strip::Strip;
 use vello_common::tile::Tile;
 use vello_common::util::RectExt;
+
+#[derive(Debug)]
+pub(crate) enum RecordedCmd {
+    Fill {
+        thread_idx: u8,
+        strip_range: Range<usize>,
+        paint: Paint,
+        blend_mode: BlendMode,
+        mask: Option<Mask>,
+    },
+    PushLayer {
+        blend_mode: BlendMode,
+        opacity: f32,
+        mask: Option<Mask>,
+        clip: Option<LayerClip>,
+        bbox: RectU16,
+    },
+    CompositeFilterLayer {
+        id: usize,
+        blend_mode: BlendMode,
+        opacity: f32,
+        mask: Option<Mask>,
+        clip: Option<LayerClip>,
+    },
+    PopLayer,
+}
 
 /// Metadata about a layer.
 ///
@@ -74,7 +101,7 @@ enum LayerKind {
 
 #[derive(Debug)]
 pub(crate) struct RecordedFilterLayer {
-    pub(crate) cmds: Vec<RenderCmd>,
+    pub(crate) cmds: Vec<RecordedCmd>,
     pub(crate) filter_plan: FilterLayerPlan,
     pub(crate) bbox: RectU16,
     pub(crate) placement: FilterLayerPlacement,
@@ -201,15 +228,15 @@ impl FilterLayerPlan {
 /// frames for filter layers.
 #[derive(Debug, Default)]
 struct CommandPool {
-    cmds: Vec<Vec<RenderCmd>>,
+    cmds: Vec<Vec<RecordedCmd>>,
 }
 
 impl CommandPool {
-    fn take(&mut self) -> Vec<RenderCmd> {
+    fn take(&mut self) -> Vec<RecordedCmd> {
         self.cmds.pop().unwrap_or_default()
     }
 
-    fn submit(&mut self, mut cmds: Vec<RenderCmd>) {
+    fn submit(&mut self, mut cmds: Vec<RecordedCmd>) {
         cmds.clear();
         self.cmds.push(cmds);
     }
@@ -218,7 +245,7 @@ impl CommandPool {
 #[derive(Debug, Default)]
 pub(crate) struct CommandRecorder {
     /// The commands of the root layer.
-    pub(crate) root_cmds: Vec<RenderCmd>,
+    pub(crate) root_cmds: Vec<RecordedCmd>,
     /// Recorded filter layers, indexed by their ID.
     pub(crate) filter_layers: Vec<RecordedFilterLayer>,
     cmd_pool: CommandPool,
@@ -248,7 +275,7 @@ impl CommandRecorder {
 
     pub(crate) fn push_fill(
         &mut self,
-        strip_range: core::ops::Range<usize>,
+        strip_range: Range<usize>,
         strips: &[Strip],
         viewport_width: u16,
         paint: Paint,
@@ -256,7 +283,7 @@ impl CommandRecorder {
         mask: Option<Mask>,
         thread_idx: u8,
     ) {
-        self.active_cmds_mut().push(RenderCmd::Fill {
+        self.active_cmds_mut().push(RecordedCmd::Fill {
             thread_idx,
             strip_range,
             paint,
@@ -281,7 +308,7 @@ impl CommandRecorder {
         }
 
         let cmd_filter_layer_id = self.active_filter_layer_id();
-        let push_cmd_idx = self.push_render_cmd(RenderCmd::PushLayer {
+        let push_cmd_idx = self.push_render_cmd(RecordedCmd::PushLayer {
             blend_mode,
             opacity,
             mask,
@@ -308,7 +335,7 @@ impl CommandRecorder {
     ) {
         let parent_filter_layer_id = self.active_filter_layer_id();
         let filter_layer_id = self.filter_layers.len();
-        let push_cmd_idx = self.push_render_cmd(RenderCmd::CompositeFilterLayer {
+        let push_cmd_idx = self.push_render_cmd(RecordedCmd::CompositeFilterLayer {
             id: filter_layer_id,
             blend_mode,
             opacity,
@@ -341,13 +368,13 @@ impl CommandRecorder {
                 // Now we update the bbox inside of the corresponding `push_layer` command.
                 match &mut self.filter_layer_cmds_mut(layer.cmd_filter_layer_id)[layer.push_cmd_idx]
                 {
-                    RenderCmd::PushLayer {
+                    RecordedCmd::PushLayer {
                         bbox: layer_bbox, ..
                     } => *layer_bbox = bbox,
                     _ => unreachable!("layer stack referenced a non-layer command"),
                 }
                 self.record_bbox(|| bbox);
-                self.active_cmds_mut().push(RenderCmd::PopLayer);
+                self.active_cmds_mut().push(RecordedCmd::PopLayer);
 
                 PoppedLayer::Regular
             }
@@ -376,11 +403,11 @@ impl CommandRecorder {
         self.active_filter_layer_stack.last().copied()
     }
 
-    fn active_cmds_mut(&mut self) -> &mut Vec<RenderCmd> {
+    fn active_cmds_mut(&mut self) -> &mut Vec<RecordedCmd> {
         self.filter_layer_cmds_mut(self.active_filter_layer_id())
     }
 
-    fn filter_layer_cmds_mut(&mut self, filter_layer_id: Option<usize>) -> &mut Vec<RenderCmd> {
+    fn filter_layer_cmds_mut(&mut self, filter_layer_id: Option<usize>) -> &mut Vec<RecordedCmd> {
         if let Some(id) = filter_layer_id {
             &mut self.filter_layers[id].cmds
         } else {
@@ -388,7 +415,7 @@ impl CommandRecorder {
         }
     }
 
-    fn push_render_cmd(&mut self, cmd: RenderCmd) -> usize {
+    fn push_render_cmd(&mut self, cmd: RecordedCmd) -> usize {
         let cmds = self.active_cmds_mut();
         let idx = cmds.len();
         cmds.push(cmd);

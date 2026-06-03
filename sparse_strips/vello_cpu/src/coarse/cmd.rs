@@ -1,40 +1,12 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use super::LayerClip;
 use crate::peniko::BlendMode;
 use core::num::NonZeroU32;
-use core::ops::Range;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 use vello_common::tile::Tile;
-
-#[derive(Debug)]
-pub(crate) enum RenderCmd {
-    Fill {
-        thread_idx: u8,
-        strip_range: Range<usize>,
-        paint: Paint,
-        blend_mode: BlendMode,
-        mask: Option<Mask>,
-    },
-    PushLayer {
-        blend_mode: BlendMode,
-        opacity: f32,
-        mask: Option<Mask>,
-        clip: Option<LayerClip>,
-        bbox: RectU16,
-    },
-    CompositeFilterLayer {
-        id: usize,
-        blend_mode: BlendMode,
-        opacity: f32,
-        mask: Option<Mask>,
-        clip: Option<LayerClip>,
-    },
-    PopLayer,
-}
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum FineCmd {

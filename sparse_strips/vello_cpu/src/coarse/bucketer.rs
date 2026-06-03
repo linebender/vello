@@ -2,13 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use super::cmd::{
-    BlendAttrs, BlendFillCmd, FillAttrs, FillCmd, FilterLayerAttrs, FilterLayerCmd, FineCmd,
-    RenderCmd, Span,
+    BlendAttrs, BlendFillCmd, FillAttrs, FillCmd, FilterLayerAttrs, FilterLayerCmd, FineCmd, Span,
 };
 use super::depth::DepthState;
 use super::layer::{ActiveLayer, LayerClip};
 use crate::peniko::BlendMode;
-use crate::record::RecordedFilterLayer;
+use crate::record::{RecordedFilterLayer, RecordedCmd};
 use crate::util::{bbox_relative_to, snap_bbox_to_tile};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -218,7 +217,7 @@ impl CommandBucketer {
 
     pub(crate) fn bucket_commands(
         &mut self,
-        cmds: &[RenderCmd],
+        cmds: &[RecordedCmd],
         filter_layers: &[RecordedFilterLayer],
         strips: &[Strip],
         encoded_paints: &[EncodedPaint],
@@ -229,7 +228,7 @@ impl CommandBucketer {
 
         for cmd in cmds {
             match cmd {
-                RenderCmd::Fill {
+                RecordedCmd::Fill {
                     thread_idx,
                     strip_range,
                     paint,
@@ -247,14 +246,14 @@ impl CommandBucketer {
                     };
                     self.generate_fill(&strips[strip_range.clone()], &attrs, encoded_paints);
                 }
-                RenderCmd::PushLayer {
+                RecordedCmd::PushLayer {
                     blend_mode,
                     opacity,
                     mask,
                     clip,
                     ..
                 } => self.push_layer(*blend_mode, *opacity, mask.clone(), clip.clone()),
-                RenderCmd::CompositeFilterLayer {
+                RecordedCmd::CompositeFilterLayer {
                     id,
                     blend_mode,
                     opacity,
@@ -275,7 +274,7 @@ impl CommandBucketer {
                         self.pop_layer(strips, pixmap_origin);
                     }
                 }
-                RenderCmd::PopLayer => self.pop_layer(strips, pixmap_origin),
+                RecordedCmd::PopLayer => self.pop_layer(strips, pixmap_origin),
             }
         }
     }
