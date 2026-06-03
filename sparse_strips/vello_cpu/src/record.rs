@@ -199,12 +199,7 @@ impl CommandRecorder {
             mask,
         });
 
-        if self.layer_stack.is_empty() {
-            return;
-        }
-
-        let bbox = strip_bbox(strips, viewport_width);
-        self.record_bbox(bbox);
+        self.record_bbox(|| strip_bbox(strips, viewport_width));
     }
 
     pub(crate) fn push_layer(
@@ -289,7 +284,7 @@ impl CommandRecorder {
                     layer.push_cmd_idx,
                     content_bbox,
                 );
-                self.record_bbox(content_bbox);
+                self.record_bbox(|| content_bbox);
                 self.active_cmds_mut().push(RenderCmd::PopLayer);
                 PoppedLayer::Regular
             }
@@ -375,12 +370,12 @@ impl CommandRecorder {
             }
             _ => unreachable!("filter layer stack referenced a non-filter command"),
         }
-        self.record_bbox(output_bbox);
+        self.record_bbox(|| output_bbox);
     }
 
-    fn record_bbox(&mut self, bbox: RectU16) {
+    fn record_bbox(&mut self, bbox: impl FnOnce() -> RectU16) {
         if let Some(layer) = self.layer_stack.last_mut() {
-            layer.bbox.union(bbox);
+            layer.bbox.union(bbox());
         }
     }
 }
