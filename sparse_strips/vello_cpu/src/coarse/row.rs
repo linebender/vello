@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use super::cmd::{BlendFillCmd, FillCmd, FineCmd, Span};
-use super::depth;
+use super::depth::DepthRowState;
 use alloc::vec::Vec;
 use vello_common::util::Clear;
 
@@ -11,8 +11,7 @@ pub(crate) struct RowCommands {
     pub(crate) cmds: Vec<FineCmd>,
     pub(crate) opaque: Vec<FillCmd>,
     bounds: Option<Span>,
-    opaque_bounds: Option<Span>,
-    max_opaque_draw_id: u32,
+    depth: DepthRowState,
     pub(super) layer_depth: usize,
 }
 
@@ -22,8 +21,7 @@ impl RowCommands {
             cmds: Vec::new(),
             opaque: Vec::new(),
             bounds: None,
-            opaque_bounds: None,
-            max_opaque_draw_id: 0,
+            depth: DepthRowState::default(),
             layer_depth: 0,
         }
     }
@@ -32,8 +30,7 @@ impl RowCommands {
         self.cmds.clear();
         self.opaque.clear();
         self.bounds = None;
-        self.opaque_bounds = None;
-        self.max_opaque_draw_id = 0;
+        self.depth.clear();
         self.layer_depth = 0;
     }
 
@@ -99,8 +96,7 @@ impl RowCommands {
 
     pub(super) fn push_opaque(&mut self, cmd: FillCmd, width: u16, draw_id: u32) {
         self.include_bounds(cmd.span, width);
-        self.include_opaque_bounds(cmd.span, width);
-        self.max_opaque_draw_id = self.max_opaque_draw_id.max(draw_id);
+        self.depth.include_opaque(cmd.span, width, draw_id);
         self.opaque.push(cmd);
     }
 
@@ -109,7 +105,7 @@ impl RowCommands {
     }
 
     pub(crate) fn depth_affects(&self, span: Span, draw_id: u32) -> bool {
-        depth::affects_later_draw(span, draw_id, self.max_opaque_draw_id, self.opaque_bounds)
+        self.depth.affects_later_draw(span, draw_id)
     }
 
     fn include_bounds(&mut self, span: Span, width: u16) {
@@ -121,18 +117,6 @@ impl RowCommands {
             bounds.extend(span);
         } else {
             self.bounds = Some(span);
-        }
-    }
-
-    fn include_opaque_bounds(&mut self, span: Span, width: u16) {
-        if span.pixel_x() >= width {
-            return;
-        }
-
-        if let Some(bounds) = &mut self.opaque_bounds {
-            bounds.extend(span);
-        } else {
-            self.opaque_bounds = Some(span);
         }
     }
 }

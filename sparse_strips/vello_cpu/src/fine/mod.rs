@@ -11,8 +11,8 @@ mod common;
 mod highp;
 mod lowp;
 
-use crate::coarse::depth::DEPTH_BUCKET_WIDTH;
-use crate::coarse::{CommandBucketer, FillAttrs, FillCmd, FilterLayerAttrs, FineCmd, depth};
+use crate::coarse::depth::DepthBuffer;
+use crate::coarse::{CommandBucketer, FillAttrs, FillCmd, FilterLayerAttrs, FineCmd};
 use crate::filter::context::FilterContext;
 use crate::filter::context::ScratchBuffer;
 use crate::fine::common::gradient::GradientPainter;
@@ -477,7 +477,7 @@ pub struct Fine<S: Simd, T: FineKernel<S>> {
     buffer_pool: Vec<Vec<T::Numeric>>,
     paint_buf: Vec<T::Numeric>,
     f32_buf: Vec<f32>,
-    depth: Vec<u32>,
+    depth: DepthBuffer,
     row_y: u16,
     paint_offset: (u16, u16),
 }
@@ -493,7 +493,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             buffer_pool: Vec::new(),
             paint_buf: Vec::new(),
             f32_buf: Vec::new(),
-            depth: vec![0; usize::from(buffer_width.div_ceil(DEPTH_BUCKET_WIDTH))],
+            depth: DepthBuffer::new(buffer_width),
             row_y: 0,
             paint_offset: (0, 0),
         }
@@ -508,23 +508,13 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     }
 
     fn reset_depth_range(&mut self, x: u16, width: u16) {
-        let (depth_start, depth_end) = self.depth_range(x, width);
-        self.depth[depth_start..depth_end].fill(0);
+        self.depth.clear_range(x, width);
     }
 
     fn clear_buffer_range(&mut self, x: u16, width: u16) {
         let scratch_start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
         let scratch_len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
         self.buffers[0][scratch_start..scratch_start + scratch_len].fill(T::Numeric::ZERO);
-    }
-
-    fn depth_range(&self, x: u16, width: u16) -> (usize, usize) {
-        let depth_start = usize::from(x / DEPTH_BUCKET_WIDTH);
-        let depth_end = ((usize::from(x) + usize::from(width))
-            .div_ceil(usize::from(DEPTH_BUCKET_WIDTH)))
-        .min(self.depth.len());
-
-        (depth_start, depth_end)
     }
 
     fn init_uncovered_range(
@@ -537,26 +527,13 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         target: &mut PixmapMut<'_>,
         unpack_dest: bool,
     ) {
-        let (depth_start, depth_end) = self.depth_range(scratch_x, width);
+        let (depth_start, depth_end) = self.depth.range_with_width(scratch_x, width);
         let scratch_end = scratch_x + width;
 
         let mut idx = depth_start;
-        while idx < depth_end {
-            while idx < depth_end && self.depth[idx] != 0 {
-                idx += 1;
-            }
-
-            let run_start = idx;
-            while idx < depth_end && self.depth[idx] == 0 {
-                idx += 1;
-            }
-
-            if run_start == idx {
-                continue;
-            }
-
-            let x = scratch_x.max(run_start as u16 * DEPTH_BUCKET_WIDTH);
-            let end = scratch_end.min(idx as u16 * DEPTH_BUCKET_WIDTH);
+        while let Some((run_x, run_end, _)) = self.depth.next_unset_run(&mut idx, depth_end) {
+            let x = scratch_x.max(run_x);
+            let end = scratch_end.min(run_end);
             if x >= end {
                 continue;
             }
@@ -830,10 +807,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         let cmd_x = cmd.span.pixel_x();
         let cmd_width = cmd.span.pixel_width();
         let cmd_end = cmd_x.saturating_add(cmd_width);
-        let (mut idx, depth_end) = depth::depth_range(cmd_x, cmd_end);
-        while let Some((x, end, depth_range)) =
-            depth::next_unset_run(&self.depth, &mut idx, depth_end)
-        {
+        let (mut idx, depth_end) = self.depth.range(cmd_x, cmd_end);
+        while let Some((x, end, depth_range)) = self.depth.next_unset_run(&mut idx, depth_end) {
             self.fill(
                 x,
                 end - x,
@@ -844,9 +819,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 None,
                 attrs.mask.as_ref(),
             );
-            for depth in &mut self.depth[depth_range] {
-                *depth = attrs.draw_id;
-            }
+            self.depth.mark(depth_range, attrs.draw_id);
         }
     }
 
@@ -879,15 +852,11 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             return;
         }
 
-        let (mut idx, depth_end) = depth::depth_range(cmd_x, cmd_end);
-        while let Some((x, end)) = depth::next_visible_run(
-            &self.depth,
-            &mut idx,
-            depth_end,
-            attrs.draw_id,
-            cmd_x,
-            cmd_end,
-        ) {
+        let (mut idx, depth_end) = self.depth.range(cmd_x, cmd_end);
+        while let Some((x, end)) =
+            self.depth
+                .next_visible_run(&mut idx, depth_end, attrs.draw_id, cmd_x, cmd_end)
+        {
             self.render_cmd_span(cmd, x, end, alphas, attrs, encoded_paints, image_resolver);
         }
     }
@@ -1006,15 +975,11 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             return;
         }
 
-        let (mut idx, depth_end) = depth::depth_range(cmd_x, cmd_end);
-        while let Some((x, end)) = depth::next_visible_run(
-            &self.depth,
-            &mut idx,
-            depth_end,
-            attrs.draw_id,
-            cmd_x,
-            cmd_end,
-        ) {
+        let (mut idx, depth_end) = self.depth.range(cmd_x, cmd_end);
+        while let Some((x, end)) =
+            self.depth
+                .next_visible_run(&mut idx, depth_end, attrs.draw_id, cmd_x, cmd_end)
+        {
             self.composite_filter_layer(
                 x,
                 end - x,
