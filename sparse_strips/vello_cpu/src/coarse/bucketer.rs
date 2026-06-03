@@ -102,22 +102,11 @@ impl CommandBucketer {
         filter_layers: &[RecordedFilterLayer],
         strips: &[Strip],
         encoded_paints: &[EncodedPaint],
-        origin: (u16, u16),
+        pixmap_origin: (u16, u16),
     ) {
-        let translated_strips = if origin == (0, 0) {
-            Vec::new()
-        } else {
-            strips
-                .iter()
-                .map(|strip| translate_strip(*strip, origin))
-                .collect::<Vec<_>>()
-        };
-        let strips = if origin == (0, 0) {
-            strips
-        } else {
-            translated_strips.as_slice()
-        };
-
+        assert_eq!(pixmap_origin.0 % Tile::WIDTH, 0);
+        assert_eq!(pixmap_origin.1 % Tile::HEIGHT, 0);
+        
         for cmd in cmds {
             match cmd {
                 RenderCmd::Fill {
@@ -133,7 +122,7 @@ impl CommandBucketer {
                         *blend_mode,
                         mask.clone(),
                         *thread_idx,
-                        origin,
+                        pixmap_origin,
                         encoded_paints,
                     );
                 }
@@ -152,7 +141,7 @@ impl CommandBucketer {
                     clip,
                 } => {
                     let placement = filter_layers[*id].placement;
-                    let bbox = bbox_relative_to(placement.composite_bbox, origin);
+                    let bbox = bbox_relative_to(placement.composite_bbox, pixmap_origin);
                     let needs_layer = *blend_mode != BlendMode::default()
                         || *opacity != 1.0
                         || mask.is_some()
@@ -162,10 +151,10 @@ impl CommandBucketer {
                     }
                     self.generate_filter_layer(*id, bbox, placement.src_origin());
                     if needs_layer {
-                        self.pop_layer(strips);
+                        self.pop_layer(strips, pixmap_origin);
                     }
                 }
-                RenderCmd::PopLayer => self.pop_layer(strips),
+                RenderCmd::PopLayer => self.pop_layer(strips, pixmap_origin),
             }
         }
     }
@@ -199,7 +188,7 @@ impl CommandBucketer {
         }
     }
 
-    pub(crate) fn pop_layer(&mut self, strips: &[Strip]) {
+    pub(crate) fn pop_layer(&mut self, strips: &[Strip], pixmap_origin: (u16, u16)) {
         let mut layer = self.active_layers.pop().unwrap();
         let mask_idx = layer.mask.as_ref().map(|mask| {
             let idx = self.masks.len() as u32;
@@ -232,6 +221,7 @@ impl CommandBucketer {
 
             self.generate(
                 clip_strips,
+                pixmap_origin,
                 |bucketer, row_idx, fill| {
                     if occupied_rows[row_idx] {
                         bucketer.rows[row_idx].push_blend_fill(
@@ -329,10 +319,11 @@ impl CommandBucketer {
         self.filter_attrs.push(FilterLayerAttrs {
             id: filter_layer_id,
             draw_id,
-            src_x: src_origin.0 + span.pixel_x().saturating_sub(src_bbox.x0),
-            src_y: src_origin.1 + (bbox.y0 - src_bbox.y0),
-            y0: bbox.y0,
-            y1: bbox.y1,
+            dst_bbox: bbox,
+            src_origin: (
+                src_origin.0 + span.pixel_x().saturating_sub(src_bbox.x0),
+                src_origin.1 + (bbox.y0 - src_bbox.y0),
+            ),
         });
         let row_start = usize::from(bbox.y0 / Tile::HEIGHT);
         let row_end = usize::from(bbox.y1.div_ceil(Tile::HEIGHT)).min(self.rows.len());
@@ -352,18 +343,4 @@ impl CommandBucketer {
             );
         }
     }
-}
-
-fn translate_strip(strip: Strip, origin: (u16, u16)) -> Strip {
-    let x = if strip.is_sentinel() {
-        strip.x
-    } else {
-        strip.x.saturating_sub(origin.0)
-    };
-    Strip::new(
-        x,
-        strip.y.saturating_sub(origin.1),
-        strip.alpha_idx(),
-        strip.fill_gap(),
-    )
 }

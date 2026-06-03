@@ -1043,12 +1043,12 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             return;
         }
         let row_y1 = row_y.saturating_add(Tile::HEIGHT);
-        let draw_y = row_y.max(attrs.y0);
-        let draw_y1 = row_y1.min(attrs.y1);
+        let draw_y = row_y.max(attrs.dst_bbox.y0);
+        let draw_y1 = row_y1.min(attrs.dst_bbox.y1);
         if draw_y >= draw_y1 {
             return;
         }
-        let src_y = attrs.src_y + (draw_y - attrs.y0);
+        let src_y = attrs.src_origin.1 + (draw_y - attrs.dst_bbox.y0);
         let dst_y_offset = (draw_y - row_y) as u8;
         let height = (draw_y1 - draw_y) as u8;
 
@@ -1056,7 +1056,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             self.composite_filter_layer(
                 cmd_x,
                 cmd_end - cmd_x,
-                attrs.src_x,
+                attrs.src_origin.0,
                 src_y,
                 dst_y_offset,
                 height,
@@ -1073,7 +1073,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 self.composite_filter_layer(
                     cmd_x,
                     cmd_end - cmd_x,
-                    attrs.src_x,
+                    attrs.src_origin.0,
                     src_y,
                     dst_y_offset,
                     height,
@@ -1103,7 +1103,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             self.composite_filter_layer(
                 x,
                 end - x,
-                attrs.src_x + (x - cmd.span.pixel_x()),
+                attrs.src_origin.0 + (x - cmd.span.pixel_x()),
                 src_y,
                 dst_y_offset,
                 height,

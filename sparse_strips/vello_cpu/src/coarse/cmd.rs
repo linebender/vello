@@ -168,6 +168,7 @@ pub(crate) struct FilterLayerCmd {
     pub(crate) attrs_idx: u32,
 }
 
+/// Attributes of a fill command.
 #[derive(Debug, Clone)]
 pub(crate) struct FillAttrs {
     pub(crate) paint: Paint,
@@ -184,14 +185,13 @@ pub(crate) struct BlendAttrs {
     pub(crate) thread_idx: u8,
 }
 
+/// Attributes of a filter layer.
 #[derive(Debug, Clone)]
 pub(crate) struct FilterLayerAttrs {
     pub(crate) id: usize,
     pub(crate) draw_id: u32,
-    pub(crate) src_x: u16,
-    pub(crate) src_y: u16,
-    pub(crate) y0: u16,
-    pub(crate) y1: u16,
+    pub(crate) dst_bbox: RectU16,
+    pub(crate) src_origin: (u16, u16),
 }
 
 #[cfg(test)]

@@ -37,7 +37,7 @@ impl CommandBucketer {
         blend_mode: BlendMode,
         mask: Option<Mask>,
         thread_idx: u8,
-        paint_offset: (u16, u16),
+        pixmap_origin: (u16, u16),
         encoded_paints: &[EncodedPaint],
     ) {
         if strip_buf.is_empty() {
@@ -56,7 +56,7 @@ impl CommandBucketer {
             mask: mask.clone(),
             draw_id,
             thread_idx,
-            paint_offset,
+            paint_offset: pixmap_origin,
         });
         let depth_cull_draw_id = (self.active_layers.is_empty()
             && blend_mode == BlendMode::default()
@@ -65,6 +65,7 @@ impl CommandBucketer {
         .then_some(draw_id);
         self.generate(
             strip_buf,
+            pixmap_origin,
             |bucketer, row_idx, fill| {
                 bucketer.push_fill(row_idx, fill, attrs_idx, depth_cull_draw_id);
             },
@@ -82,6 +83,7 @@ impl CommandBucketer {
     pub(super) fn generate<F, A>(
         &mut self,
         strip_buf: &[Strip],
+        pixmap_origin: (u16, u16),
         mut fill_cmd: F,
         mut alpha_fill_cmd: A,
     ) where
@@ -95,10 +97,18 @@ impl CommandBucketer {
         let clip_bbox = snap_bbox_to_tile(*self.clip_bboxes.last().unwrap());
         let clip_x0 = clip_bbox.x0;
         let clip_x1 = clip_bbox.x1.min(self.width());
+        let strip_x = |strip: &Strip| {
+            if strip.is_sentinel() {
+                strip.x
+            } else {
+                strip.x.saturating_sub(pixmap_origin.0)
+            }
+        };
+        let strip_row = |strip: &Strip| strip.y.saturating_sub(pixmap_origin.1) / Tile::HEIGHT;
         for i in 0..strip_buf.len() - 1 {
             let strip = &strip_buf[i];
-            let strip_y = strip.strip_y();
-            let row_y = strip_y * Tile::HEIGHT;
+            let strip_y = strip_row(strip);
+            let row_y = strip_y.saturating_mul(Tile::HEIGHT);
             let row_y1 = row_y.saturating_add(Tile::HEIGHT);
             if row_y1 <= clip_bbox.y0 {
                 continue;
@@ -116,7 +126,7 @@ impl CommandBucketer {
             let col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
             let next_col = next_strip.alpha_idx() / u32::from(Tile::HEIGHT);
             let strip_width = next_col.saturating_sub(col) as u16;
-            let x0 = strip.x;
+            let x0 = strip_x(strip);
             let x1 = x0.saturating_add(strip_width);
 
             if strip_width > 0 && x0 < clip_x1 && x1 > clip_x0 {
@@ -130,9 +140,9 @@ impl CommandBucketer {
                 );
             }
 
-            if next_strip.fill_gap() && strip_y == next_strip.strip_y() {
+            if next_strip.fill_gap() && strip_y == strip_row(next_strip) {
                 let fill_x0 = x1.max(clip_x0);
-                let fill_x1 = next_strip.x.min(clip_x1);
+                let fill_x1 = strip_x(next_strip).min(clip_x1);
                 if fill_x0 < fill_x1 {
                     fill_cmd(
                         self,
