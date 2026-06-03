@@ -51,9 +51,7 @@ impl CommandBucketer {
     }
 
     fn bbox_span(bbox: RectU16) -> Span {
-        let tile_x = bbox.x0 / Tile::WIDTH;
-        let tile_x1 = bbox.x1.div_ceil(Tile::WIDTH);
-        Span::new(tile_x, tile_x1.saturating_sub(tile_x))
+        Span::new(bbox.x0, bbox.x1.saturating_sub(bbox.x0))
     }
 
     pub(crate) fn rows(&self) -> &[RowCommands] {
@@ -256,7 +254,7 @@ impl CommandBucketer {
             let blend_span = if blend_mode.is_destructive() {
                 layer.span
             } else {
-                Span::new(0, full_width / Tile::WIDTH)
+                Span::new(0, full_width)
             };
             for row_idx in layer.occupied_rows.drain(..) {
                 let row = &mut self.rows[row_idx];

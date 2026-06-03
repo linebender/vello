@@ -126,7 +126,7 @@ impl CommandBucketer {
                     self,
                     row_idx,
                     GeneratedAlphaFill {
-                        span: Span::new(x0 / Tile::WIDTH, strip_width / Tile::WIDTH),
+                        span: Span::new(x0, strip_width),
                         alpha_idx: strip.alpha_idx(),
                     },
                 );
@@ -136,11 +136,7 @@ impl CommandBucketer {
                 let fill_x0 = x1.max(clip_x0);
                 let fill_x1 = strip_x(next_strip).min(clip_x1);
                 if fill_x0 < fill_x1 {
-                    fill_cmd(
-                        self,
-                        row_idx,
-                        Span::new(fill_x0 / Tile::WIDTH, (fill_x1 - fill_x0) / Tile::WIDTH),
-                    );
+                    fill_cmd(self, row_idx, Span::new(fill_x0, fill_x1 - fill_x0));
                 }
             }
         }

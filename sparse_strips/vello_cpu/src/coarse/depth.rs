@@ -71,19 +71,19 @@ pub(crate) fn split_opaque_span(span: Span, mut segment: impl FnMut(Span, DepthS
     }
 
     if x < aligned_x {
-        segment(Span::new(x, aligned_x - x), DepthSegment::Regular);
+        segment(Span::new_tile(x, aligned_x - x), DepthSegment::Regular);
     }
 
     if aligned_x < aligned_end {
         segment(
-            Span::new(aligned_x, aligned_end - aligned_x),
+            Span::new_tile(aligned_x, aligned_end - aligned_x),
             DepthSegment::Opaque,
         );
     }
 
     if aligned_end < end {
         segment(
-            Span::new(aligned_end, end - aligned_end),
+            Span::new_tile(aligned_end, end - aligned_end),
             DepthSegment::Regular,
         );
     }
@@ -282,5 +282,5 @@ fn pixel_span(x: u16, end: u16) -> Option<Span> {
 
     debug_assert_eq!(x % Tile::WIDTH, 0);
     debug_assert_eq!(end % Tile::WIDTH, 0);
-    Some(Span::new(x / Tile::WIDTH, (end - x) / Tile::WIDTH))
+    Some(Span::new(x, end - x))
 }

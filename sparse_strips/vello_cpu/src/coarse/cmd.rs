@@ -59,46 +59,54 @@ impl FineCmd {
     }
 }
 
-/// A horizontal tile-aligned span.
+/// A horizontal span in pixel coordinates.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Span {
-    /// The horizontal start position in tile coordinates.
-    tile_x: u16,
-    /// The horizontal span width in tile coordinates.
-    tile_width: u16,
+    /// The horizontal start position in pixels.
+    x: u16,
+    /// The horizontal span width in pixels.
+    width: u16,
 }
 
 impl Span {
+    /// Creates a span from pixel coordinates.
+    pub(crate) fn new(x: u16, width: u16) -> Self {
+        Self { x, width }
+    }
+
     /// Creates a span from tile coordinates.
-    pub(crate) fn new(tile_x: u16, tile_width: u16) -> Self {
-        Self { tile_x, tile_width }
+    pub(crate) fn new_tile(tile_x: u16, tile_width: u16) -> Self {
+        Self {
+            x: tile_x * Tile::WIDTH,
+            width: tile_width * Tile::WIDTH,
+        }
     }
 
     /// Returns the horizontal start position in tile coordinates.
     pub(crate) fn tile_x(self) -> u16 {
-        self.tile_x
+        self.x / Tile::WIDTH
     }
 
     /// Returns the exclusive horizontal end position in tile coordinates.
     pub(crate) fn tile_end(self) -> u16 {
-        self.tile_x.saturating_add(self.tile_width)
+        self.pixel_end().div_ceil(Tile::WIDTH)
     }
 
     /// Extends this span to include another span.
     pub(crate) fn extend(&mut self, other: Self) {
-        let tile_x = self.tile_x.min(other.tile_x);
-        let tile_end = self.tile_end().max(other.tile_end());
-        *self = Self::new(tile_x, tile_end.saturating_sub(tile_x));
+        let x = self.x.min(other.x);
+        let end = self.pixel_end().max(other.pixel_end());
+        *self = Self::new(x, end.saturating_sub(x));
     }
 
     /// Returns the horizontal start position in pixels.
     pub(crate) fn pixel_x(self) -> u16 {
-        self.tile_x * Tile::WIDTH
+        self.x
     }
 
     /// Returns the horizontal span width in pixels.
     pub(crate) fn pixel_width(self) -> u16 {
-        self.tile_width * Tile::WIDTH
+        self.width
     }
 
     /// Returns the exclusive horizontal end position in pixels.
