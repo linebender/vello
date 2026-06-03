@@ -233,6 +233,7 @@ impl CommandRecorder {
         self.layer_stack.push(LayerMetadata {
             cmd_filter_layer_id,
             push_cmd_idx,
+            // Will be continuously updated as we push new render commands.
             bbox: RectU16::INVERTED,
             kind: LayerKind::Regular,
         });
@@ -302,12 +303,28 @@ impl CommandRecorder {
                     .active_filter_layer_stack
                     .pop();
 
-                self.set_filter_layer_bbox(
-                    filter_layer_id,
-                    layer.cmd_filter_layer_id,
-                    layer.push_cmd_idx,
-                    bbox,
-                );
+                self.filter_layers[filter_layer_id].content_bbox = bbox;
+                let filter_plan = &self.filter_layers[filter_layer_id].filter_plan;
+                let padding = filter_plan.filter_padding;
+                let source_origin = filter_plan.source_shift();
+                let render_bbox = snap_bbox_to_tile(expand_bbox(bbox, padding));
+                let (output_bbox, src_x, src_y) = shift_bbox_to_parent(render_bbox, source_origin);
+                self.filter_layers[filter_layer_id].bbox = render_bbox;
+                match &mut self.filter_layer_cmds_mut(layer.cmd_filter_layer_id)[layer.push_cmd_idx] {
+                    RenderCmd::CompositeFilterLayer {
+                        bbox,
+                        src_x: cmd_src_x,
+                        src_y: cmd_src_y,
+                        ..
+                    } => {
+                        *bbox = output_bbox;
+                        *cmd_src_x = src_x;
+                        *cmd_src_y = src_y;
+                    }
+                    _ => unreachable!("filter layer stack referenced a non-filter command"),
+                }
+
+                self.record_bbox(|| output_bbox);
                 PoppedLayer::Filter
             }
         };
@@ -335,36 +352,6 @@ impl CommandRecorder {
         let idx = cmds.len();
         cmds.push(cmd);
         idx
-    }
-
-    fn set_filter_layer_bbox(
-        &mut self,
-        filter_layer_id: usize,
-        parent_filter_layer_id: Option<usize>,
-        composite_cmd_idx: usize,
-        bbox: RectU16,
-    ) {
-        self.filter_layers[filter_layer_id].content_bbox = bbox;
-        let filter_plan = &self.filter_layers[filter_layer_id].filter_plan;
-        let padding = filter_plan.filter_padding;
-        let source_origin = filter_plan.source_shift();
-        let render_bbox = snap_bbox_to_tile(expand_bbox(bbox, padding));
-        let (output_bbox, src_x, src_y) = shift_bbox_to_parent(render_bbox, source_origin);
-        self.filter_layers[filter_layer_id].bbox = render_bbox;
-        match &mut self.filter_layer_cmds_mut(parent_filter_layer_id)[composite_cmd_idx] {
-            RenderCmd::CompositeFilterLayer {
-                bbox,
-                src_x: cmd_src_x,
-                src_y: cmd_src_y,
-                ..
-            } => {
-                *bbox = output_bbox;
-                *cmd_src_x = src_x;
-                *cmd_src_y = src_y;
-            }
-            _ => unreachable!("filter layer stack referenced a non-filter command"),
-        }
-        self.record_bbox(|| output_bbox);
     }
 
     fn record_bbox(&mut self, bbox: impl FnOnce() -> RectU16) {
