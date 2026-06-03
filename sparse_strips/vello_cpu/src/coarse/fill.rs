@@ -175,22 +175,25 @@ mod tests {
             pixmap_origin: (0, 0),
         }
     }
-
     #[test]
-    fn opaque_fill_uses_depth_writes_when_aligned() {
-        let mut bucketer = CommandBucketer::new(DEPTH_BUCKET_WIDTH, 4);
-        let strips = [
-            Strip::new(0, 0, 0, false),
-            Strip::new(DEPTH_BUCKET_WIDTH, 0, 0, true),
-        ];
+    fn opaque_fill_uses_depth_write_when_possible() {
+        let end = DEPTH_BUCKET_WIDTH * 2 + 4;
+        let mut bucketer = CommandBucketer::new(end, 4);
+        let strips = [Strip::new(4, 0, 0, false), Strip::new(end, 0, 0, true)];
 
         bucketer.generate_fill(&strips, &fill_attrs(Paint::Solid(color(RED))), &[]);
 
         let row = &bucketer.rows()[0];
         assert_eq!(row.depth_writes.len(), 1);
-        assert_eq!(row.cmds.len(), 0);
-        assert_eq!(row.depth_writes[0].span.pixel_x(), 0);
+        assert_eq!(row.depth_writes[0].span.pixel_x(), DEPTH_BUCKET_WIDTH);
         assert_eq!(row.depth_writes[0].span.pixel_width(), DEPTH_BUCKET_WIDTH);
+        assert_eq!(row.cmds.len(), 2);
+        assert!(
+            matches!(row.cmds[0], FineCmd::Fill(cmd) if cmd.span.pixel_x() == 4 && cmd.span.pixel_width() == DEPTH_BUCKET_WIDTH - 4)
+        );
+        assert!(
+            matches!(row.cmds[1], FineCmd::Fill(cmd) if cmd.span.pixel_x() == DEPTH_BUCKET_WIDTH * 2 && cmd.span.pixel_width() == 4)
+        );
     }
 
     #[test]
