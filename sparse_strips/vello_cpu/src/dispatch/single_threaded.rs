@@ -93,7 +93,7 @@ impl SingleThreadedDispatcher {
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
-        let layer_manager = self.render_filter_layers::<S, F>(simd, encoded_paints, image_resolver);
+        let filters = self.render_filter_layers::<S, F>(simd, encoded_paints, image_resolver);
         let mut bucketer = self.bucketer.borrow_mut();
         bucketer.reset(scene_width, scene_height);
         bucketer.bucket_commands(
@@ -109,17 +109,19 @@ impl SingleThreadedDispatcher {
 
         crate::fine::rasterize_at_offset::<S, F>(
             simd,
-            &bucketer,
-            alpha_buffers,
-            &layer_manager,
+            crate::fine::FineResources {
+                bucketer: &bucketer,
+                alpha_buffers,
+                filters: &filters,
+                encoded_paints,
+                image_resolver,
+            },
             target,
-            scene_width,
-            scene_height,
-            settings.offset.0,
-            settings.offset.1,
-            unpack_dest,
-            encoded_paints,
-            image_resolver,
+            crate::fine::FineRenderParams {
+                scene_size: (scene_width, scene_height),
+                target_offset: settings.offset,
+                unpack_dest,
+            },
         );
     }
 
@@ -149,7 +151,7 @@ impl SingleThreadedDispatcher {
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) -> FilterContext {
-        let mut layer_manager = FilterContext::new(self.recorder.filter_layers.len());
+        let mut filters = FilterContext::new(self.recorder.filter_layers.len());
         for id in (0..self.recorder.filter_layers.len()).rev() {
             let layer = &self.recorder.filter_layers[id];
             let pixmap_bbox = layer.placement.pixmap_bbox;
@@ -171,29 +173,31 @@ impl SingleThreadedDispatcher {
             );
             crate::fine::rasterize_at_offset::<S, F>(
                 simd,
-                &bucketer,
-                &[self.strip_storage.alphas.as_slice()],
-                &layer_manager,
+                crate::fine::FineResources {
+                    bucketer: &bucketer,
+                    alpha_buffers: &[self.strip_storage.alphas.as_slice()],
+                    filters: &filters,
+                    encoded_paints,
+                    image_resolver,
+                },
                 (&mut pixmap).into(),
-                width,
-                height,
-                0,
-                0,
-                false,
-                encoded_paints,
-                image_resolver,
+                crate::fine::FineRenderParams {
+                    scene_size: (width, height),
+                    target_offset: (0, 0),
+                    unpack_dest: false,
+                },
             );
 
             F::filter_layer(
                 &mut pixmap,
                 &layer.filter_plan.filter,
-                layer_manager.scratch(),
+                filters.scratch(),
                 layer.filter_plan.transform,
             );
-            layer_manager.set_layer(id, pixmap);
+            filters.set_layer(id, pixmap);
         }
 
-        layer_manager
+        filters
     }
 
     fn push_filter_viewport(&mut self, padding: RectU16) {

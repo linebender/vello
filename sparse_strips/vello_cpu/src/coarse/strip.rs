@@ -7,7 +7,6 @@ use super::depth::{self, DepthSegment};
 use crate::peniko::BlendMode;
 use crate::util::snap_bbox_to_tile;
 use vello_common::encode::EncodedPaint;
-use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 use vello_common::strip::Strip;
 use vello_common::tile::Tile;
@@ -27,36 +26,23 @@ impl CommandBucketer {
     pub(crate) fn generate_fill(
         &mut self,
         strip_buf: &[Strip],
-        paint: Paint,
-        blend_mode: BlendMode,
-        mask: Option<Mask>,
-        thread_idx: u8,
-        pixmap_origin: (u16, u16),
+        attrs: &FillAttrs,
         encoded_paints: &[EncodedPaint],
     ) {
         if strip_buf.is_empty() {
             return;
         }
 
-        let draw_id = self.next_draw_id;
-        self.next_draw_id = self
-            .next_draw_id
-            .checked_add(1)
-            .expect("row-bucket draw ID overflow");
+        assert_ne!(attrs.draw_id, 0, "fill draw IDs start at 1");
+
+        let pixmap_origin = attrs.paint_offset;
         let attrs_idx = self.attrs.len() as u32;
-        self.attrs.push(FillAttrs {
-            paint: paint.clone(),
-            blend_mode,
-            mask: mask.clone(),
-            draw_id,
-            thread_idx,
-            paint_offset: pixmap_origin,
-        });
+        self.attrs.push(attrs.clone());
         let depth_cull_draw_id = (self.active_layers.is_empty()
-            && blend_mode == BlendMode::default()
-            && mask.is_none()
-            && paint_is_opaque(&paint, encoded_paints))
-        .then_some(draw_id);
+            && attrs.blend_mode == BlendMode::default()
+            && attrs.mask.is_none()
+            && paint_is_opaque(&attrs.paint, encoded_paints))
+        .then_some(attrs.draw_id);
         self.generate(
             strip_buf,
             pixmap_origin,
@@ -189,7 +175,7 @@ fn paint_is_opaque(paint: &Paint, encoded_paints: &[EncodedPaint]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::CommandBucketer;
-    use crate::coarse::cmd::FineCmd;
+    use crate::coarse::cmd::{FillAttrs, FineCmd};
     use crate::coarse::depth::DEPTH_BUCKET_WIDTH;
     use crate::coarse::layer::LayerClip;
     use alloc::vec::Vec;
@@ -206,21 +192,24 @@ mod tests {
         PremulColor::from_alpha_color(alpha)
     }
 
+    fn fill_attrs(paint: Paint) -> FillAttrs {
+        FillAttrs {
+            paint,
+            blend_mode: BlendMode::default(),
+            mask: None,
+            draw_id: 1,
+            thread_idx: 0,
+            paint_offset: (0, 0),
+        }
+    }
+
     #[test]
     fn opaque_fill_splits_to_aligned_middle() {
         let end = DEPTH_BUCKET_WIDTH * 3 + 4;
         let mut bucketer = CommandBucketer::new(DEPTH_BUCKET_WIDTH * 4, 4);
         let strips = [Strip::new(4, 0, 0, false), Strip::new(end, 0, 0, true)];
 
-        bucketer.generate_fill(
-            &strips,
-            Paint::Solid(color(RED)),
-            BlendMode::default(),
-            None,
-            0,
-            (0, 0),
-            &[],
-        );
+        bucketer.generate_fill(&strips, &fill_attrs(Paint::Solid(color(RED))), &[]);
 
         let row = &bucketer.rows()[0];
         assert_eq!(row.opaque.len(), 1);
@@ -245,15 +234,7 @@ mod tests {
             .with_stops([ColorStop::from((0.0, RED)), ColorStop::from((1.0, BLUE))])
             .encode_into(&mut encoded_paints, Affine::IDENTITY, None);
 
-        bucketer.generate_fill(
-            &strips,
-            paint,
-            BlendMode::default(),
-            None,
-            0,
-            (0, 0),
-            &encoded_paints,
-        );
+        bucketer.generate_fill(&strips, &fill_attrs(paint), &encoded_paints);
 
         let row = &bucketer.rows()[0];
         assert_eq!(row.opaque.len(), 1);
@@ -275,11 +256,7 @@ mod tests {
 
         bucketer.generate_fill(
             &strips,
-            Paint::Solid(color(AlphaColor::from_rgba8(255, 0, 0, 128))),
-            BlendMode::default(),
-            None,
-            0,
-            (0, 0),
+            &fill_attrs(Paint::Solid(color(AlphaColor::from_rgba8(255, 0, 0, 128)))),
             &[],
         );
 
@@ -296,15 +273,7 @@ mod tests {
         let mut bucketer = CommandBucketer::new(128, 4);
         let strips = [Strip::new(0, 0, 0, false), Strip::new(8, 0, 32, false)];
 
-        bucketer.generate_fill(
-            &strips,
-            Paint::Solid(color(BLUE)),
-            BlendMode::default(),
-            None,
-            0,
-            (0, 0),
-            &[],
-        );
+        bucketer.generate_fill(&strips, &fill_attrs(Paint::Solid(color(BLUE))), &[]);
 
         let row = &bucketer.rows()[0];
         assert!(row.opaque.is_empty());
@@ -329,15 +298,7 @@ mod tests {
                 bbox: RectU16::new(1, 0, 7, 4),
             }),
         );
-        bucketer.generate_fill(
-            &strips,
-            Paint::Solid(color(BLUE)),
-            BlendMode::default(),
-            None,
-            0,
-            (0, 0),
-            &[],
-        );
+        bucketer.generate_fill(&strips, &fill_attrs(Paint::Solid(color(BLUE))), &[]);
 
         let row = &bucketer.rows()[0];
         assert_eq!(row.cmds.len(), 2);
@@ -352,15 +313,7 @@ mod tests {
         let mut bucketer = CommandBucketer::new(128, 4);
         let strips = [Strip::new(8, 0, 0, false), Strip::new(16, 0, 0, true)];
 
-        bucketer.generate_fill(
-            &strips,
-            Paint::Solid(color(RED)),
-            BlendMode::default(),
-            None,
-            0,
-            (0, 0),
-            &[],
-        );
+        bucketer.generate_fill(&strips, &fill_attrs(Paint::Solid(color(RED))), &[]);
 
         let row = &bucketer.rows()[0];
         assert!(row.opaque.is_empty());

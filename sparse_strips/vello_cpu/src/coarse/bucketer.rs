@@ -236,15 +236,16 @@ impl CommandBucketer {
                     blend_mode,
                     mask,
                 } => {
-                    self.generate_fill(
-                        &strips[strip_range.clone()],
-                        paint.clone(),
-                        *blend_mode,
-                        mask.clone(),
-                        *thread_idx,
-                        pixmap_origin,
-                        encoded_paints,
-                    );
+                    let draw_id = self.next_draw_id();
+                    let attrs = FillAttrs {
+                        paint: paint.clone(),
+                        blend_mode: *blend_mode,
+                        mask: mask.clone(),
+                        draw_id,
+                        thread_idx: *thread_idx,
+                        paint_offset: pixmap_origin,
+                    };
+                    self.generate_fill(&strips[strip_range.clone()], &attrs, encoded_paints);
                 }
                 RenderCmd::PushLayer {
                     blend_mode,
@@ -277,6 +278,12 @@ impl CommandBucketer {
                 RenderCmd::PopLayer => self.pop_layer(strips, pixmap_origin),
             }
         }
+    }
+
+    fn next_draw_id(&mut self) -> u32 {
+        let draw_id = self.next_draw_id;
+        self.next_draw_id = self.next_draw_id + 1;
+        draw_id
     }
 
     pub(crate) fn push_layer(
@@ -428,11 +435,7 @@ impl CommandBucketer {
             return;
         }
 
-        let draw_id = self.next_draw_id;
-        self.next_draw_id = self
-            .next_draw_id
-            .checked_add(1)
-            .expect("row-bucket draw ID overflow");
+        let draw_id = self.next_draw_id();
         let full_width = self.width();
         let span = Self::bbox_span(bbox);
         let filter_attrs_idx = self.filter_attrs.len() as u32;

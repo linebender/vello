@@ -154,9 +154,9 @@ impl DepthBuffer {
         }
     }
 
-    /// Calls `f` for every depth run visible to `draw_id` in `span`, and then marks it with
+    /// Calls `f` for every unset depth run in `span`, and then marks it with
     /// `draw_id`.
-    pub(crate) fn for_each_visible_run_with_write(
+    pub(crate) fn for_each_unset_run_and_write(
         &mut self,
         span: Span,
         draw_id: u32,
@@ -285,7 +285,7 @@ mod tests {
     }
 
     fn write_buckets(buffer: &mut DepthBuffer, range: Range<usize>, draw_id: u32) {
-        buffer.for_each_visible_run_with_write(buckets(range.start, range.end), draw_id, |_| {});
+        buffer.for_each_unset_run_and_write(buckets(range.start, range.end), draw_id, |_| {});
     }
 
     fn assert_depth(buffer: &DepthBuffer, ranges: &[(Range<usize>, u32)]) {
@@ -354,7 +354,7 @@ mod tests {
         assert_eq!(unset_runs(&buffer, buckets(0, 5)), [(0, 1), (2, 3), (4, 5)]);
 
         let mut written_runs = Vec::new();
-        buffer.for_each_visible_run_with_write(buckets(0, 5), 7, |span| {
+        buffer.for_each_unset_run_and_write(buckets(0, 5), 7, |span| {
             written_runs.push(bucket_range(span));
         });
         assert_eq!(written_runs, [(0, 1), (2, 3), (4, 5)]);

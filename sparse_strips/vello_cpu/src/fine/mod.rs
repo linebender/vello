@@ -12,7 +12,9 @@ mod highp;
 mod lowp;
 
 use crate::coarse::depth::DepthBuffer;
-use crate::coarse::{CommandBucketer, FillAttrs, FillCmd, FilterLayerAttrs, FineCmd, Span};
+use crate::coarse::{
+    CommandBucketer, FillAttrs, FillCmd, FilterLayerAttrs, FineCmd, RowCommands, Span,
+};
 use crate::filter::context::FilterContext;
 use crate::filter::context::ScratchBuffer;
 use crate::fine::common::gradient::GradientPainter;
@@ -1372,73 +1374,48 @@ fn fill_indexed_paint<S: Simd, T: FineKernel<S>>(
 
 pub(crate) fn rasterize_at_offset<S: Simd, T: FineKernel<S>>(
     simd: S,
-    bucketer: &CommandBucketer,
-    alpha_buffers: &[&[u8]],
-    layer_manager: &FilterContext,
+    resources: FineResources<'_>,
     mut target: PixmapMut<'_>,
-    width: u16,
-    height: u16,
-    dst_x: u16,
-    dst_y: u16,
-    unpack_dest: bool,
-    encoded_paints: &[EncodedPaint],
-    image_resolver: &dyn ImageResolver,
+    params: FineRenderParams,
 ) {
+    let (dst_x, dst_y) = params.target_offset;
     if dst_x >= target.width() || dst_y >= target.height() {
         return;
     }
 
-    if !unpack_dest {
+    if !params.unpack_dest {
         target.data_mut().fill(0);
     }
 
-    let mut fine = Fine::<S, T>::new(simd, target.width(), bucketer.width());
-    rasterize_rows::<S, T>(
-        &mut fine,
-        bucketer,
-        alpha_buffers,
-        layer_manager,
-        target,
-        Some((width, height)),
-        dst_x,
-        dst_y,
-        unpack_dest,
-        encoded_paints,
-        image_resolver,
-    );
+    let mut fine = Fine::<S, T>::new(simd, target.width(), resources.bucketer.width());
+    rasterize_rows::<S, T>(&mut fine, resources, target, params);
 }
 
 #[cfg(feature = "multithreading")]
 pub(crate) fn rasterize_at_offset_parallel<S: Simd, T: FineKernel<S>>(
     simd: S,
-    bucketer: &CommandBucketer,
-    alpha_buffers: &[&[u8]],
-    layer_manager: &FilterContext,
+    resources: FineResources<'_>,
     mut target: PixmapMut<'_>,
-    width: u16,
-    height: u16,
-    dst_x: u16,
-    dst_y: u16,
-    unpack_dest: bool,
-    encoded_paints: &[EncodedPaint],
-    image_resolver: &dyn ImageResolver,
+    params: FineRenderParams,
 ) {
     use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
     use std::cell::RefCell;
     use thread_local::ThreadLocal;
 
+    let (dst_x, dst_y) = params.target_offset;
     if dst_x >= target.width() || dst_y >= target.height() {
         return;
     }
 
     let target_width = target.width();
-    let width = width.min(target_width.saturating_sub(dst_x));
-    let height = height.min(target.height().saturating_sub(dst_y));
+    let (scene_width, scene_height) = params.scene_size;
+    let width = scene_width.min(target_width.saturating_sub(dst_x));
+    let height = scene_height.min(target.height().saturating_sub(dst_y));
     if width == 0 || height == 0 {
         return;
     }
 
-    if !unpack_dest {
+    if !params.unpack_dest {
         target.data_mut().fill(0);
     }
 
@@ -1451,7 +1428,8 @@ pub(crate) fn rasterize_at_offset_parallel<S: Simd, T: FineKernel<S>>(
     let stride = usize::from(target_width) * COLOR_COMPONENTS;
     let render_bytes = usize::from(height) * stride;
     let buffer = &mut target.data_mut()[usize::from(dst_y) * stride..][..render_bytes];
-    let row_count = bucketer
+    let row_count = resources
+        .bucketer
         .rows()
         .len()
         .min(usize::from(height).div_ceil(Tile::HEIGHT as usize));
@@ -1477,76 +1455,101 @@ pub(crate) fn rasterize_at_offset_parallel<S: Simd, T: FineKernel<S>>(
         let mut fine_state = fine_state
             .get_or(|| {
                 RefCell::new((
-                    Fine::<S, T>::new(simd, target_width, bucketer.width()),
-                    DepthBuffer::new(bucketer.width()),
+                    Fine::<S, T>::new(simd, target_width, resources.bucketer.width()),
+                    DepthBuffer::new(resources.bucketer.width()),
                 ))
             })
             .borrow_mut();
         let (fine, depth) = &mut *fine_state;
 
-        let row_y = band.row_idx as u16 * Tile::HEIGHT;
-        let row = &bucketer.rows()[band.row_idx];
+        let scene_y = band.row_idx as u16 * Tile::HEIGHT;
+        let row = &resources.bucketer.rows()[band.row_idx];
         rasterize_row::<S, T>(
             fine,
             depth,
             row,
-            row_y,
-            alpha_buffers,
-            layer_manager,
+            RowLayout {
+                scene_y,
+                render_width: width,
+                row_height: band.row_height,
+                target_x: dst_x,
+                target_y: 0,
+                unpack_dest: params.unpack_dest,
+            },
             &mut band.target,
-            width,
-            band.row_height,
-            dst_x,
-            0,
-            unpack_dest,
-            encoded_paints,
-            image_resolver,
-            bucketer,
+            resources,
         );
     });
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct FineResources<'a> {
+    pub(crate) bucketer: &'a CommandBucketer,
+    pub(crate) alpha_buffers: &'a [&'a [u8]],
+    pub(crate) filters: &'a FilterContext,
+    pub(crate) encoded_paints: &'a [EncodedPaint],
+    pub(crate) image_resolver: &'a dyn ImageResolver,
+}
+
+#[derive(Clone, Copy)]
+/// Placement and compositing settings for fine rasterization into a target pixmap.
+pub(crate) struct FineRenderParams {
+    /// Scene/filter dimensions before clipping to the destination pixmap.
+    pub(crate) scene_size: (u16, u16),
+    /// Destination offset in the target pixmap.
+    pub(crate) target_offset: (u16, u16),
+    /// Whether existing target pixels must be unpacked for SrcOver compositing.
+    pub(crate) unpack_dest: bool,
+}
+
+#[derive(Clone, Copy)]
+struct RowLayout {
+    /// Row y in scene/filter coordinates.
+    scene_y: u16,
+    /// Width of the rendered scene clipped to the destination pixmap.
+    render_width: u16,
+    /// Number of pixel rows from this tile row that fit in the destination pixmap.
+    row_height: u16,
+    /// Destination x offset in the target pixmap.
+    target_x: u16,
+    /// Destination y offset in the target pixmap.
+    target_y: u16,
+    unpack_dest: bool,
+}
+
 fn rasterize_rows<S: Simd, T: FineKernel<S>>(
     fine: &mut Fine<S, T>,
-    bucketer: &CommandBucketer,
-    alpha_buffers: &[&[u8]],
-    layer_manager: &FilterContext,
+    resources: FineResources<'_>,
     mut target: PixmapMut<'_>,
-    scene_size: Option<(u16, u16)>,
-    dst_x: u16,
-    dst_y: u16,
-    unpack_dest: bool,
-    encoded_paints: &[EncodedPaint],
-    image_resolver: &dyn ImageResolver,
+    params: FineRenderParams,
 ) {
-    let (width, height) = scene_size.unwrap_or((target.width(), target.height()));
+    let (width, height) = params.scene_size;
+    let (dst_x, dst_y) = params.target_offset;
     let width = width.min(target.width().saturating_sub(dst_x));
     let height = height.min(target.height().saturating_sub(dst_y));
-    let mut depth = DepthBuffer::new(bucketer.width());
+    let mut depth = DepthBuffer::new(resources.bucketer.width());
 
-    for (row_idx, row) in bucketer.rows().iter().enumerate() {
-        let row_y = row_idx as u16 * Tile::HEIGHT;
-        if row_y >= height {
+    for (row_idx, row) in resources.bucketer.rows().iter().enumerate() {
+        let scene_y = row_idx as u16 * Tile::HEIGHT;
+        if scene_y >= height {
             break;
         }
 
-        let row_height = (height - row_y).min(Tile::HEIGHT);
+        let row_height = (height - scene_y).min(Tile::HEIGHT);
         rasterize_row::<S, T>(
             fine,
             &mut depth,
             row,
-            row_y,
-            alpha_buffers,
-            layer_manager,
+            RowLayout {
+                scene_y,
+                render_width: width,
+                row_height,
+                target_x: dst_x,
+                target_y: dst_y + scene_y,
+                unpack_dest: params.unpack_dest,
+            },
             &mut target,
-            width,
-            row_height,
-            dst_x,
-            dst_y + row_y,
-            unpack_dest,
-            encoded_paints,
-            image_resolver,
-            bucketer,
+            resources,
         );
     }
 }
@@ -1554,63 +1557,60 @@ fn rasterize_rows<S: Simd, T: FineKernel<S>>(
 fn rasterize_row<S: Simd, T: FineKernel<S>>(
     fine: &mut Fine<S, T>,
     depth: &mut DepthBuffer,
-    row: &crate::coarse::RowCommands,
-    row_y: u16,
-    alpha_buffers: &[&[u8]],
-    layer_manager: &FilterContext,
+    row: &RowCommands,
+    layout: RowLayout,
     target: &mut PixmapMut<'_>,
-    width: u16,
-    row_height: u16,
-    dst_x: u16,
-    buffer_y: u16,
-    unpack_dest: bool,
-    encoded_paints: &[EncodedPaint],
-    image_resolver: &dyn ImageResolver,
-    bucketer: &CommandBucketer,
+    resources: FineResources<'_>,
 ) {
     let Some(row_bounds) = row.bounds() else {
         return;
     };
     let mut row_start = row_bounds.pixel_x();
     let mut row_end = row_bounds.pixel_end();
-    row_start = row_start.min(width);
-    row_end = row_end.min(width);
+    row_start = row_start.min(layout.render_width);
+    row_end = row_end.min(layout.render_width);
     if row_start >= row_end {
         return;
     }
 
-    let row_height = usize::from(row_height);
-    fine.set_row_y(row_y);
+    let row_height = usize::from(layout.row_height);
+    fine.set_row_y(layout.scene_y);
     let row_span = Span::new(row_start, row_end - row_start);
     depth.clear();
 
     for &cmd in row.opaque.iter().rev() {
-        let attrs = &bucketer.attrs()[cmd.attrs_idx as usize];
-        fine.render_opaque(cmd, attrs, encoded_paints, image_resolver, depth);
+        let attrs = &resources.bucketer.attrs()[cmd.attrs_idx as usize];
+        fine.render_opaque(
+            cmd,
+            attrs,
+            resources.encoded_paints,
+            resources.image_resolver,
+            depth,
+        );
     }
 
     fine.init_uncovered_range(
-        buffer_y,
+        layout.target_y,
         row_height,
         row_span,
-        dst_x + row_start,
+        layout.target_x + row_start,
         target,
-        unpack_dest,
+        layout.unpack_dest,
         depth,
     );
 
     for cmd in &row.cmds {
         match cmd {
             FineCmd::Fill(cmd) => {
-                let attrs = &bucketer.attrs()[cmd.attrs_idx as usize];
-                let alphas = alpha_buffers[attrs.thread_idx as usize];
+                let attrs = &resources.bucketer.attrs()[cmd.attrs_idx as usize];
+                let alphas = resources.alpha_buffers[attrs.thread_idx as usize];
                 let use_depth = !row.can_skip_depth(cmd.span, attrs.draw_id);
                 fine.render_cmd(
                     *cmd,
                     alphas,
                     attrs,
-                    encoded_paints,
-                    image_resolver,
+                    resources.encoded_paints,
+                    resources.image_resolver,
                     use_depth,
                     depth,
                 );
@@ -1625,34 +1625,41 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
                 fine.opacity(row_span, *opacity);
             }
             FineCmd::Mask(mask_idx) => {
-                let mask = &bucketer.masks()[*mask_idx as usize];
-                fine.mask(row_y, row_span, mask);
+                let mask = &resources.bucketer.masks()[*mask_idx as usize];
+                fine.mask(layout.scene_y, row_span, mask);
             }
             FineCmd::FilterLayer(cmd) => {
-                let attrs = &bucketer.filter_attrs()[cmd.attrs_idx as usize];
-                if let Some(layer) = layer_manager.filter_layer(attrs.id) {
+                let attrs = &resources.bucketer.filter_attrs()[cmd.attrs_idx as usize];
+                if let Some(layer) = resources.filters.filter_layer(attrs.id) {
                     let use_depth = !row.can_skip_depth(cmd.span, attrs.draw_id);
-                    fine.composite_filter_layer_cmd(*cmd, attrs, row_y, layer, use_depth, depth);
+                    fine.composite_filter_layer_cmd(
+                        *cmd,
+                        attrs,
+                        layout.scene_y,
+                        layer,
+                        use_depth,
+                        depth,
+                    );
                 }
             }
             FineCmd::BlendFill(cmd) => {
-                let attrs = &bucketer.blend_attrs()[cmd.attrs_idx as usize];
+                let attrs = &resources.bucketer.blend_attrs()[cmd.attrs_idx as usize];
                 let alphas = cmd.alpha_idx().map(|alpha_idx| {
-                    &alpha_buffers[attrs.thread_idx as usize][alpha_idx as usize..]
+                    &resources.alpha_buffers[attrs.thread_idx as usize][alpha_idx as usize..]
                 });
-                fine.blend(row_y, cmd.span, attrs.blend_mode, alphas);
+                fine.blend(layout.scene_y, cmd.span, attrs.blend_mode, alphas);
             }
         }
     }
 
-    let pack_start = row_start.min(width);
-    let pack_end = row_end.min(width);
+    let pack_start = row_start.min(layout.render_width);
+    let pack_end = row_end.min(layout.render_width);
     if pack_start < pack_end {
         fine.pack_at(
-            buffer_y,
+            layout.target_y,
             row_height,
             pack_start,
-            dst_x + pack_start,
+            layout.target_x + pack_start,
             pack_end - pack_start,
             target,
         );

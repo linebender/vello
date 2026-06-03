@@ -395,22 +395,24 @@ impl MultiThreadedDispatcher {
         {
             let alpha_buffers = alpha_slots.iter().map(Vec::as_slice).collect::<Vec<_>>();
             let unpack_dest = settings.composite_mode == CompositeMode::SrcOver;
-            let layer_manager = FilterContext::new(0);
+            let filters = FilterContext::new(0);
 
             self.thread_pool.install(|| {
                 crate::fine::rasterize_at_offset_parallel::<S, F>(
                     simd,
-                    &bucketer,
-                    &alpha_buffers,
-                    &layer_manager,
+                    crate::fine::FineResources {
+                        bucketer: &bucketer,
+                        alpha_buffers: &alpha_buffers,
+                        filters: &filters,
+                        encoded_paints,
+                        image_resolver,
+                    },
                     target,
-                    scene_width,
-                    scene_height,
-                    settings.offset.0,
-                    settings.offset.1,
-                    unpack_dest,
-                    encoded_paints,
-                    image_resolver,
+                    crate::fine::FineRenderParams {
+                        scene_size: (scene_width, scene_height),
+                        target_offset: settings.offset,
+                        unpack_dest,
+                    },
                 );
             });
         }
