@@ -1,11 +1,11 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use super::bucketer::CommandBucketer;
+use super::bucket::CommandBucketer;
 use super::cmd::{FillAttrs, FillCmd, FineCmd};
 use super::depth::{self, DepthSegment};
 use crate::peniko::BlendMode;
-use crate::util::{snap_bbox_to_tile, Span};
+use crate::util::{Span, snap_bbox_to_tile};
 use vello_common::encode::EncodedPaint;
 use vello_common::paint::Paint;
 use vello_common::strip::Strip;
@@ -175,9 +175,9 @@ fn paint_is_opaque(paint: &Paint, encoded_paints: &[EncodedPaint]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::CommandBucketer;
+    use crate::coarse::bucket::LayerClip;
     use crate::coarse::cmd::{FillAttrs, FineCmd};
     use crate::coarse::depth::DEPTH_BUCKET_WIDTH;
-    use crate::coarse::layer::LayerClip;
     use alloc::vec::Vec;
     use vello_common::color::palette::css::{BLUE, RED};
     use vello_common::color::{AlphaColor, Srgb};

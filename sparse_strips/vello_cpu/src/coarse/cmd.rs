@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::peniko::BlendMode;
+use crate::util::Span;
 use core::num::NonZeroU32;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
-use crate::util::Span;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum FineCmd {

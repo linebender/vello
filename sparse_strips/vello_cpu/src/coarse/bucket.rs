@@ -5,12 +5,12 @@ use super::cmd::{
     BlendAttrs, BlendFillCmd, FillAttrs, FillCmd, FilterLayerAttrs, FilterLayerCmd, FineCmd,
 };
 use super::depth::DepthState;
-use super::layer::{ActiveLayer, LayerClip};
 use crate::peniko::BlendMode;
 use crate::record::{RecordedCmd, RecordedFilterLayer};
-use crate::util::{bbox_relative_to, snap_bbox_to_tile, Span};
+use crate::util::{Span, bbox_relative_to, snap_bbox_to_tile};
 use alloc::vec;
 use alloc::vec::Vec;
+use std::ops::Range;
 use vello_common::encode::EncodedPaint;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
@@ -465,4 +465,21 @@ impl CommandBucketer {
             );
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ActiveLayer {
+    pub(crate) mask: Option<Mask>,
+    pub(crate) blend_mode: BlendMode,
+    pub(crate) opacity: f32,
+    pub(crate) clip: Option<LayerClip>,
+    pub(crate) span: Span,
+    pub(crate) occupied_rows: Vec<usize>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct LayerClip {
+    pub(crate) strip_range: Range<usize>,
+    pub(crate) thread_idx: u8,
+    pub(crate) bbox: RectU16,
 }

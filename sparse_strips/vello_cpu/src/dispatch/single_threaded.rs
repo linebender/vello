@@ -1,7 +1,8 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::coarse::{CommandBucketer, LayerClip};
+use crate::coarse::CommandBucketer;
+use crate::coarse::bucket::LayerClip;
 use crate::dispatch::Dispatcher;
 use crate::filter::context::FilterContext;
 use crate::fine::FineKernel;

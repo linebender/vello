@@ -12,9 +12,7 @@ mod highp;
 mod lowp;
 
 use crate::coarse::depth::DepthBuffer;
-use crate::coarse::{
-    CommandBucketer, FillAttrs, FillCmd, FilterLayerAttrs, FineCmd, RowCommands,
-};
+use crate::coarse::{CommandBucketer, FillAttrs, FillCmd, FilterLayerAttrs, FineCmd, RowCommands};
 use crate::filter::context::FilterContext;
 use crate::filter::context::ScratchBuffer;
 use crate::fine::common::gradient::GradientPainter;
@@ -35,8 +33,8 @@ use vello_common::encode::{
     EncodedBlurredRoundedRectangle, EncodedGradient, EncodedImage, EncodedKind, EncodedPaint,
 };
 use vello_common::fearless_simd::{
-    f32x16, f32x4, f32x8, u32x4, u32x8, u8x16, u8x32, Bytes, Simd, SimdBase, SimdFloat, SimdInt,
-    SimdInto,
+    Bytes, Simd, SimdBase, SimdFloat, SimdInt, SimdInto, f32x4, f32x8, f32x16, u8x16, u8x32, u32x4,
+    u32x8,
 };
 use vello_common::filter_effects::Filter;
 use vello_common::geometry::RectU16;

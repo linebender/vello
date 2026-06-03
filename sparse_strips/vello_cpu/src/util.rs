@@ -3,7 +3,7 @@
 
 use crate::peniko::ImageQuality;
 use vello_common::encode::EncodedImage;
-use vello_common::fearless_simd::{f32x4, u8x32, Simd, SimdBase};
+use vello_common::fearless_simd::{Simd, SimdBase, f32x4, u8x32};
 use vello_common::geometry::RectU16;
 use vello_common::math::FloatExt;
 use vello_common::tile::Tile;
