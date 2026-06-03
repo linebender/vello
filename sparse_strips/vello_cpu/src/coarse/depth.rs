@@ -187,9 +187,8 @@ impl DepthBuffer {
         )
     }
 
-    pub(crate) fn clear_range(&mut self, span: Span) {
-        let (start, end) = self.range(span);
-        self.data[start..end].fill(0);
+    pub(crate) fn clear(&mut self) {
+        self.data.fill(0);
     }
 
     fn mark(&mut self, range: core::ops::Range<usize>, draw_id: u32) {
@@ -246,4 +245,157 @@ impl DepthBuffer {
 fn bucket_span(start: usize, end: usize) -> Span {
     let x = start as u16 * DEPTH_BUCKET_WIDTH;
     Span::new(x, (end - start) as u16 * DEPTH_BUCKET_WIDTH)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec::Vec;
+    use core::ops::Range;
+
+    fn buffer(bucket_count: usize) -> DepthBuffer {
+        DepthBuffer::new(bucket_count as u16 * DEPTH_BUCKET_WIDTH)
+    }
+
+    fn buckets(start: usize, end: usize) -> Span {
+        bucket_span(start, end)
+    }
+
+    fn bucket_range(span: Span) -> (usize, usize) {
+        (
+            usize::from(span.pixel_x() / DEPTH_BUCKET_WIDTH),
+            usize::from(span.pixel_end() / DEPTH_BUCKET_WIDTH),
+        )
+    }
+
+    fn visible_runs(buffer: &DepthBuffer, span: Span, draw_id: u32) -> Vec<(usize, usize)> {
+        let mut runs = Vec::new();
+        buffer.for_each_visible_run(span, draw_id, |span| {
+            runs.push(bucket_range(span));
+        });
+        runs
+    }
+
+    fn unset_runs(buffer: &DepthBuffer, span: Span) -> Vec<(usize, usize)> {
+        let mut runs = Vec::new();
+        buffer.for_each_unset_run(span, |span| {
+            runs.push(bucket_range(span));
+        });
+        runs
+    }
+
+    fn write_buckets(buffer: &mut DepthBuffer, range: Range<usize>, draw_id: u32) {
+        buffer.for_each_visible_run_with_write(buckets(range.start, range.end), draw_id, |_| {});
+    }
+
+    fn assert_depth(buffer: &DepthBuffer, ranges: &[(Range<usize>, u32)]) {
+        let mut expected = vec![0; buffer.data.len()];
+        for (range, draw_id) in ranges {
+            expected[range.clone()].fill(*draw_id);
+        }
+
+        assert_eq!(buffer.data, expected);
+    }
+
+    #[test]
+    fn split_opaque_span_extracts_aligned_middle() {
+        let mut segments = Vec::new();
+        split_opaque_span(Span::new(4, DEPTH_BUCKET_WIDTH * 3), |span, segment| {
+            segments.push((span.pixel_x(), span.pixel_width(), segment));
+        });
+
+        assert_eq!(
+            segments,
+            [
+                (4, DEPTH_BUCKET_WIDTH - 4, DepthSegment::Regular),
+                (
+                    DEPTH_BUCKET_WIDTH,
+                    DEPTH_BUCKET_WIDTH * 2,
+                    DepthSegment::Opaque
+                ),
+                (DEPTH_BUCKET_WIDTH * 3, 4, DepthSegment::Regular),
+            ]
+        );
+    }
+
+    #[test]
+    fn depth_state_skips_when_no_later_overlapping_opaque_draw_exists() {
+        let mut state = DepthState::default();
+        let opaque = buckets(1, 2);
+        state.include_span(opaque, 7);
+
+        assert!(state.can_skip(buckets(0, 1), 1));
+        assert!(state.can_skip(opaque, 7));
+        assert!(!state.can_skip(opaque, 6));
+
+        state.reset();
+        assert!(state.can_skip(opaque, 1));
+    }
+
+    #[test]
+    fn visible_runs_skip_interleaved_later_draws() {
+        let mut buffer = buffer(5);
+        write_buckets(&mut buffer, 1..2, 10);
+        write_buckets(&mut buffer, 3..4, 10);
+
+        assert_eq!(
+            visible_runs(&buffer, buckets(0, 5), 9),
+            [(0, 1), (2, 3), (4, 5)]
+        );
+        assert_eq!(visible_runs(&buffer, buckets(0, 5), 10), [(0, 5)]);
+    }
+
+    #[test]
+    fn unset_runs_and_writes_fill_interleaved_gaps() {
+        let mut buffer = buffer(5);
+        write_buckets(&mut buffer, 1..2, 10);
+        write_buckets(&mut buffer, 3..4, 10);
+
+        assert_eq!(unset_runs(&buffer, buckets(0, 5)), [(0, 1), (2, 3), (4, 5)]);
+
+        let mut written_runs = Vec::new();
+        buffer.for_each_visible_run_with_write(buckets(0, 5), 7, |span| {
+            written_runs.push(bucket_range(span));
+        });
+        assert_eq!(written_runs, [(0, 1), (2, 3), (4, 5)]);
+        assert_depth(
+            &buffer,
+            [(0..1, 7), (1..2, 10), (2..3, 7), (3..4, 10), (4..5, 7)].as_slice(),
+        );
+    }
+
+    #[test]
+    fn visible_and_unset_runs_are_limited_to_the_requested_span() {
+        let mut buffer = buffer(6);
+        write_buckets(&mut buffer, 1..2, 10);
+        write_buckets(&mut buffer, 4..5, 10);
+
+        assert_eq!(visible_runs(&buffer, buckets(2, 5), 9), [(2, 4)]);
+        assert_eq!(unset_runs(&buffer, buckets(2, 5)), [(2, 4)]);
+    }
+
+    #[test]
+    fn visible_runs_only_skip_buckets_with_later_draw_ids() {
+        let mut buffer = buffer(6);
+        write_buckets(&mut buffer, 0..1, 4);
+        write_buckets(&mut buffer, 1..2, 9);
+        write_buckets(&mut buffer, 2..3, 6);
+        write_buckets(&mut buffer, 3..4, 12);
+        write_buckets(&mut buffer, 5..6, 2);
+
+        assert_eq!(
+            visible_runs(&buffer, buckets(0, 6), 6),
+            [(0, 1), (2, 3), (4, 6)]
+        );
+    }
+
+    #[test]
+    fn clear_resets_all_buckets() {
+        let mut buffer = buffer(3);
+        write_buckets(&mut buffer, 0..3, 10);
+
+        buffer.clear();
+
+        assert_depth(&buffer, &[]);
+    }
 }

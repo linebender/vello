@@ -1571,7 +1571,7 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
     let row_height = usize::from(row_height);
     fine.set_row_y(row_y);
     let row_span = Span::new(row_start, row_end - row_start);
-    depth.clear_range(row_span);
+    depth.clear();
 
     for &cmd in row.opaque.iter().rev() {
         let attrs = &bucketer.attrs()[cmd.attrs_idx as usize];
