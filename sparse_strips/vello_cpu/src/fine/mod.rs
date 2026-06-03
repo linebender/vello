@@ -505,27 +505,31 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         self.paint_offset = paint_offset;
     }
 
-    fn clear_buffer_range(&mut self, x: u16, width: u16) {
-        let scratch_start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
-        let scratch_len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
-        self.buffers[0][scratch_start..scratch_start + scratch_len].fill(T::Numeric::ZERO);
+    fn scratch_range(span: Span) -> core::ops::Range<usize> {
+        let start = usize::from(span.pixel_x()) * TILE_HEIGHT_COMPONENTS;
+        let len = usize::from(span.pixel_width()) * TILE_HEIGHT_COMPONENTS;
+        start..start + len
+    }
+
+    fn clear_buffer_range(&mut self, span: Span) {
+        self.buffers[0][Self::scratch_range(span)].fill(T::Numeric::ZERO);
     }
 
     fn init_uncovered_range(
         &mut self,
         dst_y: u16,
         row_height: usize,
-        scratch_x: u16,
+        scratch_span: Span,
         dst_x: u16,
-        width: u16,
         target: &mut PixmapMut<'_>,
         unpack_dest: bool,
         depth: &DepthBuffer,
     ) {
+        let scratch_x = scratch_span.pixel_x();
+        let width = scratch_span.pixel_width();
         let scratch_end = scratch_x + width;
-        let span = Span::new(scratch_x, width);
 
-        depth.for_each_unset_run(span, |span| {
+        depth.for_each_unset_run(scratch_span, |span| {
             let x = span.pixel_x().max(scratch_x);
             let end = span.pixel_end().min(scratch_end);
             if x >= end {
@@ -542,27 +546,23 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     target,
                 );
             } else {
-                self.clear_buffer_range(x, end - x);
+                self.clear_buffer_range(Span::new(x, end - x));
             }
         });
     }
 
-    fn push_layer(&mut self, x: u16, width: u16) {
+    fn push_layer(&mut self, span: Span) {
         let mut buf = self
             .buffer_pool
             .pop()
             .unwrap_or_else(|| vec![T::Numeric::ZERO; self.buffers[0].len()]);
-        let scratch_start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
-        let scratch_len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
-        buf[scratch_start..scratch_start + scratch_len].fill(T::Numeric::ZERO);
+        buf[Self::scratch_range(span)].fill(T::Numeric::ZERO);
         self.buffers.push(buf);
     }
 
-    fn opacity(&mut self, x: u16, width: u16, opacity: f32) {
-        let scratch_start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
-        let scratch_len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
+    fn opacity(&mut self, span: Span, opacity: f32) {
         let target = self.buffers.last_mut().unwrap();
-        let target = &mut target[scratch_start..scratch_start + scratch_len];
+        let target = &mut target[Self::scratch_range(span)];
 
         T::apply_mask(
             self.simd,
@@ -574,35 +574,26 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         );
     }
 
-    fn mask(&mut self, row_y: u16, x: u16, width: u16, mask: &Mask) {
-        let scratch_start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
-        let scratch_len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
+    fn mask(&mut self, row_y: u16, span: Span, mask: &Mask) {
+        let x = span.pixel_x();
+        let width = span.pixel_width();
         let target = self.buffers.last_mut().unwrap();
-        let target = &mut target[scratch_start..scratch_start + scratch_len];
+        let target = &mut target[Self::scratch_range(span)];
 
         Self::apply_mask(self.simd, target, x, row_y, width, mask);
     }
 
-    fn blend(
-        &mut self,
-        row_y: u16,
-        x: u16,
-        width: u16,
-        blend_mode: BlendMode,
-        alphas: Option<&[u8]>,
-    ) {
-        let end = x.saturating_add(width).min(self.buffer_width);
-        if x >= end {
+    fn blend(&mut self, row_y: u16, span: Span, blend_mode: BlendMode, alphas: Option<&[u8]>) {
+        let Some(span) = span.intersect(Span::new(0, self.buffer_width)) else {
             return;
-        }
+        };
 
-        let width = end - x;
-        let scratch_start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
-        let scratch_len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
+        let x = span.pixel_x();
         let (source, rest) = self.buffers.split_last_mut().unwrap();
         let target = rest.last_mut().unwrap();
-        let source = &mut source[scratch_start..scratch_start + scratch_len];
-        let target = &mut target[scratch_start..scratch_start + scratch_len];
+        let range = Self::scratch_range(span);
+        let source = &mut source[range.clone()];
+        let target = &mut target[range];
 
         if blend_mode == BlendMode::default() {
             T::alpha_composite_buffer(self.simd, target, source, alphas);
@@ -660,47 +651,43 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     }
 
     #[inline(always)]
-    fn fill_solid(&mut self, x: u16, width: u16, color: PremulColor, alphas: Option<&[u8]>) {
-        if width == 0 {
+    fn fill_solid(&mut self, span: Span, color: PremulColor, alphas: Option<&[u8]>) {
+        if span.pixel_width() == 0 {
             return;
         }
 
-        let start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
-        let len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
         let simd = self.simd;
         let scratch = self.buffers.last_mut().unwrap();
-        T::fill_solid(simd, &mut scratch[start..start + len], color, alphas);
+        T::fill_solid(simd, &mut scratch[Self::scratch_range(span)], color, alphas);
     }
 
     #[inline(always)]
     fn fill_solid_with_attrs(
         &mut self,
-        x: u16,
+        span: Span,
         y: u16,
-        width: u16,
         color: PremulColor,
         blend_mode: BlendMode,
         mask: Option<&Mask>,
         alphas: Option<&[u8]>,
     ) {
         if blend_mode == BlendMode::default() && mask.is_none() {
-            self.fill_solid(x, width, color, alphas);
+            self.fill_solid(span, color, alphas);
             return;
         }
 
-        if width == 0 {
+        if span.pixel_width() == 0 {
             return;
         }
 
-        let start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
-        let len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
+        let x = span.pixel_x();
         let color = T::extract_color(color);
         let simd = self.simd;
         let color = T::Composite::from_color(simd, color);
         let scratch = self.buffers.last_mut().unwrap();
         T::blend(
             simd,
-            &mut scratch[start..start + len],
+            &mut scratch[Self::scratch_range(span)],
             x,
             y,
             iter::repeat(color),
@@ -754,12 +741,10 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         );
     }
 
-    #[doc(hidden)]
     #[inline(always)]
-    pub fn fill(
+    fn fill(
         &mut self,
-        x: u16,
-        width: u16,
+        span: Span,
         paint: &Paint,
         blend_mode: BlendMode,
         encoded_paints: &[EncodedPaint],
@@ -769,15 +754,15 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     ) {
         match paint {
             Paint::Solid(color) => {
-                self.fill_solid_with_attrs(x, self.row_y, width, *color, blend_mode, mask, alphas);
+                self.fill_solid_with_attrs(span, self.row_y, *color, blend_mode, mask, alphas);
             }
             Paint::Indexed(index) => {
                 self.fill_indexed(
-                    x,
+                    span.pixel_x(),
                     self.row_y,
-                    x.saturating_add(self.paint_offset.0),
+                    span.pixel_x().saturating_add(self.paint_offset.0),
                     self.row_y.saturating_add(self.paint_offset.1),
-                    width,
+                    span.pixel_width(),
                     index.index(),
                     blend_mode,
                     mask,
@@ -801,8 +786,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         self.set_paint_offset(attrs.paint_offset);
         depth.for_each_visible_run_with_write(cmd.span, attrs.draw_id, |span| {
             self.fill(
-                span.pixel_x(),
-                span.pixel_width(),
+                span,
                 &attrs.paint,
                 attrs.blend_mode,
                 encoded_paints,
@@ -833,8 +817,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         if !use_depth {
             self.render_cmd_span(
                 cmd,
-                cmd_x,
-                cmd_end,
+                Span::new(cmd_x, cmd_end - cmd_x),
                 alphas,
                 attrs,
                 encoded_paints,
@@ -845,15 +828,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
         let depth_span = Span::new(cmd_x, cmd_end - cmd_x);
         depth.for_each_visible_run(depth_span, attrs.draw_id, |span| {
-            self.render_cmd_span(
-                cmd,
-                span.pixel_x(),
-                span.pixel_end(),
-                alphas,
-                attrs,
-                encoded_paints,
-                image_resolver,
-            );
+            self.render_cmd_span(cmd, span, alphas, attrs, encoded_paints, image_resolver);
         });
     }
 
@@ -861,13 +836,13 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     fn render_cmd_span(
         &mut self,
         cmd: FillCmd,
-        x: u16,
-        end: u16,
+        span: Span,
         alphas: &[u8],
         attrs: &FillAttrs,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
+        let x = span.pixel_x();
         self.set_paint_offset(attrs.paint_offset);
         let alphas = cmd.alpha_idx().map(|alpha_idx| {
             let alpha_offset =
@@ -875,8 +850,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             &alphas[alpha_offset..]
         });
         self.fill(
-            x,
-            end - x,
+            span,
             &attrs.paint,
             attrs.blend_mode,
             encoded_paints,
@@ -888,19 +862,21 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
     fn composite_filter_layer(
         &mut self,
-        x: u16,
-        width: u16,
+        span: Span,
         src_x: u16,
         src_y: u16,
         dst_y_offset: u8,
         height: u8,
         layer: &Pixmap,
     ) {
+        let x = span.pixel_x();
+        let width = span.pixel_width();
         if width == 0 || height == 0 || src_y >= layer.height() || src_x >= layer.width() {
             return;
         }
 
         let width = width.min(layer.width() - src_x);
+        let span = Span::new(x, width);
         let len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
         if self.paint_buf.len() < len {
             self.paint_buf.resize(len, T::Numeric::ZERO);
@@ -929,9 +905,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             }
         }
 
-        let start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
-        let len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
-        let target = &mut self.buffers.last_mut().unwrap()[start..start + len];
+        let target = &mut self.buffers.last_mut().unwrap()[Self::scratch_range(span)];
         T::alpha_composite_buffer(self.simd, target, &self.paint_buf[..len], None);
     }
 
@@ -961,8 +935,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
         if !use_depth {
             self.composite_filter_layer(
-                cmd_x,
-                cmd_end - cmd_x,
+                Span::new(cmd_x, cmd_end - cmd_x),
                 attrs.src_origin.0,
                 src_y,
                 dst_y_offset,
@@ -976,8 +949,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         depth.for_each_visible_run(depth_span, attrs.draw_id, |span| {
             let x = span.pixel_x();
             self.composite_filter_layer(
-                x,
-                span.pixel_width(),
+                span,
                 attrs.src_origin.0 + (x - cmd.span.pixel_x()),
                 src_y,
                 dst_y_offset,
@@ -1172,11 +1144,11 @@ mod tests {
         let simd = Fallback::new();
         let mut fine = Fine::<_, U8Kernel>::new(simd, 8, 8);
 
-        fine.push_layer(0, 8);
+        fine.push_layer(Span::new(0, 8));
         fine.buffers.last_mut().unwrap()[6 * TILE_HEIGHT_COMPONENTS..8 * TILE_HEIGHT_COMPONENTS]
             .fill(u8::MAX);
 
-        fine.blend(0, 6, 4, BlendMode::default(), None);
+        fine.blend(0, Span::new(6, 4), BlendMode::default(), None);
 
         assert!(
             fine.buffers[0][6 * TILE_HEIGHT_COMPONENTS..8 * TILE_HEIGHT_COMPONENTS]
@@ -1190,8 +1162,8 @@ mod tests {
         let simd = Fallback::new();
         let mut fine = Fine::<_, U8Kernel>::new(simd, 8, 8);
 
-        fine.push_layer(0, 8);
-        fine.blend(0, 8, 4, BlendMode::default(), None);
+        fine.push_layer(Span::new(0, 8));
+        fine.blend(0, Span::new(8, 4), BlendMode::default(), None);
 
         assert!(fine.buffers[0].iter().all(|&component| component == 0));
     }
@@ -1598,7 +1570,8 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
 
     let row_height = usize::from(row_height);
     fine.set_row_y(row_y);
-    depth.clear_range(row_start, row_end - row_start);
+    let row_span = Span::new(row_start, row_end - row_start);
+    depth.clear_range(row_span);
 
     for &cmd in row.opaque.iter().rev() {
         let attrs = &bucketer.attrs()[cmd.attrs_idx as usize];
@@ -1608,9 +1581,8 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
     fine.init_uncovered_range(
         buffer_y,
         row_height,
-        row_start,
+        row_span,
         dst_x + row_start,
-        row_end - row_start,
         target,
         unpack_dest,
         depth,
@@ -1633,17 +1605,17 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
                 );
             }
             FineCmd::PushLayer => {
-                fine.push_layer(row_start, row_end - row_start);
+                fine.push_layer(row_span);
             }
             FineCmd::PopBuf => {
                 fine.pop_buf();
             }
             FineCmd::Opacity(opacity) => {
-                fine.opacity(row_start, row_end - row_start, *opacity);
+                fine.opacity(row_span, *opacity);
             }
             FineCmd::Mask(mask_idx) => {
                 let mask = &bucketer.masks()[*mask_idx as usize];
-                fine.mask(row_y, row_start, row_end - row_start, mask);
+                fine.mask(row_y, row_span, mask);
             }
             FineCmd::FilterLayer(cmd) => {
                 let attrs = &bucketer.filter_attrs()[cmd.attrs_idx as usize];
@@ -1657,13 +1629,7 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
                 let alphas = cmd.alpha_idx().map(|alpha_idx| {
                     &alpha_buffers[attrs.thread_idx as usize][alpha_idx as usize..]
                 });
-                fine.blend(
-                    row_y,
-                    cmd.span.pixel_x(),
-                    cmd.span.pixel_width(),
-                    attrs.blend_mode,
-                    alphas,
-                );
+                fine.blend(row_y, cmd.span, attrs.blend_mode, alphas);
             }
         }
     }

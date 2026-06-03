@@ -187,16 +187,8 @@ impl DepthBuffer {
         )
     }
 
-    fn pixel_range_with_width(&self, x: u16, width: u16) -> (usize, usize) {
-        let end = x.saturating_add(width);
-        (
-            usize::from(x / DEPTH_BUCKET_WIDTH),
-            usize::from(end.div_ceil(DEPTH_BUCKET_WIDTH)).min(self.data.len()),
-        )
-    }
-
-    pub(crate) fn clear_range(&mut self, x: u16, width: u16) {
-        let (start, end) = self.pixel_range_with_width(x, width);
+    pub(crate) fn clear_range(&mut self, span: Span) {
+        let (start, end) = self.range(span);
         self.data[start..end].fill(0);
     }
 
@@ -205,10 +197,6 @@ impl DepthBuffer {
     }
 
     /// Finds the next consecutive run of unset depth buckets.
-    ///
-    /// Used by opaque fills: unset buckets (`0`) have not yet been covered by a
-    /// later opaque draw, so the opaque fill can render those buckets and then
-    /// write its draw id into the returned depth range.
     fn next_unset_run(
         &self,
         idx: &mut usize,
@@ -231,10 +219,6 @@ impl DepthBuffer {
     }
 
     /// Finds the next consecutive run visible to `draw_id`.
-    ///
-    /// Depth entries larger than `draw_id` belong to later opaque draws and hide
-    /// this command. Entries less than or equal to `draw_id` are still visible for
-    /// this command and are returned as pixel ranges clipped to `x..x_end`.
     fn next_visible_run(
         &self,
         idx: &mut usize,
