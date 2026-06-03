@@ -66,6 +66,7 @@ pub(crate) fn split_opaque_span(span: Span, mut segment: impl FnMut(Span, DepthS
 
     if aligned_x >= aligned_end {
         segment(span, DepthSegment::Regular);
+
         return;
     }
 
@@ -88,31 +89,30 @@ pub(crate) fn split_opaque_span(span: Span, mut segment: impl FnMut(Span, DepthS
     }
 }
 
-/// Per-row metadata used to decide whether a draw needs to consult the depth
-/// buffer during fine rasterization.
+/// Coarse state for a single row in the depth buffer.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct DepthRowState {
+    /// Coarse union of all depth-trackable opaque spans in this row.
     opaque_bounds: Option<Span>,
-    max_opaque_draw_id: u32,
+    /// Maximum draw ID of any depth-trackable opaque command in this row.
+    //
+    // Draw IDs start at 1, so 0 represents "no opaque command".
+    max_draw_id: u32,
 }
 
 impl DepthRowState {
-    pub(crate) fn clear(&mut self) {
-        *self = Self::default();
+    pub(crate) fn reset(&mut self) {
+        *self = DepthRowState::default();
     }
 
-    pub(crate) fn include_opaque(&mut self, span: Span, width: u16, draw_id: u32) {
-        if span.pixel_x() >= width {
-            return;
-        }
-
+    pub(crate) fn include_span(&mut self, span: Span, draw_id: u32) {
         if let Some(bounds) = &mut self.opaque_bounds {
             bounds.extend(span);
         } else {
             self.opaque_bounds = Some(span);
         }
 
-        self.max_opaque_draw_id = self.max_opaque_draw_id.max(draw_id);
+        self.max_draw_id = self.max_draw_id.max(draw_id);
     }
 
     /// Returns whether a draw might be affected by later opaque draws in this row.
@@ -121,7 +121,7 @@ impl DepthRowState {
     /// is outside the combined opaque bounds, fine rasterization can skip consulting
     /// the depth buffer for this command.
     pub(crate) fn affects_later_draw(self, span: Span, draw_id: u32) -> bool {
-        if draw_id >= self.max_opaque_draw_id {
+        if draw_id >= self.max_draw_id {
             return false;
         }
 

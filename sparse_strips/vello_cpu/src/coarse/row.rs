@@ -30,7 +30,7 @@ impl RowCommands {
         self.cmds.clear();
         self.opaque.clear();
         self.bounds = None;
-        self.depth.clear();
+        self.depth.reset();
         self.layer_depth = 0;
     }
 
@@ -96,7 +96,7 @@ impl RowCommands {
 
     pub(super) fn push_opaque(&mut self, cmd: FillCmd, width: u16, draw_id: u32) {
         self.include_bounds(cmd.span, width);
-        self.depth.include_opaque(cmd.span, width, draw_id);
+        self.depth.include_span(cmd.span, draw_id);
         self.opaque.push(cmd);
     }
 
