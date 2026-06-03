@@ -12,7 +12,7 @@ mod highp;
 mod lowp;
 
 use crate::coarse::depth::DepthBuffer;
-use crate::coarse::{CommandBucketer, FillAttrs, FillCmd, FilterLayerAttrs, FineCmd, RowCommands};
+use crate::coarse::{CommandBucketer, FillAttrs, Fill, FilterLayerAttrs, RenderCmd, RowCommands};
 use crate::filter::context::FilterContext;
 use crate::filter::context::ScratchBuffer;
 use crate::fine::common::gradient::GradientPainter;
@@ -777,7 +777,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     #[inline(always)]
     fn render_opaque(
         &mut self,
-        cmd: FillCmd,
+        cmd: Fill,
         attrs: &FillAttrs,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
@@ -800,7 +800,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     #[inline(always)]
     fn render_cmd(
         &mut self,
-        cmd: FillCmd,
+        cmd: Fill,
         alphas: &[u8],
         attrs: &FillAttrs,
         encoded_paints: &[EncodedPaint],
@@ -835,7 +835,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     #[inline(always)]
     fn render_cmd_span(
         &mut self,
-        cmd: FillCmd,
+        cmd: Fill,
         span: Span,
         alphas: &[u8],
         attrs: &FillAttrs,
@@ -911,7 +911,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
     fn composite_filter_layer_cmd(
         &mut self,
-        cmd: crate::coarse::FilterLayerCmd,
+        cmd: crate::coarse::FilterLayer,
         attrs: &FilterLayerAttrs,
         row_y: u16,
         layer: &Pixmap,
@@ -1599,7 +1599,7 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
 
     for cmd in &row.cmds {
         match cmd {
-            FineCmd::Fill(cmd) => {
+            RenderCmd::Fill(cmd) => {
                 let attrs = &resources.bucketer.attrs()[cmd.attrs_idx as usize];
                 let alphas = resources.alpha_buffers[attrs.thread_idx as usize];
                 let use_depth = !row.can_skip_depth(cmd.span, attrs.draw_id);
@@ -1613,20 +1613,20 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
                     depth,
                 );
             }
-            FineCmd::PushLayer => {
+            RenderCmd::PushLayer => {
                 fine.push_layer(row_span);
             }
-            FineCmd::PopBuf => {
+            RenderCmd::PopBuf => {
                 fine.pop_buf();
             }
-            FineCmd::Opacity(opacity) => {
+            RenderCmd::Opacity(opacity) => {
                 fine.opacity(row_span, *opacity);
             }
-            FineCmd::Mask(mask_idx) => {
+            RenderCmd::Mask(mask_idx) => {
                 let mask = &resources.bucketer.masks()[*mask_idx as usize];
                 fine.mask(layout.scene_y, row_span, mask);
             }
-            FineCmd::FilterLayer(cmd) => {
+            RenderCmd::FilterLayer(cmd) => {
                 let attrs = &resources.bucketer.filter_attrs()[cmd.attrs_idx as usize];
                 if let Some(layer) = resources.filters.filter_layer(attrs.id) {
                     let use_depth = !row.can_skip_depth(cmd.span, attrs.draw_id);
@@ -1640,7 +1640,7 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
                     );
                 }
             }
-            FineCmd::BlendFill(cmd) => {
+            RenderCmd::BlendFill(cmd) => {
                 let attrs = &resources.bucketer.blend_attrs()[cmd.attrs_idx as usize];
                 let alphas = cmd.alpha_idx().map(|alpha_idx| {
                     &resources.alpha_buffers[attrs.thread_idx as usize][alpha_idx as usize..]

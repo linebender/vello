@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use super::cmd::{
-    BlendAttrs, BlendFillCmd, FillAttrs, FillCmd, FilterLayerAttrs, FilterLayerCmd, FineCmd,
+    BlendAttrs, BlendFill, FillAttrs, Fill, FilterLayerAttrs, FilterLayer, RenderCmd,
 };
 use super::depth::DepthState;
 use crate::peniko::BlendMode;
@@ -21,11 +21,11 @@ use vello_common::util::{Clear, RetainVec};
 #[derive(Debug, Default)]
 pub(crate) struct RowCommands {
     /// Normal commands rendered in back-to-front with depth buffer read.
-    pub(crate) cmds: Vec<FineCmd>,
+    pub(crate) cmds: Vec<RenderCmd>,
     /// Opaque fill commands rendered front-to-back with depth buffer read and write.
     ///
     /// `alpha_idx` is always `None` for these commands.
-    pub(crate) depth_writes: Vec<FillCmd>,
+    pub(crate) depth_writes: Vec<Fill>,
     /// A coarse span of all pixels that might be touched in that row.
     coarse_span: Option<Span>,
     depth: DepthState,
@@ -51,15 +51,15 @@ impl RowCommands {
         self.layer_depth = 0;
     }
 
-    pub(super) fn push_cmd(&mut self, cmd: FineCmd) {
-        if let Some(span) = cmd.generated_span() {
+    pub(super) fn push_cmd(&mut self, cmd: RenderCmd) {
+        if let Some(span) = cmd.span() {
             self.include_span(span);
         }
         self.cmds.push(cmd);
     }
 
     pub(super) fn push_layer(&mut self) {
-        self.cmds.push(FineCmd::PushLayer);
+        self.cmds.push(RenderCmd::PushLayer);
         self.layer_depth += 1;
     }
 
@@ -71,12 +71,12 @@ impl RowCommands {
         blend_attrs_idx: u32,
     ) {
         if let Some(mask_idx) = mask_idx {
-            self.cmds.push(FineCmd::Mask(mask_idx));
+            self.cmds.push(RenderCmd::Mask(mask_idx));
         }
         if opacity != 1.0 {
-            self.cmds.push(FineCmd::Opacity(opacity));
+            self.cmds.push(RenderCmd::Opacity(opacity));
         }
-        self.cmds.push(FineCmd::BlendFill(BlendFillCmd::new(
+        self.cmds.push(RenderCmd::BlendFill(BlendFill::new(
             span,
             None,
             blend_attrs_idx,
@@ -86,10 +86,10 @@ impl RowCommands {
 
     pub(super) fn push_layer_props(&mut self, mask_idx: Option<u32>, opacity: f32) {
         if let Some(mask_idx) = mask_idx {
-            self.cmds.push(FineCmd::Mask(mask_idx));
+            self.cmds.push(RenderCmd::Mask(mask_idx));
         }
         if opacity != 1.0 {
-            self.cmds.push(FineCmd::Opacity(opacity));
+            self.cmds.push(RenderCmd::Opacity(opacity));
         }
     }
 
@@ -99,7 +99,7 @@ impl RowCommands {
         alpha_idx: Option<u32>,
         blend_attrs_idx: u32,
     ) {
-        self.push_cmd(FineCmd::BlendFill(BlendFillCmd::new(
+        self.push_cmd(RenderCmd::BlendFill(BlendFill::new(
             span,
             alpha_idx,
             blend_attrs_idx,
@@ -107,11 +107,11 @@ impl RowCommands {
     }
 
     pub(super) fn pop_buf(&mut self) {
-        self.cmds.push(FineCmd::PopBuf);
+        self.cmds.push(RenderCmd::PopBuf);
         self.layer_depth -= 1;
     }
 
-    pub(super) fn push_depth_write(&mut self, cmd: FillCmd, draw_id: u32) {
+    pub(super) fn push_depth_write(&mut self, cmd: Fill, draw_id: u32) {
         self.include_span(cmd.span);
         self.depth.include_span(cmd.span, draw_id);
         self.depth_writes.push(cmd);
@@ -454,7 +454,7 @@ impl CommandBucketer {
             if row_y1 <= bbox.y0 || row_y >= bbox.y1 {
                 continue;
             }
-            self.rows[row_idx].push_cmd(FineCmd::FilterLayer(FilterLayerCmd {
+            self.rows[row_idx].push_cmd(RenderCmd::FilterLayer(FilterLayer {
                 span,
                 attrs_idx: filter_attrs_idx,
             }));

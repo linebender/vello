@@ -9,19 +9,19 @@ use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum FineCmd {
-    Fill(FillCmd),
+pub(crate) enum RenderCmd {
+    Fill(Fill),
     PushLayer,
     PopBuf,
     Opacity(f32),
     Mask(u32),
-    BlendFill(BlendFillCmd),
-    FilterLayer(FilterLayerCmd),
+    BlendFill(BlendFill),
+    FilterLayer(FilterLayer),
 }
 
-impl FineCmd {
+impl RenderCmd {
     #[inline]
-    pub(crate) fn generated_span(self) -> Option<Span> {
+    pub(crate) fn span(self) -> Option<Span> {
         match self {
             Self::Fill(cmd) => Some(cmd.span),
             Self::BlendFill(cmd) => Some(cmd.span),
@@ -32,13 +32,13 @@ impl FineCmd {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct FillCmd {
+pub(crate) struct Fill {
     pub(crate) span: Span,
     alpha_idx: Option<AlphaIdx>,
     pub(crate) attrs_idx: u32,
 }
 
-impl FillCmd {
+impl Fill {
     pub(crate) fn new(span: Span, alpha_idx: Option<u32>, attrs_idx: u32) -> Self {
         Self {
             span,
@@ -53,13 +53,13 @@ impl FillCmd {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct BlendFillCmd {
+pub(crate) struct BlendFill {
     pub(crate) span: Span,
     alpha_idx: Option<AlphaIdx>,
     pub(crate) attrs_idx: u32,
 }
 
-impl BlendFillCmd {
+impl BlendFill {
     pub(crate) fn new(span: Span, alpha_idx: Option<u32>, attrs_idx: u32) -> Self {
         Self {
             span,
@@ -88,7 +88,7 @@ impl AlphaIdx {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct FilterLayerCmd {
+pub(crate) struct FilterLayer {
     pub(crate) span: Span,
     pub(crate) attrs_idx: u32,
 }
@@ -122,7 +122,7 @@ pub(crate) struct FilterLayerAttrs {
 
 #[cfg(test)]
 mod tests {
-    use super::{AlphaIdx, FineCmd};
+    use super::{AlphaIdx, RenderCmd};
     use core::mem::{needs_drop, size_of};
 
     #[test]
@@ -132,7 +132,7 @@ mod tests {
 
     #[test]
     fn fine_cmd_assertions() {
-        assert_eq!(size_of::<FineCmd>(), 16);
-        assert!(!needs_drop::<FineCmd>());
+        assert_eq!(size_of::<RenderCmd>(), 16);
+        assert!(!needs_drop::<RenderCmd>());
     }
 }
