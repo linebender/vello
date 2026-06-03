@@ -1320,18 +1320,20 @@ pub(crate) fn blur_with_edge_mode(ctx: &mut impl Renderer, edge_mode: EdgeMode) 
 // TODO: Currently, these tests have a width/height that is a multiple of a wide tile,
 // because edge modes currently don't handle other widths/heights correctly. Once that is
 // fixed, we should change the tests back to 100x100 to exercise that path as well.
+// Also, these tests are currently ignored everywhere because support for edge mode has
+// been temporarily disabled.
 
-#[vello_test(skip_multithreaded, skip_hybrid, width = 256, height = 100)]
+#[vello_test(ignore, width = 256, height = 100)]
 fn filter_gaussian_blur_edge_mode_duplicate(ctx: &mut impl Renderer) {
     blur_with_edge_mode(ctx, EdgeMode::Duplicate);
 }
 
-#[vello_test(skip_multithreaded, skip_hybrid, width = 256, height = 100)]
+#[vello_test(ignore, width = 256, height = 100)]
 fn filter_gaussian_blur_edge_mode_wrap(ctx: &mut impl Renderer) {
     blur_with_edge_mode(ctx, EdgeMode::Wrap);
 }
 
-#[vello_test(skip_multithreaded, skip_hybrid, width = 256, height = 100)]
+#[vello_test(ignore, width = 256, height = 100)]
 fn filter_gaussian_blur_edge_mode_mirror(ctx: &mut impl Renderer) {
     blur_with_edge_mode(ctx, EdgeMode::Mirror);
 }
