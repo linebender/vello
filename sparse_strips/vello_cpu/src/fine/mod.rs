@@ -1620,7 +1620,7 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
             FineCmd::Fill(cmd) => {
                 let attrs = &bucketer.attrs()[cmd.attrs_idx as usize];
                 let alphas = alpha_buffers[attrs.thread_idx as usize];
-                let use_depth = row.depth_affects(cmd.span, attrs.draw_id);
+                let use_depth = !row.can_skip_depth(cmd.span, attrs.draw_id);
                 fine.render_cmd(
                     *cmd,
                     alphas,
@@ -1646,7 +1646,7 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
             FineCmd::FilterLayer(cmd) => {
                 let attrs = &bucketer.filter_attrs()[cmd.attrs_idx as usize];
                 if let Some(layer) = layer_manager.filter_layer(attrs.id) {
-                    let use_depth = row.depth_affects(cmd.span, attrs.draw_id);
+                    let use_depth = !row.can_skip_depth(cmd.span, attrs.draw_id);
                     fine.composite_filter_layer_cmd(*cmd, attrs, row_y, layer, use_depth);
                 }
             }

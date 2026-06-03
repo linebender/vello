@@ -89,9 +89,9 @@ pub(crate) fn split_opaque_span(span: Span, mut segment: impl FnMut(Span, DepthS
     }
 }
 
-/// Coarse state for a single row in the depth buffer.
+/// Coarse state for the depth buffer.
 #[derive(Debug, Clone, Copy, Default)]
-pub(crate) struct DepthRowState {
+pub(crate) struct DepthState {
     /// Coarse union of all depth-trackable opaque spans in this row.
     opaque_bounds: Option<Span>,
     /// Maximum draw ID of any depth-trackable opaque command in this row.
@@ -100,9 +100,9 @@ pub(crate) struct DepthRowState {
     max_draw_id: u32,
 }
 
-impl DepthRowState {
+impl DepthState {
     pub(crate) fn reset(&mut self) {
-        *self = DepthRowState::default();
+        *self = DepthState::default();
     }
 
     pub(crate) fn include_span(&mut self, span: Span, draw_id: u32) {
@@ -115,26 +115,22 @@ impl DepthRowState {
         self.max_draw_id = self.max_draw_id.max(draw_id);
     }
 
-    /// Returns whether a draw might be affected by later opaque draws in this row.
-    ///
-    /// If no later opaque draw exists (`draw_id >= max_opaque_draw_id`) or the draw
-    /// is outside the combined opaque bounds, fine rasterization can skip consulting
-    /// the depth buffer for this command.
-    pub(crate) fn affects_later_draw(self, span: Span, draw_id: u32) -> bool {
+    /// Returns whether this draw can skip consulting the depth buffer.
+    pub(crate) fn can_skip(self, span: Span, draw_id: u32) -> bool {
         if draw_id >= self.max_draw_id {
-            return false;
+            return true;
         }
 
         let Some(opaque_bounds) = self.opaque_bounds else {
-            return false;
+            return true;
         };
 
-        let opaque_start = opaque_bounds.pixel_x();
-        let opaque_end = opaque_bounds.pixel_end();
-        let x = span.pixel_x();
-        let end = span.pixel_end();
+        let opaque_start = opaque_bounds.tile_x();
+        let opaque_end = opaque_bounds.tile_end();
+        let x = span.tile_x();
+        let end = span.tile_end();
 
-        x < opaque_end && end > opaque_start
+        x >= opaque_end || end <= opaque_start
     }
 }
 

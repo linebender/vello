@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use super::cmd::{BlendFillCmd, FillCmd, FineCmd, Span};
-use super::depth::DepthRowState;
+use super::depth::DepthState;
 use alloc::vec::Vec;
 use vello_common::util::Clear;
 
@@ -11,7 +11,7 @@ pub(crate) struct RowCommands {
     pub(crate) cmds: Vec<FineCmd>,
     pub(crate) opaque: Vec<FillCmd>,
     bounds: Option<Span>,
-    depth: DepthRowState,
+    depth: DepthState,
     pub(super) layer_depth: usize,
 }
 
@@ -21,7 +21,7 @@ impl RowCommands {
             cmds: Vec::new(),
             opaque: Vec::new(),
             bounds: None,
-            depth: DepthRowState::default(),
+            depth: DepthState::default(),
             layer_depth: 0,
         }
     }
@@ -104,8 +104,8 @@ impl RowCommands {
         self.bounds
     }
 
-    pub(crate) fn depth_affects(&self, span: Span, draw_id: u32) -> bool {
-        self.depth.affects_later_draw(span, draw_id)
+    pub(crate) fn can_skip_depth(&self, span: Span, draw_id: u32) -> bool {
+        self.depth.can_skip(span, draw_id)
     }
 
     fn include_bounds(&mut self, span: Span, width: u16) {
