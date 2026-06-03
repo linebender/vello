@@ -467,7 +467,7 @@ impl RenderContext {
         self.push_root_transform(
             filter_plan
                 .as_ref()
-                .map_or(Affine::IDENTITY, |plan| plan.root_transform),
+                .map_or(Affine::IDENTITY, FilterLayerPlan::root_transform),
         );
 
         self.dispatcher.push_layer(

@@ -84,11 +84,16 @@ pub(crate) struct RecordedFilterLayer {
 #[derive(Debug, Clone)]
 pub(crate) struct FilterLayerPlan {
     pub(crate) filter: Filter,
+    /// The transform that was in place when the filter layer was invoked.
     pub(crate) transform: Affine,
+    /// Padding that needs to be added for the area where the filter is applied.
+    ///
+    /// See [`Filter::filter_expansion`].
     pub(crate) filter_padding: RectU16,
+    /// Padding that needs to be added to the source region for correct filter application.
+    ///
+    /// See [`Filter::source_expansion`].
     pub(crate) source_padding: RectU16,
-    pub(crate) source_origin: (u16, u16),
-    pub(crate) root_transform: Affine,
 }
 
 impl FilterLayerPlan {
@@ -104,20 +109,26 @@ impl FilterLayerPlan {
             .snap_to_tile_coordinates();
         let source_padding = expansion_padding(source_expansion);
         let filter_padding = expansion_padding(filter.filter_expansion(&transform));
-        let source_origin = (source_padding.x0, source_padding.y0);
-        // Make sure that any area that might be needed by the filter layer
-        // is included in the canvas.
-        let root_transform =
-            Affine::translate((f64::from(source_padding.x0), f64::from(source_padding.y0)));
 
         Self {
             filter,
             transform,
             filter_padding,
             source_padding,
-            source_origin,
-            root_transform,
         }
+    }
+
+    pub(crate) fn source_origin(&self) -> (u16, u16) {
+        (self.source_padding.x0, self.source_padding.y0)
+    }
+
+    pub(crate) fn root_transform(&self) -> Affine {
+        // Make sure that any area that might be needed by the filter layer
+        // is included in the canvas.
+        Affine::translate((
+            f64::from(self.source_padding.x0),
+            f64::from(self.source_padding.y0),
+        ))
     }
 }
 
@@ -347,7 +358,7 @@ impl CommandRecorder {
         self.filter_layers[filter_layer_id].content_bbox = bbox;
         let filter_plan = &self.filter_layers[filter_layer_id].filter_plan;
         let padding = filter_plan.filter_padding;
-        let source_origin = filter_plan.source_origin;
+        let source_origin = filter_plan.source_origin();
         let render_bbox = snap_bbox_to_tile(expand_bbox(bbox, padding));
         let (output_bbox, src_x, src_y) = shift_bbox_to_parent(render_bbox, source_origin);
         self.filter_layers[filter_layer_id].bbox = render_bbox;
