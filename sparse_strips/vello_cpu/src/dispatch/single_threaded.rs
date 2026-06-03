@@ -28,7 +28,9 @@ pub(crate) struct SingleThreadedDispatcher {
     recorder: CommandRecorder,
     strip_generator: StripGenerator,
     strip_storage: StripStorage,
-    viewport_stack: Vec<(u16, u16)>,
+    // TODO: Once `StripGenerator`s (in particular `Tiles`) can be resized,
+    // we can reuse one strip generator across filter layers.
+    strip_generator_stack: Vec<StripGenerator>,
     base_width: u16,
     base_height: u16,
     level: Level,
@@ -42,7 +44,7 @@ impl SingleThreadedDispatcher {
             recorder: CommandRecorder::new(),
             strip_generator: StripGenerator::new(width, height, level),
             strip_storage: StripStorage::new(GenerationMode::Append),
-            viewport_stack: Vec::new(),
+            strip_generator_stack: Vec::new(),
             base_width: width,
             base_height: height,
             level,
@@ -129,10 +131,11 @@ impl SingleThreadedDispatcher {
         mask: Option<Mask>,
     ) {
         let strip_end = self.strip_storage.strips.len();
+        let viewport_width = self.strip_generator.width();
         self.recorder.push_fill(
             strip_start..strip_end,
             &self.strip_storage.strips[strip_start..strip_end],
-            self.strip_generator.width(),
+            viewport_width,
             paint,
             blend_mode,
             mask,
@@ -203,17 +206,16 @@ impl SingleThreadedDispatcher {
             .height()
             .saturating_add(padding.y0)
             .saturating_add(padding.y1);
-        self.viewport_stack
-            .push((self.strip_generator.width(), self.strip_generator.height()));
-        self.strip_generator = StripGenerator::new(width, height, self.level);
+        let filter_generator = StripGenerator::new(width, height, self.level);
+        let parent_generator = core::mem::replace(&mut self.strip_generator, filter_generator);
+        self.strip_generator_stack.push(parent_generator);
     }
 
     fn pop_filter_viewport(&mut self) {
-        let (width, height) = self
-            .viewport_stack
+        self.strip_generator = self
+            .strip_generator_stack
             .pop()
             .expect("filter viewport stack underflow");
-        self.strip_generator = StripGenerator::new(width, height, self.level);
     }
 }
 
@@ -366,7 +368,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         // Bucketer will be reset on demand.
         self.clip_context.reset();
         self.recorder.reset();
-        self.viewport_stack.clear();
+        self.strip_generator_stack.clear();
         self.strip_generator = StripGenerator::new(self.base_width, self.base_height, self.level);
         self.strip_generator.reset();
         self.strip_storage.clear();
