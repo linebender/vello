@@ -63,7 +63,9 @@ pub(crate) fn filter_lowp(
     layer_manager: &mut LayerManager,
     transform: Affine,
 ) {
-    let prepared_filter = PreparedFilter::new(filter, &transform);
+    let Some(prepared_filter) = PreparedFilter::new(filter, &transform) else {
+        return;
+    };
 
     match prepared_filter {
         PreparedFilter::Flood(flood) => {
@@ -101,7 +103,9 @@ pub(crate) fn filter_highp(
     layer_manager: &mut LayerManager,
     transform: Affine,
 ) {
-    let prepared_filter = PreparedFilter::new(filter, &transform);
+    let Some(prepared_filter) = PreparedFilter::new(filter, &transform) else {
+        return;
+    };
 
     match prepared_filter {
         PreparedFilter::Flood(flood) => {

@@ -36,7 +36,7 @@ use vello_common::filter::drop_shadow::DropShadow;
 use vello_common::filter::flood::Flood;
 use vello_common::filter::gaussian_blur::{DecimationSizer, GaussianBlur, MAX_KERNEL_SIZE};
 use vello_common::filter::offset::Offset;
-use vello_common::filter_effects::EdgeMode;
+use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
 use vello_common::kurbo::{Affine, Vec2};
 use vello_common::paint::{ImageId, ImageSource};
 use vello_common::peniko::{ImageQuality, ImageSampler};
@@ -770,7 +770,12 @@ impl FilterContext {
                 let width = wtile_bbox.width_px() as u32;
                 let height = wtile_bbox.height_px() as u32;
 
-                let instantiated = PreparedFilter::new(filter, transform);
+                let instantiated = PreparedFilter::new(filter, transform).unwrap_or_else(|| {
+                    // Removing filters from the graph is awkward, so we replace unsupported filters
+                    // with a zero-distance offset filter which has no effect on the output.
+                    let f = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
+                    PreparedFilter::new(&f, transform).expect("Offset filter is known to be valid")
+                });
                 let gpu_filter = GpuFilterData::from(&instantiated);
                 let is_multi_pass = gpu_filter.is_multi_pass();
 
