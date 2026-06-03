@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::coarse::{CommandBucketer, LayerClip};
-use crate::dispatch::{Dispatcher, replay_render_commands};
+use crate::dispatch::Dispatcher;
 use crate::filter::context::FilterContext;
 use crate::fine::FineKernel;
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
@@ -96,11 +96,10 @@ impl SingleThreadedDispatcher {
         let layer_manager = self.render_filter_layers::<S, F>(simd, encoded_paints, image_resolver);
         let mut bucketer = self.bucketer.borrow_mut();
         bucketer.reset(scene_width, scene_height);
-        replay_render_commands(
+        bucketer.bucket_commands(
             &self.recorder.root_cmds,
             &self.recorder.filter_layers,
             &self.strip_storage.strips,
-            &mut bucketer,
             encoded_paints,
             (0, 0),
         );
@@ -163,11 +162,10 @@ impl SingleThreadedDispatcher {
             let mut pixmap = Pixmap::new(width, height);
             let mut bucketer = self.bucketer.borrow_mut();
             bucketer.reset(width, height);
-            replay_render_commands(
+            bucketer.bucket_commands(
                 &layer.cmds,
                 &self.recorder.filter_layers,
                 &self.strip_storage.strips,
-                &mut bucketer,
                 encoded_paints,
                 (pixmap_bbox.x0, pixmap_bbox.y0),
             );

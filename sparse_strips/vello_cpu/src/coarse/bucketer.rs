@@ -1,12 +1,17 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use super::cmd::{BlendAttrs, FillAttrs, FilterLayerAttrs, FilterLayerCmd, FineCmd, Span};
+use super::cmd::{
+    BlendAttrs, FillAttrs, FilterLayerAttrs, FilterLayerCmd, FineCmd, RenderCmd, Span,
+};
 use super::layer::{ActiveLayer, LayerClip};
 use super::row::RowCommands;
 use crate::peniko::BlendMode;
+use crate::record::RecordedFilterLayer;
+use crate::util::bbox_relative_to;
 use alloc::vec;
 use alloc::vec::Vec;
+use vello_common::encode::EncodedPaint;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::strip::Strip;
@@ -106,6 +111,80 @@ impl CommandBucketer {
         self.next_path_id = 1;
         self.clip_bboxes.truncate(1);
         self.clip_bboxes[0] = full_clip_bbox;
+    }
+
+    pub(crate) fn bucket_commands(
+        &mut self,
+        cmds: &[RenderCmd],
+        filter_layers: &[RecordedFilterLayer],
+        strips: &[Strip],
+        encoded_paints: &[EncodedPaint],
+        origin: (u16, u16),
+    ) {
+        let translated_strips = if origin == (0, 0) {
+            Vec::new()
+        } else {
+            strips
+                .iter()
+                .map(|strip| translate_strip(*strip, origin))
+                .collect::<Vec<_>>()
+        };
+        let strips = if origin == (0, 0) {
+            strips
+        } else {
+            translated_strips.as_slice()
+        };
+
+        for cmd in cmds {
+            match cmd {
+                RenderCmd::Fill {
+                    thread_idx,
+                    strip_range,
+                    paint,
+                    blend_mode,
+                    mask,
+                } => {
+                    self.generate_fill(
+                        &strips[strip_range.clone()],
+                        paint.clone(),
+                        *blend_mode,
+                        mask.clone(),
+                        *thread_idx,
+                        origin,
+                        encoded_paints,
+                    );
+                }
+                RenderCmd::PushLayer {
+                    blend_mode,
+                    opacity,
+                    mask,
+                    clip,
+                    ..
+                } => self.push_layer(*blend_mode, *opacity, mask.clone(), clip.clone()),
+                RenderCmd::CompositeFilterLayer {
+                    id,
+                    blend_mode,
+                    opacity,
+                    mask,
+                    clip,
+                } => {
+                    let placement = filter_layers[*id].placement;
+                    let bbox = bbox_relative_to(placement.composite_bbox, origin);
+                    let needs_layer = *blend_mode != BlendMode::default()
+                        || *opacity != 1.0
+                        || mask.is_some()
+                        || clip.is_some();
+                    if needs_layer {
+                        self.push_layer(*blend_mode, *opacity, mask.clone(), clip.clone());
+                    }
+                    self.generate_filter_layer(*id, bbox, placement.src_origin());
+                    if needs_layer {
+                        self.pop_layer(strips);
+                    }
+                }
+                RenderCmd::PopLayer => self.pop_layer(strips),
+            }
+        }
     }
 
     pub(crate) fn push_layer(
@@ -290,4 +369,18 @@ impl CommandBucketer {
             );
         }
     }
+}
+
+fn translate_strip(strip: Strip, origin: (u16, u16)) -> Strip {
+    let x = if strip.is_sentinel() {
+        strip.x
+    } else {
+        strip.x.saturating_sub(origin.0)
+    };
+    Strip::new(
+        x,
+        strip.y.saturating_sub(origin.1),
+        strip.alpha_idx(),
+        strip.fill_gap(),
+    )
 }

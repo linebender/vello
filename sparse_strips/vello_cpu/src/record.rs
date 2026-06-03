@@ -37,6 +37,7 @@
 use crate::coarse::{LayerClip, RenderCmd};
 use crate::kurbo::{Affine, Rect};
 use crate::peniko::BlendMode;
+use crate::util::bbox_relative_to;
 use alloc::vec::Vec;
 use vello_common::filter_effects::Filter;
 use vello_common::geometry::RectU16;
@@ -125,12 +126,7 @@ impl FilterLayerPlacement {
         // is already >= `shift_x`, nothing is clipped and `src_x` is 0.
         let src_x = shift_x.saturating_sub(pixmap_bbox.x0);
         let src_y = shift_y.saturating_sub(pixmap_bbox.y0);
-        let composite_bbox = RectU16::new(
-            pixmap_bbox.x0.saturating_sub(shift_x),
-            pixmap_bbox.y0.saturating_sub(shift_y),
-            pixmap_bbox.x1.saturating_sub(shift_x),
-            pixmap_bbox.y1.saturating_sub(shift_y),
-        );
+        let composite_bbox = bbox_relative_to(pixmap_bbox, (shift_x, shift_y));
 
         Self {
             pixmap_bbox,

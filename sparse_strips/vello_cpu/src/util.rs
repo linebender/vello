@@ -4,6 +4,7 @@
 use crate::peniko::ImageQuality;
 use vello_common::encode::EncodedImage;
 use vello_common::fearless_simd::{Simd, SimdBase, f32x4, u8x32};
+use vello_common::geometry::RectU16;
 use vello_common::math::FloatExt;
 use vello_common::util::Div255Ext;
 
@@ -65,6 +66,15 @@ pub(crate) mod scalar {
 
 pub(crate) trait NormalizedMulExt {
     fn normalized_mul(self, other: Self) -> Self;
+}
+
+pub(crate) fn bbox_relative_to(bbox: RectU16, origin: (u16, u16)) -> RectU16 {
+    RectU16::new(
+        bbox.x0.saturating_sub(origin.0),
+        bbox.y0.saturating_sub(origin.1),
+        bbox.x1.saturating_sub(origin.0),
+        bbox.y1.saturating_sub(origin.1),
+    )
 }
 
 impl<S: Simd> NormalizedMulExt for u8x32<S> {

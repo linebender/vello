@@ -6,118 +6,14 @@ pub(crate) mod multi_threaded;
 pub(crate) mod single_threaded;
 
 use crate::RasterizerSettings;
-use crate::coarse::{CommandBucketer, RenderCmd};
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
-use crate::record::{FilterLayerPlan, RecordedFilterLayer};
-use alloc::vec::Vec;
+use crate::record::FilterLayerPlan;
 use core::fmt::Debug;
 use vello_common::encode::EncodedPaint;
-use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
 use vello_common::pixmap::PixmapMut;
-use vello_common::strip::Strip;
-
-pub(crate) fn replay_render_commands(
-    cmds: &[RenderCmd],
-    filter_layers: &[RecordedFilterLayer],
-    strips: &[Strip],
-    bucketer: &mut CommandBucketer,
-    encoded_paints: &[EncodedPaint],
-    origin: (u16, u16),
-) {
-    let translated_strips = if origin == (0, 0) {
-        Vec::new()
-    } else {
-        strips
-            .iter()
-            .map(|strip| translate_strip(*strip, origin))
-            .collect::<Vec<_>>()
-    };
-    let strips = if origin == (0, 0) {
-        strips
-    } else {
-        translated_strips.as_slice()
-    };
-
-    for cmd in cmds {
-        match cmd {
-            RenderCmd::Fill {
-                thread_idx,
-                strip_range,
-                paint,
-                blend_mode,
-                mask,
-            } => {
-                bucketer.generate_fill(
-                    &strips[strip_range.clone()],
-                    paint.clone(),
-                    *blend_mode,
-                    mask.clone(),
-                    *thread_idx,
-                    origin,
-                    encoded_paints,
-                );
-            }
-            RenderCmd::PushLayer {
-                blend_mode,
-                opacity,
-                mask,
-                clip,
-                ..
-            } => bucketer.push_layer(*blend_mode, *opacity, mask.clone(), clip.clone()),
-            RenderCmd::CompositeFilterLayer {
-                id,
-                blend_mode,
-                opacity,
-                mask,
-                clip,
-            } => {
-                let placement = filter_layers[*id].placement;
-                let bbox = translate_bbox(placement.composite_bbox, origin);
-                let needs_layer = *blend_mode != BlendMode::default()
-                    || *opacity != 1.0
-                    || mask.is_some()
-                    || clip.is_some();
-                if needs_layer {
-                    bucketer.push_layer(*blend_mode, *opacity, mask.clone(), clip.clone());
-                }
-                bucketer.generate_filter_layer(*id, bbox, placement.src_origin());
-                if needs_layer {
-                    bucketer.pop_layer(strips);
-                }
-            }
-            RenderCmd::PopLayer => bucketer.pop_layer(strips),
-        }
-    }
-}
-
-fn translate_strip(strip: Strip, origin: (u16, u16)) -> Strip {
-    let x = if strip.is_sentinel() {
-        strip.x
-    } else {
-        strip.x.saturating_sub(origin.0)
-    };
-    Strip::new(
-        x,
-        strip.y.saturating_sub(origin.1),
-        strip.alpha_idx(),
-        strip.fill_gap(),
-    )
-}
-
-fn translate_bbox(bbox: RectU16, origin: (u16, u16)) -> RectU16 {
-    if bbox.is_empty() {
-        return bbox;
-    }
-    RectU16::new(
-        bbox.x0.saturating_sub(origin.0),
-        bbox.y0.saturating_sub(origin.1),
-        bbox.x1.saturating_sub(origin.0),
-        bbox.y1.saturating_sub(origin.1),
-    )
-}
 
 pub(crate) trait Dispatcher: Debug + Send {
     fn has_layers(&self) -> bool;

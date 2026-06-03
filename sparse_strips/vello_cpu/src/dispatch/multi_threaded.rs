@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::coarse::{CommandBucketer, LayerClip, RenderCmd};
+use crate::dispatch::Dispatcher;
 use crate::dispatch::multi_threaded::cost::{COST_THRESHOLD, estimate_render_task_cost};
 use crate::dispatch::multi_threaded::worker::Worker;
-use crate::dispatch::{Dispatcher, replay_render_commands};
 use crate::filter::context::FilterContext;
 use crate::fine::FineKernel;
 use crate::kurbo::{Affine, BezPath, PathEl, Point, Rect, Stroke};
@@ -383,11 +383,10 @@ impl MultiThreadedDispatcher {
     ) {
         let mut bucketer = self.bucketer.lock().unwrap();
         bucketer.reset(scene_width, scene_height);
-        replay_render_commands(
+        bucketer.bucket_commands(
             &self.cmds,
             &[],
             &self.strip_storage.strips,
-            &mut bucketer,
             encoded_paints,
             (0, 0),
         );
