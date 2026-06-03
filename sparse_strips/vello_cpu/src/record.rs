@@ -114,10 +114,10 @@ impl FilterLayerPlan {
             // snap the actual bbox, which happens further below.
             let expansion = expansion.snap_to_tile_coordinates();
             RectU16::new(
-                (-expansion.x0).max(0.0) as u16,
-                (-expansion.y0).max(0.0) as u16,
-                expansion.x1.max(0.0) as u16,
-                expansion.y1.max(0.0) as u16,
+                (-expansion.x0) as u16,
+                (-expansion.y0) as u16,
+                expansion.x1 as u16,
+                expansion.y1 as u16,
             )
         }
 
@@ -303,9 +303,18 @@ impl CommandRecorder {
 
                 self.filter_layers[filter_layer_id].bbox = bbox;
                 let filter_plan = &self.filter_layers[filter_layer_id].filter_plan;
+
+                // Some more detailed explanations of what's going on here since this part can be
+                // a bit confusing.
                 let padding = filter_plan.filter_padding;
-                let source_origin = filter_plan.source_shift();
+                // `bbox` is the tight bounding box across all strips in that layer. We now need
+                // to expand it by the filter padding to know how large of a pixmap we actually need
+                // to allocate. Also, as mentioned in [`Filterplan::new`], we need to ensure the
+                // pixmap itself is also a multiple of the tile width / tile height.
                 let render_bbox = snap_bbox_to_tile(expand_bbox(bbox, padding));
+
+
+                let source_origin = filter_plan.source_shift();
                 let (output_bbox, src_x, src_y) = shift_bbox_to_parent(render_bbox, source_origin);
                 self.filter_layers[filter_layer_id].pixmap_bbox = render_bbox;
                 match &mut self.filter_layer_cmds_mut(layer.cmd_filter_layer_id)[layer.push_cmd_idx] {
@@ -367,10 +376,6 @@ pub(crate) enum PoppedLayer {
 
 
 fn expand_bbox(bbox: RectU16, padding: RectU16) -> RectU16 {
-    if bbox.is_empty() {
-        return bbox;
-    }
-
     RectU16::new(
         bbox.x0.saturating_sub(padding.x0),
         bbox.y0.saturating_sub(padding.y0),
@@ -380,10 +385,6 @@ fn expand_bbox(bbox: RectU16, padding: RectU16) -> RectU16 {
 }
 
 fn snap_bbox_to_tile(bbox: RectU16) -> RectU16 {
-    if bbox.is_empty() {
-        return bbox;
-    }
-
     RectU16::new(
         (bbox.x0 / Tile::WIDTH) * Tile::WIDTH,
         (bbox.y0 / Tile::HEIGHT) * Tile::HEIGHT,
