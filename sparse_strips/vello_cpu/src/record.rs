@@ -115,8 +115,15 @@ impl FilterLayerPlacement {
         // Since filter layers are recorded with an eager source shift applied,
         // convert the pixmap bbox back into parent-layer coordinates and keep
         // track of the corresponding source offset inside the pixmap.
-        let (composite_bbox, src_x, src_y) =
-            shift_bbox_to_parent(pixmap_bbox, filter_plan.source_shift());
+        let (shift_x, shift_y) = filter_plan.source_shift();
+        let src_x = shift_x.saturating_sub(pixmap_bbox.x0);
+        let src_y = shift_y.saturating_sub(pixmap_bbox.y0);
+        let composite_bbox = RectU16::new(
+            pixmap_bbox.x0.saturating_sub(shift_x),
+            pixmap_bbox.y0.saturating_sub(shift_y),
+            pixmap_bbox.x1.saturating_sub(shift_x),
+            pixmap_bbox.y1.saturating_sub(shift_y),
+        );
 
         Self {
             pixmap_bbox,
@@ -417,22 +424,6 @@ fn snap_bbox_to_tile(bbox: RectU16) -> RectU16 {
         bbox.y1
             .checked_next_multiple_of(Tile::HEIGHT)
             .unwrap_or(u16::MAX),
-    )
-}
-
-fn shift_bbox_to_parent(bbox: RectU16, origin: (u16, u16)) -> (RectU16, u16, u16) {
-    let (left, top) = origin;
-    let src_x = left.saturating_sub(bbox.x0);
-    let src_y = top.saturating_sub(bbox.y0);
-    (
-        RectU16::new(
-            bbox.x0.saturating_sub(left),
-            bbox.y0.saturating_sub(top),
-            bbox.x1.saturating_sub(left),
-            bbox.y1.saturating_sub(top),
-        ),
-        src_x,
-        src_y,
     )
 }
 
