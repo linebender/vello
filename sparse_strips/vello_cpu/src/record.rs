@@ -239,8 +239,6 @@ impl CommandRecorder {
         });
     }
 
-    /// Records a filter layer composite command in the parent layer, then makes
-    /// the new filter layer's command list active.
     fn push_filter_layer(
         &mut self,
         blend_mode: BlendMode,
@@ -279,10 +277,8 @@ impl CommandRecorder {
         });
     }
 
-    /// Pops the current layer, patches its recorded content bounds, and returns
-    /// the layer kind that was popped.
     pub(crate) fn pop_layer(&mut self) -> PoppedLayer {
-        let layer = self.layer_stack.pop().expect("layer stack underflow");
+        let layer = self.layer_stack.pop().unwrap();
         let bbox = layer.bbox;
         let popped = match layer.kind {
             LayerKind::Regular => {
