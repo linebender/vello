@@ -1560,7 +1560,7 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
     target: &mut PixmapMut<'_>,
     resources: FineResources<'_>,
 ) {
-    let Some(row_bounds) = row.bounds() else {
+    let Some(row_bounds) = row.coarse_span() else {
         return;
     };
     let mut row_start = row_bounds.pixel_x();
@@ -1576,7 +1576,7 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
     let row_span = Span::new(row_start, row_end - row_start);
     depth.clear();
 
-    for &cmd in row.opaque.iter().rev() {
+    for &cmd in row.depth_writes.iter().rev() {
         let attrs = &resources.bucketer.attrs()[cmd.attrs_idx as usize];
         fine.render_opaque(
             cmd,

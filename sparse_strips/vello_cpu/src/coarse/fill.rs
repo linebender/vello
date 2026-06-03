@@ -151,7 +151,7 @@ impl CommandBucketer {
                 );
             }
             DepthSegment::Opaque => {
-                row.push_opaque(FillCmd::new(span, None, attrs_idx), full_width, draw_id);
+                row.push_depth_write(FillCmd::new(span, None, attrs_idx), full_width, draw_id);
             }
         });
     }
@@ -160,17 +160,12 @@ impl CommandBucketer {
 #[cfg(test)]
 mod tests {
     use super::CommandBucketer;
-    use crate::coarse::bucket::LayerClip;
     use crate::coarse::cmd::{FillAttrs, FineCmd};
     use crate::coarse::depth::DEPTH_BUCKET_WIDTH;
-    use alloc::vec::Vec;
     use vello_common::color::palette::css::{BLUE, RED};
     use vello_common::color::{AlphaColor, Srgb};
-    use vello_common::encode::EncodeExt;
-    use vello_common::geometry::RectU16;
-    use vello_common::kurbo::Affine;
     use vello_common::paint::{Paint, PremulColor};
-    use vello_common::peniko::{BlendMode, ColorStop, Gradient};
+    use vello_common::peniko::BlendMode;
     use vello_common::strip::Strip;
 
     fn color(alpha: AlphaColor<Srgb>) -> PremulColor {
@@ -189,122 +184,41 @@ mod tests {
     }
 
     #[test]
-    fn opaque_fill_splits_to_aligned_middle() {
-        let end = DEPTH_BUCKET_WIDTH * 3 + 4;
-        let mut bucketer = CommandBucketer::new(DEPTH_BUCKET_WIDTH * 4, 4);
-        let strips = [Strip::new(4, 0, 0, false), Strip::new(end, 0, 0, true)];
+    fn opaque_fill_uses_depth_writes_when_aligned() {
+        let mut bucketer = CommandBucketer::new(DEPTH_BUCKET_WIDTH, 4);
+        let strips = [
+            Strip::new(0, 0, 0, false),
+            Strip::new(DEPTH_BUCKET_WIDTH, 0, 0, true),
+        ];
 
         bucketer.generate_fill(&strips, &fill_attrs(Paint::Solid(color(RED))), &[]);
 
         let row = &bucketer.rows()[0];
-        assert_eq!(row.opaque.len(), 1);
-        assert_eq!(row.opaque[0].span.pixel_x(), DEPTH_BUCKET_WIDTH);
-        assert_eq!(row.opaque[0].span.pixel_width(), DEPTH_BUCKET_WIDTH * 2);
-        assert_eq!(row.cmds.len(), 2);
-        assert!(
-            matches!(row.cmds[0], FineCmd::Fill(cmd) if cmd.span.pixel_x() == 4 && cmd.span.pixel_width() == DEPTH_BUCKET_WIDTH - 4)
-        );
-        assert!(
-            matches!(row.cmds[1], FineCmd::Fill(cmd) if cmd.span.pixel_x() == DEPTH_BUCKET_WIDTH * 3 && cmd.span.pixel_width() == 4)
-        );
+        assert_eq!(row.depth_writes.len(), 1);
+        assert_eq!(row.cmds.len(), 0);
+        assert_eq!(row.depth_writes[0].span.pixel_x(), 0);
+        assert_eq!(row.depth_writes[0].span.pixel_width(), DEPTH_BUCKET_WIDTH);
     }
 
     #[test]
-    fn opaque_indexed_fill_splits_to_aligned_middle() {
-        let end = DEPTH_BUCKET_WIDTH * 3 + 4;
-        let mut bucketer = CommandBucketer::new(DEPTH_BUCKET_WIDTH * 4, 4);
-        let strips = [Strip::new(4, 0, 0, false), Strip::new(end, 0, 0, true)];
-        let mut encoded_paints = Vec::new();
-        let paint = Gradient::new_linear((0., 0.), (128., 0.))
-            .with_stops([ColorStop::from((0.0, RED)), ColorStop::from((1.0, BLUE))])
-            .encode_into(&mut encoded_paints, Affine::IDENTITY, None);
-
-        bucketer.generate_fill(&strips, &fill_attrs(paint), &encoded_paints);
-
-        let row = &bucketer.rows()[0];
-        assert_eq!(row.opaque.len(), 1);
-        assert_eq!(row.opaque[0].span.pixel_x(), DEPTH_BUCKET_WIDTH);
-        assert_eq!(row.opaque[0].span.pixel_width(), DEPTH_BUCKET_WIDTH * 2);
-        assert_eq!(row.cmds.len(), 2);
-        assert!(
-            matches!(row.cmds[0], FineCmd::Fill(cmd) if cmd.span.pixel_x() == 4 && cmd.span.pixel_width() == DEPTH_BUCKET_WIDTH - 4)
-        );
-        assert!(
-            matches!(row.cmds[1], FineCmd::Fill(cmd) if cmd.span.pixel_x() == DEPTH_BUCKET_WIDTH * 3 && cmd.span.pixel_width() == 4)
-        );
-    }
-
-    #[test]
-    fn transparent_fill_stays_in_regular_commands() {
-        let mut bucketer = CommandBucketer::new(128, 4);
-        let strips = [Strip::new(0, 0, 0, false), Strip::new(96, 0, 0, true)];
+    fn non_opaque_fill_uses_regular_commands() {
+        let mut bucketer = CommandBucketer::new(DEPTH_BUCKET_WIDTH, 4);
+        let strips = [
+            Strip::new(0, 0, 0, false),
+            Strip::new(DEPTH_BUCKET_WIDTH, 0, 0, true),
+        ];
 
         bucketer.generate_fill(
             &strips,
-            &fill_attrs(Paint::Solid(color(AlphaColor::from_rgba8(255, 0, 0, 128)))),
+            &fill_attrs(Paint::Solid(color(BLUE.with_alpha(0.5)))),
             &[],
         );
 
         let row = &bucketer.rows()[0];
-        assert!(row.opaque.is_empty());
+        assert_eq!(row.depth_writes.len(), 0);
         assert_eq!(row.cmds.len(), 1);
         assert!(
-            matches!(row.cmds[0], FineCmd::Fill(cmd) if cmd.span.pixel_x() == 0 && cmd.span.pixel_width() == 96)
-        );
-    }
-
-    #[test]
-    fn alpha_fill_stays_in_regular_commands() {
-        let mut bucketer = CommandBucketer::new(128, 4);
-        let strips = [Strip::new(0, 0, 0, false), Strip::new(8, 0, 32, false)];
-
-        bucketer.generate_fill(&strips, &fill_attrs(Paint::Solid(color(BLUE))), &[]);
-
-        let row = &bucketer.rows()[0];
-        assert!(row.opaque.is_empty());
-        assert_eq!(row.cmds.len(), 1);
-        assert!(
-            matches!(row.cmds[0], FineCmd::Fill(cmd) if cmd.span.pixel_x() == 0 && cmd.span.pixel_width() == 8 && cmd.alpha_idx() == Some(0))
-        );
-    }
-
-    #[test]
-    fn alpha_fill_keeps_full_strip_when_clipped() {
-        let mut bucketer = CommandBucketer::new(128, 4);
-        let strips = [Strip::new(0, 0, 0, false), Strip::new(8, 0, 32, false)];
-
-        bucketer.push_layer(
-            BlendMode::default(),
-            1.0,
-            None,
-            Some(LayerClip {
-                strip_range: 0..0,
-                thread_idx: 0,
-                bbox: RectU16::new(1, 0, 7, 4),
-            }),
-        );
-        bucketer.generate_fill(&strips, &fill_attrs(Paint::Solid(color(BLUE))), &[]);
-
-        let row = &bucketer.rows()[0];
-        assert_eq!(row.cmds.len(), 2);
-        assert!(matches!(row.cmds[0], FineCmd::PushLayer));
-        assert!(
-            matches!(row.cmds[1], FineCmd::Fill(cmd) if cmd.span.pixel_x() == 0 && cmd.span.pixel_width() == 8 && cmd.alpha_idx() == Some(0))
-        );
-    }
-
-    #[test]
-    fn short_unaligned_opaque_fill_stays_in_regular_commands() {
-        let mut bucketer = CommandBucketer::new(128, 4);
-        let strips = [Strip::new(8, 0, 0, false), Strip::new(16, 0, 0, true)];
-
-        bucketer.generate_fill(&strips, &fill_attrs(Paint::Solid(color(RED))), &[]);
-
-        let row = &bucketer.rows()[0];
-        assert!(row.opaque.is_empty());
-        assert_eq!(row.cmds.len(), 1);
-        assert!(
-            matches!(row.cmds[0], FineCmd::Fill(cmd) if cmd.span.pixel_x() == 8 && cmd.span.pixel_width() == 8)
+            matches!(row.cmds[0], FineCmd::Fill(cmd) if cmd.span.pixel_x() == 0 && cmd.span.pixel_width() == DEPTH_BUCKET_WIDTH)
         );
     }
 }

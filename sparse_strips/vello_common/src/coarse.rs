@@ -1275,7 +1275,7 @@ impl<const MODE: u8> Wide<MODE> {
 
                 // If the next strip is a sentinel, skip the fill
                 // It's a sentinel in the row if there is non-zero winding for the sparse fill
-                // Look more into this in the strip.rs render function
+                // Look more into this in the fill render function
                 if x2 == u16::MAX {
                     continue;
                 }

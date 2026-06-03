@@ -20,9 +20,14 @@ use vello_common::util::{Clear, RetainVec};
 
 #[derive(Debug, Default)]
 pub(crate) struct RowCommands {
+    /// Normal commands rendered in back-to-front with depth buffer read.
     pub(crate) cmds: Vec<FineCmd>,
-    pub(crate) opaque: Vec<FillCmd>,
-    bounds: Option<Span>,
+    /// Opaque fill commands rendered front-to-back with depth buffer read and write.
+    ///
+    /// `alpha_idx` is always `None` for these commands.
+    pub(crate) depth_writes: Vec<FillCmd>,
+    /// A coarse span of all pixels that might be touched in that row.
+    coarse_span: Option<Span>,
     depth: DepthState,
     pub(super) layer_depth: usize,
 }
@@ -31,8 +36,8 @@ impl RowCommands {
     pub(super) fn new() -> Self {
         Self {
             cmds: Vec::new(),
-            opaque: Vec::new(),
-            bounds: None,
+            depth_writes: Vec::new(),
+            coarse_span: None,
             depth: DepthState::default(),
             layer_depth: 0,
         }
@@ -40,15 +45,15 @@ impl RowCommands {
 
     fn clear(&mut self) {
         self.cmds.clear();
-        self.opaque.clear();
-        self.bounds = None;
+        self.depth_writes.clear();
+        self.coarse_span = None;
         self.depth.reset();
         self.layer_depth = 0;
     }
 
     pub(super) fn push_cmd(&mut self, cmd: FineCmd, width: u16) {
         if let Some(span) = cmd.generated_span() {
-            self.include_bounds(span, width);
+            self.include_span(span, width);
         }
         self.cmds.push(cmd);
     }
@@ -106,29 +111,29 @@ impl RowCommands {
         self.layer_depth -= 1;
     }
 
-    pub(super) fn push_opaque(&mut self, cmd: FillCmd, width: u16, draw_id: u32) {
-        self.include_bounds(cmd.span, width);
+    pub(super) fn push_depth_write(&mut self, cmd: FillCmd, width: u16, draw_id: u32) {
+        self.include_span(cmd.span, width);
         self.depth.include_span(cmd.span, draw_id);
-        self.opaque.push(cmd);
+        self.depth_writes.push(cmd);
     }
 
-    pub(crate) fn bounds(&self) -> Option<Span> {
-        self.bounds
+    pub(crate) fn coarse_span(&self) -> Option<Span> {
+        self.coarse_span
     }
 
     pub(crate) fn can_skip_depth(&self, span: Span, draw_id: u32) -> bool {
         self.depth.can_skip(span, draw_id)
     }
 
-    fn include_bounds(&mut self, span: Span, width: u16) {
+    fn include_span(&mut self, span: Span, width: u16) {
         if span.pixel_x() >= width {
             return;
         }
 
-        if let Some(bounds) = &mut self.bounds {
+        if let Some(bounds) = &mut self.coarse_span {
             bounds.extend(span);
         } else {
-            self.bounds = Some(span);
+            self.coarse_span = Some(span);
         }
     }
 }
