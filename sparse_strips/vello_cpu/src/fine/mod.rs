@@ -477,7 +477,6 @@ pub struct Fine<S: Simd, T: FineKernel<S>> {
     buffer_pool: Vec<Vec<T::Numeric>>,
     paint_buf: Vec<T::Numeric>,
     f32_buf: Vec<f32>,
-    depth: DepthBuffer,
     row_y: u16,
     paint_offset: (u16, u16),
 }
@@ -493,7 +492,6 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             buffer_pool: Vec::new(),
             paint_buf: Vec::new(),
             f32_buf: Vec::new(),
-            depth: DepthBuffer::new(buffer_width),
             row_y: 0,
             paint_offset: (0, 0),
         }
@@ -505,10 +503,6 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
     fn set_paint_offset(&mut self, paint_offset: (u16, u16)) {
         self.paint_offset = paint_offset;
-    }
-
-    fn reset_depth_range(&mut self, x: u16, width: u16) {
-        self.depth.clear_range(x, width);
     }
 
     fn clear_buffer_range(&mut self, x: u16, width: u16) {
@@ -526,16 +520,15 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         width: u16,
         target: &mut PixmapMut<'_>,
         unpack_dest: bool,
+        depth: &DepthBuffer,
     ) {
-        let (depth_start, depth_end) = self.depth.range_with_width(scratch_x, width);
         let scratch_end = scratch_x + width;
 
-        let mut idx = depth_start;
-        while let Some((run_x, run_end, _)) = self.depth.next_unset_run(&mut idx, depth_end) {
-            let x = scratch_x.max(run_x);
-            let end = scratch_end.min(run_end);
+        depth.for_each_unset_run(scratch_x, scratch_end, |span| {
+            let x = span.pixel_x().max(scratch_x);
+            let end = span.pixel_end().min(scratch_end);
             if x >= end {
-                continue;
+                return;
             }
 
             if unpack_dest {
@@ -550,7 +543,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             } else {
                 self.clear_buffer_range(x, end - x);
             }
-        }
+        });
     }
 
     fn push_layer(&mut self, x: u16, width: u16) {
@@ -802,16 +795,15 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         attrs: &FillAttrs,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
+        depth: &mut DepthBuffer,
     ) {
         self.set_paint_offset(attrs.paint_offset);
         let cmd_x = cmd.span.pixel_x();
-        let cmd_width = cmd.span.pixel_width();
-        let cmd_end = cmd_x.saturating_add(cmd_width);
-        let (mut idx, depth_end) = self.depth.range(cmd_x, cmd_end);
-        while let Some((x, end, depth_range)) = self.depth.next_unset_run(&mut idx, depth_end) {
+        let cmd_end = cmd.span.pixel_end();
+        depth.mark_each_unset_run(cmd_x, cmd_end, attrs.draw_id, |span| {
             self.fill(
-                x,
-                end - x,
+                span.pixel_x(),
+                span.pixel_width(),
                 &attrs.paint,
                 attrs.blend_mode,
                 encoded_paints,
@@ -819,8 +811,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 None,
                 attrs.mask.as_ref(),
             );
-            self.depth.mark(depth_range, attrs.draw_id);
-        }
+        });
     }
 
     #[inline(always)]
@@ -832,6 +823,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
         use_depth: bool,
+        depth: &DepthBuffer,
     ) {
         let cmd_x = cmd.span.pixel_x();
         let cmd_end = cmd.span.pixel_end().min(self.buffer_width);
@@ -852,13 +844,17 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             return;
         }
 
-        let (mut idx, depth_end) = self.depth.range(cmd_x, cmd_end);
-        while let Some((x, end)) =
-            self.depth
-                .next_visible_run(&mut idx, depth_end, attrs.draw_id, cmd_x, cmd_end)
-        {
-            self.render_cmd_span(cmd, x, end, alphas, attrs, encoded_paints, image_resolver);
-        }
+        depth.for_each_visible_run(cmd_x, cmd_end, attrs.draw_id, |span| {
+            self.render_cmd_span(
+                cmd,
+                span.pixel_x(),
+                span.pixel_end(),
+                alphas,
+                attrs,
+                encoded_paints,
+                image_resolver,
+            );
+        });
     }
 
     #[inline(always)]
@@ -946,6 +942,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         row_y: u16,
         layer: &Pixmap,
         use_depth: bool,
+        depth: &DepthBuffer,
     ) {
         let cmd_x = cmd.span.pixel_x();
         let cmd_end = cmd.span.pixel_end().min(self.buffer_width);
@@ -975,21 +972,18 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             return;
         }
 
-        let (mut idx, depth_end) = self.depth.range(cmd_x, cmd_end);
-        while let Some((x, end)) =
-            self.depth
-                .next_visible_run(&mut idx, depth_end, attrs.draw_id, cmd_x, cmd_end)
-        {
+        depth.for_each_visible_run(cmd_x, cmd_end, attrs.draw_id, |span| {
+            let x = span.pixel_x();
             self.composite_filter_layer(
                 x,
-                end - x,
+                span.pixel_width(),
                 attrs.src_origin.0 + (x - cmd.span.pixel_x()),
                 src_y,
                 dst_y_offset,
                 height,
                 layer,
             );
-        }
+        });
     }
 
     #[doc(hidden)]
@@ -1507,8 +1501,10 @@ pub(crate) fn rasterize_at_offset_parallel<S: Simd, T: FineKernel<S>>(
         let row_y = band.row_idx as u16 * Tile::HEIGHT;
         let row = &bucketer.rows()[band.row_idx];
         let mut fine = Fine::<S, T>::new(simd, target_width, bucketer.width());
+        let mut depth = DepthBuffer::new(bucketer.width());
         rasterize_row::<S, T>(
             &mut fine,
+            &mut depth,
             row,
             row_y,
             alpha_buffers,
@@ -1542,6 +1538,7 @@ fn rasterize_rows<S: Simd, T: FineKernel<S>>(
     let (width, height) = scene_size.unwrap_or((target.width(), target.height()));
     let width = width.min(target.width().saturating_sub(dst_x));
     let height = height.min(target.height().saturating_sub(dst_y));
+    let mut depth = DepthBuffer::new(bucketer.width());
 
     for (row_idx, row) in bucketer.rows().iter().enumerate() {
         let row_y = row_idx as u16 * Tile::HEIGHT;
@@ -1552,6 +1549,7 @@ fn rasterize_rows<S: Simd, T: FineKernel<S>>(
         let row_height = (height - row_y).min(Tile::HEIGHT);
         rasterize_row::<S, T>(
             fine,
+            &mut depth,
             row,
             row_y,
             alpha_buffers,
@@ -1571,6 +1569,7 @@ fn rasterize_rows<S: Simd, T: FineKernel<S>>(
 
 fn rasterize_row<S: Simd, T: FineKernel<S>>(
     fine: &mut Fine<S, T>,
+    depth: &mut DepthBuffer,
     row: &crate::coarse::RowCommands,
     row_y: u16,
     alpha_buffers: &[&[u8]],
@@ -1598,11 +1597,11 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
 
     let row_height = usize::from(row_height);
     fine.set_row_y(row_y);
-    fine.reset_depth_range(row_start, row_end - row_start);
+    depth.clear_range(row_start, row_end - row_start);
 
     for &cmd in row.opaque.iter().rev() {
         let attrs = &bucketer.attrs()[cmd.attrs_idx as usize];
-        fine.render_opaque(cmd, attrs, encoded_paints, image_resolver);
+        fine.render_opaque(cmd, attrs, encoded_paints, image_resolver, depth);
     }
 
     fine.init_uncovered_range(
@@ -1613,6 +1612,7 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
         row_end - row_start,
         target,
         unpack_dest,
+        depth,
     );
 
     for cmd in &row.cmds {
@@ -1628,6 +1628,7 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
                     encoded_paints,
                     image_resolver,
                     use_depth,
+                    depth,
                 );
             }
             FineCmd::PushLayer => {
@@ -1647,7 +1648,7 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
                 let attrs = &bucketer.filter_attrs()[cmd.attrs_idx as usize];
                 if let Some(layer) = layer_manager.filter_layer(attrs.id) {
                     let use_depth = !row.can_skip_depth(cmd.span, attrs.draw_id);
-                    fine.composite_filter_layer_cmd(*cmd, attrs, row_y, layer, use_depth);
+                    fine.composite_filter_layer_cmd(*cmd, attrs, row_y, layer, use_depth, depth);
                 }
             }
             FineCmd::BlendFill(cmd) => {

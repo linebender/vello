@@ -95,8 +95,8 @@ pub(crate) struct DepthState {
     /// Coarse union of all depth-trackable opaque spans in this row.
     opaque_bounds: Option<Span>,
     /// Maximum draw ID of any depth-trackable opaque command in this row.
-    //
-    // Draw IDs start at 1, so 0 represents "no opaque command".
+    ///
+    /// Draw IDs start at 1, so 0 represents "no opaque command".
     max_draw_id: u32,
 }
 
@@ -147,15 +147,62 @@ impl DepthBuffer {
         }
     }
 
+    /// Calls `f` for every unset depth run touched by `x..end`.
+    pub(crate) fn for_each_unset_run(&self, x: u16, end: u16, mut f: impl FnMut(Span)) {
+        let (mut idx, depth_end) = self.range(x, end);
+        while let Some((run_x, run_end, _)) = self.next_unset_run(&mut idx, depth_end) {
+            if let Some(span) = pixel_span(run_x, run_end) {
+                f(span);
+            }
+        }
+    }
+
+    /// Calls `f` for every unset depth run in `x..end`, then marks it with `draw_id`.
+    pub(crate) fn mark_each_unset_run(
+        &mut self,
+        x: u16,
+        end: u16,
+        draw_id: u32,
+        mut f: impl FnMut(Span),
+    ) {
+        let (mut idx, depth_end) = self.range(x, end);
+        while let Some((run_x, run_end, depth_range)) = self.next_unset_run(&mut idx, depth_end) {
+            let x = x.max(run_x);
+            let end = end.min(run_end);
+            if let Some(span) = pixel_span(x, end) {
+                f(span);
+                self.mark(depth_range, draw_id);
+            }
+        }
+    }
+
+    /// Calls `f` for every depth run visible to `draw_id` in `x..end`.
+    pub(crate) fn for_each_visible_run(
+        &self,
+        x: u16,
+        end: u16,
+        draw_id: u32,
+        mut f: impl FnMut(Span),
+    ) {
+        let (mut idx, depth_end) = self.range(x, end);
+        while let Some((run_x, run_end)) =
+            self.next_visible_run(&mut idx, depth_end, draw_id, x, end)
+        {
+            if let Some(span) = pixel_span(run_x, run_end) {
+                f(span);
+            }
+        }
+    }
+
     /// Returns the depth-bucket index range touched by the pixel range `x..end`.
-    pub(crate) fn range(&self, x: u16, end: u16) -> (usize, usize) {
+    fn range(&self, x: u16, end: u16) -> (usize, usize) {
         (
             usize::from(x / DEPTH_BUCKET_WIDTH),
             usize::from(end.div_ceil(DEPTH_BUCKET_WIDTH)).min(self.data.len()),
         )
     }
 
-    pub(crate) fn range_with_width(&self, x: u16, width: u16) -> (usize, usize) {
+    fn range_with_width(&self, x: u16, width: u16) -> (usize, usize) {
         self.range(x, x.saturating_add(width))
     }
 
@@ -164,10 +211,8 @@ impl DepthBuffer {
         self.data[start..end].fill(0);
     }
 
-    pub(crate) fn mark(&mut self, range: core::ops::Range<usize>, draw_id: u32) {
-        for depth in &mut self.data[range] {
-            *depth = draw_id;
-        }
+    fn mark(&mut self, range: core::ops::Range<usize>, draw_id: u32) {
+        self.data[range].fill(draw_id);
     }
 
     /// Finds the next consecutive run of unset depth buckets.
@@ -175,7 +220,7 @@ impl DepthBuffer {
     /// Used by opaque fills: unset buckets (`0`) have not yet been covered by a
     /// later opaque draw, so the opaque fill can render those buckets and then
     /// write its draw id into the returned depth range.
-    pub(crate) fn next_unset_run(
+    fn next_unset_run(
         &self,
         idx: &mut usize,
         end: usize,
@@ -203,7 +248,7 @@ impl DepthBuffer {
     /// Depth entries larger than `draw_id` belong to later opaque draws and hide
     /// this command. Entries less than or equal to `draw_id` are still visible for
     /// this command and are returned as pixel ranges clipped to `x..x_end`.
-    pub(crate) fn next_visible_run(
+    fn next_visible_run(
         &self,
         idx: &mut usize,
         end: usize,
@@ -228,4 +273,14 @@ impl DepthBuffer {
         let run_end = x_end.min(*idx as u16 * DEPTH_BUCKET_WIDTH);
         Some((run_x, run_end))
     }
+}
+
+fn pixel_span(x: u16, end: u16) -> Option<Span> {
+    if x >= end {
+        return None;
+    }
+
+    debug_assert_eq!(x % Tile::WIDTH, 0);
+    debug_assert_eq!(end % Tile::WIDTH, 0);
+    Some(Span::new(x / Tile::WIDTH, (end - x) / Tile::WIDTH))
 }
