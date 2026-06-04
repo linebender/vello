@@ -244,13 +244,26 @@ fn intersect_impl<S: Simd>(
 
     // Ignore any y values that are outside the bounding box of either of the two paths, as
     // those are guaranteed to have neither fill nor strip regions.
-    let mut cur_y = path_1.strips[0].strip_y().max(path_2.strips[0].strip_y());
+    let path_1_start_y = path_1.strips[0].strip_y();
+    let path_2_start_y = path_2.strips[0].strip_y();
+    let mut cur_y = path_1_start_y.max(path_2_start_y);
     let end_y = path_1.strips[path_1.strips.len() - 1]
         .strip_y()
         .min(path_2.strips[path_2.strips.len() - 1].strip_y());
 
     let mut path_1_idx = 0;
     let mut path_2_idx = 0;
+
+    // Use binary search to determine the first index of whichever
+    // path has a smaller y to avoid a large linear scan in the
+    // first iteration of the loop below in case the discrepancy
+    // is large.
+    if path_1_start_y < cur_y {
+        path_1_idx = first_strip_at_or_after(path_1.strips, cur_y);
+    } else if path_2_start_y < cur_y {
+        path_2_idx = first_strip_at_or_after(path_2.strips, cur_y);
+    }
+
     let mut strip_state = None;
 
     // Iterate over each strip row and handle them.
@@ -360,6 +373,13 @@ fn intersect_impl<S: Simd>(
             false,
         ));
     }
+}
+
+#[inline(always)]
+fn first_strip_at_or_after(strips: &[Strip], strip_y: u16) -> usize {
+    // Strips are guaranteed to be sorted in ascending y (and ascending x),
+    // hence why we can do this.
+    strips.partition_point(|strip| strip.strip_y() < strip_y)
 }
 
 /// An overlap between two regions.
@@ -614,7 +634,7 @@ fn should_create_new_strip(
 
 #[cfg(test)]
 mod tests {
-    use crate::clip::{PathDataRef, Region, RowIterator, intersect};
+    use crate::clip::{PathDataRef, Region, RowIterator, first_strip_at_or_after, intersect};
     use crate::geometry::RectU16;
     use crate::strip::Strip;
     use crate::strip_generator::StripStorage;
@@ -702,6 +722,27 @@ mod tests {
         let expected = StripBuilder::new().add_strip(0, 1, 12, false).finish();
 
         run_test(expected, path_1, path_2);
+    }
+
+    #[test]
+    fn first_strip_at_or_after_returns_first_matching_strip_y() {
+        let path = StripBuilder::new()
+            .add_strip(0, 0, 4, false)
+            .add_strip(0, 2, 4, false)
+            .add_strip(8, 2, 12, false)
+            .add_strip(16, 2, 20, false)
+            .add_strip(0, 4, 4, false)
+            .add_strip(8, 4, 12, false)
+            .add_strip(0, 6, 4, false)
+            .finish();
+
+        assert_eq!(first_strip_at_or_after(&path.strips, 0), 0);
+        assert_eq!(first_strip_at_or_after(&path.strips, 2), 1);
+        assert_eq!(first_strip_at_or_after(&path.strips, 3), 4);
+        assert_eq!(first_strip_at_or_after(&path.strips, 4), 4);
+        assert_eq!(first_strip_at_or_after(&path.strips, 5), 6);
+        assert_eq!(first_strip_at_or_after(&path.strips, 6), 6);
+        assert_eq!(first_strip_at_or_after(&path.strips, 7), path.strips.len());
     }
 
     #[test]
