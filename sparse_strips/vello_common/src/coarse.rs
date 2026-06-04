@@ -623,7 +623,10 @@ impl<const MODE: u8> Wide<MODE> {
 
                 // Compute fill hint based on paint type
                 let fill_attrs = &self.attrs.fill[attrs_idx as usize];
-                let fill_hint = if fill_attrs.mask.is_none() && self.enable_bg_optimization {
+                let fill_hint = if fill_attrs.mask.is_none()
+                    && fill_attrs.blend_mode == BlendMode::default()
+                    && self.enable_bg_optimization
+                {
                     match &fill_attrs.paint {
                         Paint::Solid(s) if s.is_opaque() => FillHint::OpaqueSolid(*s),
                         Paint::Indexed(idx) => match encoded_paints.get(idx.index()) {
