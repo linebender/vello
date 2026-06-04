@@ -353,7 +353,7 @@ fn image_with_anti_aliasing(ctx: &mut impl Renderer) {
 }
 
 #[vello_test]
-fn image_with_mask(ctx: &mut impl Renderer) {
+fn image_opaque_with_mask(ctx: &mut impl Renderer) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
     let image = Image {
         image: rgb_img_2x2(ctx),
@@ -372,7 +372,7 @@ fn image_with_mask(ctx: &mut impl Renderer) {
 }
 
 #[vello_test(skip_hybrid)]
-fn image_with_blend_mode(ctx: &mut impl Renderer) {
+fn image_opaque_with_blend_mode(ctx: &mut impl Renderer) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
     let image = Image {
         image: rgb_img_2x2(ctx),
