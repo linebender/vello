@@ -375,6 +375,7 @@ fn intersect_impl<S: Simd>(
     }
 }
 
+#[inline(always)]
 fn first_strip_at_or_after(strips: &[Strip], strip_y: u16) -> usize {
     // Strips are guaranteed to be sorted in ascending y (and ascending x),
     // hence why we can do this.
