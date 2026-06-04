@@ -3,6 +3,7 @@
 
 use crate::gradient::tan_45;
 use crate::load_image;
+use crate::mask::example_mask;
 use crate::renderer::Renderer;
 use crate::util::crossed_line_star;
 use std::f64::consts::PI;
@@ -13,7 +14,7 @@ use vello_common::kurbo::{Shape, Triangle};
 use vello_common::paint::{Image, ImageSource, Tint, TintMode};
 use vello_common::peniko::Color;
 use vello_common::peniko::ImageSampler;
-use vello_common::peniko::{Extend, ImageQuality};
+use vello_common::peniko::{BlendMode, Compose, Extend, ImageQuality, Mix};
 use vello_dev_macros::vello_test;
 
 fn rgb_img_10x10(ctx: &mut impl Renderer) -> ImageSource {
@@ -348,6 +349,46 @@ fn image_with_anti_aliasing(ctx: &mut impl Renderer) {
     };
 
     ctx.set_paint(image);
+    ctx.fill_rect(&rect);
+}
+
+#[vello_test]
+fn image_opaque_with_mask(ctx: &mut impl Renderer) {
+    let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+    let image = Image {
+        image: rgb_img_2x2(ctx),
+        sampler: ImageSampler {
+            x_extend: Extend::Repeat,
+            y_extend: Extend::Repeat,
+            quality: ImageQuality::Low,
+            alpha: 1.0,
+        },
+    };
+
+    ctx.set_mask(example_mask(true));
+    ctx.set_paint(image);
+    ctx.set_paint_transform(Affine::scale(50.0));
+    ctx.fill_rect(&rect);
+}
+
+#[vello_test(skip_hybrid)]
+fn image_opaque_with_blend_mode(ctx: &mut impl Renderer) {
+    let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
+    let image = Image {
+        image: rgb_img_2x2(ctx),
+        sampler: ImageSampler {
+            x_extend: Extend::Repeat,
+            y_extend: Extend::Repeat,
+            quality: ImageQuality::Low,
+            alpha: 1.0,
+        },
+    };
+
+    ctx.set_paint(REBECCA_PURPLE);
+    ctx.fill_rect(&rect);
+    ctx.set_blend_mode(BlendMode::new(Mix::Difference, Compose::SrcOver));
+    ctx.set_paint(image);
+    ctx.set_paint_transform(Affine::scale(50.0));
     ctx.fill_rect(&rect);
 }
 

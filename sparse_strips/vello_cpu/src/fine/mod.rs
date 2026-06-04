@@ -738,7 +738,11 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                         fill_complex_paint!($may_have_transparency, $filler, None::<&Tint>)
                     };
                     ($may_have_transparency:expr, $filler:expr, $tint:expr) => {
-                        if $may_have_transparency || alphas.is_some() {
+                        if $may_have_transparency
+                            || alphas.is_some()
+                            || !default_blend
+                            || mask.is_some()
+                        {
                             T::apply_painter(self.simd, color_buf, $filler);
                             if let Some(t) = $tint {
                                 T::apply_tint(self.simd, color_buf, t);
