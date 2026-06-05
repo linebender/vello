@@ -6,9 +6,10 @@ use super::cmd::{
     RenderCmd,
 };
 use super::depth::{DepthSegment, DepthState};
+use crate::coarse::depth;
 use crate::peniko::BlendMode;
 use crate::record::{LayerProps, RecordedCmd, RecordedLayer, RecordedLayerKind};
-use crate::util::{bbox_relative_to, snap_bbox_to_tile_coordinates, Span, VecPool};
+use crate::util::{Span, VecPool, bbox_relative_to, snap_bbox_to_tile_coordinates};
 use alloc::vec;
 use alloc::vec::Vec;
 use std::ops::Range;
@@ -18,7 +19,6 @@ use vello_common::mask::Mask;
 use vello_common::strip::Strip;
 use vello_common::tile::Tile;
 use vello_common::util::{Clear, RetainVec};
-use crate::coarse::depth;
 
 #[derive(Debug, Default)]
 pub(crate) struct RowCmds {
@@ -199,14 +199,14 @@ impl CommandBucketer {
         self.clip_bboxes.truncate(1);
         self.clip_bboxes[0] = full_clip_bbox;
     }
-    
+
     fn next_draw_id(&mut self) -> u32 {
         let draw_id = self.next_draw_id;
         self.next_draw_id = self.next_draw_id + 1;
 
         draw_id
     }
-    
+
     #[inline(always)]
     pub(super) fn ensure_row_layers(&mut self, row_idx: usize) {
         let layer_depth = self.rows[row_idx].layer_depth;
@@ -265,21 +265,25 @@ impl CommandBucketer {
                         unreachable!()
                     };
                     let placement = *placement;
-                    // `composite_bbox` is in a coordinate system that assumes that the origin is
-                    // anchored at (0, 0). However, as mentioned it can happen that the actual
-                    // origin is shifted if the parent is a filter layer whose top-left bounding
-                    // box is not (0, 0). Therefore, we also need to account for that when
-                    // determining where to emit the filter layer fill commands.
-                    let bbox = bbox_relative_to(placement.composite_bbox, pixmap_origin);
+                    // `composite_bbox` is stored in parent/root coordinates, while the bucketer
+                    // emits commands in the current pixmap's local coordinates. If the parent filter
+                    // pixmap starts at (100, 40), a nested filter composite at
+                    // (140, 60)..(180, 80) must be emitted at (40, 20)..(80, 40).
+                    let local_composite_bbox =
+                        bbox_relative_to(placement.composite_bbox, pixmap_origin);
                     let needs_layer = props.blend_mode != BlendMode::default()
                         || props.opacity != 1.0
                         || props.mask.is_some()
                         || props.clip.is_some();
-                    
+
                     if needs_layer {
                         self.push_layer(props);
                     }
-                    self.generate_filter_layer_fill(id.get(), bbox, placement.src_origin());
+                    self.generate_filter_layer_fill(
+                        id.get(),
+                        local_composite_bbox,
+                        placement.src_origin(),
+                    );
                     if needs_layer {
                         self.pop_layer(strips, pixmap_origin);
                     }
@@ -296,7 +300,7 @@ impl CommandBucketer {
             .as_ref()
             .map(|clip| clip.bbox.intersect(parent_bbox))
             .unwrap_or(parent_bbox);
-        
+
         let bbox = snap_bbox_to_tile_coordinates(bbox);
         if props.clip.is_some() {
             self.clip_bboxes.push(bbox);
@@ -397,18 +401,18 @@ impl CommandBucketer {
                 // Make sure to reset it so that by the end, the vector is all `false` again.
                 self.occupied_rows_bool_scratch[row_idx] = false;
             }
-            
+
             self.occupied_rows_pool.submit(layer.occupied_rows);
         } else {
             let attrs_idx = self.layer_fill_attrs.len() as u32;
-            
+
             self.layer_fill_attrs.push(LayerFillAttrs {
                 blend_mode,
                 opacity,
                 mask: layer.mask.clone(),
                 thread_idx: 0,
             });
-            
+
             let span = if blend_mode.is_destructive() {
                 layer.span
             } else {
@@ -421,7 +425,7 @@ impl CommandBucketer {
                 row.push_cmd(RenderCmd::LayerFill(LayerFill::new(span, None, attrs_idx)));
                 row.pop_buf();
             }
-            
+
             self.occupied_rows_pool.submit(layer.occupied_rows);
         }
     }
@@ -429,35 +433,38 @@ impl CommandBucketer {
     pub(crate) fn generate_filter_layer_fill(
         &mut self,
         filter_layer_id: usize,
-        bbox: RectU16,
+        dest_bbox: RectU16,
         src_origin: (u16, u16),
     ) {
         let clip_bbox = *self.clip_bboxes.last().unwrap();
-        let src_bbox = bbox;
-        let intersected_bbox = bbox.intersect(clip_bbox);
-        if intersected_bbox.is_empty() {
+        let src_bbox = dest_bbox;
+        // As noted in [`CommandBucketer::clip_bboxes`], we only need to composite the parts
+        // of the filter layer that actually lie within clip bounding box. Once again, note that
+        // this is already snapped to tile coordinates!
+        let dest_bbox = dest_bbox.intersect(clip_bbox);
+        if dest_bbox.is_empty() {
             return;
         }
 
         let draw_id = self.next_draw_id();
-        let span = Self::bbox_span(intersected_bbox);
+        let span = Self::bbox_span(dest_bbox);
         let filter_attrs_idx = self.filter_fill_attrs.len() as u32;
         self.filter_fill_attrs.push(FilterLayerFillAttrs {
             id: filter_layer_id,
             draw_id,
-            dest_bbox: intersected_bbox,
+            dest_bbox,
             src_origin: (
                 src_origin.0 + span.pixel_x().saturating_sub(src_bbox.x0),
-                src_origin.1 + (intersected_bbox.y0 - src_bbox.y0),
+                src_origin.1 + (dest_bbox.y0 - src_bbox.y0),
             ),
         });
-        let row_start = usize::from(intersected_bbox.y0 / Tile::HEIGHT);
-        let row_end = usize::from(intersected_bbox.y1.div_ceil(Tile::HEIGHT)).min(self.rows.len());
+        let row_start = usize::from(dest_bbox.y0 / Tile::HEIGHT);
+        let row_end = usize::from(dest_bbox.y1.div_ceil(Tile::HEIGHT)).min(self.rows.len());
         for row_idx in row_start..row_end {
             self.ensure_row_layers(row_idx);
             let row_y = row_idx as u16 * Tile::HEIGHT;
             let row_y1 = row_y.saturating_add(Tile::HEIGHT);
-            if row_y1 <= intersected_bbox.y0 || row_y >= intersected_bbox.y1 {
+            if row_y1 <= dest_bbox.y0 || row_y >= dest_bbox.y1 {
                 continue;
             }
             self.rows[row_idx].push_cmd(RenderCmd::FilterLayerFill(FilterLayerFill {
@@ -652,12 +659,12 @@ mod tests {
     use crate::coarse::CommandBucketer;
     use crate::coarse::cmd::{PaintFillAttrs, RenderCmd};
     use crate::coarse::depth::DEPTH_BUCKET_WIDTH;
+    use crate::record::LayerProps;
     use vello_common::color::palette::css::{BLUE, RED};
     use vello_common::color::{AlphaColor, Srgb};
     use vello_common::paint::{Paint, PremulColor};
     use vello_common::peniko::BlendMode;
     use vello_common::strip::Strip;
-    use crate::record::LayerProps;
 
     fn color(alpha: AlphaColor<Srgb>) -> PremulColor {
         PremulColor::from_alpha_color(alpha)
