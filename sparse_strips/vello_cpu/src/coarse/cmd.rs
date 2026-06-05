@@ -1,3 +1,5 @@
+//! Render commands for a single row of strips.
+
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
@@ -132,7 +134,7 @@ pub(crate) struct FilterLayerFillAttrs {
     /// The ID of the filter layer.
     pub(crate) id: usize,
     pub(crate) draw_id: u32,
-    pub(crate) dst_bbox: RectU16,
+    pub(crate) dest_bbox: RectU16,
     pub(crate) src_origin: (u16, u16),
 }
 

@@ -1,9 +1,9 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Depth buffers for saving unnecessary per-pixel work.
+//! CPU-based depth buffers.
 //!
-//! GPUs have depth buffers, so why not use them in CPU rendering as well! For many of the existing
+//! GPUs have depth buffers, so why not use them for CPU rendering as well! For many of the existing
 //! CPU-based 2D renderers, this is not really possible because they use immediate-mode rendering.
 //! But Vello CPU first converts all rendering commands into strips and then processes them, meaning
 //! that before we even start with rasterization, we already have a rough idea of what we are about

@@ -924,12 +924,12 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             return;
         }
         let row_y1 = row_y.saturating_add(Tile::HEIGHT);
-        let draw_y = row_y.max(attrs.dst_bbox.y0);
-        let draw_y1 = row_y1.min(attrs.dst_bbox.y1);
+        let draw_y = row_y.max(attrs.dest_bbox.y0);
+        let draw_y1 = row_y1.min(attrs.dest_bbox.y1);
         if draw_y >= draw_y1 {
             return;
         }
-        let src_y = attrs.src_origin.1 + (draw_y - attrs.dst_bbox.y0);
+        let src_y = attrs.src_origin.1 + (draw_y - attrs.dest_bbox.y0);
         let dst_y_offset = (draw_y - row_y) as u8;
         let height = (draw_y1 - draw_y) as u8;
 

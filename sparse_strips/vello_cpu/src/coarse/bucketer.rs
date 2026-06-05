@@ -199,6 +199,26 @@ impl CommandBucketer {
         self.clip_bboxes.truncate(1);
         self.clip_bboxes[0] = full_clip_bbox;
     }
+    
+    fn next_draw_id(&mut self) -> u32 {
+        let draw_id = self.next_draw_id;
+        self.next_draw_id = self.next_draw_id + 1;
+
+        draw_id
+    }
+    
+    #[inline(always)]
+    pub(super) fn ensure_row_layers(&mut self, row_idx: usize) {
+        let layer_depth = self.rows[row_idx].layer_depth;
+        if layer_depth == self.active_layers.len() {
+            return;
+        }
+
+        for layer_idx in layer_depth..self.active_layers.len() {
+            self.rows[row_idx].push_buf();
+            self.active_layers[layer_idx].occupied_rows.push(row_idx);
+        }
+    }
 
     pub(crate) fn bucket_commands(
         &mut self,
@@ -255,10 +275,11 @@ impl CommandBucketer {
                         || props.opacity != 1.0
                         || props.mask.is_some()
                         || props.clip.is_some();
+                    
                     if needs_layer {
                         self.push_layer(props);
                     }
-                    self.generate_filter_layer(id.get(), bbox, placement.src_origin());
+                    self.generate_filter_layer_fill(id.get(), bbox, placement.src_origin());
                     if needs_layer {
                         self.pop_layer(strips, pixmap_origin);
                     }
@@ -268,13 +289,6 @@ impl CommandBucketer {
         }
     }
 
-    fn next_draw_id(&mut self) -> u32 {
-        let draw_id = self.next_draw_id;
-        self.next_draw_id = self.next_draw_id + 1;
-
-        draw_id
-    }
-
     pub(crate) fn push_layer(&mut self, props: &LayerProps) {
         let parent_bbox = *self.clip_bboxes.last().unwrap();
         let bbox = props
@@ -282,6 +296,7 @@ impl CommandBucketer {
             .as_ref()
             .map(|clip| clip.bbox.intersect(parent_bbox))
             .unwrap_or(parent_bbox);
+        
         let bbox = snap_bbox_to_tile_coordinates(bbox);
         if props.clip.is_some() {
             self.clip_bboxes.push(bbox);
@@ -354,7 +369,8 @@ impl CommandBucketer {
                 self.occupied_rows_bool_scratch[row_idx] = true;
             }
 
-            // Now generate the actual layer fill commands.
+            // Only generate layer fill commands if it actually lies within a row that has
+            // been touched by the contents of the layer.
             self.generate(
                 clip_strips,
                 pixmap_origin,
@@ -378,18 +394,21 @@ impl CommandBucketer {
 
             for row_idx in layer.occupied_rows.drain(..) {
                 self.rows[row_idx].pop_buf();
-                // Make sure to reset it.
+                // Make sure to reset it so that by the end, the vector is all `false` again.
                 self.occupied_rows_bool_scratch[row_idx] = false;
             }
+            
             self.occupied_rows_pool.submit(layer.occupied_rows);
         } else {
             let attrs_idx = self.layer_fill_attrs.len() as u32;
+            
             self.layer_fill_attrs.push(LayerFillAttrs {
                 blend_mode,
                 opacity,
                 mask: layer.mask.clone(),
                 thread_idx: 0,
             });
+            
             let span = if blend_mode.is_destructive() {
                 layer.span
             } else {
@@ -402,24 +421,12 @@ impl CommandBucketer {
                 row.push_cmd(RenderCmd::LayerFill(LayerFill::new(span, None, attrs_idx)));
                 row.pop_buf();
             }
+            
             self.occupied_rows_pool.submit(layer.occupied_rows);
         }
     }
 
-    #[inline(always)]
-    pub(super) fn ensure_row_layers(&mut self, row_idx: usize) {
-        let layer_depth = self.rows[row_idx].layer_depth;
-        if layer_depth == self.active_layers.len() {
-            return;
-        }
-
-        for layer_idx in layer_depth..self.active_layers.len() {
-            self.rows[row_idx].push_buf();
-            self.active_layers[layer_idx].occupied_rows.push(row_idx);
-        }
-    }
-
-    pub(crate) fn generate_filter_layer(
+    pub(crate) fn generate_filter_layer_fill(
         &mut self,
         filter_layer_id: usize,
         bbox: RectU16,
@@ -427,30 +434,30 @@ impl CommandBucketer {
     ) {
         let clip_bbox = *self.clip_bboxes.last().unwrap();
         let src_bbox = bbox;
-        let bbox = bbox.intersect(clip_bbox);
-        if bbox.is_empty() {
+        let intersected_bbox = bbox.intersect(clip_bbox);
+        if intersected_bbox.is_empty() {
             return;
         }
 
         let draw_id = self.next_draw_id();
-        let span = Self::bbox_span(bbox);
+        let span = Self::bbox_span(intersected_bbox);
         let filter_attrs_idx = self.filter_fill_attrs.len() as u32;
         self.filter_fill_attrs.push(FilterLayerFillAttrs {
             id: filter_layer_id,
             draw_id,
-            dst_bbox: bbox,
+            dest_bbox: intersected_bbox,
             src_origin: (
                 src_origin.0 + span.pixel_x().saturating_sub(src_bbox.x0),
-                src_origin.1 + (bbox.y0 - src_bbox.y0),
+                src_origin.1 + (intersected_bbox.y0 - src_bbox.y0),
             ),
         });
-        let row_start = usize::from(bbox.y0 / Tile::HEIGHT);
-        let row_end = usize::from(bbox.y1.div_ceil(Tile::HEIGHT)).min(self.rows.len());
+        let row_start = usize::from(intersected_bbox.y0 / Tile::HEIGHT);
+        let row_end = usize::from(intersected_bbox.y1.div_ceil(Tile::HEIGHT)).min(self.rows.len());
         for row_idx in row_start..row_end {
             self.ensure_row_layers(row_idx);
             let row_y = row_idx as u16 * Tile::HEIGHT;
             let row_y1 = row_y.saturating_add(Tile::HEIGHT);
-            if row_y1 <= bbox.y0 || row_y >= bbox.y1 {
+            if row_y1 <= intersected_bbox.y0 || row_y >= intersected_bbox.y1 {
                 continue;
             }
             self.rows[row_idx].push_cmd(RenderCmd::FilterLayerFill(FilterLayerFill {
@@ -461,6 +468,7 @@ impl CommandBucketer {
     }
 }
 
+/// Metadata about the currently active layer.
 #[derive(Debug, Clone)]
 pub(crate) struct ActiveLayer {
     pub(crate) mask: Option<Mask>,
@@ -468,6 +476,7 @@ pub(crate) struct ActiveLayer {
     pub(crate) opacity: f32,
     pub(crate) clip: Option<LayerClip>,
     pub(crate) span: Span,
+    /// Which rows have been drawn into and thus contain lazily-allocated `PushBuf` instructions.
     pub(crate) occupied_rows: Vec<usize>,
 }
 
@@ -479,16 +488,16 @@ pub(crate) struct LayerClip {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(in crate::coarse) struct GeneratedFill {
-    pub(in crate::coarse) row_idx: usize,
-    pub(in crate::coarse) span: Span,
+pub(crate) struct GeneratedFill {
+    pub(crate) row_idx: usize,
+    pub(crate) span: Span,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(in crate::coarse) struct GeneratedAlphaFill {
-    pub(in crate::coarse) row_idx: usize,
-    pub(in crate::coarse) span: Span,
-    pub(in crate::coarse) alpha_idx: u32,
+pub(crate) struct GeneratedAlphaFill {
+    pub(crate) row_idx: usize,
+    pub(crate) span: Span,
+    pub(crate) alpha_idx: u32,
 }
 
 impl CommandBucketer {
@@ -536,7 +545,7 @@ impl CommandBucketer {
         );
     }
 
-    pub(in crate::coarse) fn generate<F, A>(
+    pub(crate) fn generate<F, A>(
         &mut self,
         strip_buf: &[Strip],
         pixmap_origin: (u16, u16),
