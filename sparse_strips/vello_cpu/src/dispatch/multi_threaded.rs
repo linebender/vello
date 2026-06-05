@@ -436,11 +436,7 @@ impl MultiThreadedDispatcher {
                     let mut fine = fines
                         .get_or(|| {
                             RefCell::new((
-                                Fine::<S, F>::new(
-                                    simd,
-                                    area.target_width,
-                                    resources.bucketer.width(),
-                                ),
+                                Fine::<S, F>::new(simd, resources.bucketer.width()),
                                 DepthBuffer::new(resources.bucketer.width()),
                             ))
                         })
