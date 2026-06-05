@@ -13,7 +13,7 @@
 //! this anymore are **filter layers**. Unlike normal layers with blends/opacity/masks/clips,
 //! filter layers are special in two ways:
 //!
-//! - They always need to be rendered separately, independently from the parent layer
+//! - They always need to be rendered separately, independently of the parent layer
 //! command stream. This is because spatial filters might require sampling neighboring pixels,
 //! so the whole filter layer needs to be rendered as a whole before you can apply the filter and
 //! then composite it into the parent layer. Therefore, commands for filter layers cannot simply
@@ -37,7 +37,7 @@
 use crate::coarse::bucket::LayerClip;
 use crate::kurbo::{Affine, Rect};
 use crate::peniko::BlendMode;
-use crate::util::{bbox_relative_to, snap_bbox_to_tile};
+use crate::util::{bbox_relative_to, snap_bbox_to_tile_coordinates};
 use alloc::vec::Vec;
 use core::ops::Range;
 use vello_common::filter_effects::Filter;
@@ -48,8 +48,10 @@ use vello_common::strip::Strip;
 use vello_common::tile::Tile;
 use vello_common::util::RectExt;
 
+/// A recorded command.
 #[derive(Debug)]
 pub(crate) enum RecordedCmd {
+    /// A path fill command.
     Fill {
         thread_idx: u8,
         strip_range: Range<usize>,
@@ -57,12 +59,15 @@ pub(crate) enum RecordedCmd {
         blend_mode: BlendMode,
         mask: Option<Mask>,
     },
+    /// Push a new (non-filter) layer to the layer stack.
     PushLayer {
         id: LayerId,
     },
+    /// Composite the filter layer with the current ID.
     CompositeFilterLayer {
         id: LayerId,
     },
+    /// Pop the last (non-filter) layer from the layer stack.
     PopLayer,
 }
 
@@ -74,7 +79,7 @@ impl LayerId {
         Self(id as u32)
     }
 
-    pub(crate) fn index(self) -> usize {
+    pub(crate) fn get(self) -> usize {
         self.0 as usize
     }
 }
@@ -82,10 +87,7 @@ impl LayerId {
 #[derive(Debug)]
 pub(crate) struct RecordedLayer {
     pub(crate) props: LayerProps,
-    /// Content bounds accumulated while recording the layer.
-    ///
-    /// This starts inverted and is finalized when the layer is popped, because
-    /// only then have all child commands contributed to the layer.
+    /// The bounding box of the contents of the layer.
     pub(crate) bbox: RectU16,
     pub(crate) kind: RecordedLayerKind,
 }
@@ -100,10 +102,16 @@ pub(crate) struct LayerProps {
 
 #[derive(Debug)]
 pub(crate) enum RecordedLayerKind {
+    /// A regular layer whose commands will be inlined into the parent root layer.
     Regular,
+    /// A filter layer storing its commands separately.
     Filter {
+        /// The render commands of the layer.
         cmds: Vec<RecordedCmd>,
-        filter_plan: FilterLayerPlan,
+        /// Static data about the filter itself.
+        filter_data: FilterData,
+        /// Data about how to place the filter layer, which can only be determined once its
+        /// contents have been recorded.
         placement: FilterLayerPlacement,
     },
 }
@@ -118,14 +126,14 @@ impl RecordedLayer {
         }
     }
 
-    fn filter(props: LayerProps, filter_plan: FilterLayerPlan, cmds: Vec<RecordedCmd>) -> Self {
+    fn filter(props: LayerProps, filter_plan: FilterData, cmds: Vec<RecordedCmd>) -> Self {
         Self {
             props,
             // Will be initialized once we call `pop_layer`.
             bbox: RectU16::INVERTED,
             kind: RecordedLayerKind::Filter {
                 cmds,
-                filter_plan,
+                filter_data: filter_plan,
                 // Will be initialized once we call `pop_layer`.
                 placement: FilterLayerPlacement::EMPTY,
             },
@@ -139,8 +147,7 @@ pub(crate) struct FilterLayerPlacement {
     /// The conceptual bounding box of the pixmap that needs to be allocated to render
     /// a layer correctly, including the area affected by the filter.
     pub(crate) pixmap_bbox: RectU16,
-    /// Bounds where the filtered pixmap is composited in the parent layer's
-    /// coordinate space.
+    /// Rectangle in the parent layer's coordinate space the filtered pixmap is composited into.
     pub(crate) composite_bbox: RectU16,
     /// Source x offset used when sampling from the filter pixmap.
     pub(crate) src_x: u16,
@@ -156,16 +163,16 @@ impl FilterLayerPlacement {
         src_y: 0,
     };
 
-    fn new(bbox: RectU16, filter_plan: &FilterLayerPlan) -> Self {
+    fn new(bbox: RectU16, filter_plan: &FilterData) -> Self {
         // Some more detailed explanations of what's going on here since this
         // part is a bit confusing.
 
-        // `content_bbox` is the tight bounding box across all strips in the filter
+        // `bbox` is the tight bounding box across all strips in the filter
         // layer. We now need to expand it by the filter padding to know how
         // large of a pixmap we actually need to allocate. Also, as mentioned
         // in [`FilterLayerPlan::new`], we need to ensure the pixmap itself is
         // also a multiple of the tile width / tile height.
-        let pixmap_bbox = snap_bbox_to_tile(expand_bbox(bbox, filter_plan.filter_padding));
+        let pixmap_bbox = snap_bbox_to_tile_coordinates(expand_bbox(bbox, filter_plan.filter_padding));
 
         // Remember that in `RenderContext`, we eagerly shift everything drawn by `source_shift`
         // to conservatively ensure that everything that might be needed for the filter is in the
@@ -195,7 +202,7 @@ impl FilterLayerPlacement {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct FilterLayerPlan {
+pub(crate) struct FilterData {
     pub(crate) filter: Filter,
     /// The transform that was in place when the filter layer was invoked.
     pub(crate) transform: Affine,
@@ -209,7 +216,7 @@ pub(crate) struct FilterLayerPlan {
     pub(crate) source_padding: RectU16,
 }
 
-impl FilterLayerPlan {
+impl FilterData {
     pub(crate) fn new(filter: Filter, transform: Affine) -> Self {
         fn expansion_padding(expansion: Rect) -> RectU16 {
             // Note: We need to snap horizontally and vertically, because
@@ -272,14 +279,13 @@ impl CommandPool {
 pub(crate) struct CommandRecorder {
     /// The commands of the root layer.
     pub(crate) root_cmds: Vec<RecordedCmd>,
-    /// Recorded layers, indexed by their ID.
+    /// Data about recorded layers, indexed by their ID.
     pub(crate) layers: Vec<RecordedLayer>,
     cmd_pool: CommandPool,
     /// The layer whose command stream is currently treated as the root.
     ///
     /// This is either the real scene root (`None`) or an active filter layer
-    /// (`Some`). Regular layers don't change the active root layer because
-    /// their commands are recorded inline.
+    /// (`Some`).
     active_root_layer: Option<LayerId>,
     /// Stack of currently open layers.
     layer_stack: Vec<OpenLayer>,
@@ -303,6 +309,7 @@ impl CommandRecorder {
     pub(crate) fn reset(&mut self) {
         self.root_cmds.clear();
         for layer in self.layers.drain(..) {
+            // make sure to reuse the allocations for those!
             if let RecordedLayerKind::Filter { cmds, .. } = layer.kind {
                 self.cmd_pool.submit(cmds);
             }
@@ -335,7 +342,7 @@ impl CommandRecorder {
     pub(crate) fn push_layer(
         &mut self,
         props: LayerProps,
-        filter_plan: Option<FilterLayerPlan>,
+        filter_plan: Option<FilterData>,
     ) {
         if let Some(filter_plan) = filter_plan {
             self.push_filter_layer(props, filter_plan);
@@ -353,7 +360,7 @@ impl CommandRecorder {
     fn push_filter_layer(
         &mut self,
         props: LayerProps,
-        filter_plan: FilterLayerPlan,
+        filter_plan: FilterData,
     ) {
         let previous_root_layer = self.active_root_layer;
         let cmds = self.cmd_pool.take();
@@ -369,8 +376,8 @@ impl CommandRecorder {
     pub(crate) fn pop_layer(&mut self) -> PoppedLayer {
         let open_layer = self.layer_stack.pop().unwrap();
         let id = open_layer.id;
-        let bbox = self.layers[id.index()].bbox;
-        let popped = match &mut self.layers[id.index()].kind {
+        let bbox = self.layers[id.get()].bbox;
+        let popped = match &mut self.layers[id.get()].kind {
             RecordedLayerKind::Regular => {
                 self.record_bbox(|| bbox);
                 self.active_cmds_mut().push(RecordedCmd::PopLayer);
@@ -378,16 +385,10 @@ impl CommandRecorder {
                 PoppedLayer::Regular
             }
             RecordedLayerKind::Filter {
-                filter_plan,
+                filter_data: filter_plan,
                 placement,
                 ..
             } => {
-                assert_eq!(
-                    self.active_root_layer,
-                    Some(id),
-                    "active root layer mismatch"
-                );
-
                 *placement = FilterLayerPlacement::new(bbox, filter_plan);
                 let composite_bbox = placement.composite_bbox;
 
@@ -405,7 +406,7 @@ impl CommandRecorder {
 
     fn layer_cmds_mut(&mut self, root_layer: Option<LayerId>) -> &mut Vec<RecordedCmd> {
         if let Some(id) = root_layer {
-            match &mut self.layers[id.index()].kind {
+            match &mut self.layers[id.get()].kind {
                 RecordedLayerKind::Filter { cmds, .. } => cmds,
                 RecordedLayerKind::Regular => {
                     unreachable!("regular layers cannot be active root layers")
@@ -431,7 +432,7 @@ impl CommandRecorder {
 
     fn record_bbox(&mut self, bbox: impl FnOnce() -> RectU16) {
         if let Some(layer) = self.layer_stack.last() {
-            self.layers[layer.id.index()].bbox.union(bbox());
+            self.layers[layer.id.get()].bbox.union(bbox());
         }
     }
 }
@@ -458,6 +459,9 @@ fn strip_bbox(strips: &[Strip], viewport_width: u16) -> RectU16 {
     if strips.len() < 2 {
         return bbox;
     }
+
+    // TODO: It _feels_ like this "iterating over strips code" should be possible to
+    // deduplicate with other locations (i.e. the code used to generate fill commands).
 
     for pair in strips.windows(2) {
         let strip = pair[0];

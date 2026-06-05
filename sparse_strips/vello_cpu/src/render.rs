@@ -14,7 +14,7 @@ use glifo::GlyphPrepCache;
 
 use crate::dispatch::single_threaded::SingleThreadedDispatcher;
 use crate::kurbo::{PathEl, Point};
-use crate::record::FilterLayerPlan;
+use crate::record::FilterData;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec;
@@ -463,7 +463,7 @@ impl RenderContext {
         let blend_mode = blend_mode.unwrap_or_default();
         let opacity = opacity.unwrap_or(1.0);
         let layer_transform = self.effective_path_transform();
-        let filter_plan = filter.map(|filter| FilterLayerPlan::new(filter, layer_transform));
+        let filter_plan = filter.map(|filter| FilterData::new(filter, layer_transform));
 
         // The important part! Let's say we have an element placed in a way such that
         // its drop shadow starts at (0, 0). In order for it to render correctly, we would

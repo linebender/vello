@@ -5,7 +5,7 @@ use super::bucket::CommandBucketer;
 use super::cmd::{Fill, FillAttrs, RenderCmd};
 use super::depth::{self, DepthSegment};
 use crate::peniko::BlendMode;
-use crate::util::{Span, snap_bbox_to_tile};
+use crate::util::{Span, snap_bbox_to_tile_coordinates};
 use vello_common::encode::EncodedPaint;
 use vello_common::strip::Strip;
 use vello_common::tile::Tile;
@@ -77,7 +77,7 @@ impl CommandBucketer {
             return;
         }
 
-        let clip_bbox = snap_bbox_to_tile(*self.clip_bboxes.last().unwrap());
+        let clip_bbox = snap_bbox_to_tile_coordinates(*self.clip_bboxes.last().unwrap());
         let clip_x0 = clip_bbox.x0;
         let clip_x1 = clip_bbox.x1.min(self.width());
         let strip_x = |strip: &Strip| {

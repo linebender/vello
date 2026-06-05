@@ -7,7 +7,7 @@ use super::cmd::{
 use super::depth::DepthState;
 use crate::peniko::BlendMode;
 use crate::record::{LayerProps, RecordedCmd, RecordedLayer, RecordedLayerKind};
-use crate::util::{Span, bbox_relative_to, snap_bbox_to_tile};
+use crate::util::{Span, bbox_relative_to, snap_bbox_to_tile_coordinates};
 use alloc::vec;
 use alloc::vec::Vec;
 use std::ops::Range;
@@ -28,19 +28,15 @@ pub(crate) struct RowCommands {
     pub(crate) depth_writes: Vec<Fill>,
     /// A coarse span of all pixels that might be touched in that row.
     coarse_span: Option<Span>,
+    /// State of the depth buffer for this row.
     depth: DepthState,
+    /// Current layer depth.
     pub(super) layer_depth: usize,
 }
 
 impl RowCommands {
     pub(super) fn new() -> Self {
-        Self {
-            cmds: Vec::new(),
-            depth_writes: Vec::new(),
-            coarse_span: None,
-            depth: DepthState::default(),
-            layer_depth: 0,
-        }
+        Self::default()
     }
 
     fn clear(&mut self) {
@@ -55,11 +51,13 @@ impl RowCommands {
         if let Some(span) = cmd.span() {
             self.include_span(span);
         }
+        
         self.cmds.push(cmd);
     }
 
     pub(super) fn push_layer(&mut self) {
         self.cmds.push(RenderCmd::PushLayer);
+        
         self.layer_depth += 1;
     }
 
@@ -169,7 +167,7 @@ impl CommandBucketer {
     }
 
     fn full_clip_bbox(width: u16, height: u16) -> RectU16 {
-        snap_bbox_to_tile(RectU16::new(0, 0, width, height))
+        snap_bbox_to_tile_coordinates(RectU16::new(0, 0, width, height))
     }
 
     fn bbox_span(bbox: RectU16) -> Span {
@@ -252,12 +250,12 @@ impl CommandBucketer {
                     self.generate_fill(&strips[strip_range.clone()], &attrs, encoded_paints);
                 }
                 RecordedCmd::PushLayer { id } => {
-                    let props = &layers[id.index()].props;
+                    let props = &layers[id.get()].props;
                     self.push_layer(props)
                 }
                 RecordedCmd::CompositeFilterLayer { id } => {
-                    let props = &layers[id.index()].props;
-                    let RecordedLayerKind::Filter { placement, .. } = &layers[id.index()].kind
+                    let props = &layers[id.get()].props;
+                    let RecordedLayerKind::Filter { placement, .. } = &layers[id.get()].kind
                     else {
                         unreachable!()
                     };
@@ -270,7 +268,7 @@ impl CommandBucketer {
                     if needs_layer {
                         self.push_layer(props);
                     }
-                    self.generate_filter_layer(id.index(), bbox, placement.src_origin());
+                    self.generate_filter_layer(id.get(), bbox, placement.src_origin());
                     if needs_layer {
                         self.pop_layer(strips, pixmap_origin);
                     }

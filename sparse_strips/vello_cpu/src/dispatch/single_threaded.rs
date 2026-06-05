@@ -8,7 +8,7 @@ use crate::filter::context::FilterContext;
 use crate::fine::FineKernel;
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
-use crate::record::{CommandRecorder, FilterLayerPlan, LayerProps, PoppedLayer, RecordedLayerKind};
+use crate::record::{CommandRecorder, FilterData, LayerProps, PoppedLayer, RecordedLayerKind};
 use crate::{CompositeMode, RasterizerSettings};
 use alloc::vec::Vec;
 use core::cell::RefCell;
@@ -156,7 +156,7 @@ impl SingleThreadedDispatcher {
         for id in (0..self.recorder.layers.len()).rev() {
             let RecordedLayerKind::Filter {
                 cmds,
-                filter_plan,
+                filter_data: filter_plan,
                 placement,
             } = &self.recorder.layers[id].kind
             else {
@@ -331,7 +331,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         opacity: f32,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
-        filter_plan: Option<FilterLayerPlan>,
+        filter_plan: Option<FilterData>,
     ) {
         if let Some(plan) = &filter_plan {
             self.push_filter_viewport(plan.source_padding);
@@ -482,7 +482,7 @@ mod tests {
 
     fn layer_content_bbox(dispatcher: &SingleThreadedDispatcher, cmd_idx: usize) -> RectU16 {
         match &dispatcher.recorder.root_cmds[cmd_idx] {
-            RecordedCmd::PushLayer { id } => dispatcher.recorder.layers[id.index()].bbox,
+            RecordedCmd::PushLayer { id } => dispatcher.recorder.layers[id.get()].bbox,
             _ => panic!("expected push layer command"),
         }
     }

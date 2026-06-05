@@ -78,7 +78,7 @@ pub(crate) fn bbox_relative_to(bbox: RectU16, origin: (u16, u16)) -> RectU16 {
     )
 }
 
-pub(crate) fn snap_bbox_to_tile(bbox: RectU16) -> RectU16 {
+pub(crate) fn snap_bbox_to_tile_coordinates(bbox: RectU16) -> RectU16 {
     RectU16::new(
         (bbox.x0 / Tile::WIDTH) * Tile::WIDTH,
         (bbox.y0 / Tile::HEIGHT) * Tile::HEIGHT,

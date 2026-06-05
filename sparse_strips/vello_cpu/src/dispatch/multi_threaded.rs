@@ -10,7 +10,7 @@ use crate::filter::context::FilterContext;
 use crate::fine::FineKernel;
 use crate::kurbo::{Affine, BezPath, PathEl, Point, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
-use crate::record::{FilterLayerPlan, LayerId, LayerProps, RecordedCmd, RecordedLayer};
+use crate::record::{FilterData, LayerId, LayerProps, RecordedCmd, RecordedLayer};
 use crate::{CompositeMode, RasterizerSettings};
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -515,7 +515,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         opacity: f32,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
-        filter_plan: Option<FilterLayerPlan>,
+        filter_plan: Option<FilterData>,
     ) {
         // TODO: Implement filter support in multi-threaded dispatcher.
         // The single-threaded dispatcher has full filter support, but multi-threaded needs

@@ -92,7 +92,7 @@ pub(crate) fn split_opaque_span(span: Span, mut segment: impl FnMut(Span, DepthS
 /// Coarse state for the depth buffer.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct DepthState {
-    /// Coarse union of all depth-trackable opaque spans in this row.
+    /// Coarse union of all depth-tracked opaque spans in this row.
     bounds: Option<Span>,
     /// Maximum draw ID of any depth-trackable opaque command in this row.
     ///

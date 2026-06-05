@@ -8,7 +8,7 @@ pub(crate) mod single_threaded;
 use crate::RasterizerSettings;
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
-use crate::record::FilterLayerPlan;
+use crate::record::FilterData;
 use core::fmt::Debug;
 use vello_common::encode::EncodedPaint;
 use vello_common::mask::Mask;
@@ -62,7 +62,7 @@ pub(crate) trait Dispatcher: Debug + Send {
         opacity: f32,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
-        filter_plan: Option<FilterLayerPlan>,
+        filter_plan: Option<FilterData>,
     );
     fn pop_layer(&mut self);
     fn reset(&mut self);
