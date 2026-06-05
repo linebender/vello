@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use super::cmd::{
-    BlendAttrs, BlendFill, Fill, FillAttrs, FilterLayer, FilterLayerAttrs, RenderCmd,
+    PaintFill, PaintFillAttrs, FilterLayerFill, FilterLayerFillAttrs, LayerFillAttrs, LayerFill, RenderCmd,
 };
 use super::depth::DepthState;
 use crate::peniko::BlendMode;
@@ -25,7 +25,7 @@ pub(crate) struct RowCommands {
     /// Opaque fill commands rendered front-to-back with depth buffer read and write.
     ///
     /// `alpha_idx` is always `None` for these commands.
-    pub(crate) depth_writes: Vec<Fill>,
+    pub(crate) depth_writes: Vec<PaintFill>,
     /// A coarse span of all pixels that might be touched in that row.
     coarse_span: Option<Span>,
     /// State of the depth buffer for this row.
@@ -51,57 +51,14 @@ impl RowCommands {
         if let Some(span) = cmd.span() {
             self.include_span(span);
         }
-        
+
         self.cmds.push(cmd);
     }
 
     pub(super) fn push_layer(&mut self) {
-        self.cmds.push(RenderCmd::PushLayer);
-        
+        self.cmds.push(RenderCmd::PushBuf);
+
         self.layer_depth += 1;
-    }
-
-    pub(super) fn pop_layer(
-        &mut self,
-        span: Span,
-        mask_idx: Option<u32>,
-        opacity: f32,
-        blend_attrs_idx: u32,
-    ) {
-        if let Some(mask_idx) = mask_idx {
-            self.cmds.push(RenderCmd::Mask(mask_idx));
-        }
-        if opacity != 1.0 {
-            self.cmds.push(RenderCmd::Opacity(opacity));
-        }
-        self.cmds.push(RenderCmd::BlendFill(BlendFill::new(
-            span,
-            None,
-            blend_attrs_idx,
-        )));
-        self.pop_buf();
-    }
-
-    pub(super) fn push_layer_props(&mut self, mask_idx: Option<u32>, opacity: f32) {
-        if let Some(mask_idx) = mask_idx {
-            self.cmds.push(RenderCmd::Mask(mask_idx));
-        }
-        if opacity != 1.0 {
-            self.cmds.push(RenderCmd::Opacity(opacity));
-        }
-    }
-
-    pub(super) fn push_blend_fill(
-        &mut self,
-        span: Span,
-        alpha_idx: Option<u32>,
-        blend_attrs_idx: u32,
-    ) {
-        self.push_cmd(RenderCmd::BlendFill(BlendFill::new(
-            span,
-            alpha_idx,
-            blend_attrs_idx,
-        )));
     }
 
     pub(super) fn pop_buf(&mut self) {
@@ -109,7 +66,7 @@ impl RowCommands {
         self.layer_depth -= 1;
     }
 
-    pub(super) fn push_depth_write(&mut self, cmd: Fill, draw_id: u32) {
+    pub(super) fn push_depth_write(&mut self, cmd: PaintFill, draw_id: u32) {
         self.include_span(cmd.span);
         self.depth.include_span(cmd.span, draw_id);
         self.depth_writes.push(cmd);
@@ -142,10 +99,9 @@ impl Clear for RowCommands {
 pub(crate) struct CommandBucketer {
     pub(super) clip_bboxes: Vec<RectU16>,
     pub(super) rows: RetainVec<RowCommands>,
-    pub(super) attrs: Vec<FillAttrs>,
-    pub(super) blend_attrs: Vec<BlendAttrs>,
-    pub(super) filter_attrs: Vec<FilterLayerAttrs>,
-    pub(super) masks: Vec<Mask>,
+    pub(super) paint_fill_attrs: Vec<PaintFillAttrs>,
+    pub(super) layer_fill_attrs: Vec<LayerFillAttrs>,
+    pub(super) filter_fill_attrs: Vec<FilterLayerFillAttrs>,
     pub(super) active_layers: Vec<ActiveLayer>,
     pub(super) next_draw_id: u32,
 }
@@ -157,10 +113,9 @@ impl CommandBucketer {
         Self {
             clip_bboxes: vec![full_clip_bbox],
             rows: RetainVec::with_len(num_rows, RowCommands::new),
-            attrs: Vec::new(),
-            blend_attrs: Vec::new(),
-            filter_attrs: Vec::new(),
-            masks: Vec::new(),
+            paint_fill_attrs: Vec::new(),
+            layer_fill_attrs: Vec::new(),
+            filter_fill_attrs: Vec::new(),
             active_layers: Vec::new(),
             next_draw_id: 1,
         }
@@ -183,20 +138,16 @@ impl CommandBucketer {
         self.clip_bboxes[0].width()
     }
 
-    pub(crate) fn attrs(&self) -> &[FillAttrs] {
-        &self.attrs
+    pub(crate) fn attrs(&self) -> &[PaintFillAttrs] {
+        &self.paint_fill_attrs
     }
 
-    pub(crate) fn blend_attrs(&self) -> &[BlendAttrs] {
-        &self.blend_attrs
+    pub(crate) fn layer_attrs(&self) -> &[LayerFillAttrs] {
+        &self.layer_fill_attrs
     }
 
-    pub(crate) fn filter_attrs(&self) -> &[FilterLayerAttrs] {
-        &self.filter_attrs
-    }
-
-    pub(crate) fn masks(&self) -> &[Mask] {
-        &self.masks
+    pub(crate) fn filter_attrs(&self) -> &[FilterLayerFillAttrs] {
+        &self.filter_fill_attrs
     }
 
     pub(crate) fn reset(&mut self, width: u16, height: u16) {
@@ -204,10 +155,9 @@ impl CommandBucketer {
         let num_rows = usize::from(full_clip_bbox.height() / Tile::HEIGHT);
         self.rows.clear();
         self.rows.resize_with(num_rows, RowCommands::new);
-        self.attrs.clear();
-        self.blend_attrs.clear();
-        self.filter_attrs.clear();
-        self.masks.clear();
+        self.paint_fill_attrs.clear();
+        self.layer_fill_attrs.clear();
+        self.filter_fill_attrs.clear();
         self.active_layers.clear();
         self.next_draw_id = 1;
         self.clip_bboxes.truncate(1);
@@ -239,7 +189,7 @@ impl CommandBucketer {
                     mask,
                 } => {
                     let draw_id = self.next_draw_id();
-                    let attrs = FillAttrs {
+                    let attrs = PaintFillAttrs {
                         paint: paint.clone(),
                         blend_mode: *blend_mode,
                         mask: mask.clone(),
@@ -310,18 +260,15 @@ impl CommandBucketer {
 
     pub(crate) fn pop_layer(&mut self, strips: &[Strip], pixmap_origin: (u16, u16)) {
         let mut layer = self.active_layers.pop().unwrap();
-        let mask_idx = layer.mask.as_ref().map(|mask| {
-            let idx = self.masks.len() as u32;
-            self.masks.push(mask.clone());
-            idx
-        });
         let opacity = layer.opacity;
         let blend_mode = layer.blend_mode;
         let full_width = self.width();
         if let Some(clip) = layer.clip {
-            let blend_attrs_idx = self.blend_attrs.len() as u32;
-            self.blend_attrs.push(BlendAttrs {
+            let attrs_idx = self.layer_fill_attrs.len() as u32;
+            self.layer_fill_attrs.push(LayerFillAttrs {
                 blend_mode,
+                opacity,
+                mask: layer.mask.clone(),
                 thread_idx: clip.thread_idx,
             });
             self.clip_bboxes.pop();
@@ -336,7 +283,6 @@ impl CommandBucketer {
                     self.active_layers.len() + 1,
                     "occupied row must still be inside the popped layer"
                 );
-                row.push_layer_props(mask_idx, opacity);
             }
 
             self.generate(
@@ -344,16 +290,16 @@ impl CommandBucketer {
                 pixmap_origin,
                 |bucketer, row_idx, fill| {
                     if occupied_rows[row_idx] {
-                        bucketer.rows[row_idx].push_blend_fill(fill, None, blend_attrs_idx);
+                        bucketer.rows[row_idx].push_cmd(RenderCmd::LayerFill(
+                            LayerFill::new(fill, None, attrs_idx),
+                        ));
                     }
                 },
                 |bucketer, row_idx, fill| {
                     if occupied_rows[row_idx] {
-                        bucketer.rows[row_idx].push_blend_fill(
-                            fill.span,
-                            Some(fill.alpha_idx),
-                            blend_attrs_idx,
-                        );
+                        bucketer.rows[row_idx].push_cmd(RenderCmd::LayerFill(
+                            LayerFill::new(fill.span, Some(fill.alpha_idx), attrs_idx),
+                        ));
                     }
                 },
             );
@@ -362,9 +308,11 @@ impl CommandBucketer {
                 self.rows[row_idx].pop_buf();
             }
         } else {
-            let blend_attrs_idx = self.blend_attrs.len() as u32;
-            self.blend_attrs.push(BlendAttrs {
+            let attrs_idx = self.layer_fill_attrs.len() as u32;
+            self.layer_fill_attrs.push(LayerFillAttrs {
                 blend_mode,
+                opacity,
+                mask: layer.mask.clone(),
                 thread_idx: 0,
             });
             let blend_span = if blend_mode.is_destructive() {
@@ -379,7 +327,10 @@ impl CommandBucketer {
                     self.active_layers.len() + 1,
                     "occupied row must still be inside the popped layer"
                 );
-                row.pop_layer(blend_span, mask_idx, opacity, blend_attrs_idx);
+                row.push_cmd(RenderCmd::LayerFill(LayerFill::new(
+                    blend_span, None, attrs_idx,
+                )));
+                row.pop_buf();
             }
         }
     }
@@ -424,8 +375,8 @@ impl CommandBucketer {
 
         let draw_id = self.next_draw_id();
         let span = Self::bbox_span(bbox);
-        let filter_attrs_idx = self.filter_attrs.len() as u32;
-        self.filter_attrs.push(FilterLayerAttrs {
+        let filter_attrs_idx = self.filter_fill_attrs.len() as u32;
+        self.filter_fill_attrs.push(FilterLayerFillAttrs {
             id: filter_layer_id,
             draw_id,
             dst_bbox: bbox,
@@ -443,7 +394,7 @@ impl CommandBucketer {
             if row_y1 <= bbox.y0 || row_y >= bbox.y1 {
                 continue;
             }
-            self.rows[row_idx].push_cmd(RenderCmd::FilterLayer(FilterLayer {
+            self.rows[row_idx].push_cmd(RenderCmd::FilterLayerFill(FilterLayerFill {
                 span,
                 attrs_idx: filter_attrs_idx,
             }));
@@ -471,7 +422,7 @@ pub(crate) struct LayerClip {
 #[cfg(test)]
 mod tests {
     use super::CommandBucketer;
-    use crate::coarse::cmd::{FillAttrs, RenderCmd};
+    use crate::coarse::cmd::{PaintFillAttrs, RenderCmd};
     use crate::coarse::depth::DEPTH_BUCKET_WIDTH;
     use crate::record::LayerProps;
     use vello_common::color::palette::css::RED;
@@ -484,8 +435,8 @@ mod tests {
         PremulColor::from_alpha_color(alpha)
     }
 
-    fn fill_attrs(paint: Paint) -> FillAttrs {
-        FillAttrs {
+    fn fill_attrs(paint: Paint) -> PaintFillAttrs {
+        PaintFillAttrs {
             paint,
             blend_mode: BlendMode::default(),
             mask: None,
@@ -518,9 +469,9 @@ mod tests {
         let row = &bucketer.rows()[0];
         assert_eq!(row.depth_writes.len(), 0);
         assert_eq!(row.cmds.len(), 2);
-        assert!(matches!(row.cmds[0], RenderCmd::PushLayer));
+        assert!(matches!(row.cmds[0], RenderCmd::PushBuf));
         assert!(
-            matches!(row.cmds[1], RenderCmd::Fill(cmd) if cmd.span.pixel_x() == 0 && cmd.span.pixel_width() == DEPTH_BUCKET_WIDTH)
+            matches!(row.cmds[1], RenderCmd::PaintFill(cmd) if cmd.span.pixel_x() == 0 && cmd.span.pixel_width() == DEPTH_BUCKET_WIDTH)
         );
     }
 }

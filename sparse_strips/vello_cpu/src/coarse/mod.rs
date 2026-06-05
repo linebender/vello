@@ -7,4 +7,4 @@ pub(crate) mod depth;
 mod fill;
 
 pub(crate) use bucket::{CommandBucketer, RowCommands};
-pub(crate) use cmd::{Fill, FillAttrs, FilterLayer, FilterLayerAttrs, RenderCmd};
+pub(crate) use cmd::{PaintFill, PaintFillAttrs, FilterLayerFill, FilterLayerFillAttrs, RenderCmd};

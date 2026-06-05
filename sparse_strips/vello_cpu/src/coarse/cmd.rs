@@ -8,46 +8,46 @@ use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 
+// TODO: If we wanted to, we could likely reduce the memory footprint from 16 bytes to 8 bytes
+// by using 4 bits from a span (since tile size is 4, for `x` and `width` we can always store
+// the value divided by 4), and creating a bit-packed representation of all commands.
+
 /// A bucketed render command.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum RenderCmd {
-    /// See [`Fill`].
-    Fill(Fill),
+    /// See [`PaintFill`].
+    PaintFill(PaintFill),
     /// Push a new temporary layer buffer.
-    PushLayer,
+    PushBuf,
     /// Pop the last temporary layer buffer.
     PopBuf,
-    /// Apply an opacity to the current temporary layer buffer.
-    Opacity(f32),
-    /// Apply a mask (with the given index) to the current temporary layer buffer.
-    Mask(u32),
-    /// See [`BlendFill`].
-    BlendFill(BlendFill),
-    /// See [`FilterLayer`].
-    FilterLayer(FilterLayer),
+    /// See [`LayerFill`].
+    LayerFill(LayerFill),
+    /// See [`FilterLayerFill`].
+    FilterLayerFill(FilterLayerFill),
 }
 
 impl RenderCmd {
     #[inline]
     pub(crate) fn span(self) -> Option<Span> {
         match self {
-            Self::Fill(cmd) => Some(cmd.span),
-            Self::BlendFill(cmd) => Some(cmd.span),
-            Self::FilterLayer(cmd) => Some(cmd.span),
-            Self::PushLayer | Self::PopBuf | Self::Opacity(_) | Self::Mask(_) => None,
+            Self::PaintFill(cmd) => Some(cmd.span),
+            Self::LayerFill(cmd) => Some(cmd.span),
+            Self::FilterLayerFill(cmd) => Some(cmd.span),
+            Self::PushBuf | Self::PopBuf => None,
         }
     }
 }
 
 /// Fill a span with the given paint and optionally some alpha coverage.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Fill {
+pub(crate) struct PaintFill {
     pub(crate) span: Span,
     alpha_idx: Option<AlphaIdx>,
     pub(crate) attrs_idx: u32,
 }
 
-impl Fill {
+impl PaintFill {
     pub(crate) fn new(span: Span, alpha_idx: Option<u32>, attrs_idx: u32) -> Self {
         Self {
             span,
@@ -61,16 +61,16 @@ impl Fill {
     }
 }
 
-/// Blend a span from the current temporary layer buffer into the parent buffer
-/// and optionally apply some alpha coverage.
+/// Composite a span from the current temporary layer buffer into the parent
+/// buffer and optionally apply some alpha coverage.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct BlendFill {
+pub(crate) struct LayerFill {
     pub(crate) span: Span,
     alpha_idx: Option<AlphaIdx>,
     pub(crate) attrs_idx: u32,
 }
 
-impl BlendFill {
+impl LayerFill {
     pub(crate) fn new(span: Span, alpha_idx: Option<u32>, attrs_idx: u32) -> Self {
         Self {
             span,
@@ -82,6 +82,14 @@ impl BlendFill {
     pub(crate) fn alpha_idx(self) -> Option<u32> {
         self.alpha_idx.map(AlphaIdx::get)
     }
+}
+
+/// Composite a span from a rendered filter layer pixmap 
+/// into the current buffer.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct FilterLayerFill {
+    pub(crate) span: Span,
+    pub(crate) attrs_idx: u32,
 }
 
 // We use `NonZeroU32` so that `Option<AlphaIdx>` still only needs 4 bytes.
@@ -98,15 +106,8 @@ impl AlphaIdx {
     }
 }
 
-/// Composite a rendered filter layer pixmap into the current buffer.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct FilterLayer {
-    pub(crate) span: Span,
-    pub(crate) attrs_idx: u32,
-}
-
 #[derive(Debug, Clone)]
-pub(crate) struct FillAttrs {
+pub(crate) struct PaintFillAttrs {
     pub(crate) paint: Paint,
     pub(crate) blend_mode: BlendMode,
     pub(crate) mask: Option<Mask>,
@@ -117,13 +118,17 @@ pub(crate) struct FillAttrs {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct BlendAttrs {
+pub(crate) struct LayerFillAttrs {
     pub(crate) blend_mode: BlendMode,
+    pub(crate) opacity: f32,
+    pub(crate) mask: Option<Mask>,
+    /// In case there is any alpha associated with the layer command, this stores
+    /// the index of the thread that stores the alpha.
     pub(crate) thread_idx: u8,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct FilterLayerAttrs {
+pub(crate) struct FilterLayerFillAttrs {
     /// The ID of the filter layer.
     pub(crate) id: usize,
     pub(crate) draw_id: u32,

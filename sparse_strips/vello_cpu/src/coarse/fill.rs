@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use super::bucket::CommandBucketer;
-use super::cmd::{Fill, FillAttrs, RenderCmd};
+use super::cmd::{PaintFill, PaintFillAttrs, RenderCmd};
 use super::depth::{self, DepthSegment};
 use crate::peniko::BlendMode;
 use crate::util::{Span, snap_bbox_to_tile_coordinates};
@@ -23,7 +23,7 @@ impl CommandBucketer {
     pub(crate) fn generate_fill(
         &mut self,
         strip_buf: &[Strip],
-        attrs: &FillAttrs,
+        attrs: &PaintFillAttrs,
         encoded_paints: &[EncodedPaint],
     ) {
         if strip_buf.is_empty() {
@@ -33,8 +33,8 @@ impl CommandBucketer {
         assert_ne!(attrs.draw_id, 0, "fill draw IDs should start at 1");
 
         let pixmap_origin = attrs.pixmap_origin;
-        let attrs_idx = self.attrs.len() as u32;
-        self.attrs.push(attrs.clone());
+        let attrs_idx = self.paint_fill_attrs.len() as u32;
+        self.paint_fill_attrs.push(attrs.clone());
 
         let draw_id =
             // While in certain cases it _might_ be okay to use depth culling while inside of
@@ -54,7 +54,7 @@ impl CommandBucketer {
             },
             |bucketer, row_idx, fill| {
                 bucketer.ensure_row_layers(row_idx);
-                bucketer.rows[row_idx].push_cmd(RenderCmd::Fill(Fill::new(
+                bucketer.rows[row_idx].push_cmd(RenderCmd::PaintFill(PaintFill::new(
                     fill.span,
                     Some(fill.alpha_idx),
                     attrs_idx,
@@ -143,16 +143,16 @@ impl CommandBucketer {
         let row = &mut self.rows[row_idx];
         let draw_id = draw_id.filter(|_| row.layer_depth == 0);
         let Some(draw_id) = draw_id else {
-            row.push_cmd(RenderCmd::Fill(Fill::new(span, None, attrs_idx)));
+            row.push_cmd(RenderCmd::PaintFill(PaintFill::new(span, None, attrs_idx)));
             return;
         };
 
         depth::split_opaque_span(span, |span, segment| match segment {
             DepthSegment::Regular => {
-                row.push_cmd(RenderCmd::Fill(Fill::new(span, None, attrs_idx)));
+                row.push_cmd(RenderCmd::PaintFill(PaintFill::new(span, None, attrs_idx)));
             }
             DepthSegment::Opaque => {
-                row.push_depth_write(Fill::new(span, None, attrs_idx), draw_id);
+                row.push_depth_write(PaintFill::new(span, None, attrs_idx), draw_id);
             }
         });
     }
@@ -161,7 +161,7 @@ impl CommandBucketer {
 #[cfg(test)]
 mod tests {
     use super::CommandBucketer;
-    use crate::coarse::cmd::{FillAttrs, RenderCmd};
+    use crate::coarse::cmd::{PaintFillAttrs, RenderCmd};
     use crate::coarse::depth::DEPTH_BUCKET_WIDTH;
     use vello_common::color::palette::css::{BLUE, RED};
     use vello_common::color::{AlphaColor, Srgb};
@@ -173,8 +173,8 @@ mod tests {
         PremulColor::from_alpha_color(alpha)
     }
 
-    fn fill_attrs(paint: Paint) -> FillAttrs {
-        FillAttrs {
+    fn fill_attrs(paint: Paint) -> PaintFillAttrs {
+        PaintFillAttrs {
             paint,
             blend_mode: BlendMode::default(),
             mask: None,
@@ -197,10 +197,10 @@ mod tests {
         assert_eq!(row.depth_writes[0].span.pixel_width(), DEPTH_BUCKET_WIDTH);
         assert_eq!(row.cmds.len(), 2);
         assert!(
-            matches!(row.cmds[0], RenderCmd::Fill(cmd) if cmd.span.pixel_x() == 4 && cmd.span.pixel_width() == DEPTH_BUCKET_WIDTH - 4)
+            matches!(row.cmds[0], RenderCmd::PaintFill(cmd) if cmd.span.pixel_x() == 4 && cmd.span.pixel_width() == DEPTH_BUCKET_WIDTH - 4)
         );
         assert!(
-            matches!(row.cmds[1], RenderCmd::Fill(cmd) if cmd.span.pixel_x() == DEPTH_BUCKET_WIDTH * 2 && cmd.span.pixel_width() == 4)
+            matches!(row.cmds[1], RenderCmd::PaintFill(cmd) if cmd.span.pixel_x() == DEPTH_BUCKET_WIDTH * 2 && cmd.span.pixel_width() == 4)
         );
     }
 
@@ -222,7 +222,7 @@ mod tests {
         assert_eq!(row.depth_writes.len(), 0);
         assert_eq!(row.cmds.len(), 1);
         assert!(
-            matches!(row.cmds[0], RenderCmd::Fill(cmd) if cmd.span.pixel_x() == 0 && cmd.span.pixel_width() == DEPTH_BUCKET_WIDTH)
+            matches!(row.cmds[0], RenderCmd::PaintFill(cmd) if cmd.span.pixel_x() == 0 && cmd.span.pixel_width() == DEPTH_BUCKET_WIDTH)
         );
     }
 }
