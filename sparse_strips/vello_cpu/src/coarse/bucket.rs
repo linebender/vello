@@ -232,6 +232,11 @@ impl CommandBucketer {
                         unreachable!()
                     };
                     let placement = *placement;
+                    // `composite_bbox` is in a coordinate system that assumes that the origin is
+                    // anchored at (0, 0). However, as mentioned it can happen that the actual
+                    // origin is shifted if the parent is a filter layer whose top-left bounding
+                    // box is not (0, 0). Therefore, we also need to account for that when
+                    // determining where to emit the filter layer fill commands.
                     let bbox = bbox_relative_to(placement.composite_bbox, pixmap_origin);
                     let needs_layer = props.blend_mode != BlendMode::default()
                         || props.opacity != 1.0
@@ -253,6 +258,7 @@ impl CommandBucketer {
     fn next_draw_id(&mut self) -> u32 {
         let draw_id = self.next_draw_id;
         self.next_draw_id = self.next_draw_id + 1;
+
         draw_id
     }
 
@@ -268,15 +274,25 @@ impl CommandBucketer {
         }
 
         self.active_layers.push(ActiveLayer {
+            // TODO: Masks are currently probably broken if they are used inside of a filter layer,
+            // since they aren't shifted and also only work if the mask has the same dimensions as
+            // our allocated filter layer.
             mask: props.mask.clone(),
             blend_mode: props.blend_mode,
             opacity: props.opacity,
             clip: props.clip.clone(),
             span: Self::bbox_span(bbox),
+            // TODO: Reuse allocations?
             occupied_rows: Vec::new(),
         });
+
+        // If the blend mode is destructive, we need to eagerly push to all rows in the clip bbox.
         if props.blend_mode.is_destructive() {
-            self.ensure_layer_rows(bbox);
+            let row_start = usize::from(bbox.y0 / Tile::HEIGHT);
+            let row_end = usize::from(bbox.y1.div_ceil(Tile::HEIGHT)).min(self.rows.len());
+            for row_idx in row_start..row_end {
+                self.ensure_row_layers(row_idx);
+            }
         }
     }
 
@@ -285,8 +301,10 @@ impl CommandBucketer {
         let opacity = layer.opacity;
         let blend_mode = layer.blend_mode;
         let full_width = self.width();
+
         if let Some(clip) = layer.clip {
             let attrs_idx = self.layer_fill_attrs.len() as u32;
+
             self.layer_fill_attrs.push(LayerFillAttrs {
                 blend_mode,
                 opacity,
@@ -354,18 +372,6 @@ impl CommandBucketer {
                 )));
                 row.pop_buf();
             }
-        }
-    }
-
-    fn ensure_layer_rows(&mut self, bbox: RectU16) {
-        if bbox.is_empty() {
-            return;
-        }
-
-        let row_start = usize::from(bbox.y0 / Tile::HEIGHT);
-        let row_end = usize::from(bbox.y1.div_ceil(Tile::HEIGHT)).min(self.rows.len());
-        for row_idx in row_start..row_end {
-            self.ensure_row_layers(row_idx);
         }
     }
 
