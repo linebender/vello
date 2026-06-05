@@ -55,7 +55,7 @@ impl RowCmds {
         self.cmds.push(cmd);
     }
 
-    pub(super) fn push_layer(&mut self) {
+    pub(super) fn push_buf(&mut self) {
         self.cmds.push(RenderCmd::PushBuf);
 
         self.layer_depth += 1;
@@ -121,6 +121,8 @@ pub(crate) struct CommandBucketer {
     pub(super) filter_fill_attrs: Vec<FilterLayerFillAttrs>,
     /// Keeping track of currently active layers to enable lazy layer pushing.
     pub(super) active_layers: Vec<ActiveLayer>,
+    /// Scratch space used when replaying clip strips while popping clipped layers.
+    occupied_rows_scratch: Vec<bool>,
     /// A counter to assign monotonically increasing IDs to draws to enable depth buffer rendering.
     pub(super) next_draw_id: u32,
 }
@@ -139,6 +141,7 @@ impl CommandBucketer {
             layer_fill_attrs: Vec::new(),
             filter_fill_attrs: Vec::new(),
             active_layers: Vec::new(),
+            occupied_rows_scratch: vec![false; num_rows],
             // It is important to start at 1, because depth buffer uses 0 for "no entries yet".
             next_draw_id: 1,
         }
@@ -181,6 +184,8 @@ impl CommandBucketer {
         self.layer_fill_attrs.clear();
         self.filter_fill_attrs.clear();
         self.active_layers.clear();
+        self.occupied_rows_scratch.clear();
+        self.occupied_rows_scratch.resize(num_rows, false);
         self.next_draw_id = 1;
         self.clip_bboxes.truncate(1);
         self.clip_bboxes[0] = full_clip_bbox;
@@ -302,6 +307,16 @@ impl CommandBucketer {
         let blend_mode = layer.blend_mode;
         let full_width = self.width();
 
+        // Two cases that need to be distinguished.
+        //
+        // If no clip was associated, we simply iterate over all of the rows that
+        // were lazily associated with some rendered contents and emit a `LayerFill`
+        // instructions across the whole width of the bounding box of the layer.
+        //
+        // If there _was_ a clip, things get trickier because the `LayerFill` commands
+        // need to be generated on a more fine-grained basis, and might in certain cases
+        // also require anti-aliasing.
+
         if let Some(clip) = layer.clip {
             let attrs_idx = self.layer_fill_attrs.len() as u32;
 
@@ -314,29 +329,34 @@ impl CommandBucketer {
             self.clip_bboxes.pop();
             let clip_strips = &strips[clip.strip_range];
 
-            let mut occupied_rows = vec![false; self.rows.len()];
+            // We need to make sure that we only emit `LayerFill` commands for rows that actually
+            // have been pushed into. If we don't have a destructive blend mode and only parts of
+            // the layer were painted, it can happen that the clip path itself covers a row
+            // that actually doesn't have an associated `PushBuf` command.
+            // For such rows, we don't want to emit any layer fill commands, because there is
+            // nothing to fill into in the first place!
+
+            // `occupied_rows` stores the indices of all rows that have been marked, but they
+            // are not sorted or anything. Therefore, we convert it into an indexable array
+            // such that in the `generate` closure, we can easily check whether the row is included
+            // or now.
             for &row_idx in &layer.occupied_rows {
-                occupied_rows[row_idx] = true;
-                let row = &mut self.rows[row_idx];
-                debug_assert_eq!(
-                    row.layer_depth,
-                    self.active_layers.len() + 1,
-                    "occupied row must still be inside the popped layer"
-                );
+                self.occupied_rows_scratch[row_idx] = true;
             }
 
+            // Now generate the actual layer fill commands.
             self.generate(
                 clip_strips,
                 pixmap_origin,
                 |bucketer, row_idx, fill| {
-                    if occupied_rows[row_idx] {
+                    if bucketer.occupied_rows_scratch[row_idx] {
                         bucketer.rows[row_idx].push_cmd(RenderCmd::LayerFill(
                             LayerFill::new(fill, None, attrs_idx),
                         ));
                     }
                 },
                 |bucketer, row_idx, fill| {
-                    if occupied_rows[row_idx] {
+                    if bucketer.occupied_rows_scratch[row_idx] {
                         bucketer.rows[row_idx].push_cmd(RenderCmd::LayerFill(
                             LayerFill::new(fill.span, Some(fill.alpha_idx), attrs_idx),
                         ));
@@ -346,6 +366,8 @@ impl CommandBucketer {
 
             for row_idx in layer.occupied_rows.drain(..) {
                 self.rows[row_idx].pop_buf();
+                // Make sure to reset it.
+                self.occupied_rows_scratch[row_idx] = false;
             }
         } else {
             let attrs_idx = self.layer_fill_attrs.len() as u32;
@@ -355,20 +377,17 @@ impl CommandBucketer {
                 mask: layer.mask.clone(),
                 thread_idx: 0,
             });
-            let blend_span = if blend_mode.is_destructive() {
+            let span = if blend_mode.is_destructive() {
                 layer.span
             } else {
                 Span::new(0, full_width)
             };
+
             for row_idx in layer.occupied_rows.drain(..) {
                 let row = &mut self.rows[row_idx];
-                debug_assert_eq!(
-                    row.layer_depth,
-                    self.active_layers.len() + 1,
-                    "occupied row must still be inside the popped layer"
-                );
+
                 row.push_cmd(RenderCmd::LayerFill(LayerFill::new(
-                    blend_span, None, attrs_idx,
+                    span, None, attrs_idx,
                 )));
                 row.pop_buf();
             }
@@ -383,7 +402,7 @@ impl CommandBucketer {
         }
 
         for layer_idx in layer_depth..self.active_layers.len() {
-            self.rows[row_idx].push_layer();
+            self.rows[row_idx].push_buf();
             self.active_layers[layer_idx].occupied_rows.push(row_idx);
         }
     }
