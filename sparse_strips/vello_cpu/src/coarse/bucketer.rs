@@ -471,41 +471,7 @@ impl CommandBucketer {
             }));
         }
     }
-}
 
-/// Metadata about the currently active layer.
-#[derive(Debug, Clone)]
-pub(crate) struct ActiveLayer {
-    pub(crate) mask: Option<Mask>,
-    pub(crate) blend_mode: BlendMode,
-    pub(crate) opacity: f32,
-    pub(crate) clip: Option<LayerClip>,
-    pub(crate) span: Span,
-    /// Which rows have been drawn into and thus contain lazily-allocated `PushBuf` instructions.
-    pub(crate) occupied_rows: Vec<usize>,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct LayerClip {
-    pub(crate) strip_range: Range<usize>,
-    pub(crate) thread_idx: u8,
-    pub(crate) bbox: RectU16,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct GeneratedFill {
-    pub(crate) row_idx: usize,
-    pub(crate) span: Span,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct GeneratedAlphaFill {
-    pub(crate) row_idx: usize,
-    pub(crate) span: Span,
-    pub(crate) alpha_idx: u32,
-}
-
-impl CommandBucketer {
     pub(crate) fn generate_fill(
         &mut self,
         strip_buf: &[Strip],
@@ -516,7 +482,7 @@ impl CommandBucketer {
             return;
         }
 
-        assert_ne!(attrs.draw_id, 0, "fill draw IDs should start at 1");
+        debug_assert_ne!(attrs.draw_id, 0, "fill draw IDs should start at 1");
 
         let pixmap_origin = attrs.origin;
         let attrs_idx = self.paint_fill_attrs.len() as u32;
@@ -524,18 +490,20 @@ impl CommandBucketer {
 
         let draw_id =
             // While in certain cases it _might_ be okay to use depth culling while inside of
-            // a layer, it can get very finnicky with blend modes etc., so we just outright
+            // a layer, it can get very finicky with blend modes etc., so we just outright
             // reject those for now.
             (self.active_layers.is_empty()
-            && attrs.blend_mode == BlendMode::default()
-            && attrs.mask.is_none()
-            && !attrs.paint.may_have_transparency(encoded_paints))
-        .then_some(attrs.draw_id);
+                && attrs.blend_mode == BlendMode::default()
+                && attrs.mask.is_none()
+                && !attrs.paint.may_have_transparency(encoded_paints))
+                .then_some(attrs.draw_id);
 
         self.generate(
             strip_buf,
             pixmap_origin,
             |bucketer, fill| {
+                // No need to call `ensure_row_layers` here because we are guaranteed to not
+                // be inside of a layer.
                 bucketer.push_fill(fill, attrs_idx, draw_id);
             },
             |bucketer, fill| {
@@ -565,7 +533,7 @@ impl CommandBucketer {
         }
 
         let clip_bbox = *self.clip_bboxes.last().unwrap();
-        // Note: those will always be aligned to tile coordinates.
+        // Note: Those will always be aligned to tile coordinates.
         let clip_x0 = clip_bbox.x0;
         let clip_x1 = clip_bbox.x1.min(self.width());
 
@@ -579,13 +547,15 @@ impl CommandBucketer {
                 strip.x.saturating_sub(pixmap_origin.0)
             }
         };
+
         let strip_row = |strip: &Strip| strip.y.saturating_sub(pixmap_origin.1) / Tile::HEIGHT;
+
         for i in 0..strip_buf.len() - 1 {
             let strip = &strip_buf[i];
             let strip_y = strip_row(strip);
             let row_y = strip_y.saturating_mul(Tile::HEIGHT);
-            let row_y1 = row_y.saturating_add(Tile::HEIGHT);
-            if row_y1 <= clip_bbox.y0 {
+
+            if row_y < clip_bbox.y0 {
                 continue;
             }
             if row_y >= clip_bbox.y1 {
@@ -593,9 +563,6 @@ impl CommandBucketer {
             }
 
             let row_idx = strip_y as usize;
-            if row_idx >= self.rows.len() {
-                break;
-            }
 
             let next_strip = &strip_buf[i + 1];
             let strip_width = strip.width_to(next_strip);
@@ -634,10 +601,12 @@ impl CommandBucketer {
         self.ensure_row_layers(fill.row_idx);
         let row = &mut self.rows[fill.row_idx];
         let draw_id = draw_id.filter(|_| row.layer_depth == 0);
+
         let Some(draw_id) = draw_id else {
             row.push_cmd(RenderCmd::PaintFill(PaintFill::new(
                 fill.span, None, attrs_idx,
             )));
+
             return;
         };
 
@@ -650,6 +619,40 @@ impl CommandBucketer {
             }
         });
     }
+}
+
+/// Metadata about the currently active layer.
+#[derive(Debug, Clone)]
+pub(crate) struct ActiveLayer {
+    pub(crate) mask: Option<Mask>,
+    pub(crate) blend_mode: BlendMode,
+    pub(crate) opacity: f32,
+    pub(crate) clip: Option<LayerClip>,
+    pub(crate) span: Span,
+    /// Which rows have been drawn into and thus contain lazily-allocated `PushBuf` instructions.
+    pub(crate) occupied_rows: Vec<usize>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct LayerClip {
+    pub(crate) strip_range: Range<usize>,
+    pub(crate) thread_idx: u8,
+    pub(crate) bbox: RectU16,
+}
+
+/// A generic fill to allow using `generate_fill` to create either paint fills or blend fills.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct GeneratedFill {
+    pub(crate) row_idx: usize,
+    pub(crate) span: Span,
+}
+
+/// A generic alpha fill to allow using `generate_fill` to create either paint fills or blend fills.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct GeneratedAlphaFill {
+    pub(crate) row_idx: usize,
+    pub(crate) span: Span,
+    pub(crate) alpha_idx: u32,
 }
 
 #[cfg(test)]
