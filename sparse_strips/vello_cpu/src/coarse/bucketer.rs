@@ -462,14 +462,9 @@ impl CommandBucketer {
         self.filter_fill_attrs
             .push(FilterLayerFillAttrs::new(id, draw_id, src_offset));
         let row_start = usize::from(clipped_dest_bbox.y0 / Tile::HEIGHT);
-        let row_end = usize::from(clipped_dest_bbox.y1.div_ceil(Tile::HEIGHT)).min(self.rows.len());
+        let row_end = usize::from(clipped_dest_bbox.y1.div_ceil(Tile::HEIGHT));
         for row_idx in row_start..row_end {
             self.ensure_row_layers(row_idx);
-            let row_y = row_idx as u16 * Tile::HEIGHT;
-            let row_y1 = row_y.saturating_add(Tile::HEIGHT);
-            if row_y1 <= clipped_dest_bbox.y0 || row_y >= clipped_dest_bbox.y1 {
-                continue;
-            }
             self.rows[row_idx].push_cmd(RenderCmd::FilterLayerFill(FilterLayerFill {
                 span,
                 attrs_idx: filter_attrs_idx,
