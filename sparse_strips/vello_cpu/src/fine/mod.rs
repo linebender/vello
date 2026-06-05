@@ -12,7 +12,7 @@ mod highp;
 mod lowp;
 
 use crate::coarse::depth::DepthBuffer;
-use crate::coarse::{CommandBucketer, PaintFill, PaintFillAttrs, FilterLayerFillAttrs, RenderCmd, RowCommands};
+use crate::coarse::{CommandBucketer, PaintFill, PaintFillAttrs, FilterLayerFillAttrs, RenderCmd, RowCmds};
 use crate::filter::context::FilterContext;
 use crate::filter::context::ScratchBuffer;
 use crate::fine::common::gradient::GradientPainter;
@@ -1555,7 +1555,7 @@ fn rasterize_rows<S: Simd, T: FineKernel<S>>(
 fn rasterize_row<S: Simd, T: FineKernel<S>>(
     fine: &mut Fine<S, T>,
     depth: &mut DepthBuffer,
-    row: &RowCommands,
+    row: &RowCmds,
     layout: RowLayout,
     target: &mut PixmapMut<'_>,
     resources: FineResources<'_>,

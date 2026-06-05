@@ -19,7 +19,7 @@ use vello_common::tile::Tile;
 use vello_common::util::{Clear, RetainVec};
 
 #[derive(Debug, Default)]
-pub(crate) struct RowCommands {
+pub(crate) struct RowCmds {
     /// Normal commands rendered in back-to-front with depth buffer read.
     pub(crate) cmds: Vec<RenderCmd>,
     /// Opaque fill commands rendered front-to-back with depth buffer read and write.
@@ -34,7 +34,7 @@ pub(crate) struct RowCommands {
     pub(super) layer_depth: usize,
 }
 
-impl RowCommands {
+impl RowCmds {
     pub(super) fn new() -> Self {
         Self::default()
     }
@@ -63,6 +63,7 @@ impl RowCommands {
 
     pub(super) fn pop_buf(&mut self) {
         self.cmds.push(RenderCmd::PopBuf);
+
         self.layer_depth -= 1;
     }
 
@@ -89,34 +90,56 @@ impl RowCommands {
     }
 }
 
-impl Clear for RowCommands {
+impl Clear for RowCmds {
     fn clear(&mut self) {
         Self::clear(self);
     }
 }
 
+/// A bucketer that groups commands into strip-row-sized buckets.
 #[derive(Debug)]
 pub(crate) struct CommandBucketer {
+    /// The currently active stack of clip bboxes (from layer clips), tracked for two reasons:
+    /// - So we can clamp fill commands to the bbox and avoid unnecessary rendering work.
+    /// - In case we have a filter layer with a clip, it all happens in three steps:
+    ///   1) We first push a new intermediate layer with the clip.
+    ///   2) We composite the whole filter layer **cropped to the active clip bbox**. Note that
+    ///      the filter layer iself is _not_ affected by the clip bbox, as filter layers should
+    ///      always be fully rendered before applying clipping. However, by limiting the composition
+    ///      to the coarse clip bbox we might be able to save a lot of work if only a small part
+    ///      of the filter layer is visible.
+    ///   3) Pop the intermediate layer, which will take care of doing the fine-grained clipping
+    ///      (e.g. applying anti-aliasing from the clip path).
     pub(super) clip_bboxes: Vec<RectU16>,
-    pub(super) rows: RetainVec<RowCommands>,
+    /// The actual render commands for each strip row.
+    ///
+    /// Since this is essentially a 2D-array, we use [`RetainVec`] to preserve inner allocations
+    /// upon resetting.
+    pub(super) rows: RetainVec<RowCmds>,
     pub(super) paint_fill_attrs: Vec<PaintFillAttrs>,
     pub(super) layer_fill_attrs: Vec<LayerFillAttrs>,
     pub(super) filter_fill_attrs: Vec<FilterLayerFillAttrs>,
+    /// Keeping track of currently active layers to enable lazy layer pushing.
     pub(super) active_layers: Vec<ActiveLayer>,
+    /// A counter to assign monotonically increasing IDs to draws to enable depth buffer rendering.
     pub(super) next_draw_id: u32,
 }
 
 impl CommandBucketer {
     pub(crate) fn new(width: u16, height: u16) -> Self {
         let full_clip_bbox = Self::full_clip_bbox(width, height);
+        // Note: `full_clip_bbox` is already snapped to tile coorindates, so no need to `div_ceil`
+        // here.
         let num_rows = usize::from(full_clip_bbox.height() / Tile::HEIGHT);
+
         Self {
             clip_bboxes: vec![full_clip_bbox],
-            rows: RetainVec::with_len(num_rows, RowCommands::new),
+            rows: RetainVec::with_len(num_rows, RowCmds::new),
             paint_fill_attrs: Vec::new(),
             layer_fill_attrs: Vec::new(),
             filter_fill_attrs: Vec::new(),
             active_layers: Vec::new(),
+            // It is important to start at 1, because depth buffer uses 0 for "no entries yet".
             next_draw_id: 1,
         }
     }
@@ -129,12 +152,11 @@ impl CommandBucketer {
         Span::new(bbox.x0, bbox.x1.saturating_sub(bbox.x0))
     }
 
-    pub(crate) fn rows(&self) -> &[RowCommands] {
+    pub(crate) fn rows(&self) -> &[RowCmds] {
         self.rows.as_slice()
     }
 
     pub(crate) fn width(&self) -> u16 {
-        // TODO: Should be + 1?
         self.clip_bboxes[0].width()
     }
 
@@ -154,7 +176,7 @@ impl CommandBucketer {
         let full_clip_bbox = Self::full_clip_bbox(width, height);
         let num_rows = usize::from(full_clip_bbox.height() / Tile::HEIGHT);
         self.rows.clear();
-        self.rows.resize_with(num_rows, RowCommands::new);
+        self.rows.resize_with(num_rows, RowCmds::new);
         self.paint_fill_attrs.clear();
         self.layer_fill_attrs.clear();
         self.filter_fill_attrs.clear();
