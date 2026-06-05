@@ -58,53 +58,79 @@ pub(crate) enum RecordedCmd {
         mask: Option<Mask>,
     },
     PushLayer {
-        blend_mode: BlendMode,
-        opacity: f32,
-        mask: Option<Mask>,
-        clip: Option<LayerClip>,
-        bbox: RectU16,
+        id: LayerId,
     },
     CompositeFilterLayer {
-        id: usize,
-        blend_mode: BlendMode,
-        opacity: f32,
-        mask: Option<Mask>,
-        clip: Option<LayerClip>,
+        id: LayerId,
     },
     PopLayer,
 }
 
-/// Metadata about a layer.
-///
-/// This is mainly needed because we want the layer metadata to be in the `PushLayer` command
-/// instead of the `PopLayer` one, so it can be conveniently accessed when doing coarse rasterization.
-/// However, we only actually know the bounding box of a layer once we've finished rendering it,
-/// so we can only update this information once we actually pop the layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LayerId(u32);
+
+impl LayerId {
+    pub(crate) fn new(id: usize) -> Self {
+        Self(id as u32)
+    }
+
+    pub(crate) fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
 #[derive(Debug)]
-struct LayerMetadata {
-    /// The id of the filter layer this layer is composited into.
+pub(crate) struct RecordedLayer {
+    pub(crate) props: LayerProps,
+    /// Content bounds accumulated while recording the layer.
     ///
-    /// If `None`, it is composited into the root layer instead.
-    cmd_filter_layer_id: Option<usize>,
-    /// The index of the `PushLayer` render command in the parent filter/root layer's
-    /// command stream.
-    push_cmd_idx: usize,
-    bbox: RectU16,
-    kind: LayerKind,
-}
-
-#[derive(Debug)]
-enum LayerKind {
-    Regular,
-    Filter { id: usize },
-}
-
-#[derive(Debug)]
-pub(crate) struct RecordedFilterLayer {
-    pub(crate) cmds: Vec<RecordedCmd>,
-    pub(crate) filter_plan: FilterLayerPlan,
+    /// This starts inverted and is finalized when the layer is popped, because
+    /// only then have all child commands contributed to the layer.
     pub(crate) bbox: RectU16,
-    pub(crate) placement: FilterLayerPlacement,
+    pub(crate) kind: RecordedLayerKind,
+}
+
+#[derive(Debug)]
+pub(crate) struct LayerProps {
+    pub(crate) blend_mode: BlendMode,
+    pub(crate) opacity: f32,
+    pub(crate) mask: Option<Mask>,
+    pub(crate) clip: Option<LayerClip>,
+}
+
+#[derive(Debug)]
+pub(crate) enum RecordedLayerKind {
+    Regular,
+    Filter {
+        cmds: Vec<RecordedCmd>,
+        filter_plan: FilterLayerPlan,
+        placement: FilterLayerPlacement,
+    },
+}
+
+impl RecordedLayer {
+    pub(crate) fn regular(props: LayerProps) -> Self {
+        Self {
+            props,
+            // Will be initialized once we call `pop_layer`.
+            bbox: RectU16::INVERTED,
+            kind: RecordedLayerKind::Regular,
+        }
+    }
+
+    fn filter(props: LayerProps, filter_plan: FilterLayerPlan, cmds: Vec<RecordedCmd>) -> Self {
+        Self {
+            props,
+            // Will be initialized once we call `pop_layer`.
+            bbox: RectU16::INVERTED,
+            kind: RecordedLayerKind::Filter {
+                cmds,
+                filter_plan,
+                // Will be initialized once we call `pop_layer`.
+                placement: FilterLayerPlacement::EMPTY,
+            },
+        }
+    }
 }
 
 /// Metadata about a filter layer and how it should be composited back into the parent layer.
@@ -246,13 +272,23 @@ impl CommandPool {
 pub(crate) struct CommandRecorder {
     /// The commands of the root layer.
     pub(crate) root_cmds: Vec<RecordedCmd>,
-    /// Recorded filter layers, indexed by their ID.
-    pub(crate) filter_layers: Vec<RecordedFilterLayer>,
+    /// Recorded layers, indexed by their ID.
+    pub(crate) layers: Vec<RecordedLayer>,
     cmd_pool: CommandPool,
-    /// Stack of currently active filter layers.
-    active_filter_layer_stack: Vec<usize>,
-    /// Stack of currently active layers, with their metadata.
-    layer_stack: Vec<LayerMetadata>,
+    /// The layer whose command stream is currently treated as the root.
+    ///
+    /// This is either the real scene root (`None`) or an active filter layer
+    /// (`Some`). Regular layers don't change the active root layer because
+    /// their commands are recorded inline.
+    active_root_layer: Option<LayerId>,
+    /// Stack of currently open layers.
+    layer_stack: Vec<OpenLayer>,
+}
+
+#[derive(Debug)]
+struct OpenLayer {
+    id: LayerId,
+    previous_root_layer: Option<LayerId>,
 }
 
 impl CommandRecorder {
@@ -266,10 +302,12 @@ impl CommandRecorder {
 
     pub(crate) fn reset(&mut self) {
         self.root_cmds.clear();
-        for layer in self.filter_layers.drain(..) {
-            self.cmd_pool.submit(layer.cmds);
+        for layer in self.layers.drain(..) {
+            if let RecordedLayerKind::Filter { cmds, .. } = layer.kind {
+                self.cmd_pool.submit(cmds);
+            }
         }
-        self.active_filter_layer_stack.clear();
+        self.active_root_layer = None;
         self.layer_stack.clear();
     }
 
@@ -296,102 +334,64 @@ impl CommandRecorder {
 
     pub(crate) fn push_layer(
         &mut self,
-        blend_mode: BlendMode,
-        opacity: f32,
-        mask: Option<Mask>,
-        clip: Option<LayerClip>,
+        props: LayerProps,
         filter_plan: Option<FilterLayerPlan>,
     ) {
         if let Some(filter_plan) = filter_plan {
-            self.push_filter_layer(blend_mode, opacity, mask, clip, filter_plan);
+            self.push_filter_layer(props, filter_plan);
             return;
         }
 
-        let cmd_filter_layer_id = self.active_filter_layer_id();
-        let push_cmd_idx = self.push_render_cmd(RecordedCmd::PushLayer {
-            blend_mode,
-            opacity,
-            mask,
-            clip,
-            // Will be set upon `pop_layer`.
-            bbox: RectU16::INVERTED,
-        });
-        self.layer_stack.push(LayerMetadata {
-            cmd_filter_layer_id,
-            push_cmd_idx,
-            // Will be continuously updated as we push new render commands.
-            bbox: RectU16::INVERTED,
-            kind: LayerKind::Regular,
+        let id = self.push_layer_metadata(RecordedLayer::regular(props));
+        self.push_render_cmd(RecordedCmd::PushLayer { id });
+        self.layer_stack.push(OpenLayer {
+            id,
+            previous_root_layer: self.active_root_layer,
         });
     }
 
     fn push_filter_layer(
         &mut self,
-        blend_mode: BlendMode,
-        opacity: f32,
-        mask: Option<Mask>,
-        clip: Option<LayerClip>,
+        props: LayerProps,
         filter_plan: FilterLayerPlan,
     ) {
-        let parent_filter_layer_id = self.active_filter_layer_id();
-        let filter_layer_id = self.filter_layers.len();
-        let push_cmd_idx = self.push_render_cmd(RecordedCmd::CompositeFilterLayer {
-            id: filter_layer_id,
-            blend_mode,
-            opacity,
-            mask,
-            clip,
-        });
+        let previous_root_layer = self.active_root_layer;
         let cmds = self.cmd_pool.take();
-        self.filter_layers.push(RecordedFilterLayer {
-            cmds,
-            filter_plan,
-            bbox: RectU16::INVERTED,
-            placement: FilterLayerPlacement::EMPTY,
-        });
-        self.active_filter_layer_stack.push(filter_layer_id);
-        self.layer_stack.push(LayerMetadata {
-            cmd_filter_layer_id: parent_filter_layer_id,
-            push_cmd_idx,
-            bbox: RectU16::INVERTED,
-            kind: LayerKind::Filter {
-                id: filter_layer_id,
-            },
+        let id = self.push_layer_metadata(RecordedLayer::filter(props, filter_plan, cmds));
+        self.push_render_cmd(RecordedCmd::CompositeFilterLayer { id });
+        self.active_root_layer = Some(id);
+        self.layer_stack.push(OpenLayer {
+            id,
+            previous_root_layer,
         });
     }
 
     pub(crate) fn pop_layer(&mut self) -> PoppedLayer {
-        let layer = self.layer_stack.pop().unwrap();
-        let bbox = layer.bbox;
-        let popped = match layer.kind {
-            LayerKind::Regular => {
-                // Now we update the bbox inside of the corresponding `push_layer` command.
-                match &mut self.filter_layer_cmds_mut(layer.cmd_filter_layer_id)[layer.push_cmd_idx]
-                {
-                    RecordedCmd::PushLayer {
-                        bbox: layer_bbox, ..
-                    } => *layer_bbox = bbox,
-                    _ => unreachable!("layer stack referenced a non-layer command"),
-                }
+        let open_layer = self.layer_stack.pop().unwrap();
+        let id = open_layer.id;
+        let bbox = self.layers[id.index()].bbox;
+        let popped = match &mut self.layers[id.index()].kind {
+            RecordedLayerKind::Regular => {
                 self.record_bbox(|| bbox);
                 self.active_cmds_mut().push(RecordedCmd::PopLayer);
 
                 PoppedLayer::Regular
             }
-            LayerKind::Filter {
-                id: filter_layer_id,
+            RecordedLayerKind::Filter {
+                filter_plan,
+                placement,
+                ..
             } => {
-                let popped = self
-                    .active_filter_layer_stack
-                    .pop()
-                    .expect("filter stack underflow");
-                assert_eq!(popped, filter_layer_id, "filter layer stack mismatch");
+                assert_eq!(
+                    self.active_root_layer,
+                    Some(id),
+                    "active root layer mismatch"
+                );
 
-                let filter_layer = &mut self.filter_layers[filter_layer_id];
-                filter_layer.bbox = bbox;
-                filter_layer.placement = FilterLayerPlacement::new(bbox, &filter_layer.filter_plan);
-                let composite_bbox = filter_layer.placement.composite_bbox;
+                *placement = FilterLayerPlacement::new(bbox, filter_plan);
+                let composite_bbox = placement.composite_bbox;
 
+                self.active_root_layer = open_layer.previous_root_layer;
                 self.record_bbox(|| composite_bbox);
                 PoppedLayer::Filter
             }
@@ -399,17 +399,18 @@ impl CommandRecorder {
         popped
     }
 
-    fn active_filter_layer_id(&self) -> Option<usize> {
-        self.active_filter_layer_stack.last().copied()
-    }
-
     fn active_cmds_mut(&mut self) -> &mut Vec<RecordedCmd> {
-        self.filter_layer_cmds_mut(self.active_filter_layer_id())
+        self.layer_cmds_mut(self.active_root_layer)
     }
 
-    fn filter_layer_cmds_mut(&mut self, filter_layer_id: Option<usize>) -> &mut Vec<RecordedCmd> {
-        if let Some(id) = filter_layer_id {
-            &mut self.filter_layers[id].cmds
+    fn layer_cmds_mut(&mut self, root_layer: Option<LayerId>) -> &mut Vec<RecordedCmd> {
+        if let Some(id) = root_layer {
+            match &mut self.layers[id.index()].kind {
+                RecordedLayerKind::Filter { cmds, .. } => cmds,
+                RecordedLayerKind::Regular => {
+                    unreachable!("regular layers cannot be active root layers")
+                }
+            }
         } else {
             &mut self.root_cmds
         }
@@ -422,9 +423,15 @@ impl CommandRecorder {
         idx
     }
 
+    fn push_layer_metadata(&mut self, layer: RecordedLayer) -> LayerId {
+        let id = LayerId::new(self.layers.len());
+        self.layers.push(layer);
+        id
+    }
+
     fn record_bbox(&mut self, bbox: impl FnOnce() -> RectU16) {
-        if let Some(layer) = self.layer_stack.last_mut() {
-            layer.bbox.union(bbox());
+        if let Some(layer) = self.layer_stack.last() {
+            self.layers[layer.id.index()].bbox.union(bbox());
         }
     }
 }

@@ -8,7 +8,7 @@ use crate::filter::context::FilterContext;
 use crate::fine::FineKernel;
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
-use crate::record::{CommandRecorder, FilterLayerPlan, PoppedLayer};
+use crate::record::{CommandRecorder, FilterLayerPlan, LayerProps, PoppedLayer, RecordedLayerKind};
 use crate::{CompositeMode, RasterizerSettings};
 use alloc::vec::Vec;
 use core::cell::RefCell;
@@ -99,7 +99,7 @@ impl SingleThreadedDispatcher {
         bucketer.reset(scene_width, scene_height);
         bucketer.bucket_commands(
             &self.recorder.root_cmds,
-            &self.recorder.filter_layers,
+            &self.recorder.layers,
             &self.strip_storage.strips,
             encoded_paints,
             (0, 0),
@@ -152,10 +152,17 @@ impl SingleThreadedDispatcher {
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) -> FilterContext {
-        let mut filters = FilterContext::new(self.recorder.filter_layers.len());
-        for id in (0..self.recorder.filter_layers.len()).rev() {
-            let layer = &self.recorder.filter_layers[id];
-            let pixmap_bbox = layer.placement.pixmap_bbox;
+        let mut filters = FilterContext::new(self.recorder.layers.len());
+        for id in (0..self.recorder.layers.len()).rev() {
+            let RecordedLayerKind::Filter {
+                cmds,
+                filter_plan,
+                placement,
+            } = &self.recorder.layers[id].kind
+            else {
+                continue;
+            };
+            let pixmap_bbox = placement.pixmap_bbox;
             if pixmap_bbox.is_empty() {
                 continue;
             }
@@ -166,8 +173,8 @@ impl SingleThreadedDispatcher {
             let mut bucketer = self.bucketer.borrow_mut();
             bucketer.reset(width, height);
             bucketer.bucket_commands(
-                &layer.cmds,
-                &self.recorder.filter_layers,
+                cmds,
+                &self.recorder.layers,
                 &self.strip_storage.strips,
                 encoded_paints,
                 (pixmap_bbox.x0, pixmap_bbox.y0),
@@ -191,9 +198,9 @@ impl SingleThreadedDispatcher {
 
             F::filter_layer(
                 &mut pixmap,
-                &layer.filter_plan.filter,
+                &filter_plan.filter,
                 filters.scratch(),
-                layer.filter_plan.transform,
+                filter_plan.transform,
             );
             filters.set_layer(id, pixmap);
         }
@@ -357,8 +364,15 @@ impl Dispatcher for SingleThreadedDispatcher {
             }
         });
 
-        self.recorder
-            .push_layer(blend_mode, opacity, mask, clip_path, filter_plan);
+        self.recorder.push_layer(
+            LayerProps {
+                blend_mode,
+                opacity,
+                mask,
+                clip: clip_path,
+            },
+            filter_plan,
+        );
     }
 
     fn pop_layer(&mut self) {
@@ -468,9 +482,7 @@ mod tests {
 
     fn layer_content_bbox(dispatcher: &SingleThreadedDispatcher, cmd_idx: usize) -> RectU16 {
         match &dispatcher.recorder.root_cmds[cmd_idx] {
-            RecordedCmd::PushLayer {
-                bbox: content_bbox, ..
-            } => *content_bbox,
+            RecordedCmd::PushLayer { id } => dispatcher.recorder.layers[id.index()].bbox,
             _ => panic!("expected push layer command"),
         }
     }

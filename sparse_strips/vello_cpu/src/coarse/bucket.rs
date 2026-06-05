@@ -6,7 +6,7 @@ use super::cmd::{
 };
 use super::depth::DepthState;
 use crate::peniko::BlendMode;
-use crate::record::{RecordedCmd, RecordedFilterLayer};
+use crate::record::{LayerProps, RecordedCmd, RecordedLayer, RecordedLayerKind};
 use crate::util::{Span, bbox_relative_to, snap_bbox_to_tile};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -219,7 +219,7 @@ impl CommandBucketer {
     pub(crate) fn bucket_commands(
         &mut self,
         cmds: &[RecordedCmd],
-        filter_layers: &[RecordedFilterLayer],
+        layers: &[RecordedLayer],
         strips: &[Strip],
         encoded_paints: &[EncodedPaint],
         // When rendering filter layers, we always anchor them so that the top-left of the bounding
@@ -251,30 +251,26 @@ impl CommandBucketer {
                     };
                     self.generate_fill(&strips[strip_range.clone()], &attrs, encoded_paints);
                 }
-                RecordedCmd::PushLayer {
-                    blend_mode,
-                    opacity,
-                    mask,
-                    clip,
-                    ..
-                } => self.push_layer(*blend_mode, *opacity, mask.clone(), clip.clone()),
-                RecordedCmd::CompositeFilterLayer {
-                    id,
-                    blend_mode,
-                    opacity,
-                    mask,
-                    clip,
-                } => {
-                    let placement = filter_layers[*id].placement;
+                RecordedCmd::PushLayer { id } => {
+                    let props = &layers[id.index()].props;
+                    self.push_layer(props)
+                }
+                RecordedCmd::CompositeFilterLayer { id } => {
+                    let props = &layers[id.index()].props;
+                    let RecordedLayerKind::Filter { placement, .. } = &layers[id.index()].kind
+                    else {
+                        unreachable!()
+                    };
+                    let placement = *placement;
                     let bbox = bbox_relative_to(placement.composite_bbox, pixmap_origin);
-                    let needs_layer = *blend_mode != BlendMode::default()
-                        || *opacity != 1.0
-                        || mask.is_some()
-                        || clip.is_some();
+                    let needs_layer = props.blend_mode != BlendMode::default()
+                        || props.opacity != 1.0
+                        || props.mask.is_some()
+                        || props.clip.is_some();
                     if needs_layer {
-                        self.push_layer(*blend_mode, *opacity, mask.clone(), clip.clone());
+                        self.push_layer(props);
                     }
-                    self.generate_filter_layer(*id, bbox, placement.src_origin());
+                    self.generate_filter_layer(id.index(), bbox, placement.src_origin());
                     if needs_layer {
                         self.pop_layer(strips, pixmap_origin);
                     }
@@ -290,31 +286,26 @@ impl CommandBucketer {
         draw_id
     }
 
-    pub(crate) fn push_layer(
-        &mut self,
-        blend_mode: BlendMode,
-        opacity: f32,
-        mask: Option<Mask>,
-        clip: Option<LayerClip>,
-    ) {
+    pub(crate) fn push_layer(&mut self, props: &LayerProps) {
         let parent_bbox = *self.clip_bboxes.last().unwrap();
-        let bbox = clip
+        let bbox = props
+            .clip
             .as_ref()
             .map(|clip| clip.bbox.intersect(parent_bbox))
             .unwrap_or(parent_bbox);
-        if clip.is_some() {
+        if props.clip.is_some() {
             self.clip_bboxes.push(bbox);
         }
 
         self.active_layers.push(ActiveLayer {
-            mask,
-            blend_mode,
-            opacity,
-            clip,
+            mask: props.mask.clone(),
+            blend_mode: props.blend_mode,
+            opacity: props.opacity,
+            clip: props.clip.clone(),
             span: Self::bbox_span(bbox),
             occupied_rows: Vec::new(),
         });
-        if blend_mode.is_destructive() {
+        if props.blend_mode.is_destructive() {
             self.ensure_layer_rows(bbox);
         }
     }
@@ -484,6 +475,7 @@ mod tests {
     use super::CommandBucketer;
     use crate::coarse::cmd::{FillAttrs, RenderCmd};
     use crate::coarse::depth::DEPTH_BUCKET_WIDTH;
+    use crate::record::LayerProps;
     use vello_common::color::palette::css::RED;
     use vello_common::color::{AlphaColor, Srgb};
     use vello_common::paint::{Paint, PremulColor};
@@ -505,6 +497,15 @@ mod tests {
         }
     }
 
+    fn layer_props() -> LayerProps {
+        LayerProps {
+            blend_mode: BlendMode::default(),
+            opacity: 1.0,
+            mask: None,
+            clip: None,
+        }
+    }
+
     #[test]
     fn opaque_fill_inside_layer_does_not_use_depth_write() {
         let mut bucketer = CommandBucketer::new(DEPTH_BUCKET_WIDTH, 4);
@@ -513,7 +514,7 @@ mod tests {
             Strip::new(DEPTH_BUCKET_WIDTH, 0, 0, true),
         ];
 
-        bucketer.push_layer(BlendMode::default(), 1.0, None, None);
+        bucketer.push_layer(&layer_props());
         bucketer.generate_fill(&strips, &fill_attrs(Paint::Solid(color(RED))), &[]);
 
         let row = &bucketer.rows()[0];

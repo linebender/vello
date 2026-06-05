@@ -10,7 +10,7 @@ use crate::filter::context::FilterContext;
 use crate::fine::FineKernel;
 use crate::kurbo::{Affine, BezPath, PathEl, Point, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
-use crate::record::{FilterLayerPlan, RecordedCmd};
+use crate::record::{FilterLayerPlan, LayerId, LayerProps, RecordedCmd, RecordedLayer};
 use crate::{CompositeMode, RasterizerSettings};
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -55,6 +55,7 @@ pub(crate) struct MultiThreadedDispatcher {
     bucketer: Mutex<CommandBucketer>,
     clip_context: ClipContext,
     cmds: Vec<RecordedCmd>,
+    layers: Vec<RecordedLayer>,
     strip_storage: StripStorage,
     /// The thread pool that is used for dispatching tasks.
     thread_pool: ThreadPool,
@@ -147,6 +148,7 @@ impl MultiThreadedDispatcher {
             workers,
             clip_context: ClipContext::new(),
             cmds: Vec::new(),
+            layers: Vec::new(),
             task_sender: None,
             coarse_task_receiver: None,
             strip_generator: StripGenerator::new(width, height, level),
@@ -341,13 +343,14 @@ impl MultiThreadedDispatcher {
                                     }
                                 });
 
-                                self.cmds.push(RecordedCmd::PushLayer {
+                                let id = LayerId::new(self.layers.len());
+                                self.layers.push(RecordedLayer::regular(LayerProps {
                                     blend_mode,
                                     opacity,
                                     mask,
                                     clip: clip_path,
-                                    bbox: RectU16::INVERTED,
-                                });
+                                }));
+                                self.cmds.push(RecordedCmd::PushLayer { id });
                             }
                             CoarseTaskType::PopLayer => {
                                 self.cmds.push(RecordedCmd::PopLayer);
@@ -386,7 +389,7 @@ impl MultiThreadedDispatcher {
         bucketer.reset(scene_width, scene_height);
         bucketer.bucket_commands(
             &self.cmds,
-            &[],
+            &self.layers,
             &self.strip_storage.strips,
             encoded_paints,
             (0, 0),
@@ -558,6 +561,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         // Bucketer will be reset on demand.
         self.clip_context.reset();
         self.cmds.clear();
+        self.layers.clear();
         self.strip_storage.clear();
         self.allocation_group.clear();
         self.batch_cost = 0.0;
