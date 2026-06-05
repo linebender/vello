@@ -138,7 +138,7 @@ impl MultiThreadedDispatcher {
         let flushed = false;
 
         let mut dispatcher = Self {
-            bucketer: Mutex::new(CommandBucketer::new(width, height)),
+            bucketer: Mutex::new(CommandBucketer::from_wh(width, height)),
             thread_pool,
             allocations: Allocations::default(),
             allocation_group: AllocationGroup::default(),
@@ -386,13 +386,12 @@ impl MultiThreadedDispatcher {
         image_resolver: &dyn ImageResolver,
     ) {
         let mut bucketer = self.bucketer.lock().unwrap();
-        bucketer.reset(scene_width, scene_height);
+        bucketer.reset(RectU16::new(0, 0, scene_width, scene_height));
         bucketer.bucket_commands(
             &self.cmds,
             &self.layers,
             &self.strip_storage.strips,
             encoded_paints,
-            (0, 0),
         );
 
         let alpha_slots = self.alpha_storage.take();

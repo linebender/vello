@@ -116,7 +116,7 @@ pub(crate) struct PaintFillAttrs {
     pub(crate) draw_id: u32,
     pub(crate) thread_idx: u8,
     /// See the comment in `CommandBucketer::bucket_commands`.
-    pub(crate) pixmap_origin: (u16, u16),
+    pub(crate) origin: (u16, u16),
 }
 
 #[derive(Debug, Clone)]
@@ -135,7 +135,7 @@ pub(crate) struct FilterLayerFillAttrs {
     pub(crate) id: usize,
     pub(crate) draw_id: u32,
     pub(crate) dest_bbox: RectU16,
-    pub(crate) src_origin: (u16, u16),
+    pub(crate) origin: (u16, u16),
 }
 
 #[cfg(test)]

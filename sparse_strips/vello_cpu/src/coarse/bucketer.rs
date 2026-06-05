@@ -101,6 +101,8 @@ impl Clear for RowCmds {
 /// A bucketer that groups commands into strip-row-sized buckets.
 #[derive(Debug)]
 pub(crate) struct CommandBucketer {
+    /// The viewport of the root layer we are currently bucketing.
+    viewport: RectU16,
     /// The currently active stack of clip bboxes (from layer clips), tracked for two reasons:
     /// - So we can clamp fill commands to the bbox and avoid unnecessary rendering work.
     /// - In case we have a filter layer with a clip, it all happens in three steps:
@@ -131,14 +133,24 @@ pub(crate) struct CommandBucketer {
 }
 
 impl CommandBucketer {
-    pub(crate) fn new(width: u16, height: u16) -> Self {
-        let full_clip_bbox = Self::full_clip_bbox(width, height);
-        // Note: `full_clip_bbox` is already snapped to tile coorindates, so no need to `div_ceil`
+    pub(crate) fn from_wh(width: u16, height: u16) -> Self {
+        Self::new(RectU16::new(0, 0, width, height))
+    }
+
+    pub(crate) fn new(mut viewport: RectU16) -> Self {
+        // It's _very_ important that we snap to tile coordinates. Fine rasterization assumes
+        // that the width is a multiple of the tile width, so if that's not the case bad things
+        // will happen!
+        viewport = snap_bbox_to_tile_coordinates(viewport);
+        let clip_bbox =
+            snap_bbox_to_tile_coordinates(RectU16::new(0, 0, viewport.width(), viewport.height()));
+        // Note: `viewport_clip_bbox` is already snapped to tile coordinates, so no need to `div_ceil`
         // here.
-        let num_rows = usize::from(full_clip_bbox.height() / Tile::HEIGHT);
+        let num_rows = usize::from(clip_bbox.height() / Tile::HEIGHT);
 
         Self {
-            clip_bboxes: vec![full_clip_bbox],
+            viewport,
+            clip_bboxes: vec![clip_bbox],
             rows: RetainVec::with_len(num_rows, RowCmds::new),
             paint_fill_attrs: Vec::new(),
             layer_fill_attrs: Vec::new(),
@@ -149,13 +161,6 @@ impl CommandBucketer {
             // It is important to start at 1, because depth buffer uses 0 for "no entries yet".
             next_draw_id: 1,
         }
-    }
-
-    fn full_clip_bbox(width: u16, height: u16) -> RectU16 {
-        // It's _very_ important that we snap to tile coordinates. Fine rasterization assumes
-        // that the width is a multiple of the tile width, so if that's not the case bad things
-        // will happen!
-        snap_bbox_to_tile_coordinates(RectU16::new(0, 0, width, height))
     }
 
     fn bbox_span(bbox: RectU16) -> Span {
@@ -182,9 +187,12 @@ impl CommandBucketer {
         &self.filter_fill_attrs
     }
 
-    pub(crate) fn reset(&mut self, width: u16, height: u16) {
-        let full_clip_bbox = Self::full_clip_bbox(width, height);
-        let num_rows = usize::from(full_clip_bbox.height() / Tile::HEIGHT);
+    pub(crate) fn reset(&mut self, mut viewport: RectU16) {
+        viewport = snap_bbox_to_tile_coordinates(viewport);
+        let clip_bbox =
+            snap_bbox_to_tile_coordinates(RectU16::new(0, 0, viewport.width(), viewport.height()));
+
+        let num_rows = usize::from(viewport.height() / Tile::HEIGHT);
         self.rows.clear();
         self.rows.resize_with(num_rows, RowCmds::new);
         self.paint_fill_attrs.clear();
@@ -196,8 +204,9 @@ impl CommandBucketer {
         self.occupied_rows_bool_scratch.clear();
         self.occupied_rows_bool_scratch.resize(num_rows, false);
         self.next_draw_id = 1;
+        self.viewport = viewport;
         self.clip_bboxes.truncate(1);
-        self.clip_bboxes[0] = full_clip_bbox;
+        self.clip_bboxes[0] = clip_bbox;
     }
 
     fn next_draw_id(&mut self) -> u32 {
@@ -226,14 +235,18 @@ impl CommandBucketer {
         layers: &[RecordedLayer],
         strips: &[Strip],
         encoded_paints: &[EncodedPaint],
+    ) {
         // When rendering filter layers, we always anchor them so that the top-left of the bounding
         // box lands at (0, 0), even if the bounding box's top-left is for example at (200, 200).
-        // Therefore, we need to keep track of this offset so that for example paints know that
-        // they should actually be sampled at (200, 200) instead of (0, 0).
-        pixmap_origin: (u16, u16),
-    ) {
-        assert_eq!(pixmap_origin.0 % Tile::WIDTH, 0);
-        assert_eq!(pixmap_origin.1 % Tile::HEIGHT, 0);
+        // This is to ensure that the pixmap is as small as possible. Therefore, we need to keep
+        // track of this offset so that for example paints know that they should actually be
+        // sampled at (200, 200) instead of (0, 0). Otherwise, if we for example had a filter layer
+        // that draws something small in the bottom right but nowhere else, we would still need to
+        // allocate a full view-port sized pixmap!
+
+        let origin = (self.viewport.x0, self.viewport.y0);
+        assert_eq!(origin.0 % Tile::WIDTH, 0);
+        assert_eq!(origin.1 % Tile::HEIGHT, 0);
 
         for cmd in cmds {
             match cmd {
@@ -251,7 +264,7 @@ impl CommandBucketer {
                         mask: mask.clone(),
                         draw_id,
                         thread_idx: *thread_idx,
-                        pixmap_origin,
+                        origin,
                     };
                     self.generate_fill(&strips[strip_range.clone()], &attrs, encoded_paints);
                 }
@@ -264,13 +277,11 @@ impl CommandBucketer {
                     let RecordedLayerKind::Filter { placement, .. } = &layers[id.get()].kind else {
                         unreachable!()
                     };
-                    let placement = *placement;
                     // `composite_bbox` is stored in parent/root coordinates, while the bucketer
                     // emits commands in the current pixmap's local coordinates. If the parent filter
-                    // pixmap starts at (100, 40), a nested filter composite at
-                    // (140, 60)..(180, 80) must be emitted at (40, 20)..(80, 40).
-                    let local_composite_bbox =
-                        bbox_relative_to(placement.composite_bbox, pixmap_origin);
+                    // pixmap conceptually starts at (100, 40), for a nested filter layer we must
+                    // apply the same shift that we for example apply to paints..
+                    let local_composite_bbox = bbox_relative_to(placement.composite_bbox, origin);
                     let needs_layer = props.blend_mode != BlendMode::default()
                         || props.opacity != 1.0
                         || props.mask.is_some()
@@ -285,10 +296,10 @@ impl CommandBucketer {
                         placement.src_origin(),
                     );
                     if needs_layer {
-                        self.pop_layer(strips, pixmap_origin);
+                        self.pop_layer(strips, origin);
                     }
                 }
-                RecordedCmd::PopLayer => self.pop_layer(strips, pixmap_origin),
+                RecordedCmd::PopLayer => self.pop_layer(strips, origin),
             }
         }
     }
@@ -432,7 +443,7 @@ impl CommandBucketer {
 
     pub(crate) fn generate_filter_layer_fill(
         &mut self,
-        filter_layer_id: usize,
+        id: usize,
         dest_bbox: RectU16,
         src_origin: (u16, u16),
     ) {
@@ -450,10 +461,10 @@ impl CommandBucketer {
         let span = Self::bbox_span(dest_bbox);
         let filter_attrs_idx = self.filter_fill_attrs.len() as u32;
         self.filter_fill_attrs.push(FilterLayerFillAttrs {
-            id: filter_layer_id,
+            id,
             draw_id,
             dest_bbox,
-            src_origin: (
+            origin: (
                 src_origin.0 + span.pixel_x().saturating_sub(src_bbox.x0),
                 src_origin.1 + (dest_bbox.y0 - src_bbox.y0),
             ),
@@ -520,7 +531,7 @@ impl CommandBucketer {
 
         assert_ne!(attrs.draw_id, 0, "fill draw IDs should start at 1");
 
-        let pixmap_origin = attrs.pixmap_origin;
+        let pixmap_origin = attrs.origin;
         let attrs_idx = self.paint_fill_attrs.len() as u32;
         self.paint_fill_attrs.push(attrs.clone());
 
@@ -677,7 +688,7 @@ mod tests {
             mask: None,
             draw_id: 1,
             thread_idx: 0,
-            pixmap_origin: (0, 0),
+            origin: (0, 0),
         }
     }
 
@@ -692,7 +703,7 @@ mod tests {
 
     #[test]
     fn opaque_fill_inside_layer_does_not_use_depth_write() {
-        let mut bucketer = CommandBucketer::new(DEPTH_BUCKET_WIDTH, 4);
+        let mut bucketer = CommandBucketer::from_wh(DEPTH_BUCKET_WIDTH, 4);
         let strips = [
             Strip::new(0, 0, 0, false),
             Strip::new(DEPTH_BUCKET_WIDTH, 0, 0, true),
@@ -713,7 +724,7 @@ mod tests {
     #[test]
     fn opaque_fill_uses_depth_write_when_possible() {
         let end = DEPTH_BUCKET_WIDTH * 2 + 4;
-        let mut bucketer = CommandBucketer::new(end, 4);
+        let mut bucketer = CommandBucketer::from_wh(end, 4);
         let strips = [Strip::new(4, 0, 0, false), Strip::new(end, 0, 0, true)];
 
         bucketer.generate_fill(&strips, &fill_attrs(Paint::Solid(color(RED))), &[]);
@@ -733,7 +744,7 @@ mod tests {
 
     #[test]
     fn non_opaque_fill_uses_regular_commands() {
-        let mut bucketer = CommandBucketer::new(DEPTH_BUCKET_WIDTH, 4);
+        let mut bucketer = CommandBucketer::from_wh(DEPTH_BUCKET_WIDTH, 4);
         let strips = [
             Strip::new(0, 0, 0, false),
             Strip::new(DEPTH_BUCKET_WIDTH, 0, 0, true),

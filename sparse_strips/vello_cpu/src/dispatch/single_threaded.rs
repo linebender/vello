@@ -40,7 +40,7 @@ pub(crate) struct SingleThreadedDispatcher {
 impl SingleThreadedDispatcher {
     pub(crate) fn new(width: u16, height: u16, level: Level) -> Self {
         Self {
-            bucketer: RefCell::new(CommandBucketer::new(width, height)),
+            bucketer: RefCell::new(CommandBucketer::from_wh(width, height)),
             clip_context: ClipContext::new(),
             recorder: CommandRecorder::new(),
             strip_generator: StripGenerator::new(width, height, level),
@@ -96,13 +96,12 @@ impl SingleThreadedDispatcher {
     ) {
         let filters = self.render_filter_layers::<S, F>(simd, encoded_paints, image_resolver);
         let mut bucketer = self.bucketer.borrow_mut();
-        bucketer.reset(scene_width, scene_height);
+        bucketer.reset(RectU16::new(0, 0, scene_width, scene_height));
         bucketer.bucket_commands(
             &self.recorder.root_cmds,
             &self.recorder.layers,
             &self.strip_storage.strips,
             encoded_paints,
-            (0, 0),
         );
 
         let unpack_dest = settings.composite_mode == CompositeMode::SrcOver;
@@ -171,13 +170,12 @@ impl SingleThreadedDispatcher {
             let height = pixmap_bbox.height();
             let mut pixmap = Pixmap::new(width, height);
             let mut bucketer = self.bucketer.borrow_mut();
-            bucketer.reset(width, height);
+            bucketer.reset(pixmap_bbox);
             bucketer.bucket_commands(
                 cmds,
                 &self.recorder.layers,
                 &self.strip_storage.strips,
                 encoded_paints,
-                (pixmap_bbox.x0, pixmap_bbox.y0),
             );
             crate::fine::rasterize_at_offset::<S, F>(
                 simd,

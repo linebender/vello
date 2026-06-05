@@ -783,7 +783,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         image_resolver: &dyn ImageResolver,
         depth: &mut DepthBuffer,
     ) {
-        self.set_paint_offset(attrs.pixmap_origin);
+        self.set_paint_offset(attrs.origin);
         depth.for_each_unset_run_and_write(cmd.span, attrs.draw_id, |span| {
             self.fill(
                 span,
@@ -843,7 +843,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         image_resolver: &dyn ImageResolver,
     ) {
         let x = span.pixel_x();
-        self.set_paint_offset(attrs.pixmap_origin);
+        self.set_paint_offset(attrs.origin);
         let alphas = cmd.alpha_idx().map(|alpha_idx| {
             let alpha_offset =
                 alpha_idx as usize + usize::from(x - cmd.span.pixel_x()) * Tile::HEIGHT as usize;
@@ -929,14 +929,14 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         if draw_y >= draw_y1 {
             return;
         }
-        let src_y = attrs.src_origin.1 + (draw_y - attrs.dest_bbox.y0);
+        let src_y = attrs.origin.1 + (draw_y - attrs.dest_bbox.y0);
         let dst_y_offset = (draw_y - row_y) as u8;
         let height = (draw_y1 - draw_y) as u8;
 
         if !use_depth {
             self.composite_filter_layer(
                 Span::new(cmd_x, cmd_end - cmd_x),
-                attrs.src_origin.0,
+                attrs.origin.0,
                 src_y,
                 dst_y_offset,
                 height,
@@ -950,7 +950,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             let x = span.pixel_x();
             self.composite_filter_layer(
                 span,
-                attrs.src_origin.0 + (x - cmd.span.pixel_x()),
+                attrs.origin.0 + (x - cmd.span.pixel_x()),
                 src_y,
                 dst_y_offset,
                 height,
