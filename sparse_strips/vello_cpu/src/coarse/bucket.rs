@@ -151,6 +151,9 @@ impl CommandBucketer {
     }
 
     fn full_clip_bbox(width: u16, height: u16) -> RectU16 {
+        // It's _very_ important that we snap to tile coordinates. Fine rasterization assumes
+        // that the width is a multiple of the tile width, so if that's not the case bad things
+        // will happen!
         snap_bbox_to_tile_coordinates(RectU16::new(0, 0, width, height))
     }
 
@@ -353,15 +356,16 @@ impl CommandBucketer {
             self.generate(
                 clip_strips,
                 pixmap_origin,
-                |bucketer, row_idx, fill| {
-                    if bucketer.occupied_rows_bool_scratch[row_idx] {
-                        bucketer.rows[row_idx]
-                            .push_cmd(RenderCmd::LayerFill(LayerFill::new(fill, None, attrs_idx)));
+                |bucketer, fill| {
+                    if bucketer.occupied_rows_bool_scratch[fill.row_idx] {
+                        bucketer.rows[fill.row_idx].push_cmd(RenderCmd::LayerFill(LayerFill::new(
+                            fill.span, None, attrs_idx,
+                        )));
                     }
                 },
-                |bucketer, row_idx, fill| {
-                    if bucketer.occupied_rows_bool_scratch[row_idx] {
-                        bucketer.rows[row_idx].push_cmd(RenderCmd::LayerFill(LayerFill::new(
+                |bucketer, fill| {
+                    if bucketer.occupied_rows_bool_scratch[fill.row_idx] {
+                        bucketer.rows[fill.row_idx].push_cmd(RenderCmd::LayerFill(LayerFill::new(
                             fill.span,
                             Some(fill.alpha_idx),
                             attrs_idx,

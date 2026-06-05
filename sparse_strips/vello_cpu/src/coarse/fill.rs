@@ -14,7 +14,14 @@ use vello_common::tile::Tile;
 // tile boundaries. if that ever changes, the logic will have to be rewritten.
 
 #[derive(Debug, Clone, Copy)]
+pub(super) struct GeneratedFill {
+    pub(super) row_idx: usize,
+    pub(super) span: Span,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub(super) struct GeneratedAlphaFill {
+    pub(super) row_idx: usize,
     pub(super) span: Span,
     pub(super) alpha_idx: u32,
 }
@@ -49,10 +56,11 @@ impl CommandBucketer {
         self.generate(
             strip_buf,
             pixmap_origin,
-            |bucketer, row_idx, fill| {
-                bucketer.push_fill(row_idx, fill, attrs_idx, draw_id);
+            |bucketer, fill| {
+                bucketer.push_fill(fill, attrs_idx, draw_id);
             },
-            |bucketer, row_idx, fill| {
+            |bucketer, fill| {
+                let row_idx = fill.row_idx;
                 bucketer.ensure_row_layers(row_idx);
                 bucketer.rows[row_idx].push_cmd(RenderCmd::PaintFill(PaintFill::new(
                     fill.span,
@@ -70,8 +78,8 @@ impl CommandBucketer {
         mut fill_cmd: F,
         mut alpha_fill_cmd: A,
     ) where
-        F: FnMut(&mut Self, usize, Span),
-        A: FnMut(&mut Self, usize, GeneratedAlphaFill),
+        F: FnMut(&mut Self, GeneratedFill),
+        A: FnMut(&mut Self, GeneratedAlphaFill),
     {
         if strip_buf.is_empty() {
             return;
@@ -113,8 +121,8 @@ impl CommandBucketer {
             if strip_width > 0 && x0 < clip_x1 && x1 > clip_x0 {
                 alpha_fill_cmd(
                     self,
-                    row_idx,
                     GeneratedAlphaFill {
+                        row_idx,
                         span: Span::new(x0, strip_width),
                         alpha_idx: strip.alpha_idx(),
                     },
@@ -125,23 +133,31 @@ impl CommandBucketer {
                 let fill_x0 = x1.max(clip_x0);
                 let fill_x1 = strip_x(next_strip).min(clip_x1);
                 if fill_x0 < fill_x1 {
-                    fill_cmd(self, row_idx, Span::new(fill_x0, fill_x1 - fill_x0));
+                    fill_cmd(
+                        self,
+                        GeneratedFill {
+                            row_idx,
+                            span: Span::new(fill_x0, fill_x1 - fill_x0),
+                        },
+                    );
                 }
             }
         }
     }
 
     /// Note: If depth-culling should be disabled, pass `None` to `draw_id`.
-    fn push_fill(&mut self, row_idx: usize, span: Span, attrs_idx: u32, draw_id: Option<u32>) {
-        self.ensure_row_layers(row_idx);
-        let row = &mut self.rows[row_idx];
+    fn push_fill(&mut self, fill: GeneratedFill, attrs_idx: u32, draw_id: Option<u32>) {
+        self.ensure_row_layers(fill.row_idx);
+        let row = &mut self.rows[fill.row_idx];
         let draw_id = draw_id.filter(|_| row.layer_depth == 0);
         let Some(draw_id) = draw_id else {
-            row.push_cmd(RenderCmd::PaintFill(PaintFill::new(span, None, attrs_idx)));
+            row.push_cmd(RenderCmd::PaintFill(PaintFill::new(
+                fill.span, None, attrs_idx,
+            )));
             return;
         };
 
-        depth::split_opaque_span(span, |span, segment| match segment {
+        depth::split_opaque_span(fill.span, |span, segment| match segment {
             DepthSegment::Regular => {
                 row.push_cmd(RenderCmd::PaintFill(PaintFill::new(span, None, attrs_idx)));
             }
