@@ -3,11 +3,12 @@
 
 use crate::coarse::CommandBucketer;
 use crate::coarse::bucketer::LayerClip;
+use crate::coarse::depth::DepthBuffer;
 use crate::dispatch::Dispatcher;
 use crate::dispatch::multi_threaded::cost::{COST_THRESHOLD, estimate_render_task_cost};
 use crate::dispatch::multi_threaded::worker::Worker;
 use crate::filter::context::FilterContext;
-use crate::fine::FineKernel;
+use crate::fine::{Fine, FineKernel, FineRenderParams, FineResources, RenderArea, RowBands};
 use crate::kurbo::{Affine, BezPath, PathEl, Point, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::record::{CommandRecorder, FilterData, LayerProps, PoppedLayer};
@@ -404,25 +405,58 @@ impl MultiThreadedDispatcher {
             let alpha_buffers = alpha_slots.iter().map(Vec::as_slice).collect::<Vec<_>>();
             let unpack_dest = settings.composite_mode == CompositeMode::SrcOver;
             let filters = FilterContext::new(0);
+            let resources = FineResources {
+                bucketer: &bucketer,
+                alpha_buffers: &alpha_buffers,
+                filters: &filters,
+                encoded_paints,
+                image_resolver,
+            };
+            let params = FineRenderParams {
+                scene_size: (scene_width, scene_height),
+                target_offset: settings.offset,
+                unpack_dest,
+            };
 
+            let mut target = target;
+            let Some(area) = RenderArea::new(&target, params) else {
+                self.alpha_storage.init(alpha_slots);
+                return;
+            };
+            let row_count = area.row_count(resources);
+
+            if !unpack_dest {
+                target.data_mut().fill(0);
+            }
+
+            let mut bands = RowBands::new(area, row_count, target.data_mut());
+            let fines = ThreadLocal::new();
             self.thread_pool.install(|| {
-                crate::fine::rasterize_at_offset_parallel::<S, F>(
-                    simd,
-                    crate::fine::FineResources {
-                        bucketer: &bucketer,
-                        alpha_buffers: &alpha_buffers,
-                        filters: &filters,
-                        encoded_paints,
-                        image_resolver,
-                    },
-                    target,
-                    crate::fine::FineRenderParams {
-                        scene_size: (scene_width, scene_height),
-                        target_offset: settings.offset,
+                bands.update_par(|band| {
+                    let mut fine = fines
+                        .get_or(|| {
+                            RefCell::new((
+                                Fine::<S, F>::new(
+                                    simd,
+                                    area.target_width,
+                                    resources.bucketer.width(),
+                                ),
+                                DepthBuffer::new(resources.bucketer.width()),
+                            ))
+                        })
+                        .borrow_mut();
+                    let (fine, depth) = &mut *fine;
+
+                    crate::fine::rasterize_band::<S, F>(
+                        fine,
+                        depth,
+                        band,
+                        resources,
+                        area,
                         unpack_dest,
-                    },
-                );
-            });
+                    );
+                });
+            })
         }
         self.alpha_storage.init(alpha_slots);
     }

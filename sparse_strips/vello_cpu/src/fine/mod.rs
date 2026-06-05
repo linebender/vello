@@ -860,6 +860,60 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         );
     }
 
+    fn run_cmd(
+        &mut self,
+        cmd: &RenderCmd,
+        row: &RowCmds,
+        row_span: Span,
+        row_y: u16,
+        resources: FineResources<'_>,
+        depth: &DepthBuffer,
+    ) {
+        match cmd {
+            RenderCmd::PaintFill(cmd) => {
+                let attrs = &resources.bucketer.attrs()[cmd.attrs_idx as usize];
+                let alphas = resources.alpha_buffers[attrs.thread_idx as usize];
+                let use_depth = !row.can_skip_depth(cmd.span, attrs.draw_id);
+                self.render_cmd(
+                    *cmd,
+                    alphas,
+                    attrs,
+                    resources.encoded_paints,
+                    resources.image_resolver,
+                    use_depth,
+                    depth,
+                );
+            }
+            RenderCmd::PushBuf => {
+                self.push_buf(row_span);
+            }
+            RenderCmd::PopBuf => {
+                self.pop_buf();
+            }
+            RenderCmd::FilterLayerFill(cmd) => {
+                let attrs = &resources.bucketer.filter_attrs()[cmd.attrs_idx as usize];
+                if let Some(layer) = resources.filters.filter_layer(attrs.id) {
+                    let use_depth = !row.can_skip_depth(cmd.span, attrs.draw_id);
+                    self.composite_filter_layer_cmd(*cmd, attrs, row_y, layer, use_depth, depth);
+                }
+            }
+            RenderCmd::LayerFill(cmd) => {
+                let attrs = &resources.bucketer.layer_attrs()[cmd.attrs_idx as usize];
+
+                if attrs.opacity != 1.0 {
+                    self.opacity(cmd.span, attrs.opacity);
+                }
+                if let Some(mask) = attrs.mask.as_ref() {
+                    self.mask(row_y, cmd.span, mask);
+                }
+                let alphas = cmd.alpha_idx().map(|alpha_idx| {
+                    &resources.alpha_buffers[attrs.thread_idx as usize][alpha_idx as usize..]
+                });
+                self.blend(row_y, cmd.span, attrs.blend_mode, alphas);
+            }
+        }
+    }
+
     fn composite_filter_layer(
         &mut self,
         span: Span,
@@ -1381,106 +1435,26 @@ pub(crate) fn rasterize_at_offset<S: Simd, T: FineKernel<S>>(
     mut target: PixmapMut<'_>,
     params: FineRenderParams,
 ) {
-    let (dst_x, dst_y) = params.target_offset;
-    if dst_x >= target.width() || dst_y >= target.height() {
+    let Some(area) = RenderArea::new(&target, params) else {
         return;
-    }
+    };
+    let row_count = area.row_count(resources);
 
     if !params.unpack_dest {
         target.data_mut().fill(0);
     }
 
-    let mut fine = Fine::<S, T>::new(simd, target.width(), resources.bucketer.width());
-    rasterize_rows::<S, T>(&mut fine, resources, target, params);
-}
-
-#[cfg(feature = "multithreading")]
-pub(crate) fn rasterize_at_offset_parallel<S: Simd, T: FineKernel<S>>(
-    simd: S,
-    resources: FineResources<'_>,
-    mut target: PixmapMut<'_>,
-    params: FineRenderParams,
-) {
-    use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
-    use std::cell::RefCell;
-    use thread_local::ThreadLocal;
-
-    let (dst_x, dst_y) = params.target_offset;
-    if dst_x >= target.width() || dst_y >= target.height() {
-        return;
-    }
-
-    let target_width = target.width();
-    let (scene_width, scene_height) = params.scene_size;
-    let width = scene_width.min(target_width.saturating_sub(dst_x));
-    let height = scene_height.min(target.height().saturating_sub(dst_y));
-    if width == 0 || height == 0 {
-        return;
-    }
-
-    if !params.unpack_dest {
-        target.data_mut().fill(0);
-    }
-
-    struct RowBand<'a> {
-        row_idx: usize,
-        row_height: u16,
-        target: PixmapMut<'a>,
-    }
-
-    let stride = usize::from(target_width) * COLOR_COMPONENTS;
-    let render_bytes = usize::from(height) * stride;
-    let buffer = &mut target.data_mut()[usize::from(dst_y) * stride..][..render_bytes];
-    let row_count = resources
-        .bucketer
-        .rows()
-        .len()
-        .min(usize::from(height).div_ceil(Tile::HEIGHT as usize));
-    let mut remaining = buffer;
-    let mut bands = Vec::with_capacity(row_count);
-
-    for row_idx in 0..row_count {
-        let row_y = row_idx as u16 * Tile::HEIGHT;
-        let row_height = (height - row_y).min(Tile::HEIGHT);
-        let band_len = usize::from(row_height) * stride;
-        let (buffer, rest) = remaining.split_at_mut(band_len);
-        bands.push(RowBand {
-            row_idx,
-            row_height,
-            target: PixmapMut::new(target_width, row_height, buffer)
-                .expect("row band has the expected pixmap dimensions"),
-        });
-        remaining = rest;
-    }
-
-    let fine_state = ThreadLocal::new();
-    bands.par_iter_mut().for_each(|band| {
-        let mut fine_state = fine_state
-            .get_or(|| {
-                RefCell::new((
-                    Fine::<S, T>::new(simd, target_width, resources.bucketer.width()),
-                    DepthBuffer::new(resources.bucketer.width()),
-                ))
-            })
-            .borrow_mut();
-        let (fine, depth) = &mut *fine_state;
-
-        let scene_y = band.row_idx as u16 * Tile::HEIGHT;
-        let row = &resources.bucketer.rows()[band.row_idx];
-        rasterize_row::<S, T>(
-            fine,
-            depth,
-            row,
-            RowLayout {
-                scene_y,
-                render_width: width,
-                row_height: band.row_height,
-                target_x: dst_x,
-                target_y: 0,
-                unpack_dest: params.unpack_dest,
-            },
-            &mut band.target,
+    let mut fine = Fine::<S, T>::new(simd, area.target_width, resources.bucketer.width());
+    let mut depth = DepthBuffer::new(resources.bucketer.width());
+    let mut bands = RowBands::new(area, row_count, target.data_mut());
+    bands.update(|band| {
+        rasterize_band::<S, T>(
+            &mut fine,
+            &mut depth,
+            band,
             resources,
+            area,
+            params.unpack_dest,
         );
     });
 }
@@ -1506,78 +1480,115 @@ pub(crate) struct FineRenderParams {
 }
 
 #[derive(Clone, Copy)]
-struct RowLayout {
-    /// Row y in scene/filter coordinates.
-    scene_y: u16,
-    /// Width of the rendered scene clipped to the destination pixmap.
-    render_width: u16,
-    /// Number of pixel rows from this tile row that fit in the destination pixmap.
-    row_height: u16,
-    /// Destination x offset in the target pixmap.
-    target_x: u16,
-    /// Destination y offset in the target pixmap.
-    target_y: u16,
-    unpack_dest: bool,
+pub(crate) struct RenderArea {
+    pub(crate) width: u16,
+    pub(crate) height: u16,
+    pub(crate) dst_x: u16,
+    pub(crate) dst_y: u16,
+    pub(crate) target_width: u16,
 }
 
-fn rasterize_rows<S: Simd, T: FineKernel<S>>(
-    fine: &mut Fine<S, T>,
-    resources: FineResources<'_>,
-    mut target: PixmapMut<'_>,
-    params: FineRenderParams,
-) {
-    let (width, height) = params.scene_size;
-    let (dst_x, dst_y) = params.target_offset;
-    let width = width.min(target.width().saturating_sub(dst_x));
-    let height = height.min(target.height().saturating_sub(dst_y));
-    let mut depth = DepthBuffer::new(resources.bucketer.width());
-
-    for (row_idx, row) in resources.bucketer.rows().iter().enumerate() {
-        let scene_y = row_idx as u16 * Tile::HEIGHT;
-        if scene_y >= height {
-            break;
+impl RenderArea {
+    pub(crate) fn new(target: &PixmapMut<'_>, params: FineRenderParams) -> Option<Self> {
+        let (dst_x, dst_y) = params.target_offset;
+        if dst_x >= target.width() || dst_y >= target.height() {
+            return None;
         }
 
-        let row_height = (height - scene_y).min(Tile::HEIGHT);
-        rasterize_row::<S, T>(
-            fine,
-            &mut depth,
-            row,
-            RowLayout {
-                scene_y,
-                render_width: width,
-                row_height,
-                target_x: dst_x,
-                target_y: dst_y + scene_y,
-                unpack_dest: params.unpack_dest,
-            },
-            &mut target,
-            resources,
-        );
+        let (scene_width, scene_height) = params.scene_size;
+        let width = scene_width.min(target.width().saturating_sub(dst_x));
+        let height = scene_height.min(target.height().saturating_sub(dst_y));
+        if width == 0 || height == 0 {
+            return None;
+        }
+
+        Some(Self {
+            width,
+            height,
+            dst_x,
+            dst_y,
+            target_width: target.width(),
+        })
+    }
+
+    pub(crate) fn row_count(self, resources: FineResources<'_>) -> usize {
+        resources
+            .bucketer
+            .rows()
+            .len()
+            .min(usize::from(self.height).div_ceil(Tile::HEIGHT as usize))
     }
 }
 
-fn rasterize_row<S: Simd, T: FineKernel<S>>(
+pub(crate) struct RowBand<'a> {
+    row_idx: usize,
+    row_height: u16,
+    target: PixmapMut<'a>,
+}
+
+pub(crate) struct RowBands<'a> {
+    bands: Vec<RowBand<'a>>,
+}
+
+impl<'a> RowBands<'a> {
+    pub(crate) fn new(area: RenderArea, row_count: usize, target: &'a mut [u8]) -> Self {
+        let stride = usize::from(area.target_width) * COLOR_COMPONENTS;
+        let render_bytes = usize::from(area.height) * stride;
+        let mut remaining = &mut target[usize::from(area.dst_y) * stride..][..render_bytes];
+        let mut bands = Vec::with_capacity(row_count);
+
+        for row_idx in 0..row_count {
+            let row_y = row_idx as u16 * Tile::HEIGHT;
+            let row_height = (area.height - row_y).min(Tile::HEIGHT);
+            let band_len = usize::from(row_height) * stride;
+            let (buffer, rest) = remaining.split_at_mut(band_len);
+            bands.push(RowBand {
+                row_idx,
+                row_height,
+                target: PixmapMut::new(area.target_width, row_height, buffer)
+                    .expect("row band has the expected pixmap dimensions"),
+            });
+            remaining = rest;
+        }
+
+        Self { bands }
+    }
+
+    pub(crate) fn update(&mut self, func: impl FnMut(&mut RowBand<'_>)) {
+        self.bands.iter_mut().for_each(func);
+    }
+
+    #[cfg(feature = "multithreading")]
+    pub(crate) fn update_par(&mut self, func: impl Fn(&mut RowBand<'_>) + Send + Sync) {
+        use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+
+        self.bands.par_iter_mut().for_each(func);
+    }
+}
+
+pub(crate) fn rasterize_band<S: Simd, T: FineKernel<S>>(
     fine: &mut Fine<S, T>,
     depth: &mut DepthBuffer,
-    row: &RowCmds,
-    layout: RowLayout,
-    target: &mut PixmapMut<'_>,
+    band: &mut RowBand<'_>,
     resources: FineResources<'_>,
+    area: RenderArea,
+    unpack_dest: bool,
 ) {
+    let scene_y = band.row_idx as u16 * Tile::HEIGHT;
+    let row = &resources.bucketer.rows()[band.row_idx];
     let Some(row_bounds) = row.coarse_span() else {
         return;
     };
     let mut row_start = row_bounds.pixel_x();
     let mut row_end = row_bounds.pixel_end();
-    row_start = row_start.min(layout.render_width);
-    row_end = row_end.min(layout.render_width);
+    row_start = row_start.min(area.width);
+    row_end = row_end.min(area.width);
     if row_start >= row_end {
         return;
     }
 
-    let row_height = usize::from(layout.row_height);
-    fine.set_row_y(layout.scene_y);
+    let row_height = usize::from(band.row_height);
+    fine.set_row_y(scene_y);
     let row_span = Span::new(row_start, row_end - row_start);
     depth.clear();
 
@@ -1593,78 +1604,29 @@ fn rasterize_row<S: Simd, T: FineKernel<S>>(
     }
 
     fine.init_uncovered_range(
-        layout.target_y,
+        0,
         row_height,
         row_span,
-        layout.target_x + row_start,
-        target,
-        layout.unpack_dest,
+        area.dst_x + row_start,
+        &mut band.target,
+        unpack_dest,
         depth,
     );
 
     for cmd in &row.cmds {
-        match cmd {
-            RenderCmd::PaintFill(cmd) => {
-                let attrs = &resources.bucketer.attrs()[cmd.attrs_idx as usize];
-                let alphas = resources.alpha_buffers[attrs.thread_idx as usize];
-                let use_depth = !row.can_skip_depth(cmd.span, attrs.draw_id);
-                fine.render_cmd(
-                    *cmd,
-                    alphas,
-                    attrs,
-                    resources.encoded_paints,
-                    resources.image_resolver,
-                    use_depth,
-                    depth,
-                );
-            }
-            RenderCmd::PushBuf => {
-                fine.push_buf(row_span);
-            }
-            RenderCmd::PopBuf => {
-                fine.pop_buf();
-            }
-            RenderCmd::FilterLayerFill(cmd) => {
-                let attrs = &resources.bucketer.filter_attrs()[cmd.attrs_idx as usize];
-                if let Some(layer) = resources.filters.filter_layer(attrs.id) {
-                    let use_depth = !row.can_skip_depth(cmd.span, attrs.draw_id);
-                    fine.composite_filter_layer_cmd(
-                        *cmd,
-                        attrs,
-                        layout.scene_y,
-                        layer,
-                        use_depth,
-                        depth,
-                    );
-                }
-            }
-            RenderCmd::LayerFill(cmd) => {
-                let attrs = &resources.bucketer.layer_attrs()[cmd.attrs_idx as usize];
-
-                if attrs.opacity != 1.0 {
-                    fine.opacity(cmd.span, attrs.opacity);
-                }
-                if let Some(mask) = attrs.mask.as_ref() {
-                    fine.mask(layout.scene_y, cmd.span, mask);
-                }
-                let alphas = cmd.alpha_idx().map(|alpha_idx| {
-                    &resources.alpha_buffers[attrs.thread_idx as usize][alpha_idx as usize..]
-                });
-                fine.blend(layout.scene_y, cmd.span, attrs.blend_mode, alphas);
-            }
-        }
+        fine.run_cmd(cmd, row, row_span, scene_y, resources, depth);
     }
 
-    let pack_start = row_start.min(layout.render_width);
-    let pack_end = row_end.min(layout.render_width);
+    let pack_start = row_start.min(area.width);
+    let pack_end = row_end.min(area.width);
     if pack_start < pack_end {
         fine.pack_at(
-            layout.target_y,
+            0,
             row_height,
             pack_start,
-            layout.target_x + pack_start,
+            area.dst_x + pack_start,
             pack_end - pack_start,
-            target,
+            &mut band.target,
         );
     }
 }
