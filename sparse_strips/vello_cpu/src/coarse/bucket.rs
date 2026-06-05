@@ -281,6 +281,7 @@ impl CommandBucketer {
             .as_ref()
             .map(|clip| clip.bbox.intersect(parent_bbox))
             .unwrap_or(parent_bbox);
+        let bbox = snap_bbox_to_tile_coordinates(bbox);
         if props.clip.is_some() {
             self.clip_bboxes.push(bbox);
         }

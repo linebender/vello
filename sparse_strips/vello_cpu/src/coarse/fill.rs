@@ -5,7 +5,7 @@ use super::bucket::CommandBucketer;
 use super::cmd::{PaintFill, PaintFillAttrs, RenderCmd};
 use super::depth::{self, DepthSegment};
 use crate::peniko::BlendMode;
-use crate::util::{Span, snap_bbox_to_tile_coordinates};
+use crate::util::Span;
 use vello_common::encode::EncodedPaint;
 use vello_common::strip::Strip;
 use vello_common::tile::Tile;
@@ -85,9 +85,14 @@ impl CommandBucketer {
             return;
         }
 
-        let clip_bbox = snap_bbox_to_tile_coordinates(*self.clip_bboxes.last().unwrap());
+        let clip_bbox = *self.clip_bboxes.last().unwrap();
+        // Note: those will always be aligned to tile coordinates.
         let clip_x0 = clip_bbox.x0;
         let clip_x1 = clip_bbox.x1.min(self.width());
+
+        debug_assert!(clip_x0.is_multiple_of(Tile::WIDTH));
+        debug_assert!(clip_x1.is_multiple_of(Tile::WIDTH));
+
         let strip_x = |strip: &Strip| {
             if strip.is_sentinel() {
                 strip.x
