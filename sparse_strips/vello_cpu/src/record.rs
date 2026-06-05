@@ -34,7 +34,7 @@
 //! decisions about how to render them (for example, where to place a filter layer and what size to
 //! allocate for it).
 
-use crate::coarse::bucket::LayerClip;
+use crate::coarse::bucketer::LayerClip;
 use crate::kurbo::{Affine, Rect};
 use crate::peniko::BlendMode;
 use crate::util::{VecPool, bbox_relative_to, snap_bbox_to_tile_coordinates};
