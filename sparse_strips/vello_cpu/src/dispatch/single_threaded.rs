@@ -152,6 +152,11 @@ impl SingleThreadedDispatcher {
         image_resolver: &dyn ImageResolver,
     ) -> FilterContext {
         let mut filters = FilterContext::new(self.recorder.layers.len());
+        // We record layers upon "push", so nested filter layers get higher IDs
+        // than their parents. Subsequent sibling filter layers also get a higher ID
+        // than the previous layer they are composited into. Therefore, iterating in reverse
+        // order over the layer IDs is enough to ensure that all dependencies have been rendered
+        // before they are invoked.
         for id in (0..self.recorder.layers.len()).rev() {
             let RecordedLayerKind::Filter {
                 cmds,

@@ -277,10 +277,8 @@ impl CommandBucketer {
                     let RecordedLayerKind::Filter { placement, .. } = &layers[id.get()].kind else {
                         unreachable!()
                     };
-                    // `composite_bbox` is stored in parent/root coordinates, while the bucketer
-                    // emits commands in the current pixmap's local coordinates. If the parent filter
-                    // pixmap conceptually starts at (100, 40), for a nested filter layer we must
-                    // apply the same shift that we for example apply to paints..
+                    // Similarly to how indexed paints are handled, we might have to apply a shift
+                    // to account for the origin of the root later.
                     let local_composite_bbox = bbox_relative_to(placement.composite_bbox, origin);
                     let needs_layer = props.blend_mode != BlendMode::default()
                         || props.opacity != 1.0
@@ -349,7 +347,7 @@ impl CommandBucketer {
 
         // Two cases that need to be distinguished.
         //
-        // If no clip was associated, we simply iterate over all of the rows that
+        // If no clip was associated, we simply iterate over all rows that
         // were lazily associated with some rendered contents and emit a `LayerFill`
         // instructions across the whole width of the bounding box of the layer.
         //
@@ -448,34 +446,32 @@ impl CommandBucketer {
         src_origin: (u16, u16),
     ) {
         let clip_bbox = *self.clip_bboxes.last().unwrap();
-        let src_bbox = dest_bbox;
         // As noted in [`CommandBucketer::clip_bboxes`], we only need to composite the parts
-        // of the filter layer that actually lie within clip bounding box. Once again, note that
-        // this is already snapped to tile coordinates!
-        let dest_bbox = dest_bbox.intersect(clip_bbox);
-        if dest_bbox.is_empty() {
+        // of the filter layer that actually lie within clip bounding box.
+        let clipped_dest_bbox = dest_bbox.intersect(clip_bbox);
+        if clipped_dest_bbox.is_empty() {
             return;
         }
 
         let draw_id = self.next_draw_id();
-        let span = Self::bbox_span(dest_bbox);
+        let span = Self::bbox_span(clipped_dest_bbox);
         let filter_attrs_idx = self.filter_fill_attrs.len() as u32;
         self.filter_fill_attrs.push(FilterLayerFillAttrs {
             id,
             draw_id,
-            dest_bbox,
+            dest_bbox: clipped_dest_bbox,
             origin: (
-                src_origin.0 + span.pixel_x().saturating_sub(src_bbox.x0),
-                src_origin.1 + (dest_bbox.y0 - src_bbox.y0),
+                src_origin.0 + span.pixel_x().saturating_sub(dest_bbox.x0),
+                src_origin.1 + (clipped_dest_bbox.y0 - dest_bbox.y0),
             ),
         });
-        let row_start = usize::from(dest_bbox.y0 / Tile::HEIGHT);
-        let row_end = usize::from(dest_bbox.y1.div_ceil(Tile::HEIGHT)).min(self.rows.len());
+        let row_start = usize::from(clipped_dest_bbox.y0 / Tile::HEIGHT);
+        let row_end = usize::from(clipped_dest_bbox.y1.div_ceil(Tile::HEIGHT)).min(self.rows.len());
         for row_idx in row_start..row_end {
             self.ensure_row_layers(row_idx);
             let row_y = row_idx as u16 * Tile::HEIGHT;
             let row_y1 = row_y.saturating_add(Tile::HEIGHT);
-            if row_y1 <= dest_bbox.y0 || row_y >= dest_bbox.y1 {
+            if row_y1 <= clipped_dest_bbox.y0 || row_y >= clipped_dest_bbox.y1 {
                 continue;
             }
             self.rows[row_idx].push_cmd(RenderCmd::FilterLayerFill(FilterLayerFill {
