@@ -2,12 +2,38 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::peniko::ImageQuality;
+use alloc::vec::Vec;
 use vello_common::encode::EncodedImage;
 use vello_common::fearless_simd::{Simd, SimdBase, f32x4, u8x32};
 use vello_common::geometry::RectU16;
 use vello_common::math::FloatExt;
 use vello_common::tile::Tile;
 use vello_common::util::Div255Ext;
+
+/// Pool for reusing vector allocations.
+#[derive(Debug)]
+pub(crate) struct VecPool<T> {
+    entries: Vec<Vec<T>>,
+}
+
+impl<T> Default for VecPool<T> {
+    fn default() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+}
+
+impl<T> VecPool<T> {
+    pub(crate) fn take(&mut self) -> Vec<T> {
+        self.entries.pop().unwrap_or_default()
+    }
+
+    pub(crate) fn submit(&mut self, mut vec: Vec<T>) {
+        vec.clear();
+        self.entries.push(vec);
+    }
+}
 
 pub(crate) mod scalar {
     /// Perform an approximate division by 255.

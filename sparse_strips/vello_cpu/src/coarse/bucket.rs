@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use super::cmd::{
-    PaintFill, PaintFillAttrs, FilterLayerFill, FilterLayerFillAttrs, LayerFillAttrs, LayerFill, RenderCmd,
+    FilterLayerFill, FilterLayerFillAttrs, LayerFill, LayerFillAttrs, PaintFill, PaintFillAttrs,
+    RenderCmd,
 };
 use super::depth::DepthState;
 use crate::peniko::BlendMode;
 use crate::record::{LayerProps, RecordedCmd, RecordedLayer, RecordedLayerKind};
-use crate::util::{Span, bbox_relative_to, snap_bbox_to_tile_coordinates};
+use crate::util::{Span, VecPool, bbox_relative_to, snap_bbox_to_tile_coordinates};
 use alloc::vec;
 use alloc::vec::Vec;
 use std::ops::Range;
@@ -121,8 +122,9 @@ pub(crate) struct CommandBucketer {
     pub(super) filter_fill_attrs: Vec<FilterLayerFillAttrs>,
     /// Keeping track of currently active layers to enable lazy layer pushing.
     pub(super) active_layers: Vec<ActiveLayer>,
+    occupied_rows_pool: VecPool<usize>,
     /// Scratch space used when replaying clip strips while popping clipped layers.
-    occupied_rows_scratch: Vec<bool>,
+    occupied_rows_bool_scratch: Vec<bool>,
     /// A counter to assign monotonically increasing IDs to draws to enable depth buffer rendering.
     pub(super) next_draw_id: u32,
 }
@@ -141,7 +143,8 @@ impl CommandBucketer {
             layer_fill_attrs: Vec::new(),
             filter_fill_attrs: Vec::new(),
             active_layers: Vec::new(),
-            occupied_rows_scratch: vec![false; num_rows],
+            occupied_rows_pool: VecPool::default(),
+            occupied_rows_bool_scratch: vec![false; num_rows],
             // It is important to start at 1, because depth buffer uses 0 for "no entries yet".
             next_draw_id: 1,
         }
@@ -183,9 +186,11 @@ impl CommandBucketer {
         self.paint_fill_attrs.clear();
         self.layer_fill_attrs.clear();
         self.filter_fill_attrs.clear();
-        self.active_layers.clear();
-        self.occupied_rows_scratch.clear();
-        self.occupied_rows_scratch.resize(num_rows, false);
+        for layer in self.active_layers.drain(..) {
+            self.occupied_rows_pool.submit(layer.occupied_rows);
+        }
+        self.occupied_rows_bool_scratch.clear();
+        self.occupied_rows_bool_scratch.resize(num_rows, false);
         self.next_draw_id = 1;
         self.clip_bboxes.truncate(1);
         self.clip_bboxes[0] = full_clip_bbox;
@@ -232,8 +237,7 @@ impl CommandBucketer {
                 }
                 RecordedCmd::CompositeFilterLayer { id } => {
                     let props = &layers[id.get()].props;
-                    let RecordedLayerKind::Filter { placement, .. } = &layers[id.get()].kind
-                    else {
+                    let RecordedLayerKind::Filter { placement, .. } = &layers[id.get()].kind else {
                         unreachable!()
                     };
                     let placement = *placement;
@@ -287,11 +291,12 @@ impl CommandBucketer {
             opacity: props.opacity,
             clip: props.clip.clone(),
             span: Self::bbox_span(bbox),
-            // TODO: Reuse allocations?
-            occupied_rows: Vec::new(),
+            occupied_rows: self.occupied_rows_pool.take(),
         });
 
-        // If the blend mode is destructive, we need to eagerly push to all rows in the clip bbox.
+        // If the blend mode is destructive, we need to eagerly push to all rows in the clip bbox,
+        // since even areas where we didn't draw anything need to be blended with the destructive
+        // blend mode.
         if props.blend_mode.is_destructive() {
             let row_start = usize::from(bbox.y0 / Tile::HEIGHT);
             let row_end = usize::from(bbox.y1.div_ceil(Tile::HEIGHT)).min(self.rows.len());
@@ -341,7 +346,7 @@ impl CommandBucketer {
             // such that in the `generate` closure, we can easily check whether the row is included
             // or now.
             for &row_idx in &layer.occupied_rows {
-                self.occupied_rows_scratch[row_idx] = true;
+                self.occupied_rows_bool_scratch[row_idx] = true;
             }
 
             // Now generate the actual layer fill commands.
@@ -349,17 +354,18 @@ impl CommandBucketer {
                 clip_strips,
                 pixmap_origin,
                 |bucketer, row_idx, fill| {
-                    if bucketer.occupied_rows_scratch[row_idx] {
-                        bucketer.rows[row_idx].push_cmd(RenderCmd::LayerFill(
-                            LayerFill::new(fill, None, attrs_idx),
-                        ));
+                    if bucketer.occupied_rows_bool_scratch[row_idx] {
+                        bucketer.rows[row_idx]
+                            .push_cmd(RenderCmd::LayerFill(LayerFill::new(fill, None, attrs_idx)));
                     }
                 },
                 |bucketer, row_idx, fill| {
-                    if bucketer.occupied_rows_scratch[row_idx] {
-                        bucketer.rows[row_idx].push_cmd(RenderCmd::LayerFill(
-                            LayerFill::new(fill.span, Some(fill.alpha_idx), attrs_idx),
-                        ));
+                    if bucketer.occupied_rows_bool_scratch[row_idx] {
+                        bucketer.rows[row_idx].push_cmd(RenderCmd::LayerFill(LayerFill::new(
+                            fill.span,
+                            Some(fill.alpha_idx),
+                            attrs_idx,
+                        )));
                     }
                 },
             );
@@ -367,8 +373,9 @@ impl CommandBucketer {
             for row_idx in layer.occupied_rows.drain(..) {
                 self.rows[row_idx].pop_buf();
                 // Make sure to reset it.
-                self.occupied_rows_scratch[row_idx] = false;
+                self.occupied_rows_bool_scratch[row_idx] = false;
             }
+            self.occupied_rows_pool.submit(layer.occupied_rows);
         } else {
             let attrs_idx = self.layer_fill_attrs.len() as u32;
             self.layer_fill_attrs.push(LayerFillAttrs {
@@ -386,11 +393,10 @@ impl CommandBucketer {
             for row_idx in layer.occupied_rows.drain(..) {
                 let row = &mut self.rows[row_idx];
 
-                row.push_cmd(RenderCmd::LayerFill(LayerFill::new(
-                    span, None, attrs_idx,
-                )));
+                row.push_cmd(RenderCmd::LayerFill(LayerFill::new(span, None, attrs_idx)));
                 row.pop_buf();
             }
+            self.occupied_rows_pool.submit(layer.occupied_rows);
         }
     }
 

@@ -12,7 +12,9 @@ mod highp;
 mod lowp;
 
 use crate::coarse::depth::DepthBuffer;
-use crate::coarse::{CommandBucketer, PaintFill, PaintFillAttrs, FilterLayerFillAttrs, RenderCmd, RowCmds};
+use crate::coarse::{
+    CommandBucketer, FilterLayerFillAttrs, PaintFill, PaintFillAttrs, RenderCmd, RowCmds,
+};
 use crate::filter::context::FilterContext;
 use crate::filter::context::ScratchBuffer;
 use crate::fine::common::gradient::GradientPainter;
@@ -24,7 +26,7 @@ use crate::fine::common::image::{FilteredImagePainter, NNImagePainter, PlainNNIm
 use crate::fine::common::rounded_blurred_rect::BlurredRoundedRectFiller;
 use crate::peniko::{BlendMode, ImageQuality};
 use crate::region::Region;
-use crate::util::{EncodedImageExt, Span};
+use crate::util::{EncodedImageExt, Span, VecPool};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
@@ -474,7 +476,7 @@ pub struct Fine<S: Simd, T: FineKernel<S>> {
     simd: S,
     buffer_width: u16,
     buffers: Vec<Vec<T::Numeric>>,
-    buffer_pool: Vec<Vec<T::Numeric>>,
+    buffer_pool: VecPool<T::Numeric>,
     paint_buf: Vec<T::Numeric>,
     f32_buf: Vec<f32>,
     row_y: u16,
@@ -489,7 +491,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             simd,
             buffer_width,
             buffers: vec![vec![T::Numeric::ZERO; scratch_len]],
-            buffer_pool: Vec::new(),
+            buffer_pool: VecPool::default(),
             paint_buf: Vec::new(),
             f32_buf: Vec::new(),
             row_y: 0,
@@ -552,10 +554,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     }
 
     fn push_buf(&mut self, span: Span) {
-        let mut buf = self
-            .buffer_pool
-            .pop()
-            .unwrap_or_else(|| vec![T::Numeric::ZERO; self.buffers[0].len()]);
+        let mut buf = self.buffer_pool.take();
+        buf.resize(self.buffers[0].len(), T::Numeric::ZERO);
         buf[Self::scratch_range(span)].fill(T::Numeric::ZERO);
         self.buffers.push(buf);
     }
@@ -615,7 +615,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
     fn pop_buf(&mut self) {
         let popped = self.buffers.pop().unwrap();
-        self.buffer_pool.push(popped);
+        self.buffer_pool.submit(popped);
     }
 
     fn apply_mask(simd: S, target: &mut [T::Numeric], x: u16, y: u16, width: u16, mask: &Mask) {

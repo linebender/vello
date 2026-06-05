@@ -84,7 +84,7 @@ impl LayerFill {
     }
 }
 
-/// Composite a span from a rendered filter layer pixmap 
+/// Composite a span from a rendered filter layer pixmap
 /// into the current buffer.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FilterLayerFill {

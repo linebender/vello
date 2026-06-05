@@ -132,13 +132,7 @@ impl CommandBucketer {
     }
 
     /// Note: If depth-culling should be disabled, pass `None` to `draw_id`.
-    fn push_fill(
-        &mut self,
-        row_idx: usize,
-        span: Span,
-        attrs_idx: u32,
-        draw_id: Option<u32>,
-    ) {
+    fn push_fill(&mut self, row_idx: usize, span: Span, attrs_idx: u32, draw_id: Option<u32>) {
         self.ensure_row_layers(row_idx);
         let row = &mut self.rows[row_idx];
         let draw_id = draw_id.filter(|_| row.layer_depth == 0);

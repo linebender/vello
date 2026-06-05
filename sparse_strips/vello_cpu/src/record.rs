@@ -37,7 +37,7 @@
 use crate::coarse::bucket::LayerClip;
 use crate::kurbo::{Affine, Rect};
 use crate::peniko::BlendMode;
-use crate::util::{bbox_relative_to, snap_bbox_to_tile_coordinates};
+use crate::util::{VecPool, bbox_relative_to, snap_bbox_to_tile_coordinates};
 use alloc::vec::Vec;
 use core::ops::Range;
 use vello_common::filter_effects::Filter;
@@ -60,13 +60,9 @@ pub(crate) enum RecordedCmd {
         mask: Option<Mask>,
     },
     /// Push a new (non-filter) layer to the layer stack.
-    PushLayer {
-        id: LayerId,
-    },
+    PushLayer { id: LayerId },
     /// Composite the filter layer with the current ID.
-    CompositeFilterLayer {
-        id: LayerId,
-    },
+    CompositeFilterLayer { id: LayerId },
     /// Pop the last (non-filter) layer from the layer stack.
     PopLayer,
 }
@@ -172,7 +168,8 @@ impl FilterLayerPlacement {
         // large of a pixmap we actually need to allocate. Also, as mentioned
         // in [`FilterLayerPlan::new`], we need to ensure the pixmap itself is
         // also a multiple of the tile width / tile height.
-        let pixmap_bbox = snap_bbox_to_tile_coordinates(expand_bbox(bbox, filter_plan.filter_padding));
+        let pixmap_bbox =
+            snap_bbox_to_tile_coordinates(expand_bbox(bbox, filter_plan.filter_padding));
 
         // Remember that in `RenderContext`, we eagerly shift everything drawn by `source_shift`
         // to conservatively ensure that everything that might be needed for the filter is in the
@@ -257,31 +254,13 @@ impl FilterData {
     }
 }
 
-/// A small pool for reusing `Vec<RenderCmd>` allocations across multiple
-/// frames for filter layers.
-#[derive(Debug, Default)]
-struct CommandPool {
-    cmds: Vec<Vec<RecordedCmd>>,
-}
-
-impl CommandPool {
-    fn take(&mut self) -> Vec<RecordedCmd> {
-        self.cmds.pop().unwrap_or_default()
-    }
-
-    fn submit(&mut self, mut cmds: Vec<RecordedCmd>) {
-        cmds.clear();
-        self.cmds.push(cmds);
-    }
-}
-
 #[derive(Debug, Default)]
 pub(crate) struct CommandRecorder {
     /// The commands of the root layer.
     pub(crate) root_cmds: Vec<RecordedCmd>,
     /// Data about recorded layers, indexed by their ID.
     pub(crate) layers: Vec<RecordedLayer>,
-    cmd_pool: CommandPool,
+    cmd_pool: VecPool<RecordedCmd>,
     /// The layer whose command stream is currently treated as the root.
     ///
     /// This is either the real scene root (`None`) or an active filter layer
@@ -339,11 +318,7 @@ impl CommandRecorder {
         self.record_bbox(|| strip_bbox(strips, viewport_width));
     }
 
-    pub(crate) fn push_layer(
-        &mut self,
-        props: LayerProps,
-        filter_plan: Option<FilterData>,
-    ) {
+    pub(crate) fn push_layer(&mut self, props: LayerProps, filter_plan: Option<FilterData>) {
         if let Some(filter_plan) = filter_plan {
             self.push_filter_layer(props, filter_plan);
             return;
@@ -357,11 +332,7 @@ impl CommandRecorder {
         });
     }
 
-    fn push_filter_layer(
-        &mut self,
-        props: LayerProps,
-        filter_plan: FilterData,
-    ) {
+    fn push_filter_layer(&mut self, props: LayerProps, filter_plan: FilterData) {
         let previous_root_layer = self.active_root_layer;
         let cmds = self.cmd_pool.take();
         let id = self.push_layer_metadata(RecordedLayer::filter(props, filter_plan, cmds));
