@@ -277,8 +277,7 @@ impl CommandBucketer {
                     let RecordedLayerKind::Filter { placement, .. } = &layers[id.get()].kind else {
                         unreachable!()
                     };
-                    // Similarly to how indexed paints are handled, we might have to apply a shift
-                    // to account for the origin of the root later.
+                    // Similarly to how indexed paints are handled, shift by the pixmap origin.
                     let local_composite_bbox = bbox_relative_to(placement.composite_bbox, origin);
                     let needs_layer = props.blend_mode != BlendMode::default()
                         || props.opacity != 1.0
@@ -456,15 +455,12 @@ impl CommandBucketer {
         let draw_id = self.next_draw_id();
         let span = Self::bbox_span(clipped_dest_bbox);
         let filter_attrs_idx = self.filter_fill_attrs.len() as u32;
-        self.filter_fill_attrs.push(FilterLayerFillAttrs {
-            id,
-            draw_id,
-            dest_bbox: clipped_dest_bbox,
-            origin: (
-                src_origin.0 + span.pixel_x().saturating_sub(dest_bbox.x0),
-                src_origin.1 + (clipped_dest_bbox.y0 - dest_bbox.y0),
-            ),
-        });
+        let src_offset = (
+            i32::from(src_origin.0) - i32::from(dest_bbox.x0),
+            i32::from(src_origin.1) - i32::from(dest_bbox.y0),
+        );
+        self.filter_fill_attrs
+            .push(FilterLayerFillAttrs::new(id, draw_id, src_offset));
         let row_start = usize::from(clipped_dest_bbox.y0 / Tile::HEIGHT);
         let row_end = usize::from(clipped_dest_bbox.y1.div_ceil(Tile::HEIGHT)).min(self.rows.len());
         for row_idx in row_start..row_end {

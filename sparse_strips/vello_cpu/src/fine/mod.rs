@@ -918,28 +918,33 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         use_depth: bool,
         depth: &DepthBuffer,
     ) {
+        fn offset_src_coord(coord: u16, offset: i32) -> u16 {
+            // This is always supposed to be positive, because the bucketer doesn't emit filter
+            // fill spans in areas that lie beyond the filter pixmap.
+            let src = i32::from(coord) + offset;
+            debug_assert!(
+                src >= 0,
+                "filter fill source coordinate must be non-negative"
+            );
+
+            src as u16
+        }
+
         let cmd_x = cmd.span.pixel_x();
         let cmd_end = cmd.span.pixel_end().min(self.buffer_width);
         if cmd_x >= cmd_end {
             return;
         }
-        let row_y1 = row_y.saturating_add(Tile::HEIGHT);
-        let draw_y = row_y.max(attrs.dest_bbox.y0);
-        let draw_y1 = row_y1.min(attrs.dest_bbox.y1);
-        if draw_y >= draw_y1 {
-            return;
-        }
-        let src_y = attrs.origin.1 + (draw_y - attrs.dest_bbox.y0);
-        let dst_y_offset = (draw_y - row_y) as u8;
-        let height = (draw_y1 - draw_y) as u8;
+        let src_x = offset_src_coord(cmd_x, attrs.src_offset.0);
+        let src_y = offset_src_coord(row_y, attrs.src_offset.1);
 
         if !use_depth {
             self.composite_filter_layer(
                 Span::new(cmd_x, cmd_end - cmd_x),
-                attrs.origin.0,
+                src_x,
                 src_y,
-                dst_y_offset,
-                height,
+                0,
+                Tile::HEIGHT as u8,
                 layer,
             );
             return;
@@ -950,10 +955,10 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             let x = span.pixel_x();
             self.composite_filter_layer(
                 span,
-                attrs.origin.0 + (x - cmd.span.pixel_x()),
+                offset_src_coord(x, attrs.src_offset.0),
                 src_y,
-                dst_y_offset,
-                height,
+                0,
+                Tile::HEIGHT as u8,
                 layer,
             );
         });

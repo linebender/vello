@@ -6,7 +6,6 @@
 use crate::peniko::BlendMode;
 use crate::util::Span;
 use core::num::NonZeroU32;
-use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::Paint;
 
@@ -134,8 +133,18 @@ pub(crate) struct FilterLayerFillAttrs {
     /// The ID of the filter layer.
     pub(crate) id: usize,
     pub(crate) draw_id: u32,
-    pub(crate) dest_bbox: RectU16,
-    pub(crate) origin: (u16, u16),
+    /// Offset from destination coordinates to coordinates in the filter pixmap.
+    pub(crate) src_offset: (i32, i32),
+}
+
+impl FilterLayerFillAttrs {
+    pub(crate) fn new(id: usize, draw_id: u32, src_offset: (i32, i32)) -> Self {
+        Self {
+            id,
+            draw_id,
+            src_offset,
+        }
+    }
 }
 
 #[cfg(test)]
