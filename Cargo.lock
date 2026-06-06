@@ -4206,10 +4206,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vello_filters_cpu"
-version = "0.9.0"
-
-[[package]]
 name = "vello_hybrid"
 version = "0.0.9"
 dependencies = [
