@@ -44,8 +44,7 @@ The `vello` crate provides the following Cargo features:
 See the [Cargo feature documentation](https://doc.rust-lang.org/cargo/reference/features.html)
 for details on enabling and combining features.
 
-> ⚠️ WARNING
->
+> [!WARNING]
 > Vello can currently be considered in an alpha state. In particular, we're still working on the following:
 >
 > - [Implementing blur and filter effects](https://github.com/linebender/vello/issues/476).
