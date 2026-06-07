@@ -224,7 +224,7 @@ fn many_bins(use_cpu: bool) {
         ..TestParams::new("many_bins", 256 * 17, 256 * 17)
     };
     let image = vello_tests::render_then_debug_sync(&scene, &params).unwrap();
-    assert_eq!(image.format, ImageFormat::Rgba8);
+    assert_eq!(image.format, ImageFormat::Rgba8, "image should be Rgba8");
     let mut red_count = 0;
     let mut black_count = 0;
     for pixel in image.data.data().chunks_exact(4) {
@@ -243,8 +243,14 @@ fn many_bins(use_cpu: bool) {
     }
     let drawn_bins = 17 /* x bins */ * 17 /* y bins*/;
     let expected_red_count = drawn_bins * 256 /* tiles per bin */ * 256 /* Pixels per tile */;
-    assert_eq!(red_count, expected_red_count);
-    assert_eq!(black_count, 0);
+    assert_eq!(
+        red_count, expected_red_count,
+        "number of drawn red pixels should match the expected pixel count for 17x17 bins"
+    );
+    assert_eq!(
+        black_count, 0,
+        "no black pixels should remain in the render"
+    );
 }
 
 #[test]
