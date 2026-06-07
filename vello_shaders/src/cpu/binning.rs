@@ -33,11 +33,12 @@ fn binning_main(
     bin_data: &mut [u32],
     bin_header: &mut [BinHeader],
 ) {
+    let width_in_bins = config.width_in_tiles.div_ceil(N_TILE_X as u32) as i32;
+    let height_in_bins = config.height_in_tiles.div_ceil(N_TILE_Y as u32) as i32;
+    let n_bins = (width_in_bins * height_in_bins) as usize;
     for wg in 0..n_wg as usize {
-        let mut counts = [0; WG_SIZE];
+        let mut counts = vec![0; n_bins];
         let mut bboxes = [[0, 0, 0, 0]; WG_SIZE];
-        let width_in_bins = config.width_in_tiles.div_ceil(N_TILE_X as u32) as i32;
-        let height_in_bins = config.height_in_tiles.div_ceil(N_TILE_Y as u32) as i32;
         for local_ix in 0..WG_SIZE {
             let element_ix = wg * WG_SIZE + local_ix;
             let mut x0 = 0;
@@ -78,9 +79,12 @@ fn binning_main(
             }
             bboxes[local_ix] = [x0, y0, x1, y1];
         }
-        let mut chunk_offset = [0; WG_SIZE];
-        for local_ix in 0..WG_SIZE {
-            let global_ix = wg * WG_SIZE + local_ix;
+        let mut chunk_offset = vec![0; n_bins];
+        let aligned_n_bins = (n_bins + 255) & !255;
+        // Looping on the number of bins instead of workgroup sized chunks, not idiomatic of gpus
+        // Oh well!
+        for local_ix in 0..n_bins {
+            let global_ix = wg * aligned_n_bins + local_ix;
             chunk_offset[local_ix] = bump.binning;
             bump.binning += counts[local_ix];
             bin_header[global_ix] = BinHeader {

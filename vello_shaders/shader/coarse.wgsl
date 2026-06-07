@@ -179,6 +179,8 @@ fn main(
     }
     let width_in_bins = (config.width_in_tiles + N_TILE_X - 1u) / N_TILE_X;
     let bin_ix = width_in_bins * wg_id.y + wg_id.x;
+    let height_in_bins = (config.height_in_tiles + N_TILE_Y - 1u) / N_TILE_Y;
+    let aligned_n_bins = (width_in_bins * height_in_bins + N_TILE - 1u) & ~(N_TILE - 1u);
     let n_partitions = (config.n_drawobj + N_TILE - 1u) / N_TILE;
 
     // Coordinates of the top left of this bin, in tiles.
@@ -218,7 +220,7 @@ fn main(
                 part_start_ix = ready_ix;
                 var count = 0u;
                 if partition_ix + local_id.x < n_partitions {
-                    let in_ix = (partition_ix + local_id.x) * N_TILE + bin_ix;
+                    let in_ix = (partition_ix + local_id.x) * aligned_n_bins + bin_ix;
                     let bin_header = bin_headers[in_ix];
                     count = bin_header.element_count;
                     sh_part_offsets[local_id.x] = bin_header.chunk_offset;

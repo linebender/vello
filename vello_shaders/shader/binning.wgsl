@@ -74,7 +74,7 @@ fn main(
         return;
     }
 
-    // Read inputs and determine coverage of bins
+    // Read inputs and determine coverage of bins for the draw object global_id.x
     let element_ix = global_id.x;
     var x0 = 0;
     var y0 = 0;
@@ -113,6 +113,9 @@ fn main(
     }
     let width_in_bins = i32((config.width_in_tiles + N_TILE_X - 1u) / N_TILE_X);
     let height_in_bins = i32((config.height_in_tiles + N_TILE_Y - 1u) / N_TILE_Y);
+    let n_bins = u32(width_in_bins * height_in_bins);
+    let aligned_n_bins = (n_bins + N_TILE - 1u) & ~(N_TILE - 1u);
+
     x0 = clamp(x0, 0, width_in_bins);
     y0 = clamp(y0, 0, height_in_bins);
     x1 = clamp(x1, 0, width_in_bins);
@@ -120,62 +123,84 @@ fn main(
     if x0 == x1 {
         y1 = y0;
     }
-    var x = x0;
-    var y = y0;
+
+    let y0_width = y0 * width_in_bins;
+    let y1_width = y1 * width_in_bins;
+
     let my_slice = local_id.x / 32u;
     let my_mask = 1u << (local_id.x & 31u);
-    while y < y1 {
-        atomicOr(&sh_bitmaps[my_slice][y * width_in_bins + x], my_mask);
-        x += 1;
-        if x == x1 {
-            x = x0;
-            y += 1;
-        }
-    }
 
-    workgroupBarrier();
-    // Allocate output segments
-    var element_count = 0u;
-    for (var i = 0u; i < N_SUBSLICE; i += 1u) {
-        element_count += countOneBits(atomicLoad(&sh_bitmaps[i * 2u][local_id.x]));
-        let element_count_lo = element_count;
-        element_count += countOneBits(atomicLoad(&sh_bitmaps[i * 2u + 1u][local_id.x]));
-        let element_count_hi = element_count;
-        let element_count_packed = element_count_lo | (element_count_hi << 16u);
-        sh_count[i][local_id.x] = element_count_packed;
-    }
-    // element_count is the number of draw objects covering this thread's bin
-    var chunk_offset = atomicAdd(&bump.binning, element_count);
-    if chunk_offset + element_count > config.binning_size {
-        chunk_offset = 0u;
-        atomicOr(&bump.failed, STAGE_BINNING);
-    }    
-    sh_chunk_offset[local_id.x] = chunk_offset;
-    bin_header[global_id.x].element_count = element_count;
-    bin_header[global_id.x].chunk_offset = chunk_offset;
-    workgroupBarrier();
+    // Loop over the blocks of bins in chunks of N_TILE (256)
+    for (var block_start = 0u; block_start < n_bins; block_start += N_TILE) {
+        let next_block = block_start + N_TILE;
 
-    // loop over bbox of bins touched by this draw object
-    x = x0;
-    y = y0;
-    while y < y1 {
-        let bin_ix = y * width_in_bins + x;
-        let out_mask = atomicLoad(&sh_bitmaps[my_slice][bin_ix]);
-        // I think this predicate will always be true...
-        if (out_mask & my_mask) != 0u {
-            var idx = countOneBits(out_mask & (my_mask - 1u));
-            if my_slice > 0u {
-                let count_ix = my_slice - 1u;
-                let count_packed = sh_count[count_ix / 2u][bin_ix];
-                idx += (count_packed >> (16u * (count_ix & 1u))) & 0xffffu;
+        // Write coverage for the current block
+        for (var y_offset = y0_width; y_offset < y1_width; y_offset += width_in_bins) {
+            let start_bin = u32(y_offset + x0);
+            let end_bin = u32(y_offset + x1);
+            for (var bin_ix = start_bin; bin_ix < end_bin; bin_ix += 1u) {
+                if bin_ix >= block_start && bin_ix < next_block {
+                    let sh_bin_ix = bin_ix - block_start;
+                    atomicOr(&sh_bitmaps[my_slice][sh_bin_ix], my_mask);
+                }
             }
-            let offset = config.bin_data_start + sh_chunk_offset[bin_ix];
-            bin_data[offset + idx] = element_ix;
         }
-        x += 1;
-        if x == x1 {
-            x = x0;
-            y += 1;
+        workgroupBarrier();
+
+        // Accumulate counts and allocate output segment for the bins in this block
+        let cur_bin_ix = block_start + local_id.x;
+        var element_count = 0u;
+        for (var i = 0u; i < N_SUBSLICE; i += 1u) {
+            element_count += countOneBits(atomicLoad(&sh_bitmaps[i * 2u][local_id.x]));
+            let element_count_lo = element_count;
+            element_count += countOneBits(atomicLoad(&sh_bitmaps[i * 2u + 1u][local_id.x]));
+            let element_count_hi = element_count;
+            let element_count_packed = element_count_lo | (element_count_hi << 16u);
+            sh_count[i][local_id.x] = element_count_packed;
+        }
+
+        // element_count is the number of draw objects covering this thread's bin
+        var chunk_offset = atomicAdd(&bump.binning, element_count);
+        if chunk_offset + element_count > config.binning_size {
+            chunk_offset = 0u;
+            atomicOr(&bump.failed, STAGE_BINNING);
+        }
+        sh_chunk_offset[local_id.x] = chunk_offset;
+
+        let header_ix = wg_id.x * aligned_n_bins + cur_bin_ix;
+        bin_header[header_ix].element_count = element_count;
+        bin_header[header_ix].chunk_offset = chunk_offset;
+        workgroupBarrier();
+
+        // Output the element indices to bin_data
+        for (var y_offset = y0_width; y_offset < y1_width; y_offset += width_in_bins) {
+            let start_bin = u32(y_offset + x0);
+            let end_bin = u32(y_offset + x1);
+            for (var bin_ix = start_bin; bin_ix < end_bin; bin_ix += 1u) {
+                if bin_ix >= block_start && bin_ix < next_block {
+                    let sh_bin_ix = bin_ix - block_start;
+                    let out_mask = atomicLoad(&sh_bitmaps[my_slice][sh_bin_ix]);
+                    // I think this predicate will always be true...
+                    if (out_mask & my_mask) != 0u {
+                        var idx = countOneBits(out_mask & (my_mask - 1u));
+                        if my_slice > 0u {
+                            let count_ix = my_slice - 1u;
+                            let count_packed = sh_count[count_ix / 2u][sh_bin_ix];
+                            idx += (count_packed >> (16u * (count_ix & 1u))) & 0xffffu;
+                        }
+                        let offset = config.bin_data_start + sh_chunk_offset[sh_bin_ix];
+                        bin_data[offset + idx] = element_ix;
+                    }
+                }
+            }
+        }
+
+        if next_block < aligned_n_bins {
+            workgroupBarrier();
+            for (var i = 0u; i < N_SLICE; i += 1u) {
+                atomicStore(&sh_bitmaps[i][local_id.x], 0u);
+            }
+            workgroupBarrier();
         }
     }
 }
