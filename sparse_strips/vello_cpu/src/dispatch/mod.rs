@@ -92,4 +92,5 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     );
+    fn is_multi_threaded(&self) -> bool;
 }
