@@ -12,10 +12,7 @@ mod highp;
 mod lowp;
 
 use crate::coarse::depth::DepthBuffer;
-use crate::coarse::{
-    CommandBucketer, FilterLayerFillAttrs, PaintFill, PaintFillAttrs, RenderCmd, RowCmds,
-};
-use crate::filter::context::FilterContext;
+use crate::coarse::{CommandBucketer, PaintFill, PaintFillAttrs, RenderCmd, RowCmds};
 use crate::filter::context::ScratchBuffer;
 use crate::fine::common::gradient::GradientPainter;
 pub(crate) use crate::fine::common::gradient::calculate_t_vals;
@@ -72,28 +69,16 @@ pub trait Numeric: Copy + Default + Clone + Debug + PartialEq + Send + Sync + 's
 
     /// The maximum opacity value for this numeric type (1.0 for f32, 255 for u8).
     const ONE: Self;
-
-    fn from_u8_component(value: u8) -> Self;
 }
 
 impl Numeric for f32 {
     const ZERO: Self = 0.0;
     const ONE: Self = 1.0;
-
-    #[inline(always)]
-    fn from_u8_component(value: u8) -> Self {
-        Self::from(value) / 255.0
-    }
 }
 
 impl Numeric for u8 {
     const ZERO: Self = 0;
     const ONE: Self = 255;
-
-    #[inline(always)]
-    fn from_u8_component(value: u8) -> Self {
-        value
-    }
 }
 
 /// Trait for SIMD vector types that can convert between f32 and u8 representations.
@@ -868,6 +853,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     alphas,
                     attrs,
                     resources.encoded_paints,
+                    resources.filter_paints,
                     resources.image_resolver,
                     use_depth,
                     depth,
@@ -878,13 +864,6 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             }
             RenderCmd::PopBuf => {
                 self.pop_buf();
-            }
-            RenderCmd::FilterLayerFill(cmd) => {
-                let attrs = &resources.bucketer.filter_attrs()[cmd.attrs_idx as usize];
-                if let Some(layer) = resources.filters.filter_layer(attrs.id) {
-                    let use_depth = !row.can_skip_depth(cmd.span, attrs.draw_id);
-                    self.composite_filter_layer_cmd(*cmd, attrs, row_y, layer, use_depth, depth);
-                }
             }
             RenderCmd::LayerFill(cmd) => {
                 let attrs = &resources.bucketer.layer_attrs()[cmd.attrs_idx as usize];
@@ -961,6 +940,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         blend_mode: BlendMode,
         mask: Option<&Mask>,
         encoded_paints: &[EncodedPaint],
+        filter_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
         alphas: Option<&[u8]>,
     ) {
@@ -983,7 +963,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         let start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
         let dest = &mut self.buffers.last_mut().unwrap()[start..start + len];
         let color_buf = &mut self.paint_buf[..len];
-        let encoded_paint = &encoded_paints[paint_index];
+        let encoded_paint = encoded_paint(paint_index, encoded_paints, filter_paints);
 
         let sampler_x = f64::from(sample_x) + PIXEL_CENTER_OFFSET;
         let sampler_y = f64::from(sample_y) + PIXEL_CENTER_OFFSET;
@@ -1184,6 +1164,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         paint: &Paint,
         blend_mode: BlendMode,
         encoded_paints: &[EncodedPaint],
+        filter_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
         alphas: Option<&[u8]>,
         mask: Option<&Mask>,
@@ -1203,6 +1184,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     blend_mode,
                     mask,
                     encoded_paints,
+                    filter_paints,
                     image_resolver,
                     alphas,
                 );
@@ -1216,6 +1198,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         cmd: PaintFill,
         attrs: &PaintFillAttrs,
         encoded_paints: &[EncodedPaint],
+        dynamic_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
         depth: &mut DepthBuffer,
     ) {
@@ -1226,6 +1209,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 &attrs.paint,
                 attrs.blend_mode,
                 encoded_paints,
+                dynamic_paints,
                 image_resolver,
                 None,
                 attrs.mask.as_ref(),
@@ -1240,6 +1224,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         alphas: &[u8],
         attrs: &PaintFillAttrs,
         encoded_paints: &[EncodedPaint],
+        filter_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
         use_depth: bool,
         depth: &DepthBuffer,
@@ -1257,6 +1242,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 alphas,
                 attrs,
                 encoded_paints,
+                filter_paints,
                 image_resolver,
             );
             return;
@@ -1264,7 +1250,15 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
         let depth_span = Span::new(cmd_x, cmd_end - cmd_x);
         depth.for_each_visible_run(depth_span, attrs.draw_id, |span| {
-            self.render_cmd_span(cmd, span, alphas, attrs, encoded_paints, image_resolver);
+            self.render_cmd_span(
+                cmd,
+                span,
+                alphas,
+                attrs,
+                encoded_paints,
+                filter_paints,
+                image_resolver,
+            );
         });
     }
 
@@ -1276,6 +1270,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         alphas: &[u8],
         attrs: &PaintFillAttrs,
         encoded_paints: &[EncodedPaint],
+        filter_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
         let x = span.pixel_x();
@@ -1290,114 +1285,11 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             &attrs.paint,
             attrs.blend_mode,
             encoded_paints,
+            filter_paints,
             image_resolver,
             alphas,
             attrs.mask.as_ref(),
         );
-    }
-
-    fn composite_filter_layer(
-        &mut self,
-        span: Span,
-        src_x: u16,
-        src_y: u16,
-        dst_y_offset: u8,
-        height: u8,
-        layer: &Pixmap,
-    ) {
-        let x = span.pixel_x();
-        let width = span.pixel_width();
-        if width == 0 || height == 0 || src_y >= layer.height() || src_x >= layer.width() {
-            return;
-        }
-
-        let width = width.min(layer.width() - src_x);
-        let span = Span::new(x, width);
-        let len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
-        if self.paint_buf.len() < len {
-            self.paint_buf.resize(len, T::Numeric::ZERO);
-        }
-        self.paint_buf[..len].fill(T::Numeric::ZERO);
-
-        let src_stride = usize::from(layer.width()) * COLOR_COMPONENTS;
-        let data = layer.data_as_u8_slice();
-        for col in 0..usize::from(width) {
-            for row in 0..usize::from(height) {
-                let src_y = usize::from(src_y) + row;
-                if src_y >= usize::from(layer.height()) {
-                    break;
-                }
-                let src_x = usize::from(src_x) + col;
-                let src_idx = src_y * src_stride + src_x * COLOR_COMPONENTS;
-                let dst_row = usize::from(dst_y_offset) + row;
-                if dst_row >= Tile::HEIGHT as usize {
-                    break;
-                }
-                let dst_idx = col * TILE_HEIGHT_COMPONENTS + dst_row * COLOR_COMPONENTS;
-                for component in 0..COLOR_COMPONENTS {
-                    self.paint_buf[dst_idx + component] =
-                        T::Numeric::from_u8_component(data[src_idx + component]);
-                }
-            }
-        }
-
-        let target = &mut self.buffers.last_mut().unwrap()[Self::scratch_range(span)];
-        T::alpha_composite_buffer(self.simd, target, &self.paint_buf[..len], None);
-    }
-
-    fn composite_filter_layer_cmd(
-        &mut self,
-        cmd: crate::coarse::FilterLayerFill,
-        attrs: &FilterLayerFillAttrs,
-        row_y: u16,
-        layer: &Pixmap,
-        use_depth: bool,
-        depth: &DepthBuffer,
-    ) {
-        fn offset_src_coord(coord: u16, offset: i32) -> u16 {
-            // This is always supposed to be positive, because the bucketer doesn't emit filter
-            // fill spans in areas that lie beyond the filter pixmap.
-            let src = i32::from(coord) + offset;
-            debug_assert!(
-                src >= 0,
-                "filter fill source coordinate must be non-negative"
-            );
-
-            src as u16
-        }
-
-        let cmd_x = cmd.span.pixel_x();
-        let cmd_end = cmd.span.pixel_end().min(self.buffer_width);
-        if cmd_x >= cmd_end {
-            return;
-        }
-        let src_x = offset_src_coord(cmd_x, attrs.src_offset.0);
-        let src_y = offset_src_coord(row_y, attrs.src_offset.1);
-
-        if !use_depth {
-            self.composite_filter_layer(
-                Span::new(cmd_x, cmd_end - cmd_x),
-                src_x,
-                src_y,
-                0,
-                Tile::HEIGHT as u8,
-                layer,
-            );
-            return;
-        }
-
-        let depth_span = Span::new(cmd_x, cmd_end - cmd_x);
-        depth.for_each_visible_run(depth_span, attrs.draw_id, |span| {
-            let x = span.pixel_x();
-            self.composite_filter_layer(
-                span,
-                offset_src_coord(x, attrs.src_offset.0),
-                src_y,
-                0,
-                Tile::HEIGHT as u8,
-                layer,
-            );
-        });
     }
 }
 
@@ -1406,6 +1298,16 @@ fn row_rect(x: usize, y: u16, width: usize, height: usize) -> RectU16 {
     let width = u16::try_from(width).unwrap_or(u16::MAX);
     let height = u16::try_from(height).unwrap_or(u16::MAX);
     RectU16::new(x0, y, x0.saturating_add(width), y.saturating_add(height))
+}
+
+fn encoded_paint<'a>(
+    index: usize,
+    encoded_paints: &'a [EncodedPaint],
+    filter_paints: &'a [EncodedPaint],
+) -> &'a EncodedPaint {
+    encoded_paints
+        .get(index)
+        .unwrap_or_else(|| &filter_paints[index - encoded_paints.len()])
 }
 
 #[cfg(test)]
@@ -1477,8 +1379,8 @@ pub(crate) fn rasterize_at_offset<S: Simd, T: FineKernel<S>>(
 pub(crate) struct FineResources<'a> {
     pub(crate) bucketer: &'a CommandBucketer,
     pub(crate) alpha_buffers: &'a [&'a [u8]],
-    pub(crate) filters: &'a FilterContext,
     pub(crate) encoded_paints: &'a [EncodedPaint],
+    pub(crate) filter_paints: &'a [EncodedPaint],
     pub(crate) image_resolver: &'a dyn ImageResolver,
 }
 
@@ -1626,6 +1528,7 @@ pub(crate) fn rasterize_band<S: Simd, T: FineKernel<S>>(
             cmd,
             attrs,
             resources.encoded_paints,
+            resources.filter_paints,
             resources.image_resolver,
             depth,
         );

@@ -1,13 +1,14 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use vello_common::pixmap::Pixmap;
 
 #[derive(Debug, Default)]
 pub(crate) struct FilterContext {
     /// The rendered pixmaps for each filter layer.
-    layers: Vec<Option<Pixmap>>,
+    layers: Vec<Option<Arc<Pixmap>>>,
     scratch: ScratchBuffer,
 }
 
@@ -27,11 +28,11 @@ impl FilterContext {
         if id >= self.layers.len() {
             self.layers.resize_with(id + 1, || None);
         }
-        self.layers[id] = Some(pixmap);
+        self.layers[id] = Some(Arc::new(pixmap));
     }
 
-    pub(crate) fn filter_layer(&self, id: usize) -> Option<&Pixmap> {
-        self.layers.get(id).and_then(Option::as_ref)
+    pub(crate) fn filter_layer(&self, id: usize) -> Option<Arc<Pixmap>> {
+        self.layers.get(id).and_then(Option::as_ref).cloned()
     }
 }
 

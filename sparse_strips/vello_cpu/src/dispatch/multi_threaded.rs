@@ -392,24 +392,25 @@ impl MultiThreadedDispatcher {
         image_resolver: &dyn ImageResolver,
     ) {
         let mut bucketer = self.bucketer.lock().unwrap();
+        let filters = FilterContext::new(0);
         bucketer.reset(RectU16::new(0, 0, scene_width, scene_height));
         bucketer.bucket_commands(
             &self.recorder.root_cmds,
             &self.recorder.layers,
             &self.strip_storage.strips,
             encoded_paints,
+            &filters,
         );
 
         let alpha_slots = self.alpha_storage.take();
         {
             let alpha_buffers = alpha_slots.iter().map(Vec::as_slice).collect::<Vec<_>>();
             let unpack_dest = settings.composite_mode == CompositeMode::SrcOver;
-            let filters = FilterContext::new(0);
             let resources = FineResources {
                 bucketer: &bucketer,
                 alpha_buffers: &alpha_buffers,
-                filters: &filters,
                 encoded_paints,
+                filter_paints: bucketer.filter_paints(),
                 image_resolver,
             };
             let params = FineRenderParams {

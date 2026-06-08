@@ -1,21 +1,23 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use super::cmd::{
-    FilterLayerFill, FilterLayerFillAttrs, LayerFill, LayerFillAttrs, PaintFill, PaintFillAttrs,
-    RenderCmd,
-};
+use super::cmd::{LayerFill, LayerFillAttrs, PaintFill, PaintFillAttrs, RenderCmd};
 use super::depth::{DepthSegment, DepthState};
 use crate::coarse::depth;
-use crate::peniko::BlendMode;
+use crate::filter::context::FilterContext;
+use crate::kurbo::{Affine, Vec2};
+use crate::peniko::{BlendMode, Extend, ImageQuality, ImageSampler};
 use crate::record::{LayerProps, RecordedCmd, RecordedLayer, RecordedLayerKind};
 use crate::util::{Span, VecPool, bbox_relative_to, snap_bbox_to_tile_coordinates};
+use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use std::ops::Range;
-use vello_common::encode::EncodedPaint;
+use vello_common::encode::{EncodedImage, EncodedPaint};
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
+use vello_common::paint::{ImageSource, IndexedPaint, Paint};
+use vello_common::pixmap::Pixmap;
 use vello_common::strip::Strip;
 use vello_common::tile::Tile;
 use vello_common::util::{Clear, RetainVec};
@@ -122,7 +124,7 @@ pub(crate) struct CommandBucketer {
     pub(super) rows: RetainVec<RowCmds>,
     pub(super) paint_fill_attrs: Vec<PaintFillAttrs>,
     pub(super) layer_fill_attrs: Vec<LayerFillAttrs>,
-    pub(super) filter_fill_attrs: Vec<FilterLayerFillAttrs>,
+    pub(super) filter_paints: Vec<EncodedPaint>,
     /// Keeping track of currently active layers to enable lazy layer pushing.
     pub(super) active_layers: Vec<ActiveLayer>,
     occupied_rows_pool: VecPool<usize>,
@@ -154,7 +156,7 @@ impl CommandBucketer {
             rows: RetainVec::with_len(num_rows, RowCmds::new),
             paint_fill_attrs: Vec::new(),
             layer_fill_attrs: Vec::new(),
-            filter_fill_attrs: Vec::new(),
+            filter_paints: Vec::new(),
             active_layers: Vec::new(),
             occupied_rows_pool: VecPool::default(),
             occupied_rows_bool_scratch: vec![false; num_rows],
@@ -183,8 +185,8 @@ impl CommandBucketer {
         &self.layer_fill_attrs
     }
 
-    pub(crate) fn filter_attrs(&self) -> &[FilterLayerFillAttrs] {
-        &self.filter_fill_attrs
+    pub(crate) fn filter_paints(&self) -> &[EncodedPaint] {
+        &self.filter_paints
     }
 
     pub(crate) fn reset(&mut self, mut viewport: RectU16) {
@@ -197,7 +199,7 @@ impl CommandBucketer {
         self.rows.resize_with(num_rows, RowCmds::new);
         self.paint_fill_attrs.clear();
         self.layer_fill_attrs.clear();
-        self.filter_fill_attrs.clear();
+        self.filter_paints.clear();
         for layer in self.active_layers.drain(..) {
             self.occupied_rows_pool.submit(layer.occupied_rows);
         }
@@ -235,6 +237,7 @@ impl CommandBucketer {
         layers: &[RecordedLayer],
         strips: &[Strip],
         encoded_paints: &[EncodedPaint],
+        filter_ctx: &FilterContext,
     ) {
         // When rendering filter layers, we always anchor them so that the top-left of the bounding
         // box lands at (0, 0), even if the bounding box's top-left is for example at (200, 200).
@@ -277,8 +280,7 @@ impl CommandBucketer {
                     let RecordedLayerKind::Filter { placement, .. } = &layers[id.get()].kind else {
                         unreachable!()
                     };
-                    // Similarly to how indexed paints are handled, shift by the pixmap origin.
-                    let local_composite_bbox = bbox_relative_to(placement.composite_bbox, origin);
+
                     let needs_layer = props.blend_mode != BlendMode::default()
                         || props.opacity != 1.0
                         || props.mask.is_some()
@@ -287,11 +289,17 @@ impl CommandBucketer {
                     if needs_layer {
                         self.push_layer(props);
                     }
-                    self.generate_filter_layer_fill(
-                        id.get(),
-                        local_composite_bbox,
-                        placement.src_origin(),
-                    );
+                    // Note: At this point, we've already rasterized all dependent
+                    // filter layers, so this should never fail.
+                    if let Some(pixmap) = filter_ctx.filter_layer(id.get()) {
+                        self.generate_filter_layer_fill(
+                            pixmap,
+                            placement.composite_bbox,
+                            placement.src_origin(),
+                            encoded_paints.len(),
+                            origin,
+                        );
+                    }
                     if needs_layer {
                         self.pop_layer(strips, origin);
                     }
@@ -440,35 +448,74 @@ impl CommandBucketer {
 
     pub(crate) fn generate_filter_layer_fill(
         &mut self,
-        id: usize,
+        pixmap: Arc<Pixmap>,
         dest_bbox: RectU16,
         src_origin: (u16, u16),
+        static_paint_count: usize,
+        origin: (u16, u16),
     ) {
+        // TODO: Make clearer what this does.
+        let src_offset = (
+            i32::from(src_origin.0) - i32::from(dest_bbox.x0),
+            i32::from(src_origin.1) - i32::from(dest_bbox.y0),
+        );
+        // Similarly to how indexed paints are handled, shift by the pixmap origin.
+        let dest_bbox = bbox_relative_to(dest_bbox, origin);
+
+        let source_dest_bbox = {
+            let local_x0 = (-i32::from(origin.0) - src_offset.0).max(0);
+            let local_y0 = (-i32::from(origin.1) - src_offset.1).max(0);
+            let local_x1 = (local_x0 + i32::from(pixmap.width())).min(u16::MAX as i32);
+            let local_y1 = (local_y0 + i32::from(pixmap.height())).min(u16::MAX as i32);
+
+            let shifted = RectU16::new(
+                local_x0 as u16,
+                local_y0 as u16,
+                local_x1 as u16,
+                local_y1 as u16,
+            );
+
+            shifted.intersect(dest_bbox)
+        };
+        
         let clip_bbox = *self.clip_bboxes.last().unwrap();
         // As noted in [`CommandBucketer::clip_bboxes`], we only need to composite the parts
         // of the filter layer that actually lie within clip bounding box.
-        let clipped_dest_bbox = dest_bbox.intersect(clip_bbox);
+        let clipped_dest_bbox = source_dest_bbox.intersect(clip_bbox);
         if clipped_dest_bbox.is_empty() {
             return;
         }
 
         let draw_id = self.next_draw_id();
         let span = Self::bbox_span(clipped_dest_bbox);
-        let filter_attrs_idx = self.filter_fill_attrs.len() as u32;
-        let src_offset = (
-            i32::from(src_origin.0) - i32::from(dest_bbox.x0),
-            i32::from(src_origin.1) - i32::from(dest_bbox.y0),
-        );
-        self.filter_fill_attrs
-            .push(FilterLayerFillAttrs::new(id, draw_id, src_offset));
+        let paint_idx = static_paint_count + self.filter_paints.len();
+        self.filter_paints.push(EncodedPaint::Image(EncodedImage {
+            source: ImageSource::Pixmap(pixmap),
+            sampler: ImageSampler {
+                x_extend: Extend::Pad,
+                y_extend: Extend::Pad,
+                quality: ImageQuality::Low,
+                alpha: 1.0,
+            },
+            may_have_transparency: true,
+            transform: Affine::translate((f64::from(src_offset.0), f64::from(src_offset.1))),
+            x_advance: Vec2::new(1.0, 0.0),
+            y_advance: Vec2::new(0.0, 1.0),
+            tint: None,
+        }));
+        let attrs_idx = self.paint_fill_attrs.len() as u32;
+        self.paint_fill_attrs.push(PaintFillAttrs {
+            paint: Paint::Indexed(IndexedPaint::new(paint_idx)),
+            blend_mode: BlendMode::default(),
+            mask: None,
+            draw_id,
+            thread_idx: 0,
+            origin,
+        });
         let row_start = usize::from(clipped_dest_bbox.y0 / Tile::HEIGHT);
         let row_end = usize::from(clipped_dest_bbox.y1.div_ceil(Tile::HEIGHT));
         for row_idx in row_start..row_end {
-            self.ensure_row_layers(row_idx);
-            self.rows[row_idx].push_cmd(RenderCmd::FilterLayerFill(FilterLayerFill {
-                span,
-                attrs_idx: filter_attrs_idx,
-            }));
+            self.push_fill(GeneratedFill { row_idx, span }, attrs_idx, None);
         }
     }
 

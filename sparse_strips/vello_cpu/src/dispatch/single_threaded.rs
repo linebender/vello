@@ -102,6 +102,7 @@ impl SingleThreadedDispatcher {
             &self.recorder.layers,
             &self.strip_storage.strips,
             encoded_paints,
+            &filters,
         );
 
         let unpack_dest = settings.composite_mode == CompositeMode::SrcOver;
@@ -112,8 +113,8 @@ impl SingleThreadedDispatcher {
             crate::fine::FineResources {
                 bucketer: &bucketer,
                 alpha_buffers,
-                filters: &filters,
                 encoded_paints,
+                filter_paints: bucketer.filter_paints(),
                 image_resolver,
             },
             target,
@@ -181,14 +182,15 @@ impl SingleThreadedDispatcher {
                 &self.recorder.layers,
                 &self.strip_storage.strips,
                 encoded_paints,
+                &filters,
             );
             crate::fine::rasterize_at_offset::<S, F>(
                 simd,
                 crate::fine::FineResources {
                     bucketer: &bucketer,
                     alpha_buffers: &[self.strip_storage.alphas.as_slice()],
-                    filters: &filters,
                     encoded_paints,
+                    filter_paints: bucketer.filter_paints(),
                     image_resolver,
                 },
                 (&mut pixmap).into(),

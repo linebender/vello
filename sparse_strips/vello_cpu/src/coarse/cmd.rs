@@ -24,8 +24,6 @@ pub(crate) enum RenderCmd {
     PopBuf,
     /// See [`LayerFill`].
     LayerFill(LayerFill),
-    /// See [`FilterLayerFill`].
-    FilterLayerFill(FilterLayerFill),
 }
 
 impl RenderCmd {
@@ -34,7 +32,6 @@ impl RenderCmd {
         match self {
             Self::PaintFill(cmd) => Some(cmd.span),
             Self::LayerFill(cmd) => Some(cmd.span),
-            Self::FilterLayerFill(cmd) => Some(cmd.span),
             Self::PushBuf | Self::PopBuf => None,
         }
     }
@@ -85,14 +82,6 @@ impl LayerFill {
     }
 }
 
-/// Composite a span from a rendered filter layer pixmap
-/// into the current buffer.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct FilterLayerFill {
-    pub(crate) span: Span,
-    pub(crate) attrs_idx: u32,
-}
-
 // We use `NonZeroU32` so that `Option<AlphaIdx>` still only needs 4 bytes.
 #[derive(Debug, Clone, Copy)]
 struct AlphaIdx(NonZeroU32);
@@ -126,25 +115,6 @@ pub(crate) struct LayerFillAttrs {
     /// In case there is any alpha associated with the layer command, this stores
     /// the index of the thread that stores the alpha.
     pub(crate) thread_idx: u8,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct FilterLayerFillAttrs {
-    /// The ID of the filter layer.
-    pub(crate) id: usize,
-    pub(crate) draw_id: u32,
-    /// Offset from destination coordinates to coordinates in the filter pixmap.
-    pub(crate) src_offset: (i32, i32),
-}
-
-impl FilterLayerFillAttrs {
-    pub(crate) fn new(id: usize, draw_id: u32, src_offset: (i32, i32)) -> Self {
-        Self {
-            id,
-            draw_id,
-            src_offset,
-        }
-    }
 }
 
 #[cfg(test)]
