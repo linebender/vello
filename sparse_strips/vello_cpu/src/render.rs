@@ -758,6 +758,11 @@ impl RenderContext {
     pub fn restore_state(&mut self, state: RenderState) {
         self.state = state;
     }
+
+    /// Whether rendering is currently configured to run in multi-threaded mode.
+    pub fn is_multi_threaded(&self) -> bool {
+        self.dispatcher.is_multi_threaded()
+    }
 }
 
 /// Image registry implementation.

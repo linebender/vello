@@ -656,6 +656,10 @@ impl Dispatcher for MultiThreadedDispatcher {
         self.flush_tasks();
         self.clip_context.pop_clip();
     }
+
+    fn is_multi_threaded(&self) -> bool {
+        true
+    }
 }
 
 impl Debug for MultiThreadedDispatcher {

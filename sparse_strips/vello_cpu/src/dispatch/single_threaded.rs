@@ -863,6 +863,10 @@ impl Dispatcher for SingleThreadedDispatcher {
     fn pop_clip_path(&mut self) {
         self.clip_context.pop_clip();
     }
+
+    fn is_multi_threaded(&self) -> bool {
+        false
+    }
 }
 
 /// Saves a filtered pixmap to disk for debugging purposes.
