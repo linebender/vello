@@ -760,7 +760,6 @@ impl RenderContext {
     }
 
     /// Whether rendering is currently configured to run in multi-threaded mode.
-    #[doc(hidden)]
     pub fn is_multi_threaded(&self) -> bool {
         self.dispatcher.is_multi_threaded()
     }
