@@ -135,14 +135,6 @@ pub struct WebGlPendingProbe {
     height: u16,
 }
 
-#[cfg(feature = "probe")]
-#[derive(Debug)]
-struct WebGlProbeResources {
-    framebuffer: Framebuffer,
-    _texture: Texture,
-    _atlas_texture_array: WebGlTextureArray,
-}
-
 /// Error returned while running a WebGL probe.
 #[cfg(feature = "probe")]
 #[derive(Debug, Clone, Error)]
@@ -600,17 +592,11 @@ impl WebGlRenderer {
             &mut probe_atlas_texture_array,
         );
 
-        let probe_resources = WebGlProbeResources {
-            framebuffer: probe_framebuffer,
-            _texture: probe_texture,
-            _atlas_texture_array: probe_atlas_texture_array,
-        };
-
         // We do this here instead of above such that in case the render result is not
         // valid, we still properly restore the state (e.g. the old atlas texture array).
         render_result?;
 
-        let pending = launch_probe(&self.gl, probe_resources, width, height);
+        let pending = launch_probe(&self.gl, &probe_framebuffer, width, height);
 
         Ok(pending)
     }
@@ -1970,7 +1956,7 @@ struct WebGlStateConfig {
 #[cfg(feature = "probe")]
 fn launch_probe(
     gl: &WebGl2RenderingContext,
-    resources: WebGlProbeResources,
+    framebuffer: &Framebuffer,
     width: u16,
     height: u16,
 ) -> WebGlPendingProbe {
