@@ -457,9 +457,9 @@ impl ApplicationHandler for App {
 
                 self.scenes[self.current_scene].render(&mut self.renderer, self.transform);
                 self.renderer.flush();
-                self.renderer.render_to_pixmap(
-                    self.scenes[self.current_scene].resources_mut(),
+                self.renderer.render(
                     &mut self.pixmap,
+                    self.scenes[self.current_scene].resources_mut(),
                 );
 
                 // Copy pixmap to window surface

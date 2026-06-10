@@ -25,7 +25,7 @@ fn main() {
         mask_ctx.set_paint(RED);
         mask_ctx.fill_rect(&Rect::new(30.0, 30.0, 170.0, 170.0));
         mask_ctx.flush();
-        mask_ctx.render_to_pixmap(&mut mask_resources, &mut pixmap);
+        mask_ctx.render(&mut pixmap, &mut mask_resources);
 
         Mask::new_luminance(&pixmap)
     };
@@ -94,7 +94,7 @@ fn main() {
 fn save_pixmap(ctx: &RenderContext, filename: &str) {
     let mut resources = Resources::new();
     let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
-    ctx.render_to_pixmap(&mut resources, &mut pixmap);
+    ctx.render(&mut pixmap, &mut resources);
     let png = pixmap.into_png().unwrap();
     std::fs::write(format!("{filename}.png"), png).unwrap();
 }

@@ -5,7 +5,7 @@
 pub(crate) mod multi_threaded;
 pub(crate) mod single_threaded;
 
-use crate::RenderMode;
+use crate::RasterizerSettings;
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use core::fmt::Debug;
@@ -14,6 +14,7 @@ use vello_common::encode::EncodedPaint;
 use vello_common::filter_effects::Filter;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
+use vello_common::pixmap::PixmapMut;
 
 pub(crate) trait Dispatcher: Debug + Send + Sync {
     fn wide(&self) -> &Wide;
@@ -72,23 +73,10 @@ pub(crate) trait Dispatcher: Debug + Send + Sync {
     fn flush(&mut self, encoded_paints: &[EncodedPaint]);
     fn rasterize(
         &self,
-        buffer: &mut [u8],
-        render_mode: RenderMode,
-        width: u16,
-        height: u16,
-        encoded_paints: &[EncodedPaint],
-        image_resolver: &dyn ImageResolver,
-    );
-    fn composite_at_offset(
-        &self,
-        buffer: &mut [u8],
-        width: u16,
-        height: u16,
-        dst_x: u16,
-        dst_y: u16,
-        dst_buffer_width: u16,
-        dst_buffer_height: u16,
-        render_mode: RenderMode,
+        target: PixmapMut<'_>,
+        scene_width: u16,
+        scene_height: u16,
+        settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     );

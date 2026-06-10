@@ -12,7 +12,7 @@ use vello_common::mask::Mask;
 use vello_common::paint::{ImageId, ImageSource, PaintType, Tint};
 use vello_common::peniko::{BlendMode, Fill, FontData, ImageQuality};
 use vello_common::pixmap::Pixmap;
-use vello_cpu::{Level, RenderContext, RenderMode, RenderSettings, Resources};
+use vello_cpu::{Level, RasterizerSettings, RenderContext, RenderMode, RenderSettings, Resources};
 use vello_hybrid::{
     RenderSettings as HybridRenderSettings, Resources as HybridResources, SampleRect, Scene,
     SceneConstraints, TextureId,
@@ -102,6 +102,7 @@ pub(crate) trait Renderer: Sized {
 pub(crate) struct CpuRenderer {
     ctx: RenderContext,
     resources: Resources,
+    render_mode: RenderMode,
 }
 
 impl Renderer for CpuRenderer {
@@ -115,14 +116,11 @@ impl Renderer for CpuRenderer {
         render_mode: RenderMode,
         _default_blending_only: bool,
     ) -> Self {
-        let settings = RenderSettings {
-            level,
-            num_threads,
-            render_mode,
-        };
+        let settings = RenderSettings { level, num_threads };
         Self {
             ctx: RenderContext::new_with(width, height, settings),
             resources: Resources::new(),
+            render_mode,
         }
     }
 
@@ -250,7 +248,14 @@ impl Renderer for CpuRenderer {
     }
 
     fn render_to_pixmap(&mut self, pixmap: &mut Pixmap) {
-        self.ctx.render_to_pixmap(&mut self.resources, pixmap);
+        self.ctx.render_with(
+            pixmap,
+            &mut self.resources,
+            RasterizerSettings {
+                render_mode: self.render_mode,
+                ..Default::default()
+            },
+        );
     }
 
     fn width(&self) -> u16 {

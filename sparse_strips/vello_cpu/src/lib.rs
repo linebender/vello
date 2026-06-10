@@ -13,15 +13,15 @@
 //!
 //! To use Vello CPU, you need to:
 //!
-//! - Create a [`RenderContext`][], a 2D drawing context for a fixed-size target area.
+//! - Create a [`RenderContext`][], a 2D drawing context for a fixed-size scene area.
 //! - For each object in your scene:
 //!   - Set how the object will be painted, using [`set_paint`][RenderContext::set_paint].
 //!   - Set the shape to be drawn for that object, using methods like [`fill_path`][RenderContext::fill_path],
 //!     [`stroke_path`][RenderContext::stroke_path], or [`glyph_run`][RenderContext::glyph_run].
-//! - Render it to an image using [`RenderContext::render_to_pixmap`][].
+//! - Render it to an image using [`RenderContext::render`][].
 //!
 //! ```rust
-//! use vello_cpu::{RenderContext, Resources, Pixmap, RenderMode};
+//! use vello_cpu::{RenderContext, Resources, Pixmap};
 //! use vello_cpu::{color::{palette::css, PremulRgba8}, kurbo::Rect};
 //! let width = 10;
 //! let height = 5;
@@ -34,7 +34,7 @@
 //! // While calling `flush` is only strictly necessary if you are rendering using
 //! // multiple threads, it is recommended to always do this.
 //! context.flush();
-//! context.render_to_pixmap(&mut resources, &mut target);
+//! context.render(&mut target, &mut resources);
 //!
 //! let expected_render = b"\
 //!     0000000000\
@@ -161,7 +161,9 @@ pub mod layer_manager;
 #[doc(hidden)]
 pub mod region;
 
-pub use render::{RenderContext, RenderSettings, Resources};
+pub use render::{
+    CompositeMode, PixelFormat, RasterizerSettings, RenderContext, RenderSettings, Resources,
+};
 // Note: The first one is not something that should be
 // exposed, but is currently needed by vello_sparse_tests.
 #[cfg(feature = "text")]
@@ -171,12 +173,12 @@ pub use text::{CpuGlyphRunBackend, GlyphRunBuilder};
 pub use vello_common::fearless_simd::Level;
 pub use vello_common::mask::Mask;
 pub use vello_common::paint::{Image, ImageSource, Paint, PaintType};
-pub use vello_common::pixmap::Pixmap;
+pub use vello_common::pixmap::{Pixmap, PixmapMut};
 pub use vello_common::{color, kurbo, peniko};
 
 /// The selected rendering mode.
 /// For using [`RenderMode::OptimizeQuality`] you also need to enable `f32_pipeline` feature.
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum RenderMode {
     /// Optimize speed (by performing calculations with u8/16).
     #[default]

@@ -10,7 +10,16 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 ## [Unreleased]
 
+TODO: Before making a 0.0.10 (or 0.1.0) release, resolve the following issue:
+https://github.com/linebender/vello/pull/1665#issuecomment-4667033939!
+
 This release has an [MSRV][] of 1.88.
+
+### Changed
+- The API for rendering into a pixmap. The methods `render_to_pixmap` and
+  `composite_to_pixmap_at_offset` have been replaced with a single unified 
+  `render` (and `render_with`) method that takes additional parameters for tweaking the behavior. 
+  ([#1665][] by [@LaurenzV][])
 
 ## [0.0.9][] - 2026-05-30
 
@@ -206,6 +215,7 @@ See also the [vello_common 0.0.1](../vello_common/CHANGELOG.md#001---2025-05-10)
 [#1616]: https://github.com/linebender/vello/pull/1616
 [#1628]: https://github.com/linebender/vello/pull/1628
 [#1653]: https://github.com/linebender/vello/pull/1653
+[#1665]: https://github.com/linebender/vello/pull/1665
 [#1668]: https://github.com/linebender/vello/pull/1668
 [#1673]: https://github.com/linebender/vello/pull/1673
 

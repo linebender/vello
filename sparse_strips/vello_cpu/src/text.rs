@@ -13,8 +13,8 @@
 
 use crate::render::{ATLAS_IMAGE_ID_BASE, DEFAULT_GLYPH_ATLAS_SIZE};
 use crate::{
-    Image, ImageSource, PaintType, Pixmap, RenderContext, RenderMode, RenderSettings, Resources,
-    color, kurbo, peniko,
+    CompositeMode, Image, ImageSource, PaintType, Pixmap, RasterizerSettings, RenderContext,
+    RenderMode, RenderSettings, Resources, color, kurbo, peniko,
 };
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -63,7 +63,6 @@ impl GlyphAtlasResources {
         page_width: u16,
         page_height: u16,
         level: Level,
-        render_mode: RenderMode,
         eviction_config: GlyphCacheConfig,
     ) -> Self {
         Self {
@@ -75,7 +74,6 @@ impl GlyphAtlasResources {
                 RenderSettings {
                     level,
                     num_threads: 0,
-                    render_mode,
                 },
             )),
             pixmaps: Vec::new(),
@@ -102,9 +100,9 @@ fn ensure_page(
 }
 
 impl Resources {
-    pub(crate) fn prepare_glyph_cache(&mut self) {
+    pub(crate) fn prepare_glyph_cache(&mut self, render_mode: RenderMode) {
         if self.glyph_resources.is_some() {
-            self.sync_glyph_cache();
+            self.sync_glyph_cache(render_mode);
         }
     }
 
@@ -121,20 +119,19 @@ impl Resources {
         }
     }
 
-    fn ensure_glyph_resources(&mut self, level: Level, render_mode: RenderMode) {
+    fn ensure_glyph_resources(&mut self, level: Level) {
         if self.glyph_resources.is_none() {
             self.glyph_resources = Some(GlyphAtlasResources::with_config(
                 DEFAULT_GLYPH_ATLAS_SIZE,
                 DEFAULT_GLYPH_ATLAS_SIZE,
                 level,
-                render_mode,
                 GlyphCacheConfig::default(),
             ));
         }
     }
 
     /// Upload all pending bitmaps, rasterize pending outline/COLR glyphs, etc.
-    fn sync_glyph_cache(&mut self) {
+    fn sync_glyph_cache(&mut self, render_mode: RenderMode) {
         let glyph_resources = self
             .glyph_resources
             .as_mut()
@@ -180,7 +177,15 @@ impl Resources {
                 glyph_renderer.reset();
                 renderer::replay_atlas_commands(&mut recorder.commands, glyph_renderer);
                 glyph_renderer.flush();
-                glyph_renderer.composite_to_pixmap_at_offset(&Self::default(), page, 0, 0);
+                glyph_renderer.render_with(
+                    page,
+                    &mut Self::default(),
+                    RasterizerSettings {
+                        render_mode,
+                        composite_mode: CompositeMode::SrcOver,
+                        ..Default::default()
+                    },
+                );
             });
 
         for (page_index, pixmap) in glyph_resources.pixmaps.iter().enumerate() {
@@ -220,10 +225,8 @@ impl<'a> CpuGlyphRunBackend<'a> {
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
         let atlas_cacher = if self.atlas_cache_enabled {
-            self.resources.ensure_glyph_resources(
-                self.ctx.render_settings.level,
-                self.ctx.render_settings.render_mode,
-            );
+            self.resources
+                .ensure_glyph_resources(self.ctx.render_settings.level);
             let glyph_resources = self
                 .resources
                 .glyph_resources
@@ -295,7 +298,7 @@ pub type GlyphRunBuilder<'a> = glifo::GlyphRunBuilder<'a, CpuGlyphRunBackend<'a>
 
 /// Zero out a rectangular region in the atlas pixmap.
 ///
-/// Necessary because `composite_to_pixmap_at_offset` uses `SrcOver` blending,
+/// Necessary because atlas rendering uses `SrcOver` blending,
 /// so stale pixels from evicted glyphs would bleed through if not cleared.
 fn clear_pixmap_region(dst: &mut Pixmap, rect: PendingClearRect) {
     let dst_stride = dst.width() as usize;

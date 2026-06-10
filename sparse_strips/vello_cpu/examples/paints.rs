@@ -135,7 +135,7 @@ fn pattern() -> Image {
 fn save_pixmap(ctx: &RenderContext, filename: &str) {
     let mut resources = Resources::new();
     let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
-    ctx.render_to_pixmap(&mut resources, &mut pixmap);
+    ctx.render(&mut pixmap, &mut resources);
     let png = pixmap.into_png().unwrap();
     std::fs::write(format!("{filename}.png"), png).unwrap();
 }

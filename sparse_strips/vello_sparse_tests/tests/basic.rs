@@ -16,7 +16,10 @@ use vello_common::kurbo::{Affine, BezPath, Circle, Join, Point, Rect, Shape, Str
 use vello_common::peniko::{Fill, Gradient};
 use vello_cpu::color::palette::css::BLACK;
 use vello_cpu::peniko::LinearGradientPosition;
-use vello_cpu::{Glyph, Level, Pixmap, RenderContext, RenderMode, RenderSettings};
+use vello_cpu::{
+    CompositeMode, Glyph, Level, Pixmap, RasterizerSettings, RenderContext, RenderMode,
+    RenderSettings,
+};
 use vello_dev_macros::vello_test;
 
 #[vello_test(width = 8, height = 8)]
@@ -536,13 +539,16 @@ fn test_cmd_size(_: &mut impl Renderer) {
 /// This demonstrates the glyph caching workflow:
 /// 1. Create a small `RenderContext` sized for a single glyph
 /// 2. Render the glyph into that context
-/// 3. Use `composite_to_pixmap_at_offset` to blit it to a specific (x, y) position in a larger spritesheet
+/// 3. Render it with `CompositeMode::SrcOver` and an offset into a larger spritesheet
 #[test]
-fn composite_to_pixmap_at_offset() {
+fn render_src_over_with_offset() {
     let settings = RenderSettings {
         level: Level::try_detect().unwrap_or(Level::baseline()),
         num_threads: 0,
+    };
+    let rasterizer_settings = RasterizerSettings {
         render_mode: RenderMode::OptimizeQuality,
+        ..Default::default()
     };
     let spritesheet_width: u16 = 100;
     let spritesheet_height: u16 = 100;
@@ -576,11 +582,15 @@ fn composite_to_pixmap_at_offset() {
     let positions: [(u16, u16); 3] = [(15, 15), (30, 30), (0, 0)];
 
     for (dst_x, dst_y) in positions {
-        glyph_renderer.composite_to_pixmap_at_offset(
-            &glyph_resources,
+        glyph_renderer.render_with(
             &mut spritesheet,
-            dst_x,
-            dst_y,
+            &mut glyph_resources,
+            RasterizerSettings {
+                render_mode: RenderMode::OptimizeQuality,
+                composite_mode: CompositeMode::SrcOver,
+                offset: (dst_x, dst_y),
+                ..Default::default()
+            },
         );
     }
 
@@ -612,20 +622,24 @@ fn composite_to_pixmap_at_offset() {
     reference_renderer.flush();
 
     let mut reference_pixmap = Pixmap::new(spritesheet_width, spritesheet_height);
-    reference_renderer.render_to_pixmap(&mut reference_resources, &mut reference_pixmap);
+    reference_renderer.render_with(
+        &mut reference_pixmap,
+        &mut reference_resources,
+        rasterizer_settings,
+    );
 
     // Uncomment to save the spritesheet as PNG for visual inspection
     // let diffs_path =
     //     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vello_sparse_tests/diffs");
     // let _ = std::fs::create_dir_all(&diffs_path);
     // let png_data = spritesheet.clone().into_png().unwrap();
-    // std::fs::write(diffs_path.join("composite_to_pixmap_at_offset.png"), png_data).unwrap();
+    // std::fs::write(diffs_path.join("render_src_over_with_offset.png"), png_data).unwrap();
 
     // Compare the two pixmaps
     assert_eq!(
         spritesheet.data_as_u8_slice(),
         reference_pixmap.data_as_u8_slice(),
-        "composite_to_pixmap_at_offset result should match direct rendering"
+        "render result should match direct rendering"
     );
 }
 

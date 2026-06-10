@@ -23,7 +23,7 @@ use vello_common::peniko::{ColorStops, RadialGradientPosition};
 use vello_common::pixmap::Pixmap;
 use vello_cpu::color::palette::css::{BLACK, RED};
 use vello_cpu::peniko::{Compose, Extend};
-use vello_cpu::{Level, RenderContext, RenderMode, RenderSettings};
+use vello_cpu::{Level, RasterizerSettings, RenderContext, RenderMode, RenderSettings};
 use vello_dev_macros::vello_test;
 
 #[vello_test(width = 8, height = 8)]
@@ -434,7 +434,6 @@ fn multi_threading_oob_access() {
     let settings = RenderSettings {
         level: Level::try_detect().unwrap_or(Level::baseline()),
         num_threads: 4,
-        render_mode: RenderMode::OptimizeQuality,
     };
     let mut ctx = RenderContext::new_with(100, 100, settings);
     let mut resources = vello_cpu::Resources::new();
@@ -442,10 +441,24 @@ fn multi_threading_oob_access() {
 
     ctx.fill_path(&Rect::new(0.0, 0.0, 50.0, 50.0).to_path(0.1));
     ctx.flush();
-    ctx.render_to_pixmap(&mut resources, &mut pixmap);
+    ctx.render_with(
+        &mut pixmap,
+        &mut resources,
+        RasterizerSettings {
+            render_mode: RenderMode::OptimizeQuality,
+            ..Default::default()
+        },
+    );
     ctx.fill_path(&Rect::new(50.0, 50.0, 100.0, 100.0).to_path(0.1));
     ctx.flush();
-    ctx.render_to_pixmap(&mut resources, &mut pixmap);
+    ctx.render_with(
+        &mut pixmap,
+        &mut resources,
+        RasterizerSettings {
+            render_mode: RenderMode::OptimizeQuality,
+            ..Default::default()
+        },
+    );
 }
 
 /// See <https://github.com/linebender/vello/issues/1181>.

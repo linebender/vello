@@ -17,32 +17,29 @@ pub struct Regions<'a> {
 impl<'a> Regions<'a> {
     /// Creates regions from a buffer where the buffer dimensions match the render dimensions.
     pub fn new(width: u16, height: u16, buffer: &'a mut [u8]) -> Self {
-        Self::new_at_offset(width, height, 0, 0, width, height, buffer)
+        Self::new_at_offset((width, height), (0, 0), (width, height), buffer)
     }
 
     /// Creates regions from a buffer at a specific offset.
     ///
     /// This is used for rendering to a sub-region of a larger buffer. The regions
-    /// cover the area of size (`width` × `height`) placed at pixel offset
-    /// (`dst_x`, `dst_y`) in the destination buffer.
+    /// cover the scene area placed at the given pixel offset in the destination buffer.
     ///
     /// # Arguments
-    /// * `width` - Width of the content being rendered
-    /// * `height` - Height of the content being rendered
-    /// * `dst_x` - X offset in the destination buffer
-    /// * `dst_y` - Y offset in the destination buffer
-    /// * `dst_buffer_width` - Total width of the destination buffer
-    /// * `dst_buffer_height` - Total height of the destination buffer
+    /// * `scene_size` - Size of the content being rendered
+    /// * `dst_offset` - Offset in the destination buffer
+    /// * `dst_size` - Total size of the destination buffer
     /// * `buffer` - The destination buffer (RGBA, 4 bytes per pixel)
     pub fn new_at_offset(
-        width: u16,
-        height: u16,
-        dst_x: u16,
-        dst_y: u16,
-        dst_buffer_width: u16,
-        dst_buffer_height: u16,
+        scene_size: (u16, u16),
+        dst_offset: (u16, u16),
+        dst_size: (u16, u16),
         mut buffer: &'a mut [u8],
     ) -> Self {
+        let (width, height) = scene_size;
+        let (dst_x, dst_y) = dst_offset;
+        let (dst_buffer_width, dst_buffer_height) = dst_size;
+
         // Calculate effective render area (clamped to destination bounds)
         let effective_width = width.min(dst_buffer_width.saturating_sub(dst_x)) as usize;
         let effective_height = height.min(dst_buffer_height.saturating_sub(dst_y)) as usize;

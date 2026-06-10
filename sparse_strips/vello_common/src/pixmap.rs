@@ -29,6 +29,51 @@ pub struct Pixmap {
     may_have_transparency: bool,
 }
 
+/// A mutable view into premultiplied RGBA8 pixmap data.
+#[derive(Debug)]
+pub struct PixmapMut<'a> {
+    /// Width of the pixmap in pixels.
+    width: u16,
+    /// Height of the pixmap in pixels.
+    height: u16,
+    /// Buffer of the pixmap in RGBA8 format.
+    buf: &'a mut [u8],
+}
+
+impl<'a> PixmapMut<'a> {
+    /// Create a new mutable pixmap view.
+    ///
+    /// Returns `None` if `buf` is not exactly `width * height * 4` bytes long.
+    pub fn new(width: u16, height: u16, buf: &'a mut [u8]) -> Option<Self> {
+        if buf.len() == usize::from(width) * usize::from(height) * 4 {
+            Some(Self { width, height, buf })
+        } else {
+            None
+        }
+    }
+
+    /// Return the width of the pixmap.
+    pub fn width(&self) -> u16 {
+        self.width
+    }
+
+    /// Return the height of the pixmap.
+    pub fn height(&self) -> u16 {
+        self.height
+    }
+
+    /// Returns a mutable reference to the underlying data as premultiplied RGBA8 bytes.
+    pub fn data_mut(&mut self) -> &mut [u8] {
+        self.buf
+    }
+}
+
+impl<'a> From<&'a mut Pixmap> for PixmapMut<'a> {
+    fn from(pixmap: &'a mut Pixmap) -> Self {
+        pixmap.as_mut()
+    }
+}
+
 impl Pixmap {
     /// Create a new pixmap with the given width and height in pixels.
     ///
@@ -293,6 +338,10 @@ impl Pixmap {
         &self.buf
     }
 
+    // TODO: Now that we have `as_mut`, maybe we don't need the
+    // mutable methods. If we add a `PixmapRef` we can also remove the
+    // non-mutable ones.
+
     /// Returns a mutable reference to the underlying data as premultiplied RGBA8.
     ///
     /// The pixels are in row-major order.
@@ -314,6 +363,15 @@ impl Pixmap {
     /// `[r, g, b, a]`.
     pub fn data_as_u8_slice_mut(&mut self) -> &mut [u8] {
         bytemuck::cast_slice_mut(&mut self.buf)
+    }
+
+    /// Return a mutable view into this pixmap's pixel data.
+    pub fn as_mut(&mut self) -> PixmapMut<'_> {
+        PixmapMut {
+            width: self.width,
+            height: self.height,
+            buf: bytemuck::cast_slice_mut(&mut self.buf),
+        }
     }
 
     /// Sample a pixel from the pixmap.

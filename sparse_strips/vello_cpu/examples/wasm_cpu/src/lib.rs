@@ -72,9 +72,9 @@ impl AppState {
         self.scenes[self.current_scene].render(&mut self.renderer, self.transform);
 
         // Render the current scene with transform
-        self.renderer.render_to_pixmap(
-            self.scenes[self.current_scene].resources_mut(),
+        self.renderer.render(
             &mut self.pixmap,
+            self.scenes[self.current_scene].resources_mut(),
         );
         let rgba_bytes = self.pixmap.data_as_u8_slice();
         let image_data = web_sys::ImageData::new_with_u8_clamped_array_and_sh(
