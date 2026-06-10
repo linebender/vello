@@ -250,7 +250,10 @@ impl WebGlRenderer {
 
     /// Creates a new WebGL2 renderer with specific settings.
     pub fn new_with(canvas: &HtmlCanvasElement, settings: RenderSettings) -> Self {
-        #[allow(clippy::assertions_on_constants, reason = "intentional guard against non-wasm32 use")]
+        #[allow(
+            clippy::assertions_on_constants,
+            reason = "intentional guard against non-wasm32 use"
+        )]
         {
             debug_assert!(
                 cfg!(target_arch = "wasm32"),
