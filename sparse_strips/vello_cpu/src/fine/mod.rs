@@ -12,9 +12,7 @@ mod highp;
 mod lowp;
 
 use crate::coarse::depth::DepthBuffer;
-use crate::coarse::{
-    CommandBucketer, LayerFill, LayerFillAttrs, RenderCmd, RowState,
-};
+use crate::coarse::{CommandBucketer, LayerFill, LayerFillAttrs, RenderCmd, RowState};
 use crate::filter::context::ScratchBuffer;
 use crate::fine::common::gradient::GradientPainter;
 pub(crate) use crate::fine::common::gradient::calculate_t_vals;
@@ -454,6 +452,43 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     }
 }
 
+pub(crate) fn rasterize_region<S: Simd, T: FineKernel<S>>(
+    fine: &mut Fine<S, T>,
+    depth: &mut DepthBuffer,
+    region: &mut Region<'_>,
+    bucketer: &CommandBucketer,
+    resources: FineResources<'_>,
+    unpack_dest: bool,
+) {
+    let scene_y = region.row_idx as u16 * Tile::HEIGHT;
+    let row = &bucketer.rows()[region.row_idx];
+    let span = Span::new(0, region.width());
+
+    fine.set_row_y(scene_y);
+    depth.clear();
+
+    // Render depth-buffer commands front-to-back, with depth-buffer read and write.
+    for &cmd in row.depth_cmds.iter().rev() {
+        let attrs = &bucketer.paint_fill_attrs[cmd.attrs_idx as usize];
+
+        depth.for_each_unset_run_and_write(cmd.bucket_range(), attrs.draw_id, |bucket_range| {
+            let span = bucket_range.span();
+            fine.paint_fill(span, attrs, resources, None);
+        });
+    }
+
+    // Clear any regions in the fine buffer that haven't been filled with a solid color fill.
+    fine.init_uncovered_range(span, region, unpack_dest, depth);
+
+    // Render the main commands back-to-front, with depth-buffer read.
+    for cmd in &row.render_cmds {
+        fine.run_cmd(*cmd, bucketer, row, scene_y, resources, depth);
+    }
+
+    // Pack the composited result back into the pixmap.
+    fine.pack(region);
+}
+
 /// Fine rasterizer for processing strip rows at the pixel level.
 #[derive(Debug)]
 #[doc(hidden)]
@@ -595,8 +630,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
                 let x = span.pixel_x();
                 let alphas = cmd.alpha_idx().map(|alpha_idx| {
-                    let alpha_offset =
-                        alpha_idx as usize + usize::from(x - cmd.span.pixel_x()) * Tile::HEIGHT as usize;
+                    let alpha_offset = alpha_idx as usize
+                        + usize::from(x - cmd.span.pixel_x()) * Tile::HEIGHT as usize;
                     &alphas[alpha_offset..]
                 });
 
@@ -745,15 +780,15 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         self.set_paint_offset(attrs.origin);
         match &attrs.paint {
             Paint::Solid(color) => {
-                self.fill_solid(span, *color, attrs, alphas);
+                self.solid_fill(span, *color, attrs, alphas);
             }
             Paint::Indexed(index) => {
-                self.fill_indexed(span, index.index(), attrs, resources, alphas);
+                self.indexed_fill(span, index.index(), attrs, resources, alphas);
             }
         }
     }
 
-    fn fill_solid(
+    fn solid_fill(
         &mut self,
         span: Span,
         color: PremulColor,
@@ -792,7 +827,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         );
     }
 
-    fn fill_indexed(
+    fn indexed_fill(
         &mut self,
         span: Span,
         paint_index: usize,
@@ -815,20 +850,17 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             self.f32_buf.resize(t_len, 0.0);
         }
 
-        if width == 0 {
-            return;
-        }
-
         let simd = self.simd;
         let width = usize::from(width);
         let start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
         let dest = &mut self.blend_buffers.last_mut().unwrap()[start..start + len];
         let color_buf = &mut self.paint_buf[..len];
-        let encoded_paint = encoded_paint(
-            paint_index,
-            resources.encoded_paints,
-            resources.filter_paints,
-        );
+        let encoded_paint = resources
+            .encoded_paints
+            .get(paint_index)
+            .unwrap_or_else(|| {
+                &resources.filter_paints[paint_index - resources.encoded_paints.len()]
+            });
 
         let sampler_x = f64::from(sample_x) + PIXEL_CENTER_OFFSET;
         let sampler_y = f64::from(sample_y) + PIXEL_CENTER_OFFSET;
@@ -1020,16 +1052,6 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     }
 }
 
-fn encoded_paint<'a>(
-    index: usize,
-    encoded_paints: &'a [EncodedPaint],
-    filter_paints: &'a [EncodedPaint],
-) -> &'a EncodedPaint {
-    encoded_paints
-        .get(index)
-        .unwrap_or_else(|| &filter_paints[index - encoded_paints.len()])
-}
-
 #[derive(Clone, Copy)]
 #[doc(hidden)]
 pub struct FineResources<'a> {
@@ -1056,39 +1078,6 @@ pub(crate) struct FineRenderParams {
     pub(crate) scene_size: (u16, u16),
     /// Destination offset in the target pixmap.
     pub(crate) target_offset: (u16, u16),
-}
-
-pub(crate) fn rasterize_region<S: Simd, T: FineKernel<S>>(
-    fine: &mut Fine<S, T>,
-    depth: &mut DepthBuffer,
-    region: &mut Region<'_>,
-    bucketer: &CommandBucketer,
-    resources: FineResources<'_>,
-    unpack_dest: bool,
-) {
-    let scene_y = region.row_idx as u16 * Tile::HEIGHT;
-    let row = &bucketer.rows()[region.row_idx];
-    let span = Span::new(0, region.width());
-
-    fine.set_row_y(scene_y);
-    depth.clear();
-
-    for &cmd in row.depth_cmds.iter().rev() {
-        let attrs = &bucketer.paint_fill_attrs[cmd.attrs_idx as usize];
-
-        depth.for_each_unset_run_and_write(cmd.bucket_range(), attrs.draw_id, |bucket_range| {
-            let span = bucket_range.span();
-            fine.paint_fill(span, attrs, resources, None);
-        });
-    }
-
-    fine.init_uncovered_range(span, region, unpack_dest, depth);
-
-    for cmd in &row.render_cmds {
-        fine.run_cmd(*cmd, bucketer, row, scene_y, resources, depth);
-    }
-
-    fine.pack(region);
 }
 
 /// A trait for objects that can render pixel data into buffers.
