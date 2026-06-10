@@ -586,7 +586,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         let width = usize::from(region.width());
         let scratch = self.blend_buffers.last().unwrap();
 
-        T::pack(self.simd, &scratch, width, region);
+        T::pack(self.simd, scratch, width, region);
     }
 
     /// Reads the pixels of the target back into the buffer.
