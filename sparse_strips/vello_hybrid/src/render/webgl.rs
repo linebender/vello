@@ -250,10 +250,13 @@ impl WebGlRenderer {
 
     /// Creates a new WebGL2 renderer with specific settings.
     pub fn new_with(canvas: &HtmlCanvasElement, settings: RenderSettings) -> Self {
-        debug_assert!(
-            cfg!(target_arch = "wasm32"),
-            "`WebGlRenderer` can only be constructed when targeting `wasm32`",
-        );
+        #[allow(clippy::assertions_on_constants, reason = "intentional guard against non-wasm32 use")]
+        {
+            debug_assert!(
+                cfg!(target_arch = "wasm32"),
+                "`WebGlRenderer` can only be constructed when targeting `wasm32`",
+            );
+        }
         super::common::maybe_warn_about_webgl_feature_conflict();
 
         // We do our own anti-aliasing, so no need to enable it in the WebGL
