@@ -126,6 +126,7 @@ pub(crate) struct LayerFillAttrs {
     pub(crate) blend_mode: BlendMode,
     pub(crate) opacity: f32,
     pub(crate) mask: Option<Mask>,
+    pub(crate) draw_id: u32,
     /// In case there is any alpha associated with the layer command, this stores
     /// the index of the thread that stores the alpha.
     pub(crate) thread_idx: u8,

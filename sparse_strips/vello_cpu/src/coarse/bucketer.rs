@@ -345,11 +345,13 @@ impl CommandBucketer {
 
         if let Some(clip) = layer.clip {
             let attrs_idx = self.layer_fill_attrs.len() as u32;
+            let draw_id = self.next_draw_id();
 
             self.layer_fill_attrs.push(LayerFillAttrs {
                 blend_mode,
                 opacity,
                 mask: layer.mask.clone(),
+                draw_id,
                 thread_idx: clip.thread_idx,
             });
             self.clip_bboxes.pop();
@@ -401,11 +403,13 @@ impl CommandBucketer {
             self.occupied_rows_pool.submit(layer.occupied_rows);
         } else {
             let attrs_idx = self.layer_fill_attrs.len() as u32;
+            let draw_id = self.next_draw_id();
 
             self.layer_fill_attrs.push(LayerFillAttrs {
                 blend_mode,
                 opacity,
                 mask: layer.mask.clone(),
+                draw_id,
                 thread_idx: 0,
             });
 
