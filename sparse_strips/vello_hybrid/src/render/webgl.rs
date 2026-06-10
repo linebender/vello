@@ -46,7 +46,6 @@ use alloc::vec;
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use core::fmt::Debug;
-use core::ops::Deref;
 #[cfg(feature = "text")]
 use glifo::{GLYPH_PADDING, PendingClearRect};
 use resource::{Buffer, FragmentShader, Framebuffer, Program, Texture, VertexArray, VertexShader};
