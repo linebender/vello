@@ -575,8 +575,11 @@ impl WebGlRenderer {
             ),
         );
 
-        let previous_view_framebuffer = self.programs.resources.view_framebuffer_override.take();
-        self.programs.resources.view_framebuffer_override = Some(probe_framebuffer);
+        let previous_view_framebuffer = self
+            .programs
+            .resources
+            .view_framebuffer_override
+            .replace(probe_framebuffer);
         let render_result = self.render_scene(
             &scene,
             &mut probe_image_cache,
@@ -1284,8 +1287,8 @@ impl WebGlPrograms {
             // Replace the old resources
             self.resources.atlas_texture_array = new_atlas_texture_array;
             // Cached FBOs were attached to the old texture; drop them so we recreate on next use.
-            let _ = self.resources.atlas_render_framebuffer.take();
-            let _ = self.resources.filter_main_atlas_framebuffer.take();
+            self.resources.atlas_render_framebuffer = None;
+            self.resources.filter_main_atlas_framebuffer = None;
         }
     }
 
@@ -3004,7 +3007,7 @@ impl RendererBackend for WebGlRendererContext<'_> {
                         .filter_main_atlas_framebuffer
                         .get_or_insert_with(|| Framebuffer::new(self.gl));
                     self.gl
-                        .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&*fb));
+                        .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(fb));
                     self.gl.framebuffer_texture_layer(
                         WebGl2RenderingContext::FRAMEBUFFER,
                         WebGl2RenderingContext::COLOR_ATTACHMENT0,
