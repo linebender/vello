@@ -12,7 +12,7 @@ use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::Simd;
 use vello_common::paint::{NoOpImageResolver, Paint, PremulColor};
 use vello_common::tile::Tile;
-use vello_cpu::fine::{Fine, FineKernel, FineResources, Span};
+use vello_cpu::fine::{Fine, FineKernel, FineResources, PaintFillAttrs, Span};
 use vello_dev_macros::vello_bench;
 
 pub fn strip(c: &mut Criterion) {
@@ -63,6 +63,14 @@ fn strip_single<S: Simd, N: FineKernel<S>>(
 ) {
     let mut rng = StdRng::from_seed(SEED);
     let mut alphas = vec![];
+    let attrs = PaintFillAttrs {
+        paint: paint.clone(),
+        blend_mode: default_blend(),
+        mask: None,
+        draw_id: 1,
+        thread_idx: 0,
+        origin: (0, 0),
+    };
 
     for _ in 0..WideTile::WIDTH * Tile::HEIGHT {
         alphas.push(rng.random());
@@ -71,8 +79,7 @@ fn strip_single<S: Simd, N: FineKernel<S>>(
     b.iter(|| {
         fine.fill(
             Span::new(0, width),
-            paint,
-            default_blend(),
+            &attrs,
             FineResources {
                 alpha_buffers: &[],
                 encoded_paints,
@@ -80,7 +87,6 @@ fn strip_single<S: Simd, N: FineKernel<S>>(
                 image_resolver: &NoOpImageResolver,
             },
             Some(&alphas),
-            None,
         );
 
         std::hint::black_box(&fine);

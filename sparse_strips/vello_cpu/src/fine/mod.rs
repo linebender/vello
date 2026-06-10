@@ -13,8 +13,7 @@ mod lowp;
 
 use crate::coarse::depth::DepthBuffer;
 use crate::coarse::{
-    CommandBucketer, DepthFill, LayerFill, LayerFillAttrs, PaintFill, PaintFillAttrs, RenderCmd,
-    RowState,
+    CommandBucketer, DepthFill, LayerFill, LayerFillAttrs, PaintFill, RenderCmd, RowState,
 };
 use crate::filter::context::ScratchBuffer;
 use crate::fine::common::gradient::GradientPainter;
@@ -47,6 +46,8 @@ use vello_common::simd::Splat4thExt;
 use vello_common::tile::Tile;
 use vello_common::util::f32_to_u8;
 
+#[doc(hidden)]
+pub use crate::coarse::PaintFillAttrs;
 #[doc(hidden)]
 pub use crate::util::Span;
 pub use highp::F32Kernel;
@@ -730,50 +731,36 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     pub fn fill(
         &mut self,
         span: Span,
-        paint: &Paint,
-        blend_mode: BlendMode,
+        attrs: &PaintFillAttrs,
         resources: FineResources<'_>,
         alphas: Option<&[u8]>,
-        mask: Option<&Mask>,
     ) {
-        match paint {
+        self.set_paint_offset(attrs.origin);
+        match &attrs.paint {
             Paint::Solid(color) => {
-                self.fill_solid_with_attrs(span, self.row_y, *color, blend_mode, mask, alphas);
+                self.fill_solid(span, *color, attrs, alphas);
             }
             Paint::Indexed(index) => {
-                self.fill_indexed(
-                    span.pixel_x(),
-                    self.row_y,
-                    span.pixel_x().saturating_add(self.origin.0),
-                    self.row_y.saturating_add(self.origin.1),
-                    span.pixel_width(),
-                    index.index(),
-                    blend_mode,
-                    mask,
-                    resources,
-                    alphas,
-                );
+                self.fill_indexed(span, index.index(), attrs, resources, alphas);
             }
         }
     }
 
-    fn fill_solid(&mut self, span: Span, color: PremulColor, alphas: Option<&[u8]>) {
-        let simd = self.simd;
-        let scratch = self.blend_buffers.last_mut().unwrap();
-        T::fill_solid(simd, &mut scratch[Self::scratch_range(span)], color, alphas);
-    }
-
-    fn fill_solid_with_attrs(
+    fn fill_solid(
         &mut self,
         span: Span,
-        y: u16,
         color: PremulColor,
-        blend_mode: BlendMode,
-        mask: Option<&Mask>,
+        attrs: &PaintFillAttrs,
         alphas: Option<&[u8]>,
     ) {
-        if blend_mode == BlendMode::default() && mask.is_none() {
-            self.fill_solid(span, color, alphas);
+        if attrs.blend_mode == BlendMode::default() && attrs.mask.is_none() {
+            let scratch = self.blend_buffers.last_mut().unwrap();
+            T::fill_solid(
+                self.simd,
+                &mut scratch[Self::scratch_range(span)],
+                color,
+                alphas,
+            );
             return;
         }
 
@@ -790,27 +777,27 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             simd,
             &mut scratch[Self::scratch_range(span)],
             x,
-            y,
+            self.row_y,
             iter::repeat(color),
-            blend_mode,
+            attrs.blend_mode,
             alphas,
-            mask,
+            attrs.mask.as_ref(),
         );
     }
 
     fn fill_indexed(
         &mut self,
-        x: u16,
-        y: u16,
-        sample_x: u16,
-        sample_y: u16,
-        width: u16,
+        span: Span,
         paint_index: usize,
-        blend_mode: BlendMode,
-        mask: Option<&Mask>,
+        attrs: &PaintFillAttrs,
         resources: FineResources<'_>,
         alphas: Option<&[u8]>,
     ) {
+        let x = span.pixel_x();
+        let y = self.row_y;
+        let sample_x = x.saturating_add(self.origin.0);
+        let sample_y = y.saturating_add(self.origin.1);
+        let width = span.pixel_width();
         let len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
         if self.paint_buf.len() < len {
             self.paint_buf.resize(len, T::Numeric::ZERO);
@@ -838,7 +825,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
         let sampler_x = f64::from(sample_x) + PIXEL_CENTER_OFFSET;
         let sampler_y = f64::from(sample_y) + PIXEL_CENTER_OFFSET;
-        let default_blend = blend_mode == BlendMode::default();
+        let default_blend = attrs.blend_mode == BlendMode::default();
 
         // We need to have this as a macro because closures cannot take generic arguments, and
         // we would have to repeatedly provide all arguments if we made it a function.
@@ -847,13 +834,17 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 fill_complex_paint!($may_have_transparency, $filler, None::<&Tint>)
             };
             ($may_have_transparency:expr, $filler:expr, $tint:expr) => {
-                if $may_have_transparency || alphas.is_some() || !default_blend || mask.is_some() {
+                if $may_have_transparency
+                    || alphas.is_some()
+                    || !default_blend
+                    || attrs.mask.is_some()
+                {
                     T::apply_painter(simd, color_buf, $filler);
                     if let Some(tint) = $tint {
                         T::apply_tint(simd, color_buf, tint);
                     }
 
-                    if default_blend && mask.is_none() {
+                    if default_blend && attrs.mask.is_none() {
                         T::alpha_composite_buffer(simd, dest, color_buf, alphas);
                     } else {
                         T::blend(
@@ -864,9 +855,9 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                             color_buf
                                 .chunks_exact(T::Composite::LENGTH)
                                 .map(|s| T::Composite::from_slice(simd, s)),
-                            blend_mode,
+                            attrs.blend_mode,
                             alphas,
-                            mask,
+                            attrs.mask.as_ref(),
                         );
                     }
                 } else {
@@ -1028,17 +1019,9 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         resources: FineResources<'_>,
         depth: &mut DepthBuffer,
     ) {
-        self.set_paint_offset(attrs.origin);
         depth.for_each_unset_run_and_write(cmd.bucket_range(), attrs.draw_id, |bucket_range| {
             let span = bucket_range.span();
-            self.fill(
-                span,
-                &attrs.paint,
-                attrs.blend_mode,
-                resources,
-                None,
-                attrs.mask.as_ref(),
-            );
+            self.fill(span, attrs, resources, None);
         });
     }
 
@@ -1051,20 +1034,12 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         resources: FineResources<'_>,
     ) {
         let x = span.pixel_x();
-        self.set_paint_offset(attrs.origin);
         let alphas = cmd.alpha_idx().map(|alpha_idx| {
             let alpha_offset =
                 alpha_idx as usize + usize::from(x - cmd.span.pixel_x()) * Tile::HEIGHT as usize;
             &alphas[alpha_offset..]
         });
-        self.fill(
-            span,
-            &attrs.paint,
-            attrs.blend_mode,
-            resources,
-            alphas,
-            attrs.mask.as_ref(),
-        );
+        self.fill(span, attrs, resources, alphas);
     }
 }
 

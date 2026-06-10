@@ -110,15 +110,16 @@ impl AlphaIdx {
     }
 }
 
+#[doc(hidden)]
 #[derive(Debug, Clone)]
-pub(crate) struct PaintFillAttrs {
-    pub(crate) paint: Paint,
-    pub(crate) blend_mode: BlendMode,
-    pub(crate) mask: Option<Mask>,
-    pub(crate) draw_id: u32,
-    pub(crate) thread_idx: u8,
+pub struct PaintFillAttrs {
+    pub paint: Paint,
+    pub blend_mode: BlendMode,
+    pub mask: Option<Mask>,
+    pub draw_id: u32,
+    pub thread_idx: u8,
     /// See the comment in `CommandBucketer::bucket_commands`.
-    pub(crate) origin: (u16, u16),
+    pub origin: (u16, u16),
 }
 
 #[derive(Debug, Clone)]
