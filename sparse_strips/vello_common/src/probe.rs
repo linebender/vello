@@ -6,6 +6,8 @@
 
 use crate::color::{AlphaColor, palette::css};
 use crate::filter_effects::{EdgeMode, Filter, FilterPrimitive};
+#[cfg(not(feature = "std"))]
+use crate::kurbo::common::FloatFuncs as _;
 use crate::kurbo::{Affine, BezPath, Circle, Point, Rect, Shape};
 use crate::paint::{Image, ImageSource, PaintType};
 use crate::peniko::{

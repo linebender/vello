@@ -3,7 +3,7 @@
 
 //! Native WebGL2 rendering module for the sparse strips CPU/GPU rendering engine.
 //!
-//! This module provides identical functionality as the [`render_wgpu`] module, however the graphics
+//! This module provides identical functionality as the [`wgpu`] module, however the graphics
 //! context is the browser's native [`WebGl2RenderingContext`]. Hence, this module is only available
 //! when targeting `wasm32` with the "webgl" feature flag active.
 //!
@@ -234,6 +234,16 @@ impl WebGlRenderer {
 
     /// Creates a new WebGL2 renderer with specific settings.
     pub fn new_with(canvas: &HtmlCanvasElement, settings: RenderSettings) -> Self {
+        #[allow(
+            clippy::assertions_on_constants,
+            reason = "intentional guard against non-wasm32 use"
+        )]
+        {
+            debug_assert!(
+                cfg!(target_arch = "wasm32"),
+                "`WebGlRenderer` can only be constructed when targeting `wasm32`",
+            );
+        }
         super::common::maybe_warn_about_webgl_feature_conflict();
 
         // We do our own anti-aliasing, so no need to enable it in the WebGL
