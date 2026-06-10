@@ -37,26 +37,27 @@
 //!
 //! - `Scene`: Manages the render context and path processing on the CPU
 //! - `Renderer` or `WebGlRenderer`: Handles GPU resource management and executes draw operations
-//! - `Scheduler`: Manages and schedules draw operations on the renderer.
+//! - Direct strip rendering: converts scene commands into GPU strip draws.
 //!
 //! See the individual module documentation for more details on usage and implementation.
 
 #![no_std]
 
 extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
 
+pub(crate) mod direct;
 pub(crate) mod filter;
 mod gradient_cache;
 mod render;
 mod resources;
 mod sampling;
 mod scene;
-#[cfg(any(all(target_arch = "wasm32", feature = "webgl"), feature = "wgpu"))]
-mod schedule;
 #[cfg(feature = "text")]
 mod text;
 
-pub mod util;
+pub(crate) mod util;
 
 #[cfg(feature = "wgpu")]
 pub use render::{AtlasWriter, RenderTargetConfig, Renderer, TextureBindings};
@@ -69,10 +70,9 @@ pub use render::{WebGlAtlasWriter, WebGlRenderer, WebGlTextureWithDimensions};
 pub use render::{WebGlPendingProbe, WebGlProbeError, WebGlProbeStatus};
 pub use resources::Resources;
 pub use sampling::SampleRect;
-pub use scene::{RenderSettings, Scene, SceneConstraints};
+pub use scene::{RenderSettings, Scene};
 #[cfg(feature = "text")]
 pub use text::{GlyphRunBuilder, HybridGlyphRunBackend};
-pub use util::DimensionConstraints;
 pub use vello_common::TextureId;
 pub use vello_common::multi_atlas::{AllocationStrategy, AtlasConfig, AtlasId};
 pub use vello_common::pixmap::Pixmap;

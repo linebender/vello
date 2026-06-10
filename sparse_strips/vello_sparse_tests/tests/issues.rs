@@ -358,7 +358,7 @@ fn do_not_panic_on_multiple_flushes(ctx: &mut impl Renderer) {
 }
 
 /// <https://github.com/linebender/vello/issues/1119>
-#[vello_test(skip_hybrid)]
+#[vello_test]
 fn clip_clear(ctx: &mut impl Renderer) {
     // initial coloring
     ctx.set_paint(LIME);
@@ -499,7 +499,7 @@ fn large_dimensions(ctx: &mut impl Renderer) {
     ctx.fill_rect(&Rect::new(0.0, 0.0, u16::MAX as f64 + 10.0, 8.0));
 }
 
-#[vello_test(skip_multithreaded, skip_hybrid)]
+#[vello_test(skip_multithreaded)]
 fn issue_1417(ctx: &mut impl Renderer) {
     let filter_drop_shadow = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
 
@@ -547,7 +547,7 @@ fn issue_1417(ctx: &mut impl Renderer) {
     }
 }
 
-#[vello_test(skip_hybrid, skip_multithreaded)]
+#[vello_test(skip_multithreaded)]
 fn issue_1421(ctx: &mut impl Renderer) {
     let filter_flood = Filter::from_primitive(FilterPrimitive::Flood { color: TOMATO });
     let rect = Rect::new(15.0, 15.0, 85.0, 85.0).to_path(0.1);
@@ -629,7 +629,7 @@ fn issue_1468(ctx: &mut impl Renderer) {
     ctx.fill_rect(&Rect::new(0.0, 0.0, 10.0, 10.0));
 }
 
-#[vello_test(width = 768, height = 4, skip_multithreaded, skip_hybrid)]
+#[vello_test(width = 768, height = 4, skip_multithreaded)]
 fn issue_1477(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
     let rect = Rect::new(0.0, 0.0, 768.0, 4.0);
@@ -662,11 +662,9 @@ fn opaque_rect_partially_occluding_aa_edge(ctx: &mut impl Renderer) {
 // TODO: Re-enable hybrid once proper edge handling is implemented in Vello hybrid.
 #[vello_test(
     skip_multithreaded,
-    skip_hybrid,
-    skip_hybrid_constrained,
     width = 768,
     height = 100,
-    hybrid_tolerance = 3
+    hybrid_tolerance = 4
 )]
 fn issue_1509(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {

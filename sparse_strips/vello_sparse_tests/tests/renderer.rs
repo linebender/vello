@@ -15,7 +15,7 @@ use vello_common::pixmap::Pixmap;
 use vello_cpu::{Level, RasterizerSettings, RenderContext, RenderMode, RenderSettings, Resources};
 use vello_hybrid::{
     RenderSettings as HybridRenderSettings, Resources as HybridResources, SampleRect, Scene,
-    SceneConstraints, TextureId,
+    TextureId,
 };
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 use web_sys::WebGl2RenderingContext;
@@ -31,7 +31,6 @@ pub(crate) trait Renderer: Sized {
         num_threads: u16,
         level: Level,
         render_mode: RenderMode,
-        default_blending_only: bool,
     ) -> Self;
     fn fill_path(&mut self, path: &BezPath);
     fn stroke_path(&mut self, path: &BezPath);
@@ -114,7 +113,6 @@ impl Renderer for CpuRenderer {
         num_threads: u16,
         level: Level,
         render_mode: RenderMode,
-        _default_blending_only: bool,
     ) -> Self {
         let settings = RenderSettings { level, num_threads };
         Self {
@@ -390,24 +388,14 @@ impl HybridRenderer {
 impl Renderer for HybridRenderer {
     type GlyphRunBackend<'a> = vello_hybrid::HybridGlyphRunBackend<'a>;
 
-    fn new(
-        width: u16,
-        height: u16,
-        num_threads: u16,
-        level: Level,
-        _: RenderMode,
-        default_blending_only: bool,
-    ) -> Self {
+    fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
         if num_threads != 0 {
             panic!("hybrid renderer doesn't support multi-threading");
         }
         if !level.is_fallback() {
             panic!("hybrid renderer doesn't support SIMD");
         }
-        let mut settings = HybridRenderSettings::default();
-        if default_blending_only {
-            settings.constraints = SceneConstraints::new().default_blending_only();
-        }
+        let settings = HybridRenderSettings::default();
         Self::new_with_settings(width, height, settings)
     }
 
@@ -546,11 +534,12 @@ impl Renderer for HybridRenderer {
         // Testing with `cargo nextest` (as on CI) is not meaningfully slowed down. `nextest` runs
         // each test in its own process (<https://nexte.st/docs/design/why-process-per-test/>),
         // meaning there is no contention on this mutex.
-        let _guard = {
-            use std::sync::Mutex;
-            static M: Mutex<()> = Mutex::new(());
-            M.lock().unwrap()
-        };
+        // TODO: Re-add!!
+        // let _guard = {
+        //     use std::sync::Mutex;
+        //     static M: Mutex<()> = Mutex::new(());
+        //     M.lock().unwrap()
+        // };
 
         let width = self.scene.width();
         let height = self.scene.height();
@@ -734,14 +723,7 @@ impl HybridRenderer {
 impl Renderer for HybridRenderer {
     type GlyphRunBackend<'a> = vello_hybrid::HybridGlyphRunBackend<'a>;
 
-    fn new(
-        width: u16,
-        height: u16,
-        num_threads: u16,
-        level: Level,
-        _: RenderMode,
-        default_blending_only: bool,
-    ) -> Self {
+    fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
         use wasm_bindgen::JsCast;
         use web_sys::HtmlCanvasElement;
 
@@ -753,10 +735,7 @@ impl Renderer for HybridRenderer {
             panic!("hybrid renderer doesn't support SIMD");
         }
 
-        let mut settings = HybridRenderSettings::default();
-        if default_blending_only {
-            settings.constraints = SceneConstraints::new().default_blending_only();
-        }
+        let settings = HybridRenderSettings::default();
         let scene = Scene::new_with(width, height, settings);
         // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
         // the pixmap for diff checking.
