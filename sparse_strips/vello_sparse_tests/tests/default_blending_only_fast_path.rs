@@ -1,8 +1,7 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Tests for the interleaved fast-path / scheduled-strip rendering when
-//! `SceneConstraints::default_blending_only()` is active.
+//! Tests for the previous interleaved fast-path / scheduled-strip rendering mode.
 
 use crate::renderer::Renderer;
 use vello_common::color::palette::css::{BLUE, GREEN, REBECCA_PURPLE, RED};

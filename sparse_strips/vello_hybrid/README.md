@@ -54,7 +54,7 @@ The renderer is split into several key components:
 
 - `Scene`: Manages the render context and path processing on the CPU
 - `Renderer` or `WebGlRenderer`: Handles GPU resource management and executes draw operations
-- `Scheduler`: Manages and schedules draw operations on the renderer.
+- Direct strip rendering: converts scene commands into GPU strip draws.
 
 See the individual module documentation for more details on usage and implementation.
 

@@ -740,6 +740,10 @@ impl FilterContext {
         clippy::cast_possible_truncation,
         reason = "filter dimensions and paint indices won't exceed u32"
     )]
+    #[allow(
+        dead_code,
+        reason = "Filters are temporarily detached until layer roots are reintroduced."
+    )]
     pub(crate) fn prepare(
         &mut self,
         render_graph: &RenderGraph,
@@ -1049,6 +1053,10 @@ pub(crate) struct FilterLayerData {
     pub scratch_image_ids: Option<[ImageId; 2]>,
     /// The paint index that points to the location in `encoded_paints` where
     /// the final filtered version of the image will be stored.
+    #[allow(
+        dead_code,
+        reason = "Filters are temporarily detached until layer roots are reintroduced."
+    )]
     pub paint_idx: u32,
     /// The bounding box of the filter layer.
     pub bbox: WideTilesBbox,

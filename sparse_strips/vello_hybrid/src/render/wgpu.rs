@@ -21,6 +21,7 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
+    direct::{DirectStrips, DirectTarget, ExternalTextureRun},
     filter::{FilterContext, FilterInstanceData, FilterPassState, FilterPassTarget},
     gradient_cache::GradientRampCache,
     render::{
@@ -35,10 +36,6 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{
-        ExternalTextureRun, LoadOp, RendererBackend, RootRenderTarget, Scheduler, SchedulerState,
-        StripPassRenderTarget,
-    },
 };
 use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
@@ -48,11 +45,10 @@ use core::{fmt::Debug, num::NonZeroU64};
 use glifo::PendingClearRect;
 use hashbrown::{HashMap, hash_map::Entry};
 use vello_common::image_cache::{ImageCache, ImageResource};
-use vello_common::multi_atlas::{AtlasConfig, AtlasError, AtlasId};
+use vello_common::multi_atlas::{AtlasConfig, AtlasId};
 use vello_common::render_graph::LayerId;
 use vello_common::{
     TextureId,
-    coarse::WideTile,
     encode::{
         EncodedBlurredRoundedRectangle, EncodedExternalTexture, EncodedGradient, EncodedKind,
         EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind,
@@ -77,6 +73,7 @@ const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(G
 });
 
 const EXTERNAL_IMAGE_SOURCE_FLAG: u32 = 1 << 14;
+const SLOT_TEXTURE_WIDTH: u32 = 256;
 
 /// Options for the renderer
 #[derive(Debug)]
@@ -147,10 +144,6 @@ impl TextureBindings {
 pub struct Renderer {
     /// Programs for rendering.
     programs: Programs,
-    /// Scheduler for scheduling draws.
-    scheduler: Scheduler,
-    /// The state used by the scheduler.
-    scheduler_state: SchedulerState,
     /// Encoded paints for storing encoded paints.
     encoded_paints: Vec<GpuEncodedPaint>,
     /// Stores the index (offset) of the encoded paints in the encoded paints texture.
@@ -219,8 +212,6 @@ impl Renderer {
                 render_target_config,
                 total_slots,
             ),
-            scheduler: Scheduler::new(total_slots),
-            scheduler_state: SchedulerState::default(),
             gradient_cache,
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
@@ -234,12 +225,10 @@ impl Renderer {
 
     fn prepare_filter_textures(
         &mut self,
-        scene: &Scene,
         device: &Device,
         encoder: &mut CommandEncoder,
         image_cache: &mut ImageCache,
-        encoded_paints: &mut Vec<EncodedPaint>,
-    ) -> Result<(), AtlasError> {
+    ) {
         // TODO: Maybe we can do the clear implicitly when using the textures for the first time.
         if !self.filter_context.filter_textures.is_empty() {
             for view in &self.programs.resources.filter_atlas.views {
@@ -265,9 +254,6 @@ impl Renderer {
         self.filter_context
             .deallocate_all_and_clear_context(image_cache);
 
-        self.filter_context
-            .prepare(&scene.render_graph, image_cache, encoded_paints)?;
-
         Programs::maybe_resize_atlas_texture_array(
             device,
             encoder,
@@ -281,8 +267,6 @@ impl Renderer {
             &self.programs.filter_input_bind_group_layouts[0],
             &self.programs.filter_input_bind_group_layouts[1],
         );
-
-        Ok(())
     }
 
     /// Render `scene`.
@@ -337,13 +321,7 @@ impl Renderer {
         let mut encoded_paints = scene.encoded_paints.borrow_mut();
         let scene_paint_count = encoded_paints.len();
 
-        self.prepare_filter_textures(
-            scene,
-            device,
-            encoder,
-            &mut resources.image_cache,
-            &mut encoded_paints,
-        )?;
+        self.prepare_filter_textures(device, encoder, &mut resources.image_cache);
 
         let result = self.render_scene(
             scene,
@@ -355,7 +333,7 @@ impl Renderer {
             &resources.image_cache,
             &encoded_paints,
             true,
-            RootRenderTarget::UserSurface,
+            DirectTarget::UserSurface,
             texture_bindings,
         );
 
@@ -453,7 +431,7 @@ impl Renderer {
             &dummy_image_cache,
             &encoded_paints,
             false,
-            RootRenderTarget::AtlasLayer,
+            DirectTarget::AtlasLayer,
             texture_bindings,
         );
         self.dummy_image_cache = Some(dummy_image_cache);
@@ -471,7 +449,7 @@ impl Renderer {
         result
     }
 
-    /// Shared render pipeline: prepares GPU resources, runs the scheduler against
+    /// Shared render pipeline: prepares GPU resources, renders direct strips against
     /// the provided `view` at `render_size`, and maintains caches.
     ///
     /// When `clear` is true the render target is cleared to transparent black
@@ -487,7 +465,7 @@ impl Renderer {
         image_cache: &ImageCache,
         encoded_paints: &[EncodedPaint],
         clear: bool,
-        root_output_target: RootRenderTarget,
+        target: DirectTarget,
         texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
         self.programs.depth_cleared_this_frame = false;
@@ -509,6 +487,12 @@ impl Renderer {
         if clear {
             Self::clear_view(encoder, view);
         }
+        let strips = DirectStrips::from_scene(scene, target, &self.paint_idxs, encoded_paints);
+        if strips.is_empty() {
+            self.gradient_cache.maintain();
+            return Ok(());
+        }
+
         let mut ctx = RendererContext {
             programs: &mut self.programs,
             device,
@@ -521,15 +505,13 @@ impl Renderer {
             texture_bindings,
             external_paint_source_bind_groups: HashMap::new(),
         };
-        self.scheduler.do_scene(
-            &mut self.scheduler_state,
-            &mut ctx,
-            scene,
-            root_output_target,
-            &self.paint_idxs,
-            &self.filter_context,
-            encoded_paints,
-        )?;
+        ctx.do_strip_render_pass(
+            strips.opaque(),
+            strips.alpha(),
+            strips.external_texture_runs(),
+            target,
+            wgpu::LoadOp::Load,
+        );
         self.gradient_cache.maintain();
 
         Ok(())
@@ -992,6 +974,10 @@ struct Programs {
     /// Bind group layouts for filter input.
     filter_input_bind_group_layouts: [BindGroupLayout; 2],
     /// Pipeline for clearing slots in slot textures.
+    #[allow(
+        dead_code,
+        reason = "Slot scheduling was removed; slot resources remain until shader bindings are simplified."
+    )]
     clear_pipeline: RenderPipeline,
     /// Pipeline for clearing atlas regions.
     atlas_clear_pipeline: RenderPipeline,
@@ -1120,6 +1106,10 @@ struct GpuResources {
     slot_config_buffer: Buffer,
 
     /// Buffer for slot indices used in `clear_slots`
+    #[allow(
+        dead_code,
+        reason = "Slot scheduling was removed; slot resources remain until shader bindings are simplified."
+    )]
     clear_slot_indices_buffer: Buffer,
     /// Buffer holding `FilterInstanceData` for a single filter draw call.
     filter_instance_buffer: Buffer,
@@ -1129,6 +1119,10 @@ struct GpuResources {
     slot_texture_views: [TextureView; 2],
 
     /// Bind group for clear slots operation
+    #[allow(
+        dead_code,
+        reason = "Slot scheduling was removed; slot resources remain until shader bindings are simplified."
+    )]
     clear_bind_group: BindGroup,
 
     /// Placeholder paint-source bind group with a 1x1 dummy atlas texture, used during
@@ -1562,7 +1556,7 @@ impl Programs {
                 .create_texture(&wgpu::TextureDescriptor {
                     label: Some("Slot Texture"),
                     size: Extent3d {
-                        width: u32::from(WideTile::WIDTH),
+                        width: SLOT_TEXTURE_WIDTH,
                         height: u32::from(Tile::HEIGHT) * slot_count as u32,
                         depth_or_array_layers: 1,
                     },
@@ -1581,7 +1575,7 @@ impl Programs {
         let clear_config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Clear Slots Config"),
             contents: bytemuck::bytes_of(&ClearSlotsConfig {
-                slot_width: u32::from(WideTile::WIDTH),
+                slot_width: SLOT_TEXTURE_WIDTH,
                 slot_height: u32::from(Tile::HEIGHT),
                 texture_height: u32::from(Tile::HEIGHT) * slot_count as u32,
                 _padding: 0,
@@ -1604,7 +1598,7 @@ impl Programs {
         let slot_config_buffer = Self::create_config_buffer(
             device,
             &RenderSize {
-                width: u32::from(WideTile::WIDTH),
+                width: SLOT_TEXTURE_WIDTH,
                 height: u32::from(Tile::HEIGHT) * slot_count as u32,
             },
             device.limits().max_texture_dimension_2d,
@@ -2630,7 +2624,7 @@ impl RendererContext<'_> {
         opaque_strips: &[GpuStrip],
         alpha_strips: &[GpuStrip],
         external_texture_runs: &[ExternalTextureRun],
-        target: StripPassRenderTarget,
+        target: DirectTarget,
         load: wgpu::LoadOp<wgpu::Color>,
     ) {
         if opaque_strips.is_empty() && alpha_strips.is_empty() {
@@ -2643,147 +2637,23 @@ impl RendererContext<'_> {
         let opaque_count = opaque_strips.len() as u32;
         let alpha_count = alpha_strips.len() as u32;
 
-        enum MaybeOwned<'a, T> {
-            Borrowed(&'a T),
-            Owned(T),
-        }
-
-        impl<T> AsRef<T> for MaybeOwned<'_, T> {
-            fn as_ref(&self) -> &T {
-                match self {
-                    Self::Borrowed(r) => r,
-                    Self::Owned(v) => v,
-                }
-            }
-        }
         // Create bind groups for all external textures passed in by the user that are used this
         // pass.
         for run in external_texture_runs {
             self.external_paint_source_bind_group_for_texture(run.texture_id);
         }
 
-        let (view, bind_group, scissor_rect): (
-            &TextureView,
-            MaybeOwned<'_, BindGroup>,
-            Option<[u32; 4]>,
-        ) = match target {
-            StripPassRenderTarget::Root(_) => (
-                self.view,
-                MaybeOwned::Borrowed(&self.programs.resources.slot_bind_groups[2]),
-                None,
-            ),
-            StripPassRenderTarget::FilterLayer(layer_id) => {
-                let image_id = self
-                    .filter_context
-                    .filter_textures
-                    .get(&layer_id)
-                    .unwrap()
-                    .initial_image_id;
-                let resources = self.filter_context.image_cache.get(image_id).unwrap();
+        let view = self.view;
+        let bind_group = &self.programs.resources.slot_bind_groups[2];
+        let scissor_rect: Option<[u32; 4]> = None;
 
-                let atlas_idx = resources.atlas_id.as_u32() as usize;
-                let filter_atlas = &self.programs.resources.filter_atlas;
-
-                let atlas_size = filter_atlas.textures[atlas_idx].size();
-                let filter_textures = self.filter_context.filter_textures.get(&layer_id).unwrap();
-
-                // Two offsets are needed:
-                // 1. Account for the intermediate texture living at an offset within its atlas.
-                // 2. Account for the filter layer bbox not starting at (0, 0).
-                let strip_offset_x = resources.offset[0] as i32
-                    - (filter_textures.bbox.x0() * WideTile::WIDTH) as i32;
-                let strip_offset_y =
-                    resources.offset[1] as i32 - (filter_textures.bbox.y0() * Tile::HEIGHT) as i32;
-
-                // TODO: Cache this and bind group? See https://github.com/linebender/vello/pull/1494#discussion_r2937895891.
-                let atlas_config_buffer =
-                    self.device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Filter Strip Config Buffer"),
-                            contents: bytemuck::bytes_of(&Config {
-                                width: atlas_size.width,
-                                height: atlas_size.height,
-                                strip_height: Tile::HEIGHT.into(),
-                                alphas_tex_width_bits: self
-                                    .programs
-                                    .resources
-                                    .alphas_texture
-                                    .size()
-                                    .width
-                                    .trailing_zeros(),
-                                encoded_paints_tex_width_bits: self
-                                    .programs
-                                    .resources
-                                    .alphas_texture
-                                    .size()
-                                    .width
-                                    .trailing_zeros(),
-                                strip_offset_x,
-                                strip_offset_y,
-                                negate_ndc: 0,
-                            }),
-                            usage: wgpu::BufferUsages::UNIFORM,
-                        });
-
-                let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("Filter Strip Bind Group"),
-                    layout: &self.programs.strip_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(
-                                &self
-                                    .programs
-                                    .resources
-                                    .alphas_texture
-                                    .create_view(&TextureViewDescriptor::default()),
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: atlas_config_buffer.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: wgpu::BindingResource::TextureView(
-                                &self.programs.resources.slot_texture_views[1],
-                            ),
-                        },
-                    ],
-                });
-
-                (
-                    &filter_atlas.views[atlas_idx],
-                    MaybeOwned::Owned(bind_group),
-                    Some([
-                        resources.offset[0] as u32,
-                        resources.offset[1] as u32,
-                        resources.width as u32,
-                        resources.height as u32,
-                    ]),
-                )
-            }
-            StripPassRenderTarget::SlotTexture(idx) => (
-                &self.programs.resources.slot_texture_views[idx as usize],
-                MaybeOwned::Borrowed(&self.programs.resources.slot_bind_groups[idx as usize]),
-                None,
-            ),
-        };
-
-        let pipeline_idx = if matches!(
-            target,
-            StripPassRenderTarget::Root(RootRenderTarget::AtlasLayer)
-                | StripPassRenderTarget::FilterLayer(_)
-        ) {
+        let pipeline_idx = if target == DirectTarget::AtlasLayer {
             1
         } else {
             0
         };
 
-        let is_final_view = matches!(
-            target,
-            StripPassRenderTarget::Root(RootRenderTarget::UserSurface)
-        );
+        let is_final_view = target == DirectTarget::UserSurface;
 
         let depth_stencil_attachment = if is_final_view {
             let depth_load = if self.programs.depth_cleared_this_frame {
@@ -2824,7 +2694,7 @@ impl RendererContext<'_> {
             render_pass.set_scissor_rect(x, y, width, height);
         }
 
-        render_pass.set_bind_group(0, bind_group.as_ref(), &[]);
+        render_pass.set_bind_group(0, bind_group, &[]);
         render_pass.set_bind_group(2, &self.programs.resources.encoded_paints_bind_group, &[]);
         render_pass.set_bind_group(3, &self.programs.resources.gradient_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.programs.resources.strips_buffer.slice(..));
@@ -2833,7 +2703,7 @@ impl RendererContext<'_> {
             // Opaque pass
             debug_assert!(
                 is_final_view,
-                "The scheduler only allows the final view to have opaque strips"
+                "Direct strip rendering only allows the final view to have opaque strips"
             );
             render_pass.set_pipeline(&self.programs.opaque_strip_pipelines[pipeline_idx]);
             render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
@@ -2875,6 +2745,10 @@ impl RendererContext<'_> {
     }
 
     /// Clear specific slots from a slot texture.
+    #[allow(
+        dead_code,
+        reason = "Slot scheduling was removed; slot resources remain until shader bindings are simplified."
+    )]
     fn do_clear_slots_render_pass(&mut self, ix: usize, slot_indices: &[u32]) {
         if slot_indices.is_empty() {
             return;
@@ -2924,34 +2798,11 @@ impl RendererContext<'_> {
     }
 }
 
-impl RendererBackend for RendererContext<'_> {
-    /// Execute the render pass for clearing slots.
-    fn clear_slots(&mut self, texture_index: usize, slots: &[u32]) {
-        self.do_clear_slots_render_pass(texture_index, slots);
-    }
-
-    /// Execute the render pass for rendering strips.
-    fn render_strips(
-        &mut self,
-        opaque_strips: &[GpuStrip],
-        alpha_strips: &[GpuStrip],
-        external_texture_runs: &[ExternalTextureRun],
-        target: StripPassRenderTarget,
-        load_op: LoadOp,
-    ) {
-        let wgpu_load_op = match load_op {
-            LoadOp::Load => wgpu::LoadOp::Load,
-            LoadOp::Clear => wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-        };
-        self.do_strip_render_pass(
-            opaque_strips,
-            alpha_strips,
-            external_texture_runs,
-            target,
-            wgpu_load_op,
-        );
-    }
-
+impl RendererContext<'_> {
+    #[allow(
+        dead_code,
+        reason = "Filter passes will be reattached once layer roots exist."
+    )]
     fn apply_filter(&mut self, layer_id: LayerId) {
         let filter_atlas = &self.programs.resources.filter_atlas;
         self.filter_context.build_filter_passes(
