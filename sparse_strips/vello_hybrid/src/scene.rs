@@ -29,7 +29,7 @@ use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Extend, Fill, ImageQuality, ImageSampler};
 use vello_common::render_state::RenderState;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
-use vello_common::util::is_axis_aligned;
+use vello_common::util::{control_point_bbox_u16, is_axis_aligned};
 
 /// Default tolerance for curve flattening.
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
@@ -126,7 +126,7 @@ impl RecordedRoot {
     }
 }
 
-/// A recorded opacity layer.
+/// A recorded layer.
 #[allow(
     dead_code,
     reason = "Opacity layer metadata is currently consumed by the GPU backends."
@@ -139,6 +139,17 @@ pub(crate) struct RecordedLayer {
     pub(crate) depth: usize,
     /// Opacity applied when compositing the layer into its parent.
     pub(crate) opacity: f32,
+    /// Clip path applied when compositing the layer into its parent.
+    pub(crate) clip: Option<LayerClip>,
+}
+
+/// A clip path associated with a recorded layer.
+#[derive(Debug)]
+pub(crate) struct LayerClip {
+    /// Strip range for the clip path.
+    pub(crate) strips: Range<usize>,
+    /// Coarse clip path bounds in viewport coordinates.
+    pub(crate) bbox: RectU16,
 }
 
 #[derive(Debug)]
@@ -638,9 +649,6 @@ impl Scene {
         mask: Option<Mask>,
         filter: Option<Filter>,
     ) {
-        if clip_path.is_some() {
-            panic!("vello_hybrid layer clipping is temporarily unsupported");
-        }
         if mask.is_some() {
             panic!("vello_hybrid layer masks are temporarily unsupported");
         }
@@ -650,6 +658,32 @@ impl Scene {
         if blend_mode.is_some_and(|mode| mode != BlendMode::default()) {
             panic!("vello_hybrid blend layers are temporarily unsupported");
         }
+
+        let clip = clip_path.map(|clip_path| {
+            let existing_clip = self.clip_context.get();
+            let mut bbox = control_point_bbox_u16(clip_path, self.render_state.transform);
+            if let Some(existing_clip) = existing_clip {
+                bbox = bbox.intersect(existing_clip.bbox);
+            } else {
+                bbox.x1 = bbox.x1.min(self.width);
+                bbox.y1 = bbox.y1.min(self.height);
+            }
+
+            let strips = {
+                let strip_storage = &mut self.strip_storage.borrow_mut();
+                let strip_start = strip_storage.strips.len();
+                self.strip_generator.generate_filled_path(
+                    clip_path,
+                    self.render_state.fill_rule,
+                    self.render_state.transform,
+                    self.aliasing_threshold,
+                    strip_storage,
+                    existing_clip,
+                );
+                strip_start..strip_storage.strips.len()
+            };
+            LayerClip { strips, bbox }
+        });
 
         let opacity = opacity.unwrap_or(1.0);
         let parent_root_id = self.active_root_id;
@@ -661,6 +695,7 @@ impl Scene {
             root_id,
             depth,
             opacity,
+            clip,
         });
         self.layer_stack.push(LayerStackEntry {
             layer_id,

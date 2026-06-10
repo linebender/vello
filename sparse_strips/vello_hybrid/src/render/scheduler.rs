@@ -6,7 +6,9 @@
 use crate::{
     RenderError,
     render::RenderSize,
-    scene::{FastPathRect, FastStripCommand, RecordedCommand, RecordedLayer, Scene},
+    scene::{
+        FastPathRect, FastStripCommand, FastStripsPath, RecordedCommand, RecordedLayer, Scene,
+    },
 };
 use alloc::vec::Vec;
 use vello_common::{
@@ -141,15 +143,31 @@ impl<'a> LayerScheduler<'a> {
                     let target = layer_targets[layer_id.as_usize()]
                         .as_ref()
                         .expect("child layer must be rendered before its parent");
+                    if layer
+                        .clip
+                        .as_ref()
+                        .is_some_and(|clip| clip.bbox.is_empty() || clip.strips.is_empty())
+                    {
+                        continue;
+                    }
+
                     let paint_idx = encoded_paints.len();
                     encoded_paints.push(layer_encoded_paint(self.scene, target, layer.opacity));
-                    commands.push(FastStripCommand::Rect(FastPathRect {
-                        x0: 0.0,
-                        y0: 0.0,
-                        x1: f32::from(self.scene.width),
-                        y1: f32::from(self.scene.height),
-                        paint: Paint::Indexed(IndexedPaint::new(paint_idx)),
-                    }));
+                    let paint = Paint::Indexed(IndexedPaint::new(paint_idx));
+                    if let Some(clip) = &layer.clip {
+                        commands.push(FastStripCommand::Path(FastStripsPath {
+                            strips: clip.strips.clone(),
+                            paint,
+                        }));
+                    } else {
+                        commands.push(FastStripCommand::Rect(FastPathRect {
+                            x0: 0.0,
+                            y0: 0.0,
+                            x1: f32::from(self.scene.width),
+                            y1: f32::from(self.scene.height),
+                            paint,
+                        }));
+                    }
                 }
                 RecordedCommand::Draw(command) => {
                     commands.push(command.clone());
