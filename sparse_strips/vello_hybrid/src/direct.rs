@@ -4,7 +4,7 @@
 //! Direct strip rendering without coarse rasterization or layer scheduling.
 
 use crate::render::GpuStrip;
-use crate::scene::{FastPathRect, FastStripCommand, FastStripsPath};
+use crate::scene::{FastPathRect, FastStripCommand, FastStripsPath, RecordedRoot};
 use crate::{Scene, TextureId};
 use alloc::vec::Vec;
 use vello_common::TextureId as CommonTextureId;
@@ -54,11 +54,44 @@ pub(crate) struct DirectStrips {
     opaque: Vec<GpuStrip>,
     alpha: Vec<GpuStrip>,
     external_texture_runs: Vec<ExternalTextureRun>,
+    last_alpha_external_texture_id: Option<TextureId>,
 }
 
 impl DirectStrips {
+    #[allow(dead_code, reason = "Used by the WebGL backend")]
     pub(crate) fn from_scene(
         scene: &Scene,
+        target: DirectTarget,
+        paint_idxs: &[u32],
+        encoded_paints: &[EncodedPaint],
+    ) -> Self {
+        Self::from_root(
+            scene,
+            scene.root(scene.root_id()),
+            target,
+            paint_idxs,
+            encoded_paints,
+        )
+    }
+
+    #[allow(
+        dead_code,
+        reason = "Kept for callers that already have a recorded root"
+    )]
+    pub(crate) fn from_root(
+        scene: &Scene,
+        root: &RecordedRoot,
+        target: DirectTarget,
+        paint_idxs: &[u32],
+        encoded_paints: &[EncodedPaint],
+    ) -> Self {
+        let commands = root.direct_commands_without_layers();
+        Self::from_commands(scene, &commands, target, paint_idxs, encoded_paints)
+    }
+
+    pub(crate) fn from_commands(
+        scene: &Scene,
+        commands: &[FastStripCommand],
         target: DirectTarget,
         paint_idxs: &[u32],
         encoded_paints: &[EncodedPaint],
@@ -68,7 +101,7 @@ impl DirectStrips {
         let mut depth = DepthCounter::default();
         let allow_opaque_split = target == DirectTarget::UserSurface;
 
-        for cmd in &scene.fast_strips_buffer.commands {
+        for cmd in commands {
             match cmd {
                 FastStripCommand::Path(path) => {
                     let is_opaque = is_paint_opaque(&path.paint, encoded_paints);
@@ -128,22 +161,14 @@ impl DirectStrips {
 
     #[inline(always)]
     fn push_alpha(&mut self, gpu_strip: GpuStrip, external_texture_id: Option<CommonTextureId>) {
-        if let Some(texture_id) = external_texture_id {
-            let needs_new_run = self
-                .external_texture_runs
-                .last()
-                .is_none_or(|run| run.texture_id != texture_id);
-            if needs_new_run {
-                let strips_start = if self.external_texture_runs.is_empty() {
-                    0
-                } else {
-                    self.alpha.len()
-                };
+        if external_texture_id != self.last_alpha_external_texture_id {
+            if let Some(texture_id) = external_texture_id {
                 self.external_texture_runs.push(ExternalTextureRun {
-                    strips_start,
+                    strips_start: self.alpha.len(),
                     texture_id,
                 });
             }
+            self.last_alpha_external_texture_id = external_texture_id;
         }
 
         self.alpha.push(gpu_strip);

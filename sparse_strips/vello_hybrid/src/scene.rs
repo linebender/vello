@@ -34,8 +34,38 @@ use vello_common::util::is_axis_aligned;
 /// Default tolerance for curve flattening.
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 
+/// Identifier for a recorded root.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RootId(usize);
+
+impl RootId {
+    #[inline]
+    pub(crate) fn as_usize(self) -> usize {
+        self.0
+    }
+}
+
+/// Identifier for a recorded layer.
+#[allow(
+    dead_code,
+    reason = "Opacity layer metadata is currently consumed by the GPU backends."
+)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RecordedLayerId(usize);
+
+impl RecordedLayerId {
+    #[inline]
+    #[allow(
+        dead_code,
+        reason = "Opacity layer metadata is currently consumed by the GPU backends."
+    )]
+    pub(crate) fn as_usize(self) -> usize {
+        self.0
+    }
+}
+
 /// Metadata for a single path stored in the fast strips buffer.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct FastStripsPath {
     /// The range of strips for this path in the `strips` buffer.
     pub(crate) strips: Range<usize>,
@@ -44,7 +74,7 @@ pub(crate) struct FastStripsPath {
 }
 
 /// A rectangle stored in the fast-path buffer.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct FastPathRect {
     pub(crate) x0: f32,
     pub(crate) y0: f32,
@@ -53,8 +83,8 @@ pub(crate) struct FastPathRect {
     pub(crate) paint: Paint,
 }
 
-/// A command in the fast strips buffer.
-#[derive(Debug)]
+/// A command that can be lowered directly into GPU strips.
+#[derive(Clone, Debug)]
 pub(crate) enum FastStripCommand {
     /// A path rendered via the normal strip pipeline.
     Path(FastStripsPath),
@@ -62,18 +92,59 @@ pub(crate) enum FastStripCommand {
     Rect(FastPathRect),
 }
 
-/// A buffer that collects strips from paths that are rendered directly to the surface.
-#[derive(Debug, Default)]
-pub(crate) struct FastStripsBuffer {
-    /// All commands in the buffer.
-    pub(crate) commands: Vec<FastStripCommand>,
+/// A command in a recorded root.
+#[allow(
+    dead_code,
+    reason = "Layer commands are materialized by the GPU backends before direct rendering."
+)]
+#[derive(Clone, Debug)]
+pub(crate) enum RecordedCommand {
+    /// A drawable command.
+    Draw(FastStripCommand),
+    /// A previously recorded layer sampled back into the current root.
+    Layer(RecordedLayerId),
 }
 
-impl FastStripsBuffer {
-    #[inline(always)]
-    fn clear(&mut self) {
-        self.commands.clear();
+/// A recorded root command stream.
+#[derive(Debug, Default)]
+pub(crate) struct RecordedRoot {
+    /// Commands recorded for this root.
+    pub(crate) commands: Vec<RecordedCommand>,
+}
+
+impl RecordedRoot {
+    pub(crate) fn direct_commands_without_layers(&self) -> Vec<FastStripCommand> {
+        self.commands
+            .iter()
+            .map(|command| match command {
+                RecordedCommand::Draw(command) => command.clone(),
+                RecordedCommand::Layer(_) => {
+                    panic!("recorded root must not contain layers in this direct rendering path")
+                }
+            })
+            .collect()
     }
+}
+
+/// A recorded opacity layer.
+#[allow(
+    dead_code,
+    reason = "Opacity layer metadata is currently consumed by the GPU backends."
+)]
+#[derive(Debug)]
+pub(crate) struct RecordedLayer {
+    /// Root containing this layer's commands.
+    pub(crate) root_id: RootId,
+    /// Nesting depth. The root has depth 0; direct child layers have depth 1.
+    pub(crate) depth: usize,
+    /// Opacity applied when compositing the layer into its parent.
+    pub(crate) opacity: f32,
+}
+
+#[derive(Debug)]
+struct LayerStackEntry {
+    layer_id: RecordedLayerId,
+    parent_root_id: RootId,
 }
 
 /// Settings to apply to the render context.
@@ -114,8 +185,12 @@ pub struct Scene {
     pub(crate) strip_storage: RefCell<StripStorage>,
     /// Current filter effect applied to individual draw operations.
     filter: Option<Filter>,
-    /// Commands rendered directly via the strip shader.
-    pub(crate) fast_strips_buffer: FastStripsBuffer,
+    /// Recorded roots. Root `0` is the final scene root.
+    pub(crate) roots: Vec<RecordedRoot>,
+    /// Recorded opacity layers.
+    pub(crate) layers: Vec<RecordedLayer>,
+    active_root_id: RootId,
+    layer_stack: Vec<LayerStackEntry>,
 }
 
 impl Scene {
@@ -137,8 +212,42 @@ impl Scene {
             strip_generator: StripGenerator::new(width, height, settings.level),
             strip_storage: RefCell::new(StripStorage::new(GenerationMode::Append)),
             filter: None,
-            fast_strips_buffer: FastStripsBuffer::default(),
+            roots: vec![RecordedRoot::default()],
+            layers: Vec::new(),
+            active_root_id: RootId(0),
+            layer_stack: Vec::new(),
         }
+    }
+
+    /// The final scene root.
+    #[inline]
+    pub(crate) fn root_id(&self) -> RootId {
+        RootId(0)
+    }
+
+    /// Get a recorded root.
+    #[inline]
+    pub(crate) fn root(&self, root_id: RootId) -> &RecordedRoot {
+        &self.roots[root_id.as_usize()]
+    }
+
+    /// Get all recorded layers.
+    #[inline]
+    #[allow(
+        dead_code,
+        reason = "Opacity layer metadata is currently consumed by the GPU backends."
+    )]
+    pub(crate) fn layers(&self) -> &[RecordedLayer] {
+        &self.layers
+    }
+
+    #[inline]
+    fn active_commands(&mut self) -> &mut Vec<RecordedCommand> {
+        &mut self.roots[self.active_root_id.as_usize()].commands
+    }
+
+    fn record_draw_command(&mut self, command: FastStripCommand) {
+        self.active_commands().push(RecordedCommand::Draw(command));
     }
 
     /// Encode the current paint into a `Paint` that can be used for rendering.
@@ -213,23 +322,21 @@ impl Scene {
         paint: Paint,
         aliasing_threshold: Option<u8>,
     ) {
-        let strip_storage = &mut self.strip_storage.borrow_mut();
-        let strip_start = strip_storage.strips.len();
-        self.strip_generator.generate_filled_path(
-            path,
-            fill_rule,
-            transform,
-            aliasing_threshold,
-            strip_storage,
-            self.clip_context.get(),
-        );
+        let strips = {
+            let strip_storage = &mut self.strip_storage.borrow_mut();
+            let strip_start = strip_storage.strips.len();
+            self.strip_generator.generate_filled_path(
+                path,
+                fill_rule,
+                transform,
+                aliasing_threshold,
+                strip_storage,
+                self.clip_context.get(),
+            );
+            strip_start..strip_storage.strips.len()
+        };
 
-        self.fast_strips_buffer
-            .commands
-            .push(FastStripCommand::Path(FastStripsPath {
-                strips: strip_start..strip_storage.strips.len(),
-                paint,
-            }));
+        self.record_draw_command(FastStripCommand::Path(FastStripsPath { strips, paint }));
     }
 
     /// Push a new clip path to the clip stack.
@@ -277,23 +384,21 @@ impl Scene {
         paint: Paint,
         aliasing_threshold: Option<u8>,
     ) {
-        let strip_storage = &mut self.strip_storage.borrow_mut();
-        let strip_start = strip_storage.strips.len();
-        self.strip_generator.generate_stroked_path(
-            path,
-            &self.render_state.stroke,
-            transform,
-            aliasing_threshold,
-            strip_storage,
-            self.clip_context.get(),
-        );
+        let strips = {
+            let strip_storage = &mut self.strip_storage.borrow_mut();
+            let strip_start = strip_storage.strips.len();
+            self.strip_generator.generate_stroked_path(
+                path,
+                &self.render_state.stroke,
+                transform,
+                aliasing_threshold,
+                strip_storage,
+                self.clip_context.get(),
+            );
+            strip_start..strip_storage.strips.len()
+        };
 
-        self.fast_strips_buffer
-            .commands
-            .push(FastStripCommand::Path(FastStripsPath {
-                strips: strip_start..strip_storage.strips.len(),
-                paint,
-            }));
+        self.record_draw_command(FastStripCommand::Path(FastStripsPath { strips, paint }));
     }
 
     /// Set the aliasing threshold.
@@ -315,20 +420,18 @@ impl Scene {
         if is_axis_aligned(&self.render_state.transform) && self.aliasing_threshold.is_none() {
             let paint = self.encode_current_paint();
             let transformed_rect = self.render_state.transform.transform_rect_bbox(*rect);
-            let strip_storage = &mut self.strip_storage.borrow_mut();
-            let strip_start = strip_storage.strips.len();
-            self.strip_generator.generate_filled_rect_fast(
-                &transformed_rect,
-                strip_storage,
-                self.clip_context.get(),
-            );
+            let strips = {
+                let strip_storage = &mut self.strip_storage.borrow_mut();
+                let strip_start = strip_storage.strips.len();
+                self.strip_generator.generate_filled_rect_fast(
+                    &transformed_rect,
+                    strip_storage,
+                    self.clip_context.get(),
+                );
+                strip_start..strip_storage.strips.len()
+            };
 
-            self.fast_strips_buffer
-                .commands
-                .push(FastStripCommand::Path(FastStripsPath {
-                    strips: strip_start..strip_storage.strips.len(),
-                    paint,
-                }));
+            self.record_draw_command(FastStripCommand::Path(FastStripsPath { strips, paint }));
         } else {
             self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
         }
@@ -409,15 +512,13 @@ impl Scene {
         reason = "f64 to f32 truncation is acceptable for pixel coordinates"
     )]
     fn push_fast_rect(&mut self, bounds: Rect, paint: Paint) {
-        self.fast_strips_buffer
-            .commands
-            .push(FastStripCommand::Rect(FastPathRect {
-                x0: bounds.x0 as f32,
-                y0: bounds.y0 as f32,
-                x1: bounds.x1 as f32,
-                y1: bounds.y1 as f32,
-                paint,
-            }));
+        self.record_draw_command(FastStripCommand::Rect(FastPathRect {
+            x0: bounds.x0 as f32,
+            y0: bounds.y0 as f32,
+            x1: bounds.x1 as f32,
+            y1: bounds.y1 as f32,
+            paint,
+        }));
     }
 
     fn fast_rect_bounds(&self, rect: &Rect) -> Option<Rect> {
@@ -486,20 +587,18 @@ impl Scene {
                 .render_state
                 .transform
                 .transform_rect_bbox(inflated_rect);
-            let strip_storage = &mut self.strip_storage.borrow_mut();
-            let strip_start = strip_storage.strips.len();
-            self.strip_generator.generate_filled_rect_fast(
-                &transformed_rect,
-                strip_storage,
-                self.clip_context.get(),
-            );
+            let strips = {
+                let strip_storage = &mut self.strip_storage.borrow_mut();
+                let strip_start = strip_storage.strips.len();
+                self.strip_generator.generate_filled_rect_fast(
+                    &transformed_rect,
+                    strip_storage,
+                    self.clip_context.get(),
+                );
+                strip_start..strip_storage.strips.len()
+            };
 
-            self.fast_strips_buffer
-                .commands
-                .push(FastStripCommand::Path(FastStripsPath {
-                    strips: strip_start..strip_storage.strips.len(),
-                    paint,
-                }));
+            self.record_draw_command(FastStripCommand::Path(FastStripsPath { strips, paint }));
         } else {
             self.fill_path_with(
                 &inflated_rect.to_path(DEFAULT_TOLERANCE),
@@ -533,13 +632,41 @@ impl Scene {
     /// Push a new layer with the given properties.
     pub fn push_layer(
         &mut self,
-        _clip_path: Option<&BezPath>,
-        _blend_mode: Option<BlendMode>,
-        _opacity: Option<f32>,
-        _mask: Option<Mask>,
-        _filter: Option<Filter>,
+        clip_path: Option<&BezPath>,
+        blend_mode: Option<BlendMode>,
+        opacity: Option<f32>,
+        mask: Option<Mask>,
+        filter: Option<Filter>,
     ) {
-        panic!("vello_hybrid layers are temporarily unsupported in the fast-strips-only path");
+        if clip_path.is_some() {
+            panic!("vello_hybrid layer clipping is temporarily unsupported");
+        }
+        if mask.is_some() {
+            panic!("vello_hybrid layer masks are temporarily unsupported");
+        }
+        if filter.is_some() {
+            panic!("vello_hybrid filter layers are temporarily unsupported");
+        }
+        if blend_mode.is_some_and(|mode| mode != BlendMode::default()) {
+            panic!("vello_hybrid blend layers are temporarily unsupported");
+        }
+
+        let opacity = opacity.unwrap_or(1.0);
+        let parent_root_id = self.active_root_id;
+        let root_id = RootId(self.roots.len());
+        self.roots.push(RecordedRoot::default());
+        let layer_id = RecordedLayerId(self.layers.len());
+        let depth = self.layer_stack.len() + 1;
+        self.layers.push(RecordedLayer {
+            root_id,
+            depth,
+            opacity,
+        });
+        self.layer_stack.push(LayerStackEntry {
+            layer_id,
+            parent_root_id,
+        });
+        self.active_root_id = root_id;
     }
 
     /// Push a new clip layer.
@@ -569,7 +696,10 @@ impl Scene {
 
     /// Pop the last pushed layer.
     pub fn pop_layer(&mut self) {
-        panic!("vello_hybrid layers are temporarily unsupported in the fast-strips-only path");
+        let entry = self.layer_stack.pop().expect("layer stack underflowed");
+        self.active_root_id = entry.parent_root_id;
+        self.active_commands()
+            .push(RecordedCommand::Layer(entry.layer_id));
     }
 
     /// Set the blend mode for subsequent rendering operations.
@@ -678,7 +808,11 @@ impl Scene {
         self.encoded_paints.borrow_mut().clear();
         self.clip_context.reset();
         self.render_state.reset();
-        self.fast_strips_buffer.clear();
+        self.roots.clear();
+        self.roots.push(RecordedRoot::default());
+        self.layers.clear();
+        self.active_root_id = RootId(0);
+        self.layer_stack.clear();
         self.filter = None;
     }
 

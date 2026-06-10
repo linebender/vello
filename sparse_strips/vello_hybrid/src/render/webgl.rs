@@ -36,8 +36,9 @@ use crate::{
             normalize_atlas_config, pack_image_offset, pack_image_params, pack_image_size,
             pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode, pack_tint,
         },
+        scheduler::{LayerScheduleRenderer, LayerScheduler, ScheduledLayerTarget},
     },
-    scene::Scene,
+    scene::{FastStripCommand, RecordedLayer, Scene},
 };
 use alloc::sync::Arc;
 use alloc::vec;
@@ -46,6 +47,7 @@ use bytemuck::{Pod, Zeroable};
 use core::fmt::Debug;
 #[cfg(feature = "text")]
 use glifo::{GLYPH_PADDING, PendingClearRect};
+use hashbrown::HashMap;
 #[cfg(feature = "probe")]
 use thiserror::Error;
 use vello_common::image_cache::{ImageCache, ImageResource};
@@ -56,12 +58,13 @@ use vello_common::multi_atlas::{AtlasConfig, AtlasId};
 use vello_common::probe::Probe;
 use vello_common::render_graph::LayerId;
 use vello_common::{
+    TextureId,
     encode::{
-        EncodedBlurredRoundedRectangle, EncodedGradient, EncodedKind, EncodedPaint,
-        MAX_GRADIENT_LUT_SIZE, RadialKind,
+        EncodedBlurredRoundedRectangle, EncodedExternalTexture, EncodedGradient, EncodedKind,
+        EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind,
     },
     paint::{ImageId, ImageSource},
-    peniko::{self},
+    peniko,
     pixmap::Pixmap,
     tile::Tile,
 };
@@ -80,6 +83,7 @@ const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(G
     gradient_start: 0,
     transform: [0.0; 6],
 });
+const EXTERNAL_IMAGE_SOURCE_FLAG: u32 = 1 << 14;
 const SLOT_TEXTURE_WIDTH: u32 = 256;
 
 /// Query the WebGL context for the max texture size.
@@ -95,6 +99,84 @@ fn get_max_texture_array_layers(gl: &WebGl2RenderingContext) -> u32 {
         .unwrap()
         .as_f64()
         .unwrap() as u32
+}
+
+#[derive(Debug)]
+struct LayerTarget {
+    texture_id: TextureId,
+    texture: WebGlTexture,
+    framebuffer: WebGlFramebuffer,
+}
+
+impl ScheduledLayerTarget for LayerTarget {
+    #[inline]
+    fn texture_id(&self) -> TextureId {
+        self.texture_id
+    }
+}
+
+struct WebGlLayerSchedule<'a, 'b> {
+    renderer: &'a mut WebGlRenderer,
+    scene: &'b Scene,
+    image_cache: &'a mut ImageCache,
+    root_render_size: &'b RenderSize,
+    layer_render_size: RenderSize,
+}
+
+impl LayerScheduleRenderer<LayerTarget> for WebGlLayerSchedule<'_, '_> {
+    fn create_layer_target(&mut self, layer_idx: usize, texture_id: TextureId) -> LayerTarget {
+        self.renderer
+            .create_layer_target(self.scene, layer_idx, texture_id)
+    }
+
+    fn render_layer(
+        &mut self,
+        _layer_idx: usize,
+        _layer: &RecordedLayer,
+        target: &LayerTarget,
+        commands: &[FastStripCommand],
+        encoded_paints: &[EncodedPaint],
+        rendered_targets: &[Option<LayerTarget>],
+    ) -> Result<(), RenderError> {
+        let layer_texture_bindings = self.renderer.texture_bindings_with_layers(rendered_targets);
+        let previous_framebuffer = self
+            .renderer
+            .programs
+            .resources
+            .view_framebuffer_override
+            .replace(target.framebuffer.clone());
+        let result = self.renderer.render_scene(
+            self.scene,
+            commands,
+            self.image_cache,
+            &self.layer_render_size,
+            encoded_paints,
+            true,
+            DirectTarget::AtlasLayer,
+            &layer_texture_bindings,
+        );
+        self.renderer.programs.resources.view_framebuffer_override = previous_framebuffer;
+        result
+    }
+
+    fn render_root(
+        &mut self,
+        commands: &[FastStripCommand],
+        encoded_paints: &[EncodedPaint],
+        rendered_targets: &[Option<LayerTarget>],
+    ) -> Result<(), RenderError> {
+        let root_texture_bindings = self.renderer.texture_bindings_with_layers(rendered_targets);
+        self.renderer.render_scene(
+            self.scene,
+            commands,
+            self.image_cache,
+            self.root_render_size,
+            encoded_paints,
+            true,
+            DirectTarget::UserSurface,
+            &root_texture_bindings,
+        )
+    }
 }
 
 /// Vello Hybrid's WebGL2 Renderer.
@@ -381,13 +463,17 @@ impl WebGlRenderer {
             );
         }
 
-        self.render_scene(
+        let mut encoded_paints = scene.encoded_paints.borrow_mut();
+        let scene_paint_count = encoded_paints.len();
+        self.render_scene_with_layers(
             scene,
             &mut resources.image_cache,
             render_size,
-            true,
-            DirectTarget::UserSurface,
+            &mut encoded_paints,
+            scene_paint_count,
         )?;
+        encoded_paints.truncate(scene_paint_count);
+        drop(encoded_paints);
 
         #[cfg(feature = "text")]
         {
@@ -464,12 +550,18 @@ impl WebGlRenderer {
             .dummy_image_cache
             .take()
             .expect("dummy image cache must exist");
+        let encoded_paints = scene.encoded_paints.borrow();
+        let commands = scene.root(scene.root_id()).direct_commands_without_layers();
+        let texture_bindings = HashMap::new();
         let result = self.render_scene(
             scene,
+            &commands,
             &mut dummy_image_cache,
             &atlas_render_size,
+            &encoded_paints,
             false,
             DirectTarget::AtlasLayer,
+            &texture_bindings,
         );
         self.dummy_image_cache = Some(dummy_image_cache);
 
@@ -582,12 +674,18 @@ impl WebGlRenderer {
             .resources
             .view_framebuffer_override
             .replace(probe_framebuffer.clone());
+        let encoded_paints = scene.encoded_paints.borrow();
+        let commands = scene.root(scene.root_id()).direct_commands_without_layers();
+        let texture_bindings = HashMap::new();
         let render_result = self.render_scene(
             &scene,
+            &commands,
             &mut probe_image_cache,
             &render_size,
+            &encoded_paints,
             true,
             DirectTarget::AtlasLayer,
+            &texture_bindings,
         );
         self.programs.resources.view_framebuffer_override = previous_view_framebuffer;
 
@@ -619,13 +717,82 @@ impl WebGlRenderer {
     /// before drawing. This must happen *after* `prepare` (which may create/resize
     /// the framebuffer attachment). Atlas renders skip the clear so previously
     /// rendered atlas content is preserved.
-    fn render_scene(
+    fn render_scene_with_layers(
         &mut self,
         scene: &Scene,
         image_cache: &mut ImageCache,
         render_size: &RenderSize,
+        encoded_paints: &mut Vec<EncodedPaint>,
+        scene_paint_count: usize,
+    ) -> Result<(), RenderError> {
+        let scheduler = LayerScheduler::new(scene, scene_paint_count);
+        let layer_render_size = scheduler.layer_render_size();
+        let mut schedule = WebGlLayerSchedule {
+            renderer: self,
+            scene,
+            image_cache,
+            root_render_size: render_size,
+            layer_render_size,
+        };
+        let layer_targets = scheduler.render(encoded_paints, &mut schedule);
+        drop(schedule);
+        let layer_targets = layer_targets?;
+        for target in layer_targets.iter().flatten() {
+            self.gl.delete_framebuffer(Some(&target.framebuffer));
+            self.gl.delete_texture(Some(&target.texture));
+        }
+        Ok(())
+    }
+
+    fn create_layer_target(
+        &self,
+        scene: &Scene,
+        _layer_idx: usize,
+        texture_id: TextureId,
+    ) -> LayerTarget {
+        let texture = create_texture(&self.gl);
+        self.gl
+            .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
+                WebGl2RenderingContext::TEXTURE_2D,
+                0,
+                WebGl2RenderingContext::RGBA8 as i32,
+                i32::from(scene.width),
+                i32::from(scene.height),
+                0,
+                WebGl2RenderingContext::RGBA,
+                WebGl2RenderingContext::UNSIGNED_BYTE,
+                None,
+            )
+            .unwrap();
+        let framebuffer = create_framebuffer_for_texture(&self.gl, &texture);
+        LayerTarget {
+            texture_id,
+            texture,
+            framebuffer,
+        }
+    }
+
+    fn texture_bindings_with_layers(
+        &self,
+        layer_targets: &[Option<LayerTarget>],
+    ) -> HashMap<TextureId, WebGlTexture> {
+        let mut bindings = HashMap::new();
+        for target in layer_targets.iter().flatten() {
+            bindings.insert(target.texture_id, target.texture.clone());
+        }
+        bindings
+    }
+
+    fn render_scene(
+        &mut self,
+        scene: &Scene,
+        commands: &[FastStripCommand],
+        image_cache: &mut ImageCache,
+        render_size: &RenderSize,
+        encoded_paints: &[EncodedPaint],
         clear: bool,
         target: DirectTarget,
+        texture_bindings: &HashMap<TextureId, WebGlTexture>,
     ) -> Result<(), RenderError> {
         if !self.filter_context.filter_textures.is_empty() {
             self.programs.clear_filter_atlas_textures(&self.gl);
@@ -634,9 +801,7 @@ impl WebGlRenderer {
         self.filter_context
             .deallocate_all_and_clear_context(image_cache);
 
-        let encoded_paints = scene.encoded_paints.borrow();
-
-        self.prepare_gpu_encoded_paints(&encoded_paints, image_cache);
+        self.prepare_gpu_encoded_paints(encoded_paints, image_cache, texture_bindings)?;
 
         self.programs
             .maybe_resize_atlas_texture_array(&self.gl, image_cache.atlas_count() as u32);
@@ -662,7 +827,8 @@ impl WebGlRenderer {
             self.programs.clear_view_framebuffer(&self.gl);
         }
         self.programs.resources.depth_cleared_this_frame = false;
-        let strips = DirectStrips::from_scene(scene, target, &self.paint_idxs, &encoded_paints);
+        let strips =
+            DirectStrips::from_commands(scene, commands, target, &self.paint_idxs, encoded_paints);
         if strips.is_empty() {
             self.gradient_cache.maintain();
             return Ok(());
@@ -674,6 +840,7 @@ impl WebGlRenderer {
             image_cache,
             filter_context: &self.filter_context,
             filter_pass_state: &mut self.filter_pass_state,
+            texture_bindings,
         };
         ctx.do_strip_render_pass(
             strips.opaque(),
@@ -839,7 +1006,8 @@ impl WebGlRenderer {
         &mut self,
         encoded_paints: &[EncodedPaint],
         image_cache: &ImageCache,
-    ) {
+        texture_bindings: &HashMap<TextureId, WebGlTexture>,
+    ) -> Result<(), RenderError> {
         self.encoded_paints
             .resize_with(encoded_paints.len(), || GPU_PAINT_PLACEHOLDER);
         self.paint_idxs.resize(encoded_paints.len() + 1, 0);
@@ -872,9 +1040,14 @@ impl WebGlRenderer {
                     self.encoded_paints[encoded_paint_idx] = gpu_gradient;
                     current_idx += gradient_size_texels;
                 }
-                EncodedPaint::ExternalTexture(_external_texture) => {
-                    // TODO: External textures are not yet supported.
-                    log::warn!("External textures are not yet supported in the WebGL backend");
+                EncodedPaint::ExternalTexture(external_texture) => {
+                    if !texture_bindings.contains_key(&external_texture.texture_id) {
+                        return Err(RenderError::MissingTextureBinding(
+                            external_texture.texture_id,
+                        ));
+                    }
+                    let gpu_image = self.encode_external_texture_paint(external_texture);
+                    self.encoded_paints[encoded_paint_idx] = gpu_image;
                     current_idx += GPU_ENCODED_IMAGE_SIZE_TEXELS;
                 }
                 EncodedPaint::BlurredRoundedRect(blurred_rect) => {
@@ -885,6 +1058,7 @@ impl WebGlRenderer {
             }
         }
         self.paint_idxs[encoded_paints.len()] = current_idx;
+        Ok(())
     }
 
     fn encode_image_paint(
@@ -911,6 +1085,30 @@ impl WebGlRenderer {
             tint,
             tint_mode,
             image_padding: image_resource.padding as u32,
+        })
+    }
+
+    fn encode_external_texture_paint(&self, image: &EncodedExternalTexture) -> GpuEncodedPaint {
+        let transform = image.transform.as_coeffs().map(|x| x as f32);
+        let region = image.source_region;
+        let image_size = pack_image_size(region.width(), region.height());
+        let image_offset = pack_image_offset(region.x0, region.y0);
+        let image_params = pack_image_params(
+            image.sampler.quality as u32,
+            image.sampler.x_extend as u32,
+            image.sampler.y_extend as u32,
+            0,
+        ) | EXTERNAL_IMAGE_SOURCE_FLAG;
+        let (tint, tint_mode) = pack_tint(image.tint);
+
+        GpuEncodedPaint::Image(GpuEncodedImage {
+            image_params,
+            image_size,
+            image_offset,
+            transform,
+            tint,
+            tint_mode,
+            image_padding: 0,
         })
     }
 
@@ -2576,6 +2774,7 @@ struct WebGlRendererContext<'a> {
     image_cache: &'a ImageCache,
     filter_context: &'a FilterContext,
     filter_pass_state: &'a mut FilterPassState,
+    texture_bindings: &'a HashMap<TextureId, WebGlTexture>,
 }
 
 impl WebGlRendererContext<'_> {
@@ -2584,7 +2783,7 @@ impl WebGlRendererContext<'_> {
         &mut self,
         opaque_strips: &[GpuStrip],
         alpha_strips: &[GpuStrip],
-        _external_texture_runs: &[ExternalTextureRun],
+        external_texture_runs: &[ExternalTextureRun],
         target: DirectTarget,
         clear: bool,
     ) {
@@ -2675,15 +2874,7 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.strip_uniforms.gradient_texture), 4);
 
-        // We don't support external textures in our WebGL backend yet; instead we bind a
-        // placeholder so the shader's sampler binding is satisfied.
-        self.gl.active_texture(WebGl2RenderingContext::TEXTURE5);
-        self.gl.bind_texture(
-            WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.placeholder_external_texture),
-        );
-        self.gl
-            .uniform1i(Some(&self.programs.strip_uniforms.external_texture), 5);
+        self.bind_placeholder_external_texture();
 
         // TODO: Today, we only support early-z rejection on the final view. If we wanted to support
         // intermediate layers, we would require separate depth buffers for each target. We can explore
@@ -2735,12 +2926,7 @@ impl WebGlRendererContext<'_> {
 
                 self.gl.depth_mask(false);
                 self.gl.enable(WebGl2RenderingContext::BLEND);
-                self.gl.draw_arrays_instanced(
-                    WebGl2RenderingContext::TRIANGLE_STRIP,
-                    0,
-                    4,
-                    alpha_count,
-                );
+                self.draw_alpha_runs(opaque_count, alpha_count, external_texture_runs);
 
                 // Restore attribute offsets to base for subsequent passes.
                 for i in 0..STRIP_ATTR_COUNT {
@@ -2760,16 +2946,106 @@ impl WebGlRendererContext<'_> {
             self.gl.enable(WebGl2RenderingContext::BLEND);
         } else {
             // Slot texture / intermediate: single draw with blending, no depth.
+            debug_assert_eq!(opaque_count, 0);
+            self.draw_alpha_runs(0, alpha_count, external_texture_runs);
+        }
+
+        // Clean up.
+        self.set_strip_instance_offset(0);
+        self.gl.bind_vertex_array(None);
+    }
+
+    fn draw_alpha_runs(
+        &self,
+        base_instance_offset: i32,
+        alpha_count: i32,
+        external_texture_runs: &[ExternalTextureRun],
+    ) {
+        if alpha_count == 0 {
+            return;
+        }
+
+        if external_texture_runs.is_empty() {
+            self.set_strip_instance_offset(base_instance_offset);
+            self.bind_placeholder_external_texture();
             self.gl.draw_arrays_instanced(
                 WebGl2RenderingContext::TRIANGLE_STRIP,
                 0,
                 4,
-                opaque_count + alpha_count,
+                alpha_count,
             );
+            return;
         }
 
-        // Clean up.
-        self.gl.bind_vertex_array(None);
+        let mut current = 0_i32;
+        for (i, run) in external_texture_runs.iter().enumerate() {
+            let start = i32::try_from(run.strips_start).unwrap();
+            if start > current {
+                self.set_strip_instance_offset(base_instance_offset + current);
+                self.bind_placeholder_external_texture();
+                self.gl.draw_arrays_instanced(
+                    WebGl2RenderingContext::TRIANGLE_STRIP,
+                    0,
+                    4,
+                    start - current,
+                );
+            }
+
+            let end = external_texture_runs
+                .get(i + 1)
+                .map_or(alpha_count, |next| {
+                    i32::try_from(next.strips_start).unwrap()
+                });
+            let texture = self
+                .texture_bindings
+                .get(&run.texture_id)
+                .expect("external texture bindings were validated during paint preparation");
+            self.set_strip_instance_offset(base_instance_offset + start);
+            self.bind_external_texture(texture);
+            self.gl.draw_arrays_instanced(
+                WebGl2RenderingContext::TRIANGLE_STRIP,
+                0,
+                4,
+                end - start,
+            );
+            current = end;
+        }
+
+        if current < alpha_count {
+            self.set_strip_instance_offset(base_instance_offset + current);
+            self.bind_placeholder_external_texture();
+            self.gl.draw_arrays_instanced(
+                WebGl2RenderingContext::TRIANGLE_STRIP,
+                0,
+                4,
+                alpha_count - current,
+            );
+        }
+    }
+
+    fn bind_placeholder_external_texture(&self) {
+        self.bind_external_texture(&self.programs.resources.placeholder_external_texture);
+    }
+
+    fn bind_external_texture(&self, texture: &WebGlTexture) {
+        self.gl.active_texture(WebGl2RenderingContext::TEXTURE5);
+        self.gl
+            .bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(texture));
+        self.gl
+            .uniform1i(Some(&self.programs.strip_uniforms.external_texture), 5);
+    }
+
+    fn set_strip_instance_offset(&self, instance_offset: i32) {
+        let byte_offset = instance_offset * STRIP_STRIDE;
+        for i in 0..STRIP_ATTR_COUNT {
+            self.gl.vertex_attrib_i_pointer_with_i32(
+                i as u32,
+                1,
+                WebGl2RenderingContext::UNSIGNED_INT,
+                STRIP_STRIDE,
+                i * 4 + byte_offset,
+            );
+        }
     }
 
     /// Clear specific slots from a slot texture.

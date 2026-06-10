@@ -11,6 +11,7 @@
 pub(crate) mod common;
 #[cfg(feature = "probe")]
 mod probe;
+mod scheduler;
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 mod webgl;
 #[cfg(feature = "wgpu")]

@@ -34,8 +34,9 @@ use crate::{
             normalize_atlas_config, pack_image_offset, pack_image_params, pack_image_size,
             pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode, pack_tint,
         },
+        scheduler::{LayerScheduleRenderer, LayerScheduler, ScheduledLayerTarget},
     },
-    scene::Scene,
+    scene::{FastStripCommand, RecordedLayer, Scene},
 };
 use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
@@ -136,6 +137,93 @@ impl TextureBindings {
     #[inline]
     pub fn remove(&mut self, texture_id: TextureId) -> Option<TextureView> {
         self.views.remove(&texture_id)
+    }
+}
+
+#[derive(Debug)]
+struct LayerTarget {
+    texture_id: TextureId,
+    _texture: Texture,
+    view: TextureView,
+}
+
+impl ScheduledLayerTarget for LayerTarget {
+    #[inline]
+    fn texture_id(&self) -> TextureId {
+        self.texture_id
+    }
+}
+
+struct WgpuLayerSchedule<'a, 'b> {
+    renderer: &'a mut Renderer,
+    scene: &'b Scene,
+    device: &'b Device,
+    queue: &'b Queue,
+    encoder: &'a mut CommandEncoder,
+    root_render_size: &'b RenderSize,
+    layer_render_size: RenderSize,
+    root_view: &'b TextureView,
+    image_cache: &'b ImageCache,
+    texture_bindings: &'b TextureBindings,
+}
+
+impl LayerScheduleRenderer<LayerTarget> for WgpuLayerSchedule<'_, '_> {
+    fn create_layer_target(&mut self, layer_idx: usize, texture_id: TextureId) -> LayerTarget {
+        self.renderer
+            .create_layer_target(self.device, self.scene, layer_idx, texture_id)
+    }
+
+    fn render_layer(
+        &mut self,
+        _layer_idx: usize,
+        _layer: &RecordedLayer,
+        target: &LayerTarget,
+        commands: &[FastStripCommand],
+        encoded_paints: &[EncodedPaint],
+        rendered_targets: &[Option<LayerTarget>],
+    ) -> Result<(), RenderError> {
+        let layer_texture_bindings = self
+            .renderer
+            .texture_bindings_with_layers(self.texture_bindings, rendered_targets);
+        self.renderer.render_scene(
+            self.scene,
+            commands,
+            self.device,
+            self.queue,
+            self.encoder,
+            &self.layer_render_size,
+            &target.view,
+            self.image_cache,
+            encoded_paints,
+            true,
+            DirectTarget::AtlasLayer,
+            &layer_texture_bindings,
+        )
+    }
+
+    fn render_root(
+        &mut self,
+        commands: &[FastStripCommand],
+        encoded_paints: &[EncodedPaint],
+        rendered_targets: &[Option<LayerTarget>],
+    ) -> Result<(), RenderError> {
+        let root_texture_bindings = self
+            .renderer
+            .texture_bindings_with_layers(self.texture_bindings, rendered_targets);
+        self.renderer.render_scene(
+            self.scene,
+            commands,
+            self.device,
+            self.queue,
+            self.encoder,
+            self.root_render_size,
+            self.root_view,
+            self.image_cache,
+            encoded_paints,
+            true,
+            DirectTarget::UserSurface,
+            &root_texture_bindings,
+        )
     }
 }
 
@@ -323,7 +411,7 @@ impl Renderer {
 
         self.prepare_filter_textures(device, encoder, &mut resources.image_cache);
 
-        let result = self.render_scene(
+        let result = self.render_scene_with_layers(
             scene,
             device,
             queue,
@@ -331,9 +419,8 @@ impl Renderer {
             render_size,
             view,
             &resources.image_cache,
-            &encoded_paints,
-            true,
-            DirectTarget::UserSurface,
+            &mut encoded_paints,
+            scene_paint_count,
             texture_bindings,
         );
 
@@ -421,8 +508,10 @@ impl Renderer {
             .dummy_image_cache
             .take()
             .expect("dummy image cache must exist");
+        let commands = scene.root(scene.root_id()).direct_commands_without_layers();
         let result = self.render_scene(
             scene,
+            &commands,
             device,
             queue,
             &mut encoder,
@@ -454,9 +543,82 @@ impl Renderer {
     ///
     /// When `clear` is true the render target is cleared to transparent black
     /// before drawing (normal frame rendering).
+    fn render_scene_with_layers(
+        &mut self,
+        scene: &Scene,
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+        render_size: &RenderSize,
+        view: &TextureView,
+        image_cache: &ImageCache,
+        encoded_paints: &mut Vec<EncodedPaint>,
+        scene_paint_count: usize,
+        texture_bindings: &TextureBindings,
+    ) -> Result<(), RenderError> {
+        let scheduler = LayerScheduler::new(scene, scene_paint_count);
+        let layer_render_size = scheduler.layer_render_size();
+        let mut schedule = WgpuLayerSchedule {
+            renderer: self,
+            scene,
+            device,
+            queue,
+            encoder,
+            root_render_size: render_size,
+            layer_render_size,
+            root_view: view,
+            image_cache,
+            texture_bindings,
+        };
+        scheduler.render(encoded_paints, &mut schedule)?;
+        Ok(())
+    }
+
+    fn create_layer_target(
+        &self,
+        device: &Device,
+        scene: &Scene,
+        _layer_idx: usize,
+        texture_id: TextureId,
+    ) -> LayerTarget {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Opacity Layer Texture"),
+            size: Extent3d {
+                width: u32::from(scene.width).max(1),
+                height: u32::from(scene.height).max(1),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&TextureViewDescriptor::default());
+        LayerTarget {
+            texture_id,
+            _texture: texture,
+            view,
+        }
+    }
+
+    fn texture_bindings_with_layers(
+        &self,
+        texture_bindings: &TextureBindings,
+        layer_targets: &[Option<LayerTarget>],
+    ) -> TextureBindings {
+        let mut bindings = texture_bindings.clone();
+        for target in layer_targets.iter().flatten() {
+            bindings.insert(target.texture_id, target.view.clone());
+        }
+        bindings
+    }
+
     fn render_scene(
         &mut self,
         scene: &Scene,
+        commands: &[FastStripCommand],
         device: &Device,
         queue: &Queue,
         encoder: &mut CommandEncoder,
@@ -487,7 +649,8 @@ impl Renderer {
         if clear {
             Self::clear_view(encoder, view);
         }
-        let strips = DirectStrips::from_scene(scene, target, &self.paint_idxs, encoded_paints);
+        let strips =
+            DirectStrips::from_commands(scene, commands, target, &self.paint_idxs, encoded_paints);
         if strips.is_empty() {
             self.gradient_cache.maintain();
             return Ok(());
@@ -2724,21 +2887,37 @@ impl RendererContext<'_> {
                 render_pass.draw(0..4, alpha_start..alpha_start + alpha_count);
             } else {
                 // Each run is drawn with a different external texture binding. Runs go from
-                // `run.strips_start` to the next run's `strips_start`; the last run goes to the end of
-                // the strips buffer.
+                // `run.strips_start` to the next run's `strips_start`; gaps are ordinary atlas
+                // draws.
+                let mut current = 0;
                 for (i, run) in external_texture_runs.iter().enumerate() {
-                    let paint_source_bind_group = self
-                        .external_paint_source_bind_groups
-                        .get(&run.texture_id)
-                        .unwrap();
-                    render_pass.set_bind_group(1, paint_source_bind_group, &[]);
                     let start = u32::try_from(run.strips_start).unwrap();
+                    if start > current {
+                        render_pass.set_bind_group(
+                            1,
+                            &self.programs.resources.atlas_bind_group,
+                            &[],
+                        );
+                        render_pass.draw(0..4, alpha_start + current..alpha_start + start);
+                    }
+
                     let end = external_texture_runs
                         .get(i + 1)
                         .map_or(alpha_count, |next| {
                             u32::try_from(next.strips_start).unwrap()
                         });
+                    let paint_source_bind_group = self
+                        .external_paint_source_bind_groups
+                        .get(&run.texture_id)
+                        .unwrap();
+                    render_pass.set_bind_group(1, paint_source_bind_group, &[]);
                     render_pass.draw(0..4, alpha_start + start..alpha_start + end);
+                    current = end;
+                }
+
+                if current < alpha_count {
+                    render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
+                    render_pass.draw(0..4, alpha_start + current..alpha_start + alpha_count);
                 }
             }
         }
