@@ -6,7 +6,7 @@
 //! ## Renderer Backends
 //!
 //! - `wgpu` contains the default renderer backend, leveraging `wgpu`.
-//! - `webgl` contains a WebGL2 backend specifically for `wasm32` if the `webgl` feature is active.
+//! - `webgl` contains a WebGL2 backend if the `webgl` feature is active.
 
 pub(crate) mod common;
 #[cfg(feature = "probe")]
