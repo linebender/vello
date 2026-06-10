@@ -13,7 +13,7 @@ mod lowp;
 
 use crate::coarse::depth::DepthBuffer;
 use crate::coarse::{
-    CommandBucketer, DepthFill, LayerFill, LayerFillAttrs, PaintFill, RenderCmd, RowState,
+    CommandBucketer, LayerFill, LayerFillAttrs, RenderCmd, RowState,
 };
 use crate::filter::context::ScratchBuffer;
 use crate::fine::common::gradient::GradientPainter;
@@ -593,15 +593,22 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     return;
                 };
 
+                let x = span.pixel_x();
+                let alphas = cmd.alpha_idx().map(|alpha_idx| {
+                    let alpha_offset =
+                        alpha_idx as usize + usize::from(x - cmd.span.pixel_x()) * Tile::HEIGHT as usize;
+                    &alphas[alpha_offset..]
+                });
+
                 // Avoid using depth buffer if it's trivially skippable,
                 // since it's generally cheaper to not use it at all than consult it just to be
                 // returned the same span.
                 if !row.can_skip_depth(span, attrs.draw_id) {
                     depth.for_each_visible_run(span, attrs.draw_id, |span| {
-                        self.paint_fill(cmd, span, alphas, attrs, resources);
+                        self.paint_fill(span, attrs, resources, alphas);
                     });
                 } else {
-                    self.paint_fill(cmd, span, alphas, attrs, resources);
+                    self.paint_fill(span, attrs, resources, alphas);
                 }
             }
             RenderCmd::PushBuf => {
@@ -728,7 +735,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     }
 
     #[doc(hidden)]
-    pub fn fill(
+    pub fn paint_fill(
         &mut self,
         span: Span,
         attrs: &PaintFillAttrs,
@@ -1011,36 +1018,6 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             }
         }
     }
-
-    fn render_opaque(
-        &mut self,
-        cmd: DepthFill,
-        attrs: &PaintFillAttrs,
-        resources: FineResources<'_>,
-        depth: &mut DepthBuffer,
-    ) {
-        depth.for_each_unset_run_and_write(cmd.bucket_range(), attrs.draw_id, |bucket_range| {
-            let span = bucket_range.span();
-            self.fill(span, attrs, resources, None);
-        });
-    }
-
-    fn paint_fill(
-        &mut self,
-        cmd: PaintFill,
-        span: Span,
-        alphas: &[u8],
-        attrs: &PaintFillAttrs,
-        resources: FineResources<'_>,
-    ) {
-        let x = span.pixel_x();
-        let alphas = cmd.alpha_idx().map(|alpha_idx| {
-            let alpha_offset =
-                alpha_idx as usize + usize::from(x - cmd.span.pixel_x()) * Tile::HEIGHT as usize;
-            &alphas[alpha_offset..]
-        });
-        self.fill(span, attrs, resources, alphas);
-    }
 }
 
 fn encoded_paint<'a>(
@@ -1098,7 +1075,11 @@ pub(crate) fn rasterize_region<S: Simd, T: FineKernel<S>>(
 
     for &cmd in row.depth_cmds.iter().rev() {
         let attrs = &bucketer.paint_fill_attrs[cmd.attrs_idx as usize];
-        fine.render_opaque(cmd, attrs, resources, depth);
+
+        depth.for_each_unset_run_and_write(cmd.bucket_range(), attrs.draw_id, |bucket_range| {
+            let span = bucket_range.span();
+            fine.paint_fill(span, attrs, resources, None);
+        });
     }
 
     fine.init_uncovered_range(span, region, unpack_dest, depth);

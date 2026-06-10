@@ -68,7 +68,7 @@ pub(crate) fn fill_single<S: Simd, N: FineKernel<S>>(
     };
 
     b.iter(|| {
-        fine.fill(
+        fine.paint_fill(
             Span::new(0, width),
             &attrs,
             FineResources {
