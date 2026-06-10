@@ -580,6 +580,7 @@ impl CommandBucketer {
         };
 
         let strip_row = |strip: &Strip| strip.y.saturating_sub(origin.1) / Tile::HEIGHT;
+        let clip_span = |x0: u16, x1: u16| (x0.max(clip_x0), x1.min(clip_x1));
 
         for i in 0..strip_buf.len() - 1 {
             let strip = &strip_buf[i];
@@ -599,21 +600,22 @@ impl CommandBucketer {
             let strip_width = strip.width_to(next_strip);
             let x0 = strip_x(strip);
             let x1 = x0.saturating_add(strip_width);
+            let (clipped_x0, clipped_x1) = clip_span(x0, x1);
 
-            if strip_width > 0 && x0 < clip_x1 && x1 > clip_x0 {
+            if strip_width > 0 && clipped_x0 < clipped_x1 {
                 alpha_fill_cmd(
                     self,
                     GeneratedAlphaFill {
                         row_idx,
-                        span: Span::new(x0, strip_width),
-                        alpha_idx: strip.alpha_idx(),
+                        span: Span::new(clipped_x0, clipped_x1 - clipped_x0),
+                        alpha_idx: strip.alpha_idx()
+                            + u32::from(clipped_x0 - x0) * u32::from(Tile::HEIGHT),
                     },
                 );
             }
 
             if next_strip.fill_gap() && strip_y == strip_row(next_strip) {
-                let fill_x0 = x1.max(clip_x0);
-                let fill_x1 = strip_x(next_strip).min(clip_x1);
+                let (fill_x0, fill_x1) = clip_span(x1, strip_x(next_strip));
                 if fill_x0 < fill_x1 {
                     fill_cmd(
                         self,
@@ -689,15 +691,18 @@ pub(crate) struct GeneratedAlphaFill {
 
 #[cfg(test)]
 mod tests {
+    use super::LayerClip;
     use crate::coarse::CommandBucketer;
     use crate::coarse::cmd::{PaintFillAttrs, RenderCmd};
     use crate::coarse::depth::{BucketRange, DEPTH_BUCKET_WIDTH};
     use crate::record::LayerProps;
     use vello_common::color::palette::css::{BLUE, RED};
     use vello_common::color::{AlphaColor, Srgb};
+    use vello_common::geometry::RectU16;
     use vello_common::paint::{Paint, PremulColor};
     use vello_common::peniko::BlendMode;
     use vello_common::strip::Strip;
+    use vello_common::tile::Tile;
 
     fn color(alpha: AlphaColor<Srgb>) -> PremulColor {
         PremulColor::from_alpha_color(alpha)
@@ -723,6 +728,19 @@ mod tests {
         }
     }
 
+    fn clipped_layer_props(bbox: RectU16) -> LayerProps {
+        LayerProps {
+            blend_mode: BlendMode::default(),
+            opacity: 1.0,
+            mask: None,
+            clip_path: Some(LayerClip {
+                strip_range: 0..0,
+                thread_idx: 0,
+                bbox,
+            }),
+        }
+    }
+
     #[test]
     fn opaque_fill_inside_layer_does_not_use_depth_write() {
         let mut bucketer = CommandBucketer::from_wh(DEPTH_BUCKET_WIDTH, 4);
@@ -741,6 +759,26 @@ mod tests {
         assert!(
             matches!(row.render_cmds[1], RenderCmd::PaintFill(cmd) if cmd.span.pixel_x() == 0 && cmd.span.pixel_width() == DEPTH_BUCKET_WIDTH)
         );
+    }
+
+    #[test]
+    fn alpha_fill_is_clipped_to_active_layer_bbox() {
+        let mut bucketer = CommandBucketer::from_wh(8, 4);
+        let strips = [Strip::new(0, 0, 0, false), Strip::new(12, 0, 48, false)];
+
+        bucketer.push_layer(&clipped_layer_props(RectU16::new(4, 0, 8, 4)));
+        bucketer.generate_fill(&strips, &fill_attrs(Paint::Solid(color(RED))), &[]);
+
+        let row = &bucketer.rows()[0];
+        assert_eq!(row.render_cmds.len(), 2);
+        assert!(matches!(row.render_cmds[0], RenderCmd::PushBuf));
+        assert!(matches!(
+            row.render_cmds[1],
+            RenderCmd::PaintFill(cmd)
+                if cmd.span.pixel_x() == 4
+                    && cmd.span.pixel_width() == 4
+                    && cmd.alpha_idx() == Some(u32::from(4 * Tile::HEIGHT))
+        ));
     }
 
     #[test]
