@@ -128,6 +128,12 @@ impl<'a> Regions<'a> {
         let width = scene_width.min(target.width().saturating_sub(dst_x));
         let height = scene_height.min(target.height().saturating_sub(dst_y));
 
+        if width == 0 || height == 0 {
+            return Self {
+                regions: Vec::new(),
+            };
+        }
+
         let row_count = row_count.min(usize::from(height).div_ceil(Tile::HEIGHT as usize));
         let stride = usize::from(target.width()) * COLOR_COMPONENTS;
         let x_offset = usize::from(dst_x) * COLOR_COMPONENTS;
@@ -159,5 +165,20 @@ impl<'a> Regions<'a> {
         use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
         self.regions.par_iter_mut().for_each(func);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Regions;
+    use vello_common::pixmap::Pixmap;
+
+    #[test]
+    fn regions_with_off_target_offsets_do_not_panic() {
+        for offset in [(20, 0), (0, 20)] {
+            let mut pixmap = Pixmap::new(10, 10);
+            let mut pixmap = pixmap.as_mut();
+            let _regions = Regions::new(&mut pixmap, (4, 4), offset, 1);
+        }
     }
 }
