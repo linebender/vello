@@ -126,7 +126,7 @@ pub struct RasterizerSettings {
     pub pixel_format: PixelFormat,
     /// Offset in destination pixels where the render context origin is placed.
     ///
-    /// See [`RenderContext::render`] for more information.
+    /// See [`RenderContext::render_with`] for more information.
     pub offset: (u16, u16),
 }
 
@@ -671,7 +671,14 @@ impl RenderContext {
         self.dispatcher.flush(&self.encoded_paints);
     }
 
-    /// Render the current context into a target.
+    /// Render the current context into a target using default rasterizer settings.
+    ///
+    /// See the documentation of [`RenderContext::render_with`] for more information.
+    pub fn render<'a>(&self, target: impl Into<PixmapMut<'a>>, resources: &mut Resources) {
+        self.render_with(target, resources, RasterizerSettings::default());
+    }
+
+    /// Render the current context into a target using custom rasterizer settings.
     ///
     /// See the documentation of [`RasterizerSettings`] to understand the tunable parameters for
     /// rasterization.
@@ -704,7 +711,7 @@ impl RenderContext {
     /// 3. In case the width/height of the pixmap is _smaller_ than the offset + width/height of the
     ///    scene, then anything that exceeds the pixmap boundaries is simply cut off. This can be useful
     ///    if for some reason you only want to rasterize a small cut-out of the original scene.
-    pub fn render<'a>(
+    pub fn render_with<'a>(
         &self,
         target: impl Into<PixmapMut<'a>>,
         resources: &mut Resources,
@@ -935,7 +942,7 @@ mod tests {
         let mut resources = Resources::new();
         let mut pixmap = solid_pixmap(4, 3, GRAY);
 
-        ctx.render(
+        ctx.render_with(
             &mut pixmap,
             &mut resources,
             RasterizerSettings {
@@ -963,7 +970,7 @@ mod tests {
         let mut resources = Resources::new();
         let mut pixmap = solid_pixmap(4, 4, GRAY);
 
-        ctx.render(
+        ctx.render_with(
             &mut pixmap,
             &mut resources,
             RasterizerSettings {
@@ -990,7 +997,7 @@ mod tests {
         let mut resources = Resources::new();
         let mut pixmap = solid_pixmap(4, 2, GRAY);
 
-        ctx.render(&mut pixmap, &mut resources, RasterizerSettings::default());
+        ctx.render(&mut pixmap, &mut resources);
 
         for y in 0..2 {
             for x in 0..4 {
@@ -1015,7 +1022,7 @@ mod tests {
 
         {
             let pixmap = PixmapMut::new(3, 2, &mut buffer).unwrap();
-            ctx.render(
+            ctx.render_with(
                 pixmap,
                 &mut resources,
                 RasterizerSettings {
@@ -1053,7 +1060,7 @@ mod tests {
         let mut resources = Resources::new();
         let mut pixmap = solid_pixmap(2, 1, blue_pixel());
 
-        ctx.render(
+        ctx.render_with(
             &mut pixmap,
             &mut resources,
             RasterizerSettings {
@@ -1076,7 +1083,7 @@ mod tests {
         let mut resources = Resources::new();
         let mut pixmap = solid_pixmap(1, 1, blue_pixel());
 
-        ctx.render(
+        ctx.render_with(
             &mut pixmap,
             &mut resources,
             RasterizerSettings {
@@ -1116,9 +1123,9 @@ mod tests {
         ctx.reset();
         ctx.fill_path(&Rect::new(0.0, 0.0, 100.0, 100.0).to_path(0.1));
         ctx.flush();
-        ctx.render(&mut pixmap, &mut resources, rasterizer_settings);
+        ctx.render_with(&mut pixmap, &mut resources, rasterizer_settings);
         ctx.flush();
-        ctx.render(&mut pixmap, &mut resources, rasterizer_settings);
+        ctx.render_with(&mut pixmap, &mut resources, rasterizer_settings);
     }
 
     #[cfg(feature = "text")]

@@ -13,7 +13,7 @@ use std::rc::Rc;
 use std::{cell::RefCell, sync::Arc};
 use vello_common::kurbo::{Affine, Vec2};
 use vello_common::paint::ImageSource;
-use vello_cpu::{RasterizerSettings, RenderContext};
+use vello_cpu::RenderContext;
 use vello_example_scenes::{AnyScene, image::ImageScene};
 use wasm_bindgen::prelude::*;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
@@ -75,7 +75,6 @@ impl AppState {
         self.renderer.render(
             &mut self.pixmap,
             self.scenes[self.current_scene].resources_mut(),
-            RasterizerSettings::default(),
         );
         let rgba_bytes = self.pixmap.data_as_u8_slice();
         let image_data = web_sys::ImageData::new_with_u8_clamped_array_and_sh(

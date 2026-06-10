@@ -5,7 +5,7 @@
 
 use vello_cpu::color::palette::css::{BLUE, RED, WHITE};
 use vello_cpu::kurbo::Rect;
-use vello_cpu::{Mask, Pixmap, RasterizerSettings, RenderContext, Resources};
+use vello_cpu::{Mask, Pixmap, RenderContext, Resources};
 
 const SIZE: u16 = 200;
 
@@ -25,11 +25,7 @@ fn main() {
         mask_ctx.set_paint(RED);
         mask_ctx.fill_rect(&Rect::new(30.0, 30.0, 170.0, 170.0));
         mask_ctx.flush();
-        mask_ctx.render(
-            &mut pixmap,
-            &mut mask_resources,
-            RasterizerSettings::default(),
-        );
+        mask_ctx.render(&mut pixmap, &mut mask_resources);
 
         Mask::new_luminance(&pixmap)
     };
@@ -98,7 +94,7 @@ fn main() {
 fn save_pixmap(ctx: &RenderContext, filename: &str) {
     let mut resources = Resources::new();
     let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
-    ctx.render(&mut pixmap, &mut resources, RasterizerSettings::default());
+    ctx.render(&mut pixmap, &mut resources);
     let png = pixmap.into_png().unwrap();
     std::fs::write(format!("{filename}.png"), png).unwrap();
 }

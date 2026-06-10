@@ -4,7 +4,6 @@
 //! Applying clip paths using Vello CPU.
 
 use vello_cpu::Pixmap;
-use vello_cpu::RasterizerSettings;
 use vello_cpu::RenderContext;
 use vello_cpu::Resources;
 use vello_cpu::color::palette::css::{BLUE, RED, WHITE};
@@ -129,7 +128,7 @@ fn main() {
 fn save_pixmap(ctx: &RenderContext, filename: &str) {
     let mut resources = Resources::new();
     let mut pixmap = Pixmap::new(ctx.width(), ctx.height());
-    ctx.render(&mut pixmap, &mut resources, RasterizerSettings::default());
+    ctx.render(&mut pixmap, &mut resources);
     let png = pixmap.into_png().unwrap();
     std::fs::write(format!("{filename}.png"), png).unwrap();
 }

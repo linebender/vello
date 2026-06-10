@@ -582,7 +582,7 @@ fn render_src_over_with_offset() {
     let positions: [(u16, u16); 3] = [(15, 15), (30, 30), (0, 0)];
 
     for (dst_x, dst_y) in positions {
-        glyph_renderer.render(
+        glyph_renderer.render_with(
             &mut spritesheet,
             &mut glyph_resources,
             RasterizerSettings {
@@ -622,7 +622,7 @@ fn render_src_over_with_offset() {
     reference_renderer.flush();
 
     let mut reference_pixmap = Pixmap::new(spritesheet_width, spritesheet_height);
-    reference_renderer.render(
+    reference_renderer.render_with(
         &mut reference_pixmap,
         &mut reference_resources,
         rasterizer_settings,

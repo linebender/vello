@@ -248,7 +248,7 @@ impl Renderer for CpuRenderer {
     }
 
     fn render_to_pixmap(&mut self, pixmap: &mut Pixmap) {
-        self.ctx.render(
+        self.ctx.render_with(
             pixmap,
             &mut self.resources,
             RasterizerSettings {

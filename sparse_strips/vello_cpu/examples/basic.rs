@@ -130,11 +130,11 @@ fn main() {
     // Now the second step is to copy the results of the render context into the
     // pixmap. We do this by creating a new pixmap (or reusing an existing one).
     // The pixmap and render context can have different dimensions. See the documentation
-    // of the `render` method for more information.
+    // of the `render_with` method for more information.
     let mut pixmap_1 = Pixmap::new(100, 100);
     // Now, simply extract the results from the render context into the
     // pixmap.
-    ctx.render(&mut pixmap_1, &mut resources, rasterizer_settings);
+    ctx.render_with(&mut pixmap_1, &mut resources, rasterizer_settings);
 
     // Now you can do whatever you want with the pixmap, which provides raw
     // access to the premultiplied RGBA pixels of the image. If you have enabled
@@ -162,7 +162,7 @@ fn main() {
     // the default replace mode. In our case, we need to create a new one since
     // our call to `into_png` consumed the pixmap.
     let mut pixmap_2 = Pixmap::new(100, 100);
-    ctx.render(&mut pixmap_2, &mut resources, rasterizer_settings);
+    ctx.render_with(&mut pixmap_2, &mut resources, rasterizer_settings);
     let png_2 = pixmap_2.into_png().unwrap();
     std::fs::write("example_basic2.png", png_2).unwrap();
 }

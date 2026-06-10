@@ -15,7 +15,8 @@ This release has an [MSRV][] of 1.88.
 ### Changed
 - The API for rendering into a pixmap. The methods `render_to_pixmap` and
   `composite_to_pixmap_at_offset` have been replaced with a single unified 
-  `render` method that takes additional parameters for tweaking the behavior. ([#1665][] by [@LaurenzV][])
+  `render` (and `render_with`) method that takes additional parameters for tweaking the behavior. 
+  ([#1665][] by [@LaurenzV][])
 
 ## [0.0.9][] - 2026-05-30
 

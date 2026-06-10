@@ -20,7 +20,7 @@ use usvg::{Node, Paint, PaintOrder};
 use vello_cpu::color::AlphaColor;
 use vello_cpu::kurbo::{Affine, BezPath, Stroke};
 use vello_cpu::peniko::Fill;
-use vello_cpu::{Level, Pixmap, RasterizerSettings, RenderContext, RenderSettings, Resources};
+use vello_cpu::{Level, Pixmap, RenderContext, RenderSettings, Resources};
 
 fn main() {
     let args = Args::parse();
@@ -50,7 +50,7 @@ fn main() {
 
         render_tree(&mut ctx, &mut sctx, &tree);
         ctx.flush();
-        ctx.render(&mut pixmap, &mut resources, RasterizerSettings::default());
+        ctx.render(&mut pixmap, &mut resources);
 
         runtime += start.elapsed();
         num_iters += 1;

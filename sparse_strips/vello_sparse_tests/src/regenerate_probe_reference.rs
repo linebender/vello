@@ -89,7 +89,7 @@ fn render_probe_pixmap() -> Pixmap {
 
     let mut resources = Resources::new();
     let mut pixmap = Pixmap::new(width, height);
-    ctx.render(
+    ctx.render_with(
         &mut pixmap,
         &mut resources,
         RasterizerSettings {

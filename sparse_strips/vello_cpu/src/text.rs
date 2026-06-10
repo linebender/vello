@@ -177,7 +177,7 @@ impl Resources {
                 glyph_renderer.reset();
                 renderer::replay_atlas_commands(&mut recorder.commands, glyph_renderer);
                 glyph_renderer.flush();
-                glyph_renderer.render(
+                glyph_renderer.render_with(
                     page,
                     &mut Self::default(),
                     RasterizerSettings {

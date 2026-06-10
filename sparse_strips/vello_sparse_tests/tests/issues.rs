@@ -441,7 +441,7 @@ fn multi_threading_oob_access() {
 
     ctx.fill_path(&Rect::new(0.0, 0.0, 50.0, 50.0).to_path(0.1));
     ctx.flush();
-    ctx.render(
+    ctx.render_with(
         &mut pixmap,
         &mut resources,
         RasterizerSettings {
@@ -451,7 +451,7 @@ fn multi_threading_oob_access() {
     );
     ctx.fill_path(&Rect::new(50.0, 50.0, 100.0, 100.0).to_path(0.1));
     ctx.flush();
-    ctx.render(
+    ctx.render_with(
         &mut pixmap,
         &mut resources,
         RasterizerSettings {

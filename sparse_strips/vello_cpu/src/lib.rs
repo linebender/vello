@@ -21,7 +21,7 @@
 //! - Render it to an image using [`RenderContext::render`][].
 //!
 //! ```rust
-//! use vello_cpu::{RasterizerSettings, RenderContext, Resources, Pixmap};
+//! use vello_cpu::{RenderContext, Resources, Pixmap};
 //! use vello_cpu::{color::{palette::css, PremulRgba8}, kurbo::Rect};
 //! let width = 10;
 //! let height = 5;
@@ -34,7 +34,7 @@
 //! // While calling `flush` is only strictly necessary if you are rendering using
 //! // multiple threads, it is recommended to always do this.
 //! context.flush();
-//! context.render(&mut target, &mut resources, RasterizerSettings::default());
+//! context.render(&mut target, &mut resources);
 //!
 //! let expected_render = b"\
 //!     0000000000\
