@@ -14,6 +14,7 @@ use core::cell::RefCell;
 use core::ops::Range;
 use vello_common::TextureId;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
+use vello_common::clip::ClipContext;
 use vello_common::encode::{EncodeExt, EncodedExternalTexture, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::filter_effects::Filter;
@@ -100,6 +101,7 @@ pub struct Scene {
     pub(crate) width: u16,
     /// Height of the rendering surface in pixels.
     pub(crate) height: u16,
+    clip_context: ClipContext,
     pub(crate) render_state: RenderState,
     pub(crate) aliasing_threshold: Option<u8>,
     /// Storage for encoded non-solid paint data.
@@ -127,6 +129,7 @@ impl Scene {
         Self {
             width,
             height,
+            clip_context: ClipContext::new(),
             render_state: RenderState::default(),
             aliasing_threshold: None,
             encoded_paints: RefCell::new(vec![]),
@@ -218,7 +221,7 @@ impl Scene {
             transform,
             aliasing_threshold,
             strip_storage,
-            None,
+            self.clip_context.get(),
         );
 
         self.fast_strips_buffer
@@ -230,13 +233,25 @@ impl Scene {
     }
 
     /// Push a new clip path to the clip stack.
-    pub fn push_clip_path(&mut self, _path: &BezPath) {
-        panic!("vello_hybrid no longer supports clip paths in the temporary fast-strips-only path");
+    ///
+    /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
+    /// example for how this method differs from `push_clip_layer`.
+    pub fn push_clip_path(&mut self, path: &BezPath) {
+        self.clip_context.push_clip(
+            path,
+            &mut self.strip_generator,
+            self.render_state.fill_rule,
+            self.render_state.transform,
+            self.aliasing_threshold,
+        );
     }
 
     /// Pop a clip path from the clip stack.
+    ///
+    /// Note that unlike `push_clip_layer`, it is permissible to have pending
+    /// pushed clip paths before finishing the rendering operation.
     pub fn pop_clip_path(&mut self) {
-        panic!("vello_hybrid no longer supports clip paths in the temporary fast-strips-only path");
+        self.clip_context.pop_clip();
     }
 
     /// Stroke a path with the current paint and stroke settings.
@@ -270,7 +285,7 @@ impl Scene {
             transform,
             aliasing_threshold,
             strip_storage,
-            None,
+            self.clip_context.get(),
         );
 
         self.fast_strips_buffer
@@ -302,8 +317,11 @@ impl Scene {
             let transformed_rect = self.render_state.transform.transform_rect_bbox(*rect);
             let strip_storage = &mut self.strip_storage.borrow_mut();
             let strip_start = strip_storage.strips.len();
-            self.strip_generator
-                .generate_filled_rect_fast(&transformed_rect, strip_storage, None);
+            self.strip_generator.generate_filled_rect_fast(
+                &transformed_rect,
+                strip_storage,
+                self.clip_context.get(),
+            );
 
             self.fast_strips_buffer
                 .commands
@@ -357,12 +375,23 @@ impl Scene {
             );
             let dst_rect = Rect::new(0., 0., w, h);
 
-            if is_axis_aligned(&transform) && self.aliasing_threshold.is_none() {
+            if is_axis_aligned(&transform)
+                && self.aliasing_threshold.is_none()
+                && self.clip_context.get().is_none()
+            {
                 let transformed_rect = transform.transform_rect_bbox(dst_rect);
-                if let Some(bounds) = self.clamped_rect_bounds(transformed_rect) {
-                    self.push_fast_rect(bounds, paint);
+                let x0 = transformed_rect.x0.max(0.0).min(f64::from(self.width));
+                let y0 = transformed_rect.y0.max(0.0).min(f64::from(self.height));
+                let x1 = transformed_rect.x1.max(0.0).min(f64::from(self.width));
+                let y1 = transformed_rect.y1.max(0.0).min(f64::from(self.height));
+
+                // Skip mirrored or zero-sized rectangles.
+                if x1 <= x0 || y1 <= y0 {
                     continue;
                 }
+
+                self.push_fast_rect(Rect::new(x0, y0, x1, y1), paint);
+                continue;
             }
 
             self.fill_path_with(
@@ -392,20 +421,24 @@ impl Scene {
     }
 
     fn fast_rect_bounds(&self, rect: &Rect) -> Option<Rect> {
-        if self.aliasing_threshold.is_some() || !is_axis_aligned(&self.render_state.transform) {
+        if self.aliasing_threshold.is_some() || self.clip_context.get().is_some() {
+            return None;
+        }
+
+        // We can't handle skewed rectangles.
+        // TODO: Maybe support rotated rectangles (https://github.com/linebender/vello/pull/1482#discussion_r2881223621)
+        if !is_axis_aligned(&self.render_state.transform) {
             return None;
         }
 
         let transformed_rect = self.render_state.transform.transform_rect_bbox(*rect);
-        self.clamped_rect_bounds(transformed_rect)
-    }
 
-    fn clamped_rect_bounds(&self, rect: Rect) -> Option<Rect> {
-        let x0 = rect.x0.max(0.0).min(f64::from(self.width));
-        let y0 = rect.y0.max(0.0).min(f64::from(self.height));
-        let x1 = rect.x1.max(0.0).min(f64::from(self.width));
-        let y1 = rect.y1.max(0.0).min(f64::from(self.height));
+        let x0 = transformed_rect.x0.max(0.0).min(f64::from(self.width));
+        let y0 = transformed_rect.y0.max(0.0).min(f64::from(self.height));
+        let x1 = transformed_rect.x1.max(0.0).min(f64::from(self.width));
+        let y1 = transformed_rect.y1.max(0.0).min(f64::from(self.height));
 
+        // Can't handle mirrored or zero-sized rectangles.
         if x1 <= x0 || y1 <= y0 {
             return None;
         }
@@ -455,8 +488,11 @@ impl Scene {
                 .transform_rect_bbox(inflated_rect);
             let strip_storage = &mut self.strip_storage.borrow_mut();
             let strip_start = strip_storage.strips.len();
-            self.strip_generator
-                .generate_filled_rect_fast(&transformed_rect, strip_storage, None);
+            self.strip_generator.generate_filled_rect_fast(
+                &transformed_rect,
+                strip_storage,
+                self.clip_context.get(),
+            );
 
             self.fast_strips_buffer
                 .commands
@@ -640,6 +676,7 @@ impl Scene {
             ss.set_generation_mode(GenerationMode::Append);
         }
         self.encoded_paints.borrow_mut().clear();
+        self.clip_context.reset();
         self.render_state.reset();
         self.fast_strips_buffer.clear();
         self.filter = None;
@@ -657,17 +694,12 @@ impl Scene {
 
     /// Take current rendering state and reset the existing state to its default.
     pub fn take_current_state(&mut self) -> RenderState {
-        self.take_state()
+        core::mem::take(&mut self.render_state)
     }
 
     /// Save a copy of the current rendering state.
     pub fn save_current_state(&mut self) -> RenderState {
         self.render_state.clone()
-    }
-
-    /// Take current rendering state and reset the existing state to its default.
-    pub fn take_state(&mut self) -> RenderState {
-        core::mem::take(&mut self.render_state)
     }
 
     /// Restore a previously saved rendering state.

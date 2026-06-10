@@ -647,7 +647,6 @@ fn issue_1477(ctx: &mut impl Renderer) {
 #[vello_test(
     skip_multithreaded,
     skip_hybrid,
-    skip_hybrid_constrained,
     width = 768,
     height = 100,
     hybrid_tolerance = 3

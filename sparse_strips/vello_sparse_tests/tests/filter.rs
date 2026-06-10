@@ -857,12 +857,7 @@ fn filter_varying_depths_clips_and_compositions(ctx: &mut impl Renderer) {
 /// the full transformation matrix (including rotation and shear), rather than just extracting
 /// x/y scales separately. A 45-degree rotation should produce a diamond-shaped blur.
 // TODO: Re-enable hybrid once proper edge handling is implemented in Vello hybrid.
-#[vello_test(
-    skip_multithreaded,
-    skip_hybrid,
-    skip_hybrid_constrained,
-    hybrid_tolerance = 2
-)]
+#[vello_test(skip_multithreaded, skip_hybrid, hybrid_tolerance = 2)]
 fn filter_rotated_blur(ctx: &mut impl Renderer) {
     let filter_gaussian_blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 4.0,
@@ -1079,12 +1074,7 @@ fn filter_nested_layers(ctx: &mut impl Renderer) {
 
 /// Test blur with very large `std_deviation`.
 // TODO: Re-enable hybrid once proper edge handling is implemented in Vello hybrid.
-#[vello_test(
-    skip_multithreaded,
-    skip_hybrid,
-    skip_hybrid_constrained,
-    hybrid_tolerance = 3
-)]
+#[vello_test(skip_multithreaded, skip_hybrid, hybrid_tolerance = 3)]
 fn filter_extreme_blur(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 20.0,
@@ -1102,7 +1092,6 @@ fn filter_extreme_blur(ctx: &mut impl Renderer) {
 #[vello_test(
     skip_multithreaded,
     skip_hybrid,
-    skip_hybrid_constrained,
     hybrid_tolerance = 4,
     width = 400,
     height = 400
@@ -1178,12 +1167,7 @@ fn filter_stroked_paths(ctx: &mut impl Renderer) {
 /// when filtered elements are near or extend beyond viewport boundaries.
 /// See: <https://github.com/linebender/vello/issues/1304>
 // TODO: Re-enable hybrid once proper edge handling is implemented in Vello hybrid.
-#[vello_test(
-    skip_multithreaded,
-    skip_hybrid,
-    skip_hybrid_constrained,
-    hybrid_tolerance = 2
-)]
+#[vello_test(skip_multithreaded, skip_hybrid, hybrid_tolerance = 2)]
 fn issue_filter_canvas_boundaries(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 5.0,
@@ -1498,12 +1482,7 @@ fn filter_layer_with_blending_and_opacity(ctx: &mut impl Renderer) {
 }
 
 // TODO: Re-enable hybrid once proper edge handling is implemented in Vello hybrid.
-#[vello_test(
-    skip_multithreaded,
-    skip_hybrid,
-    skip_hybrid_constrained,
-    hybrid_tolerance = 3
-)]
+#[vello_test(skip_multithreaded, skip_hybrid, hybrid_tolerance = 3)]
 fn filter_clip_with_constrained_blur(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 16.0,
@@ -1551,12 +1530,7 @@ fn filter_clip_blend_nested(ctx: &mut impl Renderer) {
 }
 
 // TODO: Re-enable hybrid once proper edge handling is implemented in Vello hybrid.
-#[vello_test(
-    skip_multithreaded,
-    skip_hybrid,
-    skip_hybrid_constrained,
-    hybrid_tolerance = 2
-)]
+#[vello_test(skip_multithreaded, skip_hybrid, hybrid_tolerance = 2)]
 fn filter_with_non_rect_clip(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 7.0,
@@ -1613,7 +1587,7 @@ fn filter_sequential_clip_layers(ctx: &mut impl Renderer) {
 }
 
 // TODO: Re-enable hybrid once proper edge handling is implemented in Vello hybrid.
-#[vello_test(skip_multithreaded, skip_hybrid, skip_hybrid_constrained)]
+#[vello_test(skip_multithreaded, skip_hybrid)]
 fn filter_with_out_of_bounds_clip(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 2.0,
@@ -1662,7 +1636,6 @@ fn filter_with_inner_clip_shifted(ctx: &mut impl Renderer) {
 #[vello_test(
     skip_multithreaded,
     skip_hybrid,
-    skip_hybrid_constrained,
     width = 256,
     height = 100,
     hybrid_tolerance = 2

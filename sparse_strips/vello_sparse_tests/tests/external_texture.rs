@@ -43,7 +43,6 @@ mod tests {
             0,
             "fallback",
             RenderMode::OptimizeQuality,
-            false,
         );
         f(&mut ctx);
         let specific_name = format!("{test_name}_hybrid");

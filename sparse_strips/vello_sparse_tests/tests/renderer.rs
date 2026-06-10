@@ -31,7 +31,6 @@ pub(crate) trait Renderer: Sized {
         num_threads: u16,
         level: Level,
         render_mode: RenderMode,
-        default_blending_only: bool,
     ) -> Self;
     fn fill_path(&mut self, path: &BezPath);
     fn stroke_path(&mut self, path: &BezPath);
@@ -114,7 +113,6 @@ impl Renderer for CpuRenderer {
         num_threads: u16,
         level: Level,
         render_mode: RenderMode,
-        _default_blending_only: bool,
     ) -> Self {
         let settings = RenderSettings { level, num_threads };
         Self {
@@ -390,14 +388,7 @@ impl HybridRenderer {
 impl Renderer for HybridRenderer {
     type GlyphRunBackend<'a> = vello_hybrid::HybridGlyphRunBackend<'a>;
 
-    fn new(
-        width: u16,
-        height: u16,
-        num_threads: u16,
-        level: Level,
-        _: RenderMode,
-        _default_blending_only: bool,
-    ) -> Self {
+    fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
         if num_threads != 0 {
             panic!("hybrid renderer doesn't support multi-threading");
         }
@@ -731,14 +722,7 @@ impl HybridRenderer {
 impl Renderer for HybridRenderer {
     type GlyphRunBackend<'a> = vello_hybrid::HybridGlyphRunBackend<'a>;
 
-    fn new(
-        width: u16,
-        height: u16,
-        num_threads: u16,
-        level: Level,
-        _: RenderMode,
-        _default_blending_only: bool,
-    ) -> Self {
+    fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
         use wasm_bindgen::JsCast;
         use web_sys::HtmlCanvasElement;
 
