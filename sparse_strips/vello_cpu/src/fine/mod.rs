@@ -610,6 +610,10 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 self.buffer_pool.submit(popped);
             }
             RenderCmd::LayerFill(cmd) => {
+                let Some(span) = cmd.span.intersect(self.buffer_span) else {
+                    return;
+                };
+
                 let attrs = &bucketer.layer_fill_attrs[cmd.attrs_idx as usize];
 
                 if attrs.opacity != 1.0 {
@@ -622,7 +626,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     &resources.alpha_buffers[attrs.thread_idx as usize][alpha_idx as usize..]
                 });
 
-                self.blend(row_y, cmd.span, attrs.blend_mode, alphas);
+                self.layer_fill(row_y, span, attrs.blend_mode, alphas);
             }
         }
     }
@@ -677,11 +681,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         T::apply_mask(self.simd, target, iter);
     }
 
-    fn blend(&mut self, row_y: u16, span: Span, blend_mode: BlendMode, alphas: Option<&[u8]>) {
-        let Some(span) = span.intersect(self.buffer_span) else {
-            return;
-        };
-
+    fn layer_fill(&mut self, row_y: u16, span: Span, blend_mode: BlendMode, alphas: Option<&[u8]>) {
         let x = span.pixel_x();
         let (source, rest) = self.blend_buffers.split_last_mut().unwrap();
         let target = rest.last_mut().unwrap();
