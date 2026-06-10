@@ -187,8 +187,17 @@ impl Resolver {
     ) -> (Layout, Ramps<'a>, Images<'a>) {
         let resources = &encoding.resources;
         if resources.patches.is_empty() {
+            // This resolve has no late-bound image patches, so it has no image uploads.
+            // If previous resolves left resident images in the cache, keep reporting the
+            // atlas size so the renderer can reuse the GPU atlas those clean images sample
+            // from.
+            self.image_cache.begin_resolve();
             let layout = resolve_solid_paths_only(encoding, packed);
-            return (layout, Ramps::default(), Images::default());
+            return (
+                layout,
+                Ramps::default(),
+                self.image_cache.images_for_patchless_resolve(),
+            );
         }
         let patch_sizes = self.resolve_patches(encoding);
         self.resolve_pending_images();
@@ -649,4 +658,56 @@ fn size_to_words(byte_size: usize) -> u32 {
 
 fn align_up(len: usize, alignment: u32) -> usize {
     len + (len.wrapping_neg() & (alignment as usize - 1))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use peniko::{Blob, ImageAlphaType, ImageBrush, ImageFormat};
+    use std::sync::Arc;
+
+    fn image(id_byte: u8, width: u32, height: u32) -> ImageData {
+        let len = (width * height * 4) as usize;
+        ImageData {
+            data: Blob::new(Arc::new(vec![id_byte; len])),
+            format: ImageFormat::Rgba8,
+            width,
+            height,
+            alpha_type: ImageAlphaType::Alpha,
+        }
+    }
+
+    fn image_encoding(image: ImageData) -> Encoding {
+        let mut encoding = Encoding::new();
+        encoding.encode_image(&ImageBrush::new(image), 1.0);
+        encoding
+    }
+
+    #[test]
+    fn patchless_resolve_preserves_image_atlas_size() {
+        let image = image(7, 8, 8);
+        let image_encoding = image_encoding(image);
+
+        let mut resolver = Resolver::new();
+        let mut packed = Vec::new();
+        let patchless_encoding = Encoding::new();
+
+        let (_layout, _ramps, images) = resolver.resolve(&patchless_encoding, &mut packed);
+        assert_eq!((images.width, images.height), (0, 0));
+        assert!(images.images.is_empty());
+
+        let atlas_size = {
+            let (_layout, _ramps, images) = resolver.resolve(&image_encoding, &mut packed);
+            assert_eq!(images.images.len(), 1);
+            (images.width, images.height)
+        };
+
+        let (_layout, _ramps, images) = resolver.resolve(&patchless_encoding, &mut packed);
+        assert_eq!((images.width, images.height), atlas_size);
+        assert!(images.images.is_empty());
+
+        let (_layout, _ramps, images) = resolver.resolve(&image_encoding, &mut packed);
+        assert_eq!((images.width, images.height), atlas_size);
+        assert!(images.images.is_empty());
+    }
 }
