@@ -543,17 +543,11 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
 
     /// Writes the current buffer contents to the output row.
     #[doc(hidden)]
-    pub fn pack(&self, scratch_x_start: u16, region: &mut Region<'_>) {
-        let scratch_x = usize::from(scratch_x_start);
+    pub fn pack(&self, region: &mut Region<'_>) {
         let width = usize::from(region.width());
         let scratch = self.blend_buffers.last().unwrap();
 
-        T::pack(
-            self.simd,
-            &scratch[scratch_x * TILE_HEIGHT_COMPONENTS..],
-            width,
-            region,
-        );
+        T::pack(self.simd, &scratch, width, region);
     }
 
     /// Reads the pixels of the target back into the buffer.
@@ -1103,19 +1097,9 @@ pub(crate) fn rasterize_region<S: Simd, T: FineKernel<S>>(
 ) {
     let scene_y = region.row_idx as u16 * Tile::HEIGHT;
     let row = &bucketer.rows()[region.row_idx];
-    let Some(row_bounds) = row.coarse_span() else {
-        return;
-    };
-    let mut row_start = row_bounds.pixel_x();
-    let mut row_end = row_bounds.pixel_end();
-    row_start = row_start.min(region.width());
-    row_end = row_end.min(region.width());
-    if row_start >= row_end {
-        return;
-    }
+    let span = Span::new(0, region.width());
 
     fine.set_row_y(scene_y);
-    let row_span = Span::new(row_start, row_end - row_start);
     depth.clear();
 
     for &cmd in row.depth_cmds.iter().rev() {
@@ -1123,18 +1107,13 @@ pub(crate) fn rasterize_region<S: Simd, T: FineKernel<S>>(
         fine.render_opaque(cmd, attrs, resources, depth);
     }
 
-    fine.init_uncovered_range(row_span, region, unpack_dest, depth);
+    fine.init_uncovered_range(span, region, unpack_dest, depth);
 
     for cmd in &row.render_cmds {
         fine.run_cmd(*cmd, bucketer, row, scene_y, resources, depth);
     }
 
-    let pack_start = row_start;
-    let pack_end = row_end;
-    if pack_start < pack_end {
-        let mut region = region.sub_span(pack_start, pack_end - pack_start);
-        fine.pack(pack_start, &mut region);
-    }
+    fine.pack(region);
 }
 
 /// A trait for objects that can render pixel data into buffers.

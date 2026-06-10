@@ -29,7 +29,7 @@ pub fn pack_block<S: Simd, T: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fin
             &mut pixmap,
             RectU16::new(0, 0, WideTile::WIDTH, Tile::HEIGHT),
         );
-        fine.pack(0, &mut region);
+        fine.pack(&mut region);
 
         std::hint::black_box(&buf);
     });

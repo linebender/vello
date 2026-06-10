@@ -174,10 +174,6 @@ impl SingleThreadedDispatcher {
         params: FineRenderParams,
         use_src_over: bool,
     ) {
-        if !use_src_over {
-            target.data_mut().fill(0);
-        }
-
         // TODO: Reuse fine and depth buffer across targets?
         let mut fine = Fine::<S, F>::new(simd, bucketer.width());
         let mut depth = DepthBuffer::new(bucketer.width());

@@ -27,17 +27,6 @@ pub(crate) enum RenderCmd {
     LayerFill(LayerFill),
 }
 
-impl RenderCmd {
-    #[inline]
-    pub(crate) fn span(self) -> Option<Span> {
-        match self {
-            Self::PaintFill(cmd) => Some(cmd.span),
-            Self::LayerFill(cmd) => Some(cmd.span),
-            Self::PushBuf | Self::PopBuf => None,
-        }
-    }
-}
-
 /// Fill a span with the given paint and optionally some alpha coverage.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct PaintFill {

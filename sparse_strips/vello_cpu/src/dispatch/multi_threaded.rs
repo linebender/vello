@@ -421,10 +421,6 @@ impl MultiThreadedDispatcher {
                 target_offset: settings.offset,
             };
 
-            if !use_src_over {
-                target.data_mut().fill(0);
-            }
-
             let mut regions = Regions::new(
                 &mut target,
                 params.scene_size,

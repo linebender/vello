@@ -31,8 +31,6 @@ pub(crate) struct RowState {
     pub(crate) render_cmds: Vec<RenderCmd>,
     /// Opaque fill commands rendered front-to-back with depth buffer read and write.
     pub(crate) depth_cmds: Vec<DepthFill>,
-    /// A coarse span of all pixels that might have been touched in that row.
-    coarse_span: Option<Span>,
     /// State of the depth buffer for this row.
     depth: DepthState,
     /// Current layer depth.
@@ -47,16 +45,11 @@ impl RowState {
     fn clear(&mut self) {
         self.render_cmds.clear();
         self.depth_cmds.clear();
-        self.coarse_span = None;
         self.depth.reset();
         self.layer_depth = 0;
     }
 
     pub(super) fn push_cmd(&mut self, cmd: RenderCmd) {
-        if let Some(span) = cmd.span() {
-            self.include_span(span);
-        }
-
         self.render_cmds.push(cmd);
     }
 
@@ -74,25 +67,12 @@ impl RowState {
 
     pub(super) fn push_depth_fill(&mut self, cmd: DepthFill, draw_id: u32) {
         let span = cmd.span();
-        self.include_span(span);
         self.depth.include_span(span, draw_id);
         self.depth_cmds.push(cmd);
     }
 
-    pub(crate) fn coarse_span(&self) -> Option<Span> {
-        self.coarse_span
-    }
-
     pub(crate) fn can_skip_depth(&self, span: Span, draw_id: u32) -> bool {
         self.depth.can_skip(span, draw_id)
-    }
-
-    fn include_span(&mut self, span: Span) {
-        if let Some(bounds) = &mut self.coarse_span {
-            bounds.extend(span);
-        } else {
-            self.coarse_span = Some(span);
-        }
     }
 }
 
