@@ -10,6 +10,9 @@ Subheadings to categorize changes are `added, changed, deprecated, removed, fixe
 
 ## [Unreleased]
 
+TODO: Before making a 0.0.10 (or 0.1.0) release, resolve the following issue:
+https://github.com/linebender/vello/pull/1665#issuecomment-4667033939!
+
 This release has an [MSRV][] of 1.88.
 
 ### Changed
