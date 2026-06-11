@@ -23,7 +23,7 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
-    direct::{DirectStrips, DirectTarget, ExternalTextureRun},
+    direct::{DirectStrips, DirectTarget, ExternalTextureRun, RenderOrigin},
     filter::{FilterContext, FilterInstanceData, FilterPassState, FilterPassTarget},
     gradient_cache::GradientRampCache,
     render::{
@@ -37,7 +37,8 @@ use crate::{
             pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode, pack_tint,
         },
         scheduler::{
-            LayerScheduleRenderer, LayerScheduler, ScheduledLayerOp, ScheduledLayerTarget,
+            LayerSampleExtent, LayerScheduleRenderer, LayerScheduler, ScheduledLayerOp,
+            ScheduledLayerTarget,
         },
     },
     scene::{FastStripCommand, RecordedLayer, Scene},
@@ -65,6 +66,7 @@ use vello_common::{
         EncodedBlurredRoundedRectangle, EncodedExternalTexture, EncodedGradient, EncodedKind,
         EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind,
     },
+    geometry::RectU16,
     paint::{ImageId, ImageSource},
     peniko,
     pixmap::Pixmap,
@@ -108,12 +110,25 @@ struct LayerTarget {
     texture_id: TextureId,
     texture: WebGlTexture,
     framebuffer: WebGlFramebuffer,
+    width: u16,
+    height: u16,
+    origin: RenderOrigin,
 }
 
 impl ScheduledLayerTarget for LayerTarget {
     #[inline]
     fn texture_id(&self) -> TextureId {
         self.texture_id
+    }
+
+    #[inline]
+    fn width(&self) -> u16 {
+        self.width
+    }
+
+    #[inline]
+    fn height(&self) -> u16 {
+        self.height
     }
 }
 
@@ -124,7 +139,6 @@ struct WebGlLayerSchedule<'a, 'b> {
     root_render_size: &'b RenderSize,
     root_target: DirectTarget,
     root_clear: bool,
-    layer_render_size: RenderSize,
 }
 
 impl LayerScheduleRenderer<LayerTarget> for WebGlLayerSchedule<'_, '_> {
@@ -155,10 +169,14 @@ impl LayerScheduleRenderer<LayerTarget> for WebGlLayerSchedule<'_, '_> {
             self.scene,
             &commands,
             self.image_cache,
-            &self.layer_render_size,
+            &RenderSize {
+                width: u32::from(target.width),
+                height: u32::from(target.height),
+            },
             encoded_paints,
             true,
             DirectTarget::AtlasLayer,
+            target.origin,
             &layer_texture_bindings,
         );
         self.renderer.programs.resources.view_framebuffer_override = previous_framebuffer;
@@ -182,6 +200,7 @@ impl LayerScheduleRenderer<LayerTarget> for WebGlLayerSchedule<'_, '_> {
             encoded_paints,
             self.root_clear,
             self.root_target,
+            RenderOrigin::default(),
             &root_texture_bindings,
         )
     }
@@ -210,6 +229,7 @@ fn commands_from_webgl_batches(
                         layer,
                         target,
                         layer.opacity,
+                        LayerSampleExtent::Output,
                         encoded_paints,
                     ) {
                         commands.push(command);
@@ -733,6 +753,7 @@ impl WebGlRenderer {
             &encoded_paints,
             true,
             DirectTarget::AtlasLayer,
+            RenderOrigin::default(),
             &texture_bindings,
         );
         self.programs.resources.view_framebuffer_override = previous_view_framebuffer;
@@ -776,7 +797,6 @@ impl WebGlRenderer {
         root_clear: bool,
     ) -> Result<(), RenderError> {
         let scheduler = LayerScheduler::new(scene, scene_paint_count);
-        let layer_render_size = scheduler.layer_render_size();
         let mut schedule = WebGlLayerSchedule {
             renderer: self,
             scene,
@@ -784,7 +804,6 @@ impl WebGlRenderer {
             root_render_size: render_size,
             root_target,
             root_clear,
-            layer_render_size,
         };
         let layer_targets = scheduler.render(encoded_paints, &mut schedule);
         drop(schedule);
@@ -802,14 +821,21 @@ impl WebGlRenderer {
         _layer_idx: usize,
         texture_id: TextureId,
     ) -> LayerTarget {
+        let bbox = if _layer_idx == usize::MAX {
+            RectU16::new(0, 0, scene.width, scene.height)
+        } else {
+            scene.layers()[_layer_idx].bbox
+        };
+        let width = bbox.width().max(1);
+        let height = bbox.height().max(1);
         let texture = create_texture(&self.gl);
         self.gl
             .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
                 WebGl2RenderingContext::TEXTURE_2D,
                 0,
                 WebGl2RenderingContext::RGBA8 as i32,
-                i32::from(scene.width),
-                i32::from(scene.height),
+                i32::from(width),
+                i32::from(height),
                 0,
                 WebGl2RenderingContext::RGBA,
                 WebGl2RenderingContext::UNSIGNED_BYTE,
@@ -821,6 +847,12 @@ impl WebGlRenderer {
             texture_id,
             texture,
             framebuffer,
+            width,
+            height,
+            origin: RenderOrigin {
+                x: bbox.x0,
+                y: bbox.y0,
+            },
         }
     }
 
@@ -844,6 +876,7 @@ impl WebGlRenderer {
         encoded_paints: &[EncodedPaint],
         clear: bool,
         target: DirectTarget,
+        origin: RenderOrigin,
         texture_bindings: &HashMap<TextureId, WebGlTexture>,
     ) -> Result<(), RenderError> {
         if !self.filter_context.filter_textures.is_empty() {
@@ -871,6 +904,7 @@ impl WebGlRenderer {
             &self.encoded_paints,
             &mut scene.strip_storage.borrow_mut().alphas,
             render_size,
+            origin,
             &self.paint_idxs,
             &self.filter_context,
         );
@@ -1497,6 +1531,7 @@ impl WebGlPrograms {
         encoded_paints: &[GpuEncodedPaint],
         alphas: &mut Vec<u8>,
         render_size: &RenderSize,
+        origin: RenderOrigin,
         paint_idxs: &[u32],
         filter_context: &FilterContext,
     ) {
@@ -1505,7 +1540,7 @@ impl WebGlPrograms {
         self.maybe_resize_alphas_tex(max_texture_dimension_2d, alphas.len());
         self.maybe_resize_encoded_paints_tex(max_texture_dimension_2d, paint_idxs);
         self.maybe_resize_filter_data_tex(filter_context);
-        self.maybe_update_config_buffer(gl, max_texture_dimension_2d, render_size);
+        self.maybe_update_config_buffer(gl, max_texture_dimension_2d, render_size, origin);
 
         self.upload_alpha_texture(gl, alphas);
         self.upload_encoded_paints_texture(gl, encoded_paints);
@@ -1760,6 +1795,7 @@ impl WebGlPrograms {
         gl: &WebGl2RenderingContext,
         max_texture_dimension_2d: u32,
         new_render_size: &RenderSize,
+        origin: RenderOrigin,
     ) {
         // Only negate if we are rendering to the main frame buffer.
         let negate_ndc = self.resources.view_framebuffer_override.is_none();
@@ -1776,8 +1812,8 @@ impl WebGlPrograms {
                     strip_height: u32::from(Tile::HEIGHT),
                     alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
                     encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
-                    strip_offset_x: 0,
-                    strip_offset_y: 0,
+                    strip_offset_x: -i32::from(origin.x),
+                    strip_offset_y: -i32::from(origin.y),
                     negate_ndc: u32::from(negate_ndc),
                 };
 
@@ -1844,6 +1880,27 @@ impl WebGlPrograms {
 
             self.render_size = new_render_size.clone();
             self.negate_ndc = negate_ndc;
+        } else {
+            let config = Config {
+                width: new_render_size.width,
+                height: new_render_size.height,
+                strip_height: u32::from(Tile::HEIGHT),
+                alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+                encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+                strip_offset_x: -i32::from(origin.x),
+                strip_offset_y: -i32::from(origin.y),
+                negate_ndc: u32::from(negate_ndc),
+            };
+            gl.bind_buffer(
+                WebGl2RenderingContext::UNIFORM_BUFFER,
+                Some(&self.resources.view_config_buffer),
+            );
+            let config_data = bytemuck::bytes_of(&config);
+            gl.buffer_data_with_u8_array(
+                WebGl2RenderingContext::UNIFORM_BUFFER,
+                config_data,
+                WebGl2RenderingContext::STATIC_DRAW,
+            );
         }
     }
 

@@ -26,9 +26,11 @@ use vello_common::paint::{Paint, PaintType, Tint};
 #[cfg(feature = "text")]
 use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
-use vello_common::peniko::{BlendMode, Extend, Fill, ImageQuality, ImageSampler};
+use vello_common::peniko::{BlendMode, Compose, Extend, Fill, ImageQuality, ImageSampler};
 use vello_common::render_state::RenderState;
+use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
+use vello_common::tile::Tile;
 use vello_common::util::{control_point_bbox_u16, is_axis_aligned};
 
 /// Default tolerance for curve flattening.
@@ -143,6 +145,10 @@ pub(crate) struct RecordedLayer {
     pub(crate) opacity: f32,
     /// Clip path applied when compositing the layer into its parent.
     pub(crate) clip: Option<LayerClip>,
+    /// Bounds of the rendered layer contents in its parent root coordinate space.
+    pub(crate) bbox: RectU16,
+    /// Bounds affected when the layer is composited into its parent.
+    pub(crate) output_bbox: RectU16,
 }
 
 /// A clip path associated with a recorded layer.
@@ -158,6 +164,56 @@ pub(crate) struct LayerClip {
 struct LayerStackEntry {
     layer_id: RecordedLayerId,
     parent_root_id: RootId,
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "Rectangle bounds are clamped to u16 before casting."
+)]
+fn fast_rect_bbox(rect: &FastPathRect) -> RectU16 {
+    let x0 = rect.x0.floor().clamp(0.0, f32::from(u16::MAX)) as u16;
+    let y0 = rect.y0.floor().clamp(0.0, f32::from(u16::MAX)) as u16;
+    let x1 = rect.x1.ceil().clamp(0.0, f32::from(u16::MAX)) as u16;
+    let y1 = rect.y1.ceil().clamp(0.0, f32::from(u16::MAX)) as u16;
+    RectU16::new(x0, y0, x1, y1)
+}
+
+fn strip_bbox(strips: &[Strip], viewport_width: u16) -> RectU16 {
+    let mut bbox = RectU16::INVERTED;
+    if strips.len() < 2 {
+        return bbox;
+    }
+
+    for pair in strips.windows(2) {
+        let strip = pair[0];
+        let next_strip = pair[1];
+        if strip.is_sentinel() {
+            continue;
+        }
+
+        let strip_y = strip.strip_y();
+        let row_y = strip_y.saturating_mul(Tile::HEIGHT);
+        let row_y1 = row_y.saturating_add(Tile::HEIGHT);
+        let strip_width = strip.width_to(&next_strip);
+        let strip_x1 = strip.x.saturating_add(strip_width);
+
+        if strip_width > 0 {
+            bbox.union(RectU16::new(strip.x, row_y, strip_x1, row_y1));
+        }
+
+        if next_strip.fill_gap() && strip_y == next_strip.strip_y() {
+            let fill_x1 = if next_strip.is_sentinel() {
+                viewport_width
+            } else {
+                next_strip.x
+            };
+            if strip_x1 < fill_x1 {
+                bbox.union(RectU16::new(strip_x1, row_y, fill_x1, row_y1));
+            }
+        }
+    }
+
+    bbox
 }
 
 /// Settings to apply to the render context.
@@ -430,9 +486,10 @@ impl Scene {
             return;
         }
 
-        if is_axis_aligned(&self.render_state.transform) && self.aliasing_threshold.is_none() {
+        let transform = self.render_state.transform;
+        if is_axis_aligned(&transform) && self.aliasing_threshold.is_none() {
             let paint = self.encode_current_paint();
-            let transformed_rect = self.render_state.transform.transform_rect_bbox(*rect);
+            let transformed_rect = transform.transform_rect_bbox(*rect);
             let strips = {
                 let strip_storage = &mut self.strip_storage.borrow_mut();
                 let strip_start = strip_storage.strips.len();
@@ -541,11 +598,12 @@ impl Scene {
 
         // We can't handle skewed rectangles.
         // TODO: Maybe support rotated rectangles (https://github.com/linebender/vello/pull/1482#discussion_r2881223621)
-        if !is_axis_aligned(&self.render_state.transform) {
+        let transform = self.render_state.transform;
+        if !is_axis_aligned(&transform) {
             return None;
         }
 
-        let transformed_rect = self.render_state.transform.transform_rect_bbox(*rect);
+        let transformed_rect = transform.transform_rect_bbox(*rect);
 
         let x0 = transformed_rect.x0.max(0.0).min(f64::from(self.width));
         let y0 = transformed_rect.y0.max(0.0).min(f64::from(self.height));
@@ -558,6 +616,22 @@ impl Scene {
         }
 
         Some(Rect::new(x0, y0, x1, y1))
+    }
+
+    fn root_bbox(&self, root: &RecordedRoot) -> RectU16 {
+        let mut bbox = RectU16::INVERTED;
+        let strip_storage = self.strip_storage.borrow();
+        for command in &root.commands {
+            let command_bbox = match command {
+                RecordedCommand::Draw(FastStripCommand::Path(path)) => {
+                    strip_bbox(&strip_storage.strips[path.strips.clone()], self.width)
+                }
+                RecordedCommand::Draw(FastStripCommand::Rect(rect)) => fast_rect_bbox(rect),
+                RecordedCommand::Layer(layer_id) => self.layers[layer_id.as_usize()].output_bbox,
+            };
+            bbox.union(command_bbox);
+        }
+        bbox
     }
 
     /// Stroke a rectangle with the current paint and stroke settings.
@@ -595,11 +669,9 @@ impl Scene {
             return;
         }
 
-        if is_axis_aligned(&self.render_state.transform) && self.aliasing_threshold.is_none() {
-            let transformed_rect = self
-                .render_state
-                .transform
-                .transform_rect_bbox(inflated_rect);
+        let path_transform = self.render_state.transform;
+        if is_axis_aligned(&path_transform) && self.aliasing_threshold.is_none() {
+            let transformed_rect = path_transform.transform_rect_bbox(inflated_rect);
             let strips = {
                 let strip_storage = &mut self.strip_storage.borrow_mut();
                 let strip_start = strip_storage.strips.len();
@@ -615,7 +687,7 @@ impl Scene {
         } else {
             self.fill_path_with(
                 &inflated_rect.to_path(DEFAULT_TOLERANCE),
-                self.render_state.transform,
+                path_transform,
                 Fill::NonZero,
                 paint,
                 self.aliasing_threshold,
@@ -658,9 +730,10 @@ impl Scene {
             panic!("vello_hybrid filter layers are temporarily unsupported");
         }
 
+        let layer_transform = self.render_state.transform;
         let clip = clip_path.map(|clip_path| {
             let existing_clip = self.clip_context.get();
-            let mut bbox = control_point_bbox_u16(clip_path, self.render_state.transform);
+            let mut bbox = control_point_bbox_u16(clip_path, layer_transform);
             if let Some(existing_clip) = existing_clip {
                 bbox = bbox.intersect(existing_clip.bbox);
             } else {
@@ -674,7 +747,7 @@ impl Scene {
                 self.strip_generator.generate_filled_path(
                     clip_path,
                     self.render_state.fill_rule,
-                    self.render_state.transform,
+                    layer_transform,
                     self.aliasing_threshold,
                     strip_storage,
                     existing_clip,
@@ -697,6 +770,8 @@ impl Scene {
             blend_mode,
             opacity,
             clip,
+            bbox: RectU16::INVERTED,
+            output_bbox: RectU16::INVERTED,
         });
         self.layer_stack.push(LayerStackEntry {
             layer_id,
@@ -733,6 +808,45 @@ impl Scene {
     /// Pop the last pushed layer.
     pub fn pop_layer(&mut self) {
         let entry = self.layer_stack.pop().expect("layer stack underflowed");
+        let root_id = self.layers[entry.layer_id.as_usize()].root_id;
+        let content_bbox = self.root_bbox(self.root(root_id));
+        let blend_mode = self.layers[entry.layer_id.as_usize()].blend_mode;
+        let is_empty_clear = content_bbox.is_empty() && blend_mode.compose == Compose::Clear;
+        let is_non_default_blend = blend_mode != BlendMode::default();
+        let is_destructive_blend = blend_mode.is_destructive();
+        let mut bbox = content_bbox;
+        let mut output_bbox = content_bbox;
+        if is_empty_clear {
+            bbox = self.layers[entry.layer_id.as_usize()]
+                .clip
+                .as_ref()
+                .map_or(RectU16::new(0, 0, self.width, self.height), |clip| {
+                    clip.bbox
+                });
+            output_bbox = bbox;
+        } else if is_non_default_blend {
+            if is_destructive_blend {
+                output_bbox = self.layers[entry.layer_id.as_usize()]
+                    .clip
+                    .as_ref()
+                    .map_or(RectU16::new(0, 0, self.width, self.height), |clip| {
+                        clip.bbox
+                    });
+                if bbox.is_empty() {
+                    bbox = output_bbox;
+                }
+            } else if let Some(clip) = &self.layers[entry.layer_id.as_usize()].clip {
+                output_bbox = output_bbox.intersect(clip.bbox);
+            }
+            if let Some(clip) = &self.layers[entry.layer_id.as_usize()].clip {
+                bbox.union(clip.bbox);
+            }
+        } else if let Some(clip) = &self.layers[entry.layer_id.as_usize()].clip {
+            output_bbox = output_bbox.intersect(clip.bbox);
+            bbox.union(clip.bbox);
+        }
+        self.layers[entry.layer_id.as_usize()].bbox = bbox;
+        self.layers[entry.layer_id.as_usize()].output_bbox = output_bbox;
         self.active_root_id = entry.parent_root_id;
         self.active_commands()
             .push(RecordedCommand::Layer(entry.layer_id));

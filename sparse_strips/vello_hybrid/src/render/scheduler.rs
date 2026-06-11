@@ -5,7 +5,6 @@
 
 use crate::{
     RenderError,
-    render::RenderSize,
     scene::{
         FastPathRect, FastStripCommand, FastStripsPath, RecordedCommand, RecordedLayer,
         RecordedLayerId, Scene,
@@ -19,13 +18,19 @@ use vello_common::{
     kurbo::Affine,
     paint::{IndexedPaint, Paint, Tint, TintMode},
     peniko::color::palette::css::WHITE,
-    peniko::{self},
+    peniko::{self, Compose},
 };
 
 /// A backend-owned render target for a scheduled layer.
 pub(crate) trait ScheduledLayerTarget {
     /// Synthetic texture ID used when the layer is sampled by its parent.
     fn texture_id(&self) -> TextureId;
+
+    /// Width of the target in pixels.
+    fn width(&self) -> u16;
+
+    /// Height of the target in pixels.
+    fn height(&self) -> u16;
 }
 
 /// Backend hooks used by [`LayerScheduler`].
@@ -62,6 +67,15 @@ pub(crate) enum ScheduledLayerOp {
     CompositeLayer(RecordedLayerId),
 }
 
+/// Region to cover when sampling a rendered layer.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum LayerSampleExtent {
+    /// Cover the region affected by compositing the layer into its parent.
+    Output,
+    /// Cover only the region containing rendered source pixels.
+    Content,
+}
+
 /// Schedules recorded roots/layers and materializes draw-only command streams.
 pub(crate) struct LayerScheduler<'a> {
     scene: &'a Scene,
@@ -74,14 +88,6 @@ impl<'a> LayerScheduler<'a> {
         Self {
             scene,
             scene_paint_count,
-        }
-    }
-
-    /// Render dimensions for offscreen layer targets.
-    pub(crate) fn layer_render_size(&self) -> RenderSize {
-        RenderSize {
-            width: u32::from(self.scene.width),
-            height: u32::from(self.scene.height),
         }
     }
 
@@ -175,6 +181,14 @@ fn layer_texture_id(layer_idx: usize) -> TextureId {
 }
 
 pub(crate) fn layer_is_empty(layer: &RecordedLayer) -> bool {
+    if layer.output_bbox.is_empty() {
+        return true;
+    }
+
+    if layer.blend_mode.compose == Compose::Clear {
+        return false;
+    }
+
     layer
         .clip
         .as_ref()
@@ -182,10 +196,11 @@ pub(crate) fn layer_is_empty(layer: &RecordedLayer) -> bool {
 }
 
 pub(crate) fn layer_sample_command(
-    scene: &Scene,
+    _scene: &Scene,
     layer: &RecordedLayer,
     target: &impl ScheduledLayerTarget,
     opacity: f32,
+    extent: LayerSampleExtent,
     encoded_paints: &mut Vec<EncodedPaint>,
 ) -> Option<FastStripCommand> {
     if layer_is_empty(layer) {
@@ -193,32 +208,55 @@ pub(crate) fn layer_sample_command(
     }
 
     let paint_idx = encoded_paints.len();
-    encoded_paints.push(layer_encoded_paint(scene, target, opacity));
+    let bbox = layer.bbox;
+    let sample_bbox = match extent {
+        LayerSampleExtent::Output => layer.output_bbox,
+        LayerSampleExtent::Content => layer.bbox,
+    };
+    let source_region = RectU16::new(0, 0, target.width(), target.height());
+    let transform = Affine::translate((-(f64::from(bbox.x0)), -(f64::from(bbox.y0))));
+    encoded_paints.push(layer_encoded_paint(
+        target,
+        opacity,
+        source_region,
+        transform,
+    ));
     let paint = Paint::Indexed(IndexedPaint::new(paint_idx));
-    Some(if let Some(clip) = &layer.clip {
-        FastStripCommand::Path(FastStripsPath {
-            strips: clip.strips.clone(),
-            paint,
-        })
-    } else {
-        FastStripCommand::Rect(FastPathRect {
-            x0: 0.0,
-            y0: 0.0,
-            x1: f32::from(scene.width),
-            y1: f32::from(scene.height),
-            paint,
-        })
-    })
+    Some(
+        if let Some(clip) = &layer.clip
+            && matches!(extent, LayerSampleExtent::Output)
+            && !contains_rect(clip.bbox, bbox)
+        {
+            FastStripCommand::Path(FastStripsPath {
+                strips: clip.strips.clone(),
+                paint,
+            })
+        } else {
+            FastStripCommand::Rect(FastPathRect {
+                x0: f32::from(sample_bbox.x0),
+                y0: f32::from(sample_bbox.y0),
+                x1: f32::from(sample_bbox.x1),
+                y1: f32::from(sample_bbox.y1),
+                paint,
+            })
+        },
+    )
+}
+
+#[inline]
+fn contains_rect(outer: RectU16, inner: RectU16) -> bool {
+    outer.x0 <= inner.x0 && outer.y0 <= inner.y0 && outer.x1 >= inner.x1 && outer.y1 >= inner.y1
 }
 
 pub(crate) fn layer_encoded_paint(
-    scene: &Scene,
     target: &impl ScheduledLayerTarget,
     opacity: f32,
+    source_region: RectU16,
+    transform: Affine,
 ) -> EncodedPaint {
     EncodedPaint::ExternalTexture(EncodedExternalTexture {
         texture_id: target.texture_id(),
-        source_region: RectU16::new(0, 0, scene.width, scene.height),
+        source_region,
         sampler: peniko::ImageSampler {
             x_extend: peniko::Extend::Pad,
             y_extend: peniko::Extend::Pad,
@@ -226,7 +264,7 @@ pub(crate) fn layer_encoded_paint(
             alpha: 1.0,
         },
         may_have_transparency: true,
-        transform: Affine::IDENTITY,
+        transform,
         tint: Some(Tint {
             color: WHITE.with_alpha(opacity),
             mode: TintMode::Multiply,

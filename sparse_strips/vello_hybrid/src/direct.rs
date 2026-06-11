@@ -38,6 +38,13 @@ pub(crate) enum DirectTarget {
     AtlasLayer,
 }
 
+/// Origin of the current render target in scene coordinates.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct RenderOrigin {
+    pub(crate) x: u16,
+    pub(crate) y: u16,
+}
+
 /// Specifies a run of strips inside [`DirectStrips`] that can be drawn with the same external
 /// texture binding.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -593,7 +600,7 @@ mod tests {
             y0,
             x1,
             y1,
-            paint: Paint::Solid(RED),
+            paint: RED.into(),
         }
     }
 

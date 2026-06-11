@@ -21,7 +21,7 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
-    direct::{DirectStrips, DirectTarget, ExternalTextureRun},
+    direct::{DirectStrips, DirectTarget, ExternalTextureRun, RenderOrigin},
     filter::{FilterContext, FilterInstanceData, FilterPassState, FilterPassTarget},
     gradient_cache::GradientRampCache,
     render::{
@@ -35,8 +35,8 @@ use crate::{
             pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode, pack_tint,
         },
         scheduler::{
-            LayerScheduleRenderer, LayerScheduler, ScheduledLayerOp, ScheduledLayerTarget,
-            layer_encoded_paint, layer_sample_command,
+            LayerSampleExtent, LayerScheduleRenderer, LayerScheduler, ScheduledLayerOp,
+            ScheduledLayerTarget, layer_encoded_paint, layer_sample_command,
         },
     },
     scene::{FastPathRect, FastStripCommand, RecordedLayer, RecordedLayerId, Scene},
@@ -44,7 +44,7 @@ use crate::{
 use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
 use bytemuck::{Pod, Zeroable};
-use core::{fmt::Debug, num::NonZeroU64};
+use core::fmt::Debug;
 #[cfg(feature = "text")]
 use glifo::PendingClearRect;
 use hashbrown::{HashMap, hash_map::Entry};
@@ -57,6 +57,8 @@ use vello_common::{
         EncodedBlurredRoundedRectangle, EncodedExternalTexture, EncodedGradient, EncodedKind,
         EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind,
     },
+    geometry::RectU16,
+    kurbo::Affine,
     paint::{ImageSource, IndexedPaint, Paint},
     peniko,
     pixmap::Pixmap,
@@ -148,12 +150,24 @@ struct LayerTarget {
     texture_id: TextureId,
     texture: Texture,
     view: TextureView,
+    render_size: RenderSize,
+    origin: RenderOrigin,
 }
 
 impl ScheduledLayerTarget for LayerTarget {
     #[inline]
     fn texture_id(&self) -> TextureId {
         self.texture_id
+    }
+
+    #[inline]
+    fn width(&self) -> u16 {
+        self.render_size.width.try_into().unwrap_or(u16::MAX)
+    }
+
+    #[inline]
+    fn height(&self) -> u16 {
+        self.render_size.height.try_into().unwrap_or(u16::MAX)
     }
 }
 
@@ -174,8 +188,9 @@ struct WgpuLayerSchedule<'a, 'b> {
 
 impl LayerScheduleRenderer<LayerTarget> for WgpuLayerSchedule<'_, '_> {
     fn create_layer_target(&mut self, layer_idx: usize, texture_id: TextureId) -> LayerTarget {
+        let (origin, render_size) = self.layer_target_origin_and_size(layer_idx);
         self.renderer
-            .create_layer_target(self.device, self.scene, layer_idx, texture_id)
+            .create_layer_target(self.device, layer_idx, texture_id, render_size, origin)
     }
 
     fn render_layer(
@@ -202,9 +217,10 @@ impl LayerScheduleRenderer<LayerTarget> for WgpuLayerSchedule<'_, '_> {
         {
             let root_layer_target = self.renderer.create_layer_target(
                 self.device,
-                self.scene,
                 usize::MAX,
                 root_texture_id(),
+                self.layer_render_size.clone(),
+                RenderOrigin::default(),
             );
             self.render_batches_to_layer(
                 usize::MAX,
@@ -215,7 +231,12 @@ impl LayerScheduleRenderer<LayerTarget> for WgpuLayerSchedule<'_, '_> {
             )?;
 
             let paint_idx = encoded_paints.len();
-            encoded_paints.push(layer_encoded_paint(self.scene, &root_layer_target, 1.0));
+            encoded_paints.push(layer_encoded_paint(
+                &root_layer_target,
+                1.0,
+                RectU16::new(0, 0, root_layer_target.width(), root_layer_target.height()),
+                Affine::IDENTITY,
+            ));
             let commands = [FastStripCommand::Rect(FastPathRect {
                 x0: 0.0,
                 y0: 0.0,
@@ -241,6 +262,7 @@ impl LayerScheduleRenderer<LayerTarget> for WgpuLayerSchedule<'_, '_> {
                 encoded_paints,
                 self.root_clear,
                 self.root_target,
+                RenderOrigin::default(),
                 &root_texture_bindings,
             );
         }
@@ -261,12 +283,31 @@ impl LayerScheduleRenderer<LayerTarget> for WgpuLayerSchedule<'_, '_> {
             encoded_paints,
             self.root_clear,
             self.root_target,
+            RenderOrigin::default(),
             &root_texture_bindings,
         )
     }
 }
 
 impl WgpuLayerSchedule<'_, '_> {
+    fn layer_target_origin_and_size(&self, layer_idx: usize) -> (RenderOrigin, RenderSize) {
+        if layer_idx == usize::MAX {
+            return (RenderOrigin::default(), self.layer_render_size.clone());
+        }
+
+        let bbox = self.scene.layers()[layer_idx].bbox;
+        (
+            RenderOrigin {
+                x: bbox.x0,
+                y: bbox.y0,
+            },
+            RenderSize {
+                width: u32::from(bbox.width()).max(1),
+                height: u32::from(bbox.height()).max(1),
+            },
+        )
+    }
+
     fn render_batches_to_layer(
         &mut self,
         parent_idx: usize,
@@ -289,12 +330,13 @@ impl WgpuLayerSchedule<'_, '_> {
                 self.device,
                 self.queue,
                 self.encoder,
-                &self.layer_render_size,
+                &target.render_size,
                 &target.view,
                 self.image_cache,
                 encoded_paints,
                 true,
                 DirectTarget::AtlasLayer,
+                target.origin,
                 &layer_texture_bindings,
             );
         }
@@ -316,12 +358,13 @@ impl WgpuLayerSchedule<'_, '_> {
                         self.device,
                         self.queue,
                         self.encoder,
-                        &self.layer_render_size,
+                        &target.render_size,
                         &target.view,
                         self.image_cache,
                         encoded_paints,
                         false,
                         DirectTarget::AtlasLayer,
+                        target.origin,
                         &layer_texture_bindings,
                     )?;
                 }
@@ -353,54 +396,95 @@ impl WgpuLayerSchedule<'_, '_> {
         let child = rendered_targets[layer_idx]
             .as_ref()
             .expect("child layer must be rendered before it is composited");
-        let clipped_source = if layer.clip.is_some() {
-            Some(self.create_clipped_layer_source(
-                layer_idx,
+        if layer.blend_mode == peniko::BlendMode::default() {
+            let commands = layer_sample_command(
+                self.scene,
                 layer,
                 child,
+                layer.opacity,
+                LayerSampleExtent::Output,
                 encoded_paints,
-                rendered_targets,
-            )?)
-        } else {
-            None
-        };
-        let source = clipped_source.as_ref().unwrap_or(child);
+            );
+            let commands = commands.as_slice();
+            let layer_texture_bindings = self
+                .renderer
+                .texture_bindings_with_layers(self.texture_bindings, rendered_targets);
+            return self.renderer.render_scene(
+                self.scene,
+                commands,
+                self.device,
+                self.queue,
+                self.encoder,
+                &parent.render_size,
+                &parent.view,
+                self.image_cache,
+                encoded_paints,
+                false,
+                DirectTarget::AtlasLayer,
+                parent.origin,
+                &layer_texture_bindings,
+            );
+        }
+
+        let source = self.create_aligned_layer_source(
+            parent,
+            layer_idx,
+            layer,
+            child,
+            encoded_paints,
+            rendered_targets,
+        )?;
         let backdrop = self.renderer.create_layer_target(
             self.device,
-            self.scene,
             parent_idx,
             backdrop_texture_id(parent_idx, layer_idx),
+            parent.render_size.clone(),
+            parent.origin,
         );
         self.renderer
             .copy_layer_target(self.encoder, self.scene, parent, &backdrop);
         self.renderer.composite_layer(
             self.device,
             self.encoder,
-            &self.layer_render_size,
+            &parent.render_size,
             parent,
-            source,
+            &source,
             &backdrop,
             layer.blend_mode,
             layer.opacity,
+            layer.clip.as_ref().map(|_| {
+                layer
+                    .output_bbox
+                    .relative_to_origin((parent.origin.x, parent.origin.y))
+            }),
         );
         Ok(())
     }
 
-    fn create_clipped_layer_source(
+    fn create_aligned_layer_source(
         &mut self,
+        parent: &LayerTarget,
         layer_idx: usize,
         layer: &RecordedLayer,
         child: &LayerTarget,
         encoded_paints: &mut Vec<EncodedPaint>,
         rendered_targets: &[Option<LayerTarget>],
     ) -> Result<LayerTarget, RenderError> {
-        let clipped_source = self.renderer.create_layer_target(
+        let aligned_source = self.renderer.create_layer_target(
             self.device,
-            self.scene,
             layer_idx,
-            clipped_layer_source_texture_id(layer_idx),
+            aligned_layer_source_texture_id(layer_idx),
+            parent.render_size.clone(),
+            parent.origin,
         );
-        let commands = layer_sample_command(self.scene, layer, child, 1.0, encoded_paints);
+        let commands = layer_sample_command(
+            self.scene,
+            layer,
+            child,
+            1.0,
+            LayerSampleExtent::Content,
+            encoded_paints,
+        );
         let commands = commands.as_slice();
         let layer_texture_bindings = self
             .renderer
@@ -411,15 +495,16 @@ impl WgpuLayerSchedule<'_, '_> {
             self.device,
             self.queue,
             self.encoder,
-            &self.layer_render_size,
-            &clipped_source.view,
+            &aligned_source.render_size,
+            &aligned_source.view,
             self.image_cache,
             encoded_paints,
             true,
             DirectTarget::AtlasLayer,
+            aligned_source.origin,
             &layer_texture_bindings,
         )?;
-        Ok(clipped_source)
+        Ok(aligned_source)
     }
 }
 
@@ -455,7 +540,7 @@ fn backdrop_texture_id(parent_idx: usize, layer_idx: usize) -> TextureId {
 }
 
 #[inline]
-fn clipped_layer_source_texture_id(layer_idx: usize) -> TextureId {
+fn aligned_layer_source_texture_id(layer_idx: usize) -> TextureId {
     TextureId(u64::MAX / 3 - layer_idx as u64)
 }
 
@@ -802,7 +887,10 @@ impl Renderer {
         root_clear: bool,
     ) -> Result<(), RenderError> {
         let scheduler = LayerScheduler::new(scene, scene_paint_count);
-        let layer_render_size = scheduler.layer_render_size();
+        let layer_render_size = RenderSize {
+            width: u32::from(scene.width),
+            height: u32::from(scene.height),
+        };
         let mut schedule = WgpuLayerSchedule {
             renderer: self,
             scene,
@@ -824,15 +912,16 @@ impl Renderer {
     fn create_layer_target(
         &self,
         device: &Device,
-        scene: &Scene,
         _layer_idx: usize,
         texture_id: TextureId,
+        render_size: RenderSize,
+        origin: RenderOrigin,
     ) -> LayerTarget {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Opacity Layer Texture"),
             size: Extent3d {
-                width: u32::from(scene.width).max(1),
-                height: u32::from(scene.height).max(1),
+                width: render_size.width.max(1),
+                height: render_size.height.max(1),
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -850,13 +939,15 @@ impl Renderer {
             texture_id,
             texture,
             view,
+            render_size,
+            origin,
         }
     }
 
     fn copy_layer_target(
         &self,
         encoder: &mut CommandEncoder,
-        scene: &Scene,
+        _scene: &Scene,
         src: &LayerTarget,
         dst: &LayerTarget,
     ) {
@@ -874,8 +965,8 @@ impl Renderer {
                 aspect: wgpu::TextureAspect::All,
             },
             Extent3d {
-                width: u32::from(scene.width).max(1),
-                height: u32::from(scene.height).max(1),
+                width: src.render_size.width.min(dst.render_size.width).max(1),
+                height: src.render_size.height.min(dst.render_size.height).max(1),
                 depth_or_array_layers: 1,
             },
         );
@@ -891,6 +982,7 @@ impl Renderer {
         backdrop: &LayerTarget,
         blend_mode: peniko::BlendMode,
         opacity: f32,
+        scissor_bbox: Option<RectU16>,
     ) {
         let config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Layer Blend Config"),
@@ -937,6 +1029,14 @@ impl Renderer {
         render_pass.set_bind_group(0, &config_bind_group, &[]);
         render_pass.set_bind_group(1, &src_bind_group, &[]);
         render_pass.set_bind_group(2, &backdrop_bind_group, &[]);
+        if let Some(scissor_bbox) = scissor_bbox {
+            render_pass.set_scissor_rect(
+                u32::from(scissor_bbox.x0),
+                u32::from(scissor_bbox.y0),
+                u32::from(scissor_bbox.width()).max(1),
+                u32::from(scissor_bbox.height()).max(1),
+            );
+        }
         render_pass.set_viewport(
             0.0,
             0.0,
@@ -973,6 +1073,7 @@ impl Renderer {
         encoded_paints: &[EncodedPaint],
         clear: bool,
         target: DirectTarget,
+        origin: RenderOrigin,
         texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
         self.programs.depth_cleared_this_frame = false;
@@ -987,6 +1088,7 @@ impl Renderer {
             &self.encoded_paints,
             &mut scene.strip_storage.borrow_mut().alphas,
             render_size,
+            origin,
             &self.paint_idxs,
             &self.filter_context,
         );
@@ -1646,8 +1748,6 @@ struct GpuResources {
     /// during `render_to_atlas`.
     stub_atlas_texture_array_view: TextureView,
 }
-
-const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).unwrap();
 
 /// Config for the clear slots pipeline
 #[repr(C)]
@@ -2422,6 +2522,20 @@ impl Programs {
         render_size: &RenderSize,
         alpha_texture_width: u32,
     ) -> Buffer {
+        Self::create_config_buffer_with_origin(
+            device,
+            render_size,
+            alpha_texture_width,
+            RenderOrigin::default(),
+        )
+    }
+
+    fn create_config_buffer_with_origin(
+        device: &Device,
+        render_size: &RenderSize,
+        alpha_texture_width: u32,
+        origin: RenderOrigin,
+    ) -> Buffer {
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Config Buffer"),
             contents: bytemuck::bytes_of(&Config {
@@ -2430,8 +2544,8 @@ impl Programs {
                 strip_height: Tile::HEIGHT.into(),
                 alphas_tex_width_bits: alpha_texture_width.trailing_zeros(),
                 encoded_paints_tex_width_bits: alpha_texture_width.trailing_zeros(),
-                strip_offset_x: 0,
-                strip_offset_y: 0,
+                strip_offset_x: -i32::from(origin.x),
+                strip_offset_y: -i32::from(origin.y),
                 negate_ndc: 0,
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
@@ -2710,6 +2824,7 @@ impl Programs {
         encoded_paints: &[GpuEncodedPaint],
         alphas: &mut Vec<u8>,
         new_render_size: &RenderSize,
+        origin: RenderOrigin,
         paint_idxs: &[u32],
         filter_context: &FilterContext,
     ) {
@@ -2717,7 +2832,7 @@ impl Programs {
         self.maybe_resize_alphas_tex(device, max_texture_dimension_2d, alphas.len());
         self.maybe_resize_encoded_paints_tex(device, max_texture_dimension_2d, paint_idxs);
         self.maybe_resize_filter_tex(device, max_texture_dimension_2d, filter_context);
-        self.maybe_update_config_buffer(device, queue, max_texture_dimension_2d, new_render_size);
+        self.maybe_update_config_buffer(device, max_texture_dimension_2d, new_render_size, origin);
 
         self.upload_alpha_texture(queue, alphas);
         self.upload_encoded_paints_texture(queue, encoded_paints);
@@ -2813,7 +2928,12 @@ impl Programs {
         }
     }
 
-    /// Update the encoded paints texture size if needed.
+    /// Create encoded paint metadata for the current pass.
+    ///
+    /// WGPU command buffers only execute after all scheduled layer passes have been recorded.
+    /// Layer compositing appends temporary external-texture paints at reused indices, so rewriting a
+    /// single shared encoded-paints texture would make earlier passes observe later paint metadata.
+    /// Use a fresh texture/bind group per prepare call, just like the per-pass view config buffer.
     fn maybe_resize_encoded_paints_tex(
         &mut self,
         device: &Device,
@@ -2821,38 +2941,30 @@ impl Programs {
         paint_idxs: &[u32],
     ) {
         let required_texels = paint_idxs.last().unwrap();
-        let required_encoded_paints_height = required_texels.div_ceil(max_texture_dimension_2d);
-        debug_assert!(
-            self.resources.encoded_paints_texture.width() == max_texture_dimension_2d,
-            "Encoded paints texture width must match max texture dimensions"
+        let required_encoded_paints_height =
+            required_texels.div_ceil(max_texture_dimension_2d).max(1);
+        assert!(
+            required_encoded_paints_height <= max_texture_dimension_2d,
+            "Encoded paints texture height exceeds max texture dimensions"
         );
-        let current_encoded_paints_height = self.resources.encoded_paints_texture.height();
-        if required_encoded_paints_height > current_encoded_paints_height {
-            assert!(
-                required_encoded_paints_height <= max_texture_dimension_2d,
-                "Encoded paints texture height exceeds max texture dimensions"
-            );
-            let required_encoded_paints_size =
-                (max_texture_dimension_2d * required_encoded_paints_height) << 4;
-            self.encoded_paints_data
-                .resize(required_encoded_paints_size as usize, 0);
-            let encoded_paints_texture = Self::create_encoded_paints_texture(
-                device,
-                max_texture_dimension_2d,
-                required_encoded_paints_height,
-            );
-            self.resources.encoded_paints_texture = encoded_paints_texture;
+        let required_encoded_paints_size =
+            (max_texture_dimension_2d * required_encoded_paints_height) << 4;
+        self.encoded_paints_data
+            .resize(required_encoded_paints_size as usize, 0);
 
-            // Since the encoded paints texture has changed, we need to update the strip bind groups.
-            self.resources.encoded_paints_bind_group = Self::create_encoded_paints_bind_group(
-                device,
-                &self.encoded_paints_bind_group_layout,
-                &self
-                    .resources
-                    .encoded_paints_texture
-                    .create_view(&TextureViewDescriptor::default()),
-            );
-        }
+        self.resources.encoded_paints_texture = Self::create_encoded_paints_texture(
+            device,
+            max_texture_dimension_2d,
+            required_encoded_paints_height,
+        );
+        self.resources.encoded_paints_bind_group = Self::create_encoded_paints_bind_group(
+            device,
+            &self.encoded_paints_bind_group_layout,
+            &self
+                .resources
+                .encoded_paints_texture
+                .create_view(&TextureViewDescriptor::default()),
+        );
     }
 
     /// Update the gradient texture size if needed.
@@ -2897,26 +3009,30 @@ impl Programs {
     fn maybe_update_config_buffer(
         &mut self,
         device: &Device,
-        queue: &Queue,
         max_texture_dimension_2d: u32,
         new_render_size: &RenderSize,
+        origin: RenderOrigin,
     ) {
-        if self.render_size != *new_render_size {
-            let config = Config {
-                width: new_render_size.width,
-                height: new_render_size.height,
-                strip_height: Tile::HEIGHT.into(),
-                alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
-                encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
-                strip_offset_x: 0,
-                strip_offset_y: 0,
-                negate_ndc: 0,
-            };
-            let mut buffer = queue
-                .write_buffer_with(&self.resources.view_config_buffer, 0, SIZE_OF_CONFIG)
-                .expect("Buffer only ever holds `Config`");
-            buffer.copy_from_slice(bytemuck::bytes_of(&config));
+        let view_config_buffer = Self::create_config_buffer_with_origin(
+            device,
+            new_render_size,
+            max_texture_dimension_2d,
+            origin,
+        );
+        self.resources.view_config_buffer = view_config_buffer;
+        self.resources.slot_bind_groups = Self::create_strip_bind_groups(
+            device,
+            &self.strip_bind_group_layout,
+            &self
+                .resources
+                .alphas_texture
+                .create_view(&TextureViewDescriptor::default()),
+            &self.resources.slot_config_buffer,
+            &self.resources.view_config_buffer,
+            &self.resources.slot_texture_views,
+        );
 
+        if self.render_size != *new_render_size {
             self.depth_texture =
                 Self::create_depth_texture(device, new_render_size.width, new_render_size.height);
             self.depth_texture_view = self
