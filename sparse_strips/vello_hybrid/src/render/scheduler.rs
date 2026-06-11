@@ -4,7 +4,8 @@
 //! Shared layer scheduling for GPU render backends.
 
 use crate::{
-    RenderError,
+    RenderError, RenderSize,
+    direct::RenderOrigin,
     scene::{
         FastPathRect, FastStripCommand, FastStripsPath, RecordedCommand, RecordedLayer,
         RecordedLayerId, Scene,
@@ -20,6 +21,9 @@ use vello_common::{
     peniko::color::palette::css::WHITE,
     peniko::{self, Compose},
 };
+
+/// Pseudo layer index used when the scene root must be rendered offscreen first.
+pub(crate) const ROOT_LAYER_IDX: usize = usize::MAX;
 
 /// A backend-owned render target for a scheduled layer.
 pub(crate) trait ScheduledLayerTarget {
@@ -65,6 +69,120 @@ pub(crate) enum ScheduledLayerOp {
     Draw(Vec<FastStripCommand>),
     /// Composite a previously rendered child layer into the current target.
     CompositeLayer(RecordedLayerId),
+}
+
+/// Draw commands materialized from scheduled batches.
+pub(crate) enum DrawCommands<'a> {
+    /// The scheduler already has a contiguous draw batch.
+    Borrowed(&'a [FastStripCommand]),
+    /// Multiple draw batches had to be joined.
+    Owned(Vec<FastStripCommand>),
+}
+
+impl<'a> DrawCommands<'a> {
+    /// Return the commands as a slice.
+    #[inline]
+    pub(crate) fn as_slice(&self) -> &[FastStripCommand] {
+        match self {
+            Self::Borrowed(commands) => commands,
+            Self::Owned(commands) => commands,
+        }
+    }
+}
+
+pub(crate) fn flatten_draw_batches(batches: &[ScheduledLayerOp]) -> DrawCommands<'_> {
+    debug_assert!(
+        batches
+            .iter()
+            .all(|batch| matches!(batch, ScheduledLayerOp::Draw(_))),
+        "layer composites require offscreen batch execution"
+    );
+
+    match batches {
+        [] => DrawCommands::Borrowed(&[]),
+        [ScheduledLayerOp::Draw(commands)] => DrawCommands::Borrowed(commands),
+        _ => {
+            let mut commands = Vec::new();
+            for batch in batches {
+                if let ScheduledLayerOp::Draw(batch_commands) = batch {
+                    commands.extend(batch_commands.iter().cloned());
+                }
+            }
+            DrawCommands::Owned(commands)
+        }
+    }
+}
+
+/// Whether a root needs an offscreen layer target before being copied to the final target.
+#[inline]
+pub(crate) fn root_needs_offscreen_layer(batches: &[ScheduledLayerOp]) -> bool {
+    batches
+        .iter()
+        .any(|batch| matches!(batch, ScheduledLayerOp::CompositeLayer(_)))
+}
+
+/// Command that samples an offscreen-rendered scene root into the final target.
+pub(crate) fn root_sample_command(
+    target: &impl ScheduledLayerTarget,
+    root_render_size: &RenderSize,
+    encoded_paints: &mut Vec<EncodedPaint>,
+) -> FastStripCommand {
+    let paint_idx = encoded_paints.len();
+    encoded_paints.push(layer_encoded_paint(
+        target,
+        1.0,
+        RectU16::new(0, 0, target.width(), target.height()),
+        Affine::IDENTITY,
+    ));
+
+    FastStripCommand::Rect(FastPathRect {
+        x0: 0.0,
+        y0: 0.0,
+        x1: root_render_size.width as f32,
+        y1: root_render_size.height as f32,
+        paint: Paint::Indexed(IndexedPaint::new(paint_idx)),
+    })
+}
+
+/// Origin and dimensions for the target used to render a recorded layer.
+pub(crate) fn layer_target_origin_and_size(
+    scene: &Scene,
+    layer_idx: usize,
+    root_render_size: &RenderSize,
+) -> (RenderOrigin, RenderSize) {
+    if layer_idx == ROOT_LAYER_IDX {
+        return (RenderOrigin::default(), root_render_size.clone());
+    }
+
+    let bbox = scene.layers()[layer_idx].bbox;
+    (
+        RenderOrigin {
+            x: bbox.x0,
+            y: bbox.y0,
+        },
+        RenderSize {
+            width: u32::from(bbox.width()).max(1),
+            height: u32::from(bbox.height()).max(1),
+        },
+    )
+}
+
+/// Whether a child layer can be sampled directly into the parent render target.
+#[inline]
+pub(crate) fn layer_can_be_sampled_directly(layer: &RecordedLayer) -> bool {
+    layer.blend_mode == peniko::BlendMode::default()
+}
+
+/// Scissor rectangle used when compositing an isolated layer with the blend shader.
+pub(crate) fn layer_blend_scissor(
+    layer: &RecordedLayer,
+    parent_origin: RenderOrigin,
+) -> Option<RectU16> {
+    layer.clip.as_ref().map(|_| {
+        layer
+            .output_bbox
+            .relative_to_origin((parent_origin.x, parent_origin.y))
+    })
 }
 
 /// Region to cover when sampling a rendered layer.
@@ -178,6 +296,30 @@ impl<'a> LayerScheduler<'a> {
 #[inline]
 fn layer_texture_id(layer_idx: usize) -> TextureId {
     TextureId(u64::MAX - layer_idx as u64)
+}
+
+#[inline]
+pub(crate) fn root_texture_id() -> TextureId {
+    TextureId(u64::MAX / 2)
+}
+
+#[inline]
+pub(crate) fn filter_scratch_texture_id(layer_idx: usize, scratch_idx: usize) -> TextureId {
+    TextureId((u64::MAX / 5).saturating_sub((layer_idx * 2 + scratch_idx) as u64))
+}
+
+#[inline]
+pub(crate) fn backdrop_texture_id(parent_idx: usize, layer_idx: usize) -> TextureId {
+    TextureId(
+        (u64::MAX / 4)
+            .wrapping_sub((parent_idx as u64).wrapping_mul(4096))
+            .wrapping_sub(layer_idx as u64),
+    )
+}
+
+#[inline]
+pub(crate) fn aligned_layer_source_texture_id(layer_idx: usize) -> TextureId {
+    TextureId(u64::MAX / 3 - layer_idx as u64)
 }
 
 pub(crate) fn layer_is_empty(layer: &RecordedLayer) -> bool {

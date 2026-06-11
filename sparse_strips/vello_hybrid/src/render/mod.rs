@@ -9,6 +9,7 @@
 //! - `webgl` contains a WebGL2 backend specifically for `wasm32` if the `webgl` feature is active.
 
 pub(crate) mod common;
+mod layer_filter;
 #[cfg(feature = "probe")]
 mod probe;
 mod scheduler;

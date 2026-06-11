@@ -4217,6 +4217,7 @@ dependencies = [
  "png",
  "pollster",
  "roxmltree 0.20.0",
+ "smallvec",
  "thiserror 2.0.18",
  "vello_common",
  "vello_sparse_shaders",
