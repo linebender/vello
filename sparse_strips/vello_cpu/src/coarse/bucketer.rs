@@ -293,7 +293,10 @@ impl CommandBucketer {
         let bbox = props
             .clip_path
             .as_ref()
-            .map(|clip| clip.bbox.intersect(parent_bbox))
+            .map(|clip| {
+                let clip_bbox = clip.bbox.relative_to_origin(self.viewport_origin());
+                clip_bbox.intersect(parent_bbox)
+            })
             .unwrap_or(parent_bbox);
 
         // Once again, this need to be snapped because fine rasterization assumes tile-alignment.

@@ -1645,6 +1645,19 @@ fn filter_with_inner_clip(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
+#[vello_test(skip_multithreaded)]
+fn filter_with_inner_clip_shifted(ctx: &mut impl Renderer) {
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
+    let clip = Rect::new(25.0, 25.0, 75.0, 75.0).to_path(0.1);
+
+    ctx.push_filter_layer(filter);
+    ctx.push_clip_layer(&clip);
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(25.0, 25.0, 75.0, 75.0));
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
 // TODO: Re-enable hybrid once proper edge handling is implemented in Vello hybrid.
 #[vello_test(
     skip_multithreaded,
