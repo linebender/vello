@@ -10,7 +10,7 @@ use std::io::BufWriter;
 use vello_common::kurbo::{Affine, Stroke};
 use vello_common::pico_svg::{Item, PicoSvg};
 use vello_common::pixmap::Pixmap;
-use vello_hybrid::{DimensionConstraints, Resources, Scene};
+use vello_hybrid::{Resources, Scene};
 
 /// Main entry point for the headless rendering example.
 /// Takes two command line arguments:
@@ -30,13 +30,8 @@ async fn run() {
     let render_scale = 5.0;
     let parsed = PicoSvg::load(&svg, 1.0).expect("error parsing SVG");
 
-    let constraints = DimensionConstraints::default();
-    let svg_width = parsed.size.width * render_scale;
-    let svg_height = parsed.size.height * render_scale;
-    let (width, height) = constraints.calculate_dimensions(svg_width, svg_height);
-
-    let width = DimensionConstraints::convert_dimension(width);
-    let height = DimensionConstraints::convert_dimension(height);
+    let width = scene_dimension(parsed.size.width * render_scale);
+    let height = scene_dimension(parsed.size.height * render_scale);
 
     let mut scene = Scene::new(width, height);
     render_svg(&mut scene, &parsed.items, Affine::scale(render_scale));
@@ -169,6 +164,14 @@ async fn run() {
     writer
         .write_image_data(bytemuck::cast_slice(&pixmap.take_unpremultiplied()))
         .unwrap();
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "The dimension is clamped to fit in u16 before casting."
+)]
+fn scene_dimension(value: f64) -> u16 {
+    value.ceil().clamp(1.0, f64::from(u16::MAX)) as u16
 }
 
 fn render_svg(ctx: &mut Scene, items: &[Item], transform: Affine) {

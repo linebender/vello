@@ -55,7 +55,7 @@ mod scene;
 #[cfg(feature = "text")]
 mod text;
 
-pub mod util;
+pub(crate) mod util;
 
 #[cfg(feature = "wgpu")]
 pub use render::{AtlasWriter, RenderTargetConfig, Renderer, TextureBindings};
@@ -71,7 +71,6 @@ pub use sampling::SampleRect;
 pub use scene::{RenderSettings, Scene};
 #[cfg(feature = "text")]
 pub use text::{GlyphRunBuilder, HybridGlyphRunBackend};
-pub use util::DimensionConstraints;
 pub use vello_common::TextureId;
 pub use vello_common::multi_atlas::{AllocationStrategy, AtlasConfig, AtlasId};
 pub use vello_common::pixmap::Pixmap;

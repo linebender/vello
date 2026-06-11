@@ -129,7 +129,7 @@ impl RecordedRoot {
 /// A recorded layer.
 #[allow(
     dead_code,
-    reason = "Opacity layer metadata is currently consumed by the GPU backends."
+    reason = "Layer metadata is currently consumed by the GPU backends."
 )]
 #[derive(Debug)]
 pub(crate) struct RecordedLayer {
@@ -137,6 +137,8 @@ pub(crate) struct RecordedLayer {
     pub(crate) root_id: RootId,
     /// Nesting depth. The root has depth 0; direct child layers have depth 1.
     pub(crate) depth: usize,
+    /// Blend mode used when compositing the layer into its parent.
+    pub(crate) blend_mode: BlendMode,
     /// Opacity applied when compositing the layer into its parent.
     pub(crate) opacity: f32,
     /// Clip path applied when compositing the layer into its parent.
@@ -198,7 +200,7 @@ pub struct Scene {
     filter: Option<Filter>,
     /// Recorded roots. Root `0` is the final scene root.
     pub(crate) roots: Vec<RecordedRoot>,
-    /// Recorded opacity layers.
+    /// Recorded layers.
     pub(crate) layers: Vec<RecordedLayer>,
     active_root_id: RootId,
     layer_stack: Vec<LayerStackEntry>,
@@ -655,9 +657,6 @@ impl Scene {
         if filter.is_some() {
             panic!("vello_hybrid filter layers are temporarily unsupported");
         }
-        if blend_mode.is_some_and(|mode| mode != BlendMode::default()) {
-            panic!("vello_hybrid blend layers are temporarily unsupported");
-        }
 
         let clip = clip_path.map(|clip_path| {
             let existing_clip = self.clip_context.get();
@@ -685,6 +684,7 @@ impl Scene {
             LayerClip { strips, bbox }
         });
 
+        let blend_mode = blend_mode.unwrap_or_default();
         let opacity = opacity.unwrap_or(1.0);
         let parent_root_id = self.active_root_id;
         let root_id = RootId(self.roots.len());
@@ -694,6 +694,7 @@ impl Scene {
         self.layers.push(RecordedLayer {
             root_id,
             depth,
+            blend_mode,
             opacity,
             clip,
         });
@@ -741,7 +742,7 @@ impl Scene {
     pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
         if blend_mode != BlendMode::default() {
             panic!(
-                "vello_hybrid non-default blend modes are temporarily unsupported in the fast-strips-only path"
+                "vello_hybrid non-default draw blend modes are temporarily unsupported; use blend layers instead"
             );
         }
         self.render_state.blend_mode = blend_mode;
@@ -828,7 +829,7 @@ impl Scene {
 
     fn assert_no_filter(&self) {
         if self.filter.is_some() {
-            panic!("vello_hybrid filters are temporarily unsupported in the fast-strips-only path");
+            panic!("vello_hybrid draw filters are temporarily unsupported");
         }
     }
 

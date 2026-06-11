@@ -36,7 +36,9 @@ use crate::{
             normalize_atlas_config, pack_image_offset, pack_image_params, pack_image_size,
             pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode, pack_tint,
         },
-        scheduler::{LayerScheduleRenderer, LayerScheduler, ScheduledLayerTarget},
+        scheduler::{
+            LayerScheduleRenderer, LayerScheduler, ScheduledLayerOp, ScheduledLayerTarget,
+        },
     },
     scene::{FastStripCommand, RecordedLayer, Scene},
 };
@@ -120,6 +122,8 @@ struct WebGlLayerSchedule<'a, 'b> {
     scene: &'b Scene,
     image_cache: &'a mut ImageCache,
     root_render_size: &'b RenderSize,
+    root_target: DirectTarget,
+    root_clear: bool,
     layer_render_size: RenderSize,
 }
 
@@ -134,10 +138,12 @@ impl LayerScheduleRenderer<LayerTarget> for WebGlLayerSchedule<'_, '_> {
         _layer_idx: usize,
         _layer: &RecordedLayer,
         target: &LayerTarget,
-        commands: &[FastStripCommand],
-        encoded_paints: &[EncodedPaint],
+        batches: &[ScheduledLayerOp],
+        encoded_paints: &mut Vec<EncodedPaint>,
         rendered_targets: &[Option<LayerTarget>],
     ) -> Result<(), RenderError> {
+        let commands =
+            commands_from_webgl_batches(self.scene, batches, encoded_paints, rendered_targets);
         let layer_texture_bindings = self.renderer.texture_bindings_with_layers(rendered_targets);
         let previous_framebuffer = self
             .renderer
@@ -147,7 +153,7 @@ impl LayerScheduleRenderer<LayerTarget> for WebGlLayerSchedule<'_, '_> {
             .replace(target.framebuffer.clone());
         let result = self.renderer.render_scene(
             self.scene,
-            commands,
+            &commands,
             self.image_cache,
             &self.layer_render_size,
             encoded_paints,
@@ -161,22 +167,63 @@ impl LayerScheduleRenderer<LayerTarget> for WebGlLayerSchedule<'_, '_> {
 
     fn render_root(
         &mut self,
-        commands: &[FastStripCommand],
-        encoded_paints: &[EncodedPaint],
+        batches: &[ScheduledLayerOp],
+        encoded_paints: &mut Vec<EncodedPaint>,
         rendered_targets: &[Option<LayerTarget>],
     ) -> Result<(), RenderError> {
+        let commands =
+            commands_from_webgl_batches(self.scene, batches, encoded_paints, rendered_targets);
         let root_texture_bindings = self.renderer.texture_bindings_with_layers(rendered_targets);
         self.renderer.render_scene(
             self.scene,
-            commands,
+            &commands,
             self.image_cache,
             self.root_render_size,
             encoded_paints,
-            true,
-            DirectTarget::UserSurface,
+            self.root_clear,
+            self.root_target,
             &root_texture_bindings,
         )
     }
+}
+
+fn commands_from_webgl_batches(
+    scene: &Scene,
+    batches: &[ScheduledLayerOp],
+    encoded_paints: &mut Vec<EncodedPaint>,
+    rendered_targets: &[Option<LayerTarget>],
+) -> Vec<FastStripCommand> {
+    let mut commands = Vec::new();
+    for batch in batches {
+        match batch {
+            ScheduledLayerOp::Draw(batch_commands) => {
+                commands.extend(batch_commands.iter().cloned());
+            }
+            ScheduledLayerOp::CompositeLayer(layer_id) => {
+                let layer = &scene.layers()[layer_id.as_usize()];
+                if layer.blend_mode == peniko::BlendMode::default() {
+                    let target = rendered_targets[layer_id.as_usize()]
+                        .as_ref()
+                        .expect("child layer must be rendered before its parent");
+                    if let Some(command) = crate::render::scheduler::layer_sample_command(
+                        scene,
+                        layer,
+                        target,
+                        layer.opacity,
+                        encoded_paints,
+                    ) {
+                        commands.push(command);
+                    }
+                } else {
+                    panic!(
+                        "vello_hybrid WebGL blend layer {} is temporarily unsupported",
+                        layer_id.as_usize()
+                    );
+                }
+            }
+        }
+    }
+    commands
 }
 
 /// Vello Hybrid's WebGL2 Renderer.
@@ -471,6 +518,8 @@ impl WebGlRenderer {
             render_size,
             &mut encoded_paints,
             scene_paint_count,
+            DirectTarget::UserSurface,
+            true,
         )?;
         encoded_paints.truncate(scene_paint_count);
         drop(encoded_paints);
@@ -550,19 +599,18 @@ impl WebGlRenderer {
             .dummy_image_cache
             .take()
             .expect("dummy image cache must exist");
-        let encoded_paints = scene.encoded_paints.borrow();
-        let commands = scene.root(scene.root_id()).direct_commands_without_layers();
-        let texture_bindings = HashMap::new();
-        let result = self.render_scene(
+        let mut encoded_paints = scene.encoded_paints.borrow_mut();
+        let scene_paint_count = encoded_paints.len();
+        let result = self.render_scene_with_layers(
             scene,
-            &commands,
             &mut dummy_image_cache,
             &atlas_render_size,
-            &encoded_paints,
-            false,
+            &mut encoded_paints,
+            scene_paint_count,
             DirectTarget::AtlasLayer,
-            &texture_bindings,
+            false,
         );
+        encoded_paints.truncate(scene_paint_count);
         self.dummy_image_cache = Some(dummy_image_cache);
 
         // Restore the real atlas texture array.
@@ -724,6 +772,8 @@ impl WebGlRenderer {
         render_size: &RenderSize,
         encoded_paints: &mut Vec<EncodedPaint>,
         scene_paint_count: usize,
+        root_target: DirectTarget,
+        root_clear: bool,
     ) -> Result<(), RenderError> {
         let scheduler = LayerScheduler::new(scene, scene_paint_count);
         let layer_render_size = scheduler.layer_render_size();
@@ -732,6 +782,8 @@ impl WebGlRenderer {
             scene,
             image_cache,
             root_render_size: render_size,
+            root_target,
+            root_clear,
             layer_render_size,
         };
         let layer_targets = scheduler.render(encoded_paints, &mut schedule);

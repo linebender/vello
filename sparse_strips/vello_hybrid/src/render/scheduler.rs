@@ -7,7 +7,8 @@ use crate::{
     RenderError,
     render::RenderSize,
     scene::{
-        FastPathRect, FastStripCommand, FastStripsPath, RecordedCommand, RecordedLayer, Scene,
+        FastPathRect, FastStripCommand, FastStripsPath, RecordedCommand, RecordedLayer,
+        RecordedLayerId, Scene,
     },
 };
 use alloc::vec::Vec;
@@ -38,18 +39,27 @@ pub(crate) trait LayerScheduleRenderer<T: ScheduledLayerTarget> {
         layer_idx: usize,
         layer: &RecordedLayer,
         target: &T,
-        commands: &[FastStripCommand],
-        encoded_paints: &[EncodedPaint],
+        batches: &[ScheduledLayerOp],
+        encoded_paints: &mut Vec<EncodedPaint>,
         rendered_targets: &[Option<T>],
     ) -> Result<(), RenderError>;
 
     /// Render the scene root after all descendant layers have been rendered.
     fn render_root(
         &mut self,
-        commands: &[FastStripCommand],
-        encoded_paints: &[EncodedPaint],
+        batches: &[ScheduledLayerOp],
+        encoded_paints: &mut Vec<EncodedPaint>,
         rendered_targets: &[Option<T>],
     ) -> Result<(), RenderError>;
+}
+
+/// Scheduled work for a recorded root, preserving layer ordering boundaries.
+#[derive(Debug)]
+pub(crate) enum ScheduledLayerOp {
+    /// Draw commands that can be rendered directly in one pass.
+    Draw(Vec<FastStripCommand>),
+    /// Composite a previously rendered child layer into the current target.
+    CompositeLayer(RecordedLayerId),
 }
 
 /// Schedules recorded roots/layers and materializes draw-only command streams.
@@ -101,16 +111,13 @@ impl<'a> LayerScheduler<'a> {
                 }
 
                 let target = renderer.create_layer_target(layer_idx, layer_texture_id(layer_idx));
-                let commands = self.materialize_root_commands(
-                    self.scene.root(layer.root_id),
-                    &layer_targets,
-                    encoded_paints,
-                );
+                let batches =
+                    self.materialize_root_batches(self.scene.root(layer.root_id), &layer_targets);
                 renderer.render_layer(
                     layer_idx,
                     layer,
                     &target,
-                    &commands,
+                    &batches,
                     encoded_paints,
                     &layer_targets,
                 )?;
@@ -119,62 +126,46 @@ impl<'a> LayerScheduler<'a> {
             }
         }
 
-        let commands = self.materialize_root_commands(
-            self.scene.root(self.scene.root_id()),
-            &layer_targets,
-            encoded_paints,
-        );
-        let result = renderer.render_root(&commands, encoded_paints, &layer_targets);
+        let batches =
+            self.materialize_root_batches(self.scene.root(self.scene.root_id()), &layer_targets);
+        let result = renderer.render_root(&batches, encoded_paints, &layer_targets);
         encoded_paints.truncate(self.scene_paint_count);
         result.map(|()| layer_targets)
     }
 
-    fn materialize_root_commands<T: ScheduledLayerTarget>(
+    fn materialize_root_batches<T: ScheduledLayerTarget>(
         &self,
         root: &crate::scene::RecordedRoot,
         layer_targets: &[Option<T>],
-        encoded_paints: &mut Vec<EncodedPaint>,
-    ) -> Vec<FastStripCommand> {
+    ) -> Vec<ScheduledLayerOp> {
+        let mut batches = Vec::new();
         let mut commands = Vec::with_capacity(root.commands.len());
         for command in &root.commands {
             match command {
                 RecordedCommand::Layer(layer_id) => {
                     let layer = &self.scene.layers()[layer_id.as_usize()];
-                    let target = layer_targets[layer_id.as_usize()]
-                        .as_ref()
-                        .expect("child layer must be rendered before its parent");
-                    if layer
-                        .clip
-                        .as_ref()
-                        .is_some_and(|clip| clip.bbox.is_empty() || clip.strips.is_empty())
-                    {
+                    assert!(
+                        layer_targets[layer_id.as_usize()].is_some(),
+                        "child layer must be rendered before its parent"
+                    );
+                    if layer_is_empty(layer) {
                         continue;
                     }
 
-                    let paint_idx = encoded_paints.len();
-                    encoded_paints.push(layer_encoded_paint(self.scene, target, layer.opacity));
-                    let paint = Paint::Indexed(IndexedPaint::new(paint_idx));
-                    if let Some(clip) = &layer.clip {
-                        commands.push(FastStripCommand::Path(FastStripsPath {
-                            strips: clip.strips.clone(),
-                            paint,
-                        }));
-                    } else {
-                        commands.push(FastStripCommand::Rect(FastPathRect {
-                            x0: 0.0,
-                            y0: 0.0,
-                            x1: f32::from(self.scene.width),
-                            y1: f32::from(self.scene.height),
-                            paint,
-                        }));
+                    if !commands.is_empty() {
+                        batches.push(ScheduledLayerOp::Draw(core::mem::take(&mut commands)));
                     }
+                    batches.push(ScheduledLayerOp::CompositeLayer(*layer_id));
                 }
                 RecordedCommand::Draw(command) => {
                     commands.push(command.clone());
                 }
             }
         }
-        commands
+        if !commands.is_empty() {
+            batches.push(ScheduledLayerOp::Draw(commands));
+        }
+        batches
     }
 }
 
@@ -183,7 +174,44 @@ fn layer_texture_id(layer_idx: usize) -> TextureId {
     TextureId(u64::MAX - layer_idx as u64)
 }
 
-fn layer_encoded_paint(
+pub(crate) fn layer_is_empty(layer: &RecordedLayer) -> bool {
+    layer
+        .clip
+        .as_ref()
+        .is_some_and(|clip| clip.bbox.is_empty() || clip.strips.is_empty())
+}
+
+pub(crate) fn layer_sample_command(
+    scene: &Scene,
+    layer: &RecordedLayer,
+    target: &impl ScheduledLayerTarget,
+    opacity: f32,
+    encoded_paints: &mut Vec<EncodedPaint>,
+) -> Option<FastStripCommand> {
+    if layer_is_empty(layer) {
+        return None;
+    }
+
+    let paint_idx = encoded_paints.len();
+    encoded_paints.push(layer_encoded_paint(scene, target, opacity));
+    let paint = Paint::Indexed(IndexedPaint::new(paint_idx));
+    Some(if let Some(clip) = &layer.clip {
+        FastStripCommand::Path(FastStripsPath {
+            strips: clip.strips.clone(),
+            paint,
+        })
+    } else {
+        FastStripCommand::Rect(FastPathRect {
+            x0: 0.0,
+            y0: 0.0,
+            x1: f32::from(scene.width),
+            y1: f32::from(scene.height),
+            paint,
+        })
+    })
+}
+
+pub(crate) fn layer_encoded_paint(
     scene: &Scene,
     target: &impl ScheduledLayerTarget,
     opacity: f32,
