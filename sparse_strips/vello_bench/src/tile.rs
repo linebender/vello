@@ -24,7 +24,7 @@ where
 
         g.bench_with_input(BenchmarkId::from_parameter(&item.name), &item, |b, item| {
             b.iter(|| {
-                let mut tiler = Tiles::new(Level::new(), item.height);
+                let mut tiler = Tiles::new(Level::new(), item.width, item.height);
                 op(&mut tiler, &lines, item.width, item.height);
             });
         });
