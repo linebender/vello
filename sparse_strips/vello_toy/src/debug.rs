@@ -33,7 +33,7 @@ fn main() {
         Document::new().set("viewBox", (-10, -10, args.width + 20, args.height + 20));
 
     let mut line_buf = vec![];
-    let mut tiles = Tiles::new(Level::new(), args.height);
+    let mut tiles = Tiles::new(Level::new(), args.width, args.height);
     let mut strip_buf = vec![];
     let mut alpha_buf = vec![];
     let mut wide = Wide::<MODE_CPU>::new(args.width, args.height);

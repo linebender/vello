@@ -681,9 +681,17 @@ impl RenderContext {
         self.filter = None;
     }
 
+    /// Reset the render context and update the scene size.
+    pub fn reset_and_resize(&mut self, width: u16, height: u16) {
+        self.width = width;
+        self.height = height;
+
+        self.reset();
+    }
+
     /// Reset the render context.
     pub fn reset(&mut self) {
-        self.dispatcher.reset();
+        self.dispatcher.reset(self.width, self.height);
         self.encoded_paints.clear();
         self.mask = None;
         self.root_transforms.clear();
@@ -1065,6 +1073,28 @@ mod tests {
                     transparent_pixel()
                 };
                 assert_eq!(pixmap.sample(x, y), expected, "pixel at ({x}, {y})");
+            }
+        }
+    }
+
+    #[test]
+    fn reset_and_resize_updates_scene_size() {
+        let mut ctx = RenderContext::new(8, 4);
+        let mut resources = Resources::new();
+        let mut pixmap = Pixmap::new(4, 8);
+
+        ctx.reset_and_resize(4, 8);
+        assert_eq!(ctx.width(), 4);
+        assert_eq!(ctx.height(), 8);
+
+        ctx.set_paint(BLUE);
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 8.0));
+        ctx.flush();
+        ctx.render(&mut pixmap, &mut resources);
+
+        for y in 0..8 {
+            for x in 0..4 {
+                assert_eq!(pixmap.sample(x, y), blue_pixel(), "pixel at ({x}, {y})");
             }
         }
     }

@@ -87,7 +87,7 @@ pub fn render_strips_cull(c: &mut Criterion) {
 
         let shifted_lines = shift_lines_50_percent(&item.lines());
 
-        let mut tiler = Tiles::new(simd_level, item.height);
+        let mut tiler = Tiles::new(simd_level, item.width, item.height);
         tiler.make_tiles_analytic_aa(simd_level, &shifted_lines, item.width, item.height);
         tiler.sort_tiles();
 
@@ -139,7 +139,7 @@ pub fn render_rect(c: &mut Criterion) {
                 &mut storage,
                 None,
             );
-            generator.reset();
+            generator.reset(width, height);
             std::hint::black_box(&storage);
         });
     });
@@ -152,7 +152,7 @@ pub fn render_rect(c: &mut Criterion) {
         b.iter(|| {
             storage.clear();
             generator.generate_filled_rect_fast(&rect, &mut storage, None);
-            generator.reset();
+            generator.reset(width, height);
             std::hint::black_box(&storage);
         });
     });
