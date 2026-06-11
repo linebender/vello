@@ -534,11 +534,12 @@ impl Renderer for HybridRenderer {
         // Testing with `cargo nextest` (as on CI) is not meaningfully slowed down. `nextest` runs
         // each test in its own process (<https://nexte.st/docs/design/why-process-per-test/>),
         // meaning there is no contention on this mutex.
-        let _guard = {
-            use std::sync::Mutex;
-            static M: Mutex<()> = Mutex::new(());
-            M.lock().unwrap()
-        };
+        // TODO: Re-add!!
+        // let _guard = {
+        //     use std::sync::Mutex;
+        //     static M: Mutex<()> = Mutex::new(());
+        //     M.lock().unwrap()
+        // };
 
         let width = self.scene.width();
         let height = self.scene.height();
