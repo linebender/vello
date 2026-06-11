@@ -18,12 +18,13 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow, bail};
 use clap::Parser;
 use scenes::{ImageCache, SceneParams, SceneSet, SimpleText};
+use vello::graph::{Canvas, Gallery, OutputSize, PaintingDescriptor, Vello};
 use vello::kurbo::{Affine, Vec2};
 use vello::peniko::color::palette;
 use vello::util::RenderContext;
 use vello::wgpu::{
     self, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, TexelCopyBufferInfo,
-    TextureDescriptor, TextureFormat, TextureUsages,
+    TextureUsages,
 };
 use vello::{RendererOptions, Scene, util::block_on_wgpu};
 
@@ -96,16 +97,16 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     let device_handle = &mut context.devices[device_id];
     let device = &device_handle.device;
     let queue = &device_handle.queue;
-    let mut renderer = vello::Renderer::new(
-        device,
+    let mut vello = Vello::new(
+        device.clone(),
         RendererOptions {
             use_cpu: args.use_cpu,
             num_init_threads: NonZeroUsize::new(1),
             antialiasing_support: vello::AaSupport::area_only(),
             ..Default::default()
         },
-    )
-    .or_else(|_| bail!("Got non-Send/Sync error from creating renderer"))?;
+    )?;
+    let mut gallery = Gallery::new(device.clone(), "Main Thread");
     let mut fragment = Scene::new();
     let example_scene = &mut scenes.scenes[index];
     let mut text = SimpleText::new();
@@ -143,7 +144,10 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
             (Some(x), Some(y)) => (x, y),
         }
     };
-    let render_params = vello::RenderParams {
+
+    let (sub_scene_width, sub_scene_height) = (width / 2, height / 2);
+    let _render_params = vello::RenderParams {
+        // TODO: Pass in base_color somewhere
         base_color: args
             .args
             .base_color
@@ -154,26 +158,49 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
         antialiasing_method: vello::AaConfig::Area,
     };
     let mut scene = Scene::new();
-    scene.append(&fragment, Some(transform));
-    let size = Extent3d {
-        width,
-        height,
-        depth_or_array_layers: 1,
-    };
-    let target = device.create_texture(&TextureDescriptor {
-        label: Some("Target texture"),
-        size,
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: TextureFormat::Rgba8Unorm,
-        usage: TextureUsages::STORAGE_BINDING | TextureUsages::COPY_SRC,
-        view_formats: &[],
+    scene.append(&fragment, Some(transform.then_scale(0.5)));
+
+    let inner_scene = gallery.create_painting(PaintingDescriptor {
+        label: "ExampleScene".into(),
+        usages: TextureUsages::STORAGE_BINDING
+            | TextureUsages::TEXTURE_BINDING
+            | TextureUsages::COPY_SRC,
     });
-    let view = target.create_view(&wgpu::TextureViewDescriptor::default());
-    renderer
-        .render_to_texture(device, queue, &scene, &view, &render_params)
-        .or_else(|_| bail!("Got non-Send/Sync error from rendering"))?;
+    inner_scene.paint_scene(
+        scene.into(),
+        OutputSize {
+            width: sub_scene_width,
+            height: sub_scene_height,
+        },
+    );
+
+    let blurred = gallery.create_painting(PaintingDescriptor {
+        label: "Blurred Result".into(),
+        usages: TextureUsages::STORAGE_BINDING | TextureUsages::COPY_SRC,
+    });
+    blurred.paint_blur(inner_scene.clone());
+    let painting = gallery.create_painting(PaintingDescriptor {
+        label: "Main Scene".into(),
+        usages: TextureUsages::STORAGE_BINDING | TextureUsages::COPY_SRC,
+    });
+
+    let mut canvas = Canvas::new();
+    canvas.draw_painting(
+        inner_scene.clone(),
+        sub_scene_width.try_into().unwrap(),
+        sub_scene_height.try_into().unwrap(),
+        Affine::IDENTITY,
+    );
+    canvas.draw_painting(
+        blurred,
+        sub_scene_width.try_into().unwrap(),
+        sub_scene_height.try_into().unwrap(),
+        Affine::translate((0., height as f64 / 2.)),
+    );
+    painting.paint_scene(canvas, OutputSize { width, height });
+    let render_details = vello.prepare_render(painting, &mut gallery);
+
+    let target = vello.render_to_texture(device, queue, render_details);
     let padded_byte_width = (width * 4).next_multiple_of(256);
     let buffer_size = padded_byte_width as u64 * height as u64;
     let buffer = device.create_buffer(&BufferDescriptor {
@@ -185,6 +212,12 @@ async fn render(mut scenes: SceneSet, index: usize, args: &Args) -> Result<()> {
     let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
         label: Some("Copy out buffer"),
     });
+
+    let size = Extent3d {
+        width,
+        height,
+        depth_or_array_layers: 1,
+    };
     encoder.copy_texture_to_buffer(
         target.as_image_copy(),
         TexelCopyBufferInfo {
