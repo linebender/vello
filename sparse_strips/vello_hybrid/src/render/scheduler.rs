@@ -11,7 +11,7 @@ use crate::{
         RecordedLayerId, Scene,
     },
 };
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 use vello_common::{
     TextureId,
     encode::{EncodedExternalTexture, EncodedPaint},
@@ -220,6 +220,7 @@ impl<'a> LayerScheduler<'a> {
         R: LayerScheduleRenderer<T>,
     {
         let mut layer_targets: Vec<Option<T>> = self.scene.layers().iter().map(|_| None).collect();
+        let visible_layers = self.visible_layers();
         let max_depth = self
             .scene
             .layers()
@@ -230,13 +231,16 @@ impl<'a> LayerScheduler<'a> {
 
         for depth in (1..=max_depth).rev() {
             for (layer_idx, layer) in self.scene.layers().iter().enumerate() {
-                if layer.depth != depth {
+                if layer.depth != depth || !visible_layers[layer_idx] {
                     continue;
                 }
 
                 let target = renderer.create_layer_target(layer_idx, layer_texture_id(layer_idx));
-                let batches =
-                    self.materialize_root_batches(self.scene.root(layer.root_id), &layer_targets);
+                let batches = self.materialize_root_batches(
+                    self.scene.root(layer.root_id),
+                    &layer_targets,
+                    &visible_layers,
+                );
                 let target = renderer.render_layer(
                     layer_idx,
                     layer,
@@ -250,17 +254,50 @@ impl<'a> LayerScheduler<'a> {
             }
         }
 
-        let batches =
-            self.materialize_root_batches(self.scene.root(self.scene.root_id()), &layer_targets);
+        let batches = self.materialize_root_batches(
+            self.scene.root(self.scene.root_id()),
+            &layer_targets,
+            &visible_layers,
+        );
         let result = renderer.render_root(&batches, encoded_paints, &layer_targets);
         encoded_paints.truncate(self.scene_paint_count);
         result.map(|()| layer_targets)
+    }
+
+    fn visible_layers(&self) -> Vec<bool> {
+        let mut visible = vec![false; self.scene.layers().len()];
+        let root_viewport = RectU16::new(0, 0, self.scene.width, self.scene.height);
+        self.mark_visible_layers(self.scene.root_id(), root_viewport, &mut visible);
+        visible
+    }
+
+    fn mark_visible_layers(
+        &self,
+        root_id: crate::scene::RootId,
+        viewport: RectU16,
+        visible: &mut [bool],
+    ) {
+        for command in &self.scene.root(root_id).commands {
+            let RecordedCommand::Layer(layer_id) = command else {
+                continue;
+            };
+
+            let layer_idx = layer_id.as_usize();
+            let layer = &self.scene.layers()[layer_idx];
+            if layer_is_empty(layer) || layer.output_bbox.intersect(viewport).is_empty() {
+                continue;
+            }
+
+            visible[layer_idx] = true;
+            self.mark_visible_layers(layer.root_id, layer.bbox, visible);
+        }
     }
 
     fn materialize_root_batches<T: ScheduledLayerTarget>(
         &self,
         root: &crate::scene::RecordedRoot,
         layer_targets: &[Option<T>],
+        visible_layers: &[bool],
     ) -> Vec<ScheduledLayerOp> {
         let mut batches = Vec::new();
         let mut commands = Vec::with_capacity(root.commands.len());
@@ -268,13 +305,13 @@ impl<'a> LayerScheduler<'a> {
             match command {
                 RecordedCommand::Layer(layer_id) => {
                     let layer = &self.scene.layers()[layer_id.as_usize()];
+                    if !visible_layers[layer_id.as_usize()] || layer_is_empty(layer) {
+                        continue;
+                    }
                     assert!(
                         layer_targets[layer_id.as_usize()].is_some(),
                         "child layer must be rendered before its parent"
                     );
-                    if layer_is_empty(layer) {
-                        continue;
-                    }
 
                     if !commands.is_empty() {
                         batches.push(ScheduledLayerOp::Draw(core::mem::take(&mut commands)));
