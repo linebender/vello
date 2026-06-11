@@ -332,6 +332,7 @@ impl WgpuLayerSchedule<'_, '_> {
         }
 
         Renderer::clear_view(self.encoder, &target.view);
+        self.renderer.record_render_pass();
         for batch in batches {
             match batch {
                 ScheduledLayerOp::Draw(commands) => {
@@ -626,6 +627,7 @@ impl WgpuLayerSchedule<'_, '_> {
             instance_offset,
             &instance,
         );
+        self.renderer.record_render_pass();
         let programs = &self.renderer.programs;
 
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
@@ -677,6 +679,8 @@ pub struct Renderer {
     filter_context: FilterContext,
     /// State used for constructing filter passes.
     filter_pass_state: FilterPassState,
+    /// Diagnostic count of render passes issued for the current scene render.
+    render_pass_count: usize,
     dummy_image_cache: Option<ImageCache>,
     #[cfg(feature = "text")]
     atlas_clear_scratch: Vec<u8>,
@@ -740,10 +744,26 @@ impl Renderer {
             paint_idxs: Vec::new(),
             filter_context,
             filter_pass_state: FilterPassState::default(),
+            render_pass_count: 0,
             dummy_image_cache: Some(ImageCache::new_dummy()),
             #[cfg(feature = "text")]
             atlas_clear_scratch: Vec::new(),
         }
+    }
+
+    #[inline]
+    fn reset_render_pass_count(&mut self) {
+        self.render_pass_count = 0;
+    }
+
+    #[inline]
+    fn record_render_pass(&mut self) {
+        self.render_pass_count += 1;
+    }
+
+    fn print_render_pass_count(&self) {
+        #[cfg(feature = "std")]
+        std::eprintln!("vello_hybrid render passes: {}", self.render_pass_count);
     }
 
     fn prepare_filter_textures(
@@ -754,6 +774,7 @@ impl Renderer {
     ) {
         // TODO: Maybe we can do the clear implicitly when using the textures for the first time.
         if !self.filter_context.filter_textures.is_empty() {
+            self.render_pass_count += self.programs.resources.filter_atlas.views.len();
             for view in &self.programs.resources.filter_atlas.views {
                 let _pass = encoder.begin_render_pass(&RenderPassDescriptor {
                     label: Some("Clear Filter Atlas Texture"),
@@ -844,6 +865,7 @@ impl Renderer {
         let mut encoded_paints = scene.encoded_paints.borrow_mut();
         let scene_paint_count = encoded_paints.len();
 
+        self.reset_render_pass_count();
         self.prepare_filter_textures(device, encoder, &mut resources.image_cache);
 
         let result = self.render_scene_with_layers(
@@ -866,6 +888,7 @@ impl Renderer {
         resources.after_render(self, |renderer, rect| {
             clear_atlas_region(queue, renderer, rect);
         });
+        self.print_render_pass_count();
         result
     }
 
@@ -1145,6 +1168,7 @@ impl Renderer {
             .programs
             .create_layer_blend_texture_bind_group(device, &backdrop.view);
 
+        self.record_render_pass();
         let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("Layer Blend Pass"),
             color_attachments: &[Some(RenderPassColorAttachment {
@@ -1231,6 +1255,7 @@ impl Renderer {
 
         if clear {
             Self::clear_view(encoder, view);
+            self.record_render_pass();
         }
         let target_x_limit = origin
             .x
@@ -1259,6 +1284,7 @@ impl Renderer {
             filter_pass_state: &mut self.filter_pass_state,
             texture_bindings,
             external_paint_source_bind_groups: HashMap::new(),
+            render_pass_count: &mut self.render_pass_count,
         };
         ctx.do_strip_render_pass(
             strips.opaque(),
@@ -3573,6 +3599,7 @@ struct RendererContext<'a> {
     filter_pass_state: &'a mut FilterPassState,
     texture_bindings: &'a TextureBindings,
     external_paint_source_bind_groups: HashMap<TextureId, BindGroup>,
+    render_pass_count: &'a mut usize,
 }
 
 impl RendererContext<'_> {
@@ -3651,6 +3678,7 @@ impl RendererContext<'_> {
             None
         };
 
+        *self.render_pass_count += 1;
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("Render to Texture Pass"),
             color_attachments: &[Some(RenderPassColorAttachment {

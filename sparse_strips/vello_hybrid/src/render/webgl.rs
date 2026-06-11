@@ -543,6 +543,8 @@ pub struct WebGlRenderer {
     filter_context: FilterContext,
     /// State used for constructing filter passes.
     filter_pass_state: FilterPassState,
+    /// Diagnostic count of render-pass-like units issued for the current scene render.
+    render_pass_count: usize,
     dummy_image_cache: Option<ImageCache>,
 }
 
@@ -768,8 +770,24 @@ impl WebGlRenderer {
             gradient_cache,
             filter_context,
             filter_pass_state: FilterPassState::default(),
+            render_pass_count: 0,
             dummy_image_cache: Some(ImageCache::new_dummy()),
         }
+    }
+
+    #[inline]
+    fn reset_render_pass_count(&mut self) {
+        self.render_pass_count = 0;
+    }
+
+    #[inline]
+    fn record_render_pass(&mut self) {
+        self.render_pass_count += 1;
+    }
+
+    fn print_render_pass_count(&self) {
+        #[cfg(feature = "std")]
+        std::eprintln!("vello_hybrid render passes: {}", self.render_pass_count);
     }
 
     /// Render `scene` using WebGL2
@@ -812,7 +830,8 @@ impl WebGlRenderer {
 
         let mut encoded_paints = scene.encoded_paints.borrow_mut();
         let scene_paint_count = encoded_paints.len();
-        self.render_scene_with_layers(
+        self.reset_render_pass_count();
+        let result = self.render_scene_with_layers(
             scene,
             &mut resources.image_cache,
             render_size,
@@ -820,18 +839,21 @@ impl WebGlRenderer {
             scene_paint_count,
             DirectTarget::UserSurface,
             true,
-        )?;
+        );
         encoded_paints.truncate(scene_paint_count);
         drop(encoded_paints);
 
         #[cfg(feature = "text")]
-        {
+        if result.is_ok() {
             resources.after_render(self, |renderer, rect| {
                 clear_atlas_region(renderer, rect);
             });
         }
 
-        Ok(())
+        if result.is_ok() {
+            self.print_render_pass_count();
+        }
+        result
     }
 
     /// Render a `scene` directly into an atlas layer.
@@ -1153,6 +1175,7 @@ impl WebGlRenderer {
     }
 
     fn clear_layer_target(&mut self, target: &LayerTarget) {
+        self.record_render_pass();
         let previous_framebuffer = self
             .programs
             .resources
@@ -1198,6 +1221,7 @@ impl WebGlRenderer {
         opacity: f32,
         scissor_bbox: Option<RectU16>,
     ) {
+        self.record_render_pass();
         self.gl.disable(WebGl2RenderingContext::BLEND);
         self.gl
             .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&dst.framebuffer));
@@ -1292,6 +1316,7 @@ impl WebGlRenderer {
         src_size: (u16, u16),
         dst_size: (u16, u16),
     ) {
+        self.record_render_pass();
         set_linear_texture_sampling(&self.gl, &input.texture);
 
         let instance = FilterInstanceData {
@@ -1382,6 +1407,7 @@ impl WebGlRenderer {
         texture_bindings: &HashMap<TextureId, WebGlTexture>,
     ) -> Result<(), RenderError> {
         if !self.filter_context.filter_textures.is_empty() {
+            self.render_pass_count += self.programs.resources.filter_atlas_framebuffers.len();
             self.programs.clear_filter_atlas_textures(&self.gl);
         }
 
@@ -1412,6 +1438,7 @@ impl WebGlRenderer {
         );
 
         if clear {
+            self.record_render_pass();
             self.programs.clear_view_framebuffer(&self.gl);
         }
         self.programs.resources.depth_cleared_this_frame = false;
@@ -1438,6 +1465,7 @@ impl WebGlRenderer {
             filter_context: &self.filter_context,
             filter_pass_state: &mut self.filter_pass_state,
             texture_bindings,
+            render_pass_count: &mut self.render_pass_count,
         };
         ctx.do_strip_render_pass(
             strips.opaque(),
@@ -3516,6 +3544,7 @@ struct WebGlRendererContext<'a> {
     filter_context: &'a FilterContext,
     filter_pass_state: &'a mut FilterPassState,
     texture_bindings: &'a HashMap<TextureId, WebGlTexture>,
+    render_pass_count: &'a mut usize,
 }
 
 impl WebGlRendererContext<'_> {
@@ -3532,6 +3561,7 @@ impl WebGlRendererContext<'_> {
             return;
         }
 
+        *self.render_pass_count += 1;
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
             self.programs.resources.view_framebuffer_override.as_ref(),

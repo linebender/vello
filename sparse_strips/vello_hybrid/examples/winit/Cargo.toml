@@ -13,6 +13,6 @@ workspace = true
 winit = { workspace = true }
 wgpu = { workspace = true, default-features = true }
 vello_common = { workspace = true }
-vello_hybrid = { workspace = true }
+vello_hybrid = { workspace = true, features = ["std"] }
 vello_example_scenes = { workspace = true }
 pollster = { workspace = true }
