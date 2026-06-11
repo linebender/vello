@@ -93,13 +93,21 @@ impl DirectStrips {
         encoded_paints: &[EncodedPaint],
     ) -> Self {
         let commands = root.direct_commands_without_layers();
-        Self::from_commands(scene, &commands, target, paint_idxs, encoded_paints)
+        Self::from_commands(
+            scene,
+            &commands,
+            target,
+            scene.width,
+            paint_idxs,
+            encoded_paints,
+        )
     }
 
     pub(crate) fn from_commands(
         scene: &Scene,
         commands: &[FastStripCommand],
         target: DirectTarget,
+        target_x_limit: u16,
         paint_idxs: &[u32],
         encoded_paints: &[EncodedPaint],
     ) -> Self {
@@ -117,11 +125,11 @@ impl DirectStrips {
                     generate_gpu_strips_for_path(
                         path,
                         &strip_storage,
-                        scene,
                         encoded_paints,
                         paint_idxs,
                         depth_index,
                         is_depth_opaque,
+                        target_x_limit,
                         &mut strips,
                     );
                 }
@@ -371,11 +379,11 @@ impl GpuStripBuilder {
 fn generate_gpu_strips_for_path(
     path: &FastStripsPath,
     strip_storage: &StripStorage,
-    scene: &Scene,
     encoded_paints: &[EncodedPaint],
     paint_idxs: &[u32],
     depth_index: u32,
     is_opaque: bool,
+    target_x_limit: u16,
     strips_out: &mut DirectStrips,
 ) {
     let strips = &strip_storage.strips[path.strips.clone()];
@@ -387,7 +395,7 @@ fn generate_gpu_strips_for_path(
     for pair in strips.windows(2) {
         let strip = &pair[0];
 
-        if strip.x >= scene.width {
+        if strip.x >= target_x_limit {
             continue;
         }
 
@@ -412,7 +420,7 @@ fn generate_gpu_strips_for_path(
         // Solid fill for the gap to the next strip.
         if next_strip.fill_gap() && strip.strip_y() == next_strip.strip_y() {
             let x1 = x0.saturating_add(strip_width);
-            let x2 = next_strip.x.min(scene.width);
+            let x2 = next_strip.x.min(target_x_limit);
             if x2 > x1 {
                 let processed = process_paint(&path.paint, encoded_paints, (x1, y), paint_idxs);
                 let strip = GpuStripBuilder::at_surface(x1, y, x2 - x1).paint(

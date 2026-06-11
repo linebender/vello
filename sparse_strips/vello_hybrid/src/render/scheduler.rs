@@ -43,11 +43,11 @@ pub(crate) trait LayerScheduleRenderer<T: ScheduledLayerTarget> {
         &mut self,
         layer_idx: usize,
         layer: &RecordedLayer,
-        target: &T,
+        target: T,
         batches: &[ScheduledLayerOp],
         encoded_paints: &mut Vec<EncodedPaint>,
         rendered_targets: &[Option<T>],
-    ) -> Result<(), RenderError>;
+    ) -> Result<T, RenderError>;
 
     /// Render the scene root after all descendant layers have been rendered.
     fn render_root(
@@ -119,10 +119,10 @@ impl<'a> LayerScheduler<'a> {
                 let target = renderer.create_layer_target(layer_idx, layer_texture_id(layer_idx));
                 let batches =
                     self.materialize_root_batches(self.scene.root(layer.root_id), &layer_targets);
-                renderer.render_layer(
+                let target = renderer.render_layer(
                     layer_idx,
                     layer,
-                    &target,
+                    target,
                     &batches,
                     encoded_paints,
                     &layer_targets,
@@ -208,13 +208,21 @@ pub(crate) fn layer_sample_command(
     }
 
     let paint_idx = encoded_paints.len();
-    let bbox = layer.bbox;
     let sample_bbox = match extent {
         LayerSampleExtent::Output => layer.output_bbox,
+        LayerSampleExtent::Content if layer.filter.is_some() => layer.output_bbox,
         LayerSampleExtent::Content => layer.bbox,
     };
     let source_region = RectU16::new(0, 0, target.width(), target.height());
-    let transform = Affine::translate((-(f64::from(bbox.x0)), -(f64::from(bbox.y0))));
+    let transform = if layer.filter.is_some() {
+        let placement = layer.filter_placement;
+        Affine::translate((
+            f64::from(placement.src_x) - f64::from(placement.composite_bbox.x0),
+            f64::from(placement.src_y) - f64::from(placement.composite_bbox.y0),
+        ))
+    } else {
+        Affine::translate((-(f64::from(layer.bbox.x0)), -(f64::from(layer.bbox.y0))))
+    };
     encoded_paints.push(layer_encoded_paint(
         target,
         opacity,
@@ -225,10 +233,10 @@ pub(crate) fn layer_sample_command(
     Some(
         if let Some(clip) = &layer.clip
             && matches!(extent, LayerSampleExtent::Output)
-            && !contains_rect(clip.bbox, bbox)
         {
             FastStripCommand::Path(FastStripsPath {
                 strips: clip.strips.clone(),
+                bbox: clip.bbox,
                 paint,
             })
         } else {
@@ -241,11 +249,6 @@ pub(crate) fn layer_sample_command(
             })
         },
     )
-}
-
-#[inline]
-fn contains_rect(outer: RectU16, inner: RectU16) -> bool {
-    outer.x0 <= inner.x0 && outer.y0 <= inner.y0 && outer.x1 >= inner.x1 && outer.y1 >= inner.y1
 }
 
 pub(crate) fn layer_encoded_paint(

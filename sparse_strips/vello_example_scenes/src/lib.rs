@@ -494,14 +494,14 @@ where
         blurred_rounded_rect::BlurredRoundedRectScene::new(),
     ));
     scenes.push(AnyScene::new(clip::ClipScene::new()));
-    // scenes.push(AnyScene::new(filter::FilterScene::new()));
+    scenes.push(AnyScene::new(filter::FilterScene::new()));
     scenes.push(AnyScene::new(blend::BlendScene::new()));
     let flower_source = img_sources[0].clone();
     scenes.push(AnyScene::new(image::ImageScene::new(img_sources)));
     scenes.push(AnyScene::new(multi_image::MultiImageScene::new(
         flower_source,
     )));
-    // scenes.push(AnyScene::new(filter_elements::FilterElementsScene::new()));
+    scenes.push(AnyScene::new(filter_elements::FilterElementsScene::new()));
     scenes.push(AnyScene::new(gradient::GradientExtendScene::new()));
     scenes.push(AnyScene::new(gradient::RadialScene::new()));
     scenes.push(AnyScene::new(path::FillTypesScene::new()));

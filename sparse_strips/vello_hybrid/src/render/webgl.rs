@@ -150,12 +150,15 @@ impl LayerScheduleRenderer<LayerTarget> for WebGlLayerSchedule<'_, '_> {
     fn render_layer(
         &mut self,
         _layer_idx: usize,
-        _layer: &RecordedLayer,
-        target: &LayerTarget,
+        layer: &RecordedLayer,
+        target: LayerTarget,
         batches: &[ScheduledLayerOp],
         encoded_paints: &mut Vec<EncodedPaint>,
         rendered_targets: &[Option<LayerTarget>],
-    ) -> Result<(), RenderError> {
+    ) -> Result<LayerTarget, RenderError> {
+        if layer.filter.is_some() {
+            panic!("vello_hybrid WebGL filter layers are temporarily unsupported");
+        }
         let commands =
             commands_from_webgl_batches(self.scene, batches, encoded_paints, rendered_targets);
         let layer_texture_bindings = self.renderer.texture_bindings_with_layers(rendered_targets);
@@ -165,7 +168,7 @@ impl LayerScheduleRenderer<LayerTarget> for WebGlLayerSchedule<'_, '_> {
             .resources
             .view_framebuffer_override
             .replace(target.framebuffer.clone());
-        let result = self.renderer.render_scene(
+        self.renderer.render_scene(
             self.scene,
             &commands,
             self.image_cache,
@@ -178,9 +181,9 @@ impl LayerScheduleRenderer<LayerTarget> for WebGlLayerSchedule<'_, '_> {
             DirectTarget::AtlasLayer,
             target.origin,
             &layer_texture_bindings,
-        );
+        )?;
         self.renderer.programs.resources.view_framebuffer_override = previous_framebuffer;
-        result
+        Ok(target)
     }
 
     fn render_root(
@@ -913,8 +916,17 @@ impl WebGlRenderer {
             self.programs.clear_view_framebuffer(&self.gl);
         }
         self.programs.resources.depth_cleared_this_frame = false;
-        let strips =
-            DirectStrips::from_commands(scene, commands, target, &self.paint_idxs, encoded_paints);
+        let target_x_limit = origin
+            .x
+            .saturating_add(render_size.width.try_into().unwrap_or(u16::MAX));
+        let strips = DirectStrips::from_commands(
+            scene,
+            commands,
+            target,
+            target_x_limit,
+            &self.paint_idxs,
+            encoded_paints,
+        );
         if strips.is_empty() {
             self.gradient_cache.maintain();
             return Ok(());

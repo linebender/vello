@@ -19,10 +19,14 @@ only break in edge cases, and some of them are also only related to conversions 
 )]
 
 use crate::render::common::IMAGE_PADDING;
+use crate::util::{IntRect, IntSize};
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
     direct::{DirectStrips, DirectTarget, ExternalTextureRun, RenderOrigin},
-    filter::{FilterContext, FilterInstanceData, FilterPassState, FilterPassTarget},
+    filter::{
+        FilterContext, FilterInstanceData, FilterPassState, FilterPassTarget, GpuFilterData,
+        filter_type, pass_kind,
+    },
     gradient_cache::GradientRampCache,
     render::{
         Config,
@@ -48,6 +52,8 @@ use core::fmt::Debug;
 #[cfg(feature = "text")]
 use glifo::PendingClearRect;
 use hashbrown::{HashMap, hash_map::Entry};
+use vello_common::filter::PreparedFilter;
+use vello_common::filter::gaussian_blur::DecimationSizer;
 use vello_common::image_cache::{ImageCache, ImageResource};
 use vello_common::multi_atlas::{AtlasConfig, AtlasId};
 use vello_common::render_graph::LayerId;
@@ -196,13 +202,23 @@ impl LayerScheduleRenderer<LayerTarget> for WgpuLayerSchedule<'_, '_> {
     fn render_layer(
         &mut self,
         layer_idx: usize,
-        _layer: &RecordedLayer,
-        target: &LayerTarget,
+        layer: &RecordedLayer,
+        target: LayerTarget,
         batches: &[ScheduledLayerOp],
         encoded_paints: &mut Vec<EncodedPaint>,
         rendered_targets: &[Option<LayerTarget>],
-    ) -> Result<(), RenderError> {
-        self.render_batches_to_layer(layer_idx, target, batches, encoded_paints, rendered_targets)
+    ) -> Result<LayerTarget, RenderError> {
+        self.render_batches_to_layer(
+            layer_idx,
+            &target,
+            batches,
+            encoded_paints,
+            rendered_targets,
+        )?;
+        if layer.filter.is_some() {
+            return self.apply_filter_to_layer(layer_idx, layer, target);
+        }
+        Ok(target)
     }
 
     fn render_root(
@@ -506,6 +522,340 @@ impl WgpuLayerSchedule<'_, '_> {
         )?;
         Ok(aligned_source)
     }
+
+    fn apply_filter_to_layer(
+        &mut self,
+        layer_idx: usize,
+        layer: &RecordedLayer,
+        source: LayerTarget,
+    ) -> Result<LayerTarget, RenderError> {
+        let filter_data = layer
+            .filter
+            .as_ref()
+            .expect("filter target requested for a non-filter layer");
+        let prepared = PreparedFilter::new(&filter_data.filter, &filter_data.transform);
+        let gpu_filter = GpuFilterData::from(&prepared);
+        let filter_base_bind_group = self.create_filter_data_bind_group(gpu_filter);
+        let final_target = self.renderer.create_layer_target(
+            self.device,
+            layer_idx,
+            source.texture_id,
+            source.render_size.clone(),
+            source.origin,
+        );
+        let size = (source.width(), source.height());
+
+        if !gpu_filter.is_multi_pass() {
+            let pass = match gpu_filter.filter_type() {
+                filter_type::OFFSET => pass_kind::OFFSET,
+                filter_type::FLOOD => pass_kind::FLOOD,
+                _ => unimplemented!("unsupported single-pass filter"),
+            };
+            self.run_filter_pass(
+                &source,
+                &final_target,
+                &source,
+                &filter_base_bind_group,
+                pass,
+                size,
+                size,
+            );
+            return Ok(final_target);
+        }
+
+        let scratch_0 = self.renderer.create_layer_target(
+            self.device,
+            layer_idx,
+            filter_scratch_texture_id(layer_idx, 0),
+            source.render_size.clone(),
+            source.origin,
+        );
+        let scratch_1 = self.renderer.create_layer_target(
+            self.device,
+            layer_idx,
+            filter_scratch_texture_id(layer_idx, 1),
+            source.render_size.clone(),
+            source.origin,
+        );
+        let mut current = FilterPassSource::Source;
+        let mut toggle = 0_usize;
+        let mut sizer = DecimationSizer::default();
+        sizer.reset(source.width(), source.height());
+
+        if gpu_filter.filter_type() == filter_type::DROP_SHADOW {
+            let current_size = sizer.current();
+            let output = Self::next_filter_scratch(&mut toggle);
+            self.run_scheduled_filter_pass(
+                current,
+                output,
+                &source,
+                &scratch_0,
+                &scratch_1,
+                &final_target,
+                &filter_base_bind_group,
+                pass_kind::OFFSET,
+                current_size,
+                current_size,
+            );
+            current = output;
+        }
+
+        let n_decimations = gpu_filter.n_decimations();
+        for _ in 0..n_decimations {
+            let src_size = sizer.current();
+            let dst_size = sizer.downscale();
+            let output = Self::next_filter_scratch(&mut toggle);
+            self.run_scheduled_filter_pass(
+                current,
+                output,
+                &source,
+                &scratch_0,
+                &scratch_1,
+                &final_target,
+                &filter_base_bind_group,
+                pass_kind::DOWNSCALE,
+                src_size,
+                dst_size,
+            );
+            current = output;
+        }
+
+        let current_size = sizer.current();
+        let output = Self::next_filter_scratch(&mut toggle);
+        self.run_scheduled_filter_pass(
+            current,
+            output,
+            &source,
+            &scratch_0,
+            &scratch_1,
+            &final_target,
+            &filter_base_bind_group,
+            pass_kind::BLUR_H,
+            current_size,
+            current_size,
+        );
+        current = output;
+
+        let is_drop_shadow = gpu_filter.filter_type() == filter_type::DROP_SHADOW;
+        let mut final_pass = pass_kind::BLUR_V;
+        if n_decimations > 0 {
+            let current_size = sizer.current();
+            let output = Self::next_filter_scratch(&mut toggle);
+            self.run_scheduled_filter_pass(
+                current,
+                output,
+                &source,
+                &scratch_0,
+                &scratch_1,
+                &final_target,
+                &filter_base_bind_group,
+                pass_kind::BLUR_V,
+                current_size,
+                current_size,
+            );
+            current = output;
+
+            for _ in 0..n_decimations - 1 {
+                let src_size = sizer.current();
+                let dst_size = sizer.upscale();
+                let output = Self::next_filter_scratch(&mut toggle);
+                self.run_scheduled_filter_pass(
+                    current,
+                    output,
+                    &source,
+                    &scratch_0,
+                    &scratch_1,
+                    &final_target,
+                    &filter_base_bind_group,
+                    pass_kind::UPSCALE,
+                    src_size,
+                    dst_size,
+                );
+                current = output;
+            }
+
+            final_pass = pass_kind::UPSCALE;
+        }
+
+        let src_size = sizer.current();
+        let dst_size = if n_decimations > 0 {
+            sizer.upscale()
+        } else {
+            src_size
+        };
+        let output = if is_drop_shadow {
+            Self::next_filter_scratch(&mut toggle)
+        } else {
+            FilterPassSource::Final
+        };
+        self.run_scheduled_filter_pass(
+            current,
+            output,
+            &source,
+            &scratch_0,
+            &scratch_1,
+            &final_target,
+            &filter_base_bind_group,
+            final_pass,
+            src_size,
+            dst_size,
+        );
+        current = output;
+
+        if is_drop_shadow {
+            self.run_scheduled_filter_pass(
+                current,
+                FilterPassSource::Final,
+                &source,
+                &scratch_0,
+                &scratch_1,
+                &final_target,
+                &filter_base_bind_group,
+                pass_kind::COMPOSITE_DROP_SHADOW,
+                dst_size,
+                dst_size,
+            );
+        }
+
+        Ok(final_target)
+    }
+
+    fn next_filter_scratch(toggle: &mut usize) -> FilterPassSource {
+        let output = match *toggle {
+            0 => FilterPassSource::Scratch0,
+            _ => FilterPassSource::Scratch1,
+        };
+        *toggle = (*toggle + 1) % 2;
+        output
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn run_scheduled_filter_pass(
+        &mut self,
+        input: FilterPassSource,
+        output: FilterPassSource,
+        source: &LayerTarget,
+        scratch_0: &LayerTarget,
+        scratch_1: &LayerTarget,
+        final_target: &LayerTarget,
+        filter_base_bind_group: &BindGroup,
+        pass_kind: u32,
+        src_size: (u16, u16),
+        dst_size: (u16, u16),
+    ) {
+        let input = filter_pass_target(input, source, scratch_0, scratch_1, final_target);
+        let output = filter_pass_target(output, source, scratch_0, scratch_1, final_target);
+        self.run_filter_pass(
+            input,
+            output,
+            source,
+            filter_base_bind_group,
+            pass_kind,
+            src_size,
+            dst_size,
+        );
+    }
+
+    fn create_filter_data_bind_group(&self, gpu_filter: GpuFilterData) -> BindGroup {
+        let texture =
+            Programs::create_filter_data_texture(self.device, GpuFilterData::SIZE_TEXELS, 1);
+        let data = [gpu_filter];
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            bytemuck::cast_slice(&data),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(GpuFilterData::SIZE_TEXELS * 16),
+                rows_per_image: Some(1),
+            },
+            Extent3d {
+                width: GpuFilterData::SIZE_TEXELS,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+        Programs::create_filter_base_bind_group(
+            self.device,
+            &self.renderer.programs.filter_bind_group_layout,
+            &texture.create_view(&TextureViewDescriptor::default()),
+        )
+    }
+
+    fn run_filter_pass(
+        &mut self,
+        input: &LayerTarget,
+        output: &LayerTarget,
+        original: &LayerTarget,
+        filter_base_bind_group: &BindGroup,
+        pass_kind: u32,
+        src_size: (u16, u16),
+        dst_size: (u16, u16),
+    ) {
+        let programs = &self.renderer.programs;
+        let input_bind_group = create_filter_input_bind_group(
+            self.device,
+            &programs.filter_input_bind_group_layouts[0],
+            &programs.resources.filter_atlas.sampler,
+            &input.view,
+        );
+        let original_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Layer Filter Original Bind Group"),
+            layout: &programs.filter_input_bind_group_layouts[1],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&original.view),
+            }],
+        });
+        let instance = FilterInstanceData {
+            src: IntRect::new([0, 0], [u32::from(src_size.0), u32::from(src_size.1)]),
+            dest: IntRect::new([0, 0], [u32::from(dst_size.0), u32::from(dst_size.1)]),
+            dest_atlas_size: IntSize([output.render_size.width, output.render_size.height]),
+            filter_data_offset: 0,
+            original: IntRect::new(
+                [0, 0],
+                [u32::from(original.width()), u32::from(original.height())],
+            ),
+            pass_kind,
+        };
+        let instance_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Layer Filter Instance Buffer"),
+                contents: bytemuck::bytes_of(&instance),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+
+        let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("Layer Filter Pass"),
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view: &output.view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+                depth_slice: None,
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+            multiview_mask: None,
+        });
+        let [x, y, width, height] =
+            instance.scissor_rect([output.render_size.width, output.render_size.height]);
+        render_pass.set_scissor_rect(x, y, width.max(1), height.max(1));
+        render_pass.set_pipeline(&programs.filter_pipeline);
+        render_pass.set_bind_group(0, filter_base_bind_group, &[]);
+        render_pass.set_bind_group(1, &input_bind_group, &[]);
+        render_pass.set_bind_group(2, &original_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, instance_buffer.slice(..));
+        render_pass.draw(0..4, 0..1);
+    }
 }
 
 fn flatten_draw_batches(batches: &[ScheduledLayerOp]) -> Vec<FastStripCommand> {
@@ -528,6 +878,34 @@ fn flatten_draw_batches(batches: &[ScheduledLayerOp]) -> Vec<FastStripCommand> {
 #[inline]
 fn root_texture_id() -> TextureId {
     TextureId(u64::MAX / 2)
+}
+
+#[derive(Clone, Copy)]
+enum FilterPassSource {
+    Source,
+    Scratch0,
+    Scratch1,
+    Final,
+}
+
+fn filter_pass_target<'a>(
+    source: FilterPassSource,
+    initial: &'a LayerTarget,
+    scratch_0: &'a LayerTarget,
+    scratch_1: &'a LayerTarget,
+    final_target: &'a LayerTarget,
+) -> &'a LayerTarget {
+    match source {
+        FilterPassSource::Source => initial,
+        FilterPassSource::Scratch0 => scratch_0,
+        FilterPassSource::Scratch1 => scratch_1,
+        FilterPassSource::Final => final_target,
+    }
+}
+
+#[inline]
+fn filter_scratch_texture_id(layer_idx: usize, scratch_idx: usize) -> TextureId {
+    TextureId((u64::MAX / 5).saturating_sub((layer_idx * 2 + scratch_idx) as u64))
 }
 
 #[inline]
@@ -1096,8 +1474,17 @@ impl Renderer {
         if clear {
             Self::clear_view(encoder, view);
         }
-        let strips =
-            DirectStrips::from_commands(scene, commands, target, &self.paint_idxs, encoded_paints);
+        let target_x_limit = origin
+            .x
+            .saturating_add(render_size.width.try_into().unwrap_or(u16::MAX));
+        let strips = DirectStrips::from_commands(
+            scene,
+            commands,
+            target,
+            target_x_limit,
+            &self.paint_idxs,
+            encoded_paints,
+        );
         if strips.is_empty() {
             self.gradient_cache.maintain();
             return Ok(());

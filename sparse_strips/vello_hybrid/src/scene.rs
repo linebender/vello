@@ -31,7 +31,7 @@ use vello_common::render_state::RenderState;
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use vello_common::tile::Tile;
-use vello_common::util::{control_point_bbox_u16, is_axis_aligned};
+use vello_common::util::{RectExt, control_point_bbox_u16, is_axis_aligned};
 
 /// Default tolerance for curve flattening.
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
@@ -71,6 +71,8 @@ impl RecordedLayerId {
 pub(crate) struct FastStripsPath {
     /// The range of strips for this path in the `strips` buffer.
     pub(crate) strips: Range<usize>,
+    /// Coarse bounds of the path in viewport coordinates.
+    pub(crate) bbox: RectU16,
     /// The paint of the path.
     pub(crate) paint: Paint,
 }
@@ -145,6 +147,10 @@ pub(crate) struct RecordedLayer {
     pub(crate) opacity: f32,
     /// Clip path applied when compositing the layer into its parent.
     pub(crate) clip: Option<LayerClip>,
+    /// Filter applied to this layer, if any.
+    pub(crate) filter: Option<FilterData>,
+    /// Placement metadata for sampling a filtered layer back into its parent.
+    pub(crate) filter_placement: FilterLayerPlacement,
     /// Bounds of the rendered layer contents in its parent root coordinate space.
     pub(crate) bbox: RectU16,
     /// Bounds affected when the layer is composited into its parent.
@@ -164,6 +170,85 @@ pub(crate) struct LayerClip {
 struct LayerStackEntry {
     layer_id: RecordedLayerId,
     parent_root_id: RootId,
+    previous_root_transform: Affine,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FilterLayerPlacement {
+    /// Bounds of the pixmap that receives the unfiltered source and final filtered output.
+    pub(crate) pixmap_bbox: RectU16,
+    /// Bounds in the parent layer affected by compositing this filtered output.
+    pub(crate) composite_bbox: RectU16,
+    /// Source x offset used when sampling from the filtered pixmap.
+    pub(crate) src_x: u16,
+    /// Source y offset used when sampling from the filtered pixmap.
+    pub(crate) src_y: u16,
+}
+
+impl FilterLayerPlacement {
+    pub(crate) const EMPTY: Self = Self {
+        pixmap_bbox: RectU16::INVERTED,
+        composite_bbox: RectU16::INVERTED,
+        src_x: 0,
+        src_y: 0,
+    };
+
+    fn new(bbox: RectU16, filter_data: &FilterData) -> Self {
+        let pixmap_bbox = bbox
+            .expand(filter_data.filter_padding)
+            .snap_to_tile_coordinates();
+        let (shift_x, shift_y) = filter_data.source_shift();
+        let src_x = shift_x.saturating_sub(pixmap_bbox.x0);
+        let src_y = shift_y.saturating_sub(pixmap_bbox.y0);
+        let composite_bbox = pixmap_bbox.relative_to_origin((shift_x, shift_y));
+
+        Self {
+            pixmap_bbox,
+            composite_bbox,
+            src_x,
+            src_y,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct FilterData {
+    pub(crate) filter: Filter,
+    /// The transform that was active when this filter layer was pushed.
+    pub(crate) transform: Affine,
+    /// Padding required by the filtered output.
+    pub(crate) filter_padding: RectU16,
+    /// Padding required by the filter source input.
+    pub(crate) source_padding: RectU16,
+}
+
+impl FilterData {
+    fn new(filter: Filter, transform: Affine) -> Self {
+        fn expansion_padding(expansion: Rect) -> RectU16 {
+            let expansion = expansion.snap_to_tile_coordinates();
+
+            RectU16::new(
+                (-expansion.x0) as u16,
+                (-expansion.y0) as u16,
+                expansion.x1 as u16,
+                expansion.y1 as u16,
+            )
+        }
+
+        let source_padding = expansion_padding(filter.source_expansion(&transform));
+        let filter_padding = expansion_padding(filter.filter_expansion(&transform));
+
+        Self {
+            filter,
+            transform,
+            filter_padding,
+            source_padding,
+        }
+    }
+
+    pub(crate) fn source_shift(&self) -> (u16, u16) {
+        (self.source_padding.x0, self.source_padding.y0)
+    }
 }
 
 #[expect(
@@ -243,6 +328,8 @@ pub struct Scene {
     pub(crate) height: u16,
     clip_context: ClipContext,
     pub(crate) render_state: RenderState,
+    root_transform: Affine,
+    level: Level,
     pub(crate) aliasing_threshold: Option<u8>,
     /// Storage for encoded non-solid paint data.
     pub(crate) encoded_paints: RefCell<Vec<EncodedPaint>>,
@@ -250,6 +337,7 @@ pub struct Scene {
     paint_visible: bool,
     /// Generator for converting paths to strips.
     pub(crate) strip_generator: StripGenerator,
+    strip_generator_stack: Vec<StripGenerator>,
     /// Storage for generated strips and alpha values.
     pub(crate) strip_storage: RefCell<StripStorage>,
     /// Current filter effect applied to individual draw operations.
@@ -275,10 +363,13 @@ impl Scene {
             height,
             clip_context: ClipContext::new(),
             render_state: RenderState::default(),
+            root_transform: Affine::IDENTITY,
+            level: settings.level,
             aliasing_threshold: None,
             encoded_paints: RefCell::new(vec![]),
             paint_visible: true,
             strip_generator: StripGenerator::new(width, height, settings.level),
+            strip_generator_stack: Vec::new(),
             strip_storage: RefCell::new(StripStorage::new(GenerationMode::Append)),
             filter: None,
             roots: vec![RecordedRoot::default()],
@@ -319,18 +410,46 @@ impl Scene {
         self.active_commands().push(RecordedCommand::Draw(command));
     }
 
+    #[inline]
+    fn effective_transform(&self) -> Affine {
+        self.root_transform * self.render_state.transform
+    }
+
+    fn push_filter_viewport(&mut self, padding: RectU16) {
+        let width = self
+            .strip_generator
+            .width()
+            .saturating_add(padding.x0)
+            .saturating_add(padding.x1);
+        let height = self
+            .strip_generator
+            .height()
+            .saturating_add(padding.y0)
+            .saturating_add(padding.y1);
+        let filter_generator = StripGenerator::new(width, height, self.level);
+        let parent_generator = core::mem::replace(&mut self.strip_generator, filter_generator);
+        self.strip_generator_stack.push(parent_generator);
+    }
+
+    fn pop_filter_viewport(&mut self) {
+        self.strip_generator = self
+            .strip_generator_stack
+            .pop()
+            .expect("filter viewport stack underflowed");
+    }
+
     /// Encode the current paint into a `Paint` that can be used for rendering.
     fn encode_current_paint(&mut self) -> Paint {
         match self.render_state.paint.clone() {
             PaintType::Solid(s) => s.into(),
             PaintType::Gradient(g) => g.encode_into(
                 &mut self.encoded_paints.borrow_mut(),
-                self.render_state.transform * self.render_state.paint_transform,
+                self.effective_transform() * self.render_state.paint_transform,
                 None,
             ),
             PaintType::Image(i) => i.encode_into(
                 &mut self.encoded_paints.borrow_mut(),
-                self.render_state.transform * self.render_state.paint_transform,
+                self.effective_transform() * self.render_state.paint_transform,
                 self.render_state.tint,
             ),
         }
@@ -372,15 +491,16 @@ impl Scene {
             return;
         }
 
-        self.assert_no_filter();
-        let paint = self.encode_current_paint();
-        self.fill_path_with(
-            path,
-            self.render_state.transform,
-            self.render_state.fill_rule,
-            paint,
-            self.aliasing_threshold,
-        );
+        self.with_optional_filter(|ctx| {
+            let paint = ctx.encode_current_paint();
+            ctx.fill_path_with(
+                path,
+                ctx.effective_transform(),
+                ctx.render_state.fill_rule,
+                paint,
+                ctx.aliasing_threshold,
+            );
+        });
     }
 
     fn fill_path_with(
@@ -405,7 +525,15 @@ impl Scene {
             strip_start..strip_storage.strips.len()
         };
 
-        self.record_draw_command(FastStripCommand::Path(FastStripsPath { strips, paint }));
+        let bbox = strip_bbox(
+            &self.strip_storage.borrow().strips[strips.clone()],
+            self.strip_generator.width(),
+        );
+        self.record_draw_command(FastStripCommand::Path(FastStripsPath {
+            strips,
+            bbox,
+            paint,
+        }));
     }
 
     /// Push a new clip path to the clip stack.
@@ -413,11 +541,12 @@ impl Scene {
     /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
     /// example for how this method differs from `push_clip_layer`.
     pub fn push_clip_path(&mut self, path: &BezPath) {
+        let transform = self.effective_transform();
         self.clip_context.push_clip(
             path,
             &mut self.strip_generator,
             self.render_state.fill_rule,
-            self.render_state.transform,
+            transform,
             self.aliasing_threshold,
         );
     }
@@ -436,14 +565,15 @@ impl Scene {
             return;
         }
 
-        self.assert_no_filter();
-        let paint = self.encode_current_paint();
-        self.stroke_path_with(
-            path,
-            self.render_state.transform,
-            paint,
-            self.aliasing_threshold,
-        );
+        self.with_optional_filter(|ctx| {
+            let paint = ctx.encode_current_paint();
+            ctx.stroke_path_with(
+                path,
+                ctx.effective_transform(),
+                paint,
+                ctx.aliasing_threshold,
+            );
+        });
     }
 
     fn stroke_path_with(
@@ -467,7 +597,15 @@ impl Scene {
             strip_start..strip_storage.strips.len()
         };
 
-        self.record_draw_command(FastStripCommand::Path(FastStripsPath { strips, paint }));
+        let bbox = strip_bbox(
+            &self.strip_storage.borrow().strips[strips.clone()],
+            self.strip_generator.width(),
+        );
+        self.record_draw_command(FastStripCommand::Path(FastStripsPath {
+            strips,
+            bbox,
+            paint,
+        }));
     }
 
     /// Set the aliasing threshold.
@@ -481,30 +619,46 @@ impl Scene {
             return;
         }
 
-        self.assert_no_filter();
-        if self.try_fast_rect(rect) {
-            return;
-        }
+        self.with_optional_filter(|ctx| {
+            if ctx.try_fast_rect(rect) {
+                return;
+            }
 
-        let transform = self.render_state.transform;
-        if is_axis_aligned(&transform) && self.aliasing_threshold.is_none() {
-            let paint = self.encode_current_paint();
-            let transformed_rect = transform.transform_rect_bbox(*rect);
-            let strips = {
-                let strip_storage = &mut self.strip_storage.borrow_mut();
-                let strip_start = strip_storage.strips.len();
-                self.strip_generator.generate_filled_rect_fast(
-                    &transformed_rect,
-                    strip_storage,
-                    self.clip_context.get(),
+            let transform = ctx.effective_transform();
+            if is_axis_aligned(&transform) && ctx.aliasing_threshold.is_none() {
+                let paint = ctx.encode_current_paint();
+                let transformed_rect = transform.transform_rect_bbox(*rect);
+                let strips = {
+                    let strip_storage = &mut ctx.strip_storage.borrow_mut();
+                    let strip_start = strip_storage.strips.len();
+                    ctx.strip_generator.generate_filled_rect_fast(
+                        &transformed_rect,
+                        strip_storage,
+                        ctx.clip_context.get(),
+                    );
+                    strip_start..strip_storage.strips.len()
+                };
+
+                let bbox = strip_bbox(
+                    &ctx.strip_storage.borrow().strips[strips.clone()],
+                    ctx.strip_generator.width(),
                 );
-                strip_start..strip_storage.strips.len()
-            };
-
-            self.record_draw_command(FastStripCommand::Path(FastStripsPath { strips, paint }));
-        } else {
-            self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
-        }
+                ctx.record_draw_command(FastStripCommand::Path(FastStripsPath {
+                    strips,
+                    bbox,
+                    paint,
+                }));
+            } else {
+                let paint = ctx.encode_current_paint();
+                ctx.fill_path_with(
+                    &rect.to_path(DEFAULT_TOLERANCE),
+                    transform,
+                    ctx.render_state.fill_rule,
+                    paint,
+                    ctx.aliasing_threshold,
+                );
+            }
+        });
     }
 
     fn try_fast_rect(&mut self, rect: &Rect) -> bool {
@@ -525,56 +679,56 @@ impl Scene {
         quality: ImageQuality,
         rects: impl IntoIterator<Item = SampleRect>,
     ) {
-        self.assert_no_filter();
+        self.with_optional_filter(|ctx| {
+            let x_extend = Extend::Pad;
+            let y_extend = Extend::Pad;
 
-        let x_extend = Extend::Pad;
-        let y_extend = Extend::Pad;
-
-        for rect in rects {
-            if rect.source_region.is_empty() {
-                continue;
-            }
-
-            let w = f64::from(rect.source_region.width());
-            let h = f64::from(rect.source_region.height());
-            let transform = self.render_state.transform * rect.transform;
-            let paint = self.encode_external_texture_paint(
-                texture_id,
-                rect.source_region,
-                quality,
-                x_extend,
-                y_extend,
-                transform,
-            );
-            let dst_rect = Rect::new(0., 0., w, h);
-
-            if is_axis_aligned(&transform)
-                && self.aliasing_threshold.is_none()
-                && self.clip_context.get().is_none()
-            {
-                let transformed_rect = transform.transform_rect_bbox(dst_rect);
-                let x0 = transformed_rect.x0.max(0.0).min(f64::from(self.width));
-                let y0 = transformed_rect.y0.max(0.0).min(f64::from(self.height));
-                let x1 = transformed_rect.x1.max(0.0).min(f64::from(self.width));
-                let y1 = transformed_rect.y1.max(0.0).min(f64::from(self.height));
-
-                // Skip mirrored or zero-sized rectangles.
-                if x1 <= x0 || y1 <= y0 {
+            for rect in rects {
+                if rect.source_region.is_empty() {
                     continue;
                 }
 
-                self.push_fast_rect(Rect::new(x0, y0, x1, y1), paint);
-                continue;
-            }
+                let w = f64::from(rect.source_region.width());
+                let h = f64::from(rect.source_region.height());
+                let transform = ctx.effective_transform() * rect.transform;
+                let paint = ctx.encode_external_texture_paint(
+                    texture_id,
+                    rect.source_region,
+                    quality,
+                    x_extend,
+                    y_extend,
+                    transform,
+                );
+                let dst_rect = Rect::new(0., 0., w, h);
 
-            self.fill_path_with(
-                &dst_rect.to_path(DEFAULT_TOLERANCE),
-                transform,
-                self.render_state.fill_rule,
-                paint,
-                self.aliasing_threshold,
-            );
-        }
+                if is_axis_aligned(&transform)
+                    && ctx.aliasing_threshold.is_none()
+                    && ctx.clip_context.get().is_none()
+                {
+                    let transformed_rect = transform.transform_rect_bbox(dst_rect);
+                    let x0 = transformed_rect.x0.max(0.0).min(f64::from(ctx.width));
+                    let y0 = transformed_rect.y0.max(0.0).min(f64::from(ctx.height));
+                    let x1 = transformed_rect.x1.max(0.0).min(f64::from(ctx.width));
+                    let y1 = transformed_rect.y1.max(0.0).min(f64::from(ctx.height));
+
+                    // Skip mirrored or zero-sized rectangles.
+                    if x1 <= x0 || y1 <= y0 {
+                        continue;
+                    }
+
+                    ctx.push_fast_rect(Rect::new(x0, y0, x1, y1), paint);
+                    continue;
+                }
+
+                ctx.fill_path_with(
+                    &dst_rect.to_path(DEFAULT_TOLERANCE),
+                    transform,
+                    ctx.render_state.fill_rule,
+                    paint,
+                    ctx.aliasing_threshold,
+                );
+            }
+        });
     }
 
     #[expect(
@@ -598,34 +752,38 @@ impl Scene {
 
         // We can't handle skewed rectangles.
         // TODO: Maybe support rotated rectangles (https://github.com/linebender/vello/pull/1482#discussion_r2881223621)
-        let transform = self.render_state.transform;
+        let transform = self.effective_transform();
         if !is_axis_aligned(&transform) {
             return None;
         }
 
         let transformed_rect = transform.transform_rect_bbox(*rect);
-
-        let x0 = transformed_rect.x0.max(0.0).min(f64::from(self.width));
-        let y0 = transformed_rect.y0.max(0.0).min(f64::from(self.height));
-        let x1 = transformed_rect.x1.max(0.0).min(f64::from(self.width));
-        let y1 = transformed_rect.y1.max(0.0).min(f64::from(self.height));
+        let bounds = if self.active_root_id == self.root_id() {
+            Rect::new(
+                transformed_rect.x0.max(0.0).min(f64::from(self.width)),
+                transformed_rect.y0.max(0.0).min(f64::from(self.height)),
+                transformed_rect.x1.max(0.0).min(f64::from(self.width)),
+                transformed_rect.y1.max(0.0).min(f64::from(self.height)),
+            )
+        } else if transformed_rect.x0 < 0.0 || transformed_rect.y0 < 0.0 {
+            return None;
+        } else {
+            transformed_rect
+        };
 
         // Can't handle mirrored or zero-sized rectangles.
-        if x1 <= x0 || y1 <= y0 {
+        if bounds.x1 <= bounds.x0 || bounds.y1 <= bounds.y0 {
             return None;
         }
 
-        Some(Rect::new(x0, y0, x1, y1))
+        Some(bounds)
     }
 
     fn root_bbox(&self, root: &RecordedRoot) -> RectU16 {
         let mut bbox = RectU16::INVERTED;
-        let strip_storage = self.strip_storage.borrow();
         for command in &root.commands {
             let command_bbox = match command {
-                RecordedCommand::Draw(FastStripCommand::Path(path)) => {
-                    strip_bbox(&strip_storage.strips[path.strips.clone()], self.width)
-                }
+                RecordedCommand::Draw(FastStripCommand::Path(path)) => path.bbox,
                 RecordedCommand::Draw(FastStripCommand::Rect(rect)) => fast_rect_bbox(rect),
                 RecordedCommand::Layer(layer_id) => self.layers[layer_id.as_usize()].output_bbox,
             };
@@ -645,54 +803,63 @@ impl Scene {
             return;
         }
 
-        self.assert_no_filter();
-        let rect = rect.abs();
-        let color = match self.render_state.paint {
-            PaintType::Solid(s) => s,
-            _ => BLACK,
-        };
-        let blurred_rect = BlurredRoundedRectangle {
-            rect,
-            color,
-            radius,
-            std_dev,
-        };
-
-        let kernel_size = 2.5 * std_dev;
-        let inflated_rect = rect.inflate(f64::from(kernel_size), f64::from(kernel_size));
-        let transform = self.render_state.transform * self.render_state.paint_transform;
-        let paint =
-            blurred_rect.encode_into(&mut self.encoded_paints.borrow_mut(), transform, None);
-
-        if let Some(bounds) = self.fast_rect_bounds(&inflated_rect) {
-            self.push_fast_rect(bounds, paint);
-            return;
-        }
-
-        let path_transform = self.render_state.transform;
-        if is_axis_aligned(&path_transform) && self.aliasing_threshold.is_none() {
-            let transformed_rect = path_transform.transform_rect_bbox(inflated_rect);
-            let strips = {
-                let strip_storage = &mut self.strip_storage.borrow_mut();
-                let strip_start = strip_storage.strips.len();
-                self.strip_generator.generate_filled_rect_fast(
-                    &transformed_rect,
-                    strip_storage,
-                    self.clip_context.get(),
-                );
-                strip_start..strip_storage.strips.len()
+        self.with_optional_filter(|ctx| {
+            let rect = rect.abs();
+            let color = match ctx.render_state.paint {
+                PaintType::Solid(s) => s,
+                _ => BLACK,
+            };
+            let blurred_rect = BlurredRoundedRectangle {
+                rect,
+                color,
+                radius,
+                std_dev,
             };
 
-            self.record_draw_command(FastStripCommand::Path(FastStripsPath { strips, paint }));
-        } else {
-            self.fill_path_with(
-                &inflated_rect.to_path(DEFAULT_TOLERANCE),
-                path_transform,
-                Fill::NonZero,
-                paint,
-                self.aliasing_threshold,
-            );
-        }
+            let kernel_size = 2.5 * std_dev;
+            let inflated_rect = rect.inflate(f64::from(kernel_size), f64::from(kernel_size));
+            let transform = ctx.effective_transform() * ctx.render_state.paint_transform;
+            let paint =
+                blurred_rect.encode_into(&mut ctx.encoded_paints.borrow_mut(), transform, None);
+
+            if let Some(bounds) = ctx.fast_rect_bounds(&inflated_rect) {
+                ctx.push_fast_rect(bounds, paint);
+                return;
+            }
+
+            let path_transform = ctx.effective_transform();
+            if is_axis_aligned(&path_transform) && ctx.aliasing_threshold.is_none() {
+                let transformed_rect = path_transform.transform_rect_bbox(inflated_rect);
+                let strips = {
+                    let strip_storage = &mut ctx.strip_storage.borrow_mut();
+                    let strip_start = strip_storage.strips.len();
+                    ctx.strip_generator.generate_filled_rect_fast(
+                        &transformed_rect,
+                        strip_storage,
+                        ctx.clip_context.get(),
+                    );
+                    strip_start..strip_storage.strips.len()
+                };
+
+                let bbox = strip_bbox(
+                    &ctx.strip_storage.borrow().strips[strips.clone()],
+                    ctx.strip_generator.width(),
+                );
+                ctx.record_draw_command(FastStripCommand::Path(FastStripsPath {
+                    strips,
+                    bbox,
+                    paint,
+                }));
+            } else {
+                ctx.fill_path_with(
+                    &inflated_rect.to_path(DEFAULT_TOLERANCE),
+                    path_transform,
+                    Fill::NonZero,
+                    paint,
+                    ctx.aliasing_threshold,
+                );
+            }
+        });
     }
 
     /// Creates a builder for drawing a run of glyphs that have the same attributes.
@@ -726,11 +893,11 @@ impl Scene {
         if mask.is_some() {
             panic!("vello_hybrid layer masks are temporarily unsupported");
         }
-        if filter.is_some() {
-            panic!("vello_hybrid filter layers are temporarily unsupported");
+        let layer_transform = self.effective_transform();
+        let filter_data = filter.map(|filter| FilterData::new(filter, layer_transform));
+        if let Some(filter_data) = &filter_data {
+            self.push_filter_viewport(filter_data.source_padding);
         }
-
-        let layer_transform = self.render_state.transform;
         let clip = clip_path.map(|clip_path| {
             let existing_clip = self.clip_context.get();
             let mut bbox = control_point_bbox_u16(clip_path, layer_transform);
@@ -770,13 +937,21 @@ impl Scene {
             blend_mode,
             opacity,
             clip,
+            filter: filter_data.clone(),
+            filter_placement: FilterLayerPlacement::EMPTY,
             bbox: RectU16::INVERTED,
             output_bbox: RectU16::INVERTED,
         });
         self.layer_stack.push(LayerStackEntry {
             layer_id,
             parent_root_id,
+            previous_root_transform: self.root_transform,
         });
+        if let Some(filter_data) = &filter_data {
+            let (shift_x, shift_y) = filter_data.source_shift();
+            self.root_transform =
+                Affine::translate((f64::from(shift_x), f64::from(shift_y))) * self.root_transform;
+        }
         self.active_root_id = root_id;
     }
 
@@ -811,11 +986,18 @@ impl Scene {
         let root_id = self.layers[entry.layer_id.as_usize()].root_id;
         let content_bbox = self.root_bbox(self.root(root_id));
         let blend_mode = self.layers[entry.layer_id.as_usize()].blend_mode;
+        let is_filter_layer = self.layers[entry.layer_id.as_usize()].filter.is_some();
         let is_empty_clear = content_bbox.is_empty() && blend_mode.compose == Compose::Clear;
         let is_non_default_blend = blend_mode != BlendMode::default();
         let is_destructive_blend = blend_mode.is_destructive();
         let mut bbox = content_bbox;
         let mut output_bbox = content_bbox;
+        if let Some(filter_data) = &self.layers[entry.layer_id.as_usize()].filter {
+            let placement = FilterLayerPlacement::new(content_bbox, filter_data);
+            bbox = placement.pixmap_bbox;
+            output_bbox = placement.composite_bbox;
+            self.layers[entry.layer_id.as_usize()].filter_placement = placement;
+        }
         if is_empty_clear {
             bbox = self.layers[entry.layer_id.as_usize()]
                 .clip
@@ -839,14 +1021,22 @@ impl Scene {
                 output_bbox = output_bbox.intersect(clip.bbox);
             }
             if let Some(clip) = &self.layers[entry.layer_id.as_usize()].clip {
-                bbox.union(clip.bbox);
+                if !is_filter_layer {
+                    bbox.union(clip.bbox);
+                }
             }
         } else if let Some(clip) = &self.layers[entry.layer_id.as_usize()].clip {
             output_bbox = output_bbox.intersect(clip.bbox);
-            bbox.union(clip.bbox);
+            if !is_filter_layer {
+                bbox.union(clip.bbox);
+            }
         }
         self.layers[entry.layer_id.as_usize()].bbox = bbox;
         self.layers[entry.layer_id.as_usize()].output_bbox = output_bbox;
+        if is_filter_layer {
+            self.pop_filter_viewport();
+        }
+        self.root_transform = entry.previous_root_transform;
         self.active_root_id = entry.parent_root_id;
         self.active_commands()
             .push(RecordedCommand::Layer(entry.layer_id));
@@ -941,15 +1131,25 @@ impl Scene {
         self.filter = None;
     }
 
-    fn assert_no_filter(&self) {
-        if self.filter.is_some() {
-            panic!("vello_hybrid draw filters are temporarily unsupported");
+    fn with_optional_filter<F>(&mut self, f: F)
+    where
+        F: FnOnce(&mut Self),
+    {
+        if let Some(filter) = self.filter.clone() {
+            let saved_filter = self.filter.take();
+            self.push_filter_layer(filter);
+            f(self);
+            self.pop_layer();
+            self.filter = saved_filter;
+        } else {
+            f(self);
         }
     }
 
     /// Reset scene to default values.
     pub fn reset(&mut self) {
         self.strip_generator.reset();
+        self.strip_generator_stack.clear();
         {
             let mut ss = self.strip_storage.borrow_mut();
             ss.clear();
@@ -958,6 +1158,7 @@ impl Scene {
         self.encoded_paints.borrow_mut().clear();
         self.clip_context.reset();
         self.render_state.reset();
+        self.root_transform = Affine::IDENTITY;
         self.roots.clear();
         self.roots.push(RecordedRoot::default());
         self.layers.clear();
