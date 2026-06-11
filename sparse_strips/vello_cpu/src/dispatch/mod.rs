@@ -65,7 +65,7 @@ pub(crate) trait Dispatcher: Debug + Send {
         filter_data: Option<FilterData>,
     );
     fn pop_layer(&mut self);
-    fn reset(&mut self);
+    fn reset(&mut self, width: u16, height: u16);
     fn flush(&mut self);
     fn rasterize(
         &self,
