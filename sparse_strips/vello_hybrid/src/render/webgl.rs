@@ -24,7 +24,10 @@ use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
     direct::{DirectStrips, DirectTarget, ExternalTextureRun, RenderOrigin},
-    filter::{FilterContext, FilterInstanceData, FilterPassState, FilterPassTarget},
+    filter::{
+        FilterContext, FilterInstanceData, FilterPassState, FilterPassTarget, GpuFilterData,
+        filter_type, pass_kind,
+    },
     gradient_cache::GradientRampCache,
     render::{
         Config,
@@ -38,10 +41,11 @@ use crate::{
         },
         scheduler::{
             LayerSampleExtent, LayerScheduleRenderer, LayerScheduler, ScheduledLayerOp,
-            ScheduledLayerTarget,
+            ScheduledLayerTarget, layer_encoded_paint, layer_sample_command,
         },
     },
     scene::{FastStripCommand, RecordedLayer, Scene},
+    util::{IntRect, IntSize},
 };
 use alloc::sync::Arc;
 use alloc::vec;
@@ -53,6 +57,8 @@ use glifo::{GLYPH_PADDING, PendingClearRect};
 use hashbrown::HashMap;
 #[cfg(feature = "probe")]
 use thiserror::Error;
+use vello_common::filter::PreparedFilter;
+use vello_common::filter::gaussian_blur::DecimationSizer;
 use vello_common::image_cache::{ImageCache, ImageResource};
 #[cfg(feature = "probe")]
 use vello_common::multi_atlas::AllocationStrategy;
@@ -67,12 +73,14 @@ use vello_common::{
         EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind,
     },
     geometry::RectU16,
+    kurbo::Affine,
     paint::{ImageId, ImageSource},
+    paint::{IndexedPaint, Paint},
     peniko,
     pixmap::Pixmap,
     tile::Tile,
 };
-use vello_sparse_shaders::{clear_slots, filters, render_strips};
+use vello_sparse_shaders::{clear_slots, filters, layer_blend, render_strips};
 #[cfg(feature = "probe")]
 use web_sys::WebGlSync;
 use web_sys::wasm_bindgen::{JsCast, JsValue};
@@ -149,40 +157,23 @@ impl LayerScheduleRenderer<LayerTarget> for WebGlLayerSchedule<'_, '_> {
 
     fn render_layer(
         &mut self,
-        _layer_idx: usize,
+        layer_idx: usize,
         layer: &RecordedLayer,
         target: LayerTarget,
         batches: &[ScheduledLayerOp],
         encoded_paints: &mut Vec<EncodedPaint>,
         rendered_targets: &[Option<LayerTarget>],
     ) -> Result<LayerTarget, RenderError> {
-        if layer.filter.is_some() {
-            panic!("vello_hybrid WebGL filter layers are temporarily unsupported");
-        }
-        let commands =
-            commands_from_webgl_batches(self.scene, batches, encoded_paints, rendered_targets);
-        let layer_texture_bindings = self.renderer.texture_bindings_with_layers(rendered_targets);
-        let previous_framebuffer = self
-            .renderer
-            .programs
-            .resources
-            .view_framebuffer_override
-            .replace(target.framebuffer.clone());
-        self.renderer.render_scene(
-            self.scene,
-            &commands,
-            self.image_cache,
-            &RenderSize {
-                width: u32::from(target.width),
-                height: u32::from(target.height),
-            },
+        self.render_batches_to_layer(
+            layer_idx,
+            &target,
+            batches,
             encoded_paints,
-            true,
-            DirectTarget::AtlasLayer,
-            target.origin,
-            &layer_texture_bindings,
+            rendered_targets,
         )?;
-        self.renderer.programs.resources.view_framebuffer_override = previous_framebuffer;
+        if layer.filter.is_some() {
+            return self.apply_filter_to_layer(layer_idx, layer, target);
+        }
         Ok(target)
     }
 
@@ -192,8 +183,61 @@ impl LayerScheduleRenderer<LayerTarget> for WebGlLayerSchedule<'_, '_> {
         encoded_paints: &mut Vec<EncodedPaint>,
         rendered_targets: &[Option<LayerTarget>],
     ) -> Result<(), RenderError> {
-        let commands =
-            commands_from_webgl_batches(self.scene, batches, encoded_paints, rendered_targets);
+        if batches
+            .iter()
+            .any(|batch| matches!(batch, ScheduledLayerOp::CompositeLayer(_)))
+        {
+            let root_layer_target = self.renderer.create_layer_target_with_size(
+                root_texture_id(),
+                self.root_render_size.width.try_into().unwrap_or(u16::MAX),
+                self.root_render_size.height.try_into().unwrap_or(u16::MAX),
+                RenderOrigin::default(),
+            );
+            self.render_batches_to_layer(
+                usize::MAX,
+                &root_layer_target,
+                batches,
+                encoded_paints,
+                rendered_targets,
+            )?;
+
+            let paint_idx = encoded_paints.len();
+            encoded_paints.push(layer_encoded_paint(
+                &root_layer_target,
+                1.0,
+                RectU16::new(0, 0, root_layer_target.width(), root_layer_target.height()),
+                Affine::IDENTITY,
+            ));
+            let commands = [FastStripCommand::Rect(crate::scene::FastPathRect {
+                x0: 0.0,
+                y0: 0.0,
+                x1: self.root_render_size.width as f32,
+                y1: self.root_render_size.height as f32,
+                paint: Paint::Indexed(IndexedPaint::new(paint_idx)),
+            })];
+
+            let mut root_texture_bindings =
+                self.renderer.texture_bindings_with_layers(rendered_targets);
+            root_texture_bindings.insert(
+                root_layer_target.texture_id,
+                root_layer_target.texture.clone(),
+            );
+            let result = self.renderer.render_scene(
+                self.scene,
+                &commands,
+                self.image_cache,
+                self.root_render_size,
+                encoded_paints,
+                self.root_clear,
+                self.root_target,
+                RenderOrigin::default(),
+                &root_texture_bindings,
+            );
+            self.renderer.delete_layer_target(&root_layer_target);
+            return result;
+        }
+
+        let commands = flatten_draw_batches(batches);
         let root_texture_bindings = self.renderer.texture_bindings_with_layers(rendered_targets);
         self.renderer.render_scene(
             self.scene,
@@ -209,44 +253,504 @@ impl LayerScheduleRenderer<LayerTarget> for WebGlLayerSchedule<'_, '_> {
     }
 }
 
-fn commands_from_webgl_batches(
-    scene: &Scene,
-    batches: &[ScheduledLayerOp],
-    encoded_paints: &mut Vec<EncodedPaint>,
-    rendered_targets: &[Option<LayerTarget>],
-) -> Vec<FastStripCommand> {
-    let mut commands = Vec::new();
-    for batch in batches {
-        match batch {
-            ScheduledLayerOp::Draw(batch_commands) => {
-                commands.extend(batch_commands.iter().cloned());
-            }
-            ScheduledLayerOp::CompositeLayer(layer_id) => {
-                let layer = &scene.layers()[layer_id.as_usize()];
-                if layer.blend_mode == peniko::BlendMode::default() {
-                    let target = rendered_targets[layer_id.as_usize()]
-                        .as_ref()
-                        .expect("child layer must be rendered before its parent");
-                    if let Some(command) = crate::render::scheduler::layer_sample_command(
-                        scene,
-                        layer,
-                        target,
-                        layer.opacity,
-                        LayerSampleExtent::Output,
-                        encoded_paints,
-                    ) {
-                        commands.push(command);
+impl WebGlLayerSchedule<'_, '_> {
+    fn render_batches_to_layer(
+        &mut self,
+        parent_idx: usize,
+        target: &LayerTarget,
+        batches: &[ScheduledLayerOp],
+        encoded_paints: &mut Vec<EncodedPaint>,
+        rendered_targets: &[Option<LayerTarget>],
+    ) -> Result<(), RenderError> {
+        if !batches
+            .iter()
+            .any(|batch| matches!(batch, ScheduledLayerOp::CompositeLayer(_)))
+        {
+            let commands = flatten_draw_batches(batches);
+            return self.render_commands_to_target(
+                target,
+                &commands,
+                encoded_paints,
+                rendered_targets,
+                true,
+            );
+        }
+
+        self.renderer.clear_layer_target(target);
+        for batch in batches {
+            match batch {
+                ScheduledLayerOp::Draw(commands) => {
+                    if commands.is_empty() {
+                        continue;
                     }
-                } else {
-                    panic!(
-                        "vello_hybrid WebGL blend layer {} is temporarily unsupported",
-                        layer_id.as_usize()
-                    );
+                    self.render_commands_to_target(
+                        target,
+                        commands,
+                        encoded_paints,
+                        rendered_targets,
+                        false,
+                    )?;
+                }
+                ScheduledLayerOp::CompositeLayer(layer_id) => {
+                    self.composite_layer(
+                        parent_idx,
+                        target,
+                        *layer_id,
+                        encoded_paints,
+                        rendered_targets,
+                    )?;
                 }
             }
         }
+
+        Ok(())
+    }
+
+    fn render_commands_to_target(
+        &mut self,
+        target: &LayerTarget,
+        commands: &[FastStripCommand],
+        encoded_paints: &mut Vec<EncodedPaint>,
+        rendered_targets: &[Option<LayerTarget>],
+        clear: bool,
+    ) -> Result<(), RenderError> {
+        let layer_texture_bindings = self.renderer.texture_bindings_with_layers(rendered_targets);
+        self.render_commands_to_target_with_bindings(
+            target,
+            commands,
+            encoded_paints,
+            &layer_texture_bindings,
+            clear,
+        )
+    }
+
+    fn render_commands_to_target_with_bindings(
+        &mut self,
+        target: &LayerTarget,
+        commands: &[FastStripCommand],
+        encoded_paints: &[EncodedPaint],
+        texture_bindings: &HashMap<TextureId, WebGlTexture>,
+        clear: bool,
+    ) -> Result<(), RenderError> {
+        let previous_framebuffer = self
+            .renderer
+            .programs
+            .resources
+            .view_framebuffer_override
+            .replace(target.framebuffer.clone());
+        let result = self.renderer.render_scene(
+            self.scene,
+            commands,
+            self.image_cache,
+            &RenderSize {
+                width: u32::from(target.width),
+                height: u32::from(target.height),
+            },
+            encoded_paints,
+            clear,
+            DirectTarget::AtlasLayer,
+            target.origin,
+            texture_bindings,
+        );
+        self.renderer.programs.resources.view_framebuffer_override = previous_framebuffer;
+        result
+    }
+
+    fn composite_layer(
+        &mut self,
+        parent_idx: usize,
+        parent: &LayerTarget,
+        layer_id: crate::scene::RecordedLayerId,
+        encoded_paints: &mut Vec<EncodedPaint>,
+        rendered_targets: &[Option<LayerTarget>],
+    ) -> Result<(), RenderError> {
+        let layer_idx = layer_id.as_usize();
+        let layer = &self.scene.layers()[layer_idx];
+        let child = rendered_targets[layer_idx]
+            .as_ref()
+            .expect("child layer must be rendered before it is composited");
+        if layer.blend_mode == peniko::BlendMode::default() {
+            let commands = layer_sample_command(
+                self.scene,
+                layer,
+                child,
+                layer.opacity,
+                LayerSampleExtent::Output,
+                encoded_paints,
+            );
+            let commands = commands.as_slice();
+            return self.render_commands_to_target(
+                parent,
+                commands,
+                encoded_paints,
+                rendered_targets,
+                false,
+            );
+        }
+
+        let source = self.create_aligned_layer_source(
+            parent,
+            layer_idx,
+            layer,
+            child,
+            encoded_paints,
+            rendered_targets,
+        )?;
+        let backdrop = self.renderer.create_layer_target_with_size(
+            backdrop_texture_id(parent_idx, layer_idx),
+            parent.width,
+            parent.height,
+            parent.origin,
+        );
+        self.renderer.copy_layer_target(parent, &backdrop);
+        self.renderer.composite_layer(
+            parent,
+            &source,
+            &backdrop,
+            layer.blend_mode,
+            layer.opacity,
+            layer.clip.as_ref().map(|_| {
+                layer
+                    .output_bbox
+                    .relative_to_origin((parent.origin.x, parent.origin.y))
+            }),
+        );
+        self.renderer.delete_layer_target(&source);
+        self.renderer.delete_layer_target(&backdrop);
+        Ok(())
+    }
+
+    fn create_aligned_layer_source(
+        &mut self,
+        parent: &LayerTarget,
+        layer_idx: usize,
+        layer: &RecordedLayer,
+        child: &LayerTarget,
+        encoded_paints: &mut Vec<EncodedPaint>,
+        rendered_targets: &[Option<LayerTarget>],
+    ) -> Result<LayerTarget, RenderError> {
+        let aligned_source = self.renderer.create_layer_target_with_size(
+            aligned_layer_source_texture_id(layer_idx),
+            parent.width,
+            parent.height,
+            parent.origin,
+        );
+        let commands = layer_sample_command(
+            self.scene,
+            layer,
+            child,
+            1.0,
+            LayerSampleExtent::Content,
+            encoded_paints,
+        );
+        let commands = commands.as_slice();
+        self.render_commands_to_target(
+            &aligned_source,
+            commands,
+            encoded_paints,
+            rendered_targets,
+            true,
+        )?;
+        Ok(aligned_source)
+    }
+}
+
+impl WebGlLayerSchedule<'_, '_> {
+    fn apply_filter_to_layer(
+        &mut self,
+        layer_idx: usize,
+        layer: &RecordedLayer,
+        source: LayerTarget,
+    ) -> Result<LayerTarget, RenderError> {
+        let filter_data = layer
+            .filter
+            .as_ref()
+            .expect("filter target requested for a non-filter layer");
+        let prepared = PreparedFilter::new(&filter_data.filter, &filter_data.transform);
+        let gpu_filter = GpuFilterData::from(&prepared);
+        let filter_data_texture = self.renderer.create_filter_data_texture(gpu_filter);
+        let final_target = self.renderer.create_layer_target_with_size(
+            source.texture_id,
+            source.width,
+            source.height,
+            source.origin,
+        );
+        let size = (source.width(), source.height());
+
+        if !gpu_filter.is_multi_pass() {
+            let pass = match gpu_filter.filter_type() {
+                filter_type::OFFSET => pass_kind::OFFSET,
+                filter_type::FLOOD => pass_kind::FLOOD,
+                _ => unimplemented!("unsupported single-pass filter"),
+            };
+            self.renderer.run_filter_pass(
+                &source,
+                &final_target,
+                &source,
+                &filter_data_texture,
+                pass,
+                size,
+                size,
+            );
+            self.renderer.delete_layer_target(&source);
+            self.renderer.gl.delete_texture(Some(&filter_data_texture));
+            return Ok(final_target);
+        }
+
+        let scratch_0 = self.renderer.create_layer_target_with_size(
+            filter_scratch_texture_id(layer_idx, 0),
+            source.width,
+            source.height,
+            source.origin,
+        );
+        let scratch_1 = self.renderer.create_layer_target_with_size(
+            filter_scratch_texture_id(layer_idx, 1),
+            source.width,
+            source.height,
+            source.origin,
+        );
+        let mut current = FilterPassSource::Source;
+        let mut toggle = 0_usize;
+        let mut sizer = DecimationSizer::default();
+        sizer.reset(source.width(), source.height());
+
+        if gpu_filter.filter_type() == filter_type::DROP_SHADOW {
+            let current_size = sizer.current();
+            let output = Self::next_filter_scratch(&mut toggle);
+            self.run_scheduled_filter_pass(
+                current,
+                output,
+                &source,
+                &scratch_0,
+                &scratch_1,
+                &final_target,
+                &filter_data_texture,
+                pass_kind::OFFSET,
+                current_size,
+                current_size,
+            );
+            current = output;
+        }
+
+        let n_decimations = gpu_filter.n_decimations();
+        for _ in 0..n_decimations {
+            let src_size = sizer.current();
+            let dst_size = sizer.downscale();
+            let output = Self::next_filter_scratch(&mut toggle);
+            self.run_scheduled_filter_pass(
+                current,
+                output,
+                &source,
+                &scratch_0,
+                &scratch_1,
+                &final_target,
+                &filter_data_texture,
+                pass_kind::DOWNSCALE,
+                src_size,
+                dst_size,
+            );
+            current = output;
+        }
+
+        let current_size = sizer.current();
+        let output = Self::next_filter_scratch(&mut toggle);
+        self.run_scheduled_filter_pass(
+            current,
+            output,
+            &source,
+            &scratch_0,
+            &scratch_1,
+            &final_target,
+            &filter_data_texture,
+            pass_kind::BLUR_H,
+            current_size,
+            current_size,
+        );
+        current = output;
+
+        let is_drop_shadow = gpu_filter.filter_type() == filter_type::DROP_SHADOW;
+        let mut final_pass = pass_kind::BLUR_V;
+        if n_decimations > 0 {
+            let current_size = sizer.current();
+            let output = Self::next_filter_scratch(&mut toggle);
+            self.run_scheduled_filter_pass(
+                current,
+                output,
+                &source,
+                &scratch_0,
+                &scratch_1,
+                &final_target,
+                &filter_data_texture,
+                pass_kind::BLUR_V,
+                current_size,
+                current_size,
+            );
+            current = output;
+
+            for _ in 0..n_decimations - 1 {
+                let src_size = sizer.current();
+                let dst_size = sizer.upscale();
+                let output = Self::next_filter_scratch(&mut toggle);
+                self.run_scheduled_filter_pass(
+                    current,
+                    output,
+                    &source,
+                    &scratch_0,
+                    &scratch_1,
+                    &final_target,
+                    &filter_data_texture,
+                    pass_kind::UPSCALE,
+                    src_size,
+                    dst_size,
+                );
+                current = output;
+            }
+
+            final_pass = pass_kind::UPSCALE;
+        }
+
+        let src_size = sizer.current();
+        let dst_size = if n_decimations > 0 {
+            sizer.upscale()
+        } else {
+            src_size
+        };
+        let output = if is_drop_shadow {
+            Self::next_filter_scratch(&mut toggle)
+        } else {
+            FilterPassSource::Final
+        };
+        self.run_scheduled_filter_pass(
+            current,
+            output,
+            &source,
+            &scratch_0,
+            &scratch_1,
+            &final_target,
+            &filter_data_texture,
+            final_pass,
+            src_size,
+            dst_size,
+        );
+        current = output;
+
+        if is_drop_shadow {
+            self.run_scheduled_filter_pass(
+                current,
+                FilterPassSource::Final,
+                &source,
+                &scratch_0,
+                &scratch_1,
+                &final_target,
+                &filter_data_texture,
+                pass_kind::COMPOSITE_DROP_SHADOW,
+                dst_size,
+                dst_size,
+            );
+        }
+
+        self.renderer.delete_layer_target(&source);
+        self.renderer.delete_layer_target(&scratch_0);
+        self.renderer.delete_layer_target(&scratch_1);
+        self.renderer.gl.delete_texture(Some(&filter_data_texture));
+        Ok(final_target)
+    }
+
+    fn next_filter_scratch(toggle: &mut usize) -> FilterPassSource {
+        let output = match *toggle {
+            0 => FilterPassSource::Scratch0,
+            _ => FilterPassSource::Scratch1,
+        };
+        *toggle = (*toggle + 1) % 2;
+        output
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn run_scheduled_filter_pass(
+        &mut self,
+        input: FilterPassSource,
+        output: FilterPassSource,
+        source: &LayerTarget,
+        scratch_0: &LayerTarget,
+        scratch_1: &LayerTarget,
+        final_target: &LayerTarget,
+        filter_data_texture: &WebGlTexture,
+        pass_kind: u32,
+        src_size: (u16, u16),
+        dst_size: (u16, u16),
+    ) {
+        let input = filter_pass_target(input, source, scratch_0, scratch_1, final_target);
+        let output = filter_pass_target(output, source, scratch_0, scratch_1, final_target);
+        self.renderer.run_filter_pass(
+            input,
+            output,
+            source,
+            filter_data_texture,
+            pass_kind,
+            src_size,
+            dst_size,
+        );
+    }
+}
+
+fn flatten_draw_batches(batches: &[ScheduledLayerOp]) -> Vec<FastStripCommand> {
+    debug_assert!(
+        batches
+            .iter()
+            .all(|batch| matches!(batch, ScheduledLayerOp::Draw(_))),
+        "layer composites require offscreen batch execution"
+    );
+
+    let mut commands = Vec::new();
+    for batch in batches {
+        if let ScheduledLayerOp::Draw(batch_commands) = batch {
+            commands.extend(batch_commands.iter().cloned());
+        }
     }
     commands
+}
+
+#[inline]
+fn root_texture_id() -> TextureId {
+    TextureId(u64::MAX / 2)
+}
+
+#[inline]
+fn aligned_layer_source_texture_id(layer_idx: usize) -> TextureId {
+    TextureId(u64::MAX / 2 - 1 - layer_idx as u64)
+}
+
+#[inline]
+fn backdrop_texture_id(parent_idx: usize, layer_idx: usize) -> TextureId {
+    TextureId(u64::MAX / 4 - parent_idx as u64 * 1_000_000 - layer_idx as u64)
+}
+
+#[inline]
+fn filter_scratch_texture_id(layer_idx: usize, scratch_idx: usize) -> TextureId {
+    TextureId(u64::MAX / 3 - layer_idx as u64 * 10 - scratch_idx as u64)
+}
+
+#[derive(Clone, Copy)]
+enum FilterPassSource {
+    Source,
+    Scratch0,
+    Scratch1,
+    Final,
+}
+
+fn filter_pass_target<'a>(
+    source: FilterPassSource,
+    initial: &'a LayerTarget,
+    scratch_0: &'a LayerTarget,
+    scratch_1: &'a LayerTarget,
+    final_target: &'a LayerTarget,
+) -> &'a LayerTarget {
+    match source {
+        FilterPassSource::Source => initial,
+        FilterPassSource::Scratch0 => scratch_0,
+        FilterPassSource::Scratch1 => scratch_1,
+        FilterPassSource::Final => final_target,
+    }
 }
 
 /// Vello Hybrid's WebGL2 Renderer.
@@ -821,16 +1325,32 @@ impl WebGlRenderer {
     fn create_layer_target(
         &self,
         scene: &Scene,
-        _layer_idx: usize,
+        layer_idx: usize,
         texture_id: TextureId,
     ) -> LayerTarget {
-        let bbox = if _layer_idx == usize::MAX {
+        let bbox = if layer_idx == usize::MAX {
             RectU16::new(0, 0, scene.width, scene.height)
         } else {
-            scene.layers()[_layer_idx].bbox
+            scene.layers()[layer_idx].bbox
         };
-        let width = bbox.width().max(1);
-        let height = bbox.height().max(1);
+        self.create_layer_target_with_size(
+            texture_id,
+            bbox.width().max(1),
+            bbox.height().max(1),
+            RenderOrigin {
+                x: bbox.x0,
+                y: bbox.y0,
+            },
+        )
+    }
+
+    fn create_layer_target_with_size(
+        &self,
+        texture_id: TextureId,
+        width: u16,
+        height: u16,
+        origin: RenderOrigin,
+    ) -> LayerTarget {
         let texture = create_texture(&self.gl);
         self.gl
             .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
@@ -852,11 +1372,217 @@ impl WebGlRenderer {
             framebuffer,
             width,
             height,
-            origin: RenderOrigin {
-                x: bbox.x0,
-                y: bbox.y0,
-            },
+            origin,
         }
+    }
+
+    fn delete_layer_target(&self, target: &LayerTarget) {
+        self.gl.delete_framebuffer(Some(&target.framebuffer));
+        self.gl.delete_texture(Some(&target.texture));
+    }
+
+    fn clear_layer_target(&mut self, target: &LayerTarget) {
+        let previous_framebuffer = self
+            .programs
+            .resources
+            .view_framebuffer_override
+            .replace(target.framebuffer.clone());
+        self.programs.clear_view_framebuffer(&self.gl);
+        self.programs.resources.view_framebuffer_override = previous_framebuffer;
+    }
+
+    fn copy_layer_target(&self, src: &LayerTarget, dst: &LayerTarget) {
+        self.gl.bind_framebuffer(
+            WebGl2RenderingContext::READ_FRAMEBUFFER,
+            Some(&src.framebuffer),
+        );
+        self.gl.bind_framebuffer(
+            WebGl2RenderingContext::DRAW_FRAMEBUFFER,
+            Some(&dst.framebuffer),
+        );
+        self.gl.blit_framebuffer(
+            0,
+            0,
+            i32::from(src.width.min(dst.width)),
+            i32::from(src.height.min(dst.height)),
+            0,
+            0,
+            i32::from(src.width.min(dst.width)),
+            i32::from(src.height.min(dst.height)),
+            WebGl2RenderingContext::COLOR_BUFFER_BIT,
+            WebGl2RenderingContext::NEAREST,
+        );
+        self.gl
+            .bind_framebuffer(WebGl2RenderingContext::READ_FRAMEBUFFER, None);
+        self.gl
+            .bind_framebuffer(WebGl2RenderingContext::DRAW_FRAMEBUFFER, None);
+    }
+
+    fn composite_layer(
+        &mut self,
+        dst: &LayerTarget,
+        src: &LayerTarget,
+        backdrop: &LayerTarget,
+        blend_mode: peniko::BlendMode,
+        opacity: f32,
+        scissor_bbox: Option<RectU16>,
+    ) {
+        self.gl.disable(WebGl2RenderingContext::BLEND);
+        self.gl
+            .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(&dst.framebuffer));
+        self.gl
+            .viewport(0, 0, i32::from(dst.width), i32::from(dst.height));
+        if let Some(scissor_bbox) = scissor_bbox {
+            self.gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
+            self.gl.scissor(
+                i32::from(scissor_bbox.x0),
+                i32::from(scissor_bbox.y0),
+                i32::from(scissor_bbox.width().max(1)),
+                i32::from(scissor_bbox.height().max(1)),
+            );
+        } else {
+            self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
+        }
+
+        self.gl
+            .use_program(Some(&self.programs.layer_blend_program));
+        self.gl
+            .bind_vertex_array(Some(&self.programs.resources.layer_blend_vao));
+        self.gl.bind_buffer(
+            WebGl2RenderingContext::UNIFORM_BUFFER,
+            Some(&self.programs.resources.layer_blend_config_buffer),
+        );
+        self.gl.buffer_data_with_u8_array(
+            WebGl2RenderingContext::UNIFORM_BUFFER,
+            bytemuck::bytes_of(&LayerBlendConfig {
+                mix_mode: blend_mode.mix as u32,
+                compose_mode: blend_mode.compose as u32,
+                opacity,
+                _padding: 0,
+            }),
+            WebGl2RenderingContext::DYNAMIC_DRAW,
+        );
+        self.gl.bind_buffer_base(
+            WebGl2RenderingContext::UNIFORM_BUFFER,
+            self.programs.layer_blend_uniforms.config_block_index,
+            Some(&self.programs.resources.layer_blend_config_buffer),
+        );
+
+        self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+        self.gl
+            .bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&src.texture));
+        self.gl
+            .uniform1i(Some(&self.programs.layer_blend_uniforms.src_texture), 0);
+        self.gl.active_texture(WebGl2RenderingContext::TEXTURE1);
+        self.gl
+            .bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&backdrop.texture));
+        self.gl.uniform1i(
+            Some(&self.programs.layer_blend_uniforms.backdrop_texture),
+            1,
+        );
+
+        self.gl
+            .draw_arrays(WebGl2RenderingContext::TRIANGLE_STRIP, 0, 4);
+        self.gl.bind_vertex_array(None);
+        self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
+        self.gl.enable(WebGl2RenderingContext::BLEND);
+    }
+
+    fn create_filter_data_texture(&self, gpu_filter: GpuFilterData) -> WebGlTexture {
+        let texture = create_texture(&self.gl);
+        let data = [gpu_filter];
+        let data_as_u32 = bytemuck::cast_slice::<GpuFilterData, u32>(&data);
+        let packed_array = js_sys::Uint32Array::from(data_as_u32);
+        self.gl
+            .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
+                WebGl2RenderingContext::TEXTURE_2D,
+                0,
+                WebGl2RenderingContext::RGBA32UI as i32,
+                GpuFilterData::SIZE_TEXELS as i32,
+                1,
+                0,
+                WebGl2RenderingContext::RGBA_INTEGER,
+                WebGl2RenderingContext::UNSIGNED_INT,
+                Some(&packed_array),
+            )
+            .unwrap();
+        texture
+    }
+
+    fn run_filter_pass(
+        &mut self,
+        input: &LayerTarget,
+        output: &LayerTarget,
+        original: &LayerTarget,
+        filter_data_texture: &WebGlTexture,
+        pass_kind: u32,
+        src_size: (u16, u16),
+        dst_size: (u16, u16),
+    ) {
+        set_linear_texture_sampling(&self.gl, &input.texture);
+
+        let instance = FilterInstanceData {
+            src: IntRect::new([0, 0], [u32::from(src_size.0), u32::from(src_size.1)]),
+            dest: IntRect::new([0, 0], [u32::from(dst_size.0), u32::from(dst_size.1)]),
+            dest_atlas_size: IntSize([u32::from(output.width), u32::from(output.height)]),
+            filter_data_offset: 0,
+            original: IntRect::new(
+                [0, 0],
+                [u32::from(original.width), u32::from(original.height)],
+            ),
+            pass_kind,
+        };
+
+        self.gl.disable(WebGl2RenderingContext::BLEND);
+        self.gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
+        self.gl.bind_framebuffer(
+            WebGl2RenderingContext::FRAMEBUFFER,
+            Some(&output.framebuffer),
+        );
+        self.gl
+            .viewport(0, 0, i32::from(output.width), i32::from(output.height));
+        self.gl.clear_color(0.0, 0.0, 0.0, 0.0);
+        self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
+        let [x, y, width, height] =
+            instance.scissor_rect([u32::from(output.width), u32::from(output.height)]);
+        self.gl.scissor(
+            x as i32,
+            y as i32,
+            width.max(1) as i32,
+            height.max(1) as i32,
+        );
+
+        self.programs
+            .upload_filter_instances(&self.gl, core::slice::from_ref(&instance));
+        self.gl.use_program(Some(&self.programs.filter_program));
+        self.gl
+            .bind_vertex_array(Some(&self.programs.resources.filter_vao));
+
+        self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+        self.gl.bind_texture(
+            WebGl2RenderingContext::TEXTURE_2D,
+            Some(filter_data_texture),
+        );
+        self.gl
+            .uniform1i(Some(&self.programs.filter_uniforms.filter_data), 0);
+
+        self.gl.active_texture(WebGl2RenderingContext::TEXTURE1);
+        self.gl
+            .bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&input.texture));
+        self.gl
+            .uniform1i(Some(&self.programs.filter_uniforms.in_tex), 1);
+
+        self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);
+        self.gl
+            .bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&original.texture));
+        self.gl
+            .uniform1i(Some(&self.programs.filter_uniforms.original_tex), 2);
+
+        self.gl
+            .draw_arrays_instanced(WebGl2RenderingContext::TRIANGLE_STRIP, 0, 4, 1);
+        self.gl.bind_vertex_array(None);
+        self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
+        self.gl.enable(WebGl2RenderingContext::BLEND);
     }
 
     fn texture_bindings_with_layers(
@@ -1328,6 +2054,10 @@ struct WebGlPrograms {
     filter_program: WebGlProgram,
     /// Uniform locations for the filter program.
     filter_uniforms: FilterPassUniforms,
+    /// Program for non-default layer blending.
+    layer_blend_program: WebGlProgram,
+    /// Uniform locations for the layer blend program.
+    layer_blend_uniforms: LayerBlendUniforms,
     /// WebGL resources for rendering.
     resources: WebGlResources,
     /// Dimensions of the rendering target.
@@ -1345,6 +2075,13 @@ struct FilterPassUniforms {
     filter_data: WebGlUniformLocation,
     in_tex: WebGlUniformLocation,
     original_tex: WebGlUniformLocation,
+}
+
+#[derive(Debug)]
+struct LayerBlendUniforms {
+    config_block_index: u32,
+    src_texture: WebGlUniformLocation,
+    backdrop_texture: WebGlUniformLocation,
 }
 
 /// Uniform locations for `strip_program`.
@@ -1458,6 +2195,10 @@ struct WebGlResources {
         reason = "Filters are temporarily detached until layer roots are reintroduced."
     )]
     filter_config_buffer: WebGlBuffer,
+    /// VAO for non-default layer blending.
+    layer_blend_vao: WebGlVertexArrayObject,
+    /// Config buffer for non-default layer blending.
+    layer_blend_config_buffer: WebGlBuffer,
     /// Cached atlas width for creating new filter atlas textures.
     filter_atlas_width: u32,
     /// Cached atlas height for creating new filter atlas textures.
@@ -1476,6 +2217,15 @@ struct ClearSlotsConfig {
     pub texture_height: u32,
     /// Padding for alignment.
     pub _padding: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+struct LayerBlendConfig {
+    mix_mode: u32,
+    compose_mode: u32,
+    opacity: f32,
+    _padding: u32,
 }
 
 impl WebGlPrograms {
@@ -1499,6 +2249,12 @@ impl WebGlPrograms {
         let filter_program =
             create_shader_program(&gl, filters::VERTEX_SOURCE, filters::FRAGMENT_SOURCE);
         let filter_uniforms = get_filter_pass_uniforms(&gl, &filter_program);
+        let layer_blend_program = create_shader_program(
+            &gl,
+            layer_blend::VERTEX_SOURCE,
+            layer_blend::FRAGMENT_SOURCE,
+        );
+        let layer_blend_uniforms = get_layer_blend_uniforms(&gl, &layer_blend_program);
 
         let strip_uniforms = get_strip_uniforms(&gl, &strip_program);
         let clear_uniforms = get_clear_uniforms(&gl, &clear_program);
@@ -1522,6 +2278,8 @@ impl WebGlPrograms {
             clear_program,
             filter_program,
             filter_uniforms,
+            layer_blend_program,
+            layer_blend_uniforms,
             strip_uniforms,
             clear_uniforms,
             resources,
@@ -2517,6 +3275,29 @@ fn get_filter_pass_uniforms(
     }
 }
 
+fn get_layer_blend_uniforms(
+    gl: &WebGl2RenderingContext,
+    program: &WebGlProgram,
+) -> LayerBlendUniforms {
+    let config_block_index = gl.get_uniform_block_index(program, layer_blend::fragment::CONFIG);
+    debug_assert_ne!(
+        config_block_index,
+        WebGl2RenderingContext::INVALID_INDEX,
+        "invalid uniform index"
+    );
+    gl.uniform_block_binding(program, config_block_index, config_block_index);
+
+    LayerBlendUniforms {
+        config_block_index,
+        src_texture: gl
+            .get_uniform_location(program, layer_blend::fragment::SRC_TEXTURE)
+            .unwrap(),
+        backdrop_texture: gl
+            .get_uniform_location(program, layer_blend::fragment::BACKDROP_TEXTURE)
+            .unwrap(),
+    }
+}
+
 fn create_filter_atlas_texture(
     gl: &WebGl2RenderingContext,
     width: u32,
@@ -2525,26 +3306,7 @@ fn create_filter_atlas_texture(
     let texture = gl.create_texture().unwrap();
     gl.active_texture(WebGl2RenderingContext::TEXTURE0);
     gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&texture));
-    gl.tex_parameteri(
-        WebGl2RenderingContext::TEXTURE_2D,
-        WebGl2RenderingContext::TEXTURE_MIN_FILTER,
-        WebGl2RenderingContext::LINEAR as i32,
-    );
-    gl.tex_parameteri(
-        WebGl2RenderingContext::TEXTURE_2D,
-        WebGl2RenderingContext::TEXTURE_MAG_FILTER,
-        WebGl2RenderingContext::LINEAR as i32,
-    );
-    gl.tex_parameteri(
-        WebGl2RenderingContext::TEXTURE_2D,
-        WebGl2RenderingContext::TEXTURE_WRAP_S,
-        WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
-    );
-    gl.tex_parameteri(
-        WebGl2RenderingContext::TEXTURE_2D,
-        WebGl2RenderingContext::TEXTURE_WRAP_T,
-        WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
-    );
+    set_linear_texture_params(gl, WebGl2RenderingContext::TEXTURE_2D);
     gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
         WebGl2RenderingContext::TEXTURE_2D,
         0,
@@ -2558,6 +3320,35 @@ fn create_filter_atlas_texture(
     )
     .unwrap();
     texture
+}
+
+fn set_linear_texture_sampling(gl: &WebGl2RenderingContext, texture: &WebGlTexture) {
+    gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+    gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(texture));
+    set_linear_texture_params(gl, WebGl2RenderingContext::TEXTURE_2D);
+}
+
+fn set_linear_texture_params(gl: &WebGl2RenderingContext, target: u32) {
+    gl.tex_parameteri(
+        target,
+        WebGl2RenderingContext::TEXTURE_MIN_FILTER,
+        WebGl2RenderingContext::LINEAR as i32,
+    );
+    gl.tex_parameteri(
+        target,
+        WebGl2RenderingContext::TEXTURE_MAG_FILTER,
+        WebGl2RenderingContext::LINEAR as i32,
+    );
+    gl.tex_parameteri(
+        target,
+        WebGl2RenderingContext::TEXTURE_WRAP_S,
+        WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+    );
+    gl.tex_parameteri(
+        target,
+        WebGl2RenderingContext::TEXTURE_WRAP_T,
+        WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+    );
 }
 
 /// Vertex attribute layout for [`FilterInstanceData`].
@@ -2671,6 +3462,7 @@ fn create_webgl_resources(
     let strip_vao = gl.create_vertex_array().unwrap();
     let clear_vao = gl.create_vertex_array().unwrap();
     let filter_vao = gl.create_vertex_array().unwrap();
+    let layer_blend_vao = gl.create_vertex_array().unwrap();
     let filter_instance_buffer = gl.create_buffer().unwrap();
 
     let strips_buffer = gl.create_buffer().unwrap();
@@ -2716,6 +3508,7 @@ fn create_webgl_resources(
 
     let filter_data_texture = create_texture(gl);
     let filter_config_buffer = gl.create_buffer().unwrap();
+    let layer_blend_config_buffer = gl.create_buffer().unwrap();
 
     let AtlasConfig {
         atlas_size: (filter_atlas_width, filter_atlas_height),
@@ -2757,6 +3550,8 @@ fn create_webgl_resources(
         filter_instance_buffer,
         filter_vao,
         filter_config_buffer,
+        layer_blend_vao,
+        layer_blend_config_buffer,
         filter_atlas_width: *filter_atlas_width,
         filter_atlas_height: *filter_atlas_height,
     }
