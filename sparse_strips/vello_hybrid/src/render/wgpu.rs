@@ -331,8 +331,7 @@ impl WgpuLayerSchedule<'_, '_> {
             );
         }
 
-        Renderer::clear_view(self.encoder, &target.view);
-        self.renderer.record_render_pass();
+        let mut clear_next_draw = true;
         for batch in batches {
             match batch {
                 ScheduledLayerOp::Draw(commands) => {
@@ -353,13 +352,19 @@ impl WgpuLayerSchedule<'_, '_> {
                         &target.view,
                         self.image_cache,
                         encoded_paints,
-                        false,
+                        clear_next_draw,
                         DirectTarget::AtlasLayer,
                         target.origin,
                         &layer_texture_bindings,
                     )?;
+                    clear_next_draw = false;
                 }
                 ScheduledLayerOp::CompositeLayer(layer_id) => {
+                    if clear_next_draw {
+                        Renderer::clear_view(self.encoder, &target.view);
+                        self.renderer.record_render_pass();
+                        clear_next_draw = false;
+                    }
                     self.composite_layer(
                         parent_idx,
                         target,
@@ -1253,10 +1258,6 @@ impl Renderer {
             &self.filter_context,
         );
 
-        if clear {
-            Self::clear_view(encoder, view);
-            self.record_render_pass();
-        }
         let target_x_limit = origin
             .x
             .saturating_add(render_size.width.try_into().unwrap_or(u16::MAX));
@@ -1269,6 +1270,10 @@ impl Renderer {
             encoded_paints,
         );
         if strips.is_empty() {
+            if clear {
+                Self::clear_view(encoder, view);
+                self.record_render_pass();
+            }
             self.gradient_cache.maintain();
             return Ok(());
         }
@@ -1291,7 +1296,11 @@ impl Renderer {
             strips.alpha(),
             strips.external_texture_runs(),
             target,
-            wgpu::LoadOp::Load,
+            if clear {
+                wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
+            } else {
+                wgpu::LoadOp::Load
+            },
         );
         self.gradient_cache.maintain();
 

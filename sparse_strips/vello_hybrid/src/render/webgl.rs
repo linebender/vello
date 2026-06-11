@@ -262,7 +262,7 @@ impl WebGlLayerSchedule<'_, '_> {
             );
         }
 
-        self.renderer.clear_layer_target(target);
+        let mut clear_next_draw = true;
         for batch in batches {
             match batch {
                 ScheduledLayerOp::Draw(commands) => {
@@ -274,10 +274,15 @@ impl WebGlLayerSchedule<'_, '_> {
                         commands,
                         encoded_paints,
                         rendered_targets,
-                        false,
+                        clear_next_draw,
                     )?;
+                    clear_next_draw = false;
                 }
                 ScheduledLayerOp::CompositeLayer(layer_id) => {
+                    if clear_next_draw {
+                        self.renderer.clear_layer_target(target);
+                        clear_next_draw = false;
+                    }
                     self.composite_layer(
                         parent_idx,
                         target,
@@ -1437,10 +1442,6 @@ impl WebGlRenderer {
             &self.filter_context,
         );
 
-        if clear {
-            self.record_render_pass();
-            self.programs.clear_view_framebuffer(&self.gl);
-        }
         self.programs.resources.depth_cleared_this_frame = false;
         let target_x_limit = origin
             .x
@@ -1454,6 +1455,10 @@ impl WebGlRenderer {
             encoded_paints,
         );
         if strips.is_empty() {
+            if clear {
+                self.record_render_pass();
+                self.programs.clear_view_framebuffer(&self.gl);
+            }
             self.gradient_cache.maintain();
             return Ok(());
         }
@@ -1472,7 +1477,7 @@ impl WebGlRenderer {
             strips.alpha(),
             strips.external_texture_runs(),
             target,
-            false,
+            clear,
         );
 
         // See: https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_invalidateframebuffer
