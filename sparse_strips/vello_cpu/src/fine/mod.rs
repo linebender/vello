@@ -647,6 +647,9 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 }
             }
             RenderCmd::PushBuf => {
+                // TODO: Instead of always resizing to the full viewport width, very strongly
+                // consider only resizing to the horizontal bounding box of the layer. This should
+                // save quite a bit of time if we have many layers with small contents inside.
                 let mut buf = self.buffer_pool.take();
                 buf.resize(self.blend_buffers[0].len(), T::Numeric::ZERO);
                 self.blend_buffers.push(buf);
