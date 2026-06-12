@@ -223,12 +223,12 @@ impl CommandBucketer {
         // Therefore, we need to keep track of this offset so that for example paints know that
         // they should actually be sampled at (200, 200) instead of (0, 0).
 
-        assert_eq!(
+        debug_assert_eq!(
             self.viewport.x0 % Tile::WIDTH,
             0,
             "viewport origin must be tile-width aligned",
         );
-        assert_eq!(
+        debug_assert_eq!(
             self.viewport.y0 % Tile::HEIGHT,
             0,
             "viewport origin must be tile-height aligned",
