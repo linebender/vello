@@ -12,7 +12,7 @@ mod highp;
 mod lowp;
 
 use crate::coarse::depth::DepthBuffer;
-use crate::coarse::{CommandBucketer, LayerFill, LayerFillAttrs, RenderCmd, RowState};
+use crate::coarse::{CommandBucketer, LayerFillAttrs, RenderCmd, RowState};
 use crate::filter::context::ScratchBuffer;
 use crate::fine::common::gradient::GradientPainter;
 pub(crate) use crate::fine::common::gradient::calculate_t_vals;
@@ -622,28 +622,32 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         match cmd {
             RenderCmd::PaintFill(cmd) => {
                 let attrs = &bucketer.paint_fill_attrs[cmd.attrs_idx as usize];
-                let alphas = resources.alpha_buffers[attrs.thread_idx as usize];
+                let alpha_buffer = resources.alpha_buffers[attrs.thread_idx as usize];
 
                 let Some(span) = cmd.span.intersect(self.buffer_span) else {
                     return;
                 };
 
-                let x = span.pixel_x();
-                let alphas = cmd.alpha_idx().map(|alpha_idx| {
-                    let alpha_offset = alpha_idx as usize
-                        + usize::from(x - cmd.span.pixel_x()) * Tile::HEIGHT as usize;
-                    &alphas[alpha_offset..]
-                });
+                let paint_fill = |fine: &mut Self, span: Span| {
+                    let alphas = cmd.alpha_idx().map(|alpha_idx| {
+                        let alpha_offset = alpha_idx as usize
+                            + usize::from(span.pixel_x() - cmd.span.pixel_x())
+                                * Tile::HEIGHT as usize;
+                        &alpha_buffer[alpha_offset..]
+                    });
+
+                    fine.paint_fill(span, attrs, resources, alphas);
+                };
 
                 // Avoid using depth buffer if it's trivially skippable,
                 // since it's generally cheaper to not use it at all than consult it just to be
                 // returned the same span.
                 if !row.can_skip_depth(span, attrs.draw_id) {
                     depth.for_each_visible_run(span, attrs.draw_id, |span| {
-                        self.paint_fill(span, attrs, resources, alphas);
+                        paint_fill(self, span);
                     });
                 } else {
-                    self.paint_fill(span, attrs, resources, alphas);
+                    paint_fill(self, span);
                 }
             }
             RenderCmd::PushBuf => {
@@ -664,14 +668,26 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 };
 
                 let attrs = &bucketer.layer_fill_attrs[cmd.attrs_idx as usize];
+                let alpha_buffer = resources.alpha_buffers[attrs.thread_idx as usize];
+
+                let layer_fill = |fine: &mut Self, span: Span| {
+                    let alphas = cmd.alpha_idx().map(|alpha_idx| {
+                        let alpha_offset = alpha_idx as usize
+                            + usize::from(span.pixel_x() - cmd.span.pixel_x())
+                                * Tile::HEIGHT as usize;
+                        &alpha_buffer[alpha_offset..]
+                    });
+
+                    fine.layer_fill(row_y, span, attrs, alphas);
+                };
 
                 // Same as for paint fills.
                 if !row.can_skip_depth(span, attrs.draw_id) {
                     depth.for_each_visible_run(span, attrs.draw_id, |span| {
-                        self.layer_fill(row_y, span, cmd, attrs, resources);
+                        layer_fill(self, span);
                     });
                 } else {
-                    self.layer_fill(row_y, span, cmd, attrs, resources);
+                    layer_fill(self, span);
                 }
             }
         }
@@ -731,9 +747,8 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         &mut self,
         row_y: u16,
         span: Span,
-        cmd: LayerFill,
         attrs: &LayerFillAttrs,
-        resources: FineResources<'_>,
+        alphas: Option<&[u8]>,
     ) {
         if attrs.opacity != 1.0 {
             self.opacity(span, attrs.opacity);
@@ -741,11 +756,6 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         if let Some(mask) = attrs.mask.as_ref() {
             self.mask(row_y, span, mask);
         }
-        let alphas = cmd.alpha_idx().map(|alpha_idx| {
-            let alpha_offset = alpha_idx as usize
-                + usize::from(span.pixel_x() - cmd.span.pixel_x()) * Tile::HEIGHT as usize;
-            &resources.alpha_buffers[attrs.thread_idx as usize][alpha_offset..]
-        });
 
         let x = span.pixel_x();
         let (source, rest) = self.blend_buffers.split_last_mut().unwrap();

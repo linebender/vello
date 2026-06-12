@@ -643,6 +643,22 @@ fn issue_1477(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
 }
 
+#[vello_test(width = 512, height = 16)]
+fn opaque_rect_partially_occluding_aa_edge(ctx: &mut impl Renderer) {
+    // Hypotenuse crosses strip row y in 8..12 over the full width, producing one
+    // long AA strip. The rect's interior covers depth buckets [128, 384), splitting
+    // the strip into visible runs [0, 128) and [384, 512).
+    let mut triangle = BezPath::new();
+    triangle.move_to((0.0, 8.0));
+    triangle.line_to((512.0, 12.0));
+    triangle.line_to((0.0, 12.0));
+    triangle.close_path();
+    ctx.set_paint(DARK_BLUE);
+    ctx.fill_path(&triangle);
+    ctx.set_paint(RED);
+    ctx.fill_rect(&Rect::new(96.0, 8.0, 416.0, 12.0));
+}
+
 // TODO: Re-enable hybrid once proper edge handling is implemented in Vello hybrid.
 #[vello_test(
     skip_multithreaded,
