@@ -153,7 +153,7 @@ pub(crate) struct FilterLayerPlacement {
     /// Rectangle in the parent layer's coordinate space the filtered pixmap is composited into.
     ///
     /// See the comments in [`FilterLayerPlacement::new`] for more information.
-    pub(crate) composite_bbox: RectU16,
+    pub(crate) dest_bbox: RectU16,
     /// Source x offset used when sampling from the filter pixmap.
     ///
     /// See the comments in [`FilterLayerPlacement::new`] for more information.
@@ -167,7 +167,7 @@ pub(crate) struct FilterLayerPlacement {
 impl FilterLayerPlacement {
     const EMPTY: Self = Self {
         pixmap_bbox: RectU16::INVERTED,
-        composite_bbox: RectU16::INVERTED,
+        dest_bbox: RectU16::INVERTED,
         src_x: 0,
         src_y: 0,
     };
@@ -197,11 +197,11 @@ impl FilterLayerPlacement {
         // is already >= `shift_x`, nothing is clipped and `src_x` is 0.
         let src_x = shift_x.saturating_sub(pixmap_bbox.x0);
         let src_y = shift_y.saturating_sub(pixmap_bbox.y0);
-        let composite_bbox = pixmap_bbox.relative_to_origin((shift_x, shift_y));
+        let dest_bbox = pixmap_bbox.relative_to_origin((shift_x, shift_y));
 
         Self {
             pixmap_bbox,
-            composite_bbox,
+            dest_bbox,
             src_x,
             src_y,
         }
@@ -377,10 +377,10 @@ impl CommandRecorder {
                 ..
             } => {
                 *placement = FilterLayerPlacement::new(bbox, filter_plan);
-                let composite_bbox = placement.composite_bbox;
+                let dest_bbox = placement.dest_bbox;
 
                 self.active_root_layer = root_layer.previous_root_layer;
-                self.record_bbox(|| composite_bbox);
+                self.record_bbox(|| dest_bbox);
                 PoppedLayer::Filter
             }
         }

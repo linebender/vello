@@ -436,7 +436,7 @@ impl CommandBucketer {
         static_paint_count: usize,
     ) {
         let origin = self.viewport_origin();
-        let dest_bbox = placement.composite_bbox;
+        let dest_bbox = placement.dest_bbox;
         let src_sample_shift = placement.src_origin();
 
         // Here, we want to determine the absolute transform that needs to be applied to the filter
