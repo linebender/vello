@@ -78,6 +78,11 @@ pub(crate) enum DepthSegment {
 /// Splits a tile-aligned span into regular edge spans and a depth-trackable
 /// opaque middle span.
 pub(crate) fn split_opaque_span(span: Span, mut segment: impl FnMut(DepthSegment)) {
+    debug_assert!(
+        span.pixel_x().is_multiple_of(Tile::WIDTH) && span.pixel_end().is_multiple_of(Tile::WIDTH),
+        "`split_opaque_span` requires a tile-aligned span"
+    );
+
     let x = span.tile_x();
     let end = span.tile_end();
     let aligned_x = x.next_multiple_of(DEPTH_BUCKET_TILE_WIDTH);
