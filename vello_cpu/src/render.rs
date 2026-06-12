@@ -1059,10 +1059,12 @@ mod tests {
     use alloc::vec;
     #[cfg(feature = "text")]
     use glifo::{AtlasConfig, FontEmbolden, Glyph, GlyphCacheKey};
-    use vello_common::color::PremulRgba8;
     #[cfg(feature = "text")]
     use vello_common::color::palette::css::BLACK;
-    use vello_common::color::palette::css::{BLUE, RED};
+    use vello_common::color::{
+        PremulRgba8,
+        palette::css::{BLUE, RED},
+    };
     use vello_common::filter_effects::{Filter, FilterPrimitive};
     use vello_common::kurbo::{Rect, Shape};
     use vello_common::peniko::ImageAlphaType;
