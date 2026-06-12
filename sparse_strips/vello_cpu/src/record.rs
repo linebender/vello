@@ -478,6 +478,16 @@ fn strip_bbox(strips: &[Strip], viewport_width: u16) -> RectU16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::color::palette::css::BLACK;
+    use vello_common::filter_effects::FilterPrimitive;
+    use vello_common::paint::PremulColor;
+
+    enum ExpectedCmd {
+        PushLayer(usize),
+        FilterLayer(usize),
+        Fill,
+        PopLayer,
+    }
 
     fn sentinel(y: u16, alpha_idx: u32) -> Strip {
         Strip::new(u16::MAX, y, alpha_idx, false)
@@ -487,6 +497,144 @@ mod tests {
         Strip::new(u16::MAX, y, alpha_idx, true)
     }
 
+    fn layer_props() -> LayerProps {
+        LayerProps {
+            blend_mode: BlendMode::default(),
+            opacity: 1.0,
+            mask: None,
+            clip_path: None,
+        }
+    }
+
+    fn filter_data(filter_padding: RectU16, source_padding: RectU16) -> FilterData {
+        FilterData {
+            filter: Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 }),
+            transform: Affine::IDENTITY,
+            filter_padding,
+            source_padding,
+        }
+    }
+
+    fn assert_cmds(cmds: &[RecordedCmd], expected: &[ExpectedCmd]) {
+        assert_eq!(cmds.len(), expected.len());
+
+        for (cmd, expected) in cmds.iter().zip(expected) {
+            match (cmd, expected) {
+                (RecordedCmd::PushLayer { id }, ExpectedCmd::PushLayer(expected_id)) => {
+                    assert_eq!(id.get(), *expected_id);
+                }
+                (RecordedCmd::FilterLayer { id }, ExpectedCmd::FilterLayer(expected_id)) => {
+                    assert_eq!(id.get(), *expected_id);
+                }
+                (RecordedCmd::Fill { .. }, ExpectedCmd::Fill) => {}
+                (RecordedCmd::PopLayer, ExpectedCmd::PopLayer) => {}
+                _ => panic!("unexpected command: {cmd:?}"),
+            }
+        }
+    }
+
+    fn filter_cmds(recorder: &CommandRecorder, id: usize) -> &[RecordedCmd] {
+        match &recorder.layers[id].kind {
+            RecordedLayerKind::Filter { cmds, .. } => cmds,
+            RecordedLayerKind::Regular => panic!("expected filter layer"),
+        }
+    }
+
+    #[test]
+    fn filter_placement_padding_expands_bbox() {
+        let placement = FilterLayerPlacement::new(
+            RectU16::new(8, 8, 16, 20),
+            &filter_data(RectU16::new(2, 4, 6, 8), RectU16::ZERO),
+        );
+
+        // Since we are tile-aligned, values are expanded to a multiple of tile-size.
+        assert_eq!(placement.pixmap_bbox, RectU16::new(4, 4, 24, 28));
+        assert_eq!(placement.dest_bbox, RectU16::new(4, 4, 24, 28));
+        assert_eq!(placement.src_origin(), (0, 0));
+    }
+
+    #[test]
+    fn filter_placement_with_source_shift() {
+        let placement = FilterLayerPlacement::new(
+            RectU16::new(8, 12, 20, 24),
+            &filter_data(RectU16::new(6, 2, 4, 6), RectU16::new(10, 16, 0, 0)),
+        );
+
+        // Bbox expanded with padding is [8 - 6, 12 - 2, 20 + 4, 24 + 6]
+        // = [2, 10, 24, 30], snappding this gives us [0, 8, 24, 32].
+        assert_eq!(placement.pixmap_bbox, RectU16::new(0, 8, 24, 32));
+        // Account for source origin using saturing sub of 10 horizontally and
+        // 16 vertically.
+        assert_eq!(placement.dest_bbox, RectU16::new(0, 0, 14, 16));
+        // Source origin is now 10 - 0 = 10 and 16 - 8 = 8.
+        assert_eq!(placement.src_origin(), (10, 8));
+    }
+
+    #[test]
+    fn layer_behavior() {
+        let mut recorder = CommandRecorder::new();
+
+        recorder.push_layer(
+            layer_props(),
+            Some(filter_data(RectU16::ZERO, RectU16::ZERO)),
+        );
+        recorder.push_layer(
+            layer_props(),
+            Some(filter_data(RectU16::ZERO, RectU16::ZERO)),
+        );
+        recorder.push_layer(layer_props(), None);
+
+        recorder.push_fill(
+            0..2,
+            &[
+                Strip::new(0, 0, 0, false),
+                Strip::new(u16::MAX, 0, 16, true),
+            ],
+            64,
+            Paint::Solid(PremulColor::from_alpha_color(BLACK)),
+            BlendMode::default(),
+            None,
+            0,
+        );
+
+        assert_eq!(recorder.pop_layer(), PoppedLayer::Regular);
+        assert_eq!(recorder.pop_layer(), PoppedLayer::Filter);
+
+        recorder.push_layer(layer_props(), None);
+        recorder.push_fill(
+            0..2,
+            &[
+                Strip::new(0, 0, 16, false),
+                Strip::new(u16::MAX, 0, 32, true),
+            ],
+            64,
+            Paint::Solid(PremulColor::from_alpha_color(BLACK)),
+            BlendMode::default(),
+            None,
+            0,
+        );
+        assert_eq!(recorder.pop_layer(), PoppedLayer::Regular);
+        assert_eq!(recorder.pop_layer(), PoppedLayer::Filter);
+
+        assert_cmds(&recorder.root_cmds, &[ExpectedCmd::FilterLayer(0)]);
+        assert_cmds(
+            filter_cmds(&recorder, 0),
+            &[
+                ExpectedCmd::FilterLayer(1),
+                ExpectedCmd::PushLayer(3),
+                ExpectedCmd::Fill,
+                ExpectedCmd::PopLayer,
+            ],
+        );
+        assert_cmds(
+            filter_cmds(&recorder, 1),
+            &[
+                ExpectedCmd::PushLayer(2),
+                ExpectedCmd::Fill,
+                ExpectedCmd::PopLayer,
+            ],
+        );
+    }
     #[test]
     fn empty_strip_bbox() {
         let strips = [sentinel(0, 0), sentinel(0, 0)];
