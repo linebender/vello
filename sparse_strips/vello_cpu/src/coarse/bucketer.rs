@@ -764,6 +764,28 @@ mod tests {
         }
     }
 
+    fn clipped_layer_props_with_strips(
+        bbox: RectU16,
+        strip_range: core::ops::Range<usize>,
+    ) -> LayerProps {
+        LayerProps {
+            blend_mode: BlendMode::default(),
+            opacity: 1.0,
+            mask: None,
+            clip_path: Some(LayerClip {
+                strip_range,
+                thread_idx: 0,
+                bbox,
+            }),
+        }
+    }
+
+    fn count_layer_fills(cmds: &[RenderCmd]) -> usize {
+        cmds.iter()
+            .filter(|cmd| matches!(cmd, RenderCmd::LayerFill(_)))
+            .count()
+    }
+
     #[test]
     fn opaque_fill_inside_layer_does_not_use_depth_write() {
         let mut bucketer = CommandBucketer::from_wh(DEPTH_BUCKET_WIDTH, 4);
@@ -871,5 +893,40 @@ mod tests {
                     && cmd.span.pixel_width() == 32
                     && cmd.alpha_idx() == Some(0)
         ));
+    }
+
+    #[test]
+    fn culls_clip_strips_above_viewport_origin() {
+        // Viewport spans scene (0, 32) to (64, 96). Local space is 64x64, the origin at (0, 32).
+        let mut bucketer = CommandBucketer::new(RectU16::new(0, 32, 64, 96));
+
+        let alpha = u32::from(Tile::HEIGHT);
+        let strips = [
+            // Content: 16px alpha strip at scene (0, 32) => local row 0.
+            Strip::new(0, 32, 0, false),
+            Strip::new(16, 32, 16 * alpha, false),
+            // Clip strip above the viewport origin at scene y = 0, covering nothing visible.
+            Strip::new(0, 0, 16 * alpha, false),
+            Strip::new(16, 0, 32 * alpha, false),
+            // Clip strip at scene y = 32 => local row 0: the real coverage.
+            Strip::new(0, 32, 32 * alpha, false),
+            Strip::new(16, 32, 48 * alpha, false),
+        ];
+
+        // Clip bbox in scene coordinates: (0, 0)..(16, 40) => local (0, 0)..(16, 8).
+        bucketer.push_layer(&clipped_layer_props_with_strips(
+            RectU16::new(0, 0, 16, 40),
+            2..6,
+        ));
+        bucketer.generate_fill(&strips[0..2], &fill_attrs(Paint::Solid(color(RED))), &[]);
+        bucketer.pop_layer(&strips);
+
+        let row = &bucketer.rows()[0];
+        assert_eq!(
+            count_layer_fills(&row.render_cmds),
+            1,
+            "row 0 must be composited exactly once, got {:?}",
+            row.render_cmds
+        );
     }
 }
