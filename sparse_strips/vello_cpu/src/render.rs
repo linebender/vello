@@ -243,14 +243,15 @@ impl RenderContext {
     }
 
     fn encode_current_paint(&mut self) -> Paint {
-        let transform = self.effective_paint_transform();
         match self.state.paint.clone() {
             PaintType::Solid(s) => s.into(),
             PaintType::Gradient(g) => {
+                let transform = self.effective_paint_transform();
                 // TODO: Add caching?
                 g.encode_into(&mut self.encoded_paints, transform, None)
             }
             PaintType::Image(i) => {
+                let transform = self.effective_paint_transform();
                 i.encode_into(&mut self.encoded_paints, transform, self.state.tint)
             }
         }
