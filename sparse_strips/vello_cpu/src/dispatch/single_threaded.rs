@@ -244,6 +244,8 @@ impl SingleThreadedDispatcher {
 
             let width = pixmap_bbox.width();
             let height = pixmap_bbox.height();
+            // TODO: See https://github.com/linebender/vello/pull/1701#discussion_r3400709986, explore
+            // using pools for more resources.
             let mut pixmap = Pixmap::new(width, height);
             let params = FineRenderParams {
                 scene_size: (width, height),
