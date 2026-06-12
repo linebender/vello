@@ -272,19 +272,19 @@ pub(crate) struct CommandRecorder {
     pub(crate) layers: Vec<RecordedLayer>,
     /// A pool for reusable `Vec<RecordedCmd>` allocations.
     cmd_pool: VecPool<RecordedCmd>,
-    /// The layer whose command stream is currently treated as the root.
+    /// The filter layer whose command stream is currently the base.
     ///
-    /// This is either the real scene root (`None`) or an active filter layer
-    /// (`Some`).
-    active_root_layer: Option<LayerId>,
-    /// Stack of currently pushed root layers.
-    root_layer_stack: Vec<PushedRootLayer>,
+    /// This is `None` if there is no active filter layer and we are recording into the
+    /// root layer instead.
+    active_filter_layer: Option<LayerId>,
+    /// Stack of currently pushed layers.
+    layer_stack: Vec<OpenLayer>,
 }
 
 #[derive(Debug)]
-struct PushedRootLayer {
+struct OpenLayer {
     id: LayerId,
-    previous_root_layer: Option<LayerId>,
+    enclosing_filter_layer: Option<LayerId>,
 }
 
 impl CommandRecorder {
@@ -293,7 +293,7 @@ impl CommandRecorder {
     }
 
     pub(crate) fn has_layers(&self) -> bool {
-        !self.root_layer_stack.is_empty()
+        !self.layer_stack.is_empty()
     }
 
     pub(crate) fn reset(&mut self) {
@@ -305,8 +305,8 @@ impl CommandRecorder {
                 self.cmd_pool.submit(cmds);
             }
         }
-        self.active_root_layer = None;
-        self.root_layer_stack.clear();
+        self.active_filter_layer = None;
+        self.layer_stack.clear();
     }
 
     pub(crate) fn push_fill(
@@ -342,27 +342,27 @@ impl CommandRecorder {
     fn push_regular_layer(&mut self, props: LayerProps) {
         let id = self.push_layer_metadata(RecordedLayer::regular(props));
         self.push_render_cmd(RecordedCmd::PushLayer { id });
-        self.root_layer_stack.push(PushedRootLayer {
+        self.layer_stack.push(OpenLayer {
             id,
-            previous_root_layer: self.active_root_layer,
+            enclosing_filter_layer: self.active_filter_layer,
         });
     }
 
     fn push_filter_layer(&mut self, props: LayerProps, filter_plan: FilterData) {
-        let previous_root_layer = self.active_root_layer;
+        let enclosing_filter_layer = self.active_filter_layer;
         let cmds = self.cmd_pool.take();
         let id = self.push_layer_metadata(RecordedLayer::filter(props, filter_plan, cmds));
         self.push_render_cmd(RecordedCmd::FilterLayer { id });
-        self.active_root_layer = Some(id);
-        self.root_layer_stack.push(PushedRootLayer {
+        self.active_filter_layer = Some(id);
+        self.layer_stack.push(OpenLayer {
             id,
-            previous_root_layer,
+            enclosing_filter_layer,
         });
     }
 
     pub(crate) fn pop_layer(&mut self) -> PoppedLayer {
-        let root_layer = self.root_layer_stack.pop().unwrap();
-        let id = root_layer.id;
+        let layer = self.layer_stack.pop().unwrap();
+        let id = layer.id;
         let bbox = self.layers[id.get()].bbox;
         match &mut self.layers[id.get()].kind {
             RecordedLayerKind::Regular => {
@@ -379,7 +379,7 @@ impl CommandRecorder {
                 *placement = FilterLayerPlacement::new(bbox, filter_plan);
                 let dest_bbox = placement.dest_bbox;
 
-                self.active_root_layer = root_layer.previous_root_layer;
+                self.active_filter_layer = layer.enclosing_filter_layer;
                 self.record_bbox(|| dest_bbox);
                 PoppedLayer::Filter
             }
@@ -387,7 +387,7 @@ impl CommandRecorder {
     }
 
     fn active_cmds_mut(&mut self) -> &mut Vec<RecordedCmd> {
-        self.layer_cmds_mut(self.active_root_layer)
+        self.layer_cmds_mut(self.active_filter_layer)
     }
 
     fn layer_cmds_mut(&mut self, root_layer: Option<LayerId>) -> &mut Vec<RecordedCmd> {
@@ -417,7 +417,7 @@ impl CommandRecorder {
     }
 
     fn record_bbox(&mut self, bbox: impl FnOnce() -> RectU16) {
-        if let Some(layer) = self.root_layer_stack.last() {
+        if let Some(layer) = self.layer_stack.last() {
             self.layers[layer.id.get()].bbox.union(bbox());
         }
     }
