@@ -825,4 +825,31 @@ mod tests {
             matches!(row.render_cmds[0], RenderCmd::PaintFill(cmd) if cmd.span.pixel_x() == 0 && cmd.span.pixel_width() == DEPTH_BUCKET_WIDTH)
         );
     }
+
+    #[test]
+    fn clips_fills_correctly_inside_nonzero_origin_viewport() {
+        // Viewport spans scene (32, 32) to (96, 96). Local space is 64x64, the origin at (32, 32).
+        let mut bucketer = CommandBucketer::new(RectU16::new(32, 32, 96, 96));
+        // Clip bbox in scene coordinates: (40, 32)..(72, 96) => local (8, 0)..(40, 64).
+        bucketer.push_layer(&clipped_layer_props(RectU16::new(40, 32, 72, 96)));
+
+        // A 32px-wide alpha strip at scene (40, 32) => local (8, 0), fully inside the clip.
+        let strips = [
+            Strip::new(40, 32, 0, false),
+            Strip::new(72, 32, 32 * u32::from(Tile::HEIGHT), false),
+        ];
+        bucketer.generate_fill(&strips, &fill_attrs(Paint::Solid(color(RED))), &[]);
+
+        let row = &bucketer.rows()[0];
+
+        assert!(matches!(row.render_cmds[0], RenderCmd::PushBuf));
+        // The fill inside should not have been clipped.
+        assert!(matches!(
+            row.render_cmds[1],
+            RenderCmd::PaintFill(cmd)
+                if cmd.span.pixel_x() == 8
+                    && cmd.span.pixel_width() == 32
+                    && cmd.alpha_idx() == Some(0)
+        ));
+    }
 }
