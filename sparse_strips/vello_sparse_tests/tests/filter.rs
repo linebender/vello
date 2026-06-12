@@ -72,6 +72,54 @@ fn filter_offset_no_offset(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
+#[vello_test(skip_multithreaded, skip_hybrid, cpu_u8_tolerance = 1)]
+fn filter_clip_layer_correctly_culls_strips_vertical(ctx: &mut impl Renderer) {
+    filter_clip_layer_correctly_culls_strips(
+        ctx,
+        Rect::new(10.0, 0.0, 90.0, 4.0),
+        Rect::new(10.0, 44.0, 90.0, 48.0),
+        Rect::new(10.0, 52.0, 90.0, 56.0),
+    );
+}
+
+#[vello_test(skip_multithreaded, skip_hybrid, cpu_u8_tolerance = 1)]
+fn filter_clip_layer_correctly_culls_strips_horizontal(ctx: &mut impl Renderer) {
+    filter_clip_layer_correctly_culls_strips(
+        ctx,
+        Rect::new(0.0, 10.0, 4.0, 90.0),
+        Rect::new(56.0, 10.0, 60.0, 90.0),
+        Rect::new(40.0, 10.0, 44.0, 90.0),
+    );
+}
+
+fn filter_clip_layer_correctly_culls_strips(
+    ctx: &mut impl Renderer,
+    offscreen_clip: Rect,
+    visible_rect: Rect,
+    control_rect: Rect,
+) {
+    let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 });
+
+    let mut path = BezPath::new();
+    path.extend(offscreen_clip.to_path(0.1));
+    path.extend(visible_rect.to_path(0.1));
+
+    ctx.push_filter_layer(filter.clone());
+    ctx.push_layer(Some(&path), None, Some(0.5), None, None);
+    ctx.set_paint(RED);
+    ctx.fill_rect(&visible_rect);
+    ctx.pop_layer();
+    ctx.pop_layer();
+
+    let control_clip = control_rect.to_path(0.1);
+    ctx.push_filter_layer(filter);
+    ctx.push_layer(Some(&control_clip), None, Some(0.5), None, None);
+    ctx.set_paint(RED);
+    ctx.fill_rect(&control_rect);
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
 #[vello_test(skip_multithreaded)]
 fn filter_offset_nested(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::Offset { dx: 10.0, dy: 10.0 });

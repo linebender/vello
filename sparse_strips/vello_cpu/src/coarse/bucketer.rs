@@ -85,9 +85,10 @@ impl Clear for RowState {
 /// A bucketer that groups commands into strip-row-sized buckets.
 #[derive(Debug)]
 pub(crate) struct CommandBucketer {
-    /// The viewport of the root layer we are currently bucketing.
+    /// The viewport of the root/filter layer we are currently bucketing.
     viewport: RectU16,
-    /// The currently active stack of clip bboxes (from layer clips), tracked for two reasons:
+    /// The currently active stack of clip bboxes (from layer clips), always anchored at the
+    /// (0, 0) origin, regardless of the viewport, tracked for two reasons:
     /// - So we can clamp fill commands to the bbox and avoid unnecessary rendering work.
     /// - In case we have a filter layer with a clip, it all happens in three steps:
     ///   1) We first push a new intermediate layer with the clip.
@@ -127,10 +128,9 @@ impl CommandBucketer {
         // that the width is a multiple of the tile width, so if that's not the case bad things
         // could happen!
         viewport = viewport.snap_to_tile_coordinates();
-        let clip_bbox =
-            RectU16::new(0, 0, viewport.width(), viewport.height()).snap_to_tile_coordinates();
-        // Note: `viewport_clip_bbox` is already snapped to tile coordinates, so no need to `div_ceil`
-        // here.
+        let clip_bbox = RectU16::new(0, 0, viewport.width(), viewport.height());
+        // Note: `clip_bbox` is already snapped to tile coordinates because `viewport` is, so no
+        // need to `div_ceil` here.
         let num_rows = usize::from(clip_bbox.height() / Tile::HEIGHT);
 
         Self {
@@ -167,8 +167,7 @@ impl CommandBucketer {
     pub(crate) fn reset(&mut self, mut viewport: RectU16) {
         // See comments in `CommandBucketer::reset`.
         viewport = viewport.snap_to_tile_coordinates();
-        let clip_bbox =
-            RectU16::new(0, 0, viewport.width(), viewport.height()).snap_to_tile_coordinates();
+        let clip_bbox = RectU16::new(0, 0, viewport.width(), viewport.height());
         let num_rows = usize::from(viewport.height() / Tile::HEIGHT);
 
         self.rows.clear();
@@ -294,6 +293,8 @@ impl CommandBucketer {
             .clip_path
             .as_ref()
             .map(|clip| {
+                // Make sure to translate the clip path from viewport-space to local space, since
+                // `clip_bboxes` uses this coordinate system.
                 let clip_bbox = clip.bbox.relative_to_origin(self.viewport_origin());
                 clip_bbox.intersect(parent_bbox)
             })
@@ -358,6 +359,9 @@ impl CommandBucketer {
                 thread_idx: clip.thread_idx,
             });
             self.clip_bboxes.pop();
+
+            // Note: The clip strips themselves are still in viewport space, not in local space.
+            // They will be converted to local space when calling `generate`.
             let clip_strips = &strips[clip.strip_range];
 
             // We need to make sure that we only emit `LayerFill` commands for rows that actually
@@ -573,20 +577,36 @@ impl CommandBucketer {
         );
 
         let origin = self.viewport_origin();
-        let strip_x = |strip: &Strip| {
-            // TODO: Maybe there is a better way we can handle this?
-            if strip.is_sentinel() {
-                strip.x
-            } else {
-                strip.x.saturating_sub(origin.0)
-            }
-        };
 
-        let strip_row = |strip: &Strip| strip.y.saturating_sub(origin.1) / Tile::HEIGHT;
-        let clip_span = |x0: u16, x1: u16| (x0.max(clip_x0), x1.min(clip_x1));
+        // Note: the viewport of a filter layer is based on the bounds of its rendered contents.
+        // Therefore, those are always guaranteed to be within the viewport rect. However, this does not
+        // apply to any clip paths associated with the filter layer. Including those in the filter
+        // layer bbox could unnecessarily balloon the size of the pixmap we allocate if it is
+        // very large, since those don't actually contribute any visible output. However, this does
+        // mean that this method might be called with strips that do not lie within the viewport.
+        // Therefore, we need to make sure to clip those appropriately.
+
+        let viewport_y1 = self.viewport.y1;
+        // Convert to viewport coordinates.
+        let clip_scene_x0 = origin.0.saturating_add(clip_x0);
+        let clip_scene_x1 = origin.0.saturating_add(clip_x1);
+
+        let strip_row = |strip: &Strip| (strip.y - origin.1) / Tile::HEIGHT;
+
+        // Clip strips that are outside the viewport horizontally.
+        let clip_span = |x0: u16, x1: u16| (x0.max(clip_scene_x0), x1.min(clip_scene_x1));
 
         for i in 0..strip_buf.len() - 1 {
             let strip = &strip_buf[i];
+
+            // Skip strips that are outside the viewport vertically.
+            if strip.y < origin.1 {
+                continue;
+            }
+            if strip.y >= viewport_y1 {
+                break;
+            }
+
             let strip_y = strip_row(strip);
             let row_y = strip_y.saturating_mul(Tile::HEIGHT);
 
@@ -601,30 +621,30 @@ impl CommandBucketer {
 
             let next_strip = &strip_buf[i + 1];
             let strip_width = strip.width_to(next_strip);
-            let x0 = strip_x(strip);
+            let x0 = strip.x;
             let x1 = x0.saturating_add(strip_width);
             let (clipped_x0, clipped_x1) = clip_span(x0, x1);
 
-            if strip_width > 0 && clipped_x0 < clipped_x1 {
+            if clipped_x0 < clipped_x1 {
                 alpha_fill_cmd(
                     self,
                     GeneratedAlphaFill {
                         row_idx,
-                        span: Span::new(clipped_x0, clipped_x1 - clipped_x0),
+                        span: Span::new(clipped_x0 - origin.0, clipped_x1 - clipped_x0),
                         alpha_idx: strip.alpha_idx()
                             + u32::from(clipped_x0 - x0) * u32::from(Tile::HEIGHT),
                     },
                 );
             }
 
-            if next_strip.fill_gap() && strip_y == strip_row(next_strip) {
-                let (fill_x0, fill_x1) = clip_span(x1, strip_x(next_strip));
+            if next_strip.fill_gap() && next_strip.y == strip.y {
+                let (fill_x0, fill_x1) = clip_span(x1, next_strip.x);
                 if fill_x0 < fill_x1 {
                     fill_cmd(
                         self,
                         GeneratedFill {
                             row_idx,
-                            span: Span::new(fill_x0, fill_x1 - fill_x0),
+                            span: Span::new(fill_x0 - origin.0, fill_x1 - fill_x0),
                         },
                     );
                 }
