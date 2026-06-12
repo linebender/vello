@@ -336,6 +336,10 @@ impl CommandRecorder {
             return;
         }
 
+        self.push_regular_layer(props);
+    }
+
+    fn push_regular_layer(&mut self, props: LayerProps) {
         let id = self.push_layer_metadata(RecordedLayer::regular(props));
         self.push_render_cmd(RecordedCmd::PushLayer { id });
         self.root_layer_stack.push(PushedRootLayer {
