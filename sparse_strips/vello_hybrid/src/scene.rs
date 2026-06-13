@@ -1085,7 +1085,7 @@ impl Scene {
     /// Reset scene to default values.
     pub fn reset(&mut self) {
         self.wide.reset();
-        self.strip_generator.reset();
+        self.strip_generator.reset(self.width, self.height);
         self.clip_context.reset();
         // Set the strip storage back to `Append` mode since the fast path is re-enabled on reset.
         {

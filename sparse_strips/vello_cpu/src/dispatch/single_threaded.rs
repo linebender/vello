@@ -292,8 +292,7 @@ impl SingleThreadedDispatcher {
             .height()
             .saturating_add(padding.y0)
             .saturating_add(padding.y1);
-        // TODO: Once `StripGenerator`s (in particular `Tiles`) can be resized,
-        // we can use a pool of strip generators.
+        // TODO: Use a pool of strip generators.
         let filter_generator = StripGenerator::new(width, height, self.level);
         let parent_generator = core::mem::replace(&mut self.strip_generator, filter_generator);
         self.strip_generator_stack.push(parent_generator);
@@ -436,14 +435,13 @@ impl Dispatcher for SingleThreadedDispatcher {
         }
     }
 
-    fn reset(&mut self) {
+    fn reset(&mut self, width: u16, height: u16) {
         // Bucketer will be reset on demand, so no need to reset it here.
         self.clip_context.reset();
         self.recorder.reset();
         self.strip_generator_stack.clear();
-        self.strip_generator.reset();
-        self.strip_generator.reset();
         self.strip_storage.clear();
+        self.strip_generator.reset(width, height);
     }
 
     fn flush(&mut self) {
@@ -601,7 +599,7 @@ mod tests {
         assert!(!dispatcher.strip_storage.strips.is_empty());
         assert!(!dispatcher.recorder.root_cmds.is_empty());
 
-        dispatcher.reset();
+        dispatcher.reset(100, 100);
 
         // Verify all buffers are cleared.
         assert!(dispatcher.strip_storage.strips.is_empty());
