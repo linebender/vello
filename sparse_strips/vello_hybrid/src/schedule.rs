@@ -1820,10 +1820,6 @@ impl Scheduler {
         match paint {
             Paint::Solid(color) => {
                 let rgba = color.as_premul_rgba8().to_u32();
-                debug_assert!(
-                    has_non_zero_alpha(rgba),
-                    "Color fields with 0 alpha are reserved for clipping"
-                );
                 let paint_packed = (COLOR_SOURCE_PAYLOAD << 30) | (PAINT_TYPE_SOLID << 27);
                 ProcessedPaint {
                     payload: rgba,
