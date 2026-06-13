@@ -131,18 +131,15 @@ fn main(
     let my_mask = 1u << (local_id.x & 31u);
 
     // Loop over the blocks of bins in chunks of N_TILE (256)
-    for (var block_start = 0u; block_start < n_bins; block_start += N_TILE) {
-        let next_block = block_start + N_TILE;
-
+    var next_block = N_TILE;
+    for (var block_start = 0u; block_start < n_bins; ) {
         // Write coverage for the current block
         for (var y_offset = y0_width; y_offset < y1_width; y_offset += width_in_bins) {
-            let start_bin = u32(y_offset + x0);
-            let end_bin = u32(y_offset + x1);
+            let start_bin = max(u32(y_offset + x0), block_start);
+            let end_bin = min(u32(y_offset + x1), next_block);
             for (var bin_ix = start_bin; bin_ix < end_bin; bin_ix += 1u) {
-                if bin_ix >= block_start && bin_ix < next_block {
-                    let sh_bin_ix = bin_ix - block_start;
-                    atomicOr(&sh_bitmaps[my_slice][sh_bin_ix], my_mask);
-                }
+                let sh_bin_ix = bin_ix - block_start;
+                atomicOr(&sh_bitmaps[my_slice][sh_bin_ix], my_mask);
             }
         }
         workgroupBarrier();
@@ -174,33 +171,33 @@ fn main(
 
         // Output the element indices to bin_data
         for (var y_offset = y0_width; y_offset < y1_width; y_offset += width_in_bins) {
-            let start_bin = u32(y_offset + x0);
-            let end_bin = u32(y_offset + x1);
+            let start_bin = max(u32(y_offset + x0), block_start);
+            let end_bin = min(u32(y_offset + x1), next_block);
             for (var bin_ix = start_bin; bin_ix < end_bin; bin_ix += 1u) {
-                if bin_ix >= block_start && bin_ix < next_block {
-                    let sh_bin_ix = bin_ix - block_start;
-                    let out_mask = atomicLoad(&sh_bitmaps[my_slice][sh_bin_ix]);
-                    // I think this predicate will always be true...
-                    if (out_mask & my_mask) != 0u {
-                        var idx = countOneBits(out_mask & (my_mask - 1u));
-                        if my_slice > 0u {
-                            let count_ix = my_slice - 1u;
-                            let count_packed = sh_count[count_ix / 2u][sh_bin_ix];
-                            idx += (count_packed >> (16u * (count_ix & 1u))) & 0xffffu;
-                        }
-                        let offset = config.bin_data_start + sh_chunk_offset[sh_bin_ix];
-                        bin_data[offset + idx] = element_ix;
+                let sh_bin_ix = bin_ix - block_start;
+                let out_mask = atomicLoad(&sh_bitmaps[my_slice][sh_bin_ix]);
+                // I think this predicate will always be true...
+                if (out_mask & my_mask) != 0u {
+                    var idx = countOneBits(out_mask & (my_mask - 1u));
+                    if my_slice > 0u {
+                        let count_ix = my_slice - 1u;
+                        let count_packed = sh_count[count_ix / 2u][sh_bin_ix];
+                        idx += (count_packed >> (16u * (count_ix & 1u))) & 0xffffu;
                     }
+                    let offset = config.bin_data_start + sh_chunk_offset[sh_bin_ix];
+                    bin_data[offset + idx] = element_ix;
                 }
             }
         }
 
+        block_start = next_block;
         if next_block < aligned_n_bins {
             workgroupBarrier();
             for (var i = 0u; i < N_SLICE; i += 1u) {
                 atomicStore(&sh_bitmaps[i][local_id.x], 0u);
             }
             workgroupBarrier();
+            next_block += N_TILE;
         }
     }
 }
