@@ -98,3 +98,12 @@ fn compare_blurred_rounded_rect() {
     let params = TestParams::new("compare_blurred_rounded_rect", 1200, 1200);
     compare_test_scene(test_scene, params);
 }
+
+#[test]
+#[ignore = "This test takes a long time."]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn compare_large_bin_count() {
+    let test_scene = test_scenes::funky_paths();
+    let params = TestParams::new("compare_large_bin_count", 8192, 2304);
+    compare_test_scene(test_scene, params);
+}

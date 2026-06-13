@@ -387,9 +387,13 @@ impl BufferSizes {
         let draw_bboxes = BufferSize::new(n_paths);
         let bump_alloc = BufferSize::new(1);
         let indirect_count = BufferSize::new(1);
-        let bin_headers = BufferSize::new(binning_wgs * 256);
         let n_paths_aligned = align_up(n_paths, 256);
         let paths = BufferSize::new(n_paths_aligned);
+        let width_in_bins = workgroups.coarse.0;
+        let height_in_bins = workgroups.coarse.1;
+        let n_bins = width_in_bins * height_in_bins;
+        let aligned_n_bins = align_up(n_bins, 256);
+        let bin_headers = BufferSize::new(binning_wgs * aligned_n_bins);
 
         // The following buffer sizes have been hand picked to accommodate the vello test scenes as
         // well as paris-30k. These should instead get derived from the scene layout using

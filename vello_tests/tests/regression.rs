@@ -9,7 +9,8 @@ use vello::{
     AaConfig, Scene,
     kurbo::{Affine, Rect, RoundedRect, Stroke},
     peniko::{
-        Color, ColorStop, Extend, Gradient, ImageQuality, InterpolationAlphaSpace, color::palette,
+        Color, ColorStop, Extend, Gradient, ImageFormat, ImageQuality, InterpolationAlphaSpace,
+        color::palette,
     },
 };
 use vello_tests::{TestParams, smoke_snapshot_test_sync, snapshot_test_sync};
@@ -206,4 +207,60 @@ fn test_gradient_color_alpha_unpremultiplied() {
     smoke_snapshot_test_sync(scene, &params)
         .unwrap()
         .assert_mean_less_than(0.001);
+}
+
+/// Test created from <https://github.com/linebender/vello/issues/680>
+fn many_bins(use_cpu: bool) {
+    let mut scene = Scene::new();
+    scene.fill(
+        vello::peniko::Fill::NonZero,
+        Affine::IDENTITY,
+        palette::css::RED,
+        None,
+        &Rect::new(-5., -5., 256. * 20., 256. * 20.),
+    );
+    let params = TestParams {
+        use_cpu,
+        ..TestParams::new("many_bins", 256 * 17, 256 * 17)
+    };
+    let image = vello_tests::render_then_debug_sync(&scene, &params).unwrap();
+    assert_eq!(image.format, ImageFormat::Rgba8, "image should be Rgba8");
+    let mut red_count = 0;
+    let mut black_count = 0;
+    for pixel in image.data.data().chunks_exact(4) {
+        let &[r, g, b, a] = pixel else { unreachable!() };
+        let is_red = r == 255 && g == 0 && b == 0 && a == 255;
+        let is_black = r == 0 && g == 0 && b == 0 && a == 255;
+        if !is_red && !is_black {
+            panic!("{pixel:?}");
+        }
+        match (is_red, is_black) {
+            (true, true) => unreachable!(),
+            (true, false) => red_count += 1,
+            (false, true) => black_count += 1,
+            (false, false) => panic!("Got unexpected pixel {pixel:?}"),
+        }
+    }
+    let drawn_bins = 17 /* x bins */ * 17 /* y bins*/;
+    let expected_red_count = drawn_bins * 256 /* tiles per bin */ * 256 /* Pixels per tile */;
+    assert_eq!(
+        red_count, expected_red_count,
+        "number of drawn red pixels should match the expected pixel count for 17x17 bins"
+    );
+    assert_eq!(
+        black_count, 0,
+        "no black pixels should remain in the render"
+    );
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn many_bins_gpu() {
+    many_bins(false);
+}
+
+#[test]
+#[cfg_attr(skip_gpu_tests, ignore)]
+fn many_bins_cpu() {
+    many_bins(true);
 }
