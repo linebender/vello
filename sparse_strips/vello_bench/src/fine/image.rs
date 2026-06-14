@@ -185,12 +185,5 @@ fn image_base<S: Simd, T: FineKernel<S>>(
 
     let paint = image.encode_into(&mut paints, transform, None);
 
-    fill_single(
-        &paint,
-        &paints,
-        WideTile::WIDTH as usize,
-        b,
-        default_blend(),
-        fine,
-    );
+    fill_single(&paint, &paints, WideTile::WIDTH, b, default_blend(), fine);
 }

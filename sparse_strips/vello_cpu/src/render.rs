@@ -5,15 +5,16 @@
 
 use crate::RenderMode;
 use crate::dispatch::Dispatcher;
+#[cfg(feature = "multithreading")]
+use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
 #[cfg(feature = "text")]
 use crate::text::{GlyphAtlasResources, GlyphRunBuilder};
 #[cfg(feature = "text")]
 use glifo::GlyphPrepCache;
 
-#[cfg(feature = "multithreading")]
-use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
 use crate::dispatch::single_threaded::SingleThreadedDispatcher;
 use crate::kurbo::{PathEl, Point};
+use crate::record::FilterData;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec;
@@ -154,6 +155,8 @@ pub struct RenderContext {
     pub(crate) height: u16,
     /// The current rendering state.
     pub(crate) state: RenderState,
+    /// Stack of root transforms.
+    root_transforms: Vec<Affine>,
     /// The current mask in place.
     pub(crate) mask: Option<Mask>,
     /// Temporary path buffer to avoid repeated allocations.
@@ -229,6 +232,7 @@ impl RenderContext {
             height,
             dispatcher,
             state: RenderState::default(),
+            root_transforms: vec![Affine::IDENTITY],
             aliasing_threshold,
             render_settings: settings,
             mask: None,
@@ -242,34 +246,53 @@ impl RenderContext {
         match self.state.paint.clone() {
             PaintType::Solid(s) => s.into(),
             PaintType::Gradient(g) => {
+                let transform = self.effective_paint_transform();
                 // TODO: Add caching?
-                g.encode_into(
-                    &mut self.encoded_paints,
-                    self.state.transform * self.state.paint_transform,
-                    None,
-                )
+                g.encode_into(&mut self.encoded_paints, transform, None)
             }
-            PaintType::Image(i) => i.encode_into(
-                &mut self.encoded_paints,
-                self.state.transform * self.state.paint_transform,
-                self.state.tint,
-            ),
+            PaintType::Image(i) => {
+                let transform = self.effective_paint_transform();
+                i.encode_into(&mut self.encoded_paints, transform, self.state.tint)
+            }
         }
+    }
+
+    fn root_transform(&self) -> Affine {
+        *self
+            .root_transforms
+            .last()
+            .expect("root transform stack should never be empty")
+    }
+
+    fn effective_path_transform(&self) -> Affine {
+        self.root_transform() * self.state.transform
+    }
+
+    fn effective_paint_transform(&self) -> Affine {
+        self.effective_path_transform() * self.state.paint_transform
+    }
+
+    pub(crate) fn push_root_transform(&mut self, transform: Affine) {
+        self.root_transforms.push(transform * self.root_transform());
+    }
+
+    pub(crate) fn pop_root_transform(&mut self) {
+        self.root_transforms.pop();
     }
 
     /// Fill a path.
     pub fn fill_path(&mut self, path: &BezPath) {
         self.with_optional_filter(|ctx| {
             let paint = ctx.encode_current_paint();
+            let transform = ctx.effective_path_transform();
             ctx.dispatcher.fill_path(
                 path,
                 ctx.state.fill_rule,
-                ctx.state.transform,
+                transform,
                 paint,
                 ctx.state.blend_mode,
                 ctx.aliasing_threshold,
                 ctx.mask.clone(),
-                &ctx.encoded_paints,
             );
         });
     }
@@ -278,15 +301,15 @@ impl RenderContext {
     pub fn stroke_path(&mut self, path: &BezPath) {
         self.with_optional_filter(|ctx| {
             let paint = ctx.encode_current_paint();
+            let transform = ctx.effective_path_transform();
             ctx.dispatcher.stroke_path(
                 path,
                 &ctx.state.stroke,
-                ctx.state.transform,
+                transform,
                 paint,
                 ctx.state.blend_mode,
                 ctx.aliasing_threshold,
                 ctx.mask.clone(),
-                &ctx.encoded_paints,
             );
         });
     }
@@ -295,19 +318,19 @@ impl RenderContext {
     pub fn fill_rect(&mut self, rect: &Rect) {
         self.with_optional_filter(|ctx| {
             let paint = ctx.encode_current_paint();
+            let transform = ctx.effective_path_transform();
 
             // Fast path: Use optimized rect filling if we have no skew in the path transform
             // and anti-aliasing is enabled.
             // TODO: Maybe also support no anti-aliasing in the fast path
-            if is_axis_aligned(&ctx.state.transform) && ctx.aliasing_threshold.is_none() {
+            if is_axis_aligned(&transform) && ctx.aliasing_threshold.is_none() {
                 // Transform the rect to screen coordinates.
-                let transformed_rect = ctx.state.transform.transform_rect_bbox(*rect);
+                let transformed_rect = transform.transform_rect_bbox(*rect);
                 ctx.dispatcher.fill_rect_fast(
                     &transformed_rect,
                     paint,
                     ctx.state.blend_mode,
                     ctx.mask.clone(),
-                    &ctx.encoded_paints,
                 );
             } else {
                 // Fall back to path-based rendering for rotated/skewed transforms.
@@ -315,12 +338,11 @@ impl RenderContext {
                 ctx.dispatcher.fill_path(
                     &ctx.temp_path,
                     ctx.state.fill_rule,
-                    ctx.state.transform,
+                    transform,
                     paint,
                     ctx.state.blend_mode,
                     ctx.aliasing_threshold,
                     ctx.mask.clone(),
-                    &ctx.encoded_paints,
                 );
             }
         });
@@ -331,15 +353,15 @@ impl RenderContext {
         self.with_optional_filter(|ctx| {
             ctx.rect_to_temp_path(rect);
             let paint = ctx.encode_current_paint();
+            let transform = ctx.effective_path_transform();
             ctx.dispatcher.stroke_path(
                 &ctx.temp_path,
                 &ctx.state.stroke,
-                ctx.state.transform,
+                transform,
                 paint,
                 ctx.state.blend_mode,
                 ctx.aliasing_threshold,
                 ctx.mask.clone(),
-                &ctx.encoded_paints,
             );
         });
     }
@@ -382,20 +404,20 @@ impl RenderContext {
         // For performance reason we cut off the filter at some extent where the response is close to zero.
         let kernel_size = 2.5 * std_dev;
         let inflated_rect = rect.inflate(f64::from(kernel_size), f64::from(kernel_size));
-        let transform = self.state.transform * self.state.paint_transform;
+        let transform = self.effective_path_transform();
+        let paint_transform = self.effective_paint_transform();
 
         self.rect_to_temp_path(&inflated_rect);
 
-        let paint = blurred_rect.encode_into(&mut self.encoded_paints, transform, None);
+        let paint = blurred_rect.encode_into(&mut self.encoded_paints, paint_transform, None);
         self.dispatcher.fill_path(
             &self.temp_path,
             Fill::NonZero,
-            self.state.transform,
+            transform,
             paint,
             self.state.blend_mode,
             self.aliasing_threshold,
             self.mask.clone(),
-            &self.encoded_paints,
         );
     }
 
@@ -441,16 +463,34 @@ impl RenderContext {
 
         let blend_mode = blend_mode.unwrap_or_default();
         let opacity = opacity.unwrap_or(1.0);
+        let layer_transform = self.effective_path_transform();
+        let filter_plan = filter.map(|filter| FilterData::new(filter, layer_transform));
+
+        // The important part! Let's say we have an element placed in a way such that
+        // its drop shadow starts at (0, 0). In order for it to render correctly, we would
+        // have to render parts of the shape that at negative viewport coordinates, which is
+        // not supported. Therefore, we instead shift everything down such that we can assume
+        // everything left/above (0, 0) is not needed for correct rendering, and simply
+        // shift everything back when actually compositing the rendered filter layer.
+        self.push_root_transform(
+            filter_plan
+                .as_ref()
+                .map_or(Affine::IDENTITY, |filter_plan| {
+                    let (shift_x, shift_y) = filter_plan.source_shift();
+
+                    Affine::translate((f64::from(shift_x), f64::from(shift_y)))
+                }),
+        );
 
         self.dispatcher.push_layer(
             clip_path,
             self.state.fill_rule,
-            self.state.transform,
+            layer_transform,
             blend_mode,
             opacity,
             self.aliasing_threshold,
             mask,
-            filter,
+            filter_plan,
         );
     }
 
@@ -509,6 +549,7 @@ impl RenderContext {
     /// Pop the last-pushed layer.
     pub fn pop_layer(&mut self) {
         self.dispatcher.pop_layer();
+        self.pop_root_transform();
     }
 
     /// Set the current stroke.
@@ -638,6 +679,8 @@ impl RenderContext {
         self.dispatcher.reset();
         self.encoded_paints.clear();
         self.mask = None;
+        self.root_transforms.clear();
+        self.root_transforms.push(Affine::IDENTITY);
         self.state.reset();
     }
 
@@ -646,10 +689,11 @@ impl RenderContext {
     /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
     /// example for how this method differs from `push_clip_layer`.
     pub fn push_clip_path(&mut self, path: &BezPath) {
+        let transform = self.effective_path_transform();
         self.dispatcher.push_clip_path(
             path,
             self.state.fill_rule,
-            self.state.transform,
+            transform,
             self.aliasing_threshold,
         );
     }
@@ -668,7 +712,7 @@ impl RenderContext {
     /// For multi-threaded rendering, you _have_ to call this before rasterizing, otherwise
     /// the program will panic.
     pub fn flush(&mut self) {
-        self.dispatcher.flush(&self.encoded_paints);
+        self.dispatcher.flush();
     }
 
     /// Render the current context into a target using default rasterizer settings.
@@ -718,8 +762,10 @@ impl RenderContext {
         settings: RasterizerSettings,
     ) {
         // TODO: Maybe we should move those checks into the dispatcher.
-        let wide = self.dispatcher.wide();
-        assert!(!wide.has_layers(), "some layers haven't been popped yet");
+        assert!(
+            !self.dispatcher.has_layers(),
+            "some layers haven't been popped yet"
+        );
 
         resources.before_render(settings.render_mode);
         let mut target = target.into();

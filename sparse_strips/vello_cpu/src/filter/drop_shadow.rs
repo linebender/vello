@@ -16,7 +16,7 @@
 use super::FilterEffect;
 use super::gaussian_blur::apply_blur;
 use super::shift::offset_pixels;
-use crate::layer_manager::LayerManager;
+use crate::filter::context::ScratchBuffer;
 use vello_common::color::{AlphaColor, Srgb};
 use vello_common::filter::drop_shadow::DropShadow;
 use vello_common::filter_effects::EdgeMode;
@@ -26,7 +26,7 @@ use vello_common::peniko::kurbo::common::FloatFuncs as _;
 use vello_common::pixmap::Pixmap;
 
 impl FilterEffect for DropShadow {
-    fn execute_lowp(&self, pixmap: &mut Pixmap, layer_manager: &mut LayerManager) {
+    fn execute_lowp(&self, pixmap: &mut Pixmap, filter_scratch: &mut ScratchBuffer) {
         apply_drop_shadow(
             pixmap,
             self.dx,
@@ -36,14 +36,14 @@ impl FilterEffect for DropShadow {
             &self.kernel[..usize::from(self.kernel_size)],
             self.color,
             self.edge_mode,
-            layer_manager,
+            filter_scratch,
         );
     }
 
-    fn execute_highp(&self, pixmap: &mut Pixmap, layer_manager: &mut LayerManager) {
+    fn execute_highp(&self, pixmap: &mut Pixmap, filter_scratch: &mut ScratchBuffer) {
         // TODO: Currently only lowp is implemented and used for highp as well.
         // This needs to be updated to use proper high-precision arithmetic.
-        Self::execute_lowp(self, pixmap, layer_manager);
+        Self::execute_lowp(self, pixmap, filter_scratch);
     }
 }
 
@@ -62,7 +62,7 @@ fn apply_drop_shadow(
     kernel: &[f32],
     color: AlphaColor<Srgb>,
     edge_mode: EdgeMode,
-    layer_manager: &mut LayerManager,
+    filter_scratch: &mut ScratchBuffer,
 ) {
     // Clone pixmap to create shadow buffer
     let mut shadow_pixmap = pixmap.clone();
@@ -73,7 +73,7 @@ fn apply_drop_shadow(
     // Step 2: Blur the already-offset shadow
     if std_deviation > 0.0 {
         let scratch =
-            layer_manager.get_scratch_buffer(shadow_pixmap.width(), shadow_pixmap.height());
+            filter_scratch.get_scratch_buffer(shadow_pixmap.width(), shadow_pixmap.height());
         apply_blur(
             &mut shadow_pixmap,
             scratch,

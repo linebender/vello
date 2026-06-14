@@ -2,10 +2,37 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::peniko::ImageQuality;
+use alloc::vec::Vec;
 use vello_common::encode::EncodedImage;
 use vello_common::fearless_simd::{Simd, SimdBase, f32x4, u8x32};
 use vello_common::math::FloatExt;
+use vello_common::tile::Tile;
 use vello_common::util::Div255Ext;
+
+/// Pool for reusing vector allocations.
+#[derive(Debug)]
+pub(crate) struct VecPool<T> {
+    entries: Vec<Vec<T>>,
+}
+
+impl<T> Default for VecPool<T> {
+    fn default() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+}
+
+impl<T> VecPool<T> {
+    pub(crate) fn take(&mut self) -> Vec<T> {
+        self.entries.pop().unwrap_or_default()
+    }
+
+    pub(crate) fn submit(&mut self, mut vec: Vec<T>) {
+        vec.clear();
+        self.entries.push(vec);
+    }
+}
 
 pub(crate) mod scalar {
     /// Perform an approximate division by 255.
@@ -108,5 +135,69 @@ impl<S: Simd> Premultiply for f32x4<S> {
 
         self.simd
             .select_f32x4(self.simd.simd_eq_f32x4(alphas, zero), zero, divided)
+    }
+}
+
+/// A horizontal span in pixel coordinates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[doc(hidden)]
+pub struct Span {
+    /// The horizontal start position in pixels.
+    x: u16,
+    /// The horizontal span width in pixels.
+    width: u16,
+}
+
+impl Span {
+    /// Creates a span from pixel coordinates.
+    pub fn new(x: u16, width: u16) -> Self {
+        Self { x, width }
+    }
+
+    /// Creates a span from tile coordinates.
+    pub fn new_tile(tile_x: u16, tile_width: u16) -> Self {
+        Self {
+            x: tile_x * Tile::WIDTH,
+            width: tile_width * Tile::WIDTH,
+        }
+    }
+
+    /// Returns the horizontal start position in tile coordinates.
+    pub fn tile_x(self) -> u16 {
+        self.x / Tile::WIDTH
+    }
+
+    /// Returns the exclusive horizontal end position in tile coordinates.
+    pub fn tile_end(self) -> u16 {
+        self.pixel_end().div_ceil(Tile::WIDTH)
+    }
+
+    /// Extends this span to include another span.
+    pub fn extend(&mut self, other: Self) {
+        let x = self.x.min(other.x);
+        let end = self.pixel_end().max(other.pixel_end());
+        *self = Self::new(x, end.saturating_sub(x));
+    }
+
+    /// Returns the intersection of this span with another span.
+    pub fn intersect(self, other: Self) -> Option<Self> {
+        let x = self.x.max(other.x);
+        let end = self.pixel_end().min(other.pixel_end());
+        (x < end).then(|| Self::new(x, end - x))
+    }
+
+    /// Returns the horizontal start position in pixels.
+    pub fn pixel_x(self) -> u16 {
+        self.x
+    }
+
+    /// Returns the horizontal span width in pixels.
+    pub fn pixel_width(self) -> u16 {
+        self.width
+    }
+
+    /// Returns the exclusive horizontal end position in pixels.
+    pub fn pixel_end(self) -> u16 {
+        self.pixel_x().saturating_add(self.pixel_width())
     }
 }
