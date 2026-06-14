@@ -34,16 +34,16 @@ pub enum PreparedFilter {
 
 impl PreparedFilter {
     /// Build a new prepared filter for the given transform.
-    pub fn new(filter: &Filter, transform: &Affine) -> Self {
+    pub fn new(filter: &Filter, transform: &Affine) -> Option<Self> {
         // Multi-primitive filter graphs are not yet implemented.
         if filter.graph.primitives.len() != 1 {
-            unimplemented!("Multi-primitive filter graphs are not yet supported");
+            return None;
         }
 
         match &filter.graph.primitives[0] {
             FilterPrimitive::Flood { color } => {
                 let flood = Flood::new(*color);
-                Self::Flood(flood)
+                Some(Self::Flood(flood))
             }
             FilterPrimitive::GaussianBlur {
                 std_deviation,
@@ -51,7 +51,7 @@ impl PreparedFilter {
             } => {
                 let scaled_std_dev = transform_blur_params(*std_deviation, transform);
                 let blur = GaussianBlur::new(scaled_std_dev, *edge_mode);
-                Self::GaussianBlur(blur)
+                Some(Self::GaussianBlur(blur))
             }
             FilterPrimitive::DropShadow {
                 dx,
@@ -65,18 +65,18 @@ impl PreparedFilter {
                 let drop_shadow =
                     DropShadow::new(scaled_dx, scaled_dy, scaled_std_dev, *edge_mode, *color);
 
-                Self::DropShadow(drop_shadow)
+                Some(Self::DropShadow(drop_shadow))
             }
             FilterPrimitive::Offset { dx, dy } => {
                 let (scaled_dx, scaled_dy) = transform_offset_params(*dx, *dy, transform);
                 let offset = Offset::new(scaled_dx, scaled_dy);
 
-                Self::Offset(offset)
+                Some(Self::Offset(offset))
             }
             _ => {
                 // Other primitives like Blend, ColorMatrix, ComponentTransfer, etc.
                 // are not yet implemented
-                unimplemented!("Other filter primitives not yet implemented");
+                None
             }
         }
     }

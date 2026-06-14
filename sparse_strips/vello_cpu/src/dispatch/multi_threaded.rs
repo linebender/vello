@@ -520,14 +520,11 @@ impl Dispatcher for MultiThreadedDispatcher {
         opacity: f32,
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
-        filter: Option<Filter>,
+        _filter: Option<Filter>,
     ) {
         // TODO: Implement filter support in multi-threaded dispatcher.
         // The single-threaded dispatcher has full support via LayerManager and render graph execution,
         // but multi-threaded needs additional infrastructure for cross-thread layer coordination.
-        if filter.is_some() {
-            unimplemented!("Filter effects are not yet supported in multi-threaded rendering");
-        }
 
         let mapped_clip = clip_path.map(|c| {
             let start = self.allocation_group.path.len() as u32;
