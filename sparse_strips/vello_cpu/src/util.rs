@@ -9,26 +9,33 @@ use vello_common::math::FloatExt;
 use vello_common::tile::Tile;
 use vello_common::util::Div255Ext;
 
-/// Pool for reusing vector allocations.
-#[derive(Debug)]
-pub(crate) struct VecPool<T> {
-    entries: Vec<Vec<T>>,
-    clear_on_submit: bool,
+pub(crate) trait Clear {
+    fn clear(&mut self);
 }
 
-impl<T> Default for VecPool<T> {
-    fn default() -> Self {
-        Self {
-            entries: Vec::new(),
-            clear_on_submit: true,
-        }
+impl<T> Clear for Vec<T> {
+    fn clear(&mut self) {
+        Vec::clear(self);
     }
 }
 
-impl<T> VecPool<T> {
-    /// Create a new vector pool.
+/// Pool for reusing allocations.
+#[derive(Debug)]
+pub(crate) struct Pool<T> {
+    entries: Vec<T>,
+    clear_on_submit: bool,
+}
+
+impl<T> Default for Pool<T> {
+    fn default() -> Self {
+        Self::new(true)
+    }
+}
+
+impl<T> Pool<T> {
+    /// Create a new pool.
     ///
-    /// `clear_on_submit` decides whether submitted vectors should
+    /// `clear_on_submit` decides whether submitted values should
     /// be cleared when they are submitted or whether they should retain
     /// their original contents.
     pub(crate) fn new(clear_on_submit: bool) -> Self {
@@ -38,18 +45,27 @@ impl<T> VecPool<T> {
         }
     }
 
-    pub(crate) fn take(&mut self) -> Vec<T> {
+    pub(crate) fn take(&mut self) -> T
+    where
+        T: Default,
+    {
         self.entries.pop().unwrap_or_default()
     }
 
-    pub(crate) fn submit(&mut self, mut vec: Vec<T>) {
+    pub(crate) fn submit(&mut self, mut entry: T)
+    where
+        T: Clear,
+    {
         if self.clear_on_submit {
-            vec.clear();
+            entry.clear();
         }
 
-        self.entries.push(vec);
+        self.entries.push(entry);
     }
 }
+
+/// Pool for reusing vector allocations.
+pub(crate) type VecPool<T> = Pool<Vec<T>>;
 
 pub(crate) mod scalar {
     /// Perform an approximate division by 255.
