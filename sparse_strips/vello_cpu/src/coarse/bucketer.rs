@@ -71,6 +71,7 @@ impl RowState {
         self.layer_stack.clear();
     }
 
+    #[inline]
     pub(super) fn push_cmd(&mut self, cmd: RenderCmd) {
         match cmd {
             RenderCmd::PaintFill(cmd) => self.include_current_span(cmd.span),
@@ -81,6 +82,7 @@ impl RowState {
         self.render_cmds.push(cmd);
     }
 
+    #[inline]
     pub(super) fn push_buf(&mut self) {
         let push_cmd_idx = self.render_cmds.len();
         self.render_cmds.push(RenderCmd::PushBuf(None));
@@ -91,6 +93,7 @@ impl RowState {
         self.layer_depth += 1;
     }
 
+    #[inline]
     pub(super) fn pop_buf(&mut self) {
         let layer = self.layer_stack.pop().unwrap();
         match &mut self.render_cmds[layer.push_cmd_idx] {
@@ -103,12 +106,14 @@ impl RowState {
         self.layer_depth -= 1;
     }
 
+    #[inline]
     pub(super) fn push_depth_fill(&mut self, cmd: DepthFill, draw_id: u32) {
         let span = cmd.span();
         self.depth.include_span(span, draw_id);
         self.depth_cmds.push(cmd);
     }
 
+    #[inline]
     pub(crate) fn can_skip_depth(&self, span: Span, draw_id: u32) -> bool {
         self.depth.can_skip(span, draw_id)
     }

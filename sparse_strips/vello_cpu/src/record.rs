@@ -296,6 +296,7 @@ impl CommandRecorder {
         !self.layer_stack.is_empty()
     }
 
+    #[inline]
     pub(crate) fn reset(&mut self) {
         self.root_cmds.clear();
 
@@ -309,6 +310,7 @@ impl CommandRecorder {
         self.layer_stack.clear();
     }
 
+    #[inline]
     pub(crate) fn push_fill(
         &mut self,
         strip_range: Range<usize>,
@@ -386,6 +388,7 @@ impl CommandRecorder {
         }
     }
 
+    #[inline]
     fn active_cmds_mut(&mut self) -> &mut Vec<RecordedCmd> {
         self.layer_cmds_mut(self.active_filter_layer)
     }
@@ -403,6 +406,7 @@ impl CommandRecorder {
         }
     }
 
+    #[inline]
     fn push_render_cmd(&mut self, cmd: RecordedCmd) -> usize {
         let cmds = self.active_cmds_mut();
         let idx = cmds.len();
