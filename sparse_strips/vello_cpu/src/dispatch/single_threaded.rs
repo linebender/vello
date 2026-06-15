@@ -1,6 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use crate::clip::ClipState;
 use crate::coarse::CommandBucketer;
 use crate::coarse::bucketer::LayerClip;
 use crate::coarse::depth::DepthBuffer;
@@ -16,7 +17,6 @@ use crate::region::Regions;
 use crate::{CompositeMode, RasterizerSettings};
 use alloc::vec::Vec;
 use core::cell::RefCell;
-use vello_common::clip::ClipContext;
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd};
 use vello_common::geometry::RectU16;
@@ -31,8 +31,8 @@ use vello_common::util::control_point_bbox_u16;
 pub(crate) struct SingleThreadedDispatcher {
     /// Reusable coarse bucketer that converts recorded commands into per-row render commands.
     bucketer: RefCell<CommandBucketer>,
-    /// Clip context for managing non-isolated clipping.
-    clip_context: ClipContext,
+    /// Clip state for managing non-isolated clipping.
+    clip_state: ClipState,
     /// Recorder for root and filter-layer command streams, plus layer metadata.
     recorder: CommandRecorder,
     /// Generator for converting paths into coverage strips for the active viewport.
@@ -55,7 +55,7 @@ impl SingleThreadedDispatcher {
     pub(crate) fn new(width: u16, height: u16, level: Level) -> Self {
         Self {
             bucketer: RefCell::new(CommandBucketer::from_wh(width, height)),
-            clip_context: ClipContext::new(),
+            clip_state: ClipState::new(),
             recorder: CommandRecorder::new(),
             strip_generator: StripGenerator::new(width, height, level),
             strip_storage: StripStorage::new(GenerationMode::Append),
@@ -281,7 +281,8 @@ impl SingleThreadedDispatcher {
         filter_ctx
     }
 
-    fn push_filter_viewport(&mut self, padding: RectU16) {
+    fn push_filter_viewport(&mut self, filter_data: &FilterData) {
+        let padding = filter_data.source_padding;
         let width = self
             .strip_generator
             .width()
@@ -297,6 +298,9 @@ impl SingleThreadedDispatcher {
         let filter_generator = StripGenerator::new(width, height, self.level);
         let parent_generator = core::mem::replace(&mut self.strip_generator, filter_generator);
         self.strip_generator_stack.push(parent_generator);
+
+        self.clip_state
+            .push_filter_viewport(filter_data.source_shift(), &mut self.strip_generator);
     }
 
     fn pop_filter_viewport(&mut self) {
@@ -304,6 +308,8 @@ impl SingleThreadedDispatcher {
             .strip_generator_stack
             .pop()
             .expect("filter viewport stack underflow");
+        self.clip_state
+            .pop_filter_viewport(&mut self.strip_generator);
     }
 }
 
@@ -322,7 +328,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
     ) {
-        let clip_path = self.clip_context.get();
+        let clip_path = self.clip_state.get();
         let strip_start = self.strip_storage.strips.len();
         let strip_generator = &mut self.strip_generator;
         let strip_storage = &mut self.strip_storage;
@@ -347,7 +353,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         aliasing_threshold: Option<u8>,
         mask: Option<Mask>,
     ) {
-        let clip_path = self.clip_context.get();
+        let clip_path = self.clip_state.get();
         let strip_start = self.strip_storage.strips.len();
         let strip_generator = &mut self.strip_generator;
         let strip_storage = &mut self.strip_storage;
@@ -369,7 +375,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         blend_mode: BlendMode,
         mask: Option<Mask>,
     ) {
-        let clip_path = self.clip_context.get();
+        let clip_path = self.clip_state.get();
         let strip_start = self.strip_storage.strips.len();
         let strip_generator = &mut self.strip_generator;
         let strip_storage = &mut self.strip_storage;
@@ -389,12 +395,12 @@ impl Dispatcher for SingleThreadedDispatcher {
         filter_data: Option<FilterData>,
     ) {
         if let Some(filter_data) = &filter_data {
-            self.push_filter_viewport(filter_data.source_padding);
+            self.push_filter_viewport(filter_data);
         }
 
         let clip_path = clip_path.map(|clip_path| {
-            let existing_clip = self.clip_context.get();
-            let mut bbox = control_point_bbox_u16(clip_path, clip_transform);
+            let existing_clip = self.clip_state.get();
+            let mut bbox = control_point_bbox_u16(clip_path.iter(), clip_transform);
             if let Some(existing_clip) = existing_clip {
                 bbox = bbox.intersect(existing_clip.bbox);
             }
@@ -438,7 +444,7 @@ impl Dispatcher for SingleThreadedDispatcher {
 
     fn reset(&mut self) {
         // Bucketer will be reset on demand, so no need to reset it here.
-        self.clip_context.reset();
+        self.clip_state.reset();
         self.recorder.reset();
         self.strip_generator_stack.clear();
         self.strip_generator.reset();
@@ -534,7 +540,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         transform: Affine,
         aliasing_threshold: Option<u8>,
     ) {
-        self.clip_context.push_clip(
+        self.clip_state.push_clip(
             path,
             &mut self.strip_generator,
             fill_rule,
@@ -544,7 +550,7 @@ impl Dispatcher for SingleThreadedDispatcher {
     }
 
     fn pop_clip_path(&mut self) {
-        self.clip_context.pop_clip();
+        self.clip_state.pop_clip();
     }
 
     fn is_multi_threaded(&self) -> bool {

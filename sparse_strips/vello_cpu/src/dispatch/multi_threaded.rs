@@ -560,7 +560,7 @@ impl Dispatcher for MultiThreadedDispatcher {
             let start = self.allocation_group.path.len() as u32;
             self.allocation_group.path.extend(c);
             let end = self.allocation_group.path.len() as u32;
-            let mut bbox = control_point_bbox_u16(c, clip_transform);
+            let mut bbox = control_point_bbox_u16(c.iter(), clip_transform);
             if let Some(existing_clip) = self.clip_context.get() {
                 bbox = bbox.intersect(existing_clip.bbox);
             }
@@ -709,7 +709,7 @@ impl Dispatcher for MultiThreadedDispatcher {
     ) {
         self.flush_tasks();
         self.clip_context.push_clip(
-            path,
+            path.iter(),
             &mut self.strip_generator,
             fill_rule,
             transform,

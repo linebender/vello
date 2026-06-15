@@ -268,6 +268,12 @@ impl RenderContext {
         self.root_transform() * self.state.transform
     }
 
+    // Unlike `effective_path_transform`, we are not applying the root transform here
+    // because clipping handles this separately. See the `clip` module for more information.
+    fn clip_path_transform(&self) -> Affine {
+        self.state.transform
+    }
+
     fn effective_paint_transform(&self) -> Affine {
         self.effective_path_transform() * self.state.paint_transform
     }
@@ -689,7 +695,7 @@ impl RenderContext {
     /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
     /// example for how this method differs from `push_clip_layer`.
     pub fn push_clip_path(&mut self, path: &BezPath) {
-        let transform = self.effective_path_transform();
+        let transform = self.clip_path_transform();
         self.dispatcher.push_clip_path(
             path,
             self.state.fill_rule,

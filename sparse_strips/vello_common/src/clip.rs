@@ -4,7 +4,7 @@
 //! Managing clipping state.
 
 use crate::geometry::RectU16;
-use crate::kurbo::{Affine, BezPath};
+use crate::kurbo::{Affine, PathEl};
 use crate::strip::Strip;
 use crate::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use crate::tile::Tile;
@@ -90,7 +90,7 @@ impl ClipContext {
     #[inline]
     pub fn push_clip(
         &mut self,
-        clip_path: &BezPath,
+        clip_path: impl IntoIterator<Item = PathEl> + Clone,
         strip_generator: &mut StripGenerator,
         fill_rule: Fill,
         transform: Affine,
@@ -109,7 +109,7 @@ impl ClipContext {
         // flattening. If we ever take an iterator instead, or want to prevent iterating twice, we
         // could move this calculation into flattening (perhaps with a const-generic as to not
         // pessimize calls that don't require the bbox).
-        let mut bbox = util::control_point_bbox_u16(clip_path, transform);
+        let mut bbox = util::control_point_bbox_u16(clip_path.clone(), transform);
 
         // Intersect with the existing clip bounding box, or the viewport if this is the outermost
         // clip.

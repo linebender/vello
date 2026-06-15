@@ -4,7 +4,7 @@
 //! Utility functions.
 
 use crate::geometry::RectU16;
-use crate::kurbo::{BezPath, PathEl};
+use crate::kurbo::PathEl;
 use crate::math::FloatExt;
 use crate::tile::Tile;
 use alloc::vec::Vec;
@@ -277,7 +277,7 @@ impl<T> IndexMut<usize> for RetainVec<T> {
 /// the transformed control points.
 ///
 /// If `path` is empty, this returns an infinite, inversed [`Rect`] (`left` > `right` and `top` > `bottom`).
-pub fn control_point_bbox(path: &BezPath, transform: Affine) -> Rect {
+pub fn control_point_bbox(path: impl IntoIterator<Item = PathEl>, transform: Affine) -> Rect {
     // Start with an infinite, inversed rectangle. Adding the first point immediately collapses it
     // without branching.
     let mut bbox = Rect::new(
@@ -286,7 +286,7 @@ pub fn control_point_bbox(path: &BezPath, transform: Affine) -> Rect {
         f64::NEG_INFINITY,
         f64::NEG_INFINITY,
     );
-    for el in path.iter() {
+    for el in path {
         match el {
             PathEl::MoveTo(p) | PathEl::LineTo(p) => {
                 bbox = bbox.union_pt(transform * p);
@@ -309,7 +309,10 @@ pub fn control_point_bbox(path: &BezPath, transform: Affine) -> Rect {
 /// Compute a conservative bounding box for the transformed path in pixel coordinates.
 ///
 /// If `path` is empty, this returns an inverted [`RectU16`].
-pub fn control_point_bbox_u16(path: &BezPath, transform: Affine) -> RectU16 {
+pub fn control_point_bbox_u16(
+    path: impl IntoIterator<Item = PathEl>,
+    transform: Affine,
+) -> RectU16 {
     let bbox = control_point_bbox(path, transform);
     RectU16::new(
         bbox.x0 as u16,

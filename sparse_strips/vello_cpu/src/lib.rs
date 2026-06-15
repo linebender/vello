@@ -146,6 +146,7 @@ compile_error!("vello_cpu must have at least one of the u8 or f32 pipelines enab
 
 mod render;
 
+mod clip;
 mod coarse;
 mod dispatch;
 mod filter;
