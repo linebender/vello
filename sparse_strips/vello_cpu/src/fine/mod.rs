@@ -526,7 +526,7 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
             simd,
             buffer_span: Span::new(0, buffer_width),
             blend_buffers: vec![vec![T::Numeric::ZERO; scratch_len]],
-            buffer_pool: VecPool::default(),
+            buffer_pool: VecPool::new(false),
             paint_buf: Vec::new(),
             f32_buf: Vec::new(),
             row_y: 0,
@@ -650,12 +650,17 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                     paint_fill(self, span);
                 }
             }
-            RenderCmd::PushBuf => {
-                // TODO: Instead of always resizing to the full viewport width, very strongly
-                // consider only resizing to the horizontal bounding box of the layer. This should
-                // save quite a bit of time if we have many layers with small contents inside.
+            RenderCmd::PushBuf(span) => {
                 let mut buf = self.buffer_pool.take();
+                // Reused vectors will retain their length, so in most cases this
+                // will be a no-op.
                 buf.resize(self.blend_buffers[0].len(), T::Numeric::ZERO);
+
+                // Instead of always zeroing out the whole buffer, only zero the
+                // row-local span that will be read when compositing this layer.
+                if let Some(span) = span.and_then(|span| span.intersect(self.buffer_span)) {
+                    buf[Self::scratch_range(span)].fill(T::Numeric::ZERO);
+                }
                 self.blend_buffers.push(buf);
             }
             RenderCmd::PopBuf => {

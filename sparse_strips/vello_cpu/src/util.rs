@@ -13,23 +13,40 @@ use vello_common::util::Div255Ext;
 #[derive(Debug)]
 pub(crate) struct VecPool<T> {
     entries: Vec<Vec<T>>,
+    clear_on_submit: bool,
 }
 
 impl<T> Default for VecPool<T> {
     fn default() -> Self {
         Self {
             entries: Vec::new(),
+            clear_on_submit: true,
         }
     }
 }
 
 impl<T> VecPool<T> {
+    /// Create a new vector pool.
+    ///
+    /// `clear_on_submit` decides whether submitted vectors should
+    /// be cleared when they are submitted or whether they should retain
+    /// their original contents.
+    pub(crate) fn new(clear_on_submit: bool) -> Self {
+        Self {
+            entries: Vec::new(),
+            clear_on_submit,
+        }
+    }
+
     pub(crate) fn take(&mut self) -> Vec<T> {
         self.entries.pop().unwrap_or_default()
     }
 
     pub(crate) fn submit(&mut self, mut vec: Vec<T>) {
-        vec.clear();
+        if self.clear_on_submit {
+            vec.clear();
+        }
+
         self.entries.push(vec);
     }
 }

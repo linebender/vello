@@ -35,6 +35,27 @@ pub(crate) struct RowState {
     depth: DepthState,
     /// Current layer depth.
     pub(super) layer_depth: usize,
+    layer_stack: Vec<RowLayerState>,
+}
+
+/// Each recorded layer by itself already stores a bounding box.
+/// However, we want to take this one step further and track a horizontal bounding
+/// box of each row band individually. This allows us to save a lot of work when clearing buffers
+/// during fine rasterization.
+///
+/// For example, let's say that we are rendering a triangle with the points
+/// (0, 0), (500, 0) and (250, 250). The bounding box would be (0, 0) and (500, 500). However,
+/// the triangle gets much more narrow as we advance through the rows. If we just chose
+/// the coarse bounding box, we would always end up clearing a whole width of 500 pixels during
+/// fine rasterization. By tracking the bounding box per row, we can reduce the work to the
+/// absolute minimum necessary for each row.
+#[derive(Debug)]
+struct RowLayerState {
+    /// The index in the command stream where the `PushBuf` command of the corresponding
+    /// layer lives.
+    push_cmd_idx: usize,
+    /// The horizontal span of the layer.
+    span: Option<Span>,
 }
 
 impl RowState {
@@ -47,19 +68,36 @@ impl RowState {
         self.depth_cmds.clear();
         self.depth.reset();
         self.layer_depth = 0;
+        self.layer_stack.clear();
     }
 
     pub(super) fn push_cmd(&mut self, cmd: RenderCmd) {
+        match cmd {
+            RenderCmd::PaintFill(cmd) => self.include_current_span(cmd.span),
+            RenderCmd::LayerFill(cmd) => self.include_current_span(cmd.span),
+            RenderCmd::PushBuf(_) | RenderCmd::PopBuf => {}
+        }
+
         self.render_cmds.push(cmd);
     }
 
     pub(super) fn push_buf(&mut self) {
-        self.render_cmds.push(RenderCmd::PushBuf);
-
+        let push_cmd_idx = self.render_cmds.len();
+        self.render_cmds.push(RenderCmd::PushBuf(None));
+        self.layer_stack.push(RowLayerState {
+            push_cmd_idx,
+            span: None,
+        });
         self.layer_depth += 1;
     }
 
     pub(super) fn pop_buf(&mut self) {
+        let layer = self.layer_stack.pop().unwrap();
+        match &mut self.render_cmds[layer.push_cmd_idx] {
+            RenderCmd::PushBuf(push_span) => *push_span = layer.span,
+            _ => unreachable!("layer stack must point to a PushBuf command"),
+        }
+
         self.render_cmds.push(RenderCmd::PopBuf);
 
         self.layer_depth -= 1;
@@ -73,6 +111,16 @@ impl RowState {
 
     pub(crate) fn can_skip_depth(&self, span: Span, draw_id: u32) -> bool {
         self.depth.can_skip(span, draw_id)
+    }
+
+    #[inline]
+    fn include_current_span(&mut self, span: Span) {
+        if let Some(layer) = self.layer_stack.last_mut() {
+            match &mut layer.span {
+                Some(layer_span) => layer_span.extend(span),
+                None => layer.span = Some(span),
+            }
+        }
     }
 }
 
@@ -800,7 +848,7 @@ mod tests {
         let row = &bucketer.rows()[0];
         assert_eq!(row.depth_cmds.len(), 0);
         assert_eq!(row.render_cmds.len(), 2);
-        assert!(matches!(row.render_cmds[0], RenderCmd::PushBuf));
+        assert!(matches!(row.render_cmds[0], RenderCmd::PushBuf(_)));
         assert!(
             matches!(row.render_cmds[1], RenderCmd::PaintFill(cmd) if cmd.span.pixel_x() == 0 && cmd.span.pixel_width() == DEPTH_BUCKET_WIDTH)
         );
@@ -816,7 +864,7 @@ mod tests {
 
         let row = &bucketer.rows()[0];
         assert_eq!(row.render_cmds.len(), 2);
-        assert!(matches!(row.render_cmds[0], RenderCmd::PushBuf));
+        assert!(matches!(row.render_cmds[0], RenderCmd::PushBuf(_)));
         assert!(matches!(
             row.render_cmds[1],
             RenderCmd::PaintFill(cmd)
@@ -884,7 +932,7 @@ mod tests {
 
         let row = &bucketer.rows()[0];
 
-        assert!(matches!(row.render_cmds[0], RenderCmd::PushBuf));
+        assert!(matches!(row.render_cmds[0], RenderCmd::PushBuf(_)));
         // The fill inside should not have been clipped.
         assert!(matches!(
             row.render_cmds[1],

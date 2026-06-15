@@ -20,7 +20,7 @@ pub(crate) enum RenderCmd {
     /// See [`PaintFill`].
     PaintFill(PaintFill),
     /// Push a new temporary layer buffer.
-    PushBuf,
+    PushBuf(Option<Span>),
     /// Pop the last temporary layer buffer.
     PopBuf,
     /// See [`LayerFill`].
