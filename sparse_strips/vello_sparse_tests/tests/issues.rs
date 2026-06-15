@@ -744,6 +744,12 @@ fn issue_1528(ctx: &mut impl Renderer) {
 }
 
 #[vello_test]
+fn issue_1707_transparent_solid_fill(ctx: &mut impl Renderer) {
+    ctx.set_paint(Color::from_rgb8(0, 0, 0).with_alpha(0.001));
+    ctx.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
+}
+
+#[vello_test]
 fn issue_fast_path_strips_in_later_round(ctx: &mut impl Renderer) {
     ctx.push_layer(None, None, None, None, None);
     ctx.push_layer(None, None, None, None, None);
