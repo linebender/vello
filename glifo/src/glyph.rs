@@ -461,6 +461,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             ..
         } = self.prepared_run;
 
+        let font_id = font_info.id;
+        let font_index = font_info.index;
         let hinted = hinting_instance.is_some();
 
         let colr_bitmap_cache_enabled = self
@@ -490,6 +492,13 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             ..GlyphCacheKey::DEFAULT
         };
 
+        // A temporary glyph cache key.
+        let temp_glyph_cache_key = GlyphCacheKey {
+            font_id: font_info.id,
+            font_index: font_info.index,
+            ..GlyphCacheKey::DEFAULT
+        };
+
         for (index, glyph) in self.glyph_iterator.clone().enumerate() {
             // TODO: Add a mechanism such that glyphs that are completely outside of the viewport
             // (especially for more expensive COLR glyphs), we don't do any processing in the
@@ -498,8 +507,10 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
 
             // A temporary glyph cache key.
             let temp_glyph_cache_key = GlyphCacheKey {
+                font_id,
+                font_index,
                 glyph_id: glyph.id,
-                ..temp_glyph_cache_key.clone()
+                ..GlyphCacheKey::DEFAULT
             };
 
             // ── Speculative outline cache check ─────────────────────────
