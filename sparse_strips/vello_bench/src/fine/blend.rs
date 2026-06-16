@@ -29,19 +29,19 @@ pub fn blend(c: &mut Criterion) {
     color(c);
     luminosity(c);
 
-    clear(c);
-    copy(c);
-    dest(c);
-    dest_over(c);
-    src_out(c);
-    src_in(c);
-    dest_in(c);
-    dest_out(c);
-    src_atop(c);
-    dest_atop(c);
-    xor(c);
-    plus(c);
-    plus_lighter(c);
+    // clear(c);
+    // copy(c);
+    // dest(c);
+    // dest_over(c);
+    // src_out(c);
+    // src_in(c);
+    // dest_in(c);
+    // dest_out(c);
+    // src_atop(c);
+    // dest_atop(c);
+    // xor(c);
+    // plus(c);
+    // plus_lighter(c);
 }
 
 #[vello_bench]

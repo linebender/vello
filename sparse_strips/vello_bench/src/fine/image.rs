@@ -25,9 +25,9 @@ pub fn image(c: &mut Criterion) {
     quality::medium(c);
     quality::high(c);
 
-    extend::pad(c);
-    extend::repeat(c);
-    extend::reflect(c);
+    // extend::pad(c);
+    // extend::repeat(c);
+    // extend::reflect(c);
 }
 
 mod extend {

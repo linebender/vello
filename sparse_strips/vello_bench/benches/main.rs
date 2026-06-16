@@ -28,24 +28,24 @@ criterion_group!(glyph, glyph::glyph);
 criterion_group!(sort_tiles, sort::sort);
 criterion_group!(integration_bench, integration::images);
 criterion_main!(
-    allocator_bench,
-    coarse_bench,
-    coarse_with_layer,
-    coarse_layer_4k,
-    tile,
+    // allocator_bench,
+    // coarse_bench,
+    // coarse_with_layer,
+    // coarse_layer_4k,
+    // tile,
     render_strips,
-    render_strips_cull,
-    render_rect,
+    // render_strips_cull,
+    // render_rect,
     flatten,
-    strokes,
-    glyph,
+    // strokes,
+    // glyph,
     fine_solid,
     fine_strip,
     fine_pack,
     fine_gradient,
-    fine_rounded_blurred_rect,
+    // fine_rounded_blurred_rect,
     fine_blend,
     fine_image,
-    sort_tiles,
-    integration_bench
+    // sort_tiles,
+    // integration_bench
 );
