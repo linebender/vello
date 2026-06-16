@@ -40,12 +40,13 @@ use crate::{
             LayerSampleExtent, LayerScheduleRenderer, LayerScheduler, ROOT_LAYER_IDX,
             ScheduledLayerOp, ScheduledLayerTarget, aligned_layer_source_texture_id,
             backdrop_texture_id, filter_scratch_texture_id, flatten_draw_batches,
-            layer_blend_scissor, layer_can_be_sampled_directly, layer_sample_command,
-            layer_target_origin_and_size, root_needs_offscreen_layer, root_sample_command,
-            root_texture_id,
+            layer_blend_scissor, layer_can_be_sampled_directly, layer_encoded_paint,
+            layer_sample_command_with_paint_idx, layer_sample_encoded_paint,
+            layer_target_origin_and_size, layer_texture_id, root_needs_offscreen_layer,
+            root_sample_command_with_paint_idx, root_texture_id,
         },
     },
-    scene::{FastStripCommand, RecordedLayer, RecordedLayerId, Scene},
+    scene::{FastStripCommand, RecordedCommand, RecordedLayer, RecordedLayerId, Scene},
 };
 use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
@@ -150,7 +151,7 @@ impl TextureBindings {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct LayerTarget {
     texture_id: TextureId,
     texture: Texture,
@@ -178,6 +179,32 @@ impl ScheduledLayerTarget for LayerTarget {
     }
 }
 
+#[derive(Debug)]
+struct ScheduledPaintIndices {
+    root: Option<usize>,
+    output: Vec<Option<usize>>,
+    content: Vec<Option<usize>>,
+}
+
+impl ScheduledPaintIndices {
+    fn new(layer_count: usize) -> Self {
+        Self {
+            root: None,
+            output: vec![None; layer_count],
+            content: vec![None; layer_count],
+        }
+    }
+}
+
+fn root_needs_scheduled_offscreen(scene: &Scene, visible_layers: &[bool]) -> bool {
+    scene.root(scene.root_id()).commands.iter().any(|command| {
+        let RecordedCommand::Layer(layer_id) = command else {
+            return false;
+        };
+        visible_layers[layer_id.as_usize()]
+    })
+}
+
 struct WgpuLayerSchedule<'a, 'b> {
     renderer: &'a mut Renderer,
     scene: &'b Scene,
@@ -191,12 +218,24 @@ struct WgpuLayerSchedule<'a, 'b> {
     root_view: &'b TextureView,
     image_cache: &'b ImageCache,
     texture_bindings: &'b TextureBindings,
+    planned_layer_targets: Vec<Option<LayerTarget>>,
+    planned_root_target: Option<LayerTarget>,
+    paint_indices: ScheduledPaintIndices,
+    shared_resources_uploaded: bool,
     layer_filter_instance_offset: u64,
     layer_filter_data_offset: u32,
 }
 
 impl LayerScheduleRenderer<LayerTarget> for WgpuLayerSchedule<'_, '_> {
     fn create_layer_target(&mut self, layer_idx: usize, texture_id: TextureId) -> LayerTarget {
+        if layer_idx == ROOT_LAYER_IDX {
+            if let Some(target) = &self.planned_root_target {
+                return target.clone();
+            }
+        } else if let Some(Some(target)) = self.planned_layer_targets.get(layer_idx) {
+            return target.clone();
+        }
+
         let (origin, render_size) =
             layer_target_origin_and_size(self.scene, layer_idx, &self.layer_render_size);
         self.renderer
@@ -232,13 +271,7 @@ impl LayerScheduleRenderer<LayerTarget> for WgpuLayerSchedule<'_, '_> {
         rendered_targets: &[Option<LayerTarget>],
     ) -> Result<(), RenderError> {
         if root_needs_offscreen_layer(batches) {
-            let root_layer_target = self.renderer.create_layer_target(
-                self.device,
-                ROOT_LAYER_IDX,
-                root_texture_id(),
-                self.layer_render_size.clone(),
-                RenderOrigin::default(),
-            );
+            let root_layer_target = self.create_layer_target(ROOT_LAYER_IDX, root_texture_id());
             self.render_batches_to_layer(
                 ROOT_LAYER_IDX,
                 &root_layer_target,
@@ -247,26 +280,21 @@ impl LayerScheduleRenderer<LayerTarget> for WgpuLayerSchedule<'_, '_> {
                 rendered_targets,
             )?;
 
-            let commands = [root_sample_command(
-                &root_layer_target,
+            let commands = [root_sample_command_with_paint_idx(
                 self.root_render_size,
-                encoded_paints,
+                self.paint_indices
+                    .root
+                    .expect("root sample paint must be preplanned"),
             )];
 
-            let mut root_texture_bindings = self
-                .renderer
-                .texture_bindings_with_layers(self.texture_bindings, rendered_targets);
+            let mut root_texture_bindings =
+                self.texture_bindings_with_scheduled_layers(rendered_targets);
             root_texture_bindings
                 .insert(root_layer_target.texture_id, root_layer_target.view.clone());
-            return self.renderer.render_scene(
-                self.scene,
+            return self.render_scene(
                 &commands,
-                self.device,
-                self.queue,
-                self.encoder,
                 self.root_render_size,
                 self.root_view,
-                self.image_cache,
                 encoded_paints,
                 self.root_clear,
                 self.root_target,
@@ -276,18 +304,11 @@ impl LayerScheduleRenderer<LayerTarget> for WgpuLayerSchedule<'_, '_> {
         }
 
         let commands = flatten_draw_batches(batches);
-        let root_texture_bindings = self
-            .renderer
-            .texture_bindings_with_layers(self.texture_bindings, rendered_targets);
-        self.renderer.render_scene(
-            self.scene,
+        let root_texture_bindings = self.texture_bindings_with_scheduled_layers(rendered_targets);
+        self.render_scene(
             commands.as_slice(),
-            self.device,
-            self.queue,
-            self.encoder,
             self.root_render_size,
             self.root_view,
-            self.image_cache,
             encoded_paints,
             self.root_clear,
             self.root_target,
@@ -298,6 +319,58 @@ impl LayerScheduleRenderer<LayerTarget> for WgpuLayerSchedule<'_, '_> {
 }
 
 impl WgpuLayerSchedule<'_, '_> {
+    #[allow(clippy::too_many_arguments)]
+    fn render_scene(
+        &mut self,
+        commands: &[FastStripCommand],
+        render_size: &RenderSize,
+        view: &TextureView,
+        encoded_paints: &[EncodedPaint],
+        clear: bool,
+        target: DirectTarget,
+        origin: RenderOrigin,
+        texture_bindings: &TextureBindings,
+    ) -> Result<(), RenderError> {
+        let upload_shared_resources = !self.shared_resources_uploaded;
+        let result = self.renderer.render_scene(
+            self.scene,
+            commands,
+            self.device,
+            self.queue,
+            self.encoder,
+            render_size,
+            view,
+            self.image_cache,
+            encoded_paints,
+            clear,
+            target,
+            origin,
+            texture_bindings,
+            upload_shared_resources,
+        );
+        if result.is_ok() && upload_shared_resources {
+            self.shared_resources_uploaded = true;
+        }
+        result
+    }
+
+    fn texture_bindings_with_scheduled_layers(
+        &self,
+        rendered_targets: &[Option<LayerTarget>],
+    ) -> TextureBindings {
+        let mut bindings = self.texture_bindings.clone();
+        for target in self.planned_layer_targets.iter().flatten() {
+            bindings.insert(target.texture_id, target.view.clone());
+        }
+        if let Some(target) = &self.planned_root_target {
+            bindings.insert(target.texture_id, target.view.clone());
+        }
+        for target in rendered_targets.iter().flatten() {
+            bindings.insert(target.texture_id, target.view.clone());
+        }
+        bindings
+    }
+
     fn render_batches_to_layer(
         &mut self,
         parent_idx: usize,
@@ -311,18 +384,12 @@ impl WgpuLayerSchedule<'_, '_> {
             .any(|batch| matches!(batch, ScheduledLayerOp::CompositeLayer(_)))
         {
             let commands = flatten_draw_batches(batches);
-            let layer_texture_bindings = self
-                .renderer
-                .texture_bindings_with_layers(self.texture_bindings, rendered_targets);
-            return self.renderer.render_scene(
-                self.scene,
+            let layer_texture_bindings =
+                self.texture_bindings_with_scheduled_layers(rendered_targets);
+            return self.render_scene(
                 commands.as_slice(),
-                self.device,
-                self.queue,
-                self.encoder,
                 &target.render_size,
                 &target.view,
-                self.image_cache,
                 encoded_paints,
                 true,
                 DirectTarget::AtlasLayer,
@@ -339,18 +406,12 @@ impl WgpuLayerSchedule<'_, '_> {
                         continue;
                     }
 
-                    let layer_texture_bindings = self
-                        .renderer
-                        .texture_bindings_with_layers(self.texture_bindings, rendered_targets);
-                    self.renderer.render_scene(
-                        self.scene,
+                    let layer_texture_bindings =
+                        self.texture_bindings_with_scheduled_layers(rendered_targets);
+                    self.render_scene(
                         commands,
-                        self.device,
-                        self.queue,
-                        self.encoder,
                         &target.render_size,
                         &target.view,
-                        self.image_cache,
                         encoded_paints,
                         clear_next_draw,
                         DirectTarget::AtlasLayer,
@@ -393,27 +454,19 @@ impl WgpuLayerSchedule<'_, '_> {
             .as_ref()
             .expect("child layer must be rendered before it is composited");
         if layer_can_be_sampled_directly(layer) {
-            let commands = layer_sample_command(
-                self.scene,
+            let commands = layer_sample_command_with_paint_idx(
                 layer,
-                child,
-                layer.opacity,
                 LayerSampleExtent::Output,
-                encoded_paints,
+                self.paint_indices.output[layer_idx]
+                    .expect("output layer sample paint must be preplanned"),
             );
             let commands = commands.as_slice();
-            let layer_texture_bindings = self
-                .renderer
-                .texture_bindings_with_layers(self.texture_bindings, rendered_targets);
-            return self.renderer.render_scene(
-                self.scene,
+            let layer_texture_bindings =
+                self.texture_bindings_with_scheduled_layers(rendered_targets);
+            return self.render_scene(
                 commands,
-                self.device,
-                self.queue,
-                self.encoder,
                 &parent.render_size,
                 &parent.view,
-                self.image_cache,
                 encoded_paints,
                 false,
                 DirectTarget::AtlasLayer,
@@ -458,7 +511,7 @@ impl WgpuLayerSchedule<'_, '_> {
         parent: &LayerTarget,
         layer_idx: usize,
         layer: &RecordedLayer,
-        child: &LayerTarget,
+        _child: &LayerTarget,
         encoded_paints: &mut Vec<EncodedPaint>,
         rendered_targets: &[Option<LayerTarget>],
     ) -> Result<LayerTarget, RenderError> {
@@ -469,27 +522,18 @@ impl WgpuLayerSchedule<'_, '_> {
             parent.render_size.clone(),
             parent.origin,
         );
-        let commands = layer_sample_command(
-            self.scene,
+        let commands = layer_sample_command_with_paint_idx(
             layer,
-            child,
-            1.0,
             LayerSampleExtent::Content,
-            encoded_paints,
+            self.paint_indices.content[layer_idx]
+                .expect("content layer sample paint must be preplanned"),
         );
         let commands = commands.as_slice();
-        let layer_texture_bindings = self
-            .renderer
-            .texture_bindings_with_layers(self.texture_bindings, rendered_targets);
-        self.renderer.render_scene(
-            self.scene,
+        let layer_texture_bindings = self.texture_bindings_with_scheduled_layers(rendered_targets);
+        self.render_scene(
             commands,
-            self.device,
-            self.queue,
-            self.encoder,
             &aligned_source.render_size,
             &aligned_source.view,
-            self.image_cache,
             encoded_paints,
             true,
             DirectTarget::AtlasLayer,
@@ -1037,6 +1081,16 @@ impl Renderer {
             width: u32::from(scene.width),
             height: u32::from(scene.height),
         };
+        let visible_layers = scheduler.visible_layers();
+        let (planned_layer_targets, planned_root_target, paint_indices) = self
+            .plan_scheduled_layer_paints(
+                scene,
+                device,
+                encoded_paints,
+                &layer_render_size,
+                &visible_layers,
+            );
+        let scheduler = LayerScheduler::new(scene, encoded_paints.len());
         let mut schedule = WgpuLayerSchedule {
             renderer: self,
             scene,
@@ -1050,11 +1104,87 @@ impl Renderer {
             root_view: view,
             image_cache,
             texture_bindings,
+            planned_layer_targets,
+            planned_root_target,
+            paint_indices,
+            shared_resources_uploaded: false,
             layer_filter_instance_offset: 0,
             layer_filter_data_offset: 0,
         };
         scheduler.render(encoded_paints, &mut schedule)?;
         Ok(())
+    }
+
+    fn plan_scheduled_layer_paints(
+        &self,
+        scene: &Scene,
+        device: &Device,
+        encoded_paints: &mut Vec<EncodedPaint>,
+        layer_render_size: &RenderSize,
+        visible_layers: &[bool],
+    ) -> (
+        Vec<Option<LayerTarget>>,
+        Option<LayerTarget>,
+        ScheduledPaintIndices,
+    ) {
+        let mut planned_targets = vec![None; scene.layers().len()];
+        let mut paint_indices = ScheduledPaintIndices::new(scene.layers().len());
+
+        for (layer_idx, layer) in scene.layers().iter().enumerate() {
+            if !visible_layers[layer_idx] {
+                continue;
+            }
+
+            let (origin, render_size) =
+                layer_target_origin_and_size(scene, layer_idx, layer_render_size);
+            let target = self.create_layer_target(
+                device,
+                layer_idx,
+                layer_texture_id(layer_idx),
+                render_size,
+                origin,
+            );
+
+            paint_indices.output[layer_idx] = Some(encoded_paints.len());
+            encoded_paints.push(layer_sample_encoded_paint(
+                layer,
+                &target,
+                layer.opacity,
+                LayerSampleExtent::Output,
+            ));
+
+            paint_indices.content[layer_idx] = Some(encoded_paints.len());
+            encoded_paints.push(layer_sample_encoded_paint(
+                layer,
+                &target,
+                1.0,
+                LayerSampleExtent::Content,
+            ));
+
+            planned_targets[layer_idx] = Some(target);
+        }
+
+        let planned_root_target =
+            root_needs_scheduled_offscreen(scene, visible_layers).then(|| {
+                self.create_layer_target(
+                    device,
+                    ROOT_LAYER_IDX,
+                    root_texture_id(),
+                    layer_render_size.clone(),
+                    RenderOrigin::default(),
+                )
+            });
+        if let Some(target) = &planned_root_target {
+            paint_indices.root = Some(encoded_paints.len());
+            encoded_paints.push(layer_encoded_paint(
+                target,
+                1.0,
+                RectU16::new(0, 0, target.width(), target.height()),
+                vello_common::kurbo::Affine::IDENTITY,
+            ));
+        }
+
+        (planned_targets, planned_root_target, paint_indices)
     }
 
     fn create_layer_target(
@@ -1213,18 +1343,6 @@ impl Renderer {
         render_pass.draw(0..4, 0..1);
     }
 
-    fn texture_bindings_with_layers(
-        &self,
-        texture_bindings: &TextureBindings,
-        layer_targets: &[Option<LayerTarget>],
-    ) -> TextureBindings {
-        let mut bindings = texture_bindings.clone();
-        for target in layer_targets.iter().flatten() {
-            bindings.insert(target.texture_id, target.view.clone());
-        }
-        bindings
-    }
-
     fn render_scene(
         &mut self,
         scene: &Scene,
@@ -1240,9 +1358,12 @@ impl Renderer {
         target: DirectTarget,
         origin: RenderOrigin,
         texture_bindings: &TextureBindings,
+        upload_shared_resources: bool,
     ) -> Result<(), RenderError> {
         self.programs.depth_cleared_this_frame = false;
-        self.prepare_gpu_encoded_paints(encoded_paints, image_cache, texture_bindings)?;
+        if upload_shared_resources {
+            self.prepare_gpu_encoded_paints(encoded_paints, image_cache, texture_bindings)?;
+        }
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
@@ -1256,6 +1377,7 @@ impl Renderer {
             origin,
             &self.paint_idxs,
             &self.filter_context,
+            upload_shared_resources,
         );
 
         let target_x_limit = origin
@@ -3108,18 +3230,23 @@ impl Programs {
         origin: RenderOrigin,
         paint_idxs: &[u32],
         filter_context: &FilterContext,
+        upload_shared_resources: bool,
     ) {
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
-        self.maybe_resize_alphas_tex(device, max_texture_dimension_2d, alphas.len());
-        self.maybe_resize_encoded_paints_tex(device, max_texture_dimension_2d, paint_idxs);
-        self.maybe_resize_filter_tex(device, max_texture_dimension_2d, filter_context);
+        if upload_shared_resources {
+            self.maybe_resize_alphas_tex(device, max_texture_dimension_2d, alphas.len());
+            self.maybe_resize_encoded_paints_tex(device, max_texture_dimension_2d, paint_idxs);
+            self.maybe_resize_filter_tex(device, max_texture_dimension_2d, filter_context);
+        }
         self.maybe_update_config_buffer(device, max_texture_dimension_2d, new_render_size, origin);
 
-        self.upload_alpha_texture(queue, alphas);
-        self.upload_encoded_paints_texture(queue, encoded_paints);
-        self.upload_filter_texture(queue, filter_context);
+        if upload_shared_resources {
+            self.upload_alpha_texture(queue, alphas);
+            self.upload_encoded_paints_texture(queue, encoded_paints);
+            self.upload_filter_texture(queue, filter_context);
+        }
 
-        if gradient_cache.has_changed() {
+        if upload_shared_resources && gradient_cache.has_changed() {
             self.maybe_resize_gradient_tex(device, max_texture_dimension_2d, gradient_cache);
             self.upload_gradient_texture(queue, gradient_cache);
             gradient_cache.mark_synced();

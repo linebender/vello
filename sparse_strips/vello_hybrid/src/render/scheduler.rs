@@ -122,6 +122,10 @@ pub(crate) fn root_needs_offscreen_layer(batches: &[ScheduledLayerOp]) -> bool {
 }
 
 /// Command that samples an offscreen-rendered scene root into the final target.
+#[allow(
+    dead_code,
+    reason = "WebGL still uses the append-based scheduling path."
+)]
 pub(crate) fn root_sample_command(
     target: &impl ScheduledLayerTarget,
     root_render_size: &RenderSize,
@@ -135,6 +139,13 @@ pub(crate) fn root_sample_command(
         Affine::IDENTITY,
     ));
 
+    root_sample_command_with_paint_idx(root_render_size, paint_idx)
+}
+
+pub(crate) fn root_sample_command_with_paint_idx(
+    root_render_size: &RenderSize,
+    paint_idx: usize,
+) -> FastStripCommand {
     FastStripCommand::Rect(FastPathRect {
         x0: 0.0,
         y0: 0.0,
@@ -264,7 +275,7 @@ impl<'a> LayerScheduler<'a> {
         result.map(|()| layer_targets)
     }
 
-    fn visible_layers(&self) -> Vec<bool> {
+    pub(crate) fn visible_layers(&self) -> Vec<bool> {
         let mut visible = vec![false; self.scene.layers().len()];
         let root_viewport = RectU16::new(0, 0, self.scene.width, self.scene.height);
         self.mark_visible_layers(self.scene.root_id(), root_viewport, &mut visible);
@@ -331,7 +342,7 @@ impl<'a> LayerScheduler<'a> {
 }
 
 #[inline]
-fn layer_texture_id(layer_idx: usize) -> TextureId {
+pub(crate) fn layer_texture_id(layer_idx: usize) -> TextureId {
     TextureId(u64::MAX - layer_idx as u64)
 }
 
@@ -374,6 +385,10 @@ pub(crate) fn layer_is_empty(layer: &RecordedLayer) -> bool {
         .is_some_and(|clip| clip.bbox.is_empty() || clip.strips.is_empty())
 }
 
+#[allow(
+    dead_code,
+    reason = "WebGL still uses the append-based scheduling path."
+)]
 pub(crate) fn layer_sample_command(
     _scene: &Scene,
     layer: &RecordedLayer,
@@ -387,27 +402,20 @@ pub(crate) fn layer_sample_command(
     }
 
     let paint_idx = encoded_paints.len();
-    let sample_bbox = match extent {
-        LayerSampleExtent::Output => layer.output_bbox,
-        LayerSampleExtent::Content if layer.filter.is_some() => layer.output_bbox,
-        LayerSampleExtent::Content => layer.bbox,
-    };
-    let source_region = RectU16::new(0, 0, target.width(), target.height());
-    let transform = if layer.filter.is_some() {
-        let placement = layer.filter_placement;
-        Affine::translate((
-            f64::from(placement.src_x) - f64::from(placement.composite_bbox.x0),
-            f64::from(placement.src_y) - f64::from(placement.composite_bbox.y0),
-        ))
-    } else {
-        Affine::translate((-(f64::from(layer.bbox.x0)), -(f64::from(layer.bbox.y0))))
-    };
-    encoded_paints.push(layer_encoded_paint(
-        target,
-        opacity,
-        source_region,
-        transform,
-    ));
+    encoded_paints.push(layer_sample_encoded_paint(layer, target, opacity, extent));
+    layer_sample_command_with_paint_idx(layer, extent, paint_idx)
+}
+
+pub(crate) fn layer_sample_command_with_paint_idx(
+    layer: &RecordedLayer,
+    extent: LayerSampleExtent,
+    paint_idx: usize,
+) -> Option<FastStripCommand> {
+    if layer_is_empty(layer) {
+        return None;
+    }
+
+    let sample_bbox = layer_sample_bbox(layer, extent);
     let paint = Paint::Indexed(IndexedPaint::new(paint_idx));
     Some(
         if let Some(clip) = &layer.clip
@@ -428,6 +436,33 @@ pub(crate) fn layer_sample_command(
             })
         },
     )
+}
+
+pub(crate) fn layer_sample_encoded_paint(
+    layer: &RecordedLayer,
+    target: &impl ScheduledLayerTarget,
+    opacity: f32,
+    _extent: LayerSampleExtent,
+) -> EncodedPaint {
+    let source_region = RectU16::new(0, 0, target.width(), target.height());
+    let transform = if layer.filter.is_some() {
+        let placement = layer.filter_placement;
+        Affine::translate((
+            f64::from(placement.src_x) - f64::from(placement.composite_bbox.x0),
+            f64::from(placement.src_y) - f64::from(placement.composite_bbox.y0),
+        ))
+    } else {
+        Affine::translate((-(f64::from(layer.bbox.x0)), -(f64::from(layer.bbox.y0))))
+    };
+    layer_encoded_paint(target, opacity, source_region, transform)
+}
+
+fn layer_sample_bbox(layer: &RecordedLayer, extent: LayerSampleExtent) -> RectU16 {
+    match extent {
+        LayerSampleExtent::Output => layer.output_bbox,
+        LayerSampleExtent::Content if layer.filter.is_some() => layer.output_bbox,
+        LayerSampleExtent::Content => layer.bbox,
+    }
 }
 
 pub(crate) fn layer_encoded_paint(
