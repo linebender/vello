@@ -13,8 +13,6 @@ use vello_common::paint::{ImageSource, Paint};
 use vello_common::strip_generator::StripStorage;
 use vello_common::tile::Tile;
 
-const COLOR_SOURCE_PAYLOAD: u32 = 0;
-
 const PAINT_TYPE_SOLID: u32 = 0;
 const PAINT_TYPE_IMAGE: u32 = 1;
 const PAINT_TYPE_LINEAR_GRADIENT: u32 = 2;
@@ -253,10 +251,9 @@ fn process_paint(
                 rgba >= 0x1_00_00_00,
                 "Color fields with 0 alpha are reserved for clipping"
             );
-            let paint_packed = (COLOR_SOURCE_PAYLOAD << 30) | (PAINT_TYPE_SOLID << 27);
             ProcessedPaint {
                 payload: rgba,
-                paint: paint_packed,
+                paint: PAINT_TYPE_SOLID << 26,
                 external_texture_id: None,
             }
         }
@@ -281,9 +278,7 @@ fn process_encoded_paint(
     match encoded_paint {
         EncodedPaint::Image(encoded_image) => match &encoded_image.source {
             ImageSource::OpaqueId { .. } => {
-                let paint_packed = (COLOR_SOURCE_PAYLOAD << 29)
-                    | (PAINT_TYPE_IMAGE << 26)
-                    | (paint_idx & 0x03FF_FFFF);
+                let paint_packed = (PAINT_TYPE_IMAGE << 26) | (paint_idx & 0x03FF_FFFF);
                 let scene_strip_xy = ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
                 ProcessedPaint {
                     payload: scene_strip_xy,
@@ -294,8 +289,7 @@ fn process_encoded_paint(
             _ => unimplemented!("unsupported image source"),
         },
         EncodedPaint::ExternalTexture(texture) => {
-            let paint_packed =
-                (COLOR_SOURCE_PAYLOAD << 29) | (PAINT_TYPE_IMAGE << 26) | (paint_idx & 0x03FF_FFFF);
+            let paint_packed = (PAINT_TYPE_IMAGE << 26) | (paint_idx & 0x03FF_FFFF);
             let scene_strip_xy = ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
             ProcessedPaint {
                 payload: scene_strip_xy,
@@ -309,9 +303,7 @@ fn process_encoded_paint(
                 EncodedKind::Radial(_) => PAINT_TYPE_RADIAL_GRADIENT,
                 EncodedKind::Sweep(_) => PAINT_TYPE_SWEEP_GRADIENT,
             };
-            let paint_packed = (COLOR_SOURCE_PAYLOAD << 29)
-                | (gradient_paint_type << 26)
-                | (paint_idx & 0x03FF_FFFF);
+            let paint_packed = (gradient_paint_type << 26) | (paint_idx & 0x03FF_FFFF);
             let scene_strip_xy = ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
             ProcessedPaint {
                 payload: scene_strip_xy,
@@ -320,9 +312,7 @@ fn process_encoded_paint(
             }
         }
         EncodedPaint::BlurredRoundedRect(_) => {
-            let paint_packed = (COLOR_SOURCE_PAYLOAD << 29)
-                | (PAINT_TYPE_BLURRED_ROUNDED_RECT << 26)
-                | (paint_idx & 0x03FF_FFFF);
+            let paint_packed = (PAINT_TYPE_BLURRED_ROUNDED_RECT << 26) | (paint_idx & 0x03FF_FFFF);
             let scene_strip_xy = ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
             ProcessedPaint {
                 payload: scene_strip_xy,

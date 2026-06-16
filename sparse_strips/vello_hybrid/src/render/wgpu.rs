@@ -85,7 +85,6 @@ const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(G
 });
 
 const EXTERNAL_IMAGE_SOURCE_FLAG: u32 = 1 << 14;
-const SLOT_TEXTURE_WIDTH: u32 = 256;
 
 /// Options for the renderer
 #[derive(Debug)]
@@ -851,7 +850,6 @@ pub struct Renderer {
     /// Reusable offscreen layer textures and bind groups.
     layer_target_pool: LayerTargetPool,
     dummy_image_cache: Option<ImageCache>,
-    #[cfg(feature = "text")]
     atlas_clear_scratch: Vec<u8>,
 }
 
@@ -891,7 +889,6 @@ impl Renderer {
             device.limits().max_texture_array_layers,
             min_initial_atlas_count,
         );
-        let total_slots = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
         let image_cache = ImageCache::new_with_config(settings.atlas_config);
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
         // and the maximum gradient LUT size - worst case scenario.
@@ -906,7 +903,6 @@ impl Renderer {
                 &image_cache,
                 &filter_context.image_cache,
                 render_target_config,
-                total_slots,
             ),
             gradient_cache,
             encoded_paints: Vec::new(),
@@ -916,7 +912,6 @@ impl Renderer {
             render_pass_count: 0,
             layer_target_pool: LayerTargetPool::default(),
             dummy_image_cache: Some(ImageCache::new_dummy()),
-            #[cfg(feature = "text")]
             atlas_clear_scratch: Vec::new(),
         }
     }
@@ -1655,18 +1650,16 @@ impl Renderer {
     pub fn destroy_image(
         &mut self,
         resources: &mut Resources,
-        device: &Device,
+        _device: &Device,
         queue: &Queue,
-        encoder: &mut CommandEncoder,
+        _encoder: &mut CommandEncoder,
         image_id: vello_common::paint::ImageId,
     ) {
         if let Some(image_resource) = resources.image_cache.deallocate(image_id) {
             let padding = image_resource.padding as u32;
 
             self.clear_atlas_region(
-                device,
                 queue,
-                encoder,
                 image_resource.atlas_id,
                 [
                     image_resource.offset[0] as u32 - padding,
@@ -1690,56 +1683,41 @@ impl Renderer {
     /// Clear a specific region of the atlas texture.
     fn clear_atlas_region(
         &mut self,
-        _device: &Device,
-        _queue: &Queue,
-        encoder: &mut CommandEncoder,
+        queue: &Queue,
         atlas_id: AtlasId,
         offset: [u32; 2],
         width: u32,
         height: u32,
     ) {
-        // Create a texture view for the specific atlas layer
-        let layer_view =
-            self.programs
-                .resources
-                .atlas_texture_array
-                .create_view(&TextureViewDescriptor {
-                    label: Some("Atlas Layer Clear View"),
-                    format: Some(wgpu::TextureFormat::Rgba8Unorm),
-                    dimension: Some(wgpu::TextureViewDimension::D2),
-                    aspect: wgpu::TextureAspect::All,
-                    base_mip_level: 0,
-                    mip_level_count: Some(1),
-                    base_array_layer: atlas_id.as_u32(),
-                    array_layer_count: Some(1),
-                    // Inherit usage from the texture
-                    usage: None,
-                });
+        if width == 0 || height == 0 {
+            return;
+        }
 
-        let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("Clear Atlas Region"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: &layer_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    // Don't clear entire texture, just the scissor region
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
+        let byte_count = width as usize * height as usize * 4;
+        self.atlas_clear_scratch.resize(byte_count, 0);
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.programs.resources.atlas_texture_array,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: offset[0],
+                    y: offset[1],
+                    z: atlas_id.as_u32(),
                 },
-                depth_slice: None,
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-            multiview_mask: None,
-        });
-
-        // Set scissor rectangle to limit clearing to specific region
-        render_pass.set_scissor_rect(offset[0], offset[1], width, height);
-        // Use atlas clear pipeline to render transparent pixels
-        render_pass.set_pipeline(&self.programs.atlas_clear_pipeline);
-        // Draw fullscreen quad
-        render_pass.draw(0..4, 0..1);
+                aspect: wgpu::TextureAspect::All,
+            },
+            &self.atlas_clear_scratch[..byte_count],
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * 4),
+                rows_per_image: None,
+            },
+            Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
     }
 
     fn prepare_gpu_encoded_paints(
@@ -1941,41 +1919,22 @@ impl Renderer {
 
 #[cfg(feature = "text")]
 fn clear_atlas_region(queue: &Queue, renderer: &mut Renderer, rect: &PendingClearRect) {
-    // TODO: Can we optimize this more?
-    let byte_count = rect.width as usize * rect.height as usize * 4;
-    renderer.atlas_clear_scratch.resize(byte_count, 0);
-    queue.write_texture(
-        wgpu::TexelCopyTextureInfo {
-            texture: renderer.atlas_texture(),
-            mip_level: 0,
-            origin: wgpu::Origin3d {
-                x: rect.x as u32,
-                y: rect.y as u32,
-                z: rect.page_index,
-            },
-            aspect: wgpu::TextureAspect::All,
-        },
-        &renderer.atlas_clear_scratch[..byte_count],
-        wgpu::TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(rect.width as u32 * 4),
-            rows_per_image: None,
-        },
-        Extent3d {
-            width: rect.width as u32,
-            height: rect.height as u32,
-            depth_or_array_layers: 1,
-        },
+    renderer.clear_atlas_region(
+        queue,
+        AtlasId::new(rect.page_index),
+        [rect.x as u32, rect.y as u32],
+        rect.width as u32,
+        rect.height as u32,
     );
 }
 
 /// Defines the GPU resources and pipelines for rendering.
 #[derive(Debug)]
 struct Programs {
-    /// Pipelines for rendering strips to slot textures (depth test OFF, depth write OFF, blending ON).
+    /// Pipelines for rendering strips to intermediate textures (depth test OFF, depth write OFF, blending ON).
     /// The first pipeline should be used for color attachments in the native pixel format,
     /// the second for color attachments in RGBA8.
-    slot_strip_pipelines: [RenderPipeline; 2],
+    intermediate_strip_pipelines: [RenderPipeline; 2],
     /// Alpha pipelines for rendering strips to Output targets (depth test ON, depth write OFF, blending ON).
     alpha_strip_pipelines: [RenderPipeline; 2],
     /// Opaque pipelines for rendering strips to Output targets (depth test ON, depth write ON, blending OFF).
@@ -2006,14 +1965,6 @@ struct Programs {
     layer_blend_config_bind_group_layout: BindGroupLayout,
     /// Bind group layout for layer blend input textures.
     layer_blend_texture_bind_group_layout: BindGroupLayout,
-    /// Pipeline for clearing slots in slot textures.
-    #[allow(
-        dead_code,
-        reason = "Slot scheduling was removed; slot resources remain until shader bindings are simplified."
-    )]
-    clear_pipeline: RenderPipeline,
-    /// Pipeline for clearing atlas regions.
-    atlas_clear_pipeline: RenderPipeline,
     /// GPU resources for rendering (created during prepare)
     resources: GpuResources,
     /// Dimensions of the rendering target
@@ -2036,7 +1987,7 @@ struct ViewConfigKey {
 struct ViewConfigCacheEntry {
     key: ViewConfigKey,
     buffer: Buffer,
-    bind_groups: [BindGroup; 3],
+    bind_group: BindGroup,
 }
 
 #[derive(Debug)]
@@ -2122,7 +2073,7 @@ impl FilterAtlasState {
 struct GpuResources {
     /// Buffer for [`GpuStrip`] data
     strips_buffer: Buffer,
-    /// Texture for alpha values (used by both view and slot rendering)
+    /// Texture for alpha values.
     alphas_texture: Texture,
     /// Textures for atlas data (multiple atlases supported)
     atlas_texture_array: Texture,
@@ -2156,29 +2107,12 @@ struct GpuResources {
 
     /// Config buffer for rendering wide tile commands into the view texture.
     view_config_buffer: Buffer,
-    /// Config buffer for rendering wide tile commands into a slot texture.
-    slot_config_buffer: Buffer,
 
-    /// Buffer for slot indices used in `clear_slots`
-    #[allow(
-        dead_code,
-        reason = "Slot scheduling was removed; slot resources remain until shader bindings are simplified."
-    )]
-    clear_slot_indices_buffer: Buffer,
     /// Buffer holding `FilterInstanceData` for a single filter draw call.
     filter_instance_buffer: Buffer,
     filter_instance_buffer_capacity: u64,
-    // Bind groups for rendering with clip buffers
-    slot_bind_groups: [BindGroup; 3],
-    /// Slot texture views
-    slot_texture_views: [TextureView; 2],
-
-    /// Bind group for clear slots operation
-    #[allow(
-        dead_code,
-        reason = "Slot scheduling was removed; slot resources remain until shader bindings are simplified."
-    )]
-    clear_bind_group: BindGroup,
+    /// Bind group for strip rendering.
+    strip_bind_group: BindGroup,
 
     /// Placeholder paint-source bind group with a 1x1 dummy atlas texture, used during
     /// `render_to_atlas` to avoid a read-write conflict on the real atlas texture.
@@ -2186,20 +2120,6 @@ struct GpuResources {
     /// Placeholder atlas texture view used when creating external paint-source bind groups
     /// during `render_to_atlas`.
     stub_atlas_texture_array_view: TextureView,
-}
-
-/// Config for the clear slots pipeline
-#[repr(C)]
-#[derive(Debug, Copy, Clone, Pod, Zeroable)]
-struct ClearSlotsConfig {
-    /// Width of a slot
-    pub slot_width: u32,
-    /// Height of a slot
-    pub slot_height: u32,
-    /// Total height of the texture
-    pub texture_height: u32,
-    /// Padding for 16-byte alignment
-    pub _padding: u32,
 }
 
 #[repr(C)]
@@ -2231,7 +2151,6 @@ impl Programs {
         image_cache: &ImageCache,
         filter_texture_cache: &ImageCache,
         render_target_config: &RenderTargetConfig,
-        slot_count: usize,
     ) -> Self {
         let strip_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -2254,16 +2173,6 @@ impl Programs {
                             ty: wgpu::BufferBindingType::Uniform,
                             has_dynamic_offset: false,
                             min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
                         },
                         count: None,
                     },
@@ -2327,30 +2236,9 @@ impl Programs {
                 }],
             });
 
-        // Create bind group layout for clearing slots
-        let clear_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Clear Slots Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-
         let strip_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Strip Shader"),
             source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::RENDER_STRIPS.into()),
-        });
-
-        let clear_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Clear Slots Shader"),
-            source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::CLEAR_SLOTS.into()),
         });
 
         let strip_pipeline_layout =
@@ -2362,13 +2250,6 @@ impl Programs {
                     Some(&encoded_paints_bind_group_layout),
                     Some(&gradient_bind_group_layout),
                 ],
-                immediate_size: 0,
-            });
-
-        let clear_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Clear Slots Pipeline Layout"),
-                bind_group_layouts: &[Some(&clear_bind_group_layout)],
                 immediate_size: 0,
             });
 
@@ -2423,9 +2304,9 @@ impl Programs {
             bias: wgpu::DepthBiasState::default(),
         };
 
-        // Slot pipelines: depth test OFF, depth write OFF, blending ON.
-        let slot_strip_pipelines = create_strip_pipelines(
-            "Strip Slot Pipeline",
+        // Intermediate pipelines: depth test OFF, depth write OFF, blending ON.
+        let intermediate_strip_pipelines = create_strip_pipelines(
+            "Strip Intermediate Pipeline",
             Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
             None,
         );
@@ -2438,81 +2319,6 @@ impl Programs {
         // Opaque pipelines: depth test ON (LessEqual), depth write ON, blending OFF.
         let opaque_strip_pipelines =
             create_strip_pipelines("Strip Opaque Pipeline", None, Some(depth_stencil(true)));
-
-        let clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Clear Slots Pipeline"),
-            layout: Some(&clear_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &clear_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: size_of::<u32>() as u64,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &[wgpu::VertexAttribute {
-                        format: wgpu::VertexFormat::Uint32,
-                        offset: 0,
-                        shader_location: 0,
-                    }],
-                }],
-                compilation_options: PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &clear_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(ColorTargetState {
-                    format: render_target_config.format,
-                    // No blending needed for clearing
-                    blend: None,
-                    write_mask: ColorWrites::ALL,
-                })],
-                compilation_options: PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleStrip,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
-
-        // Create atlas clear pipeline
-        let atlas_clear_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Atlas Clear Pipeline Layout"),
-                bind_group_layouts: &[],
-                immediate_size: 0,
-            });
-        let atlas_clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Atlas Clear Pipeline"),
-            layout: Some(&atlas_clear_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &clear_shader,
-                // Use a different vertex shader entry point
-                entry_point: Some("vs_main_fullscreen"),
-                buffers: &[],
-                compilation_options: PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &clear_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    blend: None,
-                    write_mask: ColorWrites::ALL,
-                })],
-                compilation_options: PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleStrip,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
 
         let filter_texture_entry = wgpu::BindGroupLayoutEntry {
             binding: 0,
@@ -2686,59 +2492,6 @@ impl Programs {
             multiview_mask: None,
         });
 
-        let slot_texture_views: [TextureView; 2] = core::array::from_fn(|_| {
-            device
-                .create_texture(&wgpu::TextureDescriptor {
-                    label: Some("Slot Texture"),
-                    size: Extent3d {
-                        width: SLOT_TEXTURE_WIDTH,
-                        height: u32::from(Tile::HEIGHT) * slot_count as u32,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: render_target_config.format,
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING
-                        | wgpu::TextureUsages::RENDER_ATTACHMENT
-                        | wgpu::TextureUsages::COPY_SRC,
-                    view_formats: &[],
-                })
-                .create_view(&TextureViewDescriptor::default())
-        });
-
-        let clear_config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Clear Slots Config"),
-            contents: bytemuck::bytes_of(&ClearSlotsConfig {
-                slot_width: SLOT_TEXTURE_WIDTH,
-                slot_height: u32::from(Tile::HEIGHT),
-                texture_height: u32::from(Tile::HEIGHT) * slot_count as u32,
-                _padding: 0,
-            }),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-        let clear_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Clear Slots Bind Group"),
-            layout: &clear_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: clear_config_buffer.as_entire_binding(),
-            }],
-        });
-        let clear_slot_indices_buffer = Self::create_clear_slot_indices_buffer(
-            device,
-            slot_count as u64 * size_of::<u32>() as u64,
-        );
-
-        let slot_config_buffer = Self::create_config_buffer(
-            device,
-            &RenderSize {
-                width: SLOT_TEXTURE_WIDTH,
-                height: u32::from(Tile::HEIGHT) * slot_count as u32,
-            },
-            device.limits().max_texture_dimension_2d,
-        );
-
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
         const INITIAL_ALPHA_TEXTURE_HEIGHT: u32 = 1;
         let alphas_texture = Self::create_alphas_texture(
@@ -2846,28 +2599,22 @@ impl Programs {
 
         let filter_atlas = FilterAtlasState::new(device, filter_atlas_size);
 
-        let slot_bind_groups = Self::create_strip_bind_groups(
+        let strip_bind_group = Self::create_strip_bind_group(
             device,
             &strip_bind_group_layout,
             &alphas_texture.create_view(&TextureViewDescriptor::default()),
-            &slot_config_buffer,
             &view_config_buffer,
-            &slot_texture_views,
         );
 
         let filter_instance_buffer_capacity = size_of::<FilterInstanceData>() as u64;
         let resources = GpuResources {
             strips_buffer: Self::create_strips_buffer(device, 0),
-            clear_slot_indices_buffer,
             filter_instance_buffer: Self::create_filter_instance_buffer(
                 device,
                 filter_instance_buffer_capacity,
             ),
             filter_instance_buffer_capacity,
-            slot_texture_views,
-            slot_config_buffer,
-            slot_bind_groups,
-            clear_bind_group,
+            strip_bind_group,
             alphas_texture,
             atlas_texture_array,
             atlas_texture_array_view,
@@ -2896,7 +2643,7 @@ impl Programs {
         let depth_texture_view = depth_texture.create_view(&TextureViewDescriptor::default());
 
         Self {
-            slot_strip_pipelines,
+            intermediate_strip_pipelines,
             alpha_strip_pipelines,
             opaque_strip_pipelines,
             depth_texture,
@@ -2920,8 +2667,6 @@ impl Programs {
                 width: render_target_config.width,
                 height: render_target_config.height,
             },
-            clear_pipeline,
-            atlas_clear_pipeline,
         }
     }
 
@@ -2947,15 +2692,6 @@ impl Programs {
         device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Strips Buffer"),
             size: required_strips_size,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        })
-    }
-
-    fn create_clear_slot_indices_buffer(device: &Device, required_size: u64) -> Buffer {
-        device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Slot Indices Buffer"),
-            size: required_size,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         })
@@ -3270,45 +3006,11 @@ impl Programs {
         })
     }
 
-    fn create_strip_bind_groups(
-        device: &Device,
-        strip_bind_group_layout: &BindGroupLayout,
-        alphas_texture_view: &TextureView,
-        strip_config_buffer: &Buffer,
-        config_buffer: &Buffer,
-        strip_texture_views: &[TextureView],
-    ) -> [BindGroup; 3] {
-        [
-            Self::create_strip_bind_group(
-                device,
-                strip_bind_group_layout,
-                alphas_texture_view,
-                strip_config_buffer,
-                &strip_texture_views[1],
-            ),
-            Self::create_strip_bind_group(
-                device,
-                strip_bind_group_layout,
-                alphas_texture_view,
-                strip_config_buffer,
-                &strip_texture_views[0],
-            ),
-            Self::create_strip_bind_group(
-                device,
-                strip_bind_group_layout,
-                alphas_texture_view,
-                config_buffer,
-                &strip_texture_views[1],
-            ),
-        ]
-    }
-
     fn create_strip_bind_group(
         device: &Device,
         strip_bind_group_layout: &BindGroupLayout,
         alphas_texture_view: &TextureView,
         config_buffer: &Buffer,
-        strip_texture_view: &TextureView,
     ) -> BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Strip Bind Group"),
@@ -3321,10 +3023,6 @@ impl Programs {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: config_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(strip_texture_view),
                 },
             ],
         })
@@ -3444,17 +3142,15 @@ impl Programs {
             self.resources.alphas_texture = alphas_texture;
             self.view_config_cache.clear();
 
-            // Since the alpha texture has changed, we need to update the clip bind groups.
-            self.resources.slot_bind_groups = Self::create_strip_bind_groups(
+            // Since the alpha texture has changed, update the strip bind group.
+            self.resources.strip_bind_group = Self::create_strip_bind_group(
                 device,
                 &self.strip_bind_group_layout,
                 &self
                     .resources
                     .alphas_texture
                     .create_view(&TextureViewDescriptor::default()),
-                &self.resources.slot_config_buffer,
                 &self.resources.view_config_buffer,
-                &self.resources.slot_texture_views,
             );
         }
     }
@@ -3554,7 +3250,7 @@ impl Programs {
         };
         if let Some(entry) = self.view_config_cache.iter().find(|entry| entry.key == key) {
             self.resources.view_config_buffer = entry.buffer.clone();
-            self.resources.slot_bind_groups = entry.bind_groups.clone();
+            self.resources.strip_bind_group = entry.bind_group.clone();
         } else {
             let buffer = Self::create_config_buffer_with_origin(
                 device,
@@ -3562,24 +3258,22 @@ impl Programs {
                 max_texture_dimension_2d,
                 origin,
             );
-            let bind_groups = Self::create_strip_bind_groups(
+            let bind_group = Self::create_strip_bind_group(
                 device,
                 &self.strip_bind_group_layout,
                 &self
                     .resources
                     .alphas_texture
                     .create_view(&TextureViewDescriptor::default()),
-                &self.resources.slot_config_buffer,
                 &buffer,
-                &self.resources.slot_texture_views,
             );
             self.view_config_cache.push(ViewConfigCacheEntry {
                 key,
                 buffer: buffer.clone(),
-                bind_groups: bind_groups.clone(),
+                bind_group: bind_group.clone(),
             });
             self.resources.view_config_buffer = buffer;
-            self.resources.slot_bind_groups = bind_groups;
+            self.resources.strip_bind_group = bind_group;
         }
 
         if target == DirectTarget::UserSurface && self.render_size != *new_render_size {
@@ -3926,7 +3620,7 @@ impl RendererContext<'_> {
         }
 
         let view = self.view;
-        let bind_group = &self.programs.resources.slot_bind_groups[2];
+        let bind_group = &self.programs.resources.strip_bind_group;
         let scissor_rect: Option<[u32; 4]> = None;
 
         let pipeline_idx = if target == DirectTarget::AtlasLayer {
@@ -3998,7 +3692,7 @@ impl RendererContext<'_> {
             if is_final_view {
                 render_pass.set_pipeline(&self.programs.alpha_strip_pipelines[pipeline_idx]);
             } else {
-                render_pass.set_pipeline(&self.programs.slot_strip_pipelines[pipeline_idx]);
+                render_pass.set_pipeline(&self.programs.intermediate_strip_pipelines[pipeline_idx]);
             }
 
             let alpha_start = opaque_count;
@@ -4040,59 +3734,6 @@ impl RendererContext<'_> {
                     render_pass.draw(0..4, alpha_start + current..alpha_start + alpha_count);
                 }
             }
-        }
-    }
-
-    /// Clear specific slots from a slot texture.
-    #[allow(
-        dead_code,
-        reason = "Slot scheduling was removed; slot resources remain until shader bindings are simplified."
-    )]
-    fn do_clear_slots_render_pass(&mut self, ix: usize, slot_indices: &[u32]) {
-        if slot_indices.is_empty() {
-            return;
-        }
-
-        let resources = &mut self.programs.resources;
-        let size = size_of_val(slot_indices) as u64;
-        // TODO: We currently allocate a new strips buffer for each render pass. A more efficient
-        // approach would be to re-use buffers or slices of a larger buffer.
-        resources.clear_slot_indices_buffer =
-            Programs::create_clear_slot_indices_buffer(self.device, size);
-        // TODO: Consider using a staging belt to avoid an extra staging buffer allocation.
-        let mut buffer = self
-            .queue
-            .write_buffer_with(
-                &resources.clear_slot_indices_buffer,
-                0,
-                size.try_into().unwrap(),
-            )
-            .expect("Capacity handled in creation");
-        buffer.copy_from_slice(bytemuck::cast_slice(slot_indices));
-
-        {
-            let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("Clear Slots Render Pass"),
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: &resources.slot_texture_views[ix],
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        // Don't clear the entire texture, just specific slots
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-                multiview_mask: None,
-            });
-
-            render_pass.set_pipeline(&self.programs.clear_pipeline);
-            render_pass.set_bind_group(0, &resources.clear_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, resources.clear_slot_indices_buffer.slice(..));
-            render_pass.draw(0..4, 0..u32::try_from(slot_indices.len()).unwrap());
         }
     }
 }

@@ -180,13 +180,9 @@ fn vs_main(
 @group(0) @binding(0)
 var alphas_texture: texture_2d<u32>;
 
-@group(0) @binding(2)
-var clip_input_texture: texture_2d<f32>;
-
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let tex1_size = textureDimensions(alphas_texture);
-    let tex2_size = textureDimensions(clip_input_texture);
     let width = config.width;
     return vec4<f32>(0.0, 0.0, 0.0, 0.0);
 }
@@ -275,14 +271,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             result.uniforms.get("config"),
             Some(&"Config_block_0Fragment".into())
         );
-        assert_eq!(result.texture_mapping.len(), 2);
+        assert_eq!(result.texture_mapping.len(), 1);
         assert_eq!(
             result.texture_mapping.get("alphas_texture"),
             Some(&"_group_0_binding_0_fs".into())
-        );
-        assert_eq!(
-            result.texture_mapping.get("clip_input_texture"),
-            Some(&"_group_0_binding_2_fs".into())
         );
     }
 }
