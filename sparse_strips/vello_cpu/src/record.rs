@@ -84,8 +84,6 @@ impl LayerId {
 #[derive(Debug)]
 pub(crate) struct RecordedLayer {
     pub(crate) props: LayerProps,
-    /// The bounding box of the contents of the layer.
-    pub(crate) bbox: RectU16,
     pub(crate) kind: RecordedLayerKind,
 }
 
@@ -117,8 +115,6 @@ impl RecordedLayer {
     pub(crate) fn regular(props: LayerProps) -> Self {
         Self {
             props,
-            // Will be initialized once we call `pop_layer`.
-            bbox: RectU16::INVERTED,
             kind: RecordedLayerKind::Regular,
         }
     }
@@ -126,8 +122,6 @@ impl RecordedLayer {
     fn filter(props: LayerProps, filter_plan: FilterData, cmds: Vec<RecordedCmd>) -> Self {
         Self {
             props,
-            // Will be initialized once we call `pop_layer`.
-            bbox: RectU16::INVERTED,
             kind: RecordedLayerKind::Filter {
                 cmds,
                 filter_data: filter_plan,
@@ -284,6 +278,8 @@ pub(crate) struct CommandRecorder {
 #[derive(Debug)]
 struct OpenLayer {
     id: LayerId,
+    /// The bounding box of the contents recorded into this layer.
+    bbox: RectU16,
     enclosing_filter_layer: Option<LayerId>,
 }
 
@@ -346,6 +342,8 @@ impl CommandRecorder {
         self.push_render_cmd(RecordedCmd::PushLayer { id });
         self.layer_stack.push(OpenLayer {
             id,
+            // Will be populated as we record commands.
+            bbox: RectU16::INVERTED,
             enclosing_filter_layer: self.active_filter_layer,
         });
     }
@@ -358,6 +356,8 @@ impl CommandRecorder {
         self.active_filter_layer = Some(id);
         self.layer_stack.push(OpenLayer {
             id,
+            // Will be populated as we record commands.
+            bbox: RectU16::INVERTED,
             enclosing_filter_layer,
         });
     }
@@ -365,10 +365,9 @@ impl CommandRecorder {
     pub(crate) fn pop_layer(&mut self) -> PoppedLayer {
         let layer = self.layer_stack.pop().unwrap();
         let id = layer.id;
-        let bbox = self.layers[id.get()].bbox;
         match &mut self.layers[id.get()].kind {
             RecordedLayerKind::Regular => {
-                self.record_bbox(|| bbox);
+                self.record_bbox(|| layer.bbox);
                 self.active_cmds_mut().push(RecordedCmd::PopLayer);
 
                 PoppedLayer::Regular
@@ -378,7 +377,7 @@ impl CommandRecorder {
                 placement,
                 ..
             } => {
-                *placement = FilterLayerPlacement::new(bbox, filter_plan);
+                *placement = FilterLayerPlacement::new(layer.bbox, filter_plan);
                 let dest_bbox = placement.dest_bbox;
 
                 self.active_filter_layer = layer.enclosing_filter_layer;
@@ -421,8 +420,8 @@ impl CommandRecorder {
     }
 
     fn record_bbox(&mut self, bbox: impl FnOnce() -> RectU16) {
-        if let Some(layer) = self.layer_stack.last() {
-            self.layers[layer.id.get()].bbox.union(bbox());
+        if let Some(layer) = self.layer_stack.last_mut() {
+            layer.bbox.union(bbox());
         }
     }
 }
