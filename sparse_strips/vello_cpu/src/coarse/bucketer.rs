@@ -476,6 +476,8 @@ impl CommandBucketer {
             for row_idx in layer.occupied_rows.drain(..) {
                 let row = &mut self.rows[row_idx];
 
+                // TODO: Instead of always pushing the full layer bbox across all rows, it
+                // would be nice to instead only emit the per-row bounding box.
                 row.push_cmd(RenderCmd::LayerFill(LayerFill::new(
                     layer.span, None, attrs_idx,
                 )));
