@@ -140,7 +140,7 @@ impl SingleThreadedDispatcher {
         cmds: &[RecordedCmd],
         viewport: RectU16,
         filter_ctx: &FilterContext,
-        target: PixmapMut<'_>,
+        mut target: PixmapMut<'_>,
         params: FineRenderParams,
         use_src_over: bool,
         encoded_paints: &[EncodedPaint],
@@ -163,26 +163,25 @@ impl SingleThreadedDispatcher {
             filter_paints: &bucketer.filter_paints,
             image_resolver,
         };
-        Self::rasterize_target::<S, F>(simd, &bucketer, resources, target, params, use_src_over);
-    }
-
-    fn rasterize_target<S: Simd, F: FineKernel<S>>(
-        simd: S,
-        bucketer: &CommandBucketer,
-        resources: FineResources<'_>,
-        mut target: PixmapMut<'_>,
-        params: FineRenderParams,
-        use_src_over: bool,
-    ) {
-        // TODO: Reuse fine and depth buffer across targets?
-        let mut fine = Fine::<S, F>::new(simd, bucketer.width());
-        let mut depth = DepthBuffer::new(bucketer.width());
         let mut regions = Regions::new(
             &mut target,
             params.scene_size,
             params.target_offset,
             bucketer.rows().len(),
         );
+        Self::rasterize_target::<S, F>(simd, &bucketer, resources, &mut regions, use_src_over);
+    }
+
+    fn rasterize_target<S: Simd, F: FineKernel<S>>(
+        simd: S,
+        bucketer: &CommandBucketer,
+        resources: FineResources<'_>,
+        regions: &mut Regions<'_>,
+        use_src_over: bool,
+    ) {
+        // TODO: Reuse fine and depth buffer across targets?
+        let mut fine = Fine::<S, F>::new(simd, bucketer.width());
+        let mut depth = DepthBuffer::new(bucketer.width());
         regions.update(|region| {
             rasterize_region::<S, F>(
                 &mut fine,
