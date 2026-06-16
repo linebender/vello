@@ -15,7 +15,7 @@ pub(crate) trait Clear {
 
 impl<T> Clear for Vec<T> {
     fn clear(&mut self) {
-        Vec::clear(self);
+        Self::clear(self);
     }
 }
 
