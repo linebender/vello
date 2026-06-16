@@ -117,6 +117,8 @@ struct LayerTarget {
     texture_id: TextureId,
     texture: WebGlTexture,
     framebuffer: WebGlFramebuffer,
+    texture_width: u16,
+    texture_height: u16,
     width: u16,
     height: u16,
     origin: RenderOrigin,
@@ -128,6 +130,17 @@ struct LayerTargetPool {
 }
 
 impl LayerTargetPool {
+    const MAX_RETAINED_TARGETS: usize = 48;
+    const SIZE_BUCKET: u16 = 64;
+
+    fn bucket_dimension(size: u16) -> u16 {
+        let bucket = u32::from(Self::SIZE_BUCKET);
+        let size = u32::from(size.max(1));
+        size.div_ceil(bucket)
+            .saturating_mul(bucket)
+            .min(u32::from(u16::MAX)) as u16
+    }
+
     fn acquire(
         &mut self,
         gl: &WebGl2RenderingContext,
@@ -139,10 +152,17 @@ impl LayerTargetPool {
         if let Some(index) = self
             .targets
             .iter()
-            .position(|target| target.width == width && target.height == height)
+            .enumerate()
+            .filter(|(_, target)| target.texture_width >= width && target.texture_height >= height)
+            .min_by_key(|(_, target)| {
+                u32::from(target.texture_width) * u32::from(target.texture_height)
+            })
+            .map(|(index, _)| index)
         {
             let mut target = self.targets.swap_remove(index);
             target.texture_id = texture_id;
+            target.width = width;
+            target.height = height;
             target.origin = origin;
             return target;
         }
@@ -150,8 +170,22 @@ impl LayerTargetPool {
         LayerTarget::new(gl, texture_id, width, height, origin)
     }
 
-    fn release(&mut self, target: LayerTarget) {
+    fn release(&mut self, gl: &WebGl2RenderingContext, target: LayerTarget) {
         self.targets.push(target);
+        if self.targets.len() > Self::MAX_RETAINED_TARGETS
+            && let Some(index) = self
+                .targets
+                .iter()
+                .enumerate()
+                .max_by_key(|(_, target)| {
+                    u32::from(target.texture_width) * u32::from(target.texture_height)
+                })
+                .map(|(index, _)| index)
+        {
+            let target = self.targets.swap_remove(index);
+            gl.delete_framebuffer(Some(&target.framebuffer));
+            gl.delete_texture(Some(&target.texture));
+        }
     }
 }
 
@@ -163,13 +197,15 @@ impl LayerTarget {
         height: u16,
         origin: RenderOrigin,
     ) -> Self {
+        let texture_width = LayerTargetPool::bucket_dimension(width);
+        let texture_height = LayerTargetPool::bucket_dimension(height);
         let texture = create_texture(gl);
         gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
             WebGl2RenderingContext::TEXTURE_2D,
             0,
             WebGl2RenderingContext::RGBA8 as i32,
-            i32::from(width),
-            i32::from(height),
+            i32::from(texture_width),
+            i32::from(texture_height),
             0,
             WebGl2RenderingContext::RGBA,
             WebGl2RenderingContext::UNSIGNED_BYTE,
@@ -181,6 +217,8 @@ impl LayerTarget {
             texture_id,
             texture,
             framebuffer,
+            texture_width,
+            texture_height,
             width,
             height,
             origin,
@@ -1508,7 +1546,7 @@ impl WebGlRenderer {
     }
 
     fn release_layer_target(&mut self, target: LayerTarget) {
-        self.layer_target_pool.release(target);
+        self.layer_target_pool.release(&self.gl, target);
     }
 
     fn clear_layer_target(&mut self, target: &LayerTarget) {
@@ -2459,9 +2497,9 @@ impl WebGlPrograms {
         let max_texture_dimension_2d = self.resources.max_texture_dimension_2d;
 
         if upload_shared_resources {
-            self.maybe_resize_alphas_tex(max_texture_dimension_2d, alphas.len());
-            self.maybe_resize_encoded_paints_tex(max_texture_dimension_2d, paint_idxs);
-            self.maybe_resize_filter_data_tex(filter_context);
+            self.maybe_resize_alphas_tex(gl, max_texture_dimension_2d, alphas.len());
+            self.maybe_resize_encoded_paints_tex(gl, max_texture_dimension_2d, paint_idxs);
+            self.maybe_resize_filter_data_tex(gl, filter_context);
         }
         self.maybe_update_config_buffer(gl, max_texture_dimension_2d, render_size, origin);
 
@@ -2541,7 +2579,11 @@ impl WebGlPrograms {
         }
     }
 
-    fn maybe_resize_filter_data_tex(&mut self, filter_context: &FilterContext) {
+    fn maybe_resize_filter_data_tex(
+        &mut self,
+        gl: &WebGl2RenderingContext,
+        filter_context: &FilterContext,
+    ) {
         let max_texture_dimension_2d = self.resources.max_texture_dimension_2d;
 
         let Some(required_height) =
@@ -2554,6 +2596,12 @@ impl WebGlPrograms {
             let required_size = (max_texture_dimension_2d * required_height) << 4;
             self.filter_data.resize(required_size as usize, 0);
             self.resources.filter_data_texture_height = required_height;
+            gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+            gl.bind_texture(
+                WebGl2RenderingContext::TEXTURE_2D,
+                Some(&self.resources.filter_data_texture),
+            );
+            allocate_rgba32ui_texture(gl, max_texture_dimension_2d, required_height);
         }
     }
 
@@ -2576,18 +2624,7 @@ impl WebGlPrograms {
         );
         let data_as_u32 = bytemuck::cast_slice::<u8, u32>(&self.filter_data);
         let packed_array = js_sys::Uint32Array::from(data_as_u32);
-        gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
-            WebGl2RenderingContext::TEXTURE_2D,
-            0,
-            WebGl2RenderingContext::RGBA32UI as i32,
-            width as i32,
-            height as i32,
-            0,
-            WebGl2RenderingContext::RGBA_INTEGER,
-            WebGl2RenderingContext::UNSIGNED_INT,
-            Some(&packed_array),
-        )
-        .unwrap();
+        upload_rgba32ui_sub_texture(gl, &packed_array, width, height);
     }
 
     fn maybe_resize_filter_atlas_textures(
@@ -2704,7 +2741,12 @@ impl WebGlPrograms {
     }
 
     /// Update the alpha texture size if needed.
-    fn maybe_resize_alphas_tex(&mut self, max_texture_dimension_2d: u32, alphas_len: usize) {
+    fn maybe_resize_alphas_tex(
+        &mut self,
+        gl: &WebGl2RenderingContext,
+        max_texture_dimension_2d: u32,
+        alphas_len: usize,
+    ) {
         let required_alpha_height = (alphas_len as u32)
             // There are 16 1-byte alpha values per texel.
             .div_ceil(max_texture_dimension_2d << 4);
@@ -2719,12 +2761,19 @@ impl WebGlPrograms {
 
             // Track the new height.
             self.resources.alpha_texture_height = required_alpha_height;
+            gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+            gl.bind_texture(
+                WebGl2RenderingContext::TEXTURE_2D,
+                Some(&self.resources.alphas_texture),
+            );
+            allocate_rgba32ui_texture(gl, max_texture_dimension_2d, required_alpha_height);
         }
     }
 
     /// Update the encoded paints texture size if needed.
     fn maybe_resize_encoded_paints_tex(
         &mut self,
+        gl: &WebGl2RenderingContext,
         max_texture_dimension_2d: u32,
         paint_idxs: &[u32],
     ) {
@@ -2742,13 +2791,19 @@ impl WebGlPrograms {
             self.encoded_paints_data
                 .resize(required_encoded_paints_size as usize, 0);
             self.resources.encoded_paints_texture_height = required_encoded_paints_height;
+            gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+            gl.bind_texture(
+                WebGl2RenderingContext::TEXTURE_2D,
+                Some(&self.resources.encoded_paints_texture),
+            );
+            allocate_rgba32ui_texture(gl, max_texture_dimension_2d, required_encoded_paints_height);
         }
     }
 
     /// Update the gradient texture size if needed.
     fn maybe_resize_gradient_tex(
         &mut self,
-        _gl: &WebGl2RenderingContext,
+        gl: &WebGl2RenderingContext,
         max_texture_dimension_2d: u32,
         gradient_cache: &GradientRampCache,
     ) {
@@ -2769,6 +2824,12 @@ impl WebGlPrograms {
             );
 
             self.resources.gradient_texture_height = required_gradient_height;
+            gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+            gl.bind_texture(
+                WebGl2RenderingContext::TEXTURE_2D,
+                Some(&self.resources.gradient_texture),
+            );
+            allocate_rgba8_texture(gl, max_texture_dimension_2d, required_gradient_height);
         }
     }
 
@@ -2885,12 +2946,9 @@ impl WebGlPrograms {
             Some(&self.resources.alphas_texture),
         );
 
-        upload_data_to_rgba32_texture(
-            gl,
-            bytemuck::cast_slice::<u8, u32>(alphas),
-            alpha_texture_width,
-            alpha_texture_height,
-        );
+        let packed_array =
+            unsafe { js_sys::Uint32Array::view(bytemuck::cast_slice::<u8, u32>(alphas)) };
+        upload_rgba32ui_sub_texture(gl, &packed_array, alpha_texture_width, alpha_texture_height);
 
         // Truncate back to the original size.
         alphas.truncate(original_len);
@@ -2914,9 +2972,14 @@ impl WebGlPrograms {
                 Some(&self.resources.encoded_paints_texture),
             );
 
-            upload_data_to_rgba32_texture(
+            let packed_array = unsafe {
+                js_sys::Uint32Array::view(bytemuck::cast_slice::<u8, u32>(
+                    &self.encoded_paints_data,
+                ))
+            };
+            upload_rgba32ui_sub_texture(
                 gl,
-                bytemuck::cast_slice::<u8, u32>(&self.encoded_paints_data),
+                &packed_array,
                 encoded_paints_texture_width,
                 encoded_paints_texture_height,
             );
@@ -2948,16 +3011,17 @@ impl WebGlPrograms {
             Some(&self.resources.gradient_texture),
         );
 
-        gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
+        let packed_array = unsafe { js_sys::Uint8Array::view(&luts) };
+        gl.tex_sub_image_2d_with_i32_and_i32_and_u32_and_type_and_opt_array_buffer_view(
             WebGl2RenderingContext::TEXTURE_2D,
             0,
-            WebGl2RenderingContext::RGBA8 as i32,
+            0,
+            0,
             gradient_texture_width as i32,
             gradient_texture_height as i32,
-            0,
             WebGl2RenderingContext::RGBA,
             WebGl2RenderingContext::UNSIGNED_BYTE,
-            Some(&luts),
+            Some(&packed_array),
         )
         .unwrap();
 
@@ -4620,10 +4684,40 @@ fn copy_to_texture_array_layer(
     gl.delete_framebuffer(Some(&read_framebuffer));
 }
 
+fn allocate_rgba32ui_texture(gl: &WebGl2RenderingContext, width: u32, height: u32) {
+    gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
+        WebGl2RenderingContext::TEXTURE_2D,
+        0,
+        WebGl2RenderingContext::RGBA32UI as i32,
+        width as i32,
+        height as i32,
+        0,
+        WebGl2RenderingContext::RGBA_INTEGER,
+        WebGl2RenderingContext::UNSIGNED_INT,
+        None,
+    )
+    .unwrap();
+}
+
+fn allocate_rgba8_texture(gl: &WebGl2RenderingContext, width: u32, height: u32) {
+    gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
+        WebGl2RenderingContext::TEXTURE_2D,
+        0,
+        WebGl2RenderingContext::RGBA8 as i32,
+        width as i32,
+        height as i32,
+        0,
+        WebGl2RenderingContext::RGBA,
+        WebGl2RenderingContext::UNSIGNED_BYTE,
+        None,
+    )
+    .unwrap();
+}
+
 // Upload the data to the currently bound texture assuming a RGBA32UI format.
-fn upload_data_to_rgba32_texture(
+fn upload_rgba32ui_sub_texture(
     gl: &WebGl2RenderingContext,
-    data: &[u32],
+    data: &js_sys::Uint32Array,
     texture_width: u32,
     texture_height: u32,
 ) {
@@ -4631,7 +4725,7 @@ fn upload_data_to_rgba32_texture(
     // WASM linear memory, and any additional allocations might invalidate that view.
     // In our case, this is not an issue because we only use this view once for uploading
     // data to the GPU below, and no allocations happen between that.
-    // The `tex_image_2d` method is synchronous in the sense that once it returns, it is guaranteed
+    // The `tex_sub_image_2d` method is synchronous in the sense that once it returns, it is guaranteed
     // that all necessary data has already been read, so any allocations that happen
     // after this block don't affect this anymore.
     //
@@ -4645,18 +4739,16 @@ fn upload_data_to_rgba32_texture(
     // >> the pixel data is in your client memory (unless you are reading into a buffer object).
     // >> When `glBufferSubData` returns, you can immediately modify or delete whatever memory
     // >> pointer you gave it, as OpenGL has already read as much as it wants.
-    let packed_array = unsafe { js_sys::Uint32Array::view(data) };
-
-    gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
+    gl.tex_sub_image_2d_with_i32_and_i32_and_u32_and_type_and_opt_array_buffer_view(
         WebGl2RenderingContext::TEXTURE_2D,
         0,
-        WebGl2RenderingContext::RGBA32UI as i32,
+        0,
+        0,
         texture_width as i32,
         texture_height as i32,
-        0,
         WebGl2RenderingContext::RGBA_INTEGER,
         WebGl2RenderingContext::UNSIGNED_INT,
-        Some(&packed_array),
+        Some(data),
     )
     .unwrap();
 }
