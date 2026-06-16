@@ -477,7 +477,7 @@ pub(crate) fn rasterize_region<S: Simd, T: FineKernel<S>>(
         });
     }
 
-    // Clear any regions in the fine buffer that haven't been filled with a solid color fill.
+    // Clear any regions in the fine buffer that haven't been filled with an opaque fill.
     fine.init_uncovered_range(span, region, unpack_dest, depth);
 
     // Render the main commands back-to-front, with depth-buffer read.
