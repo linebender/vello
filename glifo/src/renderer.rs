@@ -472,6 +472,10 @@ fn insert_and_render_bitmap(
     CacheResult::CachedAndRendered
 }
 
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "f64→i16 truncation is acceptable for pixel coordinates"
+)]
 fn insert_and_render_colr(
     renderer: &mut impl GlyphRenderer,
     glyph: &GlyphColr<'_>,
@@ -495,6 +499,8 @@ fn insert_and_render_colr(
         bearing_y: 0,
     };
 
+    let area = glyph.area;
+
     let context_color = cache_key.context_color;
     let Some((atlas_slot, recorder)) = glyph_atlas.insert(image_cache, cache_key, raster_metrics)
     else {
@@ -507,7 +513,7 @@ fn insert_and_render_colr(
         renderer,
         atlas_slot,
         outline_transform,
-        glyph.area,
+        area,
         quality_for_skew(&outline_transform),
         None,
     );
