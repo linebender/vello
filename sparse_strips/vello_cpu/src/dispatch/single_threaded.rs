@@ -114,7 +114,7 @@ impl SingleThreadedDispatcher {
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
     ) {
-        let filters = self.render_filter_layers::<S, F>(simd, encoded_paints, image_resolver);
+        let filters = self.rasterize_filter_layers::<S, F>(simd, encoded_paints, image_resolver);
         let use_src_over = settings.composite_mode == CompositeMode::SrcOver;
         let params = FineRenderParams {
             scene_size: (scene_width, scene_height),
@@ -215,7 +215,7 @@ impl SingleThreadedDispatcher {
         );
     }
 
-    fn render_filter_layers<S: Simd, F: FineKernel<S>>(
+    fn rasterize_filter_layers<S: Simd, F: FineKernel<S>>(
         &self,
         simd: S,
         encoded_paints: &[EncodedPaint],
