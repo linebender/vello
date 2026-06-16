@@ -41,12 +41,13 @@ use crate::{
             LayerSampleExtent, LayerScheduleRenderer, LayerScheduler, ROOT_LAYER_IDX,
             ScheduledLayerOp, ScheduledLayerTarget, aligned_layer_source_texture_id,
             backdrop_texture_id, filter_scratch_texture_id, flatten_draw_batches,
-            layer_blend_scissor, layer_can_be_sampled_directly, layer_sample_command,
-            layer_target_origin_and_size, root_needs_offscreen_layer, root_sample_command,
-            root_texture_id,
+            layer_blend_scissor, layer_can_be_sampled_directly, layer_encoded_paint,
+            layer_sample_command_with_paint_idx, layer_sample_encoded_paint,
+            layer_target_origin_and_size, layer_texture_id, root_needs_offscreen_layer,
+            root_sample_command_with_paint_idx, root_texture_id,
         },
     },
-    scene::{FastStripCommand, RecordedLayer, Scene},
+    scene::{FastStripCommand, RecordedCommand, RecordedLayer, Scene},
     util::{IntRect, IntSize},
 };
 use alloc::sync::Arc;
@@ -121,6 +122,72 @@ struct LayerTarget {
     origin: RenderOrigin,
 }
 
+#[derive(Debug, Default)]
+struct LayerTargetPool {
+    targets: Vec<LayerTarget>,
+}
+
+impl LayerTargetPool {
+    fn acquire(
+        &mut self,
+        gl: &WebGl2RenderingContext,
+        texture_id: TextureId,
+        width: u16,
+        height: u16,
+        origin: RenderOrigin,
+    ) -> LayerTarget {
+        if let Some(index) = self
+            .targets
+            .iter()
+            .position(|target| target.width == width && target.height == height)
+        {
+            let mut target = self.targets.swap_remove(index);
+            target.texture_id = texture_id;
+            target.origin = origin;
+            return target;
+        }
+
+        LayerTarget::new(gl, texture_id, width, height, origin)
+    }
+
+    fn release(&mut self, target: LayerTarget) {
+        self.targets.push(target);
+    }
+}
+
+impl LayerTarget {
+    fn new(
+        gl: &WebGl2RenderingContext,
+        texture_id: TextureId,
+        width: u16,
+        height: u16,
+        origin: RenderOrigin,
+    ) -> Self {
+        let texture = create_texture(gl);
+        gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
+            WebGl2RenderingContext::TEXTURE_2D,
+            0,
+            WebGl2RenderingContext::RGBA8 as i32,
+            i32::from(width),
+            i32::from(height),
+            0,
+            WebGl2RenderingContext::RGBA,
+            WebGl2RenderingContext::UNSIGNED_BYTE,
+            None,
+        )
+        .unwrap();
+        let framebuffer = create_framebuffer_for_texture(gl, &texture);
+        Self {
+            texture_id,
+            texture,
+            framebuffer,
+            width,
+            height,
+            origin,
+        }
+    }
+}
+
 impl ScheduledLayerTarget for LayerTarget {
     #[inline]
     fn texture_id(&self) -> TextureId {
@@ -138,6 +205,47 @@ impl ScheduledLayerTarget for LayerTarget {
     }
 }
 
+#[derive(Debug)]
+struct ScheduledPaintIndices {
+    root: Option<usize>,
+    output: Vec<Option<usize>>,
+    content: Vec<Option<usize>>,
+}
+
+impl ScheduledPaintIndices {
+    fn new(layer_count: usize) -> Self {
+        Self {
+            root: None,
+            output: vec![None; layer_count],
+            content: vec![None; layer_count],
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ScheduledFilterIndices {
+    filter_data_offsets: Vec<Option<u32>>,
+    first_instances: Vec<Option<usize>>,
+}
+
+impl ScheduledFilterIndices {
+    fn new(layer_count: usize) -> Self {
+        Self {
+            filter_data_offsets: vec![None; layer_count],
+            first_instances: vec![None; layer_count],
+        }
+    }
+}
+
+fn root_needs_scheduled_offscreen(scene: &Scene, visible_layers: &[bool]) -> bool {
+    scene.root(scene.root_id()).commands.iter().any(|command| {
+        let RecordedCommand::Layer(layer_id) = command else {
+            return false;
+        };
+        visible_layers[layer_id.as_usize()]
+    })
+}
+
 struct WebGlLayerSchedule<'a, 'b> {
     renderer: &'a mut WebGlRenderer,
     scene: &'b Scene,
@@ -145,12 +253,30 @@ struct WebGlLayerSchedule<'a, 'b> {
     root_render_size: &'b RenderSize,
     root_target: DirectTarget,
     root_clear: bool,
+    planned_layer_targets: Vec<Option<LayerTarget>>,
+    planned_root_target: Option<LayerTarget>,
+    active_layer_texture_bindings: HashMap<TextureId, WebGlTexture>,
+    paint_indices: ScheduledPaintIndices,
+    filter_indices: ScheduledFilterIndices,
+    layer_filter_instances: Vec<FilterInstanceData>,
+    shared_resources_uploaded: bool,
 }
 
 impl LayerScheduleRenderer<LayerTarget> for WebGlLayerSchedule<'_, '_> {
     fn create_layer_target(&mut self, layer_idx: usize, texture_id: TextureId) -> LayerTarget {
-        self.renderer
-            .create_layer_target(self.scene, layer_idx, texture_id)
+        if let Some(target) = self.planned_layer_targets[layer_idx].take() {
+            debug_assert_eq!(target.texture_id, texture_id);
+            self.active_layer_texture_bindings
+                .insert(target.texture_id, target.texture.clone());
+            return target;
+        }
+
+        let target = self
+            .renderer
+            .create_layer_target(self.scene, layer_idx, texture_id);
+        self.active_layer_texture_bindings
+            .insert(target.texture_id, target.texture.clone());
+        target
     }
 
     fn render_layer(
@@ -182,11 +308,17 @@ impl LayerScheduleRenderer<LayerTarget> for WebGlLayerSchedule<'_, '_> {
         rendered_targets: &[Option<LayerTarget>],
     ) -> Result<(), RenderError> {
         if root_needs_offscreen_layer(batches) {
-            let root_layer_target = self.renderer.create_layer_target_with_size(
-                root_texture_id(),
-                self.root_render_size.width.try_into().unwrap_or(u16::MAX),
-                self.root_render_size.height.try_into().unwrap_or(u16::MAX),
-                RenderOrigin::default(),
+            let root_layer_target = self.planned_root_target.take().unwrap_or_else(|| {
+                self.renderer.create_layer_target_with_size(
+                    root_texture_id(),
+                    self.root_render_size.width.try_into().unwrap_or(u16::MAX),
+                    self.root_render_size.height.try_into().unwrap_or(u16::MAX),
+                    RenderOrigin::default(),
+                )
+            });
+            self.active_layer_texture_bindings.insert(
+                root_layer_target.texture_id,
+                root_layer_target.texture.clone(),
             );
             self.render_batches_to_layer(
                 ROOT_LAYER_IDX,
@@ -196,22 +328,21 @@ impl LayerScheduleRenderer<LayerTarget> for WebGlLayerSchedule<'_, '_> {
                 rendered_targets,
             )?;
 
-            let commands = [root_sample_command(
-                &root_layer_target,
+            let commands = [root_sample_command_with_paint_idx(
                 self.root_render_size,
-                encoded_paints,
+                self.paint_indices
+                    .root
+                    .expect("root layer sample paint must be preplanned"),
             )];
 
             let mut root_texture_bindings =
-                self.renderer.texture_bindings_with_layers(rendered_targets);
+                self.texture_bindings_with_scheduled_layers(rendered_targets);
             root_texture_bindings.insert(
                 root_layer_target.texture_id,
                 root_layer_target.texture.clone(),
             );
-            let result = self.renderer.render_scene(
-                self.scene,
+            let result = self.render_scene(
                 &commands,
-                self.image_cache,
                 self.root_render_size,
                 encoded_paints,
                 self.root_clear,
@@ -219,16 +350,16 @@ impl LayerScheduleRenderer<LayerTarget> for WebGlLayerSchedule<'_, '_> {
                 RenderOrigin::default(),
                 &root_texture_bindings,
             );
-            self.renderer.delete_layer_target(&root_layer_target);
+            self.renderer.release_layer_target(root_layer_target);
+            self.active_layer_texture_bindings
+                .remove(&root_texture_id());
             return result;
         }
 
         let commands = flatten_draw_batches(batches);
-        let root_texture_bindings = self.renderer.texture_bindings_with_layers(rendered_targets);
-        self.renderer.render_scene(
-            self.scene,
+        let root_texture_bindings = self.texture_bindings_with_scheduled_layers(rendered_targets);
+        self.render_scene(
             commands.as_slice(),
-            self.image_cache,
             self.root_render_size,
             encoded_paints,
             self.root_clear,
@@ -240,6 +371,69 @@ impl LayerScheduleRenderer<LayerTarget> for WebGlLayerSchedule<'_, '_> {
 }
 
 impl WebGlLayerSchedule<'_, '_> {
+    fn finish(&mut self) {
+        for target in self
+            .planned_layer_targets
+            .iter_mut()
+            .filter_map(Option::take)
+        {
+            self.renderer.release_layer_target(target);
+        }
+        if let Some(target) = self.planned_root_target.take() {
+            self.renderer.release_layer_target(target);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_scene(
+        &mut self,
+        commands: &[FastStripCommand],
+        render_size: &RenderSize,
+        encoded_paints: &[EncodedPaint],
+        clear: bool,
+        target: DirectTarget,
+        origin: RenderOrigin,
+        texture_bindings: &HashMap<TextureId, WebGlTexture>,
+    ) -> Result<(), RenderError> {
+        let upload_shared_resources = !self.shared_resources_uploaded;
+        let result = self.renderer.render_scene(
+            self.scene,
+            commands,
+            self.image_cache,
+            render_size,
+            encoded_paints,
+            clear,
+            target,
+            origin,
+            texture_bindings,
+            upload_shared_resources,
+        );
+        if result.is_ok() && upload_shared_resources {
+            self.shared_resources_uploaded = true;
+        }
+        result
+    }
+
+    fn texture_bindings_with_scheduled_layers(
+        &self,
+        rendered_targets: &[Option<LayerTarget>],
+    ) -> HashMap<TextureId, WebGlTexture> {
+        let mut bindings = HashMap::new();
+        for target in self.planned_layer_targets.iter().flatten() {
+            bindings.insert(target.texture_id, target.texture.clone());
+        }
+        for (&texture_id, texture) in &self.active_layer_texture_bindings {
+            bindings.insert(texture_id, texture.clone());
+        }
+        if let Some(target) = &self.planned_root_target {
+            bindings.insert(target.texture_id, target.texture.clone());
+        }
+        for target in rendered_targets.iter().flatten() {
+            bindings.insert(target.texture_id, target.texture.clone());
+        }
+        bindings
+    }
+
     fn render_batches_to_layer(
         &mut self,
         parent_idx: usize,
@@ -305,7 +499,7 @@ impl WebGlLayerSchedule<'_, '_> {
         rendered_targets: &[Option<LayerTarget>],
         clear: bool,
     ) -> Result<(), RenderError> {
-        let layer_texture_bindings = self.renderer.texture_bindings_with_layers(rendered_targets);
+        let layer_texture_bindings = self.texture_bindings_with_scheduled_layers(rendered_targets);
         self.render_commands_to_target_with_bindings(
             target,
             commands,
@@ -329,10 +523,8 @@ impl WebGlLayerSchedule<'_, '_> {
             .resources
             .view_framebuffer_override
             .replace(target.framebuffer.clone());
-        let result = self.renderer.render_scene(
-            self.scene,
+        let result = self.render_scene(
             commands,
-            self.image_cache,
             &RenderSize {
                 width: u32::from(target.width),
                 height: u32::from(target.height),
@@ -361,13 +553,11 @@ impl WebGlLayerSchedule<'_, '_> {
             .as_ref()
             .expect("child layer must be rendered before it is composited");
         if layer_can_be_sampled_directly(layer) {
-            let commands = layer_sample_command(
-                self.scene,
+            let commands = layer_sample_command_with_paint_idx(
                 layer,
-                child,
-                layer.opacity,
                 LayerSampleExtent::Output,
-                encoded_paints,
+                self.paint_indices.output[layer_idx]
+                    .expect("output layer sample paint must be preplanned"),
             );
             let commands = commands.as_slice();
             return self.render_commands_to_target(
@@ -402,8 +592,8 @@ impl WebGlLayerSchedule<'_, '_> {
             layer.opacity,
             layer_blend_scissor(layer, parent.origin),
         );
-        self.renderer.delete_layer_target(&source);
-        self.renderer.delete_layer_target(&backdrop);
+        self.renderer.release_layer_target(source);
+        self.renderer.release_layer_target(backdrop);
         Ok(())
     }
 
@@ -412,7 +602,7 @@ impl WebGlLayerSchedule<'_, '_> {
         parent: &LayerTarget,
         layer_idx: usize,
         layer: &RecordedLayer,
-        child: &LayerTarget,
+        _child: &LayerTarget,
         encoded_paints: &mut Vec<EncodedPaint>,
         rendered_targets: &[Option<LayerTarget>],
     ) -> Result<LayerTarget, RenderError> {
@@ -422,13 +612,11 @@ impl WebGlLayerSchedule<'_, '_> {
             parent.height,
             parent.origin,
         );
-        let commands = layer_sample_command(
-            self.scene,
+        let commands = layer_sample_command_with_paint_idx(
             layer,
-            child,
-            1.0,
             LayerSampleExtent::Content,
-            encoded_paints,
+            self.paint_indices.content[layer_idx]
+                .expect("content layer sample paint must be preplanned"),
         );
         let commands = commands.as_slice();
         self.render_commands_to_target(
@@ -454,16 +642,19 @@ impl WebGlLayerSchedule<'_, '_> {
             .as_ref()
             .expect("filter target requested for a non-filter layer");
         let plan = LayerFilterPlan::new(filter_data, (source.width(), source.height()));
-        self.renderer.upload_layer_filter_data(plan.gpu_filter());
+        let first_instance = self.filter_indices.first_instances[layer_idx]
+            .expect("filter instance offset must be preplanned");
         let final_target = self.renderer.create_layer_target_with_size(
             source.texture_id,
             source.width,
             source.height,
             source.origin,
         );
+        self.active_layer_texture_bindings
+            .insert(final_target.texture_id, final_target.texture.clone());
 
         if !plan.uses_scratch() {
-            let pass = plan
+            let _pass = plan
                 .passes()
                 .first()
                 .expect("single-pass filters must schedule one pass");
@@ -471,11 +662,10 @@ impl WebGlLayerSchedule<'_, '_> {
                 &source,
                 &final_target,
                 &source,
-                pass.pass_kind,
-                pass.src_size,
-                pass.dst_size,
+                first_instance,
+                &self.layer_filter_instances[first_instance],
             );
-            self.renderer.delete_layer_target(&source);
+            self.renderer.release_layer_target(source);
             return Ok(final_target);
         }
 
@@ -491,7 +681,7 @@ impl WebGlLayerSchedule<'_, '_> {
             source.height,
             source.origin,
         );
-        for pass in plan.passes() {
+        for (pass_idx, pass) in plan.passes().iter().enumerate() {
             self.run_scheduled_filter_pass(
                 pass.input,
                 pass.output,
@@ -499,15 +689,13 @@ impl WebGlLayerSchedule<'_, '_> {
                 &scratch_0,
                 &scratch_1,
                 &final_target,
-                pass.pass_kind,
-                pass.src_size,
-                pass.dst_size,
+                first_instance + pass_idx,
             );
         }
 
-        self.renderer.delete_layer_target(&source);
-        self.renderer.delete_layer_target(&scratch_0);
-        self.renderer.delete_layer_target(&scratch_1);
+        self.renderer.release_layer_target(source);
+        self.renderer.release_layer_target(scratch_0);
+        self.renderer.release_layer_target(scratch_1);
         Ok(final_target)
     }
 
@@ -520,14 +708,17 @@ impl WebGlLayerSchedule<'_, '_> {
         scratch_0: &LayerTarget,
         scratch_1: &LayerTarget,
         final_target: &LayerTarget,
-        pass_kind: u32,
-        src_size: (u16, u16),
-        dst_size: (u16, u16),
+        instance_index: usize,
     ) {
         let input = filter_pass_target(input, source, scratch_0, scratch_1, final_target);
         let output = filter_pass_target(output, source, scratch_0, scratch_1, final_target);
-        self.renderer
-            .run_filter_pass(input, output, source, pass_kind, src_size, dst_size);
+        self.renderer.run_filter_pass(
+            input,
+            output,
+            source,
+            instance_index,
+            &self.layer_filter_instances[instance_index],
+        );
     }
 }
 
@@ -550,6 +741,8 @@ pub struct WebGlRenderer {
     filter_pass_state: FilterPassState,
     /// Diagnostic count of render-pass-like units issued for the current scene render.
     render_pass_count: usize,
+    /// Reusable offscreen layer textures and framebuffers.
+    layer_target_pool: LayerTargetPool,
     dummy_image_cache: Option<ImageCache>,
 }
 
@@ -776,6 +969,7 @@ impl WebGlRenderer {
             filter_context,
             filter_pass_state: FilterPassState::default(),
             render_pass_count: 0,
+            layer_target_pool: LayerTargetPool::default(),
             dummy_image_cache: Some(ImageCache::new_dummy()),
         }
     }
@@ -1062,6 +1256,7 @@ impl WebGlRenderer {
             DirectTarget::AtlasLayer,
             RenderOrigin::default(),
             &texture_bindings,
+            true,
         );
         self.programs.resources.view_framebuffer_override = previous_view_framebuffer;
 
@@ -1104,6 +1299,30 @@ impl WebGlRenderer {
         root_clear: bool,
     ) -> Result<(), RenderError> {
         let scheduler = LayerScheduler::new(scene, scene_paint_count);
+        let layer_render_size = RenderSize {
+            width: u32::from(scene.width),
+            height: u32::from(scene.height),
+        };
+        let visible_layers = scheduler.visible_layers();
+        let (
+            planned_layer_targets,
+            planned_root_target,
+            paint_indices,
+            filter_indices,
+            layer_filter_instances,
+            layer_filter_data,
+        ) = self.plan_scheduled_layer_resources(
+            scene,
+            encoded_paints,
+            &layer_render_size,
+            &visible_layers,
+        );
+        self.upload_layer_filter_data(&layer_filter_data);
+        if !layer_filter_instances.is_empty() {
+            self.programs
+                .upload_filter_instances(&self.gl, &layer_filter_instances);
+        }
+        let scheduler = LayerScheduler::new(scene, encoded_paints.len());
         let mut schedule = WebGlLayerSchedule {
             renderer: self,
             scene,
@@ -1111,19 +1330,154 @@ impl WebGlRenderer {
             root_render_size: render_size,
             root_target,
             root_clear,
+            planned_layer_targets,
+            planned_root_target,
+            active_layer_texture_bindings: HashMap::new(),
+            paint_indices,
+            filter_indices,
+            layer_filter_instances,
+            shared_resources_uploaded: false,
         };
         let layer_targets = scheduler.render(encoded_paints, &mut schedule);
+        schedule.finish();
+        let shared_resources_uploaded = schedule.shared_resources_uploaded;
         drop(schedule);
         let layer_targets = layer_targets?;
-        for target in layer_targets.iter().flatten() {
-            self.gl.delete_framebuffer(Some(&target.framebuffer));
-            self.gl.delete_texture(Some(&target.texture));
+        for target in layer_targets.into_iter().flatten() {
+            self.release_layer_target(target);
+        }
+        if !shared_resources_uploaded {
+            let texture_bindings = HashMap::new();
+            self.render_scene(
+                scene,
+                &[],
+                image_cache,
+                render_size,
+                encoded_paints,
+                root_clear,
+                root_target,
+                RenderOrigin::default(),
+                &texture_bindings,
+                true,
+            )?;
         }
         Ok(())
     }
 
+    fn plan_scheduled_layer_resources(
+        &mut self,
+        scene: &Scene,
+        encoded_paints: &mut Vec<EncodedPaint>,
+        layer_render_size: &RenderSize,
+        visible_layers: &[bool],
+    ) -> (
+        Vec<Option<LayerTarget>>,
+        Option<LayerTarget>,
+        ScheduledPaintIndices,
+        ScheduledFilterIndices,
+        Vec<FilterInstanceData>,
+        Vec<GpuFilterData>,
+    ) {
+        let mut planned_targets = scene.layers().iter().map(|_| None).collect::<Vec<_>>();
+        let mut paint_indices = ScheduledPaintIndices::new(scene.layers().len());
+        let mut filter_indices = ScheduledFilterIndices::new(scene.layers().len());
+        let mut filter_instances = Vec::new();
+        let mut filter_data = Vec::new();
+
+        for (layer_idx, layer) in scene.layers().iter().enumerate() {
+            if !visible_layers[layer_idx] {
+                continue;
+            }
+
+            let (origin, render_size) =
+                layer_target_origin_and_size(scene, layer_idx, layer_render_size);
+            let target = self.create_layer_target_with_size(
+                layer_texture_id(layer_idx),
+                render_size.width.try_into().unwrap_or(u16::MAX),
+                render_size.height.try_into().unwrap_or(u16::MAX),
+                origin,
+            );
+
+            paint_indices.output[layer_idx] = Some(encoded_paints.len());
+            encoded_paints.push(layer_sample_encoded_paint(
+                layer,
+                &target,
+                layer.opacity,
+                LayerSampleExtent::Output,
+            ));
+
+            paint_indices.content[layer_idx] = Some(encoded_paints.len());
+            encoded_paints.push(layer_sample_encoded_paint(
+                layer,
+                &target,
+                1.0,
+                LayerSampleExtent::Content,
+            ));
+
+            if let Some(layer_filter) = &layer.filter {
+                let plan = LayerFilterPlan::new(layer_filter, (target.width, target.height));
+                let filter_data_offset = filter_data.len() as u32 * GpuFilterData::SIZE_TEXELS;
+                filter_data.push(plan.gpu_filter());
+                filter_indices.filter_data_offsets[layer_idx] = Some(filter_data_offset);
+                filter_indices.first_instances[layer_idx] = Some(filter_instances.len());
+                for pass in plan.passes() {
+                    filter_instances.push(FilterInstanceData {
+                        src: IntRect::new(
+                            [0, 0],
+                            [u32::from(pass.src_size.0), u32::from(pass.src_size.1)],
+                        ),
+                        dest: IntRect::new(
+                            [0, 0],
+                            [u32::from(pass.dst_size.0), u32::from(pass.dst_size.1)],
+                        ),
+                        dest_atlas_size: IntSize([
+                            u32::from(target.width),
+                            u32::from(target.height),
+                        ]),
+                        filter_data_offset,
+                        original: IntRect::new(
+                            [0, 0],
+                            [u32::from(target.width), u32::from(target.height)],
+                        ),
+                        pass_kind: pass.pass_kind,
+                    });
+                }
+            }
+
+            planned_targets[layer_idx] = Some(target);
+        }
+
+        let planned_root_target =
+            root_needs_scheduled_offscreen(scene, visible_layers).then(|| {
+                self.create_layer_target_with_size(
+                    root_texture_id(),
+                    layer_render_size.width.try_into().unwrap_or(u16::MAX),
+                    layer_render_size.height.try_into().unwrap_or(u16::MAX),
+                    RenderOrigin::default(),
+                )
+            });
+        if let Some(target) = &planned_root_target {
+            paint_indices.root = Some(encoded_paints.len());
+            encoded_paints.push(layer_encoded_paint(
+                target,
+                1.0,
+                RectU16::new(0, 0, target.width(), target.height()),
+                vello_common::kurbo::Affine::IDENTITY,
+            ));
+        }
+
+        (
+            planned_targets,
+            planned_root_target,
+            paint_indices,
+            filter_indices,
+            filter_instances,
+            filter_data,
+        )
+    }
+
     fn create_layer_target(
-        &self,
+        &mut self,
         scene: &Scene,
         layer_idx: usize,
         texture_id: TextureId,
@@ -1143,40 +1497,18 @@ impl WebGlRenderer {
     }
 
     fn create_layer_target_with_size(
-        &self,
+        &mut self,
         texture_id: TextureId,
         width: u16,
         height: u16,
         origin: RenderOrigin,
     ) -> LayerTarget {
-        let texture = create_texture(&self.gl);
-        self.gl
-            .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
-                WebGl2RenderingContext::TEXTURE_2D,
-                0,
-                WebGl2RenderingContext::RGBA8 as i32,
-                i32::from(width),
-                i32::from(height),
-                0,
-                WebGl2RenderingContext::RGBA,
-                WebGl2RenderingContext::UNSIGNED_BYTE,
-                None,
-            )
-            .unwrap();
-        let framebuffer = create_framebuffer_for_texture(&self.gl, &texture);
-        LayerTarget {
-            texture_id,
-            texture,
-            framebuffer,
-            width,
-            height,
-            origin,
-        }
+        self.layer_target_pool
+            .acquire(&self.gl, texture_id, width, height, origin)
     }
 
-    fn delete_layer_target(&self, target: &LayerTarget) {
-        self.gl.delete_framebuffer(Some(&target.framebuffer));
-        self.gl.delete_texture(Some(&target.texture));
+    fn release_layer_target(&mut self, target: LayerTarget) {
+        self.layer_target_pool.release(target);
     }
 
     fn clear_layer_target(&mut self, target: &LayerTarget) {
@@ -1288,9 +1620,14 @@ impl WebGlRenderer {
         self.gl.enable(WebGl2RenderingContext::BLEND);
     }
 
-    fn upload_layer_filter_data(&self, gpu_filter: GpuFilterData) {
-        let data = [gpu_filter];
-        let data_as_u32 = bytemuck::cast_slice::<GpuFilterData, u32>(&data);
+    fn upload_layer_filter_data(&mut self, gpu_filters: &[GpuFilterData]) {
+        if gpu_filters.is_empty() {
+            return;
+        }
+
+        self.programs
+            .ensure_layer_filter_data_texture_height(&self.gl, gpu_filters.len() as u32);
+        let data_as_u32 = bytemuck::cast_slice::<GpuFilterData, u32>(gpu_filters);
         let packed_array = unsafe { js_sys::Uint32Array::view(data_as_u32) };
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
         self.gl.bind_texture(
@@ -1304,7 +1641,7 @@ impl WebGlRenderer {
                 0,
                 0,
                 GpuFilterData::SIZE_TEXELS as i32,
-                1,
+                gpu_filters.len() as i32,
                 WebGl2RenderingContext::RGBA_INTEGER,
                 WebGl2RenderingContext::UNSIGNED_INT,
                 Some(&packed_array),
@@ -1317,24 +1654,12 @@ impl WebGlRenderer {
         input: &LayerTarget,
         output: &LayerTarget,
         original: &LayerTarget,
-        pass_kind: u32,
-        src_size: (u16, u16),
-        dst_size: (u16, u16),
+        instance_index: usize,
+        instance: &FilterInstanceData,
     ) {
         self.record_render_pass();
         set_linear_texture_sampling(&self.gl, &input.texture);
-
-        let instance = FilterInstanceData {
-            src: IntRect::new([0, 0], [u32::from(src_size.0), u32::from(src_size.1)]),
-            dest: IntRect::new([0, 0], [u32::from(dst_size.0), u32::from(dst_size.1)]),
-            dest_atlas_size: IntSize([u32::from(output.width), u32::from(output.height)]),
-            filter_data_offset: 0,
-            original: IntRect::new(
-                [0, 0],
-                [u32::from(original.width), u32::from(original.height)],
-            ),
-            pass_kind,
-        };
+        let _ = original;
 
         self.gl.disable(WebGl2RenderingContext::BLEND);
         self.gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
@@ -1355,11 +1680,10 @@ impl WebGlRenderer {
             height.max(1) as i32,
         );
 
-        self.programs
-            .upload_filter_instances(&self.gl, core::slice::from_ref(&instance));
         self.gl.use_program(Some(&self.programs.filter_program));
         self.gl
             .bind_vertex_array(Some(&self.programs.resources.filter_vao));
+        self.set_filter_instance_offset(instance_index);
 
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
         self.gl.bind_texture(
@@ -1383,20 +1707,27 @@ impl WebGlRenderer {
 
         self.gl
             .draw_arrays_instanced(WebGl2RenderingContext::TRIANGLE_STRIP, 0, 4, 1);
+        self.set_filter_instance_offset(0);
         self.gl.bind_vertex_array(None);
         self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
         self.gl.enable(WebGl2RenderingContext::BLEND);
     }
 
-    fn texture_bindings_with_layers(
-        &self,
-        layer_targets: &[Option<LayerTarget>],
-    ) -> HashMap<TextureId, WebGlTexture> {
-        let mut bindings = HashMap::new();
-        for target in layer_targets.iter().flatten() {
-            bindings.insert(target.texture_id, target.texture.clone());
+    fn set_filter_instance_offset(&self, instance_index: usize) {
+        self.gl.bind_buffer(
+            WebGl2RenderingContext::ARRAY_BUFFER,
+            Some(&self.programs.resources.filter_instance_buffer),
+        );
+        let base = i32::try_from(instance_index).unwrap() * FILTER_INSTANCE_STRIDE;
+        for (loc, &(components, offset)) in FILTER_ATTRIBS.iter().enumerate() {
+            self.gl.vertex_attrib_i_pointer_with_i32(
+                loc as u32,
+                components,
+                WebGl2RenderingContext::UNSIGNED_INT,
+                FILTER_INSTANCE_STRIDE,
+                base + offset,
+            );
         }
-        bindings
     }
 
     fn render_scene(
@@ -1410,23 +1741,26 @@ impl WebGlRenderer {
         target: DirectTarget,
         origin: RenderOrigin,
         texture_bindings: &HashMap<TextureId, WebGlTexture>,
+        upload_shared_resources: bool,
     ) -> Result<(), RenderError> {
-        if !self.filter_context.filter_textures.is_empty() {
+        if upload_shared_resources && !self.filter_context.filter_textures.is_empty() {
             self.render_pass_count += self.programs.resources.filter_atlas_framebuffers.len();
             self.programs.clear_filter_atlas_textures(&self.gl);
         }
 
-        self.filter_context
-            .deallocate_all_and_clear_context(image_cache);
+        if upload_shared_resources {
+            self.filter_context
+                .deallocate_all_and_clear_context(image_cache);
 
-        self.prepare_gpu_encoded_paints(encoded_paints, image_cache, texture_bindings)?;
+            self.prepare_gpu_encoded_paints(encoded_paints, image_cache, texture_bindings)?;
 
-        self.programs
-            .maybe_resize_atlas_texture_array(&self.gl, image_cache.atlas_count() as u32);
-        self.programs.maybe_resize_filter_atlas_textures(
-            &self.gl,
-            self.filter_context.image_cache.atlas_count() as u32,
-        );
+            self.programs
+                .maybe_resize_atlas_texture_array(&self.gl, image_cache.atlas_count() as u32);
+            self.programs.maybe_resize_filter_atlas_textures(
+                &self.gl,
+                self.filter_context.image_cache.atlas_count() as u32,
+            );
+        }
 
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
@@ -1440,6 +1774,7 @@ impl WebGlRenderer {
             origin,
             &self.paint_idxs,
             &self.filter_context,
+            upload_shared_resources,
         );
 
         self.programs.resources.depth_cleared_this_frame = false;
@@ -1868,6 +2203,8 @@ struct WebGlPrograms {
     resources: WebGlResources,
     /// Dimensions of the rendering target.
     render_size: RenderSize,
+    /// Origin used by the last view config buffer upload.
+    render_origin: RenderOrigin,
     /// Whether the last config buffer upload had NDC Y negation enabled.
     negate_ndc: bool,
     /// Scratch buffer for staging encoded paints texture data.
@@ -1993,6 +2330,8 @@ struct WebGlResources {
     filter_data_texture_height: u32,
     /// RGBA32UI texture storing the single filter used by scheduled layer filters.
     layer_filter_data_texture: WebGlTexture,
+    /// Current height of scheduled layer filter data texture.
+    layer_filter_data_texture_height: u32,
     /// Per-instance vertex data buffer for filter draws.
     filter_instance_buffer: WebGlBuffer,
     /// Allocated byte capacity of [`Self::filter_instance_buffer`].
@@ -2097,6 +2436,7 @@ impl WebGlPrograms {
                 width: 0,
                 height: 0,
             },
+            render_origin: RenderOrigin::default(),
             negate_ndc: false,
             encoded_paints_data,
             filter_data: Vec::new(),
@@ -2114,19 +2454,24 @@ impl WebGlPrograms {
         origin: RenderOrigin,
         paint_idxs: &[u32],
         filter_context: &FilterContext,
+        upload_shared_resources: bool,
     ) {
         let max_texture_dimension_2d = self.resources.max_texture_dimension_2d;
 
-        self.maybe_resize_alphas_tex(max_texture_dimension_2d, alphas.len());
-        self.maybe_resize_encoded_paints_tex(max_texture_dimension_2d, paint_idxs);
-        self.maybe_resize_filter_data_tex(filter_context);
+        if upload_shared_resources {
+            self.maybe_resize_alphas_tex(max_texture_dimension_2d, alphas.len());
+            self.maybe_resize_encoded_paints_tex(max_texture_dimension_2d, paint_idxs);
+            self.maybe_resize_filter_data_tex(filter_context);
+        }
         self.maybe_update_config_buffer(gl, max_texture_dimension_2d, render_size, origin);
 
-        self.upload_alpha_texture(gl, alphas);
-        self.upload_encoded_paints_texture(gl, encoded_paints);
-        self.upload_filter_data_texture(gl, filter_context);
+        if upload_shared_resources {
+            self.upload_alpha_texture(gl, alphas);
+            self.upload_encoded_paints_texture(gl, encoded_paints);
+            self.upload_filter_data_texture(gl, filter_context);
+        }
 
-        if gradient_cache.has_changed() {
+        if upload_shared_resources && gradient_cache.has_changed() {
             self.maybe_resize_gradient_tex(gl, max_texture_dimension_2d, gradient_cache);
             self.upload_gradient_texture(gl, gradient_cache);
             gradient_cache.mark_synced();
@@ -2310,6 +2655,36 @@ impl WebGlPrograms {
         self.resources.filter_instance_buffer_capacity = capacity;
     }
 
+    fn ensure_layer_filter_data_texture_height(
+        &mut self,
+        gl: &WebGl2RenderingContext,
+        required_height: u32,
+    ) {
+        if required_height <= self.resources.layer_filter_data_texture_height {
+            return;
+        }
+
+        let height = required_height.next_power_of_two();
+        gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+        gl.bind_texture(
+            WebGl2RenderingContext::TEXTURE_2D,
+            Some(&self.resources.layer_filter_data_texture),
+        );
+        gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
+            WebGl2RenderingContext::TEXTURE_2D,
+            0,
+            WebGl2RenderingContext::RGBA32UI as i32,
+            GpuFilterData::SIZE_TEXELS as i32,
+            height as i32,
+            0,
+            WebGl2RenderingContext::RGBA_INTEGER,
+            WebGl2RenderingContext::UNSIGNED_INT,
+            None,
+        )
+        .unwrap();
+        self.resources.layer_filter_data_texture_height = height;
+    }
+
     fn upload_filter_instances(
         &mut self,
         gl: &WebGl2RenderingContext,
@@ -2408,35 +2783,34 @@ impl WebGlPrograms {
         // Only negate if we are rendering to the main frame buffer.
         let negate_ndc = self.resources.view_framebuffer_override.is_none();
 
-        // TODO: Collect all attributes that influence the config buffer into a
-        // single struct and compare that, such that we cannot forget to update the
-        // condition in case we add new fields in the future.
-        if self.render_size != *new_render_size || self.negate_ndc != negate_ndc {
-            // Update view config buffer
-            {
-                let config = Config {
-                    width: new_render_size.width,
-                    height: new_render_size.height,
-                    strip_height: u32::from(Tile::HEIGHT),
-                    alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
-                    encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
-                    strip_offset_x: -i32::from(origin.x),
-                    strip_offset_y: -i32::from(origin.y),
-                    negate_ndc: u32::from(negate_ndc),
-                };
+        let size_changed = self.render_size != *new_render_size;
+        if size_changed || self.render_origin != origin || self.negate_ndc != negate_ndc {
+            let config = Config {
+                width: new_render_size.width,
+                height: new_render_size.height,
+                strip_height: u32::from(Tile::HEIGHT),
+                alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+                encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+                strip_offset_x: -i32::from(origin.x),
+                strip_offset_y: -i32::from(origin.y),
+                negate_ndc: u32::from(negate_ndc),
+            };
 
-                gl.bind_buffer(
-                    WebGl2RenderingContext::UNIFORM_BUFFER,
-                    Some(&self.resources.view_config_buffer),
-                );
-                let config_data = bytemuck::bytes_of(&config);
-                gl.buffer_data_with_u8_array(
-                    WebGl2RenderingContext::UNIFORM_BUFFER,
-                    config_data,
-                    WebGl2RenderingContext::STATIC_DRAW,
-                );
-            }
+            gl.bind_buffer(
+                WebGl2RenderingContext::UNIFORM_BUFFER,
+                Some(&self.resources.view_config_buffer),
+            );
+            let config_data = bytemuck::bytes_of(&config);
+            gl.buffer_data_with_u8_array(
+                WebGl2RenderingContext::UNIFORM_BUFFER,
+                config_data,
+                WebGl2RenderingContext::STATIC_DRAW,
+            );
+            self.render_origin = origin;
+            self.negate_ndc = negate_ndc;
+        }
 
+        if size_changed {
             let total_slots = max_texture_dimension_2d / u32::from(Tile::HEIGHT);
             // Update slot config buffer.
             {
@@ -2487,28 +2861,6 @@ impl WebGlPrograms {
             }
 
             self.render_size = new_render_size.clone();
-            self.negate_ndc = negate_ndc;
-        } else {
-            let config = Config {
-                width: new_render_size.width,
-                height: new_render_size.height,
-                strip_height: u32::from(Tile::HEIGHT),
-                alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
-                encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
-                strip_offset_x: -i32::from(origin.x),
-                strip_offset_y: -i32::from(origin.y),
-                negate_ndc: u32::from(negate_ndc),
-            };
-            gl.bind_buffer(
-                WebGl2RenderingContext::UNIFORM_BUFFER,
-                Some(&self.resources.view_config_buffer),
-            );
-            let config_data = bytemuck::bytes_of(&config);
-            gl.buffer_data_with_u8_array(
-                WebGl2RenderingContext::UNIFORM_BUFFER,
-                config_data,
-                WebGl2RenderingContext::STATIC_DRAW,
-            );
         }
     }
 
@@ -3404,6 +3756,7 @@ fn create_webgl_resources(
         filter_data_texture,
         filter_data_texture_height: 0,
         layer_filter_data_texture,
+        layer_filter_data_texture_height: 1,
         filter_instance_buffer,
         filter_instance_buffer_capacity: 0,
         filter_vao,

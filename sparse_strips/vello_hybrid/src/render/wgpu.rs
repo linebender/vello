@@ -162,6 +162,91 @@ struct LayerTarget {
     origin: RenderOrigin,
 }
 
+#[derive(Debug, Default)]
+struct LayerTargetPool {
+    targets: Vec<LayerTarget>,
+}
+
+impl LayerTargetPool {
+    fn acquire(
+        &mut self,
+        device: &Device,
+        programs: &Programs,
+        texture_id: TextureId,
+        render_size: RenderSize,
+        origin: RenderOrigin,
+    ) -> LayerTarget {
+        if let Some(index) = self
+            .targets
+            .iter()
+            .position(|target| target.render_size == render_size)
+        {
+            let mut target = self.targets.swap_remove(index);
+            target.texture_id = texture_id;
+            target.origin = origin;
+            return target;
+        }
+
+        LayerTarget::new(device, programs, texture_id, render_size, origin)
+    }
+
+    fn release(&mut self, target: LayerTarget) {
+        self.targets.push(target);
+    }
+}
+
+impl LayerTarget {
+    fn new(
+        device: &Device,
+        programs: &Programs,
+        texture_id: TextureId,
+        render_size: RenderSize,
+        origin: RenderOrigin,
+    ) -> Self {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Opacity Layer Texture"),
+            size: Extent3d {
+                width: render_size.width.max(1),
+                height: render_size.height.max(1),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&TextureViewDescriptor::default());
+        let filter_input_bind_group = create_filter_input_bind_group(
+            device,
+            &programs.filter_input_bind_group_layouts[0],
+            &programs.resources.filter_atlas.sampler,
+            &view,
+        );
+        let filter_original_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Layer Filter Original Bind Group"),
+            layout: &programs.filter_input_bind_group_layouts[1],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            }],
+        });
+        Self {
+            texture_id,
+            texture,
+            view,
+            filter_input_bind_group,
+            filter_original_bind_group,
+            render_size,
+            origin,
+        }
+    }
+}
+
 impl ScheduledLayerTarget for LayerTarget {
     #[inline]
     fn texture_id(&self) -> TextureId {
@@ -221,8 +306,9 @@ struct WgpuLayerSchedule<'a, 'b> {
     planned_layer_targets: Vec<Option<LayerTarget>>,
     planned_root_target: Option<LayerTarget>,
     paint_indices: ScheduledPaintIndices,
+    extra_layer_targets: Vec<LayerTarget>,
+    layer_filter_instances: Vec<FilterInstanceData>,
     shared_resources_uploaded: bool,
-    layer_filter_instance_offset: u64,
     layer_filter_data_offset: u32,
 }
 
@@ -238,8 +324,11 @@ impl LayerScheduleRenderer<LayerTarget> for WgpuLayerSchedule<'_, '_> {
 
         let (origin, render_size) =
             layer_target_origin_and_size(self.scene, layer_idx, &self.layer_render_size);
-        self.renderer
-            .create_layer_target(self.device, layer_idx, texture_id, render_size, origin)
+        let target =
+            self.renderer
+                .create_layer_target(self.device, texture_id, render_size, origin);
+        self.extra_layer_targets.push(target.clone());
+        target
     }
 
     fn render_layer(
@@ -319,6 +408,43 @@ impl LayerScheduleRenderer<LayerTarget> for WgpuLayerSchedule<'_, '_> {
 }
 
 impl WgpuLayerSchedule<'_, '_> {
+    fn create_extra_layer_target(
+        &mut self,
+        texture_id: TextureId,
+        render_size: RenderSize,
+        origin: RenderOrigin,
+    ) -> LayerTarget {
+        let target =
+            self.renderer
+                .create_layer_target(self.device, texture_id, render_size, origin);
+        self.extra_layer_targets.push(target.clone());
+        target
+    }
+
+    fn finish(&mut self) {
+        if !self.layer_filter_instances.is_empty() {
+            self.queue.write_buffer(
+                &self.renderer.programs.resources.filter_instance_buffer,
+                0,
+                bytemuck::cast_slice(&self.layer_filter_instances),
+            );
+        }
+
+        for target in self
+            .planned_layer_targets
+            .iter_mut()
+            .filter_map(Option::take)
+        {
+            self.renderer.release_layer_target(target);
+        }
+        if let Some(target) = self.planned_root_target.take() {
+            self.renderer.release_layer_target(target);
+        }
+        for target in self.extra_layer_targets.drain(..) {
+            self.renderer.release_layer_target(target);
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn render_scene(
         &mut self,
@@ -483,9 +609,7 @@ impl WgpuLayerSchedule<'_, '_> {
             encoded_paints,
             rendered_targets,
         )?;
-        let backdrop = self.renderer.create_layer_target(
-            self.device,
-            parent_idx,
+        let backdrop = self.create_extra_layer_target(
             backdrop_texture_id(parent_idx, layer_idx),
             parent.render_size.clone(),
             parent.origin,
@@ -515,9 +639,7 @@ impl WgpuLayerSchedule<'_, '_> {
         encoded_paints: &mut Vec<EncodedPaint>,
         rendered_targets: &[Option<LayerTarget>],
     ) -> Result<LayerTarget, RenderError> {
-        let aligned_source = self.renderer.create_layer_target(
-            self.device,
-            layer_idx,
+        let aligned_source = self.create_extra_layer_target(
             aligned_layer_source_texture_id(layer_idx),
             parent.render_size.clone(),
             parent.origin,
@@ -562,9 +684,7 @@ impl WgpuLayerSchedule<'_, '_> {
             filter_data_offset,
             plan.gpu_filter(),
         );
-        let final_target = self.renderer.create_layer_target(
-            self.device,
-            layer_idx,
+        let final_target = self.create_extra_layer_target(
             source.texture_id,
             source.render_size.clone(),
             source.origin,
@@ -587,16 +707,12 @@ impl WgpuLayerSchedule<'_, '_> {
             return Ok(final_target);
         }
 
-        let scratch_0 = self.renderer.create_layer_target(
-            self.device,
-            layer_idx,
+        let scratch_0 = self.create_extra_layer_target(
             filter_scratch_texture_id(layer_idx, 0),
             source.render_size.clone(),
             source.origin,
         );
-        let scratch_1 = self.renderer.create_layer_target(
-            self.device,
-            layer_idx,
+        let scratch_1 = self.create_extra_layer_target(
             filter_scratch_texture_id(layer_idx, 1),
             source.render_size.clone(),
             source.origin,
@@ -668,13 +784,15 @@ impl WgpuLayerSchedule<'_, '_> {
             pass_kind,
         };
         let instance_size = size_of::<FilterInstanceData>() as u64;
-        let instance_offset = self.layer_filter_instance_offset;
-        self.layer_filter_instance_offset += instance_size;
-        self.renderer.programs.upload_layer_filter_instance(
-            self.device,
-            self.queue,
-            instance_offset,
-            &instance,
+        let instance_offset = self.layer_filter_instances.len() as u64 * instance_size;
+        self.layer_filter_instances.push(instance);
+        debug_assert!(
+            instance_offset + instance_size
+                <= self
+                    .renderer
+                    .programs
+                    .resources
+                    .filter_instance_buffer_capacity
         );
         self.renderer.record_render_pass();
         let programs = &self.renderer.programs;
@@ -730,6 +848,8 @@ pub struct Renderer {
     filter_pass_state: FilterPassState,
     /// Diagnostic count of render passes issued for the current scene render.
     render_pass_count: usize,
+    /// Reusable offscreen layer textures and bind groups.
+    layer_target_pool: LayerTargetPool,
     dummy_image_cache: Option<ImageCache>,
     #[cfg(feature = "text")]
     atlas_clear_scratch: Vec<u8>,
@@ -794,6 +914,7 @@ impl Renderer {
             filter_context,
             filter_pass_state: FilterPassState::default(),
             render_pass_count: 0,
+            layer_target_pool: LayerTargetPool::default(),
             dummy_image_cache: Some(ImageCache::new_dummy()),
             #[cfg(feature = "text")]
             atlas_clear_scratch: Vec::new(),
@@ -1090,6 +1211,12 @@ impl Renderer {
                 &layer_render_size,
                 &visible_layers,
             );
+        let filter_instance_count =
+            Self::scheduled_layer_filter_pass_count(scene, &layer_render_size, &visible_layers);
+        self.programs.ensure_filter_instance_buffer_capacity(
+            device,
+            filter_instance_count as u64 * size_of::<FilterInstanceData>() as u64,
+        );
         let scheduler = LayerScheduler::new(scene, encoded_paints.len());
         let mut schedule = WgpuLayerSchedule {
             renderer: self,
@@ -1107,16 +1234,19 @@ impl Renderer {
             planned_layer_targets,
             planned_root_target,
             paint_indices,
+            extra_layer_targets: Vec::new(),
+            layer_filter_instances: Vec::new(),
             shared_resources_uploaded: false,
-            layer_filter_instance_offset: 0,
             layer_filter_data_offset: 0,
         };
-        scheduler.render(encoded_paints, &mut schedule)?;
+        let result = scheduler.render(encoded_paints, &mut schedule);
+        schedule.finish();
+        result?;
         Ok(())
     }
 
     fn plan_scheduled_layer_paints(
-        &self,
+        &mut self,
         scene: &Scene,
         device: &Device,
         encoded_paints: &mut Vec<EncodedPaint>,
@@ -1137,13 +1267,8 @@ impl Renderer {
 
             let (origin, render_size) =
                 layer_target_origin_and_size(scene, layer_idx, layer_render_size);
-            let target = self.create_layer_target(
-                device,
-                layer_idx,
-                layer_texture_id(layer_idx),
-                render_size,
-                origin,
-            );
+            let target =
+                self.create_layer_target(device, layer_texture_id(layer_idx), render_size, origin);
 
             paint_indices.output[layer_idx] = Some(encoded_paints.len());
             encoded_paints.push(layer_sample_encoded_paint(
@@ -1168,7 +1293,6 @@ impl Renderer {
             root_needs_scheduled_offscreen(scene, visible_layers).then(|| {
                 self.create_layer_target(
                     device,
-                    ROOT_LAYER_IDX,
                     root_texture_id(),
                     layer_render_size.clone(),
                     RenderOrigin::default(),
@@ -1187,55 +1311,45 @@ impl Renderer {
         (planned_targets, planned_root_target, paint_indices)
     }
 
+    fn scheduled_layer_filter_pass_count(
+        scene: &Scene,
+        layer_render_size: &RenderSize,
+        visible_layers: &[bool],
+    ) -> usize {
+        scene
+            .layers()
+            .iter()
+            .enumerate()
+            .filter(|(layer_idx, _)| visible_layers[*layer_idx])
+            .filter_map(|(layer_idx, layer)| {
+                let filter = layer.filter.as_ref()?;
+                let (_, render_size) =
+                    layer_target_origin_and_size(scene, layer_idx, layer_render_size);
+                let plan = LayerFilterPlan::new(
+                    filter,
+                    (
+                        render_size.width.try_into().unwrap_or(u16::MAX),
+                        render_size.height.try_into().unwrap_or(u16::MAX),
+                    ),
+                );
+                Some(plan.passes().len())
+            })
+            .sum()
+    }
+
     fn create_layer_target(
-        &self,
+        &mut self,
         device: &Device,
-        _layer_idx: usize,
         texture_id: TextureId,
         render_size: RenderSize,
         origin: RenderOrigin,
     ) -> LayerTarget {
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Opacity Layer Texture"),
-            size: Extent3d {
-                width: render_size.width.max(1),
-                height: render_size.height.max(1),
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_SRC
-                | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        let view = texture.create_view(&TextureViewDescriptor::default());
-        let filter_input_bind_group = create_filter_input_bind_group(
-            device,
-            &self.programs.filter_input_bind_group_layouts[0],
-            &self.programs.resources.filter_atlas.sampler,
-            &view,
-        );
-        let filter_original_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Layer Filter Original Bind Group"),
-            layout: &self.programs.filter_input_bind_group_layouts[1],
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&view),
-            }],
-        });
-        LayerTarget {
-            texture_id,
-            texture,
-            view,
-            filter_input_bind_group,
-            filter_original_bind_group,
-            render_size,
-            origin,
-        }
+        self.layer_target_pool
+            .acquire(device, &self.programs, texture_id, render_size, origin)
+    }
+
+    fn release_layer_target(&mut self, target: LayerTarget) {
+        self.layer_target_pool.release(target);
     }
 
     fn copy_layer_target(
@@ -1375,6 +1489,7 @@ impl Renderer {
             &mut scene.strip_storage.borrow_mut().alphas,
             render_size,
             origin,
+            target,
             &self.paint_idxs,
             &self.filter_context,
             upload_shared_resources,
@@ -1907,6 +2022,21 @@ struct Programs {
     encoded_paints_data: Vec<u8>,
     /// Scratch buffer for staging filter data texture data.
     filter_data: Vec<u8>,
+    /// Stable view config buffers/bind groups for render passes recorded into one encoder.
+    view_config_cache: Vec<ViewConfigCacheEntry>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ViewConfigKey {
+    render_size: RenderSize,
+    origin: RenderOrigin,
+}
+
+#[derive(Clone, Debug)]
+struct ViewConfigCacheEntry {
+    key: ViewConfigKey,
+    buffer: Buffer,
+    bind_groups: [BindGroup; 3],
 }
 
 #[derive(Debug)]
@@ -2785,6 +2915,7 @@ impl Programs {
             resources,
             encoded_paints_data,
             filter_data,
+            view_config_cache: Vec::new(),
             render_size: RenderSize {
                 width: render_target_config.width,
                 height: render_target_config.height,
@@ -2901,22 +3032,6 @@ impl Programs {
                 height: 1,
                 depth_or_array_layers: 1,
             },
-        );
-    }
-
-    fn upload_layer_filter_instance(
-        &mut self,
-        device: &Device,
-        queue: &Queue,
-        offset: u64,
-        instance: &FilterInstanceData,
-    ) {
-        let size = size_of::<FilterInstanceData>() as u64;
-        self.ensure_filter_instance_buffer_capacity(device, offset + size);
-        queue.write_buffer(
-            &self.resources.filter_instance_buffer,
-            offset,
-            bytemuck::bytes_of(instance),
         );
     }
 
@@ -3228,6 +3343,7 @@ impl Programs {
         alphas: &mut Vec<u8>,
         new_render_size: &RenderSize,
         origin: RenderOrigin,
+        target: DirectTarget,
         paint_idxs: &[u32],
         filter_context: &FilterContext,
         upload_shared_resources: bool,
@@ -3238,7 +3354,13 @@ impl Programs {
             self.maybe_resize_encoded_paints_tex(device, max_texture_dimension_2d, paint_idxs);
             self.maybe_resize_filter_tex(device, max_texture_dimension_2d, filter_context);
         }
-        self.maybe_update_config_buffer(device, max_texture_dimension_2d, new_render_size, origin);
+        self.maybe_update_config_buffer(
+            device,
+            max_texture_dimension_2d,
+            new_render_size,
+            origin,
+            target,
+        );
 
         if upload_shared_resources {
             self.upload_alpha_texture(queue, alphas);
@@ -3320,6 +3442,7 @@ impl Programs {
                 required_alpha_height,
             );
             self.resources.alphas_texture = alphas_texture;
+            self.view_config_cache.clear();
 
             // Since the alpha texture has changed, we need to update the clip bind groups.
             self.resources.slot_bind_groups = Self::create_strip_bind_groups(
@@ -3413,34 +3536,53 @@ impl Programs {
         }
     }
 
-    /// Update config buffer if dimensions changed.
+    /// Select a stable config buffer for this pass.
+    ///
+    /// Multiple render passes are recorded before the queue is submitted, so each distinct
+    /// target size/origin needs its own uniform buffer rather than rewriting one shared buffer.
     fn maybe_update_config_buffer(
         &mut self,
         device: &Device,
         max_texture_dimension_2d: u32,
         new_render_size: &RenderSize,
         origin: RenderOrigin,
+        target: DirectTarget,
     ) {
-        let view_config_buffer = Self::create_config_buffer_with_origin(
-            device,
-            new_render_size,
-            max_texture_dimension_2d,
+        let key = ViewConfigKey {
+            render_size: new_render_size.clone(),
             origin,
-        );
-        self.resources.view_config_buffer = view_config_buffer;
-        self.resources.slot_bind_groups = Self::create_strip_bind_groups(
-            device,
-            &self.strip_bind_group_layout,
-            &self
-                .resources
-                .alphas_texture
-                .create_view(&TextureViewDescriptor::default()),
-            &self.resources.slot_config_buffer,
-            &self.resources.view_config_buffer,
-            &self.resources.slot_texture_views,
-        );
+        };
+        if let Some(entry) = self.view_config_cache.iter().find(|entry| entry.key == key) {
+            self.resources.view_config_buffer = entry.buffer.clone();
+            self.resources.slot_bind_groups = entry.bind_groups.clone();
+        } else {
+            let buffer = Self::create_config_buffer_with_origin(
+                device,
+                new_render_size,
+                max_texture_dimension_2d,
+                origin,
+            );
+            let bind_groups = Self::create_strip_bind_groups(
+                device,
+                &self.strip_bind_group_layout,
+                &self
+                    .resources
+                    .alphas_texture
+                    .create_view(&TextureViewDescriptor::default()),
+                &self.resources.slot_config_buffer,
+                &buffer,
+                &self.resources.slot_texture_views,
+            );
+            self.view_config_cache.push(ViewConfigCacheEntry {
+                key,
+                buffer: buffer.clone(),
+                bind_groups: bind_groups.clone(),
+            });
+            self.resources.view_config_buffer = buffer;
+            self.resources.slot_bind_groups = bind_groups;
+        }
 
-        if self.render_size != *new_render_size {
+        if target == DirectTarget::UserSurface && self.render_size != *new_render_size {
             self.depth_texture =
                 Self::create_depth_texture(device, new_render_size.width, new_render_size.height);
             self.depth_texture_view = self
