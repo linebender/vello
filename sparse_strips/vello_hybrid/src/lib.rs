@@ -47,6 +47,7 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+mod clip;
 pub(crate) mod direct;
 pub(crate) mod filter;
 mod gradient_cache;
