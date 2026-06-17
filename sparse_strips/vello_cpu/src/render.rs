@@ -278,8 +278,9 @@ impl RenderContext {
         self.effective_path_transform() * self.state.paint_transform
     }
 
-    pub(crate) fn push_root_transform(&mut self, transform: Affine) {
-        self.root_transforms.push(transform * self.root_transform());
+    pub(crate) fn push_root_transform(&mut self, relative_transform: Affine) {
+        self.root_transforms
+            .push(relative_transform * self.root_transform());
     }
 
     pub(crate) fn pop_root_transform(&mut self) {
