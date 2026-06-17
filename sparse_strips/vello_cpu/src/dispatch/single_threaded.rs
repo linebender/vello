@@ -280,7 +280,7 @@ impl SingleThreadedDispatcher {
         filter_ctx
     }
 
-    fn push_filter_viewport(&mut self, filter_data: &FilterData) {
+    fn push_filter_surface(&mut self, filter_data: &FilterData) {
         let padding = filter_data.source_padding;
         let width = self
             .strip_generator
@@ -299,16 +299,16 @@ impl SingleThreadedDispatcher {
         self.strip_generator_stack.push(parent_generator);
 
         self.clip_state
-            .push_filter_viewport(filter_data.source_shift(), &mut self.strip_generator);
+            .push_filter_surface(filter_data.source_shift(), &mut self.strip_generator);
     }
 
-    fn pop_filter_viewport(&mut self) {
+    fn pop_filter_surface(&mut self) {
         self.strip_generator = self
             .strip_generator_stack
             .pop()
             .expect("filter viewport stack underflow");
         self.clip_state
-            .pop_filter_viewport(&mut self.strip_generator);
+            .pop_filter_surface(&mut self.strip_generator);
     }
 }
 
@@ -394,7 +394,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         filter_data: Option<FilterData>,
     ) {
         if let Some(filter_data) = &filter_data {
-            self.push_filter_viewport(filter_data);
+            self.push_filter_surface(filter_data);
         }
 
         let clip_path = clip_path.map(|clip_path| {
@@ -436,7 +436,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         match self.recorder.pop_layer() {
             PoppedLayer::Regular => {}
             PoppedLayer::Filter => {
-                self.pop_filter_viewport();
+                self.pop_filter_surface();
             }
         }
     }
