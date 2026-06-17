@@ -447,7 +447,6 @@ impl Dispatcher for SingleThreadedDispatcher {
         self.recorder.reset();
         self.strip_generator_stack.clear();
         self.strip_generator.reset();
-        self.strip_generator.reset();
         self.strip_storage.clear();
     }
 
