@@ -106,7 +106,7 @@ impl ClipState {
         let filter_context = core::mem::replace(&mut self.context, frame.parent_context);
         self.context_pool.submit(filter_context);
         if self.revision == frame.clip_revision {
-            // No new clip paths have been pushed since then, so we don't have to rebuild it.
+            // No new clip paths have been pushed or popped since then, so we don't have to rebuild it.
         } else {
             self.rebuild_context(strip_generator);
         }
