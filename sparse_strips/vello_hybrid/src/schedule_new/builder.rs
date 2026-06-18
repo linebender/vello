@@ -16,9 +16,10 @@ use vello_common::geometry::RectU16;
 use vello_common::multi_atlas::{AllocId, Atlas, AtlasError, AtlasId};
 use vello_common::paint::Paint;
 use vello_common::peniko::BlendMode;
-use vello_common::record::{RecordedCmd, RecordedLayerKind};
+use vello_common::record::{LayerClip, RecordedCmd, RecordedLayerKind};
 use vello_common::strip_generator::StripStorage;
 use vello_common::tile::Tile;
+use vello_common::util::RectExt;
 
 const COLOR_SOURCE_LAYER: u32 = 1;
 
@@ -115,14 +116,19 @@ impl<'a> ScheduleBuilder<'a> {
         self.schedule_children(cmds, schedule)?;
 
         let layer = &self.scene.recorder.layers[layer_idx];
-        if layer.bbox.is_empty() {
+        let bbox = layer.props.clip_path.as_ref().map_or(layer.bbox, |clip| {
+            let mut bbox = layer.bbox;
+            bbox.union(clip.bbox.snap_to_tile_coordinates());
+            bbox
+        });
+        if bbox.is_empty() {
             return Ok(());
         }
 
         let texture_index = layer.depth & 1;
         let target_round = self.earliest_round_for_target(cmds, Some(texture_index));
         let allocation =
-            self.allocate_layer(layer_id, texture_index, layer.bbox, target_round, schedule)?;
+            self.allocate_layer(layer_id, texture_index, bbox, target_round, schedule)?;
         let target = RenderTarget::Layer(allocation.allocation.region);
         let draw = self.build_draw(cmds, target);
 
@@ -169,8 +175,13 @@ impl<'a> ScheduleBuilder<'a> {
                 }
                 RecordedCmd::Layer(layer_id) => {
                     if let Some(layer) = self.layer_allocations[*layer_id as usize] {
-                        let opacity = self.scene.recorder.layers[*layer_id as usize].props.opacity;
-                        builder.push_layer_ref(layer.allocation.region, opacity);
+                        let props = &self.scene.recorder.layers[*layer_id as usize].props;
+                        builder.push_layer_ref(
+                            layer.allocation.region,
+                            props.opacity,
+                            props.clip_path.as_ref(),
+                            self.strip_storage,
+                        );
                     }
                 }
             }
@@ -366,12 +377,16 @@ fn ensure_plain_layer(layer: &vello_common::record::RecordedLayer) -> Result<(),
             "mask layers are not supported by schedule_new yet",
         ));
     }
-    if layer.props.clip_path.is_some() {
+    if layer
+        .props
+        .clip_path
+        .as_ref()
+        .is_some_and(|clip_path| clip_path.thread_idx != 0)
+    {
         return Err(RenderError::UnsupportedFeature(
-            "clip layers are not supported by schedule_new yet",
+            "multi-threaded clip layers are not supported by schedule_new yet",
         ));
     }
-
     Ok(())
 }
 
@@ -508,7 +523,19 @@ impl DrawBuilder {
         );
     }
 
-    fn push_layer_ref(&mut self, source: LayerTextureRegion, opacity: f32) {
+    fn push_layer_ref(
+        &mut self,
+        source: LayerTextureRegion,
+        opacity: f32,
+        clip_path: Option<&LayerClip>,
+        strip_storage: &StripStorage,
+    ) {
+        // TODO: Add optimization to not emit strips outside of clip bbox.
+        if let Some(clip_path) = clip_path {
+            self.push_clipped_layer_ref(source, opacity, clip_path, strip_storage);
+            return;
+        }
+
         let depth_index = self.depth.next(false);
         // Layer samples are encoded as image-like rect paints. Geometry is transformed into the
         // target allocation, while the payload points at the source atlas coordinate.
@@ -525,11 +552,96 @@ impl DrawBuilder {
                     self.geometry_offset,
                 ),
                 pack_u16_pair(source.x, source.y),
-                (COLOR_SOURCE_LAYER << 29) | u32::from((opacity * 255.0).round()),
+                layer_paint(opacity),
                 depth_index,
             ),
             None,
         );
+    }
+
+    // TODO: Deduplicate this with vello cpu.
+    fn push_clipped_layer_ref(
+        &mut self,
+        source: LayerTextureRegion,
+        opacity: f32,
+        clip_path: &LayerClip,
+        strip_storage: &StripStorage,
+    ) {
+        let strips = &strip_storage.strips[clip_path.strip_range.clone()];
+        if strips.len() < 2 || clip_path.bbox.is_empty() {
+            return;
+        }
+
+        let depth_index = self.depth.next(false);
+        let paint = layer_paint(opacity);
+
+        for i in 0..strips.len() - 1 {
+            let strip = &strips[i];
+            let next_strip = &strips[i + 1];
+
+            if strip.is_sentinel() {
+                continue;
+            }
+
+            let y = strip.y;
+            if y < source.scene_bbox.y0 || y >= source.scene_bbox.y1 {
+                continue;
+            }
+
+            let strip_width = strip.width_to(next_strip);
+            if strip_width > 0 {
+                let x0 = strip.x.max(source.scene_bbox.x0);
+                let x1 = strip
+                    .x
+                    .saturating_add(strip_width)
+                    .min(source.scene_bbox.x1);
+                if x1 > x0 {
+                    let col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
+                    let col_offset = col + u32::from(x0 - strip.x);
+                    self.draw.push_alpha(
+                        GpuStripBuilder::at_surface(
+                            offset_coord(x0, self.geometry_offset.0),
+                            offset_coord(y, self.geometry_offset.1),
+                            x1 - x0,
+                        )
+                        .with_sparse(x1 - x0, col_offset)
+                        .paint(
+                            layer_sample_payload(source, x0, y),
+                            paint,
+                            depth_index,
+                        ),
+                        None,
+                    );
+                }
+            }
+
+            if next_strip.fill_gap() && next_strip.y == strip.y {
+                let x0 = strip
+                    .x
+                    .saturating_add(strip_width)
+                    .max(source.scene_bbox.x0);
+                let x1 = if next_strip.is_sentinel() {
+                    source.scene_bbox.x1
+                } else {
+                    next_strip.x.min(source.scene_bbox.x1)
+                };
+                if x1 > x0 {
+                    self.draw.push_alpha(
+                        GpuStripBuilder::at_surface(
+                            offset_coord(x0, self.geometry_offset.0),
+                            offset_coord(y, self.geometry_offset.1),
+                            x1 - x0,
+                        )
+                        .paint(
+                            layer_sample_payload(source, x0, y),
+                            paint,
+                            depth_index,
+                        ),
+                        None,
+                    );
+                }
+            }
+        }
     }
 
     fn finish(mut self) -> Draw {
@@ -629,4 +741,18 @@ fn pack_u16_pair(x: u32, y: u32) -> u32 {
     debug_assert!(x <= u32::from(u16::MAX));
     debug_assert!(y <= u32::from(u16::MAX));
     (x & 0xffff) | ((y & 0xffff) << 16)
+}
+
+fn layer_sample_payload(source: LayerTextureRegion, x: u16, y: u16) -> u32 {
+    let source_x = source.x + u32::from(x - source.scene_bbox.x0);
+    let source_y = source.y + u32::from(y - source.scene_bbox.y0);
+    pack_u16_pair(source_x, source_y)
+}
+
+fn layer_paint(opacity: f32) -> u32 {
+    (COLOR_SOURCE_LAYER << 29) | u32::from(opacity_to_u8(opacity))
+}
+
+fn opacity_to_u8(opacity: f32) -> u8 {
+    (opacity.clamp(0.0, 1.0) * 255.0).round() as u8
 }

@@ -303,6 +303,13 @@ fn vs_main(
                 f32(scene_strip_y) + y * f32(height)
             );
         }
+    } else if color_source == COLOR_SOURCE_LAYER {
+        let src_x = instance.payload & 0xffffu;
+        let src_y = instance.payload >> 16u;
+        out.sample_xy = vec2<f32>(
+            f32(src_x) + x * f32(width),
+            f32(src_y) + y * f32(height),
+        );
     }
 
     let col_offset = select(f32(instance.col_idx_or_rect_frac), 0.0, is_rect);
@@ -558,15 +565,9 @@ fn fs_main(
                 blurred_texel3,
                 blurred_texel4,
             );
-        }
+    }
     } else if color_source == COLOR_SOURCE_LAYER {
-        let src_x = payload & 0xffffu;
-        let src_y = payload >> 16u;
         let layer_opacity = f32(paint_and_rect_flag & 0xffu) * (1.0 / 255.0);
-        let sample_xy = vec2<u32>(
-            src_x + u32(floor(tex_coord.x)),
-            src_y + u32(floor(tex_coord.y)),
-        );
         final_color = alpha * layer_opacity * textureLoad(layer_input_texture, vec2<i32>(sample_xy), 0);
     } else {
         final_color = vec4<f32>(0.0);

@@ -28,11 +28,11 @@ use vello_common::paint::{Paint, PaintType, Tint};
 use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Extend, Fill, ImageQuality, ImageSampler, Mix};
-use vello_common::record::{CommandRecorder, Drawable, LayerProps};
+use vello_common::record::{CommandRecorder, Drawable, LayerClip, LayerProps};
 use vello_common::render_graph::{RenderGraph, RenderNodeKind};
 use vello_common::render_state::RenderState;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
-use vello_common::util::{is_axis_aligned, strip_bbox};
+use vello_common::util::{control_point_bbox_u16, is_axis_aligned, strip_bbox};
 
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
@@ -935,9 +935,6 @@ impl Scene {
         mask: Option<Mask>,
         filter: Option<Filter>,
     ) {
-        if clip_path.is_some() {
-            unimplemented!("clip layers are not supported by the new vello_hybrid scheduler yet");
-        }
         if mask.is_some() {
             unimplemented!("mask layers are not supported by the new vello_hybrid scheduler yet");
         }
@@ -952,12 +949,38 @@ impl Scene {
             );
         }
 
+        let clip_path = clip_path.map(|path| {
+            let existing_clip = self.clip_context.get();
+            let mut bbox = control_point_bbox_u16(path.iter(), self.render_state.transform);
+            if let Some(existing_clip) = existing_clip {
+                bbox = bbox.intersect(existing_clip.bbox);
+            }
+
+            let mut strip_storage = self.strip_storage.borrow_mut();
+            let strip_start = strip_storage.strips.len();
+            self.strip_generator.generate_filled_path(
+                path,
+                self.render_state.fill_rule,
+                self.render_state.transform,
+                self.aliasing_threshold,
+                &mut strip_storage,
+                existing_clip,
+            );
+
+            let strip_range = strip_start..strip_storage.strips.len();
+            LayerClip {
+                strip_range,
+                thread_idx: 0,
+                bbox,
+            }
+        });
+
         self.recorder.push_layer(
             LayerProps {
                 blend_mode,
                 opacity: opacity.unwrap_or(1.0),
                 mask: None,
-                clip_path: None,
+                clip_path,
             },
             None,
         );
