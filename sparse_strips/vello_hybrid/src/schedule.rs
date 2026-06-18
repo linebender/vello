@@ -175,6 +175,7 @@
     reason = "We temporarily ignore those because the casts\
 only break in edge cases, and some of them are also only related to conversions from f64 to f32."
 )]
+#![allow(dead_code)]
 
 use crate::filter::FilterContext;
 use crate::scene::{FastPathRect, FastStripCommand, FastStripsPath, StripPathMode};
@@ -294,10 +295,10 @@ pub(crate) enum LoadOp {
 }
 
 #[derive(Clone, Copy)]
-struct ProcessedPaint {
-    payload: u32,
-    paint: u32,
-    external_texture_id: Option<TextureId>,
+pub(crate) struct ProcessedPaint {
+    pub(crate) payload: u32,
+    pub(crate) paint: u32,
+    pub(crate) external_texture_id: Option<TextureId>,
 }
 
 #[derive(Debug)]
@@ -1811,7 +1812,7 @@ impl Scheduler {
 
     /// Process a paint and return the packed payload, paint and optional external texture id.
     #[inline(always)]
-    fn process_paint(
+    pub(crate) fn process_paint(
         paint: &Paint,
         encoded_paints: &[EncodedPaint],
         (scene_strip_x, scene_strip_y): (u16, u16),
@@ -1841,7 +1842,7 @@ impl Scheduler {
         }
     }
 
-    fn process_encoded_paint(
+    pub(crate) fn process_encoded_paint(
         encoded_paint: &EncodedPaint,
         paint_idx: u32,
         scene_strip_x: u16,
@@ -1906,7 +1907,7 @@ impl Scheduler {
 }
 
 /// Helper for more semantically constructing `GpuStrip`s.
-struct GpuStripBuilder {
+pub(crate) struct GpuStripBuilder {
     x: u16,
     y: u16,
     width: u16,
@@ -1916,7 +1917,7 @@ struct GpuStripBuilder {
 
 impl GpuStripBuilder {
     /// Position at surface coordinates.
-    fn at_surface(x: u16, y: u16, width: u16) -> Self {
+    pub(crate) fn at_surface(x: u16, y: u16, width: u16) -> Self {
         Self {
             x,
             y,
@@ -1938,14 +1939,14 @@ impl GpuStripBuilder {
     }
 
     /// Add sparse strip parameters.
-    fn with_sparse(mut self, dense_width: u16, col_idx: u32) -> Self {
+    pub(crate) fn with_sparse(mut self, dense_width: u16, col_idx: u32) -> Self {
         self.dense_width_or_rect_height = dense_width;
         self.col_idx_or_rect_frac = col_idx;
         self
     }
 
     /// Paint into strip.
-    fn paint(self, payload: u32, paint: u32, depth_index: u32) -> GpuStrip {
+    pub(crate) fn paint(self, payload: u32, paint: u32, depth_index: u32) -> GpuStrip {
         GpuStrip {
             x: self.x,
             y: self.y,
@@ -2111,24 +2112,24 @@ fn pack_rectangle_into_gpu(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct RectPart {
-    x: u16,
-    y: u16,
-    width: u16,
-    height: u16,
-    frac: u32,
+pub(crate) struct RectPart {
+    pub(crate) x: u16,
+    pub(crate) y: u16,
+    pub(crate) width: u16,
+    pub(crate) height: u16,
+    pub(crate) frac: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct SplitRect {
-    main: RectPart,
-    top: Option<RectPart>,
-    bottom: Option<RectPart>,
-    left: Option<RectPart>,
-    right: Option<RectPart>,
+pub(crate) struct SplitRect {
+    pub(crate) main: RectPart,
+    pub(crate) top: Option<RectPart>,
+    pub(crate) bottom: Option<RectPart>,
+    pub(crate) left: Option<RectPart>,
+    pub(crate) right: Option<RectPart>,
 }
 
-fn split_rect(rect: &FastPathRect) -> SplitRect {
+pub(crate) fn split_rect(rect: &FastPathRect) -> SplitRect {
     let sx0 = rect.x0.floor();
     let sy0 = rect.y0.floor();
     let sx1 = rect.x1.ceil();
@@ -2227,7 +2228,12 @@ fn split_rect(rect: &FastPathRect) -> SplitRect {
     }
 }
 
-fn make_gpu_rect(part: RectPart, payload: u32, paint_packed: u32, depth_index: u32) -> GpuStrip {
+pub(crate) fn make_gpu_rect(
+    part: RectPart,
+    payload: u32,
+    paint_packed: u32,
+    depth_index: u32,
+) -> GpuStrip {
     GpuStrip {
         x: part.x,
         y: part.y,

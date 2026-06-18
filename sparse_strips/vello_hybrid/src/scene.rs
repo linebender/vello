@@ -28,10 +28,11 @@ use vello_common::paint::{Paint, PaintType, Tint};
 use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Extend, Fill, ImageQuality, ImageSampler, Mix};
+use vello_common::record::{CommandRecorder, Drawable};
 use vello_common::render_graph::{RenderGraph, RenderNodeKind};
 use vello_common::render_state::RenderState;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
-use vello_common::util::is_axis_aligned;
+use vello_common::util::{is_axis_aligned, strip_bbox};
 
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
@@ -41,6 +42,7 @@ pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 /// Determines whether strips are sent directly to the GPU (fast path),
 /// go through coarse rasterization, or a mix of both.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub(crate) enum StripPathMode {
     /// No layers have been pushed. All strips go directly to the fast buffer,
     /// bypassing coarse rasterization entirely.
@@ -93,6 +95,74 @@ pub(crate) enum FastStripCommand {
     Path(FastStripsPath),
     /// A rectangle.
     Rect(FastPathRect),
+}
+
+/// A draw command recorded for the new scheduler.
+#[derive(Debug)]
+pub(crate) enum RecordedDraw {
+    /// A path rendered via the normal strip pipeline.
+    Path(RecordedPath),
+    /// A rectangle.
+    Rect(RecordedRect),
+}
+
+/// A recorded path draw for the new scheduler.
+#[derive(Debug)]
+pub(crate) struct RecordedPath {
+    /// The range of strips for this path in [`Scene::strip_storage`].
+    pub(crate) strips: Range<usize>,
+    /// The paint of the path.
+    pub(crate) paint: Paint,
+    /// The draw bounds in viewport coordinates.
+    bbox: RectU16,
+}
+
+/// A recorded rectangle draw for the new scheduler.
+#[derive(Debug)]
+pub(crate) struct RecordedRect {
+    /// The rectangle data.
+    pub(crate) rect: FastPathRect,
+    /// The draw bounds in viewport coordinates.
+    bbox: RectU16,
+}
+
+impl RecordedDraw {
+    fn path(
+        strips: Range<usize>,
+        strip_storage: &StripStorage,
+        viewport_width: u16,
+        paint: Paint,
+    ) -> Self {
+        let bbox = strip_bbox(&strip_storage.strips[strips.clone()], viewport_width);
+        Self::Path(RecordedPath {
+            strips,
+            paint,
+            bbox,
+        })
+    }
+
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "Rectangles are clipped to the u16 viewport before recording."
+    )]
+    fn rect(rect: FastPathRect) -> Self {
+        let bbox = RectU16::new(
+            rect.x0.floor() as u16,
+            rect.y0.floor() as u16,
+            rect.x1.ceil() as u16,
+            rect.y1.ceil() as u16,
+        );
+        Self::Rect(RecordedRect { rect, bbox })
+    }
+}
+
+impl Drawable for RecordedDraw {
+    fn bbox(&self) -> RectU16 {
+        match self {
+            Self::Path(path) => path.bbox,
+            Self::Rect(rect) => rect.bbox,
+        }
+    }
 }
 
 /// A buffer that collects strips from paths that are rendered directly to the surface,
@@ -173,6 +243,8 @@ pub struct Scene {
     pub(crate) render_graph: RenderGraph,
     /// Current filter effect applied to individual draw operations.
     filter: Option<Filter>,
+    /// Recorded command stream consumed by the new scheduler.
+    pub(crate) recorder: CommandRecorder<RecordedDraw>,
     /// A buffer that stores the strips of path drawing calls that are rendered directly
     /// to the surface, bypassing coarse rasterization.
     pub(crate) fast_strips_buffer: FastStripsBuffer,
@@ -193,6 +265,7 @@ pub struct Scene {
 // When the fast path is inactive or we're inside a layer, `strip_storage` is in `Replace`
 // or `ReplaceAfter` mode where each generation starts with a clear/truncate, so the
 // relevant portion of the buffer is the current path's strips.
+#[allow(unused_macros)]
 macro_rules! submit_strips {
     ($self:ident, $strip_storage:expr, $strip_start:expr, $paint:expr) => {
         if $self.strip_path_mode != StripPathMode::CoarseOnly && !$self.wide.has_layers() {
@@ -259,6 +332,7 @@ impl Scene {
             layer_id_next: 0,
             render_graph,
             filter: None,
+            recorder: CommandRecorder::new(),
             fast_strips_buffer: FastStripsBuffer::default(),
             strip_path_mode: StripPathMode::FastOnly,
             coarse_batch_splits: Vec::new(),
@@ -353,18 +427,24 @@ impl Scene {
         paint: Paint,
         aliasing_threshold: Option<u8>,
     ) {
-        let strip_storage = &mut self.strip_storage.borrow_mut();
-        let strip_start = strip_storage.strips.len();
-        self.strip_generator.generate_filled_path(
-            path,
-            fill_rule,
-            transform,
-            aliasing_threshold,
-            strip_storage,
-            self.clip_context.get(),
-        );
+        let (strips, draw) = {
+            let strip_storage = &mut self.strip_storage.borrow_mut();
+            let strip_start = strip_storage.strips.len();
+            self.strip_generator.generate_filled_path(
+                path,
+                fill_rule,
+                transform,
+                aliasing_threshold,
+                strip_storage,
+                self.clip_context.get(),
+            );
 
-        submit_strips!(self, strip_storage, strip_start, paint);
+            let strips = strip_start..strip_storage.strips.len();
+            let draw = RecordedDraw::path(strips.clone(), strip_storage, self.width, paint.clone());
+            (strips, draw)
+        };
+
+        self.record_path(strips, paint, draw);
     }
 
     /// Push a new clip path to the clip stack.
@@ -419,18 +499,24 @@ impl Scene {
         paint: Paint,
         aliasing_threshold: Option<u8>,
     ) {
-        let strip_storage = &mut self.strip_storage.borrow_mut();
-        let strip_start = strip_storage.strips.len();
-        self.strip_generator.generate_stroked_path(
-            path,
-            &self.render_state.stroke,
-            transform,
-            aliasing_threshold,
-            strip_storage,
-            self.clip_context.get(),
-        );
+        let (strips, draw) = {
+            let strip_storage = &mut self.strip_storage.borrow_mut();
+            let strip_start = strip_storage.strips.len();
+            self.strip_generator.generate_stroked_path(
+                path,
+                &self.render_state.stroke,
+                transform,
+                aliasing_threshold,
+                strip_storage,
+                self.clip_context.get(),
+            );
 
-        submit_strips!(self, strip_storage, strip_start, paint);
+            let strips = strip_start..strip_storage.strips.len();
+            let draw = RecordedDraw::path(strips.clone(), strip_storage, self.width, paint.clone());
+            (strips, draw)
+        };
+
+        self.record_path(strips, paint, draw);
     }
 
     /// Set the aliasing threshold.
@@ -462,15 +548,22 @@ impl Scene {
             self.with_optional_filter(|ctx| {
                 let paint = ctx.encode_current_paint();
                 let transformed_rect = ctx.render_state.transform.transform_rect_bbox(*rect);
-                let strip_storage = &mut ctx.strip_storage.borrow_mut();
-                let strip_start = strip_storage.strips.len();
-                ctx.strip_generator.generate_filled_rect_fast(
-                    &transformed_rect,
-                    strip_storage,
-                    ctx.clip_context.get(),
-                );
+                let (strips, draw) = {
+                    let strip_storage = &mut ctx.strip_storage.borrow_mut();
+                    let strip_start = strip_storage.strips.len();
+                    ctx.strip_generator.generate_filled_rect_fast(
+                        &transformed_rect,
+                        strip_storage,
+                        ctx.clip_context.get(),
+                    );
 
-                submit_strips!(ctx, strip_storage, strip_start, paint);
+                    let strips = strip_start..strip_storage.strips.len();
+                    let draw =
+                        RecordedDraw::path(strips.clone(), strip_storage, ctx.width, paint.clone());
+                    (strips, draw)
+                };
+
+                ctx.record_path(strips, paint, draw);
             });
         } else {
             // TODO: Use a temporary storage for rect paths, like in `vello_cpu`.
@@ -577,15 +670,13 @@ impl Scene {
                     transform,
                 );
 
-                self.fast_strips_buffer
-                    .commands
-                    .push(FastStripCommand::Rect(FastPathRect {
-                        x0: x0 as f32,
-                        y0: y0 as f32,
-                        x1: x1 as f32,
-                        y1: y1 as f32,
-                        paint,
-                    }));
+                self.record_rect(FastPathRect {
+                    x0: x0 as f32,
+                    y0: y0 as f32,
+                    x1: x1 as f32,
+                    y1: y1 as f32,
+                    paint,
+                });
             }
         } else {
             self.with_optional_filter(|ctx| {
@@ -633,15 +724,36 @@ impl Scene {
         reason = "f64→f32 truncation is acceptable for pixel coordinates"
     )]
     fn push_fast_rect(&mut self, bounds: Rect, paint: Paint) {
+        self.record_rect(FastPathRect {
+            x0: bounds.x0 as f32,
+            y0: bounds.y0 as f32,
+            x1: bounds.x1 as f32,
+            y1: bounds.y1 as f32,
+            paint,
+        });
+    }
+
+    fn record_path(&mut self, strips: Range<usize>, paint: Paint, draw: RecordedDraw) {
+        self.fast_strips_buffer
+            .commands
+            .push(FastStripCommand::Path(FastStripsPath {
+                strips: strips.clone(),
+                paint: paint.clone(),
+            }));
+        self.recorder.push_draw(draw);
+    }
+
+    fn record_rect(&mut self, rect: FastPathRect) {
         self.fast_strips_buffer
             .commands
             .push(FastStripCommand::Rect(FastPathRect {
-                x0: bounds.x0 as f32,
-                y0: bounds.y0 as f32,
-                x1: bounds.x1 as f32,
-                y1: bounds.y1 as f32,
-                paint,
+                x0: rect.x0,
+                y0: rect.y0,
+                x1: rect.x1,
+                y1: rect.y1,
+                paint: rect.paint.clone(),
             }));
+        self.recorder.push_draw(RecordedDraw::rect(rect));
     }
 
     fn fast_rect_bounds(&self, rect: &Rect) -> Option<Rect> {
@@ -716,15 +828,22 @@ impl Scene {
                     .render_state
                     .transform
                     .transform_rect_bbox(inflated_rect);
-                let strip_storage = &mut ctx.strip_storage.borrow_mut();
-                let strip_start = strip_storage.strips.len();
-                ctx.strip_generator.generate_filled_rect_fast(
-                    &transformed_rect,
-                    strip_storage,
-                    ctx.clip_context.get(),
-                );
+                let (strips, draw) = {
+                    let strip_storage = &mut ctx.strip_storage.borrow_mut();
+                    let strip_start = strip_storage.strips.len();
+                    ctx.strip_generator.generate_filled_rect_fast(
+                        &transformed_rect,
+                        strip_storage,
+                        ctx.clip_context.get(),
+                    );
 
-                submit_strips!(ctx, strip_storage, strip_start, paint);
+                    let strips = strip_start..strip_storage.strips.len();
+                    let draw =
+                        RecordedDraw::path(strips.clone(), strip_storage, ctx.width, paint.clone());
+                    (strips, draw)
+                };
+
+                ctx.record_path(strips, paint, draw);
             } else {
                 ctx.fill_path_with(
                     &inflated_rect.to_path(DEFAULT_TOLERANCE),
@@ -762,6 +881,7 @@ impl Scene {
     /// using the fast path.
     ///
     /// After this call, `strip_storage` is switched back to `Replace` mode.
+    #[allow(dead_code)]
     fn flush_fast_path(&mut self) {
         if self.strip_path_mode == StripPathMode::CoarseOnly {
             return;
@@ -808,6 +928,19 @@ impl Scene {
 
     /// Push a new layer with the given properties.
     pub fn push_layer(
+        &mut self,
+        clip_path: Option<&BezPath>,
+        blend_mode: Option<BlendMode>,
+        opacity: Option<f32>,
+        mask: Option<Mask>,
+        filter: Option<Filter>,
+    ) {
+        let _ = (clip_path, blend_mode, opacity, mask, filter);
+        unimplemented!("layer recording is not supported by the new vello_hybrid scheduler yet");
+    }
+
+    #[allow(dead_code)]
+    fn push_layer_old(
         &mut self,
         clip_path: Option<&BezPath>,
         blend_mode: Option<BlendMode>,
@@ -891,13 +1024,7 @@ impl Scene {
 
     /// Pop the last pushed layer.
     pub fn pop_layer(&mut self) {
-        self.wide.pop_layer(&mut self.render_graph);
-        if self.strip_path_mode == StripPathMode::Interleaved && !self.wide.has_layers() {
-            self.wide.end_batch();
-            self.strip_storage
-                .borrow_mut()
-                .set_generation_mode(GenerationMode::Append);
-        }
+        unimplemented!("layer recording is not supported by the new vello_hybrid scheduler yet");
     }
 
     /// Set the blend mode for subsequent rendering operations.
@@ -1024,6 +1151,7 @@ impl Scene {
         self.render_state.reset();
 
         self.fast_strips_buffer.clear();
+        self.recorder.reset();
         self.strip_path_mode = StripPathMode::FastOnly;
         self.coarse_batch_splits.clear();
 

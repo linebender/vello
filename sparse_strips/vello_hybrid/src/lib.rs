@@ -53,6 +53,8 @@ mod sampling;
 mod scene;
 #[cfg(any(feature = "webgl", feature = "wgpu"))]
 mod schedule;
+#[cfg(feature = "wgpu")]
+mod schedule_new;
 #[cfg(feature = "text")]
 mod text;
 
@@ -98,6 +100,9 @@ pub enum RenderError {
     /// A draw referenced a [`TextureId`] that was not provided at render time.
     #[error("Missing texture binding for {0:?}")]
     MissingTextureBinding(TextureId),
+    /// The new scheduler does not support this feature yet.
+    #[error("Unsupported feature in new vello_hybrid scheduler: {0}")]
+    UnsupportedFeature(&'static str),
     // TODO: Consider expanding `RenderError` to replace some `.unwrap` and `.expect`.
 }
 

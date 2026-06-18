@@ -35,9 +35,9 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{
-        ExternalTextureRun, LoadOp, RendererBackend, RootRenderTarget, Scheduler, SchedulerState,
-        StripPassRenderTarget,
+    schedule::{Scheduler, SchedulerState},
+    schedule_new::{
+        ExternalTextureRun, LoadOp, RendererBackend, RootRenderTarget, StripPassRenderTarget,
     },
 };
 use alloc::vec::Vec;
@@ -147,9 +147,11 @@ impl TextureBindings {
 pub struct Renderer {
     /// Programs for rendering.
     programs: Programs,
-    /// Scheduler for scheduling draws.
+    /// Old scheduler kept around while the new scheduler is implemented incrementally.
+    #[allow(dead_code)]
     scheduler: Scheduler,
-    /// The state used by the scheduler.
+    /// Old scheduler state kept around while the new scheduler is implemented incrementally.
+    #[allow(dead_code)]
     scheduler_state: SchedulerState,
     /// Encoded paints for storing encoded paints.
     encoded_paints: Vec<GpuEncodedPaint>,
@@ -521,13 +523,11 @@ impl Renderer {
             texture_bindings,
             external_paint_source_bind_groups: HashMap::new(),
         };
-        self.scheduler.do_scene(
-            &mut self.scheduler_state,
+        crate::schedule_new::render_scene(
             &mut ctx,
             scene,
             root_output_target,
             &self.paint_idxs,
-            &self.filter_context,
             encoded_paints,
         )?;
         self.gradient_cache.maintain();
@@ -988,10 +988,12 @@ struct Programs {
     /// Bind group layout for filter data texture.
     filter_bind_group_layout: BindGroupLayout,
     /// Pipeline for applying filter effects.
+    #[allow(dead_code)]
     filter_pipeline: RenderPipeline,
     /// Bind group layouts for filter input.
     filter_input_bind_group_layouts: [BindGroupLayout; 2],
     /// Pipeline for clearing slots in slot textures.
+    #[allow(dead_code)]
     clear_pipeline: RenderPipeline,
     /// Pipeline for clearing atlas regions.
     atlas_clear_pipeline: RenderPipeline,
@@ -1120,8 +1122,10 @@ struct GpuResources {
     slot_config_buffer: Buffer,
 
     /// Buffer for slot indices used in `clear_slots`
+    #[allow(dead_code)]
     clear_slot_indices_buffer: Buffer,
     /// Buffer holding `FilterInstanceData` for a single filter draw call.
+    #[allow(dead_code)]
     filter_instance_buffer: Buffer,
     // Bind groups for rendering with clip buffers
     slot_bind_groups: [BindGroup; 3],
@@ -1129,6 +1133,7 @@ struct GpuResources {
     slot_texture_views: [TextureView; 2],
 
     /// Bind group for clear slots operation
+    #[allow(dead_code)]
     clear_bind_group: BindGroup,
 
     /// Placeholder paint-source bind group with a 1x1 dummy atlas texture, used during
@@ -2597,8 +2602,10 @@ struct RendererContext<'a> {
     queue: &'a Queue,
     encoder: &'a mut CommandEncoder,
     view: &'a TextureView,
+    #[allow(dead_code)]
     image_cache: &'a ImageCache,
     filter_context: &'a FilterContext,
+    #[allow(dead_code)]
     filter_pass_state: &'a mut FilterPassState,
     texture_bindings: &'a TextureBindings,
     external_paint_source_bind_groups: HashMap<TextureId, BindGroup>,
@@ -2875,6 +2882,7 @@ impl RendererContext<'_> {
     }
 
     /// Clear specific slots from a slot texture.
+    #[allow(dead_code)]
     fn do_clear_slots_render_pass(&mut self, ix: usize, slot_indices: &[u32]) {
         if slot_indices.is_empty() {
             return;
@@ -3066,6 +3074,7 @@ fn create_filter_input_bind_group(
     })
 }
 
+#[allow(dead_code)]
 fn create_atlas_layer_view(atlas: &Texture, layer: u32) -> TextureView {
     atlas.create_view(&TextureViewDescriptor {
         label: Some("Atlas Layer View"),
