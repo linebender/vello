@@ -20,6 +20,12 @@ This release has an [MSRV][] of 1.88.
   `composite_to_pixmap_at_offset` have been replaced with a single unified 
   `render` (and `render_with`) method that takes additional parameters for tweaking the behavior. 
   ([#1665][] by [@LaurenzV][])
+- The architecture of Vello CPU. As part of this release, the architecture of Vello CPU
+  has gotten a major overhaul. As a result of this rewrite:
+    - Filter layers always render correctly, even at viewport boundaries.
+    - A number of issues with layer clipping have been fixed.
+    - Performance should be improved up to 10% across a different 
+      range of rendering workloads. ([#1701][] by [@LaurenzV][])
 
 ## [0.0.9][] - 2026-05-30
 
