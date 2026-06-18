@@ -2,16 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::coarse::CommandBucketer;
-use crate::coarse::bucketer::LayerClip;
 use crate::coarse::depth::DepthBuffer;
-use crate::dispatch::Dispatcher;
 use crate::dispatch::multi_threaded::cost::{COST_THRESHOLD, estimate_render_task_cost};
 use crate::dispatch::multi_threaded::worker::Worker;
+use crate::dispatch::{Dispatcher, RecordedFill};
 use crate::filter::context::FilterContext;
 use crate::fine::{Fine, FineKernel, FineRenderParams, FineResources, rasterize_region};
 use crate::kurbo::{Affine, BezPath, PathEl, Point, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
-use crate::record::{CommandRecorder, FilterData, LayerProps, PoppedLayer};
 use crate::region::Regions;
 use crate::{CompositeMode, RasterizerSettings};
 use alloc::boxed::Box;
@@ -29,10 +27,12 @@ use thread_local::ThreadLocal;
 use vello_common::clip::ClipContext;
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, dispatch};
+use vello_common::filter::FilterData;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
 use vello_common::pixmap::PixmapMut;
+use vello_common::record::{CommandRecorder, LayerClip, LayerProps, PoppedLayer};
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use vello_common::util::control_point_bbox_u16;
@@ -57,7 +57,7 @@ type RecordedCommandReceiver = ordered_channel::Receiver<RecordedCommandTask>;
 pub(crate) struct MultiThreadedDispatcher {
     bucketer: Mutex<CommandBucketer>,
     clip_context: ClipContext,
-    recorder: CommandRecorder,
+    recorder: CommandRecorder<RecordedFill>,
     strip_storage: StripStorage,
     /// The thread pool that is used for dispatching tasks.
     thread_pool: ThreadPool,
@@ -318,16 +318,15 @@ impl MultiThreadedDispatcher {
                                     &task.allocation_group.strips
                                         [strip_range.start as usize..strip_range.end as usize],
                                 );
-                                let strips = &self.strip_storage.strips[strip_range.clone()];
-                                self.recorder.push_fill(
-                                    strip_range,
-                                    strips,
+                                self.recorder.push_draw(RecordedFill::new(
+                                    thread_id,
+                                    strip_range.clone(),
+                                    &self.strip_storage.strips[strip_range],
                                     self.strip_generator.width(),
                                     paint.clone(),
                                     blend_mode,
                                     mask,
-                                    thread_id,
-                                );
+                                ));
                             }
                             RecordedCommand::PushLayer {
                                 thread_id,
@@ -400,6 +399,7 @@ impl MultiThreadedDispatcher {
         bucketer.reset(RectU16::new(0, 0, scene_width, scene_height));
         bucketer.bucket_commands(
             &self.recorder.root_cmds,
+            &self.recorder.draws,
             &self.recorder.layers,
             &self.strip_storage.strips,
             encoded_paints,

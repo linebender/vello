@@ -4,25 +4,24 @@
 use super::cmd::{DepthFill, LayerFill, LayerFillAttrs, PaintFill, PaintFillAttrs, RenderCmd};
 use super::depth::{DepthSegment, DepthState};
 use crate::coarse::depth;
+use crate::dispatch::{RecordedCmd, RecordedFill, RecordedLayer};
 use crate::filter::context::FilterContext;
 use crate::kurbo::{Affine, Vec2};
 use crate::peniko::{BlendMode, Extend, ImageQuality, ImageSampler};
-use crate::record::{
-    FilterLayerPlacement, LayerProps, RecordedCmd, RecordedLayer, RecordedLayerKind,
-};
-use crate::util::{Span, VecPool};
+use crate::util::Span;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::ops::Range;
 use vello_common::encode::{EncodedImage, EncodedPaint};
+use vello_common::filter::FilterLayerPlacement;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageSource, IndexedPaint, Paint};
 use vello_common::pixmap::Pixmap;
+use vello_common::record::{LayerClip, LayerProps, RecordedLayerKind};
 use vello_common::strip::Strip;
 use vello_common::tile::Tile;
-use vello_common::util::{Clear, RectExt, RetainVec};
+use vello_common::util::{Clear, RectExt, RetainVec, VecPool};
 
 /// State for a single row of strips.
 #[derive(Debug, Default)]
@@ -262,6 +261,7 @@ impl CommandBucketer {
     pub(crate) fn bucket_commands(
         &mut self,
         cmds: &[RecordedCmd],
+        draws: &[RecordedFill],
         layers: &[RecordedLayer],
         strips: &[Strip],
         encoded_paints: &[EncodedPaint],
@@ -288,54 +288,71 @@ impl CommandBucketer {
 
         for cmd in cmds {
             match cmd {
-                RecordedCmd::Fill {
-                    thread_idx,
-                    strip_range,
-                    paint,
-                    blend_mode,
-                    mask,
-                } => {
-                    let draw_id = self.next_draw_id();
-                    let attrs = PaintFillAttrs {
-                        paint: paint.clone(),
-                        blend_mode: *blend_mode,
-                        mask: mask.clone(),
-                        draw_id,
-                        thread_idx: *thread_idx,
-                        origin: self.viewport_origin(),
-                    };
-                    self.generate_fill(&strips[strip_range.clone()], &attrs, encoded_paints);
-                }
-                RecordedCmd::PushLayer { id } => {
-                    let props = &layers[id.get()].props;
-                    self.push_layer(props);
-                }
-                RecordedCmd::FilterLayer { id } => {
-                    let props = &layers[id.get()].props;
-                    let RecordedLayerKind::Filter { placement, .. } = &layers[id.get()].kind else {
-                        unreachable!()
-                    };
-
-                    let needs_layer = props.blend_mode != BlendMode::default()
-                        || props.opacity != 1.0
-                        || props.mask.is_some()
-                        || props.clip_path.is_some();
-
-                    if needs_layer {
-                        self.push_layer(props);
-                    }
-
-                    // Note: At this point, we've already rasterized all dependent
-                    // filter layers, so this should never fail.
-                    if let Some(pixmap) = filter_ctx.filter_layer(id.get()) {
-                        self.generate_filter_layer_fill(pixmap, *placement, encoded_paints.len());
-                    }
-
-                    if needs_layer {
-                        self.pop_layer(strips);
+                RecordedCmd::Batch(range) => {
+                    for RecordedFill {
+                        thread_idx,
+                        strip_range,
+                        paint,
+                        blend_mode,
+                        mask,
+                        ..
+                    } in &draws[range.start as usize..range.end as usize]
+                    {
+                        let draw_id = self.next_draw_id();
+                        let attrs = PaintFillAttrs {
+                            paint: paint.clone(),
+                            blend_mode: *blend_mode,
+                            mask: mask.clone(),
+                            draw_id,
+                            thread_idx: *thread_idx,
+                            origin: self.viewport_origin(),
+                        };
+                        self.generate_fill(&strips[strip_range.clone()], &attrs, encoded_paints);
                     }
                 }
-                RecordedCmd::PopLayer => self.pop_layer(strips),
+                RecordedCmd::Layer(id) => {
+                    let layer = &layers[*id as usize];
+                    let props = &layer.props;
+
+                    match &layer.kind {
+                        RecordedLayerKind::Regular => {
+                            self.push_layer(props);
+                            self.bucket_commands(
+                                &layer.cmds,
+                                draws,
+                                layers,
+                                strips,
+                                encoded_paints,
+                                filter_ctx,
+                            );
+                            self.pop_layer(strips);
+                        }
+                        RecordedLayerKind::Filter { placement, .. } => {
+                            let needs_layer = props.blend_mode != BlendMode::default()
+                                || props.opacity != 1.0
+                                || props.mask.is_some()
+                                || props.clip_path.is_some();
+
+                            if needs_layer {
+                                self.push_layer(props);
+                            }
+
+                            // Note: At this point, we've already rasterized all dependent
+                            // filter layers, so this should never fail.
+                            if let Some(pixmap) = filter_ctx.filter_layer(*id as usize) {
+                                self.generate_filter_layer_fill(
+                                    pixmap,
+                                    *placement,
+                                    encoded_paints.len(),
+                                );
+                            }
+
+                            if needs_layer {
+                                self.pop_layer(strips);
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -745,13 +762,6 @@ pub(crate) struct ActiveLayer {
     pub(crate) occupied_rows: Vec<usize>,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct LayerClip {
-    pub(crate) strip_range: Range<usize>,
-    pub(crate) thread_idx: u8,
-    pub(crate) bbox: RectU16,
-}
-
 /// A generic fill to allow using `generate_fill` to create either paint fills or blend fills.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct GeneratedFill {
@@ -773,12 +783,12 @@ mod tests {
     use crate::coarse::CommandBucketer;
     use crate::coarse::cmd::{PaintFillAttrs, RenderCmd};
     use crate::coarse::depth::{BucketRange, DEPTH_BUCKET_WIDTH};
-    use crate::record::LayerProps;
     use vello_common::color::palette::css::{BLUE, RED};
     use vello_common::color::{AlphaColor, Srgb};
     use vello_common::geometry::RectU16;
     use vello_common::paint::{Paint, PremulColor};
     use vello_common::peniko::BlendMode;
+    use vello_common::record::LayerProps;
     use vello_common::strip::Strip;
     use vello_common::tile::Tile;
 

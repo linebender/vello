@@ -8,12 +8,58 @@ pub(crate) mod single_threaded;
 use crate::RasterizerSettings;
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
-use crate::record::FilterData;
 use core::fmt::Debug;
+use core::ops::Range;
 use vello_common::encode::EncodedPaint;
+use vello_common::filter::FilterData;
+use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
 use vello_common::pixmap::PixmapMut;
+use vello_common::record::Drawable;
+use vello_common::strip::Strip;
+use vello_common::util::strip_bbox;
+
+pub(crate) type RecordedCmd = vello_common::record::RecordedCmd;
+pub(crate) type RecordedLayer = vello_common::record::RecordedLayer;
+
+#[derive(Debug)]
+pub(crate) struct RecordedFill {
+    pub(crate) thread_idx: u8,
+    pub(crate) strip_range: Range<usize>,
+    // TODO: Make lazy.
+    pub(crate) bbox: RectU16,
+    pub(crate) paint: Paint,
+    pub(crate) blend_mode: BlendMode,
+    pub(crate) mask: Option<Mask>,
+}
+
+impl RecordedFill {
+    pub(crate) fn new(
+        thread_idx: u8,
+        strip_range: Range<usize>,
+        strips: &[Strip],
+        viewport_width: u16,
+        paint: Paint,
+        blend_mode: BlendMode,
+        mask: Option<Mask>,
+    ) -> Self {
+        Self {
+            thread_idx,
+            strip_range,
+            bbox: strip_bbox(strips, viewport_width),
+            paint,
+            blend_mode,
+            mask,
+        }
+    }
+}
+
+impl Drawable for RecordedFill {
+    fn bbox(&self) -> RectU16 {
+        self.bbox
+    }
+}
 
 pub(crate) trait Dispatcher: Debug + Send {
     fn has_layers(&self) -> bool;
