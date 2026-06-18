@@ -663,7 +663,6 @@ fn opaque_rect_partially_occluding_aa_edge(ctx: &mut impl Renderer) {
 #[vello_test(
     skip_multithreaded,
     skip_hybrid,
-    skip_hybrid_constrained,
     width = 768,
     height = 100,
     hybrid_tolerance = 3

@@ -17,19 +17,18 @@
 // Paint texture id locates the encoded paint data in `encoded_paints_texture`
 // More details in the `StripInstance` documentation below.
 //
-// `StripInstance::payload` field can either encode a color, [x, y] for image sampling or a slot index
+// `StripInstance::payload` field can either encode a color, [x, y] for image sampling or a layer texture origin
 // - If color source is payload and the paint type is solid, the fragment shader uses the color directly.
 // - If color source is payload and the paint type is image, the fragment shader samples the image.
-// - Otherwise, the fragment shader samples the source clip texture using the given slot index.
+// - If color source is layer, the fragment shader samples the layer texture and applies layer opacity.
 // More details in the `StripInstance` documentation below.
 
 
 // Color source modes - where the fragment shader gets color data from.
 // Use payload (color or image coordinates)
 const COLOR_SOURCE_PAYLOAD: u32 = 0u;
-// Sample from clip texture slot
-const COLOR_SOURCE_SLOT: u32 = 1u;
-const COLOR_SOURCE_BLEND: u32 = 2u;
+// Sample from a rendered layer texture.
+const COLOR_SOURCE_LAYER: u32 = 1u;
 
 // Paint types
 const PAINT_TYPE_SOLID: u32 = 0u;  
@@ -142,13 +141,13 @@ struct Config {
 //   xy                    | Strip position                    | Rect top-left (snapped outward)
 //   widths_or_rect_height | [width, dense_width]              | [width, height] (both snapped)
 //   col_idx_or_rect_frac  | Alpha column index                | Packed AA edge fractions (4 × u8)
-//   payload               | Color / scene coords / slot idx   | Color / scene coords
+//   payload               | Color / scene coords / layer xy   | Color / scene coords / layer xy
 //   paint_and_rect_flag   | Paint encoding                    | Paint encoding | RECT_STRIP_FLAG
 //
 //
 // `paint_and_rect_flag` bit layout:
 //   - Bit  31:    `RECT_STRIP_FLAG`  0 = normal strip, 1 = rect strip
-//   - Bits 29-30: `color_source`     0 = use payload, 1 = use slot texture, 2 = blend mode
+//   - Bits 29-30: `color_source`     0 = use payload, 1 = use layer texture
 //   - Bits 0-28:  Usage depends on color_source:
 //
 //     When color_source = 0 (COLOR_SOURCE_PAYLOAD):
@@ -157,14 +156,9 @@ struct Config {
 //         - If paint_type = 0: unused
 //         - If paint_type >= 1: `paint_texture_idx`
 //
-//     When color_source = 1 (COLOR_SOURCE_SLOT):
-//       - Bits 0-7: opacity (0-255)
+//     When color_source = 1 (COLOR_SOURCE_LAYER):
+//       - Bits 0-7: `opacity` encoded as u8, where 255 = fully opaque
 //       - Bits 8-28: unused
-//
-//     When color_source = 2 (COLOR_SOURCE_BLEND):
-//       - Bits 16-28: `dest_slot` (14 bits)
-//       - Bits 8-15: `mix_mode` (8 bits)
-//       - Bits 0-7: `compose_mode` (8 bits)
 //
 // Decision tree for paint/payload interpretation:
 //
@@ -184,18 +178,9 @@ struct Config {
 //     ├── payload = [x, y] scene coordinates (packed as u16s)
 //     └── bits 0-25 = paint_texture_idx
 //
-// color_source = 1 (COLOR_SOURCE_SLOT) - Use slot texture
-// ├── payload = slot_index (u32)
-// └── bits 0-7 = opacity (0-255, where 255 = fully opaque)
-//
-// color_source = 2 (COLOR_SOURCE_BLEND) - Blend two slots
-// ├── payload = [src_slot, dest_slot] slot indices (packed as u16s)
-// │   ├── bits 0-15 = src_slot (source slot to blend)
-// │   └── bits 16-31 = dest_slot (destination slot to blend with)
-// └── paint bits 0-23:
-//     ├── bits 16-23 = opacity (0-255, applied to blend result)
-//     ├── bits 8-15 = mix_mode (blend mixing mode)
-//     └── bits 0-7 = compose_mode (compositing operation)
+// color_source = 1 (COLOR_SOURCE_LAYER) - Use rendered layer texture
+// ├── payload = [x, y] source layer texture origin (packed as u16s)
+// └── bits 0-7 = opacity
 struct StripInstance {
     // [x, y] packed as u16's
     // x, y — coordinates of the strip or rect
@@ -232,7 +217,7 @@ struct VertexOutput {
     // For normal strips: ending x-position of the dense (alpha) region.
     // For rect strips: packed dimensions (width | height << 16).
     @location(3) @interpolate(flat) dense_end_or_rect_size: u32,
-    // Color value or slot index when alpha is 0
+    // Packed paint payload or layer sample coordinate.
     @location(4) @interpolate(flat) payload: u32,
     // Packed fractional edge offsets for rectangles.
     // Bits 0-7: x0, 8-15: y0, 16-23: x1, 24-31: y1.
@@ -318,6 +303,13 @@ fn vs_main(
                 f32(scene_strip_y) + y * f32(height)
             );
         }
+    } else if color_source == COLOR_SOURCE_LAYER {
+        let src_x = instance.payload & 0xffffu;
+        let src_y = instance.payload >> 16u;
+        out.sample_xy = vec2<f32>(
+            f32(src_x) + x * f32(width),
+            f32(src_y) + y * f32(height),
+        );
     }
 
     let col_offset = select(f32(instance.col_idx_or_rect_frac), 0.0, is_rect);
@@ -339,7 +331,7 @@ fn vs_main(
 var alphas_texture: texture_2d<u32>;
 
 @group(0) @binding(2)
-var clip_input_texture: texture_2d<f32>;
+var layer_input_texture: texture_2d<f32>;
 
 @fragment
 fn fs_main(
@@ -396,7 +388,7 @@ fn fs_main(
         // Extract the alpha value for the current y-position from the packed u32 data
         alpha = f32((alphas_u32 >> (y * 8u)) & 0xffu) * (1.0 / 255.0);
     }
-    // Apply the alpha value to the unpacked RGBA color or slot index
+    // Apply the alpha value to the unpacked RGBA color or sampled paint.
     let color_source = (paint_and_rect_flag >> 29u) & 0x3u;
     var final_color: vec4<f32>;
 
@@ -573,50 +565,12 @@ fn fs_main(
                 blurred_texel3,
                 blurred_texel4,
             );
-        }
-    } else if color_source == COLOR_SOURCE_SLOT {
-        // Depending on the value of `ndc_y_negate`, the y position will have a value that either
-        // assumes a `y-up` or `y-down` coordinate system. However, for slot textures, we need the original
-        // coordinate in the `y-down` system. Therefore, we invert the y-position _again_ in case we are
-        // currently rendering to a y-up system, to get the original coordinate.
-        let sample_y = select(position.y, f32(config.height) - position.y, config.ndc_y_negate != 0u);
-        // in.payload encodes a slot in the source clip texture.
-        // This is a bit finicky: When copying from a texture slot, we already
-        // know which slot to choose and where that slot is located. Therefore, we now
-        // only need to determine the pixel within the slot to sample. However, this
-        // position should not be affected by the global strip offset. For example, if the
-        // strip offset is (2, 2), then the pixel (2, 2) should still map to (0, 0)
-        // within the wide tile slot! Therefore, we need to subtract the strip
-        // offset here.
-        let clip_x = u32(i32(position.x) - config.strip_offset_x) & 0xFFu;
-        let clip_y = (u32(i32(sample_y) - config.strip_offset_y) & 3u) + payload * config.strip_height;
-        let clip_in_color = textureLoad(clip_input_texture, vec2(clip_x, clip_y), 0);
-
-        // Extract opacity from first 8 bits (quantized from [0, 255])
-        let opacity = f32(paint_and_rect_flag & 0xFFu) * (1.0 / 255.0);
-
-        final_color = alpha * opacity * clip_in_color;
-    } else if color_source == COLOR_SOURCE_BLEND {
-        // See the comment above.
-        let sample_y = select(position.y, f32(config.height) - position.y, config.ndc_y_negate != 0u);
-        let opacity = f32((paint_and_rect_flag >> 16u) & 0xFFu) * (1.0 / 255.0);
-        let mix_mode = (paint_and_rect_flag >> 8u) & 0xFFu;
-        let compose_mode = paint_and_rect_flag & 0xFFu;
-        
-        // Read source color from slot
-        let src_slot = payload & 0xFFFFu;
-        let dest_slot = (payload >> 16u) & 0xFFFFu;
-        // See the comment above for why we need to subtract the strip offset.
-        let clip_x = u32(i32(position.x) - config.strip_offset_x) & 0xFFu;
-        let clip_y_in_strip = u32(i32(sample_y) - config.strip_offset_y) & 3u;
-        let src_y = clip_y_in_strip + src_slot * config.strip_height;
-        let src_color = textureLoad(clip_input_texture, vec2(clip_x, src_y), 0);
-
-        // Read destination color from slot
-        let dest_y = clip_y_in_strip + dest_slot * config.strip_height;
-        let dest_color = textureLoad(clip_input_texture, vec2(clip_x, dest_y), 0);
-
-        final_color = blend_mix_compose(dest_color, src_color * opacity * alpha, compose_mode, mix_mode);
+    }
+    } else if color_source == COLOR_SOURCE_LAYER {
+        let layer_opacity = f32(paint_and_rect_flag & 0xffu) * (1.0 / 255.0);
+        final_color = alpha * layer_opacity * textureLoad(layer_input_texture, vec2<i32>(sample_xy), 0);
+    } else {
+        final_color = vec4<f32>(0.0);
     }
     return final_color;
 }

@@ -1,6 +1,7 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+#![allow(dead_code)]
 // A very brief explanation of how filters work on a high-level follows here:
 //
 // During coarse rasterization, filter layers become nodes in the `RenderGraph`. Once we hit
@@ -55,7 +56,7 @@ use vello_common::multi_atlas::{AtlasError, AtlasId};
 /// do use checked accesses for the offset filter, the bottleneck is formed by the gaussian blur
 /// convolution.
 #[expect(clippy::cast_possible_truncation, reason = "safe in this case")]
-const FILTER_ATLAS_PADDING: u16 = MAX_KERNEL_SIZE as u16 / 2;
+pub(crate) const FILTER_ATLAS_PADDING: u16 = MAX_KERNEL_SIZE as u16 / 2;
 
 // Note: Keep these variables and struct layouts in sync with `filters.wgsl`!
 
@@ -100,7 +101,6 @@ pub(crate) mod edge_mode {
 }
 
 pub(crate) mod pass_kind {
-    #[expect(dead_code, reason = "Useful in the future")]
     pub(crate) const COPY: u32 = 0;
     pub(crate) const FLOOD: u32 = 1;
     pub(crate) const OFFSET: u32 = 2;

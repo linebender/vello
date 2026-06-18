@@ -37,11 +37,8 @@
 //!
 //! - `Scene`: Manages the render context and path processing on the CPU
 //! - `Renderer` or `WebGlRenderer`: Handles GPU resource management and executes draw operations
-//! - `Scheduler`: Manages and schedules draw operations on the renderer.
 //!
 //! See the individual module documentation for more details on usage and implementation.
-
-#![no_std]
 
 extern crate alloc;
 
@@ -53,6 +50,8 @@ mod sampling;
 mod scene;
 #[cfg(any(feature = "webgl", feature = "wgpu"))]
 mod schedule;
+#[cfg(any(feature = "webgl", feature = "wgpu"))]
+mod schedule_new;
 #[cfg(feature = "text")]
 mod text;
 
@@ -69,7 +68,7 @@ pub use render::{WebGlAtlasWriter, WebGlRenderer, WebGlTextureWithDimensions};
 pub use render::{WebGlPendingProbe, WebGlProbeError, WebGlProbeStatus};
 pub use resources::Resources;
 pub use sampling::SampleRect;
-pub use scene::{RenderSettings, Scene, SceneConstraints};
+pub use scene::{RenderSettings, Scene};
 #[cfg(feature = "text")]
 pub use text::{GlyphRunBuilder, HybridGlyphRunBackend};
 pub use util::DimensionConstraints;
@@ -82,14 +81,6 @@ use thiserror::Error;
 /// Errors that can occur during rendering.
 #[derive(Error, Debug, Clone)]
 pub enum RenderError {
-    /// No slots available for rendering.
-    ///
-    /// This error is likely to occur if a scene has an extreme number of nested layers
-    /// (clipping, blending, masks, or opacity layers).
-    ///
-    /// TODO: Consider supporting more than a single column of slots in slot textures.
-    #[error("No slots available for rendering")]
-    SlotsExhausted,
     /// An allocation error occurred while trying to allocate a new image. This can happen
     /// if the scene contains filter layers, which need space in the image atlas for intermediate
     /// storage.
@@ -98,6 +89,9 @@ pub enum RenderError {
     /// A draw referenced a [`TextureId`] that was not provided at render time.
     #[error("Missing texture binding for {0:?}")]
     MissingTextureBinding(TextureId),
+    /// The new scheduler does not support this feature yet.
+    #[error("Unsupported feature in new vello_hybrid scheduler: {0}")]
+    UnsupportedFeature(&'static str),
     // TODO: Consider expanding `RenderError` to replace some `.unwrap` and `.expect`.
 }
 

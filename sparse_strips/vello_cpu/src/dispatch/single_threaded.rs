@@ -1,28 +1,28 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::clip::ClipState;
 use crate::coarse::CommandBucketer;
-use crate::coarse::bucketer::LayerClip;
 use crate::coarse::depth::DepthBuffer;
-use crate::dispatch::Dispatcher;
+use crate::dispatch::{Dispatcher, RecordedFill};
 use crate::filter::context::FilterContext;
 use crate::fine::{Fine, FineKernel, FineRenderParams, FineResources, rasterize_region};
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
-use crate::record::{
-    CommandRecorder, FilterData, LayerProps, PoppedLayer, RecordedCmd, RecordedLayerKind,
-};
 use crate::region::Regions;
 use crate::{CompositeMode, RasterizerSettings};
 use alloc::vec::Vec;
 use core::cell::RefCell;
+use vello_common::clip::ClipState;
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd};
+use vello_common::filter::FilterData;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
 use vello_common::pixmap::{Pixmap, PixmapMut};
+use vello_common::record::{
+    CommandRecorder, LayerClip, LayerProps, PoppedLayer, RecordedCmd, RecordedLayerKind,
+};
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use vello_common::util::control_point_bbox_u16;
 
@@ -34,7 +34,7 @@ pub(crate) struct SingleThreadedDispatcher {
     /// Clip state for managing non-isolated clipping.
     clip_state: ClipState,
     /// Recorder for root and filter-layer command streams, plus layer metadata.
-    recorder: CommandRecorder,
+    recorder: CommandRecorder<RecordedFill>,
     /// Generator for converting paths into coverage strips for the active viewport.
     strip_generator: StripGenerator,
     /// Storage for generated strips and alpha coverage data.
@@ -150,6 +150,7 @@ impl SingleThreadedDispatcher {
         bucketer.reset(viewport);
         bucketer.bucket_commands(
             cmds,
+            &self.recorder.draws,
             &self.recorder.layers,
             &self.strip_storage.strips,
             encoded_paints,
@@ -202,13 +203,14 @@ impl SingleThreadedDispatcher {
         mask: Option<Mask>,
     ) {
         let strip_end = self.strip_storage.strips.len();
-        self.recorder.push_fill(
-            strip_start..strip_end,
-            &self.strip_storage.strips[strip_start..strip_end],
-            paint,
-            blend_mode,
-            mask,
-            0,
+        let viewport_width = self.strip_generator.width();
+        let strip_range = strip_start..strip_end;
+        let draw = RecordedFill::new(0, strip_range.clone(), paint, blend_mode, mask);
+
+        self.recorder.push_draw(
+            draw,
+            &self.strip_storage.strips[strip_range],
+            viewport_width,
         );
     }
 
@@ -220,19 +222,17 @@ impl SingleThreadedDispatcher {
     ) -> FilterContext {
         // TODO: Reuse across frames so that pixmaps can be reused.
         let mut filter_ctx = FilterContext::new(self.recorder.layers.len());
-        // We record layers upon "push", so nested filter layers get higher IDs
-        // than their parents. Subsequent sibling filter layers also get a higher ID
-        // than the previous layer they are composited into. Therefore, iterating in reverse
-        // order over the layer IDs is enough to ensure that all dependencies have been rendered
-        // before they are invoked.
-        for id in (0..self.recorder.layers.len()).rev() {
+        // We record filter layers upon "push", so nested filter layers get added after their
+        // parents. Subsequent sibling filter layers also get added after the previous layer they
+        // are composited into. Therefore, iterating in reverse order is enough to ensure that all
+        // dependencies have been rendered before they are invoked.
+        for id in self.recorder.filter_layers.iter().rev().copied() {
             let RecordedLayerKind::Filter {
-                cmds,
                 filter_data: filter_plan,
                 placement,
-            } = &self.recorder.layers[id].kind
+            } = &self.recorder.layers[id as usize].kind
             else {
-                continue;
+                unreachable!("filter_layers only contains filter layers");
             };
             let pixmap_bbox = placement.pixmap_bbox;
             if pixmap_bbox.is_empty() {
@@ -251,7 +251,7 @@ impl SingleThreadedDispatcher {
 
             self.bucket_and_rasterize::<S, F>(
                 simd,
-                cmds,
+                &self.recorder.layers[id as usize].cmds,
                 pixmap_bbox,
                 &filter_ctx,
                 (&mut pixmap).into(),
@@ -272,7 +272,7 @@ impl SingleThreadedDispatcher {
             // #[cfg(all(debug_assertions, feature = "std", feature = "png"))]
             // save_filtered_layer_debug(&pixmap, id);
 
-            filter_ctx.set_layer(id, pixmap);
+            filter_ctx.set_layer(id as usize, pixmap);
         }
 
         filter_ctx
@@ -296,7 +296,7 @@ impl SingleThreadedDispatcher {
         self.strip_generator_stack.push(parent_generator);
 
         self.clip_state
-            .push_filter_surface(filter_data.source_shift(), &mut self.strip_generator);
+            .push_filter_viewport(filter_data.source_shift(), &mut self.strip_generator);
     }
 
     fn pop_filter_surface(&mut self) {
@@ -305,7 +305,7 @@ impl SingleThreadedDispatcher {
             .pop()
             .expect("filter viewport stack underflow");
         self.clip_state
-            .pop_filter_surface(&mut self.strip_generator);
+            .pop_filter_viewport(&mut self.strip_generator);
     }
 }
 
