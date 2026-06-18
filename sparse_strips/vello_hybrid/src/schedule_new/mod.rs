@@ -8,7 +8,7 @@
 mod builder;
 mod round;
 
-use self::builder::Scheduler;
+use self::builder::ScheduleBuilder;
 use self::round::Schedule;
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::vec::Vec;
@@ -109,7 +109,7 @@ pub(crate) fn render_scene<R: RendererBackend>(
     encoded_paints: &[EncodedPaint],
 ) -> Result<(), RenderError> {
     let strip_storage = scene.strip_storage.borrow();
-    let mut builder = Scheduler::new(
+    let mut builder = ScheduleBuilder::new(
         scene,
         &strip_storage,
         root_output_target,
