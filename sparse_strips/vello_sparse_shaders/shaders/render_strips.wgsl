@@ -20,7 +20,7 @@
 // `StripInstance::payload` field can either encode a color, [x, y] for image sampling or a layer texture origin
 // - If color source is payload and the paint type is solid, the fragment shader uses the color directly.
 // - If color source is payload and the paint type is image, the fragment shader samples the image.
-// - If color source is layer, the fragment shader samples the layer texture.
+// - If color source is layer, the fragment shader samples the layer texture and applies layer opacity.
 // More details in the `StripInstance` documentation below.
 
 
@@ -157,7 +157,8 @@ struct Config {
 //         - If paint_type >= 1: `paint_texture_idx`
 //
 //     When color_source = 1 (COLOR_SOURCE_LAYER):
-//       - Bits 0-28: unused
+//       - Bits 0-7: `opacity` encoded as u8, where 255 = fully opaque
+//       - Bits 8-28: unused
 //
 // Decision tree for paint/payload interpretation:
 //
@@ -178,7 +179,8 @@ struct Config {
 //     └── bits 0-25 = paint_texture_idx
 //
 // color_source = 1 (COLOR_SOURCE_LAYER) - Use rendered layer texture
-// └── payload = [x, y] source layer texture origin (packed as u16s)
+// ├── payload = [x, y] source layer texture origin (packed as u16s)
+// └── bits 0-7 = opacity
 struct StripInstance {
     // [x, y] packed as u16's
     // x, y — coordinates of the strip or rect
@@ -560,11 +562,12 @@ fn fs_main(
     } else if color_source == COLOR_SOURCE_LAYER {
         let src_x = payload & 0xffffu;
         let src_y = payload >> 16u;
+        let layer_opacity = f32(paint_and_rect_flag & 0xffu) * (1.0 / 255.0);
         let sample_xy = vec2<u32>(
             src_x + u32(floor(tex_coord.x)),
             src_y + u32(floor(tex_coord.y)),
         );
-        final_color = alpha * textureLoad(layer_input_texture, vec2<i32>(sample_xy), 0);
+        final_color = alpha * layer_opacity * textureLoad(layer_input_texture, vec2<i32>(sample_xy), 0);
     } else {
         final_color = vec4<f32>(0.0);
     }

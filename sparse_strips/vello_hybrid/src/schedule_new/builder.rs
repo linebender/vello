@@ -169,7 +169,8 @@ impl<'a> ScheduleBuilder<'a> {
                 }
                 RecordedCmd::Layer(layer_id) => {
                     if let Some(layer) = self.layer_allocations[*layer_id as usize] {
-                        builder.push_layer_ref(layer.allocation.region);
+                        let opacity = self.scene.recorder.layers[*layer_id as usize].props.opacity;
+                        builder.push_layer_ref(layer.allocation.region, opacity);
                     }
                 }
             }
@@ -360,11 +361,6 @@ fn ensure_plain_layer(layer: &vello_common::record::RecordedLayer) -> Result<(),
             "non-default blend layers are not supported by schedule_new yet",
         ));
     }
-    if layer.props.opacity != 1.0 {
-        return Err(RenderError::UnsupportedFeature(
-            "opacity layers are not supported by schedule_new yet",
-        ));
-    }
     if layer.props.mask.is_some() {
         return Err(RenderError::UnsupportedFeature(
             "mask layers are not supported by schedule_new yet",
@@ -512,7 +508,7 @@ impl DrawBuilder {
         );
     }
 
-    fn push_layer_ref(&mut self, source: LayerTextureRegion) {
+    fn push_layer_ref(&mut self, source: LayerTextureRegion, opacity: f32) {
         let depth_index = self.depth.next(false);
         // Layer samples are encoded as image-like rect paints. Geometry is transformed into the
         // target allocation, while the payload points at the source atlas coordinate.
@@ -529,7 +525,7 @@ impl DrawBuilder {
                     self.geometry_offset,
                 ),
                 pack_u16_pair(source.x, source.y),
-                COLOR_SOURCE_LAYER << 29,
+                (COLOR_SOURCE_LAYER << 29) | u32::from((opacity * 255.0).round()),
                 depth_index,
             ),
             None,

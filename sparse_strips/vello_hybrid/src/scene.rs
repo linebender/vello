@@ -952,17 +952,10 @@ impl Scene {
             );
         }
 
-        let opacity = opacity.unwrap_or(1.0);
-        if opacity != 1.0 {
-            unimplemented!(
-                "opacity layers are not supported by the new vello_hybrid scheduler yet"
-            );
-        }
-
         self.recorder.push_layer(
             LayerProps {
                 blend_mode,
-                opacity,
+                opacity: opacity.unwrap_or(1.0),
                 mask: None,
                 clip_path: None,
             },
