@@ -113,56 +113,6 @@ impl FastStripsBuffer {
     }
 }
 
-/// Constraints on a scene that the renderer can exploit for optimisation.
-///
-/// By default no constraints are active.
-#[derive(Copy, Clone, Debug)]
-pub struct SceneConstraints(u32);
-
-impl Default for SceneConstraints {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl SceneConstraints {
-    const DEFAULT_BLENDING_ONLY: u32 = 1 << 0;
-
-    /// Create a new, unconstrained set of scene constraints.
-    #[inline(always)]
-    pub fn new() -> Self {
-        Self(0)
-    }
-
-    /// Caller guarantees that the scene will only use the default (normal, source-over)
-    /// blend mode in the root layer. In case you still want to use blending, you need to
-    /// make sure that you have pushed at least one "wrapper" layer, such that the destination
-    /// of the blending operation is never the root layer.
-    ///
-    /// # Panics
-    ///
-    /// The renderer will panic if a non-default blend mode is used in the root layer.
-    #[inline(always)]
-    pub fn default_blending_only(self) -> Self {
-        Self(self.0 | Self::DEFAULT_BLENDING_ONLY)
-    }
-
-    #[inline(always)]
-    fn use_default_blending_only(&self) -> bool {
-        (self.0 & Self::DEFAULT_BLENDING_ONLY) != 0
-    }
-
-    #[inline(always)]
-    fn assert_blend_mode(&self, blend_mode: BlendMode, nested_layer: bool) {
-        if self.use_default_blending_only() && !nested_layer {
-            assert!(
-                blend_mode == DEFAULT_BLEND_MODE,
-                "scene constrained to default blending"
-            );
-        }
-    }
-}
-
 /// Settings to apply to the render context.
 #[derive(Copy, Clone, Debug)]
 pub struct RenderSettings {
@@ -180,8 +130,6 @@ pub struct RenderSettings {
     /// Adjusting these settings can affect memory usage and rendering performance
     /// depending on your application's image usage patterns.
     pub atlas_config: AtlasConfig,
-    /// Constraints on the scene that the renderer can exploit for optimisation.
-    pub constraints: SceneConstraints,
 }
 
 impl Default for RenderSettings {
@@ -189,7 +137,6 @@ impl Default for RenderSettings {
         Self {
             level: Level::try_detect().unwrap_or(Level::baseline()),
             atlas_config: AtlasConfig::default(),
-            constraints: SceneConstraints::new(),
         }
     }
 }
@@ -200,8 +147,6 @@ impl Default for RenderSettings {
 /// pipeline from paths to strips that can be rendered by the GPU.
 #[derive(Debug)]
 pub struct Scene {
-    /// Constraints on the scene that the renderer can exploit for optimisation.
-    constraints: SceneConstraints,
     /// Width of the rendering surface in pixels.
     pub(crate) width: u16,
     /// Height of the rendering surface in pixels.
@@ -289,11 +234,7 @@ impl Scene {
     pub fn new_with(width: u16, height: u16, settings: RenderSettings) -> Self {
         let mut render_graph = RenderGraph::new();
 
-        // We use the fast path if only default blending is enabled. Therefore,
-        // we have to disable bg optimizations in that case.
-        let enable_bg_optimization = !settings.constraints.use_default_blending_only();
-
-        let wide = Wide::<MODE_HYBRID>::new(width, height, enable_bg_optimization);
+        let wide = Wide::<MODE_HYBRID>::new(width, height, true);
 
         // Create root node (layer_id 0) as the first node (will be node 0).
         // This ensures the root layer is always rendered last in the execution order.
@@ -304,7 +245,6 @@ impl Scene {
         });
 
         Self {
-            constraints: settings.constraints,
             width,
             height,
             wide,
@@ -876,28 +816,11 @@ impl Scene {
         filter: Option<Filter>,
     ) {
         let blend_mode_val = blend_mode.unwrap_or(DEFAULT_BLEND_MODE);
-        self.constraints
-            .assert_blend_mode(blend_mode_val, self.wide.has_layers());
 
         self.layer_id_next += 1;
 
-        let strip_offset;
-        if self.constraints.use_default_blending_only() {
-            // With default blending only we can keep fast path strips alive. Record a
-            // split point so the scheduler knows to process one coarse batch after
-            // processing fast path strips up to this point.
-            if !self.wide.has_layers() {
-                let split = self.fast_strips_buffer.commands.len();
-                self.coarse_batch_splits.push(split);
-            }
-            let mut strip_storage = self.strip_storage.borrow_mut();
-            strip_offset = strip_storage.strips.len();
-            strip_storage.set_generation_mode(GenerationMode::ReplaceAfter(strip_offset));
-            self.strip_path_mode = StripPathMode::Interleaved;
-        } else {
-            strip_offset = 0;
-            self.flush_fast_path();
-        }
+        let strip_offset = 0;
+        self.flush_fast_path();
 
         let mut strip_storage = self.strip_storage.borrow_mut();
 
@@ -979,8 +902,11 @@ impl Scene {
 
     /// Set the blend mode for subsequent rendering operations.
     pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
-        self.constraints
-            .assert_blend_mode(blend_mode, self.wide.has_layers());
+        if blend_mode != DEFAULT_BLEND_MODE {
+            unimplemented!(
+                "non-default blending is not supported by the new vello_hybrid scheduler yet"
+            );
+        }
         self.render_state.blend_mode = blend_mode;
     }
 
@@ -1160,23 +1086,8 @@ mod tests {
     // These tests serve the purpose of ensuring that the logic for selecting fast paths
     // works correctly.
 
-    fn make_scene(constraints: SceneConstraints) -> Scene {
-        Scene::new_with(
-            200,
-            200,
-            RenderSettings {
-                constraints,
-                ..Default::default()
-            },
-        )
-    }
-
     fn unconstrained() -> Scene {
-        make_scene(SceneConstraints::new())
-    }
-
-    fn default_blending_only() -> Scene {
-        make_scene(SceneConstraints::new().default_blending_only())
+        Scene::new(200, 200)
     }
 
     fn small_rect() -> Rect {
@@ -1342,7 +1253,7 @@ mod tests {
 
     #[test]
     fn rect_rejected_inside_layer() {
-        let mut scene = default_blending_only();
+        let mut scene = unconstrained();
         scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
         scene.push_layer(None, None, Some(0.5), None, None);
         scene.fill_rect(&small_rect());
@@ -1370,97 +1281,6 @@ mod tests {
         scene.push_layer(None, None, Some(0.5), None, None);
         assert_eq!(scene.strip_path_mode, StripPathMode::CoarseOnly);
         assert!(scene.fast_strips_buffer.commands.is_empty());
-    }
-
-    #[test]
-    fn interleaved_on_push_layer_with_constraint() {
-        let mut scene = default_blending_only();
-        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
-        scene.push_layer(None, None, Some(0.5), None, None);
-
-        assert_eq!(scene.strip_path_mode, StripPathMode::Interleaved);
-    }
-
-    #[test]
-    fn interleaved_split_point_correct() {
-        let mut scene = default_blending_only();
-        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
-        scene.fill_rect(&small_rect());
-        scene.push_layer(None, None, Some(0.5), None, None);
-
-        assert_eq!(scene.strip_path_mode, StripPathMode::Interleaved);
-        assert_eq!(scene.coarse_batch_splits, vec![1]);
-    }
-
-    #[test]
-    fn interleaved_root_after_pop_uses_fast() {
-        let mut scene = default_blending_only();
-        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
-        scene.push_layer(None, None, Some(0.5), None, None);
-        scene.fill_rect(&small_rect());
-        scene.pop_layer();
-
-        scene.fill_rect(&Rect::new(60.0, 60.0, 90.0, 90.0));
-
-        assert_eq!(scene.strip_path_mode, StripPathMode::Interleaved);
-        assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
-        assert!(is_rect(&scene.fast_strips_buffer.commands[0]));
-    }
-
-    #[test]
-    fn interleaved_multiple_segments() {
-        let mut scene = default_blending_only();
-        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
-
-        scene.fill_rect(&small_rect());
-        scene.push_layer(None, None, Some(0.5), None, None);
-        scene.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
-        scene.pop_layer();
-        scene.fill_rect(&Rect::new(60.0, 60.0, 90.0, 90.0));
-        scene.push_layer(None, None, Some(0.8), None, None);
-        scene.fill_rect(&Rect::new(0.0, 0.0, 50.0, 50.0));
-        scene.pop_layer();
-        scene.fill_rect(&Rect::new(20.0, 20.0, 40.0, 40.0));
-
-        assert_eq!(scene.strip_path_mode, StripPathMode::Interleaved);
-        assert_eq!(scene.coarse_batch_splits.len(), 2);
-        assert_eq!(scene.fast_strips_buffer.commands.len(), 3);
-        assert!(scene.fast_strips_buffer.commands.iter().all(is_rect));
-    }
-
-    #[test]
-    fn interleaved_nested_layers() {
-        let mut scene = default_blending_only();
-        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
-        scene.fill_rect(&small_rect());
-
-        scene.push_layer(None, None, Some(0.5), None, None);
-        scene.push_layer(None, None, Some(0.8), None, None);
-        scene.fill_rect(&Rect::new(0.0, 0.0, 100.0, 100.0));
-        scene.pop_layer();
-        scene.pop_layer();
-
-        scene.fill_rect(&Rect::new(60.0, 60.0, 90.0, 90.0));
-
-        assert_eq!(scene.strip_path_mode, StripPathMode::Interleaved);
-        assert_eq!(scene.coarse_batch_splits.len(), 1);
-        assert_eq!(scene.fast_strips_buffer.commands.len(), 2);
-    }
-
-    #[test]
-    #[should_panic(expected = "scene constrained to default blending")]
-    fn default_blending_only_rejects_root_blend_layer() {
-        let mut scene = default_blending_only();
-        scene.push_blend_layer(BlendMode::new(Mix::Multiply, Compose::SrcOver));
-    }
-
-    #[test]
-    fn default_blending_only_allows_nested_blend_layer() {
-        let mut scene = default_blending_only();
-        scene.push_layer(None, None, Some(0.5), None, None);
-        scene.push_blend_layer(BlendMode::new(Mix::Multiply, Compose::SrcOver));
-
-        assert!(scene.wide.has_layers());
     }
 
     #[test]

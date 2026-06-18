@@ -107,7 +107,6 @@ pub(crate) fn get_ctx<T: Renderer>(
     num_threads: u16,
     level: &str,
     render_mode: RenderMode,
-    default_blending_only: bool,
 ) -> T {
     let level = match level {
         #[cfg(target_arch = "aarch64")]
@@ -146,14 +145,7 @@ pub(crate) fn get_ctx<T: Renderer>(
         _ => panic!("unknown level: {level}"),
     };
 
-    let mut ctx = T::new(
-        width,
-        height,
-        num_threads,
-        level,
-        render_mode,
-        default_blending_only,
-    );
+    let mut ctx = T::new(width, height, num_threads, level, render_mode);
 
     if !transparent {
         let path = Rect::new(0.0, 0.0, width as f64, height as f64).to_path(0.1);
