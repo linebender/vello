@@ -19,7 +19,7 @@
 //!   <https://visionbook.mit.edu/blurring_2.html#properties-of-the-continuous-gaussian>
 
 use super::FilterEffect;
-use crate::layer_manager::LayerManager;
+use crate::filter::context::ScratchBuffer;
 use vello_common::filter::gaussian_blur::{DecimationSizer, GaussianBlur};
 use vello_common::filter_effects::EdgeMode;
 use vello_common::peniko::color::PremulRgba8;
@@ -28,13 +28,13 @@ use vello_common::peniko::kurbo::common::FloatFuncs as _;
 use vello_common::pixmap::Pixmap;
 
 impl FilterEffect for GaussianBlur {
-    fn execute_lowp(&self, pixmap: &mut Pixmap, layer_manager: &mut LayerManager) {
+    fn execute_lowp(&self, pixmap: &mut Pixmap, filter_scratch: &mut ScratchBuffer) {
         // No blur if std_deviation is zero or negative
         if self.std_deviation <= 0.0 {
             return;
         }
 
-        let scratch = layer_manager.get_scratch_buffer(pixmap.width(), pixmap.height());
+        let scratch = filter_scratch.get_scratch_buffer(pixmap.width(), pixmap.height());
         apply_blur(
             pixmap,
             scratch,
@@ -44,10 +44,10 @@ impl FilterEffect for GaussianBlur {
         );
     }
 
-    fn execute_highp(&self, pixmap: &mut Pixmap, layer_manager: &mut LayerManager) {
+    fn execute_highp(&self, pixmap: &mut Pixmap, filter_scratch: &mut ScratchBuffer) {
         // TODO: Currently only lowp is implemented and used for highp as well.
         // This needs to be updated to use proper high-precision arithmetic.
-        Self::execute_lowp(self, pixmap, layer_manager);
+        Self::execute_lowp(self, pixmap, filter_scratch);
     }
 }
 

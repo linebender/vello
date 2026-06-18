@@ -85,6 +85,28 @@ impl RectU16 {
         }
     }
 
+    /// Expand this rectangle by the given left, top, right, and bottom padding.
+    #[inline(always)]
+    pub const fn expand(self, padding: Self) -> Self {
+        Self {
+            x0: self.x0.saturating_sub(padding.x0),
+            y0: self.y0.saturating_sub(padding.y0),
+            x1: self.x1.saturating_add(padding.x1),
+            y1: self.y1.saturating_add(padding.y1),
+        }
+    }
+
+    /// Return this rectangle relative to `origin`, clamping negative coordinates to zero.
+    #[inline(always)]
+    pub const fn relative_to_origin(self, origin: (u16, u16)) -> Self {
+        Self {
+            x0: self.x0.saturating_sub(origin.0),
+            y0: self.y0.saturating_sub(origin.1),
+            x1: self.x1.saturating_sub(origin.0),
+            y1: self.y1.saturating_sub(origin.1),
+        }
+    }
+
     /// Expand this rectangle to also cover `other` (union in place).
     ///
     /// The union of `self` with a [`Self::INVERTED`] returns `self`.

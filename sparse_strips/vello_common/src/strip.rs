@@ -54,6 +54,16 @@ impl Strip {
         self.y / Tile::HEIGHT
     }
 
+    /// Returns the horizontal pixel width of this strip.
+    ///
+    /// **IMPORTANT**: This assumes that the `next` is actually the next adjacent strip
+    /// to `self`, otherwise this method will return a garbage value!
+    pub fn width_to(&self, next: &Self) -> u16 {
+        let col = self.alpha_idx() / u32::from(Tile::HEIGHT);
+        let next_col = next.alpha_idx() / u32::from(Tile::HEIGHT);
+        next_col.saturating_sub(col) as u16
+    }
+
     /// Returns the alpha index.
     #[inline(always)]
     pub fn alpha_idx(&self) -> u32 {

@@ -13,18 +13,16 @@ mod compose;
 mod gradient;
 mod image;
 
+use crate::filter::context::ScratchBuffer;
 use crate::filter::filter_lowp;
-use crate::fine::FineKernel;
 use crate::fine::lowp::image::{BilinearImagePainter, PlainBilinearImagePainter};
-use crate::fine::{COLOR_COMPONENTS, Painter, SCRATCH_BUF_SIZE, Splat4thExt};
-use crate::layer_manager::LayerManager;
+use crate::fine::{COLOR_COMPONENTS, FineKernel, Painter, Splat4thExt, TILE_HEIGHT_COMPONENTS};
 use crate::peniko::BlendMode;
 use crate::region::Region;
 use crate::util::NormalizedMulExt;
 use crate::util::scalar::div_255;
-use bytemuck::cast_slice;
+use bytemuck::{cast_slice, cast_slice_mut};
 use core::iter;
-use vello_common::coarse::WideTile;
 use vello_common::encode::{EncodedGradient, EncodedImage};
 use vello_common::fearless_simd::*;
 use vello_common::filter_effects::Filter;
@@ -50,59 +48,20 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         color.as_premul_rgba8().to_u8_array()
     }
 
-    /// Copies rendered pixels from the scratch buffer to the output region.
-    ///
-    /// Converts from column-major scratch buffer layout to row-major region layout,
-    /// using either a SIMD-optimized path for full tiles or a scalar fallback.
-    #[inline(always)]
-    fn pack(simd: S, region: &mut Region<'_>, blend_buf: &[Self::Numeric]) {
-        if region.width != WideTile::WIDTH || region.height != Tile::HEIGHT {
-            // Use scalar path for non-standard tile sizes. Wrapping this in `vectorize`
-            // degrades performance significantly on SSE4.2.
-            pack(region, blend_buf);
-        } else {
-            simd.vectorize(
-                #[inline(always)]
-                || {
-                    pack_block(simd, region, blend_buf);
-                },
-            );
-        }
-    }
-
-    /// Copies pixels from the output region to the scratch buffer.
-    ///
-    /// Converts from row-major region layout to column-major scratch buffer layout.
-    /// This is the inverse operation of `pack`.
-    #[inline(always)]
-    fn unpack(simd: S, region: &mut Region<'_>, blend_buf: &mut [Self::Numeric]) {
-        if region.width != WideTile::WIDTH || region.height != Tile::HEIGHT {
-            // Use scalar path for non-standard tile sizes.
-            // Note that right now, this path is unused (only for benchmarking), because when
-            // using filters we always allocate pixmaps of the same size as a wide tile.
-            // Nevertheless, we still keep this function here for reference, or in case that
-            // changes in the future.
-            unpack(region, blend_buf);
-        } else {
-            simd.vectorize(
-                #[inline(always)]
-                || {
-                    unpack_block(simd, region, blend_buf);
-                },
-            );
-        }
-    }
-
     /// Applies a filter effect to a rendered layer.
     ///
     /// Delegates to the u8-specific filter implementation.
+    #[expect(
+        private_interfaces,
+        reason = "`FineKernel` is public but this specific method is not needed."
+    )]
     fn filter_layer(
         pixmap: &mut Pixmap,
         filter: &Filter,
-        layer_manager: &mut LayerManager,
+        filter_scratch: &mut ScratchBuffer,
         transform: Affine,
     ) {
-        filter_lowp(filter, pixmap, layer_manager, transform);
+        filter_lowp(filter, pixmap, filter_scratch, transform);
     }
 
     /// Fills a buffer with a solid color using SIMD operations.
@@ -112,7 +71,7 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
         simd.vectorize(
             #[inline(always)]
             || {
-                let target: &mut [u32] = bytemuck::cast_slice_mut(dest);
+                let target: &mut [u32] = cast_slice_mut(dest);
                 target.fill(u32::from_ne_bytes(src));
             },
         );
@@ -343,6 +302,162 @@ impl<S: Simd> FineKernel<S> for U8Kernel {
             (None, None) => {
                 fill::blend(simd, dest, src, blend_mode);
             }
+        }
+    }
+
+    fn pack(simd: S, scratch: &[Self::Numeric], width: usize, region: &mut Region<'_>) {
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                pack(simd, scratch, width, region);
+            },
+        );
+    }
+
+    fn unpack(simd: S, region: &mut Region<'_>, width: usize, scratch: &mut [Self::Numeric]) {
+        simd.vectorize(
+            #[inline(always)]
+            || {
+                unpack(simd, region, width, scratch);
+            },
+        );
+    }
+}
+
+#[inline(always)]
+fn pack<S: Simd>(simd: S, scratch: &[u8], width: usize, region: &mut Region<'_>) {
+    let block_width = if region.height == Tile::HEIGHT {
+        (width / Tile::WIDTH as usize) * Tile::WIDTH as usize
+    } else {
+        0
+    };
+    if block_width > 0 {
+        pack_block(simd, scratch, block_width, region);
+    }
+
+    let tail_width = width - block_width;
+    if tail_width > 0 {
+        pack_tail(
+            &scratch[block_width * TILE_HEIGHT_COMPONENTS..],
+            block_width,
+            tail_width,
+            region,
+        );
+    }
+}
+
+#[inline(always)]
+fn pack_block<S: Simd>(simd: S, scratch: &[u8], width: usize, region: &mut Region<'_>) {
+    const CHUNK_LENGTH: usize = Tile::WIDTH as usize * TILE_HEIGHT_COMPONENTS;
+
+    let [row0, row1, row2, row3] = region.areas();
+    let row_len = width * COLOR_COMPONENTS;
+    let mut row0 = &mut row0[..row_len];
+    let mut row1 = &mut row1[..row_len];
+    let mut row2 = &mut row2[..row_len];
+    let mut row3 = &mut row3[..row_len];
+
+    for col in scratch[..width * TILE_HEIGHT_COMPONENTS].chunks_exact(CHUNK_LENGTH) {
+        let casted: &[u32; 16] = cast_slice::<u8, u32>(col).try_into().unwrap();
+
+        let loaded = simd.load_interleaved_128_u32x16(casted).to_bytes();
+        let (loaded_lo, loaded_hi) = simd.split_u8x64(loaded);
+        let (loaded_1, loaded_2) = simd.split_u8x32(loaded_lo);
+        let (loaded_3, loaded_4) = simd.split_u8x32(loaded_hi);
+
+        let (dest0, rest0) = row0.split_at_mut(Tile::WIDTH as usize * COLOR_COMPONENTS);
+        let (dest1, rest1) = row1.split_at_mut(Tile::WIDTH as usize * COLOR_COMPONENTS);
+        let (dest2, rest2) = row2.split_at_mut(Tile::WIDTH as usize * COLOR_COMPONENTS);
+        let (dest3, rest3) = row3.split_at_mut(Tile::WIDTH as usize * COLOR_COMPONENTS);
+
+        loaded_1.store_slice(dest0);
+        loaded_2.store_slice(dest1);
+        loaded_3.store_slice(dest2);
+        loaded_4.store_slice(dest3);
+
+        row0 = rest0;
+        row1 = rest1;
+        row2 = rest2;
+        row3 = rest3;
+    }
+}
+
+#[inline(always)]
+fn pack_tail(scratch: &[u8], x: usize, width: usize, region: &mut Region<'_>) {
+    for y in 0..region.height {
+        let row = &mut region.row_mut(y)[x * COLOR_COMPONENTS..(x + width) * COLOR_COMPONENTS];
+        for (dx, pixel) in row.chunks_exact_mut(COLOR_COMPONENTS).enumerate() {
+            let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * dx + usize::from(y));
+            pixel.copy_from_slice(&scratch[idx..idx + COLOR_COMPONENTS]);
+        }
+    }
+}
+
+#[inline(always)]
+fn unpack<S: Simd>(simd: S, region: &mut Region<'_>, width: usize, scratch: &mut [u8]) {
+    let block_width = if region.height == Tile::HEIGHT {
+        width / Tile::WIDTH as usize * Tile::WIDTH as usize
+    } else {
+        0
+    };
+    if block_width > 0 {
+        unpack_block(simd, region, block_width, scratch);
+    }
+
+    let tail_width = width - block_width;
+    if tail_width > 0 {
+        unpack_tail(
+            region,
+            block_width,
+            tail_width,
+            &mut scratch[block_width * TILE_HEIGHT_COMPONENTS..],
+        );
+    }
+}
+
+#[inline(always)]
+fn unpack_block<S: Simd>(simd: S, region: &mut Region<'_>, width: usize, scratch: &mut [u8]) {
+    let scratch: &mut [f32] = cast_slice_mut(&mut scratch[..width * TILE_HEIGHT_COMPONENTS]);
+    const CHUNK_LENGTH: usize = 16;
+
+    let [row0, row1, row2, row3] = region.areas();
+    let row_len = width * COLOR_COMPONENTS;
+    let mut row0 = &row0[..row_len];
+    let mut row1 = &row1[..row_len];
+    let mut row2 = &row2[..row_len];
+    let mut row3 = &row3[..row_len];
+
+    for col in scratch.as_chunks_mut::<CHUNK_LENGTH>().0.iter_mut() {
+        // Note: We experimented with using u32 vs. f32 for this, but it seems like for some reason
+        // f32 works better on M1, while on M4 they are the same. Probably worth doing more
+        // benchmarks on different systems.
+        let (src0, rest0) = row0.split_at(Tile::WIDTH as usize * COLOR_COMPONENTS);
+        let (src1, rest1) = row1.split_at(Tile::WIDTH as usize * COLOR_COMPONENTS);
+        let (src2, rest2) = row2.split_at(Tile::WIDTH as usize * COLOR_COMPONENTS);
+        let (src3, rest3) = row3.split_at(Tile::WIDTH as usize * COLOR_COMPONENTS);
+
+        let r0 = f32x4::from_bytes(u8x16::from_slice(simd, src0));
+        let r1 = f32x4::from_bytes(u8x16::from_slice(simd, src1));
+        let r2 = f32x4::from_bytes(u8x16::from_slice(simd, src2));
+        let r3 = f32x4::from_bytes(u8x16::from_slice(simd, src3));
+        let combined = simd.combine_f32x8(simd.combine_f32x4(r0, r1), simd.combine_f32x4(r2, r3));
+
+        simd.store_interleaved_128_f32x16(combined, col);
+
+        row0 = rest0;
+        row1 = rest1;
+        row2 = rest2;
+        row3 = rest3;
+    }
+}
+
+#[inline(always)]
+fn unpack_tail(region: &mut Region<'_>, x: usize, width: usize, scratch: &mut [u8]) {
+    for y in 0..region.height {
+        let row = &region.row_mut(y)[x * COLOR_COMPONENTS..(x + width) * COLOR_COMPONENTS];
+        for (dx, pixel) in row.chunks_exact(COLOR_COMPONENTS).enumerate() {
+            let idx = COLOR_COMPONENTS * (Tile::HEIGHT as usize * dx + usize::from(y));
+            scratch[idx..idx + COLOR_COMPONENTS].copy_from_slice(pixel);
         }
     }
 }
@@ -588,154 +703,67 @@ fn extract_masks<S: Simd>(simd: S, masks: &[u8; 8]) -> u8x32<S> {
     simd.combine_u8x16(zipped1, zipped2)
 }
 
-/// Copies color data from the scratch buffer to the output region (scalar fallback).
-///
-/// The scratch buffer stores pixels in column-major order for SIMD efficiency,
-/// while the region uses row-major order for output.
-#[inline(always)]
-fn pack(region: &mut Region<'_>, blend_buf: &[u8]) {
-    for y in 0..Tile::HEIGHT {
-        for (x, pixel) in region
-            .row_mut(y)
-            .chunks_exact_mut(COLOR_COMPONENTS)
-            .enumerate()
-        {
-            let idx = COLOR_COMPONENTS * (usize::from(Tile::HEIGHT) * x + usize::from(y));
-            pixel.copy_from_slice(&blend_buf[idx..][..COLOR_COMPONENTS]);
-        }
-    }
-}
-
-/// Copies color data from the output region to the scratch buffer.
-///
-/// Converts from row-major (region) to column-major (scratch buffer) layout.
-/// This is the inverse operation of `pack`.
-#[inline(always)]
-fn unpack(region: &mut Region<'_>, blend_buf: &mut [u8]) {
-    for y in 0..Tile::HEIGHT {
-        for (x, pixel) in region.row_mut(y).chunks_exact(COLOR_COMPONENTS).enumerate() {
-            let idx = COLOR_COMPONENTS * (usize::from(Tile::HEIGHT) * x + usize::from(y));
-            blend_buf[idx..][..COLOR_COMPONENTS].copy_from_slice(pixel);
-        }
-    }
-}
-
-/// SIMD-optimized version of `pack` for full-size tiles using interleaved loads.
-///
-/// Uses `load_interleaved_128` to efficiently transpose and copy data from column-major
-/// scratch buffer to row-major output region. Performance characteristics are highly
-/// architecture-dependent:
-/// - On NEON: ~3x faster than scalar `pack`
-/// - On fallback SIMD: ~3x slower than scalar `pack`
-///
-/// TODO: Consider runtime detection to fall back to scalar on non-NEON architectures.
-#[inline(always)]
-fn pack_block<S: Simd>(simd: S, region: &mut Region<'_>, mut buf: &[u8]) {
-    buf = &buf[..SCRATCH_BUF_SIZE];
-
-    const CHUNK_LENGTH: usize = 64;
-    const SLICE_WIDTH: usize = WideTile::WIDTH as usize * COLOR_COMPONENTS;
-
-    let region_areas = region.areas();
-    let [s1, s2, s3, s4] = region_areas;
-    let dest_slices: &mut [&mut [u8; SLICE_WIDTH]; 4] = &mut [
-        (*s1).try_into().unwrap(),
-        (*s2).try_into().unwrap(),
-        (*s3).try_into().unwrap(),
-        (*s4).try_into().unwrap(),
-    ];
-
-    for (idx, col) in buf.chunks_exact(CHUNK_LENGTH).enumerate() {
-        let dest_idx = idx * CHUNK_LENGTH / 4;
-
-        let casted: &[u32; 16] = cast_slice::<u8, u32>(col).try_into().unwrap();
-
-        let loaded = simd.load_interleaved_128_u32x16(casted).to_bytes();
-        let (loaded_lo, loaded_hi) = simd.split_u8x64(loaded);
-        let (loaded_1, loaded_2) = simd.split_u8x32(loaded_lo);
-        let (loaded_3, loaded_4) = simd.split_u8x32(loaded_hi);
-        loaded_1.store_slice(&mut dest_slices[0][dest_idx..][..16]);
-        loaded_2.store_slice(&mut dest_slices[1][dest_idx..][..16]);
-        loaded_3.store_slice(&mut dest_slices[2][dest_idx..][..16]);
-        loaded_4.store_slice(&mut dest_slices[3][dest_idx..][..16]);
-    }
-}
-
-/// The pendant to `pack_block`, but for unpacking.
-///
-/// See the [`unpack`] method for more information.
-#[inline(always)]
-fn unpack_block<S: Simd>(simd: S, region: &mut Region<'_>, buf: &mut [u8]) {
-    let buf: &mut [f32] = bytemuck::cast_slice_mut(&mut buf[..SCRATCH_BUF_SIZE]);
-    const CHUNK_LENGTH: usize = 16;
-
-    let region_areas = region.areas();
-    let [s1, s2, s3, s4] = region_areas;
-
-    for (idx, col) in buf.as_chunks_mut::<CHUNK_LENGTH>().0.iter_mut().enumerate() {
-        let src_idx = idx * CHUNK_LENGTH;
-
-        // Note: We experimented with using u32 vs. f32 for this, but it seems like for some reason
-        // f32 works better on M1, while on M4 they are the same. Probably worth doing more
-        // benchmarks on different systems.
-        let r0 = f32x4::from_bytes(u8x16::from_slice(simd, &s1[src_idx..][..16]));
-        let r1 = f32x4::from_bytes(u8x16::from_slice(simd, &s2[src_idx..][..16]));
-        let r2 = f32x4::from_bytes(u8x16::from_slice(simd, &s3[src_idx..][..16]));
-        let r3 = f32x4::from_bytes(u8x16::from_slice(simd, &s4[src_idx..][..16]));
-
-        let combined = simd.combine_f32x8(simd.combine_f32x4(r0, r1), simd.combine_f32x4(r2, r3));
-
-        simd.store_interleaved_128_f32x16(combined, col);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use alloc::vec;
     use alloc::vec::Vec;
-    use vello_common::fearless_simd::dispatch;
+    use vello_common::fearless_simd::{Level, dispatch};
+    use vello_common::geometry::RectU16;
 
     fn test_pack_unpack_roundtrip(
+        width: u16,
         pack_fn: impl FnOnce(&mut Region<'_>, &[u8]),
         unpack_fn: impl FnOnce(&mut Region<'_>, &mut [u8]),
     ) {
-        let width = WideTile::WIDTH;
         let height = Tile::HEIGHT;
+        let scratch_len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
 
         // Just some pseudo-random numbers.
-        let blend_buf = (0..SCRATCH_BUF_SIZE)
+        let scratch = (0..scratch_len)
             .map(|n| ((n * 7 + 13) % 256) as u8)
             .collect::<Vec<_>>();
 
-        let mut region_data = vec![0_u8; width as usize * height as usize * COLOR_COMPONENTS];
-        let row_len = width as usize * COLOR_COMPONENTS;
-        let (r0, rest) = region_data.split_at_mut(row_len);
-        let (r1, rest) = rest.split_at_mut(row_len);
-        let (r2, r3) = rest.split_at_mut(row_len);
-        let mut region = Region::new([r0, r1, r2, r3], 0, 0, width, height);
+        let mut pixmap = Pixmap::new(width, height);
+        let mut pixmap = pixmap.as_mut();
+        let mut region = Region::new(&mut pixmap, RectU16::new(0, 0, width, height));
 
-        // First pack.
-        pack_fn(&mut region, &blend_buf);
+        pack_fn(&mut region, &scratch);
 
-        // Now reverse the process, unpacking into a new buffer.
-        let mut unpacked_buf = vec![0_u8; SCRATCH_BUF_SIZE];
-        unpack_fn(&mut region, &mut unpacked_buf);
+        let mut unpacked = vec![0_u8; scratch_len];
+        unpack_fn(&mut region, &mut unpacked);
 
-        assert_eq!(&blend_buf, &unpacked_buf);
-    }
-
-    #[test]
-    fn pack_unpack_roundtrip() {
-        test_pack_unpack_roundtrip(pack, unpack);
+        assert_eq!(scratch, unpacked);
     }
 
     #[test]
     fn pack_block_unpack_block_roundtrip() {
+        let width = Tile::WIDTH * 2;
         dispatch!(Level::try_detect().unwrap_or(Level::baseline()), simd => {
             test_pack_unpack_roundtrip(
-                |region, buf| simd.vectorize(|| pack_block(simd, region, buf)),
-                |region, buf| simd.vectorize(|| unpack_block(simd, region, buf)),
+                width,
+                |region, scratch| {
+                    simd.vectorize(|| pack_block(simd, scratch, usize::from(width), region));
+                },
+                |region, scratch| {
+                    simd.vectorize(|| unpack_block(simd, region, usize::from(width), scratch));
+                },
+            );
+        });
+    }
+
+    #[test]
+    fn pack_unpack_roundtrip() {
+        let width = Tile::WIDTH * 2 + 1;
+        dispatch!(Level::try_detect().unwrap_or(Level::baseline()), simd => {
+            test_pack_unpack_roundtrip(
+                width,
+                |region, scratch| {
+                    simd.vectorize(|| pack(simd, scratch, usize::from(width), region));
+                },
+                |region, scratch| {
+                    simd.vectorize(|| unpack(simd, region, usize::from(width), scratch));
+                },
             );
         });
     }

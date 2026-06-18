@@ -433,7 +433,7 @@ impl Scene {
     /// example for how this method differs from `push_clip_layer`.
     pub fn push_clip_path(&mut self, path: &BezPath) {
         self.clip_context.push_clip(
-            path,
+            path.iter(),
             &mut self.strip_generator,
             self.render_state.fill_rule,
             self.render_state.transform,

@@ -555,9 +555,8 @@ impl<const MODE: u8> Wide<MODE> {
 
             // Calculate the width of the strip in columns
             let mut col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
-            let next_col = next_strip.alpha_idx() / u32::from(Tile::HEIGHT);
             // Can potentially be 0 if strip only changes winding without covering pixels
-            let strip_width = next_col.saturating_sub(col) as u16;
+            let strip_width = strip.width_to(next_strip);
             let x1 = x0.saturating_add(strip_width);
 
             // Calculate which wide tiles this strip intersects
@@ -864,7 +863,7 @@ impl<const MODE: u8> Wide<MODE> {
                 {
                     // Calculate expansion in device/pixel space, accounting for the full transform.
                     // This ensures that rotated filters (e.g., drop shadows) have correct bounds.
-                    let expansion = filter.bounds_expansion(transform);
+                    let expansion = filter.filter_expansion(transform);
                     let expanded_bbox = layer.wtile_bbox.expand_by_pixels(
                         expansion,
                         self.width_tiles(),
