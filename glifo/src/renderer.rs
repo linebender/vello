@@ -448,7 +448,7 @@ fn insert_and_render_bitmap(
         width,
         height,
         bearing_x: 0,
-        bearing_y: 0,
+        bearing_y: -(height as i16),
     };
 
     // Bitmap glyphs already have pixel data — no draw commands to record,
