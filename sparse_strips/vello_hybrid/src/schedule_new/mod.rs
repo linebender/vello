@@ -3,20 +3,19 @@
 
 //! New scheduler implementation for `vello_hybrid`.
 //!
-//! This first slice only supports root-level draw commands. Layers are deliberately rejected until
-//! the layer-atlas scheduler lands.
+//! This first slice supports root-level draws and regular property-less layers.
 
-use crate::scene::{FastPathRect, RecordedDraw};
-use crate::schedule::{GpuStripBuilder, Scheduler as ExistingScheduler, make_gpu_rect, split_rect};
+mod builder;
+mod round;
+
+use self::builder::Scheduler;
+use self::round::Schedule;
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::vec::Vec;
 use vello_common::TextureId;
 use vello_common::encode::EncodedPaint;
-use vello_common::paint::Paint;
-use vello_common::record::RecordedCmd;
+use vello_common::geometry::RectU16;
 use vello_common::render_graph::LayerId;
-use vello_common::strip_generator::StripStorage;
-use vello_common::tile::Tile;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RootRenderTarget {
@@ -32,10 +31,29 @@ pub(crate) enum RootRenderTarget {
 pub(crate) enum StripPassRenderTarget {
     /// Render to the root output target.
     Root(RootRenderTarget),
+    /// Render to an allocated region in one of the layer atlas textures.
+    Layer(LayerTextureRegion),
     /// Render to a layer in the filter atlas.
     FilterLayer(LayerId),
     /// Render to one of the slot textures used for clipping/blending.
     SlotTexture(u8),
+}
+
+/// A rectangular region in one of the layer atlas textures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LayerTextureRegion {
+    /// Layer texture index, currently `0` or `1`.
+    pub(crate) texture_index: usize,
+    /// X coordinate in the layer texture.
+    pub(crate) x: u32,
+    /// Y coordinate in the layer texture.
+    pub(crate) y: u32,
+    /// Width of the region.
+    pub(crate) width: u32,
+    /// Height of the region.
+    pub(crate) height: u32,
+    /// Bounds of this layer in viewport coordinates.
+    pub(crate) scene_bbox: RectU16,
 }
 
 /// Specifies a run of strips inside a draw that can be drawn with the same external texture
@@ -50,6 +68,12 @@ pub(crate) struct ExternalTextureRun {
 
 #[allow(dead_code)]
 pub(crate) trait RendererBackend {
+    /// Return the dimensions of each layer atlas texture.
+    fn layer_texture_size(&self) -> (u32, u32);
+
+    /// Clear rectangular regions in layer atlas textures to transparent black.
+    fn clear_layer_regions(&mut self, regions: &[LayerTextureRegion]);
+
     /// Clear specific slots in a texture.
     fn clear_slots(&mut self, texture_index: usize, slots: &[u32]);
 
@@ -84,176 +108,62 @@ pub(crate) fn render_scene<R: RendererBackend>(
     paint_idxs: &[u32],
     encoded_paints: &[EncodedPaint],
 ) -> Result<(), RenderError> {
-    let mut builder = DirectRootBuilder::default();
     let strip_storage = scene.strip_storage.borrow();
-
-    for cmd in &scene.recorder.root_cmds {
-        match cmd {
-            RecordedCmd::Batch(range) => {
-                for draw in &scene.recorder.draws[range.start as usize..range.end as usize] {
-                    builder.push_draw(draw, &strip_storage, scene, encoded_paints, paint_idxs);
-                }
-            }
-            RecordedCmd::Layer(_) => {
-                return Err(RenderError::UnsupportedFeature(
-                    "layers are not supported by schedule_new yet",
-                ));
-            }
-        }
-    }
-
-    builder.flush(renderer, root_output_target);
+    let mut builder = Scheduler::new(
+        scene,
+        &strip_storage,
+        root_output_target,
+        paint_idxs,
+        encoded_paints,
+        renderer.layer_texture_size(),
+    );
+    let schedule = builder.build()?;
+    execute_schedule(renderer, &schedule);
     Ok(())
 }
 
-#[derive(Debug, Default)]
-struct DirectRootBuilder {
-    draw: Draw,
-    depth: DepthCounter,
-}
-
-impl DirectRootBuilder {
-    fn push_draw(
-        &mut self,
-        draw: &RecordedDraw,
-        strip_storage: &StripStorage,
-        scene: &Scene,
-        encoded_paints: &[EncodedPaint],
-        paint_idxs: &[u32],
-    ) {
-        match draw {
-            RecordedDraw::Path(path) => {
-                self.push_path(
-                    path.strips.clone(),
-                    path.paint.clone(),
-                    strip_storage,
-                    scene,
-                    encoded_paints,
-                    paint_idxs,
-                );
-            }
-            RecordedDraw::Rect(rect) => {
-                self.push_rect(&rect.rect, encoded_paints, paint_idxs);
-            }
+fn execute_schedule<R: RendererBackend>(renderer: &mut R, schedule: &Schedule) {
+    for round in &schedule.rounds {
+        for pass in &round.passes {
+            renderer.render_strips(
+                &pass.draw.opaque,
+                &pass.draw.alpha,
+                &pass.draw.external_texture_runs,
+                pass.target.strip_pass_target(),
+                LoadOp::Load,
+            );
         }
-    }
-
-    fn push_path(
-        &mut self,
-        strips: core::ops::Range<usize>,
-        paint: Paint,
-        strip_storage: &StripStorage,
-        scene: &Scene,
-        encoded_paints: &[EncodedPaint],
-        paint_idxs: &[u32],
-    ) {
-        let strips = &strip_storage.strips[strips];
-
-        if strips.is_empty() {
-            return;
-        }
-
-        let is_opaque = is_paint_opaque(&paint, encoded_paints);
-        let depth_index = self.depth.next(is_opaque);
-
-        for i in 0..strips.len() - 1 {
-            let strip = &strips[i];
-
-            if strip.x >= scene.width {
-                continue;
-            }
-
-            let next_strip = &strips[i + 1];
-            let col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
-            let next_col = next_strip.alpha_idx() / u32::from(Tile::HEIGHT);
-            let strip_width = next_col.saturating_sub(col) as u16;
-            let x0 = strip.x;
-            let y = strip.y;
-
-            if strip_width > 0 {
-                let processed =
-                    ExistingScheduler::process_paint(&paint, encoded_paints, (x0, y), paint_idxs);
-                self.draw.push_alpha(
-                    GpuStripBuilder::at_surface(x0, y, strip_width)
-                        .with_sparse(strip_width, col)
-                        .paint(processed.payload, processed.paint, depth_index),
-                    processed.external_texture_id,
-                );
-            }
-
-            if next_strip.fill_gap() && strip.strip_y() == next_strip.strip_y() {
-                let x1 = x0.saturating_add(strip_width);
-                let x2 = next_strip.x.min(scene.width);
-                if x2 > x1 {
-                    let processed = ExistingScheduler::process_paint(
-                        &paint,
-                        encoded_paints,
-                        (x1, y),
-                        paint_idxs,
-                    );
-                    let strip = GpuStripBuilder::at_surface(x1, y, x2 - x1).paint(
-                        processed.payload,
-                        processed.paint,
-                        depth_index,
-                    );
-                    if is_opaque {
-                        self.draw.push_opaque(strip);
-                    } else {
-                        self.draw.push_alpha(strip, processed.external_texture_id);
-                    }
-                }
-            }
-        }
-    }
-
-    fn push_rect(
-        &mut self,
-        rect: &FastPathRect,
-        encoded_paints: &[EncodedPaint],
-        paint_idxs: &[u32],
-    ) {
-        let is_opaque = is_paint_opaque(&rect.paint, encoded_paints);
-        let depth_index = self.depth.next(is_opaque);
-        pack_rectangle_into_gpu(
-            rect,
-            encoded_paints,
-            paint_idxs,
-            depth_index,
-            is_opaque,
-            &mut self.draw,
-        );
-    }
-
-    fn flush<R: RendererBackend>(
-        &mut self,
-        renderer: &mut R,
-        root_output_target: RootRenderTarget,
-    ) {
-        if self.draw.is_empty() {
-            return;
-        }
-
-        self.draw.opaque.reverse();
-        renderer.render_strips(
-            &self.draw.opaque,
-            &self.draw.alpha,
-            &self.draw.external_texture_runs,
-            StripPassRenderTarget::Root(root_output_target),
-            LoadOp::Load,
-        );
+        renderer.clear_layer_regions(&round.clear_layer_regions);
     }
 }
 
-#[derive(Debug, Default)]
-struct DepthCounter {
-    count: u32,
+#[derive(Debug, Clone, Copy)]
+pub(super) enum RenderTarget {
+    Root(RootRenderTarget),
+    Layer(LayerTextureRegion),
 }
 
-impl DepthCounter {
-    #[inline(always)]
-    fn next(&mut self, opaque: bool) -> u32 {
-        self.count += opaque as u32;
-        self.count
+impl RenderTarget {
+    fn strip_pass_target(self) -> StripPassRenderTarget {
+        match self {
+            Self::Root(root) => StripPassRenderTarget::Root(root),
+            Self::Layer(layer) => StripPassRenderTarget::Layer(layer),
+        }
+    }
+
+    fn allows_opaque_pass(self) -> bool {
+        // TODO: Allow opaque strips for intermediate targets?
+        matches!(self, Self::Root(RootRenderTarget::UserSurface))
+    }
+
+    fn geometry_offset(self) -> (i32, i32) {
+        match self {
+            Self::Root(_) => (0, 0),
+            Self::Layer(region) => (
+                region.x as i32 - i32::from(region.scene_bbox.x0),
+                region.y as i32 - i32::from(region.scene_bbox.y0),
+            ),
+        }
     }
 }
 
@@ -295,59 +205,5 @@ impl Draw {
 
     fn is_empty(&self) -> bool {
         self.opaque.is_empty() && self.alpha.is_empty()
-    }
-}
-
-fn is_paint_opaque(paint: &Paint, encoded_paints: &[EncodedPaint]) -> bool {
-    match paint {
-        Paint::Solid(color) => color.is_opaque(),
-        Paint::Indexed(indexed_paint) => match encoded_paints.get(indexed_paint.index()) {
-            Some(EncodedPaint::Image(image)) => {
-                !image.may_have_transparency
-                    && image.sampler.alpha == 1.0
-                    && image.tint.is_none_or(|t| t.color.components[3] >= 1.0)
-            }
-            Some(EncodedPaint::ExternalTexture(_)) => false,
-            Some(EncodedPaint::Gradient(gradient)) => !gradient.may_have_transparency,
-            Some(EncodedPaint::BlurredRoundedRect(_)) => false,
-            None => unreachable!("Paint must be in encoded paints"),
-        },
-    }
-}
-
-fn pack_rectangle_into_gpu(
-    rect: &FastPathRect,
-    encoded_paints: &[EncodedPaint],
-    paint_idxs: &[u32],
-    depth_index: u32,
-    is_opaque: bool,
-    draw: &mut Draw,
-) {
-    let split = split_rect(rect);
-
-    let mut is_first = true;
-    for part in [
-        Some(split.main),
-        split.top,
-        split.bottom,
-        split.left,
-        split.right,
-    ]
-    .into_iter()
-    .flatten()
-    {
-        let processed = ExistingScheduler::process_paint(
-            &rect.paint,
-            encoded_paints,
-            (part.x, part.y),
-            paint_idxs,
-        );
-        let strip = make_gpu_rect(part, processed.payload, processed.paint, depth_index);
-        if is_first && is_opaque && part.frac == 0 {
-            draw.push_opaque(strip);
-        } else {
-            draw.push_alpha(strip, processed.external_texture_id);
-        }
-        is_first = false;
     }
 }

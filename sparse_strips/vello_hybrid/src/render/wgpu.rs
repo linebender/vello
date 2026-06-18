@@ -37,7 +37,8 @@ use crate::{
     scene::Scene,
     schedule::{Scheduler, SchedulerState},
     schedule_new::{
-        ExternalTextureRun, LoadOp, RendererBackend, RootRenderTarget, StripPassRenderTarget,
+        ExternalTextureRun, LayerTextureRegion, LoadOp, RendererBackend, RootRenderTarget,
+        StripPassRenderTarget,
     },
 };
 use alloc::vec::Vec;
@@ -1120,6 +1121,8 @@ struct GpuResources {
     view_config_buffer: Buffer,
     /// Config buffer for rendering wide tile commands into a slot texture.
     slot_config_buffer: Buffer,
+    /// Config buffer for rendering strips into a layer texture.
+    layer_config_buffer: Buffer,
 
     /// Buffer for slot indices used in `clear_slots`
     #[allow(dead_code)]
@@ -1129,6 +1132,8 @@ struct GpuResources {
     filter_instance_buffer: Buffer,
     // Bind groups for rendering with clip buffers
     slot_bind_groups: [BindGroup; 3],
+    /// Bind groups for rendering into layer atlas textures.
+    layer_bind_groups: [BindGroup; 2],
     /// Slot texture views
     slot_texture_views: [TextureView; 2],
 
@@ -1139,6 +1144,11 @@ struct GpuResources {
     /// Placeholder paint-source bind group with a 1x1 dummy atlas texture, used during
     /// `render_to_atlas` to avoid a read-write conflict on the real atlas texture.
     stub_atlas_bind_group: BindGroup,
+
+    /// Layer atlas textures.
+    layer_textures: [Texture; 2],
+    /// Layer atlas texture views.
+    layer_texture_views: [TextureView; 2],
 }
 
 const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).unwrap();
@@ -1583,6 +1593,28 @@ impl Programs {
                 .create_view(&TextureViewDescriptor::default())
         });
 
+        let layer_texture_size = device.limits().max_texture_dimension_2d.min(4096);
+        let layer_textures: [Texture; 2] = core::array::from_fn(|_| {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Layer Atlas Texture"),
+                size: Extent3d {
+                    width: layer_texture_size,
+                    height: layer_texture_size,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            })
+        });
+        let layer_texture_views = layer_textures
+            .each_ref()
+            .map(|texture| texture.create_view(&TextureViewDescriptor::default()));
+
         let clear_config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Clear Slots Config"),
             contents: bytemuck::bytes_of(&ClearSlotsConfig {
@@ -1613,6 +1645,13 @@ impl Programs {
                 height: u32::from(Tile::HEIGHT) * slot_count as u32,
             },
             device.limits().max_texture_dimension_2d,
+        );
+        let layer_config_buffer = Self::create_config_buffer_for_size(
+            device,
+            layer_texture_size,
+            layer_texture_size,
+            device.limits().max_texture_dimension_2d,
+            0,
         );
 
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
@@ -1720,7 +1759,14 @@ impl Programs {
             &alphas_texture.create_view(&TextureViewDescriptor::default()),
             &slot_config_buffer,
             &view_config_buffer,
-            &slot_texture_views,
+            &layer_texture_views,
+        );
+        let layer_bind_groups = Self::create_layer_bind_groups(
+            device,
+            &strip_bind_group_layout,
+            &alphas_texture.create_view(&TextureViewDescriptor::default()),
+            &layer_config_buffer,
+            &layer_texture_views,
         );
 
         let resources = GpuResources {
@@ -1731,8 +1777,12 @@ impl Programs {
                 size_of::<FilterInstanceData>() as u64,
             ),
             slot_texture_views,
+            layer_textures,
+            layer_texture_views,
             slot_config_buffer,
+            layer_config_buffer,
             slot_bind_groups,
+            layer_bind_groups,
             clear_bind_group,
             alphas_texture,
             atlas_texture_array,
@@ -1833,17 +1883,33 @@ impl Programs {
         render_size: &RenderSize,
         alpha_texture_width: u32,
     ) -> Buffer {
+        Self::create_config_buffer_for_size(
+            device,
+            render_size.width,
+            render_size.height,
+            alpha_texture_width,
+            0,
+        )
+    }
+
+    fn create_config_buffer_for_size(
+        device: &Device,
+        width: u32,
+        height: u32,
+        alpha_texture_width: u32,
+        negate_ndc: u32,
+    ) -> Buffer {
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Config Buffer"),
             contents: bytemuck::bytes_of(&Config {
-                width: render_size.width,
-                height: render_size.height,
+                width,
+                height,
                 strip_height: Tile::HEIGHT.into(),
                 alphas_tex_width_bits: alpha_texture_width.trailing_zeros(),
                 encoded_paints_tex_width_bits: alpha_texture_width.trailing_zeros(),
                 strip_offset_x: 0,
                 strip_offset_y: 0,
-                negate_ndc: 0,
+                negate_ndc,
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         })
@@ -2082,6 +2148,31 @@ impl Programs {
         ]
     }
 
+    fn create_layer_bind_groups(
+        device: &Device,
+        strip_bind_group_layout: &BindGroupLayout,
+        alphas_texture_view: &TextureView,
+        layer_config_buffer: &Buffer,
+        layer_texture_views: &[TextureView],
+    ) -> [BindGroup; 2] {
+        [
+            Self::create_strip_bind_group(
+                device,
+                strip_bind_group_layout,
+                alphas_texture_view,
+                layer_config_buffer,
+                &layer_texture_views[1],
+            ),
+            Self::create_strip_bind_group(
+                device,
+                strip_bind_group_layout,
+                alphas_texture_view,
+                layer_config_buffer,
+                &layer_texture_views[0],
+            ),
+        ]
+    }
+
     fn create_strip_bind_group(
         device: &Device,
         strip_bind_group_layout: &BindGroupLayout,
@@ -2219,7 +2310,17 @@ impl Programs {
                     .create_view(&TextureViewDescriptor::default()),
                 &self.resources.slot_config_buffer,
                 &self.resources.view_config_buffer,
-                &self.resources.slot_texture_views,
+                &self.resources.layer_texture_views,
+            );
+            self.resources.layer_bind_groups = Self::create_layer_bind_groups(
+                device,
+                &self.strip_bind_group_layout,
+                &self
+                    .resources
+                    .alphas_texture
+                    .create_view(&TextureViewDescriptor::default()),
+                &self.resources.layer_config_buffer,
+                &self.resources.layer_texture_views,
             );
         }
     }
@@ -2679,6 +2780,13 @@ impl RendererContext<'_> {
                 MaybeOwned::Borrowed(&self.programs.resources.slot_bind_groups[2]),
                 None,
             ),
+            StripPassRenderTarget::Layer(region) => (
+                &self.programs.resources.layer_texture_views[region.texture_index],
+                MaybeOwned::Borrowed(
+                    &self.programs.resources.layer_bind_groups[region.texture_index],
+                ),
+                Some([region.x, region.y, region.width, region.height]),
+            ),
             StripPassRenderTarget::FilterLayer(layer_id) => {
                 let image_id = self
                     .filter_context
@@ -2780,6 +2888,7 @@ impl RendererContext<'_> {
         let pipeline_idx = if matches!(
             target,
             StripPassRenderTarget::Root(RootRenderTarget::AtlasLayer)
+                | StripPassRenderTarget::Layer(_)
                 | StripPassRenderTarget::FilterLayer(_)
         ) {
             1
@@ -2787,12 +2896,9 @@ impl RendererContext<'_> {
             0
         };
 
-        let is_final_view = matches!(
-            target,
-            StripPassRenderTarget::Root(RootRenderTarget::UserSurface)
-        );
+        let is_root_target = matches!(target, StripPassRenderTarget::Root(_));
 
-        let depth_stencil_attachment = if is_final_view {
+        let depth_stencil_attachment = if is_root_target {
             let depth_load = if self.programs.depth_cleared_this_frame {
                 wgpu::LoadOp::Load
             } else {
@@ -2839,8 +2945,8 @@ impl RendererContext<'_> {
         if opaque_count > 0 {
             // Opaque pass
             debug_assert!(
-                is_final_view,
-                "The scheduler only allows the final view to have opaque strips"
+                is_root_target,
+                "Layer targets need depth attachments before opaque strips can be enabled"
             );
             render_pass.set_pipeline(&self.programs.opaque_strip_pipelines[pipeline_idx]);
             render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
@@ -2849,7 +2955,7 @@ impl RendererContext<'_> {
 
         if alpha_count > 0 {
             // Alpha pass
-            if is_final_view {
+            if is_root_target {
                 render_pass.set_pipeline(&self.programs.alpha_strip_pipelines[pipeline_idx]);
             } else {
                 render_pass.set_pipeline(&self.programs.slot_strip_pipelines[pipeline_idx]);
@@ -2928,6 +3034,46 @@ impl RendererContext<'_> {
             render_pass.set_bind_group(0, &resources.clear_bind_group, &[]);
             render_pass.set_vertex_buffer(0, resources.clear_slot_indices_buffer.slice(..));
             render_pass.draw(0..4, 0..u32::try_from(slot_indices.len()).unwrap());
+        }
+    }
+
+    fn layer_texture_size(&self) -> (u32, u32) {
+        let size = self.programs.resources.layer_textures[0].size();
+        (size.width, size.height)
+    }
+
+    fn do_clear_layer_regions_render_pass(&mut self, regions: &[LayerTextureRegion]) {
+        for texture_index in 0..self.programs.resources.layer_texture_views.len() {
+            // TODO: IMprove
+            if !regions.iter().any(|region| {
+                region.texture_index == texture_index && region.width > 0 && region.height > 0
+            }) {
+                continue;
+            }
+
+            let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("Clear Layer Regions"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: &self.programs.resources.layer_texture_views[texture_index],
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+            render_pass.set_pipeline(&self.programs.atlas_clear_pipeline);
+            for region in regions.iter().filter(|region| {
+                region.texture_index == texture_index && region.width > 0 && region.height > 0
+            }) {
+                render_pass.set_scissor_rect(region.x, region.y, region.width, region.height);
+                render_pass.draw(0..4, 0..1);
+            }
         }
     }
 }
@@ -3049,6 +3195,14 @@ impl RendererBackend for RendererContext<'_> {
             );
             render_pass.draw(0..4, 0..1);
         }
+    }
+
+    fn layer_texture_size(&self) -> (u32, u32) {
+        RendererContext::layer_texture_size(self)
+    }
+
+    fn clear_layer_regions(&mut self, regions: &[LayerTextureRegion]) {
+        self.do_clear_layer_regions_render_pass(regions);
     }
 }
 

@@ -28,7 +28,7 @@ use vello_common::paint::{Paint, PaintType, Tint};
 use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Extend, Fill, ImageQuality, ImageSampler, Mix};
-use vello_common::record::{CommandRecorder, Drawable};
+use vello_common::record::{CommandRecorder, Drawable, LayerProps};
 use vello_common::render_graph::{RenderGraph, RenderNodeKind};
 use vello_common::render_state::RenderState;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
@@ -935,8 +935,39 @@ impl Scene {
         mask: Option<Mask>,
         filter: Option<Filter>,
     ) {
-        let _ = (clip_path, blend_mode, opacity, mask, filter);
-        unimplemented!("layer recording is not supported by the new vello_hybrid scheduler yet");
+        if clip_path.is_some() {
+            unimplemented!("clip layers are not supported by the new vello_hybrid scheduler yet");
+        }
+        if mask.is_some() {
+            unimplemented!("mask layers are not supported by the new vello_hybrid scheduler yet");
+        }
+        if filter.is_some() {
+            unimplemented!("filter layers are not supported by the new vello_hybrid scheduler yet");
+        }
+
+        let blend_mode = blend_mode.unwrap_or(DEFAULT_BLEND_MODE);
+        if blend_mode != DEFAULT_BLEND_MODE {
+            unimplemented!(
+                "non-default blending is not supported by the new vello_hybrid scheduler yet"
+            );
+        }
+
+        let opacity = opacity.unwrap_or(1.0);
+        if opacity != 1.0 {
+            unimplemented!(
+                "opacity layers are not supported by the new vello_hybrid scheduler yet"
+            );
+        }
+
+        self.recorder.push_layer(
+            LayerProps {
+                blend_mode,
+                opacity,
+                mask: None,
+                clip_path: None,
+            },
+            None,
+        );
     }
 
     #[allow(dead_code)]
@@ -1024,7 +1055,7 @@ impl Scene {
 
     /// Pop the last pushed layer.
     pub fn pop_layer(&mut self) {
-        unimplemented!("layer recording is not supported by the new vello_hybrid scheduler yet");
+        self.recorder.pop_layer();
     }
 
     /// Set the blend mode for subsequent rendering operations.
@@ -1377,68 +1408,5 @@ mod tests {
 
         assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
         assert!(is_path(&scene.fast_strips_buffer.commands[0]));
-    }
-
-    #[test]
-    fn rect_rejected_inside_layer() {
-        let mut scene = unconstrained();
-        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
-        scene.push_layer(None, None, Some(0.5), None, None);
-        scene.fill_rect(&small_rect());
-        scene.pop_layer();
-
-        assert!(scene.fast_strips_buffer.commands.is_empty());
-    }
-
-    #[test]
-    fn coarse_only_on_push_layer_no_constraint() {
-        let mut scene = unconstrained();
-        scene.push_layer(None, None, Some(0.5), None, None);
-
-        assert_eq!(scene.strip_path_mode, StripPathMode::CoarseOnly);
-        assert!(scene.fast_strips_buffer.commands.is_empty());
-    }
-
-    #[test]
-    fn coarse_only_flushes_prior_fast_rects() {
-        let mut scene = unconstrained();
-        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
-        scene.fill_rect(&small_rect());
-        assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
-
-        scene.push_layer(None, None, Some(0.5), None, None);
-        assert_eq!(scene.strip_path_mode, StripPathMode::CoarseOnly);
-        assert!(scene.fast_strips_buffer.commands.is_empty());
-    }
-
-    #[test]
-    fn reset_restores_fast_only() {
-        let mut scene = unconstrained();
-        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
-        scene.push_layer(None, None, Some(0.5), None, None);
-        assert_eq!(scene.strip_path_mode, StripPathMode::CoarseOnly);
-
-        scene.pop_layer();
-        scene.reset();
-
-        assert_eq!(scene.strip_path_mode, StripPathMode::FastOnly);
-        assert!(scene.fast_strips_buffer.commands.is_empty());
-        assert!(scene.coarse_batch_splits.is_empty());
-    }
-
-    #[test]
-    fn reset_then_rect_uses_fast_path() {
-        let mut scene = unconstrained();
-        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
-        scene.push_layer(None, None, Some(0.5), None, None);
-        scene.pop_layer();
-        scene.reset();
-
-        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
-        scene.fill_rect(&small_rect());
-
-        assert_eq!(scene.strip_path_mode, StripPathMode::FastOnly);
-        assert_eq!(scene.fast_strips_buffer.commands.len(), 1);
-        assert!(is_rect(&scene.fast_strips_buffer.commands[0]));
     }
 }

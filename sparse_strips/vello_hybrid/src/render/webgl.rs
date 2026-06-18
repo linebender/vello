@@ -37,8 +37,10 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{
-        LoadOp, RendererBackend, RootRenderTarget, Scheduler, SchedulerState, StripPassRenderTarget,
+    schedule::{Scheduler, SchedulerState},
+    schedule_new::{
+        ExternalTextureRun, LayerTextureRegion, LoadOp, RendererBackend, RootRenderTarget,
+        StripPassRenderTarget,
     },
 };
 use alloc::sync::Arc;
@@ -108,8 +110,10 @@ pub struct WebGlRenderer {
     /// Programs for rendering.
     programs: WebGlPrograms,
     /// Scheduler for scheduling draws.
+    #[allow(dead_code)]
     scheduler: Scheduler,
     /// The state used by the scheduler.
+    #[allow(dead_code)]
     scheduler_state: SchedulerState,
     /// WebGL context.
     gl: WebGl2RenderingContext,
@@ -674,13 +678,11 @@ impl WebGlRenderer {
             filter_context: &self.filter_context,
             filter_pass_state: &mut self.filter_pass_state,
         };
-        self.scheduler.do_scene(
-            &mut self.scheduler_state,
+        crate::schedule_new::render_scene(
             &mut ctx,
             scene,
             root_output_target,
             &self.paint_idxs,
-            &self.filter_context,
             &encoded_paints,
         )?;
 
@@ -1059,8 +1061,8 @@ struct StripUniforms {
     config_fs_block_index: u32,
     /// Alphas texture location.
     alphas_texture: WebGlUniformLocation,
-    /// Clip input texture location.
-    clip_input_texture: WebGlUniformLocation,
+    /// Layer input texture location.
+    layer_input_texture: WebGlUniformLocation,
     /// Atlas texture location.
     atlas_texture_array: WebGlUniformLocation,
     /// Encoded paints texture location for fragment shader.
@@ -1123,6 +1125,9 @@ struct WebGlResources {
     depth_attachment_array: js_sys::Array,
 
     /// Slot textures.
+    ///
+    /// Kept alive for the framebuffer attachments while the old slot path remains in the file.
+    #[allow(dead_code)]
     slot_textures: [Texture; 2],
     /// Framebuffers for slot textures.
     slot_framebuffers: [Framebuffer; 2],
@@ -1161,6 +1166,13 @@ struct WebGlResources {
     filter_atlas_width: u32,
     /// Cached atlas height for creating new filter atlas textures.
     filter_atlas_height: u32,
+
+    /// Config buffer for rendering strips into a layer texture.
+    layer_config_buffer: Buffer,
+    /// Layer atlas textures.
+    layer_textures: [Texture; 2],
+    /// Framebuffers for layer atlas textures.
+    layer_framebuffers: [Framebuffer; 2],
 }
 
 /// Config for the clear slots pipeline.
@@ -1557,6 +1569,33 @@ impl WebGlPrograms {
                 gl.buffer_data_with_u8_array(
                     WebGl2RenderingContext::UNIFORM_BUFFER,
                     slot_config_data,
+                    WebGl2RenderingContext::STATIC_DRAW,
+                );
+            }
+
+            // Update layer config buffer.
+            {
+                let layer_texture_size = max_texture_dimension_2d.min(4096);
+                let layer_config = Config {
+                    width: layer_texture_size,
+                    height: layer_texture_size,
+                    strip_height: u32::from(Tile::HEIGHT),
+                    alphas_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+                    encoded_paints_tex_width_bits: max_texture_dimension_2d.trailing_zeros(),
+                    strip_offset_x: 0,
+                    strip_offset_y: 0,
+                    // Always use y-down when rendering to layer atlases.
+                    negate_ndc: 0,
+                };
+
+                gl.bind_buffer(
+                    WebGl2RenderingContext::UNIFORM_BUFFER,
+                    Some(&self.resources.layer_config_buffer),
+                );
+                let layer_config_data = bytemuck::bytes_of(&layer_config);
+                gl.buffer_data_with_u8_array(
+                    WebGl2RenderingContext::UNIFORM_BUFFER,
+                    layer_config_data,
                     WebGl2RenderingContext::STATIC_DRAW,
                 );
             }
@@ -2101,7 +2140,7 @@ fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &Program) -> StripUn
 
     // Get texture uniform locations.
     let alphas_texture_name = render_strips::fragment::ALPHAS_TEXTURE;
-    let clip_input_texture_name = render_strips::fragment::CLIP_INPUT_TEXTURE;
+    let layer_input_texture_name = render_strips::fragment::LAYER_INPUT_TEXTURE;
     let atlas_texture_array_name = render_strips::fragment::ATLAS_TEXTURE_ARRAY;
     let encoded_paints_texture_fs_name = render_strips::fragment::ENCODED_PAINTS_TEXTURE;
     let encoded_paints_texture_vs_name = render_strips::vertex::ENCODED_PAINTS_TEXTURE;
@@ -2114,8 +2153,8 @@ fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &Program) -> StripUn
         alphas_texture: gl
             .get_uniform_location(program, alphas_texture_name)
             .unwrap(),
-        clip_input_texture: gl
-            .get_uniform_location(program, clip_input_texture_name)
+        layer_input_texture: gl
+            .get_uniform_location(program, layer_input_texture_name)
             .unwrap(),
         atlas_texture_array: gl
             .get_uniform_location(program, atlas_texture_array_name)
@@ -2324,8 +2363,10 @@ fn create_webgl_resources(
     let strips_buffer = Buffer::new(gl);
     let view_config_buffer = Buffer::new(gl);
     let slot_config_buffer = Buffer::new(gl);
+    let layer_config_buffer = Buffer::new(gl);
     let clear_slot_indices_buffer = Buffer::new(gl);
     let clear_config_buffer = Buffer::new(gl);
+    let max_texture_dimension_2d = get_max_texture_dimension_2d(gl);
 
     // Create and configure alpha texture.
     let alphas_texture = create_texture(gl);
@@ -2360,7 +2401,15 @@ fn create_webgl_resources(
         create_framebuffer_for_texture(gl, &slot_textures[1]),
     ];
 
-    let max_texture_dimension_2d = get_max_texture_dimension_2d(gl);
+    let layer_texture_size = max_texture_dimension_2d.min(4096);
+    let layer_textures: [Texture; 2] = [
+        create_layer_texture(gl, layer_texture_size),
+        create_layer_texture(gl, layer_texture_size),
+    ];
+    let layer_framebuffers: [Framebuffer; 2] = [
+        create_framebuffer_for_texture(gl, &layer_textures[0]),
+        create_framebuffer_for_texture(gl, &layer_textures[1]),
+    ];
 
     let filter_data_texture = create_texture(gl);
     let filter_config_buffer = Buffer::new(gl);
@@ -2407,6 +2456,9 @@ fn create_webgl_resources(
         filter_config_buffer,
         filter_atlas_width: *filter_atlas_width,
         filter_atlas_height: *filter_atlas_height,
+        layer_config_buffer,
+        layer_textures,
+        layer_framebuffers,
     }
 }
 
@@ -2447,6 +2499,26 @@ fn create_slot_texture(gl: &WebGl2RenderingContext, slot_count: usize) -> Textur
         WebGl2RenderingContext::RGBA8 as i32,
         u32::from(WideTile::WIDTH) as i32,
         (u32::from(Tile::HEIGHT) * slot_count as u32) as i32,
+        0,
+        WebGl2RenderingContext::RGBA,
+        WebGl2RenderingContext::UNSIGNED_BYTE,
+        None,
+    )
+    .unwrap();
+
+    texture
+}
+
+/// Create a texture for layer rendering.
+fn create_layer_texture(gl: &WebGl2RenderingContext, size: u32) -> Texture {
+    let texture = create_texture(gl);
+
+    gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
+        WebGl2RenderingContext::TEXTURE_2D,
+        0,
+        WebGl2RenderingContext::RGBA8 as i32,
+        size as i32,
+        size as i32,
         0,
         WebGl2RenderingContext::RGBA,
         WebGl2RenderingContext::UNSIGNED_BYTE,
@@ -2650,6 +2722,33 @@ impl WebGlRendererContext<'_> {
 
                 None
             }
+            StripPassRenderTarget::Layer(region) => {
+                self.gl.bind_framebuffer(
+                    WebGl2RenderingContext::FRAMEBUFFER,
+                    Some(&self.programs.resources.layer_framebuffers[region.texture_index]),
+                );
+                let (width, height) = self.layer_texture_size();
+                self.gl.viewport(0, 0, width as i32, height as i32);
+
+                let buf = &self.programs.resources.layer_config_buffer;
+                self.gl.bind_buffer_base(
+                    WebGl2RenderingContext::UNIFORM_BUFFER,
+                    self.programs.strip_uniforms.config_vs_block_index,
+                    Some(buf),
+                );
+                self.gl.bind_buffer_base(
+                    WebGl2RenderingContext::UNIFORM_BUFFER,
+                    self.programs.strip_uniforms.config_fs_block_index,
+                    Some(buf),
+                );
+
+                Some([
+                    region.x as i32,
+                    region.y as i32,
+                    region.width as i32,
+                    region.height as i32,
+                ])
+            }
             StripPassRenderTarget::SlotTexture(ix) => {
                 self.gl.bind_framebuffer(
                     WebGl2RenderingContext::FRAMEBUFFER,
@@ -2709,17 +2808,17 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.strip_uniforms.alphas_texture), 0);
 
-        let clip_texture_idx = match &target {
-            StripPassRenderTarget::SlotTexture(1) => 0,
+        let layer_texture_idx = match &target {
+            StripPassRenderTarget::Layer(region) => region.texture_index ^ 1,
             _ => 1,
         };
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE1);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.slot_textures[clip_texture_idx]),
+            Some(&self.programs.resources.layer_textures[layer_texture_idx]),
         );
         self.gl
-            .uniform1i(Some(&self.programs.strip_uniforms.clip_input_texture), 1);
+            .uniform1i(Some(&self.programs.strip_uniforms.layer_input_texture), 1);
 
         // Bind atlas texture array for image rendering
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);
@@ -2915,6 +3014,46 @@ impl WebGlRendererContext<'_> {
         // Clean up.
         self.gl.bind_vertex_array(None);
     }
+
+    fn layer_texture_size(&self) -> (u32, u32) {
+        let size = self.programs.resources.max_texture_dimension_2d.min(4096);
+        (size, size)
+    }
+
+    fn do_clear_layer_regions_render_pass(&mut self, regions: &[LayerTextureRegion]) {
+        let (width, height) = self.layer_texture_size();
+        self.gl.disable(WebGl2RenderingContext::BLEND);
+        self.gl.clear_color(0.0, 0.0, 0.0, 0.0);
+
+        for texture_index in 0..self.programs.resources.layer_framebuffers.len() {
+            if !regions.iter().any(|region| {
+                region.texture_index == texture_index && region.width > 0 && region.height > 0
+            }) {
+                continue;
+            }
+
+            self.gl.bind_framebuffer(
+                WebGl2RenderingContext::FRAMEBUFFER,
+                Some(&self.programs.resources.layer_framebuffers[texture_index]),
+            );
+            self.gl.viewport(0, 0, width as i32, height as i32);
+            self.gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
+
+            for region in regions.iter().filter(|region| {
+                region.texture_index == texture_index && region.width > 0 && region.height > 0
+            }) {
+                self.gl.scissor(
+                    region.x as i32,
+                    region.y as i32,
+                    region.width as i32,
+                    region.height as i32,
+                );
+                self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
+            }
+        }
+
+        self.gl.enable(WebGl2RenderingContext::BLEND);
+    }
 }
 
 impl RendererBackend for WebGlRendererContext<'_> {
@@ -2928,7 +3067,7 @@ impl RendererBackend for WebGlRendererContext<'_> {
         &mut self,
         opaque_strips: &[GpuStrip],
         alpha_strips: &[GpuStrip],
-        _external_texture_runs: &[crate::schedule::ExternalTextureRun],
+        _external_texture_runs: &[ExternalTextureRun],
         target: StripPassRenderTarget,
         load_op: LoadOp,
     ) {
@@ -3048,6 +3187,14 @@ impl RendererBackend for WebGlRendererContext<'_> {
         self.gl.bind_vertex_array(None);
         self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
         self.gl.enable(WebGl2RenderingContext::BLEND);
+    }
+
+    fn layer_texture_size(&self) -> (u32, u32) {
+        WebGlRendererContext::layer_texture_size(self)
+    }
+
+    fn clear_layer_regions(&mut self, regions: &[LayerTextureRegion]) {
+        self.do_clear_layer_regions_render_pass(regions);
     }
 }
 
