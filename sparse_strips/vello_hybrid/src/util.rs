@@ -95,6 +95,8 @@ impl Default for DimensionConstraints {
     }
 }
 
+// TODO: Make u16?
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub(crate) struct IntOffset(pub [u32; 2]);
