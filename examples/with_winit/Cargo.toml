@@ -76,6 +76,7 @@ console_log = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
 web-sys = { workspace = true, features = ["HtmlCollection", "Text"] }
 web-time = { workspace = true }
+# If updating, also update in .github/workflows/web-demo.yml
 wasm-bindgen = "=0.2.114"
 
 [target.wasm32-unknown-unknown.dependencies]
