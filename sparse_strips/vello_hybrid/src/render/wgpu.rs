@@ -3064,6 +3064,11 @@ impl RendererContext<'_> {
                 ),
                 Some([region.x, region.y, region.width, region.height]),
             ),
+            StripPassRenderTarget::LayerAtlas(texture_index) => (
+                &self.programs.resources.layer_texture_views[texture_index],
+                MaybeOwned::Borrowed(&self.programs.resources.layer_bind_groups[texture_index]),
+                None,
+            ),
             StripPassRenderTarget::FilterLayer(layer_id) => {
                 let image_id = self
                     .filter_context
@@ -3167,6 +3172,7 @@ impl RendererContext<'_> {
             StripPassRenderTarget::Root(
                 RootRenderTarget::AtlasLayer | RootRenderTarget::AtlasLayerFromLayer0
             ) | StripPassRenderTarget::Layer(_)
+                | StripPassRenderTarget::LayerAtlas(_)
                 | StripPassRenderTarget::FilterLayer(_)
         ) {
             1

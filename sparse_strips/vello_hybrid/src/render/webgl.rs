@@ -2763,6 +2763,28 @@ impl WebGlRendererContext<'_> {
                     region.height as i32,
                 ])
             }
+            StripPassRenderTarget::LayerAtlas(texture_index) => {
+                self.gl.bind_framebuffer(
+                    WebGl2RenderingContext::FRAMEBUFFER,
+                    Some(&self.programs.resources.layer_framebuffers[*texture_index]),
+                );
+                let (width, height) = self.layer_texture_size();
+                self.gl.viewport(0, 0, width as i32, height as i32);
+
+                let buf = &self.programs.resources.layer_config_buffer;
+                self.gl.bind_buffer_base(
+                    WebGl2RenderingContext::UNIFORM_BUFFER,
+                    self.programs.strip_uniforms.config_vs_block_index,
+                    Some(buf),
+                );
+                self.gl.bind_buffer_base(
+                    WebGl2RenderingContext::UNIFORM_BUFFER,
+                    self.programs.strip_uniforms.config_fs_block_index,
+                    Some(buf),
+                );
+
+                None
+            }
             StripPassRenderTarget::SlotTexture(ix) => {
                 self.gl.bind_framebuffer(
                     WebGl2RenderingContext::FRAMEBUFFER,
@@ -2824,6 +2846,7 @@ impl WebGlRendererContext<'_> {
 
         let layer_texture_idx = match &target {
             StripPassRenderTarget::Layer(region) => region.texture_index ^ 1,
+            StripPassRenderTarget::LayerAtlas(texture_index) => texture_index ^ 1,
             StripPassRenderTarget::Root(
                 RootRenderTarget::UserSurfaceFromLayer0 | RootRenderTarget::AtlasLayerFromLayer0,
             ) => 0,

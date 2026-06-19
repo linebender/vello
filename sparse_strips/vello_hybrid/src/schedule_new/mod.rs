@@ -39,6 +39,8 @@ pub(crate) enum StripPassRenderTarget {
     Root(RootRenderTarget),
     /// Render to an allocated region in one of the layer atlas textures.
     Layer(LayerTextureRegion),
+    /// Render to a whole layer atlas texture.
+    LayerAtlas(usize),
     /// Render to a layer in the filter atlas.
     FilterLayer(LayerId),
     /// Render to one of the slot textures used for clipping/blending.
@@ -138,7 +140,7 @@ fn print_schedule_debug_stats(scene: &Scene, schedule: &Schedule) {
     let total_passes = schedule
         .rounds
         .iter()
-        .map(|round| round.passes.len())
+        .map(|round| strip_pass_count(round).total)
         .sum::<usize>();
     let total_blends = schedule
         .rounds
@@ -224,19 +226,11 @@ fn print_schedule_debug_stats(scene: &Scene, schedule: &Schedule) {
             continue;
         }
 
-        let mut root_passes = 0;
-        let mut layer_passes = [0usize; 2];
+        let strip_passes = strip_pass_count(round);
         let mut opaque_strips = 0usize;
         let mut alpha_strips = 0usize;
         let mut external_texture_runs = 0usize;
         for pass in &round.passes {
-            match pass.target {
-                RenderTarget::Root(_) => root_passes += 1,
-                RenderTarget::Layer(region) if region.texture_index < 2 => {
-                    layer_passes[region.texture_index] += 1;
-                }
-                RenderTarget::Layer(_) => {}
-            }
             opaque_strips += pass.draw.opaque.len();
             alpha_strips += pass.draw.alpha.len();
             external_texture_runs += pass.draw.external_texture_runs.len();
@@ -263,10 +257,10 @@ fn print_schedule_debug_stats(scene: &Scene, schedule: &Schedule) {
         eprintln!(
             "vello_hybrid schedule round: idx={} passes={} root_passes={} layer0_passes={} layer1_passes={} opaque_strips={} alpha_strips={} external_texture_runs={} blends={} blend_to_layer0={} blend_to_layer1={} clear_passes={} clear_rects={} clear_rects_layer0={} clear_rects_layer1={} clear_area_layer0={} clear_area_layer1={}",
             round_idx,
-            round.passes.len(),
-            root_passes,
-            layer_passes[0],
-            layer_passes[1],
+            strip_passes.total,
+            strip_passes.root,
+            strip_passes.layer[0],
+            strip_passes.layer[1],
             opaque_strips,
             alpha_strips,
             external_texture_runs,
@@ -285,6 +279,49 @@ fn print_schedule_debug_stats(scene: &Scene, schedule: &Schedule) {
     eprintln!("vello_hybrid schedule debug end");
 }
 
+#[derive(Debug, Default)]
+struct StripPassCount {
+    total: usize,
+    root: usize,
+    layer: [usize; 2],
+}
+
+fn strip_pass_count(round: &round::Round) -> StripPassCount {
+    let mut count = StripPassCount::default();
+    let mut has_batched_layer_pass = [false; 2];
+
+    for pass in &round.passes {
+        match pass.target {
+            RenderTarget::Root(_) => {
+                count.root += 1;
+                count.total += 1;
+            }
+            RenderTarget::Layer(region)
+                if region.texture_index < has_batched_layer_pass.len()
+                    && pass.load_op == LoadOp::Load =>
+            {
+                has_batched_layer_pass[region.texture_index] = true;
+            }
+            RenderTarget::Layer(region) if region.texture_index < count.layer.len() => {
+                count.layer[region.texture_index] += 1;
+                count.total += 1;
+            }
+            RenderTarget::Layer(_) => {
+                count.total += 1;
+            }
+        }
+    }
+
+    for (texture_index, has_pass) in has_batched_layer_pass.into_iter().enumerate() {
+        if has_pass {
+            count.layer[texture_index] += 1;
+            count.total += 1;
+        }
+    }
+
+    count
+}
+
 fn clear_pass_count(round: &round::Round) -> usize {
     let mut has_clear_regions = [false; 2];
     for region in &round.clear_layer_regions {
@@ -301,18 +338,60 @@ fn clear_pass_count(round: &round::Round) -> usize {
 
 fn execute_schedule<R: RendererBackend>(renderer: &mut R, schedule: &Schedule) {
     for round in &schedule.rounds {
+        let mut layer_draws = [Draw::default(), Draw::default()];
+        let mut layer_other_passes = [Vec::new(), Vec::new()];
+        let mut root_passes = Vec::new();
+
         for pass in &round.passes {
+            if let RenderTarget::Layer(region) = pass.target
+                && region.texture_index < layer_draws.len()
+                && pass.load_op == LoadOp::Load
+            {
+                layer_draws[region.texture_index].append(&pass.draw);
+                continue;
+            }
+
+            match pass.target {
+                RenderTarget::Root(_) => root_passes.push(pass),
+                RenderTarget::Layer(region) if region.texture_index < layer_other_passes.len() => {
+                    layer_other_passes[region.texture_index].push(pass);
+                }
+                RenderTarget::Layer(_) => {}
+            }
+        }
+
+        for texture_index in [1, 0] {
+            for pass in &layer_other_passes[texture_index] {
+                execute_pass(renderer, pass);
+            }
+
+            let draw = &layer_draws[texture_index];
             renderer.render_strips(
-                &pass.draw.opaque,
-                &pass.draw.alpha,
-                &pass.draw.external_texture_runs,
-                pass.target.strip_pass_target(),
-                pass.load_op,
+                &draw.opaque,
+                &draw.alpha,
+                &draw.external_texture_runs,
+                StripPassRenderTarget::LayerAtlas(texture_index),
+                LoadOp::Load,
             );
         }
+
+        for pass in root_passes {
+            execute_pass(renderer, pass);
+        }
+
         renderer.blend_layers(&round.blends);
         renderer.clear_layer_regions(&round.clear_layer_regions);
     }
+}
+
+fn execute_pass<R: RendererBackend>(renderer: &mut R, pass: &round::RoundPass) {
+    renderer.render_strips(
+        &pass.draw.opaque,
+        &pass.draw.alpha,
+        &pass.draw.external_texture_runs,
+        pass.target.strip_pass_target(),
+        pass.load_op,
+    );
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -367,6 +446,28 @@ struct Draw {
 }
 
 impl Draw {
+    fn append(&mut self, other: &Self) {
+        self.opaque.extend_from_slice(&other.opaque);
+
+        let alpha_offset = self.alpha.len();
+        for run in &other.external_texture_runs {
+            let strips_start = alpha_offset + run.strips_start;
+            if strips_start == self.alpha.len()
+                && self
+                    .external_texture_runs
+                    .last()
+                    .is_some_and(|last| last.texture_id == run.texture_id)
+            {
+                continue;
+            }
+            self.external_texture_runs.push(ExternalTextureRun {
+                texture_id: run.texture_id,
+                strips_start,
+            });
+        }
+        self.alpha.extend_from_slice(&other.alpha);
+    }
+
     #[inline(always)]
     fn push_opaque(&mut self, gpu_strip: GpuStrip) {
         self.opaque.push(gpu_strip);
