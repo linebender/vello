@@ -96,14 +96,14 @@ fn ensure_page(
 }
 
 impl Resources {
-    /// Prepare the glyph cache.
+    /// Prepares the glyph cache.
     pub fn prepare_glyph_cache(&mut self, render_mode: RenderMode) {
         if self.glyph_resources.is_some() {
             self.sync_glyph_cache(render_mode);
         }
     }
 
-    /// Maintain the glyph cache.
+    /// Maintains the glyph cache.
     pub fn maintain_glyph_cache(&mut self) {
         self.glyph_prep_cache.maintain();
 
