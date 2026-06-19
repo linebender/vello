@@ -3306,30 +3306,33 @@ impl RendererContext<'_> {
 
     fn do_blend_layers_render_pass(&mut self, blends: &[BlendOp]) {
         let target_size = self.layer_texture_size();
-        let instances = blends
+        let all_instances = blends
             .iter()
             .filter(|blend| !blend.bbox.is_empty())
             .map(|blend| gpu_blend_instance(*blend, target_size))
             .collect::<Vec<_>>();
-        if instances.is_empty() {
+        if all_instances.is_empty() {
             return;
         }
 
-        let instance_buffer = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Blend Instances Buffer"),
-                contents: bytemuck::cast_slice(&instances),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-
         for texture_index in 0..self.programs.resources.layer_texture_views.len() {
-            if !instances
+            let instances = all_instances
                 .iter()
-                .any(|instance| instance.texture_indices[0] as usize == texture_index)
-            {
+                .copied()
+                .filter(|instance| instance.texture_indices[0] as usize == texture_index)
+                .collect::<Vec<_>>();
+            if instances.is_empty() {
                 continue;
             }
+
+            let instance_count = u32::try_from(instances.len()).unwrap();
+            let instance_buffer =
+                self.device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Blend Instances Buffer"),
+                        contents: bytemuck::cast_slice(&instances),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    });
 
             {
                 let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
@@ -3351,12 +3354,7 @@ impl RendererContext<'_> {
                 render_pass.set_pipeline(&self.programs.blend_pipeline);
                 render_pass.set_bind_group(0, &self.programs.resources.blend_layer_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, instance_buffer.slice(..));
-                for (idx, instance) in instances.iter().enumerate() {
-                    if instance.texture_indices[0] as usize == texture_index {
-                        let instance_idx = idx as u32;
-                        render_pass.draw(0..4, instance_idx..instance_idx + 1);
-                    }
-                }
+                render_pass.draw(0..4, 0..instance_count);
             }
 
             {
@@ -3379,23 +3377,11 @@ impl RendererContext<'_> {
                 render_pass.set_pipeline(&self.programs.blend_copy_pipeline);
                 render_pass.set_bind_group(1, &self.programs.resources.blend_copy_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, instance_buffer.slice(..));
-                for (idx, instance) in instances.iter().enumerate() {
-                    if instance.texture_indices[0] as usize == texture_index {
-                        render_pass.set_scissor_rect(
-                            instance.dest_origin[0],
-                            instance.dest_origin[1],
-                            instance.size[0],
-                            instance.size[1],
-                        );
-                        let instance_idx = idx as u32;
-                        render_pass.draw(0..4, instance_idx..instance_idx + 1);
-                    }
-                }
+                render_pass.draw(0..4, 0..instance_count);
             }
 
             let clear_rects = instances
                 .iter()
-                .filter(|instance| instance.texture_indices[0] as usize == texture_index)
                 .map(|instance| {
                     gpu_clear_rect(
                         instance.dest_origin[0],

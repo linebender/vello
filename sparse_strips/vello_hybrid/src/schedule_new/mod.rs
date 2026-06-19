@@ -128,6 +128,7 @@ pub(crate) fn render_scene<R: RendererBackend>(
 }
 
 fn print_schedule_debug_stats(scene: &Scene, schedule: &Schedule) {
+    let has_direct_root_opaque = schedule_has_direct_root_opaque(schedule);
     let non_empty_rounds = schedule
         .rounds
         .iter()
@@ -140,13 +141,22 @@ fn print_schedule_debug_stats(scene: &Scene, schedule: &Schedule) {
     let total_passes = schedule
         .rounds
         .iter()
-        .map(|round| strip_pass_count(round).total)
+        .enumerate()
+        .map(|(round_idx, round)| {
+            strip_pass_count(round, has_direct_root_opaque && round_idx == 0).total
+        })
         .sum::<usize>();
     let total_blends = schedule
         .rounds
         .iter()
         .map(|round| round.blends.len())
         .sum::<usize>();
+    let total_blend_target_groups = schedule
+        .rounds
+        .iter()
+        .map(blend_target_group_count)
+        .sum::<usize>();
+    let total_blend_passes = schedule.rounds.iter().map(blend_pass_count).sum::<usize>();
     let total_clear_passes = schedule.rounds.iter().map(clear_pass_count).sum::<usize>();
     let total_clear_rects = schedule
         .rounds
@@ -156,11 +166,13 @@ fn print_schedule_debug_stats(scene: &Scene, schedule: &Schedule) {
 
     eprintln!("vello_hybrid schedule debug begin");
     eprintln!(
-        "vello_hybrid schedule summary: rounds={} non_empty_rounds={} passes={} blends={} clear_passes={} clear_rects={} scene={}x{} layers={} root_cmds={} root_child_layers={} root_is_blend_target={} layer_texture={}x{} allocation_attempts={} allocation_retries={} allocation_retry_events={}",
+        "vello_hybrid schedule summary: rounds={} non_empty_rounds={} passes={} blends={} blend_passes={} blend_target_groups={} clear_passes={} clear_rects={} scene={}x{} layers={} root_cmds={} root_child_layers={} root_is_blend_target={} layer_texture={}x{} allocation_attempts={} allocation_retries={} allocation_retry_events={}",
         schedule.rounds.len(),
         non_empty_rounds,
         total_passes,
         total_blends,
+        total_blend_passes,
+        total_blend_target_groups,
         total_clear_passes,
         total_clear_rects,
         scene.width,
@@ -226,7 +238,7 @@ fn print_schedule_debug_stats(scene: &Scene, schedule: &Schedule) {
             continue;
         }
 
-        let strip_passes = strip_pass_count(round);
+        let strip_passes = strip_pass_count(round, has_direct_root_opaque && round_idx == 0);
         let mut opaque_strips = 0usize;
         let mut alpha_strips = 0usize;
         let mut external_texture_runs = 0usize;
@@ -253,9 +265,11 @@ fn print_schedule_debug_stats(scene: &Scene, schedule: &Schedule) {
                 blend_targets[blend.parent.texture_index] += 1;
             }
         }
+        let blend_target_groups = blend_targets.iter().filter(|targets| **targets > 0).count();
+        let blend_passes = blend_target_groups * 2;
 
         eprintln!(
-            "vello_hybrid schedule round: idx={} passes={} root_passes={} layer0_passes={} layer1_passes={} opaque_strips={} alpha_strips={} external_texture_runs={} blends={} blend_to_layer0={} blend_to_layer1={} clear_passes={} clear_rects={} clear_rects_layer0={} clear_rects_layer1={} clear_area_layer0={} clear_area_layer1={}",
+            "vello_hybrid schedule round: idx={} passes={} root_passes={} layer0_passes={} layer1_passes={} opaque_strips={} alpha_strips={} external_texture_runs={} blends={} blend_passes={} blend_target_groups={} blend_to_layer0={} blend_to_layer1={} clear_passes={} clear_rects={} clear_rects_layer0={} clear_rects_layer1={} clear_area_layer0={} clear_area_layer1={}",
             round_idx,
             strip_passes.total,
             strip_passes.root,
@@ -265,6 +279,8 @@ fn print_schedule_debug_stats(scene: &Scene, schedule: &Schedule) {
             alpha_strips,
             external_texture_runs,
             round.blends.len(),
+            blend_passes,
+            blend_target_groups,
             blend_targets[0],
             blend_targets[1],
             clear_passes,
@@ -286,15 +302,34 @@ struct StripPassCount {
     layer: [usize; 2],
 }
 
-fn strip_pass_count(round: &round::Round) -> StripPassCount {
+fn schedule_has_direct_root_opaque(schedule: &Schedule) -> bool {
+    schedule.rounds.iter().any(|round| {
+        round.passes.iter().any(|pass| {
+            matches!(
+                pass.target,
+                RenderTarget::Root(RootRenderTarget::UserSurface)
+            ) && !pass.draw.opaque.is_empty()
+        })
+    })
+}
+
+fn strip_pass_count(round: &round::Round, include_direct_root_opaque_pass: bool) -> StripPassCount {
     let mut count = StripPassCount::default();
     let mut has_batched_layer_pass = [false; 2];
+    let mut root_batch = RootBatch::default();
+
+    if include_direct_root_opaque_pass {
+        count.root += 1;
+        count.total += 1;
+    }
 
     for pass in &round.passes {
         match pass.target {
             RenderTarget::Root(_) => {
-                count.root += 1;
-                count.total += 1;
+                root_batch.push(pass, |_, _| {
+                    count.root += 1;
+                    count.total += 1;
+                });
             }
             RenderTarget::Layer(region)
                 if region.texture_index < has_batched_layer_pass.len()
@@ -312,6 +347,11 @@ fn strip_pass_count(round: &round::Round) -> StripPassCount {
         }
     }
 
+    root_batch.finish(|_, _| {
+        count.root += 1;
+        count.total += 1;
+    });
+
     for (texture_index, has_pass) in has_batched_layer_pass.into_iter().enumerate() {
         if has_pass {
             count.layer[texture_index] += 1;
@@ -320,6 +360,25 @@ fn strip_pass_count(round: &round::Round) -> StripPassCount {
     }
 
     count
+}
+
+fn blend_target_group_count(round: &round::Round) -> usize {
+    let mut has_blend_target = [false; 2];
+    for blend in &round.blends {
+        if blend.parent.texture_index < has_blend_target.len() {
+            has_blend_target[blend.parent.texture_index] = true;
+        }
+    }
+
+    has_blend_target
+        .iter()
+        .filter(|has_blend_target| **has_blend_target)
+        .count()
+}
+
+fn blend_pass_count(round: &round::Round) -> usize {
+    // Each destination atlas texture group uses one resolve-to-scratch pass and one copy-back pass.
+    blend_target_group_count(round) * 2
 }
 
 fn clear_pass_count(round: &round::Round) -> usize {
@@ -337,6 +396,17 @@ fn clear_pass_count(round: &round::Round) -> usize {
 }
 
 fn execute_schedule<R: RendererBackend>(renderer: &mut R, schedule: &Schedule) {
+    let direct_root_opaque = collect_direct_root_opaque(schedule);
+    if !direct_root_opaque.draw.is_empty() {
+        renderer.render_strips(
+            &direct_root_opaque.draw.opaque,
+            &[],
+            &[],
+            StripPassRenderTarget::Root(RootRenderTarget::UserSurface),
+            direct_root_opaque.load_op,
+        );
+    }
+
     for round in &schedule.rounds {
         let mut layer_draws = [Draw::default(), Draw::default()];
         let mut layer_other_passes = [Vec::new(), Vec::new()];
@@ -375,13 +445,46 @@ fn execute_schedule<R: RendererBackend>(renderer: &mut R, schedule: &Schedule) {
             );
         }
 
-        for pass in root_passes {
-            execute_pass(renderer, pass);
-        }
+        execute_root_passes(renderer, root_passes);
 
         renderer.blend_layers(&round.blends);
         renderer.clear_layer_regions(&round.clear_layer_regions);
     }
+}
+
+#[derive(Debug)]
+struct DirectRootOpaque {
+    draw: Draw,
+    load_op: LoadOp,
+}
+
+impl Default for DirectRootOpaque {
+    fn default() -> Self {
+        Self {
+            draw: Draw::default(),
+            load_op: LoadOp::Load,
+        }
+    }
+}
+
+fn collect_direct_root_opaque(schedule: &Schedule) -> DirectRootOpaque {
+    let mut opaque = DirectRootOpaque::default();
+    for pass in schedule.rounds.iter().flat_map(|round| &round.passes) {
+        if !matches!(
+            pass.target,
+            RenderTarget::Root(RootRenderTarget::UserSurface)
+        ) || pass.draw.opaque.is_empty()
+        {
+            continue;
+        }
+
+        if opaque.draw.is_empty() {
+            opaque.load_op = pass.load_op;
+        }
+        opaque.draw.append_opaque(&pass.draw);
+    }
+
+    opaque
 }
 
 fn execute_pass<R: RendererBackend>(renderer: &mut R, pass: &round::RoundPass) {
@@ -392,6 +495,113 @@ fn execute_pass<R: RendererBackend>(renderer: &mut R, pass: &round::RoundPass) {
         pass.target.strip_pass_target(),
         pass.load_op,
     );
+}
+
+fn execute_root_passes<R: RendererBackend>(renderer: &mut R, root_passes: Vec<&round::RoundPass>) {
+    let mut batch = RootBatch::default();
+    for pass in root_passes {
+        batch.push(pass, |target, draw| {
+            renderer.render_strips(
+                &draw.draw.opaque,
+                &draw.draw.alpha,
+                &draw.draw.external_texture_runs,
+                StripPassRenderTarget::Root(target),
+                draw.root_load_op,
+            );
+        });
+    }
+    batch.finish(|target, draw| {
+        renderer.render_strips(
+            &draw.draw.opaque,
+            &draw.draw.alpha,
+            &draw.draw.external_texture_runs,
+            StripPassRenderTarget::Root(target),
+            draw.root_load_op,
+        );
+    });
+}
+
+#[derive(Debug, Default)]
+struct RootBatch {
+    target: Option<RootRenderTarget>,
+    draw: RootBatchDraw,
+}
+
+impl RootBatch {
+    fn push(
+        &mut self,
+        pass: &round::RoundPass,
+        mut flush: impl FnMut(RootRenderTarget, &RootBatchDraw),
+    ) {
+        let RenderTarget::Root(target) = pass.target else {
+            return;
+        };
+
+        let mut draw = pass.draw.clone();
+        if target == RootRenderTarget::UserSurface {
+            draw.opaque.clear();
+        }
+
+        if draw.is_empty() {
+            return;
+        }
+
+        if !is_batchable_root_draw(target, &draw) {
+            self.finish(&mut flush);
+            flush(
+                target,
+                &RootBatchDraw {
+                    draw,
+                    root_load_op: pass.load_op,
+                },
+            );
+            return;
+        }
+
+        if !self.draw.is_empty() && (self.target != Some(target) || pass.load_op == LoadOp::Clear) {
+            self.finish(&mut flush);
+        }
+
+        if self.draw.is_empty() {
+            self.target = Some(target);
+            self.draw.root_load_op = pass.load_op;
+        }
+        self.draw.draw.append(&draw);
+    }
+
+    fn finish(&mut self, mut flush: impl FnMut(RootRenderTarget, &RootBatchDraw)) {
+        if let Some(target) = self.target.take()
+            && !self.draw.is_empty()
+        {
+            flush(target, &self.draw);
+        }
+        self.draw = RootBatchDraw::default();
+    }
+}
+
+#[derive(Debug)]
+struct RootBatchDraw {
+    draw: Draw,
+    root_load_op: LoadOp,
+}
+
+impl Default for RootBatchDraw {
+    fn default() -> Self {
+        Self {
+            draw: Draw::default(),
+            root_load_op: LoadOp::Load,
+        }
+    }
+}
+
+impl RootBatchDraw {
+    fn is_empty(&self) -> bool {
+        self.draw.is_empty()
+    }
+}
+
+fn is_batchable_root_draw(target: RootRenderTarget, draw: &Draw) -> bool {
+    target == RootRenderTarget::UserSurface || draw.opaque.is_empty()
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -438,7 +648,7 @@ impl RenderTarget {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct Draw {
     opaque: Vec<GpuStrip>,
     alpha: Vec<GpuStrip>,
@@ -446,6 +656,10 @@ struct Draw {
 }
 
 impl Draw {
+    fn append_opaque(&mut self, other: &Self) {
+        self.opaque.extend_from_slice(&other.opaque);
+    }
+
     fn append(&mut self, other: &Self) {
         self.opaque.extend_from_slice(&other.opaque);
 
