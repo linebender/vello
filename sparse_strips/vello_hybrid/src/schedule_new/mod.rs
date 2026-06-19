@@ -122,7 +122,7 @@ pub(crate) fn render_scene<R: RendererBackend>(
         renderer.layer_texture_size(),
     );
     let schedule = builder.build()?;
-    print_schedule_debug_stats(scene, &schedule);
+    // print_schedule_debug_stats(scene, &schedule);
     execute_schedule(renderer, &schedule);
     Ok(())
 }
