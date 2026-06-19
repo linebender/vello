@@ -18,7 +18,6 @@ use vello_common::peniko::{BlendMode, Compose};
 use vello_common::record::{Drawable, LayerClip, RecordedCmd, RecordedLayerKind};
 use vello_common::strip_generator::StripStorage;
 use vello_common::tile::Tile;
-use vello_common::util::RectExt;
 
 const COLOR_SOURCE_LAYER: u32 = 1;
 
@@ -89,32 +88,149 @@ impl<'a> ScheduleBuilder<'a> {
             return Ok(());
         }
 
-        let layer_idx = layer_id as usize;
-        let cmds = &self.scene.recorder.layers[layer_idx].cmds;
-
-        let layer = &self.scene.recorder.layers[layer_idx];
-        let bbox = layer.props.clip_path.as_ref().map_or(layer.bbox, |clip| {
-            let mut bbox = layer.bbox;
-            bbox.union(clip.bbox.snap_to_tile_coordinates());
-            bbox
-        });
+        let layer = &self.scene.recorder.layers[layer_id as usize];
+        let bbox = layer.bbox;
         if bbox.is_empty() {
             return Ok(());
         }
 
         let texture_index = layer.depth & 1;
-        let target_round = self.timeline.base_round();
-        let allocation =
-            self.allocate_layer(layer_id, texture_index, bbox, target_round, schedule)?;
-        let target = RenderTarget::Layer(allocation.allocation.region);
-        let ready_round =
-            self.schedule_command_stream(cmds, target, allocation.round_idx, schedule)?;
-        self.layer_allocations[layer_id as usize] = Some(ScheduledLayer {
-            allocation: allocation.allocation,
-            round_idx: ready_round,
-        });
+        if let Some(layer) =
+            self.schedule_layer_command_stream(layer_id, texture_index, bbox, schedule)?
+        {
+            self.layer_allocations[layer_id as usize] = Some(layer);
+        }
 
         Ok(())
+    }
+
+    fn schedule_layer_command_stream(
+        &mut self,
+        layer_id: u32,
+        texture_index: usize,
+        bbox: RectU16,
+        schedule: &mut Schedule,
+    ) -> Result<Option<ScheduledLayer>, RenderError> {
+        let layer_idx = layer_id as usize;
+        let cmds = &self.scene.recorder.layers[layer_idx].cmds;
+        let command_count = cmds.len();
+        let mut target = None;
+        let mut segment_start = 0;
+
+        for cmd_idx in 0..command_count {
+            let child_layer_id = match &cmds[cmd_idx] {
+                RecordedCmd::Batch(_) => continue,
+                RecordedCmd::Layer(child_layer_id) => *child_layer_id,
+            };
+
+            let child_layer_idx = child_layer_id as usize;
+            self.schedule_layer_subtree(child_layer_id, schedule)?;
+            let Some(child_layer) = self.layer_allocations[child_layer_idx] else {
+                let props = &self.scene.recorder.layers[child_layer_idx].props;
+                let blend_mode = props.blend_mode;
+                let opacity = props.opacity;
+                if blend_mode.is_destructive() {
+                    self.ensure_layer_command_target(
+                        layer_id,
+                        texture_index,
+                        bbox,
+                        schedule,
+                        &mut target,
+                    )?;
+                    let target = target.as_mut().unwrap();
+                    self.push_layer_batches(layer_idx, segment_start, cmd_idx, &mut target.stream);
+                    self.schedule_empty_destructive_blend(
+                        &mut target.stream,
+                        blend_mode,
+                        opacity,
+                        schedule,
+                    );
+                    segment_start = cmd_idx + 1;
+                }
+                continue;
+            };
+
+            self.ensure_layer_command_target(layer_id, texture_index, bbox, schedule, &mut target)?;
+            let target = target.as_mut().unwrap();
+            self.push_layer_batches(layer_idx, segment_start, cmd_idx, &mut target.stream);
+            self.schedule_child_layer_sample(
+                child_layer_id,
+                child_layer,
+                &mut target.stream,
+                schedule,
+            );
+            segment_start = cmd_idx + 1;
+        }
+
+        if layer_segment_has_batches(cmds, segment_start, command_count) {
+            self.ensure_layer_command_target(layer_id, texture_index, bbox, schedule, &mut target)?;
+            let target = target.as_mut().unwrap();
+            self.push_layer_batches(layer_idx, segment_start, command_count, &mut target.stream);
+        }
+
+        let Some(mut target) = target else {
+            return Ok(None);
+        };
+        let ready_round = self.flush_stream_segment(&mut target.stream, schedule);
+        Ok(Some(ScheduledLayer {
+            allocation: target.allocation,
+            round_idx: ready_round,
+        }))
+    }
+
+    fn ensure_layer_command_target(
+        &mut self,
+        layer_id: u32,
+        texture_index: usize,
+        bbox: RectU16,
+        schedule: &mut Schedule,
+        target: &mut Option<LayerCommandTarget>,
+    ) -> Result<(), RenderError> {
+        if target.is_some() {
+            return Ok(());
+        }
+
+        let allocation = self.allocate_region(
+            AllocationContext::Layer(layer_id),
+            texture_index,
+            bbox,
+            self.timeline.base_round(),
+            schedule,
+        )?;
+        let stream = CommandStreamState::new(
+            RenderTarget::Layer(allocation.region),
+            allocation.round_idx,
+            LoadOp::Load,
+            allocation.region.scene_bbox,
+        );
+        *target = Some(LayerCommandTarget { allocation, stream });
+
+        Ok(())
+    }
+
+    fn push_layer_batches(
+        &self,
+        layer_idx: usize,
+        start: usize,
+        end: usize,
+        state: &mut CommandStreamState,
+    ) {
+        for cmd in &self.scene.recorder.layers[layer_idx].cmds[start..end] {
+            let RecordedCmd::Batch(range) = cmd else {
+                continue;
+            };
+
+            for draw in &self.scene.recorder.draws[range.start as usize..range.end as usize] {
+                state.backdrop_bbox.union(draw.bbox());
+                state.builder.push_draw(
+                    draw,
+                    self.strip_storage,
+                    self.scene,
+                    self.encoded_paints,
+                    self.paint_idxs,
+                );
+            }
+        }
     }
 
     fn schedule_root(&mut self, schedule: &mut Schedule) -> Result<(), RenderError> {
@@ -125,7 +241,13 @@ impl<'a> ScheduleBuilder<'a> {
                 return Ok(());
             }
 
-            let allocation = self.allocate_region(0, bbox, self.timeline.base_round(), schedule)?;
+            let allocation = self.allocate_region(
+                AllocationContext::Root,
+                0,
+                bbox,
+                self.timeline.base_round(),
+                schedule,
+            )?;
             let target = RenderTarget::Layer(allocation.region);
             let ready_round = self.schedule_command_stream_with_load(
                 cmds,
@@ -139,6 +261,7 @@ impl<'a> ScheduleBuilder<'a> {
             let mut draw = DrawBuilder::new(
                 RenderTarget::Root(self.root_output_target).allows_opaque_pass(),
                 (0, 0),
+                RectU16::new(0, 0, self.scene.width, self.scene.height),
             );
             draw.push_layer_ref(allocation.region, 1.0, None, self.strip_storage);
             let draw = draw.finish();
@@ -182,7 +305,12 @@ impl<'a> ScheduleBuilder<'a> {
         initial_load_op: LoadOp,
         schedule: &mut Schedule,
     ) -> Result<usize, RenderError> {
-        let mut state = CommandStreamState::new(target, start_round, initial_load_op);
+        let mut state = CommandStreamState::new(
+            target,
+            start_round,
+            initial_load_op,
+            target_draw_bounds(target, self.scene),
+        );
 
         for cmd in cmds {
             match cmd {
@@ -202,8 +330,8 @@ impl<'a> ScheduleBuilder<'a> {
                 RecordedCmd::Layer(layer_id) => {
                     let layer_idx = *layer_id as usize;
                     self.schedule_layer_subtree(*layer_id, schedule)?;
-                    let props = &self.scene.recorder.layers[layer_idx].props;
                     let Some(layer) = self.layer_allocations[layer_idx] else {
+                        let props = &self.scene.recorder.layers[layer_idx].props;
                         if props.blend_mode.is_destructive() {
                             self.schedule_empty_destructive_blend(
                                 &mut state,
@@ -215,59 +343,69 @@ impl<'a> ScheduleBuilder<'a> {
                         continue;
                     };
 
-                    let same_texture_as_target =
-                        state.target.texture_index() == Some(layer.allocation.region.texture_index);
-                    if props.blend_mode == BlendMode::default() && !same_texture_as_target {
-                        state.round_idx = state.round_idx.max(required_round_for_layer_sample(
-                            state.target.texture_index(),
-                            layer.allocation.region.texture_index,
-                            layer.round_idx,
-                        ));
-                        state.builder.push_layer_ref(
-                            layer.allocation.region,
-                            props.opacity,
-                            props.clip_path.as_ref(),
-                            self.strip_storage,
-                        );
-                        state
-                            .backdrop_bbox
-                            .union(layer.allocation.region.scene_bbox);
-                        state.sampled_layers.push(*layer_id);
-                        self.flush_stream_segment(&mut state, schedule);
-                        continue;
-                    }
-
-                    let parent_ready_round = self.flush_stream_segment(&mut state, schedule);
-                    let source_bbox = layer.allocation.region.scene_bbox;
-                    let bbox = blend_affected_bbox(
-                        state.backdrop_bbox,
-                        source_bbox,
-                        props.blend_mode.compose,
-                    )
-                    .intersect(state.target.layer_region().scene_bbox);
-                    if !bbox.is_empty() {
-                        let blend_round = parent_ready_round.max(layer.round_idx);
-                        self.ensure_schedule_round_exists(blend_round, schedule);
-                        schedule.rounds[blend_round].push_blend(BlendOp {
-                            parent: state.target.layer_region(),
-                            source: layer.allocation.region,
-                            bbox,
-                            blend_mode: props.blend_mode,
-                            opacity: props.opacity,
-                        });
-                        self.consume_child_layer(*layer_id, blend_round, schedule);
-                        state.backdrop_bbox = blend_result_bbox(
-                            state.backdrop_bbox,
-                            source_bbox,
-                            props.blend_mode.compose,
-                        );
-                        state.round_idx = blend_round + 1;
-                    }
+                    self.schedule_child_layer_sample(*layer_id, layer, &mut state, schedule);
                 }
             }
         }
 
         Ok(self.flush_stream_segment(&mut state, schedule))
+    }
+
+    fn schedule_child_layer_sample(
+        &mut self,
+        layer_id: u32,
+        layer: ScheduledLayer,
+        state: &mut CommandStreamState,
+        schedule: &mut Schedule,
+    ) {
+        let props = &self.scene.recorder.layers[layer_id as usize].props;
+        let blend_mode = props.blend_mode;
+        let opacity = props.opacity;
+        let same_texture_as_target =
+            state.target.texture_index() == Some(layer.allocation.region.texture_index);
+        if blend_mode == BlendMode::default() && !same_texture_as_target {
+            state.round_idx = state.round_idx.max(required_round_for_layer_sample(
+                state.target.texture_index(),
+                layer.allocation.region.texture_index,
+                layer.round_idx,
+            ));
+            state.builder.push_layer_ref(
+                layer.allocation.region,
+                props.opacity,
+                props.clip_path.as_ref(),
+                self.strip_storage,
+            );
+            state
+                .backdrop_bbox
+                .union(layer.allocation.region.scene_bbox);
+            state.sampled_layers.push(layer_id);
+            self.flush_stream_segment(state, schedule);
+            return;
+        }
+
+        let parent_ready_round = self.flush_stream_segment(state, schedule);
+        let source_bbox = layer.allocation.region.scene_bbox;
+        let blend_round = parent_ready_round.max(layer.round_idx);
+        let bbox = blend_affected_bbox(state.backdrop_bbox, source_bbox, blend_mode.compose)
+            .intersect(state.target.layer_region().scene_bbox);
+        if bbox.is_empty() {
+            self.consume_child_layer(layer_id, blend_round, schedule);
+            state.round_idx = state.round_idx.max(blend_round);
+            return;
+        }
+
+        self.ensure_schedule_round_exists(blend_round, schedule);
+        schedule.rounds[blend_round].push_blend(BlendOp {
+            parent: state.target.layer_region(),
+            source: layer.allocation.region,
+            bbox,
+            blend_mode,
+            opacity,
+        });
+        self.consume_child_layer(layer_id, blend_round, schedule);
+        state.backdrop_bbox =
+            blend_result_bbox(state.backdrop_bbox, source_bbox, blend_mode.compose);
+        state.round_idx = blend_round + 1;
     }
 
     fn schedule_empty_destructive_blend(
@@ -332,25 +470,9 @@ impl<'a> ScheduleBuilder<'a> {
         self.release_allocation_after_round(scheduled_layer.allocation, round_idx, schedule);
     }
 
-    fn allocate_layer(
-        &mut self,
-        layer_id: u32,
-        texture_index: usize,
-        bbox: RectU16,
-        earliest_round: usize,
-        schedule: &mut Schedule,
-    ) -> Result<ScheduledLayer, RenderError> {
-        let allocation = self.allocate_region(texture_index, bbox, earliest_round, schedule)?;
-        let scheduled_layer = ScheduledLayer {
-            allocation,
-            round_idx: allocation.round_idx,
-        };
-        self.layer_allocations[layer_id as usize] = Some(scheduled_layer);
-        Ok(scheduled_layer)
-    }
-
     fn allocate_region(
         &mut self,
+        context: AllocationContext,
         texture_index: usize,
         bbox: RectU16,
         earliest_round: usize,
@@ -359,6 +481,13 @@ impl<'a> ScheduleBuilder<'a> {
         let width = u32::from(bbox.width());
         let height = u32::from(bbox.height());
         if width > self.layer_texture_size.0 || height > self.layer_texture_size.1 {
+            self.log_allocation_failure(
+                context,
+                texture_index,
+                bbox,
+                earliest_round,
+                "request-larger-than-layer-texture",
+            );
             return Err(RenderError::AtlasError(AtlasError::NoSpaceAvailable));
         }
 
@@ -374,6 +503,13 @@ impl<'a> ScheduleBuilder<'a> {
                 ensure_schedule_round_exists(schedule, round_idx);
             })
         else {
+            self.log_allocation_failure(
+                context,
+                texture_index,
+                bbox,
+                earliest_round,
+                "allocator-full-with-no-pending-release",
+            );
             return Err(RenderError::AtlasError(AtlasError::NoSpaceAvailable));
         };
 
@@ -381,6 +517,33 @@ impl<'a> ScheduleBuilder<'a> {
         allocation.round_idx = scheduled.round_idx;
 
         Ok(allocation)
+    }
+
+    fn log_allocation_failure(
+        &self,
+        context: AllocationContext,
+        texture_index: usize,
+        bbox: RectU16,
+        earliest_round: usize,
+        reason: &'static str,
+    ) {
+        eprintln!(
+            "vello_hybrid layer allocation failed: reason={reason} context={} texture={} bbox={}x{} at {},{} layer_texture={}x{} scene={}x{} earliest_round={} base_round={} rounds_with_pending_releases={} next_pending_release_round={:?}",
+            context.label(),
+            texture_index,
+            bbox.width(),
+            bbox.height(),
+            bbox.x0,
+            bbox.y0,
+            self.layer_texture_size.0,
+            self.layer_texture_size.1,
+            self.scene.width,
+            self.scene.height,
+            earliest_round,
+            self.timeline.base_round(),
+            self.timeline.pending_release_round_count(),
+            self.timeline.next_pending_release_round(),
+        );
     }
 
     fn ensure_schedule_round_exists(&mut self, round_idx: usize, schedule: &mut Schedule) {
@@ -409,6 +572,29 @@ fn ensure_schedule_round_exists(schedule: &mut Schedule, round_idx: usize) {
 #[derive(Debug)]
 struct LayerAtlasResource {
     atlases: [Atlas; 2],
+}
+
+#[derive(Debug, Clone, Copy)]
+enum AllocationContext {
+    Root,
+    Layer(u32),
+}
+
+impl AllocationContext {
+    fn label(self) -> AllocationContextLabel {
+        AllocationContextLabel(self)
+    }
+}
+
+struct AllocationContextLabel(AllocationContext);
+
+impl core::fmt::Display for AllocationContextLabel {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self.0 {
+            AllocationContext::Root => f.write_str("root"),
+            AllocationContext::Layer(layer_id) => write!(f, "layer:{layer_id}"),
+        }
+    }
 }
 
 impl LayerAtlasResource {
@@ -476,6 +662,12 @@ struct LayerAllocation {
 }
 
 #[derive(Debug)]
+struct LayerCommandTarget {
+    allocation: LayerAllocation,
+    stream: CommandStreamState,
+}
+
+#[derive(Debug)]
 struct CommandStreamState {
     target: RenderTarget,
     builder: DrawBuilder,
@@ -486,10 +678,19 @@ struct CommandStreamState {
 }
 
 impl CommandStreamState {
-    fn new(target: RenderTarget, round_idx: usize, initial_load_op: LoadOp) -> Self {
+    fn new(
+        target: RenderTarget,
+        round_idx: usize,
+        initial_load_op: LoadOp,
+        draw_bounds: RectU16,
+    ) -> Self {
         Self {
             target,
-            builder: DrawBuilder::new(target.allows_opaque_pass(), target.geometry_offset()),
+            builder: DrawBuilder::new(
+                target.allows_opaque_pass(),
+                target.geometry_offset(),
+                draw_bounds,
+            ),
             sampled_layers: Vec::new(),
             backdrop_bbox: RectU16::INVERTED,
             next_load_op: initial_load_op,
@@ -509,9 +710,17 @@ impl CommandStreamState {
             depth: self.builder.depth,
             allow_opaque_pass: self.builder.allow_opaque_pass,
             geometry_offset: self.builder.geometry_offset,
+            draw_bounds: self.builder.draw_bounds,
         };
         let builder = core::mem::replace(&mut self.builder, replacement);
         builder.finish()
+    }
+}
+
+fn target_draw_bounds(target: RenderTarget, scene: &Scene) -> RectU16 {
+    match target {
+        RenderTarget::Root(_) => RectU16::new(0, 0, scene.width, scene.height),
+        RenderTarget::Layer(region) => region.scene_bbox,
     }
 }
 
@@ -585,6 +794,12 @@ fn empty_source_region_for_blend(bbox: RectU16) -> LayerTextureRegion {
     }
 }
 
+fn layer_segment_has_batches(cmds: &[RecordedCmd], start: usize, end: usize) -> bool {
+    cmds[start..end]
+        .iter()
+        .any(|cmd| matches!(cmd, RecordedCmd::Batch(_)))
+}
+
 fn ensure_plain_layer(layer: &vello_common::record::RecordedLayer) -> Result<(), RenderError> {
     if !matches!(layer.kind, RecordedLayerKind::Regular) {
         return Err(RenderError::UnsupportedFeature(
@@ -609,21 +824,23 @@ fn ensure_plain_layer(layer: &vello_common::record::RecordedLayer) -> Result<(),
     Ok(())
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct DrawBuilder {
     draw: Draw,
     depth: DepthCounter,
     allow_opaque_pass: bool,
     geometry_offset: (i32, i32),
+    draw_bounds: RectU16,
 }
 
 impl DrawBuilder {
-    fn new(allow_opaque_pass: bool, geometry_offset: (i32, i32)) -> Self {
+    fn new(allow_opaque_pass: bool, geometry_offset: (i32, i32), draw_bounds: RectU16) -> Self {
         Self {
             draw: Draw::default(),
             depth: DepthCounter::default(),
             allow_opaque_pass,
             geometry_offset,
+            draw_bounds,
         }
     }
 
@@ -672,8 +889,9 @@ impl DrawBuilder {
 
         for i in 0..strips.len() - 1 {
             let strip = &strips[i];
+            let y = strip.y;
 
-            if strip.x >= scene.width {
+            if strip.x >= scene.width || y < self.draw_bounds.y0 || y >= self.draw_bounds.y1 {
                 continue;
             }
 
@@ -681,28 +899,36 @@ impl DrawBuilder {
             let col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
             let next_col = next_strip.alpha_idx() / u32::from(Tile::HEIGHT);
             let strip_width = next_col.saturating_sub(col) as u16;
-            let x0 = strip.x;
-            let y = strip.y;
-            let target_x0 = offset_coord(x0, self.geometry_offset.0);
             let target_y = offset_coord(y, self.geometry_offset.1);
 
             if strip_width > 0 {
-                let processed = process_paint(&paint, encoded_paints, (x0, y), paint_idxs);
-                self.draw.push_alpha(
-                    GpuStripBuilder::at_surface(target_x0, target_y, strip_width)
-                        .with_sparse(strip_width, col)
-                        .paint(processed.payload, processed.paint, depth_index),
-                    processed.external_texture_id,
-                );
+                let strip_x0 = strip.x;
+                let strip_x1 = strip_x0.saturating_add(strip_width).min(scene.width);
+                let x0 = strip_x0.max(self.draw_bounds.x0);
+                let x1 = strip_x1.min(self.draw_bounds.x1);
+                if x1 > x0 {
+                    let width = x1 - x0;
+                    let col_offset = col + u32::from(x0 - strip_x0);
+                    let target_x0 = offset_coord(x0, self.geometry_offset.0);
+                    let processed = process_paint(&paint, encoded_paints, (x0, y), paint_idxs);
+                    self.draw.push_alpha(
+                        GpuStripBuilder::at_surface(target_x0, target_y, width)
+                            .with_sparse(width, col_offset)
+                            .paint(processed.payload, processed.paint, depth_index),
+                        processed.external_texture_id,
+                    );
+                }
             }
 
             if next_strip.fill_gap() && strip.strip_y() == next_strip.strip_y() {
-                let x1 = x0.saturating_add(strip_width);
-                let x2 = next_strip.x.min(scene.width);
-                if x2 > x1 {
-                    let target_x1 = offset_coord(x1, self.geometry_offset.0);
-                    let processed = process_paint(&paint, encoded_paints, (x1, y), paint_idxs);
-                    let strip = GpuStripBuilder::at_surface(target_x1, target_y, x2 - x1).paint(
+                let gap_x0 = strip.x.saturating_add(strip_width);
+                let gap_x1 = next_strip.x.min(scene.width);
+                let x0 = gap_x0.max(self.draw_bounds.x0);
+                let x1 = gap_x1.min(self.draw_bounds.x1);
+                if x1 > x0 {
+                    let target_x0 = offset_coord(x0, self.geometry_offset.0);
+                    let processed = process_paint(&paint, encoded_paints, (x0, y), paint_idxs);
+                    let strip = GpuStripBuilder::at_surface(target_x0, target_y, x1 - x0).paint(
                         processed.payload,
                         processed.paint,
                         depth_index,
@@ -723,10 +949,13 @@ impl DrawBuilder {
         encoded_paints: &[EncodedPaint],
         paint_idxs: &[u32],
     ) {
+        let Some(rect) = clipped_fast_rect(rect, self.draw_bounds) else {
+            return;
+        };
         let is_opaque = self.allow_opaque_pass && is_paint_opaque(&rect.paint, encoded_paints);
         let depth_index = self.depth.next(is_opaque);
         pack_rectangle_into_gpu(
-            rect,
+            &rect,
             encoded_paints,
             paint_idxs,
             depth_index,
@@ -750,21 +979,26 @@ impl DrawBuilder {
         }
 
         let depth_index = self.depth.next(false);
+        let bbox = source.scene_bbox.intersect(self.draw_bounds);
+        if bbox.is_empty() {
+            return;
+        }
+
         // Layer samples are encoded as image-like rect paints. Geometry is transformed into the
         // target allocation, while the payload points at the source atlas coordinate.
         self.draw.push_alpha(
             make_gpu_rect(
                 offset_rect_part(
                     RectPart {
-                        x: source.scene_bbox.x0,
-                        y: source.scene_bbox.y0,
-                        width: source.width as u16,
-                        height: source.height as u16,
+                        x: bbox.x0,
+                        y: bbox.y0,
+                        width: bbox.width(),
+                        height: bbox.height(),
                         frac: 0,
                     },
                     self.geometry_offset,
                 ),
-                pack_u16_pair(source.x, source.y),
+                layer_sample_payload(source, bbox.x0, bbox.y0),
                 layer_paint(opacity),
                 depth_index,
             ),
@@ -781,7 +1015,8 @@ impl DrawBuilder {
         strip_storage: &StripStorage,
     ) {
         let strips = &strip_storage.strips[clip_path.strip_range.clone()];
-        if strips.len() < 2 || clip_path.bbox.is_empty() {
+        let sample_bbox = source.scene_bbox.intersect(self.draw_bounds);
+        if strips.len() < 2 || clip_path.bbox.is_empty() || sample_bbox.is_empty() {
             return;
         }
 
@@ -797,17 +1032,14 @@ impl DrawBuilder {
             }
 
             let y = strip.y;
-            if y < source.scene_bbox.y0 || y >= source.scene_bbox.y1 {
+            if y < sample_bbox.y0 || y >= sample_bbox.y1 {
                 continue;
             }
 
             let strip_width = strip.width_to(next_strip);
             if strip_width > 0 {
-                let x0 = strip.x.max(source.scene_bbox.x0);
-                let x1 = strip
-                    .x
-                    .saturating_add(strip_width)
-                    .min(source.scene_bbox.x1);
+                let x0 = strip.x.max(sample_bbox.x0);
+                let x1 = strip.x.saturating_add(strip_width).min(sample_bbox.x1);
                 if x1 > x0 {
                     let col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
                     let col_offset = col + u32::from(x0 - strip.x);
@@ -829,14 +1061,11 @@ impl DrawBuilder {
             }
 
             if next_strip.fill_gap() && next_strip.y == strip.y {
-                let x0 = strip
-                    .x
-                    .saturating_add(strip_width)
-                    .max(source.scene_bbox.x0);
+                let x0 = strip.x.saturating_add(strip_width).max(sample_bbox.x0);
                 let x1 = if next_strip.is_sentinel() {
-                    source.scene_bbox.x1
+                    sample_bbox.x1
                 } else {
-                    next_strip.x.min(source.scene_bbox.x1)
+                    next_strip.x.min(sample_bbox.x1)
                 };
                 if x1 > x0 {
                     self.draw.push_alpha(
@@ -929,6 +1158,21 @@ fn pack_rectangle_into_gpu(
         }
         is_first = false;
     }
+}
+
+fn clipped_fast_rect(rect: &FastPathRect, bbox: RectU16) -> Option<FastPathRect> {
+    let x0 = rect.x0.max(f32::from(bbox.x0));
+    let y0 = rect.y0.max(f32::from(bbox.y0));
+    let x1 = rect.x1.min(f32::from(bbox.x1));
+    let y1 = rect.y1.min(f32::from(bbox.y1));
+
+    (x0 < x1 && y0 < y1).then(|| FastPathRect {
+        x0,
+        y0,
+        x1,
+        y1,
+        paint: rect.paint.clone(),
+    })
 }
 
 fn offset_rect_part(part: RectPart, offset: (i32, i32)) -> RectPart {

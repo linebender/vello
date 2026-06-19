@@ -41,7 +41,7 @@ use crate::filter::{FilterData, FilterLayerPlacement};
 use crate::geometry::RectU16;
 use crate::mask::Mask;
 use crate::peniko::BlendMode;
-use crate::util::VecPool;
+use crate::util::{RectExt, VecPool};
 use alloc::vec::Vec;
 use core::ops::Range;
 
@@ -255,8 +255,9 @@ impl<D> CommandRecorder<D> {
         let recorded_layer = &mut self.layers[id as usize];
         let (popped_layer, bbox) = match &mut recorded_layer.kind {
             RecordedLayerKind::Regular => {
-                recorded_layer.bbox = layer.bbox;
-                (PoppedLayer::Regular, layer.bbox)
+                let bbox = regular_layer_bbox(layer.bbox, &recorded_layer.props);
+                recorded_layer.bbox = bbox;
+                (PoppedLayer::Regular, bbox)
             }
             RecordedLayerKind::Filter {
                 filter_data: filter_plan,
@@ -318,6 +319,18 @@ impl<D> CommandRecorder<D> {
         if let Some(layer) = self.layer_stack.last_mut() {
             layer.bbox.union(bbox());
         }
+    }
+}
+
+fn regular_layer_bbox(mut bbox: RectU16, props: &LayerProps) -> RectU16 {
+    if let Some(clip_path) = &props.clip_path {
+        bbox = bbox.intersect(clip_path.bbox);
+    }
+
+    if bbox.is_empty() {
+        bbox
+    } else {
+        bbox.snap_to_tile_coordinates()
     }
 }
 
