@@ -77,7 +77,7 @@ impl Resources {
         Self::default()
     }
 
-    /// Create a new set of renderer resources with a custom [`AtlasConfig`].
+    /// Creates a new set of renderer resources with a custom [`AtlasConfig`].
     #[cfg(feature = "text")]
     pub fn new_with_atlas_config(atlas_config: AtlasConfig) -> Self {
         Self {
@@ -105,7 +105,7 @@ impl Resources {
         &self.image_cache
     }
 
-    /// Returns atlas pages.
+    /// Returns glyph atlas pages.
     #[cfg(feature = "text")]
     pub fn pixmaps(&self) -> Option<Vec<Arc<Pixmap>>> {
         self.glyph_resources
@@ -1322,6 +1322,9 @@ mod tests {
 
         resources.prepare_glyph_cache(crate::RenderMode::OptimizeQuality);
         resources.maintain_glyph_cache();
+        if let Some(glyph_atlas) = resources.glyph_atlas_mut() {
+            glyph_atlas.clear_tick();
+        }
 
         assert_eq!(resources.image_cache.atlas_count(), 1);
 
