@@ -37,7 +37,6 @@
 //!
 //! - `Scene`: Manages the render context and path processing on the CPU
 //! - `Renderer` or `WebGlRenderer`: Handles GPU resource management and executes draw operations
-//! - `Scheduler`: Manages and schedules draw operations on the renderer.
 //!
 //! See the individual module documentation for more details on usage and implementation.
 
@@ -82,14 +81,6 @@ use thiserror::Error;
 /// Errors that can occur during rendering.
 #[derive(Error, Debug, Clone)]
 pub enum RenderError {
-    /// No slots available for rendering.
-    ///
-    /// This error is likely to occur if a scene has an extreme number of nested layers
-    /// (clipping, blending, masks, or opacity layers).
-    ///
-    /// TODO: Consider supporting more than a single column of slots in slot textures.
-    #[error("No slots available for rendering")]
-    SlotsExhausted,
     /// An allocation error occurred while trying to allocate a new image. This can happen
     /// if the scene contains filter layers, which need space in the image atlas for intermediate
     /// storage.

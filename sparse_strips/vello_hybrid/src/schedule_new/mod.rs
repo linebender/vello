@@ -17,7 +17,6 @@ use alloc::vec::Vec;
 use vello_common::TextureId;
 use vello_common::encode::EncodedPaint;
 use vello_common::geometry::RectU16;
-use vello_common::render_graph::LayerId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RootRenderTarget {
@@ -33,7 +32,6 @@ pub(crate) enum RootRenderTarget {
 
 /// Specifies the target for a strip render pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub(crate) enum StripPassRenderTarget {
     /// Render to the root output target.
     Root(RootRenderTarget),
@@ -41,10 +39,6 @@ pub(crate) enum StripPassRenderTarget {
     Layer(LayerTextureRegion),
     /// Render to a whole layer atlas texture.
     LayerAtlas(usize),
-    /// Render to a layer in the filter atlas.
-    FilterLayer(LayerId),
-    /// Render to one of the slot textures used for clipping/blending.
-    SlotTexture(u8),
 }
 
 /// A rectangular region in one of the layer atlas textures.
@@ -97,7 +91,6 @@ pub(crate) trait RendererBackend {
 
 /// Backend agnostic enum that specifies the operation to perform to the output attachment at the
 /// start of a render pass.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LoadOp {
     Load,
@@ -122,277 +115,8 @@ pub(crate) fn render_scene<R: RendererBackend>(
         renderer.layer_texture_size(),
     );
     let schedule = builder.build()?;
-    // print_schedule_debug_stats(scene, &schedule);
     execute_schedule(renderer, &schedule);
     Ok(())
-}
-
-fn print_schedule_debug_stats(scene: &Scene, schedule: &Schedule) {
-    let has_direct_root_opaque = schedule_has_direct_root_opaque(schedule);
-    let non_empty_rounds = schedule
-        .rounds
-        .iter()
-        .filter(|round| {
-            !round.passes.is_empty()
-                || !round.blends.is_empty()
-                || !round.clear_layer_regions.is_empty()
-        })
-        .count();
-    let total_passes = schedule
-        .rounds
-        .iter()
-        .enumerate()
-        .map(|(round_idx, round)| {
-            strip_pass_count(round, has_direct_root_opaque && round_idx == 0).total
-        })
-        .sum::<usize>();
-    let total_blends = schedule
-        .rounds
-        .iter()
-        .map(|round| round.blends.len())
-        .sum::<usize>();
-    let total_blend_target_groups = schedule
-        .rounds
-        .iter()
-        .map(blend_target_group_count)
-        .sum::<usize>();
-    let total_blend_passes = schedule.rounds.iter().map(blend_pass_count).sum::<usize>();
-    let total_clear_passes = schedule.rounds.iter().map(clear_pass_count).sum::<usize>();
-    let total_clear_rects = schedule
-        .rounds
-        .iter()
-        .map(|round| round.clear_layer_regions.len())
-        .sum::<usize>();
-
-    eprintln!("vello_hybrid schedule debug begin");
-    eprintln!(
-        "vello_hybrid schedule summary: rounds={} non_empty_rounds={} passes={} blends={} blend_passes={} blend_target_groups={} clear_passes={} clear_rects={} scene={}x{} layers={} root_cmds={} root_child_layers={} root_is_blend_target={} layer_texture={}x{} allocation_attempts={} allocation_retries={} allocation_retry_events={}",
-        schedule.rounds.len(),
-        non_empty_rounds,
-        total_passes,
-        total_blends,
-        total_blend_passes,
-        total_blend_target_groups,
-        total_clear_passes,
-        total_clear_rects,
-        scene.width,
-        scene.height,
-        schedule.debug.layer_count,
-        schedule.debug.root_cmd_count,
-        schedule.debug.root_child_layer_count,
-        schedule.debug.root_is_blend_target,
-        schedule.debug.layer_texture_size.0,
-        schedule.debug.layer_texture_size.1,
-        schedule.debug.allocation_attempts,
-        schedule.debug.allocation_retries,
-        schedule.debug.allocation_retry_events.len(),
-    );
-
-    for (depth, count) in &schedule.debug.depth_counts {
-        eprintln!("vello_hybrid schedule depth: depth={depth} layers={count}");
-    }
-
-    for event in &schedule.debug.allocation_retry_events {
-        eprintln!(
-            "vello_hybrid schedule alloc-retry: texture={} earliest_round={} allocated_round={} attempts={} bbox={}x{} at {},{}",
-            event.texture_index,
-            event.earliest_round,
-            event.allocated_round,
-            event.attempts,
-            event.bbox.width(),
-            event.bbox.height(),
-            event.bbox.x0,
-            event.bbox.y0,
-        );
-    }
-
-    for layer in &schedule.debug.scheduled_layers {
-        eprintln!(
-            "vello_hybrid schedule layer: id={} depth={} texture={} allocated_round={} ready_round={} atlas={},{} cmds={} batches={} child_layers={} bbox={}x{} at {},{} clip={} default_blend={} destructive_blend={} opacity={:.3}",
-            layer.layer_id,
-            layer.depth,
-            layer.texture_index,
-            layer.allocated_round,
-            layer.ready_round,
-            layer.atlas_x,
-            layer.atlas_y,
-            layer.command_count,
-            layer.batch_count,
-            layer.child_layer_count,
-            layer.bbox.width(),
-            layer.bbox.height(),
-            layer.bbox.x0,
-            layer.bbox.y0,
-            layer.has_clip,
-            layer.has_default_blend,
-            layer.is_destructive_blend,
-            layer.opacity,
-        );
-    }
-
-    for (round_idx, round) in schedule.rounds.iter().enumerate() {
-        if round.passes.is_empty()
-            && round.blends.is_empty()
-            && round.clear_layer_regions.is_empty()
-        {
-            continue;
-        }
-
-        let strip_passes = strip_pass_count(round, has_direct_root_opaque && round_idx == 0);
-        let mut opaque_strips = 0usize;
-        let mut alpha_strips = 0usize;
-        let mut external_texture_runs = 0usize;
-        for pass in &round.passes {
-            opaque_strips += pass.draw.opaque.len();
-            alpha_strips += pass.draw.alpha.len();
-            external_texture_runs += pass.draw.external_texture_runs.len();
-        }
-
-        let mut clear_regions = [0usize; 2];
-        let mut clear_area = [0u64; 2];
-        for region in &round.clear_layer_regions {
-            if region.texture_index < 2 {
-                clear_regions[region.texture_index] += 1;
-                clear_area[region.texture_index] +=
-                    u64::from(region.width) * u64::from(region.height);
-            }
-        }
-        let clear_passes = clear_regions.iter().filter(|regions| **regions > 0).count();
-
-        let mut blend_targets = [0usize; 2];
-        for blend in &round.blends {
-            if blend.parent.texture_index < 2 {
-                blend_targets[blend.parent.texture_index] += 1;
-            }
-        }
-        let blend_target_groups = blend_targets.iter().filter(|targets| **targets > 0).count();
-        let blend_passes = blend_target_groups * 2;
-
-        eprintln!(
-            "vello_hybrid schedule round: idx={} passes={} root_passes={} layer0_passes={} layer1_passes={} opaque_strips={} alpha_strips={} external_texture_runs={} blends={} blend_passes={} blend_target_groups={} blend_to_layer0={} blend_to_layer1={} clear_passes={} clear_rects={} clear_rects_layer0={} clear_rects_layer1={} clear_area_layer0={} clear_area_layer1={}",
-            round_idx,
-            strip_passes.total,
-            strip_passes.root,
-            strip_passes.layer[0],
-            strip_passes.layer[1],
-            opaque_strips,
-            alpha_strips,
-            external_texture_runs,
-            round.blends.len(),
-            blend_passes,
-            blend_target_groups,
-            blend_targets[0],
-            blend_targets[1],
-            clear_passes,
-            round.clear_layer_regions.len(),
-            clear_regions[0],
-            clear_regions[1],
-            clear_area[0],
-            clear_area[1],
-        );
-    }
-
-    eprintln!("vello_hybrid schedule debug end");
-}
-
-#[derive(Debug, Default)]
-struct StripPassCount {
-    total: usize,
-    root: usize,
-    layer: [usize; 2],
-}
-
-fn schedule_has_direct_root_opaque(schedule: &Schedule) -> bool {
-    schedule.rounds.iter().any(|round| {
-        round.passes.iter().any(|pass| {
-            matches!(
-                pass.target,
-                RenderTarget::Root(RootRenderTarget::UserSurface)
-            ) && !pass.draw.opaque.is_empty()
-        })
-    })
-}
-
-fn strip_pass_count(round: &round::Round, include_direct_root_opaque_pass: bool) -> StripPassCount {
-    let mut count = StripPassCount::default();
-    let mut has_batched_layer_pass = [false; 2];
-    let mut root_batch = RootBatch::default();
-
-    if include_direct_root_opaque_pass {
-        count.root += 1;
-        count.total += 1;
-    }
-
-    for pass in &round.passes {
-        match pass.target {
-            RenderTarget::Root(_) => {
-                root_batch.push(pass, |_, _| {
-                    count.root += 1;
-                    count.total += 1;
-                });
-            }
-            RenderTarget::Layer(region)
-                if region.texture_index < has_batched_layer_pass.len()
-                    && pass.load_op == LoadOp::Load =>
-            {
-                has_batched_layer_pass[region.texture_index] = true;
-            }
-            RenderTarget::Layer(region) if region.texture_index < count.layer.len() => {
-                count.layer[region.texture_index] += 1;
-                count.total += 1;
-            }
-            RenderTarget::Layer(_) => {
-                count.total += 1;
-            }
-        }
-    }
-
-    root_batch.finish(|_, _| {
-        count.root += 1;
-        count.total += 1;
-    });
-
-    for (texture_index, has_pass) in has_batched_layer_pass.into_iter().enumerate() {
-        if has_pass {
-            count.layer[texture_index] += 1;
-            count.total += 1;
-        }
-    }
-
-    count
-}
-
-fn blend_target_group_count(round: &round::Round) -> usize {
-    let mut has_blend_target = [false; 2];
-    for blend in &round.blends {
-        if blend.parent.texture_index < has_blend_target.len() {
-            has_blend_target[blend.parent.texture_index] = true;
-        }
-    }
-
-    has_blend_target
-        .iter()
-        .filter(|has_blend_target| **has_blend_target)
-        .count()
-}
-
-fn blend_pass_count(round: &round::Round) -> usize {
-    // Each destination atlas texture group uses one resolve-to-scratch pass and one copy-back pass.
-    blend_target_group_count(round) * 2
-}
-
-fn clear_pass_count(round: &round::Round) -> usize {
-    let mut has_clear_regions = [false; 2];
-    for region in &round.clear_layer_regions {
-        if region.texture_index < has_clear_regions.len() && region.width > 0 && region.height > 0 {
-            has_clear_regions[region.texture_index] = true;
-        }
-    }
-
-    has_clear_regions
-        .iter()
-        .filter(|has_clear_regions| **has_clear_regions)
-        .count()
 }
 
 fn execute_schedule<R: RendererBackend>(renderer: &mut R, schedule: &Schedule) {

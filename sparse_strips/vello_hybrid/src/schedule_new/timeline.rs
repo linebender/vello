@@ -20,7 +20,6 @@ pub(super) trait ResourceAllocator {
 pub(super) struct ScheduledAllocation<T> {
     pub(super) allocation: T,
     pub(super) round_idx: usize,
-    pub(super) attempts: usize,
 }
 
 /// A small online scheduler for resources whose state only moves forward in time.
@@ -47,8 +46,8 @@ impl<R: ResourceAllocator> Timeline<R> {
     /// Try to allocate at `earliest_round` or later.
     ///
     /// If the resource is full, the scheduler advances round-by-round and applies releases that
-    /// were scheduled after completed rounds. This mirrors the old slot scheduler's monotonic
-    /// behavior: pressure creates more rounds, but the scheduler never patches historical states.
+    /// were scheduled after completed rounds. Pressure creates more rounds, but the scheduler
+    /// never patches historical states.
     pub(super) fn allocate_after<F>(
         &mut self,
         request: R::Request,
@@ -61,15 +60,12 @@ impl<R: ResourceAllocator> Timeline<R> {
         let target_round = earliest_round.max(self.base_round);
         self.advance_to_round(target_round, &mut ensure_round_exists);
 
-        let mut attempts = 0;
         loop {
-            attempts += 1;
             ensure_round_exists(self.base_round);
             if let Some(allocation) = self.resource.allocate(request) {
                 return Some(ScheduledAllocation {
                     allocation,
                     round_idx: self.base_round,
-                    attempts,
                 });
             }
 

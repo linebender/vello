@@ -217,7 +217,7 @@ struct VertexOutput {
     // For normal strips: ending x-position of the dense (alpha) region.
     // For rect strips: packed dimensions (width | height << 16).
     @location(3) @interpolate(flat) dense_end_or_rect_size: u32,
-    // Color value or slot index when alpha is 0
+    // Packed paint payload or layer sample coordinate.
     @location(4) @interpolate(flat) payload: u32,
     // Packed fractional edge offsets for rectangles.
     // Bits 0-7: x0, 8-15: y0, 16-23: x1, 24-31: y1.
@@ -388,7 +388,7 @@ fn fs_main(
         // Extract the alpha value for the current y-position from the packed u32 data
         alpha = f32((alphas_u32 >> (y * 8u)) & 0xffu) * (1.0 / 255.0);
     }
-    // Apply the alpha value to the unpacked RGBA color or slot index
+    // Apply the alpha value to the unpacked RGBA color or sampled paint.
     let color_source = (paint_and_rect_flag >> 29u) & 0x3u;
     var final_color: vec4<f32>;
 

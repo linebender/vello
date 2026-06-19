@@ -3,15 +3,11 @@
 
 //! Schedule construction for the new hybrid scheduler.
 
-use super::round::{
-    AllocationRetryDebug, BlendOp, LayerScheduleDebug, Round, Schedule, ScheduleDebugStats,
-};
+use super::round::{BlendOp, Round, Schedule};
 use super::timeline::{ResourceAllocator, Timeline};
 use super::{Draw, LayerTextureRegion, LoadOp, RenderTarget, RootRenderTarget};
 use crate::scene::{FastPathRect, RecordedDraw};
-use crate::schedule::{
-    GpuStripBuilder, RectPart, Scheduler as ExistingScheduler, make_gpu_rect, split_rect,
-};
+use crate::schedule::{GpuStripBuilder, RectPart, make_gpu_rect, process_paint, split_rect};
 use crate::{RenderError, Scene};
 use alloc::vec::Vec;
 use vello_common::encode::EncodedPaint;
@@ -66,7 +62,6 @@ impl<'a> ScheduleBuilder<'a> {
 
         let mut schedule = Schedule {
             rounds: alloc::vec![Round::default()],
-            debug: self.initial_debug_stats(),
         };
 
         // Walk the command tree left-to-right. Layer subtrees are scheduled lazily when their
@@ -108,17 +103,6 @@ impl<'a> ScheduleBuilder<'a> {
         }
 
         let texture_index = layer.depth & 1;
-        let layer_depth = layer.depth;
-        let has_clip = layer.props.clip_path.is_some();
-        let has_default_blend = layer.props.blend_mode == BlendMode::default();
-        let is_destructive_blend = layer.props.blend_mode.is_destructive();
-        let opacity = layer.props.opacity;
-        let command_count = cmds.len();
-        let child_layer_count = child_layer_ids(cmds).count();
-        let batch_count = cmds
-            .iter()
-            .filter(|cmd| matches!(cmd, RecordedCmd::Batch(_)))
-            .count();
         let target_round = self.timeline.base_round();
         let allocation =
             self.allocate_layer(layer_id, texture_index, bbox, target_round, schedule)?;
@@ -129,50 +113,8 @@ impl<'a> ScheduleBuilder<'a> {
             allocation: allocation.allocation,
             round_idx: ready_round,
         });
-        schedule.debug.scheduled_layers.push(LayerScheduleDebug {
-            layer_id,
-            depth: layer_depth,
-            texture_index,
-            command_count,
-            child_layer_count,
-            batch_count,
-            allocated_round: allocation.round_idx,
-            ready_round,
-            atlas_x: allocation.allocation.region.x,
-            atlas_y: allocation.allocation.region.y,
-            bbox,
-            has_clip,
-            has_default_blend,
-            is_destructive_blend,
-            opacity,
-        });
 
         Ok(())
-    }
-
-    fn initial_debug_stats(&self) -> ScheduleDebugStats {
-        let mut depth_counts = Vec::<(usize, usize)>::new();
-        for layer in &self.scene.recorder.layers {
-            if let Some((_, count)) = depth_counts
-                .iter_mut()
-                .find(|(depth, _)| *depth == layer.depth)
-            {
-                *count += 1;
-            } else {
-                depth_counts.push((layer.depth, 1));
-            }
-        }
-        depth_counts.sort_by_key(|(depth, _)| *depth);
-
-        ScheduleDebugStats {
-            layer_count: self.scene.recorder.layers.len(),
-            root_cmd_count: self.scene.recorder.root_cmds.len(),
-            root_child_layer_count: child_layer_ids(&self.scene.recorder.root_cmds).count(),
-            root_is_blend_target: self.scene.recorder.root_is_blend_target,
-            layer_texture_size: self.layer_texture_size,
-            depth_counts,
-            ..ScheduleDebugStats::default()
-        }
     }
 
     fn schedule_root(&mut self, schedule: &mut Schedule) -> Result<(), RenderError> {
@@ -438,21 +380,6 @@ impl<'a> ScheduleBuilder<'a> {
         let mut allocation = scheduled.allocation;
         allocation.round_idx = scheduled.round_idx;
 
-        schedule.debug.allocation_attempts += scheduled.attempts;
-        schedule.debug.allocation_retries += scheduled.attempts.saturating_sub(1);
-        if scheduled.round_idx != earliest_round {
-            schedule
-                .debug
-                .allocation_retry_events
-                .push(AllocationRetryDebug {
-                    texture_index,
-                    earliest_round,
-                    allocated_round: scheduled.round_idx,
-                    attempts: scheduled.attempts,
-                    bbox,
-                });
-        }
-
         Ok(allocation)
     }
 
@@ -658,13 +585,6 @@ fn empty_source_region_for_blend(bbox: RectU16) -> LayerTextureRegion {
     }
 }
 
-fn child_layer_ids(cmds: &[RecordedCmd]) -> impl Iterator<Item = u32> + '_ {
-    cmds.iter().filter_map(|cmd| match cmd {
-        RecordedCmd::Layer(layer_id) => Some(*layer_id),
-        RecordedCmd::Batch(_) => None,
-    })
-}
-
 fn ensure_plain_layer(layer: &vello_common::record::RecordedLayer) -> Result<(), RenderError> {
     if !matches!(layer.kind, RecordedLayerKind::Regular) {
         return Err(RenderError::UnsupportedFeature(
@@ -767,8 +687,7 @@ impl DrawBuilder {
             let target_y = offset_coord(y, self.geometry_offset.1);
 
             if strip_width > 0 {
-                let processed =
-                    ExistingScheduler::process_paint(&paint, encoded_paints, (x0, y), paint_idxs);
+                let processed = process_paint(&paint, encoded_paints, (x0, y), paint_idxs);
                 self.draw.push_alpha(
                     GpuStripBuilder::at_surface(target_x0, target_y, strip_width)
                         .with_sparse(strip_width, col)
@@ -782,12 +701,7 @@ impl DrawBuilder {
                 let x2 = next_strip.x.min(scene.width);
                 if x2 > x1 {
                     let target_x1 = offset_coord(x1, self.geometry_offset.0);
-                    let processed = ExistingScheduler::process_paint(
-                        &paint,
-                        encoded_paints,
-                        (x1, y),
-                        paint_idxs,
-                    );
+                    let processed = process_paint(&paint, encoded_paints, (x1, y), paint_idxs);
                     let strip = GpuStripBuilder::at_surface(target_x1, target_y, x2 - x1).paint(
                         processed.payload,
                         processed.paint,
@@ -1001,12 +915,7 @@ fn pack_rectangle_into_gpu(
     .into_iter()
     .flatten()
     {
-        let processed = ExistingScheduler::process_paint(
-            &rect.paint,
-            encoded_paints,
-            (part.x, part.y),
-            paint_idxs,
-        );
+        let processed = process_paint(&rect.paint, encoded_paints, (part.x, part.y), paint_idxs);
         let strip = make_gpu_rect(
             offset_rect_part(part, geometry_offset),
             processed.payload,
