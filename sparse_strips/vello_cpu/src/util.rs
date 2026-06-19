@@ -2,70 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::peniko::ImageQuality;
-use alloc::vec::Vec;
 use vello_common::encode::EncodedImage;
 use vello_common::fearless_simd::{Simd, SimdBase, f32x4, u8x32};
 use vello_common::math::FloatExt;
 use vello_common::tile::Tile;
 use vello_common::util::Div255Ext;
-
-pub(crate) trait Clear {
-    fn clear(&mut self);
-}
-
-impl<T> Clear for Vec<T> {
-    fn clear(&mut self) {
-        Self::clear(self);
-    }
-}
-
-/// Pool for reusing allocations.
-#[derive(Debug)]
-pub(crate) struct Pool<T> {
-    entries: Vec<T>,
-    clear_on_submit: bool,
-}
-
-impl<T> Default for Pool<T> {
-    fn default() -> Self {
-        Self::new(true)
-    }
-}
-
-impl<T> Pool<T> {
-    /// Create a new pool.
-    ///
-    /// `clear_on_submit` decides whether submitted values should
-    /// be cleared when they are submitted or whether they should retain
-    /// their original contents.
-    pub(crate) fn new(clear_on_submit: bool) -> Self {
-        Self {
-            entries: Vec::new(),
-            clear_on_submit,
-        }
-    }
-
-    pub(crate) fn take(&mut self) -> T
-    where
-        T: Default,
-    {
-        self.entries.pop().unwrap_or_default()
-    }
-
-    pub(crate) fn submit(&mut self, mut entry: T)
-    where
-        T: Clear,
-    {
-        if self.clear_on_submit {
-            entry.clear();
-        }
-
-        self.entries.push(entry);
-    }
-}
-
-/// Pool for reusing vector allocations.
-pub(crate) type VecPool<T> = Pool<Vec<T>>;
 
 pub(crate) mod scalar {
     /// Perform an approximate division by 255.

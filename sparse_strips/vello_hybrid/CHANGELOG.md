@@ -62,7 +62,6 @@ This release has an [MSRV][] of 1.88.
 - Rendering of rare degenerate radial gradients with undefined regions, which should render those regions transparent. ([#1529][] by [@LaurenzV][])
 - Incorrect rendering of filter layers containing nested clip layers. ([#1541][] by [@LaurenzV][])
 - Incorrect rendering when a background-clearing optimization ran after filter layers had been used. ([#1526][] by [@LaurenzV][])
-- `SceneConstraints::default_blending_only()` now allows non-default blend modes inside nested layers, while still rejecting them on the root layer. ([#1554][] by [@LaurenzV][])
 - Draw ordering for fast-path strips scheduled after nested layers when default blending constraints are enabled. ([#1555][] by [@LaurenzV][], [@taj-p][])
 - Atlas configuration is now clamped to backend device limits, allowing `RenderSettings::default()` and oversized atlas settings to work on more devices. ([#1568][] by [@LaurenzV][])
 - `wgpu` render targets are cleared before drawing, fixing stale pixels in transparent or untouched regions when rendering into reused offscreen targets. ([#1572][] by [@waywardmonkeys][])
