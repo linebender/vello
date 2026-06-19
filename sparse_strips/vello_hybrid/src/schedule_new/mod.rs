@@ -11,6 +11,7 @@ mod timeline;
 
 use self::builder::ScheduleBuilder;
 pub(crate) use self::round::BlendOp;
+pub(crate) use self::round::FilterOp;
 use self::round::Schedule;
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::vec::Vec;
@@ -58,6 +59,21 @@ pub(crate) struct LayerTextureRegion {
     pub(crate) scene_bbox: RectU16,
 }
 
+/// A rectangular region in one of the filter scratch textures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct FilterScratchRegion {
+    /// Scratch texture index, currently `0` or `1`.
+    pub(crate) texture_index: usize,
+    /// X coordinate in the scratch texture.
+    pub(crate) x: u32,
+    /// Y coordinate in the scratch texture.
+    pub(crate) y: u32,
+    /// Width of the region.
+    pub(crate) width: u32,
+    /// Height of the region.
+    pub(crate) height: u32,
+}
+
 /// Specifies a run of strips inside a draw that can be drawn with the same external texture
 /// binding.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,6 +91,9 @@ pub(crate) trait RendererBackend {
     /// Clear rectangular regions in layer atlas textures to transparent black.
     fn clear_layer_regions(&mut self, regions: &[LayerTextureRegion]);
 
+    /// Clear rectangular regions in filter scratch textures to transparent black.
+    fn clear_filter_scratch_regions(&mut self, regions: &[FilterScratchRegion]);
+
     /// Execute a render pass for strips, split into opaque and alpha passes.
     fn render_strips(
         &mut self,
@@ -87,6 +106,9 @@ pub(crate) trait RendererBackend {
 
     /// Apply non-default blend layer operations.
     fn blend_layers(&mut self, blends: &[BlendOp]);
+
+    /// Apply filter operations to already-rendered layer atlas regions.
+    fn apply_filters(&mut self, filters: &[FilterOp]);
 }
 
 /// Backend agnostic enum that specifies the operation to perform to the output attachment at the
@@ -132,6 +154,9 @@ fn execute_schedule<R: RendererBackend>(renderer: &mut R, schedule: &Schedule) {
     }
 
     for round in &schedule.rounds {
+        renderer.clear_layer_regions(&round.prepare_layer_regions);
+        renderer.clear_filter_scratch_regions(&round.prepare_filter_scratch_regions);
+
         let mut layer_draws = [Draw::default(), Draw::default()];
         let mut layer_other_passes = [Vec::new(), Vec::new()];
         let mut root_passes = Vec::new();
@@ -167,12 +192,21 @@ fn execute_schedule<R: RendererBackend>(renderer: &mut R, schedule: &Schedule) {
                 StripPassRenderTarget::LayerAtlas(texture_index),
                 LoadOp::Load,
             );
+
+            let filters = round
+                .filters
+                .iter()
+                .copied()
+                .filter(|filter| filter.layer.texture_index == texture_index)
+                .collect::<Vec<_>>();
+            renderer.apply_filters(&filters);
         }
 
         execute_root_passes(renderer, root_passes);
 
         renderer.blend_layers(&round.blends);
         renderer.clear_layer_regions(&round.clear_layer_regions);
+        renderer.clear_filter_scratch_regions(&round.clear_filter_scratch_regions);
     }
 }
 

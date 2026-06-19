@@ -3,14 +3,18 @@
 
 //! Schedule construction for the new hybrid scheduler.
 
-use super::round::{BlendOp, Round, Schedule};
+use super::round::{BlendOp, FilterOp, Round, Schedule};
 use super::timeline::{ResourceAllocator, Timeline};
-use super::{Draw, LayerTextureRegion, LoadOp, RenderTarget, RootRenderTarget};
+use super::{
+    Draw, FilterScratchRegion, LayerTextureRegion, LoadOp, RenderTarget, RootRenderTarget,
+};
+use crate::filter::{FILTER_ATLAS_PADDING, GpuFilterData};
 use crate::scene::{FastPathRect, RecordedDraw};
 use crate::schedule::{GpuStripBuilder, RectPart, make_gpu_rect, process_paint, split_rect};
 use crate::{RenderError, Scene};
 use alloc::vec::Vec;
 use vello_common::encode::EncodedPaint;
+use vello_common::filter::PreparedFilter;
 use vello_common::geometry::RectU16;
 use vello_common::multi_atlas::{AllocId, Atlas, AtlasError, AtlasId};
 use vello_common::paint::Paint;
@@ -31,6 +35,7 @@ pub(super) struct ScheduleBuilder<'a> {
     encoded_paints: &'a [EncodedPaint],
     timeline: Timeline<LayerAtlasResource>,
     layer_allocations: Vec<Option<ScheduledLayer>>,
+    filter_data_offsets: Vec<Option<u32>>,
     layer_texture_size: (u32, u32),
 }
 
@@ -44,6 +49,13 @@ impl<'a> ScheduleBuilder<'a> {
         layer_texture_size: (u32, u32),
     ) -> Self {
         let layer_count = scene.recorder.layers.len();
+        let mut filter_data_offsets = alloc::vec![None; layer_count];
+        let mut filter_data_offset = 0;
+        for layer_id in &scene.recorder.filter_layers {
+            filter_data_offsets[*layer_id as usize] = Some(filter_data_offset);
+            filter_data_offset += GpuFilterData::SIZE_TEXELS;
+        }
+
         Self {
             scene,
             strip_storage,
@@ -52,6 +64,7 @@ impl<'a> ScheduleBuilder<'a> {
             encoded_paints,
             timeline: Timeline::new(LayerAtlasResource::new(layer_texture_size)),
             layer_allocations: alloc::vec![None; layer_count],
+            filter_data_offsets,
             layer_texture_size,
         }
     }
@@ -73,7 +86,7 @@ impl<'a> ScheduleBuilder<'a> {
 
     fn validate_layers(&self) -> Result<(), RenderError> {
         for layer in &self.scene.recorder.layers {
-            ensure_plain_layer(layer)?;
+            ensure_supported_layer(layer)?;
         }
 
         Ok(())
@@ -172,7 +185,19 @@ impl<'a> ScheduleBuilder<'a> {
             return Ok(None);
         };
         let ready_round = self.flush_stream_segment(&mut target.stream, schedule);
+        if let Some(filter) = target.allocation.filter {
+            self.ensure_schedule_round_exists(ready_round, schedule);
+            schedule.rounds[ready_round].push_filter(FilterOp {
+                layer: target.allocation.region,
+                scratches: filter
+                    .scratches
+                    .map(|scratch| scratch.map(|scratch| scratch.region)),
+                filter_data_offset: filter.filter_data_offset,
+                gpu_filter: filter.gpu_filter,
+            });
+        }
         Ok(Some(ScheduledLayer {
+            sample: self.layer_sample(layer_id, target.allocation.region),
             allocation: target.allocation,
             round_idx: ready_round,
         }))
@@ -194,6 +219,7 @@ impl<'a> ScheduleBuilder<'a> {
             AllocationContext::Layer(layer_id),
             texture_index,
             bbox,
+            self.filter_allocation_request(layer_id),
             self.timeline.base_round(),
             schedule,
         )?;
@@ -225,7 +251,6 @@ impl<'a> ScheduleBuilder<'a> {
                 state.builder.push_draw(
                     draw,
                     self.strip_storage,
-                    self.scene,
                     self.encoded_paints,
                     self.paint_idxs,
                 );
@@ -245,6 +270,7 @@ impl<'a> ScheduleBuilder<'a> {
                 AllocationContext::Root,
                 0,
                 bbox,
+                None,
                 self.timeline.base_round(),
                 schedule,
             )?;
@@ -263,7 +289,15 @@ impl<'a> ScheduleBuilder<'a> {
                 (0, 0),
                 RectU16::new(0, 0, self.scene.width, self.scene.height),
             );
-            draw.push_layer_ref(allocation.region, 1.0, None, self.strip_storage);
+            draw.push_layer_ref(
+                LayerSample {
+                    region: allocation.region,
+                    source_origin: (0, 0),
+                },
+                1.0,
+                None,
+                self.strip_storage,
+            );
             let draw = draw.finish();
             if !draw.is_empty() {
                 let final_target = match self.root_output_target {
@@ -321,7 +355,6 @@ impl<'a> ScheduleBuilder<'a> {
                         state.builder.push_draw(
                             draw,
                             self.strip_storage,
-                            self.scene,
                             self.encoded_paints,
                             self.paint_idxs,
                         );
@@ -370,21 +403,19 @@ impl<'a> ScheduleBuilder<'a> {
                 layer.round_idx,
             ));
             state.builder.push_layer_ref(
-                layer.allocation.region,
+                layer.sample,
                 props.opacity,
                 props.clip_path.as_ref(),
                 self.strip_storage,
             );
-            state
-                .backdrop_bbox
-                .union(layer.allocation.region.scene_bbox);
+            state.backdrop_bbox.union(layer.sample.region.scene_bbox);
             state.sampled_layers.push(layer_id);
             self.flush_stream_segment(state, schedule);
             return;
         }
 
         let parent_ready_round = self.flush_stream_segment(state, schedule);
-        let source_bbox = layer.allocation.region.scene_bbox;
+        let source_bbox = layer.sample.region.scene_bbox;
         let blend_round = parent_ready_round.max(layer.round_idx);
         let bbox = blend_affected_bbox(state.backdrop_bbox, source_bbox, blend_mode.compose)
             .intersect(state.target.layer_region().scene_bbox);
@@ -397,7 +428,7 @@ impl<'a> ScheduleBuilder<'a> {
         self.ensure_schedule_round_exists(blend_round, schedule);
         schedule.rounds[blend_round].push_blend(BlendOp {
             parent: state.target.layer_region(),
-            source: layer.allocation.region,
+            source: layer.sample.region,
             bbox,
             blend_mode,
             opacity,
@@ -441,16 +472,14 @@ impl<'a> ScheduleBuilder<'a> {
         schedule: &mut Schedule,
     ) -> usize {
         let draw = state.take_draw();
-        if draw.is_empty() {
-            return state.round_idx;
+        if !draw.is_empty() {
+            self.ensure_schedule_round_exists(state.round_idx, schedule);
+            schedule.rounds[state.round_idx].push_pass_with_load(
+                state.target,
+                draw,
+                state.take_load_op(),
+            );
         }
-
-        self.ensure_schedule_round_exists(state.round_idx, schedule);
-        schedule.rounds[state.round_idx].push_pass_with_load(
-            state.target,
-            draw,
-            state.take_load_op(),
-        );
 
         for layer_id in core::mem::take(&mut state.sampled_layers) {
             self.consume_child_layer(layer_id, state.round_idx, schedule);
@@ -464,9 +493,17 @@ impl<'a> ScheduleBuilder<'a> {
             return;
         };
 
+        self.ensure_schedule_round_exists(round_idx, schedule);
         schedule.rounds[round_idx]
             .clear_layer_regions
-            .push(scheduled_layer.allocation.region);
+            .push(scheduled_layer.allocation.clear_region);
+        if let Some(filter) = scheduled_layer.allocation.filter {
+            for scratch in filter.scratches.into_iter().flatten() {
+                schedule.rounds[round_idx]
+                    .clear_filter_scratch_regions
+                    .push(scratch.clear_region);
+            }
+        }
         self.release_allocation_after_round(scheduled_layer.allocation, round_idx, schedule);
     }
 
@@ -475,12 +512,18 @@ impl<'a> ScheduleBuilder<'a> {
         context: AllocationContext,
         texture_index: usize,
         bbox: RectU16,
+        filter: Option<FilterAllocationRequest>,
         earliest_round: usize,
         schedule: &mut Schedule,
     ) -> Result<LayerAllocation, RenderError> {
         let width = u32::from(bbox.width());
         let height = u32::from(bbox.height());
-        if width > self.layer_texture_size.0 || height > self.layer_texture_size.1 {
+        let padding = filter.map_or(0, |filter| u32::from(filter.padding));
+        let allocation_width = width.saturating_add(padding * 2);
+        let allocation_height = height.saturating_add(padding * 2);
+        if allocation_width > self.layer_texture_size.0
+            || allocation_height > self.layer_texture_size.1
+        {
             self.log_allocation_failure(
                 context,
                 texture_index,
@@ -496,6 +539,9 @@ impl<'a> ScheduleBuilder<'a> {
             bbox,
             width,
             height,
+            allocation_width,
+            allocation_height,
+            filter,
         };
         let Some(scheduled) = self
             .timeline
@@ -516,7 +562,64 @@ impl<'a> ScheduleBuilder<'a> {
         let mut allocation = scheduled.allocation;
         allocation.round_idx = scheduled.round_idx;
 
+        if allocation.has_padding() {
+            self.ensure_schedule_round_exists(allocation.round_idx, schedule);
+            let round = &mut schedule.rounds[allocation.round_idx];
+            round.prepare_layer_regions.push(allocation.clear_region);
+            if let Some(filter) = allocation.filter {
+                for scratch in filter.scratches.into_iter().flatten() {
+                    round
+                        .prepare_filter_scratch_regions
+                        .push(scratch.clear_region);
+                }
+            }
+        }
+
         Ok(allocation)
+    }
+
+    fn filter_allocation_request(&self, layer_id: u32) -> Option<FilterAllocationRequest> {
+        let layer = &self.scene.recorder.layers[layer_id as usize];
+        let RecordedLayerKind::Filter { filter_data, .. } = &layer.kind else {
+            return None;
+        };
+
+        let prepared_filter = PreparedFilter::new(&filter_data.filter, &filter_data.transform);
+        let gpu_filter = GpuFilterData::from(&prepared_filter);
+        let is_multi_pass = gpu_filter.is_multi_pass();
+        Some(FilterAllocationRequest {
+            scratch_count: if is_multi_pass { 2 } else { 1 },
+            padding: if is_multi_pass {
+                FILTER_ATLAS_PADDING
+            } else {
+                0
+            },
+            filter_data_offset: self.filter_data_offsets[layer_id as usize]
+                .expect("filter layer must have a filter data offset"),
+            gpu_filter,
+        })
+    }
+
+    fn layer_sample(&self, layer_id: u32, allocation: LayerTextureRegion) -> LayerSample {
+        let layer = &self.scene.recorder.layers[layer_id as usize];
+        let RecordedLayerKind::Filter { placement, .. } = &layer.kind else {
+            return LayerSample {
+                region: allocation,
+                source_origin: (0, 0),
+            };
+        };
+
+        LayerSample {
+            region: LayerTextureRegion {
+                x: allocation.x + u32::from(placement.src_x),
+                y: allocation.y + u32::from(placement.src_y),
+                scene_bbox: placement.dest_bbox,
+                width: u32::from(placement.dest_bbox.width()),
+                height: u32::from(placement.dest_bbox.height()),
+                ..allocation
+            },
+            source_origin: (0, 0),
+        }
     }
 
     fn log_allocation_failure(
@@ -572,6 +675,7 @@ fn ensure_schedule_round_exists(schedule: &mut Schedule, round_idx: usize) {
 #[derive(Debug)]
 struct LayerAtlasResource {
     atlases: [Atlas; 2],
+    filter_scratch_atlases: [Atlas; 2],
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -604,6 +708,10 @@ impl LayerAtlasResource {
                 Atlas::new(AtlasId::new(0), layer_texture_size.0, layer_texture_size.1),
                 Atlas::new(AtlasId::new(1), layer_texture_size.0, layer_texture_size.1),
             ],
+            filter_scratch_atlases: [
+                Atlas::new(AtlasId::new(0), layer_texture_size.0, layer_texture_size.1),
+                Atlas::new(AtlasId::new(1), layer_texture_size.0, layer_texture_size.1),
+            ],
         }
     }
 }
@@ -614,6 +722,17 @@ struct LayerAllocationRequest {
     bbox: RectU16,
     width: u32,
     height: u32,
+    allocation_width: u32,
+    allocation_height: u32,
+    filter: Option<FilterAllocationRequest>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct FilterAllocationRequest {
+    scratch_count: usize,
+    padding: u16,
+    filter_data_offset: u32,
+    gpu_filter: GpuFilterData,
 }
 
 impl ResourceAllocator for LayerAtlasResource {
@@ -621,28 +740,104 @@ impl ResourceAllocator for LayerAtlasResource {
     type Allocation = LayerAllocation;
 
     fn allocate(&mut self, request: Self::Request) -> Option<Self::Allocation> {
-        let allocation =
-            self.atlases[request.texture_index].allocate(request.width, request.height)?;
+        let padding = request.filter.map_or(0, |filter| u32::from(filter.padding));
+        let allocation = self.atlases[request.texture_index]
+            .allocate(request.allocation_width, request.allocation_height)?;
+        let mut scratch_allocations: [Option<FilterScratchAllocation>; 2] = [None, None];
+
+        if let Some(filter) = request.filter {
+            for (scratch_index, scratch) in scratch_allocations
+                .iter_mut()
+                .enumerate()
+                .take(filter.scratch_count)
+            {
+                let Some(allocation) = self.filter_scratch_atlases[scratch_index]
+                    .allocate(request.allocation_width, request.allocation_height)
+                else {
+                    for (allocated_index, allocated_scratch) in
+                        scratch_allocations.iter().enumerate()
+                    {
+                        if let Some(allocated_scratch) = allocated_scratch {
+                            self.filter_scratch_atlases[allocated_index].deallocate(
+                                allocated_scratch.alloc_id,
+                                allocated_scratch.allocation_width,
+                                allocated_scratch.allocation_height,
+                            );
+                        }
+                    }
+                    self.atlases[request.texture_index].deallocate(
+                        allocation.id,
+                        request.allocation_width,
+                        request.allocation_height,
+                    );
+                    return None;
+                };
+                *scratch = Some(FilterScratchAllocation {
+                    region: FilterScratchRegion {
+                        texture_index: scratch_index,
+                        x: allocation.x + padding,
+                        y: allocation.y + padding,
+                        width: request.width,
+                        height: request.height,
+                    },
+                    clear_region: FilterScratchRegion {
+                        texture_index: scratch_index,
+                        x: allocation.x,
+                        y: allocation.y,
+                        width: request.allocation_width,
+                        height: request.allocation_height,
+                    },
+                    alloc_id: allocation.id,
+                    allocation_width: request.allocation_width,
+                    allocation_height: request.allocation_height,
+                });
+            }
+        }
+
         Some(LayerAllocation {
             region: LayerTextureRegion {
                 texture_index: request.texture_index,
-                x: allocation.x,
-                y: allocation.y,
+                x: allocation.x + padding,
+                y: allocation.y + padding,
                 width: request.width,
                 height: request.height,
                 scene_bbox: request.bbox,
             },
+            clear_region: LayerTextureRegion {
+                texture_index: request.texture_index,
+                x: allocation.x,
+                y: allocation.y,
+                width: request.allocation_width,
+                height: request.allocation_height,
+                scene_bbox: request.bbox,
+            },
+            filter: request.filter.map(|filter| FilterAllocation {
+                scratches: scratch_allocations,
+                filter_data_offset: filter.filter_data_offset,
+                gpu_filter: filter.gpu_filter,
+            }),
             round_idx: 0,
             alloc_id: allocation.id,
+            allocation_width: request.allocation_width,
+            allocation_height: request.allocation_height,
         })
     }
 
     fn release(&mut self, allocation: Self::Allocation) {
         self.atlases[allocation.region.texture_index].deallocate(
             allocation.alloc_id,
-            allocation.region.width,
-            allocation.region.height,
+            allocation.allocation_width,
+            allocation.allocation_height,
         );
+        if let Some(filter) = allocation.filter {
+            for scratch in filter.scratches.into_iter().flatten() {
+                self.filter_scratch_atlases[scratch.region.texture_index].deallocate(
+                    scratch.alloc_id,
+                    scratch.allocation_width,
+                    scratch.allocation_height,
+                );
+            }
+        }
     }
 }
 
@@ -650,6 +845,7 @@ impl ResourceAllocator for LayerAtlasResource {
 #[derive(Debug, Clone, Copy)]
 struct ScheduledLayer {
     allocation: LayerAllocation,
+    sample: LayerSample,
     round_idx: usize,
 }
 
@@ -657,8 +853,40 @@ struct ScheduledLayer {
 #[derive(Debug, Clone, Copy)]
 struct LayerAllocation {
     region: LayerTextureRegion,
+    clear_region: LayerTextureRegion,
+    filter: Option<FilterAllocation>,
     round_idx: usize,
     alloc_id: AllocId,
+    allocation_width: u32,
+    allocation_height: u32,
+}
+
+impl LayerAllocation {
+    fn has_padding(self) -> bool {
+        self.allocation_width != self.region.width || self.allocation_height != self.region.height
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct FilterAllocation {
+    scratches: [Option<FilterScratchAllocation>; 2],
+    filter_data_offset: u32,
+    gpu_filter: GpuFilterData,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct FilterScratchAllocation {
+    region: FilterScratchRegion,
+    clear_region: FilterScratchRegion,
+    alloc_id: AllocId,
+    allocation_width: u32,
+    allocation_height: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LayerSample {
+    region: LayerTextureRegion,
+    source_origin: (u16, u16),
 }
 
 #[derive(Debug)]
@@ -800,12 +1028,7 @@ fn layer_segment_has_batches(cmds: &[RecordedCmd], start: usize, end: usize) -> 
         .any(|cmd| matches!(cmd, RecordedCmd::Batch(_)))
 }
 
-fn ensure_plain_layer(layer: &vello_common::record::RecordedLayer) -> Result<(), RenderError> {
-    if !matches!(layer.kind, RecordedLayerKind::Regular) {
-        return Err(RenderError::UnsupportedFeature(
-            "filter layers are not supported by schedule_new yet",
-        ));
-    }
+fn ensure_supported_layer(layer: &vello_common::record::RecordedLayer) -> Result<(), RenderError> {
     if layer.props.mask.is_some() {
         return Err(RenderError::UnsupportedFeature(
             "mask layers are not supported by schedule_new yet",
@@ -848,7 +1071,6 @@ impl DrawBuilder {
         &mut self,
         draw: &RecordedDraw,
         strip_storage: &StripStorage,
-        scene: &Scene,
         encoded_paints: &[EncodedPaint],
         paint_idxs: &[u32],
     ) {
@@ -858,7 +1080,6 @@ impl DrawBuilder {
                     path.strips.clone(),
                     path.paint.clone(),
                     strip_storage,
-                    scene,
                     encoded_paints,
                     paint_idxs,
                 );
@@ -874,7 +1095,6 @@ impl DrawBuilder {
         strips: core::ops::Range<usize>,
         paint: Paint,
         strip_storage: &StripStorage,
-        scene: &Scene,
         encoded_paints: &[EncodedPaint],
         paint_idxs: &[u32],
     ) {
@@ -891,7 +1111,8 @@ impl DrawBuilder {
             let strip = &strips[i];
             let y = strip.y;
 
-            if strip.x >= scene.width || y < self.draw_bounds.y0 || y >= self.draw_bounds.y1 {
+            if strip.x >= self.draw_bounds.x1 || y < self.draw_bounds.y0 || y >= self.draw_bounds.y1
+            {
                 continue;
             }
 
@@ -903,7 +1124,9 @@ impl DrawBuilder {
 
             if strip_width > 0 {
                 let strip_x0 = strip.x;
-                let strip_x1 = strip_x0.saturating_add(strip_width).min(scene.width);
+                let strip_x1 = strip_x0
+                    .saturating_add(strip_width)
+                    .min(self.draw_bounds.x1);
                 let x0 = strip_x0.max(self.draw_bounds.x0);
                 let x1 = strip_x1.min(self.draw_bounds.x1);
                 if x1 > x0 {
@@ -922,7 +1145,7 @@ impl DrawBuilder {
 
             if next_strip.fill_gap() && strip.strip_y() == next_strip.strip_y() {
                 let gap_x0 = strip.x.saturating_add(strip_width);
-                let gap_x1 = next_strip.x.min(scene.width);
+                let gap_x1 = next_strip.x.min(self.draw_bounds.x1);
                 let x0 = gap_x0.max(self.draw_bounds.x0);
                 let x1 = gap_x1.min(self.draw_bounds.x1);
                 if x1 > x0 {
@@ -967,19 +1190,19 @@ impl DrawBuilder {
 
     fn push_layer_ref(
         &mut self,
-        source: LayerTextureRegion,
+        sample: LayerSample,
         opacity: f32,
         clip_path: Option<&LayerClip>,
         strip_storage: &StripStorage,
     ) {
         // TODO: Add optimization to not emit strips outside of clip bbox.
         if let Some(clip_path) = clip_path {
-            self.push_clipped_layer_ref(source, opacity, clip_path, strip_storage);
+            self.push_clipped_layer_ref(sample, opacity, clip_path, strip_storage);
             return;
         }
 
         let depth_index = self.depth.next(false);
-        let bbox = source.scene_bbox.intersect(self.draw_bounds);
+        let bbox = sample.region.scene_bbox.intersect(self.draw_bounds);
         if bbox.is_empty() {
             return;
         }
@@ -998,7 +1221,7 @@ impl DrawBuilder {
                     },
                     self.geometry_offset,
                 ),
-                layer_sample_payload(source, bbox.x0, bbox.y0),
+                layer_sample_payload(sample, bbox.x0, bbox.y0),
                 layer_paint(opacity),
                 depth_index,
             ),
@@ -1009,13 +1232,13 @@ impl DrawBuilder {
     // TODO: Deduplicate this with vello cpu.
     fn push_clipped_layer_ref(
         &mut self,
-        source: LayerTextureRegion,
+        sample: LayerSample,
         opacity: f32,
         clip_path: &LayerClip,
         strip_storage: &StripStorage,
     ) {
         let strips = &strip_storage.strips[clip_path.strip_range.clone()];
-        let sample_bbox = source.scene_bbox.intersect(self.draw_bounds);
+        let sample_bbox = sample.region.scene_bbox.intersect(self.draw_bounds);
         if strips.len() < 2 || clip_path.bbox.is_empty() || sample_bbox.is_empty() {
             return;
         }
@@ -1051,7 +1274,7 @@ impl DrawBuilder {
                         )
                         .with_sparse(x1 - x0, col_offset)
                         .paint(
-                            layer_sample_payload(source, x0, y),
+                            layer_sample_payload(sample, x0, y),
                             paint,
                             depth_index,
                         ),
@@ -1075,7 +1298,7 @@ impl DrawBuilder {
                             x1 - x0,
                         )
                         .paint(
-                            layer_sample_payload(source, x0, y),
+                            layer_sample_payload(sample, x0, y),
                             paint,
                             depth_index,
                         ),
@@ -1195,9 +1418,12 @@ fn pack_u16_pair(x: u32, y: u32) -> u32 {
     (x & 0xffff) | ((y & 0xffff) << 16)
 }
 
-fn layer_sample_payload(source: LayerTextureRegion, x: u16, y: u16) -> u32 {
-    let source_x = source.x + u32::from(x - source.scene_bbox.x0);
-    let source_y = source.y + u32::from(y - source.scene_bbox.y0);
+fn layer_sample_payload(sample: LayerSample, x: u16, y: u16) -> u32 {
+    let source = sample.region;
+    let source_x =
+        source.x + u32::from(sample.source_origin.0) + u32::from(x - source.scene_bbox.x0);
+    let source_y =
+        source.y + u32::from(sample.source_origin.1) + u32::from(y - source.scene_bbox.y0);
     pack_u16_pair(source_x, source_y)
 }
 
