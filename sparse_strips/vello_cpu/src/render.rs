@@ -14,7 +14,6 @@ use glifo::GlyphPrepCache;
 
 use crate::dispatch::single_threaded::SingleThreadedDispatcher;
 use crate::kurbo::{PathEl, Point};
-use crate::record::FilterData;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec;
@@ -23,6 +22,7 @@ use hashbrown::HashMap;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
 use vello_common::encode::{EncodeExt, EncodedPaint};
 use vello_common::fearless_simd::Level;
+use vello_common::filter::FilterData;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
