@@ -71,6 +71,8 @@ pub(super) struct LayerScheduleDebug {
     pub(super) batch_count: usize,
     pub(super) allocated_round: usize,
     pub(super) ready_round: usize,
+    pub(super) atlas_x: u32,
+    pub(super) atlas_y: u32,
     pub(super) bbox: RectU16,
     pub(super) has_clip: bool,
     pub(super) has_default_blend: bool,

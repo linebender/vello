@@ -31,7 +31,6 @@ pub struct Allocation {
 // ---------------------------------------------------------------------------
 
 /// Represents a single atlas in the multi-atlas system.
-#[derive(Clone)]
 pub struct Atlas {
     /// Unique identifier for this atlas.
     pub id: AtlasId,

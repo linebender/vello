@@ -7,6 +7,7 @@
 
 mod builder;
 mod round;
+mod timeline;
 
 use self::builder::ScheduleBuilder;
 pub(crate) use self::round::BlendOp;
@@ -191,12 +192,14 @@ fn print_schedule_debug_stats(scene: &Scene, schedule: &Schedule) {
 
     for layer in &schedule.debug.scheduled_layers {
         eprintln!(
-            "vello_hybrid schedule layer: id={} depth={} texture={} allocated_round={} ready_round={} cmds={} batches={} child_layers={} bbox={}x{} at {},{} clip={} default_blend={} destructive_blend={} opacity={:.3}",
+            "vello_hybrid schedule layer: id={} depth={} texture={} allocated_round={} ready_round={} atlas={},{} cmds={} batches={} child_layers={} bbox={}x{} at {},{} clip={} default_blend={} destructive_blend={} opacity={:.3}",
             layer.layer_id,
             layer.depth,
             layer.texture_index,
             layer.allocated_round,
             layer.ready_round,
+            layer.atlas_x,
+            layer.atlas_y,
             layer.command_count,
             layer.batch_count,
             layer.child_layer_count,
