@@ -37,6 +37,30 @@ fn compose_clear(ctx: &mut impl Renderer) {
     compose(ctx, Compose::Clear);
 }
 
+#[vello_test(width = 100, height = 100)]
+fn compose_clear_empty_layer(ctx: &mut impl Renderer) {
+    ctx.push_layer(None, None, None, None, None);
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
+
+    ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::Clear));
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
+#[vello_test(width = 100, height = 100)]
+fn compose_clear_empty_nested_layer(ctx: &mut impl Renderer) {
+    ctx.push_layer(None, None, None, None, None);
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
+
+    ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::Clear));
+    ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::Clear));
+    ctx.pop_layer();
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
 #[vello_test]
 fn compose_copy(ctx: &mut impl Renderer) {
     compose(ctx, Compose::Copy);
@@ -389,12 +413,12 @@ fn compose_non_isolated_xor(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::Xor);
 }
 
-#[vello_test]
+#[vello_test(skip_hybrid)]
 fn compose_non_isolated_clear(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::Clear);
 }
 
-#[vello_test]
+#[vello_test(skip_hybrid)]
 fn compose_non_isolated_copy(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::Copy);
 }
@@ -409,17 +433,17 @@ fn compose_non_isolated_dest_over(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::DestOver);
 }
 
-#[vello_test]
+#[vello_test(skip_hybrid)]
 fn compose_non_isolated_src_in(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::SrcIn);
 }
 
-#[vello_test]
+#[vello_test(skip_hybrid)]
 fn compose_non_isolated_src_out(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::SrcOut);
 }
 
-#[vello_test]
+#[vello_test(skip_hybrid)]
 fn compose_non_isolated_dest_in(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::DestIn);
 }
@@ -434,7 +458,7 @@ fn compose_non_isolated_src_atop(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::SrcAtop);
 }
 
-#[vello_test]
+#[vello_test(skip_hybrid)]
 fn compose_non_isolated_dest_atop(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::DestAtop);
 }

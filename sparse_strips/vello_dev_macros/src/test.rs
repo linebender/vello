@@ -31,9 +31,6 @@ struct Arguments {
     skip_multithreaded: bool,
     /// Whether the test should not be run on the GPU (`vello_hybrid`).
     skip_hybrid: bool,
-    /// Whether the test should not be run with the constrained hybrid renderer
-    /// (`default_blending_only`).
-    skip_hybrid_constrained: bool,
     /// The maximum number of pixels that are allowed to completely deviate from the reference
     /// images. This attribute mainly exists because there are some test cases (like gradients),
     /// where, due to floating point inaccuracies, some pixels might land on a different color
@@ -59,7 +56,6 @@ impl Default for Arguments {
             skip_cpu: false,
             skip_multithreaded: false,
             skip_hybrid: false,
-            skip_hybrid_constrained: false,
             no_ref: false,
             glyph: false,
             diff_pixels: 0,
@@ -122,10 +118,6 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         input_fn_name.span(),
     );
     let hybrid_fn_name = Ident::new(&format!("{input_fn_name}_hybrid"), input_fn_name.span());
-    let hybrid_constrained_fn_name = Ident::new(
-        &format!("{input_fn_name}_hybrid_constrained"),
-        input_fn_name.span(),
-    );
     let webgl_fn_name = Ident::new(
         &format!("{input_fn_name}_hybrid_webgl"),
         input_fn_name.span(),
@@ -148,7 +140,6 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     let f32_fn_name_wasm_str = f32_fn_name_wasm.to_string();
     let multithreaded_fn_name_str = multithreaded_fn_name.to_string();
     let hybrid_fn_name_str = hybrid_fn_name.to_string();
-    let hybrid_constrained_fn_name_str = hybrid_constrained_fn_name.to_string();
     let webgl_fn_name_str = webgl_fn_name.to_string();
 
     let Arguments {
@@ -160,7 +151,6 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         skip_cpu,
         skip_multithreaded,
         mut skip_hybrid,
-        mut skip_hybrid_constrained,
         ignore_reason,
         no_ref,
         glyph,
@@ -220,24 +210,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
     skip_hybrid |= {
         input_fn_name_str.contains("layer_multiple_properties")
             || input_fn_name_str.contains("mask")
-            || input_fn_name_str.contains("clip_clear")
-            || input_fn_name_str.contains("mix_non_isolated")
-            || input_fn_name_str.contains("compose_non_isolated")
     };
-
-    // Tests that use non-default blend modes will panic with `default_blending_only`.
-    skip_hybrid_constrained |= skip_hybrid
-        || (input_fn_name_str.contains("mix")
-            // This test is supposed to specifically show even with scene constraints enabled,
-            // blending will work fine as long as it doesn't happen on the root layer.
-            && !input_fn_name_str.contains("mix_in_inner_layer"))
-        || input_fn_name_str.contains("compose")
-        || (input_fn_name_str.contains("blend")
-            && !input_fn_name_str.contains("default_blending_only"))
-        || input_fn_name_str.contains("recording")
-        // TODO: Add test annotation instead of hard coding here
-        || input_fn_name_str.contains("filter_varying_depths_clips_and_compositions")
-        || input_fn_name_str.contains("gradient_color_alpha_unmul");
 
     let empty_snippet = quote! {};
     let ignore_snippet = if let Some(reason) = ignore_reason {
@@ -252,11 +225,6 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         empty_snippet.clone()
     };
     let ignore_hybrid_webgl = if skip_hybrid {
-        ignore_snippet.clone()
-    } else {
-        empty_snippet.clone()
-    };
-    let ignore_hybrid_constrained = if skip_hybrid_constrained {
         ignore_snippet.clone()
     } else {
         empty_snippet.clone()
@@ -305,7 +273,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                 use crate::renderer::CpuRenderer;
                 use vello_cpu::RenderMode;
 
-                let mut ctx = get_ctx::<CpuRenderer>(#width, #height, #transparent, #num_threads, #level, #render_mode, false);
+                let mut ctx = get_ctx::<CpuRenderer>(#width, #height, #transparent, #num_threads, #level, #render_mode);
                 #invoke_input
                 ctx.flush();
                 if !#no_ref {
@@ -487,11 +455,6 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         input_fn_name.span(),
     );
     let cached_hybrid_fn_name_str = cached_hybrid_fn_name.to_string();
-    let cached_hybrid_constrained_fn_name = Ident::new(
-        &format!("{input_fn_name}_hybrid_constrained_cached"),
-        input_fn_name.span(),
-    );
-    let cached_hybrid_constrained_fn_name_str = cached_hybrid_constrained_fn_name.to_string();
 
     let cached_cpu_snippet = if glyph {
         cpu_snippet(
@@ -519,33 +482,11 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
                 use crate::renderer::HybridRenderer;
                 use vello_cpu::RenderMode;
 
-                let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed, false);
+                let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed);
                 #invoke_cached_test
                 ctx.flush();
                 if !#no_ref {
                     check_ref(&mut ctx, #cached_reference_test_name, #cached_hybrid_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
-                }
-            }
-        }
-    } else {
-        quote! {}
-    };
-
-    let cached_hybrid_constrained_snippet = if glyph {
-        quote! {
-            #ignore_hybrid_constrained
-            #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
-            #[test]
-            fn #cached_hybrid_constrained_fn_name() {
-                use crate::util::{check_ref, get_ctx};
-                use crate::renderer::HybridRenderer;
-                use vello_cpu::RenderMode;
-
-                let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed, true);
-                #invoke_cached_test
-                ctx.flush();
-                if !#no_ref {
-                    check_ref(&mut ctx, #cached_reference_test_name, #cached_hybrid_constrained_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
                 }
             }
         }
@@ -591,7 +532,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             use crate::renderer::HybridRenderer;
             use vello_cpu::RenderMode;
 
-            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed, false);
+            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed);
             #invoke_test
             ctx.flush();
             if !#no_ref {
@@ -600,26 +541,6 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         }
 
         #cached_hybrid_snippet
-
-        #ignore_hybrid_constrained
-        #[cfg(not(all(target_arch = "wasm32", feature = "webgl")))]
-        #[test]
-        fn #hybrid_constrained_fn_name() {
-            use crate::util::{
-                check_ref, get_ctx
-            };
-            use crate::renderer::HybridRenderer;
-            use vello_cpu::RenderMode;
-
-            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed, true);
-            #invoke_test
-            ctx.flush();
-            if !#no_ref {
-                check_ref(&mut ctx, #input_fn_name_str, #hybrid_constrained_fn_name_str, #hybrid_tolerance, #diff_pixels, false, #reference_image_name);
-            }
-        }
-
-        #cached_hybrid_constrained_snippet
 
         #ignore_hybrid_webgl
         #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
@@ -631,7 +552,7 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
             use crate::renderer::HybridRenderer;
             use vello_cpu::RenderMode;
 
-            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed, false);
+            let mut ctx = get_ctx::<HybridRenderer>(#width, #height, #transparent, 0, "fallback", RenderMode::OptimizeSpeed);
             #invoke_test
             ctx.flush();
             if !#no_ref {
@@ -676,14 +597,12 @@ fn parse_args(attribute_input: &AttributeInput) -> Arguments {
                     "skip_cpu" => args.skip_cpu = true,
                     "skip_multithreaded" => args.skip_multithreaded = true,
                     "skip_hybrid" => args.skip_hybrid = true,
-                    "skip_hybrid_constrained" => args.skip_hybrid_constrained = true,
                     "no_ref" => args.no_ref = true,
                     "glyph" => args.glyph = true,
                     "ignore" => {
                         args.skip_cpu = true;
                         args.skip_multithreaded = true;
                         args.skip_hybrid = true;
-                        args.skip_hybrid_constrained = true;
                     }
                     _ => panic!("unknown flag attribute {flag_str}"),
                 }

@@ -15,7 +15,7 @@ use vello_common::pixmap::Pixmap;
 use vello_cpu::{Level, RasterizerSettings, RenderContext, RenderMode, RenderSettings, Resources};
 use vello_hybrid::{
     RenderSettings as HybridRenderSettings, Resources as HybridResources, SampleRect, Scene,
-    SceneConstraints, TextureId,
+    TextureId,
 };
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 use web_sys::WebGl2RenderingContext;
@@ -31,7 +31,6 @@ pub(crate) trait Renderer: Sized {
         num_threads: u16,
         level: Level,
         render_mode: RenderMode,
-        default_blending_only: bool,
     ) -> Self;
     fn fill_path(&mut self, path: &BezPath);
     fn stroke_path(&mut self, path: &BezPath);
@@ -114,7 +113,6 @@ impl Renderer for CpuRenderer {
         num_threads: u16,
         level: Level,
         render_mode: RenderMode,
-        _default_blending_only: bool,
     ) -> Self {
         let settings = RenderSettings { level, num_threads };
         Self {
@@ -345,13 +343,14 @@ impl HybridRenderer {
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Create renderer and render the scene to the texture
-        let renderer = vello_hybrid::Renderer::new(
+        let renderer = vello_hybrid::Renderer::new_with(
             &device,
             &vello_hybrid::RenderTargetConfig {
                 format: texture.format(),
                 width: width.into(),
                 height: height.into(),
             },
+            settings,
         );
 
         Self {
@@ -391,14 +390,7 @@ impl HybridRenderer {
 impl Renderer for HybridRenderer {
     type GlyphRunBackend<'a> = vello_hybrid::HybridGlyphRunBackend<'a>;
 
-    fn new(
-        width: u16,
-        height: u16,
-        num_threads: u16,
-        level: Level,
-        _: RenderMode,
-        default_blending_only: bool,
-    ) -> Self {
+    fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
         if num_threads != 0 {
             panic!("hybrid renderer doesn't support multi-threading");
         }
@@ -406,9 +398,11 @@ impl Renderer for HybridRenderer {
             panic!("hybrid renderer doesn't support SIMD");
         }
         let mut settings = HybridRenderSettings::default();
-        if default_blending_only {
-            settings.constraints = SceneConstraints::new().default_blending_only();
-        }
+        // Most of the tests are 100x100 by default, and we want to make sure that some visual
+        // tests have the chance to cover more complex parts of the Vello Hybrid scheduler
+        // (for example situations where we need to spill to a new page, etc.). Therefore,
+        // we make the minimum size smaller than the default.
+        settings.memory_settings.layers_config.min_texture_size = vello_hybrid::SizeU16::new(100);
         Self::new_with_settings(width, height, settings)
     }
 
@@ -515,8 +509,8 @@ impl Renderer for HybridRenderer {
         self.scene.set_transform(transform);
     }
 
-    fn set_blend_mode(&mut self, _: BlendMode) {
-        unimplemented!()
+    fn set_blend_mode(&mut self, blend_mode: BlendMode) {
+        self.scene.set_blend_mode(blend_mode);
     }
 
     fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>) {
@@ -736,14 +730,7 @@ impl HybridRenderer {
 impl Renderer for HybridRenderer {
     type GlyphRunBackend<'a> = vello_hybrid::HybridGlyphRunBackend<'a>;
 
-    fn new(
-        width: u16,
-        height: u16,
-        num_threads: u16,
-        level: Level,
-        _: RenderMode,
-        default_blending_only: bool,
-    ) -> Self {
+    fn new(width: u16, height: u16, num_threads: u16, level: Level, _: RenderMode) -> Self {
         use wasm_bindgen::JsCast;
         use web_sys::HtmlCanvasElement;
 
@@ -756,9 +743,8 @@ impl Renderer for HybridRenderer {
         }
 
         let mut settings = HybridRenderSettings::default();
-        if default_blending_only {
-            settings.constraints = SceneConstraints::new().default_blending_only();
-        }
+        // See the comment above for why we change the `min_texture_size`.
+        settings.memory_settings.layers_config.min_texture_size = vello_hybrid::SizeU16::new(100);
         let scene = Scene::new_with(width, height, settings);
         // Create an offscreen HTMLCanvasElement, render the test image to it, and finally read off
         // the pixmap for diff checking.
@@ -770,7 +756,7 @@ impl Renderer for HybridRenderer {
             .unwrap();
         canvas.set_width(width.into());
         canvas.set_height(height.into());
-        let renderer = vello_hybrid::WebGlRenderer::new(&canvas);
+        let renderer = vello_hybrid::WebGlRenderer::new_with(&canvas, settings);
         let gl = canvas
             .get_context("webgl2")
             .unwrap()
@@ -789,8 +775,8 @@ impl Renderer for HybridRenderer {
         self.scene.fill_path(path);
     }
 
-    fn set_blend_mode(&mut self, _: BlendMode) {
-        unimplemented!()
+    fn set_blend_mode(&mut self, blend_mode: BlendMode) {
+        self.scene.set_blend_mode(blend_mode);
     }
 
     fn stroke_path(&mut self, path: &BezPath) {
