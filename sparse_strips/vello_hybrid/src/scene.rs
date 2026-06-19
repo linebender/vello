@@ -740,7 +740,7 @@ impl Scene {
                 strips: strips.clone(),
                 paint: paint.clone(),
             }));
-        self.recorder.push_draw(draw);
+        self.push_recorded_draw(draw);
     }
 
     fn record_rect(&mut self, rect: FastPathRect) {
@@ -753,7 +753,27 @@ impl Scene {
                 y1: rect.y1,
                 paint: rect.paint.clone(),
             }));
-        self.recorder.push_draw(RecordedDraw::rect(rect));
+        self.push_recorded_draw(RecordedDraw::rect(rect));
+    }
+
+    fn push_recorded_draw(&mut self, draw: RecordedDraw) {
+        let blend_mode = self.render_state.blend_mode;
+        if blend_mode == DEFAULT_BLEND_MODE {
+            self.recorder.push_draw(draw);
+            return;
+        }
+
+        self.recorder.push_layer(
+            LayerProps {
+                blend_mode,
+                opacity: 1.0,
+                mask: None,
+                clip_path: None,
+            },
+            None,
+        );
+        self.recorder.push_draw(draw);
+        self.recorder.pop_layer();
     }
 
     fn fast_rect_bounds(&self, rect: &Rect) -> Option<Rect> {
@@ -943,11 +963,6 @@ impl Scene {
         }
 
         let blend_mode = blend_mode.unwrap_or(DEFAULT_BLEND_MODE);
-        if blend_mode != DEFAULT_BLEND_MODE {
-            unimplemented!(
-                "non-default blending is not supported by the new vello_hybrid scheduler yet"
-            );
-        }
 
         let clip_path = clip_path.map(|path| {
             let existing_clip = self.clip_context.get();
@@ -1076,11 +1091,6 @@ impl Scene {
 
     /// Set the blend mode for subsequent rendering operations.
     pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
-        if blend_mode != DEFAULT_BLEND_MODE {
-            unimplemented!(
-                "non-default blending is not supported by the new vello_hybrid scheduler yet"
-            );
-        }
         self.render_state.blend_mode = blend_mode;
     }
 

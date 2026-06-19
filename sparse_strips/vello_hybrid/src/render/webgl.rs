@@ -23,7 +23,7 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
-    filter::{FilterContext, FilterInstanceData, FilterPassState, FilterPassTarget},
+    filter::{FilterContext, FilterInstanceData, FilterPassState},
     gradient_cache::GradientRampCache,
     render::{
         Config,
@@ -39,7 +39,7 @@ use crate::{
     scene::Scene,
     schedule::{Scheduler, SchedulerState},
     schedule_new::{
-        ExternalTextureRun, LayerTextureRegion, LoadOp, RendererBackend, RootRenderTarget,
+        BlendOp, ExternalTextureRun, LayerTextureRegion, LoadOp, RendererBackend, RootRenderTarget,
         StripPassRenderTarget,
     },
 };
@@ -61,7 +61,6 @@ use vello_common::multi_atlas::AllocationStrategy;
 use vello_common::multi_atlas::{AtlasConfig, AtlasId};
 #[cfg(feature = "probe")]
 use vello_common::probe::Probe;
-use vello_common::render_graph::LayerId;
 use vello_common::{
     coarse::WideTile,
     encode::{
@@ -1026,12 +1025,16 @@ struct WebGlPrograms {
     /// Uniform locations for the strip program
     strip_uniforms: StripUniforms,
     /// Program for clearing slots in slot textures.
+    #[allow(dead_code)]
     clear_program: Program,
     /// Uniform locations for the `clear_program`.
+    #[allow(dead_code)]
     clear_uniforms: ClearUniforms,
     /// Program for filter passes.
+    #[allow(dead_code)]
     filter_program: Program,
     /// Uniform locations for the filter program.
+    #[allow(dead_code)]
     filter_uniforms: FilterPassUniforms,
     /// WebGL resources for rendering.
     resources: WebGlResources,
@@ -1046,6 +1049,7 @@ struct WebGlPrograms {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct FilterPassUniforms {
     filter_data: WebGlUniformLocation,
     in_tex: WebGlUniformLocation,
@@ -1077,6 +1081,7 @@ struct StripUniforms {
 
 /// Uniform locations for `clear_program`.
 #[derive(Debug)]
+#[allow(dead_code)]
 struct ClearUniforms {
     /// Config uniform block index.
     config_block_index: u32,
@@ -1422,6 +1427,7 @@ impl WebGlPrograms {
         }
     }
 
+    #[allow(dead_code)]
     fn upload_filter_instances(
         &self,
         gl: &WebGl2RenderingContext,
@@ -2612,8 +2618,10 @@ fn initialize_clear_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
 struct WebGlRendererContext<'a> {
     programs: &'a mut WebGlPrograms,
     gl: &'a WebGl2RenderingContext,
+    #[allow(dead_code)]
     image_cache: &'a ImageCache,
     filter_context: &'a FilterContext,
+    #[allow(dead_code)]
     filter_pass_state: &'a mut FilterPassState,
 }
 
@@ -2810,6 +2818,9 @@ impl WebGlRendererContext<'_> {
 
         let layer_texture_idx = match &target {
             StripPassRenderTarget::Layer(region) => region.texture_index ^ 1,
+            StripPassRenderTarget::Root(
+                RootRenderTarget::UserSurfaceFromLayer0 | RootRenderTarget::AtlasLayerFromLayer0,
+            ) => 0,
             _ => 1,
         };
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE1);
@@ -2868,7 +2879,9 @@ impl WebGlRendererContext<'_> {
         // that possibility in the future.
         let is_final_view = matches!(
             target,
-            StripPassRenderTarget::Root(RootRenderTarget::UserSurface)
+            StripPassRenderTarget::Root(
+                RootRenderTarget::UserSurface | RootRenderTarget::UserSurfaceFromLayer0
+            )
         );
 
         self.programs
@@ -2954,6 +2967,7 @@ impl WebGlRendererContext<'_> {
     }
 
     /// Clear specific slots from a slot texture.
+    #[allow(dead_code)]
     fn do_clear_slots_render_pass(&mut self, ix: usize, slot_indices: &[u32]) {
         if slot_indices.is_empty() {
             return;
@@ -3057,11 +3071,6 @@ impl WebGlRendererContext<'_> {
 }
 
 impl RendererBackend for WebGlRendererContext<'_> {
-    /// Clear specific slots in a texture
-    fn clear_slots(&mut self, texture_index: usize, slots: &[u32]) {
-        self.do_clear_slots_render_pass(texture_index, slots);
-    }
-
     /// Execute a render pass for strips.
     fn render_strips(
         &mut self,
@@ -3074,119 +3083,10 @@ impl RendererBackend for WebGlRendererContext<'_> {
         self.do_strip_render_pass(opaque_strips, alpha_strips, target, load_op);
     }
 
-    fn apply_filter(&mut self, layer_id: LayerId) {
-        let filter_atlas_width = self.programs.resources.filter_atlas_width;
-        let filter_atlas_height = self.programs.resources.filter_atlas_height;
-
-        self.filter_context.build_filter_passes(
-            self.filter_pass_state,
-            &layer_id,
-            self.image_cache,
-            |_atlas_idx| [filter_atlas_width, filter_atlas_height],
-            || {
-                [
-                    self.programs.resources.atlas_texture_array.size.width,
-                    self.programs.resources.atlas_texture_array.size.height,
-                ]
-            },
-        );
-
-        let filter_passes = self.filter_pass_state.filter_passes();
-        if filter_passes.is_empty() {
-            return;
+    fn blend_layers(&mut self, blends: &[BlendOp]) {
+        if !blends.is_empty() {
+            unimplemented!("non-default blend layers are not supported by the WebGL backend yet");
         }
-
-        self.gl.disable(WebGl2RenderingContext::BLEND);
-        self.gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
-
-        let instances = self.filter_pass_state.instances();
-        self.programs.upload_filter_instances(self.gl, instances);
-
-        self.gl.use_program(Some(&self.programs.filter_program));
-        self.gl
-            .bind_vertex_array(Some(&self.programs.resources.filter_vao));
-
-        self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-        self.gl.bind_texture(
-            WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.filter_data_texture),
-        );
-        self.gl
-            .uniform1i(Some(&self.programs.filter_uniforms.filter_data), 0);
-
-        for (i, pass) in filter_passes.iter().enumerate() {
-            // Base points to the correct offset for that specific filter pass.
-            let base = (i as i32) * FILTER_INSTANCE_STRIDE;
-
-            for (loc, &(components, offset)) in FILTER_ATTRIBS.iter().enumerate() {
-                self.gl.vertex_attrib_i_pointer_with_i32(
-                    loc as u32,
-                    components,
-                    WebGl2RenderingContext::UNSIGNED_INT,
-                    FILTER_INSTANCE_STRIDE,
-                    base + offset,
-                );
-            }
-
-            let (target_width, target_height) = match &pass.output {
-                FilterPassTarget::FilterAtlas(idx) => {
-                    let fb = &self.programs.resources.filter_atlas_framebuffers[*idx as usize];
-                    self.gl
-                        .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(fb));
-                    self.gl
-                        .viewport(0, 0, filter_atlas_width as i32, filter_atlas_height as i32);
-                    (filter_atlas_width, filter_atlas_height)
-                }
-                FilterPassTarget::MainAtlas(idx) => {
-                    let fb = self
-                        .programs
-                        .resources
-                        .filter_main_atlas_framebuffer
-                        .get_or_insert_with(|| Framebuffer::new(self.gl));
-                    self.gl
-                        .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(fb));
-                    self.gl.framebuffer_texture_layer(
-                        WebGl2RenderingContext::FRAMEBUFFER,
-                        WebGl2RenderingContext::COLOR_ATTACHMENT0,
-                        Some(&self.programs.resources.atlas_texture_array.texture),
-                        0,
-                        *idx as i32,
-                    );
-                    let width = self.programs.resources.atlas_texture_array.size.width;
-                    let height = self.programs.resources.atlas_texture_array.size.height;
-                    self.gl.viewport(0, 0, width as i32, height as i32);
-                    (width, height)
-                }
-            };
-
-            let instance = &instances[i];
-            let [x, y, width, height] = instance.scissor_rect([target_width, target_height]);
-            self.gl
-                .scissor(x as i32, y as i32, width as i32, height as i32);
-
-            let input_tex =
-                &self.programs.resources.filter_atlas_textures[pass.input_atlas_idx as usize];
-            self.gl.active_texture(WebGl2RenderingContext::TEXTURE1);
-            self.gl
-                .bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(input_tex));
-            self.gl
-                .uniform1i(Some(&self.programs.filter_uniforms.in_tex), 1);
-
-            let original_tex_idx = pass.original_atlas_idx.unwrap_or(pass.input_atlas_idx);
-            let original_tex =
-                &self.programs.resources.filter_atlas_textures[original_tex_idx as usize];
-            self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);
-            self.gl
-                .bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(original_tex));
-            self.gl
-                .uniform1i(Some(&self.programs.filter_uniforms.original_tex), 2);
-
-            self.gl
-                .draw_arrays_instanced(WebGl2RenderingContext::TRIANGLE_STRIP, 0, 4, 1);
-        }
-        self.gl.bind_vertex_array(None);
-        self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
-        self.gl.enable(WebGl2RenderingContext::BLEND);
     }
 
     fn layer_texture_size(&self) -> (u32, u32) {

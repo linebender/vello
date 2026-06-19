@@ -3,8 +3,10 @@
 
 //! Schedule construction for the new hybrid scheduler.
 
-use super::round::{Round, Schedule};
-use super::{Draw, LayerTextureRegion, RenderTarget, RootRenderTarget};
+use super::round::{
+    AllocationRetryDebug, BlendOp, LayerScheduleDebug, Round, Schedule, ScheduleDebugStats,
+};
+use super::{Draw, LayerTextureRegion, LoadOp, RenderTarget, RootRenderTarget};
 use crate::scene::{FastPathRect, RecordedDraw};
 use crate::schedule::{
     GpuStripBuilder, RectPart, Scheduler as ExistingScheduler, make_gpu_rect, split_rect,
@@ -15,8 +17,8 @@ use vello_common::encode::EncodedPaint;
 use vello_common::geometry::RectU16;
 use vello_common::multi_atlas::{AllocId, Atlas, AtlasError, AtlasId};
 use vello_common::paint::Paint;
-use vello_common::peniko::BlendMode;
-use vello_common::record::{LayerClip, RecordedCmd, RecordedLayerKind};
+use vello_common::peniko::{BlendMode, Compose};
+use vello_common::record::{Drawable, LayerClip, RecordedCmd, RecordedLayerKind};
 use vello_common::strip_generator::StripStorage;
 use vello_common::tile::Tile;
 use vello_common::util::RectExt;
@@ -31,10 +33,8 @@ pub(super) struct ScheduleBuilder<'a> {
     root_output_target: RootRenderTarget,
     paint_idxs: &'a [u32],
     encoded_paints: &'a [EncodedPaint],
-    layer_atlases: [Atlas; 2],
+    round_states: Vec<RoundState>,
     layer_allocations: Vec<Option<ScheduledLayer>>,
-    pending_deallocations: Vec<Vec<LayerAllocation>>,
-    current_round: usize,
     layer_texture_size: (u32, u32),
 }
 
@@ -48,19 +48,15 @@ impl<'a> ScheduleBuilder<'a> {
         layer_texture_size: (u32, u32),
     ) -> Self {
         let layer_count = scene.recorder.layers.len();
+        let initial_state = RoundState::new(layer_texture_size);
         Self {
             scene,
             strip_storage,
             root_output_target,
             paint_idxs,
             encoded_paints,
-            layer_atlases: [
-                Atlas::new(AtlasId::new(0), layer_texture_size.0, layer_texture_size.1),
-                Atlas::new(AtlasId::new(1), layer_texture_size.0, layer_texture_size.1),
-            ],
+            round_states: alloc::vec![initial_state],
             layer_allocations: alloc::vec![None; layer_count],
-            pending_deallocations: alloc::vec![Vec::new()],
-            current_round: 0,
             layer_texture_size,
         }
     }
@@ -70,12 +66,14 @@ impl<'a> ScheduleBuilder<'a> {
 
         let mut schedule = Schedule {
             rounds: alloc::vec![Round::default()],
+            debug: self.initial_debug_stats(),
         };
 
         // Walk the command tree left-to-right. Each encountered layer schedules its own subtree
-        // first, then materializes itself into the earliest round that can sample those children.
+        // first. Command streams are then materialized in order, flushing draw segments around
+        // blend invocations so backdrop/source dependencies stay explicit.
         self.schedule_children(&self.scene.recorder.root_cmds, &mut schedule)?;
-        self.schedule_root(&mut schedule);
+        self.schedule_root(&mut schedule)?;
 
         Ok(schedule)
     }
@@ -126,45 +124,144 @@ impl<'a> ScheduleBuilder<'a> {
         }
 
         let texture_index = layer.depth & 1;
-        let target_round = self.earliest_round_for_target(cmds, Some(texture_index));
+        let layer_depth = layer.depth;
+        let has_clip = layer.props.clip_path.is_some();
+        let has_default_blend = layer.props.blend_mode == BlendMode::default();
+        let is_destructive_blend = layer.props.blend_mode.is_destructive();
+        let opacity = layer.props.opacity;
+        let command_count = cmds.len();
+        let child_layer_count = child_layer_ids(cmds).count();
+        let batch_count = cmds
+            .iter()
+            .filter(|cmd| matches!(cmd, RecordedCmd::Batch(_)))
+            .count();
+        let target_round = 0;
         let allocation =
             self.allocate_layer(layer_id, texture_index, bbox, target_round, schedule)?;
         let target = RenderTarget::Layer(allocation.allocation.region);
-        let draw = self.build_draw(cmds, target);
-
-        if !draw.is_empty() {
-            schedule.rounds[allocation.round_idx].push_pass(target, draw);
-        }
-
-        // Once this layer has sampled its children, their atlas regions can be cleared after the
-        // round completes. The allocator release is delayed until we advance past that round.
-        self.consume_sampled_children(cmds, allocation.round_idx, schedule);
+        let ready_round =
+            self.schedule_command_stream(cmds, target, allocation.round_idx, schedule)?;
+        self.layer_allocations[layer_id as usize] = Some(ScheduledLayer {
+            allocation: allocation.allocation,
+            round_idx: ready_round,
+        });
+        schedule.debug.scheduled_layers.push(LayerScheduleDebug {
+            layer_id,
+            depth: layer_depth,
+            texture_index,
+            command_count,
+            child_layer_count,
+            batch_count,
+            allocated_round: allocation.round_idx,
+            ready_round,
+            bbox,
+            has_clip,
+            has_default_blend,
+            is_destructive_blend,
+            opacity,
+        });
 
         Ok(())
     }
 
-    fn schedule_root(&mut self, schedule: &mut Schedule) {
-        let round_idx = self.earliest_round_for_target(&self.scene.recorder.root_cmds, None);
-        self.advance_to_round(round_idx, schedule);
-
-        let target = RenderTarget::Root(self.root_output_target);
-        let draw = self.build_draw(&self.scene.recorder.root_cmds, target);
-        if !draw.is_empty() {
-            schedule.rounds[round_idx].push_pass(target, draw);
+    fn initial_debug_stats(&self) -> ScheduleDebugStats {
+        let mut depth_counts = Vec::<(usize, usize)>::new();
+        for layer in &self.scene.recorder.layers {
+            if let Some((_, count)) = depth_counts
+                .iter_mut()
+                .find(|(depth, _)| *depth == layer.depth)
+            {
+                *count += 1;
+            } else {
+                depth_counts.push((layer.depth, 1));
+            }
         }
+        depth_counts.sort_by_key(|(depth, _)| *depth);
 
-        // Root sampling is the final consumer for any direct child layers.
-        self.consume_sampled_children(&self.scene.recorder.root_cmds, round_idx, schedule);
+        ScheduleDebugStats {
+            layer_count: self.scene.recorder.layers.len(),
+            root_cmd_count: self.scene.recorder.root_cmds.len(),
+            root_child_layer_count: child_layer_ids(&self.scene.recorder.root_cmds).count(),
+            root_is_blend_target: self.scene.recorder.root_is_blend_target,
+            layer_texture_size: self.layer_texture_size,
+            depth_counts,
+            ..ScheduleDebugStats::default()
+        }
     }
 
-    fn build_draw(&self, cmds: &[RecordedCmd], target: RenderTarget) -> Draw {
-        let mut builder = DrawBuilder::new(target.allows_opaque_pass(), target.geometry_offset());
+    fn schedule_root(&mut self, schedule: &mut Schedule) -> Result<(), RenderError> {
+        let cmds = &self.scene.recorder.root_cmds;
+        if self.scene.recorder.root_is_blend_target {
+            let bbox = RectU16::new(0, 0, self.scene.width, self.scene.height);
+            if bbox.is_empty() {
+                return Ok(());
+            }
+
+            let allocation = self.allocate_region(0, bbox, 0, schedule)?;
+            let target = RenderTarget::Layer(allocation.region);
+            let ready_round = self.schedule_command_stream_with_load(
+                cmds,
+                target,
+                allocation.round_idx,
+                LoadOp::Clear,
+                schedule,
+            )?;
+
+            self.ensure_schedule_round_exists(ready_round, schedule);
+            let mut draw = DrawBuilder::new(
+                RenderTarget::Root(self.root_output_target).allows_opaque_pass(),
+                (0, 0),
+            );
+            draw.push_layer_ref(allocation.region, 1.0, None, self.strip_storage);
+            let draw = draw.finish();
+            if !draw.is_empty() {
+                let final_target = match self.root_output_target {
+                    RootRenderTarget::UserSurface => RootRenderTarget::UserSurfaceFromLayer0,
+                    RootRenderTarget::AtlasLayer => RootRenderTarget::AtlasLayerFromLayer0,
+                    other => other,
+                };
+                schedule.rounds[ready_round].push_pass(RenderTarget::Root(final_target), draw);
+            }
+            schedule.rounds[ready_round]
+                .clear_layer_regions
+                .push(allocation.region);
+            self.release_allocation_after_round(allocation, ready_round, schedule);
+        } else {
+            let target = RenderTarget::Root(self.root_output_target);
+            let ready_round = self.schedule_command_stream(cmds, target, 0, schedule)?;
+            self.ensure_schedule_round_exists(ready_round, schedule);
+        }
+
+        Ok(())
+    }
+
+    fn schedule_command_stream(
+        &mut self,
+        cmds: &[RecordedCmd],
+        target: RenderTarget,
+        start_round: usize,
+        schedule: &mut Schedule,
+    ) -> Result<usize, RenderError> {
+        self.schedule_command_stream_with_load(cmds, target, start_round, LoadOp::Load, schedule)
+    }
+
+    fn schedule_command_stream_with_load(
+        &mut self,
+        cmds: &[RecordedCmd],
+        target: RenderTarget,
+        start_round: usize,
+        initial_load_op: LoadOp,
+        schedule: &mut Schedule,
+    ) -> Result<usize, RenderError> {
+        let mut state = CommandStreamState::new(target, start_round, initial_load_op);
+
         for cmd in cmds {
             match cmd {
                 RecordedCmd::Batch(range) => {
                     for draw in &self.scene.recorder.draws[range.start as usize..range.end as usize]
                     {
-                        builder.push_draw(
+                        state.backdrop_bbox.union(draw.bbox());
+                        state.builder.push_draw(
                             draw,
                             self.strip_storage,
                             self.scene,
@@ -174,44 +271,134 @@ impl<'a> ScheduleBuilder<'a> {
                     }
                 }
                 RecordedCmd::Layer(layer_id) => {
-                    if let Some(layer) = self.layer_allocations[*layer_id as usize] {
-                        let props = &self.scene.recorder.layers[*layer_id as usize].props;
-                        builder.push_layer_ref(
+                    let layer_idx = *layer_id as usize;
+                    let props = &self.scene.recorder.layers[layer_idx].props;
+                    let Some(layer) = self.layer_allocations[layer_idx] else {
+                        if props.blend_mode.is_destructive() {
+                            self.schedule_empty_destructive_blend(
+                                &mut state,
+                                props.blend_mode,
+                                props.opacity,
+                                schedule,
+                            );
+                        }
+                        continue;
+                    };
+
+                    let same_texture_as_target =
+                        state.target.texture_index() == Some(layer.allocation.region.texture_index);
+                    if props.blend_mode == BlendMode::default() && !same_texture_as_target {
+                        state.round_idx = state.round_idx.max(required_round_for_layer_sample(
+                            state.target.texture_index(),
+                            layer.allocation.region.texture_index,
+                            layer.round_idx,
+                        ));
+                        state.builder.push_layer_ref(
                             layer.allocation.region,
                             props.opacity,
                             props.clip_path.as_ref(),
                             self.strip_storage,
                         );
+                        state
+                            .backdrop_bbox
+                            .union(layer.allocation.region.scene_bbox);
+                        state.sampled_layers.push(*layer_id);
+                        continue;
+                    }
+
+                    let parent_ready_round = self.flush_stream_segment(&mut state, schedule);
+                    let source_bbox = layer.allocation.region.scene_bbox;
+                    let bbox = blend_affected_bbox(
+                        state.backdrop_bbox,
+                        source_bbox,
+                        props.blend_mode.compose,
+                    )
+                    .intersect(state.target.layer_region().scene_bbox);
+                    if !bbox.is_empty() {
+                        let blend_round = parent_ready_round.max(layer.round_idx);
+                        self.ensure_schedule_round_exists(blend_round, schedule);
+                        schedule.rounds[blend_round].push_blend(BlendOp {
+                            parent: state.target.layer_region(),
+                            source: layer.allocation.region,
+                            bbox,
+                            blend_mode: props.blend_mode,
+                            opacity: props.opacity,
+                        });
+                        self.consume_child_layer(*layer_id, blend_round, schedule);
+                        state.backdrop_bbox = blend_result_bbox(
+                            state.backdrop_bbox,
+                            source_bbox,
+                            props.blend_mode.compose,
+                        );
+                        state.round_idx = blend_round + 1;
                     }
                 }
             }
         }
 
-        builder.finish()
+        Ok(self.flush_stream_segment(&mut state, schedule))
     }
 
-    fn consume_sampled_children(
+    fn schedule_empty_destructive_blend(
         &mut self,
-        cmds: &[RecordedCmd],
-        round_idx: usize,
+        state: &mut CommandStreamState,
+        blend_mode: BlendMode,
+        opacity: f32,
         schedule: &mut Schedule,
     ) {
-        let mut consumed_layers = Vec::new();
-        for layer_id in child_layer_ids(cmds) {
-            if consumed_layers.contains(&layer_id) {
-                continue;
-            }
-            consumed_layers.push(layer_id);
-
-            let Some(scheduled_layer) = self.layer_allocations[layer_id as usize].take() else {
-                continue;
-            };
-
-            schedule.rounds[round_idx]
-                .clear_layer_regions
-                .push(scheduled_layer.allocation.region);
-            self.pending_deallocations[round_idx].push(scheduled_layer.allocation);
+        let parent_ready_round = self.flush_stream_segment(state, schedule);
+        let bbox = blend_affected_bbox(state.backdrop_bbox, RectU16::INVERTED, blend_mode.compose)
+            .intersect(state.target.layer_region().scene_bbox);
+        if bbox.is_empty() {
+            return;
         }
+
+        self.ensure_schedule_round_exists(parent_ready_round, schedule);
+        schedule.rounds[parent_ready_round].push_blend(BlendOp {
+            parent: state.target.layer_region(),
+            source: empty_source_region_for_blend(bbox),
+            bbox,
+            blend_mode,
+            opacity,
+        });
+        state.backdrop_bbox =
+            blend_result_bbox(state.backdrop_bbox, RectU16::INVERTED, blend_mode.compose);
+        state.round_idx = parent_ready_round + 1;
+    }
+
+    fn flush_stream_segment(
+        &mut self,
+        state: &mut CommandStreamState,
+        schedule: &mut Schedule,
+    ) -> usize {
+        let draw = state.take_draw();
+        if draw.is_empty() {
+            return state.round_idx;
+        }
+
+        self.ensure_schedule_round_exists(state.round_idx, schedule);
+        schedule.rounds[state.round_idx].push_pass_with_load(
+            state.target,
+            draw,
+            state.take_load_op(),
+        );
+
+        for layer_id in core::mem::take(&mut state.sampled_layers) {
+            self.consume_child_layer(layer_id, state.round_idx, schedule);
+        }
+
+        state.round_idx
+    }
+
+    fn consume_child_layer(&mut self, layer_id: u32, round_idx: usize, schedule: &mut Schedule) {
+        let Some(scheduled_layer) = self.layer_allocations[layer_id as usize].take() else {
+            return;
+        };
+
+        schedule.rounds[round_idx]
+            .clear_layer_regions
+            .push(scheduled_layer.allocation.region);
+        self.release_allocation_after_round(scheduled_layer.allocation, round_idx, schedule);
     }
 
     fn allocate_layer(
@@ -222,6 +409,22 @@ impl<'a> ScheduleBuilder<'a> {
         earliest_round: usize,
         schedule: &mut Schedule,
     ) -> Result<ScheduledLayer, RenderError> {
+        let allocation = self.allocate_region(texture_index, bbox, earliest_round, schedule)?;
+        let scheduled_layer = ScheduledLayer {
+            allocation,
+            round_idx: allocation.round_idx,
+        };
+        self.layer_allocations[layer_id as usize] = Some(scheduled_layer);
+        Ok(scheduled_layer)
+    }
+
+    fn allocate_region(
+        &mut self,
+        texture_index: usize,
+        bbox: RectU16,
+        earliest_round: usize,
+        schedule: &mut Schedule,
+    ) -> Result<LayerAllocation, RenderError> {
         let width = u32::from(bbox.width());
         let height = u32::from(bbox.height());
         if width > self.layer_texture_size.0 || height > self.layer_texture_size.1 {
@@ -229,36 +432,54 @@ impl<'a> ScheduleBuilder<'a> {
         }
 
         let mut round_idx = earliest_round;
+        let mut attempts = 0;
         loop {
-            // Advancing applies all completed-round deallocations, so a retry can reuse memory
-            // freed by parent samples in earlier rounds.
-            self.advance_to_round(round_idx, schedule);
+            attempts += 1;
+            self.ensure_round_state_exists(round_idx, schedule);
 
-            if let Some(allocation) = self.layer_atlases[texture_index].allocate(width, height) {
-                let scheduled_layer = ScheduledLayer {
-                    allocation: LayerAllocation {
-                        region: LayerTextureRegion {
-                            texture_index,
-                            x: allocation.x,
-                            y: allocation.y,
-                            width,
-                            height,
-                            scene_bbox: bbox,
-                        },
-                        alloc_id: allocation.id,
+            if let Some(allocation) =
+                self.round_states[round_idx].atlases[texture_index].allocate(width, height)
+            {
+                let layer_allocation = LayerAllocation {
+                    region: LayerTextureRegion {
+                        texture_index,
+                        x: allocation.x,
+                        y: allocation.y,
+                        width,
+                        height,
+                        scene_bbox: bbox,
                     },
                     round_idx,
+                    alloc_id: allocation.id,
                 };
-                self.layer_allocations[layer_id as usize] = Some(scheduled_layer);
-                return Ok(scheduled_layer);
+                if self.reserve_existing_future_rounds(layer_allocation, round_idx) {
+                    schedule.debug.allocation_attempts += attempts;
+                    schedule.debug.allocation_retries += attempts.saturating_sub(1);
+                    if round_idx != earliest_round {
+                        schedule
+                            .debug
+                            .allocation_retry_events
+                            .push(AllocationRetryDebug {
+                                texture_index,
+                                earliest_round,
+                                allocated_round: round_idx,
+                                attempts,
+                                bbox,
+                            });
+                    }
+                    return Ok(layer_allocation);
+                }
+
+                self.round_states[round_idx].deallocate(layer_allocation);
+                round_idx += 1;
+                continue;
             }
 
             // If nothing is due to be freed after this round, another retry would see the same
             // allocator state and would spin forever.
-            if self
+            if self.round_states[round_idx]
                 .pending_deallocations
-                .get(round_idx)
-                .is_none_or(Vec::is_empty)
+                .is_empty()
             {
                 return Err(RenderError::AtlasError(AtlasError::NoSpaceAvailable));
             }
@@ -267,63 +488,169 @@ impl<'a> ScheduleBuilder<'a> {
         }
     }
 
-    fn earliest_round_for_target(
-        &self,
-        cmds: &[RecordedCmd],
-        target_texture_index: Option<usize>,
-    ) -> usize {
-        let mut round_idx = self.current_round;
-        for layer_id in child_layer_ids(cmds) {
-            let Some(child) = self.layer_allocations[layer_id as usize] else {
-                continue;
-            };
-
-            // A layer may sample a child in the same round only when the fixed texture ordering
-            // guarantees that the child texture is rendered before the parent texture.
-            let child_texture_index = child.allocation.region.texture_index;
-            let child_round = child.round_idx;
-            let required_round = match target_texture_index {
-                Some(target_texture_index)
-                    if can_sample_layer_in_same_round(
-                        target_texture_index,
-                        child_texture_index,
-                    ) =>
-                {
-                    child_round
-                }
-                Some(_) => child_round + 1,
-                None => child_round,
-            };
-            round_idx = round_idx.max(required_round);
-        }
-
-        round_idx
-    }
-
-    fn advance_to_round(&mut self, round_idx: usize, schedule: &mut Schedule) {
-        self.ensure_round_exists(round_idx, schedule);
-        while self.current_round < round_idx {
-            let finished_round = self.current_round;
-            // Clear commands are stored on the finished round, but atlas memory becomes reusable
-            // only now, before the next round starts.
-            for allocation in self.pending_deallocations[finished_round].drain(..) {
-                self.layer_atlases[allocation.region.texture_index].deallocate(
-                    allocation.alloc_id,
-                    allocation.region.width,
-                    allocation.region.height,
-                );
-            }
-            self.current_round += 1;
-        }
-    }
-
-    fn ensure_round_exists(&mut self, round_idx: usize, schedule: &mut Schedule) {
+    fn ensure_schedule_round_exists(&mut self, round_idx: usize, schedule: &mut Schedule) {
         while schedule.rounds.len() <= round_idx {
             schedule.rounds.push(Round::default());
         }
-        while self.pending_deallocations.len() <= round_idx {
-            self.pending_deallocations.push(Vec::new());
+    }
+
+    fn ensure_round_state_exists(&mut self, round_idx: usize, schedule: &mut Schedule) {
+        self.ensure_schedule_round_exists(round_idx, schedule);
+        while self.round_states.len() <= round_idx {
+            let previous_round = self.round_states.len() - 1;
+            let mut next_state = self.round_states[previous_round].clone_for_next_round();
+            for allocation in &self.round_states[previous_round].pending_deallocations {
+                next_state.deallocate(*allocation);
+            }
+            self.round_states.push(next_state);
         }
+    }
+
+    fn release_allocation_after_round(
+        &mut self,
+        allocation: LayerAllocation,
+        round_idx: usize,
+        schedule: &mut Schedule,
+    ) {
+        self.ensure_round_state_exists(round_idx, schedule);
+        self.round_states[round_idx]
+            .pending_deallocations
+            .push(allocation);
+
+        // Future round states inherit from this round. If they already exist, keep them consistent
+        // with the newly scheduled cleanup.
+        for state in &mut self.round_states[round_idx + 1..] {
+            state.deallocate(allocation);
+        }
+    }
+
+    fn reserve_existing_future_rounds(
+        &mut self,
+        allocation: LayerAllocation,
+        round_idx: usize,
+    ) -> bool {
+        // Future states may already exist because some earlier subtree needed a later round. The
+        // newly allocated layer is live until consumed, so reserve it in those existing states too.
+        let mut reservations = Vec::new();
+        for state_idx in round_idx + 1..self.round_states.len() {
+            let state = &mut self.round_states[state_idx];
+            let region = allocation.region;
+            let Some(future_allocation) =
+                state.atlases[region.texture_index].allocate(region.width, region.height)
+            else {
+                rollback_future_reservations(&mut self.round_states, &reservations);
+                return false;
+            };
+
+            if future_allocation.x != region.x || future_allocation.y != region.y {
+                state.atlases[region.texture_index].deallocate(
+                    future_allocation.id,
+                    region.width,
+                    region.height,
+                );
+                rollback_future_reservations(&mut self.round_states, &reservations);
+                return false;
+            }
+
+            state.alloc_id_aliases.push(AllocIdAlias {
+                texture_index: region.texture_index,
+                original: allocation.alloc_id,
+                local: future_allocation.id,
+            });
+            reservations.push(FutureReservation {
+                round_idx: state_idx,
+                texture_index: region.texture_index,
+                alloc_id: future_allocation.id,
+                width: region.width,
+                height: region.height,
+                original_alloc_id: allocation.alloc_id,
+            });
+        }
+
+        true
+    }
+}
+
+fn rollback_future_reservations(
+    round_states: &mut [RoundState],
+    reservations: &[FutureReservation],
+) {
+    for reservation in reservations.iter().rev() {
+        let state = &mut round_states[reservation.round_idx];
+        state.atlases[reservation.texture_index].deallocate(
+            reservation.alloc_id,
+            reservation.width,
+            reservation.height,
+        );
+        state.alloc_id_aliases.retain(|alias| {
+            !(alias.texture_index == reservation.texture_index
+                && alias.original == reservation.original_alloc_id)
+        });
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct FutureReservation {
+    round_idx: usize,
+    texture_index: usize,
+    alloc_id: AllocId,
+    width: u32,
+    height: u32,
+    original_alloc_id: AllocId,
+}
+
+#[derive(Debug, Clone)]
+struct RoundState {
+    atlases: [Atlas; 2],
+    pending_deallocations: Vec<LayerAllocation>,
+    alloc_id_aliases: Vec<AllocIdAlias>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct AllocIdAlias {
+    texture_index: usize,
+    original: AllocId,
+    local: AllocId,
+}
+
+impl RoundState {
+    fn new(layer_texture_size: (u32, u32)) -> Self {
+        Self {
+            atlases: [
+                Atlas::new(AtlasId::new(0), layer_texture_size.0, layer_texture_size.1),
+                Atlas::new(AtlasId::new(1), layer_texture_size.0, layer_texture_size.1),
+            ],
+            pending_deallocations: Vec::new(),
+            alloc_id_aliases: Vec::new(),
+        }
+    }
+
+    fn clone_for_next_round(&self) -> Self {
+        Self {
+            atlases: self.atlases.clone(),
+            pending_deallocations: Vec::new(),
+            alloc_id_aliases: self.alloc_id_aliases.clone(),
+        }
+    }
+
+    fn deallocate(&mut self, allocation: LayerAllocation) {
+        let alloc_id = self
+            .alloc_id_aliases
+            .iter()
+            .find(|alias| {
+                alias.texture_index == allocation.region.texture_index
+                    && alias.original == allocation.alloc_id
+            })
+            .map_or(allocation.alloc_id, |alias| alias.local);
+        self.atlases[allocation.region.texture_index].deallocate(
+            alloc_id,
+            allocation.region.width,
+            allocation.region.height,
+        );
+        self.alloc_id_aliases.retain(|alias| {
+            !(alias.texture_index == allocation.region.texture_index
+                && alias.original == allocation.alloc_id)
+        });
     }
 }
 
@@ -338,7 +665,48 @@ struct ScheduledLayer {
 #[derive(Debug, Clone, Copy)]
 struct LayerAllocation {
     region: LayerTextureRegion,
+    round_idx: usize,
     alloc_id: AllocId,
+}
+
+#[derive(Debug)]
+struct CommandStreamState {
+    target: RenderTarget,
+    builder: DrawBuilder,
+    sampled_layers: Vec<u32>,
+    backdrop_bbox: RectU16,
+    next_load_op: LoadOp,
+    round_idx: usize,
+}
+
+impl CommandStreamState {
+    fn new(target: RenderTarget, round_idx: usize, initial_load_op: LoadOp) -> Self {
+        Self {
+            target,
+            builder: DrawBuilder::new(target.allows_opaque_pass(), target.geometry_offset()),
+            sampled_layers: Vec::new(),
+            backdrop_bbox: RectU16::INVERTED,
+            next_load_op: initial_load_op,
+            round_idx,
+        }
+    }
+
+    fn take_load_op(&mut self) -> LoadOp {
+        let load_op = self.next_load_op;
+        self.next_load_op = LoadOp::Load;
+        load_op
+    }
+
+    fn take_draw(&mut self) -> Draw {
+        let builder = core::mem::replace(
+            &mut self.builder,
+            DrawBuilder::new(
+                self.target.allows_opaque_pass(),
+                self.target.geometry_offset(),
+            ),
+        );
+        builder.finish()
+    }
 }
 
 fn can_sample_layer_in_same_round(parent_texture_index: usize, child_texture_index: usize) -> bool {
@@ -346,11 +714,68 @@ fn can_sample_layer_in_same_round(parent_texture_index: usize, child_texture_ind
         && layer_texture_order(child_texture_index) < layer_texture_order(parent_texture_index)
 }
 
+fn required_round_for_layer_sample(
+    parent_texture_index: Option<usize>,
+    child_texture_index: usize,
+    child_round: usize,
+) -> usize {
+    match parent_texture_index {
+        Some(parent_texture_index)
+            if can_sample_layer_in_same_round(parent_texture_index, child_texture_index) =>
+        {
+            child_round
+        }
+        Some(_) => child_round + 1,
+        None => child_round,
+    }
+}
+
 fn layer_texture_order(texture_index: usize) -> usize {
     match texture_index {
         1 => 0,
         0 => 1,
         _ => texture_index,
+    }
+}
+
+fn blend_affected_bbox(backdrop_bbox: RectU16, source_bbox: RectU16, compose: Compose) -> RectU16 {
+    match compose {
+        Compose::Clear
+        | Compose::Copy
+        | Compose::SrcIn
+        | Compose::SrcOut
+        | Compose::DestIn
+        | Compose::DestAtop => union_bbox(backdrop_bbox, source_bbox),
+        _ => source_bbox,
+    }
+}
+
+fn blend_result_bbox(backdrop_bbox: RectU16, source_bbox: RectU16, compose: Compose) -> RectU16 {
+    match compose {
+        Compose::Clear => RectU16::INVERTED,
+        Compose::Copy => source_bbox,
+        Compose::SrcIn | Compose::DestIn => backdrop_bbox.intersect(source_bbox),
+        Compose::SrcOut => source_bbox,
+        Compose::Dest => backdrop_bbox,
+        Compose::DestOut => backdrop_bbox,
+        Compose::DestAtop => union_bbox(backdrop_bbox, source_bbox),
+        _ => union_bbox(backdrop_bbox, source_bbox),
+    }
+}
+
+fn union_bbox(mut a: RectU16, b: RectU16) -> RectU16 {
+    a.union(b);
+    a
+}
+
+fn empty_source_region_for_blend(bbox: RectU16) -> LayerTextureRegion {
+    LayerTextureRegion {
+        texture_index: 0,
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        scene_bbox: RectU16::new(bbox.x0, bbox.y0, bbox.x0, bbox.y0),
     }
 }
 
@@ -365,11 +790,6 @@ fn ensure_plain_layer(layer: &vello_common::record::RecordedLayer) -> Result<(),
     if !matches!(layer.kind, RecordedLayerKind::Regular) {
         return Err(RenderError::UnsupportedFeature(
             "filter layers are not supported by schedule_new yet",
-        ));
-    }
-    if layer.props.blend_mode != BlendMode::default() {
-        return Err(RenderError::UnsupportedFeature(
-            "non-default blend layers are not supported by schedule_new yet",
         ));
     }
     if layer.props.mask.is_some() {

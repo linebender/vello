@@ -21,7 +21,7 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
-    filter::{FilterContext, FilterInstanceData, FilterPassState, FilterPassTarget},
+    filter::{FilterContext, FilterInstanceData, FilterPassState},
     gradient_cache::GradientRampCache,
     render::{
         Config,
@@ -37,7 +37,7 @@ use crate::{
     scene::Scene,
     schedule::{Scheduler, SchedulerState},
     schedule_new::{
-        ExternalTextureRun, LayerTextureRegion, LoadOp, RendererBackend, RootRenderTarget,
+        BlendOp, ExternalTextureRun, LayerTextureRegion, LoadOp, RendererBackend, RootRenderTarget,
         StripPassRenderTarget,
     },
 };
@@ -50,7 +50,6 @@ use glifo::PendingClearRect;
 use hashbrown::{HashMap, hash_map::Entry};
 use vello_common::image_cache::{ImageCache, ImageResource};
 use vello_common::multi_atlas::{AtlasConfig, AtlasError, AtlasId};
-use vello_common::render_graph::LayerId;
 use vello_common::{
     TextureId,
     coarse::WideTile,
@@ -59,7 +58,7 @@ use vello_common::{
         EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind,
     },
     paint::ImageSource,
-    peniko,
+    peniko::{self, Compose, Mix},
     pixmap::Pixmap,
     tile::Tile,
 };
@@ -998,6 +997,10 @@ struct Programs {
     clear_pipeline: RenderPipeline,
     /// Pipeline for clearing atlas regions.
     atlas_clear_pipeline: RenderPipeline,
+    /// Pipeline for resolving non-default blend layers into scratch.
+    blend_pipeline: RenderPipeline,
+    /// Pipeline for copying resolved blend scratch back into a layer texture.
+    blend_copy_pipeline: RenderPipeline,
     /// GPU resources for rendering (created during prepare)
     resources: GpuResources,
     /// Dimensions of the rendering target
@@ -1132,6 +1135,8 @@ struct GpuResources {
     filter_instance_buffer: Buffer,
     // Bind groups for rendering with clip buffers
     slot_bind_groups: [BindGroup; 3],
+    /// Bind groups for rendering to the root target while sampling layer atlas textures.
+    root_layer_bind_groups: [BindGroup; 2],
     /// Bind groups for rendering into layer atlas textures.
     layer_bind_groups: [BindGroup; 2],
     /// Slot texture views
@@ -1149,6 +1154,16 @@ struct GpuResources {
     layer_textures: [Texture; 2],
     /// Layer atlas texture views.
     layer_texture_views: [TextureView; 2],
+
+    /// Scratch texture used for non-default layer blending.
+    #[allow(dead_code)]
+    blend_scratch_texture: Texture,
+    /// Scratch texture view used for non-default layer blending.
+    blend_scratch_texture_view: TextureView,
+    /// Bind group for blend operations that sample layer atlas textures.
+    blend_layer_bind_group: BindGroup,
+    /// Bind group for copying blend scratch back into layer atlas textures.
+    blend_copy_bind_group: BindGroup,
 }
 
 const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).unwrap();
@@ -1165,6 +1180,22 @@ struct ClearSlotsConfig {
     pub texture_height: u32,
     /// Padding for 16-byte alignment
     pub _padding: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+struct GpuBlendInstance {
+    dest_origin: [u32; 2],
+    source_origin: [u32; 2],
+    size: [u32; 2],
+    texture_indices: [u32; 2],
+    blend_mode: [u32; 2],
+    opacity: u32,
+    target_size: [u32; 2],
+    bbox_origin: [u32; 2],
+    source_scene_origin: [u32; 2],
+    source_size: [u32; 2],
+    _padding: u32,
 }
 
 impl GpuStrip {
@@ -1572,6 +1603,124 @@ impl Programs {
             multiview_mask: None,
         });
 
+        let blend_layer_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Blend Layer Textures Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+        let blend_copy_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Blend Copy Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                }],
+            });
+        let empty_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Empty Bind Group Layout"),
+                entries: &[],
+            });
+        let blend_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Blend Layers Shader"),
+            source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::BLEND_LAYERS.into()),
+        });
+        let blend_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Blend Layers Pipeline Layout"),
+                bind_group_layouts: &[Some(&blend_layer_bind_group_layout)],
+                immediate_size: 0,
+            });
+        let blend_copy_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Blend Layers Copy Pipeline Layout"),
+                bind_group_layouts: &[
+                    Some(&empty_bind_group_layout),
+                    Some(&blend_copy_bind_group_layout),
+                ],
+                immediate_size: 0,
+            });
+        let blend_vertex_state = wgpu::VertexBufferLayout {
+            array_stride: size_of::<GpuBlendInstance>() as u64,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &wgpu::vertex_attr_array![
+                0 => Uint32x2,
+                1 => Uint32x2,
+                2 => Uint32x2,
+                3 => Uint32x2,
+                4 => Uint32x2,
+                5 => Uint32,
+                6 => Uint32x2,
+                7 => Uint32x2,
+                8 => Uint32x2,
+                9 => Uint32x2,
+            ],
+        };
+        let create_blend_pipeline = |label, fragment_entry, layout| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(layout),
+                vertex: wgpu::VertexState {
+                    module: &blend_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: core::slice::from_ref(&blend_vertex_state),
+                    compilation_options: PipelineCompilationOptions::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &blend_shader,
+                    entry_point: Some(fragment_entry),
+                    targets: &[Some(ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        blend: None,
+                        write_mask: ColorWrites::ALL,
+                    })],
+                    compilation_options: PipelineCompilationOptions::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleStrip,
+                    ..Default::default()
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let blend_pipeline =
+            create_blend_pipeline("Blend Layers Pipeline", "fs_main", &blend_pipeline_layout);
+        let blend_copy_pipeline = create_blend_pipeline(
+            "Blend Layers Copy Pipeline",
+            "fs_copy",
+            &blend_copy_pipeline_layout,
+        );
+
         let slot_texture_views: [TextureView; 2] = core::array::from_fn(|_| {
             device
                 .create_texture(&wgpu::TextureDescriptor {
@@ -1614,6 +1763,9 @@ impl Programs {
         let layer_texture_views = layer_textures
             .each_ref()
             .map(|texture| texture.create_view(&TextureViewDescriptor::default()));
+        let blend_scratch_texture = Self::create_blend_scratch_texture(device, layer_texture_size);
+        let blend_scratch_texture_view =
+            blend_scratch_texture.create_view(&TextureViewDescriptor::default());
 
         let clear_config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Clear Slots Config"),
@@ -1761,12 +1913,29 @@ impl Programs {
             &view_config_buffer,
             &layer_texture_views,
         );
+        let root_layer_bind_groups = Self::create_root_layer_bind_groups(
+            device,
+            &strip_bind_group_layout,
+            &alphas_texture.create_view(&TextureViewDescriptor::default()),
+            &view_config_buffer,
+            &layer_texture_views,
+        );
         let layer_bind_groups = Self::create_layer_bind_groups(
             device,
             &strip_bind_group_layout,
             &alphas_texture.create_view(&TextureViewDescriptor::default()),
             &layer_config_buffer,
             &layer_texture_views,
+        );
+        let blend_layer_bind_group = Self::create_blend_layer_bind_group(
+            device,
+            &blend_layer_bind_group_layout,
+            &layer_texture_views,
+        );
+        let blend_copy_bind_group = Self::create_blend_copy_bind_group(
+            device,
+            &blend_copy_bind_group_layout,
+            &blend_scratch_texture_view,
         );
 
         let resources = GpuResources {
@@ -1779,9 +1948,14 @@ impl Programs {
             slot_texture_views,
             layer_textures,
             layer_texture_views,
+            blend_scratch_texture,
+            blend_scratch_texture_view,
+            blend_layer_bind_group,
+            blend_copy_bind_group,
             slot_config_buffer,
             layer_config_buffer,
             slot_bind_groups,
+            root_layer_bind_groups,
             layer_bind_groups,
             clear_bind_group,
             alphas_texture,
@@ -1821,6 +1995,8 @@ impl Programs {
             filter_bind_group_layout,
             filter_pipeline,
             filter_input_bind_group_layouts,
+            blend_pipeline,
+            blend_copy_pipeline,
             resources,
             encoded_paints_data,
             filter_data,
@@ -1857,6 +2033,59 @@ impl Programs {
             size: required_strips_size,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
+        })
+    }
+
+    fn create_blend_scratch_texture(device: &Device, size: u32) -> Texture {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Blend Scratch Texture"),
+            size: Extent3d {
+                width: size,
+                height: size,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        })
+    }
+
+    fn create_blend_layer_bind_group(
+        device: &Device,
+        layout: &BindGroupLayout,
+        layer_texture_views: &[TextureView; 2],
+    ) -> BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Blend Layer Textures Bind Group"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&layer_texture_views[0]),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&layer_texture_views[1]),
+                },
+            ],
+        })
+    }
+
+    fn create_blend_copy_bind_group(
+        device: &Device,
+        layout: &BindGroupLayout,
+        scratch_texture_view: &TextureView,
+    ) -> BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Blend Copy Bind Group"),
+            layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(scratch_texture_view),
+            }],
         })
     }
 
@@ -2173,6 +2402,31 @@ impl Programs {
         ]
     }
 
+    fn create_root_layer_bind_groups(
+        device: &Device,
+        strip_bind_group_layout: &BindGroupLayout,
+        alphas_texture_view: &TextureView,
+        view_config_buffer: &Buffer,
+        layer_texture_views: &[TextureView],
+    ) -> [BindGroup; 2] {
+        [
+            Self::create_strip_bind_group(
+                device,
+                strip_bind_group_layout,
+                alphas_texture_view,
+                view_config_buffer,
+                &layer_texture_views[0],
+            ),
+            Self::create_strip_bind_group(
+                device,
+                strip_bind_group_layout,
+                alphas_texture_view,
+                view_config_buffer,
+                &layer_texture_views[1],
+            ),
+        ]
+    }
+
     fn create_strip_bind_group(
         device: &Device,
         strip_bind_group_layout: &BindGroupLayout,
@@ -2309,6 +2563,16 @@ impl Programs {
                     .alphas_texture
                     .create_view(&TextureViewDescriptor::default()),
                 &self.resources.slot_config_buffer,
+                &self.resources.view_config_buffer,
+                &self.resources.layer_texture_views,
+            );
+            self.resources.root_layer_bind_groups = Self::create_root_layer_bind_groups(
+                device,
+                &self.strip_bind_group_layout,
+                &self
+                    .resources
+                    .alphas_texture
+                    .create_view(&TextureViewDescriptor::default()),
                 &self.resources.view_config_buffer,
                 &self.resources.layer_texture_views,
             );
@@ -2775,11 +3039,20 @@ impl RendererContext<'_> {
             MaybeOwned<'_, BindGroup>,
             Option<[u32; 4]>,
         ) = match target {
-            StripPassRenderTarget::Root(_) => (
-                self.view,
-                MaybeOwned::Borrowed(&self.programs.resources.slot_bind_groups[2]),
-                None,
-            ),
+            StripPassRenderTarget::Root(root_target) => {
+                let sampled_layer_texture = match root_target {
+                    RootRenderTarget::UserSurfaceFromLayer0
+                    | RootRenderTarget::AtlasLayerFromLayer0 => 0,
+                    RootRenderTarget::UserSurface | RootRenderTarget::AtlasLayer => 1,
+                };
+                (
+                    self.view,
+                    MaybeOwned::Borrowed(
+                        &self.programs.resources.root_layer_bind_groups[sampled_layer_texture],
+                    ),
+                    None,
+                )
+            }
             StripPassRenderTarget::Layer(region) => (
                 &self.programs.resources.layer_texture_views[region.texture_index],
                 MaybeOwned::Borrowed(
@@ -2887,8 +3160,9 @@ impl RendererContext<'_> {
 
         let pipeline_idx = if matches!(
             target,
-            StripPassRenderTarget::Root(RootRenderTarget::AtlasLayer)
-                | StripPassRenderTarget::Layer(_)
+            StripPassRenderTarget::Root(
+                RootRenderTarget::AtlasLayer | RootRenderTarget::AtlasLayerFromLayer0
+            ) | StripPassRenderTarget::Layer(_)
                 | StripPassRenderTarget::FilterLayer(_)
         ) {
             1
@@ -3042,9 +3316,129 @@ impl RendererContext<'_> {
         (size.width, size.height)
     }
 
+    fn do_blend_layers_render_pass(&mut self, blends: &[BlendOp]) {
+        let target_size = self.layer_texture_size();
+        let instances = blends
+            .iter()
+            .filter(|blend| !blend.bbox.is_empty())
+            .map(|blend| gpu_blend_instance(*blend, target_size))
+            .collect::<Vec<_>>();
+        if instances.is_empty() {
+            return;
+        }
+
+        let instance_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Blend Instances Buffer"),
+                contents: bytemuck::cast_slice(&instances),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+
+        for texture_index in 0..self.programs.resources.layer_texture_views.len() {
+            if !instances
+                .iter()
+                .any(|instance| instance.texture_indices[0] as usize == texture_index)
+            {
+                continue;
+            }
+
+            {
+                let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
+                    label: Some("Blend Layers To Scratch"),
+                    color_attachments: &[Some(RenderPassColorAttachment {
+                        view: &self.programs.resources.blend_scratch_texture_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                    multiview_mask: None,
+                });
+                render_pass.set_pipeline(&self.programs.blend_pipeline);
+                render_pass.set_bind_group(0, &self.programs.resources.blend_layer_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, instance_buffer.slice(..));
+                for (idx, instance) in instances.iter().enumerate() {
+                    if instance.texture_indices[0] as usize == texture_index {
+                        let instance_idx = idx as u32;
+                        render_pass.draw(0..4, instance_idx..instance_idx + 1);
+                    }
+                }
+            }
+
+            {
+                let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
+                    label: Some("Copy Blend Scratch To Layer"),
+                    color_attachments: &[Some(RenderPassColorAttachment {
+                        view: &self.programs.resources.layer_texture_views[texture_index],
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                    multiview_mask: None,
+                });
+                render_pass.set_pipeline(&self.programs.blend_copy_pipeline);
+                render_pass.set_bind_group(1, &self.programs.resources.blend_copy_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, instance_buffer.slice(..));
+                for (idx, instance) in instances.iter().enumerate() {
+                    if instance.texture_indices[0] as usize == texture_index {
+                        render_pass.set_scissor_rect(
+                            instance.dest_origin[0],
+                            instance.dest_origin[1],
+                            instance.size[0],
+                            instance.size[1],
+                        );
+                        let instance_idx = idx as u32;
+                        render_pass.draw(0..4, instance_idx..instance_idx + 1);
+                    }
+                }
+            }
+
+            let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("Clear Blend Scratch Regions"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: &self.programs.resources.blend_scratch_texture_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+            render_pass.set_pipeline(&self.programs.atlas_clear_pipeline);
+            for instance in instances
+                .iter()
+                .filter(|instance| instance.texture_indices[0] as usize == texture_index)
+            {
+                render_pass.set_scissor_rect(
+                    instance.dest_origin[0],
+                    instance.dest_origin[1],
+                    instance.size[0],
+                    instance.size[1],
+                );
+                render_pass.draw(0..4, 0..1);
+            }
+        }
+    }
+
     fn do_clear_layer_regions_render_pass(&mut self, regions: &[LayerTextureRegion]) {
         for texture_index in 0..self.programs.resources.layer_texture_views.len() {
-            // TODO: IMprove
             if !regions.iter().any(|region| {
                 region.texture_index == texture_index && region.width > 0 && region.height > 0
             }) {
@@ -3079,11 +3473,6 @@ impl RendererContext<'_> {
 }
 
 impl RendererBackend for RendererContext<'_> {
-    /// Execute the render pass for clearing slots.
-    fn clear_slots(&mut self, texture_index: usize, slots: &[u32]) {
-        self.do_clear_slots_render_pass(texture_index, slots);
-    }
-
     /// Execute the render pass for rendering strips.
     fn render_strips(
         &mut self,
@@ -3106,95 +3495,8 @@ impl RendererBackend for RendererContext<'_> {
         );
     }
 
-    fn apply_filter(&mut self, layer_id: LayerId) {
-        let filter_atlas = &self.programs.resources.filter_atlas;
-        self.filter_context.build_filter_passes(
-            self.filter_pass_state,
-            &layer_id,
-            self.image_cache,
-            |atlas_idx| {
-                let size = filter_atlas.textures[atlas_idx as usize].size();
-                [size.width, size.height]
-            },
-            || {
-                let size = self.programs.resources.atlas_texture_array.size();
-                [size.width, size.height]
-            },
-        );
-
-        let filter_passes = self.filter_pass_state.filter_passes();
-        if filter_passes.is_empty() {
-            return;
-        }
-
-        let instances = self.filter_pass_state.instances();
-        let instance_stride = size_of::<FilterInstanceData>() as u64;
-        let total_size = instances.len() as u64 * instance_stride;
-        // TODO: Reuse buffer (https://github.com/linebender/vello/pull/1494#discussion_r2937890819)
-        self.programs.resources.filter_instance_buffer =
-            Programs::create_filter_instance_buffer(self.device, total_size);
-        self.queue.write_buffer(
-            &self.programs.resources.filter_instance_buffer,
-            0,
-            bytemuck::cast_slice(instances),
-        );
-
-        let programs = &self.programs;
-        let encoder = &mut self.encoder;
-        let filter_atlas = &programs.resources.filter_atlas;
-        for (i, pass) in filter_passes.iter().enumerate() {
-            let input_bg = &filter_atlas.input_bind_groups[pass.input_atlas_idx as usize];
-            // If this is `None`, it's unused, so we can just pass anything here.
-            let original_idx = pass.original_atlas_idx.unwrap_or(pass.input_atlas_idx) as usize;
-            let original_bg = &filter_atlas.original_bind_groups[original_idx];
-
-            let (output_view, target_width, target_height) = match &pass.output {
-                FilterPassTarget::FilterAtlas(idx) => {
-                    let size = filter_atlas.textures[*idx as usize].size();
-                    (&filter_atlas.views[*idx as usize], size.width, size.height)
-                }
-                FilterPassTarget::MainAtlas(idx) => {
-                    let size = programs.resources.atlas_texture_array.size();
-                    (
-                        &create_atlas_layer_view(&programs.resources.atlas_texture_array, *idx),
-                        size.width,
-                        size.height,
-                    )
-                }
-            };
-
-            let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("Apply Filter Pass"),
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: output_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-                multiview_mask: None,
-            });
-            let instance = &instances[i];
-            let [x, y, width, height] = instance.scissor_rect([target_width, target_height]);
-            render_pass.set_scissor_rect(x, y, width, height);
-            render_pass.set_pipeline(&programs.filter_pipeline);
-            render_pass.set_bind_group(0, &programs.resources.filter_base_bind_group, &[]);
-            render_pass.set_bind_group(1, input_bg, &[]);
-            render_pass.set_bind_group(2, original_bg, &[]);
-            render_pass.set_vertex_buffer(
-                0,
-                programs
-                    .resources
-                    .filter_instance_buffer
-                    .slice((i as u64 * instance_stride)..((i as u64 + 1) * instance_stride)),
-            );
-            render_pass.draw(0..4, 0..1);
-        }
+    fn blend_layers(&mut self, blends: &[BlendOp]) {
+        self.do_blend_layers_render_pass(blends);
     }
 
     fn layer_texture_size(&self) -> (u32, u32) {
@@ -3203,6 +3505,80 @@ impl RendererBackend for RendererContext<'_> {
 
     fn clear_layer_regions(&mut self, regions: &[LayerTextureRegion]) {
         self.do_clear_layer_regions_render_pass(regions);
+    }
+}
+
+fn gpu_blend_instance(blend: BlendOp, target_size: (u32, u32)) -> GpuBlendInstance {
+    let dest_x = blend.parent.x + u32::from(blend.bbox.x0 - blend.parent.scene_bbox.x0);
+    let dest_y = blend.parent.y + u32::from(blend.bbox.y0 - blend.parent.scene_bbox.y0);
+
+    GpuBlendInstance {
+        dest_origin: [dest_x, dest_y],
+        source_origin: [blend.source.x, blend.source.y],
+        size: [
+            u32::from(blend.bbox.width()),
+            u32::from(blend.bbox.height()),
+        ],
+        texture_indices: [
+            blend.parent.texture_index as u32,
+            blend.source.texture_index as u32,
+        ],
+        blend_mode: [
+            pack_mix(blend.blend_mode.mix),
+            pack_compose(blend.blend_mode.compose),
+        ],
+        opacity: (blend.opacity.clamp(0.0, 1.0) * 255.0).round() as u32,
+        target_size: [target_size.0, target_size.1],
+        bbox_origin: [u32::from(blend.bbox.x0), u32::from(blend.bbox.y0)],
+        source_scene_origin: [
+            u32::from(blend.source.scene_bbox.x0),
+            u32::from(blend.source.scene_bbox.y0),
+        ],
+        source_size: [
+            u32::from(blend.source.scene_bbox.width()),
+            u32::from(blend.source.scene_bbox.height()),
+        ],
+        _padding: 0,
+    }
+}
+
+fn pack_mix(mix: Mix) -> u32 {
+    match mix {
+        Mix::Normal => 0,
+        Mix::Multiply => 1,
+        Mix::Screen => 2,
+        Mix::Overlay => 3,
+        Mix::Darken => 4,
+        Mix::Lighten => 5,
+        Mix::ColorDodge => 6,
+        Mix::ColorBurn => 7,
+        Mix::HardLight => 8,
+        Mix::SoftLight => 9,
+        Mix::Difference => 10,
+        Mix::Exclusion => 11,
+        Mix::Hue => 12,
+        Mix::Saturation => 13,
+        Mix::Color => 14,
+        Mix::Luminosity => 15,
+    }
+}
+
+fn pack_compose(compose: Compose) -> u32 {
+    match compose {
+        Compose::Clear => 0,
+        Compose::Copy => 1,
+        Compose::Dest => 2,
+        Compose::SrcOver => 3,
+        Compose::DestOver => 4,
+        Compose::SrcIn => 5,
+        Compose::DestIn => 6,
+        Compose::SrcOut => 7,
+        Compose::DestOut => 8,
+        Compose::SrcAtop => 9,
+        Compose::DestAtop => 10,
+        Compose::Xor => 11,
+        Compose::Plus => 12,
+        Compose::PlusLighter => 13,
     }
 }
 
