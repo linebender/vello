@@ -116,13 +116,13 @@ impl GlyphCacheKey {
         }
     }
 
-    /// Returns a [`GlyphCacheKey`] for a COLR glyph.
+    /// Converts the cache key to a COLR glyph cache key.
     pub const fn to_colr(mut self) -> Self {
         self.subpixel_x = SUBPIXEL_COLR;
         self
     }
 
-    /// Returns a [`GlyphCacheKey`] for a bitmap glyph.
+    /// Converts the cache key to a bitmap glyph cache key.
     pub const fn to_bitmap(mut self) -> Self {
         self.subpixel_x = SUBPIXEL_BITMAP;
         self
