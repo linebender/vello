@@ -14,10 +14,11 @@ use core::cell::RefCell;
 use core::ops::Range;
 use vello_common::TextureId;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
-use vello_common::clip::ClipContext;
+use vello_common::clip::ClipState;
 use vello_common::coarse::{MODE_HYBRID, Wide, WideTilesBbox};
 use vello_common::encode::{EncodeExt, EncodedExternalTexture, EncodedPaint};
 use vello_common::fearless_simd::Level;
+use vello_common::filter::FilterData;
 use vello_common::filter_effects::Filter;
 use vello_common::geometry::RectU16;
 use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
@@ -28,7 +29,7 @@ use vello_common::paint::{Paint, PaintType, Tint};
 use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Compose, Extend, Fill, ImageQuality, ImageSampler, Mix};
-use vello_common::record::{CommandRecorder, Drawable, LayerClip, LayerProps};
+use vello_common::record::{CommandRecorder, Drawable, LayerClip, LayerProps, PoppedLayer};
 use vello_common::render_graph::{RenderGraph, RenderNodeKind};
 use vello_common::render_state::RenderState;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
@@ -223,7 +224,9 @@ pub struct Scene {
     pub(crate) height: u16,
     /// Wide coarse rasterizer for generating binned draw commands.
     pub(crate) wide: Wide<MODE_HYBRID>,
-    clip_context: ClipContext,
+    clip_context: ClipState,
+    level: Level,
+    root_transforms: Vec<Affine>,
     pub(crate) render_state: RenderState,
     pub(crate) aliasing_threshold: Option<u8>,
     // The reason we use `RefCell` here is that during `render`, we need
@@ -235,6 +238,7 @@ pub struct Scene {
     paint_visible: bool,
     /// Generator for converting paths to strips.
     pub(crate) strip_generator: StripGenerator,
+    strip_generator_stack: Vec<StripGenerator>,
     /// Storage for generated strips and alpha values.
     pub(crate) strip_storage: RefCell<StripStorage>,
     /// Counter for generating unique layer IDs.
@@ -321,12 +325,15 @@ impl Scene {
             width,
             height,
             wide,
-            clip_context: ClipContext::new(),
+            clip_context: ClipState::new(),
+            level: settings.level,
+            root_transforms: vec![Affine::IDENTITY],
             render_state: RenderState::default(),
             aliasing_threshold: None,
             encoded_paints: RefCell::new(vec![]),
             paint_visible: true,
             strip_generator: StripGenerator::new(width, height, settings.level),
+            strip_generator_stack: Vec::new(),
             // Start strip storage in `Append` mode since we enable the fast path by default.
             strip_storage: RefCell::new(StripStorage::new(GenerationMode::Append)),
             layer_id_next: 0,
@@ -337,6 +344,67 @@ impl Scene {
             strip_path_mode: StripPathMode::FastOnly,
             coarse_batch_splits: Vec::new(),
         }
+    }
+
+    fn root_transform(&self) -> Affine {
+        *self
+            .root_transforms
+            .last()
+            .expect("root transform stack should never be empty")
+    }
+
+    fn effective_path_transform(&self) -> Affine {
+        self.root_transform() * self.render_state.transform
+    }
+
+    fn effective_paint_transform(&self) -> Affine {
+        self.effective_path_transform() * self.render_state.paint_transform
+    }
+
+    fn push_root_transform(&mut self, relative_transform: Affine) {
+        self.root_transforms
+            .push(relative_transform * self.root_transform());
+    }
+
+    fn pop_root_transform(&mut self) {
+        self.root_transforms.pop();
+    }
+
+    fn active_width(&self) -> u16 {
+        self.strip_generator.width()
+    }
+
+    fn active_height(&self) -> u16 {
+        self.strip_generator.height()
+    }
+
+    fn push_filter_surface(&mut self, filter_data: &FilterData) {
+        let padding = filter_data.source_padding;
+        let width = self
+            .strip_generator
+            .width()
+            .saturating_add(padding.x0)
+            .saturating_add(padding.x1);
+        let height = self
+            .strip_generator
+            .height()
+            .saturating_add(padding.y0)
+            .saturating_add(padding.y1);
+        let filter_generator = StripGenerator::new(width, height, self.level);
+        let parent_generator = core::mem::replace(&mut self.strip_generator, filter_generator);
+        self.strip_generator_stack.push(parent_generator);
+
+        self.clip_context
+            .push_filter_viewport(filter_data.source_shift(), &mut self.strip_generator);
+    }
+
+    fn pop_filter_surface(&mut self) {
+        self.strip_generator = self
+            .strip_generator_stack
+            .pop()
+            .expect("filter viewport stack underflow");
+        self.clip_context
+            .pop_filter_viewport(&mut self.strip_generator);
     }
 
     /// Encode the current paint into a `Paint` that can be used for rendering.
@@ -354,12 +422,12 @@ impl Scene {
             PaintType::Solid(s) => s.into(),
             PaintType::Gradient(g) => g.encode_into(
                 &mut self.encoded_paints.borrow_mut(),
-                self.render_state.transform * self.render_state.paint_transform,
+                self.effective_paint_transform(),
                 None,
             ),
             PaintType::Image(i) => i.encode_into(
                 &mut self.encoded_paints.borrow_mut(),
-                self.render_state.transform * self.render_state.paint_transform,
+                self.effective_paint_transform(),
                 self.render_state.tint,
             ),
         }
@@ -405,7 +473,7 @@ impl Scene {
             let paint = ctx.encode_current_paint();
             ctx.fill_path_with(
                 path,
-                ctx.render_state.transform,
+                ctx.effective_path_transform(),
                 ctx.render_state.fill_rule,
                 paint,
                 ctx.aliasing_threshold,
@@ -440,7 +508,12 @@ impl Scene {
             );
 
             let strips = strip_start..strip_storage.strips.len();
-            let draw = RecordedDraw::path(strips.clone(), strip_storage, self.width, paint.clone());
+            let draw = RecordedDraw::path(
+                strips.clone(),
+                strip_storage,
+                self.active_width(),
+                paint.clone(),
+            );
             (strips, draw)
         };
 
@@ -453,7 +526,7 @@ impl Scene {
     /// example for how this method differs from `push_clip_layer`.
     pub fn push_clip_path(&mut self, path: &BezPath) {
         self.clip_context.push_clip(
-            path.iter(),
+            path,
             &mut self.strip_generator,
             self.render_state.fill_rule,
             self.render_state.transform,
@@ -479,7 +552,7 @@ impl Scene {
             let paint = ctx.encode_current_paint();
             ctx.stroke_path_with(
                 path,
-                ctx.render_state.transform,
+                ctx.effective_path_transform(),
                 paint,
                 ctx.aliasing_threshold,
             );
@@ -512,7 +585,12 @@ impl Scene {
             );
 
             let strips = strip_start..strip_storage.strips.len();
-            let draw = RecordedDraw::path(strips.clone(), strip_storage, self.width, paint.clone());
+            let draw = RecordedDraw::path(
+                strips.clone(),
+                strip_storage,
+                self.active_width(),
+                paint.clone(),
+            );
             (strips, draw)
         };
 
@@ -544,10 +622,11 @@ impl Scene {
             return;
         }
 
-        if is_axis_aligned(&self.render_state.transform) && self.aliasing_threshold.is_none() {
+        let transform = self.effective_path_transform();
+        if is_axis_aligned(&transform) && self.aliasing_threshold.is_none() {
             self.with_optional_filter(|ctx| {
                 let paint = ctx.encode_current_paint();
-                let transformed_rect = ctx.render_state.transform.transform_rect_bbox(*rect);
+                let transformed_rect = ctx.effective_path_transform().transform_rect_bbox(*rect);
                 let (strips, draw) = {
                     let strip_storage = &mut ctx.strip_storage.borrow_mut();
                     let strip_start = strip_storage.strips.len();
@@ -558,8 +637,12 @@ impl Scene {
                     );
 
                     let strips = strip_start..strip_storage.strips.len();
-                    let draw =
-                        RecordedDraw::path(strips.clone(), strip_storage, ctx.width, paint.clone());
+                    let draw = RecordedDraw::path(
+                        strips.clone(),
+                        strip_storage,
+                        ctx.active_width(),
+                        paint.clone(),
+                    );
                     (strips, draw)
                 };
 
@@ -624,7 +707,7 @@ impl Scene {
 
                 let w = f64::from(rect.source_region.width());
                 let h = f64::from(rect.source_region.height());
-                let transform = self.render_state.transform * rect.transform;
+                let transform = self.effective_path_transform() * rect.transform;
 
                 if !is_axis_aligned(&transform) {
                     // Non-axis-aligned rects fall back to the strip path (still
@@ -651,10 +734,22 @@ impl Scene {
                 let dst_rect = Rect::new(0., 0., w, h);
                 let transformed_rect = transform.transform_rect_bbox(dst_rect);
 
-                let x0 = transformed_rect.x0.max(0.).min(f64::from(self.width));
-                let y0 = transformed_rect.y0.max(0.).min(f64::from(self.height));
-                let x1 = transformed_rect.x1.max(0.).min(f64::from(self.width));
-                let y1 = transformed_rect.y1.max(0.).min(f64::from(self.height));
+                let x0 = transformed_rect
+                    .x0
+                    .max(0.)
+                    .min(f64::from(self.active_width()));
+                let y0 = transformed_rect
+                    .y0
+                    .max(0.)
+                    .min(f64::from(self.active_height()));
+                let x1 = transformed_rect
+                    .x1
+                    .max(0.)
+                    .min(f64::from(self.active_width()));
+                let y1 = transformed_rect
+                    .y1
+                    .max(0.)
+                    .min(f64::from(self.active_height()));
 
                 // Skip mirrored or zero-sized rectangles.
                 if x1 <= x0 || y1 <= y0 {
@@ -687,7 +782,7 @@ impl Scene {
 
                     let w = f64::from(rect.source_region.width());
                     let h = f64::from(rect.source_region.height());
-                    let transform = ctx.render_state.transform * rect.transform;
+                    let transform = ctx.effective_path_transform() * rect.transform;
                     let paint = ctx.encode_external_texture_paint(
                         texture_id,
                         rect.source_region,
@@ -786,16 +881,29 @@ impl Scene {
 
         // We can't handle skewed rectangles.
         // TODO: Maybe support rotated rectangles (https://github.com/linebender/vello/pull/1482#discussion_r2881223621)
-        if !is_axis_aligned(&self.render_state.transform) {
+        let transform = self.effective_path_transform();
+        if !is_axis_aligned(&transform) {
             return None;
         }
 
-        let transformed_rect = self.render_state.transform.transform_rect_bbox(*rect);
+        let transformed_rect = transform.transform_rect_bbox(*rect);
 
-        let x0 = transformed_rect.x0.max(0.0).min(f64::from(self.width));
-        let y0 = transformed_rect.y0.max(0.0).min(f64::from(self.height));
-        let x1 = transformed_rect.x1.max(0.0).min(f64::from(self.width));
-        let y1 = transformed_rect.y1.max(0.0).min(f64::from(self.height));
+        let x0 = transformed_rect
+            .x0
+            .max(0.0)
+            .min(f64::from(self.active_width()));
+        let y0 = transformed_rect
+            .y0
+            .max(0.0)
+            .min(f64::from(self.active_height()));
+        let x1 = transformed_rect
+            .x1
+            .max(0.0)
+            .min(f64::from(self.active_width()));
+        let y1 = transformed_rect
+            .y1
+            .max(0.0)
+            .min(f64::from(self.active_height()));
 
         // Can't handle mirrored or zero-sized rectangles.
         if x1 <= x0 || y1 <= y0 {
@@ -834,7 +942,7 @@ impl Scene {
 
             let kernel_size = 2.5 * std_dev;
             let inflated_rect = rect.inflate(f64::from(kernel_size), f64::from(kernel_size));
-            let transform = ctx.render_state.transform * ctx.render_state.paint_transform;
+            let transform = ctx.effective_paint_transform();
             let paint =
                 blurred_rect.encode_into(&mut ctx.encoded_paints.borrow_mut(), transform, None);
 
@@ -843,11 +951,9 @@ impl Scene {
                 return;
             }
 
-            if is_axis_aligned(&ctx.render_state.transform) && ctx.aliasing_threshold.is_none() {
-                let transformed_rect = ctx
-                    .render_state
-                    .transform
-                    .transform_rect_bbox(inflated_rect);
+            let path_transform = ctx.effective_path_transform();
+            if is_axis_aligned(&path_transform) && ctx.aliasing_threshold.is_none() {
+                let transformed_rect = path_transform.transform_rect_bbox(inflated_rect);
                 let (strips, draw) = {
                     let strip_storage = &mut ctx.strip_storage.borrow_mut();
                     let strip_start = strip_storage.strips.len();
@@ -858,8 +964,12 @@ impl Scene {
                     );
 
                     let strips = strip_start..strip_storage.strips.len();
-                    let draw =
-                        RecordedDraw::path(strips.clone(), strip_storage, ctx.width, paint.clone());
+                    let draw = RecordedDraw::path(
+                        strips.clone(),
+                        strip_storage,
+                        ctx.active_width(),
+                        paint.clone(),
+                    );
                     (strips, draw)
                 };
 
@@ -867,7 +977,7 @@ impl Scene {
             } else {
                 ctx.fill_path_with(
                     &inflated_rect.to_path(DEFAULT_TOLERANCE),
-                    ctx.render_state.transform,
+                    path_transform,
                     Fill::NonZero,
                     paint,
                     ctx.aliasing_threshold,
@@ -958,15 +1068,25 @@ impl Scene {
         if mask.is_some() {
             unimplemented!("mask layers are not supported by the new vello_hybrid scheduler yet");
         }
-        if filter.is_some() {
-            unimplemented!("filter layers are not supported by the new vello_hybrid scheduler yet");
-        }
 
         let blend_mode = blend_mode.unwrap_or(DEFAULT_BLEND_MODE);
+        let layer_transform = self.effective_path_transform();
+        let filter_plan = filter.map(|filter| FilterData::new(filter, layer_transform));
+        self.push_root_transform(
+            filter_plan
+                .as_ref()
+                .map_or(Affine::IDENTITY, |filter_plan| {
+                    let (shift_x, shift_y) = filter_plan.source_shift();
+                    Affine::translate((f64::from(shift_x), f64::from(shift_y)))
+                }),
+        );
+        if let Some(filter_plan) = &filter_plan {
+            self.push_filter_surface(filter_plan);
+        }
 
         let clip_path = clip_path.map(|path| {
             let existing_clip = self.clip_context.get();
-            let mut bbox = control_point_bbox_u16(path.iter(), self.render_state.transform);
+            let mut bbox = control_point_bbox_u16(path.iter(), layer_transform);
             if let Some(existing_clip) = existing_clip {
                 bbox = bbox.intersect(existing_clip.bbox);
             }
@@ -976,7 +1096,7 @@ impl Scene {
             self.strip_generator.generate_filled_path(
                 path,
                 self.render_state.fill_rule,
-                self.render_state.transform,
+                layer_transform,
                 self.aliasing_threshold,
                 &mut strip_storage,
                 existing_clip,
@@ -997,7 +1117,7 @@ impl Scene {
                 mask: None,
                 clip_path,
             },
-            None,
+            filter_plan,
         );
     }
 
@@ -1086,7 +1206,10 @@ impl Scene {
 
     /// Pop the last pushed layer.
     pub fn pop_layer(&mut self) {
-        self.recorder.pop_layer();
+        if self.recorder.pop_layer() == PoppedLayer::Filter {
+            self.pop_filter_surface();
+        }
+        self.pop_root_transform();
     }
 
     /// Set the blend mode for subsequent rendering operations.
@@ -1195,8 +1318,11 @@ impl Scene {
     /// Reset scene to default values.
     pub fn reset(&mut self) {
         self.wide.reset();
-        self.strip_generator.reset();
+        self.strip_generator = StripGenerator::new(self.width, self.height, self.level);
+        self.strip_generator_stack.clear();
         self.clip_context.reset();
+        self.root_transforms.clear();
+        self.root_transforms.push(Affine::IDENTITY);
         // Set the strip storage back to `Append` mode since the fast path is re-enabled on reset.
         {
             let mut ss = self.strip_storage.borrow_mut();
