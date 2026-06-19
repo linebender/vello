@@ -7,9 +7,10 @@
 @group(1) @binding(0) var in_tex: texture_2d<f32>;
 // A bilinear sampler.
 @group(1) @binding(1) var linear_sampler: sampler;
-// The texture containing the original (unfiltered) content. This is only needed because
+// Layer atlas textures containing original (unfiltered) layer content. This is only needed because
 // for the drop shadow filter, we need to composite the original content on top of the shadow.
-@group(2) @binding(0) var original_tex: texture_2d<f32>;
+@group(2) @binding(0) var layer_texture_0: texture_2d<f32>;
+@group(2) @binding(1) var layer_texture_1: texture_2d<f32>;
 
 // Keep these variables and layouts in sync with the ones in `filter.rs`!
 
@@ -102,7 +103,7 @@ struct FilterInstanceData {
     @location(5) filter_offset: u32,
     @location(6) original_offset: vec2<u32>,
     @location(7) original_size: vec2<u32>,
-    @location(8) pass_kind: u32,
+    @location(8) other_data: u32,
 }
 
 struct FilterVertexOutput {
@@ -115,7 +116,7 @@ struct FilterVertexOutput {
     @location(5) @interpolate(flat) dest_atlas_size: vec2<u32>,
     @location(6) @interpolate(flat) original_offset: vec2<u32>,
     @location(7) @interpolate(flat) original_size: vec2<u32>,
-    @location(8) @interpolate(flat) pass_kind: u32,
+    @location(8) @interpolate(flat) other_data: u32,
 }
 
 @vertex
@@ -152,16 +153,20 @@ fn vs_main(
     out.dest_atlas_size = instance.dest_atlas_size;
     out.original_offset = instance.original_offset;
     out.original_size = instance.original_size;
-    out.pass_kind = instance.pass_kind;
+    out.other_data = instance.other_data;
     return out;
 }
 
 // Sample a pixel from the original texture.
 // Note: `rel_cord` needs to be positive and must not exceed the width/height of the image
 // that is to be sampled.
-fn sample_original(original_offset: vec2<u32>, rel_coord: vec2<f32>) -> vec4<f32> {
+fn sample_original(layer_texture_index: u32, original_offset: vec2<u32>, rel_coord: vec2<f32>) -> vec4<f32> {
     let src_coord = vec2<u32>(vec2<i32>(original_offset) + vec2<i32>(rel_coord));
-    return textureLoad(original_tex, src_coord, 0);
+    if layer_texture_index == 0u {
+        return textureLoad(layer_texture_0, src_coord, 0);
+    }   else {
+        return textureLoad(layer_texture_1, src_coord, 0);
+    }
 }
 
 // Sample a pixel from the input texture.
@@ -312,18 +317,20 @@ fn fs_main(
     @location(5) @interpolate(flat) dest_atlas_size: vec2<u32>,
     @location(6) @interpolate(flat) original_offset: vec2<u32>,
     @location(7) @interpolate(flat) original_size: vec2<u32>,
-    @location(8) @interpolate(flat) pass_kind: u32,
+    @location(8) @interpolate(flat) other_data: u32,
     @builtin(position) position: vec4<f32>,
 ) -> @location(0) vec4<f32> {
     let frag_coord = vec2<u32>(position.xy);
     let rel_coord = vec2<f32>(frag_coord - dest_offset);
+    let layer_texture_index = other_data >> 31u;
+    let filter_pass_kind = other_data & 0x7fffffffu;
 
     // See the comment in `vs_main`.
     if rel_coord.x >= f32(dest_size.x) || rel_coord.y >= f32(dest_size.y) {
         return vec4<f32>(0.0);
     }
 
-    switch pass_kind {
+    switch filter_pass_kind {
         case PASS_COPY: {
             return sample_input(src_offset, rel_coord);
         }
@@ -383,7 +390,7 @@ fn fs_main(
             let blurred = sample_input(src_offset, rel_coord);
             let shadow_color = unpack4x8unorm(get_drop_shadow_color(filter_texel2));
             let shadow_result = shadow_color * blurred.a;
-            let original = sample_original(original_offset, rel_coord);
+            let original = sample_original(layer_texture_index, original_offset, rel_coord);
 
             // Simple source-over compositing.
             return original + shadow_result * (1.0 - original.a);

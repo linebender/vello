@@ -8,7 +8,11 @@
     reason = "GPU paint structures have small, fixed sizes that fit in u32"
 )]
 
+use crate::filter::{GpuBlendInstance, GpuCopyInstance, ScheduledFilterPasses};
+use crate::schedule::ScheduleScratch;
+use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
+use vello_common::geometry::RectU16;
 use vello_common::multi_atlas::AtlasConfig;
 
 // GPU paint structure sizes in texels (1 texel = 16 bytes for RGBA32Uint texture format).
@@ -24,6 +28,25 @@ pub(crate) const GPU_BLURRED_ROUNDED_RECT_SIZE_TEXELS: u32 =
 // TODO: If we want to use native bilinear sampling for uploaded images,
 // we can pass 1 instead of 0 here.
 pub(crate) const IMAGE_PADDING: u16 = 0;
+
+/// Scratch allocations reused while rendering a frame.
+#[derive(Debug, Default)]
+pub(crate) struct ScratchBuffers {
+    pub(crate) schedule: ScheduleScratch,
+    pub(crate) clear_rects: Vec<RectU16>,
+    pub(crate) clear_instances: Vec<GpuClearInstance>,
+    pub(crate) blend_instances: Vec<GpuBlendInstance>,
+    pub(crate) copy_instances: Vec<GpuCopyInstance>,
+    pub(crate) filter_passes: ScheduledFilterPasses,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub(crate) struct GpuClearInstance {
+    pub(crate) origin: [u32; 2],
+    pub(crate) size: [u32; 2],
+    pub(crate) target_size: [u32; 2],
+}
 
 pub(crate) fn normalize_atlas_config(
     config: &mut AtlasConfig,
