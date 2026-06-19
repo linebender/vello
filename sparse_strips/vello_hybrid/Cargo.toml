@@ -24,7 +24,6 @@ vello_sparse_shaders = { workspace = true, optional = true }
 log = { workspace = true }
 hashbrown = { workspace = true }
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = { workspace = true, optional = true }
 web-sys = { workspace = true, features = [
     "HtmlCanvasElement",
