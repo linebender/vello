@@ -4,25 +4,24 @@
 use super::cmd::{DepthFill, LayerFill, LayerFillAttrs, PaintFill, PaintFillAttrs, RenderCmd};
 use super::depth::{DepthSegment, DepthState};
 use crate::coarse::depth;
+use crate::dispatch::{RecordedCmd, RecordedFill, RecordedLayer};
 use crate::filter::context::FilterContext;
 use crate::kurbo::{Affine, Vec2};
 use crate::peniko::{BlendMode, Extend, ImageQuality, ImageSampler};
-use crate::record::{
-    FilterLayerPlacement, LayerProps, RecordedCmd, RecordedLayer, RecordedLayerKind,
-};
-use crate::util::{Span, VecPool};
+use crate::util::Span;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::ops::Range;
 use vello_common::encode::{EncodedImage, EncodedPaint};
+use vello_common::filter::FilterLayerPlacement;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageSource, IndexedPaint, Paint};
 use vello_common::pixmap::Pixmap;
-use vello_common::strip::Strip;
+use vello_common::record::{LayerClip, LayerProps, RecordedLayerKind};
+use vello_common::strip::{Strip, StripSegment, for_each_fill_segment};
 use vello_common::tile::Tile;
-use vello_common::util::{Clear, RectExt, RetainVec};
+use vello_common::util::{Clear, RectExt, RetainVec, VecPool};
 
 /// State for a single row of strips.
 #[derive(Debug, Default)]
@@ -262,6 +261,7 @@ impl CommandBucketer {
     pub(crate) fn bucket_commands(
         &mut self,
         cmds: &[RecordedCmd],
+        draws: &[RecordedFill],
         layers: &[RecordedLayer],
         strips: &[Strip],
         encoded_paints: &[EncodedPaint],
@@ -288,54 +288,72 @@ impl CommandBucketer {
 
         for cmd in cmds {
             match cmd {
-                RecordedCmd::Fill {
-                    thread_idx,
-                    strip_range,
-                    paint,
-                    blend_mode,
-                    mask,
-                } => {
-                    let draw_id = self.next_draw_id();
-                    let attrs = PaintFillAttrs {
-                        paint: paint.clone(),
-                        blend_mode: *blend_mode,
-                        mask: mask.clone(),
-                        draw_id,
-                        thread_idx: *thread_idx,
-                        origin: self.viewport_origin(),
-                    };
-                    self.generate_fill(&strips[strip_range.clone()], &attrs, encoded_paints);
-                }
-                RecordedCmd::PushLayer { id } => {
-                    let props = &layers[id.get()].props;
-                    self.push_layer(props);
-                }
-                RecordedCmd::FilterLayer { id } => {
-                    let props = &layers[id.get()].props;
-                    let RecordedLayerKind::Filter { placement, .. } = &layers[id.get()].kind else {
-                        unreachable!()
-                    };
-
-                    let needs_layer = props.blend_mode != BlendMode::default()
-                        || props.opacity != 1.0
-                        || props.mask.is_some()
-                        || props.clip_path.is_some();
-
-                    if needs_layer {
-                        self.push_layer(props);
-                    }
-
-                    // Note: At this point, we've already rasterized all dependent
-                    // filter layers, so this should never fail.
-                    if let Some(pixmap) = filter_ctx.filter_layer(id.get()) {
-                        self.generate_filter_layer_fill(pixmap, *placement, encoded_paints.len());
-                    }
-
-                    if needs_layer {
-                        self.pop_layer(strips);
+                RecordedCmd::Draws(range) => {
+                    for RecordedFill {
+                        thread_idx,
+                        strip_range,
+                        paint,
+                        blend_mode,
+                        mask,
+                        ..
+                    } in &draws[range.start as usize..range.end as usize]
+                    {
+                        let draw_id = self.next_draw_id();
+                        let attrs = PaintFillAttrs {
+                            paint: paint.clone(),
+                            blend_mode: *blend_mode,
+                            mask: mask.clone(),
+                            draw_id,
+                            thread_idx: *thread_idx,
+                            origin: self.viewport_origin(),
+                        };
+                        self.generate_fill(&strips[strip_range.clone()], &attrs, encoded_paints);
                     }
                 }
-                RecordedCmd::PopLayer => self.pop_layer(strips),
+                RecordedCmd::Layer(id) => {
+                    let layer = &layers[*id as usize];
+                    let props = &layer.props;
+
+                    match &layer.kind {
+                        RecordedLayerKind::Regular => {
+                            // Regular layers are inlined and bucketed into the same command stream.
+                            self.push_layer(props);
+                            self.bucket_commands(
+                                &layer.cmds,
+                                draws,
+                                layers,
+                                strips,
+                                encoded_paints,
+                                filter_ctx,
+                            );
+                            self.pop_layer(strips);
+                        }
+                        RecordedLayerKind::Filter { placement, .. } => {
+                            let needs_layer = props.blend_mode != BlendMode::default()
+                                || props.opacity != 1.0
+                                || props.mask.is_some()
+                                || props.clip_path.is_some();
+
+                            if needs_layer {
+                                self.push_layer(props);
+                            }
+
+                            // Note: At this point, we've already rasterized all dependent
+                            // filter layers, so this should never fail.
+                            if let Some(pixmap) = filter_ctx.filter_layer(*id as usize) {
+                                self.generate_filter_layer_fill(
+                                    pixmap,
+                                    *placement,
+                                    encoded_paints.len(),
+                                );
+                            }
+
+                            if needs_layer {
+                                self.pop_layer(strips);
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -630,8 +648,28 @@ impl CommandBucketer {
             0,
             "clip end must be tile-width aligned",
         );
+        debug_assert_eq!(
+            clip_bbox.y0 % Tile::HEIGHT,
+            0,
+            "clip start must be tile-height aligned",
+        );
+        debug_assert_eq!(
+            clip_bbox.y1 % Tile::HEIGHT,
+            0,
+            "clip end must be tile-height aligned",
+        );
 
         let origin = self.viewport_origin();
+        debug_assert_eq!(
+            origin.0 % Tile::WIDTH,
+            0,
+            "viewport x origin must be tile-width aligned",
+        );
+        debug_assert_eq!(
+            origin.1 % Tile::HEIGHT,
+            0,
+            "viewport y origin must be tile-height aligned",
+        );
 
         // Note: the viewport of a filter layer is based on the bounds of its rendered contents.
         // Therefore, those are always guaranteed to be within the viewport rect. However, this does not
@@ -642,69 +680,47 @@ impl CommandBucketer {
         // Therefore, we need to make sure to clip those appropriately.
 
         let viewport_y1 = self.viewport.y1;
-        // Convert to viewport coordinates.
+        let origin_tile_x = origin.0 / Tile::WIDTH;
+        let origin_tile_y = origin.1 / Tile::HEIGHT;
+        let clip_scene_y0 = origin.1.saturating_add(clip_bbox.y0);
+        let clip_scene_y1 = viewport_y1.min(origin.1.saturating_add(clip_bbox.y1));
+        // Convert to scene coordinates.
         let clip_scene_x0 = origin.0.saturating_add(clip_x0);
         let clip_scene_x1 = origin.0.saturating_add(clip_x1);
+        let bounds = RectU16::new(
+            clip_scene_x0 / Tile::WIDTH,
+            clip_scene_y0 / Tile::HEIGHT,
+            clip_scene_x1 / Tile::WIDTH,
+            clip_scene_y1 / Tile::HEIGHT,
+        );
 
-        let strip_row = |strip: &Strip| (strip.y - origin.1) / Tile::HEIGHT;
-
-        // Clip strips that are outside the viewport horizontally.
-        let clip_span = |x0: u16, x1: u16| (x0.max(clip_scene_x0), x1.min(clip_scene_x1));
-
-        for i in 0..strip_buf.len() - 1 {
-            let strip = &strip_buf[i];
-
-            // Skip strips that are outside the viewport vertically.
-            if strip.y < origin.1 {
-                continue;
-            }
-            if strip.y >= viewport_y1 {
-                break;
-            }
-
-            let strip_y = strip_row(strip);
-            let row_y = strip_y.saturating_mul(Tile::HEIGHT);
-
-            if row_y < clip_bbox.y0 {
-                continue;
-            }
-            if row_y >= clip_bbox.y1 {
-                break;
-            }
-
-            let row_idx = strip_y as usize;
-
-            let next_strip = &strip_buf[i + 1];
-            let strip_width = strip.width_to(next_strip);
-            let x0 = strip.x;
-            let x1 = x0.saturating_add(strip_width);
-            let (clipped_x0, clipped_x1) = clip_span(x0, x1);
-
-            if clipped_x0 < clipped_x1 {
+        for_each_fill_segment(strip_buf, bounds, |segment| match segment {
+            StripSegment::Alpha(segment) => {
+                let row_idx = usize::from(segment.tile_y - origin_tile_y);
+                let x0 = (segment.tile_x0 - origin_tile_x) * Tile::WIDTH;
+                let x1 = (segment.tile_x1 - origin_tile_x) * Tile::WIDTH;
                 alpha_fill_cmd(
                     self,
                     GeneratedAlphaFill {
                         row_idx,
-                        span: Span::new(clipped_x0 - origin.0, clipped_x1 - clipped_x0),
-                        alpha_idx: strip.alpha_idx()
-                            + u32::from(clipped_x0 - x0) * u32::from(Tile::HEIGHT),
+                        span: Span::new(x0, x1 - x0),
+                        alpha_idx: segment.alpha_idx,
                     },
                 );
             }
-
-            if next_strip.fill_gap() && next_strip.y == strip.y {
-                let (fill_x0, fill_x1) = clip_span(x1, next_strip.x);
-                if fill_x0 < fill_x1 {
-                    fill_cmd(
-                        self,
-                        GeneratedFill {
-                            row_idx,
-                            span: Span::new(fill_x0 - origin.0, fill_x1 - fill_x0),
-                        },
-                    );
-                }
+            StripSegment::Fill(segment) => {
+                let row_idx = usize::from(segment.tile_y - origin_tile_y);
+                let x0 = (segment.tile_x0 - origin_tile_x) * Tile::WIDTH;
+                let x1 = (segment.tile_x1 - origin_tile_x) * Tile::WIDTH;
+                fill_cmd(
+                    self,
+                    GeneratedFill {
+                        row_idx,
+                        span: Span::new(x0, x1 - x0),
+                    },
+                );
             }
-        }
+        });
     }
 
     /// Note: If depth-culling should be disabled, pass `None` to `draw_id`.
@@ -745,13 +761,6 @@ pub(crate) struct ActiveLayer {
     pub(crate) occupied_rows: Vec<usize>,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct LayerClip {
-    pub(crate) strip_range: Range<usize>,
-    pub(crate) thread_idx: u8,
-    pub(crate) bbox: RectU16,
-}
-
 /// A generic fill to allow using `generate_fill` to create either paint fills or blend fills.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct GeneratedFill {
@@ -773,12 +782,12 @@ mod tests {
     use crate::coarse::CommandBucketer;
     use crate::coarse::cmd::{PaintFillAttrs, RenderCmd};
     use crate::coarse::depth::{BucketRange, DEPTH_BUCKET_WIDTH};
-    use crate::record::LayerProps;
     use vello_common::color::palette::css::{BLUE, RED};
     use vello_common::color::{AlphaColor, Srgb};
     use vello_common::geometry::RectU16;
     use vello_common::paint::{Paint, PremulColor};
     use vello_common::peniko::BlendMode;
+    use vello_common::record::LayerProps;
     use vello_common::strip::Strip;
     use vello_common::tile::Tile;
 

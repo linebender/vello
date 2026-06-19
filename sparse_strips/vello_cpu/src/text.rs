@@ -407,6 +407,9 @@ impl glifo::GlyphRenderer for RenderContext {
 
     #[inline]
     fn save_state(&mut self) -> Self::SavedState {
+        // TODO: This is pretty expensive (since a lot of data is associated with the state),
+        // and we are calling this before rendering every glyph. Consider ways of how we can optimize
+        // this more (also for Vello Hybrid).
         self.save_current_state()
     }
 

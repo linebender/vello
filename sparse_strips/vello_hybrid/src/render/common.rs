@@ -8,7 +8,12 @@
     reason = "GPU paint structures have small, fixed sizes that fit in u32"
 )]
 
+use crate::blend::GpuBlendInstance;
+use crate::copy::GpuCopyInstance;
+use crate::filter::ScheduledFilterPasses;
+use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
+use vello_common::geometry::RectU16;
 use vello_common::multi_atlas::AtlasConfig;
 
 // GPU paint structure sizes in texels (1 texel = 16 bytes for RGBA32Uint texture format).
@@ -24,6 +29,24 @@ pub(crate) const GPU_BLURRED_ROUNDED_RECT_SIZE_TEXELS: u32 =
 // TODO: If we want to use native bilinear sampling for uploaded images,
 // we can pass 1 instead of 0 here.
 pub(crate) const IMAGE_PADDING: u16 = 0;
+
+/// Scratch allocations reused while rendering a frame.
+#[derive(Debug, Default)]
+pub(crate) struct ScratchBuffers {
+    pub(crate) clear_rects: Vec<RectU16>,
+    pub(crate) clear_instances: Vec<GpuClearInstance>,
+    pub(crate) blend_instances: Vec<GpuBlendInstance>,
+    pub(crate) copy_instances: Vec<GpuCopyInstance>,
+    pub(crate) filter_passes: ScheduledFilterPasses,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub(crate) struct GpuClearInstance {
+    pub(crate) origin: [u32; 2],
+    pub(crate) size: [u32; 2],
+    pub(crate) target_size: [u32; 2],
+}
 
 pub(crate) fn normalize_atlas_config(
     config: &mut AtlasConfig,
@@ -134,23 +157,23 @@ pub struct Config {
 /// A GPU strip instance for rendering.
 ///
 /// This struct corresponds to the `StripInstance` struct in the shader.
-/// See the `StripInstance` documentation in `render_strips.wgsl` for detailed field descriptions.
+/// See the `StripInstance` documentation in `render.wgsl` for detailed field descriptions.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 pub struct GpuStrip {
-    /// See `StripInstance::xy` documentation in `render_strips.wgsl`.
+    /// See `StripInstance::xy` documentation in `render.wgsl`.
     pub x: u16,
-    /// See `StripInstance::xy` documentation in `render_strips.wgsl`.
+    /// See `StripInstance::xy` documentation in `render.wgsl`.
     pub y: u16,
-    /// See `StripInstance::dense_width_or_rect_height` documentation in `render_strips.wgsl`.
+    /// See `StripInstance::dense_width_or_rect_height` documentation in `render.wgsl`.
     pub width: u16,
-    /// See `StripInstance::dense_width_or_rect_height` documentation in `render_strips.wgsl`.
+    /// See `StripInstance::dense_width_or_rect_height` documentation in `render.wgsl`.
     pub dense_width_or_rect_height: u16,
-    /// See `StripInstance::col_idx_or_rect_frac` documentation in `render_strips.wgsl`.
+    /// See `StripInstance::col_idx_or_rect_frac` documentation in `render.wgsl`.
     pub col_idx_or_rect_frac: u32,
-    /// See `StripInstance::payload` documentation in `render_strips.wgsl`.
+    /// See `StripInstance::payload` documentation in `render.wgsl`.
     pub payload: u32,
-    /// See `StripInstance::paint_and_rect_flag` documentation in `render_strips.wgsl`.
+    /// See `StripInstance::paint_and_rect_flag` documentation in `render.wgsl`.
     pub paint_and_rect_flag: u32,
     /// Painter's-order index used to compute z-depth for early-z rejection in shader.
     /// In other words, the back-most draw has index 0 and every additional draw in front

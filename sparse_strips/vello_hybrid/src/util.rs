@@ -95,6 +95,8 @@ impl Default for DimensionConstraints {
     }
 }
 
+// TODO: Make u16?
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub(crate) struct IntOffset(pub [u32; 2]);
@@ -129,6 +131,18 @@ impl From<[u32; 2]> for IntSize {
     fn from(v: [u32; 2]) -> Self {
         Self(v)
     }
+}
+
+pub(crate) fn pack_u16_pair(x: u16, y: u16) -> u32 {
+    u32::from(x) | (u32::from(y) << 16)
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "opacity is clamped to the normalized u8 range before packing"
+)]
+pub(crate) fn pack_opacity(opacity: f32) -> u8 {
+    (opacity.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
 #[cfg(test)]
