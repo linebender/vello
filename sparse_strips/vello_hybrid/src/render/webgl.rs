@@ -1180,18 +1180,22 @@ struct WebGlResources {
     layer_framebuffers: [Framebuffer; 2],
 }
 
-/// Config for the clear slots pipeline.
+/// Dummy config for the clear rect pipeline's existing bind-group shape.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 struct ClearSlotsConfig {
-    /// Width of a slot.
-    pub slot_width: u32,
-    /// Height of a slot.
-    pub slot_height: u32,
-    /// Total height of the texture.
-    pub texture_height: u32,
-    /// Padding for alignment.
+    pub _padding0: u32,
+    pub _padding1: u32,
+    pub _padding2: u32,
     pub _padding: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+struct GpuClearRect {
+    origin: [u32; 2],
+    size: [u32; 2],
+    target_size: [u32; 2],
 }
 
 impl WebGlPrograms {
@@ -1610,9 +1614,9 @@ impl WebGlPrograms {
             // TODO: This can be done once, and doesn't need to be done on every `prepare` call.
             {
                 let clear_config = ClearSlotsConfig {
-                    slot_width: u32::from(WideTile::WIDTH),
-                    slot_height: u32::from(Tile::HEIGHT),
-                    texture_height: u32::from(Tile::HEIGHT) * total_slots,
+                    _padding0: 0,
+                    _padding1: 0,
+                    _padding2: 0,
                     _padding: 0,
                 };
 
@@ -2596,17 +2600,19 @@ fn initialize_clear_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
         Some(&resources.clear_slot_indices_buffer),
     );
 
-    // Configure attributes.
-    let slot_idx_loc = 0;
-    gl.enable_vertex_attrib_array(slot_idx_loc);
-    gl.vertex_attrib_i_pointer_with_i32(
-        slot_idx_loc,
-        1,
-        WebGl2RenderingContext::UNSIGNED_INT,
-        4,
-        0,
-    );
-    gl.vertex_attrib_divisor(slot_idx_loc, 1);
+    let stride = size_of::<GpuClearRect>() as i32;
+    for location in 0..3 {
+        let offset = location * 8;
+        gl.enable_vertex_attrib_array(location);
+        gl.vertex_attrib_i_pointer_with_i32(
+            location,
+            2,
+            WebGl2RenderingContext::UNSIGNED_INT,
+            stride,
+            offset as i32,
+        );
+        gl.vertex_attrib_divisor(location, 1);
+    }
 
     gl.bind_vertex_array(None);
 }
@@ -2977,15 +2983,30 @@ impl WebGlRendererContext<'_> {
         // (matches wgpu implementation)
         self.gl.disable(WebGl2RenderingContext::BLEND);
 
-        // Upload slot indices.
+        let total_slots: usize =
+            (self.programs.resources.max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
+        let target_size = [
+            u32::from(WideTile::WIDTH),
+            u32::from(Tile::HEIGHT) * total_slots as u32,
+        ];
+        let rects = slot_indices
+            .iter()
+            .map(|slot_idx| GpuClearRect {
+                origin: [0, slot_idx * u32::from(Tile::HEIGHT)],
+                size: [u32::from(WideTile::WIDTH), u32::from(Tile::HEIGHT)],
+                target_size,
+            })
+            .collect::<Vec<_>>();
+
+        // Upload clear rects.
         self.gl.bind_buffer(
             WebGl2RenderingContext::ARRAY_BUFFER,
             Some(&self.programs.resources.clear_slot_indices_buffer),
         );
-        let slot_indices_data = bytemuck::cast_slice(slot_indices);
+        let rects_data = bytemuck::cast_slice(&rects);
         self.gl.buffer_data_with_u8_array(
             WebGl2RenderingContext::ARRAY_BUFFER,
-            slot_indices_data,
+            rects_data,
             WebGl2RenderingContext::STATIC_DRAW,
         );
 
@@ -2994,12 +3015,8 @@ impl WebGlRendererContext<'_> {
             WebGl2RenderingContext::FRAMEBUFFER,
             Some(&self.programs.resources.slot_framebuffers[ix]),
         );
-        // TODO: Remove the slot height texture calculation.
-        let total_slots: usize =
-            (self.programs.resources.max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
-        let height = u32::from(Tile::HEIGHT) * total_slots as u32;
         self.gl
-            .viewport(0, 0, i32::from(WideTile::WIDTH), height as i32);
+            .viewport(0, 0, i32::from(WideTile::WIDTH), target_size[1] as i32);
 
         // Setup clear program.
         self.gl.use_program(Some(&self.programs.clear_program));

@@ -1127,9 +1127,9 @@ struct GpuResources {
     /// Config buffer for rendering strips into a layer texture.
     layer_config_buffer: Buffer,
 
-    /// Buffer for slot indices used in `clear_slots`
+    /// Buffer for rects used by the clear pipeline.
     #[allow(dead_code)]
-    clear_slot_indices_buffer: Buffer,
+    clear_rects_buffer: Buffer,
     /// Buffer holding `FilterInstanceData` for a single filter draw call.
     #[allow(dead_code)]
     filter_instance_buffer: Buffer,
@@ -1142,7 +1142,7 @@ struct GpuResources {
     /// Slot texture views
     slot_texture_views: [TextureView; 2],
 
-    /// Bind group for clear slots operation
+    /// Bind group for clear rect operations.
     #[allow(dead_code)]
     clear_bind_group: BindGroup,
 
@@ -1168,18 +1168,22 @@ struct GpuResources {
 
 const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).unwrap();
 
-/// Config for the clear slots pipeline
+/// Dummy config for the clear rect pipeline's existing bind-group shape.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 struct ClearSlotsConfig {
-    /// Width of a slot
-    pub slot_width: u32,
-    /// Height of a slot
-    pub slot_height: u32,
-    /// Total height of the texture
-    pub texture_height: u32,
-    /// Padding for 16-byte alignment
+    pub _padding0: u32,
+    pub _padding1: u32,
+    pub _padding2: u32,
     pub _padding: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+struct GpuClearRect {
+    origin: [u32; 2],
+    size: [u32; 2],
+    target_size: [u32; 2],
 }
 
 #[repr(C)]
@@ -1433,13 +1437,13 @@ impl Programs {
                 module: &clear_shader,
                 entry_point: Some("vs_main"),
                 buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: size_of::<u32>() as u64,
+                    array_stride: size_of::<GpuClearRect>() as u64,
                     step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &[wgpu::VertexAttribute {
-                        format: wgpu::VertexFormat::Uint32,
-                        offset: 0,
-                        shader_location: 0,
-                    }],
+                    attributes: &wgpu::vertex_attr_array![
+                        0 => Uint32x2,
+                        1 => Uint32x2,
+                        2 => Uint32x2,
+                    ],
                 }],
                 compilation_options: PipelineCompilationOptions::default(),
             },
@@ -1447,7 +1451,7 @@ impl Programs {
                 module: &clear_shader,
                 entry_point: Some("fs_main"),
                 targets: &[Some(ColorTargetState {
-                    format: render_target_config.format,
+                    format: wgpu::TextureFormat::Rgba8Unorm,
                     // No blending needed for clearing
                     blend: None,
                     write_mask: ColorWrites::ALL,
@@ -1770,9 +1774,9 @@ impl Programs {
         let clear_config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Clear Slots Config"),
             contents: bytemuck::bytes_of(&ClearSlotsConfig {
-                slot_width: u32::from(WideTile::WIDTH),
-                slot_height: u32::from(Tile::HEIGHT),
-                texture_height: u32::from(Tile::HEIGHT) * slot_count as u32,
+                _padding0: 0,
+                _padding1: 0,
+                _padding2: 0,
                 _padding: 0,
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
@@ -1785,9 +1789,9 @@ impl Programs {
                 resource: clear_config_buffer.as_entire_binding(),
             }],
         });
-        let clear_slot_indices_buffer = Self::create_clear_slot_indices_buffer(
+        let clear_rects_buffer = Self::create_clear_rects_buffer(
             device,
-            slot_count as u64 * size_of::<u32>() as u64,
+            slot_count as u64 * size_of::<GpuClearRect>() as u64,
         );
 
         let slot_config_buffer = Self::create_config_buffer(
@@ -1940,7 +1944,7 @@ impl Programs {
 
         let resources = GpuResources {
             strips_buffer: Self::create_strips_buffer(device, 0),
-            clear_slot_indices_buffer,
+            clear_rects_buffer,
             filter_instance_buffer: Self::create_filter_instance_buffer(
                 device,
                 size_of::<FilterInstanceData>() as u64,
@@ -2089,9 +2093,9 @@ impl Programs {
         })
     }
 
-    fn create_clear_slot_indices_buffer(device: &Device, required_size: u64) -> Buffer {
+    fn create_clear_rects_buffer(device: &Device, required_size: u64) -> Buffer {
         device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Slot Indices Buffer"),
+            label: Some("Clear Rects Buffer"),
             size: required_size,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
@@ -3268,47 +3272,25 @@ impl RendererContext<'_> {
             return;
         }
 
-        let resources = &mut self.programs.resources;
-        let size = size_of_val(slot_indices) as u64;
-        // TODO: We currently allocate a new strips buffer for each render pass. A more efficient
-        // approach would be to re-use buffers or slices of a larger buffer.
-        resources.clear_slot_indices_buffer =
-            Programs::create_clear_slot_indices_buffer(self.device, size);
-        // TODO: Consider using a staging belt to avoid an extra staging buffer allocation.
-        let mut buffer = self
-            .queue
-            .write_buffer_with(
-                &resources.clear_slot_indices_buffer,
-                0,
-                size.try_into().unwrap(),
-            )
-            .expect("Capacity handled in creation");
-        buffer.copy_from_slice(bytemuck::cast_slice(slot_indices));
+        let total_slots = self.device.limits().max_texture_dimension_2d / u32::from(Tile::HEIGHT);
+        let target_size = [
+            u32::from(WideTile::WIDTH),
+            u32::from(Tile::HEIGHT) * total_slots,
+        ];
+        let rects = slot_indices
+            .iter()
+            .map(|slot_idx| {
+                gpu_clear_rect(
+                    0,
+                    slot_idx * u32::from(Tile::HEIGHT),
+                    u32::from(WideTile::WIDTH),
+                    u32::from(Tile::HEIGHT),
+                    target_size,
+                )
+            })
+            .collect::<Vec<_>>();
 
-        {
-            let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("Clear Slots Render Pass"),
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: &resources.slot_texture_views[ix],
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        // Don't clear the entire texture, just specific slots
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-                multiview_mask: None,
-            });
-
-            render_pass.set_pipeline(&self.programs.clear_pipeline);
-            render_pass.set_bind_group(0, &resources.clear_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, resources.clear_slot_indices_buffer.slice(..));
-            render_pass.draw(0..4, 0..u32::try_from(slot_indices.len()).unwrap());
-        }
+        self.do_clear_rects_render_pass(ClearTarget::Slot(ix), &rects, "Clear Slots Render Pass");
     }
 
     fn layer_texture_size(&self) -> (u32, u32) {
@@ -3405,39 +3387,29 @@ impl RendererContext<'_> {
                 }
             }
 
-            let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("Clear Blend Scratch Regions"),
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: &self.programs.resources.blend_scratch_texture_view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-                multiview_mask: None,
-            });
-            render_pass.set_pipeline(&self.programs.atlas_clear_pipeline);
-            for instance in instances
+            let clear_rects = instances
                 .iter()
                 .filter(|instance| instance.texture_indices[0] as usize == texture_index)
-            {
-                render_pass.set_scissor_rect(
-                    instance.dest_origin[0],
-                    instance.dest_origin[1],
-                    instance.size[0],
-                    instance.size[1],
-                );
-                render_pass.draw(0..4, 0..1);
-            }
+                .map(|instance| {
+                    gpu_clear_rect(
+                        instance.dest_origin[0],
+                        instance.dest_origin[1],
+                        instance.size[0],
+                        instance.size[1],
+                        [target_size.0, target_size.1],
+                    )
+                })
+                .collect::<Vec<_>>();
+            self.do_clear_rects_render_pass(
+                ClearTarget::BlendScratch,
+                &clear_rects,
+                "Clear Blend Scratch Regions",
+            );
         }
     }
 
     fn do_clear_layer_regions_render_pass(&mut self, regions: &[LayerTextureRegion]) {
+        let target_size = self.layer_texture_size();
         for texture_index in 0..self.programs.resources.layer_texture_views.len() {
             if !regions.iter().any(|region| {
                 region.texture_index == texture_index && region.width > 0 && region.height > 0
@@ -3445,30 +3417,77 @@ impl RendererContext<'_> {
                 continue;
             }
 
-            let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("Clear Layer Regions"),
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: &self.programs.resources.layer_texture_views[texture_index],
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-                multiview_mask: None,
-            });
-            render_pass.set_pipeline(&self.programs.atlas_clear_pipeline);
-            for region in regions.iter().filter(|region| {
-                region.texture_index == texture_index && region.width > 0 && region.height > 0
-            }) {
-                render_pass.set_scissor_rect(region.x, region.y, region.width, region.height);
-                render_pass.draw(0..4, 0..1);
-            }
+            let clear_rects = regions
+                .iter()
+                .filter(|region| {
+                    region.texture_index == texture_index && region.width > 0 && region.height > 0
+                })
+                .map(|region| {
+                    gpu_clear_rect(
+                        region.x,
+                        region.y,
+                        region.width,
+                        region.height,
+                        [target_size.0, target_size.1],
+                    )
+                })
+                .collect::<Vec<_>>();
+            self.do_clear_rects_render_pass(
+                ClearTarget::Layer(texture_index),
+                &clear_rects,
+                "Clear Layer Regions",
+            );
         }
+    }
+
+    fn do_clear_rects_render_pass(
+        &mut self,
+        target: ClearTarget,
+        rects: &[GpuClearRect],
+        label: &'static str,
+    ) {
+        if rects.is_empty() {
+            return;
+        }
+
+        let size = size_of_val(rects) as u64;
+        {
+            let resources = &mut self.programs.resources;
+            // Each recorded render pass needs stable vertex contents until command submission.
+            resources.clear_rects_buffer = Programs::create_clear_rects_buffer(self.device, size);
+            let mut buffer = self
+                .queue
+                .write_buffer_with(&resources.clear_rects_buffer, 0, size.try_into().unwrap())
+                .expect("Capacity handled in creation");
+            buffer.copy_from_slice(bytemuck::cast_slice(rects));
+        }
+
+        let resources = &self.programs.resources;
+        let view = match target {
+            ClearTarget::BlendScratch => &resources.blend_scratch_texture_view,
+            ClearTarget::Layer(texture_index) => &resources.layer_texture_views[texture_index],
+            ClearTarget::Slot(texture_index) => &resources.slot_texture_views[texture_index],
+        };
+        let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some(label),
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+            multiview_mask: None,
+        });
+        render_pass.set_pipeline(&self.programs.clear_pipeline);
+        render_pass.set_bind_group(0, &resources.clear_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, resources.clear_rects_buffer.slice(..));
+        render_pass.draw(0..4, 0..u32::try_from(rects.len()).unwrap());
     }
 }
 
@@ -3539,6 +3558,21 @@ fn gpu_blend_instance(blend: BlendOp, target_size: (u32, u32)) -> GpuBlendInstan
             u32::from(blend.source.scene_bbox.height()),
         ],
         _padding: 0,
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ClearTarget {
+    BlendScratch,
+    Layer(usize),
+    Slot(usize),
+}
+
+fn gpu_clear_rect(x: u32, y: u32, width: u32, height: u32, target_size: [u32; 2]) -> GpuClearRect {
+    GpuClearRect {
+        origin: [x, y],
+        size: [width, height],
+        target_size,
     }
 }
 

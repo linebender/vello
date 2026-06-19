@@ -145,7 +145,8 @@ fn print_schedule_debug_stats(scene: &Scene, schedule: &Schedule) {
         .iter()
         .map(|round| round.blends.len())
         .sum::<usize>();
-    let total_clears = schedule
+    let total_clear_passes = schedule.rounds.iter().map(clear_pass_count).sum::<usize>();
+    let total_clear_rects = schedule
         .rounds
         .iter()
         .map(|round| round.clear_layer_regions.len())
@@ -153,12 +154,13 @@ fn print_schedule_debug_stats(scene: &Scene, schedule: &Schedule) {
 
     eprintln!("vello_hybrid schedule debug begin");
     eprintln!(
-        "vello_hybrid schedule summary: rounds={} non_empty_rounds={} passes={} blends={} clears={} scene={}x{} layers={} root_cmds={} root_child_layers={} root_is_blend_target={} layer_texture={}x{} allocation_attempts={} allocation_retries={} allocation_retry_events={}",
+        "vello_hybrid schedule summary: rounds={} non_empty_rounds={} passes={} blends={} clear_passes={} clear_rects={} scene={}x{} layers={} root_cmds={} root_child_layers={} root_is_blend_target={} layer_texture={}x{} allocation_attempts={} allocation_retries={} allocation_retry_events={}",
         schedule.rounds.len(),
         non_empty_rounds,
         total_passes,
         total_blends,
-        total_clears,
+        total_clear_passes,
+        total_clear_rects,
         scene.width,
         scene.height,
         schedule.debug.layer_count,
@@ -249,6 +251,7 @@ fn print_schedule_debug_stats(scene: &Scene, schedule: &Schedule) {
                     u64::from(region.width) * u64::from(region.height);
             }
         }
+        let clear_passes = clear_regions.iter().filter(|regions| **regions > 0).count();
 
         let mut blend_targets = [0usize; 2];
         for blend in &round.blends {
@@ -258,7 +261,7 @@ fn print_schedule_debug_stats(scene: &Scene, schedule: &Schedule) {
         }
 
         eprintln!(
-            "vello_hybrid schedule round: idx={} passes={} root_passes={} layer0_passes={} layer1_passes={} opaque_strips={} alpha_strips={} external_texture_runs={} blends={} blend_to_layer0={} blend_to_layer1={} clears={} clear_layer0={} clear_layer1={} clear_area_layer0={} clear_area_layer1={}",
+            "vello_hybrid schedule round: idx={} passes={} root_passes={} layer0_passes={} layer1_passes={} opaque_strips={} alpha_strips={} external_texture_runs={} blends={} blend_to_layer0={} blend_to_layer1={} clear_passes={} clear_rects={} clear_rects_layer0={} clear_rects_layer1={} clear_area_layer0={} clear_area_layer1={}",
             round_idx,
             round.passes.len(),
             root_passes,
@@ -270,6 +273,7 @@ fn print_schedule_debug_stats(scene: &Scene, schedule: &Schedule) {
             round.blends.len(),
             blend_targets[0],
             blend_targets[1],
+            clear_passes,
             round.clear_layer_regions.len(),
             clear_regions[0],
             clear_regions[1],
@@ -279,6 +283,20 @@ fn print_schedule_debug_stats(scene: &Scene, schedule: &Schedule) {
     }
 
     eprintln!("vello_hybrid schedule debug end");
+}
+
+fn clear_pass_count(round: &round::Round) -> usize {
+    let mut has_clear_regions = [false; 2];
+    for region in &round.clear_layer_regions {
+        if region.texture_index < has_clear_regions.len() && region.width > 0 && region.height > 0 {
+            has_clear_regions[region.texture_index] = true;
+        }
+    }
+
+    has_clear_regions
+        .iter()
+        .filter(|has_clear_regions| **has_clear_regions)
+        .count()
 }
 
 fn execute_schedule<R: RendererBackend>(renderer: &mut R, schedule: &Schedule) {
