@@ -371,7 +371,7 @@ fn image_opaque_with_mask(ctx: &mut impl Renderer) {
     ctx.fill_rect(&rect);
 }
 
-#[vello_test(skip_hybrid)]
+#[vello_test]
 fn image_opaque_with_blend_mode(ctx: &mut impl Renderer) {
     let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
     let image = Image {

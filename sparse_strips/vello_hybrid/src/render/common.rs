@@ -8,8 +8,16 @@
     reason = "GPU paint structures have small, fixed sizes that fit in u32"
 )]
 
+use crate::blend::GpuBlendInstance;
+use crate::copy::GpuCopyInstance;
+use crate::filter::FILTER_ATLAS_PADDING;
+use crate::scene::{LayersConfig, MemorySettings, RecordedDraw, TextureAllocationStrategy};
+use crate::target::IntermediateTextureSizes;
+use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
-use vello_common::multi_atlas::AtlasConfig;
+use vello_common::geometry::{SizeU16, SizeU32};
+use vello_common::multi_atlas::AtlasError;
+use vello_common::record::CommandRecorder;
 
 // GPU paint structure sizes in texels (1 texel = 16 bytes for RGBA32Uint texture format).
 pub(crate) const GPU_ENCODED_IMAGE_SIZE_TEXELS: u32 = (size_of::<GpuEncodedImage>() / 16) as u32;
@@ -25,59 +33,282 @@ pub(crate) const GPU_BLURRED_ROUNDED_RECT_SIZE_TEXELS: u32 =
 // we can pass 1 instead of 0 here.
 pub(crate) const IMAGE_PADDING: u16 = 0;
 
-pub(crate) fn normalize_atlas_config(
-    config: &mut AtlasConfig,
-    max_texture_dimension_2d: u32,
-    max_texture_array_layers: u32,
-    min_initial_atlas_count: usize,
-) {
-    config.atlas_size.0 = config.atlas_size.0.clamp(1, max_texture_dimension_2d);
-    config.atlas_size.1 = config.atlas_size.1.clamp(1, max_texture_dimension_2d);
+/// Texture limits reported by the rendering device.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DeviceLimits {
+    pub(crate) max_texture_dimension_2d: u32,
+    pub(crate) max_texture_array_layers: u32,
+}
 
-    let supported_max_atlases = (max_texture_array_layers as usize).max(min_initial_atlas_count);
-    config.max_atlases = config
-        .max_atlases
-        .clamp(min_initial_atlas_count, supported_max_atlases);
-    config.initial_atlas_count = config
-        .initial_atlas_count
-        .clamp(min_initial_atlas_count, config.max_atlases);
+/// Scratch allocations reused while rendering a frame.
+#[derive(Debug, Default)]
+pub(crate) struct ScratchBuffers {
+    #[cfg(feature = "wgpu")]
+    pub(crate) clear_instances: Vec<GpuClearInstance>,
+    pub(crate) blend_instances: Vec<GpuBlendInstance>,
+    pub(crate) copy_instances: Vec<GpuCopyInstance>,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub(crate) struct GpuClearInstance {
+    pub(crate) origin: [u32; 2],
+    pub(crate) size: [u32; 2],
+    pub(crate) target_size: [u32; 2],
+}
+
+impl MemorySettings {
+    pub(crate) fn normalize(
+        &mut self,
+        device_limits: &DeviceLimits,
+        min_initial_atlas_count: usize,
+    ) {
+        let Self {
+            image_atlas_config,
+            layers_config,
+        } = self;
+
+        image_atlas_config.atlas_size = SizeU32::from(image_atlas_config.atlas_size)
+            .clamp(1, device_limits.max_texture_dimension_2d)
+            .into();
+
+        let supported_max_atlases = device_limits.max_texture_array_layers as usize;
+        let min_initial_atlas_count = min_initial_atlas_count.min(supported_max_atlases);
+        image_atlas_config.max_atlases = image_atlas_config
+            .max_atlases
+            .clamp(min_initial_atlas_count, supported_max_atlases);
+        image_atlas_config.initial_atlas_count = image_atlas_config
+            .initial_atlas_count
+            .clamp(min_initial_atlas_count, image_atlas_config.max_atlases);
+
+        let max_intermediate_texture_dimension =
+            u16::try_from(device_limits.max_texture_dimension_2d).unwrap();
+
+        layers_config.min_texture_size = layers_config
+            .min_texture_size
+            .clamp(1, max_intermediate_texture_dimension)
+            // In case the user erroneously provided a smaller max size than min size.
+            .min(layers_config.max_texture_size);
+        layers_config.max_texture_size = layers_config
+            .max_texture_size
+            .clamp(1, max_intermediate_texture_dimension);
+    }
+}
+
+impl LayersConfig {
+    pub(crate) fn initial_intermediate_texture_sizes(self) -> IntermediateTextureSizes {
+        match self.grow_strategy {
+            TextureAllocationStrategy::Eager => {
+                IntermediateTextureSizes::uniform(self.max_texture_size)
+            }
+            TextureAllocationStrategy::Conservative => {
+                IntermediateTextureSizes::uniform(self.min_texture_size)
+            }
+        }
+    }
+
+    pub(crate) fn intermediate_texture_requirements(
+        self,
+        recorder: &CommandRecorder<RecordedDraw>,
+    ) -> Result<IntermediateTextureSizes, AtlasError> {
+        let min_size = self.min_texture_size;
+        let max_size = self.max_texture_size;
+
+        let checked_size = |size: SizeU32| {
+            if size.width() > u32::from(max_size.width())
+                || size.height() > u32::from(max_size.height())
+            {
+                return Err(AtlasError::TextureTooLarge {
+                    width: size.width(),
+                    height: size.height(),
+                });
+            }
+
+            Ok(SizeU16::try_from(size).unwrap())
+        };
+
+        let filter_padding = u32::from(FILTER_ATLAS_PADDING) * 2;
+        let filter_size = recorder
+            .largest_filter_layer_size
+            .map_or(SizeU32::ZERO, |size| SizeU32::from(size) + filter_padding);
+
+        let mut layer_size = recorder
+            .largest_layer_size
+            .map_or(SizeU32::ZERO, SizeU32::from)
+            .max(filter_size);
+
+        // If we are blending into the root we will render the whole root into an
+        // layer texture. Since we don't track the bbox of root draw commands, we need
+        // to reserve space for the full size of the scene.
+        if recorder.root_is_blend_target {
+            layer_size = layer_size.max(SizeU32::from(recorder.scene_size));
+        }
+
+        let layer_size = checked_size(layer_size)?;
+        let filter_scratch_size = checked_size(filter_size)?;
+
+        // Always allocate at the maximum allowed by the user for `Eager`.
+        if self.grow_strategy == TextureAllocationStrategy::Eager {
+            return Ok(self.initial_intermediate_texture_sizes());
+        }
+
+        let layer_size = layer_size.max(min_size);
+        let filter_scratch_size = filter_scratch_size.max(min_size);
+        let blend_scratch_size = if recorder.has_non_default_blend {
+            layer_size
+        } else {
+            min_size
+        };
+
+        Ok(IntermediateTextureSizes::new(
+            [layer_size; 2],
+            [
+                filter_scratch_size.max(blend_scratch_size),
+                filter_scratch_size,
+            ],
+        ))
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_atlas_config;
-    use vello_common::multi_atlas::AtlasConfig;
+    use super::DeviceLimits;
+    use crate::scene::RecordedDraw;
+    use crate::{LayersConfig, MemorySettings, SizeU16, TextureAllocationStrategy};
+    use vello_common::multi_atlas::{AtlasConfig, AtlasError};
+    use vello_common::record::CommandRecorder;
+
+    fn device_limits(max_texture_dimension_2d: u32, max_texture_array_layers: u32) -> DeviceLimits {
+        DeviceLimits {
+            max_texture_dimension_2d,
+            max_texture_array_layers,
+        }
+    }
 
     #[test]
-    fn normalize_atlas_config_clamps_to_backend_limits() {
-        let mut config = AtlasConfig {
-            initial_atlas_count: 8,
-            max_atlases: 16,
-            atlas_size: (8192, 2048),
+    fn normalize_memory_settings_clamps_atlas_config_to_backend_limits() {
+        let mut settings = MemorySettings {
+            image_atlas_config: AtlasConfig {
+                initial_atlas_count: 8,
+                max_atlases: 16,
+                atlas_size: (8192, 2048),
+                ..Default::default()
+            },
             ..Default::default()
         };
 
-        normalize_atlas_config(&mut config, 4096, 4, 1);
+        settings.normalize(&device_limits(4096, 4), 1);
 
+        let config = settings.image_atlas_config;
         assert_eq!(config.initial_atlas_count, 4);
         assert_eq!(config.max_atlases, 4);
         assert_eq!(config.atlas_size, (4096, 2048));
     }
 
     #[test]
-    fn normalize_atlas_config_enforces_minimum_initial_count() {
-        let mut config = AtlasConfig {
-            initial_atlas_count: 0,
-            max_atlases: 1,
-            atlas_size: (0, 0),
+    fn normalize_memory_settings_enforces_minimum_initial_atlas_count() {
+        let mut settings = MemorySettings {
+            image_atlas_config: AtlasConfig {
+                initial_atlas_count: 0,
+                max_atlases: 1,
+                atlas_size: (0, 0),
+                ..Default::default()
+            },
             ..Default::default()
         };
 
-        normalize_atlas_config(&mut config, 4096, 8, 2);
+        settings.normalize(&device_limits(4096, 8), 2);
 
+        let config = settings.image_atlas_config;
         assert_eq!(config.initial_atlas_count, 2);
         assert_eq!(config.max_atlases, 2);
         assert_eq!(config.atlas_size, (1, 1));
+    }
+
+    #[test]
+    fn normalize_memory_settings_caps_minimum_atlas_count_to_backend_limit() {
+        let mut settings = MemorySettings {
+            image_atlas_config: AtlasConfig {
+                initial_atlas_count: 8,
+                max_atlases: 8,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        settings.normalize(&device_limits(4096, 1), 2);
+
+        assert_eq!(settings.image_atlas_config.initial_atlas_count, 1);
+        assert_eq!(settings.image_atlas_config.max_atlases, 1);
+    }
+
+    #[test]
+    fn normalize_memory_settings_clamps_minimum_to_maximum() {
+        let mut settings = MemorySettings {
+            layers_config: LayersConfig {
+                min_texture_size: SizeU16::from_wh(1024, 512),
+                max_texture_size: SizeU16::from_wh(512, 4096),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        settings.normalize(&device_limits(8192, 256), 1);
+
+        assert_eq!(
+            settings.layers_config.min_texture_size,
+            SizeU16::from_wh(512, 512)
+        );
+        assert_eq!(
+            settings.layers_config.max_texture_size,
+            SizeU16::from_wh(512, 4096)
+        );
+    }
+
+    #[test]
+    fn normalize_memory_settings_clamps_layer_sizes_to_backend_limit() {
+        let mut settings = MemorySettings {
+            layers_config: LayersConfig {
+                min_texture_size: SizeU16::from_wh(1024, 512),
+                max_texture_size: SizeU16::from_wh(2048, 4096),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        settings.normalize(&device_limits(768, 256), 1);
+
+        assert_eq!(
+            settings.layers_config.min_texture_size,
+            SizeU16::from_wh(768, 512)
+        );
+        assert_eq!(settings.layers_config.max_texture_size, SizeU16::new(768));
+    }
+
+    #[test]
+    fn intermediate_texture_requirements_reject_oversized_layers() {
+        let mut recorder = CommandRecorder::<RecordedDraw>::new(10, 10);
+        recorder.largest_layer_size = Some(SizeU16::from_wh(513, 10));
+
+        for grow_strategy in [
+            TextureAllocationStrategy::Eager,
+            TextureAllocationStrategy::Conservative,
+        ] {
+            let config = LayersConfig {
+                min_texture_size: SizeU16::new(1),
+                max_texture_size: SizeU16::new(512),
+                grow_strategy,
+                ..Default::default()
+            };
+
+            assert!(matches!(
+                config.intermediate_texture_requirements(&recorder),
+                Err(AtlasError::TextureTooLarge {
+                    width: 513,
+                    height: 10
+                })
+            ));
+        }
     }
 }
 
@@ -134,23 +365,23 @@ pub struct Config {
 /// A GPU strip instance for rendering.
 ///
 /// This struct corresponds to the `StripInstance` struct in the shader.
-/// See the `StripInstance` documentation in `render_strips.wgsl` for detailed field descriptions.
+/// See the `StripInstance` documentation in `render.wgsl` for detailed field descriptions.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 pub struct GpuStrip {
-    /// See `StripInstance::xy` documentation in `render_strips.wgsl`.
+    /// See `StripInstance::xy` documentation in `render.wgsl`.
     pub x: u16,
-    /// See `StripInstance::xy` documentation in `render_strips.wgsl`.
+    /// See `StripInstance::xy` documentation in `render.wgsl`.
     pub y: u16,
-    /// See `StripInstance::dense_width_or_rect_height` documentation in `render_strips.wgsl`.
+    /// See `StripInstance::dense_width_or_rect_height` documentation in `render.wgsl`.
     pub width: u16,
-    /// See `StripInstance::dense_width_or_rect_height` documentation in `render_strips.wgsl`.
+    /// See `StripInstance::dense_width_or_rect_height` documentation in `render.wgsl`.
     pub dense_width_or_rect_height: u16,
-    /// See `StripInstance::col_idx_or_rect_frac` documentation in `render_strips.wgsl`.
+    /// See `StripInstance::col_idx_or_rect_frac` documentation in `render.wgsl`.
     pub col_idx_or_rect_frac: u32,
-    /// See `StripInstance::payload` documentation in `render_strips.wgsl`.
+    /// See `StripInstance::payload` documentation in `render.wgsl`.
     pub payload: u32,
-    /// See `StripInstance::paint_and_rect_flag` documentation in `render_strips.wgsl`.
+    /// See `StripInstance::paint_and_rect_flag` documentation in `render.wgsl`.
     pub paint_and_rect_flag: u32,
     /// Painter's-order index used to compute z-depth for early-z rejection in shader.
     /// In other words, the back-most draw has index 0 and every additional draw in front

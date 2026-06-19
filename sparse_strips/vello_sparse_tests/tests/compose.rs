@@ -37,6 +37,30 @@ fn compose_clear(ctx: &mut impl Renderer) {
     compose(ctx, Compose::Clear);
 }
 
+#[vello_test(width = 100, height = 100)]
+fn compose_clear_empty_layer(ctx: &mut impl Renderer) {
+    ctx.push_layer(None, None, None, None, None);
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
+
+    ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::Clear));
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
+#[vello_test(width = 100, height = 100)]
+fn compose_clear_empty_nested_layer(ctx: &mut impl Renderer) {
+    ctx.push_layer(None, None, None, None, None);
+    ctx.set_paint(BLUE);
+    ctx.fill_rect(&Rect::new(10.0, 10.0, 90.0, 90.0));
+
+    ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::Clear));
+    ctx.push_blend_layer(BlendMode::new(Mix::Normal, Compose::Clear));
+    ctx.pop_layer();
+    ctx.pop_layer();
+    ctx.pop_layer();
+}
+
 #[vello_test]
 fn compose_copy(ctx: &mut impl Renderer) {
     compose(ctx, Compose::Copy);

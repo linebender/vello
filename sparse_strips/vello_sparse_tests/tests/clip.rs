@@ -591,7 +591,7 @@ fn clip_with_sweep_gradient_fill(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(width = 300, height = 30, skip_hybrid)]
+#[vello_test(width = 300, height = 30)]
 fn clip_layer_encloses_viewport_via_left_cull(ctx: &mut impl Renderer) {
     let clip = Rect::new(-100.0, -100.0, 400.0, 130.0).to_path(0.1);
 

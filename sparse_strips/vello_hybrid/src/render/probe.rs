@@ -7,7 +7,7 @@ use crate::render::webgl::{
     WebGlStateConfig, WebGlStateGuard, create_atlas_texture_array, create_framebuffer_for_texture,
     create_texture,
 };
-use crate::schedule::RootRenderTarget;
+use crate::target::RootRenderTarget;
 use crate::{RenderError, RenderSize, Scene, WebGlRenderer};
 use alloc::sync::Arc;
 use core::ops::Deref;

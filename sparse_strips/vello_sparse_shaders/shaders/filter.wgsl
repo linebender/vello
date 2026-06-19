@@ -7,9 +7,9 @@
 @group(1) @binding(0) var in_tex: texture_2d<f32>;
 // A bilinear sampler.
 @group(1) @binding(1) var linear_sampler: sampler;
-// The texture containing the original (unfiltered) content. This is only needed because
+// Layer atlas texture containing original (unfiltered) layer content. This is only needed because
 // for the drop shadow filter, we need to composite the original content on top of the shadow.
-@group(2) @binding(0) var original_tex: texture_2d<f32>;
+@group(2) @binding(0) var original_texture: texture_2d<f32>;
 
 // Keep these variables and layouts in sync with the ones in `filter.rs`!
 
@@ -94,15 +94,15 @@ fn get_drop_shadow_dy(texel2: vec4<u32>) -> f32 { return bitcast<f32>(texel2.y);
 fn get_drop_shadow_color(texel2: vec4<u32>) -> u32 { return texel2.z; }
 
 struct FilterInstanceData {
-    @location(0) src_offset: vec2<u32>,
-    @location(1) src_size: vec2<u32>,
-    @location(2) dest_offset: vec2<u32>,
-    @location(3) dest_size: vec2<u32>,
+    @location(0) src_min: vec2<u32>,
+    @location(1) src_max: vec2<u32>,
+    @location(2) dest_min: vec2<u32>,
+    @location(3) dest_max: vec2<u32>,
     @location(4) dest_atlas_size: vec2<u32>,
     @location(5) filter_offset: u32,
-    @location(6) original_offset: vec2<u32>,
-    @location(7) original_size: vec2<u32>,
-    @location(8) pass_kind: u32,
+    @location(6) original_min: vec2<u32>,
+    @location(7) original_max: vec2<u32>,
+    @location(8) other_data: u32,
 }
 
 struct FilterVertexOutput {
@@ -115,7 +115,7 @@ struct FilterVertexOutput {
     @location(5) @interpolate(flat) dest_atlas_size: vec2<u32>,
     @location(6) @interpolate(flat) original_offset: vec2<u32>,
     @location(7) @interpolate(flat) original_size: vec2<u32>,
-    @location(8) @interpolate(flat) pass_kind: u32,
+    @location(8) @interpolate(flat) other_data: u32,
 }
 
 @vertex
@@ -126,6 +126,9 @@ fn vs_main(
     let quad_vertex = vertex_index % 4u;
     let x = f32((quad_vertex & 1u));
     let y = f32((quad_vertex >> 1u));
+    let src_size = instance.src_max - instance.src_min;
+    let dest_size = instance.dest_max - instance.dest_min;
+    let original_size = instance.original_max - instance.original_min;
 
     // Note: We are using `original_size` instead of `dest_size` on purpose here. When allocating the regions
     // in the atlas, we always allocate the same size as is used by the original texture. However, `dest_size`
@@ -135,8 +138,8 @@ fn vs_main(
     // because some filters assume that the border pixels are transparent. In the fragment shader, we have a shortcut
     // to check whether the pixel lies outside of the destination region, in which case we just return a transparent
     // pixel instead of doing actual computational work.
-    let pix_x = f32(instance.dest_offset.x) + x * f32(instance.original_size.x);
-    let pix_y = f32(instance.dest_offset.y) + y * f32(instance.original_size.y);
+    let pix_x = f32(instance.dest_min.x) + x * f32(original_size.x);
+    let pix_y = f32(instance.dest_min.y) + y * f32(original_size.y);
 
     let atlas_size = vec2<f32>(instance.dest_atlas_size);
     let ndc_x = pix_x * 2.0 / atlas_size.x - 1.0;
@@ -145,14 +148,14 @@ fn vs_main(
     var out: FilterVertexOutput;
     out.position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
     out.filter_offset = instance.filter_offset;
-    out.src_offset = instance.src_offset;
-    out.src_size = instance.src_size;
-    out.dest_offset = instance.dest_offset;
-    out.dest_size = instance.dest_size;
+    out.src_offset = instance.src_min;
+    out.src_size = src_size;
+    out.dest_offset = instance.dest_min;
+    out.dest_size = dest_size;
     out.dest_atlas_size = instance.dest_atlas_size;
-    out.original_offset = instance.original_offset;
-    out.original_size = instance.original_size;
-    out.pass_kind = instance.pass_kind;
+    out.original_offset = instance.original_min;
+    out.original_size = original_size;
+    out.other_data = instance.other_data;
     return out;
 }
 
@@ -161,7 +164,7 @@ fn vs_main(
 // that is to be sampled.
 fn sample_original(original_offset: vec2<u32>, rel_coord: vec2<f32>) -> vec4<f32> {
     let src_coord = vec2<u32>(vec2<i32>(original_offset) + vec2<i32>(rel_coord));
-    return textureLoad(original_tex, src_coord, 0);
+    return textureLoad(original_texture, src_coord, 0);
 }
 
 // Sample a pixel from the input texture.
@@ -312,18 +315,19 @@ fn fs_main(
     @location(5) @interpolate(flat) dest_atlas_size: vec2<u32>,
     @location(6) @interpolate(flat) original_offset: vec2<u32>,
     @location(7) @interpolate(flat) original_size: vec2<u32>,
-    @location(8) @interpolate(flat) pass_kind: u32,
+    @location(8) @interpolate(flat) other_data: u32,
     @builtin(position) position: vec4<f32>,
 ) -> @location(0) vec4<f32> {
     let frag_coord = vec2<u32>(position.xy);
     let rel_coord = vec2<f32>(frag_coord - dest_offset);
+    let filter_pass_kind = other_data;
 
     // See the comment in `vs_main`.
     if rel_coord.x >= f32(dest_size.x) || rel_coord.y >= f32(dest_size.y) {
         return vec4<f32>(0.0);
     }
 
-    switch pass_kind {
+    switch filter_pass_kind {
         case PASS_COPY: {
             return sample_input(src_offset, rel_coord);
         }

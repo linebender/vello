@@ -292,15 +292,21 @@ impl<D> CommandRecorder<D> {
             let recorded_layer = &mut self.layers[id as usize];
             match &mut recorded_layer.kind {
                 RecordedLayerKind::Regular => {
-                    recorded_layer.bbox = layer.bbox;
+                    let mut bbox = layer.bbox;
 
-                    let layer_size = layer.bbox.into();
+                    if let Some(clip_path) = &recorded_layer.props.clip_path {
+                        bbox = bbox.intersect(clip_path.bbox).snap_to_tile_coordinates();
+                    }
+
+                    recorded_layer.bbox = bbox;
+
+                    let layer_size = bbox.into();
                     self.largest_layer_size = Some(
                         self.largest_layer_size
                             .map_or(layer_size, |current| current.max(layer_size)),
                     );
 
-                    (PoppedLayer::Regular, layer.bbox)
+                    (PoppedLayer::Regular, bbox)
                 }
                 RecordedLayerKind::Filter {
                     filter_data: filter_plan,

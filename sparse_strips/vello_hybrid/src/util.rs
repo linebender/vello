@@ -5,8 +5,9 @@
 
 //! Simple helpers for managing wgpu state and surfaces.
 
-use bytemuck::{Pod, Zeroable};
-use core::ops::RangeInclusive;
+use alloc::vec::Vec;
+use core::ops::{Range, RangeInclusive};
+use vello_common::util::Clear;
 
 /// Represents dimension constraints for surfaces
 #[derive(Debug)]
@@ -95,39 +96,100 @@ impl Default for DimensionConstraints {
     }
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
-pub(crate) struct IntOffset(pub [u32; 2]);
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
-pub(crate) struct IntSize(pub [u32; 2]);
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
-pub(crate) struct IntRect {
-    pub offset: IntOffset,
-    pub size: IntSize,
+pub(crate) fn pack_u16_pair(x: u16, y: u16) -> u32 {
+    u32::from(x) | (u32::from(y) << 16)
 }
 
-impl IntRect {
-    pub(crate) fn new(offset: impl Into<IntOffset>, size: impl Into<IntSize>) -> Self {
-        Self {
-            offset: offset.into(),
-            size: size.into(),
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "opacity is clamped to the normalized u8 range before packing"
+)]
+pub(crate) fn pack_opacity(opacity: f32) -> u8 {
+    (opacity.clamp(0.0, 1.0) * 255.0).round() as u8
+}
+
+#[derive(Debug, Default, Clone)]
+pub(crate) struct Ranges {
+    ranges: Vec<Range<usize>>,
+    len: usize,
+}
+
+impl Ranges {
+    fn push(&mut self, range: Range<usize>) {
+        self.len += range.len();
+        if let Some(last) = self.ranges.last_mut()
+            && last.end == range.start
+        {
+            last.end = range.end;
+        } else {
+            self.ranges.push(range);
         }
     }
-}
 
-impl From<[u32; 2]> for IntOffset {
-    fn from(v: [u32; 2]) -> Self {
-        Self(v)
+    pub(crate) fn len(&self) -> usize {
+        self.len
     }
 }
 
-impl From<[u32; 2]> for IntSize {
-    fn from(v: [u32; 2]) -> Self {
-        Self(v)
+impl Clear for Ranges {
+    fn clear(&mut self) {
+        self.ranges.clear();
+        self.len = 0;
+    }
+}
+
+pub(crate) trait VecExt<T> {
+    fn push_ranged(&mut self, ranges: &mut Ranges, value: T);
+
+    fn ranged<'a>(&'a self, ranges: &'a Ranges) -> RangedSlice<'a, T>;
+}
+
+impl<T> VecExt<T> for Vec<T> {
+    fn push_ranged(&mut self, ranges: &mut Ranges, value: T) {
+        self.push(value);
+        let end = self.len();
+        ranges.push(end - 1..end);
+    }
+
+    fn ranged<'a>(&'a self, ranges: &'a Ranges) -> RangedSlice<'a, T> {
+        RangedSlice::new(self, ranges)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RangedSlice<'a, T> {
+    buffer: &'a [T],
+    ranges: &'a [Range<usize>],
+    len: usize,
+}
+
+impl<'a, T> RangedSlice<'a, T> {
+    pub(crate) const fn empty() -> Self {
+        Self {
+            buffer: &[],
+            ranges: &[],
+            len: 0,
+        }
+    }
+
+    fn new(buffer: &'a [T], ranges: &'a Ranges) -> Self {
+        Self {
+            buffer,
+            ranges: &ranges.ranges,
+            len: ranges.len,
+        }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.len
+    }
+
+    pub(crate) fn slices(&self) -> impl Iterator<Item = &'a [T]> + '_ {
+        self.ranges.iter().map(|range| &self.buffer[range.clone()])
+    }
+
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &'a T> + '_ {
+        self.slices().flatten()
     }
 }
 
