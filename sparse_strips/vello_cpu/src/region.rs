@@ -160,11 +160,59 @@ impl<'a> Regions<'a> {
         self.regions.iter_mut().for_each(func);
     }
 
+    /// Like `update`, but polls `cancel` before each strip-row region and stops
+    /// early — leaving the remaining regions unrendered — if it returns `true`.
+    /// Returns `true` if every region was rendered.
+    ///
+    /// Each region is one strip row (`Tile::HEIGHT` scanlines), so this bounds
+    /// cancellation latency to roughly one strip row's rasterization.
+    pub(crate) fn update_cancellable(
+        &mut self,
+        cancel: &(dyn Fn() -> bool + Sync),
+        mut func: impl FnMut(&mut Region<'_>),
+    ) -> bool {
+        for region in self.regions.iter_mut() {
+            if cancel() {
+                return false;
+            }
+            func(region);
+        }
+        true
+    }
+
     #[cfg(feature = "multithreading")]
     pub(crate) fn update_par(&mut self, func: impl Fn(&mut Region<'_>) + Send + Sync) {
         use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
         self.regions.par_iter_mut().for_each(func);
+    }
+
+    /// Like `update_par`, but polls `cancel` once per region from the worker
+    /// threads. The first region to observe a stop flips a shared flag; every
+    /// other region checks it and skips its work, so cancellation latency is
+    /// bounded by the regions already executing (one per worker thread).
+    /// Returns `true` if every region was rendered.
+    #[cfg(feature = "multithreading")]
+    pub(crate) fn update_par_cancellable(
+        &mut self,
+        cancel: &(dyn Fn() -> bool + Sync),
+        func: impl Fn(&mut Region<'_>) + Send + Sync,
+    ) -> bool {
+        use core::sync::atomic::{AtomicBool, Ordering};
+        use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+
+        let cancelled = AtomicBool::new(false);
+        self.regions.par_iter_mut().for_each(|region| {
+            if cancelled.load(Ordering::Relaxed) {
+                return;
+            }
+            if cancel() {
+                cancelled.store(true, Ordering::Relaxed);
+                return;
+            }
+            func(region);
+        });
+        !cancelled.load(Ordering::Relaxed)
     }
 }
 

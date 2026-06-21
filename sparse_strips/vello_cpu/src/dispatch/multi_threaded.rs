@@ -12,7 +12,7 @@ use crate::fine::{Fine, FineKernel, FineRenderParams, FineResources, rasterize_r
 use crate::kurbo::{Affine, BezPath, PathEl, Point, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
 use crate::record::{CommandRecorder, FilterData, LayerProps, PoppedLayer};
-use crate::region::Regions;
+use crate::region::{Region, Regions};
 use crate::{CompositeMode, RasterizerSettings};
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -174,9 +174,10 @@ impl MultiThreadedDispatcher {
         settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
+        cancel: Option<&(dyn Fn() -> bool + Sync)>,
     ) {
         use crate::fine::F32Kernel;
-        dispatch!(self.level, simd => self.rasterize_with::<_, F32Kernel>(simd, target, scene_width, scene_height, settings, encoded_paints, image_resolver));
+        dispatch!(self.level, simd => self.rasterize_with::<_, F32Kernel>(simd, target, scene_width, scene_height, settings, encoded_paints, image_resolver, cancel));
     }
 
     #[cfg(feature = "u8_pipeline")]
@@ -188,9 +189,10 @@ impl MultiThreadedDispatcher {
         settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
+        cancel: Option<&(dyn Fn() -> bool + Sync)>,
     ) {
         use crate::fine::U8Kernel;
-        dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, target, scene_width, scene_height, settings, encoded_paints, image_resolver));
+        dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, target, scene_width, scene_height, settings, encoded_paints, image_resolver, cancel));
     }
 
     fn init(&mut self) {
@@ -394,6 +396,7 @@ impl MultiThreadedDispatcher {
         settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
+        cancel: Option<&(dyn Fn() -> bool + Sync)>,
     ) {
         let mut bucketer = self.bucketer.lock().unwrap();
         let filters = FilterContext::new(0);
@@ -429,7 +432,7 @@ impl MultiThreadedDispatcher {
             );
             let fines = ThreadLocal::new();
             self.thread_pool.install(|| {
-                regions.update_par(|region| {
+                let render_region = |region: &mut Region<'_>| {
                     let mut fine = fines
                         .get_or(|| {
                             RefCell::new((
@@ -448,7 +451,15 @@ impl MultiThreadedDispatcher {
                         resources,
                         use_src_over,
                     );
-                });
+                };
+                // Per-region cancellation when a stop is set; otherwise the
+                // original zero-overhead parallel path.
+                match cancel {
+                    Some(cancel) => {
+                        regions.update_par_cancellable(cancel, render_region);
+                    }
+                    None => regions.update_par(render_region),
+                }
             });
         }
 
@@ -646,6 +657,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
+        cancel: Option<&(dyn Fn() -> bool + Sync)>,
     ) {
         assert!(self.flushed, "attempted to rasterize before flushing");
 
@@ -659,6 +671,7 @@ impl Dispatcher for MultiThreadedDispatcher {
                 settings,
                 encoded_paints,
                 image_resolver,
+                cancel,
             );
         }
         // Only f32 pipeline enabled
@@ -671,6 +684,7 @@ impl Dispatcher for MultiThreadedDispatcher {
                 settings,
                 encoded_paints,
                 image_resolver,
+                cancel,
             );
         }
 
@@ -685,6 +699,7 @@ impl Dispatcher for MultiThreadedDispatcher {
                     settings,
                     encoded_paints,
                     image_resolver,
+                    cancel,
                 );
             }
             crate::RenderMode::OptimizeQuality => {
@@ -695,6 +710,7 @@ impl Dispatcher for MultiThreadedDispatcher {
                     settings,
                     encoded_paints,
                     image_resolver,
+                    cancel,
                 );
             }
         }
