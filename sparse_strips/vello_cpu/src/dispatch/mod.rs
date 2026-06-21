@@ -75,6 +75,11 @@ pub(crate) trait Dispatcher: Debug + Send {
         settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
+        // Polled between strip rows (and per region on the multi-threaded
+        // dispatcher); when it returns `true`, rasterization stops early and the
+        // target is left partially rendered. `Sync` because the multi-threaded
+        // dispatcher polls it from worker threads.
+        cancel: Option<&(dyn Fn() -> bool + Sync)>,
     );
     fn is_multi_threaded(&self) -> bool;
 }
