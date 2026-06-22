@@ -125,12 +125,7 @@ fn render_impl<S: Simd>(s: S, rect: Rect, strip_buf: &mut Vec<Strip>, alpha_buf:
 
     // Sentinel strip: marks the end of the strip list for this shape.
     let last_strip_y = ((tile_end_y - 1) * u32::from(Tile::HEIGHT)) as u16;
-    strip_buf.push(Strip::new(
-        u16::MAX,
-        last_strip_y,
-        alpha_buf.len() as u32,
-        false,
-    ));
+    strip_buf.push(Strip::sentinel(last_strip_y, alpha_buf.len() as u32));
 }
 
 /// Compute fractional pixel coverage for `N` consecutive pixels starting at `start`.
