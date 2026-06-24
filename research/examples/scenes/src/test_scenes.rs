@@ -1998,6 +1998,7 @@ mod impls {
             palette::css::BLUE,
             radius,
             params.time.sin() * 50.0 + 50.0,
+            false,
         );
 
         // Skewed affine transformation.
@@ -2007,6 +2008,7 @@ mod impls {
             palette::css::BLACK,
             radius,
             params.time.sin() * 50.0 + 50.0,
+            false,
         );
 
         // Circle.
@@ -2016,6 +2018,7 @@ mod impls {
             palette::css::BLACK,
             150.0,
             params.time.sin() * 50.0 + 50.0,
+            false,
         );
 
         // Radius larger than one size.
@@ -2025,6 +2028,7 @@ mod impls {
             palette::css::BLACK,
             150.0,
             params.time.sin() * 50.0 + 50.0,
+            false,
         );
 
         // An emulated box shadow, to demonstrate the use of `draw_blurred_rounded_rect_in`.
@@ -2048,6 +2052,7 @@ mod impls {
             palette::css::BLACK,
             radius,
             std_dev,
+            false,
         );
     }
 

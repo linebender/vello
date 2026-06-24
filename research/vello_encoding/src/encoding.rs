@@ -457,6 +457,8 @@ impl Encoding {
     }
 
     // Encodes a blurred rounded rectangle brush.
+    //
+    // When `invert` is `true`, the inverse (`1 - alpha`) of the blur coverage is painted.
     pub fn encode_blurred_rounded_rect(
         &mut self,
         color: impl Into<DrawColor>,
@@ -464,6 +466,7 @@ impl Encoding {
         height: f32,
         radius: f32,
         std_dev: f32,
+        invert: bool,
     ) {
         self.draw_tags.push(DrawTag::BLUR_RECT);
         self.draw_data
@@ -474,6 +477,7 @@ impl Encoding {
                     height,
                     radius,
                     std_dev,
+                    invert: invert as u32,
                 },
             )));
     }
