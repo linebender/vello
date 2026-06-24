@@ -422,8 +422,13 @@ impl Draw {
         self.opaque.extend_from_slice(&other.opaque);
 
         let alpha_offset = self.alpha.len();
-        for run in &other.external_texture_runs {
-            let strips_start = alpha_offset + run.strips_start;
+        let had_external_texture_runs = !self.external_texture_runs.is_empty();
+        for (idx, run) in other.external_texture_runs.iter().enumerate() {
+            let strips_start = if !had_external_texture_runs && idx == 0 {
+                0
+            } else {
+                alpha_offset + run.strips_start
+            };
             if strips_start == self.alpha.len()
                 && self
                     .external_texture_runs
