@@ -879,6 +879,11 @@ pub struct EncodedBlurredRoundedRectangle {
     pub height: f32,
     /// An component for computing the blur effect.
     pub r1: f32,
+    /// Whether to paint the inverse (`1 - alpha`) of the blur coverage.
+    ///
+    /// When `true`, the paint is fully opaque outside the blurred rectangle and fades to
+    /// transparent inside it. This is useful for implementing inset box shadows.
+    pub inverse: bool,
     /// The base color for the blurred rectangle.
     pub color: PremulColor,
     /// A transform that needs to be applied to the position of the first processed pixel.
@@ -953,6 +958,7 @@ impl EncodeExt for BlurredRoundedRectangle {
             r1,
             std_dev_inv,
             min_edge,
+            inverse: self.inverse,
             color: PremulColor::from_alpha_color(self.color),
             w,
             h,

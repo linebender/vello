@@ -758,6 +758,7 @@ impl Scene {
                 color,
                 radius,
                 std_dev,
+                inverse: false,
             };
 
             let kernel_size = 2.5 * std_dev;

@@ -388,9 +388,19 @@ impl RenderContext {
 
     /// Fill a blurred rectangle with the given corner radius and standard deviation.
     ///
+    /// When `inverse` is `true`, the inverse (`1 - alpha`) of the blur coverage is painted: the
+    /// paint is fully opaque outside the blurred rectangle and fades to transparent inside it. This
+    /// can be used to implement inset box shadows.
+    ///
     /// Note that this only works properly if the current paint is set to a solid color.
     /// If not, it will fall back to using black as the fill color.
-    pub fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
+    pub fn fill_blurred_rounded_rect(
+        &mut self,
+        rect: &Rect,
+        radius: f32,
+        std_dev: f32,
+        inverse: bool,
+    ) {
         let rect = rect.abs();
         let color = match self.state.paint {
             PaintType::Solid(s) => s,
@@ -403,6 +413,7 @@ impl RenderContext {
             color,
             radius,
             std_dev,
+            inverse,
         };
 
         // The actual rectangle we paint needs to be larger so that the blurring effect
