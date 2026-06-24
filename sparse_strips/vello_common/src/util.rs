@@ -363,6 +363,7 @@ pub fn control_point_bbox(path: impl IntoIterator<Item = PathEl>, transform: Aff
     bbox
 }
 
+// TODO: Remove this and just use `strip_bbox` instead.
 /// Compute a conservative bounding box for the transformed path in pixel coordinates.
 ///
 /// If `path` is empty, this returns an inverted [`RectU16`].
