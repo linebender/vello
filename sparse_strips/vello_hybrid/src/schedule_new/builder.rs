@@ -216,7 +216,6 @@ impl<'a> ScheduleBuilder<'a> {
         }
 
         let allocation = self.allocate_region(
-            AllocationContext::Layer(layer_id),
             texture_index,
             bbox,
             self.filter_allocation_request(layer_id),
@@ -271,7 +270,6 @@ impl<'a> ScheduleBuilder<'a> {
             }
 
             let allocation = self.allocate_region(
-                AllocationContext::Root,
                 0,
                 bbox,
                 None,
@@ -517,7 +515,6 @@ impl<'a> ScheduleBuilder<'a> {
 
     fn allocate_region(
         &mut self,
-        context: AllocationContext,
         texture_index: usize,
         bbox: RectU16,
         filter: Option<FilterAllocationRequest>,
@@ -532,13 +529,6 @@ impl<'a> ScheduleBuilder<'a> {
         if allocation_width > self.layer_texture_size.0
             || allocation_height > self.layer_texture_size.1
         {
-            self.log_allocation_failure(
-                context,
-                texture_index,
-                bbox,
-                earliest_round,
-                "request-larger-than-layer-texture",
-            );
             return Err(RenderError::AtlasError(AtlasError::NoSpaceAvailable));
         }
 
@@ -557,13 +547,6 @@ impl<'a> ScheduleBuilder<'a> {
                 ensure_schedule_round_exists(schedule, round_idx);
             })
         else {
-            self.log_allocation_failure(
-                context,
-                texture_index,
-                bbox,
-                earliest_round,
-                "allocator-full-with-no-pending-release",
-            );
             return Err(RenderError::AtlasError(AtlasError::NoSpaceAvailable));
         };
 
@@ -630,33 +613,6 @@ impl<'a> ScheduleBuilder<'a> {
         }
     }
 
-    fn log_allocation_failure(
-        &self,
-        context: AllocationContext,
-        texture_index: usize,
-        bbox: RectU16,
-        earliest_round: usize,
-        reason: &'static str,
-    ) {
-        eprintln!(
-            "vello_hybrid layer allocation failed: reason={reason} context={} texture={} bbox={}x{} at {},{} layer_texture={}x{} scene={}x{} earliest_round={} base_round={} rounds_with_pending_releases={} next_pending_release_round={:?}",
-            context.label(),
-            texture_index,
-            bbox.width(),
-            bbox.height(),
-            bbox.x0,
-            bbox.y0,
-            self.layer_texture_size.0,
-            self.layer_texture_size.1,
-            self.scene.width,
-            self.scene.height,
-            earliest_round,
-            self.timeline.base_round(),
-            self.timeline.pending_release_round_count(),
-            self.timeline.next_pending_release_round(),
-        );
-    }
-
     fn ensure_schedule_round_exists(&mut self, round_idx: usize, schedule: &mut Schedule) {
         ensure_schedule_round_exists(schedule, round_idx);
     }
@@ -684,29 +640,6 @@ fn ensure_schedule_round_exists(schedule: &mut Schedule, round_idx: usize) {
 struct LayerAtlasResource {
     atlases: [Atlas; 2],
     filter_scratch_atlases: [Atlas; 2],
-}
-
-#[derive(Debug, Clone, Copy)]
-enum AllocationContext {
-    Root,
-    Layer(u32),
-}
-
-impl AllocationContext {
-    fn label(self) -> AllocationContextLabel {
-        AllocationContextLabel(self)
-    }
-}
-
-struct AllocationContextLabel(AllocationContext);
-
-impl core::fmt::Display for AllocationContextLabel {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self.0 {
-            AllocationContext::Root => f.write_str("root"),
-            AllocationContext::Layer(layer_id) => write!(f, "layer:{layer_id}"),
-        }
-    }
 }
 
 impl LayerAtlasResource {

@@ -43,22 +43,6 @@ impl<R: ResourceAllocator> Timeline<R> {
         self.base_round
     }
 
-    pub(super) fn pending_release_round_count(&self) -> usize {
-        self.pending_releases
-            .iter()
-            .skip(self.base_round)
-            .filter(|releases| !releases.is_empty())
-            .count()
-    }
-
-    pub(super) fn next_pending_release_round(&self) -> Option<usize> {
-        self.pending_releases
-            .iter()
-            .enumerate()
-            .skip(self.base_round)
-            .find_map(|(round_idx, releases)| (!releases.is_empty()).then_some(round_idx))
-    }
-
     /// Try to allocate at `earliest_round` or later.
     ///
     /// If the resource is full, the scheduler advances round-by-round and applies releases that

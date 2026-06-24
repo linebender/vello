@@ -1113,57 +1113,6 @@ impl Scene {
         );
     }
 
-    #[allow(dead_code)]
-    fn push_layer_old(
-        &mut self,
-        clip_path: Option<&BezPath>,
-        blend_mode: Option<BlendMode>,
-        opacity: Option<f32>,
-        mask: Option<Mask>,
-        filter: Option<Filter>,
-    ) {
-        let blend_mode_val = blend_mode.unwrap_or(DEFAULT_BLEND_MODE);
-
-        self.layer_id_next += 1;
-
-        let strip_offset = 0;
-        self.flush_fast_path();
-
-        let mut strip_storage = self.strip_storage.borrow_mut();
-
-        let clip = if let Some(c) = clip_path {
-            self.strip_generator.generate_filled_path(
-                c,
-                self.render_state.fill_rule,
-                self.render_state.transform,
-                self.aliasing_threshold,
-                &mut strip_storage,
-                self.clip_context.get(),
-            );
-
-            Some(&strip_storage.strips[strip_offset..])
-        } else {
-            None
-        };
-
-        // Mask is unsupported. Blend is partially supported.
-        if mask.is_some() {
-            unimplemented!()
-        }
-
-        self.wide.push_layer(
-            self.layer_id_next,
-            clip,
-            blend_mode_val,
-            None,
-            opacity.unwrap_or(1.),
-            filter,
-            self.render_state.transform,
-            &mut self.render_graph,
-            0,
-        );
-    }
-
     /// Push a new clip layer.
     ///
     /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
