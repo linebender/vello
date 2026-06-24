@@ -50,8 +50,8 @@ impl RecordedFill {
 }
 
 impl Drawable for RecordedFill {
-    fn bbox(&self, strips: &[Strip], viewport_width: u16) -> vello_common::geometry::RectU16 {
-        strip_bbox(strips, viewport_width)
+    fn bbox(&self, strips: &[Strip]) -> vello_common::geometry::RectU16 {
+        strip_bbox(strips)
     }
 }
 

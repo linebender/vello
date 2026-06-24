@@ -325,11 +325,8 @@ impl MultiThreadedDispatcher {
                                     blend_mode,
                                     mask,
                                 );
-                                self.recorder.push_draw(
-                                    draw,
-                                    &self.strip_storage.strips[strip_range],
-                                    self.strip_generator.width(),
-                                );
+                                self.recorder
+                                    .push_draw(draw, &self.strip_storage.strips[strip_range]);
                             }
                             RecordedCommand::PushLayer {
                                 thread_id,

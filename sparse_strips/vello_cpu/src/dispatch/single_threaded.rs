@@ -203,15 +203,11 @@ impl SingleThreadedDispatcher {
         mask: Option<Mask>,
     ) {
         let strip_end = self.strip_storage.strips.len();
-        let viewport_width = self.strip_generator.width();
         let strip_range = strip_start..strip_end;
         let draw = RecordedFill::new(0, strip_range.clone(), paint, blend_mode, mask);
 
-        self.recorder.push_draw(
-            draw,
-            &self.strip_storage.strips[strip_range],
-            viewport_width,
-        );
+        self.recorder
+            .push_draw(draw, &self.strip_storage.strips[strip_range]);
     }
 
     fn rasterize_filter_layers<S: Simd, F: FineKernel<S>>(

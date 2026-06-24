@@ -246,11 +246,9 @@ impl<'a> ScheduleBuilder<'a> {
             };
 
             for draw in &self.scene.recorder.draws[range.start as usize..range.end as usize] {
-                state.backdrop_bbox.union(recorded_draw_bbox(
-                    draw,
-                    self.strip_storage,
-                    self.scene.width,
-                ));
+                state
+                    .backdrop_bbox
+                    .union(recorded_draw_bbox(draw, self.strip_storage));
                 state.builder.push_draw(
                     draw,
                     self.strip_storage,
@@ -269,13 +267,8 @@ impl<'a> ScheduleBuilder<'a> {
                 return Ok(());
             }
 
-            let allocation = self.allocate_region(
-                0,
-                bbox,
-                None,
-                self.timeline.base_round(),
-                schedule,
-            )?;
+            let allocation =
+                self.allocate_region(0, bbox, None, self.timeline.base_round(), schedule)?;
             let target = RenderTarget::Layer(allocation.region);
             let ready_round = self.schedule_command_stream_with_load(
                 cmds,
@@ -353,11 +346,9 @@ impl<'a> ScheduleBuilder<'a> {
                 RecordedCmd::Draws(range) => {
                     for draw in &self.scene.recorder.draws[range.start as usize..range.end as usize]
                     {
-                        state.backdrop_bbox.union(recorded_draw_bbox(
-                            draw,
-                            self.strip_storage,
-                            self.scene.width,
-                        ));
+                        state
+                            .backdrop_bbox
+                            .union(recorded_draw_bbox(draw, self.strip_storage));
                         state.builder.push_draw(
                             draw,
                             self.strip_storage,
@@ -969,16 +960,12 @@ fn layer_segment_has_batches(cmds: &[RecordedCmd], start: usize, end: usize) -> 
         .any(|cmd| matches!(cmd, RecordedCmd::Draws(_)))
 }
 
-fn recorded_draw_bbox(
-    draw: &RecordedDraw,
-    strip_storage: &StripStorage,
-    viewport_width: u16,
-) -> RectU16 {
+fn recorded_draw_bbox(draw: &RecordedDraw, strip_storage: &StripStorage) -> RectU16 {
     let strips = match draw {
         RecordedDraw::Path(path) => &strip_storage.strips[path.strips.clone()],
         RecordedDraw::Rect(_) => &[],
     };
-    draw.bbox(strips, viewport_width)
+    draw.bbox(strips)
 }
 
 fn ensure_supported_layer(layer: &vello_common::record::RecordedLayer) -> Result<(), RenderError> {

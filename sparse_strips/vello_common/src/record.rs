@@ -49,7 +49,7 @@ use core::ops::Range;
 /// A drawable payload that can report its affected bounds.
 pub trait Drawable {
     /// Return the drawable's coarse bounds in the current command stream's coordinate space.
-    fn bbox(&self, strips: &[Strip], viewport_width: u16) -> RectU16;
+    fn bbox(&self, strips: &[Strip]) -> RectU16;
 }
 
 /// A recorded command.
@@ -340,8 +340,8 @@ fn regular_layer_bbox(mut bbox: RectU16, props: &LayerProps) -> RectU16 {
 impl<D: Drawable> CommandRecorder<D> {
     /// Push a draw command into the current command stream.
     #[inline]
-    pub fn push_draw(&mut self, draw: D, strips: &[Strip], viewport_width: u16) {
-        self.record_bbox(|| draw.bbox(strips, viewport_width));
+    pub fn push_draw(&mut self, draw: D, strips: &[Strip]) {
+        self.record_bbox(|| draw.bbox(strips));
         let draw_idx = self.draws.len() as u32;
         self.draws.push(draw);
         self.push_draw_batch(draw_idx);
@@ -379,7 +379,7 @@ mod tests {
     struct TestDraw;
 
     impl Drawable for TestDraw {
-        fn bbox(&self, _strips: &[Strip], _viewport_width: u16) -> RectU16 {
+        fn bbox(&self, _strips: &[Strip]) -> RectU16 {
             RectU16::new(0, 0, 64, 4)
         }
     }
@@ -448,13 +448,13 @@ mod tests {
         );
         recorder.push_layer(layer_props(), None);
 
-        recorder.push_draw(TestDraw, &[], 0);
+        recorder.push_draw(TestDraw, &[]);
 
         assert_eq!(recorder.pop_layer(), PoppedLayer::Regular);
         assert_eq!(recorder.pop_layer(), PoppedLayer::Filter);
 
         recorder.push_layer(layer_props(), None);
-        recorder.push_draw(TestDraw, &[], 0);
+        recorder.push_draw(TestDraw, &[]);
         assert_eq!(recorder.pop_layer(), PoppedLayer::Regular);
         assert_eq!(recorder.pop_layer(), PoppedLayer::Filter);
 
@@ -477,12 +477,12 @@ mod tests {
     fn draw_batches_are_split_by_layers() {
         let mut recorder = CommandRecorder::<TestDraw>::new();
 
-        recorder.push_draw(TestDraw, &[], 0);
-        recorder.push_draw(TestDraw, &[], 0);
+        recorder.push_draw(TestDraw, &[]);
+        recorder.push_draw(TestDraw, &[]);
         recorder.push_layer(layer_props(), None);
-        recorder.push_draw(TestDraw, &[], 0);
+        recorder.push_draw(TestDraw, &[]);
         recorder.pop_layer();
-        recorder.push_draw(TestDraw, &[], 0);
+        recorder.push_draw(TestDraw, &[]);
 
         assert_cmds(
             &recorder.root_cmds,

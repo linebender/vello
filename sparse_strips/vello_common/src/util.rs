@@ -380,7 +380,7 @@ pub fn control_point_bbox_u16(
 }
 
 /// Calculate the bounding box of the strips.
-pub fn strip_bbox(strips: &[Strip], viewport_width: u16) -> RectU16 {
+pub fn strip_bbox(strips: &[Strip]) -> RectU16 {
     let mut bbox = RectU16::INVERTED;
 
     // Need at least one strip (and the sentinel one).
@@ -409,14 +409,7 @@ pub fn strip_bbox(strips: &[Strip], viewport_width: u16) -> RectU16 {
         }
 
         if next_strip.fill_gap() && strip_y == next_strip.strip_y() {
-            // TODO: We should probably not emit sentinel strips with fill_gap = true
-            // in the first place... Then we don't have to pass `viewport_width` to this
-            // method.
-            let fill_x1 = if next_strip.is_sentinel() {
-                viewport_width
-            } else {
-                next_strip.x
-            };
+            let fill_x1 = next_strip.x;
             if strip_x1 < fill_x1 {
                 bbox.union(RectU16::new(strip_x1, row_y, fill_x1, row_y1));
             }
@@ -438,10 +431,6 @@ mod tests {
         Strip::new(u16::MAX, y, alpha_idx, false)
     }
 
-    fn fill_gap_sentinel(y: u16, alpha_idx: u32) -> Strip {
-        Strip::new(u16::MAX, y, alpha_idx, true)
-    }
-
     #[test]
     fn snap_to_tile_coordinates_rounds_outward() {
         let rect = Rect::new(-4.1, -0.1, 4.1, 8.0).snap_to_tile_coordinates();
@@ -458,7 +447,7 @@ mod tests {
     fn empty_strip_bbox() {
         let strips = [sentinel(0, 0), sentinel(0, 0)];
 
-        assert_eq!(strip_bbox(&strips, 32), RectU16::INVERTED);
+        assert_eq!(strip_bbox(&strips), RectU16::INVERTED);
     }
 
     #[test]
@@ -468,7 +457,7 @@ mod tests {
             sentinel(4, u32::from(Tile::HEIGHT) * 4),
         ];
 
-        assert_eq!(strip_bbox(&strips, 32), RectU16::new(8, 4, 12, 8));
+        assert_eq!(strip_bbox(&strips), RectU16::new(8, 4, 12, 8));
     }
 
     #[test]
@@ -479,17 +468,18 @@ mod tests {
             sentinel(0, u32::from(Tile::HEIGHT) * 8),
         ];
 
-        assert_eq!(strip_bbox(&strips, 32), RectU16::new(4, 0, 24, 4));
+        assert_eq!(strip_bbox(&strips), RectU16::new(4, 0, 24, 4));
     }
 
     #[test]
-    fn strip_with_sentinel_fill_gap_bbox_is_clamped_to_viewport() {
+    fn strip_with_row_end_fill_gap_bbox_is_clamped_to_viewport() {
         let strips = [
             Strip::new(4, 0, 0, false),
-            fill_gap_sentinel(0, u32::from(Tile::HEIGHT) * 4),
+            Strip::new(32, 0, u32::from(Tile::HEIGHT) * 4, true),
+            sentinel(0, u32::from(Tile::HEIGHT) * 4),
         ];
 
-        assert_eq!(strip_bbox(&strips, 32), RectU16::new(4, 0, 32, 4));
+        assert_eq!(strip_bbox(&strips), RectU16::new(4, 0, 32, 4));
     }
 
     #[test]
@@ -501,6 +491,6 @@ mod tests {
             sentinel(8, u32::from(Tile::HEIGHT) * 8),
         ];
 
-        assert_eq!(strip_bbox(&strips, 32), RectU16::new(4, 0, 16, 12));
+        assert_eq!(strip_bbox(&strips), RectU16::new(4, 0, 16, 12));
     }
 }

@@ -148,9 +148,9 @@ impl RecordedDraw {
 }
 
 impl Drawable for RecordedDraw {
-    fn bbox(&self, strips: &[Strip], viewport_width: u16) -> RectU16 {
+    fn bbox(&self, strips: &[Strip]) -> RectU16 {
         match self {
-            Self::Path(_) => strip_bbox(strips, viewport_width),
+            Self::Path(_) => strip_bbox(strips),
             Self::Rect(rect) => Self::rect_bbox(&rect.rect),
         }
     }
@@ -810,7 +810,6 @@ impl Scene {
                 strips: strips.clone(),
                 paint: paint.clone(),
             }));
-        let viewport_width = self.active_width();
         let blend_mode = self.render_state.blend_mode;
         let strip_storage = self.strip_storage.borrow();
         Self::push_recorded_draw(
@@ -818,7 +817,6 @@ impl Scene {
             blend_mode,
             draw,
             &strip_storage.strips[strips],
-            viewport_width,
         );
     }
 
@@ -832,14 +830,12 @@ impl Scene {
                 y1: rect.y1,
                 paint: rect.paint.clone(),
             }));
-        let viewport_width = self.active_width();
         let blend_mode = self.render_state.blend_mode;
         Self::push_recorded_draw(
             &mut self.recorder,
             blend_mode,
             RecordedDraw::rect(rect),
             &[],
-            viewport_width,
         );
     }
 
@@ -848,10 +844,9 @@ impl Scene {
         blend_mode: BlendMode,
         draw: RecordedDraw,
         strips: &[Strip],
-        viewport_width: u16,
     ) {
         if blend_mode == DEFAULT_BLEND_MODE {
-            recorder.push_draw(draw, strips, viewport_width);
+            recorder.push_draw(draw, strips);
             return;
         }
 
@@ -864,7 +859,7 @@ impl Scene {
             },
             None,
         );
-        recorder.push_draw(draw, strips, viewport_width);
+        recorder.push_draw(draw, strips);
         recorder.pop_layer();
     }
 
