@@ -740,9 +740,19 @@ impl Scene {
 
     /// Fill a blurred rectangle with the given corner radius and standard deviation.
     ///
+    /// When `inverse` is `true`, the inverse (`1 - alpha`) of the blur coverage is painted: the
+    /// paint is fully opaque outside the blurred rectangle and fades to transparent inside it. This
+    /// can be used to implement inset box shadows.
+    ///
     /// This operation uses the current transform and paint transform. Like Vello CPU, it only
     /// uses solid paints; non-solid paints fall back to black.
-    pub fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
+    pub fn fill_blurred_rounded_rect(
+        &mut self,
+        rect: &Rect,
+        radius: f32,
+        std_dev: f32,
+        inverse: bool,
+    ) {
         if !self.paint_visible {
             return;
         }
@@ -758,7 +768,7 @@ impl Scene {
                 color,
                 radius,
                 std_dev,
-                inverse: false,
+                inverse,
             };
 
             let kernel_size = 2.5 * std_dev;

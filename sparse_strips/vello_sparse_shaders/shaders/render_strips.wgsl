@@ -1335,6 +1335,9 @@ fn get_blurred_rounded_rect_translate(texel1: vec4<u32>) -> vec2<f32> {
 /// Premultiplied rectangle color.
 fn get_blurred_rounded_rect_color(texel1: vec4<u32>) -> vec4<f32> { return unpack4x8unorm(texel1.z); }
 
+/// Whether to paint the inverse (`1 - alpha`) of the blur coverage (`0` = normal, `1` = inverse).
+fn get_blurred_rounded_rect_inverse(texel1: vec4<u32>) -> u32 { return texel1.w; }
+
 fn get_blurred_rounded_rect_exponent(texel2: vec4<u32>) -> f32 { return bitcast<f32>(texel2.x); }
 
 fn get_blurred_rounded_rect_recip_exponent(texel2: vec4<u32>) -> f32 { return bitcast<f32>(texel2.y); }
@@ -1470,6 +1473,7 @@ fn calculate_blurred_rounded_rect(
     let transform = get_blurred_rounded_rect_transform(texel0);
     let translate = get_blurred_rounded_rect_translate(texel1);
     let color = get_blurred_rounded_rect_color(texel1);
+    let inverse = get_blurred_rounded_rect_inverse(texel1);
     let exponent = get_blurred_rounded_rect_exponent(texel2);
     let recip_exponent = get_blurred_rounded_rect_recip_exponent(texel2);
     let scale = get_blurred_rounded_rect_scale(texel2);
@@ -1497,10 +1501,13 @@ fn calculate_blurred_rounded_rect(
     );
     let d_neg = min(max(x0, y0), 0.0);
     let d = d_pos + d_neg - r1;
-    let blur_alpha = scale * (
+    let blur_coverage = scale * (
         erf7(std_dev_inv * (min_edge + d)) -
         erf7(std_dev_inv * d)
     );
+
+    // Invert alpha when `inverse` flag is set
+    let blur_alpha = select(blur_coverage, 1.0 - blur_coverage, inverse != 0u);
 
     return color * blur_alpha;
 }

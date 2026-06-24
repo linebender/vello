@@ -279,7 +279,7 @@ impl RenderingContext for Scene {
     }
 
     fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
-        self.fill_blurred_rounded_rect(rect, radius, std_dev);
+        self.fill_blurred_rounded_rect(rect, radius, std_dev, false);
     }
 
     fn glyph_run<'a>(

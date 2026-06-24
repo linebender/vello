@@ -916,7 +916,7 @@ impl Renderer {
         GpuEncodedPaint::BlurredRoundedRect(GpuBlurredRoundedRect {
             transform: rect.transform.as_coeffs().map(|x| x as f32),
             color: rect.color.as_premul_rgba8().to_u32(),
-            _padding0: 0,
+            inverse: u32::from(rect.inverse),
             params0: [
                 rect.exponent,
                 rect.recip_exponent,
