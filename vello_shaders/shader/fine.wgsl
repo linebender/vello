@@ -751,8 +751,9 @@ fn read_blur_rect(cmd_ix: u32) -> CmdBlurRect {
     let height = bitcast<f32>(info[info_offset + 7u]);
     let radius = bitcast<f32>(info[info_offset + 8u]);
     let std_dev = bitcast<f32>(info[info_offset + 9u]);
+    let invert = info[info_offset + 10u];
 
-    return CmdBlurRect(rgba_color, matrx, xlat, width, height, radius, std_dev);
+    return CmdBlurRect(rgba_color, matrx, xlat, width, height, radius, std_dev, invert);
 }
 
 fn read_lin_grad(cmd_ix: u32) -> CmdLinGrad {
@@ -1214,7 +1215,10 @@ fn main(
                     let d_pos = pow(pow(x1, exponent) + pow(y1, exponent), inv_exponent);
                     let d_neg = min(max(x0, y0), 0.0);
                     let d = d_pos + d_neg - r1;
-                    let alpha = scale * (erf7(inv_std_dev * (min_edge + d)) - erf7(inv_std_dev * d));
+                    let blur_coverage = scale * (erf7(inv_std_dev * (min_edge + d)) - erf7(inv_std_dev * d));
+                    // When `invert` is set, paint the inverse (1 - alpha) coverage, used to
+                    // implement inset box shadows.
+                    let alpha = select(blur_coverage, 1.0 - blur_coverage, blur.invert != 0u);
 
                     let fg_rgba = blur_rgba * alpha;
                     let fg_i = fg_rgba * area[i];
