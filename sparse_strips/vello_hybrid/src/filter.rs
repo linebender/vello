@@ -20,6 +20,8 @@
 
 //! GPU filter types and conversion utilities.
 
+use crate::schedule::{BlendOp, FilterOp, FilterScratchRegion};
+use crate::util::{IntRect, IntSize};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use vello_common::filter::PreparedFilter;
@@ -29,8 +31,6 @@ use vello_common::filter::gaussian_blur::{DecimationSizer, GaussianBlur, MAX_KER
 use vello_common::filter::offset::Offset;
 use vello_common::filter_effects::EdgeMode;
 use vello_common::peniko::{Compose, Mix};
-use crate::schedule::{BlendOp, FilterOp, FilterScratchRegion};
-use crate::util::{IntRect, IntSize};
 
 /// How much transparent padding to reserve for filter layers within the image. Needed so
 /// that the various shader programs can assume transparent pixels on the outside, making

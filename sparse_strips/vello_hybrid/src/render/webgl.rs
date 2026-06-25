@@ -72,7 +72,7 @@ use vello_common::{
     pixmap::Pixmap,
     tile::Tile,
 };
-use vello_sparse_shaders::{blend_layers, filters, render_strips};
+use vello_sparse_shaders::{blend, copy, filters, render_strips};
 #[cfg(feature = "probe")]
 use web_sys::WebGlSync;
 use web_sys::wasm_bindgen::{JsCast, JsValue};
@@ -87,21 +87,6 @@ const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(G
     gradient_start: 0,
     transform: [0.0; 6],
 });
-
-const BLEND_COPY_FRAGMENT_SOURCE: &str = r#"#version 300 es
-
-precision highp float;
-precision highp int;
-
-uniform highp sampler2D scratch_texture;
-
-smooth in vec2 _vs2fs_location0;
-layout(location = 0) out vec4 _fs2p_location0;
-
-void main() {
-    _fs2p_location0 = texelFetch(scratch_texture, ivec2(_vs2fs_location0), 0);
-}
-"#;
 
 /// Query the WebGL context for the max texture size.
 fn get_max_texture_dimension_2d(gl: &WebGl2RenderingContext) -> u32 {
@@ -1181,14 +1166,11 @@ impl WebGlPrograms {
         let filter_program =
             create_shader_program(&gl, filters::VERTEX_SOURCE, filters::FRAGMENT_SOURCE);
         let filter_uniforms = get_filter_pass_uniforms(&gl, &filter_program);
-        let blend_program = create_shader_program(
-            &gl,
-            blend_layers::VERTEX_SOURCE,
-            blend_layers::FRAGMENT_SOURCE,
-        );
+        let blend_program =
+            create_shader_program(&gl, blend::VERTEX_SOURCE, blend::FRAGMENT_SOURCE);
         let blend_uniforms = get_blend_uniforms(&gl, &blend_program);
         let blend_copy_program =
-            create_shader_program(&gl, blend_layers::VERTEX_SOURCE, BLEND_COPY_FRAGMENT_SOURCE);
+            create_shader_program(&gl, copy::VERTEX_SOURCE, copy::FRAGMENT_SOURCE);
         let blend_copy_uniforms = get_blend_copy_uniforms(&gl, &blend_copy_program);
 
         let strip_uniforms = get_strip_uniforms(&gl, &strip_program);
@@ -2098,17 +2080,19 @@ fn get_filter_pass_uniforms(gl: &WebGl2RenderingContext, program: &Program) -> F
 fn get_blend_uniforms(gl: &WebGl2RenderingContext, program: &Program) -> BlendUniforms {
     BlendUniforms {
         layer_texture_0: gl
-            .get_uniform_location(program, blend_layers::fragment::LAYER_TEXTURE_0)
+            .get_uniform_location(program, blend::fragment::LAYER_TEXTURE_0)
             .unwrap(),
         layer_texture_1: gl
-            .get_uniform_location(program, blend_layers::fragment::LAYER_TEXTURE_1)
+            .get_uniform_location(program, blend::fragment::LAYER_TEXTURE_1)
             .unwrap(),
     }
 }
 
 fn get_blend_copy_uniforms(gl: &WebGl2RenderingContext, program: &Program) -> BlendCopyUniforms {
     BlendCopyUniforms {
-        scratch_texture: gl.get_uniform_location(program, "scratch_texture").unwrap(),
+        scratch_texture: gl
+            .get_uniform_location(program, copy::fragment::SCRATCH_TEXTURE)
+            .unwrap(),
     }
 }
 
@@ -2811,7 +2795,7 @@ impl WebGlRendererContext<'_> {
         self.gl.enable(WebGl2RenderingContext::BLEND);
     }
 
-    fn do_blend_layers_render_pass(&mut self, blends: &[BlendOp]) {
+    fn do_blend_render_pass(&mut self, blends: &[BlendOp]) {
         let target_size = self.layer_texture_size();
         let all_instances = blends
             .iter()
@@ -3049,8 +3033,8 @@ impl RendererBackend for WebGlRendererContext<'_> {
         self.do_strip_render_pass(opaque_strips, alpha_strips, target, load_op);
     }
 
-    fn blend_layers(&mut self, blends: &[BlendOp]) {
-        self.do_blend_layers_render_pass(blends);
+    fn blend(&mut self, blends: &[BlendOp]) {
+        self.do_blend_render_pass(blends);
     }
 
     fn apply_filters(&mut self, filters: &[FilterOp]) {

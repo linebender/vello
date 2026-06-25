@@ -105,7 +105,7 @@ pub(crate) trait RendererBackend {
     );
 
     /// Apply non-default blend layer operations.
-    fn blend_layers(&mut self, blends: &[BlendOp]);
+    fn blend(&mut self, blends: &[BlendOp]);
 
     /// Apply filter operations to already-rendered layer atlas regions.
     fn apply_filters(&mut self, filters: &[FilterOp]);
@@ -204,7 +204,7 @@ fn execute_schedule<R: RendererBackend>(renderer: &mut R, schedule: &Schedule) {
 
         execute_root_passes(renderer, root_passes);
 
-        renderer.blend_layers(&round.blends);
+        renderer.blend(&round.blends);
         renderer.clear_layer_regions(&round.clear_layer_regions);
         renderer.clear_filter_scratch_regions(&round.clear_filter_scratch_regions);
     }

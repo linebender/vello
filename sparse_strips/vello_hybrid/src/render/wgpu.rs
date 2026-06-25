@@ -1190,7 +1190,7 @@ impl Programs {
         // Create bind group layout for clearing atlas rects.
         let clear_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Clear Rects Bind Group Layout"),
+                label: Some("Clear Bind Group Layout"),
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::VERTEX,
@@ -1209,8 +1209,8 @@ impl Programs {
         });
 
         let clear_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Clear Rects Shader"),
-            source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::CLEAR_RECTS.into()),
+            label: Some("Clear Shader"),
+            source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::CLEAR.into()),
         });
 
         let strip_pipeline_layout =
@@ -1227,7 +1227,7 @@ impl Programs {
 
         let clear_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Clear Rects Pipeline Layout"),
+                label: Some("Clear Pipeline Layout"),
                 bind_group_layouts: &[Some(&clear_bind_group_layout)],
                 immediate_size: 0,
             });
@@ -1300,7 +1300,7 @@ impl Programs {
             create_strip_pipelines("Strip Opaque Pipeline", None, Some(depth_stencil(true)));
 
         let clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Clear Rects Pipeline"),
+            label: Some("Clear Pipeline"),
             layout: Some(&clear_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &clear_shader,
@@ -1522,18 +1522,22 @@ impl Programs {
                 entries: &[],
             });
         let blend_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Blend Layers Shader"),
-            source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::BLEND_LAYERS.into()),
+            label: Some("Blend Shader"),
+            source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::BLEND.into()),
+        });
+        let blend_copy_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Copy Shader"),
+            source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::COPY.into()),
         });
         let blend_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Blend Layers Pipeline Layout"),
+                label: Some("Blend Pipeline Layout"),
                 bind_group_layouts: &[Some(&blend_layer_bind_group_layout)],
                 immediate_size: 0,
             });
         let blend_copy_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Blend Layers Copy Pipeline Layout"),
+                label: Some("Copy Pipeline Layout"),
                 bind_group_layouts: &[
                     Some(&empty_bind_group_layout),
                     Some(&blend_copy_bind_group_layout),
@@ -1556,19 +1560,19 @@ impl Programs {
                 9 => Uint32x2,
             ],
         };
-        let create_blend_pipeline = |label, fragment_entry, layout| {
+        let create_blend_pipeline = |label, shader_module: &wgpu::ShaderModule, layout| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(layout),
                 vertex: wgpu::VertexState {
-                    module: &blend_shader,
+                    module: shader_module,
                     entry_point: Some("vs_main"),
                     buffers: core::slice::from_ref(&blend_vertex_state),
                     compilation_options: PipelineCompilationOptions::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
-                    module: &blend_shader,
-                    entry_point: Some(fragment_entry),
+                    module: shader_module,
+                    entry_point: Some("fs_main"),
                     targets: &[Some(ColorTargetState {
                         format: wgpu::TextureFormat::Rgba8Unorm,
                         blend: None,
@@ -1587,10 +1591,10 @@ impl Programs {
             })
         };
         let blend_pipeline =
-            create_blend_pipeline("Blend Layers Pipeline", "fs_main", &blend_pipeline_layout);
+            create_blend_pipeline("Blend Pipeline", &blend_shader, &blend_pipeline_layout);
         let blend_copy_pipeline = create_blend_pipeline(
-            "Blend Layers Copy Pipeline",
-            "fs_copy",
+            "Copy Pipeline",
+            &blend_copy_shader,
             &blend_copy_pipeline_layout,
         );
 
@@ -1657,7 +1661,7 @@ impl Programs {
             blend_scratch_texture.create_view(&TextureViewDescriptor::default());
 
         let clear_config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Clear Rects Config"),
+            label: Some("Clear Config"),
             contents: bytemuck::bytes_of(&ClearRectConfig {
                 _padding0: 0,
                 _padding1: 0,
@@ -1667,7 +1671,7 @@ impl Programs {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         let clear_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Clear Rects Bind Group"),
+            label: Some("Clear Bind Group"),
             layout: &clear_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
@@ -2940,7 +2944,7 @@ impl RendererContext<'_> {
         (size.width, size.height)
     }
 
-    fn do_blend_layers_render_pass(&mut self, blends: &[BlendOp]) {
+    fn do_blend_render_pass(&mut self, blends: &[BlendOp]) {
         let target_size = self.layer_texture_size();
         let all_instances = blends
             .iter()
@@ -2972,7 +2976,7 @@ impl RendererContext<'_> {
 
             {
                 let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
-                    label: Some("Blend Layers To Scratch"),
+                    label: Some("Blend To Scratch"),
                     color_attachments: &[Some(RenderPassColorAttachment {
                         view: &self.programs.resources.blend_scratch_texture_view,
                         depth_slice: None,
@@ -3016,7 +3020,7 @@ impl RendererContext<'_> {
                 render_pass.draw(0..4, 0..instance_count);
             }
 
-            let clear_rects = instances
+            let clear_instances = instances
                 .iter()
                 .map(|instance| {
                     gpu_clear_rect(
@@ -3028,9 +3032,9 @@ impl RendererContext<'_> {
                     )
                 })
                 .collect::<Vec<_>>();
-            self.do_clear_rects_render_pass(
+            self.do_clear_render_pass(
                 ClearTarget::BlendScratch,
-                &clear_rects,
+                &clear_instances,
                 "Clear Blend Scratch Regions",
             );
         }
@@ -3092,7 +3096,7 @@ impl RendererContext<'_> {
                 continue;
             }
 
-            let clear_rects = regions
+            let clear_instances = regions
                 .iter()
                 .filter(|region| {
                     region.texture_index == texture_index && region.width > 0 && region.height > 0
@@ -3107,9 +3111,9 @@ impl RendererContext<'_> {
                     )
                 })
                 .collect::<Vec<_>>();
-            self.do_clear_rects_render_pass(
+            self.do_clear_render_pass(
                 ClearTarget::Layer(texture_index),
-                &clear_rects,
+                &clear_instances,
                 "Clear Layer Regions",
             );
         }
@@ -3124,7 +3128,7 @@ impl RendererContext<'_> {
                 continue;
             }
 
-            let clear_rects = regions
+            let clear_instances = regions
                 .iter()
                 .filter(|region| {
                     region.texture_index == texture_index && region.width > 0 && region.height > 0
@@ -3139,15 +3143,15 @@ impl RendererContext<'_> {
                     )
                 })
                 .collect::<Vec<_>>();
-            self.do_clear_rects_render_pass(
+            self.do_clear_render_pass(
                 ClearTarget::FilterScratch(texture_index),
-                &clear_rects,
+                &clear_instances,
                 "Clear Filter Scratch Regions",
             );
         }
     }
 
-    fn do_clear_rects_render_pass(
+    fn do_clear_render_pass(
         &mut self,
         target: ClearTarget,
         rects: &[GpuClearRect],
@@ -3158,13 +3162,13 @@ impl RendererContext<'_> {
         }
 
         // Each recorded render pass needs stable vertex contents until command submission.
-        let clear_rects_buffer =
-            self.device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Clear Rects Buffer"),
-                    contents: bytemuck::cast_slice(rects),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
+        let clear_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Clear Buffer"),
+                contents: bytemuck::cast_slice(rects),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
         let resources = &self.programs.resources;
         let view = match target {
             ClearTarget::BlendScratch => &resources.blend_scratch_texture_view,
@@ -3191,7 +3195,7 @@ impl RendererContext<'_> {
         });
         render_pass.set_pipeline(&self.programs.clear_pipeline);
         render_pass.set_bind_group(0, &resources.clear_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, clear_rects_buffer.slice(..));
+        render_pass.set_vertex_buffer(0, clear_buffer.slice(..));
         render_pass.draw(0..4, 0..u32::try_from(rects.len()).unwrap());
     }
 }
@@ -3219,8 +3223,8 @@ impl RendererBackend for RendererContext<'_> {
         );
     }
 
-    fn blend_layers(&mut self, blends: &[BlendOp]) {
-        self.do_blend_layers_render_pass(blends);
+    fn blend(&mut self, blends: &[BlendOp]) {
+        self.do_blend_render_pass(blends);
     }
 
     fn apply_filters(&mut self, filters: &[FilterOp]) {

@@ -65,9 +65,6 @@ var layer_texture_0: texture_2d<f32>;
 @group(0) @binding(1)
 var layer_texture_1: texture_2d<f32>;
 
-@group(1) @binding(0)
-var scratch_texture: texture_2d<f32>;
-
 @vertex
 fn vs_main(
     @builtin(vertex_index) vertex_index: u32,
@@ -123,13 +120,6 @@ fn fs_main(
         source = source_opacity * load_layer(texture_indices.y, vec2<i32>(source_xy));
     }
     return blend_mix_compose(backdrop, source, blend_mode.y, blend_mode.x);
-}
-
-@fragment
-fn fs_copy(
-    @location(0) dest_xy: vec2<f32>,
-) -> @location(0) vec4<f32> {
-    return textureLoad(scratch_texture, vec2<i32>(dest_xy), 0);
 }
 
 fn blend_mix_compose(backdrop: vec4<f32>, src: vec4<f32>, compose_mode: u32, mix_mode: u32) -> vec4<f32> {
