@@ -43,13 +43,6 @@ pub(crate) struct FilterOp {
 }
 
 #[derive(Debug, Clone, Copy)]
-#[cfg_attr(
-    all(target_arch = "wasm32", feature = "webgl"),
-    allow(
-        dead_code,
-        reason = "WebGL filter/blend execution can compile a reduced subset of blend fields"
-    )
-)]
 pub(crate) struct BlendOp {
     pub(crate) parent: LayerTextureRegion,
     pub(crate) source: LayerTextureRegion,

@@ -10,7 +10,7 @@ use super::{
 };
 use crate::filter::{FILTER_ATLAS_PADDING, GpuFilterData};
 use crate::scene::{FastPathRect, RecordedDraw};
-use crate::schedule::{GpuStripBuilder, RectPart, make_gpu_rect, process_paint, split_rect};
+use crate::strip_packing::{GpuStripBuilder, RectPart, make_gpu_rect, process_paint, split_rect};
 use crate::{RenderError, Scene};
 use alloc::vec::Vec;
 use vello_common::encode::EncodedPaint;

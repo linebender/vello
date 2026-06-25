@@ -188,7 +188,7 @@ pub(crate) struct SplitRect {
 
 #[expect(
     clippy::cast_possible_truncation,
-    reason = "fast path rect coordinates are clipped to the u16 viewport domain before packing"
+    reason = "recorded rect coordinates are clipped to the u16 viewport domain before packing"
 )]
 pub(crate) fn split_rect(rect: &FastPathRect) -> SplitRect {
     let sx0 = rect.x0.floor();

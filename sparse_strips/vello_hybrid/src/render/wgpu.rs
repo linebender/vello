@@ -21,7 +21,7 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
-    filter::{FilterContext, FilterInstanceData, FilterPassState},
+    filter::{FilterContext, FilterInstanceData},
     gradient_cache::GradientRampCache,
     render::{
         Config,
@@ -156,8 +156,6 @@ pub struct Renderer {
     gradient_cache: GradientRampCache,
     /// Context for GPU filter effects.
     filter_context: FilterContext,
-    /// State used for constructing filter passes.
-    filter_pass_state: FilterPassState,
     dummy_image_cache: Option<ImageCache>,
     #[cfg(feature = "text")]
     atlas_clear_scratch: Vec<u8>,
@@ -218,7 +216,6 @@ impl Renderer {
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
             filter_context,
-            filter_pass_state: FilterPassState::default(),
             dummy_image_cache: Some(ImageCache::new_dummy()),
             #[cfg(feature = "text")]
             atlas_clear_scratch: Vec::new(),
@@ -513,8 +510,6 @@ impl Renderer {
             queue,
             encoder,
             view,
-            image_cache,
-            filter_pass_state: &mut self.filter_pass_state,
             texture_bindings,
             external_paint_source_bind_groups: HashMap::new(),
         };
@@ -1041,10 +1036,6 @@ struct GpuResources {
     /// Bind groups for rendering into layer atlas textures.
     layer_bind_groups: [BindGroup; 2],
     /// Bind group for clear rect operations.
-    #[allow(
-        dead_code,
-        reason = "kept alive for the clear pipeline bind group layout during scheduler migration"
-    )]
     clear_bind_group: BindGroup,
 
     /// Placeholder paint-source bind group with a 1x1 dummy atlas texture, used during
@@ -1059,12 +1050,6 @@ struct GpuResources {
     layer_filter_input_bind_groups: [BindGroup; 2],
     /// Filter bind groups for sampling original layer atlas textures.
     layer_filter_original_bind_groups: [BindGroup; 2],
-    /// Scratch textures used for filter ping-ponging.
-    #[allow(
-        dead_code,
-        reason = "Keep filter scratch textures alive for their views"
-    )]
-    filter_scratch_textures: [Texture; 2],
     /// Scratch texture views used for filter ping-ponging.
     filter_scratch_texture_views: [TextureView; 2],
     /// Filter bind groups for sampling scratch textures.
@@ -1072,12 +1057,6 @@ struct GpuResources {
     /// Filter bind groups for sampling scratch textures as originals.
     filter_scratch_original_bind_groups: [BindGroup; 2],
 
-    /// Scratch texture used for non-default layer blending.
-    #[allow(
-        dead_code,
-        reason = "kept alive for blend scratch texture view and bind groups"
-    )]
-    blend_scratch_texture: Texture,
     /// Scratch texture view used for non-default layer blending.
     blend_scratch_texture_view: TextureView,
     /// Bind group for blend operations that sample layer atlas textures.
@@ -1837,11 +1816,9 @@ impl Programs {
             layer_texture_views,
             layer_filter_input_bind_groups,
             layer_filter_original_bind_groups,
-            filter_scratch_textures,
             filter_scratch_texture_views,
             filter_scratch_input_bind_groups,
             filter_scratch_original_bind_groups,
-            blend_scratch_texture,
             blend_scratch_texture_view,
             blend_layer_bind_group,
             blend_copy_bind_group,
@@ -2793,16 +2770,6 @@ struct RendererContext<'a> {
     queue: &'a Queue,
     encoder: &'a mut CommandEncoder,
     view: &'a TextureView,
-    #[allow(
-        dead_code,
-        reason = "old render path still carries image cache access through the shared context"
-    )]
-    image_cache: &'a ImageCache,
-    #[allow(
-        dead_code,
-        reason = "filter pass state is used by the legacy scheduler path"
-    )]
-    filter_pass_state: &'a mut FilterPassState,
     texture_bindings: &'a TextureBindings,
     external_paint_source_bind_groups: HashMap<TextureId, BindGroup>,
 }
@@ -3356,24 +3323,6 @@ fn create_filter_original_bind_group(
             binding: 0,
             resource: wgpu::BindingResource::TextureView(texture_view),
         }],
-    })
-}
-
-#[allow(
-    dead_code,
-    reason = "helper retained for legacy atlas layer view construction"
-)]
-fn create_atlas_layer_view(atlas: &Texture, layer: u32) -> TextureView {
-    atlas.create_view(&TextureViewDescriptor {
-        label: Some("Atlas Layer View"),
-        format: None,
-        dimension: Some(wgpu::TextureViewDimension::D2),
-        aspect: wgpu::TextureAspect::All,
-        base_mip_level: 0,
-        mip_level_count: None,
-        base_array_layer: layer,
-        array_layer_count: Some(1),
-        usage: None,
     })
 }
 

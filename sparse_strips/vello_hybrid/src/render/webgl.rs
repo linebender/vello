@@ -23,7 +23,7 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
-    filter::{FilterContext, FilterInstanceData, FilterPassState},
+    filter::{FilterContext, FilterInstanceData},
     gradient_cache::GradientRampCache,
     render::{
         Config,
@@ -133,8 +133,6 @@ pub struct WebGlRenderer {
     gradient_cache: GradientRampCache,
     /// Context for GPU filter effects.
     filter_context: FilterContext,
-    /// State used for constructing filter passes.
-    filter_pass_state: FilterPassState,
     dummy_image_cache: Option<ImageCache>,
 }
 
@@ -349,7 +347,6 @@ impl WebGlRenderer {
             paint_idxs: Vec::new(),
             gradient_cache,
             filter_context,
-            filter_pass_state: FilterPassState::default(),
             dummy_image_cache: Some(ImageCache::new_dummy()),
         }
     }
@@ -693,8 +690,6 @@ impl WebGlRenderer {
         let mut ctx = WebGlRendererContext {
             programs: &mut self.programs,
             gl: &self.gl,
-            image_cache,
-            filter_pass_state: &mut self.filter_pass_state,
         };
         crate::schedule_new::render_scene(
             &mut ctx,
@@ -2521,16 +2516,6 @@ fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
 struct WebGlRendererContext<'a> {
     programs: &'a mut WebGlPrograms,
     gl: &'a WebGl2RenderingContext,
-    #[allow(
-        dead_code,
-        reason = "old render path still carries image cache access through the shared context"
-    )]
-    image_cache: &'a ImageCache,
-    #[allow(
-        dead_code,
-        reason = "filter pass state is used by the legacy scheduler path"
-    )]
-    filter_pass_state: &'a mut FilterPassState,
 }
 
 impl WebGlRendererContext<'_> {
