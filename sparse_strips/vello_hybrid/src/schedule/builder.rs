@@ -977,7 +977,7 @@ fn recorded_draw_bbox(draw: &RecordedDraw, strip_storage: &StripStorage) -> Rect
 fn ensure_supported_layer(layer: &vello_common::record::RecordedLayer) -> Result<(), RenderError> {
     if layer.props.mask.is_some() {
         return Err(RenderError::UnsupportedFeature(
-            "mask layers are not supported by schedule_new yet",
+            "mask layers are not supported by schedule yet",
         ));
     }
     if layer
@@ -987,7 +987,7 @@ fn ensure_supported_layer(layer: &vello_common::record::RecordedLayer) -> Result
         .is_some_and(|clip_path| clip_path.thread_idx != 0)
     {
         return Err(RenderError::UnsupportedFeature(
-            "multi-threaded clip layers are not supported by schedule_new yet",
+            "multi-threaded clip layers are not supported by schedule yet",
         ));
     }
     Ok(())

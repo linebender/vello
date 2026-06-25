@@ -49,7 +49,7 @@ mod resources;
 mod sampling;
 mod scene;
 #[cfg(any(feature = "webgl", feature = "wgpu"))]
-mod schedule_new;
+mod schedule;
 #[cfg(any(feature = "webgl", feature = "wgpu"))]
 mod strip_packing;
 #[cfg(feature = "text")]

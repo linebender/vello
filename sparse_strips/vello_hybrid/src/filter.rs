@@ -29,8 +29,7 @@ use vello_common::filter::gaussian_blur::{DecimationSizer, GaussianBlur, MAX_KER
 use vello_common::filter::offset::Offset;
 use vello_common::filter_effects::EdgeMode;
 use vello_common::peniko::{Compose, Mix};
-
-use crate::schedule_new::{BlendOp, FilterOp, FilterScratchRegion};
+use crate::schedule::{BlendOp, FilterOp, FilterScratchRegion};
 use crate::util::{IntRect, IntSize};
 
 /// How much transparent padding to reserve for filter layers within the image. Needed so

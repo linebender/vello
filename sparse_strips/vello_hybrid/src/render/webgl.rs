@@ -40,7 +40,7 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule_new::{
+    schedule::{
         BlendOp, ExternalTextureRun, FilterOp, FilterScratchRegion, LayerTextureRegion, LoadOp,
         RendererBackend, RootRenderTarget, StripPassRenderTarget,
     },
@@ -685,7 +685,7 @@ impl WebGlRenderer {
             programs: &mut self.programs,
             gl: &self.gl,
         };
-        crate::schedule_new::render_scene(
+        crate::schedule::render_scene(
             &mut ctx,
             scene,
             root_output_target,
