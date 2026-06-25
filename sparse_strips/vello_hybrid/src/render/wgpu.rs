@@ -21,7 +21,10 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
-    filter::{FilterContext, FilterInstanceData},
+    filter::{
+        FilterContext, FilterInstanceData, FilterTexture, GpuBlendInstance,
+        build_scheduled_filter_batches, gpu_blend_instance,
+    },
     gradient_cache::GradientRampCache,
     render::{
         Config,
@@ -32,9 +35,6 @@ use crate::{
             GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
             normalize_atlas_config, pack_image_offset, pack_image_params, pack_image_size,
             pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode, pack_tint,
-        },
-        effects::{
-            FilterTexture, GpuBlendInstance, build_scheduled_filter_batches, gpu_blend_instance,
         },
     },
     scene::Scene,
@@ -204,14 +204,9 @@ impl Renderer {
             max_texture_dimension_2d * max_texture_dimension_2d / MAX_GRADIENT_LUT_SIZE as u32;
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
 
-        let filter_context = FilterContext::new(settings.atlas_config);
+        let filter_context = FilterContext::new();
         Self {
-            programs: Programs::new(
-                device,
-                &image_cache,
-                &filter_context.image_cache,
-                render_target_config,
-            ),
+            programs: Programs::new(device, &image_cache, render_target_config),
             gradient_cache,
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
@@ -252,11 +247,8 @@ impl Renderer {
             }
         }
 
-        self.filter_context.filters.clear();
-        self.filter_context.offsets.clear();
-        self.filter_context.filter_textures.clear();
+        self.filter_context.clear();
 
-        let mut filter_data_offset = 0_u32;
         for layer_id in &scene.recorder.filter_layers {
             let layer = &scene.recorder.layers[*layer_id as usize];
             let vello_common::record::RecordedLayerKind::Filter { filter_data, .. } = &layer.kind
@@ -271,10 +263,6 @@ impl Renderer {
             self.filter_context
                 .filters
                 .push(crate::filter::GpuFilterData::from(&prepared_filter));
-            self.filter_context
-                .offsets
-                .insert(*layer_id, filter_data_offset);
-            filter_data_offset += crate::filter::GpuFilterData::SIZE_TEXELS;
         }
 
         Ok(())
@@ -1103,7 +1091,6 @@ impl Programs {
     fn new(
         device: &Device,
         image_cache: &ImageCache,
-        _filter_texture_cache: &ImageCache,
         render_target_config: &RenderTargetConfig,
     ) -> Self {
         let strip_bind_group_layout =

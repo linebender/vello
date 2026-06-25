@@ -23,7 +23,10 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
-    filter::{FilterContext, FilterInstanceData},
+    filter::{
+        FilterContext, FilterInstanceData, FilterTexture, GpuBlendInstance,
+        build_scheduled_filter_batches, gpu_blend_instance,
+    },
     gradient_cache::GradientRampCache,
     render::{
         Config,
@@ -34,9 +37,6 @@ use crate::{
             GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
             normalize_atlas_config, pack_image_offset, pack_image_params, pack_image_size,
             pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode, pack_tint,
-        },
-        effects::{
-            FilterTexture, GpuBlendInstance, build_scheduled_filter_batches, gpu_blend_instance,
         },
     },
     scene::Scene,
@@ -338,10 +338,10 @@ impl WebGlRenderer {
         let max_gradient_cache_size =
             max_texture_dimension_2d * max_texture_dimension_2d / MAX_GRADIENT_LUT_SIZE as u32;
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
-        let filter_context = FilterContext::new(settings.atlas_config);
+        let filter_context = FilterContext::new();
 
         Self {
-            programs: WebGlPrograms::new(gl.clone(), &image_cache, &filter_context),
+            programs: WebGlPrograms::new(gl.clone(), &image_cache),
             gl,
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
@@ -351,11 +351,9 @@ impl WebGlRenderer {
         }
     }
 
-    fn prepare_filter_textures(&mut self, scene: &Scene, image_cache: &mut ImageCache) {
-        self.filter_context
-            .deallocate_all_and_clear_context(image_cache);
+    fn prepare_filter_textures(&mut self, scene: &Scene) {
+        self.filter_context.clear();
 
-        let mut filter_data_offset = 0_u32;
         for layer_id in &scene.recorder.filter_layers {
             let layer = &scene.recorder.layers[*layer_id as usize];
             let vello_common::record::RecordedLayerKind::Filter { filter_data, .. } = &layer.kind
@@ -370,10 +368,6 @@ impl WebGlRenderer {
             self.filter_context
                 .filters
                 .push(crate::filter::GpuFilterData::from(&prepared_filter));
-            self.filter_context
-                .offsets
-                .insert(*layer_id, filter_data_offset);
-            filter_data_offset += crate::filter::GpuFilterData::SIZE_TEXELS;
         }
     }
 
@@ -663,7 +657,7 @@ impl WebGlRenderer {
         let mut encoded_paints = scene.encoded_paints.borrow_mut();
         let original_scene_paint_count = encoded_paints.len();
 
-        self.prepare_filter_textures(scene, image_cache);
+        self.prepare_filter_textures(scene);
 
         self.prepare_gpu_encoded_paints(&encoded_paints, image_cache);
 
@@ -1178,11 +1172,7 @@ struct WebGlResources {
 
 impl WebGlPrograms {
     /// Creates programs and initializes resources.
-    fn new(
-        gl: WebGl2RenderingContext,
-        image_cache: &ImageCache,
-        filter_context: &FilterContext,
-    ) -> Self {
+    fn new(gl: WebGl2RenderingContext, image_cache: &ImageCache) -> Self {
         let strip_program = create_shader_program(
             &gl,
             render_strips::VERTEX_SOURCE,
@@ -1203,7 +1193,7 @@ impl WebGlPrograms {
 
         let strip_uniforms = get_strip_uniforms(&gl, &strip_program);
 
-        let resources = create_webgl_resources(&gl, image_cache, filter_context);
+        let resources = create_webgl_resources(&gl, image_cache);
 
         initialize_strip_vao(&gl, &resources);
         initialize_filter_vao(&gl, &resources);
@@ -2302,11 +2292,7 @@ fn create_placeholder_texture(gl: &WebGl2RenderingContext) -> Texture {
 }
 
 /// Create all WebGL resources needed for rendering.
-fn create_webgl_resources(
-    gl: &WebGl2RenderingContext,
-    image_cache: &ImageCache,
-    _filter_context: &FilterContext,
-) -> WebGlResources {
+fn create_webgl_resources(gl: &WebGl2RenderingContext, image_cache: &ImageCache) -> WebGlResources {
     let strip_vao = VertexArray::new(gl);
     let filter_vao = VertexArray::new(gl);
     let blend_vao = VertexArray::new(gl);

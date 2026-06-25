@@ -9,8 +9,6 @@
 //! - `webgl` contains a WebGL2 backend if the `webgl` feature is active.
 
 pub(crate) mod common;
-#[cfg(any(feature = "webgl", feature = "wgpu"))]
-pub(crate) mod effects;
 #[cfg(feature = "probe")]
 mod probe;
 #[cfg(feature = "webgl")]
