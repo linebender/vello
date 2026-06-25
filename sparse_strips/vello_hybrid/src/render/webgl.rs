@@ -2521,9 +2521,15 @@ fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
 struct WebGlRendererContext<'a> {
     programs: &'a mut WebGlPrograms,
     gl: &'a WebGl2RenderingContext,
-    #[allow(dead_code)]
+    #[allow(
+        dead_code,
+        reason = "old render path still carries image cache access through the shared context"
+    )]
     image_cache: &'a ImageCache,
-    #[allow(dead_code)]
+    #[allow(
+        dead_code,
+        reason = "filter pass state is used by the legacy scheduler path"
+    )]
     filter_pass_state: &'a mut FilterPassState,
 }
 

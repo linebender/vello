@@ -44,7 +44,10 @@ pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 /// Determines whether strips are sent directly to the GPU (fast path),
 /// go through coarse rasterization, or a mix of both.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
+#[allow(
+    dead_code,
+    reason = "legacy fast-path states are retained while schedule_new is wired in"
+)]
 pub(crate) enum StripPathMode {
     /// No layers have been pushed. All strips go directly to the fast buffer,
     /// bypassing coarse rasterization entirely.
@@ -259,7 +262,10 @@ pub struct Scene {
 // When the fast path is inactive or we're inside a layer, `strip_storage` is in `Replace`
 // or `ReplaceAfter` mode where each generation starts with a clear/truncate, so the
 // relevant portion of the buffer is the current path's strips.
-#[allow(unused_macros)]
+#[allow(
+    unused_macros,
+    reason = "macro is retained for the legacy fast-strip path during scheduler migration"
+)]
 macro_rules! submit_strips {
     ($self:ident, $strip_storage:expr, $strip_start:expr, $paint:expr) => {
         if $self.strip_path_mode != StripPathMode::CoarseOnly && !$self.wide.has_layers() {
@@ -998,7 +1004,10 @@ impl Scene {
     /// using the fast path.
     ///
     /// After this call, `strip_storage` is switched back to `Replace` mode.
-    #[allow(dead_code)]
+    #[allow(
+        dead_code,
+        reason = "legacy flush path is retained while schedule_new is wired in"
+    )]
     fn flush_fast_path(&mut self) {
         if self.strip_path_mode == StripPathMode::CoarseOnly {
             return;

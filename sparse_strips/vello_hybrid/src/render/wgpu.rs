@@ -1041,7 +1041,10 @@ struct GpuResources {
     /// Bind groups for rendering into layer atlas textures.
     layer_bind_groups: [BindGroup; 2],
     /// Bind group for clear rect operations.
-    #[allow(dead_code)]
+    #[allow(
+        dead_code,
+        reason = "kept alive for the clear pipeline bind group layout during scheduler migration"
+    )]
     clear_bind_group: BindGroup,
 
     /// Placeholder paint-source bind group with a 1x1 dummy atlas texture, used during
@@ -1070,7 +1073,10 @@ struct GpuResources {
     filter_scratch_original_bind_groups: [BindGroup; 2],
 
     /// Scratch texture used for non-default layer blending.
-    #[allow(dead_code)]
+    #[allow(
+        dead_code,
+        reason = "kept alive for blend scratch texture view and bind groups"
+    )]
     blend_scratch_texture: Texture,
     /// Scratch texture view used for non-default layer blending.
     blend_scratch_texture_view: TextureView,
@@ -2787,9 +2793,15 @@ struct RendererContext<'a> {
     queue: &'a Queue,
     encoder: &'a mut CommandEncoder,
     view: &'a TextureView,
-    #[allow(dead_code)]
+    #[allow(
+        dead_code,
+        reason = "old render path still carries image cache access through the shared context"
+    )]
     image_cache: &'a ImageCache,
-    #[allow(dead_code)]
+    #[allow(
+        dead_code,
+        reason = "filter pass state is used by the legacy scheduler path"
+    )]
     filter_pass_state: &'a mut FilterPassState,
     texture_bindings: &'a TextureBindings,
     external_paint_source_bind_groups: HashMap<TextureId, BindGroup>,
@@ -3347,7 +3359,10 @@ fn create_filter_original_bind_group(
     })
 }
 
-#[allow(dead_code)]
+#[allow(
+    dead_code,
+    reason = "helper retained for legacy atlas layer view construction"
+)]
 fn create_atlas_layer_view(atlas: &Texture, layer: u32) -> TextureView {
     atlas.create_view(&TextureViewDescriptor {
         label: Some("Atlas Layer View"),

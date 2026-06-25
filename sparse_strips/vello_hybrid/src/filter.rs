@@ -1,7 +1,10 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-#![allow(dead_code)]
+#![allow(
+    dead_code,
+    reason = "old and new hybrid filter paths share this module during the scheduler rewrite"
+)]
 // A very brief explanation of how filters work on a high-level follows here:
 //
 // During coarse rasterization, filter layers become nodes in the `RenderGraph`. Once we hit

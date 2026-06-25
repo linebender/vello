@@ -39,14 +39,16 @@ pub(crate) fn gpu_blend_instance(blend: BlendOp, target_size: (u32, u32)) -> Gpu
             u32::from(blend.bbox.height()),
         ],
         texture_indices: [
-            blend.parent.texture_index as u32,
-            blend.source.texture_index as u32,
+            u32::try_from(blend.parent.texture_index)
+                .expect("layer texture index fits into shader payload"),
+            u32::try_from(blend.source.texture_index)
+                .expect("layer texture index fits into shader payload"),
         ],
         blend_mode: [
             pack_mix(blend.blend_mode.mix),
             pack_compose(blend.blend_mode.compose),
         ],
-        opacity: (blend.opacity.clamp(0.0, 1.0) * 255.0).round() as u32,
+        opacity: u32::from(opacity_to_u8(blend.opacity)),
         target_size: [target_size.0, target_size.1],
         bbox_origin: [u32::from(blend.bbox.x0), u32::from(blend.bbox.y0)],
         source_scene_origin: [
@@ -204,7 +206,10 @@ struct FilterPassBuilder {
 impl FilterPassBuilder {
     fn new(op: FilterOp, target_size: (u32, u32)) -> Self {
         let mut sizer = DecimationSizer::default();
-        sizer.reset(op.layer.width as u16, op.layer.height as u16);
+        sizer.reset(
+            u16::try_from(op.layer.width).expect("filter layer width fits into DecimationSizer"),
+            u16::try_from(op.layer.height).expect("filter layer height fits into DecimationSizer"),
+        );
         Self {
             op,
             target_size,
@@ -358,4 +363,12 @@ impl FilterPassBuilder {
         );
         self.toggle = (self.toggle + 1) % 2;
     }
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "opacity is clamped to the normalized u8 range before packing"
+)]
+fn opacity_to_u8(opacity: f32) -> u8 {
+    (opacity.clamp(0.0, 1.0) * 255.0).round() as u8
 }

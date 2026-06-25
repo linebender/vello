@@ -186,6 +186,10 @@ pub(crate) struct SplitRect {
     pub(crate) right: Option<RectPart>,
 }
 
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "fast path rect coordinates are clipped to the u16 viewport domain before packing"
+)]
 pub(crate) fn split_rect(rect: &FastPathRect) -> SplitRect {
     let sx0 = rect.x0.floor();
     let sy0 = rect.y0.floor();
@@ -292,6 +296,10 @@ pub(crate) fn make_gpu_rect(
     }
 }
 
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "normalized color channels are packed into u8 lanes"
+)]
 fn pack_unorm4x8(v: [f32; 4]) -> u32 {
     let q = |f: f32| -> u8 { (f * 255.0 + 0.5) as u8 };
     u32::from(q(v[0]))

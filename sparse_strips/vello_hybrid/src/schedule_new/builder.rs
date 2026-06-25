@@ -132,8 +132,8 @@ impl<'a> ScheduleBuilder<'a> {
         let mut target = None;
         let mut segment_start = 0;
 
-        for cmd_idx in 0..command_count {
-            let child_layer_id = match &cmds[cmd_idx] {
+        for (cmd_idx, cmd) in cmds.iter().enumerate().take(command_count) {
+            let child_layer_id = match cmd {
                 RecordedCmd::Draws(_) => continue,
                 RecordedCmd::Layer(child_layer_id) => *child_layer_id,
             };
@@ -1065,7 +1065,8 @@ impl DrawBuilder {
             let next_strip = &strips[i + 1];
             let col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
             let next_col = next_strip.alpha_idx() / u32::from(Tile::HEIGHT);
-            let strip_width = next_col.saturating_sub(col) as u16;
+            let strip_width =
+                u16::try_from(next_col.saturating_sub(col)).expect("strip width fits into u16");
             let target_y = offset_coord(y, self.geometry_offset.1);
 
             if strip_width > 0 {
@@ -1355,13 +1356,16 @@ fn offset_rect_part(part: RectPart, offset: (i32, i32)) -> RectPart {
 
 fn offset_coord(coord: u16, offset: i32) -> u16 {
     let coord = i32::from(coord) + offset;
-    debug_assert!((0..=i32::from(u16::MAX)).contains(&coord));
-    coord as u16
+    debug_assert!(
+        (0..=i32::from(u16::MAX)).contains(&coord),
+        "offset coordinate must fit into u16"
+    );
+    u16::try_from(coord).expect("offset coordinate must fit into u16")
 }
 
 fn pack_u16_pair(x: u32, y: u32) -> u32 {
-    debug_assert!(x <= u32::from(u16::MAX));
-    debug_assert!(y <= u32::from(u16::MAX));
+    debug_assert!(x <= u32::from(u16::MAX), "x payload must fit into u16");
+    debug_assert!(y <= u32::from(u16::MAX), "y payload must fit into u16");
     (x & 0xffff) | ((y & 0xffff) << 16)
 }
 
@@ -1378,6 +1382,10 @@ fn layer_paint(opacity: f32) -> u32 {
     (COLOR_SOURCE_LAYER << 29) | u32::from(opacity_to_u8(opacity))
 }
 
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "opacity is clamped to the normalized u8 range before packing"
+)]
 fn opacity_to_u8(opacity: f32) -> u8 {
     (opacity.clamp(0.0, 1.0) * 255.0).round() as u8
 }
