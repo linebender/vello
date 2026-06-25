@@ -322,7 +322,6 @@ impl MultiThreadedDispatcher {
                                 self.recorder.push_fill(
                                     strip_range,
                                     strips,
-                                    self.strip_generator.width(),
                                     paint.clone(),
                                     blend_mode,
                                     mask,

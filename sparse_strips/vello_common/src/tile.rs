@@ -455,6 +455,11 @@ impl Tiles {
         self.tile_buf.is_empty()
     }
 
+    /// Get the viewport width used for this tile buffer.
+    pub(crate) fn width(&self) -> u16 {
+        self.width
+    }
+
     /// Returns `true` if any geometry was early-culled outside the viewport.
     pub fn has_culled_tiles(&self) -> bool {
         self.windings.culled

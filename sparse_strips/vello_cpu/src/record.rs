@@ -311,7 +311,6 @@ impl CommandRecorder {
         &mut self,
         strip_range: Range<usize>,
         strips: &[Strip],
-        viewport_width: u16,
         paint: Paint,
         blend_mode: BlendMode,
         mask: Option<Mask>,
@@ -325,7 +324,7 @@ impl CommandRecorder {
             mask,
         });
 
-        self.record_bbox(|| strip_bbox(strips, viewport_width));
+        self.record_bbox(|| strip_bbox(strips));
     }
 
     pub(crate) fn push_layer(&mut self, props: LayerProps, filter_plan: Option<FilterData>) {
@@ -432,7 +431,7 @@ pub(crate) enum PoppedLayer {
     Filter,
 }
 
-fn strip_bbox(strips: &[Strip], viewport_width: u16) -> RectU16 {
+fn strip_bbox(strips: &[Strip]) -> RectU16 {
     let mut bbox = RectU16::INVERTED;
 
     // Need at least one strip (and the sentinel one).
@@ -461,14 +460,7 @@ fn strip_bbox(strips: &[Strip], viewport_width: u16) -> RectU16 {
         }
 
         if next_strip.fill_gap() && strip_y == next_strip.strip_y() {
-            // TODO: We should probably not emit sentinel strips with fill_gap = true
-            // in the first place... Then we don't have to pass `viewport_width` to this
-            // method.
-            let fill_x1 = if next_strip.is_sentinel() {
-                viewport_width
-            } else {
-                next_strip.x
-            };
+            let fill_x1 = next_strip.x;
             if strip_x1 < fill_x1 {
                 bbox.union(RectU16::new(strip_x1, row_y, fill_x1, row_y1));
             }
@@ -492,12 +484,8 @@ mod tests {
         PopLayer,
     }
 
-    fn sentinel(y: u16, alpha_idx: u32) -> Strip {
-        Strip::new(u16::MAX, y, alpha_idx, false)
-    }
-
-    fn fill_gap_sentinel(y: u16, alpha_idx: u32) -> Strip {
-        Strip::new(u16::MAX, y, alpha_idx, true)
+    fn row_end(x: u16, y: u16, alpha_idx: u32, fill_gap: bool) -> Strip {
+        Strip::new(x, y, alpha_idx, fill_gap)
     }
 
     fn layer_props() -> LayerProps {
@@ -588,12 +576,12 @@ mod tests {
         recorder.push_layer(layer_props(), None);
 
         recorder.push_fill(
-            0..2,
+            0..3,
             &[
                 Strip::new(0, 0, 0, false),
-                Strip::new(u16::MAX, 0, 16, true),
+                row_end(64, 0, 16, true),
+                Strip::sentinel(0, 16),
             ],
-            64,
             Paint::Solid(PremulColor::from_alpha_color(BLACK)),
             BlendMode::default(),
             None,
@@ -605,12 +593,12 @@ mod tests {
 
         recorder.push_layer(layer_props(), None);
         recorder.push_fill(
-            0..2,
+            0..3,
             &[
                 Strip::new(0, 0, 16, false),
-                Strip::new(u16::MAX, 0, 32, true),
+                row_end(64, 0, 32, true),
+                Strip::sentinel(0, 32),
             ],
-            64,
             Paint::Solid(PremulColor::from_alpha_color(BLACK)),
             BlendMode::default(),
             None,
@@ -640,19 +628,19 @@ mod tests {
     }
     #[test]
     fn empty_strip_bbox() {
-        let strips = [sentinel(0, 0), sentinel(0, 0)];
+        let strips = [Strip::sentinel(0, 0), Strip::sentinel(0, 0)];
 
-        assert_eq!(strip_bbox(&strips, 32), RectU16::INVERTED);
+        assert_eq!(strip_bbox(&strips), RectU16::INVERTED);
     }
 
     #[test]
     fn single_strip_bbox() {
         let strips = [
             Strip::new(8, 4, 0, false),
-            sentinel(4, u32::from(Tile::HEIGHT) * 4),
+            Strip::sentinel(4, u32::from(Tile::HEIGHT) * 4),
         ];
 
-        assert_eq!(strip_bbox(&strips, 32), RectU16::new(8, 4, 12, 8));
+        assert_eq!(strip_bbox(&strips), RectU16::new(8, 4, 12, 8));
     }
 
     #[test]
@@ -660,31 +648,31 @@ mod tests {
         let strips = [
             Strip::new(4, 0, 0, false),
             Strip::new(20, 0, u32::from(Tile::HEIGHT) * 4, true),
-            sentinel(0, u32::from(Tile::HEIGHT) * 8),
+            Strip::sentinel(0, u32::from(Tile::HEIGHT) * 8),
         ];
 
-        assert_eq!(strip_bbox(&strips, 32), RectU16::new(4, 0, 24, 4));
+        assert_eq!(strip_bbox(&strips), RectU16::new(4, 0, 24, 4));
     }
 
     #[test]
-    fn strip_with_sentinel_fill_gap_bbox_is_clamped_to_viewport() {
+    fn strip_with_row_end_fill_gap_bbox_is_clamped_to_viewport() {
         let strips = [
             Strip::new(4, 0, 0, false),
-            fill_gap_sentinel(0, u32::from(Tile::HEIGHT) * 4),
+            row_end(32, 0, u32::from(Tile::HEIGHT) * 4, true),
+            Strip::sentinel(0, u32::from(Tile::HEIGHT) * 4),
         ];
 
-        assert_eq!(strip_bbox(&strips, 32), RectU16::new(4, 0, 32, 4));
+        assert_eq!(strip_bbox(&strips), RectU16::new(4, 0, 32, 4));
     }
 
     #[test]
     fn strips_with_multiple_rows_bbox() {
         let strips = [
             Strip::new(12, 0, 0, false),
-            sentinel(0, u32::from(Tile::HEIGHT) * 4),
             Strip::new(4, 8, u32::from(Tile::HEIGHT) * 4, false),
-            sentinel(8, u32::from(Tile::HEIGHT) * 8),
+            Strip::sentinel(8, u32::from(Tile::HEIGHT) * 8),
         ];
 
-        assert_eq!(strip_bbox(&strips, 32), RectU16::new(4, 0, 16, 12));
+        assert_eq!(strip_bbox(&strips), RectU16::new(4, 0, 16, 12));
     }
 }

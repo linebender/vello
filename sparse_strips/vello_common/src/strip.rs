@@ -44,6 +44,11 @@ impl Strip {
         }
     }
 
+    /// Creates a sentinel strip.
+    pub fn sentinel(y: u16, alpha_idx: u32) -> Self {
+        Self::new(u16::MAX, y, alpha_idx, false)
+    }
+
     /// Return whether the strip is a sentinel strip.
     pub fn is_sentinel(&self) -> bool {
         self.x == u16::MAX
@@ -112,6 +117,7 @@ impl Strip {
     fn emit_culled_background<F>(
         start: u16,
         end: u16,
+        viewport_width: u16,
         strips: &mut Vec<Self>,
         alphas: &mut Vec<u8>,
         windings: &crate::tile::CulledWindings,
@@ -123,10 +129,10 @@ impl Strip {
             if should_fill(windings.coarse[row] as i32) {
                 let y_pos = row as u16 * Tile::HEIGHT;
                 strips.push(Self::new(0, y_pos, alphas.len() as u32, false));
+                // TODO: Would be nice to get rid of this, but the current clipping code only
+                // allows zero-width strips as a row terminator, not in-between.
                 alphas.extend([255_u8; Tile::HEIGHT as usize * Tile::WIDTH as usize]);
-                // TODO: Clamp to the scene width instead of u16::MAX; in the future there might
-                // not be clamping on the x.
-                strips.push(Self::new(u16::MAX, y_pos, alphas.len() as u32, true));
+                strips.push(Self::new(viewport_width, y_pos, alphas.len() as u32, true));
             }
         });
     }
@@ -163,6 +169,18 @@ fn render_impl<S: Simd>(
 ) {
     let row_windings = &tiles.windings.coarse;
     let has_culled_tiles = tiles.has_culled_tiles();
+    let viewport_width = tiles
+        .width()
+        // We need to make sure strips are tile-aligned.
+        .checked_next_multiple_of(Tile::WIDTH)
+        .unwrap_or(u16::MAX);
+    let strip_start = strip_buf.len();
+    let maybe_emit_sentinel_strip = |strip_buf: &mut Vec<Strip>, alpha_buf: &Vec<u8>| {
+        // Emit the final sentinel strip, if we produced at least one strip.
+        if let Some(last_y) = strip_buf[strip_start..].last().map(|s| s.y) {
+            strip_buf.push(Strip::sentinel(last_y, alpha_buf.len() as u32));
+        }
+    };
 
     // If no tiles were culled and the tile buffer is empty, we can simply exit. If tiles were
     // culled, the tile buffer may be empty but there may be winding produced by culled geometry
@@ -224,12 +242,15 @@ fn render_impl<S: Simd>(
         Strip::emit_culled_background(
             0,
             row_max,
+            viewport_width,
             strip_buf,
             alpha_buf,
             &tiles.windings,
             should_fill,
         );
         if tiles.is_empty() {
+            maybe_emit_sentinel_strip(strip_buf, alpha_buf);
+
             return;
         }
         let (wd, acc) = emit_captive_strip(prev_tile.y, left_viewport, strip_buf, alpha_buf);
@@ -326,12 +347,10 @@ fn render_impl<S: Simd>(
             let is_sentinel = tile_idx == tiles.len() as usize;
             let left_viewport = tile.x == 0;
             if !prev_tile.same_row(&tile) {
-                // Emit a final strip in the row if there is non-zero winding for the sparse fill,
-                // or unconditionally if we've reached the sentinel tile to end the path (the
-                // `alpha_idx` field is used for width calculations).
-                if winding_delta != 0 || is_sentinel {
+                // Emit a final strip in the row if there is non-zero winding for the sparse fill
+                if winding_delta != 0 {
                     strip_buf.push(Strip::new(
-                        u16::MAX,
+                        viewport_width,
                         prev_tile.y * Tile::HEIGHT,
                         alpha_buf.len() as u32,
                         should_fill(winding_delta),
@@ -344,6 +363,7 @@ fn render_impl<S: Simd>(
                     Strip::emit_culled_background(
                         prev_tile.y + 1,
                         tile.y,
+                        viewport_width,
                         strip_buf,
                         alpha_buf,
                         &tiles.windings,
@@ -536,10 +556,13 @@ fn render_impl<S: Simd>(
         Strip::emit_culled_background(
             (prev_tile.y + 1).min(row_windings.len() as u16),
             row_windings.len() as u16,
+            viewport_width,
             strip_buf,
             alpha_buf,
             &tiles.windings,
             should_fill,
         );
     }
+
+    maybe_emit_sentinel_strip(strip_buf, alpha_buf);
 }
