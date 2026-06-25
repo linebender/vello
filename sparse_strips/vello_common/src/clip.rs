@@ -186,6 +186,12 @@ impl Clear for ClipContext {
     }
 }
 
+impl Default for ClipState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ClipState {
     /// Create a new instance of [`ClipState`].
     pub fn new() -> Self {

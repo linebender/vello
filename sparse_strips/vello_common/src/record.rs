@@ -1,9 +1,10 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-// TODO: Update the doc comment
-
 //! Recording rendering commands.
+//!
+//! (Note: Below description was written with Vello CPU in mind, but also applies to
+//! Vello Hybrid, except for the fact that we don't do bucketing in Vello Hybrid.)
 //!
 //! Currently, the pipeline of Vello CPU can be split into roughly three parts:
 //! 1) Recording rendering commands by generating strips + layer metadata.
@@ -72,7 +73,7 @@ pub struct RecordedLayer {
     pub kind: RecordedLayerKind,
     /// Nesting depth. Direct child layers of the root have depth 1.
     pub depth: usize,
-    /// Bounds containing the pixels rendered into this layer's target.
+    /// Bounding box of the layer.
     pub bbox: RectU16,
 }
 
@@ -83,9 +84,9 @@ pub struct LayerProps {
     pub blend_mode: BlendMode,
     /// Opacity applied when compositing the layer into its parent.
     pub opacity: f32,
-    /// Optional mask applied when compositing the layer.
+    /// Optional mask applied when compositing the layer into its parent.
     pub mask: Option<Mask>,
-    /// Optional clip path applied when compositing the layer.
+    /// Optional clip path applied when compositing the layer into its parent.
     pub clip_path: Option<LayerClip>,
 }
 
@@ -146,9 +147,9 @@ pub struct CommandRecorder<D> {
     pub draws: Vec<D>,
     /// Data about recorded layers, indexed by their ID.
     pub layers: Vec<RecordedLayer>,
-    /// Recorded filter layers in creation order.
+    /// IDs of recorded filter layers in creation order.
     pub filter_layers: Vec<u32>,
-    /// Whether the root has a direct child layer with a non-default blend mode.
+    /// Whether the root is the target of a non-default blending operation.
     pub root_is_blend_target: bool,
     /// A pool for reusable `Vec<RecordedCmd>` allocations.
     cmd_pool: VecPool<RecordedCmd>,
@@ -184,7 +185,7 @@ struct OpenLayer {
 }
 
 impl<D> CommandRecorder<D> {
-    /// Create an empty command recorder.
+    /// Create an new command recorder.
     pub fn new() -> Self {
         Self::default()
     }
@@ -194,7 +195,7 @@ impl<D> CommandRecorder<D> {
         !self.layer_stack.is_empty()
     }
 
-    /// Clear all recorded commands and layer state while retaining reusable allocations.
+    /// Reset the command recorder.
     #[inline]
     pub fn reset(&mut self) {
         self.root_cmds.clear();
@@ -210,7 +211,7 @@ impl<D> CommandRecorder<D> {
         self.layer_stack.clear();
     }
 
-    /// Push a new regular or filter layer.
+    /// Push a new layer.
     #[inline]
     pub fn push_layer(&mut self, props: LayerProps, filter_plan: Option<FilterData>) {
         if let Some(filter_plan) = filter_plan {
@@ -258,7 +259,12 @@ impl<D> CommandRecorder<D> {
         let recorded_layer = &mut self.layers[id as usize];
         let (popped_layer, bbox) = match &mut recorded_layer.kind {
             RecordedLayerKind::Regular => {
-                let bbox = regular_layer_bbox(layer.bbox, &recorded_layer.props);
+                let mut bbox = layer.bbox;
+
+                if let Some(clip_path) = &recorded_layer.props.clip_path {
+                    bbox = bbox.intersect(clip_path.bbox);
+                }
+
                 recorded_layer.bbox = bbox;
                 (PoppedLayer::Regular, bbox)
             }
@@ -268,6 +274,8 @@ impl<D> CommandRecorder<D> {
                 ..
             } => {
                 *placement = FilterLayerPlacement::new(layer.bbox, filter_plan);
+                // Unlike normal layers, we don't want to intersect with the current clip bbox
+                // because effects of spatial filters shouldn't be clipped away.
                 recorded_layer.bbox = placement.pixmap_bbox;
                 let dest_bbox = placement.dest_bbox;
 
@@ -277,6 +285,7 @@ impl<D> CommandRecorder<D> {
 
         self.active_layer = layer.parent_layer;
         self.record_bbox(|| bbox);
+
         popped_layer
     }
 
@@ -307,30 +316,11 @@ impl<D> CommandRecorder<D> {
         id
     }
 
-    fn push_draw_batch(&mut self, draw_idx: u32) {
-        match self.active_cmds_mut().last_mut() {
-            Some(RecordedCmd::Draws(range)) if range.end == draw_idx => {
-                range.end += 1;
-            }
-            _ => {
-                self.push_render_cmd(RecordedCmd::Draws(draw_idx..draw_idx + 1));
-            }
-        };
-    }
-
     fn record_bbox(&mut self, bbox: impl FnOnce() -> RectU16) {
         if let Some(layer) = self.layer_stack.last_mut() {
             layer.bbox.union(bbox());
         }
     }
-}
-
-fn regular_layer_bbox(mut bbox: RectU16, props: &LayerProps) -> RectU16 {
-    if let Some(clip_path) = &props.clip_path {
-        bbox = bbox.intersect(clip_path.bbox);
-    }
-
-    bbox
 }
 
 impl<D: Drawable> CommandRecorder<D> {
@@ -340,7 +330,15 @@ impl<D: Drawable> CommandRecorder<D> {
         self.record_bbox(|| draw.bbox(strips));
         let draw_idx = self.draws.len() as u32;
         self.draws.push(draw);
-        self.push_draw_batch(draw_idx);
+
+        match self.active_cmds_mut().last_mut() {
+            Some(RecordedCmd::Draws(range)) if range.end == draw_idx => {
+                range.end += 1;
+            }
+            _ => {
+                self.push_render_cmd(RecordedCmd::Draws(draw_idx..draw_idx + 1));
+            }
+        };
     }
 }
 
@@ -463,10 +461,7 @@ mod tests {
         assert_cmds(layer_cmds(&recorder, 2), &[ExpectedCmd::Batch(0..1)]);
         assert_cmds(layer_cmds(&recorder, 3), &[ExpectedCmd::Batch(1..2)]);
         assert_eq!(recorder.draws.len(), 2);
-        assert_eq!(
-            recorder.filter_layers.iter().copied().collect::<Vec<_>>(),
-            [0, 1],
-        );
+        assert_eq!(recorder.filter_layers.to_vec(), [0, 1]);
     }
 
     #[test]

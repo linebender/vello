@@ -316,6 +316,7 @@ impl CommandBucketer {
 
                     match &layer.kind {
                         RecordedLayerKind::Regular => {
+                            // Regular layers are inlined and bucketed into the same command stream.
                             self.push_layer(props);
                             self.bucket_commands(
                                 &layer.cmds,
