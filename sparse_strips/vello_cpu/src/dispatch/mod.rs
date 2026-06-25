@@ -12,6 +12,7 @@ use core::fmt::Debug;
 use core::ops::Range;
 use vello_common::encode::EncodedPaint;
 use vello_common::filter::FilterData;
+use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
 use vello_common::pixmap::PixmapMut;
@@ -50,7 +51,7 @@ impl RecordedFill {
 }
 
 impl Drawable for RecordedFill {
-    fn bbox(&self, strips: &[Strip]) -> vello_common::geometry::RectU16 {
+    fn bbox(&self, strips: &[Strip]) -> RectU16 {
         strip_bbox(strips)
     }
 }
