@@ -202,6 +202,7 @@ impl GpuEncodedPaint {
 /// Align to 16 bytes for `RGBA32Uint` alignment.
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[allow(dead_code, reason = "Clippy fails when --no-default-features")]
 pub(crate) struct GpuEncodedImage {
     /// Packed rendering quality, extend modes, and atlas index.
     /// Bits 6-13: `atlas_index` (8 bits, supports up to 256 atlases)
@@ -228,6 +229,7 @@ pub(crate) struct GpuEncodedImage {
 /// Align to 16 bytes for `RGBA32Uint` alignment.
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[allow(dead_code, reason = "Clippy fails when --no-default-features")]
 pub(crate) struct GpuBlurredRoundedRect {
     /// Transform matrix [a, b, c, d, tx, ty].
     pub transform: [f32; 6],
@@ -249,6 +251,7 @@ pub(crate) struct GpuBlurredRoundedRect {
 /// Align to 16 bytes for `RGBA32Uint` alignment.
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[allow(dead_code, reason = "Clippy fails when --no-default-features")]
 pub(crate) struct GpuLinearGradient {
     /// Packed texture width (bits 0-30) and extend mode (bit 31: 0=Pad, 1=Repeat).
     pub texture_width_and_extend_mode: u32,
@@ -262,6 +265,7 @@ pub(crate) struct GpuLinearGradient {
 /// Align to 16 bytes for `RGBA32Uint` alignment.
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[allow(dead_code, reason = "Clippy fails when --no-default-features")]
 pub(crate) struct GpuRadialGradient {
     /// Packed texture width (bits 0-30) and extend mode (bit 31: 0=Pad, 1=Repeat).
     pub texture_width_and_extend_mode: u32,
@@ -291,6 +295,7 @@ pub(crate) struct GpuRadialGradient {
 /// Align to 16 bytes for `RGBA32Uint` alignment.
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[allow(dead_code, reason = "Clippy fails when --no-default-features")]
 pub(crate) struct GpuSweepGradient {
     /// Packed texture width (bits 0-30) and extend mode (bit 31: 0=Pad, 1=Repeat).
     pub texture_width_and_extend_mode: u32,
