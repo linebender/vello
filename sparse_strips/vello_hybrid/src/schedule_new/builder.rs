@@ -22,6 +22,7 @@ use vello_common::peniko::{BlendMode, Compose};
 use vello_common::record::{Drawable, LayerClip, RecordedCmd, RecordedLayerKind};
 use vello_common::strip_generator::StripStorage;
 use vello_common::tile::Tile;
+use vello_common::util::RectExt;
 
 const COLOR_SOURCE_LAYER: u32 = 1;
 
@@ -107,9 +108,10 @@ impl<'a> ScheduleBuilder<'a> {
             return Ok(());
         }
 
+        let allocation_bbox = bbox.snap_to_tile_coordinates();
         let texture_index = layer.depth & 1;
         if let Some(layer) =
-            self.schedule_layer_command_stream(layer_id, texture_index, bbox, schedule)?
+            self.schedule_layer_command_stream(layer_id, texture_index, allocation_bbox, schedule)?
         {
             self.layer_allocations[layer_id as usize] = Some(layer);
         }
@@ -286,7 +288,8 @@ impl<'a> ScheduleBuilder<'a> {
             );
             draw.push_layer_ref(
                 LayerSample {
-                    region: allocation.region,
+                    source: allocation.region,
+                    bbox: allocation.region.scene_bbox,
                     source_origin: (0, 0),
                 },
                 1.0,
@@ -405,14 +408,14 @@ impl<'a> ScheduleBuilder<'a> {
                 props.clip_path.as_ref(),
                 self.strip_storage,
             );
-            state.backdrop_bbox.union(layer.sample.region.scene_bbox);
+            state.backdrop_bbox.union(layer.sample.bbox);
             state.sampled_layers.push(layer_id);
             self.flush_stream_segment(state, schedule);
             return;
         }
 
         let parent_ready_round = self.flush_stream_segment(state, schedule);
-        let source_bbox = layer.sample.region.scene_bbox;
+        let source_bbox = layer.sample.bbox;
         let blend_round = parent_ready_round.max(layer.round_idx);
         let bbox = blend_affected_bbox(state.backdrop_bbox, source_bbox, blend_mode.compose)
             .intersect(state.target.layer_region().scene_bbox);
@@ -425,7 +428,7 @@ impl<'a> ScheduleBuilder<'a> {
         self.ensure_schedule_round_exists(blend_round, schedule);
         schedule.rounds[blend_round].push_blend(BlendOp {
             parent: state.target.layer_region(),
-            source: layer.sample.region,
+            source: layer.sample.source,
             bbox,
             blend_mode,
             opacity,
@@ -586,13 +589,14 @@ impl<'a> ScheduleBuilder<'a> {
         let layer = &self.scene.recorder.layers[layer_id as usize];
         let RecordedLayerKind::Filter { placement, .. } = &layer.kind else {
             return LayerSample {
-                region: allocation,
+                source: allocation,
+                bbox: layer.bbox,
                 source_origin: (0, 0),
             };
         };
 
         LayerSample {
-            region: LayerTextureRegion {
+            source: LayerTextureRegion {
                 x: allocation.x + u32::from(placement.src_x),
                 y: allocation.y + u32::from(placement.src_y),
                 scene_bbox: placement.dest_bbox,
@@ -600,6 +604,7 @@ impl<'a> ScheduleBuilder<'a> {
                 height: u32::from(placement.dest_bbox.height()),
                 ..allocation
             },
+            bbox: placement.dest_bbox,
             source_origin: (0, 0),
         }
     }
@@ -817,7 +822,8 @@ struct FilterScratchAllocation {
 
 #[derive(Debug, Clone, Copy)]
 struct LayerSample {
-    region: LayerTextureRegion,
+    source: LayerTextureRegion,
+    bbox: RectU16,
     source_origin: (u16, u16),
 }
 
@@ -1142,7 +1148,7 @@ impl DrawBuilder {
         }
 
         let depth_index = self.depth.next(false);
-        let bbox = sample.region.scene_bbox.intersect(self.draw_bounds);
+        let bbox = sample.bbox.intersect(self.draw_bounds);
         if bbox.is_empty() {
             return;
         }
@@ -1178,7 +1184,7 @@ impl DrawBuilder {
         strip_storage: &StripStorage,
     ) {
         let strips = &strip_storage.strips[clip_path.strip_range.clone()];
-        let sample_bbox = sample.region.scene_bbox.intersect(self.draw_bounds);
+        let sample_bbox = sample.bbox.intersect(self.draw_bounds);
         if strips.len() < 2 || clip_path.bbox.is_empty() || sample_bbox.is_empty() {
             return;
         }
@@ -1195,7 +1201,8 @@ impl DrawBuilder {
             }
 
             let y = strip.y;
-            if y < sample_bbox.y0 || y >= sample_bbox.y1 {
+            let y1 = y.saturating_add(Tile::HEIGHT);
+            if y1 <= sample_bbox.y0 || y >= sample_bbox.y1 {
                 continue;
             }
 
@@ -1359,7 +1366,7 @@ fn pack_u16_pair(x: u32, y: u32) -> u32 {
 }
 
 fn layer_sample_payload(sample: LayerSample, x: u16, y: u16) -> u32 {
-    let source = sample.region;
+    let source = sample.source;
     let source_x =
         source.x + u32::from(sample.source_origin.0) + u32::from(x - source.scene_bbox.x0);
     let source_y =

@@ -42,7 +42,7 @@ use crate::geometry::RectU16;
 use crate::mask::Mask;
 use crate::peniko::BlendMode;
 use crate::strip::Strip;
-use crate::util::{RectExt, VecPool};
+use crate::util::VecPool;
 use alloc::vec::Vec;
 use core::ops::Range;
 
@@ -330,11 +330,7 @@ fn regular_layer_bbox(mut bbox: RectU16, props: &LayerProps) -> RectU16 {
         bbox = bbox.intersect(clip_path.bbox);
     }
 
-    if bbox.is_empty() {
-        bbox
-    } else {
-        bbox.snap_to_tile_coordinates()
-    }
+    bbox
 }
 
 impl<D: Drawable> CommandRecorder<D> {
