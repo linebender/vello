@@ -123,7 +123,7 @@ struct Config {
 //         - If paint_type >= 1: `paint_texture_idx`
 //
 //     When color_source = 1 (COLOR_SOURCE_LAYER):
-//       - Bits 0-7: `opacity` encoded as u8, where 255 = fully opaque
+//       - Bits 0-7: opacity (0-255)
 //       - Bits 8-28: unused
 //
 // Decision tree for paint/payload interpretation:
