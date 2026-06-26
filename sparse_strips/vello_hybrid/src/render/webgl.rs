@@ -25,7 +25,7 @@ use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
     filter::{
         FilterContext, FilterInstanceData, FilterTexture, GpuBlendInstance,
-        build_scheduled_filter_batches, gpu_blend_instance,
+        build_scheduled_filter_batches, gpu_blend_instance, gpu_filter_copy_instance,
     },
     gradient_cache::GradientRampCache,
     render::{
@@ -82,7 +82,7 @@ use web_sys::{
     WebGlShader, WebGlTexture, WebGlUniformLocation, WebGlVertexArrayObject,
 };
 
-const BLEND_SCRATCH_INDEX: usize = 1;
+const BLEND_SCRATCH_INDEX: usize = 0;
 
 /// Placeholder value for uninitialized GPU encoded paints.
 const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
@@ -2825,6 +2825,12 @@ impl WebGlRendererContext<'_> {
                 instance_count,
             );
 
+            self.blend_instances
+                .iter_mut()
+                .for_each(|instance| *instance = instance.copy_from_dest_in_scratch());
+            self.programs
+                .upload_blend_instances(self.gl, &self.blend_instances);
+
             self.gl.bind_framebuffer(
                 WebGl2RenderingContext::FRAMEBUFFER,
                 Some(&self.programs.resources.layer_framebuffers[texture_index]),
@@ -2920,6 +2926,46 @@ impl WebGlRendererContext<'_> {
                 0,
                 4,
                 i32::try_from(batch.instances.len()).unwrap(),
+            );
+        }
+
+        self.gl
+            .bind_vertex_array(Some(&self.programs.resources.blend_vao));
+        self.gl.use_program(Some(&self.programs.blend_copy_program));
+        self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+        self.gl.bind_texture(
+            WebGl2RenderingContext::TEXTURE_2D,
+            Some(&self.programs.resources.filter_scratch_textures[0]),
+        );
+        self.gl
+            .uniform1i(Some(&self.programs.blend_copy_uniforms.scratch_texture), 0);
+
+        for texture_index in 0..self.programs.resources.layer_framebuffers.len() {
+            self.blend_instances.clear();
+            self.blend_instances.extend(
+                filters
+                    .iter()
+                    .copied()
+                    .filter(|filter| filter.layer.texture_index == texture_index)
+                    .map(|filter| gpu_filter_copy_instance(filter, target_size)),
+            );
+            if self.blend_instances.is_empty() {
+                continue;
+            }
+
+            self.programs
+                .upload_blend_instances(self.gl, &self.blend_instances);
+            self.gl.bind_framebuffer(
+                WebGl2RenderingContext::FRAMEBUFFER,
+                Some(&self.programs.resources.layer_framebuffers[texture_index]),
+            );
+            self.gl
+                .viewport(0, 0, target_size.0 as i32, target_size.1 as i32);
+            self.gl.draw_arrays_instanced(
+                WebGl2RenderingContext::TRIANGLE_STRIP,
+                0,
+                4,
+                i32::try_from(self.blend_instances.len()).unwrap(),
             );
         }
 

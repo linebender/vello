@@ -1,7 +1,7 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Copy blended layer atlas regions from scratch back into the layer atlas.
+//! Copy atlas regions from scratch back into the layer atlas.
 
 struct BlendInstance {
     @location(0) dest_origin: vec2<u32>,
@@ -17,7 +17,7 @@ struct BlendInstance {
 }
 
 struct VertexOutput {
-    @location(0) dest_xy: vec2<f32>,
+    @location(0) source_xy: vec2<f32>,
     @builtin(position) position: vec4<f32>,
 }
 
@@ -35,7 +35,7 @@ fn vs_main(
     let dest_xy = vec2<f32>(instance.dest_origin) + local;
 
     var out: VertexOutput;
-    out.dest_xy = dest_xy;
+    out.source_xy = vec2<f32>(instance.source_origin) + local;
 
     let ndc_x = dest_xy.x * 2.0 / f32(instance.target_size.x) - 1.0;
     let ndc_y = 1.0 - dest_xy.y * 2.0 / f32(instance.target_size.y);
@@ -45,7 +45,7 @@ fn vs_main(
 
 @fragment
 fn fs_main(
-    @location(0) dest_xy: vec2<f32>,
+    @location(0) source_xy: vec2<f32>,
 ) -> @location(0) vec4<f32> {
-    return textureLoad(scratch_texture, vec2<i32>(dest_xy), 0);
+    return textureLoad(scratch_texture, vec2<i32>(source_xy), 0);
 }

@@ -23,7 +23,7 @@ use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
     filter::{
         FilterContext, FilterInstanceData, FilterTexture, GpuBlendInstance,
-        build_scheduled_filter_batches, gpu_blend_instance,
+        build_scheduled_filter_batches, gpu_blend_instance, gpu_filter_copy_instance,
     },
     gradient_cache::GradientRampCache,
     render::{
@@ -71,7 +71,7 @@ use wgpu::{
     util::DeviceExt,
 };
 
-const BLEND_SCRATCH_INDEX: usize = 1;
+const BLEND_SCRATCH_INDEX: usize = 0;
 
 /// Placeholder value for uninitialized GPU encoded paints.
 const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
@@ -2999,6 +2999,17 @@ impl RendererContext<'_> {
                 render_pass.draw(0..4, 0..instance_count);
             }
 
+            self.blend_instances
+                .iter_mut()
+                .for_each(|instance| *instance = instance.copy_from_dest_in_scratch());
+            let copy_instance_buffer =
+                self.device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Blend Copy Instances Buffer"),
+                        contents: bytemuck::cast_slice(&self.blend_instances),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    });
+
             {
                 let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
                     label: Some("Copy Blend Scratch To Layer"),
@@ -3018,7 +3029,7 @@ impl RendererContext<'_> {
                 });
                 render_pass.set_pipeline(&self.programs.blend_copy_pipeline);
                 render_pass.set_bind_group(1, &self.programs.resources.blend_copy_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, instance_buffer.slice(..));
+                render_pass.set_vertex_buffer(0, copy_instance_buffer.slice(..));
                 render_pass.draw(0..4, 0..instance_count);
             }
 
@@ -3077,6 +3088,50 @@ impl RendererContext<'_> {
             render_pass.set_bind_group(0, &resources.filter_base_bind_group, &[]);
             render_pass.set_bind_group(1, input_bg, &[]);
             render_pass.set_bind_group(2, original_bg, &[]);
+            render_pass.set_vertex_buffer(0, instance_buffer.slice(..));
+            render_pass.draw(0..4, 0..instance_count);
+        }
+
+        let target_size = self.layer_texture_size();
+        for texture_index in 0..self.programs.resources.layer_texture_views.len() {
+            self.blend_instances.clear();
+            self.blend_instances.extend(
+                filters
+                    .iter()
+                    .copied()
+                    .filter(|filter| filter.layer.texture_index == texture_index)
+                    .map(|filter| gpu_filter_copy_instance(filter, target_size)),
+            );
+            if self.blend_instances.is_empty() {
+                continue;
+            }
+
+            let instance_count = u32::try_from(self.blend_instances.len()).unwrap();
+            let instance_buffer =
+                self.device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Filter Copy Instances Buffer"),
+                        contents: bytemuck::cast_slice(&self.blend_instances),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    });
+            let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("Copy Filter Scratch To Layer"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: &self.programs.resources.layer_texture_views[texture_index],
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+            render_pass.set_pipeline(&self.programs.blend_copy_pipeline);
+            render_pass.set_bind_group(1, &self.programs.resources.blend_copy_bind_group, &[]);
             render_pass.set_vertex_buffer(0, instance_buffer.slice(..));
             render_pass.draw(0..4, 0..instance_count);
         }

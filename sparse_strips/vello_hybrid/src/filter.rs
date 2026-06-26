@@ -11,12 +11,13 @@
 // At render time, each round first renders the layer contents into the allocated layer texture
 // region. Before that layer is blended or sampled by its parent, the filter step runs over all
 // filter layers scheduled for that texture in the round. The filter planner expands each filter
-// into a sequence of GPU passes such as offset, downscale, blur, upscale, drop-shadow composite,
-// and copy-back. Passes at the same step with matching input/output textures are batched together.
+// into a sequence of GPU passes such as offset, downscale, blur, upscale, and drop-shadow
+// composite. Passes at the same step with matching input/output textures are batched together.
 //
-// The final filtered pixels are copied back into the layer texture allocation. From that point on,
-// the rest of the scheduler can treat the layer like any other sampled layer: it can be blended
-// into its parent, used with opacity, clipped, or sampled by the normal strip rendering path.
+// The final filtered pixels are normalized into scratch texture 0 and then copied back into the
+// layer texture allocation. From that point on, the rest of the scheduler can treat the layer like
+// any other sampled layer: it can be blended into its parent, used with opacity, clipped, or sampled
+// by the normal strip rendering path.
 
 //! GPU filter types and conversion utilities.
 
@@ -459,21 +460,21 @@ fn build_scheduled_filter_passes(
     match op.gpu_filter.filter_type() {
         filter_type::OFFSET => {
             builder.emit_to_scratch(pass_kind::OFFSET);
-            builder.emit_copy_back();
+            builder.ensure_result_in_scratch_zero();
         }
         filter_type::FLOOD => {
             builder.emit_to_scratch(pass_kind::FLOOD);
-            builder.emit_copy_back();
+            builder.ensure_result_in_scratch_zero();
         }
         filter_type::GAUSSIAN_BLUR => {
             builder.emit_blur_sequence(op.gpu_filter.n_decimations());
-            builder.emit_copy_back();
+            builder.ensure_result_in_scratch_zero();
         }
         filter_type::DROP_SHADOW => {
             builder.emit_to_scratch(pass_kind::OFFSET);
             builder.emit_blur_sequence(op.gpu_filter.n_decimations());
             builder.emit_drop_shadow_composite();
-            builder.emit_copy_back();
+            builder.ensure_result_in_scratch_zero();
         }
         _ => unreachable!("unsupported filter type was encoded"),
     }
@@ -599,19 +600,32 @@ impl FilterPassBuilder {
         self.toggle = (self.toggle + 1) % 2;
     }
 
-    fn emit_copy_back(&mut self) {
+    fn current_texture(&self) -> FilterTexture {
+        if self.first {
+            self.initial_texture()
+        } else {
+            FilterTexture::Scratch((self.toggle + 1) % 2)
+        }
+    }
+
+    fn ensure_result_in_scratch_zero(&mut self) {
+        if self.current_texture() == FilterTexture::Scratch(0) {
+            return;
+        }
+
         let input = if self.first {
+            self.first = false;
             self.initial_texture()
         } else {
             FilterTexture::Scratch((self.toggle + 1) % 2)
         };
-        self.first = false;
         let src_offset = self.texture_offset(input);
-        let dest_offset = self.texture_offset(self.initial_texture());
+        let output = FilterTexture::Scratch(0);
+        let dest_offset = self.texture_offset(output);
         self.passes.push(ScheduledFilterPass {
             step: self.step,
             input,
-            output: self.initial_texture(),
+            output,
             original: None,
             instance: FilterInstanceData {
                 src: IntRect::new(src_offset, [self.op.layer.width, self.op.layer.height]),
@@ -734,6 +748,11 @@ impl GpuBlendInstance {
             u16::try_from(y1).unwrap(),
         )
     }
+
+    pub(crate) fn copy_from_dest_in_scratch(mut self) -> Self {
+        self.source_origin = self.dest_origin;
+        self
+    }
 }
 
 pub(crate) fn gpu_blend_instance(blend: BlendOp, target_size: (u32, u32)) -> GpuBlendInstance {
@@ -767,6 +786,39 @@ pub(crate) fn gpu_blend_instance(blend: BlendOp, target_size: (u32, u32)) -> Gpu
         source_size: [
             u32::from(blend.source.scene_bbox.width()),
             u32::from(blend.source.scene_bbox.height()),
+        ],
+        _padding: 0,
+    }
+}
+
+pub(crate) fn gpu_filter_copy_instance(
+    filter: FilterOp,
+    target_size: (u32, u32),
+) -> GpuBlendInstance {
+    let scratch = filter.scratches[0].expect("filter copy requires scratch texture 0");
+    GpuBlendInstance {
+        dest_origin: [filter.layer.x, filter.layer.y],
+        source_origin: [scratch.x, scratch.y],
+        size: [filter.layer.width, filter.layer.height],
+        texture_indices: [
+            u32::try_from(filter.layer.texture_index)
+                .expect("layer texture index fits into shader payload"),
+            0,
+        ],
+        blend_mode: [0, 0],
+        opacity: 255,
+        target_size: [target_size.0, target_size.1],
+        bbox_origin: [
+            u32::from(filter.layer.scene_bbox.x0),
+            u32::from(filter.layer.scene_bbox.y0),
+        ],
+        source_scene_origin: [
+            u32::from(filter.layer.scene_bbox.x0),
+            u32::from(filter.layer.scene_bbox.y0),
+        ],
+        source_size: [
+            u32::from(filter.layer.scene_bbox.width()),
+            u32::from(filter.layer.scene_bbox.height()),
         ],
         _padding: 0,
     }
