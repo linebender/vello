@@ -71,6 +71,8 @@ use wgpu::{
     util::DeviceExt,
 };
 
+const BLEND_SCRATCH_INDEX: usize = 1;
+
 /// Placeholder value for uninitialized GPU encoded paints.
 const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
     texture_width_and_extend_mode: 0,
@@ -1049,8 +1051,6 @@ struct GpuResources {
     /// Filter bind groups for sampling scratch textures as originals.
     filter_scratch_original_bind_groups: [BindGroup; 2],
 
-    /// Scratch texture view used for non-default layer blending.
-    blend_scratch_texture_view: TextureView,
     /// Bind group for blend operations that sample layer atlas textures.
     blend_layer_bind_group: BindGroup,
     /// Bind group for copying blend scratch back into layer atlas textures.
@@ -1641,9 +1641,8 @@ impl Programs {
         let layer_filter_original_bind_groups = layer_texture_views.each_ref().map(|view| {
             create_filter_original_bind_group(device, &filter_input_bind_group_layouts[1], view)
         });
-        let filter_scratch_textures: [Texture; 2] = core::array::from_fn(|_| {
-            Self::create_blend_scratch_texture(device, layer_texture_size)
-        });
+        let filter_scratch_textures: [Texture; 2] =
+            core::array::from_fn(|_| Self::create_scratch_texture(device, layer_texture_size));
         let filter_scratch_texture_views = filter_scratch_textures
             .each_ref()
             .map(|texture| texture.create_view(&TextureViewDescriptor::default()));
@@ -1660,10 +1659,6 @@ impl Programs {
             filter_scratch_texture_views.each_ref().map(|view| {
                 create_filter_original_bind_group(device, &filter_input_bind_group_layouts[1], view)
             });
-        let blend_scratch_texture = Self::create_blend_scratch_texture(device, layer_texture_size);
-        let blend_scratch_texture_view =
-            blend_scratch_texture.create_view(&TextureViewDescriptor::default());
-
         let clear_config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Clear Config"),
             contents: bytemuck::bytes_of(&ClearConfig {
@@ -1802,7 +1797,7 @@ impl Programs {
         let blend_copy_bind_group = Self::create_blend_copy_bind_group(
             device,
             &blend_copy_bind_group_layout,
-            &blend_scratch_texture_view,
+            &filter_scratch_texture_views[BLEND_SCRATCH_INDEX],
         );
 
         let resources = GpuResources {
@@ -1814,7 +1809,6 @@ impl Programs {
             filter_scratch_texture_views,
             filter_scratch_input_bind_groups,
             filter_scratch_original_bind_groups,
-            blend_scratch_texture_view,
             blend_layer_bind_group,
             blend_copy_bind_group,
             layer_config_buffer,
@@ -1897,9 +1891,9 @@ impl Programs {
         })
     }
 
-    fn create_blend_scratch_texture(device: &Device, size: u32) -> Texture {
+    fn create_scratch_texture(device: &Device, size: u32) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Blend Scratch Texture"),
+            label: Some("Scratch Texture"),
             size: Extent3d {
                 width: size,
                 height: size,
@@ -2985,7 +2979,8 @@ impl RendererContext<'_> {
                 let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
                     label: Some("Blend To Scratch"),
                     color_attachments: &[Some(RenderPassColorAttachment {
-                        view: &self.programs.resources.blend_scratch_texture_view,
+                        view: &self.programs.resources.filter_scratch_texture_views
+                            [BLEND_SCRATCH_INDEX],
                         depth_slice: None,
                         resolve_target: None,
                         ops: wgpu::Operations {
@@ -3033,7 +3028,10 @@ impl RendererContext<'_> {
                     .iter()
                     .map(GpuBlendInstance::clear_rect),
             );
-            self.do_clear_stored_rects(ClearTarget::BlendScratch, "Clear Blend Scratch");
+            self.do_clear_stored_rects(
+                ClearTarget::Scratch(BLEND_SCRATCH_INDEX),
+                "Clear Blend Scratch",
+            );
         }
     }
 
@@ -3110,8 +3108,7 @@ impl RendererContext<'_> {
             });
         let resources = &self.programs.resources;
         let view = match target {
-            ClearTarget::BlendScratch => &resources.blend_scratch_texture_view,
-            ClearTarget::FilterScratch(texture_index) => {
+            ClearTarget::Scratch(texture_index) => {
                 &resources.filter_scratch_texture_views[texture_index]
             }
             ClearTarget::Layer(texture_index) => &resources.layer_texture_views[texture_index],

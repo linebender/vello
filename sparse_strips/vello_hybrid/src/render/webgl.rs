@@ -82,6 +82,8 @@ use web_sys::{
     WebGlShader, WebGlTexture, WebGlUniformLocation, WebGlVertexArrayObject,
 };
 
+const BLEND_SCRATCH_INDEX: usize = 1;
+
 /// Placeholder value for uninitialized GPU encoded paints.
 const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
     texture_width_and_extend_mode: 0,
@@ -1142,10 +1144,6 @@ struct WebGlResources {
     blend_instance_buffer: Buffer,
     /// VAO for blend rendering.
     blend_vao: VertexArray,
-    /// Scratch texture used for non-default layer blending.
-    blend_scratch_texture: Texture,
-    /// Framebuffer for the blend scratch texture.
-    blend_scratch_framebuffer: Framebuffer,
     /// Scratch textures used for filter ping-ponging.
     filter_scratch_textures: [Texture; 2],
     /// Framebuffers for filter scratch textures.
@@ -2330,9 +2328,6 @@ fn create_webgl_resources(gl: &WebGl2RenderingContext, image_cache: &ImageCache)
         create_framebuffer_for_texture(gl, &filter_scratch_textures[0]),
         create_framebuffer_for_texture(gl, &filter_scratch_textures[1]),
     ];
-    let blend_scratch_texture = create_layer_texture(gl, layer_texture_size);
-    let blend_scratch_framebuffer = create_framebuffer_for_texture(gl, &blend_scratch_texture);
-
     let filter_data_texture = create_texture(gl);
 
     WebGlResources {
@@ -2362,8 +2357,6 @@ fn create_webgl_resources(gl: &WebGl2RenderingContext, image_cache: &ImageCache)
         filter_vao,
         blend_instance_buffer,
         blend_vao,
-        blend_scratch_texture,
-        blend_scratch_framebuffer,
         filter_scratch_textures,
         filter_scratch_framebuffers,
         layer_config_buffer,
@@ -2799,11 +2792,15 @@ impl WebGlRendererContext<'_> {
 
             self.gl.bind_framebuffer(
                 WebGl2RenderingContext::FRAMEBUFFER,
-                Some(&self.programs.resources.blend_scratch_framebuffer),
+                Some(&self.programs.resources.filter_scratch_framebuffers[BLEND_SCRATCH_INDEX]),
             );
             self.gl
                 .viewport(0, 0, target_size.0 as i32, target_size.1 as i32);
             self.gl.use_program(Some(&self.programs.blend_program));
+
+            self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);
+            self.gl
+                .bind_texture(WebGl2RenderingContext::TEXTURE_2D, None);
 
             self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
             self.gl.bind_texture(
@@ -2837,7 +2834,7 @@ impl WebGlRendererContext<'_> {
             self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
             self.gl.bind_texture(
                 WebGl2RenderingContext::TEXTURE_2D,
-                Some(&self.programs.resources.blend_scratch_texture),
+                Some(&self.programs.resources.filter_scratch_textures[BLEND_SCRATCH_INDEX]),
             );
             self.gl
                 .uniform1i(Some(&self.programs.blend_copy_uniforms.scratch_texture), 0);
@@ -2855,7 +2852,7 @@ impl WebGlRendererContext<'_> {
                     .iter()
                     .map(GpuBlendInstance::clear_rect),
             );
-            self.do_clear_stored_rects(ClearTarget::BlendScratch);
+            self.do_clear_stored_rects(ClearTarget::Scratch(BLEND_SCRATCH_INDEX));
         }
 
         self.gl.bind_vertex_array(None);
@@ -2948,8 +2945,7 @@ impl WebGlRendererContext<'_> {
         self.gl.disable(WebGl2RenderingContext::BLEND);
         self.gl.clear_color(0.0, 0.0, 0.0, 0.0);
         let framebuffer = match target {
-            ClearTarget::BlendScratch => &self.programs.resources.blend_scratch_framebuffer,
-            ClearTarget::FilterScratch(texture_index) => {
+            ClearTarget::Scratch(texture_index) => {
                 &self.programs.resources.filter_scratch_framebuffers[texture_index]
             }
             ClearTarget::Layer(texture_index) => {

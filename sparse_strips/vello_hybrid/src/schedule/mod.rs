@@ -45,10 +45,8 @@ pub(crate) enum StripPassRenderTarget {
 /// Specifies the texture to clear rectangular regions in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ClearTarget {
-    /// Clear regions in the blend scratch texture.
-    BlendScratch,
-    /// Clear regions in one of the filter scratch textures.
-    FilterScratch(usize),
+    /// Clear regions in one of the scratch textures.
+    Scratch(usize),
     /// Clear regions in one of the layer atlas textures.
     Layer(usize),
 }
@@ -249,7 +247,7 @@ fn clear_filter_scratch_regions<R: RendererBackend>(
     };
 
     for texture_index in 0..=max_texture_index {
-        renderer.clear_rects(ClearTarget::FilterScratch(texture_index), |clear_rects| {
+        renderer.clear_rects(ClearTarget::Scratch(texture_index), |clear_rects| {
             clear_rects.extend(regions.iter().filter_map(|region| {
                 if region.texture_index != texture_index {
                     return None;
