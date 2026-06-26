@@ -109,7 +109,7 @@ jobs:
       - name: Install cargo-rdme
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-rdme
+          tool: cargo-rdme@1.4.8
 
       - name: Run cargo rdme (vello_cpu)
         run: cargo rdme --check --workspace-project=vello_cpu
