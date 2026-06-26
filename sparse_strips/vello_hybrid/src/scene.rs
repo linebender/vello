@@ -37,16 +37,6 @@ use vello_common::util::{control_point_bbox_u16, is_axis_aligned, strip_bbox};
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
 
-/// A rectangle stored in the fast-path buffer.
-#[derive(Debug)]
-pub(crate) struct FastPathRect {
-    pub(crate) x0: f32,
-    pub(crate) y0: f32,
-    pub(crate) x1: f32,
-    pub(crate) y1: f32,
-    pub(crate) paint: Paint,
-}
-
 #[derive(Debug)]
 pub(crate) enum RecordedDraw {
     Path(RecordedPath),
@@ -61,7 +51,8 @@ pub(crate) struct RecordedPath {
 
 #[derive(Debug)]
 pub(crate) struct RecordedRect {
-    pub(crate) rect: FastPathRect,
+    pub(crate) rect: Rect,
+    pub(crate) paint: Paint,
 }
 
 impl RecordedDraw {
@@ -69,21 +60,8 @@ impl RecordedDraw {
         Self::Path(RecordedPath { strips, paint })
     }
 
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "Rectangles are clipped to the u16 viewport before recording."
-    )]
-    fn rect_bbox(rect: &FastPathRect) -> RectU16 {
-        RectU16::new(
-            rect.x0.floor() as u16,
-            rect.y0.floor() as u16,
-            rect.x1.ceil() as u16,
-            rect.y1.ceil() as u16,
-        )
-    }
-
-    fn rect(rect: FastPathRect) -> Self {
-        Self::Rect(RecordedRect { rect })
+    fn rect(rect: Rect, paint: Paint) -> Self {
+        Self::Rect(RecordedRect { rect, paint })
     }
 }
 
@@ -91,7 +69,12 @@ impl Drawable for RecordedDraw {
     fn bbox(&self, strips: &[Strip]) -> RectU16 {
         match self {
             Self::Path(_) => strip_bbox(strips),
-            Self::Rect(rect) => Self::rect_bbox(&rect.rect),
+            Self::Rect(rect) => RectU16::new(
+                rect.rect.x0.floor() as u16,
+                rect.rect.y0.floor() as u16,
+                rect.rect.x1.ceil() as u16,
+                rect.rect.y1.ceil() as u16,
+            ),
         }
     }
 }
@@ -475,7 +458,7 @@ impl Scene {
         };
 
         let paint = self.encode_current_paint();
-        self.push_fast_rect(bounds, paint);
+        self.record_rect(bounds, paint);
         true
     }
 
@@ -559,13 +542,7 @@ impl Scene {
                         transform,
                     );
 
-                    ctx.record_rect(FastPathRect {
-                        x0: x0 as f32,
-                        y0: y0 as f32,
-                        x1: x1 as f32,
-                        y1: y1 as f32,
-                        paint,
-                    });
+                    ctx.record_rect(Rect::new(x0, y0, x1, y1), paint);
                 } else {
                     let paint = ctx.encode_external_texture_paint(
                         texture_id,
@@ -595,20 +572,6 @@ impl Scene {
             && self.aliasing_threshold.is_none()
     }
 
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "f64→f32 truncation is acceptable for pixel coordinates"
-    )]
-    fn push_fast_rect(&mut self, bounds: Rect, paint: Paint) {
-        self.record_rect(FastPathRect {
-            x0: bounds.x0 as f32,
-            y0: bounds.y0 as f32,
-            x1: bounds.x1 as f32,
-            y1: bounds.y1 as f32,
-            paint,
-        });
-    }
-
     fn record_path(&mut self, strips: Range<usize>, draw: RecordedDraw) {
         let blend_mode = self.render_state.blend_mode;
         let strip_storage = self.strip_storage.borrow();
@@ -620,12 +583,12 @@ impl Scene {
         );
     }
 
-    fn record_rect(&mut self, rect: FastPathRect) {
+    fn record_rect(&mut self, rect: Rect, paint: Paint) {
         let blend_mode = self.render_state.blend_mode;
         Self::push_recorded_draw(
             &mut self.recorder,
             blend_mode,
-            RecordedDraw::rect(rect),
+            RecordedDraw::rect(rect, paint),
             &[],
         );
     }
@@ -729,7 +692,7 @@ impl Scene {
                 blurred_rect.encode_into(&mut ctx.encoded_paints.borrow_mut(), transform, None);
 
             if let Some(bounds) = ctx.fast_rect_bounds(&inflated_rect) {
-                ctx.push_fast_rect(bounds, paint);
+                ctx.record_rect(bounds, paint);
                 return;
             }
 

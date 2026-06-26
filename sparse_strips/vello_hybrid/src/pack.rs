@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::GpuStrip;
-use crate::scene::FastPathRect;
 use vello_common::TextureId;
 use vello_common::encode::{EncodedKind, EncodedPaint};
+use vello_common::kurbo::Rect;
 use vello_common::paint::{ImageSource, Paint};
 
 const COLOR_SOURCE_PAYLOAD: u32 = 0;
@@ -188,7 +188,7 @@ pub(crate) struct SplitRect {
     clippy::cast_possible_truncation,
     reason = "recorded rect coordinates are clipped to the u16 viewport domain before packing"
 )]
-pub(crate) fn split_rect(rect: &FastPathRect) -> SplitRect {
+pub(crate) fn split_rect(rect: &Rect) -> SplitRect {
     let sx0 = rect.x0.floor();
     let sy0 = rect.y0.floor();
     let sx1 = rect.x1.ceil();
@@ -199,13 +199,13 @@ pub(crate) fn split_rect(rect: &FastPathRect) -> SplitRect {
     let width = (sx1 - sx0) as u16;
     let height = (sy1 - sy0) as u16;
 
-    let left_frac = rect.x0 - sx0;
-    let top_frac = rect.y0 - sy0;
-    let right_frac = sx1 - rect.x1;
-    let bottom_frac = sy1 - rect.y1;
+    let left_frac = (rect.x0 - sx0) as f32;
+    let top_frac = (rect.y0 - sy0) as f32;
+    let right_frac = (sx1 - rect.x1) as f32;
+    let bottom_frac = (sy1 - rect.y1) as f32;
 
-    if rect.x1 - rect.x0 < f32::from(LARGE_RECT_SPLIT_THRESHOLD)
-        || rect.y1 - rect.y0 < f32::from(LARGE_RECT_SPLIT_THRESHOLD)
+    if rect.x1 - rect.x0 < f64::from(LARGE_RECT_SPLIT_THRESHOLD)
+        || rect.y1 - rect.y0 < f64::from(LARGE_RECT_SPLIT_THRESHOLD)
     {
         return SplitRect {
             main: RectPart {
@@ -309,18 +309,8 @@ fn pack_unorm4x8(v: [f32; 4]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::{RectPart, SplitRect, pack_unorm4x8, split_rect};
-    use crate::scene::FastPathRect;
-    use vello_common::paint::{Color, Paint};
 
-    fn solid_rect(x0: f32, y0: f32, x1: f32, y1: f32) -> FastPathRect {
-        FastPathRect {
-            x0,
-            y0,
-            x1,
-            y1,
-            paint: Paint::from(Color::from_rgba8(255, 0, 0, 255)),
-        }
-    }
+    use vello_common::kurbo::Rect;
 
     fn part(x: u16, y: u16, width: u16, height: u16, frac: [f32; 4]) -> RectPart {
         RectPart {
@@ -334,7 +324,7 @@ mod tests {
 
     #[test]
     fn splitter_keeps_small_rect_whole() {
-        let rect = solid_rect(10.25, 20.5, 25.75, 35.25);
+        let rect = Rect::new(10.25, 20.5, 25.75, 35.25);
         let split = split_rect(&rect);
 
         assert_eq!(
@@ -351,7 +341,7 @@ mod tests {
 
     #[test]
     fn splitter_splits_large_rect_into_five_parts() {
-        let rect = solid_rect(10.25, 20.5, 42.75, 52.75);
+        let rect = Rect::new(10.25, 20.5, 42.75, 52.75);
         let split = split_rect(&rect);
 
         assert_eq!(
@@ -368,7 +358,7 @@ mod tests {
 
     #[test]
     fn splitter_omits_unneeded_edge_parts() {
-        let rect = solid_rect(10.0, 20.5, 42.0, 53.0);
+        let rect = Rect::new(10.0, 20.5, 42.0, 53.0);
         let split = split_rect(&rect);
 
         assert_eq!(

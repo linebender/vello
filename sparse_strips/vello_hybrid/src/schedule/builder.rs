@@ -10,12 +10,13 @@ use super::{
 };
 use crate::filter::{FILTER_ATLAS_PADDING, GpuFilterData};
 use crate::pack::{GpuStripBuilder, RectPart, make_gpu_rect, process_paint, split_rect};
-use crate::scene::{FastPathRect, RecordedDraw};
+use crate::scene::RecordedDraw;
 use crate::{RenderError, Scene};
 use alloc::vec::Vec;
 use vello_common::encode::EncodedPaint;
 use vello_common::filter::PreparedFilter;
 use vello_common::geometry::RectU16;
+use vello_common::kurbo::Rect;
 use vello_common::multi_atlas::{AllocId, Atlas, AtlasError, AtlasId};
 use vello_common::paint::Paint;
 use vello_common::peniko::{BlendMode, Compose};
@@ -1031,7 +1032,7 @@ impl DrawBuilder {
                 );
             }
             RecordedDraw::Rect(rect) => {
-                self.push_rect(&rect.rect, encoded_paints, paint_idxs);
+                self.push_rect(&rect.rect, &rect.paint, encoded_paints, paint_idxs);
             }
         }
     }
@@ -1115,17 +1116,19 @@ impl DrawBuilder {
 
     fn push_rect(
         &mut self,
-        rect: &FastPathRect,
+        rect: &Rect,
+        paint: &Paint,
         encoded_paints: &[EncodedPaint],
         paint_idxs: &[u32],
     ) {
         let Some(rect) = clipped_fast_rect(rect, self.draw_bounds) else {
             return;
         };
-        let is_opaque = self.allow_opaque_pass && is_paint_opaque(&rect.paint, encoded_paints);
+        let is_opaque = self.allow_opaque_pass && is_paint_opaque(paint, encoded_paints);
         let depth_index = self.depth.next(is_opaque);
         pack_rectangle_into_gpu(
             &rect,
+            paint,
             encoded_paints,
             paint_idxs,
             depth_index,
@@ -1294,7 +1297,8 @@ fn is_paint_opaque(paint: &Paint, encoded_paints: &[EncodedPaint]) -> bool {
 }
 
 fn pack_rectangle_into_gpu(
-    rect: &FastPathRect,
+    rect: &Rect,
+    paint: &Paint,
     encoded_paints: &[EncodedPaint],
     paint_idxs: &[u32],
     depth_index: u32,
@@ -1315,7 +1319,7 @@ fn pack_rectangle_into_gpu(
     .into_iter()
     .flatten()
     {
-        let processed = process_paint(&rect.paint, encoded_paints, (part.x, part.y), paint_idxs);
+        let processed = process_paint(paint, encoded_paints, (part.x, part.y), paint_idxs);
         let strip = make_gpu_rect(
             offset_rect_part(part, geometry_offset),
             processed.payload,
@@ -1331,19 +1335,13 @@ fn pack_rectangle_into_gpu(
     }
 }
 
-fn clipped_fast_rect(rect: &FastPathRect, bbox: RectU16) -> Option<FastPathRect> {
-    let x0 = rect.x0.max(f32::from(bbox.x0));
-    let y0 = rect.y0.max(f32::from(bbox.y0));
-    let x1 = rect.x1.min(f32::from(bbox.x1));
-    let y1 = rect.y1.min(f32::from(bbox.y1));
+fn clipped_fast_rect(rect: &Rect, bbox: RectU16) -> Option<Rect> {
+    let x0 = rect.x0.max(f64::from(bbox.x0));
+    let y0 = rect.y0.max(f64::from(bbox.y0));
+    let x1 = rect.x1.min(f64::from(bbox.x1));
+    let y1 = rect.y1.min(f64::from(bbox.y1));
 
-    (x0 < x1 && y0 < y1).then(|| FastPathRect {
-        x0,
-        y0,
-        x1,
-        y1,
-        paint: rect.paint.clone(),
-    })
+    (x0 < x1 && y0 < y1).then(|| Rect::new(x0, y0, x1, y1))
 }
 
 fn offset_rect_part(part: RectPart, offset: (i32, i32)) -> RectPart {
