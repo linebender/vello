@@ -388,7 +388,7 @@ impl RenderContext {
 
     /// Fill a blurred rectangle with the given corner radius and standard deviation.
     ///
-    /// When `inverse` is `true`, the inverse (`1 - alpha`) of the blur coverage is painted: the
+    /// When `invert` is `true`, the inverse (`1 - alpha`) of the blur coverage is painted: the
     /// paint is fully opaque outside the blurred rectangle and fades to transparent inside it. This
     /// can be used to implement inset box shadows.
     ///
@@ -399,7 +399,7 @@ impl RenderContext {
         rect: &Rect,
         radius: f32,
         std_dev: f32,
-        inverse: bool,
+        invert: bool,
     ) {
         let rect = rect.abs();
         let color = match self.state.paint {
@@ -413,7 +413,7 @@ impl RenderContext {
             color,
             radius,
             std_dev,
-            inverse,
+            invert,
         };
 
         // The actual rectangle we paint needs to be larger so that the blurring effect

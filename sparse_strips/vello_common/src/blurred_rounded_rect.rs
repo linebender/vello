@@ -20,5 +20,5 @@ pub struct BlurredRoundedRectangle {
     ///
     /// When `true`, the paint is fully opaque outside the blurred rectangle and fades to
     /// transparent inside it. This is useful for implementing inset box shadows.
-    pub inverse: bool,
+    pub invert: bool,
 }

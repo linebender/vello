@@ -19,7 +19,7 @@ pub(crate) struct BlurredRoundedRectFiller<S: Simd> {
     g: f32x8<S>,
     b: f32x8<S>,
     a: f32x8<S>,
-    inverse: bool,
+    invert: bool,
     alpha_calculator: AlphaCalculator<S>,
 }
 
@@ -54,7 +54,7 @@ impl<S: Simd> BlurredRoundedRectFiller<S> {
                     g,
                     b,
                     a,
-                    inverse: rect.inverse,
+                    invert: rect.invert,
                 }
             },
         )
@@ -67,7 +67,7 @@ impl<S: Simd> Iterator for BlurredRoundedRectFiller<S> {
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         let mut next = self.alpha_calculator.next().unwrap();
-        if self.inverse {
+        if self.invert {
             next = f32x8::splat(next.simd, 1.0) - next;
         }
         let r = self.r * next;

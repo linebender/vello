@@ -740,7 +740,7 @@ impl Scene {
 
     /// Fill a blurred rectangle with the given corner radius and standard deviation.
     ///
-    /// When `inverse` is `true`, the inverse (`1 - alpha`) of the blur coverage is painted: the
+    /// When `invert` is `true`, the inverse (`1 - alpha`) of the blur coverage is painted: the
     /// paint is fully opaque outside the blurred rectangle and fades to transparent inside it. This
     /// can be used to implement inset box shadows.
     ///
@@ -751,7 +751,7 @@ impl Scene {
         rect: &Rect,
         radius: f32,
         std_dev: f32,
-        inverse: bool,
+        invert: bool,
     ) {
         if !self.paint_visible {
             return;
@@ -768,7 +768,7 @@ impl Scene {
                 color,
                 radius,
                 std_dev,
-                inverse,
+                invert,
             };
 
             let kernel_size = 2.5 * std_dev;

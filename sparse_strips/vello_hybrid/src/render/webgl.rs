@@ -988,7 +988,7 @@ impl WebGlRenderer {
         GpuEncodedPaint::BlurredRoundedRect(GpuBlurredRoundedRect {
             transform: rect.transform.as_coeffs().map(|x| x as f32),
             color: rect.color.as_premul_rgba8().to_u32(),
-            inverse: u32::from(rect.inverse),
+            invert: u32::from(rect.invert),
             params0: [
                 rect.exponent,
                 rect.recip_exponent,

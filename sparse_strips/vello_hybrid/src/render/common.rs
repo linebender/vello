@@ -236,7 +236,7 @@ pub(crate) struct GpuBlurredRoundedRect {
     /// Premultiplied color packed as RGBA8 unorm (`pack4x8unorm` layout).
     pub color: u32,
     /// Whether to paint the inverse (`1 - alpha`) of the blur coverage (`0` = normal, `1` = inverse).
-    pub inverse: u32,
+    pub invert: u32,
     /// Blur parameters: exponent, reciprocal exponent, scale, and inverse standard deviation.
     pub params0: [f32; 4],
     /// Blur parameters: minimum edge length, adjusted width, adjusted height, and outer radius.
