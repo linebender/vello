@@ -1029,9 +1029,6 @@ struct GpuResources {
     root_layer_bind_groups: [BindGroup; 2],
     /// Bind groups for rendering into layer atlas textures.
     layer_bind_groups: [BindGroup; 2],
-    /// Bind group for clear rect operations.
-    clear_bind_group: BindGroup,
-
     /// Placeholder paint-source bind group with a 1x1 dummy atlas texture, used during
     /// `render_to_atlas` to avoid a read-write conflict on the real atlas texture.
     stub_atlas_bind_group: BindGroup,
@@ -1058,16 +1055,6 @@ struct GpuResources {
 }
 
 const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).unwrap();
-
-/// Dummy config for the clear pipeline's existing bind-group shape.
-#[repr(C)]
-#[derive(Debug, Copy, Clone, Pod, Zeroable)]
-struct ClearConfig {
-    pub _padding0: u32,
-    pub _padding1: u32,
-    pub _padding2: u32,
-    pub _padding: u32,
-}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
@@ -1191,22 +1178,6 @@ impl Programs {
                 }],
             });
 
-        // Create bind group layout for clearing atlas rects.
-        let clear_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Clear Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-
         let strip_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Strip Shader"),
             source: wgpu::ShaderSource::Wgsl(vello_sparse_shaders::wgsl::RENDER_STRIPS.into()),
@@ -1232,7 +1203,7 @@ impl Programs {
         let clear_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Clear Pipeline Layout"),
-                bind_group_layouts: &[Some(&clear_bind_group_layout)],
+                bind_group_layouts: &[],
                 immediate_size: 0,
             });
 
@@ -1659,24 +1630,6 @@ impl Programs {
             filter_scratch_texture_views.each_ref().map(|view| {
                 create_filter_original_bind_group(device, &filter_input_bind_group_layouts[1], view)
             });
-        let clear_config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Clear Config"),
-            contents: bytemuck::bytes_of(&ClearConfig {
-                _padding0: 0,
-                _padding1: 0,
-                _padding2: 0,
-                _padding: 0,
-            }),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-        let clear_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Clear Bind Group"),
-            layout: &clear_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: clear_config_buffer.as_entire_binding(),
-            }],
-        });
         let layer_config_buffer = Self::create_config_buffer_for_size(
             device,
             layer_texture_size,
@@ -1814,7 +1767,6 @@ impl Programs {
             layer_config_buffer,
             root_layer_bind_groups,
             layer_bind_groups,
-            clear_bind_group,
             alphas_texture,
             atlas_texture_array,
             atlas_texture_array_view,
@@ -3185,7 +3137,6 @@ impl RendererContext<'_> {
             multiview_mask: None,
         });
         render_pass.set_pipeline(&self.programs.clear_pipeline);
-        render_pass.set_bind_group(0, &resources.clear_bind_group, &[]);
         render_pass.set_vertex_buffer(0, clear_buffer.slice(..));
         render_pass.draw(0..4, 0..u32::try_from(self.clear_instances.len()).unwrap());
     }
