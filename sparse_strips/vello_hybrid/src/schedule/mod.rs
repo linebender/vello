@@ -42,6 +42,17 @@ pub(crate) enum StripPassRenderTarget {
     LayerAtlas(usize),
 }
 
+/// Specifies the texture to clear rectangular regions in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ClearTarget {
+    /// Clear regions in the blend scratch texture.
+    BlendScratch,
+    /// Clear regions in one of the filter scratch textures.
+    FilterScratch(usize),
+    /// Clear regions in one of the layer atlas textures.
+    Layer(usize),
+}
+
 /// A rectangular region in one of the layer atlas textures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct LayerTextureRegion {
@@ -88,11 +99,8 @@ pub(crate) trait RendererBackend {
     /// Return the dimensions of each layer atlas texture.
     fn layer_texture_size(&self) -> (u32, u32);
 
-    /// Clear rectangular regions in layer atlas textures to transparent black.
-    fn clear_layer_regions(&mut self, regions: &[LayerTextureRegion]);
-
-    /// Clear rectangular regions in filter scratch textures to transparent black.
-    fn clear_filter_scratch_regions(&mut self, regions: &[FilterScratchRegion]);
+    /// Clear rectangular regions in a texture to transparent black.
+    fn clear_rects(&mut self, target: ClearTarget, populate: impl FnOnce(&mut Vec<RectU16>));
 
     /// Execute a render pass for strips, split into opaque and alpha passes.
     fn render_strips(
@@ -143,6 +151,7 @@ pub(crate) fn render_scene<R: RendererBackend>(
 
 fn execute_schedule<R: RendererBackend>(renderer: &mut R, schedule: &Schedule) {
     let direct_root_opaque = collect_direct_root_opaque(schedule);
+    let mut filters = Vec::new();
     if !direct_root_opaque.draw.is_empty() {
         renderer.render_strips(
             &direct_root_opaque.draw.opaque,
@@ -154,8 +163,8 @@ fn execute_schedule<R: RendererBackend>(renderer: &mut R, schedule: &Schedule) {
     }
 
     for round in &schedule.rounds {
-        renderer.clear_layer_regions(&round.prepare_layer_regions);
-        renderer.clear_filter_scratch_regions(&round.prepare_filter_scratch_regions);
+        clear_layer_regions(renderer, &round.prepare_layer_regions);
+        clear_filter_scratch_regions(renderer, &round.prepare_filter_scratch_regions);
 
         let mut layer_draws = [Draw::default(), Draw::default()];
         let mut layer_other_passes = [Vec::new(), Vec::new()];
@@ -193,21 +202,73 @@ fn execute_schedule<R: RendererBackend>(renderer: &mut R, schedule: &Schedule) {
                 LoadOp::Load,
             );
 
-            let filters = round
-                .filters
-                .iter()
-                .copied()
-                .filter(|filter| filter.layer.texture_index == texture_index)
-                .collect::<Vec<_>>();
+            filters.clear();
+            filters.extend(
+                round
+                    .filters
+                    .iter()
+                    .copied()
+                    .filter(|filter| filter.layer.texture_index == texture_index),
+            );
             renderer.apply_filters(&filters);
         }
 
         execute_root_passes(renderer, root_passes);
 
         renderer.blend(&round.blends);
-        renderer.clear_layer_regions(&round.clear_layer_regions);
-        renderer.clear_filter_scratch_regions(&round.clear_filter_scratch_regions);
+        clear_layer_regions(renderer, &round.clear_layer_regions);
+        clear_filter_scratch_regions(renderer, &round.clear_filter_scratch_regions);
     }
+}
+
+fn clear_layer_regions<R: RendererBackend>(renderer: &mut R, regions: &[LayerTextureRegion]) {
+    let Some(max_texture_index) = regions.iter().map(|region| region.texture_index).max() else {
+        return;
+    };
+
+    for texture_index in 0..=max_texture_index {
+        renderer.clear_rects(ClearTarget::Layer(texture_index), |clear_rects| {
+            clear_rects.extend(regions.iter().filter_map(|region| {
+                if region.texture_index != texture_index {
+                    return None;
+                }
+
+                let rect = region_clear_rect(region.x, region.y, region.width, region.height);
+                (!rect.is_empty()).then_some(rect)
+            }));
+        });
+    }
+}
+
+fn clear_filter_scratch_regions<R: RendererBackend>(
+    renderer: &mut R,
+    regions: &[FilterScratchRegion],
+) {
+    let Some(max_texture_index) = regions.iter().map(|region| region.texture_index).max() else {
+        return;
+    };
+
+    for texture_index in 0..=max_texture_index {
+        renderer.clear_rects(ClearTarget::FilterScratch(texture_index), |clear_rects| {
+            clear_rects.extend(regions.iter().filter_map(|region| {
+                if region.texture_index != texture_index {
+                    return None;
+                }
+
+                let rect = region_clear_rect(region.x, region.y, region.width, region.height);
+                (!rect.is_empty()).then_some(rect)
+            }));
+        });
+    }
+}
+
+fn region_clear_rect(x: u32, y: u32, width: u32, height: u32) -> RectU16 {
+    RectU16::new(
+        u16::try_from(x).unwrap(),
+        u16::try_from(y).unwrap(),
+        u16::try_from(x + width).unwrap(),
+        u16::try_from(y + height).unwrap(),
+    )
 }
 
 #[derive(Debug)]

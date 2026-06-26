@@ -30,6 +30,7 @@ use vello_common::filter::flood::Flood;
 use vello_common::filter::gaussian_blur::{DecimationSizer, GaussianBlur, MAX_KERNEL_SIZE};
 use vello_common::filter::offset::Offset;
 use vello_common::filter_effects::EdgeMode;
+use vello_common::geometry::RectU16;
 use vello_common::peniko::{Compose, Mix};
 
 /// How much transparent padding to reserve for filter layers within the image. Needed so
@@ -718,6 +719,21 @@ pub(crate) struct GpuBlendInstance {
     pub(crate) source_scene_origin: [u32; 2],
     pub(crate) source_size: [u32; 2],
     pub(crate) _padding: u32,
+}
+
+impl GpuBlendInstance {
+    pub(crate) fn clear_rect(&self) -> RectU16 {
+        let x0 = self.dest_origin[0];
+        let y0 = self.dest_origin[1];
+        let x1 = x0 + self.size[0];
+        let y1 = y0 + self.size[1];
+        RectU16::new(
+            u16::try_from(x0).unwrap(),
+            u16::try_from(y0).unwrap(),
+            u16::try_from(x1).unwrap(),
+            u16::try_from(y1).unwrap(),
+        )
+    }
 }
 
 pub(crate) fn gpu_blend_instance(blend: BlendOp, target_size: (u32, u32)) -> GpuBlendInstance {

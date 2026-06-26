@@ -39,8 +39,8 @@ use crate::{
     },
     scene::Scene,
     schedule::{
-        BlendOp, ExternalTextureRun, FilterOp, FilterScratchRegion, LayerTextureRegion, LoadOp,
-        RendererBackend, RootRenderTarget, StripPassRenderTarget,
+        BlendOp, ClearTarget, ExternalTextureRun, FilterOp, LoadOp, RendererBackend,
+        RootRenderTarget, StripPassRenderTarget,
     },
 };
 use alloc::vec::Vec;
@@ -58,6 +58,7 @@ use vello_common::{
         EncodedBlurredRoundedRectangle, EncodedExternalTexture, EncodedGradient, EncodedKind,
         EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind,
     },
+    geometry::RectU16,
     paint::ImageSource,
     peniko::{self},
     pixmap::Pixmap,
@@ -500,6 +501,9 @@ impl Renderer {
             view,
             texture_bindings,
             external_paint_source_bind_groups: HashMap::new(),
+            clear_rects: Vec::new(),
+            clear_instances: Vec::new(),
+            blend_instances: Vec::new(),
         };
         crate::schedule::render_scene(
             &mut ctx,
@@ -1055,10 +1059,10 @@ struct GpuResources {
 
 const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).unwrap();
 
-/// Dummy config for the clear rect pipeline's existing bind-group shape.
+/// Dummy config for the clear pipeline's existing bind-group shape.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
-struct ClearRectConfig {
+struct ClearConfig {
     pub _padding0: u32,
     pub _padding1: u32,
     pub _padding2: u32,
@@ -1067,7 +1071,7 @@ struct ClearRectConfig {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
-struct GpuClearRect {
+struct GpuClearInstance {
     origin: [u32; 2],
     size: [u32; 2],
     target_size: [u32; 2],
@@ -1306,7 +1310,7 @@ impl Programs {
                 module: &clear_shader,
                 entry_point: Some("vs_main"),
                 buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: size_of::<GpuClearRect>() as u64,
+                    array_stride: size_of::<GpuClearInstance>() as u64,
                     step_mode: wgpu::VertexStepMode::Instance,
                     attributes: &wgpu::vertex_attr_array![
                         0 => Uint32x2,
@@ -1662,7 +1666,7 @@ impl Programs {
 
         let clear_config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Clear Config"),
-            contents: bytemuck::bytes_of(&ClearRectConfig {
+            contents: bytemuck::bytes_of(&ClearConfig {
                 _padding0: 0,
                 _padding1: 0,
                 _padding2: 0,
@@ -2763,6 +2767,9 @@ struct RendererContext<'a> {
     view: &'a TextureView,
     texture_bindings: &'a TextureBindings,
     external_paint_source_bind_groups: HashMap<TextureId, BindGroup>,
+    clear_rects: Vec<RectU16>,
+    clear_instances: Vec<GpuClearInstance>,
+    blend_instances: Vec<GpuBlendInstance>,
 }
 
 impl RendererContext<'_> {
@@ -2946,31 +2953,31 @@ impl RendererContext<'_> {
 
     fn do_blend_render_pass(&mut self, blends: &[BlendOp]) {
         let target_size = self.layer_texture_size();
-        let all_instances = blends
-            .iter()
-            .filter(|blend| !blend.bbox.is_empty())
-            .map(|blend| gpu_blend_instance(*blend, target_size))
-            .collect::<Vec<_>>();
-        if all_instances.is_empty() {
+        if blends.is_empty() {
             return;
         }
 
         for texture_index in 0..self.programs.resources.layer_texture_views.len() {
-            let instances = all_instances
-                .iter()
-                .copied()
-                .filter(|instance| instance.texture_indices[0] as usize == texture_index)
-                .collect::<Vec<_>>();
-            if instances.is_empty() {
+            self.blend_instances.clear();
+            self.blend_instances.extend(
+                blends
+                    .iter()
+                    .copied()
+                    .filter(|blend| {
+                        !blend.bbox.is_empty() && blend.parent.texture_index == texture_index
+                    })
+                    .map(|blend| gpu_blend_instance(blend, target_size)),
+            );
+            if self.blend_instances.is_empty() {
                 continue;
             }
 
-            let instance_count = u32::try_from(instances.len()).unwrap();
+            let instance_count = u32::try_from(self.blend_instances.len()).unwrap();
             let instance_buffer =
                 self.device
                     .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: Some("Blend Instances Buffer"),
-                        contents: bytemuck::cast_slice(&instances),
+                        contents: bytemuck::cast_slice(&self.blend_instances),
                         usage: wgpu::BufferUsages::VERTEX,
                     });
 
@@ -3020,23 +3027,13 @@ impl RendererContext<'_> {
                 render_pass.draw(0..4, 0..instance_count);
             }
 
-            let clear_instances = instances
-                .iter()
-                .map(|instance| {
-                    gpu_clear_rect(
-                        instance.dest_origin[0],
-                        instance.dest_origin[1],
-                        instance.size[0],
-                        instance.size[1],
-                        [target_size.0, target_size.1],
-                    )
-                })
-                .collect::<Vec<_>>();
-            self.do_clear_render_pass(
-                ClearTarget::BlendScratch,
-                &clear_instances,
-                "Clear Blend Scratch Regions",
+            self.clear_rects.clear();
+            self.clear_rects.extend(
+                self.blend_instances
+                    .iter()
+                    .map(GpuBlendInstance::clear_rect),
             );
+            self.do_clear_stored_rects(ClearTarget::BlendScratch, "Clear Blend Scratch");
         }
     }
 
@@ -3087,77 +3084,19 @@ impl RendererContext<'_> {
         }
     }
 
-    fn do_clear_layer_regions_render_pass(&mut self, regions: &[LayerTextureRegion]) {
+    fn do_clear_stored_rects(&mut self, target: ClearTarget, label: &'static str) {
         let target_size = self.layer_texture_size();
-        for texture_index in 0..self.programs.resources.layer_texture_views.len() {
-            if !regions.iter().any(|region| {
-                region.texture_index == texture_index && region.width > 0 && region.height > 0
-            }) {
-                continue;
-            }
-
-            let clear_instances = regions
+        self.clear_instances.clear();
+        self.clear_instances.extend(
+            self.clear_rects
                 .iter()
-                .filter(|region| {
-                    region.texture_index == texture_index && region.width > 0 && region.height > 0
-                })
-                .map(|region| {
-                    gpu_clear_rect(
-                        region.x,
-                        region.y,
-                        region.width,
-                        region.height,
-                        [target_size.0, target_size.1],
-                    )
-                })
-                .collect::<Vec<_>>();
-            self.do_clear_render_pass(
-                ClearTarget::Layer(texture_index),
-                &clear_instances,
-                "Clear Layer Regions",
-            );
-        }
+                .map(|rect| gpu_clear_instance(*rect, [target_size.0, target_size.1])),
+        );
+        self.do_clear_instances(target, label);
     }
 
-    fn do_clear_filter_scratch_regions_render_pass(&mut self, regions: &[FilterScratchRegion]) {
-        let target_size = self.layer_texture_size();
-        for texture_index in 0..self.programs.resources.filter_scratch_texture_views.len() {
-            if !regions.iter().any(|region| {
-                region.texture_index == texture_index && region.width > 0 && region.height > 0
-            }) {
-                continue;
-            }
-
-            let clear_instances = regions
-                .iter()
-                .filter(|region| {
-                    region.texture_index == texture_index && region.width > 0 && region.height > 0
-                })
-                .map(|region| {
-                    gpu_clear_rect(
-                        region.x,
-                        region.y,
-                        region.width,
-                        region.height,
-                        [target_size.0, target_size.1],
-                    )
-                })
-                .collect::<Vec<_>>();
-            self.do_clear_render_pass(
-                ClearTarget::FilterScratch(texture_index),
-                &clear_instances,
-                "Clear Filter Scratch Regions",
-            );
-        }
-    }
-
-    fn do_clear_render_pass(
-        &mut self,
-        target: ClearTarget,
-        rects: &[GpuClearRect],
-        label: &'static str,
-    ) {
-        if rects.is_empty() {
+    fn do_clear_instances(&mut self, target: ClearTarget, label: &'static str) {
+        if self.clear_instances.is_empty() {
             return;
         }
 
@@ -3166,7 +3105,7 @@ impl RendererContext<'_> {
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Clear Buffer"),
-                contents: bytemuck::cast_slice(rects),
+                contents: bytemuck::cast_slice(&self.clear_instances),
                 usage: wgpu::BufferUsages::VERTEX,
             });
         let resources = &self.programs.resources;
@@ -3196,7 +3135,7 @@ impl RendererContext<'_> {
         render_pass.set_pipeline(&self.programs.clear_pipeline);
         render_pass.set_bind_group(0, &resources.clear_bind_group, &[]);
         render_pass.set_vertex_buffer(0, clear_buffer.slice(..));
-        render_pass.draw(0..4, 0..u32::try_from(rects.len()).unwrap());
+        render_pass.draw(0..4, 0..u32::try_from(self.clear_instances.len()).unwrap());
     }
 }
 
@@ -3235,12 +3174,10 @@ impl RendererBackend for RendererContext<'_> {
         RendererContext::layer_texture_size(self)
     }
 
-    fn clear_layer_regions(&mut self, regions: &[LayerTextureRegion]) {
-        self.do_clear_layer_regions_render_pass(regions);
-    }
-
-    fn clear_filter_scratch_regions(&mut self, regions: &[FilterScratchRegion]) {
-        self.do_clear_filter_scratch_regions_render_pass(regions);
+    fn clear_rects(&mut self, target: ClearTarget, populate: impl FnOnce(&mut Vec<RectU16>)) {
+        self.clear_rects.clear();
+        populate(&mut self.clear_rects);
+        self.do_clear_stored_rects(target, "Clear Rects");
     }
 }
 
@@ -3265,17 +3202,10 @@ fn filter_output_view(resources: &GpuResources, texture: FilterTexture) -> &Text
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum ClearTarget {
-    BlendScratch,
-    FilterScratch(usize),
-    Layer(usize),
-}
-
-fn gpu_clear_rect(x: u32, y: u32, width: u32, height: u32, target_size: [u32; 2]) -> GpuClearRect {
-    GpuClearRect {
-        origin: [x, y],
-        size: [width, height],
+fn gpu_clear_instance(rect: RectU16, target_size: [u32; 2]) -> GpuClearInstance {
+    GpuClearInstance {
+        origin: [u32::from(rect.x0), u32::from(rect.y0)],
+        size: [u32::from(rect.width()), u32::from(rect.height())],
         target_size,
     }
 }

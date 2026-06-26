@@ -41,8 +41,8 @@ use crate::{
     },
     scene::Scene,
     schedule::{
-        BlendOp, ExternalTextureRun, FilterOp, FilterScratchRegion, LayerTextureRegion, LoadOp,
-        RendererBackend, RootRenderTarget, StripPassRenderTarget,
+        BlendOp, ClearTarget, ExternalTextureRun, FilterOp, LoadOp, RendererBackend,
+        RootRenderTarget, StripPassRenderTarget,
     },
 };
 use alloc::sync::Arc;
@@ -67,6 +67,7 @@ use vello_common::{
         EncodedBlurredRoundedRectangle, EncodedGradient, EncodedKind, EncodedPaint,
         MAX_GRADIENT_LUT_SIZE, RadialKind,
     },
+    geometry::RectU16,
     paint::{ImageId, ImageSource},
     peniko::{self},
     pixmap::Pixmap,
@@ -669,6 +670,8 @@ impl WebGlRenderer {
         let mut ctx = WebGlRendererContext {
             programs: &mut self.programs,
             gl: &self.gl,
+            clear_rects: Vec::new(),
+            blend_instances: Vec::new(),
         };
         crate::schedule::render_scene(
             &mut ctx,
@@ -2486,6 +2489,8 @@ fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
 struct WebGlRendererContext<'a> {
     programs: &'a mut WebGlPrograms,
     gl: &'a WebGl2RenderingContext,
+    clear_rects: Vec<RectU16>,
+    blend_instances: Vec<GpuBlendInstance>,
 }
 
 impl WebGlRendererContext<'_> {
@@ -2760,49 +2765,9 @@ impl WebGlRendererContext<'_> {
         (size, size)
     }
 
-    fn do_clear_layer_regions_render_pass(&mut self, regions: &[LayerTextureRegion]) {
-        let (width, height) = self.layer_texture_size();
-        self.gl.disable(WebGl2RenderingContext::BLEND);
-        self.gl.clear_color(0.0, 0.0, 0.0, 0.0);
-
-        for texture_index in 0..self.programs.resources.layer_framebuffers.len() {
-            if !regions.iter().any(|region| {
-                region.texture_index == texture_index && region.width > 0 && region.height > 0
-            }) {
-                continue;
-            }
-
-            self.gl.bind_framebuffer(
-                WebGl2RenderingContext::FRAMEBUFFER,
-                Some(&self.programs.resources.layer_framebuffers[texture_index]),
-            );
-            self.gl.viewport(0, 0, width as i32, height as i32);
-            self.gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
-
-            for region in regions.iter().filter(|region| {
-                region.texture_index == texture_index && region.width > 0 && region.height > 0
-            }) {
-                self.gl.scissor(
-                    region.x as i32,
-                    region.y as i32,
-                    region.width as i32,
-                    region.height as i32,
-                );
-                self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
-            }
-        }
-
-        self.gl.enable(WebGl2RenderingContext::BLEND);
-    }
-
     fn do_blend_render_pass(&mut self, blends: &[BlendOp]) {
         let target_size = self.layer_texture_size();
-        let all_instances = blends
-            .iter()
-            .filter(|blend| !blend.bbox.is_empty())
-            .map(|blend| gpu_blend_instance(*blend, target_size))
-            .collect::<Vec<_>>();
-        if all_instances.is_empty() {
+        if blends.is_empty() {
             return;
         }
 
@@ -2814,17 +2779,23 @@ impl WebGlRendererContext<'_> {
             .bind_vertex_array(Some(&self.programs.resources.blend_vao));
 
         for texture_index in 0..self.programs.resources.layer_framebuffers.len() {
-            let instances = all_instances
-                .iter()
-                .copied()
-                .filter(|instance| instance.texture_indices[0] as usize == texture_index)
-                .collect::<Vec<_>>();
-            if instances.is_empty() {
+            self.blend_instances.clear();
+            self.blend_instances.extend(
+                blends
+                    .iter()
+                    .copied()
+                    .filter(|blend| {
+                        !blend.bbox.is_empty() && blend.parent.texture_index == texture_index
+                    })
+                    .map(|blend| gpu_blend_instance(blend, target_size)),
+            );
+            if self.blend_instances.is_empty() {
                 continue;
             }
 
-            self.programs.upload_blend_instances(self.gl, &instances);
-            let instance_count = i32::try_from(instances.len()).unwrap();
+            self.programs
+                .upload_blend_instances(self.gl, &self.blend_instances);
+            let instance_count = i32::try_from(self.blend_instances.len()).unwrap();
 
             self.gl.bind_framebuffer(
                 WebGl2RenderingContext::FRAMEBUFFER,
@@ -2878,42 +2849,19 @@ impl WebGlRendererContext<'_> {
                 instance_count,
             );
 
-            self.clear_blend_scratch_regions(&instances);
+            self.clear_rects.clear();
+            self.clear_rects.extend(
+                self.blend_instances
+                    .iter()
+                    .map(GpuBlendInstance::clear_rect),
+            );
+            self.do_clear_stored_rects(ClearTarget::BlendScratch);
         }
 
         self.gl.bind_vertex_array(None);
         self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
         self.gl.depth_mask(true);
         self.gl.enable(WebGl2RenderingContext::BLEND);
-    }
-
-    fn clear_blend_scratch_regions(&mut self, instances: &[GpuBlendInstance]) {
-        if instances.is_empty() {
-            return;
-        }
-
-        let (width, height) = self.layer_texture_size();
-        self.gl.bind_framebuffer(
-            WebGl2RenderingContext::FRAMEBUFFER,
-            Some(&self.programs.resources.blend_scratch_framebuffer),
-        );
-        self.gl.viewport(0, 0, width as i32, height as i32);
-        self.gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
-        self.gl.clear_color(0.0, 0.0, 0.0, 0.0);
-
-        for instance in instances {
-            if instance.size[0] == 0 || instance.size[1] == 0 {
-                continue;
-            }
-
-            self.gl.scissor(
-                instance.dest_origin[0] as i32,
-                instance.dest_origin[1] as i32,
-                instance.size[0] as i32,
-                instance.size[1] as i32,
-            );
-            self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
-        }
     }
 
     fn do_filter_layers_render_pass(&mut self, filters: &[FilterOp]) {
@@ -2983,40 +2931,53 @@ impl WebGlRendererContext<'_> {
         self.gl.enable(WebGl2RenderingContext::BLEND);
     }
 
-    fn do_clear_filter_scratch_regions_render_pass(&mut self, regions: &[FilterScratchRegion]) {
+    fn do_clear_stored_rects(&self, target: ClearTarget) {
+        if self.clear_rects.is_empty() {
+            return;
+        }
+
+        self.prepare_clear_rects(target);
+        for rect in &self.clear_rects {
+            self.clear_rect(*rect);
+        }
+        self.finish_clear_rects();
+    }
+
+    fn prepare_clear_rects(&self, target: ClearTarget) {
         let (width, height) = self.layer_texture_size();
         self.gl.disable(WebGl2RenderingContext::BLEND);
         self.gl.clear_color(0.0, 0.0, 0.0, 0.0);
-
-        for texture_index in 0..self.programs.resources.filter_scratch_framebuffers.len() {
-            if !regions.iter().any(|region| {
-                region.texture_index == texture_index && region.width > 0 && region.height > 0
-            }) {
-                continue;
+        let framebuffer = match target {
+            ClearTarget::BlendScratch => &self.programs.resources.blend_scratch_framebuffer,
+            ClearTarget::FilterScratch(texture_index) => {
+                &self.programs.resources.filter_scratch_framebuffers[texture_index]
             }
-
-            self.gl.bind_framebuffer(
-                WebGl2RenderingContext::FRAMEBUFFER,
-                Some(&self.programs.resources.filter_scratch_framebuffers[texture_index]),
-            );
-            self.gl.viewport(0, 0, width as i32, height as i32);
-            self.gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
-
-            for region in regions.iter().filter(|region| {
-                region.texture_index == texture_index && region.width > 0 && region.height > 0
-            }) {
-                self.gl.scissor(
-                    region.x as i32,
-                    region.y as i32,
-                    region.width as i32,
-                    region.height as i32,
-                );
-                self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
+            ClearTarget::Layer(texture_index) => {
+                &self.programs.resources.layer_framebuffers[texture_index]
             }
+        };
+        self.gl
+            .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(framebuffer));
+        self.gl.viewport(0, 0, width as i32, height as i32);
+        self.gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
+    }
+
+    fn clear_rect(&self, rect: RectU16) {
+        if rect.is_empty() {
+            return;
         }
 
+        self.gl.scissor(
+            i32::from(rect.x0),
+            i32::from(rect.y0),
+            i32::from(rect.width()),
+            i32::from(rect.height()),
+        );
+        self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
+    }
+
+    fn finish_clear_rects(&self) {
         self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
-        self.gl.enable(WebGl2RenderingContext::BLEND);
     }
 }
 
@@ -3045,12 +3006,11 @@ impl RendererBackend for WebGlRendererContext<'_> {
         WebGlRendererContext::layer_texture_size(self)
     }
 
-    fn clear_layer_regions(&mut self, regions: &[LayerTextureRegion]) {
-        self.do_clear_layer_regions_render_pass(regions);
-    }
-
-    fn clear_filter_scratch_regions(&mut self, regions: &[FilterScratchRegion]) {
-        self.do_clear_filter_scratch_regions_render_pass(regions);
+    fn clear_rects(&mut self, target: ClearTarget, populate: impl FnOnce(&mut Vec<RectU16>)) {
+        self.clear_rects.clear();
+        populate(&mut self.clear_rects);
+        self.do_clear_stored_rects(target);
+        self.gl.enable(WebGl2RenderingContext::BLEND);
     }
 }
 
