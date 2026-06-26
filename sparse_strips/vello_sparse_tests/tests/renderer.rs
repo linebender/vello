@@ -36,7 +36,7 @@ pub(crate) trait Renderer: Sized {
     fn fill_path(&mut self, path: &BezPath);
     fn stroke_path(&mut self, path: &BezPath);
     fn fill_rect(&mut self, rect: &Rect);
-    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32);
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32, invert: bool);
     fn stroke_rect(&mut self, rect: &Rect);
     fn glyph_run(
         &mut self,
@@ -136,8 +136,9 @@ impl Renderer for CpuRenderer {
         self.ctx.fill_rect(rect);
     }
 
-    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
-        self.ctx.fill_blurred_rounded_rect(rect, radius, std_dev);
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32, invert: bool) {
+        self.ctx
+            .fill_blurred_rounded_rect(rect, radius, std_dev, invert);
     }
 
     fn stroke_rect(&mut self, rect: &Rect) {
@@ -423,8 +424,9 @@ impl Renderer for HybridRenderer {
         self.scene.fill_rect(rect);
     }
 
-    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
-        self.scene.fill_blurred_rounded_rect(rect, radius, std_dev);
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32, invert: bool) {
+        self.scene
+            .fill_blurred_rounded_rect(rect, radius, std_dev, invert);
     }
 
     fn stroke_rect(&mut self, rect: &Rect) {
@@ -799,8 +801,9 @@ impl Renderer for HybridRenderer {
         self.scene.fill_rect(rect);
     }
 
-    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
-        self.scene.fill_blurred_rounded_rect(rect, radius, std_dev);
+    fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32, invert: bool) {
+        self.scene
+            .fill_blurred_rounded_rect(rect, radius, std_dev, invert);
     }
 
     fn stroke_rect(&mut self, rect: &Rect) {

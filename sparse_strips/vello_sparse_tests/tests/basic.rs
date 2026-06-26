@@ -355,7 +355,7 @@ fn blurred_rounded_rect_inverted(ctx: &mut impl Renderer) {
     let rect = Rect::new(80.0, 80.0, 20.0, 20.0);
 
     ctx.set_paint(REBECCA_PURPLE);
-    ctx.fill_blurred_rounded_rect(&rect, 10.0, 2.0);
+    ctx.fill_blurred_rounded_rect(&rect, 10.0, 2.0, false);
 }
 
 #[vello_test(width = 30, height = 30)]
