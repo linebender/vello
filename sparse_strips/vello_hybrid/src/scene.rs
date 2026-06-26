@@ -47,28 +47,20 @@ pub(crate) struct FastPathRect {
     pub(crate) paint: Paint,
 }
 
-/// A draw command recorded for the new scheduler.
 #[derive(Debug)]
 pub(crate) enum RecordedDraw {
-    /// A path rendered via the normal strip pipeline.
     Path(RecordedPath),
-    /// A rectangle.
     Rect(RecordedRect),
 }
 
-/// A recorded path draw for the new scheduler.
 #[derive(Debug)]
 pub(crate) struct RecordedPath {
-    /// The range of strips for this path in [`Scene::strip_storage`].
     pub(crate) strips: Range<usize>,
-    /// The paint of the path.
     pub(crate) paint: Paint,
 }
 
-/// A recorded rectangle draw for the new scheduler.
 #[derive(Debug)]
 pub(crate) struct RecordedRect {
-    /// The rectangle data.
     pub(crate) rect: FastPathRect,
 }
 
@@ -1058,26 +1050,8 @@ mod tests {
     use alloc::sync::Arc;
     #[cfg(feature = "text")]
     use glifo::Glyph;
-    use vello_common::kurbo::Rect;
     #[cfg(feature = "text")]
     use vello_common::peniko::{Blob, FontData};
-
-    fn unconstrained() -> Scene {
-        Scene::new(200, 200)
-    }
-
-    fn small_rect() -> Rect {
-        Rect::new(10.0, 10.0, 50.0, 50.0)
-    }
-
-    fn triangle_path() -> BezPath {
-        let mut path = BezPath::new();
-        path.move_to((10.0, 10.0));
-        path.line_to((90.0, 50.0));
-        path.line_to((10.0, 90.0));
-        path.close_path();
-        path
-    }
 
     #[cfg(feature = "text")]
     #[test]
@@ -1092,11 +1066,16 @@ mod tests {
             y: 0.0,
         }];
 
-        let mut scene = unconstrained();
+        let mut scene = Scene::new(200, 200);
         let mut resources = Resources::new();
+        let mut triangle = BezPath::new();
+        triangle.move_to((10.0, 10.0));
+        triangle.line_to((90.0, 50.0));
+        triangle.line_to((10.0, 90.0));
+        triangle.close_path();
 
-        scene.fill_rect(&small_rect());
-        scene.fill_path(&triangle_path());
+        scene.fill_rect(&Rect::new(10.0, 10.0, 50.0, 50.0));
+        scene.fill_path(&triangle);
         scene
             .glyph_run(&mut resources, &font)
             .fill_glyphs(glyphs.into_iter());

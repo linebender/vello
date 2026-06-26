@@ -44,14 +44,14 @@ extern crate alloc;
 
 pub(crate) mod filter;
 mod gradient_cache;
+#[cfg(any(feature = "webgl", feature = "wgpu"))]
+mod pack;
 mod render;
 mod resources;
 mod sampling;
 mod scene;
 #[cfg(any(feature = "webgl", feature = "wgpu"))]
 mod schedule;
-#[cfg(any(feature = "webgl", feature = "wgpu"))]
-mod pack;
 #[cfg(feature = "text")]
 mod text;
 
