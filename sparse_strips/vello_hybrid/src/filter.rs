@@ -736,6 +736,26 @@ pub(crate) struct GpuBlendInstance {
 }
 
 impl GpuBlendInstance {
+    pub(crate) fn copy_from_dest_in_scratch(self) -> GpuCopyInstance {
+        GpuCopyInstance {
+            dest_origin: self.dest_origin,
+            source_origin: self.dest_origin,
+            size: self.size,
+            target_size: self.target_size,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub(crate) struct GpuCopyInstance {
+    pub(crate) dest_origin: [u32; 2],
+    pub(crate) source_origin: [u32; 2],
+    pub(crate) size: [u32; 2],
+    pub(crate) target_size: [u32; 2],
+}
+
+impl GpuCopyInstance {
     pub(crate) fn clear_rect(&self) -> RectU16 {
         let x0 = self.dest_origin[0];
         let y0 = self.dest_origin[1];
@@ -747,11 +767,6 @@ impl GpuBlendInstance {
             u16::try_from(x1).unwrap(),
             u16::try_from(y1).unwrap(),
         )
-    }
-
-    pub(crate) fn copy_from_dest_in_scratch(mut self) -> Self {
-        self.source_origin = self.dest_origin;
-        self
     }
 }
 
@@ -794,33 +809,13 @@ pub(crate) fn gpu_blend_instance(blend: BlendOp, target_size: (u32, u32)) -> Gpu
 pub(crate) fn gpu_filter_copy_instance(
     filter: FilterOp,
     target_size: (u32, u32),
-) -> GpuBlendInstance {
+) -> GpuCopyInstance {
     let scratch = filter.scratches[0].expect("filter copy requires scratch texture 0");
-    GpuBlendInstance {
+    GpuCopyInstance {
         dest_origin: [filter.layer.x, filter.layer.y],
         source_origin: [scratch.x, scratch.y],
         size: [filter.layer.width, filter.layer.height],
-        texture_indices: [
-            u32::try_from(filter.layer.texture_index)
-                .expect("layer texture index fits into shader payload"),
-            0,
-        ],
-        blend_mode: [0, 0],
-        opacity: 255,
         target_size: [target_size.0, target_size.1],
-        bbox_origin: [
-            u32::from(filter.layer.scene_bbox.x0),
-            u32::from(filter.layer.scene_bbox.y0),
-        ],
-        source_scene_origin: [
-            u32::from(filter.layer.scene_bbox.x0),
-            u32::from(filter.layer.scene_bbox.y0),
-        ],
-        source_size: [
-            u32::from(filter.layer.scene_bbox.width()),
-            u32::from(filter.layer.scene_bbox.height()),
-        ],
-        _padding: 0,
     }
 }
 

@@ -22,7 +22,7 @@ use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
     filter::{
-        FilterContext, FilterInstanceData, FilterTexture, GpuBlendInstance,
+        FilterContext, FilterInstanceData, FilterTexture, GpuBlendInstance, GpuCopyInstance,
         build_scheduled_filter_batches, gpu_blend_instance, gpu_filter_copy_instance,
     },
     gradient_cache::GradientRampCache,
@@ -506,6 +506,7 @@ impl Renderer {
             clear_rects: Vec::new(),
             clear_instances: Vec::new(),
             blend_instances: Vec::new(),
+            copy_instances: Vec::new(),
         };
         crate::schedule::render_scene(
             &mut ctx,
@@ -1535,42 +1536,61 @@ impl Programs {
                 9 => Uint32x2,
             ],
         };
-        let create_blend_pipeline = |label, shader_module: &wgpu::ShaderModule, layout| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(label),
-                layout: Some(layout),
-                vertex: wgpu::VertexState {
-                    module: shader_module,
-                    entry_point: Some("vs_main"),
-                    buffers: core::slice::from_ref(&blend_vertex_state),
-                    compilation_options: PipelineCompilationOptions::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: shader_module,
-                    entry_point: Some("fs_main"),
-                    targets: &[Some(ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba8Unorm,
-                        blend: None,
-                        write_mask: ColorWrites::ALL,
-                    })],
-                    compilation_options: PipelineCompilationOptions::default(),
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleStrip,
-                    ..Default::default()
-                },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview_mask: None,
-                cache: None,
-            })
+        let copy_vertex_state = wgpu::VertexBufferLayout {
+            array_stride: size_of::<GpuCopyInstance>() as u64,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &wgpu::vertex_attr_array![
+                0 => Uint32x2,
+                1 => Uint32x2,
+                2 => Uint32x2,
+                3 => Uint32x2,
+            ],
         };
-        let blend_pipeline =
-            create_blend_pipeline("Blend Pipeline", &blend_shader, &blend_pipeline_layout);
+        let create_blend_pipeline =
+            |label,
+             shader_module: &wgpu::ShaderModule,
+             layout,
+             vertex_state: &wgpu::VertexBufferLayout<'_>| {
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(label),
+                    layout: Some(layout),
+                    vertex: wgpu::VertexState {
+                        module: shader_module,
+                        entry_point: Some("vs_main"),
+                        buffers: core::slice::from_ref(vertex_state),
+                        compilation_options: PipelineCompilationOptions::default(),
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: shader_module,
+                        entry_point: Some("fs_main"),
+                        targets: &[Some(ColorTargetState {
+                            format: wgpu::TextureFormat::Rgba8Unorm,
+                            blend: None,
+                            write_mask: ColorWrites::ALL,
+                        })],
+                        compilation_options: PipelineCompilationOptions::default(),
+                    }),
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleStrip,
+                        ..Default::default()
+                    },
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    multiview_mask: None,
+                    cache: None,
+                })
+            };
+        let blend_pipeline = create_blend_pipeline(
+            "Blend Pipeline",
+            &blend_shader,
+            &blend_pipeline_layout,
+            &blend_vertex_state,
+        );
         let blend_copy_pipeline = create_blend_pipeline(
             "Copy Pipeline",
             &blend_copy_shader,
             &blend_copy_pipeline_layout,
+            &copy_vertex_state,
         );
 
         let layer_texture_size = device.limits().max_texture_dimension_2d.min(4096);
@@ -2716,6 +2736,7 @@ struct RendererContext<'a> {
     clear_rects: Vec<RectU16>,
     clear_instances: Vec<GpuClearInstance>,
     blend_instances: Vec<GpuBlendInstance>,
+    copy_instances: Vec<GpuCopyInstance>,
 }
 
 impl RendererContext<'_> {
@@ -2951,14 +2972,18 @@ impl RendererContext<'_> {
                 render_pass.draw(0..4, 0..instance_count);
             }
 
-            self.blend_instances
-                .iter_mut()
-                .for_each(|instance| *instance = instance.copy_from_dest_in_scratch());
+            self.copy_instances.clear();
+            self.copy_instances.extend(
+                self.blend_instances
+                    .iter()
+                    .copied()
+                    .map(GpuBlendInstance::copy_from_dest_in_scratch),
+            );
             let copy_instance_buffer =
                 self.device
                     .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: Some("Blend Copy Instances Buffer"),
-                        contents: bytemuck::cast_slice(&self.blend_instances),
+                        contents: bytemuck::cast_slice(&self.copy_instances),
                         usage: wgpu::BufferUsages::VERTEX,
                     });
 
@@ -2986,11 +3011,8 @@ impl RendererContext<'_> {
             }
 
             self.clear_rects.clear();
-            self.clear_rects.extend(
-                self.blend_instances
-                    .iter()
-                    .map(GpuBlendInstance::clear_rect),
-            );
+            self.clear_rects
+                .extend(self.copy_instances.iter().map(GpuCopyInstance::clear_rect));
             self.do_clear_stored_rects(
                 ClearTarget::Scratch(BLEND_SCRATCH_INDEX),
                 "Clear Blend Scratch",
@@ -3046,24 +3068,24 @@ impl RendererContext<'_> {
 
         let target_size = self.layer_texture_size();
         for texture_index in 0..self.programs.resources.layer_texture_views.len() {
-            self.blend_instances.clear();
-            self.blend_instances.extend(
+            self.copy_instances.clear();
+            self.copy_instances.extend(
                 filters
                     .iter()
                     .copied()
                     .filter(|filter| filter.layer.texture_index == texture_index)
                     .map(|filter| gpu_filter_copy_instance(filter, target_size)),
             );
-            if self.blend_instances.is_empty() {
+            if self.copy_instances.is_empty() {
                 continue;
             }
 
-            let instance_count = u32::try_from(self.blend_instances.len()).unwrap();
+            let instance_count = u32::try_from(self.copy_instances.len()).unwrap();
             let instance_buffer =
                 self.device
                     .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: Some("Filter Copy Instances Buffer"),
-                        contents: bytemuck::cast_slice(&self.blend_instances),
+                        contents: bytemuck::cast_slice(&self.copy_instances),
                         usage: wgpu::BufferUsages::VERTEX,
                     });
             let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {

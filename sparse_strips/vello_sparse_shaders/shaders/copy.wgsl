@@ -3,17 +3,11 @@
 
 //! Copy atlas regions from scratch back into the layer atlas.
 
-struct BlendInstance {
+struct CopyInstance {
     @location(0) dest_origin: vec2<u32>,
     @location(1) source_origin: vec2<u32>,
     @location(2) size: vec2<u32>,
-    @location(3) texture_indices: vec2<u32>,
-    @location(4) blend_mode: vec2<u32>,
-    @location(5) opacity: u32,
-    @location(6) target_size: vec2<u32>,
-    @location(7) bbox_origin: vec2<u32>,
-    @location(8) source_scene_origin: vec2<u32>,
-    @location(9) source_size: vec2<u32>,
+    @location(3) target_size: vec2<u32>,
 }
 
 struct VertexOutput {
@@ -27,7 +21,7 @@ var scratch_texture: texture_2d<f32>;
 @vertex
 fn vs_main(
     @builtin(vertex_index) vertex_index: u32,
-    instance: BlendInstance,
+    instance: CopyInstance,
 ) -> VertexOutput {
     let x = f32(vertex_index & 1u);
     let y = f32(vertex_index >> 1u);

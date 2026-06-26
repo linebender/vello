@@ -24,7 +24,7 @@ use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
     filter::{
-        FilterContext, FilterInstanceData, FilterTexture, GpuBlendInstance,
+        FilterContext, FilterInstanceData, FilterTexture, GpuBlendInstance, GpuCopyInstance,
         build_scheduled_filter_batches, gpu_blend_instance, gpu_filter_copy_instance,
     },
     gradient_cache::GradientRampCache,
@@ -674,6 +674,7 @@ impl WebGlRenderer {
             gl: &self.gl,
             clear_rects: Vec::new(),
             blend_instances: Vec::new(),
+            copy_instances: Vec::new(),
         };
         crate::schedule::render_scene(
             &mut ctx,
@@ -1144,6 +1145,10 @@ struct WebGlResources {
     blend_instance_buffer: Buffer,
     /// VAO for blend rendering.
     blend_vao: VertexArray,
+    /// Per-instance vertex data buffer for copy draws.
+    copy_instance_buffer: Buffer,
+    /// VAO for copy rendering.
+    copy_vao: VertexArray,
     /// Scratch textures used for filter ping-ponging.
     filter_scratch_textures: [Texture; 2],
     /// Framebuffers for filter scratch textures.
@@ -1181,6 +1186,7 @@ impl WebGlPrograms {
         initialize_strip_vao(&gl, &resources);
         initialize_filter_vao(&gl, &resources);
         initialize_blend_vao(&gl, &resources);
+        initialize_copy_vao(&gl, &resources);
 
         let encoded_paints_data = vec![0; (resources.max_texture_dimension_2d << 4) as usize];
 
@@ -1366,6 +1372,18 @@ impl WebGlPrograms {
         gl.bind_buffer(
             WebGl2RenderingContext::ARRAY_BUFFER,
             Some(&self.resources.blend_instance_buffer),
+        );
+        gl.buffer_data_with_u8_array(
+            WebGl2RenderingContext::ARRAY_BUFFER,
+            bytemuck::cast_slice(instances),
+            WebGl2RenderingContext::DYNAMIC_DRAW,
+        );
+    }
+
+    fn upload_copy_instances(&self, gl: &WebGl2RenderingContext, instances: &[GpuCopyInstance]) {
+        gl.bind_buffer(
+            WebGl2RenderingContext::ARRAY_BUFFER,
+            Some(&self.resources.copy_instance_buffer),
         );
         gl.buffer_data_with_u8_array(
             WebGl2RenderingContext::ARRAY_BUFFER,
@@ -2190,6 +2208,16 @@ const BLEND_ATTRIBS: [(i32, i32); 10] = [
 
 const BLEND_INSTANCE_STRIDE: i32 = size_of::<GpuBlendInstance>() as i32;
 
+/// Vertex attribute layout for [`GpuCopyInstance`].
+const COPY_ATTRIBS: [(i32, i32); 4] = [
+    (2, 0),  // dest_origin
+    (2, 8),  // source_origin
+    (2, 16), // size
+    (2, 24), // target_size
+];
+
+const COPY_INSTANCE_STRIDE: i32 = size_of::<GpuCopyInstance>() as i32;
+
 fn initialize_blend_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) {
     gl.bind_vertex_array(Some(&resources.blend_vao));
     gl.bind_buffer(
@@ -2205,6 +2233,29 @@ fn initialize_blend_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
             components,
             WebGl2RenderingContext::UNSIGNED_INT,
             BLEND_INSTANCE_STRIDE,
+            offset,
+        );
+        gl.vertex_attrib_divisor(loc, 1);
+    }
+
+    gl.bind_vertex_array(None);
+}
+
+fn initialize_copy_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) {
+    gl.bind_vertex_array(Some(&resources.copy_vao));
+    gl.bind_buffer(
+        WebGl2RenderingContext::ARRAY_BUFFER,
+        Some(&resources.copy_instance_buffer),
+    );
+
+    for (loc, &(components, offset)) in COPY_ATTRIBS.iter().enumerate() {
+        let loc = loc as u32;
+        gl.enable_vertex_attrib_array(loc);
+        gl.vertex_attrib_i_pointer_with_i32(
+            loc,
+            components,
+            WebGl2RenderingContext::UNSIGNED_INT,
+            COPY_INSTANCE_STRIDE,
             offset,
         );
         gl.vertex_attrib_divisor(loc, 1);
@@ -2281,8 +2332,10 @@ fn create_webgl_resources(gl: &WebGl2RenderingContext, image_cache: &ImageCache)
     let strip_vao = VertexArray::new(gl);
     let filter_vao = VertexArray::new(gl);
     let blend_vao = VertexArray::new(gl);
+    let copy_vao = VertexArray::new(gl);
     let filter_instance_buffer = Buffer::new(gl);
     let blend_instance_buffer = Buffer::new(gl);
+    let copy_instance_buffer = Buffer::new(gl);
 
     let strips_buffer = Buffer::new(gl);
     let view_config_buffer = Buffer::new(gl);
@@ -2357,6 +2410,8 @@ fn create_webgl_resources(gl: &WebGl2RenderingContext, image_cache: &ImageCache)
         filter_vao,
         blend_instance_buffer,
         blend_vao,
+        copy_instance_buffer,
+        copy_vao,
         filter_scratch_textures,
         filter_scratch_framebuffers,
         layer_config_buffer,
@@ -2484,6 +2539,7 @@ struct WebGlRendererContext<'a> {
     gl: &'a WebGl2RenderingContext,
     clear_rects: Vec<RectU16>,
     blend_instances: Vec<GpuBlendInstance>,
+    copy_instances: Vec<GpuCopyInstance>,
 }
 
 impl WebGlRendererContext<'_> {
@@ -2825,16 +2881,22 @@ impl WebGlRendererContext<'_> {
                 instance_count,
             );
 
-            self.blend_instances
-                .iter_mut()
-                .for_each(|instance| *instance = instance.copy_from_dest_in_scratch());
+            self.copy_instances.clear();
+            self.copy_instances.extend(
+                self.blend_instances
+                    .iter()
+                    .copied()
+                    .map(GpuBlendInstance::copy_from_dest_in_scratch),
+            );
             self.programs
-                .upload_blend_instances(self.gl, &self.blend_instances);
+                .upload_copy_instances(self.gl, &self.copy_instances);
 
             self.gl.bind_framebuffer(
                 WebGl2RenderingContext::FRAMEBUFFER,
                 Some(&self.programs.resources.layer_framebuffers[texture_index]),
             );
+            self.gl
+                .bind_vertex_array(Some(&self.programs.resources.copy_vao));
             self.gl.use_program(Some(&self.programs.blend_copy_program));
 
             self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
@@ -2853,12 +2915,12 @@ impl WebGlRendererContext<'_> {
             );
 
             self.clear_rects.clear();
-            self.clear_rects.extend(
-                self.blend_instances
-                    .iter()
-                    .map(GpuBlendInstance::clear_rect),
-            );
+            self.clear_rects
+                .extend(self.copy_instances.iter().map(GpuCopyInstance::clear_rect));
             self.do_clear_stored_rects(ClearTarget::Scratch(BLEND_SCRATCH_INDEX));
+
+            self.gl
+                .bind_vertex_array(Some(&self.programs.resources.blend_vao));
         }
 
         self.gl.bind_vertex_array(None);
@@ -2930,7 +2992,7 @@ impl WebGlRendererContext<'_> {
         }
 
         self.gl
-            .bind_vertex_array(Some(&self.programs.resources.blend_vao));
+            .bind_vertex_array(Some(&self.programs.resources.copy_vao));
         self.gl.use_program(Some(&self.programs.blend_copy_program));
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
         self.gl.bind_texture(
@@ -2941,20 +3003,20 @@ impl WebGlRendererContext<'_> {
             .uniform1i(Some(&self.programs.blend_copy_uniforms.scratch_texture), 0);
 
         for texture_index in 0..self.programs.resources.layer_framebuffers.len() {
-            self.blend_instances.clear();
-            self.blend_instances.extend(
+            self.copy_instances.clear();
+            self.copy_instances.extend(
                 filters
                     .iter()
                     .copied()
                     .filter(|filter| filter.layer.texture_index == texture_index)
                     .map(|filter| gpu_filter_copy_instance(filter, target_size)),
             );
-            if self.blend_instances.is_empty() {
+            if self.copy_instances.is_empty() {
                 continue;
             }
 
             self.programs
-                .upload_blend_instances(self.gl, &self.blend_instances);
+                .upload_copy_instances(self.gl, &self.copy_instances);
             self.gl.bind_framebuffer(
                 WebGl2RenderingContext::FRAMEBUFFER,
                 Some(&self.programs.resources.layer_framebuffers[texture_index]),
@@ -2965,7 +3027,7 @@ impl WebGlRendererContext<'_> {
                 WebGl2RenderingContext::TRIANGLE_STRIP,
                 0,
                 4,
-                i32::try_from(self.blend_instances.len()).unwrap(),
+                i32::try_from(self.copy_instances.len()).unwrap(),
             );
         }
 
