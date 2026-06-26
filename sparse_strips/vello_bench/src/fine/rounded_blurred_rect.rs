@@ -38,7 +38,7 @@ fn base<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &mut Fine<S, N>, t
         color: GREEN,
         radius: 30.0,
         std_dev: 10.0,
-        inverse: false,
+        invert: false,
     };
 
     let paint = rect.encode_into(&mut paints, transform, None);
