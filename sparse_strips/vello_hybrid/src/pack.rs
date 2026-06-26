@@ -1,8 +1,6 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Shared GPU strip packing helpers for `vello_hybrid`.
-
 use crate::GpuStrip;
 use crate::scene::FastPathRect;
 use vello_common::TextureId;

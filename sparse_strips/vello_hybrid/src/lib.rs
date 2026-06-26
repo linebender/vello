@@ -51,7 +51,7 @@ mod scene;
 #[cfg(any(feature = "webgl", feature = "wgpu"))]
 mod schedule;
 #[cfg(any(feature = "webgl", feature = "wgpu"))]
-mod strip_packing;
+mod pack;
 #[cfg(feature = "text")]
 mod text;
 
