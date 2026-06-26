@@ -2192,31 +2192,25 @@ fn initialize_filter_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources
     gl.bind_vertex_array(None);
 }
 
-/// Vertex attribute layout for [`GpuBlendInstance`].
-const BLEND_ATTRIBS: [(i32, i32); 10] = [
-    (2, 0),  // dest_origin
-    (2, 8),  // source_origin
-    (2, 16), // size
-    (2, 24), // texture_indices
-    (2, 32), // blend_mode
-    (1, 40), // opacity
-    (2, 44), // target_size
-    (2, 52), // bbox_origin
-    (2, 60), // source_scene_origin
-    (2, 68), // source_size
-];
-
+const BLEND_ATTRIB_COUNT: u32 = 9;
 const BLEND_INSTANCE_STRIDE: i32 = size_of::<GpuBlendInstance>() as i32;
 
-/// Vertex attribute layout for [`GpuCopyInstance`].
-const COPY_ATTRIBS: [(i32, i32); 4] = [
-    (2, 0),  // dest_origin
-    (2, 8),  // source_origin
-    (2, 16), // size
-    (2, 24), // target_size
-];
-
+const COPY_ATTRIB_COUNT: u32 = 4;
 const COPY_INSTANCE_STRIDE: i32 = size_of::<GpuCopyInstance>() as i32;
+
+fn initialize_packed_u32_attribs(gl: &WebGl2RenderingContext, count: u32, stride: i32) {
+    for loc in 0..count {
+        gl.enable_vertex_attrib_array(loc);
+        gl.vertex_attrib_i_pointer_with_i32(
+            loc,
+            1,
+            WebGl2RenderingContext::UNSIGNED_INT,
+            stride,
+            i32::try_from(loc).unwrap() * size_of::<u32>() as i32,
+        );
+        gl.vertex_attrib_divisor(loc, 1);
+    }
+}
 
 fn initialize_blend_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) {
     gl.bind_vertex_array(Some(&resources.blend_vao));
@@ -2225,18 +2219,7 @@ fn initialize_blend_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
         Some(&resources.blend_instance_buffer),
     );
 
-    for (loc, &(components, offset)) in BLEND_ATTRIBS.iter().enumerate() {
-        let loc = loc as u32;
-        gl.enable_vertex_attrib_array(loc);
-        gl.vertex_attrib_i_pointer_with_i32(
-            loc,
-            components,
-            WebGl2RenderingContext::UNSIGNED_INT,
-            BLEND_INSTANCE_STRIDE,
-            offset,
-        );
-        gl.vertex_attrib_divisor(loc, 1);
-    }
+    initialize_packed_u32_attribs(gl, BLEND_ATTRIB_COUNT, BLEND_INSTANCE_STRIDE);
 
     gl.bind_vertex_array(None);
 }
@@ -2248,18 +2231,7 @@ fn initialize_copy_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources) 
         Some(&resources.copy_instance_buffer),
     );
 
-    for (loc, &(components, offset)) in COPY_ATTRIBS.iter().enumerate() {
-        let loc = loc as u32;
-        gl.enable_vertex_attrib_array(loc);
-        gl.vertex_attrib_i_pointer_with_i32(
-            loc,
-            components,
-            WebGl2RenderingContext::UNSIGNED_INT,
-            COPY_INSTANCE_STRIDE,
-            offset,
-        );
-        gl.vertex_attrib_divisor(loc, 1);
-    }
+    initialize_packed_u32_attribs(gl, COPY_ATTRIB_COUNT, COPY_INSTANCE_STRIDE);
 
     gl.bind_vertex_array(None);
 }

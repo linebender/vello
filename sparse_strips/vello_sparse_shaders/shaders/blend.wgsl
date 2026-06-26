@@ -36,16 +36,15 @@ const MIX_COLOR = 14u;
 const MIX_LUMINOSITY = 15u;
 
 struct BlendInstance {
-    @location(0) dest_origin: vec2<u32>,
-    @location(1) source_origin: vec2<u32>,
-    @location(2) size: vec2<u32>,
-    @location(3) texture_indices: vec2<u32>,
-    @location(4) blend_mode: vec2<u32>,
-    @location(5) opacity: u32,
-    @location(6) target_size: vec2<u32>,
-    @location(7) bbox_origin: vec2<u32>,
-    @location(8) source_scene_origin: vec2<u32>,
-    @location(9) source_size: vec2<u32>,
+    @location(0) dest_origin: u32,
+    @location(1) source_origin: u32,
+    @location(2) size: u32,
+    @location(3) texture_indices: u32,
+    @location(4) blend_opacity: u32,
+    @location(5) target_size: u32,
+    @location(6) bbox_origin: u32,
+    @location(7) source_scene_origin: u32,
+    @location(8) source_size: u32,
 }
 
 struct VertexOutput {
@@ -65,29 +64,45 @@ var layer_texture_0: texture_2d<f32>;
 @group(0) @binding(1)
 var layer_texture_1: texture_2d<f32>;
 
+fn unpack_u16_pair(value: u32) -> vec2<u32> {
+    return vec2<u32>(value & 0xffffu, value >> 16u);
+}
+
 @vertex
 fn vs_main(
     @builtin(vertex_index) vertex_index: u32,
     instance: BlendInstance,
 ) -> VertexOutput {
+    let dest_origin = unpack_u16_pair(instance.dest_origin);
+    let source_origin = unpack_u16_pair(instance.source_origin);
+    let size = unpack_u16_pair(instance.size);
+    let texture_indices = unpack_u16_pair(instance.texture_indices);
+    let target_size = unpack_u16_pair(instance.target_size);
+    let bbox_origin = unpack_u16_pair(instance.bbox_origin);
+    let source_scene_origin = unpack_u16_pair(instance.source_scene_origin);
+    let source_size = unpack_u16_pair(instance.source_size);
+
     let x = f32(vertex_index & 1u);
     let y = f32(vertex_index >> 1u);
-    let local = vec2<f32>(x, y) * vec2<f32>(instance.size);
-    let dest_xy = vec2<f32>(instance.dest_origin) + local;
-    let scene_xy = vec2<f32>(instance.bbox_origin) + local;
-    let source_local = scene_xy - vec2<f32>(instance.source_scene_origin);
+    let local = vec2<f32>(x, y) * vec2<f32>(size);
+    let dest_xy = vec2<f32>(dest_origin) + local;
+    let scene_xy = vec2<f32>(bbox_origin) + local;
+    let source_local = scene_xy - vec2<f32>(source_scene_origin);
+    let compose = instance.blend_opacity & 0xffu;
+    let mix = (instance.blend_opacity >> 8u) & 0xffu;
+    let opacity = (instance.blend_opacity >> 16u) & 0xffu;
 
     var out: VertexOutput;
     out.dest_xy = dest_xy;
-    out.source_xy = vec2<f32>(instance.source_origin) + source_local;
+    out.source_xy = vec2<f32>(source_origin) + source_local;
     out.source_local = source_local;
-    out.source_size = instance.source_size;
-    out.texture_indices = instance.texture_indices;
-    out.blend_mode = instance.blend_mode;
-    out.opacity = instance.opacity;
+    out.source_size = source_size;
+    out.texture_indices = texture_indices;
+    out.blend_mode = vec2<u32>(mix, compose);
+    out.opacity = opacity;
 
-    let ndc_x = dest_xy.x * 2.0 / f32(instance.target_size.x) - 1.0;
-    let ndc_y = 1.0 - dest_xy.y * 2.0 / f32(instance.target_size.y);
+    let ndc_x = dest_xy.x * 2.0 / f32(target_size.x) - 1.0;
+    let ndc_y = 1.0 - dest_xy.y * 2.0 / f32(target_size.y);
     out.position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
     return out;
 }

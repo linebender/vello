@@ -1524,26 +1524,25 @@ impl Programs {
             array_stride: size_of::<GpuBlendInstance>() as u64,
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &wgpu::vertex_attr_array![
-                0 => Uint32x2,
-                1 => Uint32x2,
-                2 => Uint32x2,
-                3 => Uint32x2,
-                4 => Uint32x2,
+                0 => Uint32,
+                1 => Uint32,
+                2 => Uint32,
+                3 => Uint32,
+                4 => Uint32,
                 5 => Uint32,
-                6 => Uint32x2,
-                7 => Uint32x2,
-                8 => Uint32x2,
-                9 => Uint32x2,
+                6 => Uint32,
+                7 => Uint32,
+                8 => Uint32,
             ],
         };
         let copy_vertex_state = wgpu::VertexBufferLayout {
             array_stride: size_of::<GpuCopyInstance>() as u64,
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &wgpu::vertex_attr_array![
-                0 => Uint32x2,
-                1 => Uint32x2,
-                2 => Uint32x2,
-                3 => Uint32x2,
+                0 => Uint32,
+                1 => Uint32,
+                2 => Uint32,
+                3 => Uint32,
             ],
         };
         let create_blend_pipeline =
