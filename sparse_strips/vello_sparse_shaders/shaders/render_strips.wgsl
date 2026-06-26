@@ -1335,7 +1335,7 @@ fn get_blurred_rounded_rect_translate(texel1: vec4<u32>) -> vec2<f32> {
 /// Premultiplied rectangle color.
 fn get_blurred_rounded_rect_color(texel1: vec4<u32>) -> vec4<f32> { return unpack4x8unorm(texel1.z); }
 
-/// Whether to paint the inverse (`1 - alpha`) of the blur coverage (`0` = normal, `1` = inverse).
+/// Whether to paint the inverse (`1 - alpha`) of the blur coverage.
 fn get_blurred_rounded_rect_invert(texel1: vec4<u32>) -> u32 { return texel1.w; }
 
 fn get_blurred_rounded_rect_exponent(texel2: vec4<u32>) -> f32 { return bitcast<f32>(texel2.x); }
