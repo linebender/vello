@@ -68,7 +68,7 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
 profiling = { version = "1.0.18", features = ["profile-with-tracing"] }
 
 # For caching
-jni = "0.21.1"
+jni = "0.22"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = { workspace = true }

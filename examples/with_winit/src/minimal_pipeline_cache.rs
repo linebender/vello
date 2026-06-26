@@ -19,28 +19,44 @@ fn get_cache_directory_android<T>(event_loop: &EventLoop<T>) -> anyhow::Result<P
     use winit::platform::android::EventLoopExtAndroid;
 
     let app = event_loop.android_app();
-    let app_jobject = unsafe { jni::objects::JObject::from_raw(app.activity_as_ptr().cast()) };
     // If we got a null VM, we can't pass up
-    let jvm = unsafe { jni::JavaVM::from_raw(app.vm_as_ptr().cast()).context("Making VM")? };
-    let mut env = jvm.attach_current_thread().context("Attaching to thread")?;
-    let res = env
-        .call_method(app_jobject, "getCacheDir", "()Ljava/io/File;", &[])
-        .context("Calling GetCacheDir")?;
-    let file = res.l().context("Converting to JObject")?;
-    let directory_path = env
-        .call_method(file, "getAbsolutePath", "()Ljava/lang/String;", &[])
-        .context("Calling `getAbsolutePath`")?;
-    let string = directory_path.l().context("Converting to a string")?.into();
-    let string = env
-        .get_string(&string)
-        .context("Converting into a Rust string")?;
-    let string: String = string.into();
-    let dir = PathBuf::from(string).join("vello");
-    if !dir.exists() {
-        std::fs::create_dir(&dir).context("Creating pipeline cache directory")?;
-    }
-    // TODO: Also get the quota. This appears to be more involved, requiring a worker thread and being asynchronous
-    Ok(dir)
+    let jvm = unsafe { jni::JavaVM::from_raw(app.vm_as_ptr().cast()) };
+    jvm.attach_current_thread(|env| -> anyhow::Result<PathBuf> {
+        let app_jobject =
+            unsafe { jni::objects::JObject::from_raw(env, app.activity_as_ptr().cast()) };
+        let res = env
+            .call_method(
+                app_jobject,
+                jni::jni_str!("getCacheDir"),
+                jni::jni_sig!("()Ljava/io/File;"),
+                &[],
+            )
+            .context("Calling GetCacheDir")?;
+        let file = res.l().context("Converting to JObject")?;
+        let directory_path = env
+            .call_method(
+                file,
+                jni::jni_str!("getAbsolutePath"),
+                jni::jni_sig!("()Ljava/lang/String;"),
+                &[],
+            )
+            .context("Calling `getAbsolutePath`")?;
+        let string = env
+            .cast_local::<jni::objects::JString<'_>>(
+                directory_path.l().context("Converting to a string")?,
+            )
+            .context("Casting to JString")?;
+        let string: String = string
+            .try_to_string(env)
+            .context("Converting into a Rust string")?;
+        let dir = PathBuf::from(string).join("vello");
+        if !dir.exists() {
+            std::fs::create_dir(&dir).context("Creating pipeline cache directory")?;
+        }
+        // TODO: Also get the quota. This appears to be more involved, requiring a worker thread and being asynchronous
+        Ok(dir)
+    })
+    .context("Attaching to thread")
 }
 
 pub(crate) fn get_cache_directory<T>(
