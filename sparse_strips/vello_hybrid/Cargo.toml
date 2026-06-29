@@ -44,7 +44,7 @@ web-sys = { version = "0.3.98", features = [
 png = { workspace = true }
 pollster = { workspace = true }
 vello_common = { workspace = true, features = ["pico_svg"] }
-roxmltree = "0.20.0"
+roxmltree = "0.21.1"
 
 [features]
 default = ["wgpu", "wgpu_default", "text"]
