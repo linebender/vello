@@ -587,8 +587,8 @@ impl Dispatcher for MultiThreadedDispatcher {
             .expect("layer stack underflow");
     }
 
-    fn reset(&mut self) {
-        // Bucketer will be reset on demand.
+    fn reset(&mut self, width: u16, height: u16) {
+        // Bucketer will be reset lazily during rasterization with the active viewport.
         self.clip_context.reset();
         self.recorder.reset();
         self.strip_storage.clear();
@@ -599,7 +599,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         self.layer_depth = 0;
         self.task_sender = None;
         self.recorded_command_receiver = None;
-        self.strip_generator.reset();
+        self.strip_generator.reset(width, height);
         self.alpha_storage.with_inner(|alphas| {
             for alpha in alphas {
                 alpha.clear();
@@ -614,7 +614,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         self.thread_pool.spawn_broadcast(move |_| {
             let worker = workers.get().unwrap();
             let mut borrowed = worker.borrow_mut();
-            borrowed.reset();
+            borrowed.reset(width, height);
             t_barrier.wait();
         });
 
