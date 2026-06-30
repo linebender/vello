@@ -28,8 +28,7 @@ cargo run -p with_winit
 
 It is used as the rendering backend for [Xilem], a Rust GUI toolkit.
 
-> ⚠️ WARNING
->
+> [!WARNING]
 > Vello can currently be considered in an alpha state. In particular, we're still working on the following:
 >
 > - [Implementing blur and filter effects](https://github.com/linebender/vello/issues/476).
