@@ -779,6 +779,45 @@ impl RenderContext {
         resources: &mut Resources,
         settings: RasterizerSettings,
     ) {
+        self.render_inner(target, resources, settings, None);
+    }
+
+    /// Render like [`RenderContext::render`], but poll `cancel` during
+    /// rasterization and stop early when it returns `true`.
+    ///
+    /// Returns `true` if the render completed, or `false` if it was cancelled —
+    /// in which case the target is left partially rendered and should be
+    /// discarded.
+    ///
+    /// Cancellation latency is bounded by a single strip row's rasterization on
+    /// the single-threaded dispatcher, and by the regions already in flight (one
+    /// per worker thread) on the multi-threaded dispatcher. `cancel` must be
+    /// `Sync` because the multi-threaded dispatcher polls it from worker threads,
+    /// and is assumed idempotent: it is re-checked once after rendering to
+    /// produce the return value (a cancellation request does not un-fire).
+    #[must_use = "the return value reports whether the render was cancelled"]
+    pub fn render_cancellable<'a>(
+        &self,
+        target: impl Into<PixmapMut<'a>>,
+        resources: &mut Resources,
+        cancel: &(dyn Fn() -> bool + Sync),
+    ) -> bool {
+        self.render_inner(
+            target,
+            resources,
+            RasterizerSettings::default(),
+            Some(cancel),
+        );
+        !cancel()
+    }
+
+    fn render_inner<'a>(
+        &self,
+        target: impl Into<PixmapMut<'a>>,
+        resources: &mut Resources,
+        settings: RasterizerSettings,
+        cancel: Option<&(dyn Fn() -> bool + Sync)>,
+    ) {
         // TODO: Maybe we should move those checks into the dispatcher.
         assert!(
             !self.dispatcher.has_layers(),
@@ -804,6 +843,7 @@ impl RenderContext {
             settings,
             &self.encoded_paints,
             &resources.image_registry,
+            cancel,
         );
         // TODO: We need to figure something out here API-wise. At the moment, the user can
         // theoretically rasterize the same `RenderContext` multiple times without resetting in-between.
