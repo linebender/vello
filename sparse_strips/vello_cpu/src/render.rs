@@ -10,7 +10,12 @@ use crate::dispatch::multi_threaded::MultiThreadedDispatcher;
 #[cfg(feature = "text")]
 use crate::text::{GlyphAtlasResources, GlyphRunBuilder};
 #[cfg(feature = "text")]
-use glifo::GlyphPrepCache;
+use glifo::{GlyphAtlas, GlyphPrepCache};
+
+#[cfg(feature = "text")]
+use vello_common::image_cache::ImageCache;
+#[cfg(feature = "text")]
+use vello_common::multi_atlas::AtlasConfig;
 
 use crate::dispatch::single_threaded::SingleThreadedDispatcher;
 use crate::kurbo::{PathEl, Point};
@@ -33,8 +38,6 @@ use vello_common::pixmap::{Pixmap, PixmapMut};
 use vello_common::render_state::RenderState;
 use vello_common::util::is_axis_aligned;
 
-#[cfg(feature = "text")]
-pub(crate) const DEFAULT_GLYPH_ATLAS_SIZE: u16 = 4096;
 // Why do we need this? The reason is that the way uploaded images work in Vello Hybrid
 // is different from how they work in Vello CPU.
 //
@@ -60,6 +63,8 @@ pub(crate) const ATLAS_IMAGE_ID_BASE: u32 = u32::MAX / 2;
 pub struct Resources {
     pub(crate) image_registry: ImageRegistry,
     #[cfg(feature = "text")]
+    pub(crate) image_cache: ImageCache,
+    #[cfg(feature = "text")]
     pub(crate) glyph_prep_cache: GlyphPrepCache,
     // Will be initialized lazily on first use.
     #[cfg(feature = "text")]
@@ -70,6 +75,15 @@ impl Resources {
     /// Create a new set of renderer resources.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Creates a new set of renderer resources with a custom [`AtlasConfig`].
+    #[cfg(feature = "text")]
+    pub fn new_with_atlas_config(atlas_config: AtlasConfig) -> Self {
+        Self {
+            image_cache: ImageCache::new_with_config(atlas_config),
+            ..Self::default()
+        }
     }
 
     pub(crate) fn before_render(&mut self, render_mode: RenderMode) {
@@ -83,6 +97,28 @@ impl Resources {
     pub(crate) fn after_render(&mut self) {
         #[cfg(feature = "text")]
         self.maintain_glyph_cache();
+    }
+
+    /// Returns image cache.
+    #[cfg(feature = "text")]
+    pub fn image_cache(&self) -> &ImageCache {
+        &self.image_cache
+    }
+
+    /// Returns glyph atlas pages.
+    #[cfg(feature = "text")]
+    pub fn pixmaps(&self) -> Option<Vec<Arc<Pixmap>>> {
+        self.glyph_resources
+            .as_ref()
+            .map(|glyph_resources| glyph_resources.pixmaps.clone())
+    }
+
+    /// Returns glyph atlas cache data.
+    #[cfg(feature = "text")]
+    pub fn glyph_atlas_mut(&mut self) -> Option<&mut GlyphAtlas> {
+        self.glyph_resources
+            .as_mut()
+            .map(|glyph_resources| &mut glyph_resources.glyph_atlas)
     }
 }
 
@@ -950,9 +986,13 @@ mod tests {
     use alloc::sync::Arc;
     use alloc::vec;
     #[cfg(feature = "text")]
-    use glifo::Glyph;
-    use vello_common::color::PremulRgba8;
-    use vello_common::color::palette::css::{BLUE, RED};
+    use glifo::{AtlasConfig, FontEmbolden, Glyph, GlyphCacheKey};
+    #[cfg(feature = "text")]
+    use vello_common::color::palette::css::BLACK;
+    use vello_common::color::{
+        PremulRgba8,
+        palette::css::{BLUE, RED},
+    };
     use vello_common::kurbo::{Rect, Shape};
     use vello_common::pixmap::{Pixmap, PixmapMut};
     use vello_common::tile::Tile;
@@ -1225,5 +1265,69 @@ mod tests {
             .fill_glyphs(glyphs.into_iter());
 
         assert!(resources.glyph_resources.is_some());
+    }
+
+    #[cfg(feature = "text")]
+    #[test]
+    fn custom_atlas_size() {
+        const ROBOTO_FONT: &[u8] =
+            include_bytes!("../../../examples/assets/roboto/Roboto-Regular.ttf");
+
+        let font = FontData::new(Blob::new(Arc::new(ROBOTO_FONT)), 0);
+        let glyphs = [Glyph {
+            id: 1,
+            x: 0.0,
+            y: 0.0,
+        }];
+
+        let mut resources = Resources::new_with_atlas_config(AtlasConfig {
+            atlas_size: (100, 100),
+            ..AtlasConfig::default()
+        });
+        let mut ctx = RenderContext::new(100, 100);
+
+        ctx.glyph_run(&mut resources, &font)
+            .atlas_cache(true)
+            .fill_glyphs(glyphs.into_iter());
+
+        resources.prepare_glyph_cache(crate::RenderMode::OptimizeQuality);
+        resources.maintain_glyph_cache();
+        if let Some(glyph_atlas) = resources.glyph_atlas_mut() {
+            glyph_atlas.clear_tick();
+        }
+
+        assert_eq!(resources.image_cache.atlas_count(), 1);
+
+        let stats = resources.image_cache.atlas_manager().atlas_stats()[0].1;
+        assert!(stats.allocated_area > 0);
+        assert_eq!(stats.total_area, 100 * 100);
+        assert_eq!(stats.allocated_count, 1);
+
+        let glyph_atlas_mut = resources.glyph_atlas_mut().unwrap();
+
+        const BLACK_PACKED: u32 = PremulRgba8 {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        }
+        .to_u32();
+
+        assert!(
+            glyph_atlas_mut
+                .get(&GlyphCacheKey::new(
+                    0,
+                    0,
+                    1,
+                    16.0,
+                    true,
+                    0.0,
+                    BLACK,
+                    BLACK_PACKED,
+                    FontEmbolden::default(),
+                    &[],
+                ))
+                .is_some()
+        );
     }
 }

@@ -12,10 +12,8 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::Pixmap;
 use crate::atlas::AtlasSlot;
 use crate::atlas::GlyphCacheKey;
-use crate::atlas::key::{SUBPIXEL_BITMAP, SUBPIXEL_COLR, pack_color};
+use crate::atlas::key::{pack_color, quantize_subpixel};
 use crate::atlas::{GlyphAtlas, ImageCache};
-use crate::color::PremulRgba8;
-use crate::color::palette::css::BLACK;
 use crate::colr::{convert_bounding_box, get_colr_info};
 use crate::kurbo::Point;
 use crate::kurbo::Rect;
@@ -71,6 +69,14 @@ pub struct FontEmbolden {
 }
 
 impl FontEmbolden {
+    /// A default value of [`FontEmbolden`].
+    pub const DEFAULT: Self = Self {
+        amount: Diagonal2::new(0.0, 0.0),
+        join: Join::Miter,
+        miter_limit: 4.0,
+        tolerance: 0.1,
+    };
+
     /// Create synthetic embolden settings with default expansion controls.
     pub fn new(amount: Diagonal2) -> Self {
         Self {
@@ -96,27 +102,24 @@ impl FontEmbolden {
         self.tolerance = tolerance;
         self
     }
+
+    /// Converts `self` to `[xx, yy, join, miter_limit, tolerance]`.
+    pub const fn to_array(self) -> [u32; 5] {
+        [
+            f32_bits(self.amount.xx),
+            f32_bits(self.amount.yy),
+            join_bits(self.join),
+            f32_bits(self.miter_limit),
+            f32_bits(self.tolerance),
+        ]
+    }
 }
 
 impl Default for FontEmbolden {
     fn default() -> Self {
-        Self {
-            amount: Diagonal2::new(0.0, 0.0),
-            join: Join::Miter,
-            miter_limit: 4.0,
-            tolerance: 0.1,
-        }
+        Self::DEFAULT
     }
 }
-
-/// Pre-packed `BLACK` color as a `u32` for use in `GlyphCacheKey`.
-const BLACK_PACKED: u32 = PremulRgba8 {
-    r: 0,
-    g: 0,
-    b: 0,
-    a: 255,
-}
-.to_u32();
 
 /// A type of glyph.
 #[derive(Debug)]
@@ -377,6 +380,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             ..
         } = self.prepared_run;
 
+        let font_id = font_info.id;
+        let font_index = font_info.index;
         let hinted = hinting_instance.is_some();
 
         let colr_bitmap_cache_enabled = self
@@ -403,6 +408,14 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             // first place and cull them.
             let glyph_id = GlyphId::new(glyph.id);
 
+            // A temporary glyph cache key.
+            let temp_glyph_cache_key = GlyphCacheKey {
+                font_id,
+                font_index,
+                glyph_id: glyph.id,
+                ..GlyphCacheKey::DEFAULT
+            };
+
             // ── Speculative outline cache check ─────────────────────────
             // ~99% of glyphs are outlines. The transform and cache key are
             // pure arithmetic, so we probe the cache before the expensive
@@ -420,18 +433,14 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             // the glyph by pre-concatenating it with the inverted outline transform.
             let outline_cache_key = outline_cache_enabled.then(|| {
                 let fractional_x = outline_transform.translation().x.fract() as f32;
-                GlyphCacheKey::new(
-                    font_info.id,
-                    font_info.index,
-                    glyph.id,
-                    draw_props.font_size,
+                GlyphCacheKey {
+                    size_bits: draw_props.font_size.to_bits(),
                     hinted,
-                    fractional_x,
-                    BLACK,
-                    BLACK_PACKED,
-                    font_embolden,
-                    normalized_coords,
-                )
+                    subpixel_x: quantize_subpixel(fractional_x),
+                    embolden: font_embolden.to_array(),
+                    var_coords: SmallVec::from_slice(normalized_coords),
+                    ..temp_glyph_cache_key
+                }
             });
             if let Some(ref key) = outline_cache_key
                 && let Some(cached_slot) = self.atlas_cacher.get(key)
@@ -463,20 +472,11 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                 // COLR glyphs are never hinted and have no sub-pixel offset;
                 // context_color is part of the key because it affects painted layers.
                 let cache_key = colr_bitmap_cache_enabled.then(|| GlyphCacheKey {
-                    font_id: font_info.id,
-                    font_index: font_info.index,
-                    glyph_id: glyph.id,
                     size_bits: draw_props.font_size.to_bits(),
-                    hinted: false,
-                    subpixel_x: SUBPIXEL_COLR,
                     context_color,
                     context_color_packed,
-                    embolden_x_bits: 0,
-                    embolden_y_bits: 0,
-                    embolden_join_bits: join_bits(Join::Miter),
-                    embolden_miter_limit_bits: 4.0_f32.to_bits(),
-                    embolden_tolerance_bits: 0.1_f32.to_bits(),
                     var_coords: SmallVec::from_slice(normalized_coords),
+                    ..temp_glyph_cache_key.to_colr()
                 });
 
                 if let Some(ref key) = cache_key
@@ -563,20 +563,8 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
                 // Bitmaps are not hinted and have no sub-pixel offset or
                 // context color; variation coords are irrelevant for fixed strikes.
                 let cache_key = colr_bitmap_cache_enabled.then(|| GlyphCacheKey {
-                    font_id: font_info.id,
-                    font_index: font_info.index,
-                    glyph_id: glyph.id,
                     size_bits: bitmap_ppem.to_bits(),
-                    hinted: false,
-                    subpixel_x: SUBPIXEL_BITMAP,
-                    context_color: BLACK,
-                    context_color_packed: BLACK_PACKED,
-                    embolden_x_bits: 0,
-                    embolden_y_bits: 0,
-                    embolden_join_bits: join_bits(Join::Miter),
-                    embolden_miter_limit_bits: 4.0_f32.to_bits(),
-                    embolden_tolerance_bits: 0.1_f32.to_bits(),
-                    var_coords: SmallVec::new(),
+                    ..temp_glyph_cache_key.to_bitmap()
                 });
 
                 if let Some(ref key) = cache_key
@@ -1761,16 +1749,12 @@ struct OutlineKey {
     font_index: u32,
     glyph_id: u32,
     size_bits: u32,
-    embolden_x_bits: u32,
-    embolden_y_bits: u32,
-    embolden_join_bits: u8,
-    embolden_miter_limit_bits: u32,
-    embolden_tolerance_bits: u32,
+    embolden: [u32; 5],
     hint: bool,
 }
 
 #[inline(always)]
-fn join_bits(join: Join) -> u8 {
+const fn join_bits(join: Join) -> u32 {
     match join {
         Join::Bevel => 0,
         Join::Miter => 1,
@@ -1783,7 +1767,7 @@ fn join_bits(join: Join) -> u8 {
     reason = "Cache keys intentionally store embolden parameters at f32 precision."
 )]
 #[inline(always)]
-fn f32_bits(value: f64) -> u32 {
+const fn f32_bits(value: f64) -> u32 {
     (value as f32).to_bits()
 }
 
@@ -1948,11 +1932,7 @@ impl<'a> OutlineCacheSession<'a> {
             font_id: font_info.id,
             font_index: font_info.index,
             size_bits: size.to_bits(),
-            embolden_x_bits: f32_bits(embolden.amount.xx),
-            embolden_y_bits: f32_bits(embolden.amount.yy),
-            embolden_join_bits: join_bits(embolden.join),
-            embolden_miter_limit_bits: f32_bits(embolden.miter_limit),
-            embolden_tolerance_bits: f32_bits(embolden.tolerance),
+            embolden: embolden.to_array(),
             hint: hinting_instance.is_some(),
         };
 
@@ -2181,7 +2161,7 @@ mod tests {
     use crate::interface::{DrawSink, GlyphRenderer};
     use crate::peniko::BlendMode;
     use crate::peniko::Blob;
-    use crate::peniko::color::{AlphaColor, Srgb};
+    use crate::peniko::color::{AlphaColor, Srgb, palette::css::BLACK};
     use alloc::sync::Arc;
     use vello_common::paint::{Image, ImageId, ImageSource, PaintType, Tint};
 
