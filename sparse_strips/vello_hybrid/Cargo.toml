@@ -24,8 +24,8 @@ vello_sparse_shaders = { workspace = true, optional = true }
 log = { workspace = true }
 hashbrown = { workspace = true }
 
-js-sys = { version = "0.3.98", optional = true }
-web-sys = { version = "0.3.98", features = [
+js-sys = { workspace = true, optional = true }
+web-sys = { workspace = true, features = [
     "HtmlCanvasElement",
     "WebGl2RenderingContext",
     "WebGlContextAttributes",
