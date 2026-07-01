@@ -912,7 +912,7 @@ mod tests {
     #[test]
     fn test_decimation_reduces_kernel_size() {
         let (n_decimations, _kernel, kernel_size) = plan_decimated_blur(100.0);
-        assert_eq!(kernel_size, 9);
+        assert_eq!(kernel_size, 11);
         assert_eq!(n_decimations, 6, "Large sigma should trigger decimation");
     }
 

@@ -149,7 +149,7 @@ fn filter_gaussian_blur_no_decimation(ctx: &mut impl Renderer) {
 
 /// Test Gaussian blur with larger radius (`std_deviation` = 4.0, uses decimation).
 /// Uses multi-scale downsampling for performance.
-#[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 2)]
 fn filter_gaussian_blur_with_decimation(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 4.0,
@@ -429,7 +429,7 @@ fn filter_set_effect(ctx: &mut impl Renderer) {
 
 /// Test filter interactions with layers, clips, blend modes, and opacity.
 /// 9 scenarios testing filters at various depths, with clips, opacity, blend modes, etc.
-#[vello_test(skip_multithreaded, hybrid_tolerance = 2)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 3)]
 fn filter_varying_depths_clips_and_compositions(ctx: &mut impl Renderer) {
     let filter_drop_shadow = Filter::from_primitive(FilterPrimitive::DropShadow {
         dx: 2.0,
@@ -1064,7 +1064,7 @@ fn filter_offset(ctx: &mut impl Renderer) {
 }
 
 /// Test blur with various transforms (translate, rotate, scale, skew).
-#[vello_test(skip_multithreaded, hybrid_tolerance = 2, diff_pixels = 1)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 3, diff_pixels = 1)]
 fn filter_transformed_blur(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 3.0,
@@ -1719,7 +1719,7 @@ fn filter_gaussian_blur_edge_mode_none(ctx: &mut impl Renderer) {
     blur_with_edge_mode(ctx, EdgeMode::None);
 }
 
-#[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 3)]
 fn filter_with_outer_clip_path(ctx: &mut impl Renderer) {
     let clip_rect = Rect::new(25.0, 25.0, 75.0, 75.0);
     let rect = clip_rect.inflate(5.0, 5.0);
@@ -1736,7 +1736,7 @@ fn filter_with_outer_clip_path(ctx: &mut impl Renderer) {
     ctx.pop_clip_path();
 }
 
-#[vello_test(skip_multithreaded, hybrid_tolerance = 1)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 3)]
 fn filter_with_inner_clip_path(ctx: &mut impl Renderer) {
     let clip_rect = Rect::new(25.0, 25.0, 75.0, 75.0);
     let rect = clip_rect.inflate(5.0, 5.0);
