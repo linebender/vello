@@ -14,7 +14,6 @@ use core::cell::RefCell;
 use core::ops::Range;
 use vello_common::TextureId;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
-use vello_common::clip::ClipState;
 use vello_common::encode::{EncodeExt, EncodedExternalTexture, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::filter::FilterData;
@@ -31,8 +30,10 @@ use vello_common::peniko::{BlendMode, Compose, Extend, Fill, ImageQuality, Image
 use vello_common::record::{CommandRecorder, Drawable, LayerClip, LayerProps, PoppedLayer};
 use vello_common::render_state::RenderState;
 use vello_common::strip::Strip;
-use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
+use vello_common::strip_generator::{GenerationMode, StripStorage};
+use vello_common::transforms::Transforms;
 use vello_common::util::{control_point_bbox_u16, is_axis_aligned, strip_bbox};
+use vello_common::viewport::ViewportState;
 
 /// Default tolerance for curve flattening
 pub(crate) const DEFAULT_TOLERANCE: f64 = 0.1;
@@ -117,9 +118,7 @@ pub struct Scene {
     pub(crate) width: u16,
     /// Height of the rendering surface in pixels.
     pub(crate) height: u16,
-    clip_context: ClipState,
-    level: Level,
-    root_transforms: Vec<Affine>,
+    viewport_state: ViewportState,
     pub(crate) render_state: RenderState,
     pub(crate) aliasing_threshold: Option<u8>,
     // The reason we use `RefCell` here is that during `render`, we need
@@ -129,14 +128,10 @@ pub struct Scene {
     pub(crate) encoded_paints: RefCell<Vec<EncodedPaint>>,
     /// Whether the current paint is visible (e.g., alpha > 0).
     paint_visible: bool,
-    /// Generator for converting paths to strips.
-    pub(crate) strip_generator: StripGenerator,
-    strip_generator_stack: Vec<StripGenerator>,
     /// Storage for generated strips and alpha values.
     pub(crate) strip_storage: RefCell<StripStorage>,
     /// Current filter effect applied to individual draw operations.
     filter: Option<Filter>,
-    /// Recorded command stream consumed by the new scheduler.
     pub(crate) recorder: CommandRecorder<RecordedDraw>,
 }
 
@@ -153,15 +148,11 @@ impl Scene {
         Self {
             width,
             height,
-            clip_context: ClipState::new(),
-            level: settings.level,
-            root_transforms: vec![Affine::IDENTITY],
+            viewport_state: ViewportState::new(width, height, settings.level),
             render_state: RenderState::default(),
             aliasing_threshold: None,
             encoded_paints: RefCell::new(vec![]),
             paint_visible: true,
-            strip_generator: StripGenerator::new(width, height, settings.level),
-            strip_generator_stack: Vec::new(),
             // Recorded commands hold ranges into this storage, so keep appending generated strips.
             strip_storage: RefCell::new(StripStorage::new(GenerationMode::Append)),
             filter: None,
@@ -169,65 +160,20 @@ impl Scene {
         }
     }
 
-    fn root_transform(&self) -> Affine {
-        *self
-            .root_transforms
-            .last()
-            .expect("root transform stack should never be empty")
-    }
-
-    fn effective_path_transform(&self) -> Affine {
-        self.root_transform() * self.render_state.transform
-    }
-
-    fn effective_paint_transform(&self) -> Affine {
-        self.effective_path_transform() * self.render_state.paint_transform
-    }
-
-    fn push_root_transform(&mut self, relative_transform: Affine) {
-        self.root_transforms
-            .push(relative_transform * self.root_transform());
-    }
-
-    fn pop_root_transform(&mut self) {
-        self.root_transforms.pop();
-    }
-
     fn active_width(&self) -> u16 {
-        self.strip_generator.width()
+        self.viewport_state.width()
     }
 
     fn active_height(&self) -> u16 {
-        self.strip_generator.height()
+        self.viewport_state.height()
     }
 
-    fn push_filter_surface(&mut self, filter_data: &FilterData) {
-        let padding = filter_data.source_padding;
-        let width = self
-            .strip_generator
-            .width()
-            .saturating_add(padding.x0)
-            .saturating_add(padding.x1);
-        let height = self
-            .strip_generator
-            .height()
-            .saturating_add(padding.y0)
-            .saturating_add(padding.y1);
-        let filter_generator = StripGenerator::new(width, height, self.level);
-        let parent_generator = core::mem::replace(&mut self.strip_generator, filter_generator);
-        self.strip_generator_stack.push(parent_generator);
-
-        self.clip_context
-            .push_filter_viewport(filter_data.source_shift(), &mut self.strip_generator);
+    fn transforms(&self) -> &Transforms {
+        &self.render_state.transforms
     }
 
-    fn pop_filter_surface(&mut self) {
-        self.strip_generator = self
-            .strip_generator_stack
-            .pop()
-            .expect("filter viewport stack underflow");
-        self.clip_context
-            .pop_filter_viewport(&mut self.strip_generator);
+    fn transforms_mut(&mut self) -> &mut Transforms {
+        &mut self.render_state.transforms
     }
 
     /// Encode the current paint into a `Paint` that can be used for rendering.
@@ -245,12 +191,12 @@ impl Scene {
             PaintType::Solid(s) => s.into(),
             PaintType::Gradient(g) => g.encode_into(
                 &mut self.encoded_paints.borrow_mut(),
-                self.effective_paint_transform(),
+                self.transforms().effective_paint_transform(),
                 None,
             ),
             PaintType::Image(i) => i.encode_into(
                 &mut self.encoded_paints.borrow_mut(),
-                self.effective_paint_transform(),
+                self.transforms().effective_paint_transform(),
                 self.render_state.tint,
             ),
         }
@@ -296,7 +242,7 @@ impl Scene {
             let paint = ctx.encode_current_paint();
             ctx.fill_path_with(
                 path,
-                ctx.effective_path_transform(),
+                ctx.transforms().effective_path_transform(),
                 ctx.render_state.fill_rule,
                 paint,
                 ctx.aliasing_threshold,
@@ -316,14 +262,17 @@ impl Scene {
         let (strips, draw) = {
             let strip_storage = &mut self.strip_storage.borrow_mut();
             let strip_start = strip_storage.strips.len();
-            self.strip_generator.generate_filled_path(
-                path,
-                fill_rule,
-                transform,
-                aliasing_threshold,
-                strip_storage,
-                self.clip_context.get(),
-            );
+            self.viewport_state
+                .with_generator_and_clip(|strip_generator, clip_path| {
+                    strip_generator.generate_filled_path(
+                        path,
+                        fill_rule,
+                        transform,
+                        aliasing_threshold,
+                        strip_storage,
+                        clip_path,
+                    );
+                });
 
             let strips = strip_start..strip_storage.strips.len();
             let draw = RecordedDraw::path(strips.clone(), paint.clone());
@@ -338,11 +287,11 @@ impl Scene {
     /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
     /// example for how this method differs from `push_clip_layer`.
     pub fn push_clip_path(&mut self, path: &BezPath) {
-        self.clip_context.push_clip(
+        let transform = self.transforms().clip_path_transform();
+        self.viewport_state.push_clip_path(
             path,
-            &mut self.strip_generator,
             self.render_state.fill_rule,
-            self.render_state.transform,
+            transform,
             self.aliasing_threshold,
         );
     }
@@ -352,7 +301,7 @@ impl Scene {
     /// Note that unlike `push_clip_layer`, it is permissible to have pending
     /// pushed clip paths before finishing the rendering operation.
     pub fn pop_clip_path(&mut self) {
-        self.clip_context.pop_clip();
+        self.viewport_state.pop_clip_path();
     }
 
     /// Stroke a path with the current paint and stroke settings.
@@ -365,7 +314,7 @@ impl Scene {
             let paint = ctx.encode_current_paint();
             ctx.stroke_path_with(
                 path,
-                ctx.effective_path_transform(),
+                ctx.transforms().effective_path_transform(),
                 paint,
                 ctx.aliasing_threshold,
             );
@@ -383,14 +332,17 @@ impl Scene {
         let (strips, draw) = {
             let strip_storage = &mut self.strip_storage.borrow_mut();
             let strip_start = strip_storage.strips.len();
-            self.strip_generator.generate_stroked_path(
-                path,
-                &self.render_state.stroke,
-                transform,
-                aliasing_threshold,
-                strip_storage,
-                self.clip_context.get(),
-            );
+            self.viewport_state
+                .with_generator_and_clip(|strip_generator, clip_path| {
+                    strip_generator.generate_stroked_path(
+                        path,
+                        &self.render_state.stroke,
+                        transform,
+                        aliasing_threshold,
+                        strip_storage,
+                        clip_path,
+                    );
+                });
 
             let strips = strip_start..strip_storage.strips.len();
             let draw = RecordedDraw::path(strips.clone(), paint.clone());
@@ -425,19 +377,25 @@ impl Scene {
             return;
         }
 
-        let transform = self.effective_path_transform();
+        let transform = self.transforms().effective_path_transform();
         if is_axis_aligned(&transform) && self.aliasing_threshold.is_none() {
             self.with_optional_filter(|ctx| {
                 let paint = ctx.encode_current_paint();
-                let transformed_rect = ctx.effective_path_transform().transform_rect_bbox(*rect);
+                let transformed_rect = ctx
+                    .transforms()
+                    .effective_path_transform()
+                    .transform_rect_bbox(*rect);
                 let (strips, draw) = {
                     let strip_storage = &mut ctx.strip_storage.borrow_mut();
                     let strip_start = strip_storage.strips.len();
-                    ctx.strip_generator.generate_filled_rect_fast(
-                        &transformed_rect,
-                        strip_storage,
-                        ctx.clip_context.get(),
-                    );
+                    ctx.viewport_state
+                        .with_generator_and_clip(|strip_generator, clip_path| {
+                            strip_generator.generate_filled_rect_fast(
+                                &transformed_rect,
+                                strip_storage,
+                                clip_path,
+                            );
+                        });
 
                     let strips = strip_start..strip_storage.strips.len();
                     let draw = RecordedDraw::path(strips.clone(), paint.clone());
@@ -505,7 +463,7 @@ impl Scene {
 
                 let w = f64::from(rect.source_region.width());
                 let h = f64::from(rect.source_region.height());
-                let transform = ctx.effective_path_transform() * rect.transform;
+                let transform = ctx.transforms().effective_path_transform() * rect.transform;
 
                 if ctx.can_record_direct_rect() && is_axis_aligned(&transform) {
                     let dst_rect = Rect::new(0., 0., w, h);
@@ -568,7 +526,7 @@ impl Scene {
     #[inline]
     fn can_record_direct_rect(&self) -> bool {
         self.filter.is_none()
-            && self.clip_context.get().is_none()
+            && self.viewport_state.clip().is_none()
             && self.aliasing_threshold.is_none()
     }
 
@@ -626,7 +584,7 @@ impl Scene {
 
         // We can't handle skewed rectangles.
         // TODO: Maybe support rotated rectangles (https://github.com/linebender/vello/pull/1482#discussion_r2881223621)
-        let transform = self.effective_path_transform();
+        let transform = self.transforms().effective_path_transform();
         if !is_axis_aligned(&transform) {
             return None;
         }
@@ -687,7 +645,7 @@ impl Scene {
 
             let kernel_size = 2.5 * std_dev;
             let inflated_rect = rect.inflate(f64::from(kernel_size), f64::from(kernel_size));
-            let transform = ctx.effective_paint_transform();
+            let transform = ctx.transforms().effective_paint_transform();
             let paint =
                 blurred_rect.encode_into(&mut ctx.encoded_paints.borrow_mut(), transform, None);
 
@@ -696,17 +654,20 @@ impl Scene {
                 return;
             }
 
-            let path_transform = ctx.effective_path_transform();
+            let path_transform = ctx.transforms().effective_path_transform();
             if is_axis_aligned(&path_transform) && ctx.aliasing_threshold.is_none() {
                 let transformed_rect = path_transform.transform_rect_bbox(inflated_rect);
                 let (strips, draw) = {
                     let strip_storage = &mut ctx.strip_storage.borrow_mut();
                     let strip_start = strip_storage.strips.len();
-                    ctx.strip_generator.generate_filled_rect_fast(
-                        &transformed_rect,
-                        strip_storage,
-                        ctx.clip_context.get(),
-                    );
+                    ctx.viewport_state
+                        .with_generator_and_clip(|strip_generator, clip_path| {
+                            strip_generator.generate_filled_rect_fast(
+                                &transformed_rect,
+                                strip_storage,
+                                clip_path,
+                            );
+                        });
 
                     let strips = strip_start..strip_storage.strips.len();
                     let draw = RecordedDraw::path(strips.clone(), paint.clone());
@@ -735,8 +696,8 @@ impl Scene {
     ) -> GlyphRunBuilder<'a> {
         glifo::GlyphRunBuilder::new(
             font.clone(),
-            self.render_state.transform,
-            self.render_state.paint_transform,
+            *self.transforms().transform(),
+            *self.transforms().paint_transform(),
             crate::text::HybridGlyphRunBackend {
                 scene: self,
                 resources,
@@ -759,44 +720,39 @@ impl Scene {
         }
 
         let blend_mode = blend_mode.unwrap_or(DEFAULT_BLEND_MODE);
-        let layer_transform = self.effective_path_transform();
-        let filter_plan = filter.map(|filter| FilterData::new(filter, layer_transform));
-        self.push_root_transform(
-            filter_plan
-                .as_ref()
-                .map_or(Affine::IDENTITY, |filter_plan| {
-                    let (shift_x, shift_y) = filter_plan.source_shift();
-                    Affine::translate((f64::from(shift_x), f64::from(shift_y)))
-                }),
-        );
-        if let Some(filter_plan) = &filter_plan {
-            self.push_filter_surface(filter_plan);
+        let layer_transform = self.transforms().effective_path_transform();
+        let filter_data = filter.map(|filter| FilterData::new(filter, layer_transform));
+        self.transforms_mut().push_root(filter_data.as_ref());
+        if let Some(filter_plan) = &filter_data {
+            self.viewport_state.push_filter_surface(filter_plan);
         }
 
         let clip_path = clip_path.map(|path| {
-            let existing_clip = self.clip_context.get();
-            let mut bbox = control_point_bbox_u16(path.iter(), layer_transform);
-            if let Some(existing_clip) = existing_clip {
-                bbox = bbox.intersect(existing_clip.bbox);
-            }
-
             let mut strip_storage = self.strip_storage.borrow_mut();
             let strip_start = strip_storage.strips.len();
-            self.strip_generator.generate_filled_path(
-                path,
-                self.render_state.fill_rule,
-                layer_transform,
-                self.aliasing_threshold,
-                &mut strip_storage,
-                existing_clip,
-            );
+            self.viewport_state
+                .with_generator_and_clip(|strip_generator, existing_clip| {
+                    let mut bbox = control_point_bbox_u16(path.iter(), layer_transform);
+                    if let Some(existing_clip) = existing_clip {
+                        bbox = bbox.intersect(existing_clip.bbox);
+                    }
 
-            let strip_range = strip_start..strip_storage.strips.len();
-            LayerClip {
-                strip_range,
-                thread_idx: 0,
-                bbox,
-            }
+                    strip_generator.generate_filled_path(
+                        path,
+                        self.render_state.fill_rule,
+                        layer_transform,
+                        self.aliasing_threshold,
+                        &mut strip_storage,
+                        existing_clip,
+                    );
+
+                    let strip_range = strip_start..strip_storage.strips.len();
+                    LayerClip {
+                        strip_range,
+                        thread_idx: 0,
+                        bbox,
+                    }
+                })
         });
 
         self.recorder.push_layer(
@@ -806,7 +762,7 @@ impl Scene {
                 mask: None,
                 clip_path,
             },
-            filter_plan,
+            filter_data,
         );
     }
 
@@ -845,9 +801,9 @@ impl Scene {
     /// Pop the last pushed layer.
     pub fn pop_layer(&mut self) {
         if self.recorder.pop_layer() == PoppedLayer::Filter {
-            self.pop_filter_surface();
+            self.viewport_state.pop_filter_surface();
         }
-        self.pop_root_transform();
+        self.transforms_mut().pop_root();
     }
 
     /// Set the blend mode for subsequent rendering operations.
@@ -907,12 +863,12 @@ impl Scene {
     /// is drawn in, i.e., the paint transform is applied after the global transform. This allows
     /// transforming the paint independently from the drawn geometry.
     pub fn set_paint_transform(&mut self, paint_transform: Affine) {
-        self.render_state.paint_transform = paint_transform;
+        self.transforms_mut().set_paint_transform(paint_transform);
     }
 
     /// Reset the current paint transform.
     pub fn reset_paint_transform(&mut self) {
-        self.render_state.paint_transform = Affine::IDENTITY;
+        self.transforms_mut().reset_paint_transform();
     }
 
     /// Set the fill rule for subsequent fill operations.
@@ -922,12 +878,12 @@ impl Scene {
 
     /// Set the transform for subsequent rendering operations.
     pub fn set_transform(&mut self, transform: Affine) {
-        self.render_state.transform = transform;
+        self.transforms_mut().set_transform(transform);
     }
 
     /// Reset the transform to identity.
     pub fn reset_transform(&mut self) {
-        self.render_state.transform = Affine::IDENTITY;
+        self.transforms_mut().reset_transform();
     }
 
     /// Apply filter to the current paint (affects next drawn element).
@@ -955,11 +911,7 @@ impl Scene {
 
     /// Reset scene to default values.
     pub fn reset(&mut self) {
-        self.strip_generator = StripGenerator::new(self.width, self.height, self.level);
-        self.strip_generator_stack.clear();
-        self.clip_context.reset();
-        self.root_transforms.clear();
-        self.root_transforms.push(Affine::IDENTITY);
+        self.viewport_state.reset(self.width, self.height);
         // Recorded commands hold ranges into this storage, so keep appending generated strips.
         {
             let mut ss = self.strip_storage.borrow_mut();
@@ -1006,7 +958,6 @@ impl Scene {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     #[cfg(feature = "text")]
     use crate::resources::Resources;
     #[cfg(feature = "text")]

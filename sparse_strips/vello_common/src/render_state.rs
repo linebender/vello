@@ -3,36 +3,33 @@
 
 //! Shared render state.
 
-use crate::kurbo::{Affine, Cap, Join, Stroke};
+use crate::kurbo::{Cap, Join, Stroke};
 use crate::paint::{PaintType, Tint};
 use crate::peniko::color::palette::css::BLACK;
 use crate::peniko::{BlendMode, Compose, Fill, Mix};
+use crate::transforms::Transforms;
 
-/// A render state which contains the style properties for path rendering and
-/// the current transform.
+/// A render state which contains the style properties for path rendering.
 #[derive(Debug, Clone)]
 pub struct RenderState {
     /// The paint type (solid color, gradient, or image).
     pub paint: PaintType,
-    /// Transform applied to the paint coordinates.
-    pub paint_transform: Affine,
     /// Stroke style for path stroking operations.
     pub stroke: Stroke,
-    /// Transform applied to geometry.
-    pub transform: Affine,
     /// Fill rule for path filling operations.
     pub fill_rule: Fill,
     /// Blend mode for compositing.
     pub blend_mode: BlendMode,
     /// The tint for image painting.
     pub tint: Option<Tint>,
+    /// State of active transforms.
+    pub transforms: Transforms,
 }
 
 impl Default for RenderState {
     fn default() -> Self {
         Self {
             paint: BLACK.into(),
-            paint_transform: Affine::IDENTITY,
             stroke: Stroke {
                 width: 1.0,
                 join: Join::Bevel,
@@ -40,10 +37,10 @@ impl Default for RenderState {
                 end_cap: Cap::Butt,
                 ..Default::default()
             },
-            transform: Affine::IDENTITY,
             fill_rule: Fill::NonZero,
             blend_mode: BlendMode::new(Mix::Normal, Compose::SrcOver),
             tint: None,
+            transforms: Transforms::default(),
         }
     }
 }

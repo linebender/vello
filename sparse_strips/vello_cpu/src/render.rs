@@ -31,6 +31,7 @@ use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Fill};
 use vello_common::pixmap::{Pixmap, PixmapMut};
 use vello_common::render_state::RenderState;
+use vello_common::transforms::Transforms;
 use vello_common::util::is_axis_aligned;
 
 #[cfg(feature = "text")]
@@ -154,9 +155,7 @@ pub struct RenderContext {
     /// Height of the render target in pixels.
     pub(crate) height: u16,
     /// The current rendering state.
-    pub(crate) state: RenderState,
-    /// Stack of root transforms.
-    root_transforms: Vec<Affine>,
+    pub(crate) render_state: RenderState,
     /// The current mask in place.
     pub(crate) mask: Option<Mask>,
     /// Temporary path buffer to avoid repeated allocations.
@@ -231,8 +230,7 @@ impl RenderContext {
             width,
             height,
             dispatcher,
-            state: RenderState::default(),
-            root_transforms: vec![Affine::IDENTITY],
+            render_state: RenderState::default(),
             aliasing_threshold,
             render_settings: settings,
             mask: None,
@@ -242,62 +240,40 @@ impl RenderContext {
         }
     }
 
+    fn transforms(&self) -> &Transforms {
+        &self.render_state.transforms
+    }
+
+    fn transforms_mut(&mut self) -> &mut Transforms {
+        &mut self.render_state.transforms
+    }
+
     fn encode_current_paint(&mut self) -> Paint {
-        match self.state.paint.clone() {
+        match self.render_state.paint.clone() {
             PaintType::Solid(s) => s.into(),
             PaintType::Gradient(g) => {
-                let transform = self.effective_paint_transform();
+                let transform = self.transforms().effective_paint_transform();
                 // TODO: Add caching?
                 g.encode_into(&mut self.encoded_paints, transform, None)
             }
             PaintType::Image(i) => {
-                let transform = self.effective_paint_transform();
-                i.encode_into(&mut self.encoded_paints, transform, self.state.tint)
+                let transform = self.transforms().effective_paint_transform();
+                i.encode_into(&mut self.encoded_paints, transform, self.render_state.tint)
             }
         }
-    }
-
-    fn root_transform(&self) -> Affine {
-        *self
-            .root_transforms
-            .last()
-            .expect("root transform stack should never be empty")
-    }
-
-    fn effective_path_transform(&self) -> Affine {
-        self.root_transform() * self.state.transform
-    }
-
-    // Unlike `effective_path_transform`, we are not applying the root transform here
-    // because clipping handles this separately. See the `clip` module for more information.
-    fn clip_path_transform(&self) -> Affine {
-        self.state.transform
-    }
-
-    fn effective_paint_transform(&self) -> Affine {
-        self.effective_path_transform() * self.state.paint_transform
-    }
-
-    pub(crate) fn push_root_transform(&mut self, relative_transform: Affine) {
-        self.root_transforms
-            .push(relative_transform * self.root_transform());
-    }
-
-    pub(crate) fn pop_root_transform(&mut self) {
-        self.root_transforms.pop();
     }
 
     /// Fill a path.
     pub fn fill_path(&mut self, path: &BezPath) {
         self.with_optional_filter(|ctx| {
             let paint = ctx.encode_current_paint();
-            let transform = ctx.effective_path_transform();
+            let transform = ctx.transforms().effective_path_transform();
             ctx.dispatcher.fill_path(
                 path,
-                ctx.state.fill_rule,
+                ctx.render_state.fill_rule,
                 transform,
                 paint,
-                ctx.state.blend_mode,
+                ctx.render_state.blend_mode,
                 ctx.aliasing_threshold,
                 ctx.mask.clone(),
             );
@@ -308,13 +284,13 @@ impl RenderContext {
     pub fn stroke_path(&mut self, path: &BezPath) {
         self.with_optional_filter(|ctx| {
             let paint = ctx.encode_current_paint();
-            let transform = ctx.effective_path_transform();
+            let transform = ctx.transforms().effective_path_transform();
             ctx.dispatcher.stroke_path(
                 path,
-                &ctx.state.stroke,
+                &ctx.render_state.stroke,
                 transform,
                 paint,
-                ctx.state.blend_mode,
+                ctx.render_state.blend_mode,
                 ctx.aliasing_threshold,
                 ctx.mask.clone(),
             );
@@ -325,7 +301,7 @@ impl RenderContext {
     pub fn fill_rect(&mut self, rect: &Rect) {
         self.with_optional_filter(|ctx| {
             let paint = ctx.encode_current_paint();
-            let transform = ctx.effective_path_transform();
+            let transform = ctx.transforms().effective_path_transform();
 
             // Fast path: Use optimized rect filling if we have no skew in the path transform
             // and anti-aliasing is enabled.
@@ -336,7 +312,7 @@ impl RenderContext {
                 ctx.dispatcher.fill_rect_fast(
                     &transformed_rect,
                     paint,
-                    ctx.state.blend_mode,
+                    ctx.render_state.blend_mode,
                     ctx.mask.clone(),
                 );
             } else {
@@ -344,10 +320,10 @@ impl RenderContext {
                 ctx.rect_to_temp_path(rect);
                 ctx.dispatcher.fill_path(
                     &ctx.temp_path,
-                    ctx.state.fill_rule,
+                    ctx.render_state.fill_rule,
                     transform,
                     paint,
-                    ctx.state.blend_mode,
+                    ctx.render_state.blend_mode,
                     ctx.aliasing_threshold,
                     ctx.mask.clone(),
                 );
@@ -360,13 +336,13 @@ impl RenderContext {
         self.with_optional_filter(|ctx| {
             ctx.rect_to_temp_path(rect);
             let paint = ctx.encode_current_paint();
-            let transform = ctx.effective_path_transform();
+            let transform = ctx.transforms().effective_path_transform();
             ctx.dispatcher.stroke_path(
                 &ctx.temp_path,
-                &ctx.state.stroke,
+                &ctx.render_state.stroke,
                 transform,
                 paint,
-                ctx.state.blend_mode,
+                ctx.render_state.blend_mode,
                 ctx.aliasing_threshold,
                 ctx.mask.clone(),
             );
@@ -392,7 +368,7 @@ impl RenderContext {
     /// If not, it will fall back to using black as the fill color.
     pub fn fill_blurred_rounded_rect(&mut self, rect: &Rect, radius: f32, std_dev: f32) {
         let rect = rect.abs();
-        let color = match self.state.paint {
+        let color = match self.render_state.paint {
             PaintType::Solid(s) => s,
             // Fallback to black when attempting to blur a rectangle with an image/gradient paint
             _ => BLACK,
@@ -411,8 +387,8 @@ impl RenderContext {
         // For performance reason we cut off the filter at some extent where the response is close to zero.
         let kernel_size = 2.5 * std_dev;
         let inflated_rect = rect.inflate(f64::from(kernel_size), f64::from(kernel_size));
-        let transform = self.effective_path_transform();
-        let paint_transform = self.effective_paint_transform();
+        let transform = self.transforms().effective_path_transform();
+        let paint_transform = self.transforms().effective_paint_transform();
 
         self.rect_to_temp_path(&inflated_rect);
 
@@ -422,7 +398,7 @@ impl RenderContext {
             Fill::NonZero,
             transform,
             paint,
-            self.state.blend_mode,
+            self.render_state.blend_mode,
             self.aliasing_threshold,
             self.mask.clone(),
         );
@@ -437,8 +413,8 @@ impl RenderContext {
     ) -> GlyphRunBuilder<'a> {
         glifo::GlyphRunBuilder::new(
             font.clone(),
-            self.state.transform,
-            self.state.paint_transform,
+            *self.transforms().transform(),
+            *self.transforms().paint_transform(),
             crate::text::CpuGlyphRunBackend {
                 ctx: self,
                 resources,
@@ -470,34 +446,20 @@ impl RenderContext {
 
         let blend_mode = blend_mode.unwrap_or_default();
         let opacity = opacity.unwrap_or(1.0);
-        let layer_transform = self.effective_path_transform();
-        let filter_plan = filter.map(|filter| FilterData::new(filter, layer_transform));
+        let layer_transform = self.transforms().effective_path_transform();
+        let filter_data = filter.map(|filter| FilterData::new(filter, layer_transform));
 
-        // The important part! Let's say we have an element placed in a way such that
-        // its drop shadow starts at (0, 0). In order for it to render correctly, we would
-        // have to render parts of the shape that at negative viewport coordinates, which is
-        // not supported. Therefore, we instead shift everything down such that we can assume
-        // everything left/above (0, 0) is not needed for correct rendering, and simply
-        // shift everything back when actually compositing the rendered filter layer.
-        self.push_root_transform(
-            filter_plan
-                .as_ref()
-                .map_or(Affine::IDENTITY, |filter_plan| {
-                    let (shift_x, shift_y) = filter_plan.source_shift();
-
-                    Affine::translate((f64::from(shift_x), f64::from(shift_y)))
-                }),
-        );
+        self.transforms_mut().push_root(filter_data.as_ref());
 
         self.dispatcher.push_layer(
             clip_path,
-            self.state.fill_rule,
+            self.render_state.fill_rule,
             layer_transform,
             blend_mode,
             opacity,
             self.aliasing_threshold,
             mask,
-            filter_plan,
+            filter_data,
         );
     }
 
@@ -556,23 +518,23 @@ impl RenderContext {
     /// Pop the last-pushed layer.
     pub fn pop_layer(&mut self) {
         self.dispatcher.pop_layer();
-        self.pop_root_transform();
+        self.transforms_mut().pop_root();
     }
 
     /// Set the current stroke.
     pub fn set_stroke(&mut self, stroke: Stroke) {
-        self.state.stroke = stroke;
+        self.render_state.stroke = stroke;
     }
 
     /// Get the current stroke.
     pub fn stroke(&self) -> &Stroke {
-        &self.state.stroke
+        &self.render_state.stroke
     }
 
     /// Get a mutable reference to the current stroke.
     #[cfg(feature = "text")]
     pub(crate) fn stroke_mut(&mut self) -> &mut Stroke {
-        &mut self.state.stroke
+        &mut self.render_state.stroke
     }
 
     /// Set the current paint.
@@ -581,32 +543,32 @@ impl RenderContext {
     /// resolved to the corresponding pixmap at rasterization time.
     /// Make sure to register images with [`Resources::register_image`] first.
     pub fn set_paint(&mut self, paint: impl Into<PaintType>) {
-        self.state.paint = paint.into();
+        self.render_state.paint = paint.into();
     }
 
     /// Get the current paint.
     pub fn paint(&self) -> &PaintType {
-        &self.state.paint
+        &self.render_state.paint
     }
 
     /// Set the tint for subsequent image paint operations.
     pub fn set_tint(&mut self, tint: Option<Tint>) {
-        self.state.tint = tint;
+        self.render_state.tint = tint;
     }
 
     /// Clear the tint, so subsequent image paints are drawn without tinting.
     pub fn reset_tint(&mut self) {
-        self.state.tint = None;
+        self.render_state.tint = None;
     }
 
     /// Set the blend mode that should be used when drawing objects.
     pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
-        self.state.blend_mode = blend_mode;
+        self.render_state.blend_mode = blend_mode;
     }
 
     /// Get the currently active blend mode.
     pub fn blend_mode(&self) -> BlendMode {
-        self.state.blend_mode
+        self.render_state.blend_mode
     }
 
     /// Set the current paint transform.
@@ -615,22 +577,22 @@ impl RenderContext {
     /// is drawn in, i.e., the paint transform is applied after the global transform. This allows
     /// transforming the paint independently from the drawn geometry.
     pub fn set_paint_transform(&mut self, paint_transform: Affine) {
-        self.state.paint_transform = paint_transform;
+        self.transforms_mut().set_paint_transform(paint_transform);
     }
 
     /// Get the current paint transform.
     pub fn paint_transform(&self) -> &Affine {
-        &self.state.paint_transform
+        self.transforms().paint_transform()
     }
 
     /// Reset the current paint transform.
     pub fn reset_paint_transform(&mut self) {
-        self.state.paint_transform = Affine::IDENTITY;
+        self.transforms_mut().reset_paint_transform();
     }
 
     /// Set the current fill rule.
     pub fn set_fill_rule(&mut self, fill_rule: Fill) {
-        self.state.fill_rule = fill_rule;
+        self.render_state.fill_rule = fill_rule;
     }
 
     /// Set the mask to use for path-painting operations. The mask needs to
@@ -650,22 +612,22 @@ impl RenderContext {
 
     /// Get the current fill rule.
     pub fn fill_rule(&self) -> &Fill {
-        &self.state.fill_rule
+        &self.render_state.fill_rule
     }
 
     /// Set the current transform.
     pub fn set_transform(&mut self, transform: Affine) {
-        self.state.transform = transform;
+        self.transforms_mut().set_transform(transform);
     }
 
     /// Get the current transform.
     pub fn transform(&self) -> &Affine {
-        &self.state.transform
+        self.transforms().transform()
     }
 
     /// Reset the current transform.
     pub fn reset_transform(&mut self) {
-        self.state.transform = Affine::IDENTITY;
+        self.transforms_mut().reset_transform();
     }
 
     /// Apply filter to the current paint (affects next drawn elements).
@@ -694,9 +656,7 @@ impl RenderContext {
         self.dispatcher.reset(self.width, self.height);
         self.encoded_paints.clear();
         self.mask = None;
-        self.root_transforms.clear();
-        self.root_transforms.push(Affine::IDENTITY);
-        self.state.reset();
+        self.render_state.reset();
     }
 
     /// Push a new clip path to the clip stack.
@@ -704,10 +664,10 @@ impl RenderContext {
     /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
     /// example for how this method differs from `push_clip_layer`.
     pub fn push_clip_path(&mut self, path: &BezPath) {
-        let transform = self.clip_path_transform();
+        let transform = self.transforms().clip_path_transform();
         self.dispatcher.push_clip_path(
             path,
-            self.state.fill_rule,
+            self.render_state.fill_rule,
             transform,
             self.aliasing_threshold,
         );
@@ -841,17 +801,17 @@ impl RenderContext {
 
     /// Take current rendering state and reset the existing state to its default.
     pub fn take_current_state(&mut self) -> RenderState {
-        core::mem::take(&mut self.state)
+        core::mem::take(&mut self.render_state)
     }
 
     /// Save a copy of the current rendering state.
     pub fn save_current_state(&mut self) -> RenderState {
-        self.state.clone()
+        self.render_state.clone()
     }
 
     /// Restore rendering state.
     pub fn restore_state(&mut self, state: RenderState) {
-        self.state = state;
+        self.render_state = state;
     }
 
     /// Whether rendering is currently configured to run in multi-threaded mode.
