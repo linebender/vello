@@ -40,11 +40,12 @@
 //!
 //! See the individual module documentation for more details on usage and implementation.
 
+#![no_std]
+
 extern crate alloc;
 
 pub(crate) mod filter;
 mod gradient_cache;
-#[cfg(any(feature = "webgl", feature = "wgpu"))]
 mod pack;
 mod render;
 mod resources;
