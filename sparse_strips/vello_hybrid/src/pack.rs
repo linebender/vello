@@ -123,49 +123,6 @@ pub(crate) fn process_encoded_paint(
     }
 }
 
-/// Helper for more semantically constructing `GpuStrip`s.
-pub(crate) struct GpuStripBuilder {
-    x: u16,
-    y: u16,
-    width: u16,
-    dense_width_or_rect_height: u16,
-    col_idx_or_rect_frac: u32,
-}
-
-impl GpuStripBuilder {
-    /// Position at surface coordinates.
-    pub(crate) fn at_surface(x: u16, y: u16, width: u16) -> Self {
-        Self {
-            x,
-            y,
-            width,
-            dense_width_or_rect_height: 0,
-            col_idx_or_rect_frac: 0,
-        }
-    }
-
-    /// Add sparse strip parameters.
-    pub(crate) fn with_sparse(mut self, dense_width: u16, col_idx: u32) -> Self {
-        self.dense_width_or_rect_height = dense_width;
-        self.col_idx_or_rect_frac = col_idx;
-        self
-    }
-
-    /// Paint into strip.
-    pub(crate) fn paint(self, payload: u32, paint: u32, depth_index: u32) -> GpuStrip {
-        GpuStrip {
-            x: self.x,
-            y: self.y,
-            width: self.width,
-            dense_width_or_rect_height: self.dense_width_or_rect_height,
-            col_idx_or_rect_frac: self.col_idx_or_rect_frac,
-            payload,
-            paint_and_rect_flag: paint,
-            depth_index,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RectPart {
     pub(crate) x: u16,

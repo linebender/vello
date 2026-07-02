@@ -9,9 +9,9 @@ use super::{
     Draw, FilterScratchRegion, LayerTextureRegion, LoadOp, RenderTarget, RootRenderTarget,
 };
 use crate::filter::{FILTER_ATLAS_PADDING, GpuFilterData};
-use crate::pack::{GpuStripBuilder, RectPart, make_gpu_rect, process_paint, split_rect};
+use crate::pack::{ProcessedPaint, RectPart, make_gpu_rect, process_paint, split_rect};
 use crate::scene::RecordedDraw;
-use crate::{RenderError, Scene};
+use crate::{GpuStrip, RenderError, Scene};
 use alloc::vec::Vec;
 use vello_common::encode::EncodedPaint;
 use vello_common::filter::PreparedFilter;
@@ -1039,7 +1039,6 @@ impl DrawBuilder {
             let next_col = next_strip.alpha_idx() / u32::from(Tile::HEIGHT);
             let strip_width =
                 u16::try_from(next_col.saturating_sub(col)).expect("strip width fits into u16");
-            let target_y = offset_coord(y, self.geometry_offset.1);
 
             if strip_width > 0 {
                 let strip_x0 = strip.x;
@@ -1049,14 +1048,10 @@ impl DrawBuilder {
                 let x0 = strip_x0.max(self.draw_bounds.x0);
                 let x1 = strip_x1.min(self.draw_bounds.x1);
                 if x1 > x0 {
-                    let width = x1 - x0;
                     let col_offset = col + u32::from(x0 - strip_x0);
-                    let target_x0 = offset_coord(x0, self.geometry_offset.0);
                     let processed = process_paint(&paint, encoded_paints, (x0, y), paint_idxs);
                     self.draw.push_alpha(
-                        GpuStripBuilder::at_surface(target_x0, target_y, width)
-                            .with_sparse(width, col_offset)
-                            .paint(processed.payload, processed.paint, depth_index),
+                        self.get_fill_strip(x0, x1, y, Some(col_offset), &processed, depth_index),
                         processed.external_texture_id,
                     );
                 }
@@ -1068,13 +1063,8 @@ impl DrawBuilder {
                 let x0 = gap_x0.max(self.draw_bounds.x0);
                 let x1 = gap_x1.min(self.draw_bounds.x1);
                 if x1 > x0 {
-                    let target_x0 = offset_coord(x0, self.geometry_offset.0);
                     let processed = process_paint(&paint, encoded_paints, (x0, y), paint_idxs);
-                    let strip = GpuStripBuilder::at_surface(target_x0, target_y, x1 - x0).paint(
-                        processed.payload,
-                        processed.paint,
-                        depth_index,
-                    );
+                    let strip = self.get_fill_strip(x0, x1, y, None, &processed, depth_index);
                     if is_opaque {
                         self.draw.push_opaque(strip);
                     } else {
@@ -1189,14 +1179,12 @@ impl DrawBuilder {
                     let col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
                     let col_offset = col + u32::from(x0 - strip.x);
                     self.draw.push_alpha(
-                        GpuStripBuilder::at_surface(
-                            offset_coord(x0, self.geometry_offset.0),
-                            offset_coord(y, self.geometry_offset.1),
-                            x1 - x0,
-                        )
-                        .with_sparse(x1 - x0, col_offset)
-                        .paint(
-                            layer_sample_payload(sample, x0, y),
+                        self.get_layer_fill_strip(
+                            sample,
+                            x0,
+                            x1,
+                            y,
+                            Some(col_offset),
                             paint,
                             depth_index,
                         ),
@@ -1214,20 +1202,83 @@ impl DrawBuilder {
                 };
                 if x1 > x0 {
                     self.draw.push_alpha(
-                        GpuStripBuilder::at_surface(
-                            offset_coord(x0, self.geometry_offset.0),
-                            offset_coord(y, self.geometry_offset.1),
-                            x1 - x0,
-                        )
-                        .paint(
-                            layer_sample_payload(sample, x0, y),
-                            paint,
-                            depth_index,
-                        ),
+                        self.get_layer_fill_strip(sample, x0, x1, y, None, paint, depth_index),
                         None,
                     );
                 }
             }
+        }
+    }
+
+    fn get_fill_strip(
+        &self,
+        x0: u16,
+        x1: u16,
+        y: u16,
+        col_idx: Option<u32>,
+        paint: &ProcessedPaint,
+        depth_index: u32,
+    ) -> GpuStrip {
+        self.get_fill_strip_with_packed_paint(
+            x0,
+            x1,
+            y,
+            col_idx,
+            paint.payload,
+            paint.paint,
+            depth_index,
+        )
+    }
+
+    fn get_layer_fill_strip(
+        &self,
+        sample: LayerSample,
+        x0: u16,
+        x1: u16,
+        y: u16,
+        col_idx: Option<u32>,
+        paint: u32,
+        depth_index: u32,
+    ) -> GpuStrip {
+        self.get_fill_strip_with_packed_paint(
+            x0,
+            x1,
+            y,
+            col_idx,
+            layer_sample_payload(sample, x0, y),
+            paint,
+            depth_index,
+        )
+    }
+
+    fn get_fill_strip_with_packed_paint(
+        &self,
+        x0: u16,
+        x1: u16,
+        y: u16,
+        col_idx: Option<u32>,
+        payload: u32,
+        paint: u32,
+        depth_index: u32,
+    ) -> GpuStrip {
+        let x = offset_coord(x0, self.geometry_offset.0);
+        let y = offset_coord(y, self.geometry_offset.1);
+        let width = x1 - x0;
+        let (dense_width_or_rect_height, col_idx_or_rect_frac) = if let Some(col_idx) = col_idx {
+            (width, col_idx)
+        } else {
+            (0, 0)
+        };
+
+        GpuStrip {
+            x,
+            y,
+            width,
+            dense_width_or_rect_height,
+            col_idx_or_rect_frac,
+            payload,
+            paint_and_rect_flag: paint,
+            depth_index,
         }
     }
 
