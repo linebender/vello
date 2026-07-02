@@ -14,6 +14,7 @@ use core::cell::RefCell;
 use core::ops::Range;
 use vello_common::TextureId;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
+use vello_common::clip::PathDataRef;
 use vello_common::encode::{EncodeExt, EncodedExternalTexture, EncodedPaint};
 use vello_common::fearless_simd::Level;
 use vello_common::filter::FilterData;
@@ -30,7 +31,7 @@ use vello_common::peniko::{BlendMode, Compose, Extend, Fill, ImageQuality, Image
 use vello_common::record::{CommandRecorder, Drawable, LayerClip, LayerProps, PoppedLayer};
 use vello_common::render_state::RenderState;
 use vello_common::strip::Strip;
-use vello_common::strip_generator::{GenerationMode, StripStorage};
+use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use vello_common::transforms::Transforms;
 use vello_common::util::{control_point_bbox_u16, is_axis_aligned, strip_bbox};
 use vello_common::viewport::ViewportState;
@@ -258,27 +259,16 @@ impl Scene {
         paint: Paint,
         aliasing_threshold: Option<u8>,
     ) {
-        let (strips, draw) = {
-            let strip_storage = &mut self.strip_storage.borrow_mut();
-            let strip_start = strip_storage.strips.len();
-            self.viewport_state
-                .with_generator_and_clip(|strip_generator, clip_path| {
-                    strip_generator.generate_filled_path(
-                        path,
-                        fill_rule,
-                        transform,
-                        aliasing_threshold,
-                        strip_storage,
-                        clip_path,
-                    );
-                });
-
-            let strips = strip_start..strip_storage.strips.len();
-            let draw = RecordedDraw::new_path(strips.clone(), paint.clone());
-            (strips, draw)
-        };
-
-        self.record_path(strips, draw);
+        self.record_generated_path(paint, |strip_generator, strip_storage, clip_path| {
+            strip_generator.generate_filled_path(
+                path,
+                fill_rule,
+                transform,
+                aliasing_threshold,
+                strip_storage,
+                clip_path,
+            );
+        });
     }
 
     /// Push a new clip path to the clip stack.
@@ -328,27 +318,17 @@ impl Scene {
         paint: Paint,
         aliasing_threshold: Option<u8>,
     ) {
-        let (strips, draw) = {
-            let strip_storage = &mut self.strip_storage.borrow_mut();
-            let strip_start = strip_storage.strips.len();
-            self.viewport_state
-                .with_generator_and_clip(|strip_generator, clip_path| {
-                    strip_generator.generate_stroked_path(
-                        path,
-                        &self.render_state.stroke,
-                        transform,
-                        aliasing_threshold,
-                        strip_storage,
-                        clip_path,
-                    );
-                });
-
-            let strips = strip_start..strip_storage.strips.len();
-            let draw = RecordedDraw::new_path(strips.clone(), paint.clone());
-            (strips, draw)
-        };
-
-        self.record_path(strips, draw);
+        let stroke = self.render_state.stroke.clone();
+        self.record_generated_path(paint, |strip_generator, strip_storage, clip_path| {
+            strip_generator.generate_stroked_path(
+                path,
+                &stroke,
+                transform,
+                aliasing_threshold,
+                strip_storage,
+                clip_path,
+            );
+        });
     }
 
     /// Set the aliasing threshold.
@@ -384,24 +364,13 @@ impl Scene {
                     .transforms()
                     .effective_path_transform()
                     .transform_rect_bbox(*rect);
-                let (strips, draw) = {
-                    let strip_storage = &mut ctx.strip_storage.borrow_mut();
-                    let strip_start = strip_storage.strips.len();
-                    ctx.viewport_state
-                        .with_generator_and_clip(|strip_generator, clip_path| {
-                            strip_generator.generate_filled_rect_fast(
-                                &transformed_rect,
-                                strip_storage,
-                                clip_path,
-                            );
-                        });
-
-                    let strips = strip_start..strip_storage.strips.len();
-                    let draw = RecordedDraw::new_path(strips.clone(), paint.clone());
-                    (strips, draw)
-                };
-
-                ctx.record_path(strips, draw);
+                ctx.record_generated_path(paint, |strip_generator, strip_storage, clip_path| {
+                    strip_generator.generate_filled_rect_fast(
+                        &transformed_rect,
+                        strip_storage,
+                        clip_path,
+                    );
+                });
             });
         } else {
             // TODO: Use a temporary storage for rect paths, like in `vello_cpu`.
@@ -540,6 +509,24 @@ impl Scene {
         );
     }
 
+    fn record_generated_path<F>(&mut self, paint: Paint, generate: F)
+    where
+        F: FnOnce(&mut StripGenerator, &mut StripStorage, Option<PathDataRef<'_>>),
+    {
+        let strips = {
+            let mut strip_storage = self.strip_storage.borrow_mut();
+            let strip_start = strip_storage.strips.len();
+            self.viewport_state
+                .with_generator_and_clip(|strip_generator, clip_path| {
+                    generate(strip_generator, &mut strip_storage, clip_path);
+                });
+            strip_start..strip_storage.strips.len()
+        };
+
+        let draw = RecordedDraw::new_path(strips.clone(), paint);
+        self.record_path(strips, draw);
+    }
+
     fn record_rect(&mut self, rect: Rect, paint: Paint) {
         let blend_mode = self.render_state.blend_mode;
         Self::push_recorded_draw(
@@ -656,24 +643,13 @@ impl Scene {
             let path_transform = ctx.transforms().effective_path_transform();
             if is_axis_aligned(&path_transform) && ctx.aliasing_threshold.is_none() {
                 let transformed_rect = path_transform.transform_rect_bbox(inflated_rect);
-                let (strips, draw) = {
-                    let strip_storage = &mut ctx.strip_storage.borrow_mut();
-                    let strip_start = strip_storage.strips.len();
-                    ctx.viewport_state
-                        .with_generator_and_clip(|strip_generator, clip_path| {
-                            strip_generator.generate_filled_rect_fast(
-                                &transformed_rect,
-                                strip_storage,
-                                clip_path,
-                            );
-                        });
-
-                    let strips = strip_start..strip_storage.strips.len();
-                    let draw = RecordedDraw::new_path(strips.clone(), paint.clone());
-                    (strips, draw)
-                };
-
-                ctx.record_path(strips, draw);
+                ctx.record_generated_path(paint, |strip_generator, strip_storage, clip_path| {
+                    strip_generator.generate_filled_rect_fast(
+                        &transformed_rect,
+                        strip_storage,
+                        clip_path,
+                    );
+                });
             } else {
                 ctx.fill_path_with(
                     &inflated_rect.to_path(DEFAULT_TOLERANCE),
