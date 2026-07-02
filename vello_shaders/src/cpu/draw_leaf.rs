@@ -190,7 +190,6 @@ fn draw_leaf_main(
                         info[di + 8] = scene[dd as usize + 2];
                         info[di + 9] = scene[dd as usize + 3];
                         info[di + 10] = scene[dd as usize + 4];
-                        info[di + 11] = scene[dd as usize + 5];
                     }
                     DrawTag::BEGIN_CLIP => {
                         info[di] = draw_flags;
