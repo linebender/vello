@@ -27,7 +27,7 @@ use vello_common::paint::{Paint, PaintType, Tint};
 #[cfg(feature = "text")]
 use vello_common::peniko::FontData;
 use vello_common::peniko::color::palette::css::BLACK;
-use vello_common::peniko::{BlendMode, Compose, Extend, Fill, ImageQuality, ImageSampler, Mix};
+use vello_common::peniko::{BlendMode, Extend, Fill, ImageQuality, ImageSampler};
 use vello_common::record::{CommandRecorder, Drawable, LayerClip, LayerProps, PoppedLayer};
 use vello_common::render_state::RenderState;
 use vello_common::strip::Strip;
@@ -135,8 +135,6 @@ pub struct Scene {
     filter: Option<Filter>,
     pub(crate) recorder: CommandRecorder<RecordedDraw>,
 }
-
-const DEFAULT_BLEND_MODE: BlendMode = BlendMode::new(Mix::Normal, Compose::SrcOver);
 
 impl Scene {
     /// Create a new render context with the given width and height in pixels.
@@ -247,7 +245,7 @@ impl Scene {
             return;
         }
 
-        self.with_optional_filter(|ctx| {
+        self.with_optional_filter_or_blend_layer(|ctx| {
             let paint = ctx.encode_current_paint();
             ctx.fill_path_with(
                 path,
@@ -308,7 +306,7 @@ impl Scene {
             return;
         }
 
-        self.with_optional_filter(|ctx| {
+        self.with_optional_filter_or_blend_layer(|ctx| {
             let paint = ctx.encode_current_paint();
             ctx.stroke_path_with(
                 path,
@@ -361,18 +359,17 @@ impl Scene {
             return;
         }
 
-        if self.try_fast_rect(rect) {
-            return;
-        }
+        self.with_optional_filter_or_blend_layer(|ctx| {
+            let paint = ctx.encode_current_paint();
 
-        let transform = self.transforms().effective_path_transform();
-        if is_axis_aligned(&transform) && self.aliasing_threshold.is_none() {
-            self.with_optional_filter(|ctx| {
-                let paint = ctx.encode_current_paint();
-                let transformed_rect = ctx
-                    .transforms()
-                    .effective_path_transform()
-                    .transform_rect_bbox(*rect);
+            if let Some(bounds) = ctx.fast_rect_bounds(rect) {
+                ctx.record_rect(bounds, paint);
+                return;
+            }
+
+            let transform = ctx.transforms().effective_path_transform();
+            if is_axis_aligned(&transform) && ctx.aliasing_threshold.is_none() {
+                let transformed_rect = transform.transform_rect_bbox(*rect);
                 ctx.record_generated_path(paint, |strip_generator, strip_storage, clip_path| {
                     strip_generator.generate_filled_rect_fast(
                         &transformed_rect,
@@ -380,21 +377,17 @@ impl Scene {
                         clip_path,
                     );
                 });
-            });
-        } else {
-            // TODO: Use a temporary storage for rect paths, like in `vello_cpu`.
-            self.fill_path(&rect.to_path(DEFAULT_TOLERANCE));
-        }
-    }
-
-    fn try_fast_rect(&mut self, rect: &Rect) -> bool {
-        let Some(bounds) = self.fast_rect_bounds(rect) else {
-            return false;
-        };
-
-        let paint = self.encode_current_paint();
-        self.record_rect(bounds, paint);
-        true
+            } else {
+                // TODO: Use a temporary storage for rect paths, like in `vello_cpu`.
+                ctx.fill_path_with(
+                    &rect.to_path(DEFAULT_TOLERANCE),
+                    transform,
+                    ctx.render_state.fill_rule,
+                    paint,
+                    ctx.aliasing_threshold,
+                );
+            }
+        });
     }
 
     /// Sample rectangular regions from an externally bound texture and draw them with the
@@ -432,7 +425,7 @@ impl Scene {
         let x_extend = Extend::Pad;
         let y_extend = Extend::Pad;
 
-        self.with_optional_filter(|ctx| {
+        self.with_optional_filter_or_blend_layer(|ctx| {
             for rect in rects {
                 if rect.source_region.is_empty() {
                     continue;
@@ -442,10 +435,14 @@ impl Scene {
                 let h = f64::from(rect.source_region.height());
                 let transform = ctx.transforms().effective_path_transform() * rect.transform;
 
-                if ctx.can_record_direct_rect() && is_axis_aligned(&transform) {
+                if ctx.viewport_state.clip().is_none()
+                    && ctx.aliasing_threshold.is_none()
+                    && is_axis_aligned(&transform)
+                {
                     let dst_rect = Rect::new(0., 0., w, h);
-                    let transformed_rect =
-                        transform.transform_rect_bbox(dst_rect).intersect(ctx.active_rect());
+                    let transformed_rect = transform
+                        .transform_rect_bbox(dst_rect)
+                        .intersect(ctx.active_rect());
 
                     // Skip mirrored or zero-sized rectangles.
                     if transformed_rect.is_zero_area() {
@@ -484,22 +481,9 @@ impl Scene {
         });
     }
 
-    #[inline]
-    fn can_record_direct_rect(&self) -> bool {
-        self.filter.is_none()
-            && self.viewport_state.clip().is_none()
-            && self.aliasing_threshold.is_none()
-    }
-
     fn record_path(&mut self, strips: Range<usize>, draw: RecordedDraw) {
-        let blend_mode = self.render_state.blend_mode;
         let strip_storage = self.strip_storage.borrow();
-        Self::push_recorded_draw(
-            &mut self.recorder,
-            blend_mode,
-            draw,
-            &strip_storage.strips[strips],
-        );
+        self.recorder.push_draw(draw, &strip_storage.strips[strips]);
     }
 
     fn record_generated_path<F>(&mut self, paint: Paint, generate: F)
@@ -521,41 +505,12 @@ impl Scene {
     }
 
     fn record_rect(&mut self, rect: Rect, paint: Paint) {
-        let blend_mode = self.render_state.blend_mode;
-        Self::push_recorded_draw(
-            &mut self.recorder,
-            blend_mode,
-            RecordedDraw::new_rect(rect, paint),
-            &[],
-        );
-    }
-
-    fn push_recorded_draw(
-        recorder: &mut CommandRecorder<RecordedDraw>,
-        blend_mode: BlendMode,
-        draw: RecordedDraw,
-        strips: &[Strip],
-    ) {
-        if blend_mode == DEFAULT_BLEND_MODE {
-            recorder.push_draw(draw, strips);
-            return;
-        }
-
-        recorder.push_layer(
-            LayerProps {
-                blend_mode,
-                opacity: 1.0,
-                mask: None,
-                clip_path: None,
-            },
-            None,
-        );
-        recorder.push_draw(draw, strips);
-        recorder.pop_layer();
+        self.recorder
+            .push_draw(RecordedDraw::new_rect(rect, paint), &[]);
     }
 
     fn fast_rect_bounds(&self, rect: &Rect) -> Option<Rect> {
-        if !self.can_record_direct_rect() {
+        if self.viewport_state.clip().is_some() || self.aliasing_threshold.is_some() {
             return None;
         }
 
@@ -568,7 +523,9 @@ impl Scene {
             return None;
         }
 
-        let transformed_rect = transform.transform_rect_bbox(*rect).intersect(self.active_rect());
+        let transformed_rect = transform
+            .transform_rect_bbox(*rect)
+            .intersect(self.active_rect());
 
         // Can't handle mirrored or zero-sized rectangles.
         if transformed_rect.is_zero_area() {
@@ -592,7 +549,7 @@ impl Scene {
             return;
         }
 
-        self.with_optional_filter(|ctx| {
+        self.with_optional_filter_or_blend_layer(|ctx| {
             let rect = rect.abs();
             let color = match ctx.render_state.paint {
                 PaintType::Solid(s) => s,
@@ -670,7 +627,7 @@ impl Scene {
             unimplemented!("mask layers are not supported by the new vello_hybrid scheduler yet");
         }
 
-        let blend_mode = blend_mode.unwrap_or(DEFAULT_BLEND_MODE);
+        let blend_mode = blend_mode.unwrap_or_default();
         let layer_transform = self.transforms().effective_path_transform();
         let filter_data = filter.map(|filter| FilterData::new(filter, layer_transform));
         self.transforms_mut().push_root(filter_data.as_ref());
@@ -847,16 +804,21 @@ impl Scene {
         self.filter = None;
     }
 
-    fn with_optional_filter<F>(&mut self, f: F)
+    fn with_optional_filter_or_blend_layer<F, T>(&mut self, f: F) -> T
     where
-        F: FnOnce(&mut Self),
+        F: FnOnce(&mut Self) -> T,
     {
-        if let Some(filter) = self.filter.clone() {
-            self.push_filter_layer(filter);
-            f(self);
+        let blend_mode = self.render_state.blend_mode;
+        let blend_mode = (blend_mode != BlendMode::default()).then_some(blend_mode);
+        let filter = self.filter.clone();
+
+        if blend_mode.is_some() || filter.is_some() {
+            self.push_layer(None, blend_mode, None, None, filter);
+            let result = f(self);
             self.pop_layer();
+            result
         } else {
-            f(self);
+            f(self)
         }
     }
 
