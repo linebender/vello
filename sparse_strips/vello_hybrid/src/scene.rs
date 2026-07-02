@@ -168,6 +168,15 @@ impl Scene {
         self.viewport_state.height()
     }
 
+    fn active_rect(&self) -> Rect {
+        Rect::new(
+            0.0,
+            0.0,
+            f64::from(self.active_width()),
+            f64::from(self.active_height()),
+        )
+    }
+
     fn transforms(&self) -> &Transforms {
         &self.render_state.transforms
     }
@@ -435,27 +444,11 @@ impl Scene {
 
                 if ctx.can_record_direct_rect() && is_axis_aligned(&transform) {
                     let dst_rect = Rect::new(0., 0., w, h);
-                    let transformed_rect = transform.transform_rect_bbox(dst_rect);
-
-                    let x0 = transformed_rect
-                        .x0
-                        .max(0.)
-                        .min(f64::from(ctx.active_width()));
-                    let y0 = transformed_rect
-                        .y0
-                        .max(0.)
-                        .min(f64::from(ctx.active_height()));
-                    let x1 = transformed_rect
-                        .x1
-                        .max(0.)
-                        .min(f64::from(ctx.active_width()));
-                    let y1 = transformed_rect
-                        .y1
-                        .max(0.)
-                        .min(f64::from(ctx.active_height()));
+                    let transformed_rect =
+                        transform.transform_rect_bbox(dst_rect).intersect(ctx.active_rect());
 
                     // Skip mirrored or zero-sized rectangles.
-                    if x1 <= x0 || y1 <= y0 {
+                    if transformed_rect.is_zero_area() {
                         continue;
                     }
 
@@ -468,7 +461,7 @@ impl Scene {
                         transform,
                     );
 
-                    ctx.record_rect(Rect::new(x0, y0, x1, y1), paint);
+                    ctx.record_rect(transformed_rect, paint);
                 } else {
                     let paint = ctx.encode_external_texture_paint(
                         texture_id,
@@ -575,31 +568,14 @@ impl Scene {
             return None;
         }
 
-        let transformed_rect = transform.transform_rect_bbox(*rect);
-
-        let x0 = transformed_rect
-            .x0
-            .max(0.0)
-            .min(f64::from(self.active_width()));
-        let y0 = transformed_rect
-            .y0
-            .max(0.0)
-            .min(f64::from(self.active_height()));
-        let x1 = transformed_rect
-            .x1
-            .max(0.0)
-            .min(f64::from(self.active_width()));
-        let y1 = transformed_rect
-            .y1
-            .max(0.0)
-            .min(f64::from(self.active_height()));
+        let transformed_rect = transform.transform_rect_bbox(*rect).intersect(self.active_rect());
 
         // Can't handle mirrored or zero-sized rectangles.
-        if x1 <= x0 || y1 <= y0 {
+        if transformed_rect.is_zero_area() {
             return None;
         }
 
-        Some(Rect::new(x0, y0, x1, y1))
+        Some(transformed_rect)
     }
 
     /// Stroke a rectangle with the current paint and stroke settings.
