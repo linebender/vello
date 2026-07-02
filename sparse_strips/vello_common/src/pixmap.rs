@@ -322,8 +322,18 @@ impl Pixmap {
     /// Return the current content of the pixmap as a PNG.
     #[cfg(feature = "png")]
     pub fn into_png(self) -> Result<Vec<u8>, png::EncodingError> {
+        self.into_png_with_callback(|_| {})
+    }
+
+    /// Return the current content of the pixmap as a PNG.
+    #[cfg(feature = "png")]
+    pub fn into_png_with_callback(
+        self,
+        callback: fn(&mut png::Encoder<'_, &mut Vec<u8>>),
+    ) -> Result<Vec<u8>, png::EncodingError> {
         let mut data = Vec::new();
         let mut encoder = png::Encoder::new(&mut data, self.width as u32, self.height as u32);
+        callback(&mut encoder);
         encoder.set_color(png::ColorType::Rgba);
         encoder.set_depth(png::BitDepth::Eight);
         let mut writer = encoder.write_header()?;
