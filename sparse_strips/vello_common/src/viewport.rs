@@ -61,7 +61,7 @@ impl ViewportState {
     }
 
     /// Push a new clip path.
-    pub fn push_clip_path(
+    pub fn push_clip(
         &mut self,
         path: &BezPath,
         fill_rule: Fill,
@@ -78,7 +78,7 @@ impl ViewportState {
     }
 
     /// Pop the last clip path.
-    pub fn pop_clip_path(&mut self) {
+    pub fn pop_clip(&mut self) {
         self.clip_state.pop_clip();
     }
 

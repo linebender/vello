@@ -5,7 +5,7 @@
 
 use super::{ExternalTextureRun, LayerTextureRegion};
 use crate::GpuStrip;
-use crate::pack::{RectPart, make_gpu_rect, split_rect};
+use crate::rect::{RectPart, make_gpu_rect, split_rect};
 use crate::scene::RecordedDraw;
 use alloc::vec::Vec;
 use vello_common::TextureId;

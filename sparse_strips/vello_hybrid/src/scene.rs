@@ -57,11 +57,11 @@ pub(crate) struct RecordedRect {
 }
 
 impl RecordedDraw {
-    fn path(strips: Range<usize>, paint: Paint) -> Self {
+    fn new_path(strips: Range<usize>, paint: Paint) -> Self {
         Self::Path(RecordedPath { strips, paint })
     }
 
-    fn rect(rect: Rect, paint: Paint) -> Self {
+    fn new_rect(rect: Rect, paint: Paint) -> Self {
         Self::Rect(RecordedRect { rect, paint })
     }
 }
@@ -153,7 +153,6 @@ impl Scene {
             aliasing_threshold: None,
             encoded_paints: RefCell::new(vec![]),
             paint_visible: true,
-            // Recorded commands hold ranges into this storage, so keep appending generated strips.
             strip_storage: RefCell::new(StripStorage::new(GenerationMode::Append)),
             filter: None,
             recorder: CommandRecorder::new(),
@@ -275,7 +274,7 @@ impl Scene {
                 });
 
             let strips = strip_start..strip_storage.strips.len();
-            let draw = RecordedDraw::path(strips.clone(), paint.clone());
+            let draw = RecordedDraw::new_path(strips.clone(), paint.clone());
             (strips, draw)
         };
 
@@ -288,7 +287,7 @@ impl Scene {
     /// example for how this method differs from `push_clip_layer`.
     pub fn push_clip_path(&mut self, path: &BezPath) {
         let transform = self.transforms().clip_path_transform();
-        self.viewport_state.push_clip_path(
+        self.viewport_state.push_clip(
             path,
             self.render_state.fill_rule,
             transform,
@@ -301,7 +300,7 @@ impl Scene {
     /// Note that unlike `push_clip_layer`, it is permissible to have pending
     /// pushed clip paths before finishing the rendering operation.
     pub fn pop_clip_path(&mut self) {
-        self.viewport_state.pop_clip_path();
+        self.viewport_state.pop_clip();
     }
 
     /// Stroke a path with the current paint and stroke settings.
@@ -345,7 +344,7 @@ impl Scene {
                 });
 
             let strips = strip_start..strip_storage.strips.len();
-            let draw = RecordedDraw::path(strips.clone(), paint.clone());
+            let draw = RecordedDraw::new_path(strips.clone(), paint.clone());
             (strips, draw)
         };
 
@@ -398,7 +397,7 @@ impl Scene {
                         });
 
                     let strips = strip_start..strip_storage.strips.len();
-                    let draw = RecordedDraw::path(strips.clone(), paint.clone());
+                    let draw = RecordedDraw::new_path(strips.clone(), paint.clone());
                     (strips, draw)
                 };
 
@@ -546,7 +545,7 @@ impl Scene {
         Self::push_recorded_draw(
             &mut self.recorder,
             blend_mode,
-            RecordedDraw::rect(rect, paint),
+            RecordedDraw::new_rect(rect, paint),
             &[],
         );
     }
@@ -670,7 +669,7 @@ impl Scene {
                         });
 
                     let strips = strip_start..strip_storage.strips.len();
-                    let draw = RecordedDraw::path(strips.clone(), paint.clone());
+                    let draw = RecordedDraw::new_path(strips.clone(), paint.clone());
                     (strips, draw)
                 };
 

@@ -46,7 +46,7 @@ extern crate alloc;
 
 pub(crate) mod filter;
 mod gradient_cache;
-mod pack;
+mod rect;
 mod render;
 mod resources;
 mod sampling;
