@@ -6,10 +6,12 @@
 //! This first slice supports root-level draws and regular property-less layers.
 
 mod builder;
+mod draw;
 mod round;
 mod timeline;
 
 use self::builder::ScheduleBuilder;
+use self::draw::Draw;
 pub(crate) use self::round::BlendOp;
 pub(crate) use self::round::FilterOp;
 use self::round::Schedule;
@@ -462,77 +464,5 @@ impl RenderTarget {
                 region.y as i32 - i32::from(region.scene_bbox.y0),
             ),
         }
-    }
-}
-
-#[derive(Debug, Default, Clone)]
-struct Draw {
-    opaque: Vec<GpuStrip>,
-    alpha: Vec<GpuStrip>,
-    external_texture_runs: Vec<ExternalTextureRun>,
-}
-
-impl Draw {
-    fn append_opaque(&mut self, other: &Self) {
-        self.opaque.extend_from_slice(&other.opaque);
-    }
-
-    fn append(&mut self, other: &Self) {
-        self.opaque.extend_from_slice(&other.opaque);
-
-        let alpha_offset = self.alpha.len();
-        let had_external_texture_runs = !self.external_texture_runs.is_empty();
-        for (idx, run) in other.external_texture_runs.iter().enumerate() {
-            let strips_start = if !had_external_texture_runs && idx == 0 {
-                0
-            } else {
-                alpha_offset + run.strips_start
-            };
-            if strips_start == self.alpha.len()
-                && self
-                    .external_texture_runs
-                    .last()
-                    .is_some_and(|last| last.texture_id == run.texture_id)
-            {
-                continue;
-            }
-            self.external_texture_runs.push(ExternalTextureRun {
-                texture_id: run.texture_id,
-                strips_start,
-            });
-        }
-        self.alpha.extend_from_slice(&other.alpha);
-    }
-
-    #[inline(always)]
-    fn push_opaque(&mut self, gpu_strip: GpuStrip) {
-        self.opaque.push(gpu_strip);
-    }
-
-    #[inline(always)]
-    fn push_alpha(&mut self, gpu_strip: GpuStrip, external_texture_id: Option<TextureId>) {
-        if let Some(texture_id) = external_texture_id {
-            let needs_new_run = self
-                .external_texture_runs
-                .last()
-                .is_none_or(|run| run.texture_id != texture_id);
-            if needs_new_run {
-                let strips_start = if self.external_texture_runs.is_empty() {
-                    0
-                } else {
-                    self.alpha.len()
-                };
-                self.external_texture_runs.push(ExternalTextureRun {
-                    strips_start,
-                    texture_id,
-                });
-            }
-        }
-
-        self.alpha.push(gpu_strip);
-    }
-
-    fn is_empty(&self) -> bool {
-        self.opaque.is_empty() && self.alpha.is_empty()
     }
 }
