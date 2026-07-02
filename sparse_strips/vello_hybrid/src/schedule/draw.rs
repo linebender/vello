@@ -14,6 +14,7 @@ use vello_common::geometry::RectU16;
 use vello_common::kurbo::Rect;
 use vello_common::paint::{ImageSource, Paint};
 use vello_common::record::LayerClip;
+use vello_common::strip::{StripSegment, for_each_fill_segment};
 use vello_common::strip_generator::StripStorage;
 use vello_common::tile::Tile;
 
@@ -262,44 +263,31 @@ impl DrawBuilder {
         let is_opaque = self.allow_opaque_pass && is_paint_opaque(&paint, encoded_paints);
         let depth_index = self.depth.next(is_opaque);
 
-        for i in 0..strips.len() - 1 {
-            let strip = &strips[i];
-            let y = strip.y;
-
-            if strip.x >= self.draw_bounds.x1 || y < self.draw_bounds.y0 || y >= self.draw_bounds.y1
-            {
-                continue;
-            }
-
-            let next_strip = &strips[i + 1];
-            let col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
-            let next_col = next_strip.alpha_idx() / u32::from(Tile::HEIGHT);
-            let strip_width =
-                u16::try_from(next_col.saturating_sub(col)).expect("strip width fits into u16");
-
-            if strip_width > 0 {
-                let strip_x0 = strip.x;
-                let strip_x1 = strip_x0
-                    .saturating_add(strip_width)
-                    .min(self.draw_bounds.x1);
-                let x0 = strip_x0.max(self.draw_bounds.x0);
-                let x1 = strip_x1.min(self.draw_bounds.x1);
-                if x1 > x0 {
-                    let col_offset = col + u32::from(x0 - strip_x0);
+        for_each_fill_segment(
+            strips,
+            tile_bounds(self.draw_bounds),
+            |segment| match segment {
+                StripSegment::Alpha(segment) => {
+                    let x0 = segment.tile_x0 * Tile::WIDTH;
+                    let x1 = segment.tile_x1 * Tile::WIDTH;
+                    let y = segment.tile_y * Tile::HEIGHT;
                     let processed = pack_paint(&paint, encoded_paints, (x0, y), paint_idxs);
                     self.draw.push_alpha(
-                        self.get_fill_strip(x0, x1, y, Some(col_offset), &processed, depth_index),
+                        self.get_fill_strip(
+                            x0,
+                            x1,
+                            y,
+                            Some(segment.alpha_idx / u32::from(Tile::HEIGHT)),
+                            &processed,
+                            depth_index,
+                        ),
                         processed.external_texture_id,
                     );
                 }
-            }
-
-            if next_strip.fill_gap() && strip.strip_y() == next_strip.strip_y() {
-                let gap_x0 = strip.x.saturating_add(strip_width);
-                let gap_x1 = next_strip.x.min(self.draw_bounds.x1);
-                let x0 = gap_x0.max(self.draw_bounds.x0);
-                let x1 = gap_x1.min(self.draw_bounds.x1);
-                if x1 > x0 {
+                StripSegment::Fill(segment) => {
+                    let x0 = segment.tile_x0 * Tile::WIDTH;
+                    let x1 = segment.tile_x1 * Tile::WIDTH;
+                    let y = segment.tile_y * Tile::HEIGHT;
                     let processed = pack_paint(&paint, encoded_paints, (x0, y), paint_idxs);
                     let strip = self.get_fill_strip(x0, x1, y, None, &processed, depth_index);
                     if is_opaque {
@@ -308,8 +296,8 @@ impl DrawBuilder {
                         self.draw.push_alpha(strip, processed.external_texture_id);
                     }
                 }
-            }
-        }
+            },
+        );
     }
 
     fn push_rect(
@@ -377,7 +365,6 @@ impl DrawBuilder {
         );
     }
 
-    // TODO: Deduplicate this with vello cpu.
     fn push_clipped_layer_ref(
         &mut self,
         sample: LayerSample,
@@ -394,57 +381,34 @@ impl DrawBuilder {
         let depth_index = self.depth.next(false);
         let paint = layer_paint(opacity);
 
-        for i in 0..strips.len() - 1 {
-            let strip = &strips[i];
-            let next_strip = &strips[i + 1];
-
-            if strip.is_sentinel() {
-                continue;
+        for_each_fill_segment(strips, tile_bounds(sample_bbox), |segment| match segment {
+            StripSegment::Alpha(segment) => {
+                let x0 = segment.tile_x0 * Tile::WIDTH;
+                let x1 = segment.tile_x1 * Tile::WIDTH;
+                let y = segment.tile_y * Tile::HEIGHT;
+                self.draw.push_alpha(
+                    self.get_layer_fill_strip(
+                        sample,
+                        x0,
+                        x1,
+                        y,
+                        Some(segment.alpha_idx / u32::from(Tile::HEIGHT)),
+                        paint,
+                        depth_index,
+                    ),
+                    None,
+                );
             }
-
-            let y = strip.y;
-            let y1 = y.saturating_add(Tile::HEIGHT);
-            if y1 <= sample_bbox.y0 || y >= sample_bbox.y1 {
-                continue;
+            StripSegment::Fill(segment) => {
+                let x0 = segment.tile_x0 * Tile::WIDTH;
+                let x1 = segment.tile_x1 * Tile::WIDTH;
+                let y = segment.tile_y * Tile::HEIGHT;
+                self.draw.push_alpha(
+                    self.get_layer_fill_strip(sample, x0, x1, y, None, paint, depth_index),
+                    None,
+                );
             }
-
-            let strip_width = strip.width_to(next_strip);
-            if strip_width > 0 {
-                let x0 = strip.x.max(sample_bbox.x0);
-                let x1 = strip.x.saturating_add(strip_width).min(sample_bbox.x1);
-                if x1 > x0 {
-                    let col = strip.alpha_idx() / u32::from(Tile::HEIGHT);
-                    let col_offset = col + u32::from(x0 - strip.x);
-                    self.draw.push_alpha(
-                        self.get_layer_fill_strip(
-                            sample,
-                            x0,
-                            x1,
-                            y,
-                            Some(col_offset),
-                            paint,
-                            depth_index,
-                        ),
-                        None,
-                    );
-                }
-            }
-
-            if next_strip.fill_gap() && next_strip.y == strip.y {
-                let x0 = strip.x.saturating_add(strip_width).max(sample_bbox.x0);
-                let x1 = if next_strip.is_sentinel() {
-                    sample_bbox.x1
-                } else {
-                    next_strip.x.min(sample_bbox.x1)
-                };
-                if x1 > x0 {
-                    self.draw.push_alpha(
-                        self.get_layer_fill_strip(sample, x0, x1, y, None, paint, depth_index),
-                        None,
-                    );
-                }
-            }
-        }
+        });
     }
 
     fn get_fill_strip(
@@ -602,6 +566,15 @@ fn clipped_fast_rect(rect: &Rect, bbox: RectU16) -> Option<Rect> {
     let y1 = rect.y1.min(f64::from(bbox.y1));
 
     (x0 < x1 && y0 < y1).then(|| Rect::new(x0, y0, x1, y1))
+}
+
+fn tile_bounds(bounds: RectU16) -> RectU16 {
+    RectU16::new(
+        bounds.x0 / Tile::WIDTH,
+        bounds.y0 / Tile::HEIGHT,
+        bounds.x1.div_ceil(Tile::WIDTH),
+        bounds.y1.div_ceil(Tile::HEIGHT),
+    )
 }
 
 fn offset_rect_part(part: RectPart, offset: (i32, i32)) -> RectPart {
