@@ -51,10 +51,9 @@ struct VertexOutput {
     @location(0) dest_xy: vec2<f32>,
     @location(1) source_xy: vec2<f32>,
     @location(2) source_local: vec2<f32>,
-    @location(3) @interpolate(flat) source_size: vec2<u32>,
-    @location(4) @interpolate(flat) texture_indices: vec2<u32>,
-    @location(5) @interpolate(flat) blend_mode: vec2<u32>,
-    @location(6) @interpolate(flat) opacity: u32,
+    @location(3) @interpolate(flat) source_size: u32,
+    @location(4) @interpolate(flat) texture_indices: u32,
+    @location(5) @interpolate(flat) blend_opacity: u32,
     @builtin(position) position: vec4<f32>,
 }
 
@@ -76,11 +75,9 @@ fn vs_main(
     let dest_origin = unpack_u16_pair(instance.dest_origin);
     let source_origin = unpack_u16_pair(instance.source_origin);
     let size = unpack_u16_pair(instance.size);
-    let texture_indices = unpack_u16_pair(instance.texture_indices);
     let target_size = unpack_u16_pair(instance.target_size);
     let bbox_origin = unpack_u16_pair(instance.bbox_origin);
     let source_scene_origin = unpack_u16_pair(instance.source_scene_origin);
-    let source_size = unpack_u16_pair(instance.source_size);
 
     let x = f32(vertex_index & 1u);
     let y = f32(vertex_index >> 1u);
@@ -88,18 +85,14 @@ fn vs_main(
     let dest_xy = vec2<f32>(dest_origin) + local;
     let scene_xy = vec2<f32>(bbox_origin) + local;
     let source_local = scene_xy - vec2<f32>(source_scene_origin);
-    let compose = instance.blend_opacity & 0xffu;
-    let mix = (instance.blend_opacity >> 8u) & 0xffu;
-    let opacity = (instance.blend_opacity >> 16u) & 0xffu;
 
     var out: VertexOutput;
     out.dest_xy = dest_xy;
     out.source_xy = vec2<f32>(source_origin) + source_local;
     out.source_local = source_local;
-    out.source_size = source_size;
-    out.texture_indices = texture_indices;
-    out.blend_mode = vec2<u32>(mix, compose);
-    out.opacity = opacity;
+    out.source_size = instance.source_size;
+    out.texture_indices = instance.texture_indices;
+    out.blend_opacity = instance.blend_opacity;
 
     let ndc_x = dest_xy.x * 2.0 / f32(target_size.x) - 1.0;
     let ndc_y = 1.0 - dest_xy.y * 2.0 / f32(target_size.y);
@@ -119,11 +112,15 @@ fn fs_main(
     @location(0) dest_xy: vec2<f32>,
     @location(1) source_xy: vec2<f32>,
     @location(2) source_local: vec2<f32>,
-    @location(3) @interpolate(flat) source_size: vec2<u32>,
-    @location(4) @interpolate(flat) texture_indices: vec2<u32>,
-    @location(5) @interpolate(flat) blend_mode: vec2<u32>,
-    @location(6) @interpolate(flat) opacity: u32,
+    @location(3) @interpolate(flat) packed_source_size: u32,
+    @location(4) @interpolate(flat) packed_texture_indices: u32,
+    @location(5) @interpolate(flat) blend_opacity: u32,
 ) -> @location(0) vec4<f32> {
+    let source_size = unpack_u16_pair(packed_source_size);
+    let texture_indices = unpack_u16_pair(packed_texture_indices);
+    let compose = blend_opacity & 0xffu;
+    let mix = (blend_opacity >> 8u) & 0xffu;
+    let opacity = (blend_opacity >> 16u) & 0xffu;
     let backdrop = load_layer(texture_indices.x, vec2<i32>(dest_xy));
     let source_opacity = f32(opacity) * (1.0 / 255.0);
     var source = vec4<f32>(0.0);
@@ -134,7 +131,7 @@ fn fs_main(
     {
         source = source_opacity * load_layer(texture_indices.y, vec2<i32>(source_xy));
     }
-    return blend_mix_compose(backdrop, source, blend_mode.y, blend_mode.x);
+    return blend_mix_compose(backdrop, source, compose, mix);
 }
 
 fn blend_mix_compose(backdrop: vec4<f32>, src: vec4<f32>, compose_mode: u32, mix_mode: u32) -> vec4<f32> {
