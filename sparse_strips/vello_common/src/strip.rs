@@ -4,6 +4,7 @@
 //! Rendering strips.
 
 use crate::flatten::Line;
+use crate::geometry::RectU16;
 use crate::peniko::Fill;
 use crate::tile::{Tile, Tiles};
 use crate::util::f32_to_u8;
@@ -23,6 +24,113 @@ pub struct Strip {
     /// - bit 31: `fill_gap` (See `Strip::fill_gap()`).
     /// - bits 0..=30: `alpha_idx` (See `Strip::alpha_idx()`).
     packed_alpha_idx_fill_gap: u32,
+}
+
+/// A strip-derived region that needs to be filled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StripSegment {
+    /// A fill region with alpha coverage.
+    Alpha(StripAlphaFillSegment),
+    /// A fill region without alpha coverage.
+    Fill(StripFillSegment),
+}
+
+/// A fill region with alpha coverage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StripAlphaFillSegment {
+    /// The inclusive start x coordinate in tile units.
+    pub tile_x0: u16,
+    /// The exclusive end x coordinate in tile units.
+    pub tile_x1: u16,
+    /// The y coordinate in tile units.
+    pub tile_y: u16,
+    /// The index into the alpha buffer of the segment.
+    pub alpha_idx: u32,
+}
+
+/// A fill region without alpha coverage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StripFillSegment {
+    /// The inclusive start x coordinate in tile units.
+    pub tile_x0: u16,
+    /// The exclusive end x coordinate in tile units.
+    pub tile_x1: u16,
+    /// The y coordinate in tile units.
+    pub tile_y: u16,
+}
+
+/// Iterate over all fill and alpha-fill regions formed by the sequence of strips,
+/// within the tile-unit bounds indicated by `viewport`.
+pub fn for_each_fill_segment(
+    strips: &[Strip],
+    viewport: RectU16,
+    mut segment: impl FnMut(StripSegment),
+) {
+    // Need at least two strips: 1 (or more) for the generated path, and the sentinel strip.
+    if strips.len() < 2 || viewport.is_empty() {
+        return;
+    }
+
+    for pair in strips.windows(2) {
+        let strip = pair[0];
+        let tile_y = strip.strip_y();
+
+        // Skip strips that are outside the viewport vertically.
+        if tile_y < viewport.y0 {
+            continue;
+        }
+        if tile_y >= viewport.y1 {
+            break;
+        }
+
+        let next_strip = pair[1];
+        let strip_width = strip.width_to(&next_strip);
+        debug_assert_eq!(
+            strip.x % Tile::WIDTH,
+            0,
+            "strip x must be tile-width aligned",
+        );
+        debug_assert_eq!(
+            strip_width % Tile::WIDTH,
+            0,
+            "strip width must be tile-width aligned",
+        );
+        let strip_tile_x0 = strip.x / Tile::WIDTH;
+        let strip_tile_x1 = strip_tile_x0.saturating_add(strip_width / Tile::WIDTH);
+        // Clip strips that are outside the viewport horizontally.
+        let tile_x0 = strip_tile_x0.max(viewport.x0);
+        let tile_x1 = strip_tile_x1.min(viewport.x1);
+
+        if tile_x0 < tile_x1 {
+            segment(StripSegment::Alpha(StripAlphaFillSegment {
+                tile_x0,
+                tile_x1,
+                tile_y,
+                alpha_idx: strip.alpha_idx()
+                    + u32::from(tile_x0 - strip_tile_x0)
+                        * u32::from(Tile::WIDTH)
+                        * u32::from(Tile::HEIGHT),
+            }));
+        }
+
+        if next_strip.fill_gap() && next_strip.y == strip.y {
+            debug_assert_eq!(
+                next_strip.x % Tile::WIDTH,
+                0,
+                "next strip x must be tile-width aligned",
+            );
+            // Clip strips that are outside the viewport horizontally.
+            let tile_x0 = strip_tile_x1.max(viewport.x0);
+            let tile_x1 = (next_strip.x / Tile::WIDTH).min(viewport.x1);
+            if tile_x0 < tile_x1 {
+                segment(StripSegment::Fill(StripFillSegment {
+                    tile_x0,
+                    tile_x1,
+                    tile_y,
+                }));
+            }
+        }
+    }
 }
 
 impl Strip {
