@@ -5,19 +5,119 @@
 
 use super::{ExternalTextureRun, LayerTextureRegion};
 use crate::GpuStrip;
-use crate::pack::{ProcessedPaint, RectPart, make_gpu_rect, process_paint, split_rect};
+use crate::pack::{RectPart, make_gpu_rect, split_rect};
 use crate::scene::RecordedDraw;
 use alloc::vec::Vec;
 use vello_common::TextureId;
-use vello_common::encode::EncodedPaint;
+use vello_common::encode::{EncodedKind, EncodedPaint};
 use vello_common::geometry::RectU16;
 use vello_common::kurbo::Rect;
-use vello_common::paint::Paint;
+use vello_common::paint::{ImageSource, Paint};
 use vello_common::record::LayerClip;
 use vello_common::strip_generator::StripStorage;
 use vello_common::tile::Tile;
 
+const COLOR_SOURCE_PAYLOAD: u32 = 0;
 const COLOR_SOURCE_LAYER: u32 = 1;
+
+const PAINT_TYPE_SOLID: u32 = 0;
+const PAINT_TYPE_IMAGE: u32 = 1;
+const PAINT_TYPE_LINEAR_GRADIENT: u32 = 2;
+const PAINT_TYPE_RADIAL_GRADIENT: u32 = 3;
+const PAINT_TYPE_SWEEP_GRADIENT: u32 = 4;
+const PAINT_TYPE_BLURRED_ROUNDED_RECT: u32 = 5;
+
+#[derive(Clone, Copy)]
+struct PackedPaint {
+    payload: u32,
+    paint: u32,
+    external_texture_id: Option<TextureId>,
+}
+
+/// Process a paint and return the packed payload, paint and optional external texture id.
+#[inline(always)]
+fn pack_paint(
+    paint: &Paint,
+    encoded_paints: &[EncodedPaint],
+    (scene_strip_x, scene_strip_y): (u16, u16),
+    paint_idxs: &[u32],
+) -> PackedPaint {
+    match paint {
+        Paint::Solid(color) => {
+            let rgba = color.as_premul_rgba8().to_u32();
+            let paint_packed = (COLOR_SOURCE_PAYLOAD << 30) | (PAINT_TYPE_SOLID << 27);
+            PackedPaint {
+                payload: rgba,
+                paint: paint_packed,
+                external_texture_id: None,
+            }
+        }
+        Paint::Indexed(indexed_paint) => {
+            let paint_id = indexed_paint.index();
+            let paint_idx = paint_idxs.get(paint_id).copied().unwrap();
+
+            let Some(encoded_paint) = encoded_paints.get(paint_id) else {
+                unimplemented!("Unsupported paint type");
+            };
+
+            match encoded_paint {
+                EncodedPaint::Image(encoded_image) => match &encoded_image.source {
+                    ImageSource::OpaqueId { .. } => {
+                        let paint_packed = (COLOR_SOURCE_PAYLOAD << 29)
+                            | (PAINT_TYPE_IMAGE << 26)
+                            | (paint_idx & 0x03FF_FFFF);
+                        let scene_strip_xy =
+                            ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
+                        PackedPaint {
+                            payload: scene_strip_xy,
+                            paint: paint_packed,
+                            external_texture_id: None,
+                        }
+                    }
+                    _ => unimplemented!("Unsupported image source"),
+                },
+                EncodedPaint::ExternalTexture(texture) => {
+                    let paint_packed = (COLOR_SOURCE_PAYLOAD << 29)
+                        | (PAINT_TYPE_IMAGE << 26)
+                        | (paint_idx & 0x03FF_FFFF);
+                    let scene_strip_xy = ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
+                    PackedPaint {
+                        payload: scene_strip_xy,
+                        paint: paint_packed,
+                        external_texture_id: Some(texture.texture_id),
+                    }
+                }
+                EncodedPaint::Gradient(gradient) => {
+                    let gradient_paint_type = match &gradient.kind {
+                        EncodedKind::Linear(_) => PAINT_TYPE_LINEAR_GRADIENT,
+                        EncodedKind::Radial(_) => PAINT_TYPE_RADIAL_GRADIENT,
+                        EncodedKind::Sweep(_) => PAINT_TYPE_SWEEP_GRADIENT,
+                    };
+                    let paint_packed = (COLOR_SOURCE_PAYLOAD << 29)
+                        | (gradient_paint_type << 26)
+                        | (paint_idx & 0x03FF_FFFF);
+                    let scene_strip_xy = ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
+                    PackedPaint {
+                        payload: scene_strip_xy,
+                        paint: paint_packed,
+                        external_texture_id: None,
+                    }
+                }
+                EncodedPaint::BlurredRoundedRect(_) => {
+                    let paint_packed = (COLOR_SOURCE_PAYLOAD << 29)
+                        | (PAINT_TYPE_BLURRED_ROUNDED_RECT << 26)
+                        | (paint_idx & 0x03FF_FFFF);
+                    let scene_strip_xy = ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
+                    PackedPaint {
+                        payload: scene_strip_xy,
+                        paint: paint_packed,
+                        external_texture_id: None,
+                    }
+                }
+            }
+        }
+    }
+}
 
 #[derive(Debug, Default, Clone)]
 pub(super) struct Draw {
@@ -186,7 +286,7 @@ impl DrawBuilder {
                 let x1 = strip_x1.min(self.draw_bounds.x1);
                 if x1 > x0 {
                     let col_offset = col + u32::from(x0 - strip_x0);
-                    let processed = process_paint(&paint, encoded_paints, (x0, y), paint_idxs);
+                    let processed = pack_paint(&paint, encoded_paints, (x0, y), paint_idxs);
                     self.draw.push_alpha(
                         self.get_fill_strip(x0, x1, y, Some(col_offset), &processed, depth_index),
                         processed.external_texture_id,
@@ -200,7 +300,7 @@ impl DrawBuilder {
                 let x0 = gap_x0.max(self.draw_bounds.x0);
                 let x1 = gap_x1.min(self.draw_bounds.x1);
                 if x1 > x0 {
-                    let processed = process_paint(&paint, encoded_paints, (x0, y), paint_idxs);
+                    let processed = pack_paint(&paint, encoded_paints, (x0, y), paint_idxs);
                     let strip = self.get_fill_strip(x0, x1, y, None, &processed, depth_index);
                     if is_opaque {
                         self.draw.push_opaque(strip);
@@ -353,7 +453,7 @@ impl DrawBuilder {
         x1: u16,
         y: u16,
         col_idx: Option<u32>,
-        paint: &ProcessedPaint,
+        paint: &PackedPaint,
         depth_index: u32,
     ) -> GpuStrip {
         self.get_fill_strip_with_packed_paint(
@@ -479,7 +579,7 @@ fn pack_rectangle_into_gpu(
     .into_iter()
     .flatten()
     {
-        let processed = process_paint(paint, encoded_paints, (part.x, part.y), paint_idxs);
+        let processed = pack_paint(paint, encoded_paints, (part.x, part.y), paint_idxs);
         let strip = make_gpu_rect(
             offset_rect_part(part, geometry_offset),
             processed.payload,
