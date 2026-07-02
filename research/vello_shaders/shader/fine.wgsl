@@ -750,8 +750,11 @@ fn read_blur_rect(cmd_ix: u32) -> CmdBlurRect {
     let width = bitcast<f32>(info[info_offset + 6u]);
     let height = bitcast<f32>(info[info_offset + 7u]);
     let radius = bitcast<f32>(info[info_offset + 8u]);
-    let std_dev = bitcast<f32>(info[info_offset + 9u]);
-    let invert = info[info_offset + 10u];
+    // The invert flag is packed into the sign bit of `std_dev`, which is otherwise
+    // always non-negative.
+    let std_dev_bits = info[info_offset + 9u];
+    let std_dev = abs(bitcast<f32>(std_dev_bits));
+    let invert = std_dev_bits >> 31u;
 
     return CmdBlurRect(rgba_color, matrx, xlat, width, height, radius, std_dev, invert);
 }

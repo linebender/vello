@@ -468,6 +468,13 @@ impl Encoding {
         std_dev: f32,
         invert: bool,
     ) {
+        // The `invert` flag is packed into the sign bit of `std_dev`, which is otherwise
+        // always non-negative.
+        let std_dev = if invert {
+            -std_dev.max(0.0)
+        } else {
+            std_dev.max(0.0)
+        };
         self.draw_tags.push(DrawTag::BLUR_RECT);
         self.draw_data
             .extend_from_slice(bytemuck::cast_slice(bytemuck::bytes_of(
@@ -477,7 +484,6 @@ impl Encoding {
                     height,
                     radius,
                     std_dev,
-                    invert: invert as u32,
                 },
             )));
     }

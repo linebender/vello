@@ -64,6 +64,7 @@ struct CmdBlurRect {
     std_dev: f32,
 
     // Whether to paint the inverse (1 - alpha) of the blur coverage.
+    // Unpacked from the sign bit of the encoded standard deviation.
     invert: u32,
 }
 
