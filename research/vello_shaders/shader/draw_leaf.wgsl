@@ -271,7 +271,6 @@ fn main(
                     info[di + 8u] = scene[dd + 2u];
                     info[di + 9u] = scene[dd + 3u];
                     info[di + 10u] = scene[dd + 4u];
-                    info[di + 11u] = scene[dd + 5u];
                 }
                 default: {}
             }

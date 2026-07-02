@@ -34,7 +34,7 @@ impl DrawTag {
     pub const IMAGE: Self = Self(0x28C); // info: 10, scene: 3
 
     /// Blurred rounded rectangle.
-    pub const BLUR_RECT: Self = Self(0x318); // info: 12, scene: 6 (DrawBlurRoundedRect)
+    pub const BLUR_RECT: Self = Self(0x2d4); // info: 11, scene: 5 (DrawBlurRoundedRect)
 
     /// Begin layer/clip.
     pub const BEGIN_CLIP: Self = Self(0x49);
@@ -182,9 +182,10 @@ pub struct DrawBlurRoundedRect {
     /// Rectangle corner radius.
     pub radius: f32,
     /// Standard deviation of gaussian filter.
+    ///
+    /// The magnitude is the standard deviation; the sign bit encodes whether to paint the
+    /// inverse (`1 - alpha`) of the blur coverage (sign bit clear = normal, set = inverse).
     pub std_dev: f32,
-    /// Whether to paint the inverse (`1 - alpha`) of the blur coverage (`0` = normal, `1` = inverse).
-    pub invert: u32,
 }
 
 /// Draw data for a clip or layer.
