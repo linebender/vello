@@ -182,6 +182,9 @@ pub struct DrawBlurRoundedRect {
     /// Rectangle corner radius.
     pub radius: f32,
     /// Standard deviation of gaussian filter.
+    ///
+    /// The magnitude is the standard deviation; the sign bit encodes whether to paint the
+    /// inverse (`1 - alpha`) of the blur coverage (sign bit clear = normal, set = inverse).
     pub std_dev: f32,
 }
 
