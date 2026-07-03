@@ -363,7 +363,8 @@ impl Scene {
             let paint = ctx.encode_current_paint();
 
             if let Some(bounds) = ctx.fast_rect_bounds(rect) {
-                ctx.record_rect(bounds, paint);
+                ctx.recorder
+                    .push_draw(RecordedDraw::new_rect(bounds, paint), &[]);
                 return;
             }
 
@@ -458,7 +459,8 @@ impl Scene {
                         transform,
                     );
 
-                    ctx.record_rect(transformed_rect, paint);
+                    ctx.recorder
+                        .push_draw(RecordedDraw::new_rect(transformed_rect, paint), &[]);
                 } else {
                     let paint = ctx.encode_external_texture_paint(
                         texture_id,
@@ -481,11 +483,6 @@ impl Scene {
         });
     }
 
-    fn record_path(&mut self, strips: Range<usize>, draw: RecordedDraw) {
-        let strip_storage = self.strip_storage.borrow();
-        self.recorder.push_draw(draw, &strip_storage.strips[strips]);
-    }
-
     fn record_generated_path<F>(&mut self, paint: Paint, generate: F)
     where
         F: FnOnce(&mut StripGenerator, &mut StripStorage, Option<PathDataRef<'_>>),
@@ -501,12 +498,8 @@ impl Scene {
         };
 
         let draw = RecordedDraw::new_path(strips.clone(), paint);
-        self.record_path(strips, draw);
-    }
-
-    fn record_rect(&mut self, rect: Rect, paint: Paint) {
-        self.recorder
-            .push_draw(RecordedDraw::new_rect(rect, paint), &[]);
+        let strip_storage = self.strip_storage.borrow();
+        self.recorder.push_draw(draw, &strip_storage.strips[strips]);
     }
 
     fn fast_rect_bounds(&self, rect: &Rect) -> Option<Rect> {
@@ -569,7 +562,8 @@ impl Scene {
                 blurred_rect.encode_into(&mut ctx.encoded_paints.borrow_mut(), transform, None);
 
             if let Some(bounds) = ctx.fast_rect_bounds(&inflated_rect) {
-                ctx.record_rect(bounds, paint);
+                ctx.recorder
+                    .push_draw(RecordedDraw::new_rect(bounds, paint), &[]);
                 return;
             }
 
@@ -624,7 +618,7 @@ impl Scene {
         filter: Option<Filter>,
     ) {
         if mask.is_some() {
-            unimplemented!("mask layers are not supported by the new vello_hybrid scheduler yet");
+            unimplemented!("mask layers are currently not supported");
         }
 
         let blend_mode = blend_mode.unwrap_or_default();
@@ -829,11 +823,9 @@ impl Scene {
     /// Reset scene to default values.
     pub fn reset(&mut self) {
         self.viewport_state.reset(self.width, self.height);
-        // Recorded commands hold ranges into this storage, so keep appending generated strips.
         {
             let mut ss = self.strip_storage.borrow_mut();
             ss.clear();
-            ss.set_generation_mode(GenerationMode::Append);
         }
         self.encoded_paints.borrow_mut().clear();
 
