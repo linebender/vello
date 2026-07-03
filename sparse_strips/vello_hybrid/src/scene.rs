@@ -813,6 +813,10 @@ impl Scene {
         let filter = self.filter.clone();
 
         if blend_mode.is_some() || filter.is_some() {
+            // TODO: For now, we simulate non-isolated blends by wrapping the contents into a
+            // layer. This will work fine for non-destructive blend modes, but yields different
+            // results for destructive ones, hence why we don't have full feature parity
+            // with Vello CPU for those yet.
             self.push_layer(None, blend_mode, None, None, filter);
             let result = f(self);
             self.pop_layer();
