@@ -151,6 +151,12 @@ pub struct CommandRecorder<D> {
     pub filter_layers: Vec<u32>,
     /// Whether the root is the target of a non-default blending operation.
     pub root_is_blend_target: bool,
+    /// Maximum layer depth across the whole layer graph.
+    pub max_layer_depth: usize,
+    /// Whether there exists at least one layer that uses a non-default blend mode.
+    pub has_non_default_blend: bool,
+    /// Whether there exists at least one layer that has a filter.
+    pub has_filter_layer: bool,
     /// A pool for reusable `Vec<RecordedCmd>` allocations.
     cmd_pool: VecPool<RecordedCmd>,
     /// The layer whose command stream is currently the base.
@@ -169,6 +175,9 @@ impl<D> Default for CommandRecorder<D> {
             layers: Vec::new(),
             filter_layers: Vec::new(),
             root_is_blend_target: false,
+            max_layer_depth: 0,
+            has_non_default_blend: false,
+            has_filter_layer: false,
             cmd_pool: VecPool::default(),
             active_layer: None,
             layer_stack: Vec::new(),
@@ -207,6 +216,9 @@ impl<D> CommandRecorder<D> {
         }
         self.filter_layers.clear();
         self.root_is_blend_target = false;
+        self.max_layer_depth = 0;
+        self.has_non_default_blend = false;
+        self.has_filter_layer = false;
         self.active_layer = None;
         self.layer_stack.clear();
     }
@@ -233,12 +245,18 @@ impl<D> CommandRecorder<D> {
         let depth = self.layer_stack.len() + 1;
         let id = self.push_recorded_layer(RecordedLayer::filter(props, filter_plan, cmds, depth));
         self.filter_layers.push(id);
+        self.has_filter_layer = true;
     }
 
     fn push_recorded_layer(&mut self, layer: RecordedLayer) -> u32 {
         let parent_layer = self.active_layer;
-        if parent_layer.is_none() && layer.props.blend_mode != BlendMode::default() {
-            self.root_is_blend_target = true;
+        self.max_layer_depth = self.max_layer_depth.max(layer.depth);
+        if layer.props.blend_mode != BlendMode::default() {
+            self.has_non_default_blend = true;
+
+            if parent_layer.is_none() {
+                self.root_is_blend_target = true;
+            }
         }
         let id = self.push_layer_metadata(layer);
         self.push_render_cmd(RecordedCmd::Layer(id));
@@ -462,6 +480,8 @@ mod tests {
         assert_cmds(layer_cmds(&recorder, 3), &[ExpectedCmd::Batch(1..2)]);
         assert_eq!(recorder.draws.len(), 2);
         assert_eq!(recorder.filter_layers.to_vec(), [0, 1]);
+        assert_eq!(recorder.max_layer_depth, 3);
+        assert!(!recorder.has_non_default_blend);
     }
 
     #[test]
@@ -498,9 +518,15 @@ mod tests {
 
         recorder.push_layer(blended_layer_props(), None);
         assert!(recorder.root_is_blend_target);
+        assert!(recorder.has_non_default_blend);
+        assert_eq!(recorder.max_layer_depth, 1);
+        assert!(!recorder.has_filter_layer);
 
         recorder.reset();
         assert!(!recorder.root_is_blend_target);
+        assert!(!recorder.has_non_default_blend);
+        assert_eq!(recorder.max_layer_depth, 0);
+        assert!(!recorder.has_filter_layer);
     }
 
     #[test]
@@ -511,5 +537,22 @@ mod tests {
         recorder.push_layer(blended_layer_props(), None);
 
         assert!(!recorder.root_is_blend_target);
+        assert!(recorder.has_non_default_blend);
+        assert_eq!(recorder.max_layer_depth, 2);
+    }
+
+    #[test]
+    fn filter_layers_are_tracked() {
+        let mut recorder = CommandRecorder::<TestDraw>::new();
+        assert!(!recorder.has_filter_layer);
+
+        recorder.push_layer(
+            layer_props(),
+            Some(filter_data(RectU16::ZERO, RectU16::ZERO)),
+        );
+        assert!(recorder.has_filter_layer);
+
+        recorder.reset();
+        assert!(!recorder.has_filter_layer);
     }
 }
