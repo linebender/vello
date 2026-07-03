@@ -24,7 +24,7 @@ use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
     filter::{
-        FilterContext, FilterInstanceData, FilterTexture, GpuBlendInstance, GpuCopyInstance,
+        FilterContext, FilterInstanceData, GpuBlendInstance, GpuCopyInstance,
         build_scheduled_filter_batches, gpu_blend_instance, gpu_filter_copy_instance,
     },
     gradient_cache::GradientRampCache,
@@ -41,8 +41,8 @@ use crate::{
     },
     scene::Scene,
     schedule::{
-        BlendOp, ClearTarget, ExternalTextureRun, FilterOp, LoadOp, RendererBackend,
-        RootRenderTarget, StripPassRenderTarget,
+        BlendOp, ExternalTextureRun, FilterOp, LoadOp, RendererBackend, RootRenderTarget,
+        StripPassRenderTarget, TextureTarget,
     },
 };
 use alloc::sync::Arc;
@@ -2889,7 +2889,7 @@ impl WebGlRendererContext<'_> {
             self.clear_rects.clear();
             self.clear_rects
                 .extend(self.copy_instances.iter().map(GpuCopyInstance::clear_rect));
-            self.do_clear_stored_rects(ClearTarget::Scratch(BLEND_SCRATCH_INDEX));
+            self.do_clear_stored_rects(TextureTarget::Scratch(BLEND_SCRATCH_INDEX));
 
             self.gl
                 .bind_vertex_array(Some(&self.programs.resources.blend_vao));
@@ -3008,7 +3008,7 @@ impl WebGlRendererContext<'_> {
         self.gl.enable(WebGl2RenderingContext::BLEND);
     }
 
-    fn do_clear_stored_rects(&self, target: ClearTarget) {
+    fn do_clear_stored_rects(&self, target: TextureTarget) {
         if self.clear_rects.is_empty() {
             return;
         }
@@ -3020,15 +3020,15 @@ impl WebGlRendererContext<'_> {
         self.finish_clear_rects();
     }
 
-    fn prepare_clear_rects(&self, target: ClearTarget) {
+    fn prepare_clear_rects(&self, target: TextureTarget) {
         let (width, height) = self.layer_texture_size();
         self.gl.disable(WebGl2RenderingContext::BLEND);
         self.gl.clear_color(0.0, 0.0, 0.0, 0.0);
         let framebuffer = match target {
-            ClearTarget::Scratch(texture_index) => {
+            TextureTarget::Scratch(texture_index) => {
                 &self.programs.resources.filter_scratch_framebuffers[texture_index]
             }
-            ClearTarget::Layer(texture_index) => {
+            TextureTarget::Layer(texture_index) => {
                 &self.programs.resources.layer_framebuffers[texture_index]
             }
         };
@@ -3082,7 +3082,7 @@ impl RendererBackend for WebGlRendererContext<'_> {
         WebGlRendererContext::layer_texture_size(self)
     }
 
-    fn clear_rects(&mut self, target: ClearTarget, populate: impl FnOnce(&mut Vec<RectU16>)) {
+    fn clear_rects(&mut self, target: TextureTarget, populate: impl FnOnce(&mut Vec<RectU16>)) {
         self.clear_rects.clear();
         populate(&mut self.clear_rects);
         self.do_clear_stored_rects(target);
@@ -3090,17 +3090,17 @@ impl RendererBackend for WebGlRendererContext<'_> {
     }
 }
 
-fn filter_texture(resources: &WebGlResources, texture: FilterTexture) -> &Texture {
+fn filter_texture(resources: &WebGlResources, texture: TextureTarget) -> &Texture {
     match texture {
-        FilterTexture::Layer(index) => &resources.layer_textures[index],
-        FilterTexture::Scratch(index) => &resources.filter_scratch_textures[index],
+        TextureTarget::Layer(index) => &resources.layer_textures[index],
+        TextureTarget::Scratch(index) => &resources.filter_scratch_textures[index],
     }
 }
 
-fn filter_output_framebuffer(resources: &WebGlResources, texture: FilterTexture) -> &Framebuffer {
+fn filter_output_framebuffer(resources: &WebGlResources, texture: TextureTarget) -> &Framebuffer {
     match texture {
-        FilterTexture::Layer(index) => &resources.layer_framebuffers[index],
-        FilterTexture::Scratch(index) => &resources.filter_scratch_framebuffers[index],
+        TextureTarget::Layer(index) => &resources.layer_framebuffers[index],
+        TextureTarget::Scratch(index) => &resources.filter_scratch_framebuffers[index],
     }
 }
 

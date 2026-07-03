@@ -21,7 +21,7 @@
 
 //! GPU filter types and conversion utilities.
 
-use crate::schedule::{BlendOp, FilterOp, FilterScratchRegion};
+use crate::schedule::{BlendOp, FilterOp, FilterScratchRegion, TextureTarget};
 use crate::util::{IntRect, IntSize};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
@@ -392,17 +392,11 @@ pub(crate) struct FilterContext {
     pub(crate) filters: Vec<GpuFilterData>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FilterTexture {
-    Layer(usize),
-    Scratch(usize),
-}
-
 #[derive(Debug)]
 pub(crate) struct ScheduledFilterBatch {
-    pub(crate) input: FilterTexture,
-    pub(crate) output: FilterTexture,
-    pub(crate) original: FilterTexture,
+    pub(crate) input: TextureTarget,
+    pub(crate) output: TextureTarget,
+    pub(crate) original: TextureTarget,
     pub(crate) instances: Vec<FilterInstanceData>,
 }
 
@@ -445,9 +439,9 @@ pub(crate) fn build_scheduled_filter_batches(
 #[derive(Debug, Clone, Copy)]
 struct ScheduledFilterPass {
     step: usize,
-    input: FilterTexture,
-    output: FilterTexture,
-    original: Option<FilterTexture>,
+    input: TextureTarget,
+    output: TextureTarget,
+    original: Option<TextureTarget>,
     instance: FilterInstanceData,
 }
 
@@ -514,30 +508,30 @@ impl FilterPassBuilder {
         out.extend(self.passes);
     }
 
-    fn initial_texture(&self) -> FilterTexture {
-        FilterTexture::Layer(self.op.layer.texture_index)
+    fn initial_texture(&self) -> TextureTarget {
+        TextureTarget::Layer(self.op.layer.texture_index)
     }
 
     fn scratch_region(&self, index: usize) -> FilterScratchRegion {
         self.op.scratches[index].expect("filter pass requires allocated scratch region")
     }
 
-    fn texture_offset(&self, texture: FilterTexture) -> [u32; 2] {
+    fn texture_offset(&self, texture: TextureTarget) -> [u32; 2] {
         match texture {
-            FilterTexture::Layer(_) => [self.op.layer.x, self.op.layer.y],
-            FilterTexture::Scratch(index) => {
+            TextureTarget::Layer(_) => [self.op.layer.x, self.op.layer.y],
+            TextureTarget::Scratch(index) => {
                 let scratch = self.scratch_region(index);
                 [scratch.x, scratch.y]
             }
         }
     }
 
-    fn input(&mut self) -> FilterTexture {
+    fn input(&mut self) -> TextureTarget {
         if self.first {
             self.first = false;
             self.initial_texture()
         } else {
-            FilterTexture::Scratch((self.toggle + 1) % 2)
+            TextureTarget::Scratch((self.toggle + 1) % 2)
         }
     }
 
@@ -567,7 +561,7 @@ impl FilterPassBuilder {
         }
     }
 
-    fn emit(&mut self, kind: u32, output: FilterTexture, original: Option<FilterTexture>) {
+    fn emit(&mut self, kind: u32, output: TextureTarget, original: Option<TextureTarget>) {
         let (src_size, dest_size) = self.apply_pass_dimensions(kind);
         let input = self.input();
         let src_offset = self.texture_offset(input);
@@ -596,20 +590,20 @@ impl FilterPassBuilder {
 
     fn emit_to_scratch(&mut self, kind: u32) {
         let scratch = self.toggle;
-        self.emit(kind, FilterTexture::Scratch(scratch), None);
+        self.emit(kind, TextureTarget::Scratch(scratch), None);
         self.toggle = (self.toggle + 1) % 2;
     }
 
-    fn current_texture(&self) -> FilterTexture {
+    fn current_texture(&self) -> TextureTarget {
         if self.first {
             self.initial_texture()
         } else {
-            FilterTexture::Scratch((self.toggle + 1) % 2)
+            TextureTarget::Scratch((self.toggle + 1) % 2)
         }
     }
 
     fn ensure_result_in_scratch_zero(&mut self) {
-        if self.current_texture() == FilterTexture::Scratch(0) {
+        if self.current_texture() == TextureTarget::Scratch(0) {
             return;
         }
 
@@ -617,10 +611,10 @@ impl FilterPassBuilder {
             self.first = false;
             self.initial_texture()
         } else {
-            FilterTexture::Scratch((self.toggle + 1) % 2)
+            TextureTarget::Scratch((self.toggle + 1) % 2)
         };
         let src_offset = self.texture_offset(input);
-        let output = FilterTexture::Scratch(0);
+        let output = TextureTarget::Scratch(0);
         let dest_offset = self.texture_offset(output);
         self.passes.push(ScheduledFilterPass {
             step: self.step,
@@ -660,7 +654,7 @@ impl FilterPassBuilder {
         let scratch = self.toggle;
         self.emit(
             pass_kind::COMPOSITE_DROP_SHADOW,
-            FilterTexture::Scratch(scratch),
+            TextureTarget::Scratch(scratch),
             Some(self.initial_texture()),
         );
         self.toggle = (self.toggle + 1) % 2;

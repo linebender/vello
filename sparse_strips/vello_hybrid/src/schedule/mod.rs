@@ -44,12 +44,12 @@ pub(crate) enum StripPassRenderTarget {
     LayerAtlas(usize),
 }
 
-/// Specifies the texture to clear rectangular regions in.
+/// Identifies one of the intermediate textures used by the hybrid renderer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ClearTarget {
-    /// Clear regions in one of the scratch textures.
+pub(crate) enum TextureTarget {
+    /// One of the scratch textures.
     Scratch(usize),
-    /// Clear regions in one of the layer atlas textures.
+    /// One of the layer atlas textures.
     Layer(usize),
 }
 
@@ -100,7 +100,7 @@ pub(crate) trait RendererBackend {
     fn layer_texture_size(&self) -> (u32, u32);
 
     /// Clear rectangular regions in a texture to transparent black.
-    fn clear_rects(&mut self, target: ClearTarget, populate: impl FnOnce(&mut Vec<RectU16>));
+    fn clear_rects(&mut self, target: TextureTarget, populate: impl FnOnce(&mut Vec<RectU16>));
 
     /// Execute a render pass for strips, split into opaque and alpha passes.
     fn render_strips(
@@ -227,7 +227,7 @@ fn clear_layer_regions<R: RendererBackend>(renderer: &mut R, regions: &[LayerTex
     };
 
     for texture_index in 0..=max_texture_index {
-        renderer.clear_rects(ClearTarget::Layer(texture_index), |clear_rects| {
+        renderer.clear_rects(TextureTarget::Layer(texture_index), |clear_rects| {
             clear_rects.extend(regions.iter().filter_map(|region| {
                 if region.texture_index != texture_index {
                     return None;
@@ -249,7 +249,7 @@ fn clear_filter_scratch_regions<R: RendererBackend>(
     };
 
     for texture_index in 0..=max_texture_index {
-        renderer.clear_rects(ClearTarget::Scratch(texture_index), |clear_rects| {
+        renderer.clear_rects(TextureTarget::Scratch(texture_index), |clear_rects| {
             clear_rects.extend(regions.iter().filter_map(|region| {
                 if region.texture_index != texture_index {
                     return None;

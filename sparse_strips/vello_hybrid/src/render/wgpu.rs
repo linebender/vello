@@ -22,7 +22,7 @@ use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
     filter::{
-        FilterContext, FilterInstanceData, FilterTexture, GpuBlendInstance, GpuCopyInstance,
+        FilterContext, FilterInstanceData, GpuBlendInstance, GpuCopyInstance,
         build_scheduled_filter_batches, gpu_blend_instance, gpu_filter_copy_instance,
     },
     gradient_cache::GradientRampCache,
@@ -39,8 +39,8 @@ use crate::{
     },
     scene::Scene,
     schedule::{
-        BlendOp, ClearTarget, ExternalTextureRun, FilterOp, LoadOp, RendererBackend,
-        RootRenderTarget, StripPassRenderTarget,
+        BlendOp, ExternalTextureRun, FilterOp, LoadOp, RendererBackend, RootRenderTarget,
+        StripPassRenderTarget, TextureTarget,
     },
 };
 use alloc::vec::Vec;
@@ -3013,7 +3013,7 @@ impl RendererContext<'_> {
             self.clear_rects
                 .extend(self.copy_instances.iter().map(GpuCopyInstance::clear_rect));
             self.do_clear_stored_rects(
-                ClearTarget::Scratch(BLEND_SCRATCH_INDEX),
+                TextureTarget::Scratch(BLEND_SCRATCH_INDEX),
                 "Clear Blend Scratch",
             );
         }
@@ -3110,7 +3110,7 @@ impl RendererContext<'_> {
         }
     }
 
-    fn do_clear_stored_rects(&mut self, target: ClearTarget, label: &'static str) {
+    fn do_clear_stored_rects(&mut self, target: TextureTarget, label: &'static str) {
         let target_size = self.layer_texture_size();
         self.clear_instances.clear();
         self.clear_instances.extend(
@@ -3121,7 +3121,7 @@ impl RendererContext<'_> {
         self.do_clear_instances(target, label);
     }
 
-    fn do_clear_instances(&mut self, target: ClearTarget, label: &'static str) {
+    fn do_clear_instances(&mut self, target: TextureTarget, label: &'static str) {
         if self.clear_instances.is_empty() {
             return;
         }
@@ -3136,10 +3136,10 @@ impl RendererContext<'_> {
             });
         let resources = &self.programs.resources;
         let view = match target {
-            ClearTarget::Scratch(texture_index) => {
+            TextureTarget::Scratch(texture_index) => {
                 &resources.filter_scratch_texture_views[texture_index]
             }
-            ClearTarget::Layer(texture_index) => &resources.layer_texture_views[texture_index],
+            TextureTarget::Layer(texture_index) => &resources.layer_texture_views[texture_index],
         };
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some(label),
@@ -3198,31 +3198,31 @@ impl RendererBackend for RendererContext<'_> {
         RendererContext::layer_texture_size(self)
     }
 
-    fn clear_rects(&mut self, target: ClearTarget, populate: impl FnOnce(&mut Vec<RectU16>)) {
+    fn clear_rects(&mut self, target: TextureTarget, populate: impl FnOnce(&mut Vec<RectU16>)) {
         self.clear_rects.clear();
         populate(&mut self.clear_rects);
         self.do_clear_stored_rects(target, "Clear Rects");
     }
 }
 
-fn filter_input_bind_group(resources: &GpuResources, texture: FilterTexture) -> &BindGroup {
+fn filter_input_bind_group(resources: &GpuResources, texture: TextureTarget) -> &BindGroup {
     match texture {
-        FilterTexture::Layer(index) => &resources.layer_filter_input_bind_groups[index],
-        FilterTexture::Scratch(index) => &resources.filter_scratch_input_bind_groups[index],
+        TextureTarget::Layer(index) => &resources.layer_filter_input_bind_groups[index],
+        TextureTarget::Scratch(index) => &resources.filter_scratch_input_bind_groups[index],
     }
 }
 
-fn filter_original_bind_group(resources: &GpuResources, texture: FilterTexture) -> &BindGroup {
+fn filter_original_bind_group(resources: &GpuResources, texture: TextureTarget) -> &BindGroup {
     match texture {
-        FilterTexture::Layer(index) => &resources.layer_filter_original_bind_groups[index],
-        FilterTexture::Scratch(index) => &resources.filter_scratch_original_bind_groups[index],
+        TextureTarget::Layer(index) => &resources.layer_filter_original_bind_groups[index],
+        TextureTarget::Scratch(index) => &resources.filter_scratch_original_bind_groups[index],
     }
 }
 
-fn filter_output_view(resources: &GpuResources, texture: FilterTexture) -> &TextureView {
+fn filter_output_view(resources: &GpuResources, texture: TextureTarget) -> &TextureView {
     match texture {
-        FilterTexture::Layer(index) => &resources.layer_texture_views[index],
-        FilterTexture::Scratch(index) => &resources.filter_scratch_texture_views[index],
+        TextureTarget::Layer(index) => &resources.layer_texture_views[index],
+        TextureTarget::Scratch(index) => &resources.filter_scratch_texture_views[index],
     }
 }
 
