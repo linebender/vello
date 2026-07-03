@@ -124,32 +124,36 @@ pub(crate) trait RendererBackend {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TextureRequirements {
-    pub(crate) layer_count: usize,
-    pub(crate) scratch_count: usize,
+    pub(crate) layer_textures: [bool; 2],
+    pub(crate) scratch_textures: [bool; 2],
 }
 
 impl TextureRequirements {
     fn for_scene(scene: &Scene) -> Self {
-        let layer_count = if scene.recorder.root_is_blend_target {
+        let layer_textures = if scene.recorder.root_is_blend_target {
             // When the root is a blend target, it becomes an intermediate layer too, so we need
             // both atlas textures even if the recorded layer nesting itself is shallow.
-            2
+            [true, true]
         } else {
+            let mut layer_textures = [false; 2];
             // The root layer is depth 0. Direct child layers have depth 1 and need one atlas
             // texture; deeper nesting alternates between the two atlas textures.
-            scene.recorder.max_layer_depth.min(2)
+            for depth in 1..=scene.recorder.max_layer_depth.min(2) {
+                layer_textures[depth & 1] = true;
+            }
+            layer_textures
         };
-        let scratch_count = if scene.recorder.has_filter_layer {
-            2
+        let scratch_textures = if scene.recorder.has_filter_layer {
+            [true, true]
         } else if scene.recorder.has_non_default_blend {
-            1
+            [true, false]
         } else {
-            0
+            [false, false]
         };
 
         Self {
-            layer_count,
-            scratch_count,
+            layer_textures,
+            scratch_textures,
         }
     }
 }

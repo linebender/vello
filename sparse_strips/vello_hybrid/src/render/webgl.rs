@@ -1157,10 +1157,10 @@ struct WebGlResources {
     layer_textures: [IntermediateTexture; 2],
     /// Dummy layer texture used when creating fixed-shape bindings.
     dummy_layer_texture: WebGlIntermediateTexture,
-    /// Number of real layer atlas textures currently allocated.
-    layer_texture_count: usize,
-    /// Number of real scratch textures currently allocated.
-    scratch_texture_count: usize,
+    /// Which layer atlas texture slots are currently allocated.
+    real_layer_textures: [bool; 2],
+    /// Which scratch texture slots are currently allocated.
+    real_scratch_textures: [bool; 2],
 }
 
 type IntermediateTexture = Option<WebGlIntermediateTexture>;
@@ -1183,7 +1183,7 @@ impl WebGlIntermediateTexture {
 
 impl WebGlResources {
     fn layer_binding_texture(&self, index: usize) -> &Texture {
-        if index < self.layer_texture_count {
+        if self.real_layer_textures[index] {
             self.layer_textures[index]
                 .as_ref()
                 .expect("vello_hybrid attempted to use a missing layer texture")
@@ -1235,12 +1235,19 @@ impl WebGlResources {
         }
     }
 
-    fn real_layer_count(&self) -> usize {
-        self.layer_texture_count
-    }
-
-    fn real_scratch_count(&self) -> usize {
-        self.scratch_texture_count
+    fn has_intermediate_textures(&self, requirements: TextureRequirements) -> bool {
+        self.real_layer_textures == requirements.layer_textures
+            && self.real_scratch_textures == requirements.scratch_textures
+            && self
+                .layer_textures
+                .iter()
+                .enumerate()
+                .all(|(index, texture)| texture.is_some() == requirements.layer_textures[index])
+            && self
+                .filter_scratch_textures
+                .iter()
+                .enumerate()
+                .all(|(index, texture)| texture.is_some() == requirements.scratch_textures[index])
     }
 }
 
@@ -1333,29 +1340,27 @@ impl WebGlPrograms {
         gl: &WebGl2RenderingContext,
         requirements: TextureRequirements,
     ) {
-        if self.resources.real_layer_count() == requirements.layer_count
-            && self.resources.real_scratch_count() == requirements.scratch_count
-        {
+        if self.resources.has_intermediate_textures(requirements) {
             return;
         }
 
         let layer_texture_size = self.resources.max_texture_dimension_2d.min(4096);
         self.resources.layer_textures = core::array::from_fn(|index| {
-            if index < requirements.layer_count {
+            if requirements.layer_textures[index] {
                 create_layer_intermediate_texture(gl, layer_texture_size)
             } else {
                 None
             }
         });
         self.resources.filter_scratch_textures = core::array::from_fn(|index| {
-            if index < requirements.scratch_count {
+            if requirements.scratch_textures[index] {
                 create_scratch_intermediate_texture(gl, layer_texture_size)
             } else {
                 None
             }
         });
-        self.resources.layer_texture_count = requirements.layer_count;
-        self.resources.scratch_texture_count = requirements.scratch_count;
+        self.resources.real_layer_textures = requirements.layer_textures;
+        self.resources.real_scratch_textures = requirements.scratch_textures;
     }
 
     /// Resize atlas texture array to accommodate more atlases.
@@ -2487,8 +2492,8 @@ fn create_webgl_resources(gl: &WebGl2RenderingContext, image_cache: &ImageCache)
         layer_config_buffer,
         layer_textures,
         dummy_layer_texture,
-        layer_texture_count: 0,
-        scratch_texture_count: 0,
+        real_layer_textures: [false; 2],
+        real_scratch_textures: [false; 2],
     }
 }
 

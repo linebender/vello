@@ -230,7 +230,7 @@ impl Renderer {
     ) -> Result<(), AtlasError> {
         // TODO: Maybe we can do the clear implicitly when using the textures for the first time.
         if !self.filter_context.is_empty() {
-            for texture_index in 0..self.programs.resources.scratch_texture_count {
+            for texture_index in self.programs.resources.real_scratch_texture_indices() {
                 let _pass = encoder.begin_render_pass(&RenderPassDescriptor {
                     label: Some("Clear Filter Scratch Texture"),
                     color_attachments: &[Some(RenderPassColorAttachment {
@@ -1030,10 +1030,10 @@ struct GpuResources {
     filter_base_bind_group: BindGroup,
     /// Full-size layer/scratch texture dimension.
     layer_texture_size: u32,
-    /// Number of real layer atlas textures currently allocated.
-    layer_texture_count: usize,
-    /// Number of real scratch textures currently allocated.
-    scratch_texture_count: usize,
+    /// Which layer atlas texture slots are currently allocated.
+    real_layer_textures: [bool; 2],
+    /// Which scratch texture slots are currently allocated.
+    real_scratch_textures: [bool; 2],
     /// Config buffer for rendering wide tile commands into the view texture.
     view_config_buffer: Buffer,
     /// Config buffer for rendering strips into a layer texture.
@@ -1094,7 +1094,7 @@ impl GpuResources {
     }
 
     fn layer_binding_view(&self, index: usize) -> &WgpuTextureView {
-        if index < self.layer_texture_count {
+        if self.real_layer_textures[index] {
             &self.layer_textures[index]
                 .as_ref()
                 .expect("vello_hybrid attempted to use a missing layer texture")
@@ -1105,7 +1105,7 @@ impl GpuResources {
     }
 
     fn scratch_binding_view(&self, index: usize) -> &WgpuTextureView {
-        if index < self.scratch_texture_count {
+        if self.real_scratch_textures[index] {
             &self.filter_scratch_textures[index]
                 .as_ref()
                 .expect("vello_hybrid attempted to use a missing scratch texture")
@@ -1136,12 +1136,29 @@ impl GpuResources {
         }
     }
 
-    fn real_layer_count(&self) -> usize {
-        self.layer_texture_count
+    fn has_intermediate_textures(
+        &self,
+        requirements: crate::schedule::TextureRequirements,
+    ) -> bool {
+        self.real_layer_textures == requirements.layer_textures
+            && self.real_scratch_textures == requirements.scratch_textures
+            && self
+                .layer_textures
+                .iter()
+                .enumerate()
+                .all(|(index, texture)| texture.is_some() == requirements.layer_textures[index])
+            && self
+                .filter_scratch_textures
+                .iter()
+                .enumerate()
+                .all(|(index, texture)| texture.is_some() == requirements.scratch_textures[index])
     }
 
-    fn real_scratch_count(&self) -> usize {
-        self.scratch_texture_count
+    fn real_scratch_texture_indices(&self) -> impl Iterator<Item = usize> + '_ {
+        self.real_scratch_textures
+            .iter()
+            .enumerate()
+            .filter_map(|(index, is_real)| is_real.then_some(index))
     }
 }
 
@@ -1875,8 +1892,8 @@ impl Programs {
             filter_data_texture,
             filter_base_bind_group,
             layer_texture_size,
-            layer_texture_count: 0,
-            scratch_texture_count: 0,
+            real_layer_textures: [false; 2],
+            real_scratch_textures: [false; 2],
             view_config_buffer,
         };
 
@@ -1967,15 +1984,13 @@ impl Programs {
         device: &Device,
         requirements: crate::schedule::TextureRequirements,
     ) {
-        if self.resources.real_layer_count() == requirements.layer_count
-            && self.resources.real_scratch_count() == requirements.scratch_count
-        {
+        if self.resources.has_intermediate_textures(requirements) {
             return;
         }
 
         let layer_texture_size = self.resources.layer_texture_size;
         self.resources.layer_textures = core::array::from_fn(|index| {
-            if index < requirements.layer_count {
+            if requirements.layer_textures[index] {
                 Some(WgpuIntermediateTexture::new(
                     Self::create_intermediate_texture(
                         device,
@@ -1988,7 +2003,7 @@ impl Programs {
             }
         });
         self.resources.filter_scratch_textures = core::array::from_fn(|index| {
-            if index < requirements.scratch_count {
+            if requirements.scratch_textures[index] {
                 Some(WgpuIntermediateTexture::new(
                     Self::create_intermediate_texture(
                         device,
@@ -2000,8 +2015,8 @@ impl Programs {
                 None
             }
         });
-        self.resources.layer_texture_count = requirements.layer_count;
-        self.resources.scratch_texture_count = requirements.scratch_count;
+        self.resources.real_layer_textures = requirements.layer_textures;
+        self.resources.real_scratch_textures = requirements.scratch_textures;
 
         let (
             layer_filter_input_bind_groups,
