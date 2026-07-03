@@ -426,6 +426,9 @@ impl Scene {
         let y_extend = Extend::Pad;
 
         self.with_optional_filter_or_blend_layer(|ctx| {
+            let use_fast_rect =
+                ctx.viewport_state.clip().is_none() && ctx.aliasing_threshold.is_none();
+
             for rect in rects {
                 if rect.source_region.is_empty() {
                     continue;
@@ -435,10 +438,7 @@ impl Scene {
                 let h = f64::from(rect.source_region.height());
                 let transform = ctx.transforms().effective_path_transform() * rect.transform;
 
-                if ctx.viewport_state.clip().is_none()
-                    && ctx.aliasing_threshold.is_none()
-                    && is_axis_aligned(&transform)
-                {
+                if use_fast_rect && is_axis_aligned(&transform) {
                     let dst_rect = Rect::new(0., 0., w, h);
                     let transformed_rect = transform
                         .transform_rect_bbox(dst_rect)
