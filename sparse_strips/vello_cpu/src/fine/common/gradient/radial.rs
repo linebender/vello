@@ -61,12 +61,12 @@ impl<S: Simd> SimdGradientKind<S> for SimdRadialKind<S> {
 
         match &self.inner {
             SimdRadialKindInner::Radial { bias, scale } => {
-                let radius = (x_pos * x_pos + y_pos * y_pos).sqrt();
+                let radius = x_pos.mul_add(x_pos, y_pos * y_pos).sqrt();
 
-                *bias + radius * *scale
+                radius.mul_add(*scale, *bias)
             }
             SimdRadialKindInner::Strip { scaled_r0_squared } => {
-                let p1 = *scaled_r0_squared - y_pos * y_pos;
+                let p1 = y_pos.mul_add(-y_pos, *scaled_r0_squared);
 
                 let mask = simd.simd_lt_f32x8(p1, f32x8::splat(simd, 0.0));
                 simd.select_f32x8(mask, f32x8::splat(simd, f32::NAN), x_pos + p1.sqrt())
@@ -77,13 +77,16 @@ impl<S: Simd> SimdGradientKind<S> for SimdRadialKind<S> {
                 fp1,
             } => {
                 let mut t = if focal_data.is_focal_on_circle() {
-                    x_pos + y_pos * y_pos / x_pos
+                    y_pos.mul_add(y_pos / x_pos, x_pos)
                 } else if focal_data.is_well_behaved() {
-                    (x_pos * x_pos + y_pos * y_pos).sqrt() - x_pos * *fp0
+                    let radius = x_pos.mul_add(x_pos, y_pos * y_pos).sqrt();
+                    x_pos.mul_add(-*fp0, radius)
                 } else if focal_data.is_swapped() || (1.0 - focal_data.f_focal_x < 0.0) {
-                    f32x8::splat(simd, -1.0) * (x_pos * x_pos - y_pos * y_pos).sqrt() - x_pos * *fp0
+                    let radius = x_pos.mul_add(x_pos, -(y_pos * y_pos)).sqrt();
+                    x_pos.mul_add(-*fp0, -radius)
                 } else {
-                    (x_pos * x_pos - y_pos * y_pos).sqrt() - x_pos * *fp0
+                    let radius = x_pos.mul_add(x_pos, -(y_pos * y_pos)).sqrt();
+                    x_pos.mul_add(-*fp0, radius)
                 };
 
                 if !focal_data.is_well_behaved() {
