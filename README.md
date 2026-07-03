@@ -26,7 +26,7 @@ For now, prefer updating the package-level readmes, e.g. vello/README.md.
 
 The Vello project is a set of high-performance vector renderers written in Rust:
 
-- **Vello** is an experimental renderer with a focus on doing as much work as posssible with GPU compute.
+- **Vello** is an experimental renderer with a focus on doing as much work as possible with GPU compute.
 - **Vello CPU** is a pure Rust, CPU-only renderer optimized for multithreading and SIMD.
 - **Vello Hybrid** is a renderer that does heavy pre-processing on the CPU but still does most of the work on the GPU. It aims to be the main Vello implementation for production use-cases.
 
