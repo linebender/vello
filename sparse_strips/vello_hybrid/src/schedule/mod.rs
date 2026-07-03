@@ -96,6 +96,9 @@ pub(crate) struct ExternalTextureRun {
 }
 
 pub(crate) trait RendererBackend {
+    /// Ensure intermediate layer/scratch textures required by this scene are allocated.
+    fn prepare_intermediate_textures(&mut self, requirements: TextureRequirements);
+
     /// Return the dimensions of each layer atlas texture.
     fn layer_texture_size(&self) -> (u32, u32);
 
@@ -119,6 +122,38 @@ pub(crate) trait RendererBackend {
     fn apply_filters(&mut self, filters: &[FilterOp]);
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TextureRequirements {
+    pub(crate) layer_count: usize,
+    pub(crate) scratch_count: usize,
+}
+
+impl TextureRequirements {
+    fn for_scene(scene: &Scene) -> Self {
+        let layer_count = if scene.recorder.root_is_blend_target {
+            // When the root is a blend target, it becomes an intermediate layer too, so we need
+            // both atlas textures even if the recorded layer nesting itself is shallow.
+            2
+        } else {
+            // The root layer is depth 0. Direct child layers have depth 1 and need one atlas
+            // texture; deeper nesting alternates between the two atlas textures.
+            scene.recorder.max_layer_depth.min(2)
+        };
+        let scratch_count = if scene.recorder.has_filter_layer {
+            2
+        } else if scene.recorder.has_non_default_blend {
+            1
+        } else {
+            0
+        };
+
+        Self {
+            layer_count,
+            scratch_count,
+        }
+    }
+}
+
 /// Backend agnostic enum that specifies the operation to perform to the output attachment at the
 /// start of a render pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,6 +170,7 @@ pub(crate) fn render_scene<R: RendererBackend>(
     paint_idxs: &[u32],
     encoded_paints: &[EncodedPaint],
 ) -> Result<(), RenderError> {
+    renderer.prepare_intermediate_textures(TextureRequirements::for_scene(scene));
     let strip_storage = scene.strip_storage.borrow();
     let mut builder = ScheduleBuilder::new(
         scene,

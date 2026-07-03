@@ -42,7 +42,7 @@ use crate::{
     scene::Scene,
     schedule::{
         BlendOp, ExternalTextureRun, FilterOp, LoadOp, RendererBackend, RootRenderTarget,
-        StripPassRenderTarget, TextureTarget,
+        StripPassRenderTarget, TextureRequirements, TextureTarget,
     },
 };
 use alloc::sync::Arc;
@@ -1149,16 +1149,99 @@ struct WebGlResources {
     copy_instance_buffer: Buffer,
     /// VAO for copy rendering.
     copy_vao: VertexArray,
-    /// Scratch textures used for filter ping-ponging.
-    filter_scratch_textures: [Texture; 2],
-    /// Framebuffers for filter scratch textures.
-    filter_scratch_framebuffers: [Framebuffer; 2],
+    /// Scratch texture slots used for filter ping-ponging and blend scratch.
+    filter_scratch_textures: [IntermediateTexture; 2],
     /// Config buffer for rendering strips into a layer texture.
     layer_config_buffer: Buffer,
-    /// Layer atlas textures.
-    layer_textures: [Texture; 2],
-    /// Framebuffers for layer atlas textures.
-    layer_framebuffers: [Framebuffer; 2],
+    /// Layer atlas texture slots.
+    layer_textures: [IntermediateTexture; 2],
+    /// Dummy layer texture used when creating fixed-shape bindings.
+    dummy_layer_texture: WebGlIntermediateTexture,
+    /// Number of real layer atlas textures currently allocated.
+    layer_texture_count: usize,
+    /// Number of real scratch textures currently allocated.
+    scratch_texture_count: usize,
+}
+
+type IntermediateTexture = Option<WebGlIntermediateTexture>;
+
+#[derive(Debug)]
+struct WebGlIntermediateTexture {
+    texture: Texture,
+    framebuffer: Framebuffer,
+}
+
+impl WebGlIntermediateTexture {
+    fn binding_texture(&self) -> &Texture {
+        &self.texture
+    }
+
+    fn framebuffer(&self) -> &Framebuffer {
+        &self.framebuffer
+    }
+}
+
+impl WebGlResources {
+    fn layer_binding_texture(&self, index: usize) -> &Texture {
+        if index < self.layer_texture_count {
+            self.layer_textures[index]
+                .as_ref()
+                .expect("vello_hybrid attempted to use a missing layer texture")
+                .binding_texture()
+        } else {
+            self.dummy_layer_texture.binding_texture()
+        }
+    }
+
+    fn layer_texture(&self, index: usize) -> &Texture {
+        self.layer_textures[index]
+            .as_ref()
+            .expect("vello_hybrid attempted to use a missing layer texture")
+            .binding_texture()
+    }
+
+    fn layer_framebuffer(&self, index: usize) -> &Framebuffer {
+        self.layer_textures[index]
+            .as_ref()
+            .expect("vello_hybrid attempted to use a missing layer texture")
+            .framebuffer()
+    }
+
+    fn scratch_texture(&self, index: usize) -> &Texture {
+        self.filter_scratch_textures[index]
+            .as_ref()
+            .expect("vello_hybrid attempted to use a missing scratch texture")
+            .binding_texture()
+    }
+
+    fn scratch_framebuffer(&self, index: usize) -> &Framebuffer {
+        self.filter_scratch_textures[index]
+            .as_ref()
+            .expect("vello_hybrid attempted to use a missing scratch texture")
+            .framebuffer()
+    }
+
+    fn texture_target_texture(&self, target: TextureTarget) -> &Texture {
+        match target {
+            TextureTarget::Layer(index) => self.layer_texture(index),
+            TextureTarget::Scratch(index) => self.scratch_texture(index),
+        }
+    }
+
+    fn texture_target_framebuffer(&self, target: TextureTarget) -> &Framebuffer {
+        match target {
+            TextureTarget::Layer(index) => self.layer_framebuffer(index),
+            TextureTarget::Scratch(index) => self.scratch_framebuffer(index),
+        }
+    }
+
+    fn real_layer_count(&self) -> usize {
+        self.layer_texture_count
+    }
+
+    fn real_scratch_count(&self) -> usize {
+        self.scratch_texture_count
+    }
 }
 
 impl WebGlPrograms {
@@ -1243,6 +1326,36 @@ impl WebGlPrograms {
             self.upload_gradient_texture(gl, gradient_cache);
             gradient_cache.mark_synced();
         }
+    }
+
+    fn prepare_intermediate_textures(
+        &mut self,
+        gl: &WebGl2RenderingContext,
+        requirements: TextureRequirements,
+    ) {
+        if self.resources.real_layer_count() == requirements.layer_count
+            && self.resources.real_scratch_count() == requirements.scratch_count
+        {
+            return;
+        }
+
+        let layer_texture_size = self.resources.max_texture_dimension_2d.min(4096);
+        self.resources.layer_textures = core::array::from_fn(|index| {
+            if index < requirements.layer_count {
+                create_layer_intermediate_texture(gl, layer_texture_size)
+            } else {
+                None
+            }
+        });
+        self.resources.filter_scratch_textures = core::array::from_fn(|index| {
+            if index < requirements.scratch_count {
+                create_scratch_intermediate_texture(gl, layer_texture_size)
+            } else {
+                None
+            }
+        });
+        self.resources.layer_texture_count = requirements.layer_count;
+        self.resources.scratch_texture_count = requirements.scratch_count;
     }
 
     /// Resize atlas texture array to accommodate more atlases.
@@ -2336,23 +2449,9 @@ fn create_webgl_resources(gl: &WebGl2RenderingContext, image_cache: &ImageCache)
     let gradient_texture = create_texture(gl);
     let placeholder_external_texture = create_placeholder_texture(gl);
 
-    let layer_texture_size = max_texture_dimension_2d.min(4096);
-    let layer_textures: [Texture; 2] = [
-        create_layer_texture(gl, layer_texture_size),
-        create_layer_texture(gl, layer_texture_size),
-    ];
-    let layer_framebuffers: [Framebuffer; 2] = [
-        create_framebuffer_for_texture(gl, &layer_textures[0]),
-        create_framebuffer_for_texture(gl, &layer_textures[1]),
-    ];
-    let filter_scratch_textures: [Texture; 2] = [
-        create_filter_atlas_texture(gl, layer_texture_size, layer_texture_size),
-        create_filter_atlas_texture(gl, layer_texture_size, layer_texture_size),
-    ];
-    let filter_scratch_framebuffers: [Framebuffer; 2] = [
-        create_framebuffer_for_texture(gl, &filter_scratch_textures[0]),
-        create_framebuffer_for_texture(gl, &filter_scratch_textures[1]),
-    ];
+    let layer_textures: [IntermediateTexture; 2] = core::array::from_fn(|_| None);
+    let filter_scratch_textures: [IntermediateTexture; 2] = core::array::from_fn(|_| None);
+    let dummy_layer_texture = create_layer_intermediate_payload(gl, 1);
     let filter_data_texture = create_texture(gl);
 
     WebGlResources {
@@ -2385,11 +2484,50 @@ fn create_webgl_resources(gl: &WebGl2RenderingContext, image_cache: &ImageCache)
         copy_instance_buffer,
         copy_vao,
         filter_scratch_textures,
-        filter_scratch_framebuffers,
         layer_config_buffer,
         layer_textures,
-        layer_framebuffers,
+        dummy_layer_texture,
+        layer_texture_count: 0,
+        scratch_texture_count: 0,
     }
+}
+
+fn create_layer_intermediate_payload(
+    gl: &WebGl2RenderingContext,
+    size: u32,
+) -> WebGlIntermediateTexture {
+    let texture = create_layer_texture(gl, size);
+    let framebuffer = create_framebuffer_for_texture(gl, &texture);
+    WebGlIntermediateTexture {
+        texture,
+        framebuffer,
+    }
+}
+
+fn create_layer_intermediate_texture(
+    gl: &WebGl2RenderingContext,
+    size: u32,
+) -> IntermediateTexture {
+    Some(create_layer_intermediate_payload(gl, size))
+}
+
+fn create_scratch_intermediate_payload(
+    gl: &WebGl2RenderingContext,
+    size: u32,
+) -> WebGlIntermediateTexture {
+    let texture = create_filter_atlas_texture(gl, size, size);
+    let framebuffer = create_framebuffer_for_texture(gl, &texture);
+    WebGlIntermediateTexture {
+        texture,
+        framebuffer,
+    }
+}
+
+fn create_scratch_intermediate_texture(
+    gl: &WebGl2RenderingContext,
+    size: u32,
+) -> IntermediateTexture {
+    Some(create_scratch_intermediate_payload(gl, size))
 }
 
 /// Create an atlas texture array.
@@ -2526,7 +2664,6 @@ impl WebGlRendererContext<'_> {
         if opaque_strips.is_empty() && alpha_strips.is_empty() {
             return;
         }
-
         let scissor_rect = match &target {
             StripPassRenderTarget::Root(_) => {
                 self.gl.bind_framebuffer(
@@ -2553,7 +2690,11 @@ impl WebGlRendererContext<'_> {
             StripPassRenderTarget::Layer(region) => {
                 self.gl.bind_framebuffer(
                     WebGl2RenderingContext::FRAMEBUFFER,
-                    Some(&self.programs.resources.layer_framebuffers[region.texture_index]),
+                    Some(
+                        self.programs
+                            .resources
+                            .layer_framebuffer(region.texture_index),
+                    ),
                 );
                 let (width, height) = self.layer_texture_size();
                 self.gl.viewport(0, 0, width as i32, height as i32);
@@ -2580,7 +2721,7 @@ impl WebGlRendererContext<'_> {
             StripPassRenderTarget::LayerAtlas(texture_index) => {
                 self.gl.bind_framebuffer(
                     WebGl2RenderingContext::FRAMEBUFFER,
-                    Some(&self.programs.resources.layer_framebuffers[*texture_index]),
+                    Some(self.programs.resources.layer_framebuffer(*texture_index)),
                 );
                 let (width, height) = self.layer_texture_size();
                 self.gl.viewport(0, 0, width as i32, height as i32);
@@ -2635,13 +2776,20 @@ impl WebGlRendererContext<'_> {
             StripPassRenderTarget::LayerAtlas(texture_index) => texture_index ^ 1,
             StripPassRenderTarget::Root(
                 RootRenderTarget::UserSurfaceFromLayer0 | RootRenderTarget::AtlasLayerFromLayer0,
-            ) => 0,
+            ) => {
+                self.programs.resources.layer_texture(0);
+                0
+            }
             _ => 1,
         };
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE1);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.layer_textures[layer_texture_idx]),
+            Some(
+                self.programs
+                    .resources
+                    .layer_binding_texture(layer_texture_idx),
+            ),
         );
         self.gl
             .uniform1i(Some(&self.programs.strip_uniforms.layer_input_texture), 1);
@@ -2791,6 +2939,9 @@ impl WebGlRendererContext<'_> {
         if blends.is_empty() {
             return;
         }
+        self.programs
+            .resources
+            .scratch_framebuffer(BLEND_SCRATCH_INDEX);
 
         self.gl.disable(WebGl2RenderingContext::BLEND);
         self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
@@ -2799,7 +2950,7 @@ impl WebGlRendererContext<'_> {
         self.gl
             .bind_vertex_array(Some(&self.programs.resources.blend_vao));
 
-        for texture_index in 0..self.programs.resources.layer_framebuffers.len() {
+        for texture_index in 0..self.programs.resources.layer_textures.len() {
             self.blend_instances.clear();
             self.blend_instances.extend(
                 blends
@@ -2808,7 +2959,15 @@ impl WebGlRendererContext<'_> {
                     .filter(|blend| {
                         !blend.bbox.is_empty() && blend.parent.texture_index == texture_index
                     })
-                    .map(|blend| gpu_blend_instance(blend, target_size)),
+                    .map(|blend| {
+                        self.programs
+                            .resources
+                            .layer_texture(blend.parent.texture_index);
+                        self.programs
+                            .resources
+                            .layer_texture(blend.source.texture_index);
+                        gpu_blend_instance(blend, target_size)
+                    }),
             );
             if self.blend_instances.is_empty() {
                 continue;
@@ -2820,7 +2979,11 @@ impl WebGlRendererContext<'_> {
 
             self.gl.bind_framebuffer(
                 WebGl2RenderingContext::FRAMEBUFFER,
-                Some(&self.programs.resources.filter_scratch_framebuffers[BLEND_SCRATCH_INDEX]),
+                Some(
+                    self.programs
+                        .resources
+                        .scratch_framebuffer(BLEND_SCRATCH_INDEX),
+                ),
             );
             self.gl
                 .viewport(0, 0, target_size.0 as i32, target_size.1 as i32);
@@ -2833,7 +2996,7 @@ impl WebGlRendererContext<'_> {
             self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
             self.gl.bind_texture(
                 WebGl2RenderingContext::TEXTURE_2D,
-                Some(&self.programs.resources.layer_textures[0]),
+                Some(self.programs.resources.layer_binding_texture(0)),
             );
             self.gl
                 .uniform1i(Some(&self.programs.blend_uniforms.layer_texture_0), 0);
@@ -2841,7 +3004,7 @@ impl WebGlRendererContext<'_> {
             self.gl.active_texture(WebGl2RenderingContext::TEXTURE1);
             self.gl.bind_texture(
                 WebGl2RenderingContext::TEXTURE_2D,
-                Some(&self.programs.resources.layer_textures[1]),
+                Some(self.programs.resources.layer_binding_texture(1)),
             );
             self.gl
                 .uniform1i(Some(&self.programs.blend_uniforms.layer_texture_1), 1);
@@ -2865,7 +3028,7 @@ impl WebGlRendererContext<'_> {
 
             self.gl.bind_framebuffer(
                 WebGl2RenderingContext::FRAMEBUFFER,
-                Some(&self.programs.resources.layer_framebuffers[texture_index]),
+                Some(self.programs.resources.layer_framebuffer(texture_index)),
             );
             self.gl
                 .bind_vertex_array(Some(&self.programs.resources.copy_vao));
@@ -2874,7 +3037,7 @@ impl WebGlRendererContext<'_> {
             self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
             self.gl.bind_texture(
                 WebGl2RenderingContext::TEXTURE_2D,
-                Some(&self.programs.resources.filter_scratch_textures[BLEND_SCRATCH_INDEX]),
+                Some(self.programs.resources.scratch_texture(BLEND_SCRATCH_INDEX)),
             );
             self.gl
                 .uniform1i(Some(&self.programs.blend_copy_uniforms.scratch_texture), 0);
@@ -2905,7 +3068,6 @@ impl WebGlRendererContext<'_> {
         if filters.is_empty() {
             return;
         }
-
         self.gl.disable(WebGl2RenderingContext::BLEND);
         self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
         self.gl.disable(WebGl2RenderingContext::DEPTH_TEST);
@@ -2969,12 +3131,12 @@ impl WebGlRendererContext<'_> {
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(&self.programs.resources.filter_scratch_textures[0]),
+            Some(self.programs.resources.scratch_texture(0)),
         );
         self.gl
             .uniform1i(Some(&self.programs.blend_copy_uniforms.scratch_texture), 0);
 
-        for texture_index in 0..self.programs.resources.layer_framebuffers.len() {
+        for texture_index in 0..self.programs.resources.layer_textures.len() {
             self.copy_instances.clear();
             self.copy_instances.extend(
                 filters
@@ -2991,7 +3153,7 @@ impl WebGlRendererContext<'_> {
                 .upload_copy_instances(self.gl, &self.copy_instances);
             self.gl.bind_framebuffer(
                 WebGl2RenderingContext::FRAMEBUFFER,
-                Some(&self.programs.resources.layer_framebuffers[texture_index]),
+                Some(self.programs.resources.layer_framebuffer(texture_index)),
             );
             self.gl
                 .viewport(0, 0, target_size.0 as i32, target_size.1 as i32);
@@ -3024,14 +3186,7 @@ impl WebGlRendererContext<'_> {
         let (width, height) = self.layer_texture_size();
         self.gl.disable(WebGl2RenderingContext::BLEND);
         self.gl.clear_color(0.0, 0.0, 0.0, 0.0);
-        let framebuffer = match target {
-            TextureTarget::Scratch(texture_index) => {
-                &self.programs.resources.filter_scratch_framebuffers[texture_index]
-            }
-            TextureTarget::Layer(texture_index) => {
-                &self.programs.resources.layer_framebuffers[texture_index]
-            }
-        };
+        let framebuffer = self.programs.resources.texture_target_framebuffer(target);
         self.gl
             .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(framebuffer));
         self.gl.viewport(0, 0, width as i32, height as i32);
@@ -3058,6 +3213,11 @@ impl WebGlRendererContext<'_> {
 }
 
 impl RendererBackend for WebGlRendererContext<'_> {
+    fn prepare_intermediate_textures(&mut self, requirements: TextureRequirements) {
+        self.programs
+            .prepare_intermediate_textures(self.gl, requirements);
+    }
+
     /// Execute a render pass for strips.
     fn render_strips(
         &mut self,
@@ -3091,17 +3251,11 @@ impl RendererBackend for WebGlRendererContext<'_> {
 }
 
 fn filter_texture(resources: &WebGlResources, texture: TextureTarget) -> &Texture {
-    match texture {
-        TextureTarget::Layer(index) => &resources.layer_textures[index],
-        TextureTarget::Scratch(index) => &resources.filter_scratch_textures[index],
-    }
+    resources.texture_target_texture(texture)
 }
 
 fn filter_output_framebuffer(resources: &WebGlResources, texture: TextureTarget) -> &Framebuffer {
-    match texture {
-        TextureTarget::Layer(index) => &resources.layer_framebuffers[index],
-        TextureTarget::Scratch(index) => &resources.filter_scratch_framebuffers[index],
-    }
+    resources.texture_target_framebuffer(texture)
 }
 
 /// Trait for types that can write image data directly to the atlas texture in WebGL.

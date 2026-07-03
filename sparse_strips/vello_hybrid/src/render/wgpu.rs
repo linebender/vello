@@ -67,8 +67,8 @@ use vello_common::{
 use wgpu::{
     BindGroup, BindGroupLayout, BlendState, Buffer, ColorTargetState, ColorWrites, CommandEncoder,
     Device, Extent3d, PipelineCompilationOptions, Queue, RenderPassColorAttachment,
-    RenderPassDescriptor, RenderPipeline, Sampler, Texture, TextureView, TextureViewDescriptor,
-    util::DeviceExt,
+    RenderPassDescriptor, RenderPipeline, Sampler, Texture, TextureView as WgpuTextureView,
+    TextureViewDescriptor, util::DeviceExt,
 };
 
 const BLEND_SCRATCH_INDEX: usize = 0;
@@ -96,7 +96,7 @@ pub struct RenderTargetConfig {
 /// Runtime bindings for [externally owned textures](`TextureId`) sampled by texture-rect draws.
 #[derive(Debug, Default, Clone)]
 pub struct TextureBindings {
-    views: HashMap<TextureId, TextureView>,
+    views: HashMap<TextureId, WgpuTextureView>,
 }
 
 impl TextureBindings {
@@ -108,7 +108,7 @@ impl TextureBindings {
 
     /// Insert or replace a texture binding.
     ///
-    /// The [`TextureView`] must fit the following binding type.
+    /// The [`WgpuTextureView`] must fit the following binding type.
     ///
     /// ```ignore
     /// wgpu::BindGroupLayoutEntry {
@@ -127,21 +127,21 @@ impl TextureBindings {
     /// formats are rejected by wgpu at bind time), the underlying texture must include
     /// [`wgpu::TextureUsages::TEXTURE_BINDING`], and only mip level 0 is read.
     #[inline]
-    pub fn insert(&mut self, texture_id: TextureId, view: TextureView) {
+    pub fn insert(&mut self, texture_id: TextureId, view: WgpuTextureView) {
         self.views.insert(texture_id, view);
     }
 
     /// Get a texture binding.
     #[inline]
-    fn get(&self, texture_id: TextureId) -> Option<&TextureView> {
+    fn get(&self, texture_id: TextureId) -> Option<&WgpuTextureView> {
         self.views.get(&texture_id)
     }
 
     /// Remove a texture binding.
     ///
-    /// This returns the removed [`TextureView`] binding if it existed.
+    /// This returns the removed [`WgpuTextureView`] binding if it existed.
     #[inline]
-    pub fn remove(&mut self, texture_id: TextureId) -> Option<TextureView> {
+    pub fn remove(&mut self, texture_id: TextureId) -> Option<WgpuTextureView> {
         self.views.remove(&texture_id)
     }
 }
@@ -230,11 +230,11 @@ impl Renderer {
     ) -> Result<(), AtlasError> {
         // TODO: Maybe we can do the clear implicitly when using the textures for the first time.
         if !self.filter_context.is_empty() {
-            for view in &self.programs.resources.filter_scratch_texture_views {
+            for texture_index in 0..self.programs.resources.scratch_texture_count {
                 let _pass = encoder.begin_render_pass(&RenderPassDescriptor {
                     label: Some("Clear Filter Scratch Texture"),
                     color_attachments: &[Some(RenderPassColorAttachment {
-                        view,
+                        view: self.programs.resources.scratch_view(texture_index),
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
@@ -286,7 +286,7 @@ impl Renderer {
         queue: &Queue,
         encoder: &mut CommandEncoder,
         render_size: &RenderSize,
-        view: &TextureView,
+        view: &WgpuTextureView,
         texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
         #[cfg(feature = "text")]
@@ -469,7 +469,7 @@ impl Renderer {
         queue: &Queue,
         encoder: &mut CommandEncoder,
         render_size: &RenderSize,
-        view: &TextureView,
+        view: &WgpuTextureView,
         image_cache: &ImageCache,
         encoded_paints: &[EncodedPaint],
         clear: bool,
@@ -522,7 +522,7 @@ impl Renderer {
 
     /// Clear the view to transparent black.
     // TODO: Investigate adding tests for the clear_view behavior.
-    fn clear_view(encoder: &mut CommandEncoder, view: &TextureView) {
+    fn clear_view(encoder: &mut CommandEncoder, view: &WgpuTextureView) {
         encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("Clear View"),
             color_attachments: &[Some(RenderPassColorAttachment {
@@ -960,7 +960,7 @@ struct Programs {
     /// Depth texture for early-z rejection on the Output target.
     depth_texture: Texture,
     /// View for the depth texture.
-    depth_texture_view: TextureView,
+    depth_texture_view: WgpuTextureView,
     /// Whether the depth buffer has been cleared this frame.
     depth_cleared_this_frame: bool,
     /// Bind group layout for strip draws
@@ -973,6 +973,14 @@ struct Programs {
     atlas_bind_group_layout: BindGroupLayout,
     /// Bind group layout for filter data texture.
     filter_bind_group_layout: BindGroupLayout,
+    /// Bind group layouts for filter input and original textures.
+    filter_input_bind_group_layouts: [BindGroupLayout; 2],
+    /// Sampler used for filter input textures.
+    filter_sampler: Sampler,
+    /// Bind group layout for blend operations that sample layer textures.
+    blend_layer_bind_group_layout: BindGroupLayout,
+    /// Bind group layout for copying scratch results back to layer textures.
+    blend_copy_bind_group_layout: BindGroupLayout,
     /// Pipeline for applying filter effects.
     filter_pipeline: RenderPipeline,
     /// Pipeline for clearing rectangular regions in intermediate textures.
@@ -1003,11 +1011,11 @@ struct GpuResources {
     /// Textures for atlas data (multiple atlases supported)
     atlas_texture_array: Texture,
     /// View for atlas texture array
-    atlas_texture_array_view: TextureView,
+    atlas_texture_array_view: WgpuTextureView,
     /// Bind group for paint sources: an atlas textures as texture array plus an external texture.
     atlas_bind_group: BindGroup,
     /// Transparent 1x1 placeholder texture in case no external texture is bound by the user.
-    placeholder_external_texture_view: TextureView,
+    placeholder_external_texture_view: WgpuTextureView,
     /// Texture for encoded paints
     encoded_paints_texture: Texture,
     /// Bind group for encoded paints
@@ -1020,7 +1028,12 @@ struct GpuResources {
     filter_data_texture: Texture,
     /// Bind group for the filter data texture.
     filter_base_bind_group: BindGroup,
-
+    /// Full-size layer/scratch texture dimension.
+    layer_texture_size: u32,
+    /// Number of real layer atlas textures currently allocated.
+    layer_texture_count: usize,
+    /// Number of real scratch textures currently allocated.
+    scratch_texture_count: usize,
     /// Config buffer for rendering wide tile commands into the view texture.
     view_config_buffer: Buffer,
     /// Config buffer for rendering strips into a layer texture.
@@ -1034,16 +1047,18 @@ struct GpuResources {
     /// `render_to_atlas` to avoid a read-write conflict on the real atlas texture.
     stub_atlas_bind_group: BindGroup,
 
-    /// Layer atlas textures.
-    layer_textures: [Texture; 2],
-    /// Layer atlas texture views.
-    layer_texture_views: [TextureView; 2],
+    /// Layer atlas texture slots.
+    layer_textures: [IntermediateTexture; 2],
+    /// Dummy layer atlas texture used when creating fixed-shape bind groups.
+    dummy_layer_texture: WgpuIntermediateTexture,
     /// Filter bind groups for sampling layer atlas textures.
     layer_filter_input_bind_groups: [BindGroup; 2],
     /// Filter bind groups for sampling original layer atlas textures.
     layer_filter_original_bind_groups: [BindGroup; 2],
-    /// Scratch texture views used for filter ping-ponging.
-    filter_scratch_texture_views: [TextureView; 2],
+    /// Scratch texture slots used for filter ping-ponging and blend scratch.
+    filter_scratch_textures: [IntermediateTexture; 2],
+    /// Dummy scratch texture used when creating fixed-shape bind groups.
+    dummy_scratch_texture: WgpuIntermediateTexture,
     /// Filter bind groups for sampling scratch textures.
     filter_scratch_input_bind_groups: [BindGroup; 2],
     /// Filter bind groups for sampling scratch textures as originals.
@@ -1053,6 +1068,81 @@ struct GpuResources {
     blend_layer_bind_group: BindGroup,
     /// Bind group for copying blend scratch back into layer atlas textures.
     blend_copy_bind_group: BindGroup,
+}
+
+type IntermediateTexture = Option<WgpuIntermediateTexture>;
+
+#[derive(Debug)]
+struct WgpuIntermediateTexture {
+    _texture: Texture,
+    view: WgpuTextureView,
+}
+
+impl WgpuIntermediateTexture {
+    fn new(texture: Texture) -> Self {
+        let view = texture.create_view(&TextureViewDescriptor::default());
+        Self {
+            _texture: texture,
+            view,
+        }
+    }
+}
+
+impl GpuResources {
+    fn layer_binding_views(&self) -> [&WgpuTextureView; 2] {
+        [self.layer_binding_view(0), self.layer_binding_view(1)]
+    }
+
+    fn layer_binding_view(&self, index: usize) -> &WgpuTextureView {
+        if index < self.layer_texture_count {
+            &self.layer_textures[index]
+                .as_ref()
+                .expect("vello_hybrid attempted to use a missing layer texture")
+                .view
+        } else {
+            &self.dummy_layer_texture.view
+        }
+    }
+
+    fn scratch_binding_view(&self, index: usize) -> &WgpuTextureView {
+        if index < self.scratch_texture_count {
+            &self.filter_scratch_textures[index]
+                .as_ref()
+                .expect("vello_hybrid attempted to use a missing scratch texture")
+                .view
+        } else {
+            &self.dummy_scratch_texture.view
+        }
+    }
+
+    fn layer_view(&self, index: usize) -> &WgpuTextureView {
+        &self.layer_textures[index]
+            .as_ref()
+            .expect("vello_hybrid attempted to use a missing layer texture")
+            .view
+    }
+
+    fn scratch_view(&self, index: usize) -> &WgpuTextureView {
+        &self.filter_scratch_textures[index]
+            .as_ref()
+            .expect("vello_hybrid attempted to use a missing scratch texture")
+            .view
+    }
+
+    fn texture_target_view(&self, target: TextureTarget) -> &WgpuTextureView {
+        match target {
+            TextureTarget::Layer(index) => self.layer_view(index),
+            TextureTarget::Scratch(index) => self.scratch_view(index),
+        }
+    }
+
+    fn real_layer_count(&self) -> usize {
+        self.layer_texture_count
+    }
+
+    fn real_scratch_count(&self) -> usize {
+        self.scratch_texture_count
+    }
 }
 
 const SIZE_OF_CONFIG: NonZeroU64 = NonZeroU64::new(size_of::<Config>() as u64).unwrap();
@@ -1600,27 +1690,14 @@ impl Programs {
             ..Default::default()
         });
 
-        let layer_textures: [Texture; 2] = core::array::from_fn(|_| {
-            device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("Layer Atlas Texture"),
-                size: Extent3d {
-                    width: layer_texture_size,
-                    height: layer_texture_size,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8Unorm,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING
-                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
-                view_formats: &[],
-            })
-        });
-        let layer_texture_views = layer_textures
-            .each_ref()
-            .map(|texture| texture.create_view(&TextureViewDescriptor::default()));
-        let layer_filter_input_bind_groups = layer_texture_views.each_ref().map(|view| {
+        let layer_textures: [IntermediateTexture; 2] = core::array::from_fn(|_| None);
+        let dummy_layer_texture = WgpuIntermediateTexture::new(Self::create_intermediate_texture(
+            device,
+            1,
+            "Layer Placeholder Texture",
+        ));
+        let layer_binding_views = [&dummy_layer_texture.view, &dummy_layer_texture.view];
+        let layer_filter_input_bind_groups = layer_binding_views.map(|view| {
             create_filter_input_bind_group(
                 device,
                 &filter_input_bind_group_layouts[0],
@@ -1628,27 +1705,25 @@ impl Programs {
                 view,
             )
         });
-        let layer_filter_original_bind_groups = layer_texture_views.each_ref().map(|view| {
+        let layer_filter_original_bind_groups = layer_binding_views.map(|view| {
             create_filter_original_bind_group(device, &filter_input_bind_group_layouts[1], view)
         });
-        let filter_scratch_textures: [Texture; 2] =
-            core::array::from_fn(|_| Self::create_scratch_texture(device, layer_texture_size));
-        let filter_scratch_texture_views = filter_scratch_textures
-            .each_ref()
-            .map(|texture| texture.create_view(&TextureViewDescriptor::default()));
-        let filter_scratch_input_bind_groups =
-            filter_scratch_texture_views.each_ref().map(|view| {
-                create_filter_input_bind_group(
-                    device,
-                    &filter_input_bind_group_layouts[0],
-                    &filter_sampler,
-                    view,
-                )
-            });
-        let filter_scratch_original_bind_groups =
-            filter_scratch_texture_views.each_ref().map(|view| {
-                create_filter_original_bind_group(device, &filter_input_bind_group_layouts[1], view)
-            });
+        let filter_scratch_textures: [IntermediateTexture; 2] = core::array::from_fn(|_| None);
+        let dummy_scratch_texture = WgpuIntermediateTexture::new(
+            Self::create_intermediate_texture(device, 1, "Scratch Placeholder Texture"),
+        );
+        let scratch_binding_views = [&dummy_scratch_texture.view, &dummy_scratch_texture.view];
+        let filter_scratch_input_bind_groups = scratch_binding_views.map(|view| {
+            create_filter_input_bind_group(
+                device,
+                &filter_input_bind_group_layouts[0],
+                &filter_sampler,
+                view,
+            )
+        });
+        let filter_scratch_original_bind_groups = scratch_binding_views.map(|view| {
+            create_filter_original_bind_group(device, &filter_input_bind_group_layouts[1], view)
+        });
         let layer_config_buffer = Self::create_config_buffer_for_size(
             device,
             layer_texture_size,
@@ -1752,33 +1827,34 @@ impl Programs {
             &strip_bind_group_layout,
             &alphas_texture.create_view(&TextureViewDescriptor::default()),
             &view_config_buffer,
-            &layer_texture_views,
+            layer_binding_views,
         );
         let layer_bind_groups = Self::create_layer_bind_groups(
             device,
             &strip_bind_group_layout,
             &alphas_texture.create_view(&TextureViewDescriptor::default()),
             &layer_config_buffer,
-            &layer_texture_views,
+            layer_binding_views,
         );
         let blend_layer_bind_group = Self::create_blend_layer_bind_group(
             device,
             &blend_layer_bind_group_layout,
-            &layer_texture_views,
+            layer_binding_views,
         );
         let blend_copy_bind_group = Self::create_blend_copy_bind_group(
             device,
             &blend_copy_bind_group_layout,
-            &filter_scratch_texture_views[BLEND_SCRATCH_INDEX],
+            scratch_binding_views[BLEND_SCRATCH_INDEX],
         );
 
         let resources = GpuResources {
             strips_buffer: Self::create_strips_buffer(device, 0),
             layer_textures,
-            layer_texture_views,
+            dummy_layer_texture,
             layer_filter_input_bind_groups,
             layer_filter_original_bind_groups,
-            filter_scratch_texture_views,
+            filter_scratch_textures,
+            dummy_scratch_texture,
             filter_scratch_input_bind_groups,
             filter_scratch_original_bind_groups,
             blend_layer_bind_group,
@@ -1798,6 +1874,9 @@ impl Programs {
             gradient_bind_group,
             filter_data_texture,
             filter_base_bind_group,
+            layer_texture_size,
+            layer_texture_count: 0,
+            scratch_texture_count: 0,
             view_config_buffer,
         };
 
@@ -1832,6 +1911,10 @@ impl Programs {
             },
             clear_pipeline,
             atlas_clear_pipeline,
+            filter_input_bind_group_layouts: filter_input_bind_group_layouts.clone(),
+            filter_sampler,
+            blend_layer_bind_group_layout: blend_layer_bind_group_layout.clone(),
+            blend_copy_bind_group_layout: blend_copy_bind_group_layout.clone(),
         }
     }
 
@@ -1862,9 +1945,9 @@ impl Programs {
         })
     }
 
-    fn create_scratch_texture(device: &Device, size: u32) -> Texture {
+    fn create_intermediate_texture(device: &Device, size: u32, label: &'static str) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Scratch Texture"),
+            label: Some(label),
             size: Extent3d {
                 width: size,
                 height: size,
@@ -1879,10 +1962,139 @@ impl Programs {
         })
     }
 
+    fn prepare_intermediate_textures(
+        &mut self,
+        device: &Device,
+        requirements: crate::schedule::TextureRequirements,
+    ) {
+        if self.resources.real_layer_count() == requirements.layer_count
+            && self.resources.real_scratch_count() == requirements.scratch_count
+        {
+            return;
+        }
+
+        let layer_texture_size = self.resources.layer_texture_size;
+        self.resources.layer_textures = core::array::from_fn(|index| {
+            if index < requirements.layer_count {
+                Some(WgpuIntermediateTexture::new(
+                    Self::create_intermediate_texture(
+                        device,
+                        layer_texture_size,
+                        "Layer Atlas Texture",
+                    ),
+                ))
+            } else {
+                None
+            }
+        });
+        self.resources.filter_scratch_textures = core::array::from_fn(|index| {
+            if index < requirements.scratch_count {
+                Some(WgpuIntermediateTexture::new(
+                    Self::create_intermediate_texture(
+                        device,
+                        layer_texture_size,
+                        "Scratch Texture",
+                    ),
+                ))
+            } else {
+                None
+            }
+        });
+        self.resources.layer_texture_count = requirements.layer_count;
+        self.resources.scratch_texture_count = requirements.scratch_count;
+
+        let (
+            layer_filter_input_bind_groups,
+            layer_filter_original_bind_groups,
+            filter_scratch_input_bind_groups,
+            filter_scratch_original_bind_groups,
+            root_layer_bind_groups,
+            layer_bind_groups,
+            blend_layer_bind_group,
+            blend_copy_bind_group,
+        ) = {
+            let layer_binding_views = self.resources.layer_binding_views();
+            let scratch_binding_views = [
+                self.resources.scratch_binding_view(0),
+                self.resources.scratch_binding_view(1),
+            ];
+            let alphas_texture_view = self
+                .resources
+                .alphas_texture
+                .create_view(&TextureViewDescriptor::default());
+
+            (
+                layer_binding_views.map(|view| {
+                    create_filter_input_bind_group(
+                        device,
+                        &self.filter_input_bind_group_layouts[0],
+                        &self.filter_sampler,
+                        view,
+                    )
+                }),
+                layer_binding_views.map(|view| {
+                    create_filter_original_bind_group(
+                        device,
+                        &self.filter_input_bind_group_layouts[1],
+                        view,
+                    )
+                }),
+                scratch_binding_views.map(|view| {
+                    create_filter_input_bind_group(
+                        device,
+                        &self.filter_input_bind_group_layouts[0],
+                        &self.filter_sampler,
+                        view,
+                    )
+                }),
+                scratch_binding_views.map(|view| {
+                    create_filter_original_bind_group(
+                        device,
+                        &self.filter_input_bind_group_layouts[1],
+                        view,
+                    )
+                }),
+                Self::create_root_layer_bind_groups(
+                    device,
+                    &self.strip_bind_group_layout,
+                    &alphas_texture_view,
+                    &self.resources.view_config_buffer,
+                    layer_binding_views,
+                ),
+                Self::create_layer_bind_groups(
+                    device,
+                    &self.strip_bind_group_layout,
+                    &alphas_texture_view,
+                    &self.resources.layer_config_buffer,
+                    layer_binding_views,
+                ),
+                Self::create_blend_layer_bind_group(
+                    device,
+                    &self.blend_layer_bind_group_layout,
+                    layer_binding_views,
+                ),
+                Self::create_blend_copy_bind_group(
+                    device,
+                    &self.blend_copy_bind_group_layout,
+                    scratch_binding_views[BLEND_SCRATCH_INDEX],
+                ),
+            )
+        };
+
+        self.resources.layer_filter_input_bind_groups = layer_filter_input_bind_groups;
+        self.resources.layer_filter_original_bind_groups = layer_filter_original_bind_groups;
+        self.resources.filter_scratch_input_bind_groups = filter_scratch_input_bind_groups;
+        self.resources.filter_scratch_original_bind_groups = filter_scratch_original_bind_groups;
+        self.resources.root_layer_bind_groups = root_layer_bind_groups;
+        self.resources.layer_bind_groups = layer_bind_groups;
+        self.resources.blend_layer_bind_group = blend_layer_bind_group;
+        self.resources.blend_copy_bind_group = blend_copy_bind_group;
+    }
+
     fn create_blend_layer_bind_group(
         device: &Device,
         layout: &BindGroupLayout,
-        layer_texture_views: &[TextureView; 2],
+        layer_texture_views: [&WgpuTextureView; 2],
     ) -> BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Blend Layer Textures Bind Group"),
@@ -1890,11 +2102,11 @@ impl Programs {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&layer_texture_views[0]),
+                    resource: wgpu::BindingResource::TextureView(layer_texture_views[0]),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&layer_texture_views[1]),
+                    resource: wgpu::BindingResource::TextureView(layer_texture_views[1]),
                 },
             ],
         })
@@ -1903,7 +2115,7 @@ impl Programs {
     fn create_blend_copy_bind_group(
         device: &Device,
         layout: &BindGroupLayout,
-        scratch_texture_view: &TextureView,
+        scratch_texture_view: &WgpuTextureView,
     ) -> BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Blend Copy Bind Group"),
@@ -1974,7 +2186,7 @@ impl Programs {
         width: u32,
         height: u32,
         atlas_count: u32,
-    ) -> (Texture, TextureView) {
+    ) -> (Texture, WgpuTextureView) {
         // See the comment in `Renderer::new_with`. On WASM, we need to set this to at
         // least 2 so it works with the wgpu WebGL backend.
         #[cfg(target_arch = "wasm32")]
@@ -2035,7 +2247,7 @@ impl Programs {
     fn create_filter_base_bind_group(
         device: &Device,
         filter_bind_group_layout: &BindGroupLayout,
-        filter_texture_view: &TextureView,
+        filter_texture_view: &WgpuTextureView,
     ) -> BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Filter Base Bind Group"),
@@ -2047,7 +2259,7 @@ impl Programs {
         })
     }
 
-    fn create_placeholder_external_texture(device: &Device) -> TextureView {
+    fn create_placeholder_external_texture(device: &Device) -> WgpuTextureView {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Placeholder External Texture"),
             size: Extent3d {
@@ -2068,8 +2280,8 @@ impl Programs {
     fn create_paint_source_bind_group(
         device: &Device,
         atlas_bind_group_layout: &BindGroupLayout,
-        atlas_texture_array_view: &TextureView,
-        external_texture_view: &TextureView,
+        atlas_texture_array_view: &WgpuTextureView,
+        external_texture_view: &WgpuTextureView,
     ) -> BindGroup {
         let entries = [
             wgpu::BindGroupEntry {
@@ -2108,7 +2320,7 @@ impl Programs {
     fn create_encoded_paints_bind_group(
         device: &Device,
         encoded_paints_bind_group_layout: &BindGroupLayout,
-        encoded_paints_texture_view: &TextureView,
+        encoded_paints_texture_view: &WgpuTextureView,
     ) -> BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Encoded Paints Bind Group"),
@@ -2140,7 +2352,7 @@ impl Programs {
     fn create_gradient_bind_group(
         device: &Device,
         gradient_bind_group_layout: &BindGroupLayout,
-        gradient_texture_view: &TextureView,
+        gradient_texture_view: &WgpuTextureView,
     ) -> BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Gradient Bind Group"),
@@ -2155,9 +2367,9 @@ impl Programs {
     fn create_layer_bind_groups(
         device: &Device,
         strip_bind_group_layout: &BindGroupLayout,
-        alphas_texture_view: &TextureView,
+        alphas_texture_view: &WgpuTextureView,
         layer_config_buffer: &Buffer,
-        layer_texture_views: &[TextureView],
+        layer_texture_views: [&WgpuTextureView; 2],
     ) -> [BindGroup; 2] {
         [
             Self::create_strip_bind_group(
@@ -2165,14 +2377,14 @@ impl Programs {
                 strip_bind_group_layout,
                 alphas_texture_view,
                 layer_config_buffer,
-                &layer_texture_views[1],
+                layer_texture_views[1],
             ),
             Self::create_strip_bind_group(
                 device,
                 strip_bind_group_layout,
                 alphas_texture_view,
                 layer_config_buffer,
-                &layer_texture_views[0],
+                layer_texture_views[0],
             ),
         ]
     }
@@ -2180,9 +2392,9 @@ impl Programs {
     fn create_root_layer_bind_groups(
         device: &Device,
         strip_bind_group_layout: &BindGroupLayout,
-        alphas_texture_view: &TextureView,
+        alphas_texture_view: &WgpuTextureView,
         view_config_buffer: &Buffer,
-        layer_texture_views: &[TextureView],
+        layer_texture_views: [&WgpuTextureView; 2],
     ) -> [BindGroup; 2] {
         [
             Self::create_strip_bind_group(
@@ -2190,14 +2402,14 @@ impl Programs {
                 strip_bind_group_layout,
                 alphas_texture_view,
                 view_config_buffer,
-                &layer_texture_views[0],
+                layer_texture_views[0],
             ),
             Self::create_strip_bind_group(
                 device,
                 strip_bind_group_layout,
                 alphas_texture_view,
                 view_config_buffer,
-                &layer_texture_views[1],
+                layer_texture_views[1],
             ),
         ]
     }
@@ -2205,9 +2417,9 @@ impl Programs {
     fn create_strip_bind_group(
         device: &Device,
         strip_bind_group_layout: &BindGroupLayout,
-        alphas_texture_view: &TextureView,
+        alphas_texture_view: &WgpuTextureView,
         config_buffer: &Buffer,
-        strip_texture_view: &TextureView,
+        strip_texture_view: &WgpuTextureView,
     ) -> BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Strip Bind Group"),
@@ -2337,7 +2549,7 @@ impl Programs {
                     .alphas_texture
                     .create_view(&TextureViewDescriptor::default()),
                 &self.resources.view_config_buffer,
-                &self.resources.layer_texture_views,
+                self.resources.layer_binding_views(),
             );
             self.resources.layer_bind_groups = Self::create_layer_bind_groups(
                 device,
@@ -2347,7 +2559,7 @@ impl Programs {
                     .alphas_texture
                     .create_view(&TextureViewDescriptor::default()),
                 &self.resources.layer_config_buffer,
-                &self.resources.layer_texture_views,
+                self.resources.layer_binding_views(),
             );
         }
     }
@@ -2512,7 +2724,7 @@ impl Programs {
     fn create_external_paint_source_bind_group(
         &self,
         device: &Device,
-        external_texture_view: &TextureView,
+        external_texture_view: &WgpuTextureView,
     ) -> BindGroup {
         Self::create_paint_source_bind_group(
             device,
@@ -2729,7 +2941,7 @@ struct RendererContext<'a> {
     device: &'a Device,
     queue: &'a Queue,
     encoder: &'a mut CommandEncoder,
-    view: &'a TextureView,
+    view: &'a WgpuTextureView,
     texture_bindings: &'a TextureBindings,
     external_paint_source_bind_groups: HashMap<TextureId, BindGroup>,
     clear_rects: Vec<RectU16>,
@@ -2783,12 +2995,15 @@ impl RendererContext<'_> {
             self.external_paint_source_bind_group_for_texture(run.texture_id);
         }
 
-        let (view, bind_group, scissor_rect): (&TextureView, &BindGroup, Option<[u32; 4]>) =
+        let (view, bind_group, scissor_rect): (&WgpuTextureView, &BindGroup, Option<[u32; 4]>) =
             match target {
                 StripPassRenderTarget::Root(root_target) => {
                     let sampled_layer_texture = match root_target {
                         RootRenderTarget::UserSurfaceFromLayer0
-                        | RootRenderTarget::AtlasLayerFromLayer0 => 0,
+                        | RootRenderTarget::AtlasLayerFromLayer0 => {
+                            self.programs.resources.layer_view(0);
+                            0
+                        }
                         RootRenderTarget::UserSurface | RootRenderTarget::AtlasLayer => 1,
                     };
                     (
@@ -2798,12 +3013,12 @@ impl RendererContext<'_> {
                     )
                 }
                 StripPassRenderTarget::Layer(region) => (
-                    &self.programs.resources.layer_texture_views[region.texture_index],
+                    self.programs.resources.layer_view(region.texture_index),
                     &self.programs.resources.layer_bind_groups[region.texture_index],
                     Some([region.x, region.y, region.width, region.height]),
                 ),
                 StripPassRenderTarget::LayerAtlas(texture_index) => (
-                    &self.programs.resources.layer_texture_views[texture_index],
+                    self.programs.resources.layer_view(texture_index),
                     &self.programs.resources.layer_bind_groups[texture_index],
                     None,
                 ),
@@ -2913,8 +3128,8 @@ impl RendererContext<'_> {
     }
 
     fn layer_texture_size(&self) -> (u32, u32) {
-        let size = self.programs.resources.layer_textures[0].size();
-        (size.width, size.height)
+        let size = self.programs.resources.layer_texture_size;
+        (size, size)
     }
 
     fn do_blend_render_pass(&mut self, blends: &[BlendOp]) {
@@ -2922,8 +3137,9 @@ impl RendererContext<'_> {
         if blends.is_empty() {
             return;
         }
+        self.programs.resources.scratch_view(BLEND_SCRATCH_INDEX);
 
-        for texture_index in 0..self.programs.resources.layer_texture_views.len() {
+        for texture_index in 0..self.programs.resources.layer_textures.len() {
             self.blend_instances.clear();
             self.blend_instances.extend(
                 blends
@@ -2932,7 +3148,15 @@ impl RendererContext<'_> {
                     .filter(|blend| {
                         !blend.bbox.is_empty() && blend.parent.texture_index == texture_index
                     })
-                    .map(|blend| gpu_blend_instance(blend, target_size)),
+                    .map(|blend| {
+                        self.programs
+                            .resources
+                            .layer_view(blend.parent.texture_index);
+                        self.programs
+                            .resources
+                            .layer_view(blend.source.texture_index);
+                        gpu_blend_instance(blend, target_size)
+                    }),
             );
             if self.blend_instances.is_empty() {
                 continue;
@@ -2951,8 +3175,7 @@ impl RendererContext<'_> {
                 let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
                     label: Some("Blend To Scratch"),
                     color_attachments: &[Some(RenderPassColorAttachment {
-                        view: &self.programs.resources.filter_scratch_texture_views
-                            [BLEND_SCRATCH_INDEX],
+                        view: self.programs.resources.scratch_view(BLEND_SCRATCH_INDEX),
                         depth_slice: None,
                         resolve_target: None,
                         ops: wgpu::Operations {
@@ -2990,7 +3213,7 @@ impl RendererContext<'_> {
                 let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
                     label: Some("Copy Blend Scratch To Layer"),
                     color_attachments: &[Some(RenderPassColorAttachment {
-                        view: &self.programs.resources.layer_texture_views[texture_index],
+                        view: self.programs.resources.layer_view(texture_index),
                         depth_slice: None,
                         resolve_target: None,
                         ops: wgpu::Operations {
@@ -3023,6 +3246,7 @@ impl RendererContext<'_> {
         if filters.is_empty() {
             return;
         }
+        self.programs.resources.scratch_view(0);
 
         let mut batches = Vec::new();
         build_scheduled_filter_batches(filters, self.layer_texture_size(), &mut batches);
@@ -3066,7 +3290,7 @@ impl RendererContext<'_> {
         }
 
         let target_size = self.layer_texture_size();
-        for texture_index in 0..self.programs.resources.layer_texture_views.len() {
+        for texture_index in 0..self.programs.resources.layer_textures.len() {
             self.copy_instances.clear();
             self.copy_instances.extend(
                 filters
@@ -3090,7 +3314,7 @@ impl RendererContext<'_> {
             let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some("Copy Filter Scratch To Layer"),
                 color_attachments: &[Some(RenderPassColorAttachment {
-                    view: &self.programs.resources.layer_texture_views[texture_index],
+                    view: self.programs.resources.layer_view(texture_index),
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -3136,10 +3360,8 @@ impl RendererContext<'_> {
             });
         let resources = &self.programs.resources;
         let view = match target {
-            TextureTarget::Scratch(texture_index) => {
-                &resources.filter_scratch_texture_views[texture_index]
-            }
-            TextureTarget::Layer(texture_index) => &resources.layer_texture_views[texture_index],
+            TextureTarget::Scratch(texture_index) => resources.scratch_view(texture_index),
+            TextureTarget::Layer(texture_index) => resources.layer_view(texture_index),
         };
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some(label),
@@ -3164,6 +3386,14 @@ impl RendererContext<'_> {
 }
 
 impl RendererBackend for RendererContext<'_> {
+    fn prepare_intermediate_textures(
+        &mut self,
+        requirements: crate::schedule::TextureRequirements,
+    ) {
+        self.programs
+            .prepare_intermediate_textures(self.device, requirements);
+    }
+
     /// Execute the render pass for rendering strips.
     fn render_strips(
         &mut self,
@@ -3206,6 +3436,7 @@ impl RendererBackend for RendererContext<'_> {
 }
 
 fn filter_input_bind_group(resources: &GpuResources, texture: TextureTarget) -> &BindGroup {
+    resources.texture_target_view(texture);
     match texture {
         TextureTarget::Layer(index) => &resources.layer_filter_input_bind_groups[index],
         TextureTarget::Scratch(index) => &resources.filter_scratch_input_bind_groups[index],
@@ -3213,17 +3444,15 @@ fn filter_input_bind_group(resources: &GpuResources, texture: TextureTarget) -> 
 }
 
 fn filter_original_bind_group(resources: &GpuResources, texture: TextureTarget) -> &BindGroup {
+    resources.texture_target_view(texture);
     match texture {
         TextureTarget::Layer(index) => &resources.layer_filter_original_bind_groups[index],
         TextureTarget::Scratch(index) => &resources.filter_scratch_original_bind_groups[index],
     }
 }
 
-fn filter_output_view(resources: &GpuResources, texture: TextureTarget) -> &TextureView {
-    match texture {
-        TextureTarget::Layer(index) => &resources.layer_texture_views[index],
-        TextureTarget::Scratch(index) => &resources.filter_scratch_texture_views[index],
-    }
+fn filter_output_view(resources: &GpuResources, texture: TextureTarget) -> &WgpuTextureView {
+    resources.texture_target_view(texture)
 }
 
 fn gpu_clear_instance(rect: RectU16, target_size: [u32; 2]) -> GpuClearInstance {
@@ -3238,7 +3467,7 @@ fn create_filter_input_bind_group(
     device: &Device,
     layout: &BindGroupLayout,
     sampler: &Sampler,
-    texture_view: &TextureView,
+    texture_view: &WgpuTextureView,
 ) -> BindGroup {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("Filter Input Bind Group"),
@@ -3259,7 +3488,7 @@ fn create_filter_input_bind_group(
 fn create_filter_original_bind_group(
     device: &Device,
     layout: &BindGroupLayout,
-    texture_view: &TextureView,
+    texture_view: &WgpuTextureView,
 ) -> BindGroup {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("Filter Original Bind Group"),
