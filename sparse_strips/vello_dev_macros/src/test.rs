@@ -211,7 +211,6 @@ pub(crate) fn vello_test_inner(attr: TokenStream, item: TokenStream) -> TokenStr
         input_fn_name_str.contains("layer_multiple_properties")
             || input_fn_name_str.contains("mask")
             || input_fn_name_str.contains("clip_clear")
-            || input_fn_name_str.contains("mix_non_isolated")
             || input_fn_name_str.contains("compose_non_isolated")
     };
 

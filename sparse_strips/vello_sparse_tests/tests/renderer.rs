@@ -501,8 +501,8 @@ impl Renderer for HybridRenderer {
         self.scene.set_transform(transform);
     }
 
-    fn set_blend_mode(&mut self, _: BlendMode) {
-        unimplemented!()
+    fn set_blend_mode(&mut self, blend_mode: BlendMode) {
+        self.scene.set_blend_mode(blend_mode);
     }
 
     fn set_aliasing_threshold(&mut self, aliasing_threshold: Option<u8>) {
