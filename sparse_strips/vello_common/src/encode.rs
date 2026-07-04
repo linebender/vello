@@ -12,10 +12,12 @@ use crate::kurbo::{Affine, Point, Vec2};
 use crate::math::{FloatExt, compute_erf7};
 use crate::paint::{Image, ImageSource, IndexedPaint, Paint, PremulColor, Tint};
 use crate::peniko::{ColorStop, ColorStops, Extend, Gradient, GradientKind, ImageQuality};
+use crate::util::f32_to_u8;
 use alloc::borrow::Cow;
 use alloc::fmt::Debug;
 use alloc::vec;
 use alloc::vec::Vec;
+use bytemuck::Pod;
 #[cfg(not(feature = "multithreading"))]
 use core::cell::OnceCell;
 use core::hash::{Hash, Hasher};
@@ -1004,48 +1006,42 @@ fn unit_to_line(p0: Point, p1: Point) -> Affine {
     ])
 }
 
-/// A helper trait for converting a premultiplied f32 color to `Self`.
-pub trait FromF32Color: Sized + Debug + Copy + Clone {
+/// A helper trait for converting gradient colors to `Self`.
+pub trait GradientLutExt: Sized + Debug + Copy + Clone + Pod {
     /// The zero value.
     const ZERO: Self;
-    /// Convert from a premultiplied f32 color to `Self`.
-    fn from_f32<S: Simd>(color: f32x4<S>) -> [Self; 4];
+    /// Convert from `f32x16` to `[Self; 16]`.
+    fn from_f32x16<S: Simd>(color: f32x16<S>) -> [Self; 16];
 }
 
-impl FromF32Color for f32 {
+impl GradientLutExt for f32 {
     const ZERO: Self = 0.0;
 
     #[inline(always)]
-    fn from_f32<S: Simd>(color: f32x4<S>) -> [Self; 4] {
+    fn from_f32x16<S: Simd>(color: f32x16<S>) -> [Self; 16] {
         color.into()
     }
 }
 
-impl FromF32Color for u8 {
+impl GradientLutExt for u8 {
     const ZERO: Self = 0;
 
     #[inline(always)]
-    fn from_f32<S: Simd>(mut color: f32x4<S>) -> [Self; 4] {
+    fn from_f32x16<S: Simd>(color: f32x16<S>) -> [Self; 16] {
         let simd = color.simd;
-        color = color.mul_add(f32x4::splat(simd, 255.0), f32x4::splat(simd, 0.5));
-
-        [
-            color[0] as Self,
-            color[1] as Self,
-            color[2] as Self,
-            color[3] as Self,
-        ]
+        let color = color.mul_add(f32x16::splat(simd, 255.0), f32x16::splat(simd, 0.5));
+        f32_to_u8(color).into()
     }
 }
 
 /// A lookup table for sampled gradient values.
 #[derive(Debug)]
-pub struct GradientLut<T: FromF32Color> {
+pub struct GradientLut<T: GradientLutExt> {
     lut: Vec<[T; 4]>,
     scale: f32,
 }
 
-impl<T: FromF32Color> GradientLut<T> {
+impl<T: GradientLutExt> GradientLut<T> {
     /// Create a new lookup table.
     fn new<S: Simd>(simd: S, ranges: &[GradientRange]) -> Self {
         simd.vectorize(
@@ -1058,6 +1054,7 @@ impl<T: FromF32Color> GradientLut<T> {
     fn new_inner<S: Simd>(simd: S, ranges: &[GradientRange]) -> Self {
         let lut_size = determine_lut_size(ranges);
         let mut lut = vec![[T::ZERO; 4]; lut_size];
+        let lut_flat = bytemuck::cast_slice_mut::<[T; 4], T>(&mut lut);
 
         // Calculate how many indices are covered by each range.
         let ramps = {
@@ -1106,15 +1103,13 @@ impl<T: FromF32Color> GradientLut<T> {
                 // become greater than the alpha channel. To prevent overflows
                 // in later parts of the pipeline, we need to take the minimum here.
                 result = result.min(1.0).min(alphas);
-                let (im1, im2) = simd.split_f32x16(result);
-                let (r1, r2) = simd.split_f32x8(im1);
-                let (r3, r4) = simd.split_f32x8(im2);
-                let rs = [r1, r2, r3, r4].map(T::from_f32);
+                let rs = T::from_f32x16(result);
 
                 // We always compute 4 samples at a time, but a gradient ramp does not necessarily
                 // start at a multiple of 4, therefore we might have to truncate.
-                let lut = &mut lut[idx..(idx + 4).min(lut_size)];
-                lut.copy_from_slice(&rs[..lut.len()]);
+                let start = idx * 4;
+                let end = (idx + 4).min(lut_size) * 4;
+                lut_flat[start..end].copy_from_slice(&rs[..end - start]);
             });
         }
 
