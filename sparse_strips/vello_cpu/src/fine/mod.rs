@@ -374,12 +374,12 @@ pub trait FineKernel<S: Simd>: Send + Sync + 'static {
     ///
     /// Efficiently renders rounded rectangles with gaussian blur applied,
     /// computing the blur analytically rather than as a post-process.
-    fn blurred_rounded_rectangle_painter(
+    fn blurred_rounded_rectangle_painter<'a>(
         simd: S,
-        rect: &EncodedBlurredRoundedRectangle,
+        rect: &'a EncodedBlurredRoundedRectangle,
         start_x: f64,
         start_y: f64,
-    ) -> impl Painter {
+    ) -> impl Painter + 'a {
         simd.vectorize(
             #[inline(always)]
             || BlurredRoundedRectFiller::new(simd, rect, start_x, start_y),

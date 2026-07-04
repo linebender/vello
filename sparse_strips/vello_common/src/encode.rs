@@ -841,6 +841,47 @@ impl BitEq for GradientCacheKey {
     }
 }
 
+const BLURRED_ROUNDED_RECT_P_NORM_LUT_SIZE: usize = 255;
+
+/// A lookup table for the normalized p-norm factor of blurred rounded rectangles.
+#[derive(Debug)]
+pub struct BlurredRoundedRectPNormLut {
+    lut: Vec<f32>,
+    scale: f32,
+}
+
+impl BlurredRoundedRectPNormLut {
+    fn new(exponent: f32, recip_exponent: f32) -> Self {
+        let scale = BLURRED_ROUNDED_RECT_P_NORM_LUT_SIZE as f32;
+        let mut lut = Vec::with_capacity(BLURRED_ROUNDED_RECT_P_NORM_LUT_SIZE + 1);
+        // During sampling we interpolate between i and i + 1, so make it one larger.
+        for idx in 0..(BLURRED_ROUNDED_RECT_P_NORM_LUT_SIZE + 1) {
+            let t = idx as f32 / scale;
+            lut.push((1.0 + t.powf(exponent)).powf(recip_exponent));
+        }
+
+        Self { lut, scale }
+    }
+
+    /// Get the sample value at a specific index.
+    #[inline(always)]
+    pub fn get(&self, idx: usize) -> f32 {
+        self.lut[idx]
+    }
+
+    /// Return the number of entries in the lookup table.
+    #[inline(always)]
+    pub fn width(&self) -> usize {
+        self.lut.len()
+    }
+
+    /// Get the scale factor by which to scale the normalized value.
+    #[inline(always)]
+    pub fn scale(&self) -> f32 {
+        self.scale
+    }
+}
+
 /// An encoded range between two color stops.
 #[derive(Debug, Clone)]
 pub struct GradientRange {
@@ -892,6 +933,15 @@ pub struct EncodedBlurredRoundedRectangle {
     pub x_advance: Vec2,
     /// How much to advance into the x/y direction for one step in the y direction.
     pub y_advance: Vec2,
+    p_norm_lut: OnceCell<BlurredRoundedRectPNormLut>,
+}
+
+impl EncodedBlurredRoundedRectangle {
+    /// Get the lookup table for the normalized Lp norm factor.
+    pub fn p_norm_lut(&self) -> &BlurredRoundedRectPNormLut {
+        self.p_norm_lut
+            .get_or_init(|| BlurredRoundedRectPNormLut::new(self.exponent, self.recip_exponent))
+    }
 }
 
 impl private::Sealed for BlurredRoundedRectangle {}
@@ -965,6 +1015,7 @@ impl EncodeExt for BlurredRoundedRectangle {
             transform,
             x_advance,
             y_advance,
+            p_norm_lut: OnceCell::new(),
         };
 
         let idx = paints.len();

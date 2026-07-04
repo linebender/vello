@@ -7,26 +7,26 @@
 
 use crate::fine::{NumericVec, PosExt, ShaderResultF32};
 use crate::kurbo::{Point, Vec2};
-use vello_common::encode::EncodedBlurredRoundedRectangle;
+use vello_common::encode::{BlurredRoundedRectPNormLut, EncodedBlurredRoundedRectangle};
 use vello_common::fearless_simd::{Simd, SimdBase, SimdFloat, f32x8, u8x16};
 
 #[cfg(not(feature = "std"))]
 use vello_common::kurbo::common::FloatFuncs as _;
 
 #[derive(Debug)]
-pub(crate) struct BlurredRoundedRectFiller<S: Simd> {
+pub(crate) struct BlurredRoundedRectFiller<'a, S: Simd> {
     r: f32x8<S>,
     g: f32x8<S>,
     b: f32x8<S>,
     a: f32x8<S>,
     invert: bool,
-    alpha_calculator: AlphaCalculator<S>,
+    alpha_calculator: AlphaCalculator<'a, S>,
 }
 
-impl<S: Simd> BlurredRoundedRectFiller<S> {
+impl<'a, S: Simd> BlurredRoundedRectFiller<'a, S> {
     pub(crate) fn new(
         simd: S,
-        rect: &EncodedBlurredRoundedRectangle,
+        rect: &'a EncodedBlurredRoundedRectangle,
         start_x: f64,
         start_y: f64,
     ) -> Self {
@@ -61,7 +61,7 @@ impl<S: Simd> BlurredRoundedRectFiller<S> {
     }
 }
 
-impl<S: Simd> Iterator for BlurredRoundedRectFiller<S> {
+impl<S: Simd> Iterator for BlurredRoundedRectFiller<'_, S> {
     type Item = ShaderResultF32<S>;
 
     #[inline(always)]
@@ -79,7 +79,7 @@ impl<S: Simd> Iterator for BlurredRoundedRectFiller<S> {
     }
 }
 
-impl<S: Simd> crate::fine::Painter for BlurredRoundedRectFiller<S> {
+impl<S: Simd> crate::fine::Painter for BlurredRoundedRectFiller<'_, S> {
     fn paint_u8(&mut self, buf: &mut [u8]) {
         self.a.simd.vectorize(
             #[inline(always)]
@@ -123,20 +123,20 @@ impl<S: Simd> crate::fine::Painter for BlurredRoundedRectFiller<S> {
 }
 
 #[derive(Debug)]
-struct AlphaCalculator<S: Simd> {
+struct AlphaCalculator<'a, S: Simd> {
     cur_pos: Point,
     x_advance: Vec2,
     y_advance: Vec2,
-    r: SimdRoundedBlurredRect<S>,
+    r: SimdRoundedBlurredRect<'a, S>,
     simd: S,
 }
 
-impl<S: Simd> AlphaCalculator<S> {
+impl<'a, S: Simd> AlphaCalculator<'a, S> {
     fn new(
         start_pos: Point,
         x_advance: Vec2,
         y_advance: Vec2,
-        r: SimdRoundedBlurredRect<S>,
+        r: SimdRoundedBlurredRect<'a, S>,
         simd: S,
     ) -> Self {
         Self {
@@ -149,7 +149,7 @@ impl<S: Simd> AlphaCalculator<S> {
     }
 }
 
-impl<S: Simd> Iterator for AlphaCalculator<S> {
+impl<S: Simd> Iterator for AlphaCalculator<'_, S> {
     type Item = f32x8<S>;
 
     #[inline(always)]
@@ -177,7 +177,7 @@ impl<S: Simd> Iterator for AlphaCalculator<S> {
         // Equivalent to r.r1 + x.abs() - (r.w * r.v1)
         let x0 = r.r1 - r.w.mul_sub(r.v1, x.abs());
         let x1 = x0.max(r.v0);
-        let d_pos = p_norm_distance(self.simd, x1, y1, r.exponent, r.recip_exponent);
+        let d_pos = p_norm_distance(self.simd, x1, y1, r.p_norm_lut, r.p_norm_lut_scale);
         let d_neg = x0.max(y0).min(r.v0);
         let d = d_pos + d_neg - r.r1;
         let z = r.scale
@@ -191,9 +191,9 @@ impl<S: Simd> Iterator for AlphaCalculator<S> {
 }
 
 #[derive(Debug)]
-struct SimdRoundedBlurredRect<S: Simd> {
-    pub exponent: f32,
-    pub recip_exponent: f32,
+struct SimdRoundedBlurredRect<'a, S: Simd> {
+    pub p_norm_lut: &'a BlurredRoundedRectPNormLut,
+    pub p_norm_lut_scale: f32x8<S>,
     pub scale: f32x8<S>,
     pub std_dev_inv: f32x8<S>,
     pub min_edge: f32x8<S>,
@@ -206,18 +206,18 @@ struct SimdRoundedBlurredRect<S: Simd> {
     pub v1: f32x8<S>,
 }
 
-impl<S: Simd> SimdRoundedBlurredRect<S> {
-    fn new(encoded: &EncodedBlurredRoundedRectangle, s: S) -> Self {
+impl<'a, S: Simd> SimdRoundedBlurredRect<'a, S> {
+    fn new(encoded: &'a EncodedBlurredRoundedRectangle, s: S) -> Self {
         s.vectorize(
             #[inline(always)]
             || {
+                let p_norm_lut = encoded.p_norm_lut();
+                let p_norm_lut_scale = f32x8::splat(s, p_norm_lut.width() as f32 - 1.0);
                 let h = f32x8::splat(s, encoded.h);
                 let w = f32x8::splat(s, encoded.w);
                 let width = f32x8::splat(s, encoded.width);
                 let height = f32x8::splat(s, encoded.height);
                 let r1 = f32x8::splat(s, encoded.r1);
-                let exponent = encoded.exponent;
-                let recip_exponent = encoded.recip_exponent;
                 let scale = f32x8::splat(s, encoded.scale);
                 let min_edge = f32x8::splat(s, encoded.min_edge);
                 let std_dev_inv = f32x8::splat(s, encoded.std_dev_inv);
@@ -225,8 +225,8 @@ impl<S: Simd> SimdRoundedBlurredRect<S> {
                 let v1 = f32x8::splat(s, 0.5);
 
                 Self {
-                    exponent,
-                    recip_exponent,
+                    p_norm_lut,
+                    p_norm_lut_scale,
                     scale,
                     std_dev_inv,
                     min_edge,
@@ -248,8 +248,8 @@ fn p_norm_distance<S: Simd>(
     simd: S,
     x: f32x8<S>,
     y: f32x8<S>,
-    exponent: f32,
-    recip_exponent: f32,
+    lut: &BlurredRoundedRectPNormLut,
+    lut_scale: f32x8<S>,
 ) -> f32x8<S> {
     // Note: In our case, x and y are always >= 0.
 
@@ -267,8 +267,24 @@ fn p_norm_distance<S: Simd>(
         f32x8::splat(simd, 0.0),
         min_fact / max_fact,
     );
+    let lookup = {
+        let scaled = t * lut_scale;
+        
+        f32x8::from_fn(simd, |i| {
+            let scaled = scaled[i];
+            // t can range from [0.0, 1.0] (_inclusive_ 1.0!),
+            // since we access `idx` and `idx + 1`, we need to
+            // clamp to width - 2 instead of just - 1.
+            let idx = (scaled as usize).min(lut.width() - 2);
+            let fract = scaled - idx as f32;
+            let a = lut.get(idx);
+            let b = lut.get(idx + 1);
 
-    max_fact * (f32x8::splat(simd, 1.0) + t.powf(exponent)).powf(recip_exponent)
+            fract.mul_add(b - a, a)
+        })
+    };
+
+    max_fact * lookup
 }
 
 trait FloatExt<S: Simd> {
@@ -276,7 +292,6 @@ trait FloatExt<S: Simd> {
     // explanation of this approximation to the erf function.
     /// Approximate the erf function.
     fn compute_erf7(simd: S, x: Self) -> Self;
-    fn powf(self, x: f32) -> Self;
 }
 
 impl<S: Simd> FloatExt<S> for f32x8<S> {
@@ -294,20 +309,5 @@ impl<S: Simd> FloatExt<S> for f32x8<S> {
         let x = p2.mul_add(p3, x);
         let denom = x.mul_add(x, Self::splat(simd, 1.0)).sqrt();
         x / denom
-    }
-
-    #[inline]
-    fn powf(mut self, x: f32) -> Self {
-        // TODO: SIMD
-        self[0] = self[0].powf(x);
-        self[1] = self[1].powf(x);
-        self[2] = self[2].powf(x);
-        self[3] = self[3].powf(x);
-        self[4] = self[4].powf(x);
-        self[5] = self[5].powf(x);
-        self[6] = self[6].powf(x);
-        self[7] = self[7].powf(x);
-
-        self
     }
 }
