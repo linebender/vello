@@ -30,46 +30,6 @@ impl Atlases {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(super) struct LayerAllocationRequest {
-    texture_index: usize,
-    width: u16,
-    height: u16,
-    padding: u16,
-    scratch_count: usize,
-}
-
-impl LayerAllocationRequest {
-    pub(super) fn new(texture_index: usize, size: (u16, u16), scratch_count: usize) -> Self {
-        let padding = if scratch_count > 0 {
-            FILTER_ATLAS_PADDING
-        } else {
-            0
-        };
-
-        Self {
-            texture_index,
-            width: size.0,
-            height: size.1,
-            padding,
-            scratch_count,
-        }
-    }
-
-    pub(super) fn fits_texture(self, layer_texture_size: (u32, u32)) -> bool {
-        u32::from(self.allocation_width()) <= layer_texture_size.0
-            && u32::from(self.allocation_height()) <= layer_texture_size.1
-    }
-
-    fn allocation_width(self) -> u16 {
-        self.width + self.padding * 2
-    }
-
-    fn allocation_height(self) -> u16 {
-        self.height + self.padding * 2
-    }
-}
-
 impl ResourceAllocator for Atlases {
     type Request = LayerAllocationRequest;
     type Allocation = LayerAllocation;
@@ -164,6 +124,46 @@ impl ResourceAllocator for Atlases {
                 );
             }
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct LayerAllocationRequest {
+    texture_index: usize,
+    width: u16,
+    height: u16,
+    padding: u16,
+    scratch_count: usize,
+}
+
+impl LayerAllocationRequest {
+    pub(super) fn new(texture_index: usize, size: (u16, u16), scratch_count: usize) -> Self {
+        let padding = if scratch_count > 0 {
+            FILTER_ATLAS_PADDING
+        } else {
+            0
+        };
+
+        Self {
+            texture_index,
+            width: size.0,
+            height: size.1,
+            padding,
+            scratch_count,
+        }
+    }
+
+    pub(super) fn fits_texture(self, layer_texture_size: (u32, u32)) -> bool {
+        u32::from(self.allocation_width()) <= layer_texture_size.0
+            && u32::from(self.allocation_height()) <= layer_texture_size.1
+    }
+
+    fn allocation_width(self) -> u16 {
+        self.width + self.padding * 2
+    }
+
+    fn allocation_height(self) -> u16 {
+        self.height + self.padding * 2
     }
 }
 

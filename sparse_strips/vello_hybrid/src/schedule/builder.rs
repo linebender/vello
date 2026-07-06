@@ -79,175 +79,6 @@ impl<'a> ScheduleBuilder<'a> {
         Ok(rounds)
     }
 
-    fn schedule_layer_subtree(
-        &mut self,
-        layer_id: u32,
-        rounds: &mut Rounds,
-    ) -> Result<(), RenderError> {
-        if self.layer_allocations[layer_id as usize].is_some() {
-            return Ok(());
-        }
-
-        let layer = &self.scene.recorder.layers[layer_id as usize];
-        let bbox = layer.bbox;
-        if bbox.is_empty() {
-            return Ok(());
-        }
-
-        let allocation_bbox = bbox.snap_to_tile_coordinates();
-        let texture_index = layer.depth & 1;
-        if let Some(layer) =
-            self.schedule_layer_command_stream(layer_id, texture_index, allocation_bbox, rounds)?
-        {
-            self.layer_allocations[layer_id as usize] = Some(layer);
-        }
-
-        Ok(())
-    }
-
-    fn schedule_layer_command_stream(
-        &mut self,
-        layer_id: u32,
-        texture_index: usize,
-        bbox: RectU16,
-        rounds: &mut Rounds,
-    ) -> Result<Option<ScheduledLayer>, RenderError> {
-        let layer_idx = layer_id as usize;
-        let cmds = &self.scene.recorder.layers[layer_idx].cmds;
-        let command_count = cmds.len();
-        let mut target = None;
-        let mut segment_start = 0;
-
-        for (cmd_idx, cmd) in cmds.iter().enumerate().take(command_count) {
-            let child_layer_id = match cmd {
-                RecordedCmd::Draws(_) => continue,
-                RecordedCmd::Layer(child_layer_id) => *child_layer_id,
-            };
-
-            let child_layer_idx = child_layer_id as usize;
-            self.schedule_layer_subtree(child_layer_id, rounds)?;
-            let Some(child_layer) = self.layer_allocations[child_layer_idx] else {
-                let props = &self.scene.recorder.layers[child_layer_idx].props;
-                let blend_mode = props.blend_mode;
-                let opacity = props.opacity;
-                if blend_mode.is_destructive() {
-                    self.ensure_layer_command_target(layer_id, texture_index, bbox, &mut target)?;
-                    let target = target.as_mut().unwrap();
-                    self.push_layer_batches(layer_idx, segment_start, cmd_idx, &mut target.stream);
-                    self.schedule_empty_destructive_blend(
-                        &mut target.stream,
-                        blend_mode,
-                        opacity,
-                        rounds,
-                    );
-                    segment_start = cmd_idx + 1;
-                }
-                continue;
-            };
-
-            self.ensure_layer_command_target(layer_id, texture_index, bbox, &mut target)?;
-            let target = target.as_mut().unwrap();
-            self.push_layer_batches(layer_idx, segment_start, cmd_idx, &mut target.stream);
-            self.schedule_child_layer_sample(
-                child_layer_id,
-                child_layer,
-                &mut target.stream,
-                rounds,
-            );
-            segment_start = cmd_idx + 1;
-        }
-
-        if layer_segment_has_batches(cmds, segment_start, command_count) {
-            self.ensure_layer_command_target(layer_id, texture_index, bbox, &mut target)?;
-            let target = target.as_mut().unwrap();
-            self.push_layer_batches(layer_idx, segment_start, command_count, &mut target.stream);
-        }
-
-        let Some(mut target) = target else {
-            return Ok(None);
-        };
-        let ready_round = self.flush_stream_segment(&mut target.stream, rounds);
-        if let Some(filter) = target.filter {
-            let allocation_filter = target
-                .allocation
-                .filter
-                .expect("filter target must have scratch allocations");
-            self.ensure_round_exists(ready_round, rounds);
-            rounds.rounds[ready_round].push_filter(FilterOp {
-                layer_region: target.region,
-                scratches: allocation_filter
-                    .map(|scratch| scratch.map(|scratch| scratch.texture.region)),
-                filter_data_offset: filter.filter_data_offset,
-                gpu_filter: filter.gpu_filter,
-            });
-        }
-        Ok(Some(ScheduledLayer {
-            sample: self.layer_sample(layer_id, target.region),
-            allocation: target.allocation,
-            region: target.region,
-            round_idx: ready_round,
-        }))
-    }
-
-    fn ensure_layer_command_target(
-        &mut self,
-        layer_id: u32,
-        texture_index: usize,
-        bbox: RectU16,
-        target: &mut Option<LayerCommandTarget>,
-    ) -> Result<(), RenderError> {
-        if target.is_some() {
-            return Ok(());
-        }
-
-        let filter = self.filter_info(layer_id);
-        let (allocation, region) = self.allocate_region(
-            texture_index,
-            bbox,
-            filter.map_or(0, ScheduledFilter::scratch_count),
-        )?;
-        let stream = CommandStreamState::new(
-            RenderTarget::Layer(region),
-            allocation.round_idx,
-            LoadOp::Load,
-            region.scene_bbox,
-        );
-        *target = Some(LayerCommandTarget {
-            allocation,
-            region,
-            filter,
-            stream,
-        });
-
-        Ok(())
-    }
-
-    fn push_layer_batches(
-        &self,
-        layer_idx: usize,
-        start: usize,
-        end: usize,
-        state: &mut CommandStreamState,
-    ) {
-        for cmd in &self.scene.recorder.layers[layer_idx].cmds[start..end] {
-            let RecordedCmd::Draws(range) = cmd else {
-                continue;
-            };
-
-            for draw in &self.scene.recorder.draws[range.start as usize..range.end as usize] {
-                state
-                    .backdrop_bbox
-                    .union(recorded_draw_bbox(draw, self.strip_storage));
-                state.builder.push_draw(
-                    draw,
-                    self.strip_storage,
-                    self.encoded_paints,
-                    self.paint_idxs,
-                );
-            }
-        }
-    }
-
     fn schedule_root(&mut self, rounds: &mut Rounds) -> Result<(), RenderError> {
         let cmds = &self.scene.recorder.root_cmds;
         if self.scene.recorder.root_is_blend_target {
@@ -375,6 +206,116 @@ impl<'a> ScheduleBuilder<'a> {
         }
 
         Ok(self.flush_stream_segment(&mut state, rounds))
+    }
+
+    fn schedule_layer_subtree(
+        &mut self,
+        layer_id: u32,
+        rounds: &mut Rounds,
+    ) -> Result<(), RenderError> {
+        if self.layer_allocations[layer_id as usize].is_some() {
+            return Ok(());
+        }
+
+        let layer = &self.scene.recorder.layers[layer_id as usize];
+        let bbox = layer.bbox;
+        if bbox.is_empty() {
+            return Ok(());
+        }
+
+        let allocation_bbox = bbox.snap_to_tile_coordinates();
+        let texture_index = layer.depth & 1;
+        if let Some(layer) =
+            self.schedule_layer_command_stream(layer_id, texture_index, allocation_bbox, rounds)?
+        {
+            self.layer_allocations[layer_id as usize] = Some(layer);
+        }
+
+        Ok(())
+    }
+
+    fn schedule_layer_command_stream(
+        &mut self,
+        layer_id: u32,
+        texture_index: usize,
+        bbox: RectU16,
+        rounds: &mut Rounds,
+    ) -> Result<Option<ScheduledLayer>, RenderError> {
+        let layer_idx = layer_id as usize;
+        let cmds = &self.scene.recorder.layers[layer_idx].cmds;
+        let command_count = cmds.len();
+        let mut target = None;
+        let mut segment_start = 0;
+
+        for (cmd_idx, cmd) in cmds.iter().enumerate().take(command_count) {
+            let child_layer_id = match cmd {
+                RecordedCmd::Draws(_) => continue,
+                RecordedCmd::Layer(child_layer_id) => *child_layer_id,
+            };
+
+            let child_layer_idx = child_layer_id as usize;
+            self.schedule_layer_subtree(child_layer_id, rounds)?;
+            let Some(child_layer) = self.layer_allocations[child_layer_idx] else {
+                let props = &self.scene.recorder.layers[child_layer_idx].props;
+                let blend_mode = props.blend_mode;
+                let opacity = props.opacity;
+                if blend_mode.is_destructive() {
+                    self.ensure_layer_command_target(layer_id, texture_index, bbox, &mut target)?;
+                    let target = target.as_mut().unwrap();
+                    self.push_layer_batches(layer_idx, segment_start, cmd_idx, &mut target.stream);
+                    self.schedule_empty_destructive_blend(
+                        &mut target.stream,
+                        blend_mode,
+                        opacity,
+                        rounds,
+                    );
+                    segment_start = cmd_idx + 1;
+                }
+                continue;
+            };
+
+            self.ensure_layer_command_target(layer_id, texture_index, bbox, &mut target)?;
+            let target = target.as_mut().unwrap();
+            self.push_layer_batches(layer_idx, segment_start, cmd_idx, &mut target.stream);
+            self.schedule_child_layer_sample(
+                child_layer_id,
+                child_layer,
+                &mut target.stream,
+                rounds,
+            );
+            segment_start = cmd_idx + 1;
+        }
+
+        if layer_segment_has_batches(cmds, segment_start, command_count) {
+            self.ensure_layer_command_target(layer_id, texture_index, bbox, &mut target)?;
+            let target = target.as_mut().unwrap();
+            self.push_layer_batches(layer_idx, segment_start, command_count, &mut target.stream);
+        }
+
+        let Some(mut target) = target else {
+            return Ok(None);
+        };
+        let ready_round = self.flush_stream_segment(&mut target.stream, rounds);
+        if let Some(filter) = target.filter {
+            let allocation_filter = target
+                .allocation
+                .filter
+                .expect("filter target must have scratch allocations");
+            self.ensure_round_exists(ready_round, rounds);
+            rounds.rounds[ready_round].push_filter(FilterOp {
+                layer_region: target.region,
+                scratches: allocation_filter
+                    .map(|scratch| scratch.map(|scratch| scratch.texture.region)),
+                filter_data_offset: filter.filter_data_offset,
+                gpu_filter: filter.gpu_filter,
+            });
+        }
+        Ok(Some(ScheduledLayer {
+            sample: self.layer_sample(layer_id, target.region),
+            allocation: target.allocation,
+            region: target.region,
+            round_idx: ready_round,
+        }))
     }
 
     fn schedule_child_layer_sample(
@@ -576,6 +517,65 @@ impl<'a> ScheduleBuilder<'a> {
         }
     }
 
+    fn ensure_layer_command_target(
+        &mut self,
+        layer_id: u32,
+        texture_index: usize,
+        bbox: RectU16,
+        target: &mut Option<LayerCommandTarget>,
+    ) -> Result<(), RenderError> {
+        if target.is_some() {
+            return Ok(());
+        }
+
+        let filter = self.filter_info(layer_id);
+        let (allocation, region) = self.allocate_region(
+            texture_index,
+            bbox,
+            filter.map_or(0, ScheduledFilter::scratch_count),
+        )?;
+        let stream = CommandStreamState::new(
+            RenderTarget::Layer(region),
+            allocation.round_idx,
+            LoadOp::Load,
+            region.scene_bbox,
+        );
+        *target = Some(LayerCommandTarget {
+            allocation,
+            region,
+            filter,
+            stream,
+        });
+
+        Ok(())
+    }
+
+    fn push_layer_batches(
+        &self,
+        layer_idx: usize,
+        start: usize,
+        end: usize,
+        state: &mut CommandStreamState,
+    ) {
+        for cmd in &self.scene.recorder.layers[layer_idx].cmds[start..end] {
+            let RecordedCmd::Draws(range) = cmd else {
+                continue;
+            };
+
+            for draw in &self.scene.recorder.draws[range.start as usize..range.end as usize] {
+                state
+                    .backdrop_bbox
+                    .union(recorded_draw_bbox(draw, self.strip_storage));
+                state.builder.push_draw(
+                    draw,
+                    self.strip_storage,
+                    self.encoded_paints,
+                    self.paint_idxs,
+                );
+            }
+        }
+    }
+
     fn ensure_round_exists(&mut self, round_idx: usize, rounds: &mut Rounds) {
         ensure_round_exists(rounds, round_idx);
     }
@@ -588,12 +588,6 @@ impl<'a> ScheduleBuilder<'a> {
     ) {
         ensure_round_exists(rounds, round_idx);
         self.timeline.release_after(allocation, round_idx);
-    }
-}
-
-fn ensure_round_exists(rounds: &mut Rounds, round_idx: usize) {
-    while rounds.rounds.len() <= round_idx {
-        rounds.rounds.push(Round::default());
     }
 }
 
@@ -669,6 +663,12 @@ impl CommandStreamState {
 
     fn take_draw(&mut self) -> Draw {
         self.builder.take_draw()
+    }
+}
+
+fn ensure_round_exists(rounds: &mut Rounds, round_idx: usize) {
+    while rounds.rounds.len() <= round_idx {
+        rounds.rounds.push(Round::default());
     }
 }
 

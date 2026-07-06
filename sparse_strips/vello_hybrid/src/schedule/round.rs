@@ -22,6 +22,31 @@ pub(super) struct Round {
     pub(super) scratch_clears: Vec<TextureRegion>,
 }
 
+impl Round {
+    pub(crate) fn push_render_pass(&mut self, pass: RenderPass) {
+        match pass.target {
+            RenderTarget::Root(_) => self.root_passes.push(pass),
+            RenderTarget::Layer(region) => {
+                self.layer_passes[region.texture.texture_index]
+                    .render_passes
+                    .push(pass);
+            }
+        }
+    }
+
+    pub(crate) fn push_blend(&mut self, blend: BlendOp) {
+        self.layer_passes[blend.parent_region.texture.texture_index]
+            .blends
+            .push(blend);
+    }
+
+    pub(crate) fn push_filter(&mut self, filter: FilterOp) {
+        self.layer_passes[filter.layer_region.texture.texture_index]
+            .filters
+            .push(filter);
+    }
+}
+
 #[derive(Debug, Default)]
 pub(super) struct LayerPass {
     pub(super) render_passes: Vec<RenderPass>,
@@ -51,29 +76,4 @@ pub(crate) struct BlendOp {
     pub(crate) blend_bbox: RectU16,
     pub(crate) blend_mode: BlendMode,
     pub(crate) opacity: f32,
-}
-
-impl Round {
-    pub(crate) fn push_render_pass(&mut self, pass: RenderPass) {
-        match pass.target {
-            RenderTarget::Root(_) => self.root_passes.push(pass),
-            RenderTarget::Layer(region) => {
-                self.layer_passes[region.texture.texture_index]
-                    .render_passes
-                    .push(pass);
-            }
-        }
-    }
-
-    pub(crate) fn push_blend(&mut self, blend: BlendOp) {
-        self.layer_passes[blend.parent_region.texture.texture_index]
-            .blends
-            .push(blend);
-    }
-
-    pub(crate) fn push_filter(&mut self, filter: FilterOp) {
-        self.layer_passes[filter.layer_region.texture.texture_index]
-            .filters
-            .push(filter);
-    }
 }
