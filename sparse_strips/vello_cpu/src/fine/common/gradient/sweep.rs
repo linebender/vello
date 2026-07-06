@@ -1,6 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use crate::fine::PaintPositions;
 use crate::fine::common::gradient::SimdGradientKind;
 use core::f32::consts::PI;
 use vello_common::encode::SweepKind;
@@ -27,8 +28,11 @@ impl<S: Simd> SimdSweepKind<S> {
 }
 
 impl<S: Simd> SimdGradientKind<S> for SimdSweepKind<S> {
+    type Positions = PaintPositions<S, f32x8<S>>;
+
     #[inline(always)]
-    fn cur_pos(&self, x_pos: f32x8<S>, y_pos: f32x8<S>) -> f32x8<S> {
+    fn cur_pos(&self, positions: &Self::Positions) -> f32x8<S> {
+        let (x_pos, y_pos) = positions.current();
         let angle = x_y_to_unit_angle(self.simd, x_pos, y_pos) * f32x8::splat(self.simd, 2.0 * PI);
 
         (angle - self.start_angle) * self.inv_angle_delta

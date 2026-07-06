@@ -1,9 +1,9 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::fine::PosExt;
 use crate::fine::common::image::{ImagePainterData, extend, fract_floor, sample};
 use crate::fine::macros::u8x16_painter;
+use crate::fine::{PaintPositions, PlainPaintPositions, PosExt};
 use vello_common::encode::EncodedImage;
 use vello_common::fearless_simd::{Simd, SimdBase, SimdFloat, f32x4, u8x16, u16x16};
 use vello_common::pixmap::Pixmap;
@@ -31,24 +31,10 @@ impl<'a, S: Simd> BilinearImagePainter<'a, S> {
     }
 }
 
-impl<S: Simd> Iterator for BilinearImagePainter<'_, S> {
-    type Item = u8x16<S>;
-
+impl<S: Simd> BilinearImagePainter<'_, S> {
     #[inline(always)]
-    fn next(&mut self) -> Option<Self::Item> {
-        let x_positions = f32x4::splat_pos(
-            self.simd,
-            self.data.cur_pos.x as f32,
-            self.data.x_advances.0,
-            self.data.y_advances.0,
-        );
-
-        let y_positions = f32x4::splat_pos(
-            self.simd,
-            self.data.cur_pos.y as f32,
-            self.data.x_advances.1,
-            self.data.y_advances.1,
-        );
+    fn next(&self, positions: &PaintPositions<S, f32x4<S>>) -> u8x16<S> {
+        let (x_positions, y_positions) = positions.current();
 
         let extend_x = |x_pos: f32x4<S>| {
             extend(
@@ -104,15 +90,16 @@ impl<S: Simd> Iterator for BilinearImagePainter<'_, S> {
 
         let ip1 = (p00 * fx_inv + p10 * fx).div_255();
         let ip2 = (p01 * fx_inv + p11 * fx).div_255();
-        let res = self.simd.narrow_u16x16((ip1 * fy_inv + ip2 * fy).div_255());
 
-        self.data.cur_pos += self.data.image.x_advance;
-
-        Some(res)
+        self.simd.narrow_u16x16((ip1 * fy_inv + ip2 * fy).div_255())
     }
 }
 
-u8x16_painter!(BilinearImagePainter<'_, S>);
+u8x16_painter!(
+    BilinearImagePainter<'_, S>,
+    painter,
+    painter.data.positions::<f32x4<S>>(painter.simd)
+);
 
 /// A faster bilinear image renderer for axis-aligned images (no skew) in the u8 pipeline.
 ///
@@ -130,10 +117,6 @@ pub(crate) struct PlainBilinearImagePainter<'a, S: Simd> {
     fy: u16x16<S>,
     /// Pre-computed inverse y interpolation weight
     fy_inv: u16x16<S>,
-    /// Current x position
-    cur_x_pos: f32x4<S>,
-    /// X advance per iteration
-    advance: f32,
 }
 
 impl<'a, S: Simd> PlainBilinearImagePainter<'a, S> {
@@ -181,21 +164,12 @@ impl<'a, S: Simd> PlainBilinearImagePainter<'a, S> {
                 let fy = simd.widen_u8x16(fy);
                 let fy_inv = u16x16::splat(simd, 255) - fy;
 
-                let cur_x_pos = f32x4::splat_pos(
-                    simd,
-                    data.cur_pos.x as f32,
-                    data.x_advances.0,
-                    data.y_advances.0,
-                );
-
                 Self {
                     data,
                     y_pos1,
                     y_pos2,
                     fy,
                     fy_inv,
-                    cur_x_pos,
-                    advance: image.x_advance.x as f32,
                     simd,
                 }
             },
@@ -203,13 +177,12 @@ impl<'a, S: Simd> PlainBilinearImagePainter<'a, S> {
     }
 }
 
-impl<S: Simd> Iterator for PlainBilinearImagePainter<'_, S> {
-    type Item = u8x16<S>;
-
+impl<S: Simd> PlainBilinearImagePainter<'_, S> {
     #[inline(always)]
-    fn next(&mut self) -> Option<Self::Item> {
-        let x_minus_half = self.cur_x_pos - 0.5;
-        let x_plus_half = self.cur_x_pos + 0.5;
+    fn next(&self, positions: &PlainPaintPositions<S, f32x4<S>>) -> u8x16<S> {
+        let x_positions = positions.current();
+        let x_minus_half = x_positions - 0.5;
+        let x_plus_half = x_positions + 0.5;
 
         // Only x needs to be extended per-iteration
         let x_pos1 = extend(
@@ -252,14 +225,14 @@ impl<S: Simd> Iterator for PlainBilinearImagePainter<'_, S> {
         // Bilinear interpolation
         let ip1 = (p00 * fx_inv + p10 * fx).div_255();
         let ip2 = (p01 * fx_inv + p11 * fx).div_255();
-        let res = self
-            .simd
-            .narrow_u16x16((ip1 * self.fy_inv + ip2 * self.fy).div_255());
 
-        self.cur_x_pos += self.advance;
-
-        Some(res)
+        self.simd
+            .narrow_u16x16((ip1 * self.fy_inv + ip2 * self.fy).div_255())
     }
 }
 
-u8x16_painter!(PlainBilinearImagePainter<'_, S>);
+u8x16_painter!(
+    PlainBilinearImagePainter<'_, S>,
+    painter,
+    painter.data.plain_positions::<f32x4<S>>(painter.simd)
+);

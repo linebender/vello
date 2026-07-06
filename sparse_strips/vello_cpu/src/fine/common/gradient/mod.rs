@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::fine::{NumericVec, PosExt};
+use crate::fine::{NumericVec, PositionIterator};
 use crate::kurbo::Point;
 use crate::peniko;
 use core::slice::ChunksExact;
@@ -25,17 +25,14 @@ pub(crate) fn calculate_t_vals<S: Simd, U: SimdGradientKind<S>>(
     simd.vectorize(
         #[inline(always)]
         || {
-            let mut cur_pos = gradient.transform * Point::new(start_x, start_y);
-            let x_advances = (gradient.x_advance.x as f32, gradient.x_advance.y as f32);
-            let y_advances = (gradient.y_advance.x as f32, gradient.y_advance.y as f32);
+            let cur_pos = gradient.transform * Point::new(start_x, start_y);
+            let mut positions =
+                U::Positions::new(simd, cur_pos, gradient.x_advance, gradient.y_advance, 2.0);
 
             for buf_part in buf.chunks_exact_mut(8) {
-                let x_pos = f32x8::splat_pos(simd, cur_pos.x as f32, x_advances.0, y_advances.0);
-                let y_pos = f32x8::splat_pos(simd, cur_pos.y as f32, x_advances.1, y_advances.1);
-                let pos = kind.cur_pos(x_pos, y_pos);
+                let pos = kind.cur_pos(&positions);
                 pos.store_slice(buf_part);
-
-                cur_pos += 2.0 * gradient.x_advance;
+                positions.advance();
             }
         },
     );
@@ -247,5 +244,7 @@ pub(crate) fn apply_extend<S: Simd>(val: f32x8<S>, extend: peniko::Extend) -> f3
 }
 
 pub(crate) trait SimdGradientKind<S: Simd> {
-    fn cur_pos(&self, x_pos: f32x8<S>, y_pos: f32x8<S>) -> f32x8<S>;
+    type Positions: PositionIterator<S>;
+
+    fn cur_pos(&self, positions: &Self::Positions) -> f32x8<S>;
 }

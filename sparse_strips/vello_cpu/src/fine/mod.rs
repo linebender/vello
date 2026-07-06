@@ -14,11 +14,10 @@ mod lowp;
 use crate::coarse::depth::DepthBuffer;
 use crate::coarse::{CommandBucketer, LayerFillAttrs, RenderCmd, RowState};
 use crate::filter::context::ScratchBuffer;
-use crate::fine::common::gradient::GradientPainter;
-pub(crate) use crate::fine::common::gradient::calculate_t_vals;
 pub(crate) use crate::fine::common::gradient::linear::SimdLinearKind;
 pub(crate) use crate::fine::common::gradient::radial::SimdRadialKind;
 pub(crate) use crate::fine::common::gradient::sweep::SimdSweepKind;
+use crate::fine::common::gradient::{GradientPainter, calculate_t_vals};
 use crate::fine::common::image::{FilteredImagePainter, NNImagePainter, PlainNNImagePainter};
 use crate::fine::common::rounded_blurred_rect::BlurredRoundedRectFiller;
 use crate::peniko::{BlendMode, ImageQuality};
@@ -36,7 +35,7 @@ use vello_common::fearless_simd::{
     u32x8,
 };
 use vello_common::filter_effects::Filter;
-use vello_common::kurbo::Affine;
+use vello_common::kurbo::{Affine, Point, Vec2};
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, ImageSource, Paint, PremulColor, Tint};
 use vello_common::pixmap::Pixmap;
@@ -1127,6 +1126,103 @@ pub trait PosExt<S: Simd> {
     fn splat_pos(simd: S, pos: f32, x_advance: f32, y_advance: f32) -> Self;
 }
 
+pub(crate) trait PositionIterator<S: Simd>: Sized {
+    fn new(simd: S, pos: Point, x_advance: Vec2, y_advance: Vec2, step: f64) -> Self;
+
+    fn advance(&mut self);
+}
+
+#[derive(Debug)]
+pub(crate) struct PaintPositions<S: Simd, V> {
+    x_pos: V,
+    y_pos: V,
+    x_step: V,
+    y_step: V,
+    simd: core::marker::PhantomData<S>,
+}
+
+impl<S, V> PaintPositions<S, V>
+where
+    S: Simd,
+    V: PosExt<S> + SimdBase<S, Element = f32> + core::ops::AddAssign,
+{
+    pub(crate) fn new(simd: S, pos: Point, x_advance: Vec2, y_advance: Vec2, step: f64) -> Self {
+        simd.vectorize(|| Self {
+            x_pos: V::splat_pos(simd, pos.x as f32, x_advance.x as f32, y_advance.x as f32),
+            y_pos: V::splat_pos(simd, pos.y as f32, x_advance.y as f32, y_advance.y as f32),
+            x_step: V::splat(simd, (step * x_advance.x) as f32),
+            y_step: V::splat(simd, (step * x_advance.y) as f32),
+            simd: core::marker::PhantomData,
+        })
+    }
+
+    #[inline(always)]
+    pub(crate) fn current(&self) -> (V, V) {
+        (self.x_pos, self.y_pos)
+    }
+
+    #[inline(always)]
+    pub(crate) fn advance(&mut self) {
+        self.x_pos += self.x_step;
+        self.y_pos += self.y_step;
+    }
+}
+
+impl<S: Simd> PositionIterator<S> for PaintPositions<S, f32x8<S>> {
+    #[inline(always)]
+    fn new(simd: S, pos: Point, x_advance: Vec2, y_advance: Vec2, step: f64) -> Self {
+        Self::new(simd, pos, x_advance, y_advance, step)
+    }
+
+    #[inline(always)]
+    fn advance(&mut self) {
+        Self::advance(self);
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct PlainPaintPositions<S: Simd, V> {
+    pos: V,
+    step: V,
+    simd: core::marker::PhantomData<S>,
+}
+
+impl<S, V> PlainPaintPositions<S, V>
+where
+    S: Simd,
+    V: PosExt<S> + SimdBase<S, Element = f32> + core::ops::AddAssign,
+{
+    pub(crate) fn new(simd: S, pos: Point, x_advance: Vec2, y_advance: Vec2, step: f64) -> Self {
+        simd.vectorize(|| Self {
+            pos: V::splat_pos(simd, pos.x as f32, x_advance.x as f32, y_advance.x as f32),
+            step: V::splat(simd, (step * x_advance.x) as f32),
+            simd: core::marker::PhantomData,
+        })
+    }
+
+    #[inline(always)]
+    pub(crate) fn current(&self) -> V {
+        self.pos
+    }
+
+    #[inline(always)]
+    pub(crate) fn advance(&mut self) {
+        self.pos += self.step;
+    }
+}
+
+impl<S: Simd> PositionIterator<S> for PlainPaintPositions<S, f32x8<S>> {
+    #[inline(always)]
+    fn new(simd: S, pos: Point, x_advance: Vec2, y_advance: Vec2, step: f64) -> Self {
+        Self::new(simd, pos, x_advance, y_advance, step)
+    }
+
+    #[inline(always)]
+    fn advance(&mut self) {
+        Self::advance(self);
+    }
+}
+
 impl<S: Simd> PosExt<S> for f32x4<S> {
     #[inline(always)]
     fn splat_pos(simd: S, pos: f32, _: f32, y_advance: f32) -> Self {
@@ -1194,28 +1290,42 @@ mod macros {
     /// This macro generates both `paint_u8` and `paint_f32` methods, converting between
     /// formats as needed. Used for painters that work natively with high-precision f32 data.
     macro_rules! f32x16_painter {
-        ($($type_path:tt)+) => {
-            impl<S: Simd> crate::fine::Painter for $($type_path)+ {
-                fn paint_u8(mut self, buf: &mut [u8]) {
-                    use vello_common::fearless_simd::*;
+        ($type_path:ty, $painter:ident, $positions:expr) => {
+            impl<S: Simd> crate::fine::Painter for $type_path {
+                fn paint_u8(self, buf: &mut [u8]) {
                     use crate::fine::NumericVec;
+                    use vello_common::fearless_simd::*;
 
-                    self.simd.vectorize(#[inline(always)] || {
-                        for chunk in buf.chunks_exact_mut(16) {
-                            let next = self.next().unwrap();
-                            let converted = u8x16::<S>::from_f32(next.simd, next);
-                            converted.store_slice(chunk);
-                        }
-                    })
+                    let $painter = self;
+                    $painter.simd.vectorize(
+                        #[inline(always)]
+                        || {
+                            let mut positions = $positions;
+
+                            for chunk in buf.chunks_exact_mut(16) {
+                                let next = $painter.next(&positions);
+                                let converted = u8x16::<S>::from_f32(next.simd, next);
+                                converted.store_slice(chunk);
+                                positions.advance();
+                            }
+                        },
+                    )
                 }
 
-                fn paint_f32(mut self, buf: &mut [f32]) {
-                    self.simd.vectorize(#[inline(always)] || {
-                        for chunk in buf.chunks_exact_mut(16) {
-                            let next = self.next().unwrap();
-                            next.store_slice(chunk);
-                        }
-                    })
+                fn paint_f32(self, buf: &mut [f32]) {
+                    let $painter = self;
+                    $painter.simd.vectorize(
+                        #[inline(always)]
+                        || {
+                            let mut positions = $positions;
+
+                            for chunk in buf.chunks_exact_mut(16) {
+                                let next = $painter.next(&positions);
+                                next.store_slice(chunk);
+                                positions.advance();
+                            }
+                        },
+                    )
                 }
             }
         };
@@ -1226,28 +1336,42 @@ mod macros {
     /// This macro generates both `paint_u8` and `paint_f32` methods, converting between
     /// formats as needed. Used for painters that work natively with low-precision u8 data.
     macro_rules! u8x16_painter {
-        ($($type_path:tt)+) => {
-            impl<S: Simd> crate::fine::Painter for $($type_path)+ {
-                fn paint_u8(mut self, buf: &mut [u8]) {
-                    self.simd.vectorize(#[inline(always)] || {
-                        for chunk in buf.chunks_exact_mut(16) {
-                            let next = self.next().unwrap();
-                            next.store_slice(chunk);
-                        }
-                    })
+        ($type_path:ty, $painter:ident, $positions:expr) => {
+            impl<S: Simd> crate::fine::Painter for $type_path {
+                fn paint_u8(self, buf: &mut [u8]) {
+                    let $painter = self;
+                    $painter.simd.vectorize(
+                        #[inline(always)]
+                        || {
+                            let mut positions = $positions;
+
+                            for chunk in buf.chunks_exact_mut(16) {
+                                let next = $painter.next(&positions);
+                                next.store_slice(chunk);
+                                positions.advance();
+                            }
+                        },
+                    )
                 }
 
-                fn paint_f32(mut self, buf: &mut [f32]) {
-                    use vello_common::fearless_simd::*;
+                fn paint_f32(self, buf: &mut [f32]) {
                     use crate::fine::NumericVec;
+                    use vello_common::fearless_simd::*;
 
-                    self.simd.vectorize(#[inline(always)] || {
-                        for chunk in buf.chunks_exact_mut(16) {
-                            let next = self.next().unwrap();
-                            let converted = f32x16::<S>::from_u8(next.simd, next);
-                            converted.store_slice(chunk);
-                        }
-                    })
+                    let $painter = self;
+                    $painter.simd.vectorize(
+                        #[inline(always)]
+                        || {
+                            let mut positions = $positions;
+
+                            for chunk in buf.chunks_exact_mut(16) {
+                                let next = $painter.next(&positions);
+                                let converted = f32x16::<S>::from_u8(next.simd, next);
+                                converted.store_slice(chunk);
+                                positions.advance();
+                            }
+                        },
+                    )
                 }
             }
         };
