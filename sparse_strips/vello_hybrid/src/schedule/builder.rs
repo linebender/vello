@@ -3,18 +3,21 @@
 
 //! Round construction for the new hybrid scheduler.
 
+use super::allocate::{
+    FilterAllocationRequest, LayerAllocation, LayerAllocationRequest, LayerAtlasResource,
+};
 use super::draw::{Draw, DrawBuilder, LayerSample};
 use super::round::{BlendOp, FilterOp, Round, Rounds};
-use super::timeline::{ResourceAllocator, Timeline};
-use super::{LayerTextureRegion, LoadOp, RenderTarget, RootRenderTarget, ScratchRegion};
-use crate::filter::{FILTER_ATLAS_PADDING, GpuFilterData};
+use super::timeline::Timeline;
+use super::{LayerTextureRegion, LoadOp, RenderTarget, RootRenderTarget};
+use crate::filter::GpuFilterData;
 use crate::scene::RecordedDraw;
 use crate::{RenderError, Scene};
 use alloc::vec::Vec;
 use vello_common::encode::EncodedPaint;
 use vello_common::filter::PreparedFilter;
 use vello_common::geometry::RectU16;
-use vello_common::multi_atlas::{AllocId, Atlas, AtlasError, AtlasId};
+use vello_common::multi_atlas::AtlasError;
 use vello_common::peniko::{BlendMode, Compose};
 use vello_common::record::{Drawable, RecordedCmd, RecordedLayerKind};
 use vello_common::strip_generator::StripStorage;
@@ -278,7 +281,11 @@ impl<'a> ScheduleBuilder<'a> {
                     RootRenderTarget::AtlasLayer => RootRenderTarget::AtlasLayerFromLayer0,
                     other => other,
                 };
-                rounds.rounds[ready_round].push_pass(RenderTarget::Root(final_target), draw, LoadOp::Load);
+                rounds.rounds[ready_round].push_pass(
+                    RenderTarget::Root(final_target),
+                    draw,
+                    LoadOp::Load,
+                );
             }
             rounds.rounds[ready_round]
                 .layer_clears
@@ -449,11 +456,7 @@ impl<'a> ScheduleBuilder<'a> {
         let draw = state.take_draw();
         if !draw.is_empty() {
             self.ensure_round_exists(state.round_idx, rounds);
-            rounds.rounds[state.round_idx].push_pass(
-                state.target,
-                draw,
-                state.take_load_op(),
-            );
+            rounds.rounds[state.round_idx].push_pass(state.target, draw, state.take_load_op());
         }
 
         for layer_id in core::mem::take(&mut state.sampled_layers) {
@@ -488,31 +491,11 @@ impl<'a> ScheduleBuilder<'a> {
         bbox: RectU16,
         filter: Option<FilterAllocationRequest>,
     ) -> Result<LayerAllocation, RenderError> {
-        let width = bbox.width();
-        let height = bbox.height();
-        let padding = if filter.is_some() {
-            FILTER_ATLAS_PADDING
-        } else {
-            0
-        };
-        let allocation_width = u32::from(width).saturating_add(u32::from(padding) * 2);
-        let allocation_height = u32::from(height).saturating_add(u32::from(padding) * 2);
-        if allocation_width > self.layer_texture_size.0
-            || allocation_height > self.layer_texture_size.1
-        {
+        let request = LayerAllocationRequest::new(texture_index, bbox, filter);
+        if !request.fits_texture(self.layer_texture_size) {
             return Err(RenderError::AtlasError(AtlasError::NoSpaceAvailable));
         }
 
-        let request = LayerAllocationRequest {
-            texture_index,
-            bbox,
-            width,
-            height,
-            padding,
-            allocation_width,
-            allocation_height,
-            filter,
-        };
         let Some(scheduled) = self.timeline.allocate(request) else {
             return Err(RenderError::AtlasError(AtlasError::NoSpaceAvailable));
         };
@@ -585,190 +568,12 @@ fn ensure_round_exists(rounds: &mut Rounds, round_idx: usize) {
     }
 }
 
-#[derive(Debug)]
-struct LayerAtlasResource {
-    atlases: [Atlas; 2],
-    scratch_atlases: [Atlas; 2],
-}
-
-impl LayerAtlasResource {
-    fn new(layer_texture_size: (u32, u32)) -> Self {
-        Self {
-            atlases: [
-                Atlas::new(AtlasId::new(0), layer_texture_size.0, layer_texture_size.1),
-                Atlas::new(AtlasId::new(1), layer_texture_size.0, layer_texture_size.1),
-            ],
-            scratch_atlases: [
-                Atlas::new(AtlasId::new(0), layer_texture_size.0, layer_texture_size.1),
-                Atlas::new(AtlasId::new(1), layer_texture_size.0, layer_texture_size.1),
-            ],
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct LayerAllocationRequest {
-    texture_index: usize,
-    bbox: RectU16,
-    width: u16,
-    height: u16,
-    padding: u16,
-    allocation_width: u32,
-    allocation_height: u32,
-    filter: Option<FilterAllocationRequest>,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct FilterAllocationRequest {
-    scratch_count: usize,
-    filter_data_offset: u32,
-    gpu_filter: GpuFilterData,
-}
-
-impl ResourceAllocator for LayerAtlasResource {
-    type Request = LayerAllocationRequest;
-    type Allocation = LayerAllocation;
-
-    fn allocate(&mut self, request: Self::Request) -> Option<Self::Allocation> {
-        let padding = u32::from(request.padding);
-        let allocation = self.atlases[request.texture_index]
-            .allocate(request.allocation_width, request.allocation_height)?;
-        let mut scratch_allocations: [Option<ScratchAllocation>; 2] = [None, None];
-
-        if let Some(filter) = request.filter {
-            for (scratch_index, scratch) in scratch_allocations
-                .iter_mut()
-                .enumerate()
-                .take(filter.scratch_count)
-            {
-                let Some(allocation) = self.scratch_atlases[scratch_index]
-                    .allocate(request.allocation_width, request.allocation_height)
-                else {
-                    for (allocated_index, allocated_scratch) in
-                        scratch_allocations.iter().enumerate()
-                    {
-                        if let Some(allocated_scratch) = allocated_scratch {
-                            self.scratch_atlases[allocated_index].deallocate(
-                                allocated_scratch.alloc_id,
-                                allocated_scratch.allocation_width,
-                                allocated_scratch.allocation_height,
-                            );
-                        }
-                    }
-                    self.atlases[request.texture_index].deallocate(
-                        allocation.id,
-                        request.allocation_width,
-                        request.allocation_height,
-                    );
-                    return None;
-                };
-                *scratch = Some(ScratchAllocation {
-                    region: ScratchRegion {
-                        texture_index: scratch_index,
-                        rect: RectU16::new(
-                            atlas_coord(allocation.x + padding),
-                            atlas_coord(allocation.y + padding),
-                            atlas_coord(allocation.x + padding + u32::from(request.width)),
-                            atlas_coord(allocation.y + padding + u32::from(request.height)),
-                        ),
-                    },
-                    clear_region: ScratchRegion {
-                        texture_index: scratch_index,
-                        rect: RectU16::new(
-                            atlas_coord(allocation.x),
-                            atlas_coord(allocation.y),
-                            atlas_coord(allocation.x + request.allocation_width),
-                            atlas_coord(allocation.y + request.allocation_height),
-                        ),
-                    },
-                    alloc_id: allocation.id,
-                    allocation_width: request.allocation_width,
-                    allocation_height: request.allocation_height,
-                });
-            }
-        }
-
-        Some(LayerAllocation {
-            region: LayerTextureRegion {
-                texture_index: request.texture_index,
-                x: atlas_coord(allocation.x + padding),
-                y: atlas_coord(allocation.y + padding),
-                width: request.width,
-                height: request.height,
-                scene_bbox: request.bbox,
-            },
-            clear_region: LayerTextureRegion {
-                texture_index: request.texture_index,
-                x: atlas_coord(allocation.x),
-                y: atlas_coord(allocation.y),
-                width: atlas_coord(request.allocation_width),
-                height: atlas_coord(request.allocation_height),
-                scene_bbox: request.bbox,
-            },
-            filter: request.filter.map(|filter| FilterAllocation {
-                scratches: scratch_allocations,
-                filter_data_offset: filter.filter_data_offset,
-                gpu_filter: filter.gpu_filter,
-            }),
-            round_idx: 0,
-            alloc_id: allocation.id,
-            allocation_width: request.allocation_width,
-            allocation_height: request.allocation_height,
-        })
-    }
-
-    fn release(&mut self, allocation: Self::Allocation) {
-        self.atlases[allocation.region.texture_index].deallocate(
-            allocation.alloc_id,
-            allocation.allocation_width,
-            allocation.allocation_height,
-        );
-        if let Some(filter) = allocation.filter {
-            for scratch in filter.scratches.into_iter().flatten() {
-                self.scratch_atlases[scratch.region.texture_index].deallocate(
-                    scratch.alloc_id,
-                    scratch.allocation_width,
-                    scratch.allocation_height,
-                );
-            }
-        }
-    }
-}
-
 /// A layer that has been scheduled and can be sampled by its parent.
 #[derive(Debug, Clone, Copy)]
 struct ScheduledLayer {
     allocation: LayerAllocation,
     sample: LayerSample,
     round_idx: usize,
-}
-
-/// A layer texture region plus the allocator handle needed to release it.
-#[derive(Debug, Clone, Copy)]
-struct LayerAllocation {
-    region: LayerTextureRegion,
-    clear_region: LayerTextureRegion,
-    filter: Option<FilterAllocation>,
-    round_idx: usize,
-    alloc_id: AllocId,
-    allocation_width: u32,
-    allocation_height: u32,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct FilterAllocation {
-    scratches: [Option<ScratchAllocation>; 2],
-    filter_data_offset: u32,
-    gpu_filter: GpuFilterData,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct ScratchAllocation {
-    region: ScratchRegion,
-    clear_region: ScratchRegion,
-    alloc_id: AllocId,
-    allocation_width: u32,
-    allocation_height: u32,
 }
 
 #[derive(Debug)]
@@ -894,10 +699,6 @@ fn empty_child_region_for_blend(bbox: RectU16) -> LayerTextureRegion {
         height: 0,
         scene_bbox: RectU16::new(bbox.x0, bbox.y0, bbox.x0, bbox.y0),
     }
-}
-
-fn atlas_coord(value: u32) -> u16 {
-    u16::try_from(value).expect("atlas coordinate must fit into u16")
 }
 
 fn layer_segment_has_batches(cmds: &[RecordedCmd], start: usize, end: usize) -> bool {

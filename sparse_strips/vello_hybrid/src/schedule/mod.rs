@@ -5,6 +5,7 @@
 //!
 //! This first slice supports root-level draws and regular property-less layers.
 
+mod allocate;
 mod builder;
 mod draw;
 mod round;

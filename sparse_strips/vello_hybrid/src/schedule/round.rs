@@ -54,12 +54,7 @@ pub(crate) struct BlendOp {
 }
 
 impl Round {
-    pub(super) fn push_pass(
-        &mut self,
-        target: RenderTarget,
-        draw: Draw,
-        load_op: LoadOp,
-    ) {
+    pub(super) fn push_pass(&mut self, target: RenderTarget, draw: Draw, load_op: LoadOp) {
         let pass = RenderPass {
             target,
             draw,
