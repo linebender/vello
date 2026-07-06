@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::fine::macros::{f32x16_painter, u8x16_painter};
-use crate::fine::{PosExt, Splat4thExt, u8_to_f32};
+use crate::fine::{PaintPositions, PlainPaintPositions, PosExt, Splat4thExt, u8_to_f32};
 use crate::kurbo::Point;
 use vello_common::encode::EncodedImage;
 use vello_common::fearless_simd::{Bytes, Simd, SimdBase, SimdFloat, f32x4, f32x16, u8x16, u32x4};
@@ -14,8 +14,6 @@ use vello_common::simd::element_wise_splat;
 pub(crate) struct PlainNNImagePainter<'a, S: Simd> {
     data: ImagePainterData<'a, S>,
     y_positions: f32x4<S>,
-    cur_x_pos: f32x4<S>,
-    advance: f32,
     simd: S,
 }
 
@@ -45,18 +43,9 @@ impl<'a, S: Simd> PlainNNImagePainter<'a, S> {
                     data.height_inv,
                 );
 
-                let cur_x_pos = f32x4::splat_pos(
-                    simd,
-                    data.cur_pos.x as f32,
-                    data.x_advances.0,
-                    data.y_advances.0,
-                );
-
                 Self {
                     data,
-                    advance: image.x_advance.x as f32,
                     y_positions,
-                    cur_x_pos,
                     simd,
                 }
             },
@@ -64,28 +53,26 @@ impl<'a, S: Simd> PlainNNImagePainter<'a, S> {
     }
 }
 
-impl<S: Simd> Iterator for PlainNNImagePainter<'_, S> {
-    type Item = u8x16<S>;
-
+impl<S: Simd> PlainNNImagePainter<'_, S> {
     #[inline(always)]
-    fn next(&mut self) -> Option<Self::Item> {
+    fn next(&self, positions: &PlainPaintPositions<S, f32x4<S>>) -> u8x16<S> {
         let x_pos = extend(
             self.simd,
-            self.cur_x_pos,
+            positions.current(),
             self.data.image.sampler.x_extend,
             self.data.width,
             self.data.width_inv,
         );
 
-        let samples = sample(self.simd, &self.data, x_pos, self.y_positions);
-
-        self.cur_x_pos += self.advance;
-
-        Some(samples)
+        sample(self.simd, &self.data, x_pos, self.y_positions)
     }
 }
 
-u8x16_painter!(PlainNNImagePainter<'_, S>);
+u8x16_painter!(
+    PlainNNImagePainter<'_, S>,
+    painter,
+    painter.data.plain_positions::<f32x4<S>>(painter.simd)
+);
 
 /// A painter for nearest-neighbor images with arbitrary transforms.
 #[derive(Debug)]
@@ -108,19 +95,14 @@ impl<'a, S: Simd> NNImagePainter<'a, S> {
     }
 }
 
-impl<S: Simd> Iterator for NNImagePainter<'_, S> {
-    type Item = u8x16<S>;
-
+impl<S: Simd> NNImagePainter<'_, S> {
     #[inline(always)]
-    fn next(&mut self) -> Option<Self::Item> {
+    fn next(&self, positions: &PaintPositions<S, f32x4<S>>) -> u8x16<S> {
+        let (x_positions, y_positions) = positions.current();
+
         let x_positions = extend(
             self.simd,
-            f32x4::splat_pos(
-                self.simd,
-                self.data.cur_pos.x as f32,
-                self.data.x_advances.0,
-                self.data.y_advances.0,
-            ),
+            x_positions,
             self.data.image.sampler.x_extend,
             self.data.width,
             self.data.width_inv,
@@ -128,26 +110,21 @@ impl<S: Simd> Iterator for NNImagePainter<'_, S> {
 
         let y_positions = extend(
             self.simd,
-            f32x4::splat_pos(
-                self.simd,
-                self.data.cur_pos.y as f32,
-                self.data.x_advances.1,
-                self.data.y_advances.1,
-            ),
+            y_positions,
             self.data.image.sampler.y_extend,
             self.data.height,
             self.data.height_inv,
         );
 
-        let samples = sample(self.simd, &self.data, x_positions, y_positions);
-
-        self.data.cur_pos += self.data.image.x_advance;
-
-        Some(samples)
+        sample(self.simd, &self.data, x_positions, y_positions)
     }
 }
 
-u8x16_painter!(NNImagePainter<'_, S>);
+u8x16_painter!(
+    NNImagePainter<'_, S>,
+    painter,
+    painter.data.positions::<f32x4<S>>(painter.simd)
+);
 
 /// A painter for images with bilinear or bicubic filtering.
 ///
@@ -178,24 +155,10 @@ impl<'a, S: Simd, const QUALITY: u8> FilteredImagePainter<'a, S, QUALITY> {
     }
 }
 
-impl<S: Simd, const QUALITY: u8> Iterator for FilteredImagePainter<'_, S, QUALITY> {
-    type Item = f32x16<S>;
-
+impl<S: Simd, const QUALITY: u8> FilteredImagePainter<'_, S, QUALITY> {
     #[inline(always)]
-    fn next(&mut self) -> Option<Self::Item> {
-        let x_positions = f32x4::splat_pos(
-            self.simd,
-            self.data.cur_pos.x as f32,
-            self.data.x_advances.0,
-            self.data.y_advances.0,
-        );
-
-        let y_positions = f32x4::splat_pos(
-            self.simd,
-            self.data.cur_pos.y as f32,
-            self.data.x_advances.1,
-            self.data.y_advances.1,
-        );
+    fn next(&self, positions: &PaintPositions<S, f32x4<S>>) -> f32x16<S> {
+        let (x_positions, y_positions) = positions.current();
 
         // We have two versions of filtering: `Medium` (bilinear filtering) and
         // `High` (bicubic filtering).
@@ -330,16 +293,22 @@ impl<S: Simd, const QUALITY: u8> Iterator for FilteredImagePainter<'_, S, QUALIT
             ),
         }
 
-        self.data.cur_pos += self.data.image.x_advance;
-
-        Some(interpolated_color)
+        interpolated_color
     }
 }
 
 // Bilinear
-f32x16_painter!(FilteredImagePainter<'_, S, 1>);
+f32x16_painter!(
+    FilteredImagePainter<'_, S, 1>,
+    painter,
+    painter.data.positions::<f32x4<S>>(painter.simd)
+);
 // Bicubic
-f32x16_painter!(FilteredImagePainter<'_, S, 2>);
+f32x16_painter!(
+    FilteredImagePainter<'_, S, 2>,
+    painter,
+    painter.data.positions::<f32x4<S>>(painter.simd)
+);
 
 /// Computes the positive fractional part of a value: `val - val.floor()`.
 ///
@@ -402,6 +371,34 @@ impl<'a, S: Simd> ImagePainterData<'a, S> {
                     height_inv,
                 }
             },
+        )
+    }
+
+    #[inline(always)]
+    pub(crate) fn positions<V>(&self, simd: S) -> PaintPositions<S, V>
+    where
+        V: PosExt<S> + SimdBase<S, Element = f32> + core::ops::AddAssign,
+    {
+        PaintPositions::new(
+            simd,
+            self.cur_pos,
+            self.image.x_advance,
+            self.image.y_advance,
+            1.0,
+        )
+    }
+
+    #[inline(always)]
+    pub(crate) fn plain_positions<V>(&self, simd: S) -> PlainPaintPositions<S, V>
+    where
+        V: PosExt<S> + SimdBase<S, Element = f32> + core::ops::AddAssign,
+    {
+        PlainPaintPositions::new(
+            simd,
+            self.cur_pos,
+            self.image.x_advance,
+            self.image.y_advance,
+            1.0,
         )
     }
 }

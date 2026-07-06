@@ -1,6 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use crate::fine::PaintPositions;
 use crate::fine::common::gradient::SimdGradientKind;
 use vello_common::encode::{FocalData, RadialKind};
 use vello_common::fearless_simd::{Simd, SimdBase, SimdFloat, f32x8};
@@ -55,8 +56,11 @@ impl<S: Simd> SimdRadialKind<S> {
 }
 
 impl<S: Simd> SimdGradientKind<S> for SimdRadialKind<S> {
+    type Positions = PaintPositions<S, f32x8<S>>;
+
     #[inline(always)]
-    fn cur_pos(&self, x_pos: f32x8<S>, y_pos: f32x8<S>) -> f32x8<S> {
+    fn cur_pos(&self, positions: &Self::Positions) -> f32x8<S> {
+        let (x_pos, y_pos) = positions.current();
         let simd = x_pos.simd;
 
         match &self.inner {

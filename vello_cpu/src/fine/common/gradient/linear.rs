@@ -1,6 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use crate::fine::PlainPaintPositions;
 use crate::fine::common::gradient::SimdGradientKind;
 use core::marker::PhantomData;
 use vello_common::encode::LinearKind;
@@ -21,8 +22,10 @@ impl<S: Simd> SimdLinearKind<S> {
 }
 
 impl<S: Simd> SimdGradientKind<S> for SimdLinearKind<S> {
+    type Positions = PlainPaintPositions<S, f32x8<S>>;
+
     #[inline(always)]
-    fn cur_pos(&self, x_pos: f32x8<S>, _: f32x8<S>) -> f32x8<S> {
-        x_pos
+    fn cur_pos(&self, positions: &Self::Positions) -> f32x8<S> {
+        positions.current()
     }
 }
