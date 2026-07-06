@@ -258,15 +258,15 @@ fn execute_schedule<R: RendererBackend>(
         scratch.clear_round();
 
         for texture_index in [1, 0] {
-            let layer_round = &round.layer_texture_rounds[texture_index];
+            let layer_round = &round.layer_passes[texture_index];
 
-            for pass in &layer_round.passes {
+            for pass in &layer_round.render_passes {
                 if pass.load_op == LoadOp::Load {
                     scratch.layer_draws[texture_index].append(&pass.draw);
                 }
             }
 
-            for pass in &layer_round.passes {
+            for pass in &layer_round.render_passes {
                 if pass.load_op != LoadOp::Load {
                     execute_pass(renderer, pass);
                 }
@@ -286,14 +286,11 @@ fn execute_schedule<R: RendererBackend>(
 
         execute_root_passes(renderer, &mut scratch.root_batch, &round.root_passes);
 
-        for texture_index in 0..round.layer_texture_rounds.len() {
-            renderer.blend(
-                &round.layer_texture_rounds[texture_index].blends,
-                texture_index,
-            );
+        for texture_index in 0..round.layer_passes.len() {
+            renderer.blend(&round.layer_passes[texture_index].blends, texture_index);
         }
-        clear_layer_regions(renderer, &round.clear_layer_regions);
-        clear_filter_scratch_regions(renderer, &round.clear_filter_scratch_regions);
+        clear_layer_regions(renderer, &round.layer_clears);
+        clear_filter_scratch_regions(renderer, &round.scratch_clears);
     }
 }
 
@@ -377,7 +374,7 @@ fn collect_direct_root_opaque(schedule: &Schedule) -> DirectRootOpaque {
     opaque
 }
 
-fn execute_pass<R: RendererBackend>(renderer: &mut R, pass: &round::RoundPass) {
+fn execute_pass<R: RendererBackend>(renderer: &mut R, pass: &round::RenderPass) {
     renderer.render_strips(
         &pass.draw.opaque,
         &pass.draw.alpha,
@@ -390,7 +387,7 @@ fn execute_pass<R: RendererBackend>(renderer: &mut R, pass: &round::RoundPass) {
 fn execute_root_passes<'a, R: RendererBackend>(
     renderer: &mut R,
     batch: &mut RootBatch,
-    root_passes: impl IntoIterator<Item = &'a round::RoundPass>,
+    root_passes: impl IntoIterator<Item = &'a round::RenderPass>,
 ) {
     for pass in root_passes {
         batch.push(pass, |target, draw| {
@@ -423,7 +420,7 @@ struct RootBatch {
 impl RootBatch {
     fn push(
         &mut self,
-        pass: &round::RoundPass,
+        pass: &round::RenderPass,
         mut flush: impl FnMut(RootRenderTarget, &RootBatchDraw),
     ) {
         let RenderTarget::Root(target) = pass.target else {

@@ -291,7 +291,7 @@ impl<'a> ScheduleBuilder<'a> {
                 schedule.rounds[ready_round].push_pass(RenderTarget::Root(final_target), draw);
             }
             schedule.rounds[ready_round]
-                .clear_layer_regions
+                .layer_clears
                 .push(allocation.region);
             self.release_allocation_after_round(allocation, ready_round, schedule);
         } else {
@@ -480,12 +480,12 @@ impl<'a> ScheduleBuilder<'a> {
 
         self.ensure_schedule_round_exists(round_idx, schedule);
         schedule.rounds[round_idx]
-            .clear_layer_regions
+            .layer_clears
             .push(scheduled_layer.allocation.clear_region);
         if let Some(filter) = scheduled_layer.allocation.filter {
             for scratch in filter.scratches.into_iter().flatten() {
                 schedule.rounds[round_idx]
-                    .clear_filter_scratch_regions
+                    .scratch_clears
                     .push(scratch.clear_region);
             }
         }

@@ -16,21 +16,21 @@ pub(super) struct Schedule {
 
 #[derive(Debug, Default)]
 pub(super) struct Round {
-    pub(super) root_passes: Vec<RoundPass>,
-    pub(super) layer_texture_rounds: [LayerTextureRound; 2],
-    pub(super) clear_layer_regions: Vec<LayerTextureRegion>,
-    pub(super) clear_filter_scratch_regions: Vec<FilterScratchRegion>,
+    pub(super) root_passes: Vec<RenderPass>,
+    pub(super) layer_passes: [LayerPass; 2],
+    pub(super) layer_clears: Vec<LayerTextureRegion>,
+    pub(super) scratch_clears: Vec<FilterScratchRegion>,
 }
 
 #[derive(Debug, Default)]
-pub(super) struct LayerTextureRound {
-    pub(super) passes: Vec<RoundPass>,
+pub(super) struct LayerPass {
+    pub(super) render_passes: Vec<RenderPass>,
     pub(super) filters: Vec<FilterOp>,
     pub(super) blends: Vec<BlendOp>,
 }
 
 #[derive(Debug)]
-pub(super) struct RoundPass {
+pub(super) struct RenderPass {
     pub(super) target: RenderTarget,
     pub(super) draw: Draw,
     pub(super) load_op: LoadOp,
@@ -64,7 +64,7 @@ impl Round {
         draw: Draw,
         load_op: LoadOp,
     ) {
-        let pass = RoundPass {
+        let pass = RenderPass {
             target,
             draw,
             load_op,
@@ -73,21 +73,21 @@ impl Round {
         match target {
             RenderTarget::Root(_) => self.root_passes.push(pass),
             RenderTarget::Layer(region) => {
-                self.layer_texture_rounds[region.texture_index]
-                    .passes
+                self.layer_passes[region.texture_index]
+                    .render_passes
                     .push(pass);
             }
         }
     }
 
     pub(super) fn push_blend(&mut self, blend: BlendOp) {
-        self.layer_texture_rounds[blend.parent.texture_index]
+        self.layer_passes[blend.parent.texture_index]
             .blends
             .push(blend);
     }
 
     pub(super) fn push_filter(&mut self, filter: FilterOp) {
-        self.layer_texture_rounds[filter.layer.texture_index]
+        self.layer_passes[filter.layer.texture_index]
             .filters
             .push(filter);
     }
