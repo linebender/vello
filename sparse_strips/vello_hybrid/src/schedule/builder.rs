@@ -351,8 +351,14 @@ impl<'a> ScheduleBuilder<'a> {
         let parent_ready_round = self.flush_stream_segment(state, rounds);
         let source_bbox = layer.sample.bbox;
         let blend_round = parent_ready_round.max(layer.round_idx);
-        let bbox = blend_affected_bbox(state.backdrop_bbox, source_bbox, blend_mode.compose)
-            .intersect(state.target.layer_region().scene_bbox);
+        let affected_bbox = if blend_mode.is_destructive() {
+            let mut bbox = state.backdrop_bbox;
+            bbox.union(source_bbox);
+            bbox
+        } else {
+            source_bbox
+        };
+        let bbox = affected_bbox.intersect(state.target.layer_region().scene_bbox);
         if bbox.is_empty() {
             self.consume_child_layer(layer_id, blend_round, rounds);
             state.round_idx = state.round_idx.max(blend_round);
@@ -368,8 +374,12 @@ impl<'a> ScheduleBuilder<'a> {
             opacity,
         });
         self.consume_child_layer(layer_id, blend_round, rounds);
-        state.backdrop_bbox =
-            blend_result_bbox(state.backdrop_bbox, source_bbox, blend_mode.compose);
+        state.backdrop_bbox = match blend_mode.compose {
+            Compose::Clear => RectU16::INVERTED,
+            Compose::Copy | Compose::SrcOut => source_bbox,
+            Compose::SrcIn | Compose::DestIn => state.backdrop_bbox.intersect(source_bbox),
+            _ => affected_bbox,
+        };
         state.round_idx = blend_round + 1;
     }
 
@@ -381,8 +391,12 @@ impl<'a> ScheduleBuilder<'a> {
         rounds: &mut Rounds,
     ) {
         let parent_ready_round = self.flush_stream_segment(state, rounds);
-        let bbox = blend_affected_bbox(state.backdrop_bbox, RectU16::INVERTED, blend_mode.compose)
-            .intersect(state.target.layer_region().scene_bbox);
+        let affected_bbox = if blend_mode.is_destructive() {
+            state.backdrop_bbox
+        } else {
+            RectU16::INVERTED
+        };
+        let bbox = affected_bbox.intersect(state.target.layer_region().scene_bbox);
         if bbox.is_empty() {
             return;
         }
@@ -395,8 +409,10 @@ impl<'a> ScheduleBuilder<'a> {
             blend_mode,
             opacity,
         });
-        state.backdrop_bbox =
-            blend_result_bbox(state.backdrop_bbox, RectU16::INVERTED, blend_mode.compose);
+        state.backdrop_bbox = match blend_mode.compose {
+            Compose::Clear | Compose::Copy | Compose::SrcIn | Compose::SrcOut => RectU16::INVERTED,
+            _ => affected_bbox,
+        };
         state.round_idx = parent_ready_round + 1;
     }
 
@@ -706,36 +722,6 @@ fn layer_texture_order(texture_index: usize) -> usize {
         0 => 1,
         _ => texture_index,
     }
-}
-
-fn blend_affected_bbox(backdrop_bbox: RectU16, source_bbox: RectU16, compose: Compose) -> RectU16 {
-    match compose {
-        Compose::Clear
-        | Compose::Copy
-        | Compose::SrcIn
-        | Compose::SrcOut
-        | Compose::DestIn
-        | Compose::DestAtop => union_bbox(backdrop_bbox, source_bbox),
-        _ => source_bbox,
-    }
-}
-
-fn blend_result_bbox(backdrop_bbox: RectU16, source_bbox: RectU16, compose: Compose) -> RectU16 {
-    match compose {
-        Compose::Clear => RectU16::INVERTED,
-        Compose::Copy => source_bbox,
-        Compose::SrcIn | Compose::DestIn => backdrop_bbox.intersect(source_bbox),
-        Compose::SrcOut => source_bbox,
-        Compose::Dest => backdrop_bbox,
-        Compose::DestOut => backdrop_bbox,
-        Compose::DestAtop => union_bbox(backdrop_bbox, source_bbox),
-        _ => union_bbox(backdrop_bbox, source_bbox),
-    }
-}
-
-fn union_bbox(mut a: RectU16, b: RectU16) -> RectU16 {
-    a.union(b);
-    a
 }
 
 fn empty_child_region_for_blend(bbox: RectU16) -> LayerTextureRegion {
