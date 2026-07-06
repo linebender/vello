@@ -11,14 +11,14 @@ use vello_common::multi_atlas::{AllocId, Atlas, AtlasId};
 
 #[derive(Debug)]
 pub(super) struct Atlases {
-    atlases: [Atlas; 2],
+    layer_atlases: [Atlas; 2],
     scratch_atlases: [Atlas; 2],
 }
 
 impl Atlases {
     pub(super) fn new(texture_size: (u32, u32)) -> Self {
         Self {
-            atlases: [
+            layer_atlases: [
                 Atlas::new(AtlasId::new(0), texture_size.0, texture_size.1),
                 Atlas::new(AtlasId::new(1), texture_size.0, texture_size.1),
             ],
@@ -37,26 +37,18 @@ pub(super) struct LayerAllocationRequest {
     width: u16,
     height: u16,
     padding: u16,
-    allocation_width: u32,
-    allocation_height: u32,
-    filter: Option<FilterAllocationRequest>,
+    scratch_count: usize,
 }
 
 impl LayerAllocationRequest {
-    pub(super) fn new(
-        texture_index: usize,
-        bbox: RectU16,
-        filter: Option<FilterAllocationRequest>,
-    ) -> Self {
+    pub(super) fn new(texture_index: usize, bbox: RectU16, scratch_count: usize) -> Self {
         let width = bbox.width();
         let height = bbox.height();
-        let padding = if filter.is_some() {
+        let padding = if scratch_count > 0 {
             FILTER_ATLAS_PADDING
         } else {
             0
         };
-        let allocation_width = u32::from(width).saturating_add(u32::from(padding) * 2);
-        let allocation_height = u32::from(height).saturating_add(u32::from(padding) * 2);
 
         Self {
             texture_index,
@@ -64,21 +56,22 @@ impl LayerAllocationRequest {
             width,
             height,
             padding,
-            allocation_width,
-            allocation_height,
-            filter,
+            scratch_count,
         }
     }
 
     pub(super) fn fits_texture(self, layer_texture_size: (u32, u32)) -> bool {
-        self.allocation_width <= layer_texture_size.0
-            && self.allocation_height <= layer_texture_size.1
+        u32::from(self.allocation_width()) <= layer_texture_size.0
+            && u32::from(self.allocation_height()) <= layer_texture_size.1
     }
-}
 
-#[derive(Debug, Clone, Copy)]
-pub(super) struct FilterAllocationRequest {
-    pub(super) scratch_count: usize,
+    fn allocation_width(self) -> u16 {
+        self.width + self.padding * 2
+    }
+
+    fn allocation_height(self) -> u16 {
+        self.height + self.padding * 2
+    }
 }
 
 impl ResourceAllocator for Atlases {
@@ -87,18 +80,20 @@ impl ResourceAllocator for Atlases {
 
     fn allocate(&mut self, request: Self::Request) -> Option<Self::Allocation> {
         let padding = u32::from(request.padding);
-        let allocation = self.atlases[request.texture_index]
-            .allocate(request.allocation_width, request.allocation_height)?;
+        let allocation_width = u32::from(request.allocation_width());
+        let allocation_height = u32::from(request.allocation_height());
+        let allocation = self.layer_atlases[request.texture_index]
+            .allocate(allocation_width, allocation_height)?;
         let mut scratch_allocations: [Option<ScratchAllocation>; 2] = [None, None];
 
-        if let Some(filter) = request.filter {
+        if request.scratch_count > 0 {
             for (scratch_index, scratch) in scratch_allocations
                 .iter_mut()
                 .enumerate()
-                .take(filter.scratch_count)
+                .take(request.scratch_count)
             {
                 let Some(allocation) = self.scratch_atlases[scratch_index]
-                    .allocate(request.allocation_width, request.allocation_height)
+                    .allocate(allocation_width, allocation_height)
                 else {
                     for (allocated_index, allocated_scratch) in
                         scratch_allocations.iter().enumerate()
@@ -113,10 +108,10 @@ impl ResourceAllocator for Atlases {
                             );
                         }
                     }
-                    self.atlases[request.texture_index].deallocate(
+                    self.layer_atlases[request.texture_index].deallocate(
                         allocation.id,
-                        request.allocation_width,
-                        request.allocation_height,
+                        allocation_width,
+                        allocation_height,
                     );
                     return None;
                 };
@@ -153,7 +148,7 @@ impl ResourceAllocator for Atlases {
                 texture,
                 scene_bbox: request.bbox,
             },
-            filter: request.filter.map(|_| scratch_allocations),
+            filter: (request.scratch_count > 0).then_some(scratch_allocations),
             round_idx: 0,
             alloc_id: allocation.id,
             texture: AllocatedTextureRegion::new(texture, request.padding),
@@ -162,7 +157,7 @@ impl ResourceAllocator for Atlases {
 
     fn release(&mut self, allocation: Self::Allocation) {
         let (allocation_width, allocation_height) = allocation.texture.allocation_size();
-        self.atlases[allocation.region.texture.texture_index].deallocate(
+        self.layer_atlases[allocation.region.texture.texture_index].deallocate(
             allocation.alloc_id,
             allocation_width,
             allocation_height,

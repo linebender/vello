@@ -3,9 +3,7 @@
 
 //! Round construction for the new hybrid scheduler.
 
-use super::allocate::{
-    FilterAllocationRequest, LayerAllocation, LayerAllocationRequest, Atlases,
-};
+use super::allocate::{Atlases, LayerAllocation, LayerAllocationRequest};
 use super::draw::{Draw, DrawBuilder, LayerSample};
 use super::round::{BlendOp, FilterOp, Round, Rounds};
 use super::timeline::Timeline;
@@ -205,7 +203,7 @@ impl<'a> ScheduleBuilder<'a> {
         let allocation = self.allocate_region(
             texture_index,
             bbox,
-            filter.map(|filter| filter.allocation_request()),
+            filter.map_or(0, ScheduledFilter::scratch_count),
         )?;
         let stream = CommandStreamState::new(
             RenderTarget::Layer(allocation.region),
@@ -256,7 +254,7 @@ impl<'a> ScheduleBuilder<'a> {
                 return Ok(());
             }
 
-            let allocation = self.allocate_region(0, bbox, None)?;
+            let allocation = self.allocate_region(0, bbox, 0)?;
             let target = RenderTarget::Layer(allocation.region);
             let ready_round = self.schedule_command_stream_with_load(
                 cmds,
@@ -503,9 +501,9 @@ impl<'a> ScheduleBuilder<'a> {
         &mut self,
         texture_index: usize,
         bbox: RectU16,
-        filter: Option<FilterAllocationRequest>,
+        scratch_count: usize,
     ) -> Result<LayerAllocation, RenderError> {
-        let request = LayerAllocationRequest::new(texture_index, bbox, filter);
+        let request = LayerAllocationRequest::new(texture_index, bbox, scratch_count);
         if !request.fits_texture(self.layer_texture_size) {
             return Err(RenderError::AtlasError(AtlasError::NoSpaceAvailable));
         }
@@ -607,13 +605,11 @@ struct ScheduledFilter {
 }
 
 impl ScheduledFilter {
-    fn allocation_request(self) -> FilterAllocationRequest {
-        FilterAllocationRequest {
-            scratch_count: if self.gpu_filter.is_multi_pass() {
-                2
-            } else {
-                1
-            },
+    fn scratch_count(self) -> usize {
+        if self.gpu_filter.is_multi_pass() {
+            2
+        } else {
+            1
         }
     }
 }

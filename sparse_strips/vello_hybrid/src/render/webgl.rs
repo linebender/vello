@@ -73,7 +73,7 @@ use vello_common::{
     pixmap::Pixmap,
     tile::Tile,
 };
-use vello_sparse_shaders::{blend, copy, filters, render_strips};
+use vello_sparse_shaders::{blend, copy, filter as filter_shader, render};
 #[cfg(feature = "probe")]
 use web_sys::WebGlSync;
 use web_sys::wasm_bindgen::{JsCast, JsValue};
@@ -1259,13 +1259,13 @@ impl WebGlResources {
 impl WebGlPrograms {
     /// Creates programs and initializes resources.
     fn new(gl: WebGl2RenderingContext, image_cache: &ImageCache) -> Self {
-        let strip_program = create_shader_program(
+        let strip_program =
+            create_shader_program(&gl, render::VERTEX_SOURCE, render::FRAGMENT_SOURCE);
+        let filter_program = create_shader_program(
             &gl,
-            render_strips::VERTEX_SOURCE,
-            render_strips::FRAGMENT_SOURCE,
+            filter_shader::VERTEX_SOURCE,
+            filter_shader::FRAGMENT_SOURCE,
         );
-        let filter_program =
-            create_shader_program(&gl, filters::VERTEX_SOURCE, filters::FRAGMENT_SOURCE);
         let filter_uniforms = get_filter_pass_uniforms(&gl, &filter_program);
         let blend_program =
             create_shader_program(&gl, blend::VERTEX_SOURCE, blend::FRAGMENT_SOURCE);
@@ -2145,10 +2145,10 @@ fn create_shader_program(
 
 /// Get the  uniform locations for the `render_strips` program.
 fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &Program) -> StripUniforms {
-    let config_vs_name = render_strips::vertex::CONFIG;
+    let config_vs_name = render::vertex::CONFIG;
     let config_vs_block_index = gl.get_uniform_block_index(program, config_vs_name);
 
-    let config_fs_name = render_strips::fragment::CONFIG;
+    let config_fs_name = render::fragment::CONFIG;
     let config_fs_block_index = gl.get_uniform_block_index(program, config_fs_name);
 
     debug_assert_ne!(
@@ -2167,13 +2167,13 @@ fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &Program) -> StripUn
     gl.uniform_block_binding(program, config_fs_block_index, 0);
 
     // Get texture uniform locations.
-    let alphas_texture_name = render_strips::fragment::ALPHAS_TEXTURE;
-    let layer_input_texture_name = render_strips::fragment::LAYER_INPUT_TEXTURE;
-    let atlas_texture_array_name = render_strips::fragment::ATLAS_TEXTURE_ARRAY;
-    let encoded_paints_texture_fs_name = render_strips::fragment::ENCODED_PAINTS_TEXTURE;
-    let encoded_paints_texture_vs_name = render_strips::vertex::ENCODED_PAINTS_TEXTURE;
-    let gradient_texture_name = render_strips::fragment::GRADIENT_TEXTURE;
-    let external_texture_name = render_strips::fragment::EXTERNAL_TEXTURE;
+    let alphas_texture_name = render::fragment::ALPHAS_TEXTURE;
+    let layer_input_texture_name = render::fragment::LAYER_INPUT_TEXTURE;
+    let atlas_texture_array_name = render::fragment::ATLAS_TEXTURE_ARRAY;
+    let encoded_paints_texture_fs_name = render::fragment::ENCODED_PAINTS_TEXTURE;
+    let encoded_paints_texture_vs_name = render::vertex::ENCODED_PAINTS_TEXTURE;
+    let gradient_texture_name = render::fragment::GRADIENT_TEXTURE;
+    let external_texture_name = render::fragment::EXTERNAL_TEXTURE;
 
     StripUniforms {
         config_vs_block_index,
@@ -2204,16 +2204,16 @@ fn get_strip_uniforms(gl: &WebGl2RenderingContext, program: &Program) -> StripUn
 
 fn get_filter_pass_uniforms(gl: &WebGl2RenderingContext, program: &Program) -> FilterPassUniforms {
     let filter_data = gl
-        .get_uniform_location(program, filters::fragment::FILTER_DATA)
+        .get_uniform_location(program, filter_shader::fragment::FILTER_DATA)
         .unwrap();
     let in_tex = gl
-        .get_uniform_location(program, filters::fragment::IN_TEX)
+        .get_uniform_location(program, filter_shader::fragment::IN_TEX)
         .unwrap();
     let layer_texture_0 = gl
-        .get_uniform_location(program, filters::fragment::LAYER_TEXTURE_0)
+        .get_uniform_location(program, filter_shader::fragment::LAYER_TEXTURE_0)
         .unwrap();
     let layer_texture_1 = gl
-        .get_uniform_location(program, filters::fragment::LAYER_TEXTURE_1)
+        .get_uniform_location(program, filter_shader::fragment::LAYER_TEXTURE_1)
         .unwrap();
     FilterPassUniforms {
         filter_data,
