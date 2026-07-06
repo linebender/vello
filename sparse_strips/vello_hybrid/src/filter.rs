@@ -6,7 +6,7 @@
 // Filter layers are recorded as normal layers with an attached filter description. During schedule
 // building, the layer is allocated in one of the two layer atlas textures with enough space for the
 // expanded filter bounds rather than only the raw layer contents. Multi-pass filters also reserve
-// regions in the two filter scratch textures used for ping-ponging.
+// regions in the two scratch textures used for ping-ponging.
 //
 // At render time, each round first renders the layer contents into the allocated layer texture
 // region. Before that layer is blended or sampled by its parent, the filter step runs over all
@@ -22,7 +22,7 @@
 //! GPU filter types and conversion utilities.
 
 use crate::copy::{GpuCopyInstance, pack_u16_pair};
-use crate::schedule::{FilterOp, FilterScratchRegion, TextureTarget};
+use crate::schedule::{FilterOp, ScratchRegion, TextureTarget};
 use crate::util::{IntRect, IntSize};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
@@ -482,7 +482,7 @@ impl<'a> FilterPassBuilder<'a> {
         }
     }
 
-    fn scratch_region(&self, index: usize) -> FilterScratchRegion {
+    fn scratch_region(&self, index: usize) -> ScratchRegion {
         self.op.scratches[index].expect("filter pass requires allocated scratch region")
     }
 

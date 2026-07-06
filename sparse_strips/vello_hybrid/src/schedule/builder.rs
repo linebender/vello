@@ -6,7 +6,7 @@
 use super::draw::{Draw, DrawBuilder, LayerSample};
 use super::round::{BlendOp, FilterOp, Round, Schedule};
 use super::timeline::{ResourceAllocator, Timeline};
-use super::{FilterScratchRegion, LayerTextureRegion, LoadOp, RenderTarget, RootRenderTarget};
+use super::{LayerTextureRegion, LoadOp, RenderTarget, RootRenderTarget, ScratchRegion};
 use crate::filter::{FILTER_ATLAS_PADDING, GpuFilterData};
 use crate::scene::RecordedDraw;
 use crate::{RenderError, Scene};
@@ -607,7 +607,7 @@ fn ensure_schedule_round_exists(schedule: &mut Schedule, round_idx: usize) {
 #[derive(Debug)]
 struct LayerAtlasResource {
     atlases: [Atlas; 2],
-    filter_scratch_atlases: [Atlas; 2],
+    scratch_atlases: [Atlas; 2],
 }
 
 impl LayerAtlasResource {
@@ -617,7 +617,7 @@ impl LayerAtlasResource {
                 Atlas::new(AtlasId::new(0), layer_texture_size.0, layer_texture_size.1),
                 Atlas::new(AtlasId::new(1), layer_texture_size.0, layer_texture_size.1),
             ],
-            filter_scratch_atlases: [
+            scratch_atlases: [
                 Atlas::new(AtlasId::new(0), layer_texture_size.0, layer_texture_size.1),
                 Atlas::new(AtlasId::new(1), layer_texture_size.0, layer_texture_size.1),
             ],
@@ -652,7 +652,7 @@ impl ResourceAllocator for LayerAtlasResource {
         let padding = request.filter.map_or(0, |filter| u32::from(filter.padding));
         let allocation = self.atlases[request.texture_index]
             .allocate(request.allocation_width, request.allocation_height)?;
-        let mut scratch_allocations: [Option<FilterScratchAllocation>; 2] = [None, None];
+        let mut scratch_allocations: [Option<ScratchAllocation>; 2] = [None, None];
 
         if let Some(filter) = request.filter {
             for (scratch_index, scratch) in scratch_allocations
@@ -660,14 +660,14 @@ impl ResourceAllocator for LayerAtlasResource {
                 .enumerate()
                 .take(filter.scratch_count)
             {
-                let Some(allocation) = self.filter_scratch_atlases[scratch_index]
+                let Some(allocation) = self.scratch_atlases[scratch_index]
                     .allocate(request.allocation_width, request.allocation_height)
                 else {
                     for (allocated_index, allocated_scratch) in
                         scratch_allocations.iter().enumerate()
                     {
                         if let Some(allocated_scratch) = allocated_scratch {
-                            self.filter_scratch_atlases[allocated_index].deallocate(
+                            self.scratch_atlases[allocated_index].deallocate(
                                 allocated_scratch.alloc_id,
                                 allocated_scratch.allocation_width,
                                 allocated_scratch.allocation_height,
@@ -681,15 +681,15 @@ impl ResourceAllocator for LayerAtlasResource {
                     );
                     return None;
                 };
-                *scratch = Some(FilterScratchAllocation {
-                    region: FilterScratchRegion {
+                *scratch = Some(ScratchAllocation {
+                    region: ScratchRegion {
                         texture_index: scratch_index,
                         x: atlas_coord(allocation.x + padding),
                         y: atlas_coord(allocation.y + padding),
                         width: request.width,
                         height: request.height,
                     },
-                    clear_region: FilterScratchRegion {
+                    clear_region: ScratchRegion {
                         texture_index: scratch_index,
                         x: atlas_coord(allocation.x),
                         y: atlas_coord(allocation.y),
@@ -740,7 +740,7 @@ impl ResourceAllocator for LayerAtlasResource {
         );
         if let Some(filter) = allocation.filter {
             for scratch in filter.scratches.into_iter().flatten() {
-                self.filter_scratch_atlases[scratch.region.texture_index].deallocate(
+                self.scratch_atlases[scratch.region.texture_index].deallocate(
                     scratch.alloc_id,
                     scratch.allocation_width,
                     scratch.allocation_height,
@@ -772,15 +772,15 @@ struct LayerAllocation {
 
 #[derive(Debug, Clone, Copy)]
 struct FilterAllocation {
-    scratches: [Option<FilterScratchAllocation>; 2],
+    scratches: [Option<ScratchAllocation>; 2],
     filter_data_offset: u32,
     gpu_filter: GpuFilterData,
 }
 
 #[derive(Debug, Clone, Copy)]
-struct FilterScratchAllocation {
-    region: FilterScratchRegion,
-    clear_region: FilterScratchRegion,
+struct ScratchAllocation {
+    region: ScratchRegion,
+    clear_region: ScratchRegion,
     alloc_id: AllocId,
     allocation_width: u32,
     allocation_height: u32,

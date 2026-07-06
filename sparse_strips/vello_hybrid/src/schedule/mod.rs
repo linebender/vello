@@ -99,9 +99,9 @@ pub(crate) struct LayerTextureRegion {
     pub(crate) scene_bbox: RectU16,
 }
 
-/// A rectangular region in one of the filter scratch textures.
+/// A rectangular region in one of the scratch textures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct FilterScratchRegion {
+pub(crate) struct ScratchRegion {
     /// Scratch texture index, currently `0` or `1`.
     pub(crate) texture_index: usize,
     /// X coordinate in the scratch texture.
@@ -290,7 +290,7 @@ fn execute_schedule<R: RendererBackend>(
             renderer.blend(&round.layer_passes[texture_index].blends, texture_index);
         }
         clear_layer_regions(renderer, &round.layer_clears);
-        clear_filter_scratch_regions(renderer, &round.scratch_clears);
+        clear_scratch_regions(renderer, &round.scratch_clears);
     }
 }
 
@@ -313,10 +313,7 @@ fn clear_layer_regions<R: RendererBackend>(renderer: &mut R, regions: &[LayerTex
     }
 }
 
-fn clear_filter_scratch_regions<R: RendererBackend>(
-    renderer: &mut R,
-    regions: &[FilterScratchRegion],
-) {
+fn clear_scratch_regions<R: RendererBackend>(renderer: &mut R, regions: &[ScratchRegion]) {
     let Some(max_texture_index) = regions.iter().map(|region| region.texture_index).max() else {
         return;
     };

@@ -3,7 +3,7 @@
 
 //! Concrete round representation for the new hybrid scheduler.
 
-use super::{Draw, FilterScratchRegion, LayerTextureRegion, LoadOp, RenderTarget};
+use super::{Draw, LayerTextureRegion, LoadOp, RenderTarget, ScratchRegion};
 use crate::filter::GpuFilterData;
 use alloc::vec::Vec;
 use vello_common::geometry::RectU16;
@@ -19,7 +19,7 @@ pub(super) struct Round {
     pub(super) root_passes: Vec<RenderPass>,
     pub(super) layer_passes: [LayerPass; 2],
     pub(super) layer_clears: Vec<LayerTextureRegion>,
-    pub(super) scratch_clears: Vec<FilterScratchRegion>,
+    pub(super) scratch_clears: Vec<ScratchRegion>,
 }
 
 #[derive(Debug, Default)]
@@ -39,7 +39,7 @@ pub(super) struct RenderPass {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FilterOp {
     pub(crate) layer: LayerTextureRegion,
-    pub(crate) scratches: [Option<FilterScratchRegion>; 2],
+    pub(crate) scratches: [Option<ScratchRegion>; 2],
     pub(crate) filter_data_offset: u32,
     pub(crate) gpu_filter: GpuFilterData,
 }

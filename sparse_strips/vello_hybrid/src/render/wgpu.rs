@@ -1018,11 +1018,11 @@ struct GpuResources {
     /// Filter bind group for sampling original layer atlas textures.
     filter_layer_textures_bind_group: BindGroup,
     /// Scratch texture slots used for filter ping-ponging and blend scratch.
-    filter_scratch_textures: [IntermediateTexture; 2],
+    scratch_textures: [IntermediateTexture; 2],
     /// Dummy scratch texture used when creating fixed-shape bind groups.
     dummy_scratch_texture: WgpuIntermediateTexture,
     /// Filter bind groups for sampling scratch textures.
-    filter_scratch_input_bind_groups: [BindGroup; 2],
+    scratch_input_bind_groups: [BindGroup; 2],
 
     /// Bind group for blend operations that sample layer atlas textures.
     blend_layer_bind_group: BindGroup,
@@ -1066,7 +1066,7 @@ impl GpuResources {
 
     fn scratch_binding_view(&self, index: usize) -> &WgpuTextureView {
         if self.real_scratch_textures[index] {
-            &self.filter_scratch_textures[index]
+            &self.scratch_textures[index]
                 .as_ref()
                 .expect("vello_hybrid attempted to use a missing scratch texture")
                 .view
@@ -1083,7 +1083,7 @@ impl GpuResources {
     }
 
     fn scratch_view(&self, index: usize) -> &WgpuTextureView {
-        &self.filter_scratch_textures[index]
+        &self.scratch_textures[index]
             .as_ref()
             .expect("vello_hybrid attempted to use a missing scratch texture")
             .view
@@ -1108,7 +1108,7 @@ impl GpuResources {
                 .enumerate()
                 .all(|(index, texture)| texture.is_some() == requirements.layer_textures[index])
             && self
-                .filter_scratch_textures
+                .scratch_textures
                 .iter()
                 .enumerate()
                 .all(|(index, texture)| texture.is_some() == requirements.scratch_textures[index])
@@ -1690,12 +1690,12 @@ impl Programs {
             &filter_input_bind_group_layouts[1],
             layer_binding_views,
         );
-        let filter_scratch_textures: [IntermediateTexture; 2] = core::array::from_fn(|_| None);
+        let scratch_textures: [IntermediateTexture; 2] = core::array::from_fn(|_| None);
         let dummy_scratch_texture = WgpuIntermediateTexture::new(
             Self::create_intermediate_texture(device, 1, "Scratch Placeholder Texture"),
         );
         let scratch_binding_views = [&dummy_scratch_texture.view, &dummy_scratch_texture.view];
-        let filter_scratch_input_bind_groups = scratch_binding_views.map(|view| {
+        let scratch_input_bind_groups = scratch_binding_views.map(|view| {
             create_filter_input_bind_group(
                 device,
                 &filter_input_bind_group_layouts[0],
@@ -1832,9 +1832,9 @@ impl Programs {
             dummy_layer_texture,
             layer_filter_input_bind_groups,
             filter_layer_textures_bind_group,
-            filter_scratch_textures,
+            scratch_textures,
             dummy_scratch_texture,
-            filter_scratch_input_bind_groups,
+            scratch_input_bind_groups,
             blend_layer_bind_group,
             blend_copy_bind_group,
             layer_config_buffer,
@@ -1963,7 +1963,7 @@ impl Programs {
                 None
             }
         });
-        self.resources.filter_scratch_textures = core::array::from_fn(|index| {
+        self.resources.scratch_textures = core::array::from_fn(|index| {
             if requirements.scratch_textures[index] {
                 Some(WgpuIntermediateTexture::new(
                     Self::create_intermediate_texture(
@@ -1982,7 +1982,7 @@ impl Programs {
         let (
             layer_filter_input_bind_groups,
             filter_layer_textures_bind_group,
-            filter_scratch_input_bind_groups,
+            scratch_input_bind_groups,
             root_layer_bind_groups,
             layer_bind_groups,
             blend_layer_bind_group,
@@ -2049,7 +2049,7 @@ impl Programs {
 
         self.resources.layer_filter_input_bind_groups = layer_filter_input_bind_groups;
         self.resources.filter_layer_textures_bind_group = filter_layer_textures_bind_group;
-        self.resources.filter_scratch_input_bind_groups = filter_scratch_input_bind_groups;
+        self.resources.scratch_input_bind_groups = scratch_input_bind_groups;
         self.resources.root_layer_bind_groups = root_layer_bind_groups;
         self.resources.layer_bind_groups = layer_bind_groups;
         self.resources.blend_layer_bind_group = blend_layer_bind_group;
@@ -3447,7 +3447,7 @@ fn filter_input_bind_group(resources: &GpuResources, texture: TextureTarget) -> 
             &resources.layer_filter_input_bind_groups[texture.index()]
         }
         TextureTarget::Scratch0 | TextureTarget::Scratch1 => {
-            &resources.filter_scratch_input_bind_groups[texture.index()]
+            &resources.scratch_input_bind_groups[texture.index()]
         }
     }
 }

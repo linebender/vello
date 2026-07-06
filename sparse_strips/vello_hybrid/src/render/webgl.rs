@@ -1151,7 +1151,7 @@ struct WebGlResources {
     /// VAO for copy rendering.
     copy_vao: VertexArray,
     /// Scratch texture slots used for filter ping-ponging and blend scratch.
-    filter_scratch_textures: [IntermediateTexture; 2],
+    scratch_textures: [IntermediateTexture; 2],
     /// Config buffer for rendering strips into a layer texture.
     layer_config_buffer: Buffer,
     /// Layer atlas texture slots.
@@ -1209,14 +1209,14 @@ impl WebGlResources {
     }
 
     fn scratch_texture(&self, index: usize) -> &Texture {
-        self.filter_scratch_textures[index]
+        self.scratch_textures[index]
             .as_ref()
             .expect("vello_hybrid attempted to use a missing scratch texture")
             .binding_texture()
     }
 
     fn scratch_framebuffer(&self, index: usize) -> &Framebuffer {
-        self.filter_scratch_textures[index]
+        self.scratch_textures[index]
             .as_ref()
             .expect("vello_hybrid attempted to use a missing scratch texture")
             .framebuffer()
@@ -1249,7 +1249,7 @@ impl WebGlResources {
                 .enumerate()
                 .all(|(index, texture)| texture.is_some() == requirements.layer_textures[index])
             && self
-                .filter_scratch_textures
+                .scratch_textures
                 .iter()
                 .enumerate()
                 .all(|(index, texture)| texture.is_some() == requirements.scratch_textures[index])
@@ -1357,7 +1357,7 @@ impl WebGlPrograms {
                 None
             }
         });
-        self.resources.filter_scratch_textures = core::array::from_fn(|index| {
+        self.resources.scratch_textures = core::array::from_fn(|index| {
             if requirements.scratch_textures[index] {
                 create_scratch_intermediate_texture(gl, layer_texture_size)
             } else {
@@ -2464,7 +2464,7 @@ fn create_webgl_resources(gl: &WebGl2RenderingContext, image_cache: &ImageCache)
     let placeholder_external_texture = create_placeholder_texture(gl);
 
     let layer_textures: [IntermediateTexture; 2] = core::array::from_fn(|_| None);
-    let filter_scratch_textures: [IntermediateTexture; 2] = core::array::from_fn(|_| None);
+    let scratch_textures: [IntermediateTexture; 2] = core::array::from_fn(|_| None);
     let dummy_layer_texture = create_layer_intermediate_payload(gl, 1);
     let filter_data_texture = create_texture(gl);
 
@@ -2497,7 +2497,7 @@ fn create_webgl_resources(gl: &WebGl2RenderingContext, image_cache: &ImageCache)
         blend_vao,
         copy_instance_buffer,
         copy_vao,
-        filter_scratch_textures,
+        scratch_textures,
         layer_config_buffer,
         layer_textures,
         dummy_layer_texture,
