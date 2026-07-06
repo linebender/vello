@@ -206,7 +206,6 @@ impl<'a> ScheduleBuilder<'a> {
             texture_index,
             bbox,
             self.filter_allocation_request(layer_id),
-            self.timeline.base_round(),
             schedule,
         )?;
         let stream = CommandStreamState::new(
@@ -254,8 +253,7 @@ impl<'a> ScheduleBuilder<'a> {
                 return Ok(());
             }
 
-            let allocation =
-                self.allocate_region(0, bbox, None, self.timeline.base_round(), schedule)?;
+            let allocation = self.allocate_region(0, bbox, None, schedule)?;
             let target = RenderTarget::Layer(allocation.region);
             let ready_round = self.schedule_command_stream_with_load(
                 cmds,
@@ -497,7 +495,6 @@ impl<'a> ScheduleBuilder<'a> {
         texture_index: usize,
         bbox: RectU16,
         filter: Option<FilterAllocationRequest>,
-        earliest_round: usize,
         schedule: &mut Schedule,
     ) -> Result<LayerAllocation, RenderError> {
         let width = bbox.width();
@@ -525,12 +522,9 @@ impl<'a> ScheduleBuilder<'a> {
             allocation_height,
             filter,
         };
-        let Some(scheduled) = self
-            .timeline
-            .allocate_after(request, earliest_round, |round_idx| {
-                ensure_schedule_round_exists(schedule, round_idx);
-            })
-        else {
+        let Some(scheduled) = self.timeline.allocate(request, |round_idx| {
+            ensure_schedule_round_exists(schedule, round_idx);
+        }) else {
             return Err(RenderError::AtlasError(AtlasError::NoSpaceAvailable));
         };
 

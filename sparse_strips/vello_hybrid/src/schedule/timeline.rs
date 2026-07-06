@@ -43,23 +43,19 @@ impl<R: ResourceAllocator> Timeline<R> {
         self.base_round
     }
 
-    /// Try to allocate at `earliest_round` or later.
+    /// Try to allocate at the current base round.
     ///
     /// If the resource is full, the scheduler advances round-by-round and applies releases that
     /// were scheduled after completed rounds. Pressure creates more rounds, but the scheduler
     /// never patches historical states.
-    pub(super) fn allocate_after<F>(
+    pub(super) fn allocate<F>(
         &mut self,
         request: R::Request,
-        earliest_round: usize,
         mut ensure_round_exists: F,
     ) -> Option<ScheduledAllocation<R::Allocation>>
     where
         F: FnMut(usize),
     {
-        let target_round = earliest_round.max(self.base_round);
-        self.advance_to_round(target_round, &mut ensure_round_exists);
-
         loop {
             ensure_round_exists(self.base_round);
             if let Some(allocation) = self.resource.allocate(request) {
