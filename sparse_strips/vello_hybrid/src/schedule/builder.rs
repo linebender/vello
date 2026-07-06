@@ -4,7 +4,7 @@
 //! Round construction for the new hybrid scheduler.
 
 use super::allocate::{
-    FilterAllocationRequest, LayerAllocation, LayerAllocationRequest, LayerAtlasResource,
+    FilterAllocationRequest, LayerAllocation, LayerAllocationRequest, Atlases,
 };
 use super::draw::{Draw, DrawBuilder, LayerSample};
 use super::round::{BlendOp, FilterOp, Round, Rounds};
@@ -31,7 +31,7 @@ pub(super) struct ScheduleBuilder<'a> {
     root_output_target: RootRenderTarget,
     paint_idxs: &'a [u32],
     encoded_paints: &'a [EncodedPaint],
-    timeline: Timeline<LayerAtlasResource>,
+    timeline: Timeline<Atlases>,
     layer_allocations: Vec<Option<ScheduledLayer>>,
     filter_data_offsets: Vec<Option<u32>>,
     layer_texture_size: (u32, u32),
@@ -60,7 +60,7 @@ impl<'a> ScheduleBuilder<'a> {
             root_output_target,
             paint_idxs,
             encoded_paints,
-            timeline: Timeline::new(LayerAtlasResource::new(layer_texture_size)),
+            timeline: Timeline::new(Atlases::new(layer_texture_size)),
             layer_allocations: alloc::vec![None; layer_count],
             filter_data_offsets,
             layer_texture_size,

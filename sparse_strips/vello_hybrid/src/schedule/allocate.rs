@@ -10,21 +10,21 @@ use vello_common::geometry::RectU16;
 use vello_common::multi_atlas::{AllocId, Atlas, AtlasId};
 
 #[derive(Debug)]
-pub(super) struct LayerAtlasResource {
+pub(super) struct Atlases {
     atlases: [Atlas; 2],
     scratch_atlases: [Atlas; 2],
 }
 
-impl LayerAtlasResource {
-    pub(super) fn new(layer_texture_size: (u32, u32)) -> Self {
+impl Atlases {
+    pub(super) fn new(texture_size: (u32, u32)) -> Self {
         Self {
             atlases: [
-                Atlas::new(AtlasId::new(0), layer_texture_size.0, layer_texture_size.1),
-                Atlas::new(AtlasId::new(1), layer_texture_size.0, layer_texture_size.1),
+                Atlas::new(AtlasId::new(0), texture_size.0, texture_size.1),
+                Atlas::new(AtlasId::new(1), texture_size.0, texture_size.1),
             ],
             scratch_atlases: [
-                Atlas::new(AtlasId::new(0), layer_texture_size.0, layer_texture_size.1),
-                Atlas::new(AtlasId::new(1), layer_texture_size.0, layer_texture_size.1),
+                Atlas::new(AtlasId::new(0), texture_size.0, texture_size.1),
+                Atlas::new(AtlasId::new(1), texture_size.0, texture_size.1),
             ],
         }
     }
@@ -81,7 +81,7 @@ pub(super) struct FilterAllocationRequest {
     pub(super) scratch_count: usize,
 }
 
-impl ResourceAllocator for LayerAtlasResource {
+impl ResourceAllocator for Atlases {
     type Request = LayerAllocationRequest;
     type Allocation = LayerAllocation;
 
