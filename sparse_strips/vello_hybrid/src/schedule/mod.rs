@@ -482,7 +482,7 @@ fn is_batchable_root_draw(target: RootRenderTarget, draw: &Draw) -> bool {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(super) enum RenderTarget {
+enum RenderTarget {
     Root(RootRenderTarget),
     Layer(LayerTextureRegion),
 }

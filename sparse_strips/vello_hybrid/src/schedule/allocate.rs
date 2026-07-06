@@ -185,7 +185,7 @@ pub(super) struct LayerAllocation {
     pub(super) texture: AllocatedTextureRegion,
 }
 
-pub(super) type FilterAllocation = [Option<ScratchAllocation>; 2];
+type FilterAllocation = [Option<ScratchAllocation>; 2];
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct ScratchAllocation {

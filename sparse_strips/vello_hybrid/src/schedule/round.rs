@@ -54,7 +54,12 @@ pub(crate) struct BlendOp {
 }
 
 impl Round {
-    pub(super) fn push_pass(&mut self, target: RenderTarget, draw: Draw, load_op: LoadOp) {
+    pub(crate) fn push_pass(
+        &mut self,
+        target: RenderTarget,
+        draw: Draw,
+        load_op: LoadOp,
+    ) {
         let pass = RenderPass {
             target,
             draw,
@@ -71,13 +76,13 @@ impl Round {
         }
     }
 
-    pub(super) fn push_blend(&mut self, blend: BlendOp) {
+    pub(crate) fn push_blend(&mut self, blend: BlendOp) {
         self.layer_passes[blend.parent_region.texture.texture_index]
             .blends
             .push(blend);
     }
 
-    pub(super) fn push_filter(&mut self, filter: FilterOp) {
+    pub(crate) fn push_filter(&mut self, filter: FilterOp) {
         self.layer_passes[filter.layer_region.texture.texture_index]
             .filters
             .push(filter);
