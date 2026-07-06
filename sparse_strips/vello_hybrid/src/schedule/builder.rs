@@ -130,13 +130,7 @@ impl<'a> ScheduleBuilder<'a> {
                 let blend_mode = props.blend_mode;
                 let opacity = props.opacity;
                 if blend_mode.is_destructive() {
-                    self.ensure_layer_command_target(
-                        layer_id,
-                        texture_index,
-                        bbox,
-                        schedule,
-                        &mut target,
-                    )?;
+                    self.ensure_layer_command_target(layer_id, texture_index, bbox, &mut target)?;
                     let target = target.as_mut().unwrap();
                     self.push_layer_batches(layer_idx, segment_start, cmd_idx, &mut target.stream);
                     self.schedule_empty_destructive_blend(
@@ -150,7 +144,7 @@ impl<'a> ScheduleBuilder<'a> {
                 continue;
             };
 
-            self.ensure_layer_command_target(layer_id, texture_index, bbox, schedule, &mut target)?;
+            self.ensure_layer_command_target(layer_id, texture_index, bbox, &mut target)?;
             let target = target.as_mut().unwrap();
             self.push_layer_batches(layer_idx, segment_start, cmd_idx, &mut target.stream);
             self.schedule_child_layer_sample(
@@ -163,7 +157,7 @@ impl<'a> ScheduleBuilder<'a> {
         }
 
         if layer_segment_has_batches(cmds, segment_start, command_count) {
-            self.ensure_layer_command_target(layer_id, texture_index, bbox, schedule, &mut target)?;
+            self.ensure_layer_command_target(layer_id, texture_index, bbox, &mut target)?;
             let target = target.as_mut().unwrap();
             self.push_layer_batches(layer_idx, segment_start, command_count, &mut target.stream);
         }
@@ -195,7 +189,6 @@ impl<'a> ScheduleBuilder<'a> {
         layer_id: u32,
         texture_index: usize,
         bbox: RectU16,
-        schedule: &mut Schedule,
         target: &mut Option<LayerCommandTarget>,
     ) -> Result<(), RenderError> {
         if target.is_some() {
@@ -206,7 +199,6 @@ impl<'a> ScheduleBuilder<'a> {
             texture_index,
             bbox,
             self.filter_allocation_request(layer_id),
-            schedule,
         )?;
         let stream = CommandStreamState::new(
             RenderTarget::Layer(allocation.region),
@@ -253,7 +245,7 @@ impl<'a> ScheduleBuilder<'a> {
                 return Ok(());
             }
 
-            let allocation = self.allocate_region(0, bbox, None, schedule)?;
+            let allocation = self.allocate_region(0, bbox, None)?;
             let target = RenderTarget::Layer(allocation.region);
             let ready_round = self.schedule_command_stream_with_load(
                 cmds,
@@ -495,7 +487,6 @@ impl<'a> ScheduleBuilder<'a> {
         texture_index: usize,
         bbox: RectU16,
         filter: Option<FilterAllocationRequest>,
-        schedule: &mut Schedule,
     ) -> Result<LayerAllocation, RenderError> {
         let width = bbox.width();
         let height = bbox.height();
@@ -522,9 +513,7 @@ impl<'a> ScheduleBuilder<'a> {
             allocation_height,
             filter,
         };
-        let Some(scheduled) = self.timeline.allocate(request, |round_idx| {
-            ensure_schedule_round_exists(schedule, round_idx);
-        }) else {
+        let Some(scheduled) = self.timeline.allocate(request) else {
             return Err(RenderError::AtlasError(AtlasError::NoSpaceAvailable));
         };
 
@@ -585,10 +574,8 @@ impl<'a> ScheduleBuilder<'a> {
         round_idx: usize,
         schedule: &mut Schedule,
     ) {
-        self.timeline
-            .release_after(allocation, round_idx, |round_idx| {
-                ensure_schedule_round_exists(schedule, round_idx);
-            });
+        ensure_schedule_round_exists(schedule, round_idx);
+        self.timeline.release_after(allocation, round_idx);
     }
 }
 

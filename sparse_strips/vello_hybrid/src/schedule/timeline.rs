@@ -48,16 +48,11 @@ impl<R: ResourceAllocator> Timeline<R> {
     /// If the resource is full, the scheduler advances round-by-round and applies releases that
     /// were scheduled after completed rounds. Pressure creates more rounds, but the scheduler
     /// never patches historical states.
-    pub(super) fn allocate<F>(
+    pub(super) fn allocate(
         &mut self,
         request: R::Request,
-        mut ensure_round_exists: F,
-    ) -> Option<ScheduledAllocation<R::Allocation>>
-    where
-        F: FnMut(usize),
-    {
+    ) -> Option<ScheduledAllocation<R::Allocation>> {
         loop {
-            ensure_round_exists(self.base_round);
             if let Some(allocation) = self.resource.allocate(request) {
                 return Some(ScheduledAllocation {
                     allocation,
@@ -69,30 +64,18 @@ impl<R: ResourceAllocator> Timeline<R> {
                 return None;
             }
 
-            self.advance_to_round(self.base_round + 1, &mut ensure_round_exists);
+            self.advance_to_round(self.base_round + 1);
         }
     }
 
-    pub(super) fn release_after<F>(
-        &mut self,
-        allocation: R::Allocation,
-        round_idx: usize,
-        mut ensure_round_exists: F,
-    ) where
-        F: FnMut(usize),
-    {
-        ensure_round_exists(round_idx);
+    pub(super) fn release_after(&mut self, allocation: R::Allocation, round_idx: usize) {
         while self.pending_releases.len() <= round_idx {
             self.pending_releases.push(Vec::new());
         }
         self.pending_releases[round_idx].push(allocation);
     }
 
-    fn advance_to_round<F>(&mut self, round_idx: usize, ensure_round_exists: &mut F)
-    where
-        F: FnMut(usize),
-    {
-        ensure_round_exists(round_idx);
+    fn advance_to_round(&mut self, round_idx: usize) {
         while self.base_round < round_idx {
             if let Some(releases) = self.pending_releases.get_mut(self.base_round) {
                 for allocation in releases.drain(..) {
