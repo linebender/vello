@@ -5,7 +5,7 @@
 
 use super::allocate::{Atlases, LayerAllocation, LayerAllocationRequest};
 use super::draw::{Draw, DrawBuilder, LayerSample};
-use super::round::{BlendOp, FilterOp, Round, Rounds};
+use super::round::{BlendOp, FilterOp, RenderPass, Round, Rounds};
 use super::timeline::Timeline;
 use super::{LayerTextureRegion, LoadOp, RenderTarget, RootRenderTarget, TextureRegion};
 use crate::filter::GpuFilterData;
@@ -287,11 +287,11 @@ impl<'a> ScheduleBuilder<'a> {
                     RootRenderTarget::AtlasLayer => RootRenderTarget::AtlasLayerFromLayer0,
                     other => other,
                 };
-                rounds.rounds[ready_round].push_pass(
-                    RenderTarget::Root(final_target),
+                rounds.rounds[ready_round].push_render_pass(RenderPass {
+                    target: RenderTarget::Root(final_target),
                     draw,
-                    LoadOp::Load,
-                );
+                    load_op: LoadOp::Load,
+                });
             }
             rounds.rounds[ready_round]
                 .layer_clears
@@ -465,7 +465,11 @@ impl<'a> ScheduleBuilder<'a> {
         let draw = state.take_draw();
         if !draw.is_empty() {
             self.ensure_round_exists(state.round_idx, rounds);
-            rounds.rounds[state.round_idx].push_pass(state.target, draw, state.take_load_op());
+            rounds.rounds[state.round_idx].push_render_pass(RenderPass {
+                target: state.target,
+                draw,
+                load_op: state.take_load_op(),
+            });
         }
 
         for layer_id in core::mem::take(&mut state.sampled_layers) {

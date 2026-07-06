@@ -868,11 +868,15 @@ impl Scene {
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "text")]
+    use super::Scene;
+    #[cfg(feature = "text")]
     use crate::resources::Resources;
     #[cfg(feature = "text")]
     use alloc::sync::Arc;
     #[cfg(feature = "text")]
     use glifo::Glyph;
+    #[cfg(feature = "text")]
+    use vello_common::kurbo::{BezPath, Rect};
     #[cfg(feature = "text")]
     use vello_common::peniko::{Blob, FontData};
 

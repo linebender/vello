@@ -54,19 +54,8 @@ pub(crate) struct BlendOp {
 }
 
 impl Round {
-    pub(crate) fn push_pass(
-        &mut self,
-        target: RenderTarget,
-        draw: Draw,
-        load_op: LoadOp,
-    ) {
-        let pass = RenderPass {
-            target,
-            draw,
-            load_op,
-        };
-
-        match target {
+    pub(crate) fn push_render_pass(&mut self, pass: RenderPass) {
+        match pass.target {
             RenderTarget::Root(_) => self.root_passes.push(pass),
             RenderTarget::Layer(region) => {
                 self.layer_passes[region.texture.texture_index]
