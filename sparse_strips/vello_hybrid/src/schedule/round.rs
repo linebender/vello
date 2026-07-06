@@ -45,7 +45,7 @@ pub(crate) struct FilterOp {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BlendOp {
     pub(crate) parent: LayerTextureRegion,
-    pub(crate) source: LayerTextureRegion,
+    pub(crate) child: LayerTextureRegion,
     pub(crate) bbox: RectU16,
     pub(crate) blend_mode: BlendMode,
     pub(crate) opacity: f32,

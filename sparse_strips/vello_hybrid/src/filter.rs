@@ -421,13 +421,13 @@ impl ScheduledFilterPasses {
 
 pub(crate) fn schedule(
     filters: &[FilterOp],
-    target_size: (u16, u16),
+    target_texture_size: (u16, u16),
     passes: &mut ScheduledFilterPasses,
 ) {
     passes.clear();
 
     for filter in filters {
-        let mut builder = FilterPassBuilder::new(*filter, target_size, passes);
+        let mut builder = FilterPassBuilder::new(*filter, target_texture_size, passes);
         match filter.gpu_filter.filter_type() {
             filter_type::OFFSET => {
                 builder.emit_to_scratch(pass_kind::OFFSET);
@@ -447,14 +447,14 @@ pub(crate) fn schedule(
         }
 
         builder.ensure_result_in_scratch0();
-        builder.copy_back(filter, target_size);
+        builder.copy_back(filter, target_texture_size);
     }
 }
 
 #[derive(Debug)]
 struct FilterPassBuilder<'a> {
     op: FilterOp,
-    target_size: (u16, u16),
+    target_texture_size: (u16, u16),
     passes: &'a mut ScheduledFilterPasses,
     sizer: DecimationSizer,
     original: TextureTarget,
@@ -463,13 +463,17 @@ struct FilterPassBuilder<'a> {
 }
 
 impl<'a> FilterPassBuilder<'a> {
-    fn new(op: FilterOp, target_size: (u16, u16), passes: &'a mut ScheduledFilterPasses) -> Self {
+    fn new(
+        op: FilterOp,
+        target_texture_size: (u16, u16),
+        passes: &'a mut ScheduledFilterPasses,
+    ) -> Self {
         let mut sizer = DecimationSizer::default();
         sizer.reset(op.layer.width, op.layer.height);
         let original = TextureTarget::layer(op.layer.texture_index);
         Self {
             op,
-            target_size,
+            target_texture_size,
             passes,
             sizer,
             original,
@@ -540,8 +544,8 @@ impl<'a> FilterPassBuilder<'a> {
             src: IntRect::new(src_offset, src_size),
             dest: IntRect::new(dest_offset, dest_size),
             dest_atlas_size: IntSize([
-                u32::from(self.target_size.0),
-                u32::from(self.target_size.1),
+                u32::from(self.target_texture_size.0),
+                u32::from(self.target_texture_size.1),
             ]),
             filter_data_offset: self.op.filter_data_offset,
             original: IntRect::new(
@@ -595,14 +599,14 @@ impl<'a> FilterPassBuilder<'a> {
         kind | ((self.op.layer.texture_index as u32) << OTHER_DATA_LAYER_TEXTURE_INDEX_SHIFT)
     }
 
-    fn copy_back(&mut self, filter: &FilterOp, target_size: (u16, u16)) {
+    fn copy_back(&mut self, filter: &FilterOp, target_texture_size: (u16, u16)) {
         let scratch = filter.scratches[0].expect("filter copy requires scratch texture 0");
 
         let copy_instance = GpuCopyInstance {
-            dest_origin: pack_u16_pair(filter.layer.x, filter.layer.y),
-            source_origin: pack_u16_pair(scratch.x, scratch.y),
-            size: pack_u16_pair(filter.layer.width, filter.layer.height),
-            target_size: pack_u16_pair(target_size.0, target_size.1),
+            target_texture_origin: pack_u16_pair(filter.layer.x, filter.layer.y),
+            source_texture_origin: pack_u16_pair(scratch.x, scratch.y),
+            copy_rect_size: pack_u16_pair(filter.layer.width, filter.layer.height),
+            target_texture_size: pack_u16_pair(target_texture_size.0, target_texture_size.1),
         };
 
         self.passes.copy_back.push(copy_instance);

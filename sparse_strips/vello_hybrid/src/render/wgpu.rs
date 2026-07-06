@@ -1603,7 +1603,6 @@ impl Programs {
                 5 => Uint32,
                 6 => Uint32,
                 7 => Uint32,
-                8 => Uint32,
             ],
         };
         let copy_vertex_state = wgpu::VertexBufferLayout {
@@ -3107,7 +3106,7 @@ impl RendererContext<'_> {
     }
 
     fn do_blend_render_pass(&mut self, blends: &[BlendOp]) {
-        let target_size = self.layer_texture_size_u16();
+        let parent_texture_size = self.layer_texture_size_u16();
         if blends.is_empty() {
             return;
         }
@@ -3128,8 +3127,8 @@ impl RendererContext<'_> {
                             .layer_view(blend.parent.texture_index);
                         self.programs
                             .resources
-                            .layer_view(blend.source.texture_index);
-                        gpu_blend_instance(blend, target_size)
+                            .layer_view(blend.child.texture_index);
+                        gpu_blend_instance(blend, parent_texture_size)
                     }),
             );
             if self.scratch.blend_instances.is_empty() {
@@ -3174,7 +3173,7 @@ impl RendererContext<'_> {
                     .blend_instances
                     .iter()
                     .copied()
-                    .map(GpuBlendInstance::copy_from_dest_in_scratch),
+                    .map(GpuBlendInstance::copy_from_parent_in_scratch),
             );
             let copy_instance_buffer =
                 self.device

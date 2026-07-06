@@ -8,28 +8,28 @@ use vello_common::geometry::RectU16;
 ///
 /// ```text
 /// offset  size  field
-/// 0       4     dest_origin: packed u16x2
-/// 4       4     source_origin: packed u16x2
-/// 8       4     size: packed u16x2
-/// 12      4     target_size: packed u16x2
+/// 0       4     target_texture_origin: packed u16x2
+/// 4       4     source_texture_origin: packed u16x2
+/// 8       4     copy_rect_size: packed u16x2
+/// 12      4     target_texture_size: packed u16x2
 /// ```
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub(crate) struct GpuCopyInstance {
     /// Destination origin in the target atlas texture.
-    pub(crate) dest_origin: u32,
+    pub(crate) target_texture_origin: u32,
     /// Source origin in the scratch texture.
-    pub(crate) source_origin: u32,
+    pub(crate) source_texture_origin: u32,
     /// Copy size.
-    pub(crate) size: u32,
-    /// Size of the render target that receives the copy.
-    pub(crate) target_size: u32,
+    pub(crate) copy_rect_size: u32,
+    /// Size of the render target texture that receives the copy.
+    pub(crate) target_texture_size: u32,
 }
 
 impl GpuCopyInstance {
     pub(crate) fn clear_rect(&self) -> RectU16 {
-        let [x0, y0] = unpack_u16_pair(self.dest_origin);
-        let [width, height] = unpack_u16_pair(self.size);
+        let [x0, y0] = unpack_u16_pair(self.target_texture_origin);
+        let [width, height] = unpack_u16_pair(self.copy_rect_size);
         let x1 = x0.checked_add(width).unwrap();
         let y1 = y0.checked_add(height).unwrap();
         RectU16::new(x0, y0, x1, y1)

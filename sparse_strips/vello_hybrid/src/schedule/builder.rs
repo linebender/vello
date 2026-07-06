@@ -413,7 +413,7 @@ impl<'a> ScheduleBuilder<'a> {
         self.ensure_schedule_round_exists(blend_round, schedule);
         schedule.rounds[blend_round].push_blend(BlendOp {
             parent: state.target.layer_region(),
-            source: layer.sample.source,
+            child: layer.sample.source,
             bbox,
             blend_mode,
             opacity,
@@ -441,7 +441,7 @@ impl<'a> ScheduleBuilder<'a> {
         self.ensure_schedule_round_exists(parent_ready_round, schedule);
         schedule.rounds[parent_ready_round].push_blend(BlendOp {
             parent: state.target.layer_region(),
-            source: empty_source_region_for_blend(bbox),
+            child: empty_child_region_for_blend(bbox),
             bbox,
             blend_mode,
             opacity,
@@ -920,7 +920,7 @@ fn union_bbox(mut a: RectU16, b: RectU16) -> RectU16 {
     a
 }
 
-fn empty_source_region_for_blend(bbox: RectU16) -> LayerTextureRegion {
+fn empty_child_region_for_blend(bbox: RectU16) -> LayerTextureRegion {
     LayerTextureRegion {
         texture_index: 0,
         x: 0,

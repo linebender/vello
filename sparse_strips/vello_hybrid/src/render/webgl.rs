@@ -2319,7 +2319,7 @@ fn initialize_filter_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources
     gl.bind_vertex_array(None);
 }
 
-const BLEND_ATTRIB_COUNT: u32 = 9;
+const BLEND_ATTRIB_COUNT: u32 = 8;
 const BLEND_INSTANCE_STRIDE: i32 = size_of::<GpuBlendInstance>() as i32;
 
 const COPY_ATTRIB_COUNT: u32 = 4;
@@ -2953,7 +2953,7 @@ impl WebGlRendererContext<'_> {
     }
 
     fn do_blend_render_pass(&mut self, blends: &[BlendOp]) {
-        let target_size = self.layer_texture_size_u16();
+        let parent_texture_size = self.layer_texture_size_u16();
         if blends.is_empty() {
             return;
         }
@@ -2983,8 +2983,8 @@ impl WebGlRendererContext<'_> {
                             .layer_texture(blend.parent.texture_index);
                         self.programs
                             .resources
-                            .layer_texture(blend.source.texture_index);
-                        gpu_blend_instance(blend, target_size)
+                            .layer_texture(blend.child.texture_index);
+                        gpu_blend_instance(blend, parent_texture_size)
                     }),
             );
             if self.scratch.blend_instances.is_empty() {
@@ -3003,8 +3003,12 @@ impl WebGlRendererContext<'_> {
                         .scratch_framebuffer(BLEND_SCRATCH_INDEX),
                 ),
             );
-            self.gl
-                .viewport(0, 0, i32::from(target_size.0), i32::from(target_size.1));
+            self.gl.viewport(
+                0,
+                0,
+                i32::from(parent_texture_size.0),
+                i32::from(parent_texture_size.1),
+            );
             self.gl.use_program(Some(&self.programs.blend_program));
 
             self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);
@@ -3040,7 +3044,7 @@ impl WebGlRendererContext<'_> {
                     .blend_instances
                     .iter()
                     .copied()
-                    .map(GpuBlendInstance::copy_from_dest_in_scratch),
+                    .map(GpuBlendInstance::copy_from_parent_in_scratch),
             );
             self.programs
                 .upload_copy_instances(self.gl, &self.scratch.copy_instances);
@@ -3121,8 +3125,12 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.filter_uniforms.layer_texture_1), 3);
 
-        let target_size = self.layer_texture_size_u16();
-        schedule(filters, target_size, &mut self.scratch.filter_passes);
+        let target_texture_size = self.layer_texture_size_u16();
+        schedule(
+            filters,
+            target_texture_size,
+            &mut self.scratch.filter_passes,
+        );
 
         for (step_index, step) in self.scratch.filter_passes.steps.iter().enumerate() {
             let (input, output) = if step_index == 0 {
@@ -3132,7 +3140,7 @@ impl WebGlRendererContext<'_> {
             } else {
                 (TextureTarget::Scratch1, TextureTarget::Scratch0)
             };
-            self.do_filter_instance_pass(step, input, output, target_size);
+            self.do_filter_instance_pass(step, input, output, target_texture_size);
         }
 
         self.gl
@@ -3156,8 +3164,12 @@ impl WebGlRendererContext<'_> {
             WebGl2RenderingContext::FRAMEBUFFER,
             Some(self.programs.resources.layer_framebuffer(texture_index)),
         );
-        self.gl
-            .viewport(0, 0, i32::from(target_size.0), i32::from(target_size.1));
+        self.gl.viewport(
+            0,
+            0,
+            i32::from(target_texture_size.0),
+            i32::from(target_texture_size.1),
+        );
         self.gl.draw_arrays_instanced(
             WebGl2RenderingContext::TRIANGLE_STRIP,
             0,
@@ -3175,7 +3187,7 @@ impl WebGlRendererContext<'_> {
         instances: &[FilterInstanceData],
         input: TextureTarget,
         output: TextureTarget,
-        target_size: (u16, u16),
+        target_texture_size: (u16, u16),
     ) {
         if instances.is_empty() {
             return;
@@ -3185,8 +3197,12 @@ impl WebGlRendererContext<'_> {
             WebGl2RenderingContext::FRAMEBUFFER,
             Some(filter_output_framebuffer(&self.programs.resources, output)),
         );
-        self.gl
-            .viewport(0, 0, i32::from(target_size.0), i32::from(target_size.1));
+        self.gl.viewport(
+            0,
+            0,
+            i32::from(target_texture_size.0),
+            i32::from(target_texture_size.1),
+        );
 
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE1);
         self.gl.bind_texture(

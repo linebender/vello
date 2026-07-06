@@ -36,24 +36,22 @@ const MIX_COLOR = 14u;
 const MIX_LUMINOSITY = 15u;
 
 struct BlendInstance {
-    @location(0) dest_origin: u32,
-    @location(1) source_origin: u32,
-    @location(2) size: u32,
-    @location(3) texture_indices: u32,
-    @location(4) blend_opacity: u32,
-    @location(5) target_size: u32,
-    @location(6) bbox_origin: u32,
-    @location(7) source_scene_origin: u32,
-    @location(8) source_size: u32,
+    @location(0) parent_texture_origin: u32,
+    @location(1) parent_texture_size: u32,
+    @location(2) child_texture_origin: u32,
+    @location(3) child_rect_origin: u32,
+    @location(4) child_rect_size: u32,
+    @location(5) blend_rect_origin: u32,
+    @location(6) blend_rect_size: u32,
+    @location(7) blend_config: u32,
 }
 
 struct VertexOutput {
-    @location(0) dest_xy: vec2<f32>,
-    @location(1) source_xy: vec2<f32>,
-    @location(2) source_local: vec2<f32>,
-    @location(3) @interpolate(flat) source_size: u32,
-    @location(4) @interpolate(flat) texture_indices: u32,
-    @location(5) @interpolate(flat) blend_opacity: u32,
+    @location(0) parent_xy: vec2<f32>,
+    @location(1) child_xy: vec2<f32>,
+    @location(2) child_local: vec2<f32>,
+    @location(3) @interpolate(flat) child_rect_size: u32,
+    @location(4) @interpolate(flat) blend_config: u32,
     @builtin(position) position: vec4<f32>,
 }
 
@@ -72,30 +70,29 @@ fn vs_main(
     @builtin(vertex_index) vertex_index: u32,
     instance: BlendInstance,
 ) -> VertexOutput {
-    let dest_origin = unpack_u16_pair(instance.dest_origin);
-    let source_origin = unpack_u16_pair(instance.source_origin);
-    let size = unpack_u16_pair(instance.size);
-    let target_size = unpack_u16_pair(instance.target_size);
-    let bbox_origin = unpack_u16_pair(instance.bbox_origin);
-    let source_scene_origin = unpack_u16_pair(instance.source_scene_origin);
+    let parent_texture_origin = unpack_u16_pair(instance.parent_texture_origin);
+    let parent_texture_size = unpack_u16_pair(instance.parent_texture_size);
+    let child_texture_origin = unpack_u16_pair(instance.child_texture_origin);
+    let child_rect_origin = unpack_u16_pair(instance.child_rect_origin);
+    let blend_rect_origin = unpack_u16_pair(instance.blend_rect_origin);
+    let blend_rect_size = unpack_u16_pair(instance.blend_rect_size);
 
     let x = f32(vertex_index & 1u);
     let y = f32(vertex_index >> 1u);
-    let local = vec2<f32>(x, y) * vec2<f32>(size);
-    let dest_xy = vec2<f32>(dest_origin) + local;
-    let scene_xy = vec2<f32>(bbox_origin) + local;
-    let source_local = scene_xy - vec2<f32>(source_scene_origin);
+    let local = vec2<f32>(x, y) * vec2<f32>(blend_rect_size);
+    let parent_xy = vec2<f32>(parent_texture_origin) + local;
+    let scene_xy = vec2<f32>(blend_rect_origin) + local;
+    let child_local = scene_xy - vec2<f32>(child_rect_origin);
 
     var out: VertexOutput;
-    out.dest_xy = dest_xy;
-    out.source_xy = vec2<f32>(source_origin) + source_local;
-    out.source_local = source_local;
-    out.source_size = instance.source_size;
-    out.texture_indices = instance.texture_indices;
-    out.blend_opacity = instance.blend_opacity;
+    out.parent_xy = parent_xy;
+    out.child_xy = vec2<f32>(child_texture_origin) + child_local;
+    out.child_local = child_local;
+    out.child_rect_size = instance.child_rect_size;
+    out.blend_config = instance.blend_config;
 
-    let ndc_x = dest_xy.x * 2.0 / f32(target_size.x) - 1.0;
-    let ndc_y = 1.0 - dest_xy.y * 2.0 / f32(target_size.y);
+    let ndc_x = parent_xy.x * 2.0 / f32(parent_texture_size.x) - 1.0;
+    let ndc_y = 1.0 - parent_xy.y * 2.0 / f32(parent_texture_size.y);
     out.position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
     return out;
 }
@@ -109,29 +106,29 @@ fn load_layer(texture_index: u32, xy: vec2<i32>) -> vec4<f32> {
 
 @fragment
 fn fs_main(
-    @location(0) dest_xy: vec2<f32>,
-    @location(1) source_xy: vec2<f32>,
-    @location(2) source_local: vec2<f32>,
-    @location(3) @interpolate(flat) packed_source_size: u32,
-    @location(4) @interpolate(flat) packed_texture_indices: u32,
-    @location(5) @interpolate(flat) blend_opacity: u32,
+    @location(0) parent_xy: vec2<f32>,
+    @location(1) child_xy: vec2<f32>,
+    @location(2) child_local: vec2<f32>,
+    @location(3) @interpolate(flat) packed_child_rect_size: u32,
+    @location(4) @interpolate(flat) blend_config: u32,
 ) -> @location(0) vec4<f32> {
-    let source_size = unpack_u16_pair(packed_source_size);
-    let texture_indices = unpack_u16_pair(packed_texture_indices);
-    let compose = blend_opacity & 0xffu;
-    let mix = (blend_opacity >> 8u) & 0xffu;
-    let opacity = (blend_opacity >> 16u) & 0xffu;
-    let backdrop = load_layer(texture_indices.x, vec2<i32>(dest_xy));
-    let source_opacity = f32(opacity) * (1.0 / 255.0);
-    var source = vec4<f32>(0.0);
-    if source_local.x >= 0.0
-        && source_local.y >= 0.0
-        && source_local.x < f32(source_size.x)
-        && source_local.y < f32(source_size.y)
+    let child_rect_size = unpack_u16_pair(packed_child_rect_size);
+    let compose = blend_config & 0xffu;
+    let mix = (blend_config >> 8u) & 0xffu;
+    let opacity = (blend_config >> 16u) & 0xffu;
+    let parent_texture_index = (blend_config >> 24u) & 1u;
+    let child_texture_index = (blend_config >> 25u) & 1u;
+    let backdrop = load_layer(parent_texture_index, vec2<i32>(parent_xy));
+    let child_opacity = f32(opacity) * (1.0 / 255.0);
+    var child = vec4<f32>(0.0);
+    if child_local.x >= 0.0
+        && child_local.y >= 0.0
+        && child_local.x < f32(child_rect_size.x)
+        && child_local.y < f32(child_rect_size.y)
     {
-        source = source_opacity * load_layer(texture_indices.y, vec2<i32>(source_xy));
+        child = child_opacity * load_layer(child_texture_index, vec2<i32>(child_xy));
     }
-    return blend_mix_compose(backdrop, source, compose, mix);
+    return blend_mix_compose(backdrop, child, compose, mix);
 }
 
 fn blend_mix_compose(backdrop: vec4<f32>, src: vec4<f32>, compose_mode: u32, mix_mode: u32) -> vec4<f32> {

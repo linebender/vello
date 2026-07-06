@@ -10,81 +10,89 @@ use vello_common::peniko::{Compose, Mix};
 ///
 /// ```text
 /// offset  size  field
-/// 0       4     dest_origin: packed u16x2
-/// 4       4     source_origin: packed u16x2
-/// 8       4     size: packed u16x2
-/// 12      4     texture_indices: packed u16x2
-/// 16      4     blend_opacity: u32
-/// 20      4     target_size: packed u16x2
-/// 24      4     bbox_origin: packed u16x2
-/// 28      4     source_scene_origin: packed u16x2
-/// 32      4     source_size: packed u16x2
+/// 0       4     parent_texture_origin: packed u16x2
+/// 4       4     parent_texture_size: packed u16x2
+/// 8       4     child_texture_origin: packed u16x2
+/// 12      4     child_rect_origin: packed u16x2
+/// 16      4     child_rect_size: packed u16x2
+/// 20      4     blend_rect_origin: packed u16x2
+/// 24      4     blend_rect_size: packed u16x2
+/// 28      4     blend_config: u32
 /// ```
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub(crate) struct GpuBlendInstance {
-    /// Destination origin in the target atlas texture.
-    pub(crate) dest_origin: u32,
-    /// Source layer allocation origin in the sampled layer atlas texture.
-    pub(crate) source_origin: u32,
-    /// Destination/source draw size for this blend operation.
-    pub(crate) size: u32,
-    /// Destination texture index followed by source texture index.
-    pub(crate) texture_indices: u32,
-    /// Blend mode and opacity information.
-    pub(crate) blend_opacity: u32,
-    /// Size of the render target that receives the blend result.
-    pub(crate) target_size: u32,
-    /// Scene-space origin of the blended bbox.
-    pub(crate) bbox_origin: u32,
-    /// Scene-space origin of the sampled source layer.
-    pub(crate) source_scene_origin: u32,
-    /// Scene-space size of the sampled source layer.
-    pub(crate) source_size: u32,
+    /// Atlas-space origin in the parent layer texture.
+    pub(crate) parent_texture_origin: u32,
+    /// Size of the parent texture that receives the blend result.
+    pub(crate) parent_texture_size: u32,
+    /// Atlas-space origin in the child layer texture.
+    pub(crate) child_texture_origin: u32,
+    /// Scene-space origin of the sampled child layer.
+    pub(crate) child_rect_origin: u32,
+    /// Scene-space size of the sampled child layer.
+    pub(crate) child_rect_size: u32,
+    /// Scene-space origin affected by this blend operation.
+    pub(crate) blend_rect_origin: u32,
+    /// Scene-space size affected by this blend operation.
+    pub(crate) blend_rect_size: u32,
+    /// Blend mode, opacity, and parent/child texture indices.
+    pub(crate) blend_config: u32,
 }
 
 impl GpuBlendInstance {
-    pub(crate) fn copy_from_dest_in_scratch(self) -> GpuCopyInstance {
+    pub(crate) fn copy_from_parent_in_scratch(self) -> GpuCopyInstance {
         GpuCopyInstance {
-            dest_origin: self.dest_origin,
-            source_origin: self.dest_origin,
-            size: self.size,
-            target_size: self.target_size,
+            target_texture_origin: self.parent_texture_origin,
+            source_texture_origin: self.parent_texture_origin,
+            copy_rect_size: self.blend_rect_size,
+            target_texture_size: self.parent_texture_size,
         }
     }
 }
 
-pub(crate) fn gpu_blend_instance(blend: BlendOp, target_size: (u16, u16)) -> GpuBlendInstance {
-    let dest_x = blend.parent.x + (blend.bbox.x0 - blend.parent.scene_bbox.x0);
-    let dest_y = blend.parent.y + (blend.bbox.y0 - blend.parent.scene_bbox.y0);
+pub(crate) fn gpu_blend_instance(
+    blend: BlendOp,
+    parent_texture_size: (u16, u16),
+) -> GpuBlendInstance {
+    let parent_x = blend.parent.x + (blend.bbox.x0 - blend.parent.scene_bbox.x0);
+    let parent_y = blend.parent.y + (blend.bbox.y0 - blend.parent.scene_bbox.y0);
 
     GpuBlendInstance {
-        dest_origin: pack_u16_pair(dest_x, dest_y),
-        source_origin: pack_u16_pair(blend.source.x, blend.source.y),
-        size: pack_u16_pair(blend.bbox.width(), blend.bbox.height()),
-        texture_indices: pack_u16_pair(
-            u16::try_from(blend.parent.texture_index)
-                .expect("layer texture index fits into instance payload"),
-            u16::try_from(blend.source.texture_index)
-                .expect("layer texture index fits into instance payload"),
+        parent_texture_origin: pack_u16_pair(parent_x, parent_y),
+        parent_texture_size: pack_u16_pair(parent_texture_size.0, parent_texture_size.1),
+        child_texture_origin: pack_u16_pair(blend.child.x, blend.child.y),
+        child_rect_origin: pack_u16_pair(blend.child.scene_bbox.x0, blend.child.scene_bbox.y0),
+        child_rect_size: pack_u16_pair(
+            blend.child.scene_bbox.width(),
+            blend.child.scene_bbox.height(),
         ),
-        blend_opacity: pack_blend_opacity(
+        blend_rect_origin: pack_u16_pair(blend.bbox.x0, blend.bbox.y0),
+        blend_rect_size: pack_u16_pair(blend.bbox.width(), blend.bbox.height()),
+        blend_config: pack_blend_config(
             blend.blend_mode.mix,
             blend.blend_mode.compose,
             blend.opacity,
-        ),
-        target_size: pack_u16_pair(target_size.0, target_size.1),
-        bbox_origin: pack_u16_pair(blend.bbox.x0, blend.bbox.y0),
-        source_scene_origin: pack_u16_pair(blend.source.scene_bbox.x0, blend.source.scene_bbox.y0),
-        source_size: pack_u16_pair(
-            blend.source.scene_bbox.width(),
-            blend.source.scene_bbox.height(),
+            blend.parent.texture_index,
+            blend.child.texture_index,
         ),
     }
 }
 
-fn pack_blend_opacity(mix: Mix, compose: Compose, opacity: f32) -> u32 {
-    pack_compose(compose) | (pack_mix(mix) << 8) | (u32::from(opacity_to_u8(opacity)) << 16)
+fn pack_blend_config(
+    mix: Mix,
+    compose: Compose,
+    opacity: f32,
+    parent_texture_index: usize,
+    child_texture_index: usize,
+) -> u32 {
+    debug_assert!(parent_texture_index <= 1);
+    debug_assert!(child_texture_index <= 1);
+    pack_compose(compose)
+        | (pack_mix(mix) << 8)
+        | (u32::from(opacity_to_u8(opacity)) << 16)
+        | ((parent_texture_index as u32) << 24)
+        | ((child_texture_index as u32) << 25)
 }
 
 fn pack_mix(mix: Mix) -> u32 {
