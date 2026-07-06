@@ -175,7 +175,7 @@ impl<'a> ScheduleBuilder<'a> {
         if let Some(filter) = target.allocation.filter {
             self.ensure_schedule_round_exists(ready_round, schedule);
             schedule.rounds[ready_round].push_filter(FilterOp {
-                layer: target.allocation.region,
+                layer_region: target.allocation.region,
                 scratches: filter
                     .scratches
                     .map(|scratch| scratch.map(|scratch| scratch.region)),
@@ -412,9 +412,9 @@ impl<'a> ScheduleBuilder<'a> {
 
         self.ensure_schedule_round_exists(blend_round, schedule);
         schedule.rounds[blend_round].push_blend(BlendOp {
-            parent: state.target.layer_region(),
-            child: layer.sample.source,
-            bbox,
+            parent_region: state.target.layer_region(),
+            child_region: layer.sample.source,
+            blend_bbox: bbox,
             blend_mode,
             opacity,
         });
@@ -440,9 +440,9 @@ impl<'a> ScheduleBuilder<'a> {
 
         self.ensure_schedule_round_exists(parent_ready_round, schedule);
         schedule.rounds[parent_ready_round].push_blend(BlendOp {
-            parent: state.target.layer_region(),
-            child: empty_child_region_for_blend(bbox),
-            bbox,
+            parent_region: state.target.layer_region(),
+            child_region: empty_child_region_for_blend(bbox),
+            blend_bbox: bbox,
             blend_mode,
             opacity,
         });

@@ -3117,15 +3117,15 @@ impl RendererContext<'_> {
             blends
                 .iter()
                 .copied()
-                .filter(|blend| !blend.bbox.is_empty())
+                .filter(|blend| !blend.blend_bbox.is_empty())
                 .map(|blend| {
-                    debug_assert_eq!(blend.parent.texture_index, texture_index);
+                    debug_assert_eq!(blend.parent_region.texture_index, texture_index);
                     self.programs
                         .resources
-                        .layer_view(blend.parent.texture_index);
+                        .layer_view(blend.parent_region.texture_index);
                     self.programs
                         .resources
-                        .layer_view(blend.child.texture_index);
+                        .layer_view(blend.child_region.texture_index);
                     gpu_blend_instance(blend, parent_texture_size)
                 }),
         );

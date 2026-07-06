@@ -38,7 +38,7 @@ pub(super) struct RenderPass {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FilterOp {
-    pub(crate) layer: LayerTextureRegion,
+    pub(crate) layer_region: LayerTextureRegion,
     pub(crate) scratches: [Option<ScratchRegion>; 2],
     pub(crate) filter_data_offset: u32,
     pub(crate) gpu_filter: GpuFilterData,
@@ -46,9 +46,9 @@ pub(crate) struct FilterOp {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BlendOp {
-    pub(crate) parent: LayerTextureRegion,
-    pub(crate) child: LayerTextureRegion,
-    pub(crate) bbox: RectU16,
+    pub(crate) parent_region: LayerTextureRegion,
+    pub(crate) child_region: LayerTextureRegion,
+    pub(crate) blend_bbox: RectU16,
     pub(crate) blend_mode: BlendMode,
     pub(crate) opacity: f32,
 }
@@ -81,13 +81,13 @@ impl Round {
     }
 
     pub(super) fn push_blend(&mut self, blend: BlendOp) {
-        self.layer_passes[blend.parent.texture_index]
+        self.layer_passes[blend.parent_region.texture_index]
             .blends
             .push(blend);
     }
 
     pub(super) fn push_filter(&mut self, filter: FilterOp) {
-        self.layer_passes[filter.layer.texture_index]
+        self.layer_passes[filter.layer_region.texture_index]
             .filters
             .push(filter);
     }
