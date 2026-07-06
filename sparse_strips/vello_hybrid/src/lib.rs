@@ -44,6 +44,8 @@
 
 extern crate alloc;
 
+pub(crate) mod blend;
+pub(crate) mod copy;
 pub(crate) mod filter;
 mod gradient_cache;
 mod rect;

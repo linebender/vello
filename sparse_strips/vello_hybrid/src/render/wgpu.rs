@@ -21,10 +21,9 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
-    filter::{
-        FilterContext, FilterInstanceData, GpuBlendInstance, GpuCopyInstance, gpu_blend_instance,
-        schedule,
-    },
+    blend::{GpuBlendInstance, gpu_blend_instance},
+    copy::GpuCopyInstance,
+    filter::{FilterContext, FilterInstanceData, schedule},
     gradient_cache::GradientRampCache,
     render::{
         Config,

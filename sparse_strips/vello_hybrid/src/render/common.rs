@@ -8,7 +8,9 @@
     reason = "GPU paint structures have small, fixed sizes that fit in u32"
 )]
 
-use crate::filter::{GpuBlendInstance, GpuCopyInstance, ScheduledFilterPasses};
+use crate::blend::GpuBlendInstance;
+use crate::copy::GpuCopyInstance;
+use crate::filter::ScheduledFilterPasses;
 use crate::schedule::ScheduleScratch;
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
