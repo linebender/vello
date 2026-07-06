@@ -88,9 +88,12 @@ fn pack_blend_config(
 ) -> u32 {
     debug_assert!(parent_texture_index <= 1);
     debug_assert!(child_texture_index <= 1);
+
+    let opacity = (opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
+
     pack_compose(compose)
         | (pack_mix(mix) << 8)
-        | (u32::from(opacity_to_u8(opacity)) << 16)
+        | (u32::from(opacity) << 16)
         | ((parent_texture_index as u32) << 24)
         | ((child_texture_index as u32) << 25)
 }
@@ -133,12 +136,4 @@ fn pack_compose(compose: Compose) -> u32 {
         Compose::Plus => 12,
         Compose::PlusLighter => 13,
     }
-}
-
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "opacity is clamped to the normalized u8 range before packing"
-)]
-fn opacity_to_u8(opacity: f32) -> u8 {
-    (opacity.clamp(0.0, 1.0) * 255.0).round() as u8
 }
