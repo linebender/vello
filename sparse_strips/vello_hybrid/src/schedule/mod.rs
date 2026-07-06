@@ -255,9 +255,6 @@ fn execute_schedule<R: RendererBackend>(
     }
 
     for round in &schedule.rounds {
-        clear_layer_regions(renderer, &round.prepare_layer_regions);
-        clear_filter_scratch_regions(renderer, &round.prepare_filter_scratch_regions);
-
         scratch.clear_round();
 
         for pass in &round.passes {

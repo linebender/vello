@@ -532,19 +532,6 @@ impl<'a> ScheduleBuilder<'a> {
         let mut allocation = scheduled.allocation;
         allocation.round_idx = scheduled.round_idx;
 
-        if allocation.has_padding() {
-            self.ensure_schedule_round_exists(allocation.round_idx, schedule);
-            let round = &mut schedule.rounds[allocation.round_idx];
-            round.prepare_layer_regions.push(allocation.clear_region);
-            if let Some(filter) = allocation.filter {
-                for scratch in filter.scratches.into_iter().flatten() {
-                    round
-                        .prepare_filter_scratch_regions
-                        .push(scratch.clear_region);
-                }
-            }
-        }
-
         Ok(allocation)
     }
 
@@ -781,13 +768,6 @@ struct LayerAllocation {
     alloc_id: AllocId,
     allocation_width: u32,
     allocation_height: u32,
-}
-
-impl LayerAllocation {
-    fn has_padding(self) -> bool {
-        self.allocation_width != u32::from(self.region.width)
-            || self.allocation_height != u32::from(self.region.height)
-    }
 }
 
 #[derive(Debug, Clone, Copy)]

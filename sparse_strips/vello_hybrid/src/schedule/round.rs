@@ -16,10 +16,6 @@ pub(super) struct Schedule {
 
 #[derive(Debug, Default)]
 pub(super) struct Round {
-    /// Padded filter layer regions that need transparent guard texels before drawing.
-    pub(super) prepare_layer_regions: Vec<LayerTextureRegion>,
-    /// Padded filter scratch regions that need transparent guard texels before filtering.
-    pub(super) prepare_filter_scratch_regions: Vec<FilterScratchRegion>,
     pub(super) passes: Vec<RoundPass>,
     pub(super) filters: [Vec<FilterOp>; 2],
     pub(super) blends: Vec<BlendOp>,
