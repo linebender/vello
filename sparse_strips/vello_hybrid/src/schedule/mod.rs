@@ -145,7 +145,7 @@ pub(crate) trait RendererBackend {
     );
 
     /// Apply non-default blend layer operations.
-    fn blend(&mut self, blends: &[BlendOp]);
+    fn blend(&mut self, blends: &[BlendOp], texture_index: usize);
 
     /// Apply filter operations to already-rendered layer atlas regions.
     fn apply_filters(&mut self, filters: &[FilterOp], texture_index: usize);
@@ -257,26 +257,19 @@ fn execute_schedule<R: RendererBackend>(
     for round in &schedule.rounds {
         scratch.clear_round();
 
-        for pass in &round.passes {
-            if let RenderTarget::Layer(region) = pass.target
-                && region.texture_index < scratch.layer_draws.len()
-                && pass.load_op == LoadOp::Load
-            {
-                scratch.layer_draws[region.texture_index].append(&pass.draw);
-                continue;
-            }
-        }
-
         for texture_index in [1, 0] {
-            for pass in &round.passes {
-                let RenderTarget::Layer(region) = pass.target else {
-                    continue;
-                };
-                if region.texture_index != texture_index || pass.load_op == LoadOp::Load {
-                    continue;
-                }
+            let layer_round = &round.layer_texture_rounds[texture_index];
 
-                execute_pass(renderer, pass);
+            for pass in &layer_round.passes {
+                if pass.load_op == LoadOp::Load {
+                    scratch.layer_draws[texture_index].append(&pass.draw);
+                }
+            }
+
+            for pass in &layer_round.passes {
+                if pass.load_op != LoadOp::Load {
+                    execute_pass(renderer, pass);
+                }
             }
 
             let draw = &scratch.layer_draws[texture_index];
@@ -288,19 +281,17 @@ fn execute_schedule<R: RendererBackend>(
                 LoadOp::Load,
             );
 
-            renderer.apply_filters(&round.filters[texture_index], texture_index);
+            renderer.apply_filters(&layer_round.filters, texture_index);
         }
 
-        execute_root_passes(
-            renderer,
-            &mut scratch.root_batch,
-            round
-                .passes
-                .iter()
-                .filter(|pass| matches!(pass.target, RenderTarget::Root(_))),
-        );
+        execute_root_passes(renderer, &mut scratch.root_batch, &round.root_passes);
 
-        renderer.blend(&round.blends);
+        for texture_index in 0..round.layer_texture_rounds.len() {
+            renderer.blend(
+                &round.layer_texture_rounds[texture_index].blends,
+                texture_index,
+            );
+        }
         clear_layer_regions(renderer, &round.clear_layer_regions);
         clear_filter_scratch_regions(renderer, &round.clear_filter_scratch_regions);
     }
@@ -368,7 +359,7 @@ impl Default for DirectRootOpaque {
 
 fn collect_direct_root_opaque(schedule: &Schedule) -> DirectRootOpaque {
     let mut opaque = DirectRootOpaque::default();
-    for pass in schedule.rounds.iter().flat_map(|round| &round.passes) {
+    for pass in schedule.rounds.iter().flat_map(|round| &round.root_passes) {
         if !matches!(
             pass.target,
             RenderTarget::Root(RootRenderTarget::UserSurface)

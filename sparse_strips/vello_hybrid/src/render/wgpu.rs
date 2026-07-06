@@ -3105,119 +3105,116 @@ impl RendererContext<'_> {
         (size, size)
     }
 
-    fn do_blend_render_pass(&mut self, blends: &[BlendOp]) {
+    fn do_blend_render_pass(&mut self, blends: &[BlendOp], texture_index: usize) {
         let parent_texture_size = self.layer_texture_size_u16();
         if blends.is_empty() {
             return;
         }
         self.programs.resources.scratch_view(BLEND_SCRATCH_INDEX);
 
-        for texture_index in 0..self.programs.resources.layer_textures.len() {
-            self.scratch.blend_instances.clear();
-            self.scratch.blend_instances.extend(
-                blends
-                    .iter()
-                    .copied()
-                    .filter(|blend| {
-                        !blend.bbox.is_empty() && blend.parent.texture_index == texture_index
-                    })
-                    .map(|blend| {
-                        self.programs
-                            .resources
-                            .layer_view(blend.parent.texture_index);
-                        self.programs
-                            .resources
-                            .layer_view(blend.child.texture_index);
-                        gpu_blend_instance(blend, parent_texture_size)
-                    }),
-            );
-            if self.scratch.blend_instances.is_empty() {
-                continue;
-            }
-
-            let instance_count = u32::try_from(self.scratch.blend_instances.len()).unwrap();
-            let instance_buffer =
-                self.device
-                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("Blend Instances Buffer"),
-                        contents: bytemuck::cast_slice(&self.scratch.blend_instances),
-                        usage: wgpu::BufferUsages::VERTEX,
-                    });
-
-            {
-                let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
-                    label: Some("Blend To Scratch"),
-                    color_attachments: &[Some(RenderPassColorAttachment {
-                        view: self.programs.resources.scratch_view(BLEND_SCRATCH_INDEX),
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    occlusion_query_set: None,
-                    timestamp_writes: None,
-                    multiview_mask: None,
-                });
-                render_pass.set_pipeline(&self.programs.blend_pipeline);
-                render_pass.set_bind_group(0, &self.programs.resources.blend_layer_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, instance_buffer.slice(..));
-                render_pass.draw(0..4, 0..instance_count);
-            }
-
-            self.scratch.copy_instances.clear();
-            self.scratch.copy_instances.extend(
-                self.scratch
-                    .blend_instances
-                    .iter()
-                    .copied()
-                    .map(GpuBlendInstance::copy_from_parent_in_scratch),
-            );
-            let copy_instance_buffer =
-                self.device
-                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("Blend Copy Instances Buffer"),
-                        contents: bytemuck::cast_slice(&self.scratch.copy_instances),
-                        usage: wgpu::BufferUsages::VERTEX,
-                    });
-
-            {
-                let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
-                    label: Some("Copy Blend Scratch To Layer"),
-                    color_attachments: &[Some(RenderPassColorAttachment {
-                        view: self.programs.resources.layer_view(texture_index),
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    occlusion_query_set: None,
-                    timestamp_writes: None,
-                    multiview_mask: None,
-                });
-                render_pass.set_pipeline(&self.programs.blend_copy_pipeline);
-                render_pass.set_bind_group(1, &self.programs.resources.blend_copy_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, copy_instance_buffer.slice(..));
-                render_pass.draw(0..4, 0..instance_count);
-            }
-
-            self.scratch.clear_rects.clear();
-            self.scratch.clear_rects.extend(
-                self.scratch
-                    .copy_instances
-                    .iter()
-                    .map(GpuCopyInstance::clear_rect),
-            );
-            self.do_clear_stored_rects(
-                TextureTarget::scratch(BLEND_SCRATCH_INDEX),
-                "Clear Blend Scratch",
-            );
+        self.scratch.blend_instances.clear();
+        self.scratch.blend_instances.extend(
+            blends
+                .iter()
+                .copied()
+                .filter(|blend| !blend.bbox.is_empty())
+                .map(|blend| {
+                    debug_assert_eq!(blend.parent.texture_index, texture_index);
+                    self.programs
+                        .resources
+                        .layer_view(blend.parent.texture_index);
+                    self.programs
+                        .resources
+                        .layer_view(blend.child.texture_index);
+                    gpu_blend_instance(blend, parent_texture_size)
+                }),
+        );
+        if self.scratch.blend_instances.is_empty() {
+            return;
         }
+
+        let instance_count = u32::try_from(self.scratch.blend_instances.len()).unwrap();
+        let instance_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Blend Instances Buffer"),
+                contents: bytemuck::cast_slice(&self.scratch.blend_instances),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+
+        {
+            let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("Blend To Scratch"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: self.programs.resources.scratch_view(BLEND_SCRATCH_INDEX),
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+            render_pass.set_pipeline(&self.programs.blend_pipeline);
+            render_pass.set_bind_group(0, &self.programs.resources.blend_layer_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, instance_buffer.slice(..));
+            render_pass.draw(0..4, 0..instance_count);
+        }
+
+        self.scratch.copy_instances.clear();
+        self.scratch.copy_instances.extend(
+            self.scratch
+                .blend_instances
+                .iter()
+                .copied()
+                .map(GpuBlendInstance::copy_from_parent_in_scratch),
+        );
+        let copy_instance_buffer =
+            self.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Blend Copy Instances Buffer"),
+                    contents: bytemuck::cast_slice(&self.scratch.copy_instances),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+
+        {
+            let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("Copy Blend Scratch To Layer"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: self.programs.resources.layer_view(texture_index),
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+            render_pass.set_pipeline(&self.programs.blend_copy_pipeline);
+            render_pass.set_bind_group(1, &self.programs.resources.blend_copy_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, copy_instance_buffer.slice(..));
+            render_pass.draw(0..4, 0..instance_count);
+        }
+
+        self.scratch.clear_rects.clear();
+        self.scratch.clear_rects.extend(
+            self.scratch
+                .copy_instances
+                .iter()
+                .map(GpuCopyInstance::clear_rect),
+        );
+        self.do_clear_stored_rects(
+            TextureTarget::scratch(BLEND_SCRATCH_INDEX),
+            "Clear Blend Scratch",
+        );
     }
 
     fn do_filter_layers_render_pass(&mut self, filters: &[FilterOp], texture_index: usize) {
@@ -3374,8 +3371,8 @@ impl RendererBackend for RendererContext<'_> {
         );
     }
 
-    fn blend(&mut self, blends: &[BlendOp]) {
-        self.do_blend_render_pass(blends);
+    fn blend(&mut self, blends: &[BlendOp], texture_index: usize) {
+        self.do_blend_render_pass(blends, texture_index);
     }
 
     fn apply_filters(&mut self, filters: &[FilterOp], texture_index: usize) {

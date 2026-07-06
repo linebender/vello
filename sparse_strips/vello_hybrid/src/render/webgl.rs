@@ -2952,7 +2952,7 @@ impl WebGlRendererContext<'_> {
         (size, size)
     }
 
-    fn do_blend_render_pass(&mut self, blends: &[BlendOp]) {
+    fn do_blend_render_pass(&mut self, blends: &[BlendOp], texture_index: usize) {
         let parent_texture_size = self.layer_texture_size_u16();
         if blends.is_empty() {
             return;
@@ -2968,122 +2968,112 @@ impl WebGlRendererContext<'_> {
         self.gl
             .bind_vertex_array(Some(&self.programs.resources.blend_vao));
 
-        for texture_index in 0..self.programs.resources.layer_textures.len() {
-            self.scratch.blend_instances.clear();
-            self.scratch.blend_instances.extend(
-                blends
-                    .iter()
-                    .copied()
-                    .filter(|blend| {
-                        !blend.bbox.is_empty() && blend.parent.texture_index == texture_index
-                    })
-                    .map(|blend| {
-                        self.programs
-                            .resources
-                            .layer_texture(blend.parent.texture_index);
-                        self.programs
-                            .resources
-                            .layer_texture(blend.child.texture_index);
-                        gpu_blend_instance(blend, parent_texture_size)
-                    }),
-            );
-            if self.scratch.blend_instances.is_empty() {
-                continue;
-            }
-
-            self.programs
-                .upload_blend_instances(self.gl, &self.scratch.blend_instances);
-            let instance_count = i32::try_from(self.scratch.blend_instances.len()).unwrap();
-
-            self.gl.bind_framebuffer(
-                WebGl2RenderingContext::FRAMEBUFFER,
-                Some(
+        self.scratch.blend_instances.clear();
+        self.scratch.blend_instances.extend(
+            blends
+                .iter()
+                .copied()
+                .filter(|blend| !blend.bbox.is_empty())
+                .map(|blend| {
+                    debug_assert_eq!(blend.parent.texture_index, texture_index);
                     self.programs
                         .resources
-                        .scratch_framebuffer(BLEND_SCRATCH_INDEX),
-                ),
-            );
-            self.gl.viewport(
-                0,
-                0,
-                i32::from(parent_texture_size.0),
-                i32::from(parent_texture_size.1),
-            );
-            self.gl.use_program(Some(&self.programs.blend_program));
-
-            self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);
-            self.gl
-                .bind_texture(WebGl2RenderingContext::TEXTURE_2D, None);
-
-            self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-            self.gl.bind_texture(
-                WebGl2RenderingContext::TEXTURE_2D,
-                Some(self.programs.resources.layer_binding_texture(0)),
-            );
-            self.gl
-                .uniform1i(Some(&self.programs.blend_uniforms.layer_texture_0), 0);
-
-            self.gl.active_texture(WebGl2RenderingContext::TEXTURE1);
-            self.gl.bind_texture(
-                WebGl2RenderingContext::TEXTURE_2D,
-                Some(self.programs.resources.layer_binding_texture(1)),
-            );
-            self.gl
-                .uniform1i(Some(&self.programs.blend_uniforms.layer_texture_1), 1);
-
-            self.gl.draw_arrays_instanced(
-                WebGl2RenderingContext::TRIANGLE_STRIP,
-                0,
-                4,
-                instance_count,
-            );
-
-            self.scratch.copy_instances.clear();
-            self.scratch.copy_instances.extend(
-                self.scratch
-                    .blend_instances
-                    .iter()
-                    .copied()
-                    .map(GpuBlendInstance::copy_from_parent_in_scratch),
-            );
-            self.programs
-                .upload_copy_instances(self.gl, &self.scratch.copy_instances);
-
-            self.gl.bind_framebuffer(
-                WebGl2RenderingContext::FRAMEBUFFER,
-                Some(self.programs.resources.layer_framebuffer(texture_index)),
-            );
-            self.gl
-                .bind_vertex_array(Some(&self.programs.resources.copy_vao));
-            self.gl.use_program(Some(&self.programs.blend_copy_program));
-
-            self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
-            self.gl.bind_texture(
-                WebGl2RenderingContext::TEXTURE_2D,
-                Some(self.programs.resources.scratch_texture(BLEND_SCRATCH_INDEX)),
-            );
-            self.gl
-                .uniform1i(Some(&self.programs.blend_copy_uniforms.scratch_texture), 0);
-
-            self.gl.draw_arrays_instanced(
-                WebGl2RenderingContext::TRIANGLE_STRIP,
-                0,
-                4,
-                instance_count,
-            );
-
-            self.scratch.clear_rects.clear();
-            self.scratch.clear_rects.extend(
-                self.scratch
-                    .copy_instances
-                    .iter()
-                    .map(GpuCopyInstance::clear_rect),
-            );
-            self.do_clear_stored_rects(TextureTarget::scratch(BLEND_SCRATCH_INDEX));
-
-            self.gl
-                .bind_vertex_array(Some(&self.programs.resources.blend_vao));
+                        .layer_texture(blend.parent.texture_index);
+                    self.programs
+                        .resources
+                        .layer_texture(blend.child.texture_index);
+                    gpu_blend_instance(blend, parent_texture_size)
+                }),
+        );
+        if self.scratch.blend_instances.is_empty() {
+            self.gl.bind_vertex_array(None);
+            self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
+            self.gl.depth_mask(true);
+            self.gl.enable(WebGl2RenderingContext::BLEND);
+            return;
         }
+
+        self.programs
+            .upload_blend_instances(self.gl, &self.scratch.blend_instances);
+        let instance_count = i32::try_from(self.scratch.blend_instances.len()).unwrap();
+
+        self.gl.bind_framebuffer(
+            WebGl2RenderingContext::FRAMEBUFFER,
+            Some(
+                self.programs
+                    .resources
+                    .scratch_framebuffer(BLEND_SCRATCH_INDEX),
+            ),
+        );
+        self.gl.viewport(
+            0,
+            0,
+            i32::from(parent_texture_size.0),
+            i32::from(parent_texture_size.1),
+        );
+        self.gl.use_program(Some(&self.programs.blend_program));
+
+        self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);
+        self.gl
+            .bind_texture(WebGl2RenderingContext::TEXTURE_2D, None);
+
+        self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+        self.gl.bind_texture(
+            WebGl2RenderingContext::TEXTURE_2D,
+            Some(self.programs.resources.layer_binding_texture(0)),
+        );
+        self.gl
+            .uniform1i(Some(&self.programs.blend_uniforms.layer_texture_0), 0);
+
+        self.gl.active_texture(WebGl2RenderingContext::TEXTURE1);
+        self.gl.bind_texture(
+            WebGl2RenderingContext::TEXTURE_2D,
+            Some(self.programs.resources.layer_binding_texture(1)),
+        );
+        self.gl
+            .uniform1i(Some(&self.programs.blend_uniforms.layer_texture_1), 1);
+
+        self.gl
+            .draw_arrays_instanced(WebGl2RenderingContext::TRIANGLE_STRIP, 0, 4, instance_count);
+
+        self.scratch.copy_instances.clear();
+        self.scratch.copy_instances.extend(
+            self.scratch
+                .blend_instances
+                .iter()
+                .copied()
+                .map(GpuBlendInstance::copy_from_parent_in_scratch),
+        );
+        self.programs
+            .upload_copy_instances(self.gl, &self.scratch.copy_instances);
+
+        self.gl.bind_framebuffer(
+            WebGl2RenderingContext::FRAMEBUFFER,
+            Some(self.programs.resources.layer_framebuffer(texture_index)),
+        );
+        self.gl
+            .bind_vertex_array(Some(&self.programs.resources.copy_vao));
+        self.gl.use_program(Some(&self.programs.blend_copy_program));
+
+        self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+        self.gl.bind_texture(
+            WebGl2RenderingContext::TEXTURE_2D,
+            Some(self.programs.resources.scratch_texture(BLEND_SCRATCH_INDEX)),
+        );
+        self.gl
+            .uniform1i(Some(&self.programs.blend_copy_uniforms.scratch_texture), 0);
+
+        self.gl
+            .draw_arrays_instanced(WebGl2RenderingContext::TRIANGLE_STRIP, 0, 4, instance_count);
+
+        self.scratch.clear_rects.clear();
+        self.scratch.clear_rects.extend(
+            self.scratch
+                .copy_instances
+                .iter()
+                .map(GpuCopyInstance::clear_rect),
+        );
+        self.do_clear_stored_rects(TextureTarget::scratch(BLEND_SCRATCH_INDEX));
 
         self.gl.bind_vertex_array(None);
         self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
@@ -3281,8 +3271,8 @@ impl RendererBackend for WebGlRendererContext<'_> {
         self.do_strip_render_pass(opaque_strips, alpha_strips, target, load_op);
     }
 
-    fn blend(&mut self, blends: &[BlendOp]) {
-        self.do_blend_render_pass(blends);
+    fn blend(&mut self, blends: &[BlendOp], texture_index: usize) {
+        self.do_blend_render_pass(blends, texture_index);
     }
 
     fn apply_filters(&mut self, filters: &[FilterOp], texture_index: usize) {
