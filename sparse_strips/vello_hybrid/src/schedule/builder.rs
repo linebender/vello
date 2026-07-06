@@ -3,7 +3,7 @@
 
 //! Round construction for the new hybrid scheduler.
 
-use super::allocate::{
+use super::alloc::{
     FilterAllocationRequest, LayerAllocation, LayerAllocationRequest, LayerAtlasResource,
 };
 use super::draw::{Draw, DrawBuilder, LayerSample};
