@@ -416,7 +416,7 @@ impl Scene {
         rects: impl IntoIterator<Item = SampleRect>,
     ) {
         // This API currently doesn't take extend mode parameters: as of writing, the
-        // `render_strips.wgsl` shader does not use extend modes to sample across boundaries, i.e.,
+        // `render.wgsl` shader does not use extend modes to sample across boundaries, i.e.,
         // sampling near a boundary doesn't take extend modes into account when determining where
         // the sample should be taken.
         //

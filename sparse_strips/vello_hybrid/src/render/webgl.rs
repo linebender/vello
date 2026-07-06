@@ -2379,7 +2379,7 @@ fn create_texture_inner(gl: &WebGl2RenderingContext, target: u32) -> Texture {
     gl.active_texture(WebGl2RenderingContext::TEXTURE0);
     gl.bind_texture(target, Some(&texture));
     // The filter and wrap modes are irrelevant because the shader
-    // (`render_strips.wgsl`) exclusively uses `textureLoad`, which bypasses
+    // (`render.wgsl`) exclusively uses `textureLoad`, which bypasses
     // the sampler entirely.
     gl.tex_parameteri(
         target,
