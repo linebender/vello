@@ -502,9 +502,13 @@ impl<'a> ScheduleBuilder<'a> {
     ) -> Result<LayerAllocation, RenderError> {
         let width = bbox.width();
         let height = bbox.height();
-        let padding = filter.map_or(0, |filter| u32::from(filter.padding));
-        let allocation_width = u32::from(width).saturating_add(padding * 2);
-        let allocation_height = u32::from(height).saturating_add(padding * 2);
+        let padding = if filter.is_some() {
+            FILTER_ATLAS_PADDING
+        } else {
+            0
+        };
+        let allocation_width = u32::from(width).saturating_add(u32::from(padding) * 2);
+        let allocation_height = u32::from(height).saturating_add(u32::from(padding) * 2);
         if allocation_width > self.layer_texture_size.0
             || allocation_height > self.layer_texture_size.1
         {
@@ -516,6 +520,7 @@ impl<'a> ScheduleBuilder<'a> {
             bbox,
             width,
             height,
+            padding,
             allocation_width,
             allocation_height,
             filter,
@@ -546,11 +551,6 @@ impl<'a> ScheduleBuilder<'a> {
         let is_multi_pass = gpu_filter.is_multi_pass();
         Some(FilterAllocationRequest {
             scratch_count: if is_multi_pass { 2 } else { 1 },
-            padding: if is_multi_pass {
-                FILTER_ATLAS_PADDING
-            } else {
-                0
-            },
             filter_data_offset: self.filter_data_offsets[layer_id as usize]
                 .expect("filter layer must have a filter data offset"),
             gpu_filter,
@@ -631,6 +631,7 @@ struct LayerAllocationRequest {
     bbox: RectU16,
     width: u16,
     height: u16,
+    padding: u16,
     allocation_width: u32,
     allocation_height: u32,
     filter: Option<FilterAllocationRequest>,
@@ -639,7 +640,6 @@ struct LayerAllocationRequest {
 #[derive(Debug, Clone, Copy)]
 struct FilterAllocationRequest {
     scratch_count: usize,
-    padding: u16,
     filter_data_offset: u32,
     gpu_filter: GpuFilterData,
 }
@@ -649,7 +649,7 @@ impl ResourceAllocator for LayerAtlasResource {
     type Allocation = LayerAllocation;
 
     fn allocate(&mut self, request: Self::Request) -> Option<Self::Allocation> {
-        let padding = request.filter.map_or(0, |filter| u32::from(filter.padding));
+        let padding = u32::from(request.padding);
         let allocation = self.atlases[request.texture_index]
             .allocate(request.allocation_width, request.allocation_height)?;
         let mut scratch_allocations: [Option<ScratchAllocation>; 2] = [None, None];
