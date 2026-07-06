@@ -174,7 +174,7 @@ impl<'a> ScheduleBuilder<'a> {
                 .expect("filter target must have scratch allocations");
             self.ensure_round_exists(ready_round, rounds);
             rounds.rounds[ready_round].push_filter(FilterOp {
-                layer_region: target.allocation.region,
+                layer_region: target.region,
                 scratches: allocation_filter
                     .map(|scratch| scratch.map(|scratch| scratch.texture.region)),
                 filter_data_offset: filter.filter_data_offset,
@@ -182,8 +182,9 @@ impl<'a> ScheduleBuilder<'a> {
             });
         }
         Ok(Some(ScheduledLayer {
-            sample: self.layer_sample(layer_id, target.allocation.region),
+            sample: self.layer_sample(layer_id, target.region),
             allocation: target.allocation,
+            region: target.region,
             round_idx: ready_round,
         }))
     }
@@ -200,19 +201,20 @@ impl<'a> ScheduleBuilder<'a> {
         }
 
         let filter = self.filter_info(layer_id);
-        let allocation = self.allocate_region(
+        let (allocation, region) = self.allocate_region(
             texture_index,
             bbox,
             filter.map_or(0, ScheduledFilter::scratch_count),
         )?;
         let stream = CommandStreamState::new(
-            RenderTarget::Layer(allocation.region),
+            RenderTarget::Layer(region),
             allocation.round_idx,
             LoadOp::Load,
-            allocation.region.scene_bbox,
+            region.scene_bbox,
         );
         *target = Some(LayerCommandTarget {
             allocation,
+            region,
             filter,
             stream,
         });
@@ -254,8 +256,8 @@ impl<'a> ScheduleBuilder<'a> {
                 return Ok(());
             }
 
-            let allocation = self.allocate_region(0, bbox, 0)?;
-            let target = RenderTarget::Layer(allocation.region);
+            let (allocation, region) = self.allocate_region(0, bbox, 0)?;
+            let target = RenderTarget::Layer(region);
             let ready_round = self.schedule_command_stream_with_load(
                 cmds,
                 target,
@@ -272,8 +274,8 @@ impl<'a> ScheduleBuilder<'a> {
             );
             draw.push_layer_ref(
                 LayerSample {
-                    source: allocation.region,
-                    bbox: allocation.region.scene_bbox,
+                    source: region,
+                    bbox: region.scene_bbox,
                     source_origin: (0, 0),
                 },
                 1.0,
@@ -297,7 +299,7 @@ impl<'a> ScheduleBuilder<'a> {
                 .layer_clears
                 .push(LayerTextureRegion {
                     texture: allocation.texture.clear_region(),
-                    scene_bbox: allocation.region.scene_bbox,
+                    scene_bbox: region.scene_bbox,
                 });
             self.release_allocation_after_round(allocation, ready_round, rounds);
         } else {
@@ -386,11 +388,11 @@ impl<'a> ScheduleBuilder<'a> {
         let blend_mode = props.blend_mode;
         let opacity = props.opacity;
         let same_texture_as_target =
-            state.target.texture_index() == Some(layer.allocation.region.texture.texture_index);
+            state.target.texture_index() == Some(layer.region.texture.texture_index);
         if blend_mode == BlendMode::default() && !same_texture_as_target {
             state.round_idx = state.round_idx.max(required_round_for_layer_sample(
                 state.target.texture_index(),
-                layer.allocation.region.texture.texture_index,
+                layer.region.texture.texture_index,
                 layer.round_idx,
             ));
             state.builder.push_layer_ref(
@@ -489,7 +491,7 @@ impl<'a> ScheduleBuilder<'a> {
             .layer_clears
             .push(LayerTextureRegion {
                 texture: scheduled_layer.allocation.texture.clear_region(),
-                scene_bbox: scheduled_layer.allocation.region.scene_bbox,
+                scene_bbox: scheduled_layer.region.scene_bbox,
             });
         if let Some(filter) = scheduled_layer.allocation.filter {
             for scratch in filter.into_iter().flatten() {
@@ -506,8 +508,12 @@ impl<'a> ScheduleBuilder<'a> {
         texture_index: usize,
         bbox: RectU16,
         scratch_count: usize,
-    ) -> Result<LayerAllocation, RenderError> {
-        let request = LayerAllocationRequest::new(texture_index, bbox, scratch_count);
+    ) -> Result<(LayerAllocation, LayerTextureRegion), RenderError> {
+        let request = LayerAllocationRequest::new(
+            texture_index,
+            (bbox.width(), bbox.height()),
+            scratch_count,
+        );
         if !request.fits_texture(self.layer_texture_size) {
             return Err(RenderError::AtlasError(AtlasError::NoSpaceAvailable));
         }
@@ -518,8 +524,12 @@ impl<'a> ScheduleBuilder<'a> {
 
         let mut allocation = scheduled.allocation;
         allocation.round_idx = scheduled.round_idx;
+        let region = LayerTextureRegion {
+            texture: allocation.texture.region,
+            scene_bbox: bbox,
+        };
 
-        Ok(allocation)
+        Ok((allocation, region))
     }
 
     fn filter_info(&self, layer_id: u32) -> Option<ScheduledFilter> {
@@ -591,6 +601,7 @@ fn ensure_round_exists(rounds: &mut Rounds, round_idx: usize) {
 #[derive(Debug, Clone, Copy)]
 struct ScheduledLayer {
     allocation: LayerAllocation,
+    region: LayerTextureRegion,
     sample: LayerSample,
     round_idx: usize,
 }
@@ -598,6 +609,7 @@ struct ScheduledLayer {
 #[derive(Debug)]
 struct LayerCommandTarget {
     allocation: LayerAllocation,
+    region: LayerTextureRegion,
     filter: Option<ScheduledFilter>,
     stream: CommandStreamState,
 }

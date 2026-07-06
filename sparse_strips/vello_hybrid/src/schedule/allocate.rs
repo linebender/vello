@@ -3,8 +3,8 @@
 
 //! Atlas allocation for scheduled layer and scratch texture regions.
 
+use super::TextureRegion;
 use super::timeline::ResourceAllocator;
-use super::{LayerTextureRegion, TextureRegion};
 use crate::filter::FILTER_ATLAS_PADDING;
 use vello_common::geometry::RectU16;
 use vello_common::multi_atlas::{AllocId, Atlas, AtlasId};
@@ -33,7 +33,6 @@ impl Atlases {
 #[derive(Debug, Clone, Copy)]
 pub(super) struct LayerAllocationRequest {
     texture_index: usize,
-    bbox: RectU16,
     width: u16,
     height: u16,
     padding: u16,
@@ -41,9 +40,7 @@ pub(super) struct LayerAllocationRequest {
 }
 
 impl LayerAllocationRequest {
-    pub(super) fn new(texture_index: usize, bbox: RectU16, scratch_count: usize) -> Self {
-        let width = bbox.width();
-        let height = bbox.height();
+    pub(super) fn new(texture_index: usize, size: (u16, u16), scratch_count: usize) -> Self {
         let padding = if scratch_count > 0 {
             FILTER_ATLAS_PADDING
         } else {
@@ -52,9 +49,8 @@ impl LayerAllocationRequest {
 
         Self {
             texture_index,
-            bbox,
-            width,
-            height,
+            width: size.0,
+            height: size.1,
             padding,
             scratch_count,
         }
@@ -144,10 +140,6 @@ impl ResourceAllocator for Atlases {
         };
 
         Some(LayerAllocation {
-            region: LayerTextureRegion {
-                texture,
-                scene_bbox: request.bbox,
-            },
             filter: (request.scratch_count > 0).then_some(scratch_allocations),
             round_idx: 0,
             alloc_id: allocation.id,
@@ -157,7 +149,7 @@ impl ResourceAllocator for Atlases {
 
     fn release(&mut self, allocation: Self::Allocation) {
         let (allocation_width, allocation_height) = allocation.texture.allocation_size();
-        self.layer_atlases[allocation.region.texture.texture_index].deallocate(
+        self.layer_atlases[allocation.texture.region.texture_index].deallocate(
             allocation.alloc_id,
             allocation_width,
             allocation_height,
@@ -178,7 +170,6 @@ impl ResourceAllocator for Atlases {
 /// A layer texture region plus the allocator handle needed to release it.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct LayerAllocation {
-    pub(super) region: LayerTextureRegion,
     pub(super) filter: Option<FilterAllocation>,
     pub(super) round_idx: usize,
     alloc_id: AllocId,

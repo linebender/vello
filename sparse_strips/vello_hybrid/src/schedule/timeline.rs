@@ -5,7 +5,6 @@
 
 use alloc::vec::Vec;
 
-/// A resource allocator whose allocations can stay live across multiple rounds.
 pub(super) trait ResourceAllocator {
     type Request: Copy;
     type Allocation: Copy;
@@ -15,14 +14,12 @@ pub(super) trait ResourceAllocator {
     fn release(&mut self, allocation: Self::Allocation);
 }
 
-/// Result of a successful monotonic allocation attempt.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct ScheduledAllocation<T> {
     pub(super) allocation: T,
     pub(super) round_idx: usize,
 }
 
-/// A small online scheduler for resources whose state only moves forward in time.
 #[derive(Debug)]
 pub(super) struct Timeline<R: ResourceAllocator> {
     base_round: usize,
@@ -45,11 +42,6 @@ impl<R: ResourceAllocator> Timeline<R> {
         self.base_round
     }
 
-    /// Try to allocate at the current base round.
-    ///
-    /// If the resource is full, the scheduler advances round-by-round and applies releases that
-    /// were scheduled after completed rounds. Pressure creates more rounds, but the scheduler
-    /// never patches historical states.
     pub(super) fn allocate(
         &mut self,
         request: R::Request,
@@ -62,11 +54,11 @@ impl<R: ResourceAllocator> Timeline<R> {
                 });
             }
 
-            if !self.has_pending_release() {
+            if self.pending_release_count == 0 {
                 return None;
             }
 
-            self.advance_to_round(self.base_round + 1);
+            self.advance_to(self.base_round + 1);
         }
     }
 
@@ -74,23 +66,22 @@ impl<R: ResourceAllocator> Timeline<R> {
         while self.pending_releases.len() <= round_idx {
             self.pending_releases.push(Vec::new());
         }
+
         self.pending_releases[round_idx].push(allocation);
         self.pending_release_count += 1;
     }
 
-    fn advance_to_round(&mut self, round_idx: usize) {
+    fn advance_to(&mut self, round_idx: usize) {
         while self.base_round < round_idx {
             if let Some(releases) = self.pending_releases.get_mut(self.base_round) {
                 self.pending_release_count -= releases.len();
+
                 for allocation in releases.drain(..) {
                     self.resource.release(allocation);
                 }
             }
+
             self.base_round += 1;
         }
-    }
-
-    fn has_pending_release(&self) -> bool {
-        self.pending_release_count > 0
     }
 }
