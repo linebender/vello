@@ -55,15 +55,18 @@ pub(crate) fn gpu_blend_instance(
     blend: BlendOp,
     parent_texture_size: (u16, u16),
 ) -> GpuBlendInstance {
-    let parent_x =
-        blend.parent_region.x + (blend.blend_bbox.x0 - blend.parent_region.scene_bbox.x0);
-    let parent_y =
-        blend.parent_region.y + (blend.blend_bbox.y0 - blend.parent_region.scene_bbox.y0);
+    let parent_x = blend.parent_region.texture.rect.x0
+        + (blend.blend_bbox.x0 - blend.parent_region.scene_bbox.x0);
+    let parent_y = blend.parent_region.texture.rect.y0
+        + (blend.blend_bbox.y0 - blend.parent_region.scene_bbox.y0);
 
     GpuBlendInstance {
         parent_texture_origin: pack_u16_pair(parent_x, parent_y),
         parent_texture_size: pack_u16_pair(parent_texture_size.0, parent_texture_size.1),
-        child_texture_origin: pack_u16_pair(blend.child_region.x, blend.child_region.y),
+        child_texture_origin: pack_u16_pair(
+            blend.child_region.texture.rect.x0,
+            blend.child_region.texture.rect.y0,
+        ),
         child_rect_origin: pack_u16_pair(
             blend.child_region.scene_bbox.x0,
             blend.child_region.scene_bbox.y0,
@@ -78,8 +81,8 @@ pub(crate) fn gpu_blend_instance(
             blend.blend_mode.mix,
             blend.blend_mode.compose,
             blend.opacity,
-            blend.parent_region.texture_index,
-            blend.child_region.texture_index,
+            blend.parent_region.texture.texture_index,
+            blend.child_region.texture.texture_index,
         ),
     }
 }

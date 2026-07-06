@@ -5,7 +5,7 @@
 //!
 //! This first slice supports root-level draws and regular property-less layers.
 
-mod alloc;
+mod allocate;
 mod builder;
 mod draw;
 mod round;
@@ -83,30 +83,22 @@ impl TextureTarget {
     }
 }
 
-/// A rectangular region in one of the layer atlas textures.
+/// A rectangular region in one of the intermediate textures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct LayerTextureRegion {
-    /// Layer texture index, currently `0` or `1`.
+pub(crate) struct TextureRegion {
+    /// Texture index, currently `0` or `1`.
     pub(crate) texture_index: usize,
-    /// X coordinate in the layer texture.
-    pub(crate) x: u16,
-    /// Y coordinate in the layer texture.
-    pub(crate) y: u16,
-    /// Width of the region.
-    pub(crate) width: u16,
-    /// Height of the region.
-    pub(crate) height: u16,
-    /// Bounds of this layer in viewport coordinates.
-    pub(crate) scene_bbox: RectU16,
+    /// Region in the texture.
+    pub(crate) rect: RectU16,
 }
 
-/// A rectangular region in one of the scratch textures.
+/// A layer texture region with its corresponding viewport-space bounds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ScratchRegion {
-    /// Scratch texture index, currently `0` or `1`.
-    pub(crate) texture_index: usize,
-    /// Region in the scratch texture.
-    pub(crate) rect: RectU16,
+pub(crate) struct LayerTextureRegion {
+    /// Region in the layer texture.
+    pub(crate) texture: TextureRegion,
+    /// Bounds of this layer in viewport coordinates.
+    pub(crate) scene_bbox: RectU16,
 }
 
 /// Specifies a run of strips inside a draw that can be drawn with the same external texture
@@ -290,25 +282,28 @@ fn execute_rounds<R: RendererBackend>(
 }
 
 fn clear_layer_regions<R: RendererBackend>(renderer: &mut R, regions: &[LayerTextureRegion]) {
-    let Some(max_texture_index) = regions.iter().map(|region| region.texture_index).max() else {
+    let Some(max_texture_index) = regions
+        .iter()
+        .map(|region| region.texture.texture_index)
+        .max()
+    else {
         return;
     };
 
     for texture_index in 0..=max_texture_index {
         renderer.clear_rects(TextureTarget::layer(texture_index), |clear_rects| {
             clear_rects.extend(regions.iter().filter_map(|region| {
-                if region.texture_index != texture_index {
+                if region.texture.texture_index != texture_index {
                     return None;
                 }
 
-                let rect = region_clear_rect(region.x, region.y, region.width, region.height);
-                (!rect.is_empty()).then_some(rect)
+                (!region.texture.rect.is_empty()).then_some(region.texture.rect)
             }));
         });
     }
 }
 
-fn clear_scratch_regions<R: RendererBackend>(renderer: &mut R, regions: &[ScratchRegion]) {
+fn clear_scratch_regions<R: RendererBackend>(renderer: &mut R, regions: &[TextureRegion]) {
     let Some(max_texture_index) = regions.iter().map(|region| region.texture_index).max() else {
         return;
     };
@@ -324,10 +319,6 @@ fn clear_scratch_regions<R: RendererBackend>(renderer: &mut R, regions: &[Scratc
             }));
         });
     }
-}
-
-fn region_clear_rect(x: u16, y: u16, width: u16, height: u16) -> RectU16 {
-    RectU16::new(x, y, x + width, y + height)
 }
 
 #[derive(Debug)]
@@ -512,7 +503,7 @@ impl RenderTarget {
     fn texture_index(self) -> Option<usize> {
         match self {
             Self::Root(_) => None,
-            Self::Layer(region) => Some(region.texture_index),
+            Self::Layer(region) => Some(region.texture.texture_index),
         }
     }
 
@@ -527,8 +518,8 @@ impl RenderTarget {
         match self {
             Self::Root(_) => (0, 0),
             Self::Layer(region) => (
-                region.x as i32 - i32::from(region.scene_bbox.x0),
-                region.y as i32 - i32::from(region.scene_bbox.y0),
+                region.texture.rect.x0 as i32 - i32::from(region.scene_bbox.x0),
+                region.texture.rect.y0 as i32 - i32::from(region.scene_bbox.y0),
             ),
         }
     }

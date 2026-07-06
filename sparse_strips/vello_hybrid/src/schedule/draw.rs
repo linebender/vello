@@ -7,7 +7,7 @@ use super::{ExternalTextureRun, LayerTextureRegion};
 use crate::GpuStrip;
 use crate::rect::{RectPart, make_gpu_rect, split_rect};
 use crate::scene::RecordedDraw;
-use alloc::vec::Vec;
+use ::alloc::vec::Vec;
 use vello_common::TextureId;
 use vello_common::encode::{EncodedKind, EncodedPaint};
 use vello_common::geometry::RectU16;
@@ -606,8 +606,8 @@ fn pack_u16_pair(x: u16, y: u16) -> u32 {
 
 fn layer_sample_payload(sample: LayerSample, x: u16, y: u16) -> u32 {
     let source = sample.source;
-    let source_x = source.x + sample.source_origin.0 + (x - source.scene_bbox.x0);
-    let source_y = source.y + sample.source_origin.1 + (y - source.scene_bbox.y0);
+    let source_x = source.texture.rect.x0 + sample.source_origin.0 + (x - source.scene_bbox.x0);
+    let source_y = source.texture.rect.y0 + sample.source_origin.1 + (y - source.scene_bbox.y0);
     pack_u16_pair(source_x, source_y)
 }
 

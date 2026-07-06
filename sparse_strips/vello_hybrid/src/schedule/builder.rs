@@ -3,13 +3,13 @@
 
 //! Round construction for the new hybrid scheduler.
 
-use super::alloc::{
+use super::allocate::{
     FilterAllocationRequest, LayerAllocation, LayerAllocationRequest, LayerAtlasResource,
 };
 use super::draw::{Draw, DrawBuilder, LayerSample};
 use super::round::{BlendOp, FilterOp, Round, Rounds};
 use super::timeline::Timeline;
-use super::{LayerTextureRegion, LoadOp, RenderTarget, RootRenderTarget};
+use super::{LayerTextureRegion, LoadOp, RenderTarget, RootRenderTarget, TextureRegion};
 use crate::filter::GpuFilterData;
 use crate::scene::RecordedDraw;
 use crate::{RenderError, Scene};
@@ -169,13 +169,16 @@ impl<'a> ScheduleBuilder<'a> {
             return Ok(None);
         };
         let ready_round = self.flush_stream_segment(&mut target.stream, rounds);
-        if let Some(filter) = target.allocation.filter {
+        if let Some(filter) = target.filter {
+            let allocation_filter = target
+                .allocation
+                .filter
+                .expect("filter target must have scratch allocations");
             self.ensure_round_exists(ready_round, rounds);
             rounds.rounds[ready_round].push_filter(FilterOp {
                 layer_region: target.allocation.region,
-                scratches: filter
-                    .scratches
-                    .map(|scratch| scratch.map(|scratch| scratch.region)),
+                scratches: allocation_filter
+                    .map(|scratch| scratch.map(|scratch| scratch.texture.region)),
                 filter_data_offset: filter.filter_data_offset,
                 gpu_filter: filter.gpu_filter,
             });
@@ -198,10 +201,11 @@ impl<'a> ScheduleBuilder<'a> {
             return Ok(());
         }
 
+        let filter = self.filter_info(layer_id);
         let allocation = self.allocate_region(
             texture_index,
             bbox,
-            self.filter_allocation_request(layer_id),
+            filter.map(|filter| filter.allocation_request()),
         )?;
         let stream = CommandStreamState::new(
             RenderTarget::Layer(allocation.region),
@@ -209,7 +213,11 @@ impl<'a> ScheduleBuilder<'a> {
             LoadOp::Load,
             allocation.region.scene_bbox,
         );
-        *target = Some(LayerCommandTarget { allocation, stream });
+        *target = Some(LayerCommandTarget {
+            allocation,
+            filter,
+            stream,
+        });
 
         Ok(())
     }
@@ -289,7 +297,10 @@ impl<'a> ScheduleBuilder<'a> {
             }
             rounds.rounds[ready_round]
                 .layer_clears
-                .push(allocation.region);
+                .push(LayerTextureRegion {
+                    texture: allocation.texture.clear_region(),
+                    scene_bbox: allocation.region.scene_bbox,
+                });
             self.release_allocation_after_round(allocation, ready_round, rounds);
         } else {
             let target = RenderTarget::Root(self.root_output_target);
@@ -377,11 +388,11 @@ impl<'a> ScheduleBuilder<'a> {
         let blend_mode = props.blend_mode;
         let opacity = props.opacity;
         let same_texture_as_target =
-            state.target.texture_index() == Some(layer.allocation.region.texture_index);
+            state.target.texture_index() == Some(layer.allocation.region.texture.texture_index);
         if blend_mode == BlendMode::default() && !same_texture_as_target {
             state.round_idx = state.round_idx.max(required_round_for_layer_sample(
                 state.target.texture_index(),
-                layer.allocation.region.texture_index,
+                layer.allocation.region.texture.texture_index,
                 layer.round_idx,
             ));
             state.builder.push_layer_ref(
@@ -474,12 +485,15 @@ impl<'a> ScheduleBuilder<'a> {
         self.ensure_round_exists(round_idx, rounds);
         rounds.rounds[round_idx]
             .layer_clears
-            .push(scheduled_layer.allocation.clear_region);
+            .push(LayerTextureRegion {
+                texture: scheduled_layer.allocation.texture.clear_region(),
+                scene_bbox: scheduled_layer.allocation.region.scene_bbox,
+            });
         if let Some(filter) = scheduled_layer.allocation.filter {
-            for scratch in filter.scratches.into_iter().flatten() {
+            for scratch in filter.into_iter().flatten() {
                 rounds.rounds[round_idx]
                     .scratch_clears
-                    .push(scratch.clear_region);
+                    .push(scratch.texture.clear_region());
             }
         }
         self.release_allocation_after_round(scheduled_layer.allocation, round_idx, rounds);
@@ -506,7 +520,7 @@ impl<'a> ScheduleBuilder<'a> {
         Ok(allocation)
     }
 
-    fn filter_allocation_request(&self, layer_id: u32) -> Option<FilterAllocationRequest> {
+    fn filter_info(&self, layer_id: u32) -> Option<ScheduledFilter> {
         let layer = &self.scene.recorder.layers[layer_id as usize];
         let RecordedLayerKind::Filter { filter_data, .. } = &layer.kind else {
             return None;
@@ -514,9 +528,7 @@ impl<'a> ScheduleBuilder<'a> {
 
         let prepared_filter = PreparedFilter::new(&filter_data.filter, &filter_data.transform);
         let gpu_filter = GpuFilterData::from(&prepared_filter);
-        let is_multi_pass = gpu_filter.is_multi_pass();
-        Some(FilterAllocationRequest {
-            scratch_count: if is_multi_pass { 2 } else { 1 },
+        Some(ScheduledFilter {
             filter_data_offset: self.filter_data_offsets[layer_id as usize]
                 .expect("filter layer must have a filter data offset"),
             gpu_filter,
@@ -535,11 +547,16 @@ impl<'a> ScheduleBuilder<'a> {
 
         LayerSample {
             source: LayerTextureRegion {
-                x: allocation.x + placement.src_x,
-                y: allocation.y + placement.src_y,
+                texture: TextureRegion {
+                    texture_index: allocation.texture.texture_index,
+                    rect: RectU16::new(
+                        allocation.texture.rect.x0 + placement.src_x,
+                        allocation.texture.rect.y0 + placement.src_y,
+                        allocation.texture.rect.x0 + placement.src_x + placement.dest_bbox.width(),
+                        allocation.texture.rect.y0 + placement.src_y + placement.dest_bbox.height(),
+                    ),
+                },
                 scene_bbox: placement.dest_bbox,
-                width: placement.dest_bbox.width(),
-                height: placement.dest_bbox.height(),
                 ..allocation
             },
             bbox: placement.dest_bbox,
@@ -579,7 +596,26 @@ struct ScheduledLayer {
 #[derive(Debug)]
 struct LayerCommandTarget {
     allocation: LayerAllocation,
+    filter: Option<ScheduledFilter>,
     stream: CommandStreamState,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ScheduledFilter {
+    filter_data_offset: u32,
+    gpu_filter: GpuFilterData,
+}
+
+impl ScheduledFilter {
+    fn allocation_request(self) -> FilterAllocationRequest {
+        FilterAllocationRequest {
+            scratch_count: if self.gpu_filter.is_multi_pass() {
+                2
+            } else {
+                1
+            },
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -692,11 +728,10 @@ fn union_bbox(mut a: RectU16, b: RectU16) -> RectU16 {
 
 fn empty_child_region_for_blend(bbox: RectU16) -> LayerTextureRegion {
     LayerTextureRegion {
-        texture_index: 0,
-        x: 0,
-        y: 0,
-        width: 0,
-        height: 0,
+        texture: TextureRegion {
+            texture_index: 0,
+            rect: RectU16::ZERO,
+        },
         scene_bbox: RectU16::new(bbox.x0, bbox.y0, bbox.x0, bbox.y0),
     }
 }

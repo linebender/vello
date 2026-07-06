@@ -4,8 +4,8 @@
 //! Atlas allocation for scheduled layer and scratch texture regions.
 
 use super::timeline::ResourceAllocator;
-use super::{LayerTextureRegion, ScratchRegion};
-use crate::filter::{FILTER_ATLAS_PADDING, GpuFilterData};
+use super::{LayerTextureRegion, TextureRegion};
+use crate::filter::FILTER_ATLAS_PADDING;
 use vello_common::geometry::RectU16;
 use vello_common::multi_atlas::{AllocId, Atlas, AtlasId};
 
@@ -79,8 +79,6 @@ impl LayerAllocationRequest {
 #[derive(Debug, Clone, Copy)]
 pub(super) struct FilterAllocationRequest {
     pub(super) scratch_count: usize,
-    pub(super) filter_data_offset: u32,
-    pub(super) gpu_filter: GpuFilterData,
 }
 
 impl ResourceAllocator for LayerAtlasResource {
@@ -106,10 +104,12 @@ impl ResourceAllocator for LayerAtlasResource {
                         scratch_allocations.iter().enumerate()
                     {
                         if let Some(allocated_scratch) = allocated_scratch {
+                            let (allocation_width, allocation_height) =
+                                allocated_scratch.texture.allocation_size();
                             self.scratch_atlases[allocated_index].deallocate(
                                 allocated_scratch.alloc_id,
-                                allocated_scratch.allocation_width,
-                                allocated_scratch.allocation_height,
+                                allocation_width,
+                                allocation_height,
                             );
                         }
                     }
@@ -121,72 +121,59 @@ impl ResourceAllocator for LayerAtlasResource {
                     return None;
                 };
                 *scratch = Some(ScratchAllocation {
-                    region: ScratchRegion {
-                        texture_index: scratch_index,
-                        rect: RectU16::new(
-                            atlas_coord(allocation.x + padding),
-                            atlas_coord(allocation.y + padding),
-                            atlas_coord(allocation.x + padding + u32::from(request.width)),
-                            atlas_coord(allocation.y + padding + u32::from(request.height)),
-                        ),
-                    },
-                    clear_region: ScratchRegion {
-                        texture_index: scratch_index,
-                        rect: RectU16::new(
-                            atlas_coord(allocation.x),
-                            atlas_coord(allocation.y),
-                            atlas_coord(allocation.x + request.allocation_width),
-                            atlas_coord(allocation.y + request.allocation_height),
-                        ),
-                    },
+                    texture: AllocatedTextureRegion::new(
+                        TextureRegion {
+                            texture_index: scratch_index,
+                            rect: RectU16::new(
+                                atlas_coord(allocation.x + padding),
+                                atlas_coord(allocation.y + padding),
+                                atlas_coord(allocation.x + padding + u32::from(request.width)),
+                                atlas_coord(allocation.y + padding + u32::from(request.height)),
+                            ),
+                        },
+                        request.padding,
+                    ),
                     alloc_id: allocation.id,
-                    allocation_width: request.allocation_width,
-                    allocation_height: request.allocation_height,
                 });
             }
         }
 
+        let texture = TextureRegion {
+            texture_index: request.texture_index,
+            rect: RectU16::new(
+                atlas_coord(allocation.x + padding),
+                atlas_coord(allocation.y + padding),
+                atlas_coord(allocation.x + padding + u32::from(request.width)),
+                atlas_coord(allocation.y + padding + u32::from(request.height)),
+            ),
+        };
+
         Some(LayerAllocation {
             region: LayerTextureRegion {
-                texture_index: request.texture_index,
-                x: atlas_coord(allocation.x + padding),
-                y: atlas_coord(allocation.y + padding),
-                width: request.width,
-                height: request.height,
+                texture,
                 scene_bbox: request.bbox,
             },
-            clear_region: LayerTextureRegion {
-                texture_index: request.texture_index,
-                x: atlas_coord(allocation.x),
-                y: atlas_coord(allocation.y),
-                width: atlas_coord(request.allocation_width),
-                height: atlas_coord(request.allocation_height),
-                scene_bbox: request.bbox,
-            },
-            filter: request.filter.map(|filter| FilterAllocation {
-                scratches: scratch_allocations,
-                filter_data_offset: filter.filter_data_offset,
-                gpu_filter: filter.gpu_filter,
-            }),
+            filter: request.filter.map(|_| scratch_allocations),
             round_idx: 0,
             alloc_id: allocation.id,
-            allocation_width: request.allocation_width,
-            allocation_height: request.allocation_height,
+            texture: AllocatedTextureRegion::new(texture, request.padding),
         })
     }
 
     fn release(&mut self, allocation: Self::Allocation) {
-        self.atlases[allocation.region.texture_index].deallocate(
+        let (allocation_width, allocation_height) = allocation.texture.allocation_size();
+        self.atlases[allocation.region.texture.texture_index].deallocate(
             allocation.alloc_id,
-            allocation.allocation_width,
-            allocation.allocation_height,
+            allocation_width,
+            allocation_height,
         );
         if let Some(filter) = allocation.filter {
-            for scratch in filter.scratches.into_iter().flatten() {
-                self.scratch_atlases[scratch.region.texture_index].deallocate(
+            for scratch in filter.into_iter().flatten() {
+                let (allocation_width, allocation_height) = scratch.texture.allocation_size();
+                self.scratch_atlases[scratch.texture.region.texture_index].deallocate(
                     scratch.alloc_id,
-                    scratch.allocation_width,
-                    scratch.allocation_height,
+                    allocation_width,
+                    allocation_height,
                 );
             }
         }
@@ -197,28 +184,49 @@ impl ResourceAllocator for LayerAtlasResource {
 #[derive(Debug, Clone, Copy)]
 pub(super) struct LayerAllocation {
     pub(super) region: LayerTextureRegion,
-    pub(super) clear_region: LayerTextureRegion,
     pub(super) filter: Option<FilterAllocation>,
     pub(super) round_idx: usize,
     alloc_id: AllocId,
-    allocation_width: u32,
-    allocation_height: u32,
+    pub(super) texture: AllocatedTextureRegion,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(super) struct FilterAllocation {
-    pub(super) scratches: [Option<ScratchAllocation>; 2],
-    pub(super) filter_data_offset: u32,
-    pub(super) gpu_filter: GpuFilterData,
-}
+pub(super) type FilterAllocation = [Option<ScratchAllocation>; 2];
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct ScratchAllocation {
-    pub(super) region: ScratchRegion,
-    pub(super) clear_region: ScratchRegion,
+    pub(super) texture: AllocatedTextureRegion,
     alloc_id: AllocId,
-    allocation_width: u32,
-    allocation_height: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct AllocatedTextureRegion {
+    pub(super) region: TextureRegion,
+    padding: u16,
+}
+
+impl AllocatedTextureRegion {
+    fn new(region: TextureRegion, padding: u16) -> Self {
+        Self { region, padding }
+    }
+
+    pub(super) fn clear_region(self) -> TextureRegion {
+        TextureRegion {
+            texture_index: self.region.texture_index,
+            rect: self.region.rect.expand(RectU16::new(
+                self.padding,
+                self.padding,
+                self.padding,
+                self.padding,
+            )),
+        }
+    }
+
+    fn allocation_size(self) -> (u32, u32) {
+        (
+            u32::from(self.region.rect.width()) + u32::from(self.padding) * 2,
+            u32::from(self.region.rect.height()) + u32::from(self.padding) * 2,
+        )
+    }
 }
 
 fn atlas_coord(value: u32) -> u16 {

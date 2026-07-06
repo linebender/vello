@@ -2975,13 +2975,15 @@ impl RendererContext<'_> {
                     )
                 }
                 StripPassRenderTarget::Layer(region) => (
-                    self.programs.resources.layer_view(region.texture_index),
-                    &self.programs.resources.layer_bind_groups[region.texture_index],
+                    self.programs
+                        .resources
+                        .layer_view(region.texture.texture_index),
+                    &self.programs.resources.layer_bind_groups[region.texture.texture_index],
                     Some([
-                        u32::from(region.x),
-                        u32::from(region.y),
-                        u32::from(region.width),
-                        u32::from(region.height),
+                        u32::from(region.texture.rect.x0),
+                        u32::from(region.texture.rect.y0),
+                        u32::from(region.texture.rect.width()),
+                        u32::from(region.texture.rect.height()),
                     ]),
                 ),
                 StripPassRenderTarget::LayerAtlas(texture_index) => (
@@ -3119,13 +3121,13 @@ impl RendererContext<'_> {
                 .copied()
                 .filter(|blend| !blend.blend_bbox.is_empty())
                 .map(|blend| {
-                    debug_assert_eq!(blend.parent_region.texture_index, texture_index);
+                    debug_assert_eq!(blend.parent_region.texture.texture_index, texture_index);
                     self.programs
                         .resources
-                        .layer_view(blend.parent_region.texture_index);
+                        .layer_view(blend.parent_region.texture.texture_index);
                     self.programs
                         .resources
-                        .layer_view(blend.child_region.texture_index);
+                        .layer_view(blend.child_region.texture.texture_index);
                     gpu_blend_instance(blend, parent_texture_size)
                 }),
         );

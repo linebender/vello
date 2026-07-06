@@ -2705,7 +2705,7 @@ impl WebGlRendererContext<'_> {
                     Some(
                         self.programs
                             .resources
-                            .layer_framebuffer(region.texture_index),
+                            .layer_framebuffer(region.texture.texture_index),
                     ),
                 );
                 let (width, height) = self.layer_texture_size();
@@ -2724,10 +2724,10 @@ impl WebGlRendererContext<'_> {
                 );
 
                 Some([
-                    region.x as i32,
-                    region.y as i32,
-                    region.width as i32,
-                    region.height as i32,
+                    region.texture.rect.x0 as i32,
+                    region.texture.rect.y0 as i32,
+                    region.texture.rect.width() as i32,
+                    region.texture.rect.height() as i32,
                 ])
             }
             StripPassRenderTarget::LayerAtlas(texture_index) => {
@@ -2784,7 +2784,7 @@ impl WebGlRendererContext<'_> {
             .uniform1i(Some(&self.programs.strip_uniforms.alphas_texture), 0);
 
         let layer_texture_idx = match &target {
-            StripPassRenderTarget::Layer(region) => region.texture_index ^ 1,
+            StripPassRenderTarget::Layer(region) => region.texture.texture_index ^ 1,
             StripPassRenderTarget::LayerAtlas(texture_index) => texture_index ^ 1,
             StripPassRenderTarget::Root(
                 RootRenderTarget::UserSurfaceFromLayer0 | RootRenderTarget::AtlasLayerFromLayer0,
@@ -2975,13 +2975,13 @@ impl WebGlRendererContext<'_> {
                 .copied()
                 .filter(|blend| !blend.blend_bbox.is_empty())
                 .map(|blend| {
-                    debug_assert_eq!(blend.parent_region.texture_index, texture_index);
+                    debug_assert_eq!(blend.parent_region.texture.texture_index, texture_index);
                     self.programs
                         .resources
-                        .layer_texture(blend.parent_region.texture_index);
+                        .layer_texture(blend.parent_region.texture.texture_index);
                     self.programs
                         .resources
-                        .layer_texture(blend.child_region.texture_index);
+                        .layer_texture(blend.child_region.texture.texture_index);
                     gpu_blend_instance(blend, parent_texture_size)
                 }),
         );
