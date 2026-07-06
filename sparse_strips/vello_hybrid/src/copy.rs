@@ -40,10 +40,6 @@ pub(crate) fn pack_u16_pair(x: u16, y: u16) -> u32 {
     u32::from(x) | (u32::from(y) << 16)
 }
 
-pub(crate) fn pack_u32_pair(x: u32, y: u32) -> u32 {
-    pack_u16_pair(u16::try_from(x).unwrap(), u16::try_from(y).unwrap())
-}
-
 fn unpack_u16_pair(packed: u32) -> [u16; 2] {
     [packed as u16, (packed >> 16) as u16]
 }

@@ -2978,7 +2978,12 @@ impl RendererContext<'_> {
                 StripPassRenderTarget::Layer(region) => (
                     self.programs.resources.layer_view(region.texture_index),
                     &self.programs.resources.layer_bind_groups[region.texture_index],
-                    Some([region.x, region.y, region.width, region.height]),
+                    Some([
+                        u32::from(region.x),
+                        u32::from(region.y),
+                        u32::from(region.width),
+                        u32::from(region.height),
+                    ]),
                 ),
                 StripPassRenderTarget::LayerAtlas(texture_index) => (
                     self.programs.resources.layer_view(texture_index),
@@ -3095,8 +3100,14 @@ impl RendererContext<'_> {
         (size, size)
     }
 
+    fn layer_texture_size_u16(&self) -> (u16, u16) {
+        let size = u16::try_from(self.programs.resources.layer_texture_size)
+            .expect("layer texture size must fit into u16");
+        (size, size)
+    }
+
     fn do_blend_render_pass(&mut self, blends: &[BlendOp]) {
-        let target_size = self.layer_texture_size();
+        let target_size = self.layer_texture_size_u16();
         if blends.is_empty() {
             return;
         }
@@ -3218,7 +3229,7 @@ impl RendererContext<'_> {
 
         schedule(
             filters,
-            self.layer_texture_size(),
+            self.layer_texture_size_u16(),
             &mut self.scratch.filter_passes,
         );
 

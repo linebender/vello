@@ -1,7 +1,7 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::copy::{GpuCopyInstance, pack_u16_pair, pack_u32_pair};
+use crate::copy::{GpuCopyInstance, pack_u16_pair};
 use crate::schedule::BlendOp;
 use bytemuck::{Pod, Zeroable};
 use vello_common::peniko::{Compose, Mix};
@@ -54,13 +54,13 @@ impl GpuBlendInstance {
     }
 }
 
-pub(crate) fn gpu_blend_instance(blend: BlendOp, target_size: (u32, u32)) -> GpuBlendInstance {
-    let dest_x = blend.parent.x + u32::from(blend.bbox.x0 - blend.parent.scene_bbox.x0);
-    let dest_y = blend.parent.y + u32::from(blend.bbox.y0 - blend.parent.scene_bbox.y0);
+pub(crate) fn gpu_blend_instance(blend: BlendOp, target_size: (u16, u16)) -> GpuBlendInstance {
+    let dest_x = blend.parent.x + (blend.bbox.x0 - blend.parent.scene_bbox.x0);
+    let dest_y = blend.parent.y + (blend.bbox.y0 - blend.parent.scene_bbox.y0);
 
     GpuBlendInstance {
-        dest_origin: pack_u32_pair(dest_x, dest_y),
-        source_origin: pack_u32_pair(blend.source.x, blend.source.y),
+        dest_origin: pack_u16_pair(dest_x, dest_y),
+        source_origin: pack_u16_pair(blend.source.x, blend.source.y),
         size: pack_u16_pair(blend.bbox.width(), blend.bbox.height()),
         texture_indices: pack_u16_pair(
             u16::try_from(blend.parent.texture_index)
@@ -73,7 +73,7 @@ pub(crate) fn gpu_blend_instance(blend: BlendOp, target_size: (u32, u32)) -> Gpu
             blend.blend_mode.compose,
             blend.opacity,
         ),
-        target_size: pack_u32_pair(target_size.0, target_size.1),
+        target_size: pack_u16_pair(target_size.0, target_size.1),
         bbox_origin: pack_u16_pair(blend.bbox.x0, blend.bbox.y0),
         source_scene_origin: pack_u16_pair(blend.source.scene_bbox.x0, blend.source.scene_bbox.y0),
         source_size: pack_u16_pair(

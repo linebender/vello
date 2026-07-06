@@ -600,18 +600,14 @@ fn offset_coord(coord: u16, offset: i32) -> u16 {
     u16::try_from(coord).expect("offset coordinate must fit into u16")
 }
 
-fn pack_u16_pair(x: u32, y: u32) -> u32 {
-    debug_assert!(x <= u32::from(u16::MAX), "x payload must fit into u16");
-    debug_assert!(y <= u32::from(u16::MAX), "y payload must fit into u16");
-    (x & 0xffff) | ((y & 0xffff) << 16)
+fn pack_u16_pair(x: u16, y: u16) -> u32 {
+    u32::from(x) | (u32::from(y) << 16)
 }
 
 fn layer_sample_payload(sample: LayerSample, x: u16, y: u16) -> u32 {
     let source = sample.source;
-    let source_x =
-        source.x + u32::from(sample.source_origin.0) + u32::from(x - source.scene_bbox.x0);
-    let source_y =
-        source.y + u32::from(sample.source_origin.1) + u32::from(y - source.scene_bbox.y0);
+    let source_x = source.x + sample.source_origin.0 + (x - source.scene_bbox.x0);
+    let source_y = source.y + sample.source_origin.1 + (y - source.scene_bbox.y0);
     pack_u16_pair(source_x, source_y)
 }
 

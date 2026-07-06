@@ -500,11 +500,11 @@ impl<'a> ScheduleBuilder<'a> {
         earliest_round: usize,
         schedule: &mut Schedule,
     ) -> Result<LayerAllocation, RenderError> {
-        let width = u32::from(bbox.width());
-        let height = u32::from(bbox.height());
+        let width = bbox.width();
+        let height = bbox.height();
         let padding = filter.map_or(0, |filter| u32::from(filter.padding));
-        let allocation_width = width.saturating_add(padding * 2);
-        let allocation_height = height.saturating_add(padding * 2);
+        let allocation_width = u32::from(width).saturating_add(padding * 2);
+        let allocation_height = u32::from(height).saturating_add(padding * 2);
         if allocation_width > self.layer_texture_size.0
             || allocation_height > self.layer_texture_size.1
         {
@@ -582,11 +582,11 @@ impl<'a> ScheduleBuilder<'a> {
 
         LayerSample {
             source: LayerTextureRegion {
-                x: allocation.x + u32::from(placement.src_x),
-                y: allocation.y + u32::from(placement.src_y),
+                x: allocation.x + placement.src_x,
+                y: allocation.y + placement.src_y,
                 scene_bbox: placement.dest_bbox,
-                width: u32::from(placement.dest_bbox.width()),
-                height: u32::from(placement.dest_bbox.height()),
+                width: placement.dest_bbox.width(),
+                height: placement.dest_bbox.height(),
                 ..allocation
             },
             bbox: placement.dest_bbox,
@@ -642,8 +642,8 @@ impl LayerAtlasResource {
 struct LayerAllocationRequest {
     texture_index: usize,
     bbox: RectU16,
-    width: u32,
-    height: u32,
+    width: u16,
+    height: u16,
     allocation_width: u32,
     allocation_height: u32,
     filter: Option<FilterAllocationRequest>,
@@ -697,17 +697,17 @@ impl ResourceAllocator for LayerAtlasResource {
                 *scratch = Some(FilterScratchAllocation {
                     region: FilterScratchRegion {
                         texture_index: scratch_index,
-                        x: allocation.x + padding,
-                        y: allocation.y + padding,
+                        x: atlas_coord(allocation.x + padding),
+                        y: atlas_coord(allocation.y + padding),
                         width: request.width,
                         height: request.height,
                     },
                     clear_region: FilterScratchRegion {
                         texture_index: scratch_index,
-                        x: allocation.x,
-                        y: allocation.y,
-                        width: request.allocation_width,
-                        height: request.allocation_height,
+                        x: atlas_coord(allocation.x),
+                        y: atlas_coord(allocation.y),
+                        width: atlas_coord(request.allocation_width),
+                        height: atlas_coord(request.allocation_height),
                     },
                     alloc_id: allocation.id,
                     allocation_width: request.allocation_width,
@@ -719,18 +719,18 @@ impl ResourceAllocator for LayerAtlasResource {
         Some(LayerAllocation {
             region: LayerTextureRegion {
                 texture_index: request.texture_index,
-                x: allocation.x + padding,
-                y: allocation.y + padding,
+                x: atlas_coord(allocation.x + padding),
+                y: atlas_coord(allocation.y + padding),
                 width: request.width,
                 height: request.height,
                 scene_bbox: request.bbox,
             },
             clear_region: LayerTextureRegion {
                 texture_index: request.texture_index,
-                x: allocation.x,
-                y: allocation.y,
-                width: request.allocation_width,
-                height: request.allocation_height,
+                x: atlas_coord(allocation.x),
+                y: atlas_coord(allocation.y),
+                width: atlas_coord(request.allocation_width),
+                height: atlas_coord(request.allocation_height),
                 scene_bbox: request.bbox,
             },
             filter: request.filter.map(|filter| FilterAllocation {
@@ -785,7 +785,8 @@ struct LayerAllocation {
 
 impl LayerAllocation {
     fn has_padding(self) -> bool {
-        self.allocation_width != self.region.width || self.allocation_height != self.region.height
+        self.allocation_width != u32::from(self.region.width)
+            || self.allocation_height != u32::from(self.region.height)
     }
 }
 
@@ -928,6 +929,10 @@ fn empty_source_region_for_blend(bbox: RectU16) -> LayerTextureRegion {
         height: 0,
         scene_bbox: RectU16::new(bbox.x0, bbox.y0, bbox.x0, bbox.y0),
     }
+}
+
+fn atlas_coord(value: u32) -> u16 {
+    u16::try_from(value).expect("atlas coordinate must fit into u16")
 }
 
 fn layer_segment_has_batches(cmds: &[RecordedCmd], start: usize, end: usize) -> bool {

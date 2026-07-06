@@ -88,13 +88,13 @@ pub(crate) struct LayerTextureRegion {
     /// Layer texture index, currently `0` or `1`.
     pub(crate) texture_index: usize,
     /// X coordinate in the layer texture.
-    pub(crate) x: u32,
+    pub(crate) x: u16,
     /// Y coordinate in the layer texture.
-    pub(crate) y: u32,
+    pub(crate) y: u16,
     /// Width of the region.
-    pub(crate) width: u32,
+    pub(crate) width: u16,
     /// Height of the region.
-    pub(crate) height: u32,
+    pub(crate) height: u16,
     /// Bounds of this layer in viewport coordinates.
     pub(crate) scene_bbox: RectU16,
 }
@@ -105,13 +105,13 @@ pub(crate) struct FilterScratchRegion {
     /// Scratch texture index, currently `0` or `1`.
     pub(crate) texture_index: usize,
     /// X coordinate in the scratch texture.
-    pub(crate) x: u32,
+    pub(crate) x: u16,
     /// Y coordinate in the scratch texture.
-    pub(crate) y: u32,
+    pub(crate) y: u16,
     /// Width of the region.
-    pub(crate) width: u32,
+    pub(crate) width: u16,
     /// Height of the region.
-    pub(crate) height: u32,
+    pub(crate) height: u16,
 }
 
 /// Specifies a run of strips inside a draw that can be drawn with the same external texture
@@ -350,13 +350,8 @@ fn clear_filter_scratch_regions<R: RendererBackend>(
     }
 }
 
-fn region_clear_rect(x: u32, y: u32, width: u32, height: u32) -> RectU16 {
-    RectU16::new(
-        u16::try_from(x).unwrap(),
-        u16::try_from(y).unwrap(),
-        u16::try_from(x + width).unwrap(),
-        u16::try_from(y + height).unwrap(),
-    )
+fn region_clear_rect(x: u16, y: u16, width: u16, height: u16) -> RectU16 {
+    RectU16::new(x, y, x + width, y + height)
 }
 
 #[derive(Debug)]
