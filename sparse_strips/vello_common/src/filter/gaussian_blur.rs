@@ -111,8 +111,9 @@ pub fn plan_decimated_blur(std_deviation: f32) -> (usize, [f32; MAX_KERNEL_SIZE]
     // Each decimation level blurs the image *twice* over the full round trip, and both passes
     // must be subtracted from the budget so the final result matches the target σ:
     // 1. The downscale applies a [1,3,3,1]/8 binomial filter (variance 0.75 in the current grid).
-    // 2. The matching upscale reconstruction ([0.25,0.75] bilinear) is equivalent to the same
-    //    [1,3,3,1]/8 filter, contributing another 0.75 in the current grid.
+    // 2. The matching upscale reconstruction adds 0.75 variance too: each output samples
+    //    neighbouring decimated pixels 0.5 and 1.5 original-grid pixels away from its centre,
+    //    so 0.75*(0.5²) + 0.25*(1.5²) = 0.75.
     // So a level removes 0.75 + 0.75 = 1.5 of variance (in current-grid units) before the 2×
     // downsampling rescales the remaining variance by 0.25 (= 1/2²) into the next grid.
     while remaining_variance > 4.0 {

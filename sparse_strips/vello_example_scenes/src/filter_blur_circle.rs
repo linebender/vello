@@ -1,4 +1,4 @@
-// Copyright 2025 the Vello Authors
+// Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! Scene with a single filled circle wrapped in a Gaussian blur filter.
@@ -35,15 +35,11 @@ impl ExampleScene for FilterBlurCircleScene {
         _resources: &mut T::Resources,
         root_transform: Affine,
     ) {
-        // Track the uniform scale of the root transform so it can be shown in
-        // the window title.
         self.current_scale = root_transform.determinant().abs().sqrt();
 
         let vw = ctx.width() as f64;
         let vh = ctx.height() as f64;
 
-        // Centre the circle and make it large enough that the (large) blur
-        // remains clearly visible rather than being spread thin to invisibility.
         let cx = vw / 2.0;
         let cy = vh / 2.0;
         let radius = vw.min(vh) * 0.3;
