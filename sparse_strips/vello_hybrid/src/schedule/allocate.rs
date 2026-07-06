@@ -15,6 +15,12 @@ pub(super) struct Atlases {
     scratch_atlases: [Atlas; 2],
 }
 
+#[derive(Debug, Clone, Copy)]
+enum AtlasKind {
+    Layer,
+    Scratch,
+}
+
 impl Atlases {
     pub(super) fn new(texture_size: (u32, u32)) -> Self {
         Self {
@@ -28,6 +34,48 @@ impl Atlases {
             ],
         }
     }
+
+    fn allocate_scratch(
+        &mut self,
+        scratch_index: usize,
+        request: LayerAllocationRequest,
+        padded_allocation_width: u32,
+        padded_allocation_height: u32,
+    ) -> Option<ScratchAllocation> {
+        let padding = u32::from(request.padding);
+        let allocation = self.scratch_atlases[scratch_index]
+            .allocate(padded_allocation_width, padded_allocation_height)?;
+
+        Some(ScratchAllocation {
+            texture: AllocatedTextureRegion::new(
+                TextureRegion {
+                    texture_index: scratch_index,
+                    rect: RectU16::new(
+                        atlas_coord(allocation.x + padding),
+                        atlas_coord(allocation.y + padding),
+                        atlas_coord(allocation.x + padding + u32::from(request.width)),
+                        atlas_coord(allocation.y + padding + u32::from(request.height)),
+                    ),
+                },
+                request.padding,
+            ),
+            alloc_id: allocation.id,
+        })
+    }
+
+    fn release_texture(
+        &mut self,
+        atlas_kind: AtlasKind,
+        alloc_id: AllocId,
+        texture: AllocatedTextureRegion,
+    ) {
+        let atlas = match atlas_kind {
+            AtlasKind::Layer => &mut self.layer_atlases[texture.region.texture_index],
+            AtlasKind::Scratch => &mut self.scratch_atlases[texture.region.texture_index],
+        };
+        let (allocation_width, allocation_height) = texture.allocation_size();
+        atlas.deallocate(alloc_id, allocation_width, allocation_height);
+    }
 }
 
 impl ResourceAllocator for Atlases {
@@ -35,93 +83,60 @@ impl ResourceAllocator for Atlases {
     type Allocation = LayerAllocation;
 
     fn allocate(&mut self, request: Self::Request) -> Option<Self::Allocation> {
+        assert!(
+            request.scratch_count <= 2,
+            "scratch count must be at most 2"
+        );
+
         let padding = u32::from(request.padding);
-        let allocation_width = u32::from(request.allocation_width());
-        let allocation_height = u32::from(request.allocation_height());
-        let allocation = self.layer_atlases[request.texture_index]
-            .allocate(allocation_width, allocation_height)?;
+        let width = u32::from(request.allocation_width());
+        let height = u32::from(request.allocation_height());
+        let layer_allocation = self.layer_atlases[request.texture_index].allocate(width, height)?;
+        let layer_texture = AllocatedTextureRegion::new(
+            TextureRegion {
+                texture_index: request.texture_index,
+                rect: RectU16::new(
+                    atlas_coord(layer_allocation.x + padding),
+                    atlas_coord(layer_allocation.y + padding),
+                    atlas_coord(layer_allocation.x + padding + u32::from(request.width)),
+                    atlas_coord(layer_allocation.y + padding + u32::from(request.height)),
+                ),
+            },
+            request.padding,
+        );
         let mut scratch_allocations: [Option<ScratchAllocation>; 2] = [None, None];
 
         if request.scratch_count > 0 {
-            for (scratch_index, scratch) in scratch_allocations
-                .iter_mut()
-                .enumerate()
-                .take(request.scratch_count)
-            {
-                let Some(allocation) = self.scratch_atlases[scratch_index]
-                    .allocate(allocation_width, allocation_height)
-                else {
-                    for (allocated_index, allocated_scratch) in
-                        scratch_allocations.iter().enumerate()
-                    {
-                        if let Some(allocated_scratch) = allocated_scratch {
-                            let (allocation_width, allocation_height) =
-                                allocated_scratch.texture.allocation_size();
-                            self.scratch_atlases[allocated_index].deallocate(
-                                allocated_scratch.alloc_id,
-                                allocation_width,
-                                allocation_height,
-                            );
-                        }
-                    }
-                    self.layer_atlases[request.texture_index].deallocate(
-                        allocation.id,
-                        allocation_width,
-                        allocation_height,
-                    );
-                    return None;
-                };
-                *scratch = Some(ScratchAllocation {
-                    texture: AllocatedTextureRegion::new(
-                        TextureRegion {
-                            texture_index: scratch_index,
-                            rect: RectU16::new(
-                                atlas_coord(allocation.x + padding),
-                                atlas_coord(allocation.y + padding),
-                                atlas_coord(allocation.x + padding + u32::from(request.width)),
-                                atlas_coord(allocation.y + padding + u32::from(request.height)),
-                            ),
-                        },
-                        request.padding,
-                    ),
-                    alloc_id: allocation.id,
-                });
-            }
+            let Some(scratch) = self.allocate_scratch(0, request, width, height) else {
+                self.release_texture(AtlasKind::Layer, layer_allocation.id, layer_texture);
+                return None;
+            };
+            scratch_allocations[0] = Some(scratch);
         }
 
-        let texture = TextureRegion {
-            texture_index: request.texture_index,
-            rect: RectU16::new(
-                atlas_coord(allocation.x + padding),
-                atlas_coord(allocation.y + padding),
-                atlas_coord(allocation.x + padding + u32::from(request.width)),
-                atlas_coord(allocation.y + padding + u32::from(request.height)),
-            ),
-        };
+        if request.scratch_count > 1 {
+            let Some(scratch) = self.allocate_scratch(1, request, width, height) else {
+                let scratch = scratch_allocations[0].expect("scratch 0 must be allocated");
+                self.release_texture(AtlasKind::Scratch, scratch.alloc_id, scratch.texture);
+                self.release_texture(AtlasKind::Layer, layer_allocation.id, layer_texture);
+                return None;
+            };
+            scratch_allocations[1] = Some(scratch);
+        }
 
         Some(LayerAllocation {
             filter: (request.scratch_count > 0).then_some(scratch_allocations),
             round_idx: 0,
-            alloc_id: allocation.id,
-            texture: AllocatedTextureRegion::new(texture, request.padding),
+            alloc_id: layer_allocation.id,
+            texture: layer_texture,
         })
     }
 
     fn release(&mut self, allocation: Self::Allocation) {
-        let (allocation_width, allocation_height) = allocation.texture.allocation_size();
-        self.layer_atlases[allocation.texture.region.texture_index].deallocate(
-            allocation.alloc_id,
-            allocation_width,
-            allocation_height,
-        );
+        self.release_texture(AtlasKind::Layer, allocation.alloc_id, allocation.texture);
         if let Some(filter) = allocation.filter {
             for scratch in filter.into_iter().flatten() {
-                let (allocation_width, allocation_height) = scratch.texture.allocation_size();
-                self.scratch_atlases[scratch.texture.region.texture_index].deallocate(
-                    scratch.alloc_id,
-                    allocation_width,
-                    allocation_height,
-                );
+                self.release_texture(AtlasKind::Scratch, scratch.alloc_id, scratch.texture);
             }
         }
     }
