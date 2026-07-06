@@ -28,6 +28,7 @@ pub(super) struct Timeline<R: ResourceAllocator> {
     base_round: usize,
     resource: R,
     pending_releases: Vec<Vec<R::Allocation>>,
+    pending_release_count: usize,
 }
 
 impl<R: ResourceAllocator> Timeline<R> {
@@ -36,6 +37,7 @@ impl<R: ResourceAllocator> Timeline<R> {
             base_round: 0,
             resource,
             pending_releases: Vec::new(),
+            pending_release_count: 0,
         }
     }
 
@@ -73,11 +75,13 @@ impl<R: ResourceAllocator> Timeline<R> {
             self.pending_releases.push(Vec::new());
         }
         self.pending_releases[round_idx].push(allocation);
+        self.pending_release_count += 1;
     }
 
     fn advance_to_round(&mut self, round_idx: usize) {
         while self.base_round < round_idx {
             if let Some(releases) = self.pending_releases.get_mut(self.base_round) {
+                self.pending_release_count -= releases.len();
                 for allocation in releases.drain(..) {
                     self.resource.release(allocation);
                 }
@@ -87,9 +91,6 @@ impl<R: ResourceAllocator> Timeline<R> {
     }
 
     fn has_pending_release(&self) -> bool {
-        self.pending_releases
-            .iter()
-            .skip(self.base_round)
-            .any(|releases| !releases.is_empty())
+        self.pending_release_count > 0
     }
 }
