@@ -22,8 +22,8 @@ use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
     filter::{
-        FilterContext, FilterInstanceData, GpuBlendInstance, GpuCopyInstance,
-        build_scheduled_filter_passes, gpu_blend_instance, gpu_filter_copy_instance,
+        FilterContext, FilterInstanceData, GpuBlendInstance, GpuCopyInstance, gpu_blend_instance,
+        schedule,
     },
     gradient_cache::GradientRampCache,
     render::{
@@ -3217,61 +3217,42 @@ impl RendererContext<'_> {
         }
         self.programs.resources.scratch_view(0);
 
-        build_scheduled_filter_passes(
+        schedule(
             filters,
             self.layer_texture_size(),
             &mut self.scratch.filter_passes,
         );
 
         let resources = &self.programs.resources;
-        encode_filter_pass(
-            self.device,
-            self.encoder,
-            resources,
-            &self.programs.filter_pipeline,
-            &self.scratch.filter_passes.layer_to_scratch0,
-            TextureTarget::layer(texture_index),
-            TextureTarget::Scratch0,
-        );
-        for step in self.scratch.filter_passes.active_steps() {
+        for (step_index, step) in self.scratch.filter_passes.steps.iter().enumerate() {
+            let (input, output) = if step_index == 0 {
+                (TextureTarget::layer(texture_index), TextureTarget::Scratch0)
+            } else if step_index % 2 == 1 {
+                (TextureTarget::Scratch0, TextureTarget::Scratch1)
+            } else {
+                (TextureTarget::Scratch1, TextureTarget::Scratch0)
+            };
             encode_filter_pass(
                 self.device,
                 self.encoder,
                 resources,
                 &self.programs.filter_pipeline,
-                &step.scratch0_to_scratch1,
-                TextureTarget::Scratch0,
-                TextureTarget::Scratch1,
-            );
-            encode_filter_pass(
-                self.device,
-                self.encoder,
-                resources,
-                &self.programs.filter_pipeline,
-                &step.scratch1_to_scratch0,
-                TextureTarget::Scratch1,
-                TextureTarget::Scratch0,
+                step,
+                input,
+                output,
             );
         }
 
-        let target_size = self.layer_texture_size();
-        self.scratch.copy_instances.clear();
-        self.scratch.copy_instances.extend(
-            filters
-                .iter()
-                .copied()
-                .map(|filter| gpu_filter_copy_instance(filter, target_size)),
-        );
-        if self.scratch.copy_instances.is_empty() {
+        if self.scratch.filter_passes.copy_back.is_empty() {
             return;
         }
 
-        let instance_count = u32::try_from(self.scratch.copy_instances.len()).unwrap();
+        let instance_count = u32::try_from(self.scratch.filter_passes.copy_back.len()).unwrap();
         let instance_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Filter Copy Instances Buffer"),
-                contents: bytemuck::cast_slice(&self.scratch.copy_instances),
+                contents: bytemuck::cast_slice(&self.scratch.filter_passes.copy_back),
                 usage: wgpu::BufferUsages::VERTEX,
             });
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {

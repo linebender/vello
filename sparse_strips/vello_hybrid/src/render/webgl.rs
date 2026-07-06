@@ -24,8 +24,8 @@ use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
     filter::{
-        FilterContext, FilterInstanceData, GpuBlendInstance, GpuCopyInstance,
-        build_scheduled_filter_passes, gpu_blend_instance, gpu_filter_copy_instance,
+        FilterContext, FilterInstanceData, GpuBlendInstance, GpuCopyInstance, gpu_blend_instance,
+        schedule,
     },
     gradient_cache::GradientRampCache,
     render::{
@@ -3117,27 +3117,17 @@ impl WebGlRendererContext<'_> {
             .uniform1i(Some(&self.programs.filter_uniforms.layer_texture_1), 3);
 
         let target_size = self.layer_texture_size();
-        build_scheduled_filter_passes(filters, target_size, &mut self.scratch.filter_passes);
+        schedule(filters, target_size, &mut self.scratch.filter_passes);
 
-        self.do_filter_instance_pass(
-            &self.scratch.filter_passes.layer_to_scratch0,
-            TextureTarget::layer(texture_index),
-            TextureTarget::Scratch0,
-            target_size,
-        );
-        for step in self.scratch.filter_passes.active_steps() {
-            self.do_filter_instance_pass(
-                &step.scratch0_to_scratch1,
-                TextureTarget::Scratch0,
-                TextureTarget::Scratch1,
-                target_size,
-            );
-            self.do_filter_instance_pass(
-                &step.scratch1_to_scratch0,
-                TextureTarget::Scratch1,
-                TextureTarget::Scratch0,
-                target_size,
-            );
+        for (step_index, step) in self.scratch.filter_passes.steps.iter().enumerate() {
+            let (input, output) = if step_index == 0 {
+                (TextureTarget::layer(texture_index), TextureTarget::Scratch0)
+            } else if step_index % 2 == 1 {
+                (TextureTarget::Scratch0, TextureTarget::Scratch1)
+            } else {
+                (TextureTarget::Scratch1, TextureTarget::Scratch0)
+            };
+            self.do_filter_instance_pass(step, input, output, target_size);
         }
 
         self.gl
@@ -3151,19 +3141,12 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.blend_copy_uniforms.scratch_texture), 0);
 
-        self.scratch.copy_instances.clear();
-        self.scratch.copy_instances.extend(
-            filters
-                .iter()
-                .copied()
-                .map(|filter| gpu_filter_copy_instance(filter, target_size)),
-        );
-        if self.scratch.copy_instances.is_empty() {
+        if self.scratch.filter_passes.copy_back.is_empty() {
             return;
         }
 
         self.programs
-            .upload_copy_instances(self.gl, &self.scratch.copy_instances);
+            .upload_copy_instances(self.gl, &self.scratch.filter_passes.copy_back);
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
             Some(self.programs.resources.layer_framebuffer(texture_index)),
@@ -3174,7 +3157,7 @@ impl WebGlRendererContext<'_> {
             WebGl2RenderingContext::TRIANGLE_STRIP,
             0,
             4,
-            i32::try_from(self.scratch.copy_instances.len()).unwrap(),
+            i32::try_from(self.scratch.filter_passes.copy_back.len()).unwrap(),
         );
 
         self.gl.bind_vertex_array(None);

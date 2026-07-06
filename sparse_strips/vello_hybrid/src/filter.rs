@@ -95,8 +95,6 @@ pub(crate) mod pass_kind {
     pub(crate) const COMPOSITE_DROP_SHADOW: u32 = 7;
 }
 
-const OTHER_DATA_LAYER_TEXTURE_INDEX_SHIFT: u32 = 31;
-
 pub(crate) fn edge_mode_to_gpu(mode: EdgeMode) -> u32 {
     match mode {
         EdgeMode::Duplicate => edge_mode::DUPLICATE,
@@ -400,56 +398,29 @@ pub(crate) struct FilterContext {
 
 #[derive(Debug, Default)]
 pub(crate) struct ScheduledFilterPasses {
-    pub(crate) layer_to_scratch0: Vec<FilterInstanceData>,
-    steps: Vec<ScheduledFilterStep>,
-    active_step_count: usize,
+    pub(crate) steps: Vec<Vec<FilterInstanceData>>,
+    pub(crate) copy_back: Vec<GpuCopyInstance>,
 }
 
 impl ScheduledFilterPasses {
-    pub(crate) fn active_steps(&self) -> &[ScheduledFilterStep] {
-        &self.steps[..self.active_step_count]
-    }
-
     fn clear(&mut self) {
-        self.layer_to_scratch0.clear();
-        for step in &mut self.steps[..self.active_step_count] {
+        for step in &mut self.steps {
             step.clear();
         }
-        self.active_step_count = 0;
+
+        self.copy_back.clear();
     }
 
-    fn push_scratch0_to_scratch1(&mut self, step: usize, instance: FilterInstanceData) {
-        self.step_mut(step).scratch0_to_scratch1.push(instance);
-    }
-
-    fn push_scratch1_to_scratch0(&mut self, step: usize, instance: FilterInstanceData) {
-        self.step_mut(step).scratch1_to_scratch0.push(instance);
-    }
-
-    fn step_mut(&mut self, step: usize) -> &mut ScheduledFilterStep {
+    fn step_mut(&mut self, step: usize) -> &mut Vec<FilterInstanceData> {
         if self.steps.len() <= step {
-            self.steps
-                .resize_with(step + 1, ScheduledFilterStep::default);
+            self.steps.resize_with(step + 1, Vec::new);
         }
-        self.active_step_count = self.active_step_count.max(step + 1);
+
         &mut self.steps[step]
     }
 }
 
-#[derive(Debug, Default)]
-pub(crate) struct ScheduledFilterStep {
-    pub(crate) scratch0_to_scratch1: Vec<FilterInstanceData>,
-    pub(crate) scratch1_to_scratch0: Vec<FilterInstanceData>,
-}
-
-impl ScheduledFilterStep {
-    fn clear(&mut self) {
-        self.scratch0_to_scratch1.clear();
-        self.scratch1_to_scratch0.clear();
-    }
-}
-
-pub(crate) fn build_scheduled_filter_passes(
+pub(crate) fn schedule(
     filters: &[FilterOp],
     target_size: (u32, u32),
     passes: &mut ScheduledFilterPasses,
@@ -457,36 +428,27 @@ pub(crate) fn build_scheduled_filter_passes(
     passes.clear();
 
     for filter in filters {
-        build_filter_passes_for_op(*filter, target_size, passes);
-    }
-}
+        let mut builder = FilterPassBuilder::new(*filter, target_size, passes);
+        match filter.gpu_filter.filter_type() {
+            filter_type::OFFSET => {
+                builder.emit_to_scratch(pass_kind::OFFSET);
+            }
+            filter_type::FLOOD => {
+                builder.emit_to_scratch(pass_kind::FLOOD);
+            }
+            filter_type::GAUSSIAN_BLUR => {
+                builder.emit_blur_sequence(filter.gpu_filter.n_decimations());
+            }
+            filter_type::DROP_SHADOW => {
+                builder.emit_to_scratch(pass_kind::OFFSET);
+                builder.emit_blur_sequence(filter.gpu_filter.n_decimations());
+                builder.emit_drop_shadow_composite();
+            }
+            _ => unreachable!("unsupported filter type was encoded"),
+        }
 
-fn build_filter_passes_for_op(
-    op: FilterOp,
-    target_size: (u32, u32),
-    out: &mut ScheduledFilterPasses,
-) {
-    let mut builder = FilterPassBuilder::new(op, target_size, out);
-    match op.gpu_filter.filter_type() {
-        filter_type::OFFSET => {
-            builder.emit_to_scratch(pass_kind::OFFSET);
-            builder.ensure_result_in_scratch_zero();
-        }
-        filter_type::FLOOD => {
-            builder.emit_to_scratch(pass_kind::FLOOD);
-            builder.ensure_result_in_scratch_zero();
-        }
-        filter_type::GAUSSIAN_BLUR => {
-            builder.emit_blur_sequence(op.gpu_filter.n_decimations());
-            builder.ensure_result_in_scratch_zero();
-        }
-        filter_type::DROP_SHADOW => {
-            builder.emit_to_scratch(pass_kind::OFFSET);
-            builder.emit_blur_sequence(op.gpu_filter.n_decimations());
-            builder.emit_drop_shadow_composite();
-            builder.ensure_result_in_scratch_zero();
-        }
-        _ => unreachable!("unsupported filter type was encoded"),
+        builder.ensure_result_in_scratch0();
+        builder.copy_back(filter, target_size);
     }
 }
 
@@ -496,8 +458,8 @@ struct FilterPassBuilder<'a> {
     target_size: (u32, u32),
     passes: &'a mut ScheduledFilterPasses,
     sizer: DecimationSizer,
-    toggle: usize,
-    first: bool,
+    original: TextureTarget,
+    current_scratch: Option<usize>,
     step: usize,
 }
 
@@ -508,19 +470,16 @@ impl<'a> FilterPassBuilder<'a> {
             u16::try_from(op.layer.width).expect("filter layer width fits into DecimationSizer"),
             u16::try_from(op.layer.height).expect("filter layer height fits into DecimationSizer"),
         );
+        let original = TextureTarget::layer(op.layer.texture_index);
         Self {
             op,
             target_size,
             passes,
             sizer,
-            toggle: 0,
-            first: true,
+            original,
+            current_scratch: None,
             step: 0,
         }
-    }
-
-    fn initial_texture(&self) -> TextureTarget {
-        TextureTarget::layer(self.op.layer.texture_index)
     }
 
     fn scratch_region(&self, index: usize) -> FilterScratchRegion {
@@ -537,47 +496,47 @@ impl<'a> FilterPassBuilder<'a> {
         }
     }
 
-    fn input(&mut self) -> TextureTarget {
-        if self.first {
-            self.first = false;
-            self.initial_texture()
-        } else {
-            TextureTarget::scratch((self.toggle + 1) % 2)
-        }
+    fn current_texture(&self) -> TextureTarget {
+        self.current_scratch
+            .map_or_else(|| self.original, TextureTarget::scratch)
     }
 
-    fn apply_pass_dimensions(&mut self, kind: u32) -> ([u32; 2], [u32; 2]) {
+    fn next_scratch(&self) -> usize {
+        self.current_scratch.map_or(0, |scratch| 1 - scratch)
+    }
+
+    fn apply_pass_dimensions(&mut self, kind: u32) -> (IntSize, IntSize) {
         match kind {
             pass_kind::DOWNSCALE => {
                 let (sw, sh) = self.sizer.current();
                 let (dw, dh) = self.sizer.downscale();
                 (
-                    [u32::from(sw), u32::from(sh)],
-                    [u32::from(dw), u32::from(dh)],
+                    IntSize([u32::from(sw), u32::from(sh)]),
+                    IntSize([u32::from(dw), u32::from(dh)]),
                 )
             }
             pass_kind::UPSCALE => {
                 let (sw, sh) = self.sizer.current();
                 let (dw, dh) = self.sizer.upscale();
                 (
-                    [u32::from(sw), u32::from(sh)],
-                    [u32::from(dw), u32::from(dh)],
+                    IntSize([u32::from(sw), u32::from(sh)]),
+                    IntSize([u32::from(dw), u32::from(dh)]),
                 )
             }
             _ => {
                 let (w, h) = self.sizer.current();
-                let size = [u32::from(w), u32::from(h)];
+                let size = IntSize([u32::from(w), u32::from(h)]);
                 (size, size)
             }
         }
     }
 
-    fn emit(&mut self, kind: u32, output: TextureTarget, original: Option<TextureTarget>) {
+    fn emit(&mut self, kind: u32, output: TextureTarget) {
         let (src_size, dest_size) = self.apply_pass_dimensions(kind);
-        let input = self.input();
+        let input = self.current_texture();
         let src_offset = self.texture_offset(input);
         let dest_offset = self.texture_offset(output);
-        let original_offset = self.texture_offset(original.unwrap_or(self.initial_texture()));
+        let original_offset = self.texture_offset(self.original);
         self.push_pass(
             input,
             output,
@@ -597,46 +556,18 @@ impl<'a> FilterPassBuilder<'a> {
     }
 
     fn emit_to_scratch(&mut self, kind: u32) {
-        let scratch = self.toggle;
-        self.emit(kind, TextureTarget::scratch(scratch), None);
-        self.toggle = (self.toggle + 1) % 2;
+        let scratch = self.next_scratch();
+        self.emit(kind, TextureTarget::scratch(scratch));
+        self.current_scratch = Some(scratch);
     }
 
-    fn current_texture(&self) -> TextureTarget {
-        if self.first {
-            self.initial_texture()
-        } else {
-            TextureTarget::scratch((self.toggle + 1) % 2)
-        }
-    }
-
-    fn ensure_result_in_scratch_zero(&mut self) {
+    fn ensure_result_in_scratch0(&mut self) {
         if self.current_texture() == TextureTarget::Scratch0 {
             return;
         }
 
-        let input = if self.first {
-            self.first = false;
-            self.initial_texture()
-        } else {
-            TextureTarget::scratch((self.toggle + 1) % 2)
-        };
-        let src_offset = self.texture_offset(input);
-        let output = TextureTarget::Scratch0;
-        let dest_offset = self.texture_offset(output);
-        self.push_pass(
-            input,
-            output,
-            FilterInstanceData {
-                src: IntRect::new(src_offset, [self.op.layer.width, self.op.layer.height]),
-                dest: IntRect::new(dest_offset, [self.op.layer.width, self.op.layer.height]),
-                dest_atlas_size: IntSize([self.target_size.0, self.target_size.1]),
-                filter_data_offset: self.op.filter_data_offset,
-                original: IntRect::new([0, 0], [self.op.layer.width, self.op.layer.height]),
-                other_data: self.other_data(pass_kind::COPY),
-            },
-        );
-        self.step += 1;
+        self.emit(pass_kind::COPY, TextureTarget::Scratch0);
+        self.current_scratch = Some(0);
     }
 
     fn emit_blur_sequence(&mut self, n_decimations: usize) {
@@ -657,16 +588,17 @@ impl<'a> FilterPassBuilder<'a> {
     }
 
     fn emit_drop_shadow_composite(&mut self) {
-        let scratch = self.toggle;
+        let scratch = self.next_scratch();
         self.emit(
             pass_kind::COMPOSITE_DROP_SHADOW,
             TextureTarget::scratch(scratch),
-            Some(self.initial_texture()),
         );
-        self.toggle = (self.toggle + 1) % 2;
+        self.current_scratch = Some(scratch);
     }
 
     fn other_data(&self, kind: u32) -> u32 {
+        const OTHER_DATA_LAYER_TEXTURE_INDEX_SHIFT: u32 = 31;
+
         debug_assert!(self.op.layer.texture_index <= 1);
         kind | ((self.op.layer.texture_index as u32) << OTHER_DATA_LAYER_TEXTURE_INDEX_SHIFT)
     }
@@ -679,20 +611,34 @@ impl<'a> FilterPassBuilder<'a> {
     ) {
         match (input, output) {
             (TextureTarget::Layer0 | TextureTarget::Layer1, TextureTarget::Scratch0) => {
-                self.passes.layer_to_scratch0.push(instance);
+                debug_assert_eq!(self.step, 0);
+                self.passes.step_mut(self.step).push(instance);
             }
             (TextureTarget::Scratch0, TextureTarget::Scratch1) => {
                 debug_assert!(self.step > 0);
-                self.passes
-                    .push_scratch0_to_scratch1(self.step - 1, instance);
+                debug_assert_eq!((self.step - 1) % 2, 0);
+                self.passes.step_mut(self.step).push(instance);
             }
             (TextureTarget::Scratch1, TextureTarget::Scratch0) => {
                 debug_assert!(self.step > 0);
-                self.passes
-                    .push_scratch1_to_scratch0(self.step - 1, instance);
+                debug_assert_eq!((self.step - 1) % 2, 1);
+                self.passes.step_mut(self.step).push(instance);
             }
             _ => unreachable!("unsupported filter pass direction"),
         }
+    }
+
+    fn copy_back(&mut self, filter: &FilterOp, target_size: (u32, u32)) {
+        let scratch = filter.scratches[0].expect("filter copy requires scratch texture 0");
+
+        let copy_instance = GpuCopyInstance {
+            dest_origin: pack_u32_pair(filter.layer.x, filter.layer.y),
+            source_origin: pack_u32_pair(scratch.x, scratch.y),
+            size: pack_u32_pair(filter.layer.width, filter.layer.height),
+            target_size: pack_u32_pair(target_size.0, target_size.1),
+        };
+
+        self.passes.copy_back.push(copy_instance);
     }
 }
 
@@ -854,19 +800,6 @@ pub(crate) fn gpu_blend_instance(blend: BlendOp, target_size: (u32, u32)) -> Gpu
             blend.source.scene_bbox.width(),
             blend.source.scene_bbox.height(),
         ),
-    }
-}
-
-pub(crate) fn gpu_filter_copy_instance(
-    filter: FilterOp,
-    target_size: (u32, u32),
-) -> GpuCopyInstance {
-    let scratch = filter.scratches[0].expect("filter copy requires scratch texture 0");
-    GpuCopyInstance {
-        dest_origin: pack_u32_pair(filter.layer.x, filter.layer.y),
-        source_origin: pack_u32_pair(scratch.x, scratch.y),
-        size: pack_u32_pair(filter.layer.width, filter.layer.height),
-        target_size: pack_u32_pair(target_size.0, target_size.1),
     }
 }
 
