@@ -278,7 +278,7 @@ impl<'a> ScheduleBuilder<'a> {
                     RootRenderTarget::AtlasLayer => RootRenderTarget::AtlasLayerFromLayer0,
                     other => other,
                 };
-                rounds.rounds[ready_round].push_pass(RenderTarget::Root(final_target), draw);
+                rounds.rounds[ready_round].push_pass(RenderTarget::Root(final_target), draw, LoadOp::Load);
             }
             rounds.rounds[ready_round]
                 .layer_clears
@@ -449,7 +449,7 @@ impl<'a> ScheduleBuilder<'a> {
         let draw = state.take_draw();
         if !draw.is_empty() {
             self.ensure_round_exists(state.round_idx, rounds);
-            rounds.rounds[state.round_idx].push_pass_with_load(
+            rounds.rounds[state.round_idx].push_pass(
                 state.target,
                 draw,
                 state.take_load_op(),
