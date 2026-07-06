@@ -684,17 +684,21 @@ impl ResourceAllocator for LayerAtlasResource {
                 *scratch = Some(ScratchAllocation {
                     region: ScratchRegion {
                         texture_index: scratch_index,
-                        x: atlas_coord(allocation.x + padding),
-                        y: atlas_coord(allocation.y + padding),
-                        width: request.width,
-                        height: request.height,
+                        rect: RectU16::new(
+                            atlas_coord(allocation.x + padding),
+                            atlas_coord(allocation.y + padding),
+                            atlas_coord(allocation.x + padding + u32::from(request.width)),
+                            atlas_coord(allocation.y + padding + u32::from(request.height)),
+                        ),
                     },
                     clear_region: ScratchRegion {
                         texture_index: scratch_index,
-                        x: atlas_coord(allocation.x),
-                        y: atlas_coord(allocation.y),
-                        width: atlas_coord(request.allocation_width),
-                        height: atlas_coord(request.allocation_height),
+                        rect: RectU16::new(
+                            atlas_coord(allocation.x),
+                            atlas_coord(allocation.y),
+                            atlas_coord(allocation.x + request.allocation_width),
+                            atlas_coord(allocation.y + request.allocation_height),
+                        ),
                     },
                     alloc_id: allocation.id,
                     allocation_width: request.allocation_width,

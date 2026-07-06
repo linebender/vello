@@ -104,14 +104,8 @@ pub(crate) struct LayerTextureRegion {
 pub(crate) struct ScratchRegion {
     /// Scratch texture index, currently `0` or `1`.
     pub(crate) texture_index: usize,
-    /// X coordinate in the scratch texture.
-    pub(crate) x: u16,
-    /// Y coordinate in the scratch texture.
-    pub(crate) y: u16,
-    /// Width of the region.
-    pub(crate) width: u16,
-    /// Height of the region.
-    pub(crate) height: u16,
+    /// Region in the scratch texture.
+    pub(crate) rect: RectU16,
 }
 
 /// Specifies a run of strips inside a draw that can be drawn with the same external texture
@@ -325,8 +319,7 @@ fn clear_scratch_regions<R: RendererBackend>(renderer: &mut R, regions: &[Scratc
                     return None;
                 }
 
-                let rect = region_clear_rect(region.x, region.y, region.width, region.height);
-                (!rect.is_empty()).then_some(rect)
+                (!region.rect.is_empty()).then_some(region.rect)
             }));
         });
     }

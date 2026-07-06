@@ -493,7 +493,7 @@ impl<'a> FilterPassBuilder<'a> {
             }
             TextureTarget::Scratch0 | TextureTarget::Scratch1 => {
                 let scratch = self.scratch_region(texture.index());
-                [u32::from(scratch.x), u32::from(scratch.y)]
+                [u32::from(scratch.rect.x0), u32::from(scratch.rect.y0)]
             }
         }
     }
@@ -604,7 +604,7 @@ impl<'a> FilterPassBuilder<'a> {
 
         let copy_instance = GpuCopyInstance {
             target_texture_origin: pack_u16_pair(filter.layer.x, filter.layer.y),
-            source_texture_origin: pack_u16_pair(scratch.x, scratch.y),
+            source_texture_origin: pack_u16_pair(scratch.rect.x0, scratch.rect.y0),
             copy_rect_size: pack_u16_pair(filter.layer.width, filter.layer.height),
             target_texture_size: pack_u16_pair(target_texture_size.0, target_texture_size.1),
         };
