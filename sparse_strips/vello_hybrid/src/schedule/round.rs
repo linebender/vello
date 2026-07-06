@@ -10,7 +10,7 @@ use vello_common::geometry::RectU16;
 use vello_common::peniko::BlendMode;
 
 #[derive(Debug, Default)]
-pub(super) struct Schedule {
+pub(super) struct Rounds {
     pub(super) rounds: Vec<Round>,
 }
 

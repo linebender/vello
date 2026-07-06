@@ -3380,7 +3380,7 @@ impl RendererBackend for RendererContext<'_> {
     }
 
     fn schedule_scratch(&mut self) -> &mut ScheduleScratch {
-        &mut self.scratch.schedule
+        &mut self.scratch.rounds
     }
 
     fn layer_texture_size(&self) -> (u32, u32) {

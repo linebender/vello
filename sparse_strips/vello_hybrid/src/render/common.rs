@@ -34,7 +34,7 @@ pub(crate) const IMAGE_PADDING: u16 = 0;
 /// Scratch allocations reused while rendering a frame.
 #[derive(Debug, Default)]
 pub(crate) struct ScratchBuffers {
-    pub(crate) schedule: ScheduleScratch,
+    pub(crate) rounds: ScheduleScratch,
     pub(crate) clear_rects: Vec<RectU16>,
     pub(crate) clear_instances: Vec<GpuClearInstance>,
     pub(crate) blend_instances: Vec<GpuBlendInstance>,

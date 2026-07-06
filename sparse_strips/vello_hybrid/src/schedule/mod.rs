@@ -14,7 +14,7 @@ use self::builder::ScheduleBuilder;
 use self::draw::Draw;
 pub(crate) use self::round::BlendOp;
 pub(crate) use self::round::FilterOp;
-use self::round::Schedule;
+use self::round::Rounds;
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::vec::Vec;
 use vello_common::TextureId;
@@ -144,7 +144,7 @@ pub(crate) trait RendererBackend {
     /// Apply filter operations to already-rendered layer atlas regions.
     fn apply_filters(&mut self, filters: &[FilterOp], texture_index: usize);
 
-    /// Reusable CPU-side storage for schedule execution.
+    /// Reusable CPU-side storage for rounds execution.
     fn schedule_scratch(&mut self) -> &mut ScheduleScratch;
 }
 
@@ -224,20 +224,20 @@ pub(crate) fn render_scene<R: RendererBackend>(
         encoded_paints,
         renderer.layer_texture_size(),
     );
-    let schedule = builder.build()?;
+    let rounds = builder.build()?;
     let mut scratch = ScheduleScratch::default();
     core::mem::swap(&mut scratch, renderer.schedule_scratch());
-    execute_schedule(renderer, &schedule, &mut scratch);
+    execute_rounds(renderer, &rounds, &mut scratch);
     core::mem::swap(&mut scratch, renderer.schedule_scratch());
     Ok(())
 }
 
-fn execute_schedule<R: RendererBackend>(
+fn execute_rounds<R: RendererBackend>(
     renderer: &mut R,
-    schedule: &Schedule,
+    rounds: &Rounds,
     scratch: &mut ScheduleScratch,
 ) {
-    let direct_root_opaque = collect_direct_root_opaque(schedule);
+    let direct_root_opaque = collect_direct_root_opaque(rounds);
     if !direct_root_opaque.draw.is_empty() {
         renderer.render_strips(
             &direct_root_opaque.draw.opaque,
@@ -248,7 +248,7 @@ fn execute_schedule<R: RendererBackend>(
         );
     }
 
-    for round in &schedule.rounds {
+    for round in &rounds.rounds {
         scratch.clear_round();
 
         for texture_index in [1, 0] {
@@ -344,9 +344,9 @@ impl Default for DirectRootOpaque {
     }
 }
 
-fn collect_direct_root_opaque(schedule: &Schedule) -> DirectRootOpaque {
+fn collect_direct_root_opaque(rounds: &Rounds) -> DirectRootOpaque {
     let mut opaque = DirectRootOpaque::default();
-    for pass in schedule.rounds.iter().flat_map(|round| &round.root_passes) {
+    for pass in rounds.rounds.iter().flat_map(|round| &round.root_passes) {
         if !matches!(
             pass.target,
             RenderTarget::Root(RootRenderTarget::UserSurface)

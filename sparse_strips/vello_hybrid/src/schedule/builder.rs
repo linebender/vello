@@ -1,10 +1,10 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Schedule construction for the new hybrid scheduler.
+//! Round construction for the new hybrid scheduler.
 
 use super::draw::{Draw, DrawBuilder, LayerSample};
-use super::round::{BlendOp, FilterOp, Round, Schedule};
+use super::round::{BlendOp, FilterOp, Round, Rounds};
 use super::timeline::{ResourceAllocator, Timeline};
 use super::{LayerTextureRegion, LoadOp, RenderTarget, RootRenderTarget, ScratchRegion};
 use crate::filter::{FILTER_ATLAS_PADDING, GpuFilterData};
@@ -20,7 +20,7 @@ use vello_common::record::{Drawable, RecordedCmd, RecordedLayerKind};
 use vello_common::strip_generator::StripStorage;
 use vello_common::util::RectExt;
 
-/// Builds a concrete, executable schedule from a recorded scene.
+/// Builds concrete, executable rounds from a recorded scene.
 #[derive(Debug)]
 pub(super) struct ScheduleBuilder<'a> {
     scene: &'a Scene,
@@ -64,24 +64,24 @@ impl<'a> ScheduleBuilder<'a> {
         }
     }
 
-    pub(super) fn build(&mut self) -> Result<Schedule, RenderError> {
+    pub(super) fn build(&mut self) -> Result<Rounds, RenderError> {
         // TODO: Reuse round storage across frames so large schedules do not repeatedly allocate.
-        let mut schedule = Schedule {
+        let mut rounds = Rounds {
             rounds: alloc::vec![Round::default()],
         };
 
         // Walk the command tree left-to-right. Layer subtrees are scheduled lazily when their
         // parent command stream first needs to sample them. Atlas allocation is monotonic: pressure
         // advances the base round and applies completed cleanups instead of patching old states.
-        self.schedule_root(&mut schedule)?;
+        self.schedule_root(&mut rounds)?;
 
-        Ok(schedule)
+        Ok(rounds)
     }
 
     fn schedule_layer_subtree(
         &mut self,
         layer_id: u32,
-        schedule: &mut Schedule,
+        rounds: &mut Rounds,
     ) -> Result<(), RenderError> {
         if self.layer_allocations[layer_id as usize].is_some() {
             return Ok(());
@@ -96,7 +96,7 @@ impl<'a> ScheduleBuilder<'a> {
         let allocation_bbox = bbox.snap_to_tile_coordinates();
         let texture_index = layer.depth & 1;
         if let Some(layer) =
-            self.schedule_layer_command_stream(layer_id, texture_index, allocation_bbox, schedule)?
+            self.schedule_layer_command_stream(layer_id, texture_index, allocation_bbox, rounds)?
         {
             self.layer_allocations[layer_id as usize] = Some(layer);
         }
@@ -109,7 +109,7 @@ impl<'a> ScheduleBuilder<'a> {
         layer_id: u32,
         texture_index: usize,
         bbox: RectU16,
-        schedule: &mut Schedule,
+        rounds: &mut Rounds,
     ) -> Result<Option<ScheduledLayer>, RenderError> {
         let layer_idx = layer_id as usize;
         let cmds = &self.scene.recorder.layers[layer_idx].cmds;
@@ -124,7 +124,7 @@ impl<'a> ScheduleBuilder<'a> {
             };
 
             let child_layer_idx = child_layer_id as usize;
-            self.schedule_layer_subtree(child_layer_id, schedule)?;
+            self.schedule_layer_subtree(child_layer_id, rounds)?;
             let Some(child_layer) = self.layer_allocations[child_layer_idx] else {
                 let props = &self.scene.recorder.layers[child_layer_idx].props;
                 let blend_mode = props.blend_mode;
@@ -137,7 +137,7 @@ impl<'a> ScheduleBuilder<'a> {
                         &mut target.stream,
                         blend_mode,
                         opacity,
-                        schedule,
+                        rounds,
                     );
                     segment_start = cmd_idx + 1;
                 }
@@ -151,7 +151,7 @@ impl<'a> ScheduleBuilder<'a> {
                 child_layer_id,
                 child_layer,
                 &mut target.stream,
-                schedule,
+                rounds,
             );
             segment_start = cmd_idx + 1;
         }
@@ -165,10 +165,10 @@ impl<'a> ScheduleBuilder<'a> {
         let Some(mut target) = target else {
             return Ok(None);
         };
-        let ready_round = self.flush_stream_segment(&mut target.stream, schedule);
+        let ready_round = self.flush_stream_segment(&mut target.stream, rounds);
         if let Some(filter) = target.allocation.filter {
-            self.ensure_schedule_round_exists(ready_round, schedule);
-            schedule.rounds[ready_round].push_filter(FilterOp {
+            self.ensure_round_exists(ready_round, rounds);
+            rounds.rounds[ready_round].push_filter(FilterOp {
                 layer_region: target.allocation.region,
                 scratches: filter
                     .scratches
@@ -237,7 +237,7 @@ impl<'a> ScheduleBuilder<'a> {
         }
     }
 
-    fn schedule_root(&mut self, schedule: &mut Schedule) -> Result<(), RenderError> {
+    fn schedule_root(&mut self, rounds: &mut Rounds) -> Result<(), RenderError> {
         let cmds = &self.scene.recorder.root_cmds;
         if self.scene.recorder.root_is_blend_target {
             let bbox = RectU16::new(0, 0, self.scene.width, self.scene.height);
@@ -252,10 +252,10 @@ impl<'a> ScheduleBuilder<'a> {
                 target,
                 allocation.round_idx,
                 LoadOp::Clear,
-                schedule,
+                rounds,
             )?;
 
-            self.ensure_schedule_round_exists(ready_round, schedule);
+            self.ensure_round_exists(ready_round, rounds);
             let mut draw = DrawBuilder::new(
                 RenderTarget::Root(self.root_output_target).allows_opaque_pass(),
                 (0, 0),
@@ -278,17 +278,17 @@ impl<'a> ScheduleBuilder<'a> {
                     RootRenderTarget::AtlasLayer => RootRenderTarget::AtlasLayerFromLayer0,
                     other => other,
                 };
-                schedule.rounds[ready_round].push_pass(RenderTarget::Root(final_target), draw);
+                rounds.rounds[ready_round].push_pass(RenderTarget::Root(final_target), draw);
             }
-            schedule.rounds[ready_round]
+            rounds.rounds[ready_round]
                 .layer_clears
                 .push(allocation.region);
-            self.release_allocation_after_round(allocation, ready_round, schedule);
+            self.release_allocation_after_round(allocation, ready_round, rounds);
         } else {
             let target = RenderTarget::Root(self.root_output_target);
             let ready_round =
-                self.schedule_command_stream(cmds, target, self.timeline.base_round(), schedule)?;
-            self.ensure_schedule_round_exists(ready_round, schedule);
+                self.schedule_command_stream(cmds, target, self.timeline.base_round(), rounds)?;
+            self.ensure_round_exists(ready_round, rounds);
         }
 
         Ok(())
@@ -299,9 +299,9 @@ impl<'a> ScheduleBuilder<'a> {
         cmds: &[RecordedCmd],
         target: RenderTarget,
         start_round: usize,
-        schedule: &mut Schedule,
+        rounds: &mut Rounds,
     ) -> Result<usize, RenderError> {
-        self.schedule_command_stream_with_load(cmds, target, start_round, LoadOp::Load, schedule)
+        self.schedule_command_stream_with_load(cmds, target, start_round, LoadOp::Load, rounds)
     }
 
     fn schedule_command_stream_with_load(
@@ -310,7 +310,7 @@ impl<'a> ScheduleBuilder<'a> {
         target: RenderTarget,
         start_round: usize,
         initial_load_op: LoadOp,
-        schedule: &mut Schedule,
+        rounds: &mut Rounds,
     ) -> Result<usize, RenderError> {
         let mut state = CommandStreamState::new(
             target,
@@ -337,7 +337,7 @@ impl<'a> ScheduleBuilder<'a> {
                 }
                 RecordedCmd::Layer(layer_id) => {
                     let layer_idx = *layer_id as usize;
-                    self.schedule_layer_subtree(*layer_id, schedule)?;
+                    self.schedule_layer_subtree(*layer_id, rounds)?;
                     let Some(layer) = self.layer_allocations[layer_idx] else {
                         let props = &self.scene.recorder.layers[layer_idx].props;
                         if props.blend_mode.is_destructive() {
@@ -345,18 +345,18 @@ impl<'a> ScheduleBuilder<'a> {
                                 &mut state,
                                 props.blend_mode,
                                 props.opacity,
-                                schedule,
+                                rounds,
                             );
                         }
                         continue;
                     };
 
-                    self.schedule_child_layer_sample(*layer_id, layer, &mut state, schedule);
+                    self.schedule_child_layer_sample(*layer_id, layer, &mut state, rounds);
                 }
             }
         }
 
-        Ok(self.flush_stream_segment(&mut state, schedule))
+        Ok(self.flush_stream_segment(&mut state, rounds))
     }
 
     fn schedule_child_layer_sample(
@@ -364,7 +364,7 @@ impl<'a> ScheduleBuilder<'a> {
         layer_id: u32,
         layer: ScheduledLayer,
         state: &mut CommandStreamState,
-        schedule: &mut Schedule,
+        rounds: &mut Rounds,
     ) {
         let props = &self.scene.recorder.layers[layer_id as usize].props;
         let blend_mode = props.blend_mode;
@@ -385,30 +385,30 @@ impl<'a> ScheduleBuilder<'a> {
             );
             state.backdrop_bbox.union(layer.sample.bbox);
             state.sampled_layers.push(layer_id);
-            self.flush_stream_segment(state, schedule);
+            self.flush_stream_segment(state, rounds);
             return;
         }
 
-        let parent_ready_round = self.flush_stream_segment(state, schedule);
+        let parent_ready_round = self.flush_stream_segment(state, rounds);
         let source_bbox = layer.sample.bbox;
         let blend_round = parent_ready_round.max(layer.round_idx);
         let bbox = blend_affected_bbox(state.backdrop_bbox, source_bbox, blend_mode.compose)
             .intersect(state.target.layer_region().scene_bbox);
         if bbox.is_empty() {
-            self.consume_child_layer(layer_id, blend_round, schedule);
+            self.consume_child_layer(layer_id, blend_round, rounds);
             state.round_idx = state.round_idx.max(blend_round);
             return;
         }
 
-        self.ensure_schedule_round_exists(blend_round, schedule);
-        schedule.rounds[blend_round].push_blend(BlendOp {
+        self.ensure_round_exists(blend_round, rounds);
+        rounds.rounds[blend_round].push_blend(BlendOp {
             parent_region: state.target.layer_region(),
             child_region: layer.sample.source,
             blend_bbox: bbox,
             blend_mode,
             opacity,
         });
-        self.consume_child_layer(layer_id, blend_round, schedule);
+        self.consume_child_layer(layer_id, blend_round, rounds);
         state.backdrop_bbox =
             blend_result_bbox(state.backdrop_bbox, source_bbox, blend_mode.compose);
         state.round_idx = blend_round + 1;
@@ -419,17 +419,17 @@ impl<'a> ScheduleBuilder<'a> {
         state: &mut CommandStreamState,
         blend_mode: BlendMode,
         opacity: f32,
-        schedule: &mut Schedule,
+        rounds: &mut Rounds,
     ) {
-        let parent_ready_round = self.flush_stream_segment(state, schedule);
+        let parent_ready_round = self.flush_stream_segment(state, rounds);
         let bbox = blend_affected_bbox(state.backdrop_bbox, RectU16::INVERTED, blend_mode.compose)
             .intersect(state.target.layer_region().scene_bbox);
         if bbox.is_empty() {
             return;
         }
 
-        self.ensure_schedule_round_exists(parent_ready_round, schedule);
-        schedule.rounds[parent_ready_round].push_blend(BlendOp {
+        self.ensure_round_exists(parent_ready_round, rounds);
+        rounds.rounds[parent_ready_round].push_blend(BlendOp {
             parent_region: state.target.layer_region(),
             child_region: empty_child_region_for_blend(bbox),
             blend_bbox: bbox,
@@ -444,12 +444,12 @@ impl<'a> ScheduleBuilder<'a> {
     fn flush_stream_segment(
         &mut self,
         state: &mut CommandStreamState,
-        schedule: &mut Schedule,
+        rounds: &mut Rounds,
     ) -> usize {
         let draw = state.take_draw();
         if !draw.is_empty() {
-            self.ensure_schedule_round_exists(state.round_idx, schedule);
-            schedule.rounds[state.round_idx].push_pass_with_load(
+            self.ensure_round_exists(state.round_idx, rounds);
+            rounds.rounds[state.round_idx].push_pass_with_load(
                 state.target,
                 draw,
                 state.take_load_op(),
@@ -457,29 +457,29 @@ impl<'a> ScheduleBuilder<'a> {
         }
 
         for layer_id in core::mem::take(&mut state.sampled_layers) {
-            self.consume_child_layer(layer_id, state.round_idx, schedule);
+            self.consume_child_layer(layer_id, state.round_idx, rounds);
         }
 
         state.round_idx
     }
 
-    fn consume_child_layer(&mut self, layer_id: u32, round_idx: usize, schedule: &mut Schedule) {
+    fn consume_child_layer(&mut self, layer_id: u32, round_idx: usize, rounds: &mut Rounds) {
         let Some(scheduled_layer) = self.layer_allocations[layer_id as usize].take() else {
             return;
         };
 
-        self.ensure_schedule_round_exists(round_idx, schedule);
-        schedule.rounds[round_idx]
+        self.ensure_round_exists(round_idx, rounds);
+        rounds.rounds[round_idx]
             .layer_clears
             .push(scheduled_layer.allocation.clear_region);
         if let Some(filter) = scheduled_layer.allocation.filter {
             for scratch in filter.scratches.into_iter().flatten() {
-                schedule.rounds[round_idx]
+                rounds.rounds[round_idx]
                     .scratch_clears
                     .push(scratch.clear_region);
             }
         }
-        self.release_allocation_after_round(scheduled_layer.allocation, round_idx, schedule);
+        self.release_allocation_after_round(scheduled_layer.allocation, round_idx, rounds);
     }
 
     fn allocate_region(
@@ -564,24 +564,24 @@ impl<'a> ScheduleBuilder<'a> {
         }
     }
 
-    fn ensure_schedule_round_exists(&mut self, round_idx: usize, schedule: &mut Schedule) {
-        ensure_schedule_round_exists(schedule, round_idx);
+    fn ensure_round_exists(&mut self, round_idx: usize, rounds: &mut Rounds) {
+        ensure_round_exists(rounds, round_idx);
     }
 
     fn release_allocation_after_round(
         &mut self,
         allocation: LayerAllocation,
         round_idx: usize,
-        schedule: &mut Schedule,
+        rounds: &mut Rounds,
     ) {
-        ensure_schedule_round_exists(schedule, round_idx);
+        ensure_round_exists(rounds, round_idx);
         self.timeline.release_after(allocation, round_idx);
     }
 }
 
-fn ensure_schedule_round_exists(schedule: &mut Schedule, round_idx: usize) {
-    while schedule.rounds.len() <= round_idx {
-        schedule.rounds.push(Round::default());
+fn ensure_round_exists(rounds: &mut Rounds, round_idx: usize) {
+    while rounds.rounds.len() <= round_idx {
+        rounds.rounds.push(Round::default());
     }
 }
 
