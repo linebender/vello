@@ -127,7 +127,7 @@ impl<'a> ScheduleBuilder<'a> {
                 });
             }
             rounds.rounds[ready_round]
-                .layer_clears
+                .layer_texture_clears
                 .push(LayerTextureRegion {
                     texture: allocation.texture.clear_region(),
                     scene_bbox: region.scene_bbox,
@@ -445,7 +445,7 @@ impl<'a> ScheduleBuilder<'a> {
 
         self.ensure_round_exists(round_idx, rounds);
         rounds.rounds[round_idx]
-            .layer_clears
+            .layer_texture_clears
             .push(LayerTextureRegion {
                 texture: scheduled_layer.allocation.texture.clear_region(),
                 scene_bbox: scheduled_layer.region.scene_bbox,
@@ -453,7 +453,7 @@ impl<'a> ScheduleBuilder<'a> {
         if let Some(filter) = scheduled_layer.allocation.filter {
             for scratch in filter.into_iter().flatten() {
                 rounds.rounds[round_idx]
-                    .scratch_clears
+                    .scratch_texture_clears
                     .push(scratch.texture.clear_region());
             }
         }

@@ -276,8 +276,8 @@ fn execute_rounds<R: RendererBackend>(
         for texture_index in 0..round.layer_passes.len() {
             renderer.blend(&round.layer_passes[texture_index].blends, texture_index);
         }
-        clear_layer_regions(renderer, &round.layer_clears);
-        clear_scratch_regions(renderer, &round.scratch_clears);
+        clear_layer_regions(renderer, &round.layer_texture_clears);
+        clear_scratch_regions(renderer, &round.scratch_texture_clears);
     }
 }
 

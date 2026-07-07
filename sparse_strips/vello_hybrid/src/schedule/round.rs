@@ -18,8 +18,8 @@ pub(super) struct Rounds {
 pub(super) struct Round {
     pub(super) root_passes: Vec<RenderPass>,
     pub(super) layer_passes: [LayerPass; 2],
-    pub(super) layer_clears: Vec<LayerTextureRegion>,
-    pub(super) scratch_clears: Vec<TextureRegion>,
+    pub(super) layer_texture_clears: Vec<LayerTextureRegion>,
+    pub(super) scratch_texture_clears: Vec<TextureRegion>,
 }
 
 impl Round {
