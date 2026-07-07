@@ -316,10 +316,7 @@ impl<'a> DrawBuilder<'a> {
             make_gpu_rect(
                 offset_rect_part(
                     RectPart {
-                        x: bbox.x0,
-                        y: bbox.y0,
-                        width: bbox.width(),
-                        height: bbox.height(),
+                        rect: bbox,
                         frac: 0,
                     },
                     self.geometry_offset,
@@ -558,7 +555,12 @@ fn pack_rectangle_into_gpu(
     .into_iter()
     .flatten()
     {
-        let processed = pack_paint(paint, encoded_paints, (part.x, part.y), paint_idxs);
+        let processed = pack_paint(
+            paint,
+            encoded_paints,
+            (part.rect.x0, part.rect.y0),
+            paint_idxs,
+        );
         let strip = make_gpu_rect(
             offset_rect_part(part, geometry_offset),
             processed.payload,
@@ -604,8 +606,12 @@ fn tile_bounds(bounds: RectU16) -> RectU16 {
 
 fn offset_rect_part(part: RectPart, offset: (i32, i32)) -> RectPart {
     RectPart {
-        x: offset_coord(part.x, offset.0),
-        y: offset_coord(part.y, offset.1),
+        rect: RectU16::new(
+            offset_coord(part.rect.x0, offset.0),
+            offset_coord(part.rect.y0, offset.1),
+            offset_coord(part.rect.x1, offset.0),
+            offset_coord(part.rect.y1, offset.1),
+        ),
         ..part
     }
 }
@@ -629,4 +635,3 @@ fn layer_sample_payload(sample: LayerSample, x: u16, y: u16) -> u32 {
 fn layer_paint(opacity: f32) -> u32 {
     (COLOR_SOURCE_LAYER << 29) | u32::from(pack_opacity(opacity))
 }
-

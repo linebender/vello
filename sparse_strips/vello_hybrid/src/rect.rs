@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::GpuStrip;
+use vello_common::geometry::RectU16;
 use vello_common::kurbo::Rect;
 
 /// Bit 31 of [`GpuStrip::paint_and_rect_flag`] signals that the strip
@@ -13,10 +14,7 @@ const LARGE_RECT_SPLIT_THRESHOLD: u16 = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RectPart {
-    pub(crate) x: u16,
-    pub(crate) y: u16,
-    pub(crate) width: u16,
-    pub(crate) height: u16,
+    pub(crate) rect: RectU16,
     pub(crate) frac: u32,
 }
 
@@ -54,10 +52,7 @@ pub(crate) fn split_rect(rect: &Rect) -> SplitRect {
     {
         return SplitRect {
             main: RectPart {
-                x,
-                y,
-                width,
-                height,
+                rect: RectU16::new(x, y, x + width, y + height),
                 frac: pack_unorm4x8([left_frac, top_frac, right_frac, bottom_frac]),
             },
             top: None,
@@ -84,38 +79,28 @@ pub(crate) fn split_rect(rect: &Rect) -> SplitRect {
 
     SplitRect {
         main: RectPart {
-            x: inner_x,
-            y: inner_y,
-            width: inner_width,
-            height: inner_height,
+            rect: RectU16::new(
+                inner_x,
+                inner_y,
+                inner_x + inner_width,
+                inner_y + inner_height,
+            ),
             frac: 0,
         },
         top: has_top_strip.then_some(RectPart {
-            x,
-            y,
-            width,
-            height: 1,
+            rect: RectU16::new(x, y, x + width, y + 1),
             frac: pack_unorm4x8([left_frac, top_frac, right_frac, 0.0]),
         }),
         bottom: has_bottom_strip.then_some(RectPart {
-            x,
-            y: y + height - 1,
-            width,
-            height: 1,
+            rect: RectU16::new(x, y + height - 1, x + width, y + height),
             frac: pack_unorm4x8([left_frac, 0.0, right_frac, bottom_frac]),
         }),
         left: has_left_aa.then_some(RectPart {
-            x,
-            y: inner_y,
-            width: 1,
-            height: inner_height,
+            rect: RectU16::new(x, inner_y, x + 1, inner_y + inner_height),
             frac: pack_unorm4x8([left_frac, 0.0, 0.0, 0.0]),
         }),
         right: has_right_aa.then_some(RectPart {
-            x: x + width - 1,
-            y: inner_y,
-            width: 1,
-            height: inner_height,
+            rect: RectU16::new(x + width - 1, inner_y, x + width, inner_y + inner_height),
             frac: pack_unorm4x8([0.0, 0.0, right_frac, 0.0]),
         }),
     }
@@ -128,10 +113,10 @@ pub(crate) fn make_gpu_rect(
     depth_index: u32,
 ) -> GpuStrip {
     GpuStrip {
-        x: part.x,
-        y: part.y,
-        width: part.width,
-        dense_width_or_rect_height: part.height,
+        x: part.rect.x0,
+        y: part.rect.y0,
+        width: part.rect.width(),
+        dense_width_or_rect_height: part.rect.height(),
         col_idx_or_rect_frac: part.frac,
         payload,
         paint_and_rect_flag: paint_packed | RECT_STRIP_FLAG,
@@ -155,14 +140,12 @@ fn pack_unorm4x8(v: [f32; 4]) -> u32 {
 mod tests {
     use super::{RectPart, SplitRect, pack_unorm4x8, split_rect};
 
+    use vello_common::geometry::RectU16;
     use vello_common::kurbo::Rect;
 
     fn part(x: u16, y: u16, width: u16, height: u16, frac: [f32; 4]) -> RectPart {
         RectPart {
-            x,
-            y,
-            width,
-            height,
+            rect: RectU16::new(x, y, x + width, y + height),
             frac: pack_unorm4x8(frac),
         }
     }
