@@ -14,7 +14,8 @@ mod round;
 use self::builder::ScheduleBuilder;
 pub(crate) use self::round::BlendOp;
 pub(crate) use self::round::FilterOp;
-use self::round::{Rounds, Schedule};
+use self::round::Rounds;
+use crate::schedule::draw::Draw;
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::vec::Vec;
 use vello_common::TextureId;
@@ -102,6 +103,12 @@ pub(crate) struct ExternalTextureRun {
     /// Start index of the strip range for this run. The end is implicitly the start of the next
     /// run, or, for the last run, the total number of strips.
     pub(crate) strips_start: usize,
+}
+
+#[derive(Debug, Default)]
+struct Schedule {
+    root_opaque: Vec<GpuStrip>,
+    rounds: Rounds,
 }
 
 pub(crate) trait RendererBackend {
@@ -225,7 +232,7 @@ fn execute_rounds<R: RendererBackend>(
             renderer.apply_filters(&layer_round.filters, texture_index);
         }
 
-        execute_root_pass(renderer, &round.root_pass, root_output_target);
+        execute_root_pass(renderer, &round.root_draw, root_output_target);
 
         for texture_index in 0..round.layer_passes.len() {
             renderer.blend(&round.layer_passes[texture_index].blends, texture_index);
@@ -277,17 +284,17 @@ fn clear_scratch_regions<R: RendererBackend>(renderer: &mut R, regions: &[Textur
 
 fn execute_root_pass<R: RendererBackend>(
     renderer: &mut R,
-    pass: &round::RootPass,
+    draw: &Draw,
     root_output_target: RootRenderTarget,
 ) {
-    if pass.draw.is_empty() {
+    if draw.is_empty() {
         return;
     }
 
     renderer.render_strips(
         &[],
-        &pass.draw.alpha,
-        &pass.draw.external_texture_runs,
+        &draw.alpha,
+        &draw.external_texture_runs,
         StripPassRenderTarget::Root(root_output_target),
     );
 }

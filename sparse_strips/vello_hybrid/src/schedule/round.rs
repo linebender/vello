@@ -5,16 +5,17 @@
 
 use super::draw::Draw;
 use super::{LayerTextureRegion, TextureRegion};
-use crate::GpuStrip;
 use crate::filter::GpuFilterData;
 use alloc::vec::Vec;
 use vello_common::geometry::RectU16;
 use vello_common::peniko::BlendMode;
 
 #[derive(Debug, Default)]
-pub(super) struct Schedule {
-    pub(super) root_opaque: Vec<GpuStrip>,
-    pub(super) rounds: Rounds,
+pub(super) struct Round {
+    pub(super) root_draw: Draw,
+    pub(super) layer_passes: [LayerPass; 2],
+    pub(super) layer_texture_clears: Vec<LayerTextureRegion>,
+    pub(super) scratch_texture_clears: Vec<TextureRegion>,
 }
 
 #[derive(Debug, Default)]
@@ -22,33 +23,21 @@ pub(super) struct Rounds {
     pub(super) rounds: Vec<Round>,
 }
 
-#[derive(Debug, Default)]
-pub(super) struct Round {
-    pub(super) root_pass: RootPass,
-    pub(super) layer_passes: [LayerPass; 2],
-    pub(super) layer_texture_clears: Vec<LayerTextureRegion>,
-    pub(super) scratch_texture_clears: Vec<TextureRegion>,
-}
-
 impl Round {
     pub(crate) fn root_draw_mut(&mut self) -> &mut Draw {
-        &mut self.root_pass.draw
+        &mut self.root_draw
     }
 
     pub(crate) fn layer_draw_mut(&mut self, texture_index: usize) -> &mut Draw {
         &mut self.layer_passes[texture_index].draw
     }
 
-    pub(crate) fn push_blend(&mut self, blend: BlendOp) {
-        self.layer_passes[blend.parent_region.texture.texture_index]
-            .blends
-            .push(blend);
+    pub(crate) fn layer_blends_mut(&mut self, texture_index: usize) -> &mut Vec<BlendOp> {
+        &mut self.layer_passes[texture_index].blends
     }
 
-    pub(crate) fn push_filter(&mut self, filter: FilterOp) {
-        self.layer_passes[filter.layer_region.texture.texture_index]
-            .filters
-            .push(filter);
+    pub(crate) fn layer_filters_mut(&mut self, texture_index: usize) -> &mut Vec<FilterOp> {
+        &mut self.layer_passes[texture_index].filters
     }
 }
 
@@ -57,11 +46,6 @@ pub(super) struct LayerPass {
     pub(super) draw: Draw,
     pub(super) filters: Vec<FilterOp>,
     pub(super) blends: Vec<BlendOp>,
-}
-
-#[derive(Debug, Default)]
-pub(super) struct RootPass {
-    pub(super) draw: Draw,
 }
 
 #[derive(Debug, Clone, Copy)]

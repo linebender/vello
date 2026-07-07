@@ -6,8 +6,8 @@
 use super::allocate::{Atlases, LayerAllocation, LayerAllocationRequest};
 use super::cursor::Cursor;
 use super::draw::{DepthCounter, DrawBuilder, LayerSample};
-use super::round::{BlendOp, FilterOp, Round, Rounds, Schedule};
-use super::{LayerTextureRegion, RenderTarget, RootRenderTarget, TextureRegion};
+use super::round::{BlendOp, FilterOp, Round, Rounds};
+use super::{LayerTextureRegion, RenderTarget, RootRenderTarget, Schedule, TextureRegion};
 use crate::filter::GpuFilterData;
 use crate::scene::RecordedDraw;
 use crate::{GpuStrip, RenderError, Scene};
@@ -350,13 +350,15 @@ impl<'a> ScheduleBuilder<'a> {
                 .filter
                 .expect("filter target must have scratch allocations");
             self.ensure_round_exists(ready_round, rounds);
-            rounds.rounds[ready_round].push_filter(FilterOp {
-                layer_region: target.region,
-                scratches: allocation_filter
-                    .map(|scratch| scratch.map(|scratch| scratch.texture.region)),
-                filter_data_offset: filter.filter_data_offset,
-                gpu_filter: filter.gpu_filter,
-            });
+            rounds.rounds[ready_round]
+                .layer_filters_mut(target.region.texture.texture_index)
+                .push(FilterOp {
+                    layer_region: target.region,
+                    scratches: allocation_filter
+                        .map(|scratch| scratch.map(|scratch| scratch.texture.region)),
+                    filter_data_offset: filter.filter_data_offset,
+                    gpu_filter: filter.gpu_filter,
+                });
         }
         Ok(Some(ScheduledLayer {
             sample: self.layer_sample(layer_id, target.region),
@@ -416,13 +418,16 @@ impl<'a> ScheduleBuilder<'a> {
         }
 
         self.ensure_round_exists(blend_round, rounds);
-        rounds.rounds[blend_round].push_blend(BlendOp {
-            parent_region: state.target.layer_region(),
-            child_region: layer.sample.source,
-            blend_bbox: bbox,
-            blend_mode,
-            opacity,
-        });
+        let parent_region = state.target.layer_region();
+        rounds.rounds[blend_round]
+            .layer_blends_mut(parent_region.texture.texture_index)
+            .push(BlendOp {
+                parent_region,
+                child_region: layer.sample.source,
+                blend_bbox: bbox,
+                blend_mode,
+                opacity,
+            });
         self.consume_child_layer(layer_id, blend_round, rounds);
         state.backdrop_bbox = match blend_mode.compose {
             Compose::Clear => RectU16::INVERTED,
@@ -452,13 +457,16 @@ impl<'a> ScheduleBuilder<'a> {
         }
 
         self.ensure_round_exists(parent_ready_round, rounds);
-        rounds.rounds[parent_ready_round].push_blend(BlendOp {
-            parent_region: state.target.layer_region(),
-            child_region: empty_child_region_for_blend(bbox),
-            blend_bbox: bbox,
-            blend_mode,
-            opacity,
-        });
+        let parent_region = state.target.layer_region();
+        rounds.rounds[parent_ready_round]
+            .layer_blends_mut(parent_region.texture.texture_index)
+            .push(BlendOp {
+                parent_region,
+                child_region: empty_child_region_for_blend(bbox),
+                blend_bbox: bbox,
+                blend_mode,
+                opacity,
+            });
         state.backdrop_bbox = match blend_mode.compose {
             Compose::Clear | Compose::Copy | Compose::SrcIn | Compose::SrcOut => RectU16::INVERTED,
             _ => affected_bbox,

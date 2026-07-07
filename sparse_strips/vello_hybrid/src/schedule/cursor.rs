@@ -42,10 +42,7 @@ impl<R: Allocator> Cursor<R> {
         self.current_round
     }
 
-    pub(super) fn allocate(
-        &mut self,
-        request: R::Request,
-    ) -> Option<Allocation<R::Allocation>> {
+    pub(super) fn allocate(&mut self, request: R::Request) -> Option<Allocation<R::Allocation>> {
         loop {
             if let Some(allocation) = self.resource.allocate(request) {
                 return Some(Allocation {
