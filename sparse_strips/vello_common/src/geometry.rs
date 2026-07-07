@@ -98,12 +98,18 @@ impl RectU16 {
 
     /// Return this rectangle relative to `origin`, clamping negative coordinates to zero.
     #[inline(always)]
-    pub const fn relative_to_origin(self, origin: (u16, u16)) -> Self {
+    pub fn relative_to_origin(self, origin: (u16, u16)) -> Self {
+        self.shift((-(origin.0 as i32), -(origin.1 as i32)))
+    }
+
+    /// Return a shifted version of the rectangle, clamping negative coordinates to zero.
+    #[inline]
+    pub fn shift(self, shift: (i32, i32)) -> Self {
         Self {
-            x0: self.x0.saturating_sub(origin.0),
-            y0: self.y0.saturating_sub(origin.1),
-            x1: self.x1.saturating_sub(origin.0),
-            y1: self.y1.saturating_sub(origin.1),
+            x0: (self.x0 as i32).saturating_add(shift.0).clamp(0, u16::MAX as i32) as u16,
+            y0: (self.y0 as i32).saturating_add(shift.1).clamp(0, u16::MAX as i32) as u16,
+            x1: (self.x1 as i32).saturating_add(shift.0).clamp(0, u16::MAX as i32) as u16,
+            y1: (self.y1 as i32).saturating_add(shift.1).clamp(0, u16::MAX as i32) as u16,
         }
     }
 
