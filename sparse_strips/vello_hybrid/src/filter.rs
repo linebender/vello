@@ -21,9 +21,9 @@
 
 //! GPU filter types and conversion utilities.
 
-use crate::copy::{GpuCopyInstance, pack_u16_pair};
+use crate::copy::GpuCopyInstance;
 use crate::schedule::{FilterOp, TextureRegion, TextureTarget};
-use crate::util::{IntRect, IntSize};
+use crate::util::{pack_u16_pair, IntRect, IntSize};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use vello_common::filter::PreparedFilter;

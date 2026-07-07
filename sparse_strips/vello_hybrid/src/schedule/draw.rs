@@ -17,6 +17,7 @@ use vello_common::record::LayerClip;
 use vello_common::strip::{StripSegment, for_each_fill_segment};
 use vello_common::strip_generator::StripStorage;
 use vello_common::tile::Tile;
+use crate::util::pack_u16_pair;
 
 const COLOR_SOURCE_PAYLOAD: u32 = 0;
 const COLOR_SOURCE_LAYER: u32 = 1;
@@ -610,10 +611,6 @@ fn offset_coord(coord: u16, offset: i32) -> u16 {
         "offset coordinate must fit into u16"
     );
     u16::try_from(coord).expect("offset coordinate must fit into u16")
-}
-
-fn pack_u16_pair(x: u16, y: u16) -> u32 {
-    u32::from(x) | (u32::from(y) << 16)
 }
 
 fn layer_sample_payload(sample: LayerSample, x: u16, y: u16) -> u32 {

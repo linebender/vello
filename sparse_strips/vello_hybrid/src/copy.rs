@@ -24,7 +24,3 @@ pub(crate) struct GpuCopyInstance {
     /// Size of the render target texture that receives the copy.
     pub(crate) target_texture_size: u32,
 }
-
-pub(crate) fn pack_u16_pair(x: u16, y: u16) -> u32 {
-    u32::from(x) | (u32::from(y) << 16)
-}

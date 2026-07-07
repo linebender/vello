@@ -133,6 +133,10 @@ impl From<[u32; 2]> for IntSize {
     }
 }
 
+pub(crate) fn pack_u16_pair(x: u16, y: u16) -> u32 {
+    u32::from(x) | (u32::from(y) << 16)
+}
+
 #[cfg(test)]
 mod tests {
     use super::DimensionConstraints;

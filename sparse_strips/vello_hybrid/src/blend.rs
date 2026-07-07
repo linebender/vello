@@ -1,10 +1,11 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::copy::{GpuCopyInstance, pack_u16_pair};
+use crate::copy::GpuCopyInstance;
 use crate::schedule::BlendOp;
 use bytemuck::{Pod, Zeroable};
 use vello_common::peniko::{Compose, Mix};
+use crate::util::pack_u16_pair;
 
 pub(crate) const BLEND_SCRATCH_INDEX: usize = 0;
 
