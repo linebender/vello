@@ -314,13 +314,10 @@ impl<'a> DrawBuilder<'a> {
         // target allocation, while the payload points at the source atlas coordinate.
         self.draw.push(
             make_gpu_rect(
-                offset_rect_part(
-                    RectPart {
-                        rect: bbox,
-                        frac: 0,
-                    },
-                    self.geometry_offset,
-                ),
+                RectPart {
+                    rect: bbox.shift(self.geometry_offset),
+                    frac: 0,
+                },
                 layer_sample_payload(sample, bbox.x0, bbox.y0),
                 layer_paint(opacity),
                 depth_index,
@@ -562,7 +559,7 @@ fn pack_rectangle_into_gpu(
             paint_idxs,
         );
         let strip = make_gpu_rect(
-            offset_rect_part(part, geometry_offset),
+            part.shift(geometry_offset),
             processed.payload,
             processed.paint,
             depth_index,
@@ -602,18 +599,6 @@ fn tile_bounds(bounds: RectU16) -> RectU16 {
         bounds.x1.div_ceil(Tile::WIDTH),
         bounds.y1.div_ceil(Tile::HEIGHT),
     )
-}
-
-fn offset_rect_part(part: RectPart, offset: (i32, i32)) -> RectPart {
-    RectPart {
-        rect: RectU16::new(
-            offset_coord(part.rect.x0, offset.0),
-            offset_coord(part.rect.y0, offset.1),
-            offset_coord(part.rect.x1, offset.0),
-            offset_coord(part.rect.y1, offset.1),
-        ),
-        ..part
-    }
 }
 
 fn offset_coord(coord: u16, offset: i32) -> u16 {

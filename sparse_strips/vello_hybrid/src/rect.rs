@@ -18,6 +18,15 @@ pub(crate) struct RectPart {
     pub(crate) frac: u32,
 }
 
+impl RectPart {
+    pub(crate) fn shift(self, shift: (i32, i32)) -> Self {
+        Self {
+            rect: self.rect.shift(shift),
+            ..self
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SplitRect {
     pub(crate) main: RectPart,
