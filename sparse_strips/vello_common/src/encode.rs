@@ -573,6 +573,14 @@ impl EncodedPaint {
 }
 
 impl Paint {
+    /// Returns whether this paint is guaranteed to only produce opaque pixels.
+    pub fn is_opaque(&self, encoded_paints: &[EncodedPaint]) -> bool {
+        match self {
+            Self::Solid(color) => color.is_opaque(),
+            Self::Indexed(index) => encoded_paints[index.index()].is_opaque(),
+        }
+    }
+
     /// Returns whether this paint may produce non-opaque pixels.
     pub fn may_have_transparency(&self, encoded_paints: &[EncodedPaint]) -> bool {
         match self {

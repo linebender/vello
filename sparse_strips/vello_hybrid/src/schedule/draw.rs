@@ -229,7 +229,7 @@ impl<'a> DrawBuilder<'a> {
             return;
         }
 
-        let is_opaque = self.opaque.is_some() && is_paint_opaque(&paint, encoded_paints);
+        let is_opaque = self.opaque.is_some() && paint.is_opaque(encoded_paints);
         let depth_index = self.depth.next(is_opaque);
 
         let tile_bounds = {
@@ -295,7 +295,7 @@ impl<'a> DrawBuilder<'a> {
             return;
         }
 
-        let is_paint_opaque = self.opaque.is_some() && is_paint_opaque(paint, encoded_paints);
+        let is_paint_opaque = self.opaque.is_some() && paint.is_opaque(encoded_paints);
         let depth_index = self.depth.next(is_paint_opaque);
         pack_rectangle_into_gpu(
             &clipped_rect,
@@ -493,16 +493,6 @@ impl DepthCounter {
     fn next(&mut self, opaque: bool) -> u32 {
         self.count += opaque as u32;
         self.count
-    }
-}
-
-fn is_paint_opaque(paint: &Paint, encoded_paints: &[EncodedPaint]) -> bool {
-    match paint {
-        Paint::Solid(color) => color.is_opaque(),
-        Paint::Indexed(indexed_paint) => match encoded_paints.get(indexed_paint.index()) {
-            Some(paint) => paint.is_opaque(),
-            None => unreachable!("Paint must be in encoded paints"),
-        },
     }
 }
 
