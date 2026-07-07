@@ -12,10 +12,9 @@ mod round;
 mod timeline;
 
 use self::builder::ScheduleBuilder;
-use self::draw::Draw;
 pub(crate) use self::round::BlendOp;
 pub(crate) use self::round::FilterOp;
-use self::round::Rounds;
+use self::round::{Rounds, Schedule};
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::vec::Vec;
 use vello_common::TextureId;
@@ -185,9 +184,26 @@ pub(crate) fn render_scene<R: RendererBackend>(
         encoded_paints,
         renderer.layer_texture_size(),
     );
-    let rounds = builder.build()?;
-    execute_rounds(renderer, &rounds, root_output_target);
+    let schedule = builder.build()?;
+    execute_schedule(renderer, &schedule, root_output_target);
     Ok(())
+}
+
+fn execute_schedule<R: RendererBackend>(
+    renderer: &mut R,
+    schedule: &Schedule,
+    root_output_target: RootRenderTarget,
+) {
+    if !schedule.root_opaque.is_empty() {
+        renderer.render_strips(
+            &schedule.root_opaque,
+            &[],
+            &[],
+            StripPassRenderTarget::Root(RootRenderTarget::UserSurface),
+        );
+    }
+
+    execute_rounds(renderer, &schedule.rounds, root_output_target);
 }
 
 fn execute_rounds<R: RendererBackend>(
@@ -195,22 +211,12 @@ fn execute_rounds<R: RendererBackend>(
     rounds: &Rounds,
     root_output_target: RootRenderTarget,
 ) {
-    let direct_root_opaque = collect_direct_root_opaque(rounds, root_output_target);
-    if !direct_root_opaque.draw.is_empty() {
-        renderer.render_strips(
-            &direct_root_opaque.draw.opaque,
-            &[],
-            &[],
-            StripPassRenderTarget::Root(RootRenderTarget::UserSurface),
-        );
-    }
-
     for round in &rounds.rounds {
         for texture_index in [1, 0] {
             let layer_round = &round.layer_passes[texture_index];
             let draw = &layer_round.draw;
             renderer.render_strips(
-                &draw.opaque,
+                &[],
                 &draw.alpha,
                 &draw.external_texture_runs,
                 StripPassRenderTarget::LayerAtlas(texture_index),
@@ -269,31 +275,6 @@ fn clear_scratch_regions<R: RendererBackend>(renderer: &mut R, regions: &[Textur
     }
 }
 
-#[derive(Debug, Default)]
-struct DirectRootOpaque {
-    draw: Draw,
-}
-
-fn collect_direct_root_opaque(
-    rounds: &Rounds,
-    root_output_target: RootRenderTarget,
-) -> DirectRootOpaque {
-    let mut opaque = DirectRootOpaque::default();
-    if root_output_target != RootRenderTarget::UserSurface {
-        return opaque;
-    }
-
-    for pass in rounds.rounds.iter().map(|round| &round.root_pass) {
-        if pass.draw.opaque.is_empty() {
-            continue;
-        }
-
-        opaque.draw.append_opaque(&pass.draw);
-    }
-
-    opaque
-}
-
 fn execute_root_pass<R: RendererBackend>(
     renderer: &mut R,
     pass: &round::RootPass,
@@ -303,38 +284,24 @@ fn execute_root_pass<R: RendererBackend>(
         return;
     }
 
-    if root_output_target == RootRenderTarget::UserSurface {
-        renderer.render_strips(
-            &[],
-            &pass.draw.alpha,
-            &pass.draw.external_texture_runs,
-            StripPassRenderTarget::Root(root_output_target),
-        );
-    } else {
-        renderer.render_strips(
-            &pass.draw.opaque,
-            &pass.draw.alpha,
-            &pass.draw.external_texture_runs,
-            StripPassRenderTarget::Root(root_output_target),
-        );
-    }
+    renderer.render_strips(
+        &[],
+        &pass.draw.alpha,
+        &pass.draw.external_texture_runs,
+        StripPassRenderTarget::Root(root_output_target),
+    );
 }
 
 #[derive(Debug, Clone, Copy)]
 enum RenderTarget {
-    Root(RootRenderTarget),
+    Root,
     Layer(LayerTextureRegion),
 }
 
 impl RenderTarget {
-    fn allows_opaque_pass(self) -> bool {
-        // TODO: Allow opaque strips for intermediate targets?
-        matches!(self, Self::Root(RootRenderTarget::UserSurface))
-    }
-
     fn texture_index(self) -> Option<usize> {
         match self {
-            Self::Root(_) => None,
+            Self::Root => None,
             Self::Layer(region) => Some(region.texture.texture_index),
         }
     }
@@ -342,13 +309,13 @@ impl RenderTarget {
     fn layer_region(self) -> LayerTextureRegion {
         match self {
             Self::Layer(region) => region,
-            Self::Root(_) => panic!("root targets do not have layer regions"),
+            Self::Root => panic!("root targets do not have layer regions"),
         }
     }
 
     fn geometry_offset(self) -> (i32, i32) {
         match self {
-            Self::Root(_) => (0, 0),
+            Self::Root => (0, 0),
             Self::Layer(region) => (
                 region.texture.rect.x0 as i32 - i32::from(region.scene_bbox.x0),
                 region.texture.rect.y0 as i32 - i32::from(region.scene_bbox.y0),

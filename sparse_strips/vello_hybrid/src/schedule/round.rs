@@ -3,11 +3,19 @@
 
 //! Concrete round representation for the new hybrid scheduler.
 
-use super::{Draw, LayerTextureRegion, TextureRegion};
+use super::draw::Draw;
+use super::{LayerTextureRegion, TextureRegion};
+use crate::GpuStrip;
 use crate::filter::GpuFilterData;
 use alloc::vec::Vec;
 use vello_common::geometry::RectU16;
 use vello_common::peniko::BlendMode;
+
+#[derive(Debug, Default)]
+pub(super) struct Schedule {
+    pub(super) root_opaque: Vec<GpuStrip>,
+    pub(super) rounds: Rounds,
+}
 
 #[derive(Debug, Default)]
 pub(super) struct Rounds {
@@ -23,12 +31,12 @@ pub(super) struct Round {
 }
 
 impl Round {
-    pub(crate) fn push_root_draw(&mut self, draw: Draw) {
-        self.root_pass.draw.append(&draw);
+    pub(crate) fn root_draw_mut(&mut self) -> &mut Draw {
+        &mut self.root_pass.draw
     }
 
-    pub(crate) fn push_layer_draw(&mut self, texture_index: usize, draw: Draw) {
-        self.layer_passes[texture_index].draw.append(&draw);
+    pub(crate) fn layer_draw_mut(&mut self, texture_index: usize) -> &mut Draw {
+        &mut self.layer_passes[texture_index].draw
     }
 
     pub(crate) fn push_blend(&mut self, blend: BlendOp) {

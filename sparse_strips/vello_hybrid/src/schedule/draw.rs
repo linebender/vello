@@ -122,50 +122,13 @@ fn pack_paint(
 
 #[derive(Debug, Default, Clone)]
 pub(super) struct Draw {
-    pub(super) opaque: Vec<GpuStrip>,
     pub(super) alpha: Vec<GpuStrip>,
     pub(super) external_texture_runs: Vec<ExternalTextureRun>,
 }
 
 impl Draw {
-    pub(super) fn append_opaque(&mut self, other: &Self) {
-        self.opaque.extend_from_slice(&other.opaque);
-    }
-
-    pub(super) fn append(&mut self, other: &Self) {
-        self.opaque.extend_from_slice(&other.opaque);
-
-        let alpha_offset = self.alpha.len();
-        let had_external_texture_runs = !self.external_texture_runs.is_empty();
-        for (idx, run) in other.external_texture_runs.iter().enumerate() {
-            let strips_start = if !had_external_texture_runs && idx == 0 {
-                0
-            } else {
-                alpha_offset + run.strips_start
-            };
-            if strips_start == self.alpha.len()
-                && self
-                    .external_texture_runs
-                    .last()
-                    .is_some_and(|last| last.texture_id == run.texture_id)
-            {
-                continue;
-            }
-            self.external_texture_runs.push(ExternalTextureRun {
-                texture_id: run.texture_id,
-                strips_start,
-            });
-        }
-        self.alpha.extend_from_slice(&other.alpha);
-    }
-
     #[inline(always)]
-    fn push_opaque(&mut self, gpu_strip: GpuStrip) {
-        self.opaque.push(gpu_strip);
-    }
-
-    #[inline(always)]
-    fn push_alpha(&mut self, gpu_strip: GpuStrip, external_texture_id: Option<TextureId>) {
+    fn push(&mut self, gpu_strip: GpuStrip, external_texture_id: Option<TextureId>) {
         if let Some(texture_id) = external_texture_id {
             let needs_new_run = self
                 .external_texture_runs
@@ -188,7 +151,7 @@ impl Draw {
     }
 
     pub(super) fn is_empty(&self) -> bool {
-        self.opaque.is_empty() && self.alpha.is_empty()
+        self.alpha.is_empty()
     }
 }
 
@@ -200,24 +163,28 @@ pub(super) struct LayerSample {
 }
 
 #[derive(Debug)]
-pub(super) struct DrawBuilder {
+pub(super) struct DrawBuilder<'a> {
     draw: Draw,
-    depth: DepthCounter,
-    allow_opaque_pass: bool,
+    opaque: Option<&'a mut Vec<GpuStrip>>,
+    opaque_start: usize,
+    depth: &'a mut DepthCounter,
     geometry_offset: (i32, i32),
     draw_bounds: RectU16,
 }
 
-impl DrawBuilder {
+impl<'a> DrawBuilder<'a> {
     pub(super) fn new(
-        allow_opaque_pass: bool,
+        opaque: Option<&'a mut Vec<GpuStrip>>,
+        depth: &'a mut DepthCounter,
         geometry_offset: (i32, i32),
         draw_bounds: RectU16,
     ) -> Self {
+        let opaque_start = opaque.as_ref().map_or(0, |opaque| opaque.len());
         Self {
             draw: Draw::default(),
-            depth: DepthCounter::default(),
-            allow_opaque_pass,
+            opaque,
+            opaque_start,
+            depth,
             geometry_offset,
             draw_bounds,
         }
@@ -260,7 +227,7 @@ impl DrawBuilder {
             return;
         }
 
-        let is_opaque = self.allow_opaque_pass && is_paint_opaque(&paint, encoded_paints);
+        let is_opaque = self.opaque.is_some() && is_paint_opaque(&paint, encoded_paints);
         let depth_index = self.depth.next(is_opaque);
 
         for_each_fill_segment(
@@ -272,7 +239,7 @@ impl DrawBuilder {
                     let x1 = segment.tile_x1 * Tile::WIDTH;
                     let y = segment.tile_y * Tile::HEIGHT;
                     let processed = pack_paint(&paint, encoded_paints, (x0, y), paint_idxs);
-                    self.draw.push_alpha(
+                    self.draw.push(
                         self.get_fill_strip(
                             x0,
                             x1,
@@ -290,10 +257,8 @@ impl DrawBuilder {
                     let y = segment.tile_y * Tile::HEIGHT;
                     let processed = pack_paint(&paint, encoded_paints, (x0, y), paint_idxs);
                     let strip = self.get_fill_strip(x0, x1, y, None, &processed, depth_index);
-                    if is_opaque {
-                        self.draw.push_opaque(strip);
-                    } else {
-                        self.draw.push_alpha(strip, processed.external_texture_id);
+                    if !is_opaque || !self.push_opaque(strip) {
+                        self.draw.push(strip, processed.external_texture_id);
                     }
                 }
             },
@@ -310,16 +275,17 @@ impl DrawBuilder {
         let Some(rect) = clipped_fast_rect(rect, self.draw_bounds) else {
             return;
         };
-        let is_opaque = self.allow_opaque_pass && is_paint_opaque(paint, encoded_paints);
-        let depth_index = self.depth.next(is_opaque);
+        let is_paint_opaque = self.opaque.is_some() && is_paint_opaque(paint, encoded_paints);
+        let depth_index = self.depth.next(is_paint_opaque);
         pack_rectangle_into_gpu(
             &rect,
             paint,
             encoded_paints,
             paint_idxs,
             depth_index,
-            is_opaque,
+            is_paint_opaque,
             self.geometry_offset,
+            &mut self.opaque,
             &mut self.draw,
         );
     }
@@ -345,7 +311,7 @@ impl DrawBuilder {
 
         // Layer samples are encoded as image-like rect paints. Geometry is transformed into the
         // target allocation, while the payload points at the source atlas coordinate.
-        self.draw.push_alpha(
+        self.draw.push(
             make_gpu_rect(
                 offset_rect_part(
                     RectPart {
@@ -386,7 +352,7 @@ impl DrawBuilder {
                 let x0 = segment.tile_x0 * Tile::WIDTH;
                 let x1 = segment.tile_x1 * Tile::WIDTH;
                 let y = segment.tile_y * Tile::HEIGHT;
-                self.draw.push_alpha(
+                self.draw.push(
                     self.get_layer_fill_strip(
                         sample,
                         x0,
@@ -403,7 +369,7 @@ impl DrawBuilder {
                 let x0 = segment.tile_x0 * Tile::WIDTH;
                 let x1 = segment.tile_x1 * Tile::WIDTH;
                 let y = segment.tile_y * Tile::HEIGHT;
-                self.draw.push_alpha(
+                self.draw.push(
                     self.get_layer_fill_strip(sample, x0, x1, y, None, paint, depth_index),
                     None,
                 );
@@ -483,15 +449,62 @@ impl DrawBuilder {
         }
     }
 
-    pub(super) fn take_draw(&mut self) -> Draw {
-        let mut draw = core::mem::take(&mut self.draw);
-        draw.opaque.reverse();
-        draw
+    pub(super) fn append_to(&mut self, target: &mut Draw) {
+        self.finish_opaque_segment();
+        self.append_alpha_to(target);
+    }
+
+    fn push_opaque(&mut self, strip: GpuStrip) -> bool {
+        let Some(opaque) = self.opaque.as_deref_mut() else {
+            return false;
+        };
+        opaque.push(strip);
+        true
+    }
+
+    fn finish_opaque_segment(&mut self) {
+        if let Some(opaque) = self.opaque.as_deref_mut() {
+            opaque[self.opaque_start..].reverse();
+            self.opaque_start = opaque.len();
+        }
+    }
+
+    fn append_alpha_to(&mut self, target: &mut Draw) {
+        let alpha_offset = target.alpha.len();
+        let had_external_texture_runs = !target.external_texture_runs.is_empty();
+        for (idx, run) in self.draw.external_texture_runs.drain(..).enumerate() {
+            let strips_start = if !had_external_texture_runs && idx == 0 {
+                0
+            } else {
+                alpha_offset + run.strips_start
+            };
+            if strips_start == target.alpha.len()
+                && target
+                    .external_texture_runs
+                    .last()
+                    .is_some_and(|last| last.texture_id == run.texture_id)
+            {
+                continue;
+            }
+            target.external_texture_runs.push(ExternalTextureRun {
+                texture_id: run.texture_id,
+                strips_start,
+            });
+        }
+        target.alpha.append(&mut self.draw.alpha);
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        let opaque_empty = self
+            .opaque
+            .as_ref()
+            .is_none_or(|opaque| opaque.len() == self.opaque_start);
+        opaque_empty && self.draw.is_empty()
     }
 }
 
 #[derive(Debug, Default, Clone, Copy)]
-struct DepthCounter {
+pub(super) struct DepthCounter {
     count: u32,
 }
 
@@ -526,8 +539,9 @@ fn pack_rectangle_into_gpu(
     encoded_paints: &[EncodedPaint],
     paint_idxs: &[u32],
     depth_index: u32,
-    is_opaque: bool,
+    is_paint_opaque: bool,
     geometry_offset: (i32, i32),
+    opaque: &mut Option<&mut Vec<GpuStrip>>,
     draw: &mut Draw,
 ) {
     let split = split_rect(rect);
@@ -550,10 +564,14 @@ fn pack_rectangle_into_gpu(
             processed.paint,
             depth_index,
         );
-        if is_first && is_opaque && part.frac == 0 {
-            draw.push_opaque(strip);
+        if is_first
+            && is_paint_opaque
+            && part.frac == 0
+            && let Some(opaque) = opaque.as_deref_mut()
+        {
+            opaque.push(strip);
         } else {
-            draw.push_alpha(strip, processed.external_texture_id);
+            draw.push(strip, processed.external_texture_id);
         }
         is_first = false;
     }
