@@ -7,6 +7,7 @@ use super::{ExternalTextureRun, LayerTextureRegion};
 use crate::GpuStrip;
 use crate::rect::{RectPart, make_gpu_rect, split_rect};
 use crate::scene::RecordedDraw;
+use crate::util::{pack_opacity, pack_u16_pair};
 use ::alloc::vec::Vec;
 use vello_common::TextureId;
 use vello_common::encode::{EncodedKind, EncodedPaint};
@@ -17,7 +18,6 @@ use vello_common::record::LayerClip;
 use vello_common::strip::{StripSegment, for_each_fill_segment};
 use vello_common::strip_generator::StripStorage;
 use vello_common::tile::Tile;
-use crate::util::pack_u16_pair;
 
 const COLOR_SOURCE_PAYLOAD: u32 = 0;
 const COLOR_SOURCE_LAYER: u32 = 1;
@@ -273,7 +273,7 @@ impl<'a> DrawBuilder<'a> {
         encoded_paints: &[EncodedPaint],
         paint_idxs: &[u32],
     ) {
-        let Some(rect) = clipped_fast_rect(rect, self.draw_bounds) else {
+        let Some(rect) = clip_rect_to_draw_bounds(rect, self.draw_bounds) else {
             return;
         };
         let is_paint_opaque = self.opaque.is_some() && is_paint_opaque(paint, encoded_paints);
@@ -578,13 +578,19 @@ fn pack_rectangle_into_gpu(
     }
 }
 
-fn clipped_fast_rect(rect: &Rect, bbox: RectU16) -> Option<Rect> {
-    let x0 = rect.x0.max(f64::from(bbox.x0));
-    let y0 = rect.y0.max(f64::from(bbox.y0));
-    let x1 = rect.x1.min(f64::from(bbox.x1));
-    let y1 = rect.y1.min(f64::from(bbox.y1));
+fn clip_rect_to_draw_bounds(rect: &Rect, bounds: RectU16) -> Option<Rect> {
+    // Path draws are clipped by `for_each_fill_segment(..., tile_bounds(draw_bounds), ...)`.
+    // Fast rects bypass strip iteration, so they need the equivalent target-local clip here
+    // before applying the layer atlas geometry offset.
+    let bounds = Rect::new(
+        f64::from(bounds.x0),
+        f64::from(bounds.y0),
+        f64::from(bounds.x1),
+        f64::from(bounds.y1),
+    );
+    let rect = rect.intersect(bounds);
 
-    (x0 < x1 && y0 < y1).then(|| Rect::new(x0, y0, x1, y1))
+    (rect.x0 < rect.x1 && rect.y0 < rect.y1).then_some(rect)
 }
 
 fn tile_bounds(bounds: RectU16) -> RectU16 {
@@ -621,13 +627,6 @@ fn layer_sample_payload(sample: LayerSample, x: u16, y: u16) -> u32 {
 }
 
 fn layer_paint(opacity: f32) -> u32 {
-    (COLOR_SOURCE_LAYER << 29) | u32::from(opacity_to_u8(opacity))
+    (COLOR_SOURCE_LAYER << 29) | u32::from(pack_opacity(opacity))
 }
 
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "opacity is clamped to the normalized u8 range before packing"
-)]
-fn opacity_to_u8(opacity: f32) -> u8 {
-    (opacity.clamp(0.0, 1.0) * 255.0).round() as u8
-}

@@ -23,7 +23,7 @@
 
 use crate::copy::GpuCopyInstance;
 use crate::schedule::{FilterOp, TextureRegion, TextureTarget};
-use crate::util::{pack_u16_pair, IntRect, IntSize};
+use crate::util::{IntRect, IntSize, pack_u16_pair};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use vello_common::filter::PreparedFilter;

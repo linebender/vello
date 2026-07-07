@@ -137,6 +137,14 @@ pub(crate) fn pack_u16_pair(x: u16, y: u16) -> u32 {
     u32::from(x) | (u32::from(y) << 16)
 }
 
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "opacity is clamped to the normalized u8 range before packing"
+)]
+pub(crate) fn pack_opacity(opacity: f32) -> u8 {
+    (opacity.clamp(0.0, 1.0) * 255.0).round() as u8
+}
+
 #[cfg(test)]
 mod tests {
     use super::DimensionConstraints;

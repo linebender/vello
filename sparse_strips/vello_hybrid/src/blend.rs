@@ -3,9 +3,9 @@
 
 use crate::copy::GpuCopyInstance;
 use crate::schedule::BlendOp;
+use crate::util::{pack_opacity, pack_u16_pair};
 use bytemuck::{Pod, Zeroable};
 use vello_common::peniko::{Compose, Mix};
-use crate::util::pack_u16_pair;
 
 pub(crate) const BLEND_SCRATCH_INDEX: usize = 0;
 
@@ -100,11 +100,9 @@ fn pack_blend_config(
     debug_assert!(parent_texture_index <= 1);
     debug_assert!(child_texture_index <= 1);
 
-    let opacity = (opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
-
     pack_compose(compose)
         | (pack_mix(mix) << 8)
-        | (u32::from(opacity) << 16)
+        | (u32::from(pack_opacity(opacity)) << 16)
         | ((parent_texture_index as u32) << 24)
         | ((child_texture_index as u32) << 25)
 }
