@@ -22,7 +22,7 @@ pub(super) struct ScheduledAllocation<T> {
 
 #[derive(Debug)]
 pub(super) struct Timeline<R: ResourceAllocator> {
-    base_round: usize,
+    current_round: usize,
     resource: R,
     pending_releases: Vec<Vec<R::Allocation>>,
     pending_release_count: usize,
@@ -31,7 +31,7 @@ pub(super) struct Timeline<R: ResourceAllocator> {
 impl<R: ResourceAllocator> Timeline<R> {
     pub(super) fn new(resource: R) -> Self {
         Self {
-            base_round: 0,
+            current_round: 0,
             resource,
             pending_releases: Vec::new(),
             pending_release_count: 0,
@@ -39,7 +39,7 @@ impl<R: ResourceAllocator> Timeline<R> {
     }
 
     pub(super) fn base_round(&self) -> usize {
-        self.base_round
+        self.current_round
     }
 
     pub(super) fn allocate(
@@ -50,7 +50,7 @@ impl<R: ResourceAllocator> Timeline<R> {
             if let Some(allocation) = self.resource.allocate(request) {
                 return Some(ScheduledAllocation {
                     allocation,
-                    round_idx: self.base_round,
+                    round_idx: self.current_round,
                 });
             }
 
@@ -58,7 +58,7 @@ impl<R: ResourceAllocator> Timeline<R> {
                 return None;
             }
 
-            self.advance_to(self.base_round + 1);
+            self.advance_to(self.current_round + 1);
         }
     }
 
@@ -72,8 +72,8 @@ impl<R: ResourceAllocator> Timeline<R> {
     }
 
     fn advance_to(&mut self, round_idx: usize) {
-        while self.base_round < round_idx {
-            if let Some(releases) = self.pending_releases.get_mut(self.base_round) {
+        while self.current_round < round_idx {
+            if let Some(releases) = self.pending_releases.get_mut(self.current_round) {
                 self.pending_release_count -= releases.len();
 
                 for allocation in releases.drain(..) {
@@ -81,7 +81,7 @@ impl<R: ResourceAllocator> Timeline<R> {
                 }
             }
 
-            self.base_round += 1;
+            self.current_round += 1;
         }
     }
 }
