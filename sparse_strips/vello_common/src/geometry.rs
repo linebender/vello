@@ -3,6 +3,8 @@
 
 //! Geometry utilities.
 
+use crate::kurbo::Rect;
+
 /// An axis-aligned rectangle with `u16` coordinates, stored as two corners `(x0, y0)` and
 /// `(x1, y1)`.
 ///
@@ -130,6 +132,16 @@ impl RectU16 {
         self.y0 = const_min(self.y0, other.y0);
         self.x1 = const_max(self.x1, other.x1);
         self.y1 = const_max(self.y1, other.y1);
+    }
+
+    /// Return the rect as a [`kurbo::Rect`].
+    pub fn as_rect(self) -> Rect {
+        Rect::new(
+            self.x0 as f64,
+            self.y0 as f64,
+            self.x1 as f64,
+            self.y1 as f64,
+        )
     }
 }
 

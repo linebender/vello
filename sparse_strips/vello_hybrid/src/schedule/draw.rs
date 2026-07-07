@@ -282,13 +282,15 @@ impl<'a> DrawBuilder<'a> {
         encoded_paints: &[EncodedPaint],
         paint_idxs: &[u32],
     ) {
-        let Some(rect) = clip_rect_to_draw_bounds(rect, self.draw_bounds) else {
+        let clipped_rect = rect.intersect(self.draw_bounds.as_rect());
+        if clipped_rect.is_zero_area() {
             return;
-        };
+        }
+        
         let is_paint_opaque = self.opaque.is_some() && is_paint_opaque(paint, encoded_paints);
         let depth_index = self.depth.next(is_paint_opaque);
         pack_rectangle_into_gpu(
-            &rect,
+            &clipped_rect,
             paint,
             encoded_paints,
             paint_idxs,
@@ -540,21 +542,6 @@ fn pack_rectangle_into_gpu(
         }
         is_first = false;
     }
-}
-
-fn clip_rect_to_draw_bounds(rect: &Rect, bounds: RectU16) -> Option<Rect> {
-    // Path draws are clipped by `for_each_fill_segment(..., tile_bounds(draw_bounds), ...)`.
-    // Fast rects bypass strip iteration, so they need the equivalent target-local clip here
-    // before applying the layer atlas geometry offset.
-    let bounds = Rect::new(
-        f64::from(bounds.x0),
-        f64::from(bounds.y0),
-        f64::from(bounds.x1),
-        f64::from(bounds.y1),
-    );
-    let rect = rect.intersect(bounds);
-
-    (rect.x0 < rect.x1 && rect.y0 < rect.y1).then_some(rect)
 }
 
 fn tile_bounds(bounds: RectU16) -> RectU16 {
