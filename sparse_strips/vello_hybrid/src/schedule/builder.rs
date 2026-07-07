@@ -86,7 +86,8 @@ impl<'a> ScheduleBuilder<'a> {
     fn schedule_root(&mut self, schedule: &mut Schedule) -> Result<(), RenderError> {
         let cmds = &self.scene.recorder.root_cmds;
         if self.scene.recorder.root_is_blend_target {
-            let bbox = RectU16::new(0, 0, self.scene.width, self.scene.height);
+            let bbox =
+                RectU16::new(0, 0, self.scene.width, self.scene.height).snap_to_tile_coordinates();
             if bbox.is_empty() {
                 return Ok(());
             }
@@ -106,7 +107,7 @@ impl<'a> ScheduleBuilder<'a> {
                 RenderTarget::Root,
                 ready_round,
                 None,
-                RectU16::new(0, 0, self.scene.width, self.scene.height),
+                RectU16::new(0, 0, self.scene.width, self.scene.height).snap_to_tile_coordinates(),
             );
             schedule
                 .rounds
@@ -744,7 +745,9 @@ fn ensure_round_exists(rounds: &mut Rounds, round_idx: usize) {
 
 fn target_draw_bounds(target: RenderTarget, scene: &Scene) -> RectU16 {
     match target {
-        RenderTarget::Root => RectU16::new(0, 0, scene.width, scene.height),
+        RenderTarget::Root => {
+            RectU16::new(0, 0, scene.width, scene.height).snap_to_tile_coordinates()
+        }
         RenderTarget::Layer(region) => region.scene_bbox,
     }
 }

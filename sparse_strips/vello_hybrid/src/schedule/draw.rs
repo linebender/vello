@@ -18,6 +18,7 @@ use vello_common::record::LayerClip;
 use vello_common::strip::{StripFillSegment, StripSegment, for_each_fill_segment};
 use vello_common::strip_generator::StripStorage;
 use vello_common::tile::Tile;
+use vello_common::util::RectExt;
 
 const COLOR_SOURCE_PAYLOAD: u32 = 0;
 const COLOR_SOURCE_LAYER: u32 = 1;
@@ -231,48 +232,55 @@ impl<'a> DrawBuilder<'a> {
         let is_opaque = self.opaque.is_some() && is_paint_opaque(&paint, encoded_paints);
         let depth_index = self.depth.next(is_opaque);
 
-        for_each_fill_segment(
-            strips,
-            tile_bounds(self.draw_bounds),
-            |segment| match segment {
-                StripSegment::Alpha(segment) => {
-                    let processed = pack_paint(
-                        &paint,
-                        encoded_paints,
-                        (segment.x0(), segment.y()),
-                        paint_idxs,
-                    );
-                    self.draw.push(
-                        self.get_fill_strip_with_packed_paint(
-                            *segment,
-                            Some(segment.col_idx()),
-                            processed.payload,
-                            processed.paint,
-                            depth_index,
-                        ),
-                        processed.external_texture_id,
-                    );
-                }
-                StripSegment::Fill(segment) => {
-                    let processed = pack_paint(
-                        &paint,
-                        encoded_paints,
-                        (segment.x0(), segment.y()),
-                        paint_idxs,
-                    );
-                    let strip = self.get_fill_strip_with_packed_paint(
-                        segment,
-                        None,
+        let tile_bounds = {
+            let expanded = self.draw_bounds.snap_to_tile_coordinates();
+
+            RectU16::new(
+                expanded.x0 / Tile::WIDTH,
+                expanded.y0 / Tile::WIDTH,
+                expanded.x1 / Tile::HEIGHT,
+                expanded.y1 / Tile::HEIGHT,
+            )
+        };
+
+        for_each_fill_segment(strips, tile_bounds, |segment| match segment {
+            StripSegment::Alpha(segment) => {
+                let processed = pack_paint(
+                    &paint,
+                    encoded_paints,
+                    (segment.x0(), segment.y()),
+                    paint_idxs,
+                );
+                self.draw.push(
+                    self.get_fill_strip_with_packed_paint(
+                        *segment,
+                        Some(segment.col_idx()),
                         processed.payload,
                         processed.paint,
                         depth_index,
-                    );
-                    if !is_opaque || !self.push_opaque(strip) {
-                        self.draw.push(strip, processed.external_texture_id);
-                    }
+                    ),
+                    processed.external_texture_id,
+                );
+            }
+            StripSegment::Fill(segment) => {
+                let processed = pack_paint(
+                    &paint,
+                    encoded_paints,
+                    (segment.x0(), segment.y()),
+                    paint_idxs,
+                );
+                let strip = self.get_fill_strip_with_packed_paint(
+                    segment,
+                    None,
+                    processed.payload,
+                    processed.paint,
+                    depth_index,
+                );
+                if !is_opaque || !self.push_opaque(strip) {
+                    self.draw.push(strip, processed.external_texture_id);
                 }
-            },
-        );
+            }
+        });
     }
 
     fn push_rect(
@@ -286,7 +294,7 @@ impl<'a> DrawBuilder<'a> {
         if clipped_rect.is_zero_area() {
             return;
         }
-        
+
         let is_paint_opaque = self.opaque.is_some() && is_paint_opaque(paint, encoded_paints);
         let depth_index = self.depth.next(is_paint_opaque);
         pack_rectangle_into_gpu(
@@ -345,15 +353,28 @@ impl<'a> DrawBuilder<'a> {
         strip_storage: &StripStorage,
     ) {
         let strips = &strip_storage.strips[clip_path.strip_range.clone()];
-        let sample_bbox = sample.bbox.intersect(self.draw_bounds);
+        let sample_bbox = sample
+            .bbox
+            .intersect(self.draw_bounds);
         if strips.len() < 2 || clip_path.bbox.is_empty() || sample_bbox.is_empty() {
             return;
         }
 
+
+        let tile_bounds = {
+            let expanded = sample_bbox.snap_to_tile_coordinates();
+            RectU16::new(
+                expanded.x0 / Tile::WIDTH,
+                expanded.y0 / Tile::WIDTH,
+                expanded.x1 / Tile::HEIGHT,
+                expanded.y1 / Tile::HEIGHT,
+            )
+        };
+
         let depth_index = self.depth.next(false);
         let paint = layer_paint(opacity);
 
-        for_each_fill_segment(strips, tile_bounds(sample_bbox), |segment| match segment {
+        for_each_fill_segment(strips, tile_bounds, |segment| match segment {
             StripSegment::Alpha(segment) => {
                 let payload = layer_sample_payload(sample, segment.x0(), segment.y());
                 self.draw.push(
@@ -542,15 +563,6 @@ fn pack_rectangle_into_gpu(
         }
         is_first = false;
     }
-}
-
-fn tile_bounds(bounds: RectU16) -> RectU16 {
-    RectU16::new(
-        bounds.x0 / Tile::WIDTH,
-        bounds.y0 / Tile::HEIGHT,
-        bounds.x1.div_ceil(Tile::WIDTH),
-        bounds.y1.div_ceil(Tile::HEIGHT),
-    )
 }
 
 fn layer_sample_payload(sample: LayerSample, x: u16, y: u16) -> u32 {
