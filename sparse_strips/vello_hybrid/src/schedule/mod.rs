@@ -26,12 +26,8 @@ use vello_common::geometry::RectU16;
 pub(crate) enum RootRenderTarget {
     /// The root render target is the user-provided surface.
     UserSurface,
-    /// The root render target is the user-provided surface and samples layer texture 0.
-    UserSurfaceFromLayer0,
     /// The root render target is an atlas layer.
     AtlasLayer,
-    /// The root render target is an atlas layer and samples layer texture 0.
-    AtlasLayerFromLayer0,
 }
 
 /// Specifies the target for a strip render pass.
@@ -39,8 +35,6 @@ pub(crate) enum RootRenderTarget {
 pub(crate) enum StripPassRenderTarget {
     /// Render to the root output target.
     Root(RootRenderTarget),
-    /// Render to an allocated region in one of the layer atlas textures.
-    Layer(LayerTextureRegion),
     /// Render to a whole layer atlas texture.
     LayerAtlas(usize),
 }
@@ -149,19 +143,19 @@ pub(crate) struct TextureRequirements {
 
 impl TextureRequirements {
     fn for_scene(scene: &Scene) -> Self {
-        let layer_textures = if scene.recorder.root_is_blend_target {
-            // When the root is a blend target, it becomes an intermediate layer too, so we need
-            // both atlas textures even if the recorded layer nesting itself is shallow.
-            [true, true]
-        } else {
-            let mut layer_textures = [false; 2];
-            // The root layer is depth 0. Direct child layers have depth 1 and need one atlas
-            // texture; deeper nesting alternates between the two atlas textures.
-            for depth in 1..=scene.recorder.max_layer_depth.min(2) {
-                layer_textures[depth & 1] = true;
-            }
-            layer_textures
-        };
+        let mut layer_textures = [false; 2];
+        if scene.recorder.root_is_blend_target {
+            // When the root is a blend target, it becomes a synthetic direct child layer of the
+            // final output root.
+            layer_textures[1] = true;
+        }
+        // The root layer is depth 0. Direct child layers have depth 1 and need one atlas texture;
+        // deeper nesting alternates between the two atlas textures. If the root itself is rendered
+        // as an intermediate layer, recorded layers are effectively shifted down by one level.
+        let depth_offset = usize::from(scene.recorder.root_is_blend_target);
+        for depth in 1..=scene.recorder.max_layer_depth.min(2) {
+            layer_textures[(depth + depth_offset) & 1] = true;
+        }
         let scratch_textures = if scene.recorder.has_filter_layer {
             [true, true]
         } else if scene.recorder.has_non_default_blend {
@@ -187,16 +181,7 @@ pub(crate) enum LoadOp {
 
 #[derive(Debug, Default)]
 pub(crate) struct ScheduleScratch {
-    layer_draws: [Draw; 2],
     root_batch: RootBatch,
-}
-
-impl ScheduleScratch {
-    fn clear_round(&mut self) {
-        for draw in &mut self.layer_draws {
-            draw.clear();
-        }
-    }
 }
 
 /// Render the supported subset of a scene through the new recorder-based scheduler.
@@ -220,7 +205,7 @@ pub(crate) fn render_scene<R: RendererBackend>(
     let rounds = builder.build()?;
     let mut scratch = ScheduleScratch::default();
     core::mem::swap(&mut scratch, renderer.schedule_scratch());
-    execute_rounds(renderer, &rounds, &mut scratch);
+    execute_rounds(renderer, &rounds, &mut scratch, root_output_target);
     core::mem::swap(&mut scratch, renderer.schedule_scratch());
     Ok(())
 }
@@ -229,8 +214,9 @@ fn execute_rounds<R: RendererBackend>(
     renderer: &mut R,
     rounds: &Rounds,
     scratch: &mut ScheduleScratch,
+    root_output_target: RootRenderTarget,
 ) {
-    let direct_root_opaque = collect_direct_root_opaque(rounds);
+    let direct_root_opaque = collect_direct_root_opaque(rounds, root_output_target);
     if !direct_root_opaque.draw.is_empty() {
         renderer.render_strips(
             &direct_root_opaque.draw.opaque,
@@ -242,24 +228,9 @@ fn execute_rounds<R: RendererBackend>(
     }
 
     for round in &rounds.rounds {
-        scratch.clear_round();
-
         for texture_index in [1, 0] {
             let layer_round = &round.layer_passes[texture_index];
-
-            for pass in &layer_round.render_passes {
-                if pass.load_op == LoadOp::Load {
-                    scratch.layer_draws[texture_index].append(&pass.draw);
-                }
-            }
-
-            for pass in &layer_round.render_passes {
-                if pass.load_op != LoadOp::Load {
-                    execute_pass(renderer, pass);
-                }
-            }
-
-            let draw = &scratch.layer_draws[texture_index];
+            let draw = &layer_round.draw;
             renderer.render_strips(
                 &draw.opaque,
                 &draw.alpha,
@@ -271,7 +242,12 @@ fn execute_rounds<R: RendererBackend>(
             renderer.apply_filters(&layer_round.filters, texture_index);
         }
 
-        execute_root_passes(renderer, &mut scratch.root_batch, &round.root_passes);
+        execute_root_passes(
+            renderer,
+            &mut scratch.root_batch,
+            &round.root_passes,
+            root_output_target,
+        );
 
         for texture_index in 0..round.layer_passes.len() {
             renderer.blend(&round.layer_passes[texture_index].blends, texture_index);
@@ -336,14 +312,17 @@ impl Default for DirectRootOpaque {
     }
 }
 
-fn collect_direct_root_opaque(rounds: &Rounds) -> DirectRootOpaque {
+fn collect_direct_root_opaque(
+    rounds: &Rounds,
+    root_output_target: RootRenderTarget,
+) -> DirectRootOpaque {
     let mut opaque = DirectRootOpaque::default();
+    if root_output_target != RootRenderTarget::UserSurface {
+        return opaque;
+    }
+
     for pass in rounds.rounds.iter().flat_map(|round| &round.root_passes) {
-        if !matches!(
-            pass.target,
-            RenderTarget::Root(RootRenderTarget::UserSurface)
-        ) || pass.draw.opaque.is_empty()
-        {
+        if pass.draw.opaque.is_empty() {
             continue;
         }
 
@@ -356,38 +335,29 @@ fn collect_direct_root_opaque(rounds: &Rounds) -> DirectRootOpaque {
     opaque
 }
 
-fn execute_pass<R: RendererBackend>(renderer: &mut R, pass: &round::RenderPass) {
-    renderer.render_strips(
-        &pass.draw.opaque,
-        &pass.draw.alpha,
-        &pass.draw.external_texture_runs,
-        pass.target.strip_pass_target(),
-        pass.load_op,
-    );
-}
-
 fn execute_root_passes<'a, R: RendererBackend>(
     renderer: &mut R,
     batch: &mut RootBatch,
-    root_passes: impl IntoIterator<Item = &'a round::RenderPass>,
+    root_passes: impl IntoIterator<Item = &'a round::RootPass>,
+    root_output_target: RootRenderTarget,
 ) {
     for pass in root_passes {
-        batch.push(pass, |target, draw| {
+        batch.push(pass, root_output_target, |draw| {
             renderer.render_strips(
                 &draw.draw.opaque,
                 &draw.draw.alpha,
                 &draw.draw.external_texture_runs,
-                StripPassRenderTarget::Root(target),
+                StripPassRenderTarget::Root(root_output_target),
                 draw.root_load_op,
             );
         });
     }
-    batch.finish(|target, draw| {
+    batch.finish(|draw| {
         renderer.render_strips(
             &draw.draw.opaque,
             &draw.draw.alpha,
             &draw.draw.external_texture_runs,
-            StripPassRenderTarget::Root(target),
+            StripPassRenderTarget::Root(root_output_target),
             draw.root_load_op,
         );
     });
@@ -395,22 +365,19 @@ fn execute_root_passes<'a, R: RendererBackend>(
 
 #[derive(Debug, Default)]
 struct RootBatch {
-    target: Option<RootRenderTarget>,
+    active: bool,
     draw: RootBatchDraw,
 }
 
 impl RootBatch {
     fn push(
         &mut self,
-        pass: &round::RenderPass,
-        mut flush: impl FnMut(RootRenderTarget, &RootBatchDraw),
+        pass: &round::RootPass,
+        root_output_target: RootRenderTarget,
+        mut flush: impl FnMut(&RootBatchDraw),
     ) {
-        let RenderTarget::Root(target) = pass.target else {
-            return;
-        };
-
         let mut draw = pass.draw.clone();
-        if target == RootRenderTarget::UserSurface {
+        if root_output_target == RootRenderTarget::UserSurface {
             draw.opaque.clear();
         }
 
@@ -418,35 +385,31 @@ impl RootBatch {
             return;
         }
 
-        if !is_batchable_root_draw(target, &draw) {
+        if !is_batchable_root_draw(root_output_target, &draw) {
             self.finish(&mut flush);
-            flush(
-                target,
-                &RootBatchDraw {
-                    draw,
-                    root_load_op: pass.load_op,
-                },
-            );
+            flush(&RootBatchDraw {
+                draw,
+                root_load_op: pass.load_op,
+            });
             return;
         }
 
-        if !self.draw.is_empty() && (self.target != Some(target) || pass.load_op == LoadOp::Clear) {
+        if !self.draw.is_empty() && pass.load_op == LoadOp::Clear {
             self.finish(&mut flush);
         }
 
         if self.draw.is_empty() {
-            self.target = Some(target);
+            self.active = true;
             self.draw.root_load_op = pass.load_op;
         }
         self.draw.draw.append(&draw);
     }
 
-    fn finish(&mut self, mut flush: impl FnMut(RootRenderTarget, &RootBatchDraw)) {
-        if let Some(target) = self.target.take()
-            && !self.draw.is_empty()
-        {
-            flush(target, &self.draw);
+    fn finish(&mut self, mut flush: impl FnMut(&RootBatchDraw)) {
+        if self.active && !self.draw.is_empty() {
+            flush(&self.draw);
         }
+        self.active = false;
         self.draw.clear();
     }
 }
@@ -477,8 +440,8 @@ impl RootBatchDraw {
     }
 }
 
-fn is_batchable_root_draw(target: RootRenderTarget, draw: &Draw) -> bool {
-    target == RootRenderTarget::UserSurface || draw.opaque.is_empty()
+fn is_batchable_root_draw(root_output_target: RootRenderTarget, draw: &Draw) -> bool {
+    root_output_target == RootRenderTarget::UserSurface || draw.opaque.is_empty()
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -488,13 +451,6 @@ enum RenderTarget {
 }
 
 impl RenderTarget {
-    fn strip_pass_target(self) -> StripPassRenderTarget {
-        match self {
-            Self::Root(root) => StripPassRenderTarget::Root(root),
-            Self::Layer(layer) => StripPassRenderTarget::Layer(layer),
-        }
-    }
-
     fn allows_opaque_pass(self) -> bool {
         // TODO: Allow opaque strips for intermediate targets?
         matches!(self, Self::Root(RootRenderTarget::UserSurface))

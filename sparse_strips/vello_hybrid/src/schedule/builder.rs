@@ -5,7 +5,7 @@
 
 use super::allocate::{Atlases, LayerAllocation, LayerAllocationRequest};
 use super::draw::{Draw, DrawBuilder, LayerSample};
-use super::round::{BlendOp, FilterOp, RenderPass, Round, Rounds};
+use super::round::{BlendOp, FilterOp, RootPass, Round, Rounds};
 use super::timeline::Timeline;
 use super::{LayerTextureRegion, LoadOp, RenderTarget, RootRenderTarget, TextureRegion};
 use crate::filter::GpuFilterData;
@@ -26,7 +26,7 @@ use vello_common::util::RectExt;
 pub(super) struct ScheduleBuilder<'a> {
     scene: &'a Scene,
     strip_storage: &'a StripStorage,
-    root_output_target: RootRenderTarget,
+    root_render_target: RootRenderTarget,
     paint_idxs: &'a [u32],
     encoded_paints: &'a [EncodedPaint],
     timeline: Timeline<Atlases>,
@@ -39,7 +39,7 @@ impl<'a> ScheduleBuilder<'a> {
     pub(super) fn new(
         scene: &'a Scene,
         strip_storage: &'a StripStorage,
-        root_output_target: RootRenderTarget,
+        root_render_target: RootRenderTarget,
         paint_idxs: &'a [u32],
         encoded_paints: &'a [EncodedPaint],
         layer_texture_size: (u32, u32),
@@ -55,7 +55,7 @@ impl<'a> ScheduleBuilder<'a> {
         Self {
             scene,
             strip_storage,
-            root_output_target,
+            root_render_target,
             paint_idxs,
             encoded_paints,
             timeline: Timeline::new(Atlases::new(layer_texture_size)),
@@ -87,19 +87,19 @@ impl<'a> ScheduleBuilder<'a> {
                 return Ok(());
             }
 
-            let (allocation, region) = self.allocate_region(0, bbox, 0)?;
+            let (allocation, region) = self.allocate_region(1, bbox, 0)?;
             let target = RenderTarget::Layer(region);
             let ready_round = self.schedule_command_stream_with_load(
                 cmds,
                 target,
                 allocation.round_idx,
-                LoadOp::Clear,
+                LoadOp::Load,
                 rounds,
             )?;
 
             self.ensure_round_exists(ready_round, rounds);
             let mut draw = DrawBuilder::new(
-                RenderTarget::Root(self.root_output_target).allows_opaque_pass(),
+                RenderTarget::Root(self.root_render_target).allows_opaque_pass(),
                 (0, 0),
                 RectU16::new(0, 0, self.scene.width, self.scene.height),
             );
@@ -115,13 +115,7 @@ impl<'a> ScheduleBuilder<'a> {
             );
             let draw = draw.take_draw();
             if !draw.is_empty() {
-                let final_target = match self.root_output_target {
-                    RootRenderTarget::UserSurface => RootRenderTarget::UserSurfaceFromLayer0,
-                    RootRenderTarget::AtlasLayer => RootRenderTarget::AtlasLayerFromLayer0,
-                    other => other,
-                };
-                rounds.rounds[ready_round].push_render_pass(RenderPass {
-                    target: RenderTarget::Root(final_target),
+                rounds.rounds[ready_round].push_root_pass(RootPass {
                     draw,
                     load_op: LoadOp::Load,
                 });
@@ -134,7 +128,7 @@ impl<'a> ScheduleBuilder<'a> {
                 });
             self.release_allocation_after_round(allocation, ready_round, rounds);
         } else {
-            let target = RenderTarget::Root(self.root_output_target);
+            let target = RenderTarget::Root(self.root_render_target);
             let ready_round =
                 self.schedule_command_stream(cmds, target, self.timeline.base_round(), rounds)?;
             self.ensure_round_exists(ready_round, rounds);
@@ -224,7 +218,7 @@ impl<'a> ScheduleBuilder<'a> {
         }
 
         let allocation_bbox = bbox.snap_to_tile_coordinates();
-        let texture_index = layer.depth & 1;
+        let texture_index = self.layer_texture_index(layer.depth);
         if let Some(layer) =
             self.schedule_layer_command_stream(layer_id, texture_index, allocation_bbox, rounds)?
         {
@@ -232,6 +226,10 @@ impl<'a> ScheduleBuilder<'a> {
         }
 
         Ok(())
+    }
+
+    fn layer_texture_index(&self, layer_depth: usize) -> usize {
+        (layer_depth + usize::from(self.scene.recorder.root_is_blend_target)) & 1
     }
 
     fn schedule_layer_command_stream(
@@ -424,11 +422,19 @@ impl<'a> ScheduleBuilder<'a> {
         let draw = state.take_draw();
         if !draw.is_empty() {
             self.ensure_round_exists(state.round_idx, rounds);
-            rounds.rounds[state.round_idx].push_render_pass(RenderPass {
-                target: state.target,
-                draw,
-                load_op: state.take_load_op(),
-            });
+            match state.target {
+                RenderTarget::Root(_) => {
+                    rounds.rounds[state.round_idx].push_root_pass(RootPass {
+                        draw,
+                        load_op: state.take_load_op(),
+                    });
+                }
+                RenderTarget::Layer(region) => {
+                    rounds.rounds[state.round_idx]
+                        .push_layer_draw(region.texture.texture_index, draw);
+                    state.take_load_op();
+                }
+            }
         }
 
         for layer_id in core::mem::take(&mut state.sampled_layers) {

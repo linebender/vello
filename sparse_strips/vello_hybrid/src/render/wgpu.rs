@@ -2959,32 +2959,10 @@ impl RendererContext<'_> {
 
         let (view, bind_group, scissor_rect): (&WgpuTextureView, &BindGroup, Option<[u32; 4]>) =
             match target {
-                StripPassRenderTarget::Root(root_target) => {
-                    let sampled_layer_texture = match root_target {
-                        RootRenderTarget::UserSurfaceFromLayer0
-                        | RootRenderTarget::AtlasLayerFromLayer0 => {
-                            self.programs.resources.layer_view(0);
-                            0
-                        }
-                        RootRenderTarget::UserSurface | RootRenderTarget::AtlasLayer => 1,
-                    };
-                    (
-                        self.view,
-                        &self.programs.resources.root_layer_bind_groups[sampled_layer_texture],
-                        None,
-                    )
-                }
-                StripPassRenderTarget::Layer(region) => (
-                    self.programs
-                        .resources
-                        .layer_view(region.texture.texture_index),
-                    &self.programs.resources.layer_bind_groups[region.texture.texture_index],
-                    Some([
-                        u32::from(region.texture.rect.x0),
-                        u32::from(region.texture.rect.y0),
-                        u32::from(region.texture.rect.width()),
-                        u32::from(region.texture.rect.height()),
-                    ]),
+                StripPassRenderTarget::Root(_) => (
+                    self.view,
+                    &self.programs.resources.root_layer_bind_groups[1],
+                    None,
                 ),
                 StripPassRenderTarget::LayerAtlas(texture_index) => (
                     self.programs.resources.layer_view(texture_index),
@@ -2995,9 +2973,7 @@ impl RendererContext<'_> {
 
         let pipeline_idx = if matches!(
             target,
-            StripPassRenderTarget::Root(
-                RootRenderTarget::AtlasLayer | RootRenderTarget::AtlasLayerFromLayer0
-            ) | StripPassRenderTarget::Layer(_)
+            StripPassRenderTarget::Root(RootRenderTarget::AtlasLayer)
                 | StripPassRenderTarget::LayerAtlas(_)
         ) {
             1

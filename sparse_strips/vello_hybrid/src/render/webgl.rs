@@ -2676,7 +2676,7 @@ impl WebGlRendererContext<'_> {
         if opaque_strips.is_empty() && alpha_strips.is_empty() {
             return;
         }
-        let scissor_rect = match &target {
+        match &target {
             StripPassRenderTarget::Root(_) => {
                 self.gl.bind_framebuffer(
                     WebGl2RenderingContext::FRAMEBUFFER,
@@ -2696,39 +2696,6 @@ impl WebGlRendererContext<'_> {
                     self.programs.strip_uniforms.config_fs_block_index,
                     Some(&self.programs.resources.view_config_buffer),
                 );
-
-                None
-            }
-            StripPassRenderTarget::Layer(region) => {
-                self.gl.bind_framebuffer(
-                    WebGl2RenderingContext::FRAMEBUFFER,
-                    Some(
-                        self.programs
-                            .resources
-                            .layer_framebuffer(region.texture.texture_index),
-                    ),
-                );
-                let (width, height) = self.layer_texture_size();
-                self.gl.viewport(0, 0, width as i32, height as i32);
-
-                let buf = &self.programs.resources.layer_config_buffer;
-                self.gl.bind_buffer_base(
-                    WebGl2RenderingContext::UNIFORM_BUFFER,
-                    self.programs.strip_uniforms.config_vs_block_index,
-                    Some(buf),
-                );
-                self.gl.bind_buffer_base(
-                    WebGl2RenderingContext::UNIFORM_BUFFER,
-                    self.programs.strip_uniforms.config_fs_block_index,
-                    Some(buf),
-                );
-
-                Some([
-                    region.texture.rect.x0 as i32,
-                    region.texture.rect.y0 as i32,
-                    region.texture.rect.width() as i32,
-                    region.texture.rect.height() as i32,
-                ])
             }
             StripPassRenderTarget::LayerAtlas(texture_index) => {
                 self.gl.bind_framebuffer(
@@ -2749,17 +2716,10 @@ impl WebGlRendererContext<'_> {
                     self.programs.strip_uniforms.config_fs_block_index,
                     Some(buf),
                 );
-
-                None
             }
         };
 
-        if let Some([x, y, width, height]) = scissor_rect {
-            self.gl.enable(WebGl2RenderingContext::SCISSOR_TEST);
-            self.gl.scissor(x, y, width, height);
-        } else {
-            self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
-        }
+        self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
 
         // Clear framebuffer if requested.
         if matches!(load, LoadOp::Clear) {
@@ -2784,15 +2744,8 @@ impl WebGlRendererContext<'_> {
             .uniform1i(Some(&self.programs.strip_uniforms.alphas_texture), 0);
 
         let layer_texture_idx = match &target {
-            StripPassRenderTarget::Layer(region) => region.texture.texture_index ^ 1,
             StripPassRenderTarget::LayerAtlas(texture_index) => texture_index ^ 1,
-            StripPassRenderTarget::Root(
-                RootRenderTarget::UserSurfaceFromLayer0 | RootRenderTarget::AtlasLayerFromLayer0,
-            ) => {
-                self.programs.resources.layer_texture(0);
-                0
-            }
-            _ => 1,
+            StripPassRenderTarget::Root(_) => 1,
         };
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE1);
         self.gl.bind_texture(
@@ -2854,9 +2807,7 @@ impl WebGlRendererContext<'_> {
         // that possibility in the future.
         let is_final_view = matches!(
             target,
-            StripPassRenderTarget::Root(
-                RootRenderTarget::UserSurface | RootRenderTarget::UserSurfaceFromLayer0
-            )
+            StripPassRenderTarget::Root(RootRenderTarget::UserSurface)
         );
 
         self.programs

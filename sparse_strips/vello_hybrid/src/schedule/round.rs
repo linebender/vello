@@ -3,7 +3,7 @@
 
 //! Concrete round representation for the new hybrid scheduler.
 
-use super::{Draw, LayerTextureRegion, LoadOp, RenderTarget, TextureRegion};
+use super::{Draw, LayerTextureRegion, LoadOp, TextureRegion};
 use crate::filter::GpuFilterData;
 use alloc::vec::Vec;
 use vello_common::geometry::RectU16;
@@ -16,22 +16,19 @@ pub(super) struct Rounds {
 
 #[derive(Debug, Default)]
 pub(super) struct Round {
-    pub(super) root_passes: Vec<RenderPass>,
+    pub(super) root_passes: Vec<RootPass>,
     pub(super) layer_passes: [LayerPass; 2],
     pub(super) layer_texture_clears: Vec<LayerTextureRegion>,
     pub(super) scratch_texture_clears: Vec<TextureRegion>,
 }
 
 impl Round {
-    pub(crate) fn push_render_pass(&mut self, pass: RenderPass) {
-        match pass.target {
-            RenderTarget::Root(_) => self.root_passes.push(pass),
-            RenderTarget::Layer(region) => {
-                self.layer_passes[region.texture.texture_index]
-                    .render_passes
-                    .push(pass);
-            }
-        }
+    pub(crate) fn push_root_pass(&mut self, pass: RootPass) {
+        self.root_passes.push(pass);
+    }
+
+    pub(crate) fn push_layer_draw(&mut self, texture_index: usize, draw: Draw) {
+        self.layer_passes[texture_index].draw.append(&draw);
     }
 
     pub(crate) fn push_blend(&mut self, blend: BlendOp) {
@@ -49,14 +46,13 @@ impl Round {
 
 #[derive(Debug, Default)]
 pub(super) struct LayerPass {
-    pub(super) render_passes: Vec<RenderPass>,
+    pub(super) draw: Draw,
     pub(super) filters: Vec<FilterOp>,
     pub(super) blends: Vec<BlendOp>,
 }
 
 #[derive(Debug)]
-pub(super) struct RenderPass {
-    pub(super) target: RenderTarget,
+pub(super) struct RootPass {
     pub(super) draw: Draw,
     pub(super) load_op: LoadOp,
 }
