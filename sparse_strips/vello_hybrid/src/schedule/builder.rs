@@ -417,9 +417,8 @@ impl<'a> ScheduleBuilder<'a> {
 
         self.ensure_round_exists(blend_round, rounds);
         let parent_region = state.target.layer_region();
-        rounds.rounds[blend_round]
-            .scratch_texture_clears
-            .push(blend_scratch_clear_region(parent_region, bbox));
+        rounds.rounds[blend_round].scratch_texture_clears[BLEND_SCRATCH_INDEX]
+            .push(blend_scratch_clear_rect(parent_region, bbox));
         rounds.rounds[blend_round]
             .layer_blends_mut(parent_region.texture.texture_index)
             .push(BlendOp {
@@ -459,9 +458,8 @@ impl<'a> ScheduleBuilder<'a> {
 
         self.ensure_round_exists(parent_ready_round, rounds);
         let parent_region = state.target.layer_region();
-        rounds.rounds[parent_ready_round]
-            .scratch_texture_clears
-            .push(blend_scratch_clear_region(parent_region, bbox));
+        rounds.rounds[parent_ready_round].scratch_texture_clears[BLEND_SCRATCH_INDEX]
+            .push(blend_scratch_clear_rect(parent_region, bbox));
         rounds.rounds[parent_ready_round]
             .layer_blends_mut(parent_region.texture.texture_index)
             .push(BlendOp {
@@ -501,9 +499,9 @@ impl<'a> ScheduleBuilder<'a> {
             .push(clear_region.rect);
         if let Some(filter) = scheduled_layer.allocation.filter {
             for scratch in filter.into_iter().flatten() {
-                rounds.rounds[round_idx]
-                    .scratch_texture_clears
-                    .push(scratch.texture.clear_region());
+                let clear_region = scratch.texture.clear_region();
+                rounds.rounds[round_idx].scratch_texture_clears[clear_region.texture_index]
+                    .push(clear_region.rect);
             }
         }
         self.release_allocation_after_round(scheduled_layer.allocation, round_idx, rounds);
@@ -790,16 +788,10 @@ fn empty_child_region_for_blend(bbox: RectU16) -> LayerTextureRegion {
     }
 }
 
-fn blend_scratch_clear_region(
-    parent_region: LayerTextureRegion,
-    blend_bbox: RectU16,
-) -> TextureRegion {
+fn blend_scratch_clear_rect(parent_region: LayerTextureRegion, blend_bbox: RectU16) -> RectU16 {
     let x0 = parent_region.texture.rect.x0 + (blend_bbox.x0 - parent_region.scene_bbox.x0);
     let y0 = parent_region.texture.rect.y0 + (blend_bbox.y0 - parent_region.scene_bbox.y0);
-    TextureRegion {
-        texture_index: BLEND_SCRATCH_INDEX,
-        rect: RectU16::new(x0, y0, x0 + blend_bbox.width(), y0 + blend_bbox.height()),
-    }
+    RectU16::new(x0, y0, x0 + blend_bbox.width(), y0 + blend_bbox.height())
 }
 
 fn layer_segment_has_batches(cmds: &[RecordedCmd], start: usize, end: usize) -> bool {

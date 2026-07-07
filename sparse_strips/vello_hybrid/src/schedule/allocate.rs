@@ -4,10 +4,24 @@
 //! Atlas allocation for scheduled layer and scratch texture regions.
 
 use super::TextureRegion;
-use super::cursor::Allocator;
 use crate::filter::FILTER_ATLAS_PADDING;
 use vello_common::geometry::RectU16;
 use vello_common::multi_atlas::{AllocId, Atlas, AtlasId};
+
+pub(crate) trait Allocator {
+    type Request: Copy;
+    type Allocation: Copy;
+
+    fn allocate(&mut self, request: Self::Request) -> Option<Self::Allocation>;
+
+    fn release(&mut self, allocation: Self::Allocation);
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Allocation<T> {
+    pub(crate) allocation: T,
+    pub(crate) round_idx: usize,
+}
 
 #[derive(Debug)]
 pub(super) struct Atlases {

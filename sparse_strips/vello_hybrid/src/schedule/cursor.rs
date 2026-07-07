@@ -3,22 +3,8 @@
 
 //! Monotonic allocation cursor for scheduled rounds.
 
+use crate::schedule::allocate::{Allocation, Allocator};
 use alloc::vec::Vec;
-
-pub(super) trait Allocator {
-    type Request: Copy;
-    type Allocation: Copy;
-
-    fn allocate(&mut self, request: Self::Request) -> Option<Self::Allocation>;
-
-    fn release(&mut self, allocation: Self::Allocation);
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(super) struct Allocation<T> {
-    pub(super) allocation: T,
-    pub(super) round_idx: usize,
-}
 
 #[derive(Debug)]
 pub(super) struct Cursor<R: Allocator> {

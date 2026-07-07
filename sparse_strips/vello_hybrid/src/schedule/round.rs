@@ -11,16 +11,16 @@ use vello_common::geometry::RectU16;
 use vello_common::peniko::BlendMode;
 
 #[derive(Debug, Default)]
+pub(super) struct Rounds {
+    pub(super) rounds: Vec<Round>,
+}
+
+#[derive(Debug, Default)]
 pub(super) struct Round {
     pub(super) root_draw: Draw,
     pub(super) layer_passes: [LayerPass; 2],
     pub(super) layer_texture_clears: [Vec<RectU16>; 2],
-    pub(super) scratch_texture_clears: Vec<TextureRegion>,
-}
-
-#[derive(Debug, Default)]
-pub(super) struct Rounds {
-    pub(super) rounds: Vec<Round>,
+    pub(super) scratch_texture_clears: [Vec<RectU16>; 2],
 }
 
 impl Round {
