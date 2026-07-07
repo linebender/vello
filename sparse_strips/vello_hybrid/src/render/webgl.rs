@@ -41,8 +41,8 @@ use crate::{
     },
     scene::Scene,
     schedule::{
-        BlendOp, ExternalTextureRun, FilterOp, LoadOp, RendererBackend, RootRenderTarget,
-        ScheduleScratch, StripPassRenderTarget, TextureRequirements, TextureTarget,
+        BlendOp, ExternalTextureRun, FilterOp, RendererBackend, RootRenderTarget,
+        StripPassRenderTarget, TextureRequirements, TextureTarget,
     },
 };
 use alloc::sync::Arc;
@@ -2671,7 +2671,6 @@ impl WebGlRendererContext<'_> {
         opaque_strips: &[GpuStrip],
         alpha_strips: &[GpuStrip],
         target: StripPassRenderTarget,
-        load: LoadOp,
     ) {
         if opaque_strips.is_empty() && alpha_strips.is_empty() {
             return;
@@ -2720,12 +2719,6 @@ impl WebGlRendererContext<'_> {
         };
 
         self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
-
-        // Clear framebuffer if requested.
-        if matches!(load, LoadOp::Clear) {
-            self.gl.clear_color(0.0, 0.0, 0.0, 0.0);
-            self.gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
-        }
 
         // Use the strip program.
         self.gl.use_program(Some(&self.programs.strip_program));
@@ -3217,9 +3210,8 @@ impl RendererBackend for WebGlRendererContext<'_> {
         alpha_strips: &[GpuStrip],
         _external_texture_runs: &[ExternalTextureRun],
         target: StripPassRenderTarget,
-        load_op: LoadOp,
     ) {
-        self.do_strip_render_pass(opaque_strips, alpha_strips, target, load_op);
+        self.do_strip_render_pass(opaque_strips, alpha_strips, target);
     }
 
     fn blend(&mut self, blends: &[BlendOp], texture_index: usize) {
@@ -3228,10 +3220,6 @@ impl RendererBackend for WebGlRendererContext<'_> {
 
     fn apply_filters(&mut self, filters: &[FilterOp], texture_index: usize) {
         self.do_filter_layers_render_pass(filters, texture_index);
-    }
-
-    fn schedule_scratch(&mut self) -> &mut ScheduleScratch {
-        &mut self.scratch.rounds
     }
 
     fn layer_texture_size(&self) -> (u32, u32) {

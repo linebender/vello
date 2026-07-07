@@ -5,9 +5,9 @@
 
 use super::allocate::{Atlases, LayerAllocation, LayerAllocationRequest};
 use super::draw::{Draw, DrawBuilder, LayerSample};
-use super::round::{BlendOp, FilterOp, RootPass, Round, Rounds};
+use super::round::{BlendOp, FilterOp, Round, Rounds};
 use super::timeline::Timeline;
-use super::{LayerTextureRegion, LoadOp, RenderTarget, RootRenderTarget, TextureRegion};
+use super::{LayerTextureRegion, RenderTarget, RootRenderTarget, TextureRegion};
 use crate::filter::GpuFilterData;
 use crate::scene::RecordedDraw;
 use crate::{RenderError, Scene};
@@ -89,13 +89,8 @@ impl<'a> ScheduleBuilder<'a> {
 
             let (allocation, region) = self.allocate_region(1, bbox, 0)?;
             let target = RenderTarget::Layer(region);
-            let ready_round = self.schedule_command_stream_with_load(
-                cmds,
-                target,
-                allocation.round_idx,
-                LoadOp::Load,
-                rounds,
-            )?;
+            let ready_round =
+                self.schedule_command_stream(cmds, target, allocation.round_idx, rounds)?;
 
             self.ensure_round_exists(ready_round, rounds);
             let mut draw = DrawBuilder::new(
@@ -115,10 +110,7 @@ impl<'a> ScheduleBuilder<'a> {
             );
             let draw = draw.take_draw();
             if !draw.is_empty() {
-                rounds.rounds[ready_round].push_root_pass(RootPass {
-                    draw,
-                    load_op: LoadOp::Load,
-                });
+                rounds.rounds[ready_round].push_root_draw(draw);
             }
             rounds.rounds[ready_round]
                 .layer_texture_clears
@@ -144,23 +136,8 @@ impl<'a> ScheduleBuilder<'a> {
         start_round: usize,
         rounds: &mut Rounds,
     ) -> Result<usize, RenderError> {
-        self.schedule_command_stream_with_load(cmds, target, start_round, LoadOp::Load, rounds)
-    }
-
-    fn schedule_command_stream_with_load(
-        &mut self,
-        cmds: &[RecordedCmd],
-        target: RenderTarget,
-        start_round: usize,
-        initial_load_op: LoadOp,
-        rounds: &mut Rounds,
-    ) -> Result<usize, RenderError> {
-        let mut state = CommandStreamState::new(
-            target,
-            start_round,
-            initial_load_op,
-            target_draw_bounds(target, self.scene),
-        );
+        let mut state =
+            CommandStreamState::new(target, start_round, target_draw_bounds(target, self.scene));
 
         for cmd in cmds {
             match cmd {
@@ -424,15 +401,11 @@ impl<'a> ScheduleBuilder<'a> {
             self.ensure_round_exists(state.round_idx, rounds);
             match state.target {
                 RenderTarget::Root(_) => {
-                    rounds.rounds[state.round_idx].push_root_pass(RootPass {
-                        draw,
-                        load_op: state.take_load_op(),
-                    });
+                    rounds.rounds[state.round_idx].push_root_draw(draw);
                 }
                 RenderTarget::Layer(region) => {
                     rounds.rounds[state.round_idx]
                         .push_layer_draw(region.texture.texture_index, draw);
-                    state.take_load_op();
                 }
             }
         }
@@ -559,7 +532,6 @@ impl<'a> ScheduleBuilder<'a> {
         let stream = CommandStreamState::new(
             RenderTarget::Layer(region),
             allocation.round_idx,
-            LoadOp::Load,
             region.scene_bbox,
         );
         *target = Some(LayerCommandTarget {
@@ -652,17 +624,11 @@ struct CommandStreamState {
     builder: DrawBuilder,
     sampled_layers: Vec<u32>,
     backdrop_bbox: RectU16,
-    next_load_op: LoadOp,
     round_idx: usize,
 }
 
 impl CommandStreamState {
-    fn new(
-        target: RenderTarget,
-        round_idx: usize,
-        initial_load_op: LoadOp,
-        draw_bounds: RectU16,
-    ) -> Self {
+    fn new(target: RenderTarget, round_idx: usize, draw_bounds: RectU16) -> Self {
         Self {
             target,
             builder: DrawBuilder::new(
@@ -672,15 +638,8 @@ impl CommandStreamState {
             ),
             sampled_layers: Vec::new(),
             backdrop_bbox: RectU16::INVERTED,
-            next_load_op: initial_load_op,
             round_idx,
         }
-    }
-
-    fn take_load_op(&mut self) -> LoadOp {
-        let load_op = self.next_load_op;
-        self.next_load_op = LoadOp::Load;
-        load_op
     }
 
     fn take_draw(&mut self) -> Draw {

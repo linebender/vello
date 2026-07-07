@@ -128,12 +128,6 @@ pub(super) struct Draw {
 }
 
 impl Draw {
-    pub(super) fn clear(&mut self) {
-        self.opaque.clear();
-        self.alpha.clear();
-        self.external_texture_runs.clear();
-    }
-
     pub(super) fn append_opaque(&mut self, other: &Self) {
         self.opaque.extend_from_slice(&other.opaque);
     }

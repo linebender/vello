@@ -122,7 +122,6 @@ pub(crate) trait RendererBackend {
         alpha_strips: &[GpuStrip],
         external_texture_runs: &[ExternalTextureRun],
         target: StripPassRenderTarget,
-        load_op: LoadOp,
     );
 
     /// Apply non-default blend layer operations.
@@ -130,9 +129,6 @@ pub(crate) trait RendererBackend {
 
     /// Apply filter operations to already-rendered layer atlas regions.
     fn apply_filters(&mut self, filters: &[FilterOp], texture_index: usize);
-
-    /// Reusable CPU-side storage for rounds execution.
-    fn schedule_scratch(&mut self) -> &mut ScheduleScratch;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -171,19 +167,6 @@ impl TextureRequirements {
     }
 }
 
-/// Backend agnostic enum that specifies the operation to perform to the output attachment at the
-/// start of a render pass.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LoadOp {
-    Load,
-    Clear,
-}
-
-#[derive(Debug, Default)]
-pub(crate) struct ScheduleScratch {
-    root_batch: RootBatch,
-}
-
 /// Render the supported subset of a scene through the new recorder-based scheduler.
 pub(crate) fn render_scene<R: RendererBackend>(
     renderer: &mut R,
@@ -203,17 +186,13 @@ pub(crate) fn render_scene<R: RendererBackend>(
         renderer.layer_texture_size(),
     );
     let rounds = builder.build()?;
-    let mut scratch = ScheduleScratch::default();
-    core::mem::swap(&mut scratch, renderer.schedule_scratch());
-    execute_rounds(renderer, &rounds, &mut scratch, root_output_target);
-    core::mem::swap(&mut scratch, renderer.schedule_scratch());
+    execute_rounds(renderer, &rounds, root_output_target);
     Ok(())
 }
 
 fn execute_rounds<R: RendererBackend>(
     renderer: &mut R,
     rounds: &Rounds,
-    scratch: &mut ScheduleScratch,
     root_output_target: RootRenderTarget,
 ) {
     let direct_root_opaque = collect_direct_root_opaque(rounds, root_output_target);
@@ -223,7 +202,6 @@ fn execute_rounds<R: RendererBackend>(
             &[],
             &[],
             StripPassRenderTarget::Root(RootRenderTarget::UserSurface),
-            direct_root_opaque.load_op,
         );
     }
 
@@ -236,18 +214,12 @@ fn execute_rounds<R: RendererBackend>(
                 &draw.alpha,
                 &draw.external_texture_runs,
                 StripPassRenderTarget::LayerAtlas(texture_index),
-                LoadOp::Load,
             );
 
             renderer.apply_filters(&layer_round.filters, texture_index);
         }
 
-        execute_root_passes(
-            renderer,
-            &mut scratch.root_batch,
-            &round.root_passes,
-            root_output_target,
-        );
+        execute_root_pass(renderer, &round.root_pass, root_output_target);
 
         for texture_index in 0..round.layer_passes.len() {
             renderer.blend(&round.layer_passes[texture_index].blends, texture_index);
@@ -297,19 +269,9 @@ fn clear_scratch_regions<R: RendererBackend>(renderer: &mut R, regions: &[Textur
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct DirectRootOpaque {
     draw: Draw,
-    load_op: LoadOp,
-}
-
-impl Default for DirectRootOpaque {
-    fn default() -> Self {
-        Self {
-            draw: Draw::default(),
-            load_op: LoadOp::Load,
-        }
-    }
 }
 
 fn collect_direct_root_opaque(
@@ -321,127 +283,41 @@ fn collect_direct_root_opaque(
         return opaque;
     }
 
-    for pass in rounds.rounds.iter().flat_map(|round| &round.root_passes) {
+    for pass in rounds.rounds.iter().map(|round| &round.root_pass) {
         if pass.draw.opaque.is_empty() {
             continue;
         }
 
-        if opaque.draw.is_empty() {
-            opaque.load_op = pass.load_op;
-        }
         opaque.draw.append_opaque(&pass.draw);
     }
 
     opaque
 }
 
-fn execute_root_passes<'a, R: RendererBackend>(
+fn execute_root_pass<R: RendererBackend>(
     renderer: &mut R,
-    batch: &mut RootBatch,
-    root_passes: impl IntoIterator<Item = &'a round::RootPass>,
+    pass: &round::RootPass,
     root_output_target: RootRenderTarget,
 ) {
-    for pass in root_passes {
-        batch.push(pass, root_output_target, |draw| {
-            renderer.render_strips(
-                &draw.draw.opaque,
-                &draw.draw.alpha,
-                &draw.draw.external_texture_runs,
-                StripPassRenderTarget::Root(root_output_target),
-                draw.root_load_op,
-            );
-        });
+    if pass.draw.is_empty() {
+        return;
     }
-    batch.finish(|draw| {
+
+    if root_output_target == RootRenderTarget::UserSurface {
         renderer.render_strips(
-            &draw.draw.opaque,
-            &draw.draw.alpha,
-            &draw.draw.external_texture_runs,
+            &[],
+            &pass.draw.alpha,
+            &pass.draw.external_texture_runs,
             StripPassRenderTarget::Root(root_output_target),
-            draw.root_load_op,
         );
-    });
-}
-
-#[derive(Debug, Default)]
-struct RootBatch {
-    active: bool,
-    draw: RootBatchDraw,
-}
-
-impl RootBatch {
-    fn push(
-        &mut self,
-        pass: &round::RootPass,
-        root_output_target: RootRenderTarget,
-        mut flush: impl FnMut(&RootBatchDraw),
-    ) {
-        let mut draw = pass.draw.clone();
-        if root_output_target == RootRenderTarget::UserSurface {
-            draw.opaque.clear();
-        }
-
-        if draw.is_empty() {
-            return;
-        }
-
-        if !is_batchable_root_draw(root_output_target, &draw) {
-            self.finish(&mut flush);
-            flush(&RootBatchDraw {
-                draw,
-                root_load_op: pass.load_op,
-            });
-            return;
-        }
-
-        if !self.draw.is_empty() && pass.load_op == LoadOp::Clear {
-            self.finish(&mut flush);
-        }
-
-        if self.draw.is_empty() {
-            self.active = true;
-            self.draw.root_load_op = pass.load_op;
-        }
-        self.draw.draw.append(&draw);
+    } else {
+        renderer.render_strips(
+            &pass.draw.opaque,
+            &pass.draw.alpha,
+            &pass.draw.external_texture_runs,
+            StripPassRenderTarget::Root(root_output_target),
+        );
     }
-
-    fn finish(&mut self, mut flush: impl FnMut(&RootBatchDraw)) {
-        if self.active && !self.draw.is_empty() {
-            flush(&self.draw);
-        }
-        self.active = false;
-        self.draw.clear();
-    }
-}
-
-#[derive(Debug)]
-struct RootBatchDraw {
-    draw: Draw,
-    root_load_op: LoadOp,
-}
-
-impl Default for RootBatchDraw {
-    fn default() -> Self {
-        Self {
-            draw: Draw::default(),
-            root_load_op: LoadOp::Load,
-        }
-    }
-}
-
-impl RootBatchDraw {
-    fn is_empty(&self) -> bool {
-        self.draw.is_empty()
-    }
-
-    fn clear(&mut self) {
-        self.draw.clear();
-        self.root_load_op = LoadOp::Load;
-    }
-}
-
-fn is_batchable_root_draw(root_output_target: RootRenderTarget, draw: &Draw) -> bool {
-    root_output_target == RootRenderTarget::UserSurface || draw.opaque.is_empty()
 }
 
 #[derive(Debug, Clone, Copy)]

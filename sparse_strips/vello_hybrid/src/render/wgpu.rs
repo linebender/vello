@@ -39,8 +39,8 @@ use crate::{
     },
     scene::Scene,
     schedule::{
-        BlendOp, ExternalTextureRun, FilterOp, LoadOp, RendererBackend, RootRenderTarget,
-        ScheduleScratch, StripPassRenderTarget, TextureTarget,
+        BlendOp, ExternalTextureRun, FilterOp, RendererBackend, RootRenderTarget,
+        StripPassRenderTarget, TextureTarget,
     },
 };
 use alloc::vec::Vec;
@@ -2939,7 +2939,6 @@ impl RendererContext<'_> {
         alpha_strips: &[GpuStrip],
         external_texture_runs: &[ExternalTextureRun],
         target: StripPassRenderTarget,
-        load: wgpu::LoadOp<wgpu::Color>,
     ) {
         if opaque_strips.is_empty() && alpha_strips.is_empty() {
             return;
@@ -3009,7 +3008,7 @@ impl RendererContext<'_> {
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load,
+                    load: wgpu::LoadOp::Load,
                     store: wgpu::StoreOp::Store,
                 },
             })],
@@ -3334,19 +3333,8 @@ impl RendererBackend for RendererContext<'_> {
         alpha_strips: &[GpuStrip],
         external_texture_runs: &[ExternalTextureRun],
         target: StripPassRenderTarget,
-        load_op: LoadOp,
     ) {
-        let wgpu_load_op = match load_op {
-            LoadOp::Load => wgpu::LoadOp::Load,
-            LoadOp::Clear => wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-        };
-        self.do_strip_render_pass(
-            opaque_strips,
-            alpha_strips,
-            external_texture_runs,
-            target,
-            wgpu_load_op,
-        );
+        self.do_strip_render_pass(opaque_strips, alpha_strips, external_texture_runs, target);
     }
 
     fn blend(&mut self, blends: &[BlendOp], texture_index: usize) {
@@ -3355,10 +3343,6 @@ impl RendererBackend for RendererContext<'_> {
 
     fn apply_filters(&mut self, filters: &[FilterOp], texture_index: usize) {
         self.do_filter_layers_render_pass(filters, texture_index);
-    }
-
-    fn schedule_scratch(&mut self) -> &mut ScheduleScratch {
-        &mut self.scratch.rounds
     }
 
     fn layer_texture_size(&self) -> (u32, u32) {
