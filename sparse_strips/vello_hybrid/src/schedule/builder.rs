@@ -102,7 +102,7 @@ impl<'a> ScheduleBuilder<'a> {
                 &mut schedule.rounds,
             )?;
 
-            self.ensure_round_exists(ready_round, &mut schedule.rounds);
+            schedule.rounds.ensure_exists(ready_round);
             let mut root_state = CommandStreamState::new(
                 RenderTarget::Root,
                 ready_round,
@@ -138,7 +138,7 @@ impl<'a> ScheduleBuilder<'a> {
                 opaque,
                 &mut schedule.rounds,
             )?;
-            self.ensure_round_exists(ready_round, &mut schedule.rounds);
+            schedule.rounds.ensure_exists(ready_round);
         }
 
         Ok(())
@@ -152,12 +152,8 @@ impl<'a> ScheduleBuilder<'a> {
         opaque: Option<&mut Vec<GpuStrip>>,
         rounds: &mut Rounds,
     ) -> Result<usize, RenderError> {
-        let mut state = CommandStreamState::new(
-            target,
-            start_round,
-            opaque,
-            target_draw_bounds(target, self.scene),
-        );
+        let mut state =
+            CommandStreamState::new(target, start_round, opaque, target.draw_bounds(self.scene));
 
         let command_count = cmds.len();
         let mut segment_start = 0;
@@ -250,7 +246,11 @@ impl<'a> ScheduleBuilder<'a> {
                 };
 
                 for draw in &self.scene.recorder.draws[range.start as usize..range.end as usize] {
-                    bbox.union(recorded_draw_bbox(draw, self.strip_storage));
+                    let strips = match draw {
+                        RecordedDraw::Path(path) => &self.strip_storage.strips[path.strips.clone()],
+                        RecordedDraw::Rect(_) => &[],
+                    };
+                    bbox.union(draw.bbox(strips));
                     builder.push_draw(
                         draw,
                         self.strip_storage,
@@ -327,7 +327,7 @@ impl<'a> ScheduleBuilder<'a> {
             segment_start = cmd_idx + 1;
         }
 
-        if layer_segment_has_batches(cmds, segment_start, command_count) {
+        if self.layer_segment_has_batches(cmds, segment_start, command_count) {
             self.ensure_layer_command_target(layer_id, texture_index, bbox, &mut target)?;
             let target = target.as_mut().unwrap();
             self.push_layer_batches(
@@ -348,7 +348,7 @@ impl<'a> ScheduleBuilder<'a> {
                 .allocation
                 .filter
                 .expect("filter target must have scratch allocations");
-            self.ensure_round_exists(ready_round, rounds);
+            rounds.ensure_exists(ready_round);
             rounds.rounds[ready_round]
                 .layer_filters_mut(target.region.texture.texture_index)
                 .push(FilterOp {
@@ -380,11 +380,12 @@ impl<'a> ScheduleBuilder<'a> {
         let same_texture_as_target =
             state.target.texture_index() == Some(layer.region.texture.texture_index);
         if blend_mode == BlendMode::default() && !same_texture_as_target {
-            state.round_idx = state.round_idx.max(required_round_for_layer_sample(
-                state.target.texture_index(),
-                layer.region.texture.texture_index,
-                layer.round_idx,
-            ));
+            state.round_idx = state
+                .round_idx
+                .max(state.target.required_round_for_layer_sample(
+                    layer.region.texture.texture_index,
+                    layer.round_idx,
+                ));
             rounds.with_draw_builder(state, |builder| {
                 builder.push_layer_ref(
                     layer.sample,
@@ -416,10 +417,10 @@ impl<'a> ScheduleBuilder<'a> {
             return;
         }
 
-        self.ensure_round_exists(blend_round, rounds);
+        rounds.ensure_exists(blend_round);
         let parent_region = state.target.layer_region();
         rounds.rounds[blend_round].scratch_texture_clears[BLEND_SCRATCH_INDEX]
-            .push(blend_scratch_clear_rect(parent_region, bbox));
+            .push(parent_region.blend_scratch_clear_rect(bbox));
         rounds.rounds[blend_round]
             .layer_blends_mut(parent_region.texture.texture_index)
             .push(BlendOp {
@@ -457,15 +458,15 @@ impl<'a> ScheduleBuilder<'a> {
             return;
         }
 
-        self.ensure_round_exists(parent_ready_round, rounds);
+        rounds.ensure_exists(parent_ready_round);
         let parent_region = state.target.layer_region();
         rounds.rounds[parent_ready_round].scratch_texture_clears[BLEND_SCRATCH_INDEX]
-            .push(blend_scratch_clear_rect(parent_region, bbox));
+            .push(parent_region.blend_scratch_clear_rect(bbox));
         rounds.rounds[parent_ready_round]
             .layer_blends_mut(parent_region.texture.texture_index)
             .push(BlendOp {
                 parent_region,
-                child_region: empty_child_region_for_blend(bbox),
+                child_region: LayerTextureRegion::empty_for_blend(bbox),
                 blend_bbox: bbox,
                 blend_mode,
                 opacity,
@@ -494,7 +495,7 @@ impl<'a> ScheduleBuilder<'a> {
             return;
         };
 
-        self.ensure_round_exists(round_idx, rounds);
+        rounds.ensure_exists(round_idx);
         let clear_region = scheduled_layer.allocation.texture.clear_region();
         rounds.rounds[round_idx].layer_texture_clears[clear_region.texture_index]
             .push(clear_region.rect);
@@ -631,18 +632,20 @@ impl<'a> ScheduleBuilder<'a> {
         );
     }
 
-    fn ensure_round_exists(&mut self, round_idx: usize, rounds: &mut Rounds) {
-        ensure_round_exists(rounds, round_idx);
-    }
-
     fn release_allocation_after_round(
         &mut self,
         allocation: LayerAllocation,
         round_idx: usize,
         rounds: &mut Rounds,
     ) {
-        ensure_round_exists(rounds, round_idx);
+        rounds.ensure_exists(round_idx);
         self.cursor.release_after(allocation, round_idx);
+    }
+
+    fn layer_segment_has_batches(&self, cmds: &[RecordedCmd], start: usize, end: usize) -> bool {
+        cmds[start..end]
+            .iter()
+            .any(|cmd| matches!(cmd, RecordedCmd::Draws(_)))
     }
 }
 
@@ -715,7 +718,7 @@ impl Rounds {
         state: &mut CommandStreamState<'_>,
         f: impl FnOnce(&mut DrawBuilder<'_>),
     ) {
-        ensure_round_exists(self, state.round_idx);
+        self.ensure_exists(state.round_idx);
 
         let target_draw = match state.target {
             RenderTarget::Root => self.rounds[state.round_idx].root_draw_mut(),
@@ -735,78 +738,4 @@ impl Rounds {
             builder.append_to(target_draw);
         }
     }
-}
-
-fn ensure_round_exists(rounds: &mut Rounds, round_idx: usize) {
-    while rounds.rounds.len() <= round_idx {
-        rounds.rounds.push(Round::default());
-    }
-}
-
-fn target_draw_bounds(target: RenderTarget, scene: &Scene) -> RectU16 {
-    match target {
-        RenderTarget::Root => {
-            RectU16::new(0, 0, scene.width, scene.height).snap_to_tile_coordinates()
-        }
-        RenderTarget::Layer(region) => region.scene_bbox,
-    }
-}
-
-fn can_sample_layer_in_same_round(parent_texture_index: usize, child_texture_index: usize) -> bool {
-    parent_texture_index != child_texture_index
-        && layer_texture_order(child_texture_index) < layer_texture_order(parent_texture_index)
-}
-
-fn required_round_for_layer_sample(
-    parent_texture_index: Option<usize>,
-    child_texture_index: usize,
-    child_round: usize,
-) -> usize {
-    match parent_texture_index {
-        Some(parent_texture_index)
-            if can_sample_layer_in_same_round(parent_texture_index, child_texture_index) =>
-        {
-            child_round
-        }
-        Some(_) => child_round + 1,
-        None => child_round,
-    }
-}
-
-fn layer_texture_order(texture_index: usize) -> usize {
-    match texture_index {
-        1 => 0,
-        0 => 1,
-        _ => texture_index,
-    }
-}
-
-fn empty_child_region_for_blend(bbox: RectU16) -> LayerTextureRegion {
-    LayerTextureRegion {
-        texture: TextureRegion {
-            texture_index: 0,
-            rect: RectU16::ZERO,
-        },
-        scene_bbox: RectU16::new(bbox.x0, bbox.y0, bbox.x0, bbox.y0),
-    }
-}
-
-fn blend_scratch_clear_rect(parent_region: LayerTextureRegion, blend_bbox: RectU16) -> RectU16 {
-    let x0 = parent_region.texture.rect.x0 + (blend_bbox.x0 - parent_region.scene_bbox.x0);
-    let y0 = parent_region.texture.rect.y0 + (blend_bbox.y0 - parent_region.scene_bbox.y0);
-    RectU16::new(x0, y0, x0 + blend_bbox.width(), y0 + blend_bbox.height())
-}
-
-fn layer_segment_has_batches(cmds: &[RecordedCmd], start: usize, end: usize) -> bool {
-    cmds[start..end]
-        .iter()
-        .any(|cmd| matches!(cmd, RecordedCmd::Draws(_)))
-}
-
-fn recorded_draw_bbox(draw: &RecordedDraw, strip_storage: &StripStorage) -> RectU16 {
-    let strips = match draw {
-        RecordedDraw::Path(path) => &strip_storage.strips[path.strips.clone()],
-        RecordedDraw::Rect(_) => &[],
-    };
-    draw.bbox(strips)
 }

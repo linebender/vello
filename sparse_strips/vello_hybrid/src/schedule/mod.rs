@@ -21,6 +21,7 @@ use alloc::vec::Vec;
 use vello_common::TextureId;
 use vello_common::encode::EncodedPaint;
 use vello_common::geometry::RectU16;
+use vello_common::util::RectExt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RootRenderTarget {
@@ -93,6 +94,24 @@ pub(crate) struct LayerTextureRegion {
     pub(crate) texture: TextureRegion,
     /// Bounds of this layer in viewport coordinates.
     pub(crate) scene_bbox: RectU16,
+}
+
+impl LayerTextureRegion {
+    fn empty_for_blend(bbox: RectU16) -> Self {
+        Self {
+            texture: TextureRegion {
+                texture_index: 0,
+                rect: RectU16::ZERO,
+            },
+            scene_bbox: RectU16::new(bbox.x0, bbox.y0, bbox.x0, bbox.y0),
+        }
+    }
+
+    fn blend_scratch_clear_rect(self, blend_bbox: RectU16) -> RectU16 {
+        let x0 = self.texture.rect.x0 + (blend_bbox.x0 - self.scene_bbox.x0);
+        let y0 = self.texture.rect.y0 + (blend_bbox.y0 - self.scene_bbox.y0);
+        RectU16::new(x0, y0, x0 + blend_bbox.width(), y0 + blend_bbox.height())
+    }
 }
 
 /// Specifies a run of strips inside a draw that can be drawn with the same external texture
@@ -192,87 +211,83 @@ pub(crate) fn render_scene<R: RendererBackend>(
         renderer.layer_texture_size(),
     );
     let schedule = builder.build()?;
-    execute_schedule(renderer, &schedule, root_output_target);
+    schedule.execute(renderer, root_output_target);
     Ok(())
 }
 
-fn execute_schedule<R: RendererBackend>(
-    renderer: &mut R,
-    schedule: &Schedule,
-    root_output_target: RootRenderTarget,
-) {
-    if !schedule.root_opaque.is_empty() {
+impl Schedule {
+    fn execute<R: RendererBackend>(&self, renderer: &mut R, root_output_target: RootRenderTarget) {
+        if !self.root_opaque.is_empty() {
+            renderer.render_strips(
+                &self.root_opaque,
+                &[],
+                &[],
+                StripPassRenderTarget::Root(RootRenderTarget::UserSurface),
+            );
+        }
+
+        self.rounds.execute(renderer, root_output_target);
+    }
+}
+
+impl Rounds {
+    fn execute<R: RendererBackend>(&self, renderer: &mut R, root_output_target: RootRenderTarget) {
+        for round in &self.rounds {
+            for texture_index in [1, 0] {
+                let layer_round = &round.layer_passes[texture_index];
+                let draw = &layer_round.draw;
+                renderer.render_strips(
+                    &[],
+                    &draw.alpha,
+                    &draw.external_texture_runs,
+                    StripPassRenderTarget::LayerAtlas(texture_index),
+                );
+
+                renderer.apply_filters(&layer_round.filters, texture_index);
+            }
+
+            Self::execute_root_pass(renderer, &round.root_draw, root_output_target);
+
+            for texture_index in 0..round.layer_passes.len() {
+                renderer.blend(&round.layer_passes[texture_index].blends, texture_index);
+            }
+            Self::clear_regions(renderer, &round.layer_texture_clears, TextureTarget::layer);
+            Self::clear_regions(
+                renderer,
+                &round.scratch_texture_clears,
+                TextureTarget::scratch,
+            );
+        }
+    }
+
+    fn clear_regions<R: RendererBackend>(
+        renderer: &mut R,
+        regions: &[Vec<RectU16>; 2],
+        target: impl Fn(usize) -> TextureTarget,
+    ) {
+        for (texture_index, regions) in regions.iter().enumerate() {
+            renderer.clear_rects(target(texture_index), |clear_rects| {
+                clear_rects.extend(regions.iter().copied().filter(|region| !region.is_empty()));
+            });
+        }
+    }
+
+    fn execute_root_pass<R: RendererBackend>(
+        renderer: &mut R,
+        draw: &Draw,
+        root_output_target: RootRenderTarget,
+    ) {
+        if draw.is_empty() {
+            return;
+        }
+
         renderer.render_strips(
-            &schedule.root_opaque,
             &[],
-            &[],
-            StripPassRenderTarget::Root(RootRenderTarget::UserSurface),
+            &draw.alpha,
+            &draw.external_texture_runs,
+            StripPassRenderTarget::Root(root_output_target),
         );
     }
-
-    execute_rounds(renderer, &schedule.rounds, root_output_target);
-}
-
-fn execute_rounds<R: RendererBackend>(
-    renderer: &mut R,
-    rounds: &Rounds,
-    root_output_target: RootRenderTarget,
-) {
-    for round in &rounds.rounds {
-        for texture_index in [1, 0] {
-            let layer_round = &round.layer_passes[texture_index];
-            let draw = &layer_round.draw;
-            renderer.render_strips(
-                &[],
-                &draw.alpha,
-                &draw.external_texture_runs,
-                StripPassRenderTarget::LayerAtlas(texture_index),
-            );
-
-            renderer.apply_filters(&layer_round.filters, texture_index);
-        }
-
-        execute_root_pass(renderer, &round.root_draw, root_output_target);
-
-        for texture_index in 0..round.layer_passes.len() {
-            renderer.blend(&round.layer_passes[texture_index].blends, texture_index);
-        }
-        clear_layer_regions(renderer, &round.layer_texture_clears);
-        clear_scratch_regions(renderer, &round.scratch_texture_clears);
-    }
-}
-
-fn clear_layer_regions<R: RendererBackend>(renderer: &mut R, regions: &[Vec<RectU16>; 2]) {
-    for (texture_index, regions) in regions.iter().enumerate() {
-        renderer.clear_rects(TextureTarget::layer(texture_index), |clear_rects| {
-            clear_rects.extend(regions.iter().copied().filter(|region| !region.is_empty()));
-        });
-    }
-}
-
-fn clear_scratch_regions<R: RendererBackend>(renderer: &mut R, regions: &[Vec<RectU16>; 2]) {
-    for (texture_index, regions) in regions.iter().enumerate() {
-        renderer.clear_rects(TextureTarget::scratch(texture_index), |clear_rects| {
-            clear_rects.extend(regions.iter().copied().filter(|region| !region.is_empty()));
-        });
-    }
-}
-
-fn execute_root_pass<R: RendererBackend>(
-    renderer: &mut R,
-    draw: &Draw,
-    root_output_target: RootRenderTarget,
-) {
-    if draw.is_empty() {
-        return;
-    }
-
-    renderer.render_strips(
-        &[],
-        &draw.alpha,
-        &draw.external_texture_runs,
-        StripPassRenderTarget::Root(root_output_target),
-    );
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -303,6 +318,39 @@ impl RenderTarget {
                 region.texture.rect.x0 as i32 - i32::from(region.scene_bbox.x0),
                 region.texture.rect.y0 as i32 - i32::from(region.scene_bbox.y0),
             ),
+        }
+    }
+
+    fn draw_bounds(self, scene: &Scene) -> RectU16 {
+        match self {
+            Self::Root => RectU16::new(0, 0, scene.width, scene.height).snap_to_tile_coordinates(),
+            Self::Layer(region) => region.scene_bbox,
+        }
+    }
+
+    fn required_round_for_layer_sample(
+        self,
+        child_texture_index: usize,
+        child_round: usize,
+    ) -> usize {
+        match self.texture_index() {
+            Some(parent_texture_index)
+                if parent_texture_index != child_texture_index
+                    && Self::layer_texture_order(child_texture_index)
+                        < Self::layer_texture_order(parent_texture_index) =>
+            {
+                child_round
+            }
+            Some(_) => child_round + 1,
+            None => child_round,
+        }
+    }
+
+    fn layer_texture_order(texture_index: usize) -> usize {
+        match texture_index {
+            1 => 0,
+            0 => 1,
+            _ => texture_index,
         }
     }
 }

@@ -56,23 +56,11 @@ impl Atlases {
         padded_allocation_width: u32,
         padded_allocation_height: u32,
     ) -> Option<ScratchAllocation> {
-        let padding = u32::from(request.padding);
         let allocation = self.scratch_atlases[scratch_index]
             .allocate(padded_allocation_width, padded_allocation_height)?;
 
         Some(ScratchAllocation {
-            texture: AllocatedTextureRegion::new(
-                TextureRegion {
-                    texture_index: scratch_index,
-                    rect: RectU16::new(
-                        atlas_coord(allocation.x + padding),
-                        atlas_coord(allocation.y + padding),
-                        atlas_coord(allocation.x + padding + u32::from(request.width)),
-                        atlas_coord(allocation.y + padding + u32::from(request.height)),
-                    ),
-                },
-                request.padding,
-            ),
+            texture: request.allocated_texture_region(scratch_index, (allocation.x, allocation.y)),
             alloc_id: allocation.id,
         })
     }
@@ -102,21 +90,11 @@ impl Allocator for Atlases {
             "scratch count must be at most 2"
         );
 
-        let padding = u32::from(request.padding);
-        let width = u32::from(request.allocation_width());
-        let height = u32::from(request.allocation_height());
+        let (width, height) = request.allocation_size();
         let layer_allocation = self.layer_atlases[request.texture_index].allocate(width, height)?;
-        let layer_texture = AllocatedTextureRegion::new(
-            TextureRegion {
-                texture_index: request.texture_index,
-                rect: RectU16::new(
-                    atlas_coord(layer_allocation.x + padding),
-                    atlas_coord(layer_allocation.y + padding),
-                    atlas_coord(layer_allocation.x + padding + u32::from(request.width)),
-                    atlas_coord(layer_allocation.y + padding + u32::from(request.height)),
-                ),
-            },
-            request.padding,
+        let layer_texture = request.allocated_texture_region(
+            request.texture_index,
+            (layer_allocation.x, layer_allocation.y),
         );
         let mut scratch_allocations: [Option<ScratchAllocation>; 2] = [None, None];
 
@@ -194,6 +172,39 @@ impl LayerAllocationRequest {
     fn allocation_height(self) -> u16 {
         self.height + self.padding * 2
     }
+
+    fn allocation_size(self) -> (u32, u32) {
+        (
+            u32::from(self.allocation_width()),
+            u32::from(self.allocation_height()),
+        )
+    }
+
+    fn allocated_texture_region(
+        self,
+        texture_index: usize,
+        allocation_origin: (u32, u32),
+    ) -> AllocatedTextureRegion {
+        let padding = u32::from(self.padding);
+        let x = allocation_origin.0 + padding;
+        let y = allocation_origin.1 + padding;
+        AllocatedTextureRegion::new(
+            TextureRegion {
+                texture_index,
+                rect: RectU16::new(
+                    Self::atlas_coord(x),
+                    Self::atlas_coord(y),
+                    Self::atlas_coord(x + u32::from(self.width)),
+                    Self::atlas_coord(y + u32::from(self.height)),
+                ),
+            },
+            self.padding,
+        )
+    }
+
+    fn atlas_coord(value: u32) -> u16 {
+        u16::try_from(value).expect("atlas coordinate must fit into u16")
+    }
 }
 
 /// A layer texture region plus the allocator handle needed to release it.
@@ -242,8 +253,4 @@ impl AllocatedTextureRegion {
             u32::from(self.region.rect.height()) + u32::from(self.padding) * 2,
         )
     }
-}
-
-fn atlas_coord(value: u32) -> u16 {
-    u16::try_from(value).expect("atlas coordinate must fit into u16")
 }

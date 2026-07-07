@@ -41,6 +41,14 @@ impl Round {
     }
 }
 
+impl Rounds {
+    pub(super) fn ensure_exists(&mut self, round_idx: usize) {
+        while self.rounds.len() <= round_idx {
+            self.rounds.push(Round::default());
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub(super) struct LayerPass {
     pub(super) draw: Draw,

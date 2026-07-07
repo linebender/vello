@@ -37,84 +37,89 @@ struct PackedPaint {
     external_texture_id: Option<TextureId>,
 }
 
-/// Process a paint and return the packed payload, paint and optional external texture id.
-#[inline(always)]
-fn pack_paint(
-    paint: &Paint,
-    encoded_paints: &[EncodedPaint],
-    (scene_strip_x, scene_strip_y): (u16, u16),
-    paint_idxs: &[u32],
-) -> PackedPaint {
-    match paint {
-        Paint::Solid(color) => {
-            let rgba = color.as_premul_rgba8().to_u32();
-            let paint_packed = (COLOR_SOURCE_PAYLOAD << 30) | (PAINT_TYPE_SOLID << 27);
-            PackedPaint {
-                payload: rgba,
-                paint: paint_packed,
-                external_texture_id: None,
+impl PackedPaint {
+    /// Process a paint and return the packed payload, paint and optional external texture id.
+    #[inline(always)]
+    fn new(
+        paint: &Paint,
+        encoded_paints: &[EncodedPaint],
+        (scene_strip_x, scene_strip_y): (u16, u16),
+        paint_idxs: &[u32],
+    ) -> Self {
+        match paint {
+            Paint::Solid(color) => {
+                let rgba = color.as_premul_rgba8().to_u32();
+                let paint_packed = (COLOR_SOURCE_PAYLOAD << 30) | (PAINT_TYPE_SOLID << 27);
+                Self {
+                    payload: rgba,
+                    paint: paint_packed,
+                    external_texture_id: None,
+                }
             }
-        }
-        Paint::Indexed(indexed_paint) => {
-            let paint_id = indexed_paint.index();
-            let paint_idx = paint_idxs.get(paint_id).copied().unwrap();
+            Paint::Indexed(indexed_paint) => {
+                let paint_id = indexed_paint.index();
+                let paint_idx = paint_idxs.get(paint_id).copied().unwrap();
 
-            let Some(encoded_paint) = encoded_paints.get(paint_id) else {
-                unimplemented!("Unsupported paint type");
-            };
+                let Some(encoded_paint) = encoded_paints.get(paint_id) else {
+                    unimplemented!("Unsupported paint type");
+                };
 
-            match encoded_paint {
-                EncodedPaint::Image(encoded_image) => match &encoded_image.source {
-                    ImageSource::OpaqueId { .. } => {
+                match encoded_paint {
+                    EncodedPaint::Image(encoded_image) => match &encoded_image.source {
+                        ImageSource::OpaqueId { .. } => {
+                            let paint_packed = (COLOR_SOURCE_PAYLOAD << 29)
+                                | (PAINT_TYPE_IMAGE << 26)
+                                | (paint_idx & 0x03FF_FFFF);
+                            let scene_strip_xy =
+                                ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
+                            Self {
+                                payload: scene_strip_xy,
+                                paint: paint_packed,
+                                external_texture_id: None,
+                            }
+                        }
+                        _ => unimplemented!("Unsupported image source"),
+                    },
+                    EncodedPaint::ExternalTexture(texture) => {
                         let paint_packed = (COLOR_SOURCE_PAYLOAD << 29)
                             | (PAINT_TYPE_IMAGE << 26)
                             | (paint_idx & 0x03FF_FFFF);
                         let scene_strip_xy =
                             ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
-                        PackedPaint {
+                        Self {
+                            payload: scene_strip_xy,
+                            paint: paint_packed,
+                            external_texture_id: Some(texture.texture_id),
+                        }
+                    }
+                    EncodedPaint::Gradient(gradient) => {
+                        let gradient_paint_type = match &gradient.kind {
+                            EncodedKind::Linear(_) => PAINT_TYPE_LINEAR_GRADIENT,
+                            EncodedKind::Radial(_) => PAINT_TYPE_RADIAL_GRADIENT,
+                            EncodedKind::Sweep(_) => PAINT_TYPE_SWEEP_GRADIENT,
+                        };
+                        let paint_packed = (COLOR_SOURCE_PAYLOAD << 29)
+                            | (gradient_paint_type << 26)
+                            | (paint_idx & 0x03FF_FFFF);
+                        let scene_strip_xy =
+                            ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
+                        Self {
                             payload: scene_strip_xy,
                             paint: paint_packed,
                             external_texture_id: None,
                         }
                     }
-                    _ => unimplemented!("Unsupported image source"),
-                },
-                EncodedPaint::ExternalTexture(texture) => {
-                    let paint_packed = (COLOR_SOURCE_PAYLOAD << 29)
-                        | (PAINT_TYPE_IMAGE << 26)
-                        | (paint_idx & 0x03FF_FFFF);
-                    let scene_strip_xy = ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
-                    PackedPaint {
-                        payload: scene_strip_xy,
-                        paint: paint_packed,
-                        external_texture_id: Some(texture.texture_id),
-                    }
-                }
-                EncodedPaint::Gradient(gradient) => {
-                    let gradient_paint_type = match &gradient.kind {
-                        EncodedKind::Linear(_) => PAINT_TYPE_LINEAR_GRADIENT,
-                        EncodedKind::Radial(_) => PAINT_TYPE_RADIAL_GRADIENT,
-                        EncodedKind::Sweep(_) => PAINT_TYPE_SWEEP_GRADIENT,
-                    };
-                    let paint_packed = (COLOR_SOURCE_PAYLOAD << 29)
-                        | (gradient_paint_type << 26)
-                        | (paint_idx & 0x03FF_FFFF);
-                    let scene_strip_xy = ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
-                    PackedPaint {
-                        payload: scene_strip_xy,
-                        paint: paint_packed,
-                        external_texture_id: None,
-                    }
-                }
-                EncodedPaint::BlurredRoundedRect(_) => {
-                    let paint_packed = (COLOR_SOURCE_PAYLOAD << 29)
-                        | (PAINT_TYPE_BLURRED_ROUNDED_RECT << 26)
-                        | (paint_idx & 0x03FF_FFFF);
-                    let scene_strip_xy = ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
-                    PackedPaint {
-                        payload: scene_strip_xy,
-                        paint: paint_packed,
-                        external_texture_id: None,
+                    EncodedPaint::BlurredRoundedRect(_) => {
+                        let paint_packed = (COLOR_SOURCE_PAYLOAD << 29)
+                            | (PAINT_TYPE_BLURRED_ROUNDED_RECT << 26)
+                            | (paint_idx & 0x03FF_FFFF);
+                        let scene_strip_xy =
+                            ((scene_strip_y as u32) << 16) | (scene_strip_x as u32);
+                        Self {
+                            payload: scene_strip_xy,
+                            paint: paint_packed,
+                            external_texture_id: None,
+                        }
                     }
                 }
             }
@@ -162,6 +167,19 @@ pub(super) struct LayerSample {
     pub(super) source: LayerTextureRegion,
     pub(super) bbox: RectU16,
     pub(super) source_origin: (u16, u16),
+}
+
+impl LayerSample {
+    fn payload_at(self, x: u16, y: u16) -> u32 {
+        let source = self.source;
+        let source_x = source.texture.rect.x0 + self.source_origin.0 + (x - source.scene_bbox.x0);
+        let source_y = source.texture.rect.y0 + self.source_origin.1 + (y - source.scene_bbox.y0);
+        pack_u16_pair(source_x, source_y)
+    }
+
+    fn paint(opacity: f32) -> u32 {
+        (COLOR_SOURCE_LAYER << 29) | u32::from(pack_opacity(opacity))
+    }
 }
 
 #[derive(Debug)]
@@ -245,7 +263,7 @@ impl<'a> DrawBuilder<'a> {
 
         for_each_fill_segment(strips, tile_bounds, |segment| match segment {
             StripSegment::Alpha(segment) => {
-                let processed = pack_paint(
+                let processed = PackedPaint::new(
                     &paint,
                     encoded_paints,
                     (segment.x0(), segment.y()),
@@ -263,7 +281,7 @@ impl<'a> DrawBuilder<'a> {
                 );
             }
             StripSegment::Fill(segment) => {
-                let processed = pack_paint(
+                let processed = PackedPaint::new(
                     &paint,
                     encoded_paints,
                     (segment.x0(), segment.y()),
@@ -297,16 +315,13 @@ impl<'a> DrawBuilder<'a> {
 
         let is_paint_opaque = self.opaque.is_some() && paint.is_opaque(encoded_paints);
         let depth_index = self.depth.next(is_paint_opaque);
-        pack_rectangle_into_gpu(
+        self.push_rect_parts(
             &clipped_rect,
             paint,
             encoded_paints,
             paint_idxs,
             depth_index,
             is_paint_opaque,
-            self.geometry_offset,
-            &mut self.opaque,
-            &mut self.draw,
         );
     }
 
@@ -337,8 +352,8 @@ impl<'a> DrawBuilder<'a> {
                     rect: bbox.shift(self.geometry_offset),
                     frac: 0,
                 },
-                layer_sample_payload(sample, bbox.x0, bbox.y0),
-                layer_paint(opacity),
+                sample.payload_at(bbox.x0, bbox.y0),
+                LayerSample::paint(opacity),
                 depth_index,
             ),
             None,
@@ -369,11 +384,11 @@ impl<'a> DrawBuilder<'a> {
         };
 
         let depth_index = self.depth.next(false);
-        let paint = layer_paint(opacity);
+        let paint = LayerSample::paint(opacity);
 
         for_each_fill_segment(strips, tile_bounds, |segment| match segment {
             StripSegment::Alpha(segment) => {
-                let payload = layer_sample_payload(sample, segment.x0(), segment.y());
+                let payload = sample.payload_at(segment.x0(), segment.y());
                 self.draw.push(
                     self.get_fill_strip_with_packed_paint(
                         *segment,
@@ -386,7 +401,7 @@ impl<'a> DrawBuilder<'a> {
                 );
             }
             StripSegment::Fill(segment) => {
-                let payload = layer_sample_payload(sample, segment.x0(), segment.y());
+                let payload = sample.payload_at(segment.x0(), segment.y());
                 self.draw.push(
                     self.get_fill_strip_with_packed_paint(
                         segment,
@@ -426,6 +441,53 @@ impl<'a> DrawBuilder<'a> {
             payload,
             paint_and_rect_flag: paint,
             depth_index,
+        }
+    }
+
+    fn push_rect_parts(
+        &mut self,
+        rect: &Rect,
+        paint: &Paint,
+        encoded_paints: &[EncodedPaint],
+        paint_idxs: &[u32],
+        depth_index: u32,
+        is_paint_opaque: bool,
+    ) {
+        let split = split_rect(rect);
+
+        let mut is_first = true;
+        for part in [
+            Some(split.main),
+            split.top,
+            split.bottom,
+            split.left,
+            split.right,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let processed = PackedPaint::new(
+                paint,
+                encoded_paints,
+                (part.rect.x0, part.rect.y0),
+                paint_idxs,
+            );
+            let strip = make_gpu_rect(
+                part.shift(self.geometry_offset),
+                processed.payload,
+                processed.paint,
+                depth_index,
+            );
+            if is_first
+                && is_paint_opaque
+                && part.frac == 0
+                && let Some(opaque) = self.opaque.as_deref_mut()
+            {
+                opaque.push(strip);
+            } else {
+                self.draw.push(strip, processed.external_texture_id);
+            }
+            is_first = false;
         }
     }
 
@@ -494,64 +556,4 @@ impl DepthCounter {
         self.count += opaque as u32;
         self.count
     }
-}
-
-fn pack_rectangle_into_gpu(
-    rect: &Rect,
-    paint: &Paint,
-    encoded_paints: &[EncodedPaint],
-    paint_idxs: &[u32],
-    depth_index: u32,
-    is_paint_opaque: bool,
-    geometry_offset: (i32, i32),
-    opaque: &mut Option<&mut Vec<GpuStrip>>,
-    draw: &mut Draw,
-) {
-    let split = split_rect(rect);
-
-    let mut is_first = true;
-    for part in [
-        Some(split.main),
-        split.top,
-        split.bottom,
-        split.left,
-        split.right,
-    ]
-    .into_iter()
-    .flatten()
-    {
-        let processed = pack_paint(
-            paint,
-            encoded_paints,
-            (part.rect.x0, part.rect.y0),
-            paint_idxs,
-        );
-        let strip = make_gpu_rect(
-            part.shift(geometry_offset),
-            processed.payload,
-            processed.paint,
-            depth_index,
-        );
-        if is_first
-            && is_paint_opaque
-            && part.frac == 0
-            && let Some(opaque) = opaque.as_deref_mut()
-        {
-            opaque.push(strip);
-        } else {
-            draw.push(strip, processed.external_texture_id);
-        }
-        is_first = false;
-    }
-}
-
-fn layer_sample_payload(sample: LayerSample, x: u16, y: u16) -> u32 {
-    let source = sample.source;
-    let source_x = source.texture.rect.x0 + sample.source_origin.0 + (x - source.scene_bbox.x0);
-    let source_y = source.texture.rect.y0 + sample.source_origin.1 + (y - source.scene_bbox.y0);
-    pack_u16_pair(source_x, source_y)
-}
-
-fn layer_paint(opacity: f32) -> u32 {
-    (COLOR_SOURCE_LAYER << 29) | u32::from(pack_opacity(opacity))
 }
