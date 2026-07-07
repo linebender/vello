@@ -122,12 +122,9 @@ impl<'a> ScheduleBuilder<'a> {
                         self.strip_storage,
                     );
                 });
-            schedule.rounds.rounds[ready_round]
-                .layer_texture_clears
-                .push(LayerTextureRegion {
-                    texture: allocation.texture.clear_region(),
-                    scene_bbox: region.scene_bbox,
-                });
+            let clear_region = allocation.texture.clear_region();
+            schedule.rounds.rounds[ready_round].layer_texture_clears[clear_region.texture_index]
+                .push(clear_region.rect);
             self.release_allocation_after_round(allocation, ready_round, &mut schedule.rounds);
         } else {
             let target = RenderTarget::Root;
@@ -499,12 +496,9 @@ impl<'a> ScheduleBuilder<'a> {
         };
 
         self.ensure_round_exists(round_idx, rounds);
-        rounds.rounds[round_idx]
-            .layer_texture_clears
-            .push(LayerTextureRegion {
-                texture: scheduled_layer.allocation.texture.clear_region(),
-                scene_bbox: scheduled_layer.region.scene_bbox,
-            });
+        let clear_region = scheduled_layer.allocation.texture.clear_region();
+        rounds.rounds[round_idx].layer_texture_clears[clear_region.texture_index]
+            .push(clear_region.rect);
         if let Some(filter) = scheduled_layer.allocation.filter {
             for scratch in filter.into_iter().flatten() {
                 rounds.rounds[round_idx]

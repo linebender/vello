@@ -242,24 +242,10 @@ fn execute_rounds<R: RendererBackend>(
     }
 }
 
-fn clear_layer_regions<R: RendererBackend>(renderer: &mut R, regions: &[LayerTextureRegion]) {
-    let Some(max_texture_index) = regions
-        .iter()
-        .map(|region| region.texture.texture_index)
-        .max()
-    else {
-        return;
-    };
-
-    for texture_index in 0..=max_texture_index {
+fn clear_layer_regions<R: RendererBackend>(renderer: &mut R, regions: &[Vec<RectU16>; 2]) {
+    for (texture_index, regions) in regions.iter().enumerate() {
         renderer.clear_rects(TextureTarget::layer(texture_index), |clear_rects| {
-            clear_rects.extend(regions.iter().filter_map(|region| {
-                if region.texture.texture_index != texture_index {
-                    return None;
-                }
-
-                (!region.texture.rect.is_empty()).then_some(region.texture.rect)
-            }));
+            clear_rects.extend(regions.iter().copied().filter(|region| !region.is_empty()));
         });
     }
 }
