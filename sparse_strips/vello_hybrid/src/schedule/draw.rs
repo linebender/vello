@@ -237,8 +237,8 @@ impl<'a> DrawBuilder<'a> {
 
             RectU16::new(
                 expanded.x0 / Tile::WIDTH,
-                expanded.y0 / Tile::WIDTH,
-                expanded.x1 / Tile::HEIGHT,
+                expanded.y0 / Tile::HEIGHT,
+                expanded.x1 / Tile::WIDTH,
                 expanded.y1 / Tile::HEIGHT,
             )
         };
@@ -353,20 +353,17 @@ impl<'a> DrawBuilder<'a> {
         strip_storage: &StripStorage,
     ) {
         let strips = &strip_storage.strips[clip_path.strip_range.clone()];
-        let sample_bbox = sample
-            .bbox
-            .intersect(self.draw_bounds);
+        let sample_bbox = sample.bbox.intersect(self.draw_bounds);
         if strips.len() < 2 || clip_path.bbox.is_empty() || sample_bbox.is_empty() {
             return;
         }
-
 
         let tile_bounds = {
             let expanded = sample_bbox.snap_to_tile_coordinates();
             RectU16::new(
                 expanded.x0 / Tile::WIDTH,
-                expanded.y0 / Tile::WIDTH,
-                expanded.x1 / Tile::HEIGHT,
+                expanded.y0 / Tile::HEIGHT,
+                expanded.x1 / Tile::WIDTH,
                 expanded.y1 / Tile::HEIGHT,
             )
         };
@@ -503,14 +500,7 @@ fn is_paint_opaque(paint: &Paint, encoded_paints: &[EncodedPaint]) -> bool {
     match paint {
         Paint::Solid(color) => color.is_opaque(),
         Paint::Indexed(indexed_paint) => match encoded_paints.get(indexed_paint.index()) {
-            Some(EncodedPaint::Image(image)) => {
-                !image.may_have_transparency
-                    && image.sampler.alpha == 1.0
-                    && image.tint.is_none_or(|t| t.color.components[3] >= 1.0)
-            }
-            Some(EncodedPaint::ExternalTexture(_)) => false,
-            Some(EncodedPaint::Gradient(gradient)) => !gradient.may_have_transparency,
-            Some(EncodedPaint::BlurredRoundedRect(_)) => false,
+            Some(paint) => paint.is_opaque(),
             None => unreachable!("Paint must be in encoded paints"),
         },
     }

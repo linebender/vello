@@ -517,10 +517,12 @@ impl EncodeExt for Image {
 
         // If the tint color has alpha < 1.0, the image will have opacities
         // even if the source pixels are all opaque.
-        let tint_has_opacity = tint.as_ref().is_some_and(|t| t.color.components[3] < 1.0);
+        let has_opacity = tint.as_ref().is_some_and(|t| t.color.components[3] < 1.0)
+            // Not supported yet, but just to future-proof.
+            || sampler.alpha != 1.0;
 
         let encoded = EncodedImage {
-            may_have_transparency: self.image.may_have_transparency() || tint_has_opacity,
+            may_have_transparency: self.image.may_have_transparency() || has_opacity,
             source: self.image.clone(),
             sampler,
             transform,
@@ -549,6 +551,16 @@ pub enum EncodedPaint {
 }
 
 impl EncodedPaint {
+    /// Returns whether this encoded paint is guaranteed to only produce opaque pixels.
+    pub fn is_opaque(&self) -> bool {
+        match self {
+            Self::Gradient(gradient) => !gradient.may_have_transparency,
+            Self::Image(image) => !image.may_have_transparency,
+            Self::ExternalTexture(_) => false,
+            Self::BlurredRoundedRect(_) => false,
+        }
+    }
+
     /// Returns whether this encoded paint may produce non-opaque pixels.
     pub fn may_have_transparency(&self) -> bool {
         match self {
