@@ -21,7 +21,7 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
-    blend::{GpuBlendInstance, gpu_blend_instance},
+    blend::{BLEND_SCRATCH_INDEX, GpuBlendInstance, gpu_blend_instance},
     copy::GpuCopyInstance,
     filter::{FilterContext, FilterInstanceData, schedule},
     gradient_cache::GradientRampCache,
@@ -67,8 +67,6 @@ use wgpu::{
     RenderPassDescriptor, RenderPipeline, Sampler, Texture, TextureView as WgpuTextureView,
     TextureViewDescriptor, util::DeviceExt,
 };
-
-const BLEND_SCRATCH_INDEX: usize = 0;
 
 /// Placeholder value for uninitialized GPU encoded paints.
 const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
@@ -3180,18 +3178,6 @@ impl RendererContext<'_> {
             render_pass.set_vertex_buffer(0, copy_instance_buffer.slice(..));
             render_pass.draw(0..4, 0..instance_count);
         }
-
-        self.scratch.clear_rects.clear();
-        self.scratch.clear_rects.extend(
-            self.scratch
-                .copy_instances
-                .iter()
-                .map(GpuCopyInstance::clear_rect),
-        );
-        self.do_clear_stored_rects(
-            TextureTarget::scratch(BLEND_SCRATCH_INDEX),
-            "Clear Blend Scratch",
-        );
     }
 
     fn do_filter_layers_render_pass(&mut self, filters: &[FilterOp], texture_index: usize) {

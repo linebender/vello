@@ -6,6 +6,8 @@ use crate::schedule::BlendOp;
 use bytemuck::{Pod, Zeroable};
 use vello_common::peniko::{Compose, Mix};
 
+pub(crate) const BLEND_SCRATCH_INDEX: usize = 0;
+
 /// Per-instance data for `blend.wgsl`.
 ///
 /// ```text

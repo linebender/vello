@@ -23,7 +23,7 @@ only break in edge cases, and some of them are also only related to conversions 
 use crate::render::common::IMAGE_PADDING;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
-    blend::{GpuBlendInstance, gpu_blend_instance},
+    blend::{BLEND_SCRATCH_INDEX, GpuBlendInstance, gpu_blend_instance},
     copy::GpuCopyInstance,
     filter::{FilterContext, FilterInstanceData, schedule},
     gradient_cache::GradientRampCache,
@@ -81,8 +81,6 @@ use web_sys::{
     HtmlCanvasElement, WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram,
     WebGlShader, WebGlTexture, WebGlUniformLocation, WebGlVertexArrayObject,
 };
-
-const BLEND_SCRATCH_INDEX: usize = 0;
 
 /// Placeholder value for uninitialized GPU encoded paints.
 const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
@@ -3009,15 +3007,6 @@ impl WebGlRendererContext<'_> {
 
         self.gl
             .draw_arrays_instanced(WebGl2RenderingContext::TRIANGLE_STRIP, 0, 4, instance_count);
-
-        self.scratch.clear_rects.clear();
-        self.scratch.clear_rects.extend(
-            self.scratch
-                .copy_instances
-                .iter()
-                .map(GpuCopyInstance::clear_rect),
-        );
-        self.do_clear_stored_rects(TextureTarget::scratch(BLEND_SCRATCH_INDEX));
 
         self.gl.bind_vertex_array(None);
         self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);

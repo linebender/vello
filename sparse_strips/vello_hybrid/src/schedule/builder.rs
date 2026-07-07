@@ -8,6 +8,7 @@ use super::cursor::Cursor;
 use super::draw::{DepthCounter, DrawBuilder, LayerSample};
 use super::round::{BlendOp, FilterOp, Round, Rounds};
 use super::{LayerTextureRegion, RenderTarget, RootRenderTarget, Schedule, TextureRegion};
+use crate::blend::BLEND_SCRATCH_INDEX;
 use crate::filter::GpuFilterData;
 use crate::scene::RecordedDraw;
 use crate::{GpuStrip, RenderError, Scene};
@@ -420,6 +421,9 @@ impl<'a> ScheduleBuilder<'a> {
         self.ensure_round_exists(blend_round, rounds);
         let parent_region = state.target.layer_region();
         rounds.rounds[blend_round]
+            .scratch_texture_clears
+            .push(blend_scratch_clear_region(parent_region, bbox));
+        rounds.rounds[blend_round]
             .layer_blends_mut(parent_region.texture.texture_index)
             .push(BlendOp {
                 parent_region,
@@ -458,6 +462,9 @@ impl<'a> ScheduleBuilder<'a> {
 
         self.ensure_round_exists(parent_ready_round, rounds);
         let parent_region = state.target.layer_region();
+        rounds.rounds[parent_ready_round]
+            .scratch_texture_clears
+            .push(blend_scratch_clear_region(parent_region, bbox));
         rounds.rounds[parent_ready_round]
             .layer_blends_mut(parent_region.texture.texture_index)
             .push(BlendOp {
@@ -786,6 +793,18 @@ fn empty_child_region_for_blend(bbox: RectU16) -> LayerTextureRegion {
             rect: RectU16::ZERO,
         },
         scene_bbox: RectU16::new(bbox.x0, bbox.y0, bbox.x0, bbox.y0),
+    }
+}
+
+fn blend_scratch_clear_region(
+    parent_region: LayerTextureRegion,
+    blend_bbox: RectU16,
+) -> TextureRegion {
+    let x0 = parent_region.texture.rect.x0 + (blend_bbox.x0 - parent_region.scene_bbox.x0);
+    let y0 = parent_region.texture.rect.y0 + (blend_bbox.y0 - parent_region.scene_bbox.y0);
+    TextureRegion {
+        texture_index: BLEND_SCRATCH_INDEX,
+        rect: RectU16::new(x0, y0, x0 + blend_bbox.width(), y0 + blend_bbox.height()),
     }
 }
 
