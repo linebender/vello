@@ -4,7 +4,7 @@
 //! Atlas allocation for scheduled layer and scratch texture regions.
 
 use super::TextureRegion;
-use super::timeline::ResourceAllocator;
+use super::cursor::Allocator;
 use crate::filter::FILTER_ATLAS_PADDING;
 use vello_common::geometry::RectU16;
 use vello_common::multi_atlas::{AllocId, Atlas, AtlasId};
@@ -78,7 +78,7 @@ impl Atlases {
     }
 }
 
-impl ResourceAllocator for Atlases {
+impl Allocator for Atlases {
     type Request = LayerAllocationRequest;
     type Allocation = LayerAllocation;
 

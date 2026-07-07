@@ -4,9 +4,9 @@
 //! Round construction for the new hybrid scheduler.
 
 use super::allocate::{Atlases, LayerAllocation, LayerAllocationRequest};
+use super::cursor::Cursor;
 use super::draw::{DepthCounter, DrawBuilder, LayerSample};
 use super::round::{BlendOp, FilterOp, Round, Rounds, Schedule};
-use super::timeline::Timeline;
 use super::{LayerTextureRegion, RenderTarget, RootRenderTarget, TextureRegion};
 use crate::filter::GpuFilterData;
 use crate::scene::RecordedDraw;
@@ -29,7 +29,7 @@ pub(super) struct ScheduleBuilder<'a> {
     root_render_target: RootRenderTarget,
     paint_idxs: &'a [u32],
     encoded_paints: &'a [EncodedPaint],
-    timeline: Timeline<Atlases>,
+    cursor: Cursor<Atlases>,
     layer_allocations: Vec<Option<ScheduledLayer>>,
     filter_data_offsets: Vec<Option<u32>>,
     layer_texture_size: (u32, u32),
@@ -58,7 +58,7 @@ impl<'a> ScheduleBuilder<'a> {
             root_render_target,
             paint_idxs,
             encoded_paints,
-            timeline: Timeline::new(Atlases::new(layer_texture_size)),
+            cursor: Cursor::new(Atlases::new(layer_texture_size)),
             layer_allocations: alloc::vec![None; layer_count],
             filter_data_offsets,
             layer_texture_size,
@@ -135,7 +135,7 @@ impl<'a> ScheduleBuilder<'a> {
             let ready_round = self.schedule_command_stream(
                 cmds,
                 target,
-                self.timeline.base_round(),
+                self.cursor.current_round(),
                 opaque,
                 &mut schedule.rounds,
             )?;
@@ -515,7 +515,7 @@ impl<'a> ScheduleBuilder<'a> {
             return Err(RenderError::AtlasError(AtlasError::NoSpaceAvailable));
         }
 
-        let Some(scheduled) = self.timeline.allocate(request) else {
+        let Some(scheduled) = self.cursor.allocate(request) else {
             return Err(RenderError::AtlasError(AtlasError::NoSpaceAvailable));
         };
 
@@ -634,7 +634,7 @@ impl<'a> ScheduleBuilder<'a> {
         rounds: &mut Rounds,
     ) {
         ensure_round_exists(rounds, round_idx);
-        self.timeline.release_after(allocation, round_idx);
+        self.cursor.release_after(allocation, round_idx);
     }
 }
 

@@ -1,11 +1,11 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Monotonic resource scheduling for future rounds.
+//! Monotonic allocation cursor for scheduled rounds.
 
 use alloc::vec::Vec;
 
-pub(super) trait ResourceAllocator {
+pub(super) trait Allocator {
     type Request: Copy;
     type Allocation: Copy;
 
@@ -15,20 +15,20 @@ pub(super) trait ResourceAllocator {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(super) struct ScheduledAllocation<T> {
+pub(super) struct Allocation<T> {
     pub(super) allocation: T,
     pub(super) round_idx: usize,
 }
 
 #[derive(Debug)]
-pub(super) struct Timeline<R: ResourceAllocator> {
+pub(super) struct Cursor<R: Allocator> {
     current_round: usize,
     resource: R,
     pending_releases: Vec<Vec<R::Allocation>>,
     pending_release_count: usize,
 }
 
-impl<R: ResourceAllocator> Timeline<R> {
+impl<R: Allocator> Cursor<R> {
     pub(super) fn new(resource: R) -> Self {
         Self {
             current_round: 0,
@@ -38,17 +38,17 @@ impl<R: ResourceAllocator> Timeline<R> {
         }
     }
 
-    pub(super) fn base_round(&self) -> usize {
+    pub(super) fn current_round(&self) -> usize {
         self.current_round
     }
 
     pub(super) fn allocate(
         &mut self,
         request: R::Request,
-    ) -> Option<ScheduledAllocation<R::Allocation>> {
+    ) -> Option<Allocation<R::Allocation>> {
         loop {
             if let Some(allocation) = self.resource.allocate(request) {
-                return Some(ScheduledAllocation {
+                return Some(Allocation {
                     allocation,
                     round_idx: self.current_round,
                 });

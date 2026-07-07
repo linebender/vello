@@ -7,9 +7,9 @@
 
 mod allocate;
 mod builder;
+mod cursor;
 mod draw;
 mod round;
-mod timeline;
 
 use self::builder::ScheduleBuilder;
 pub(crate) use self::round::BlendOp;
