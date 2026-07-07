@@ -9,6 +9,7 @@ use crate::peniko::Fill;
 use crate::tile::{Tile, Tiles};
 use crate::util::f32_to_u8;
 use alloc::vec::Vec;
+use core::ops::{Deref, DerefMut};
 use fearless_simd::*;
 
 /// A strip.
@@ -38,14 +39,34 @@ pub enum StripSegment {
 /// A fill region with alpha coverage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StripAlphaFillSegment {
-    /// The inclusive start x coordinate in tile units.
-    pub tile_x0: u16,
-    /// The exclusive end x coordinate in tile units.
-    pub tile_x1: u16,
-    /// The y coordinate in tile units.
-    pub tile_y: u16,
+    /// The fill region covered by this alpha segment.
+    pub fill: StripFillSegment,
     /// The index into the alpha buffer of the segment.
     pub alpha_idx: u32,
+}
+
+impl Deref for StripAlphaFillSegment {
+    type Target = StripFillSegment;
+
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        &self.fill
+    }
+}
+
+impl DerefMut for StripAlphaFillSegment {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.fill
+    }
+}
+
+impl StripAlphaFillSegment {
+    /// The alpha column index.
+    #[inline(always)]
+    pub const fn col_idx(self) -> u32 {
+        self.alpha_idx / Tile::HEIGHT as u32
+    }
 }
 
 /// A fill region without alpha coverage.
@@ -57,6 +78,32 @@ pub struct StripFillSegment {
     pub tile_x1: u16,
     /// The y coordinate in tile units.
     pub tile_y: u16,
+}
+
+impl StripFillSegment {
+    /// The inclusive start x coordinate in pixels.
+    #[inline(always)]
+    pub const fn x0(self) -> u16 {
+        self.tile_x0 * Tile::WIDTH
+    }
+
+    /// The exclusive end x coordinate in pixels.
+    #[inline(always)]
+    pub const fn x1(self) -> u16 {
+        self.tile_x1 * Tile::WIDTH
+    }
+
+    /// The y coordinate in pixels.
+    #[inline(always)]
+    pub const fn y(self) -> u16 {
+        self.tile_y * Tile::HEIGHT
+    }
+
+    /// Return this segment's pixel-space rectangle shifted by `shift`.
+    #[inline(always)]
+    pub fn shift(self, shift: (i32, i32)) -> RectU16 {
+        RectU16::new(self.x0(), self.y(), self.x1(), self.y() + Tile::HEIGHT).shift(shift)
+    }
 }
 
 /// Iterate over all fill and alpha-fill regions formed by the sequence of strips,
@@ -103,9 +150,11 @@ pub fn for_each_fill_segment(
 
         if tile_x0 < tile_x1 {
             segment(StripSegment::Alpha(StripAlphaFillSegment {
-                tile_x0,
-                tile_x1,
-                tile_y,
+                fill: StripFillSegment {
+                    tile_x0,
+                    tile_x1,
+                    tile_y,
+                },
                 alpha_idx: strip.alpha_idx()
                     + u32::from(tile_x0 - strip_tile_x0)
                         * u32::from(Tile::WIDTH)

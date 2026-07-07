@@ -15,7 +15,7 @@ use vello_common::geometry::RectU16;
 use vello_common::kurbo::Rect;
 use vello_common::paint::{ImageSource, Paint};
 use vello_common::record::LayerClip;
-use vello_common::strip::{StripSegment, for_each_fill_segment};
+use vello_common::strip::{StripFillSegment, StripSegment, for_each_fill_segment};
 use vello_common::strip_generator::StripStorage;
 use vello_common::tile::Tile;
 
@@ -236,28 +236,37 @@ impl<'a> DrawBuilder<'a> {
             tile_bounds(self.draw_bounds),
             |segment| match segment {
                 StripSegment::Alpha(segment) => {
-                    let x0 = segment.tile_x0 * Tile::WIDTH;
-                    let x1 = segment.tile_x1 * Tile::WIDTH;
-                    let y = segment.tile_y * Tile::HEIGHT;
-                    let processed = pack_paint(&paint, encoded_paints, (x0, y), paint_idxs);
+                    let processed = pack_paint(
+                        &paint,
+                        encoded_paints,
+                        (segment.x0(), segment.y()),
+                        paint_idxs,
+                    );
                     self.draw.push(
-                        self.get_fill_strip(
-                            x0,
-                            x1,
-                            y,
-                            Some(segment.alpha_idx / u32::from(Tile::HEIGHT)),
-                            &processed,
+                        self.get_fill_strip_with_packed_paint(
+                            *segment,
+                            Some(segment.col_idx()),
+                            processed.payload,
+                            processed.paint,
                             depth_index,
                         ),
                         processed.external_texture_id,
                     );
                 }
                 StripSegment::Fill(segment) => {
-                    let x0 = segment.tile_x0 * Tile::WIDTH;
-                    let x1 = segment.tile_x1 * Tile::WIDTH;
-                    let y = segment.tile_y * Tile::HEIGHT;
-                    let processed = pack_paint(&paint, encoded_paints, (x0, y), paint_idxs);
-                    let strip = self.get_fill_strip(x0, x1, y, None, &processed, depth_index);
+                    let processed = pack_paint(
+                        &paint,
+                        encoded_paints,
+                        (segment.x0(), segment.y()),
+                        paint_idxs,
+                    );
+                    let strip = self.get_fill_strip_with_packed_paint(
+                        segment,
+                        None,
+                        processed.payload,
+                        processed.paint,
+                        depth_index,
+                    );
                     if !is_opaque || !self.push_opaque(strip) {
                         self.draw.push(strip, processed.external_texture_id);
                     }
@@ -344,16 +353,12 @@ impl<'a> DrawBuilder<'a> {
 
         for_each_fill_segment(strips, tile_bounds(sample_bbox), |segment| match segment {
             StripSegment::Alpha(segment) => {
-                let x0 = segment.tile_x0 * Tile::WIDTH;
-                let x1 = segment.tile_x1 * Tile::WIDTH;
-                let y = segment.tile_y * Tile::HEIGHT;
+                let payload = layer_sample_payload(sample, segment.x0(), segment.y());
                 self.draw.push(
-                    self.get_layer_fill_strip(
-                        sample,
-                        x0,
-                        x1,
-                        y,
-                        Some(segment.alpha_idx / u32::from(Tile::HEIGHT)),
+                    self.get_fill_strip_with_packed_paint(
+                        *segment,
+                        Some(segment.col_idx()),
+                        payload,
                         paint,
                         depth_index,
                     ),
@@ -361,71 +366,31 @@ impl<'a> DrawBuilder<'a> {
                 );
             }
             StripSegment::Fill(segment) => {
-                let x0 = segment.tile_x0 * Tile::WIDTH;
-                let x1 = segment.tile_x1 * Tile::WIDTH;
-                let y = segment.tile_y * Tile::HEIGHT;
+                let payload = layer_sample_payload(sample, segment.x0(), segment.y());
                 self.draw.push(
-                    self.get_layer_fill_strip(sample, x0, x1, y, None, paint, depth_index),
+                    self.get_fill_strip_with_packed_paint(
+                        segment,
+                        None,
+                        payload,
+                        paint,
+                        depth_index,
+                    ),
                     None,
                 );
             }
         });
     }
 
-    fn get_fill_strip(
-        &self,
-        x0: u16,
-        x1: u16,
-        y: u16,
-        col_idx: Option<u32>,
-        paint: &PackedPaint,
-        depth_index: u32,
-    ) -> GpuStrip {
-        self.get_fill_strip_with_packed_paint(
-            x0,
-            x1,
-            y,
-            col_idx,
-            paint.payload,
-            paint.paint,
-            depth_index,
-        )
-    }
-
-    fn get_layer_fill_strip(
-        &self,
-        sample: LayerSample,
-        x0: u16,
-        x1: u16,
-        y: u16,
-        col_idx: Option<u32>,
-        paint: u32,
-        depth_index: u32,
-    ) -> GpuStrip {
-        self.get_fill_strip_with_packed_paint(
-            x0,
-            x1,
-            y,
-            col_idx,
-            layer_sample_payload(sample, x0, y),
-            paint,
-            depth_index,
-        )
-    }
-
     fn get_fill_strip_with_packed_paint(
         &self,
-        x0: u16,
-        x1: u16,
-        y: u16,
+        segment: StripFillSegment,
         col_idx: Option<u32>,
         payload: u32,
         paint: u32,
         depth_index: u32,
     ) -> GpuStrip {
-        let x = offset_coord(x0, self.geometry_offset.0);
-        let y = offset_coord(y, self.geometry_offset.1);
-        let width = x1 - x0;
+        let rect = segment.shift(self.geometry_offset);
+        let width = rect.width();
         let (dense_width_or_rect_height, col_idx_or_rect_frac) = if let Some(col_idx) = col_idx {
             (width, col_idx)
         } else {
@@ -433,8 +398,8 @@ impl<'a> DrawBuilder<'a> {
         };
 
         GpuStrip {
-            x,
-            y,
+            x: rect.x0,
+            y: rect.y0,
             width,
             dense_width_or_rect_height,
             col_idx_or_rect_frac,
@@ -599,15 +564,6 @@ fn tile_bounds(bounds: RectU16) -> RectU16 {
         bounds.x1.div_ceil(Tile::WIDTH),
         bounds.y1.div_ceil(Tile::HEIGHT),
     )
-}
-
-fn offset_coord(coord: u16, offset: i32) -> u16 {
-    let coord = i32::from(coord) + offset;
-    debug_assert!(
-        (0..=i32::from(u16::MAX)).contains(&coord),
-        "offset coordinate must fit into u16"
-    );
-    u16::try_from(coord).expect("offset coordinate must fit into u16")
 }
 
 fn layer_sample_payload(sample: LayerSample, x: u16, y: u16) -> u32 {

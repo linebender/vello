@@ -106,10 +106,18 @@ impl RectU16 {
     #[inline]
     pub fn shift(self, shift: (i32, i32)) -> Self {
         Self {
-            x0: (self.x0 as i32).saturating_add(shift.0).clamp(0, u16::MAX as i32) as u16,
-            y0: (self.y0 as i32).saturating_add(shift.1).clamp(0, u16::MAX as i32) as u16,
-            x1: (self.x1 as i32).saturating_add(shift.0).clamp(0, u16::MAX as i32) as u16,
-            y1: (self.y1 as i32).saturating_add(shift.1).clamp(0, u16::MAX as i32) as u16,
+            x0: (self.x0 as i32)
+                .saturating_add(shift.0)
+                .clamp(0, u16::MAX as i32) as u16,
+            y0: (self.y0 as i32)
+                .saturating_add(shift.1)
+                .clamp(0, u16::MAX as i32) as u16,
+            x1: (self.x1 as i32)
+                .saturating_add(shift.0)
+                .clamp(0, u16::MAX as i32) as u16,
+            y1: (self.y1 as i32)
+                .saturating_add(shift.1)
+                .clamp(0, u16::MAX as i32) as u16,
         }
     }
 
