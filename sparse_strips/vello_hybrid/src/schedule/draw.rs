@@ -30,7 +30,7 @@ pub(super) struct Draw {
 }
 
 impl Draw {
-    #[inline(always)]
+    #[inline]
     fn push(
         &mut self,
         buffers: &mut ScheduleBuffers,
@@ -42,12 +42,14 @@ impl Draw {
                 .external_texture_runs
                 .last()
                 .is_none_or(|run| run.texture_id != texture_id);
+
             if needs_new_run {
                 let strips_start = if self.external_texture_runs.is_empty() {
                     0
                 } else {
                     self.strip_ranges.combined_len()
                 };
+
                 self.external_texture_runs.push(ExternalTextureRun {
                     strips_start,
                     texture_id,
@@ -92,6 +94,7 @@ impl OpaqueStripsExt for OpaqueStrips {
         let Some(strips) = self else {
             return false;
         };
+
         strips.push(strip);
         true
     }
@@ -107,10 +110,7 @@ impl OpaqueStripsExt for OpaqueStrips {
 pub(super) struct DrawBuilder<'a> {
     draw: &'a mut Draw,
     buffers: &'a mut ScheduleBuffers,
-    opaque: &'a mut OpaqueStrips,
-    depth: &'a mut DepthCounter,
-    geometry_offset: (i32, i32),
-    draw_bounds: RectU16,
+    state: &'a mut CommandStreamState,
 }
 
 impl<'a> DrawBuilder<'a> {
@@ -119,15 +119,10 @@ impl<'a> DrawBuilder<'a> {
         buffers: &'a mut ScheduleBuffers,
         state: &'a mut CommandStreamState,
     ) -> Self {
-        let geometry_offset = state.target.geometry_offset();
-        let draw_bounds = state.draw_bounds;
         Self {
             draw,
             buffers,
-            opaque: &mut state.opaque,
-            depth: &mut state.depth,
-            geometry_offset,
-            draw_bounds,
+            state,
         }
     }
 
@@ -165,11 +160,11 @@ impl<'a> DrawBuilder<'a> {
             return;
         }
 
-        let is_opaque = self.opaque.is_enabled() && paints.is_opaque(&paint);
-        let depth_index = self.depth.next(is_opaque);
+        let is_opaque = self.state.opaque.is_enabled() && paints.is_opaque(&paint);
+        let depth_index = self.state.depth.next(is_opaque);
 
         let tile_bounds = {
-            let expanded = self.draw_bounds.snap_to_tile_coordinates();
+            let expanded = self.state.draw_bounds.snap_to_tile_coordinates();
 
             RectU16::new(
                 expanded.x0 / Tile::WIDTH,
@@ -203,7 +198,7 @@ impl<'a> DrawBuilder<'a> {
                     processed.paint,
                     depth_index,
                 );
-                if !is_opaque || !self.opaque.push(strip) {
+                if !is_opaque || !self.state.opaque.push(strip) {
                     self.draw
                         .push(self.buffers, strip, processed.external_texture_id);
                 }
@@ -212,13 +207,13 @@ impl<'a> DrawBuilder<'a> {
     }
 
     fn push_rect(&mut self, rect: &Rect, paint: &Paint, paints: Paints<'_>) {
-        let clipped_rect = rect.intersect(self.draw_bounds.as_rect());
+        let clipped_rect = rect.intersect(self.state.draw_bounds.as_rect());
         if clipped_rect.is_zero_area() {
             return;
         }
 
-        let is_paint_opaque = self.opaque.is_enabled() && paints.is_opaque(paint);
-        let depth_index = self.depth.next(is_paint_opaque);
+        let is_paint_opaque = self.state.opaque.is_enabled() && paints.is_opaque(paint);
+        let depth_index = self.state.depth.next(is_paint_opaque);
         self.push_rect_parts(&clipped_rect, paint, paints, depth_index, is_paint_opaque);
     }
 
@@ -229,21 +224,21 @@ impl<'a> DrawBuilder<'a> {
         clip_path: Option<&LayerClip>,
         strip_storage: &StripStorage,
     ) {
-        let sample_bbox = sample.bbox.intersect(self.draw_bounds);
+        let sample_bbox = sample.bbox.intersect(self.state.draw_bounds);
         if sample_bbox.is_empty() {
             return;
         }
 
         let paint = LayerSample::paint(opacity);
         let Some(clip_path) = clip_path else {
-            let depth_index = self.depth.next(false);
+            let depth_index = self.state.depth.next(false);
             // Layer samples are encoded as image-like rect paints. Geometry is transformed into the
             // target allocation, while the payload points at the source atlas coordinate.
             self.draw.push(
                 self.buffers,
                 make_gpu_rect(
                     RectPart {
-                        rect: sample_bbox.shift(self.geometry_offset),
+                        rect: sample_bbox.shift(self.state.target.geometry_offset()),
                         frac: 0,
                     },
                     sample.payload_at(sample_bbox.x0, sample_bbox.y0),
@@ -260,7 +255,7 @@ impl<'a> DrawBuilder<'a> {
             return;
         }
 
-        let depth_index = self.depth.next(false);
+        let depth_index = self.state.depth.next(false);
         let tile_bounds = {
             let expanded = sample_bbox.snap_to_tile_coordinates();
             RectU16::new(
@@ -307,7 +302,7 @@ impl<'a> DrawBuilder<'a> {
         paint: u32,
         depth_index: u32,
     ) -> GpuStrip {
-        let rect = segment.shift(self.geometry_offset);
+        let rect = segment.shift(self.state.target.geometry_offset());
         let width = rect.width();
         let (dense_width_or_rect_height, col_idx_or_rect_frac) = if let Some(col_idx) = col_idx {
             (width, col_idx)
@@ -350,12 +345,12 @@ impl<'a> DrawBuilder<'a> {
         {
             let processed = paints.pack(paint, (part.rect.x0, part.rect.y0));
             let strip = make_gpu_rect(
-                part.shift(self.geometry_offset),
+                part.shift(self.state.target.geometry_offset()),
                 processed.payload,
                 processed.paint,
                 depth_index,
             );
-            if !(is_first && is_paint_opaque && part.frac == 0 && self.opaque.push(strip)) {
+            if !(is_first && is_paint_opaque && part.frac == 0 && self.state.opaque.push(strip)) {
                 self.draw
                     .push(self.buffers, strip, processed.external_texture_id);
             }
@@ -393,6 +388,7 @@ impl DepthCounter {
     #[inline(always)]
     fn next(&mut self, opaque: bool) -> u32 {
         self.count += opaque as u32;
+
         self.count
     }
 }
