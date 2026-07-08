@@ -242,7 +242,28 @@ impl<'a> DrawBuilder<'a> {
         }
 
         let paint = LayerSample::paint(opacity);
-        let Some(clip_path) = clip_path else {
+        if let Some(clip_path) = clip_path {
+            let strips = &strip_storage.strips[clip_path.strip_range.clone()];
+            if strips.len() < 2 || clip_path.bbox.is_empty() {
+                return;
+            }
+
+            let depth_index = self.state.depth.next(false);
+            let tile_bounds = sample_bbox.to_tile_bounds();
+
+            for_each_fill_segment(strips, tile_bounds, |segment| match segment {
+                StripSegment::Alpha(segment) => self.push_layer_fill_segment(
+                    sample,
+                    *segment,
+                    Some(segment.col_idx()),
+                    paint,
+                    depth_index,
+                ),
+                StripSegment::Fill(segment) => {
+                    self.push_layer_fill_segment(sample, segment, None, paint, depth_index);
+                }
+            });
+        } else {
             let depth_index = self.state.depth.next(false);
             // Layer samples are encoded as image-like rect paints. Geometry is transformed into the
             // target allocation, while the payload points at the source atlas coordinate.
@@ -259,29 +280,7 @@ impl<'a> DrawBuilder<'a> {
                 ),
                 None,
             );
-            return;
-        };
-
-        let strips = &strip_storage.strips[clip_path.strip_range.clone()];
-        if strips.len() < 2 || clip_path.bbox.is_empty() {
-            return;
         }
-
-        let depth_index = self.state.depth.next(false);
-        let tile_bounds = sample_bbox.to_tile_bounds();
-
-        for_each_fill_segment(strips, tile_bounds, |segment| match segment {
-            StripSegment::Alpha(segment) => self.push_layer_fill_segment(
-                sample,
-                *segment,
-                Some(segment.col_idx()),
-                paint,
-                depth_index,
-            ),
-            StripSegment::Fill(segment) => {
-                self.push_layer_fill_segment(sample, segment, None, paint, depth_index);
-            }
-        });
     }
 
     fn push_layer_fill_segment(
