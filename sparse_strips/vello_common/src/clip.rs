@@ -547,8 +547,7 @@ impl<'a> Iterator for RowIterator<'a> {
             // `Strip::emit_culled_background`.
             if width == 0 {
                 debug_assert!(
-                    self.next_strip().is_sentinel()
-                        || self.next_strip().strip_y() != self.strip_y,
+                    self.next_strip().is_sentinel() || self.next_strip().strip_y() != self.strip_y,
                     "zero-width strips must only appear at the end of a row"
                 );
 
