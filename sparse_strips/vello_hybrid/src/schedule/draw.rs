@@ -22,23 +22,6 @@ use vello_common::strip_generator::StripStorage;
 use vello_common::tile::Tile;
 use vello_common::util::{Clear, RectExt};
 
-trait RectU16Ext {
-    fn to_tile_bounds(self) -> RectU16;
-}
-
-impl RectU16Ext for RectU16 {
-    fn to_tile_bounds(self) -> RectU16 {
-        let bounds = self.snap_to_tile_coordinates();
-
-        Self::new(
-            bounds.x0 / Tile::WIDTH,
-            bounds.y0 / Tile::HEIGHT,
-            bounds.x1 / Tile::WIDTH,
-            bounds.y1 / Tile::HEIGHT,
-        )
-    }
-}
-
 #[derive(Debug, Default, Clone)]
 pub(super) struct Draw {
     pub(super) strip_ranges: Ranges,
@@ -173,7 +156,7 @@ impl<'a> DrawBuilder<'a> {
             StripSegment::Alpha(segment) => {
                 self.draw.push(
                     self.buffers,
-                    self.get_fill_strip_with_packed_paint(
+                    self.strip_fill_to_gpu_strip(
                         *segment,
                         Some(segment.col_idx()),
                         paint.payload_at(segment.x0(), segment.y()),
@@ -184,7 +167,7 @@ impl<'a> DrawBuilder<'a> {
                 );
             }
             StripSegment::Fill(segment) => {
-                let strip = self.get_fill_strip_with_packed_paint(
+                let strip = self.strip_fill_to_gpu_strip(
                     segment,
                     None,
                     paint.payload_at(segment.x0(), segment.y()),
@@ -302,11 +285,11 @@ impl<'a> DrawBuilder<'a> {
     ) {
         let payload = sample.payload_at(segment.x0(), segment.y());
         let strip =
-            self.get_fill_strip_with_packed_paint(segment, col_idx, payload, paint, depth_index);
+            self.strip_fill_to_gpu_strip(segment, col_idx, payload, paint, depth_index);
         self.draw.push(self.buffers, strip, None);
     }
 
-    fn get_fill_strip_with_packed_paint(
+    fn strip_fill_to_gpu_strip(
         &self,
         segment: StripFillSegment,
         col_idx: Option<u32>,
@@ -366,5 +349,22 @@ impl DepthCounter {
         self.count += opaque as u32;
 
         self.count
+    }
+}
+
+trait RectU16Ext {
+    fn to_tile_bounds(self) -> RectU16;
+}
+
+impl RectU16Ext for RectU16 {
+    fn to_tile_bounds(self) -> RectU16 {
+        let bounds = self.snap_to_tile_coordinates();
+
+        Self::new(
+            bounds.x0 / Tile::WIDTH,
+            bounds.y0 / Tile::HEIGHT,
+            bounds.x1 / Tile::WIDTH,
+            bounds.y1 / Tile::HEIGHT,
+        )
     }
 }
