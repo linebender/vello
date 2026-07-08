@@ -9,7 +9,7 @@
 //! - `webgl` contains a WebGL2 backend if the `webgl` feature is active.
 
 pub(crate) mod common;
-#[cfg(feature = "probe")]
+#[cfg(all(feature = "webgl", feature = "probe"))]
 mod probe;
 #[cfg(feature = "webgl")]
 mod webgl;
@@ -19,10 +19,10 @@ mod wgpu;
 pub use common::{Config, GpuStrip, RenderSize};
 
 #[cfg(all(feature = "webgl", feature = "probe"))]
+pub use probe::{WebGlPendingProbe, WebGlProbeError, WebGlProbeStatus};
+#[cfg(all(feature = "webgl", feature = "probe"))]
 pub use vello_common::probe::{Probe, ProbeResult};
 #[cfg(feature = "webgl")]
 pub use webgl::{WebGlAtlasWriter, WebGlRenderer, WebGlTextureWithDimensions};
-#[cfg(all(feature = "webgl", feature = "probe"))]
-pub use webgl::{WebGlPendingProbe, WebGlProbeError, WebGlProbeStatus};
 #[cfg(feature = "wgpu")]
 pub use wgpu::{AtlasWriter, RenderTargetConfig, Renderer, TextureBindings};

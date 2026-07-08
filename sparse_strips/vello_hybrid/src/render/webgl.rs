@@ -46,19 +46,11 @@ use alloc::vec;
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use core::fmt::Debug;
-#[cfg(feature = "probe")]
-use core::ops::Deref;
 #[cfg(feature = "text")]
 use glifo::{GLYPH_PADDING, PendingClearRect};
 use resource::{Buffer, FragmentShader, Framebuffer, Program, Texture, VertexArray, VertexShader};
-#[cfg(feature = "probe")]
-use thiserror::Error;
 use vello_common::image_cache::{ImageCache, ImageResource};
-#[cfg(feature = "probe")]
-use vello_common::multi_atlas::AllocationStrategy;
 use vello_common::multi_atlas::{AtlasConfig, AtlasId};
-#[cfg(feature = "probe")]
-use vello_common::probe::Probe;
 use vello_common::render_graph::LayerId;
 use vello_common::{
     coarse::WideTile,
@@ -72,8 +64,6 @@ use vello_common::{
     tile::Tile,
 };
 use vello_sparse_shaders::{clear_slots, filters, render_strips};
-#[cfg(feature = "probe")]
-use web_sys::WebGlSync;
 use web_sys::wasm_bindgen::{JsCast, JsValue};
 use web_sys::{
     HtmlCanvasElement, WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram,
@@ -106,13 +96,13 @@ fn get_max_texture_array_layers(gl: &WebGl2RenderingContext) -> u32 {
 #[derive(Debug)]
 pub struct WebGlRenderer {
     /// Programs for rendering.
-    programs: WebGlPrograms,
+    pub(crate) programs: WebGlPrograms,
     /// Scheduler for scheduling draws.
     scheduler: Scheduler,
     /// The state used by the scheduler.
     scheduler_state: SchedulerState,
     /// WebGL context.
-    gl: WebGl2RenderingContext,
+    pub(crate) gl: WebGl2RenderingContext,
     /// Encoded paints for storing encoded paints.
     encoded_paints: Vec<GpuEncodedPaint>,
     /// Stores the index (offset) of the encoded paints in the encoded paints texture.
@@ -124,106 +114,6 @@ pub struct WebGlRenderer {
     /// State used for constructing filter passes.
     filter_pass_state: FilterPassState,
     dummy_image_cache: Option<ImageCache>,
-}
-
-/// A WebGL probe whose pixel readback has been queued but not completed.
-#[cfg(feature = "probe")]
-#[derive(Debug)]
-pub struct WebGlPendingProbe {
-    gl: WebGl2RenderingContext,
-    sync: Option<WebGlSync>,
-    buffer: Option<WebGlBuffer>,
-    width: u16,
-    height: u16,
-}
-
-/// Error returned while running a WebGL probe.
-#[cfg(feature = "probe")]
-#[derive(Debug, Clone, Error)]
-pub enum WebGlProbeError {
-    /// Rendering the probe scene failed.
-    #[error("probe render failed: {0}")]
-    Render(RenderError),
-    /// Probe readback failed.
-    #[error("probe readback failed")]
-    ReadbackFailed,
-}
-
-/// Result of polling the WebGL probe.
-#[cfg(feature = "probe")]
-#[derive(Debug)]
-pub enum WebGlProbeStatus {
-    /// The probe is still pending.
-    Pending(WebGlPendingProbe),
-    /// The probe has finished and the result is available.
-    Complete(Probe<RenderError>),
-}
-
-#[cfg(feature = "probe")]
-impl WebGlPendingProbe {
-    /// Try to finish the probe.
-    ///
-    /// In case the result is not available yet, a new pending probe object will be returned
-    /// which can be checked again in the future. Otherwise, the probe result or an error will be
-    /// returned.
-    pub fn try_finish(mut self) -> Result<WebGlProbeStatus, WebGlProbeError> {
-        let status = self.gl.client_wait_sync_with_u32(
-            self.sync.as_ref().expect("probe sync must exist"),
-            0,
-            0,
-        );
-
-        if status == WebGl2RenderingContext::TIMEOUT_EXPIRED {
-            return Ok(WebGlProbeStatus::Pending(self));
-        }
-
-        if status == WebGl2RenderingContext::ALREADY_SIGNALED
-            || status == WebGl2RenderingContext::CONDITION_SATISFIED
-        {
-            Ok(WebGlProbeStatus::Complete(self.finish_success()))
-        } else {
-            Err(self.finish_failure())
-        }
-    }
-
-    fn finish_success(&mut self) -> Probe<RenderError> {
-        let _state_guard = WebGlStateGuard::with_config(
-            &self.gl,
-            WebGlStateConfig {
-                pixel_pack_buffer: true,
-                ..Default::default()
-            },
-        );
-        let mut pixmap = Pixmap::new(self.width, self.height);
-
-        self.gl.bind_buffer(
-            WebGl2RenderingContext::PIXEL_PACK_BUFFER,
-            self.buffer.as_ref(),
-        );
-        self.gl.get_buffer_sub_data_with_i32_and_u8_array(
-            WebGl2RenderingContext::PIXEL_PACK_BUFFER,
-            0,
-            pixmap.data_as_u8_slice_mut(),
-        );
-
-        Probe::from_actual(pixmap)
-    }
-
-    fn finish_failure(&mut self) -> WebGlProbeError {
-        WebGlProbeError::ReadbackFailed
-    }
-}
-
-#[cfg(feature = "probe")]
-impl Drop for WebGlPendingProbe {
-    fn drop(&mut self) {
-        if let Some(sync) = self.sync.take() {
-            self.gl.delete_sync(Some(&sync));
-        }
-        if let Some(buffer) = self.buffer.take() {
-            self.gl.delete_buffer(Some(&buffer));
-        }
-    }
 }
 
 impl WebGlRenderer {
@@ -488,131 +378,6 @@ impl WebGlRenderer {
         result
     }
 
-    /// Conduct a probing operation.
-    ///
-    /// The WebGL drivers of certain devices are known to be buggy and might therefore not work correctly
-    /// with Vello Hybrid. In the best case, it will simply result in a program crash, but in the worst
-    /// case it can instead result in a silent failure, meaning that no explicit error is
-    /// thrown, but the rendered contents of Vello Hybrid will either be completely empty or look glitchy.
-    ///
-    /// The purpose of this method is to run a sanity check to ensure that running Vello Hybrid on this
-    /// device actually results in visible and correct output. How this achieved is by drawing a selection
-    /// of small elements into a small canvas, and comparing the final output against a reference image.
-    ///
-    /// This method will return a handle that allows inspecting the results of the probe once the
-    /// results of the probe scene can be copied back from GPU to CPU. For performance reasons,
-    /// anything in-between mostly happens asynchronously.
-    #[cfg(feature = "probe")]
-    pub fn probe(&mut self) -> Result<WebGlPendingProbe, WebGlProbeError> {
-        self.probe_inner().map_err(WebGlProbeError::Render)
-    }
-
-    #[cfg(feature = "probe")]
-    fn probe_inner(&mut self) -> Result<WebGlPendingProbe, RenderError> {
-        // IMPORTANT NOTE: When making any changes to the probe, make sure to
-        // unignore and rerun the "webgl_probe_succeeds" test locally.
-
-        let _state_guard = WebGlStateGuard::with_config(
-            &self.gl,
-            WebGlStateConfig {
-                framebuffer: true,
-                active_texture: true,
-                texture_2d: true,
-                texture_2d_array: true,
-                pixel_pack_buffer: true,
-                viewport: true,
-                ..Default::default()
-            },
-        );
-
-        let (width, height) = vello_common::probe::canvas_size();
-        let render_size = RenderSize {
-            width: u32::from(width),
-            height: u32::from(height),
-        };
-
-        let probe_texture = create_texture(&self.gl);
-        self.gl
-            .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
-                WebGl2RenderingContext::TEXTURE_2D,
-                0,
-                WebGl2RenderingContext::RGBA8 as i32,
-                render_size.width as i32,
-                render_size.height as i32,
-                0,
-                WebGl2RenderingContext::RGBA,
-                WebGl2RenderingContext::UNSIGNED_BYTE,
-                None,
-            )
-            .unwrap();
-        let probe_framebuffer = create_framebuffer_for_texture(&self.gl, &probe_texture);
-
-        let atlas_config = AtlasConfig {
-            initial_atlas_count: 1,
-            // These should be large enough for the probe scene.
-            atlas_size: (256, 256),
-            max_atlases: 1,
-            auto_grow: true,
-            allocation_strategy: AllocationStrategy::FirstFit,
-        };
-        let (atlas_width, atlas_height) = atlas_config.atlas_size;
-
-        let mut probe_image_cache = ImageCache::new_with_config(atlas_config);
-        let mut probe_atlas_texture_array =
-            create_atlas_texture_array(&self.gl, atlas_width, atlas_height, 1);
-        core::mem::swap(
-            &mut self.programs.resources.atlas_texture_array,
-            &mut probe_atlas_texture_array,
-        );
-
-        let probe_image = Arc::new(vello_common::probe::probe_image_pixmap());
-        // Note: No need to destroy the image explicitly in the end, because we discard the image
-        // cache anyway.
-        let probe_image_id =
-            self.upload_image_with(&mut probe_image_cache, &probe_image, IMAGE_PADDING);
-        let mut scene = Scene::new(width, height);
-        vello_common::probe::draw_scene(
-            &mut scene,
-            ImageSource::opaque_id_with_transparency_hint(
-                probe_image_id,
-                probe_image.may_have_transparency(),
-            ),
-        );
-
-        let previous_view_framebuffer = self
-            .programs
-            .resources
-            .view_framebuffer_override
-            .replace(probe_framebuffer);
-        let render_result = self.render_scene(
-            &scene,
-            &mut probe_image_cache,
-            &render_size,
-            true,
-            RootRenderTarget::AtlasLayer,
-        );
-        let probe_framebuffer = self
-            .programs
-            .resources
-            .view_framebuffer_override
-            .take()
-            .expect("probe framebuffer must be restored after rendering");
-        self.programs.resources.view_framebuffer_override = previous_view_framebuffer;
-
-        core::mem::swap(
-            &mut self.programs.resources.atlas_texture_array,
-            &mut probe_atlas_texture_array,
-        );
-
-        // We do this here instead of above such that in case the render result is not
-        // valid, we still properly restore the state (e.g. the old atlas texture array).
-        render_result?;
-
-        let pending = launch_probe(&self.gl, &probe_framebuffer, width, height);
-
-        Ok(pending)
-    }
-
     /// Shared render pipeline: prepares GPU resources, runs the scheduler, and
     /// maintains caches.
     ///
@@ -620,7 +385,7 @@ impl WebGlRenderer {
     /// before drawing. This must happen *after* `prepare` (which may create/resize
     /// the framebuffer attachment). Atlas renders skip the clear so previously
     /// rendered atlas content is preserved.
-    fn render_scene(
+    pub(crate) fn render_scene(
         &mut self,
         scene: &Scene,
         image_cache: &mut ImageCache,
@@ -1018,7 +783,7 @@ fn clear_atlas_region(renderer: &mut WebGlRenderer, rect: &PendingClearRect) {
 
 /// Contains the WebGL programs and resources for rendering.
 #[derive(Debug)]
-struct WebGlPrograms {
+pub(crate) struct WebGlPrograms {
     /// Program for rendering wide tile commands.
     strip_program: Program,
     /// Uniform locations for the strip program
@@ -1032,7 +797,7 @@ struct WebGlPrograms {
     /// Uniform locations for the filter program.
     filter_uniforms: FilterPassUniforms,
     /// WebGL resources for rendering.
-    resources: WebGlResources,
+    pub(crate) resources: WebGlResources,
     /// Dimensions of the rendering target.
     render_size: RenderSize,
     /// Whether the last config buffer upload had NDC Y negation enabled.
@@ -1082,7 +847,7 @@ struct ClearUniforms {
 
 /// Contains all WebGL resources needed for rendering.
 #[derive(Debug)]
-struct WebGlResources {
+pub(crate) struct WebGlResources {
     /// VAO for strip rendering.
     strip_vao: VertexArray,
     /// Buffer for [`GpuStrip`] data.
@@ -1092,7 +857,7 @@ struct WebGlResources {
     /// Height of alpha texture.
     alpha_texture_height: u32,
     /// Texture array for atlas data (multiple atlases supported)
-    atlas_texture_array: WebGlTextureArray,
+    pub(crate) atlas_texture_array: WebGlTextureArray,
     /// Encoded paints texture for image metadata.
     encoded_paints_texture: Texture,
     /// Height of encoded paints texture.
@@ -1116,7 +881,7 @@ struct WebGlResources {
     /// Config buffer for clear program.
     clear_config_buffer: Buffer,
 
-    view_framebuffer_override: Option<Framebuffer>,
+    pub(crate) view_framebuffer_override: Option<Framebuffer>,
     /// Whether the depth buffer has been cleared this frame.
     depth_cleared_this_frame: bool,
     /// Pre-allocated JS array for `invalidateFramebuffer` calls.
@@ -1739,7 +1504,7 @@ impl WebGlPrograms {
 /// RAII guard for WebGL state management.
 /// Automatically saves state on creation and restores it on drop.
 /// Only saves/restores the state specified in the configuration.
-struct WebGlStateGuard {
+pub(crate) struct WebGlStateGuard {
     gl: WebGl2RenderingContext,
     config: WebGlStateConfig,
     original_framebuffer: Option<WebGlFramebuffer>,
@@ -1754,7 +1519,7 @@ struct WebGlStateGuard {
 
 impl WebGlStateGuard {
     /// Create a new state guard with custom configuration.
-    fn with_config(gl: &WebGl2RenderingContext, config: WebGlStateConfig) -> Self {
+    pub(crate) fn with_config(gl: &WebGl2RenderingContext, config: WebGlStateConfig) -> Self {
         // Save current framebuffer binding if requested
         let original_framebuffer = if config.framebuffer {
             gl.get_parameter(WebGl2RenderingContext::FRAMEBUFFER_BINDING)
@@ -1946,76 +1711,23 @@ impl Drop for WebGlStateGuard {
 }
 /// Configuration for which WebGL state to save/restore.
 #[derive(Debug, Default)]
-struct WebGlStateConfig {
+pub(crate) struct WebGlStateConfig {
     /// Save/restore framebuffer binding (`FRAMEBUFFER_BINDING`)
-    framebuffer: bool,
+    pub(crate) framebuffer: bool,
     /// Save/restore read framebuffer binding (`READ_FRAMEBUFFER_BINDING`)
-    read_framebuffer: bool,
+    pub(crate) read_framebuffer: bool,
     /// Save/restore active texture unit (`ACTIVE_TEXTURE`)
-    active_texture: bool,
+    pub(crate) active_texture: bool,
     /// Save/restore 2D texture binding (`TEXTURE_BINDING_2D`)
-    texture_2d: bool,
+    pub(crate) texture_2d: bool,
     /// Save/restore 2D array texture binding (`TEXTURE_BINDING_2D_ARRAY`)
-    texture_2d_array: bool,
+    pub(crate) texture_2d_array: bool,
     /// Save/restore pixel pack buffer binding (`PIXEL_PACK_BUFFER_BINDING`)
-    pixel_pack_buffer: bool,
+    pub(crate) pixel_pack_buffer: bool,
     /// Save/restore scissor test state
-    scissor: bool,
+    pub(crate) scissor: bool,
     /// Save/restore viewport
-    viewport: bool,
-}
-
-#[cfg(feature = "probe")]
-fn launch_probe(
-    gl: &WebGl2RenderingContext,
-    framebuffer: &Framebuffer,
-    width: u16,
-    height: u16,
-) -> WebGlPendingProbe {
-    let pixel_pack_buffer = gl.create_buffer().unwrap();
-    let byte_len = i32::from(width) * i32::from(height) * 4;
-
-    gl.bind_buffer(
-        WebGl2RenderingContext::PIXEL_PACK_BUFFER,
-        Some(&pixel_pack_buffer),
-    );
-    gl.buffer_data_with_i32(
-        WebGl2RenderingContext::PIXEL_PACK_BUFFER,
-        byte_len,
-        WebGl2RenderingContext::STREAM_READ,
-    );
-    gl.bind_framebuffer(
-        WebGl2RenderingContext::FRAMEBUFFER,
-        Some(framebuffer.deref()),
-    );
-    gl.read_pixels_with_i32(
-        0,
-        0,
-        i32::from(width),
-        i32::from(height),
-        WebGl2RenderingContext::RGBA,
-        WebGl2RenderingContext::UNSIGNED_BYTE,
-        0,
-    )
-    .unwrap();
-    // Create a fence that notifies us once rendering is complete and the contents have been
-    // transferred from the framebuffer to the pixel pack buffer.
-    let sync = gl
-        .fence_sync(WebGl2RenderingContext::SYNC_GPU_COMMANDS_COMPLETE, 0)
-        .unwrap();
-    // https://wikis.khronos.org/opengl/Sync_Object
-    // "It is important that syncs are properly flushed into the GPU's command queue. Without
-    // proper flushing, the sync object may never be signaled."
-    gl.flush();
-    gl.bind_buffer(WebGl2RenderingContext::PIXEL_PACK_BUFFER, None);
-
-    WebGlPendingProbe {
-        gl: gl.clone(),
-        sync: Some(sync),
-        buffer: Some(pixel_pack_buffer),
-        width,
-        height,
-    }
+    pub(crate) viewport: bool,
 }
 
 /// Create a WebGL shader program from vertex and fragment sources.
@@ -2247,7 +1959,7 @@ fn initialize_filter_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources
 }
 
 /// Create a texture with nearest neighbor sampling and clamp-to-edge wrapping.
-fn create_texture(gl: &WebGl2RenderingContext) -> Texture {
+pub(crate) fn create_texture(gl: &WebGl2RenderingContext) -> Texture {
     create_texture_inner(gl, WebGl2RenderingContext::TEXTURE_2D)
 }
 
@@ -2411,7 +2123,7 @@ fn create_webgl_resources(
 }
 
 /// Create an atlas texture array.
-fn create_atlas_texture_array(
+pub(crate) fn create_atlas_texture_array(
     gl: &WebGl2RenderingContext,
     width: u32,
     height: u32,
@@ -2458,7 +2170,7 @@ fn create_slot_texture(gl: &WebGl2RenderingContext, slot_count: usize) -> Textur
 }
 
 /// Create a framebuffer for a texture.
-fn create_framebuffer_for_texture(
+pub(crate) fn create_framebuffer_for_texture(
     gl: &WebGl2RenderingContext,
     texture: &WebGlTexture,
 ) -> Framebuffer {
@@ -3227,7 +2939,7 @@ impl WebGlAtlasWriter for WebGlTextureWithDimensions {
 
 /// Wrapper for `WebGlTexture` array with known dimensions.
 #[derive(Debug)]
-struct WebGlTextureArray {
+pub(crate) struct WebGlTextureArray {
     /// The WebGL texture array.
     texture: Texture,
     /// The size of the texture array.
@@ -3351,7 +3063,7 @@ fn upload_data_to_rgba32_texture(
     .unwrap();
 }
 
-mod resource {
+pub(crate) mod resource {
     use core::ops::Deref;
 
     use super::{
@@ -3359,7 +3071,7 @@ mod resource {
         WebGlTexture, WebGlVertexArrayObject,
     };
 
-    pub(super) trait GlResource {
+    pub(crate) trait GlResource {
         const LABEL: &'static str;
 
         fn create(gl: &WebGl2RenderingContext) -> Option<Self>
@@ -3370,7 +3082,7 @@ mod resource {
     }
 
     #[derive(Debug)]
-    pub(super) struct Resource<T: GlResource> {
+    pub(crate) struct Resource<T: GlResource> {
         gl: WebGl2RenderingContext,
         raw: T,
     }
@@ -3405,7 +3117,7 @@ mod resource {
     }
 
     #[derive(Debug)]
-    pub(super) struct WebGlVertexShader(WebGlShader);
+    pub(crate) struct WebGlVertexShader(WebGlShader);
 
     impl Deref for WebGlVertexShader {
         type Target = WebGlShader;
@@ -3416,7 +3128,7 @@ mod resource {
     }
 
     #[derive(Debug)]
-    pub(super) struct WebGlFragmentShader(WebGlShader);
+    pub(crate) struct WebGlFragmentShader(WebGlShader);
 
     impl Deref for WebGlFragmentShader {
         type Target = WebGlShader;
@@ -3512,11 +3224,11 @@ mod resource {
         }
     }
 
-    pub(super) type Texture = Resource<WebGlTexture>;
-    pub(super) type Buffer = Resource<WebGlBuffer>;
-    pub(super) type Framebuffer = Resource<WebGlFramebuffer>;
-    pub(super) type Program = Resource<WebGlProgram>;
-    pub(super) type VertexShader = Resource<WebGlVertexShader>;
-    pub(super) type FragmentShader = Resource<WebGlFragmentShader>;
-    pub(super) type VertexArray = Resource<WebGlVertexArrayObject>;
+    pub(crate) type Texture = Resource<WebGlTexture>;
+    pub(crate) type Buffer = Resource<WebGlBuffer>;
+    pub(crate) type Framebuffer = Resource<WebGlFramebuffer>;
+    pub(crate) type Program = Resource<WebGlProgram>;
+    pub(crate) type VertexShader = Resource<WebGlVertexShader>;
+    pub(crate) type FragmentShader = Resource<WebGlFragmentShader>;
+    pub(crate) type VertexArray = Resource<WebGlVertexArrayObject>;
 }
