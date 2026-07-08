@@ -4,7 +4,6 @@
 //! Executes planned rendering rounds through a backend.
 
 use super::buffer::Ranges;
-use super::draw::Draw;
 use super::pool::Pools;
 use super::round::{FilterPasses, Rounds};
 use super::{
@@ -119,7 +118,11 @@ impl Rounds {
                 renderer.apply_filters(&layer_round.filter_passes, texture_index);
             }
 
-            Self::execute_root_pass(renderer, &round.root_draw, root_output_target);
+            renderer.render_draw(
+                &round.root_draw.strip_ranges,
+                &round.root_draw.external_texture_runs,
+                StripPassRenderTarget::Root(root_output_target),
+            );
 
             for texture_index in 0..round.layer_passes.len() {
                 renderer.blend(
@@ -144,21 +147,5 @@ impl Rounds {
         for (texture_index, regions) in regions.iter().enumerate() {
             renderer.clear_rects(target(texture_index), regions);
         }
-    }
-
-    fn execute_root_pass<R: RendererBackend>(
-        renderer: &mut R,
-        draw: &Draw,
-        root_output_target: RootRenderTarget,
-    ) {
-        if draw.is_empty() {
-            return;
-        }
-
-        renderer.render_draw(
-            &draw.strip_ranges,
-            &draw.external_texture_runs,
-            StripPassRenderTarget::Root(root_output_target),
-        );
     }
 }

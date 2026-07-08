@@ -58,10 +58,6 @@ impl Draw {
 
         buffers.strips.push(&mut self.strip_ranges, gpu_strip);
     }
-
-    pub(super) fn is_empty(&self) -> bool {
-        self.strip_ranges.is_empty()
-    }
 }
 
 impl Clear for Draw {
