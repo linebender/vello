@@ -39,8 +39,10 @@ use crate::{
     },
     scene::Scene,
     schedule::{
-        BlendOp, ExternalTextureRun, FilterOp, RendererBackend, RootRenderTarget,
-        StripPassRenderTarget, TextureTarget,
+        ExternalTextureRun, RendererBackend, RootRenderTarget, StripPassRenderTarget,
+        TextureTarget,
+        buffer::{RangedSlice, Ranges, ScheduleBuffers},
+        pool::Pools,
     },
 };
 use alloc::vec::Vec;
@@ -155,6 +157,8 @@ pub struct Renderer {
     /// Context for GPU filter effects.
     filter_context: FilterContext,
     dummy_image_cache: Option<ImageCache>,
+    pools: Pools,
+    schedule_buffers: ScheduleBuffers,
     scratch: ScratchBuffers,
 }
 
@@ -209,6 +213,8 @@ impl Renderer {
             paint_idxs: Vec::new(),
             filter_context,
             dummy_image_cache: Some(ImageCache::new_dummy()),
+            pools: Pools::default(),
+            schedule_buffers: ScheduleBuffers::default(),
             scratch: ScratchBuffers::default(),
         }
     }
@@ -502,6 +508,8 @@ impl Renderer {
             view,
             texture_bindings,
             external_paint_source_bind_groups: HashMap::new(),
+            pools: &mut self.pools,
+            schedule_buffers: &mut self.schedule_buffers,
             scratch: &mut self.scratch,
         };
         crate::schedule::render_scene(
@@ -2878,10 +2886,10 @@ impl Programs {
         device: &Device,
         queue: &Queue,
         opaque_strips: &[GpuStrip],
-        alpha_strips: &[GpuStrip],
+        alpha_strips: RangedSlice<'_, GpuStrip>,
     ) {
         let opaque_bytes = size_of_val(opaque_strips) as u64;
-        let alpha_bytes = size_of_val(alpha_strips) as u64;
+        let alpha_bytes = (alpha_strips.len() * size_of::<GpuStrip>()) as u64;
         let total = opaque_bytes + alpha_bytes;
         self.resources.strips_buffer = Self::create_strips_buffer(device, total);
         // TODO: Consider using a staging belt to avoid an extra staging buffer allocation.
@@ -2891,9 +2899,14 @@ impl Programs {
         buffer_view
             .slice(..opaque_bytes as usize)
             .copy_from_slice(bytemuck::cast_slice(opaque_strips));
-        buffer_view
-            .slice(opaque_bytes as usize..)
-            .copy_from_slice(bytemuck::cast_slice(alpha_strips));
+        let mut offset = opaque_bytes as usize;
+        for strips in alpha_strips.slices() {
+            let bytes = bytemuck::cast_slice(strips);
+            buffer_view
+                .slice(offset..offset + bytes.len())
+                .copy_from_slice(bytes);
+            offset += bytes.len();
+        }
     }
 }
 
@@ -2907,6 +2920,8 @@ struct RendererContext<'a> {
     view: &'a WgpuTextureView,
     texture_bindings: &'a TextureBindings,
     external_paint_source_bind_groups: HashMap<TextureId, BindGroup>,
+    pools: &'a mut Pools,
+    schedule_buffers: &'a mut ScheduleBuffers,
     scratch: &'a mut ScratchBuffers,
 }
 
@@ -2934,25 +2949,28 @@ impl RendererContext<'_> {
     fn do_strip_render_pass(
         &mut self,
         opaque_strips: &[GpuStrip],
-        alpha_strips: &[GpuStrip],
+        alpha_ranges: &Ranges,
         external_texture_runs: &[ExternalTextureRun],
         target: StripPassRenderTarget,
     ) {
-        if opaque_strips.is_empty() && alpha_strips.is_empty() {
+        let opaque_count = opaque_strips.len();
+        let alpha_count = alpha_ranges.combined_len();
+        if opaque_count == 0 && alpha_count == 0 {
             return;
         }
         // TODO: We currently allocate a new strips buffer for each render pass. A more efficient
         // approach would be to re-use buffers or slices of a larger buffer.
-        self.programs
-            .upload_strip_pair(self.device, self.queue, opaque_strips, alpha_strips);
-        let opaque_count = opaque_strips.len() as u32;
-        let alpha_count = alpha_strips.len() as u32;
-
         // Create bind groups for all external textures passed in by the user that are used this
         // pass.
         for run in external_texture_runs {
             self.external_paint_source_bind_group_for_texture(run.texture_id);
         }
+
+        let alpha_strips = self.schedule_buffers.strips.ranged(alpha_ranges);
+        self.programs
+            .upload_strip_pair(self.device, self.queue, opaque_strips, alpha_strips);
+        let opaque_count = opaque_count as u32;
+        let alpha_count = alpha_count as u32;
 
         let (view, bind_group, scissor_rect): (&WgpuTextureView, &BindGroup, Option<[u32; 4]>) =
             match target {
@@ -3080,13 +3098,15 @@ impl RendererContext<'_> {
         (size, size)
     }
 
-    fn do_blend_render_pass(&mut self, blends: &[BlendOp], texture_index: usize) {
+    fn do_blend_render_pass(&mut self, blend_ranges: &Ranges, texture_index: usize) {
         let parent_texture_size = self.layer_texture_size_u16();
-        if blends.is_empty() {
+        if blend_ranges.is_empty() {
             return;
         }
         self.programs.resources.scratch_view(BLEND_SCRATCH_INDEX);
 
+        let blends = self.schedule_buffers.blends.ranged(blend_ranges);
+        let resources = &self.programs.resources;
         self.scratch.blend_instances.clear();
         self.scratch.blend_instances.extend(
             blends
@@ -3095,12 +3115,8 @@ impl RendererContext<'_> {
                 .filter(|blend| !blend.blend_bbox.is_empty())
                 .map(|blend| {
                     debug_assert_eq!(blend.parent_region.texture.texture_index, texture_index);
-                    self.programs
-                        .resources
-                        .layer_view(blend.parent_region.texture.texture_index);
-                    self.programs
-                        .resources
-                        .layer_view(blend.child_region.texture.texture_index);
+                    resources.layer_view(blend.parent_region.texture.texture_index);
+                    resources.layer_view(blend.child_region.texture.texture_index);
                     gpu_blend_instance(blend, parent_texture_size)
                 }),
         );
@@ -3180,14 +3196,15 @@ impl RendererContext<'_> {
         }
     }
 
-    fn do_filter_layers_render_pass(&mut self, filters: &[FilterOp], texture_index: usize) {
-        if filters.is_empty() {
+    fn do_filter_layers_render_pass(&mut self, filter_ranges: &Ranges, texture_index: usize) {
+        if filter_ranges.is_empty() {
             return;
         }
         self.programs.resources.scratch_view(0);
 
+        let filters = self.schedule_buffers.filters.ranged(filter_ranges);
         schedule(
-            filters,
+            filters.iter().copied(),
             self.layer_texture_size_u16(),
             &mut self.scratch.filter_passes,
         );
@@ -3304,8 +3321,8 @@ impl RendererContext<'_> {
 }
 
 impl RendererBackend for RendererContext<'_> {
-    fn pools(&mut self) -> &mut crate::schedule::Pools {
-        &mut self.scratch.pools
+    fn schedule_storage(&mut self) -> (&mut Pools, &mut ScheduleBuffers) {
+        (self.pools, self.schedule_buffers)
     }
 
     fn prepare_intermediate_textures(
@@ -3320,18 +3337,18 @@ impl RendererBackend for RendererContext<'_> {
     fn render_strips(
         &mut self,
         opaque_strips: &[GpuStrip],
-        alpha_strips: &[GpuStrip],
+        alpha_strips: &Ranges,
         external_texture_runs: &[ExternalTextureRun],
         target: StripPassRenderTarget,
     ) {
         self.do_strip_render_pass(opaque_strips, alpha_strips, external_texture_runs, target);
     }
 
-    fn blend(&mut self, blends: &[BlendOp], texture_index: usize) {
+    fn blend(&mut self, blends: &Ranges, texture_index: usize) {
         self.do_blend_render_pass(blends, texture_index);
     }
 
-    fn apply_filters(&mut self, filters: &[FilterOp], texture_index: usize) {
+    fn apply_filters(&mut self, filters: &Ranges, texture_index: usize) {
         self.do_filter_layers_render_pass(filters, texture_index);
     }
 

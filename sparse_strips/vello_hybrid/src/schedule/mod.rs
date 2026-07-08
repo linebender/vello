@@ -6,19 +6,19 @@
 //! This first slice supports root-level draws and regular property-less layers.
 
 mod allocate;
+pub(crate) mod buffer;
 mod builder;
 mod cursor;
 mod draw;
-mod pool;
-mod round;
+pub(crate) mod pool;
+pub(crate) mod round;
 
+use self::buffer::{Ranges, ScheduleBuffers};
 use self::builder::ScheduleBuilder;
-pub(crate) use self::pool::Pools;
-pub(crate) use self::round::BlendOp;
-pub(crate) use self::round::FilterOp;
+use self::pool::Pools;
 use self::round::Rounds;
 use crate::paint::Paints;
-use crate::schedule::draw::{Draw, OpaqueStrips, OpaqueStripsExt};
+use crate::schedule::draw::{Draw, OpaqueStrips};
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::vec::Vec;
 use vello_common::TextureId;
@@ -134,8 +134,8 @@ struct Schedule {
 }
 
 pub(crate) trait RendererBackend {
-    /// Return the persistent pools used to recycle schedule allocations across frames.
-    fn pools(&mut self) -> &mut Pools;
+    /// Return the persistent storage used while scheduling and executing a scene.
+    fn schedule_storage(&mut self) -> (&mut Pools, &mut ScheduleBuffers);
 
     /// Ensure intermediate layer/scratch textures required by this scene are allocated.
     fn prepare_intermediate_textures(&mut self, requirements: TextureRequirements);
@@ -150,16 +150,16 @@ pub(crate) trait RendererBackend {
     fn render_strips(
         &mut self,
         opaque_strips: &[GpuStrip],
-        alpha_strips: &[GpuStrip],
+        alpha_strips: &Ranges,
         external_texture_runs: &[ExternalTextureRun],
         target: StripPassRenderTarget,
     );
 
     /// Apply non-default blend layer operations.
-    fn blend(&mut self, blends: &[BlendOp], texture_index: usize);
+    fn blend(&mut self, blends: &Ranges, texture_index: usize);
 
     /// Apply filter operations to already-rendered layer atlas regions.
-    fn apply_filters(&mut self, filters: &[FilterOp], texture_index: usize);
+    fn apply_filters(&mut self, filters: &Ranges, texture_index: usize);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -211,7 +211,8 @@ pub(crate) fn render_scene<R: RendererBackend>(
     let paints = Paints::new(encoded_paints, paint_idxs);
     let layer_texture_size = renderer.layer_texture_size();
     let schedule = {
-        let pools = renderer.pools();
+        let (pools, buffers) = renderer.schedule_storage();
+        buffers.clear();
         let mut builder = ScheduleBuilder::new(
             scene,
             &strip_storage,
@@ -219,24 +220,25 @@ pub(crate) fn render_scene<R: RendererBackend>(
             paints,
             layer_texture_size,
             pools,
+            buffers,
         );
         builder.build()?
     };
     schedule.execute(renderer, root_output_target);
-    schedule.recycle(renderer.pools());
+    let (pools, buffers) = renderer.schedule_storage();
+    schedule.recycle(pools);
+    buffers.clear();
     Ok(())
 }
 
 impl Schedule {
     fn execute<R: RendererBackend>(&self, renderer: &mut R, root_output_target: RootRenderTarget) {
-        if let Some(strips) = self.opaque_strips.strips() {
-            renderer.render_strips(
-                strips,
-                &[],
-                &[],
-                StripPassRenderTarget::Root(RootRenderTarget::UserSurface),
-            );
-        }
+        renderer.render_strips(
+            self.opaque_strips.as_deref().unwrap_or(&[]),
+            &Ranges::default(),
+            &[],
+            StripPassRenderTarget::Root(RootRenderTarget::UserSurface),
+        );
 
         self.rounds.execute(renderer, root_output_target);
     }
@@ -255,18 +257,21 @@ impl Rounds {
                 let draw = &layer_round.draw;
                 renderer.render_strips(
                     &[],
-                    &draw.strips,
+                    &draw.strip_ranges,
                     &draw.external_texture_runs,
                     StripPassRenderTarget::LayerAtlas(texture_index),
                 );
 
-                renderer.apply_filters(&layer_round.filters, texture_index);
+                renderer.apply_filters(&layer_round.filter_ranges, texture_index);
             }
 
             Self::execute_root_pass(renderer, &round.root_draw, root_output_target);
 
             for texture_index in 0..round.layer_passes.len() {
-                renderer.blend(&round.layer_passes[texture_index].blends, texture_index);
+                renderer.blend(
+                    &round.layer_passes[texture_index].blend_ranges,
+                    texture_index,
+                );
             }
             Self::clear_regions(renderer, &round.layer_texture_clears, TextureTarget::layer);
             Self::clear_regions(
@@ -300,7 +305,7 @@ impl Rounds {
 
         renderer.render_strips(
             &[],
-            &draw.strips,
+            &draw.strip_ranges,
             &draw.external_texture_runs,
             StripPassRenderTarget::Root(root_output_target),
         );

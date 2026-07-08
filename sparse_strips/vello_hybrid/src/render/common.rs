@@ -11,7 +11,6 @@
 use crate::blend::GpuBlendInstance;
 use crate::copy::GpuCopyInstance;
 use crate::filter::ScheduledFilterPasses;
-use crate::schedule::Pools;
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use vello_common::geometry::RectU16;
@@ -34,7 +33,6 @@ pub(crate) const IMAGE_PADDING: u16 = 0;
 /// Scratch allocations reused while rendering a frame.
 #[derive(Debug, Default)]
 pub(crate) struct ScratchBuffers {
-    pub(crate) pools: Pools,
     pub(crate) clear_rects: Vec<RectU16>,
     pub(crate) clear_instances: Vec<GpuClearInstance>,
     pub(crate) blend_instances: Vec<GpuBlendInstance>,

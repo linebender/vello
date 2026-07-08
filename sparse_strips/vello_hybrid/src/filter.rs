@@ -22,7 +22,7 @@
 //! GPU filter types and conversion utilities.
 
 use crate::copy::GpuCopyInstance;
-use crate::schedule::{FilterOp, TextureRegion, TextureTarget};
+use crate::schedule::{TextureRegion, TextureTarget, round::FilterOp};
 use crate::util::{IntRect, IntSize, pack_u16_pair};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
@@ -420,14 +420,14 @@ impl ScheduledFilterPasses {
 }
 
 pub(crate) fn schedule(
-    filters: &[FilterOp],
+    filters: impl IntoIterator<Item = FilterOp>,
     target_texture_size: (u16, u16),
     passes: &mut ScheduledFilterPasses,
 ) {
     passes.clear();
 
     for filter in filters {
-        let mut builder = FilterPassBuilder::new(*filter, target_texture_size, passes);
+        let mut builder = FilterPassBuilder::new(filter, target_texture_size, passes);
         match filter.gpu_filter.filter_type() {
             filter_type::OFFSET => {
                 builder.emit_to_scratch(pass_kind::OFFSET);
@@ -447,7 +447,7 @@ pub(crate) fn schedule(
         }
 
         builder.ensure_result_in_scratch0();
-        builder.copy_back(filter, target_texture_size);
+        builder.copy_back(&filter, target_texture_size);
     }
 }
 

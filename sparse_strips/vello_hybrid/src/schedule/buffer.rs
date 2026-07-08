@@ -11,7 +11,7 @@ use core::slice::SliceIndex;
 use vello_common::util::Clear;
 
 #[derive(Debug, Default, Clone)]
-pub(super) struct Ranges {
+pub(crate) struct Ranges {
     ranges: Vec<Range<usize>>,
     len: usize,
 }
@@ -28,12 +28,12 @@ impl Ranges {
         }
     }
 
-    pub(super) fn is_empty(&self) -> bool {
-        self.ranges.is_empty()
+    pub(crate) fn combined_len(&self) -> usize {
+        self.len
     }
 
-    pub(super) fn len(&self) -> usize {
-        self.len
+    pub(crate) fn is_empty(&self) -> bool {
+        self.ranges.is_empty()
     }
 }
 
@@ -45,10 +45,10 @@ impl Clear for Ranges {
 }
 
 #[derive(Debug, Default)]
-pub(super) struct ScheduleBuffers {
-    pub(super) strips: RangedBuffer<GpuStrip>,
-    pub(super) filters: RangedBuffer<FilterOp>,
-    pub(super) blends: RangedBuffer<BlendOp>,
+pub(crate) struct ScheduleBuffers {
+    pub(crate) strips: RangedBuffer<GpuStrip>,
+    pub(crate) filters: RangedBuffer<FilterOp>,
+    pub(crate) blends: RangedBuffer<BlendOp>,
 }
 
 impl ScheduleBuffers {
@@ -60,7 +60,7 @@ impl ScheduleBuffers {
 }
 
 #[derive(Debug)]
-pub(super) struct RangedBuffer<T> {
+pub(crate) struct RangedBuffer<T> {
     values: Vec<T>,
 }
 
@@ -78,19 +78,8 @@ impl<T> RangedBuffer<T> {
         ranges.push(index..end);
     }
 
-    // TODO: See whether can be removed.
-    pub(super) fn append(&mut self, values: &mut Vec<T>) -> Range<usize> {
-        let start = self.values.len();
-        self.values.append(values);
-        start..self.values.len()
-    }
-
-    pub(super) fn ranged<'a>(&'a self, ranges: &'a Ranges) -> RangedSlice<'a, T> {
+    pub(crate) fn ranged<'a>(&'a self, ranges: &'a Ranges) -> RangedSlice<'a, T> {
         RangedSlice::new(&self.values, ranges)
-    }
-
-    pub(super) fn empty(&self) -> RangedSlice<'_, T> {
-        RangedSlice::empty(&self.values)
     }
 
     fn clear(&mut self) {
@@ -123,18 +112,6 @@ impl<'a, T> RangedSlice<'a, T> {
             ranges: &ranges.ranges,
             len: ranges.len,
         }
-    }
-
-    fn empty(buffer: &'a [T]) -> Self {
-        Self {
-            buffer,
-            ranges: &[],
-            len: 0,
-        }
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.ranges.is_empty()
     }
 
     pub(crate) fn len(&self) -> usize {

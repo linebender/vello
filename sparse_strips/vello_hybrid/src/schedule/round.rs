@@ -3,6 +3,7 @@
 
 //! Concrete round representation for the new hybrid scheduler.
 
+use super::buffer::{Ranges, ScheduleBuffers};
 use super::draw::Draw;
 use super::pool::Pools;
 use super::{LayerTextureRegion, TextureRegion};
@@ -33,12 +34,26 @@ impl Round {
         &mut self.layer_passes[texture_index].draw
     }
 
-    pub(crate) fn layer_blends_mut(&mut self, texture_index: usize) -> &mut Vec<BlendOp> {
-        &mut self.layer_passes[texture_index].blends
+    pub(crate) fn push_blend(
+        &mut self,
+        texture_index: usize,
+        buffers: &mut ScheduleBuffers,
+        blend: BlendOp,
+    ) {
+        buffers
+            .blends
+            .push(&mut self.layer_passes[texture_index].blend_ranges, blend);
     }
 
-    pub(crate) fn layer_filters_mut(&mut self, texture_index: usize) -> &mut Vec<FilterOp> {
-        &mut self.layer_passes[texture_index].filters
+    pub(crate) fn push_filter(
+        &mut self,
+        texture_index: usize,
+        buffers: &mut ScheduleBuffers,
+        filter: FilterOp,
+    ) {
+        buffers
+            .filters
+            .push(&mut self.layer_passes[texture_index].filter_ranges, filter);
     }
 }
 
@@ -59,8 +74,8 @@ impl Rounds {
 #[derive(Debug, Default)]
 pub(super) struct LayerPass {
     pub(super) draw: Draw,
-    pub(super) filters: Vec<FilterOp>,
-    pub(super) blends: Vec<BlendOp>,
+    pub(super) filter_ranges: Ranges,
+    pub(super) blend_ranges: Ranges,
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::copy::GpuCopyInstance;
-use crate::schedule::BlendOp;
+use crate::schedule::round::BlendOp;
 use crate::util::{pack_opacity, pack_u16_pair};
 use bytemuck::{Pod, Zeroable};
 use vello_common::peniko::{Compose, Mix};

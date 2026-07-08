@@ -3,6 +3,7 @@
 
 //! Draw construction for scheduled strip render passes.
 
+use super::buffer::{Ranges, ScheduleBuffers};
 use super::builder::CommandStreamState;
 use super::{ExternalTextureRun, LayerTextureRegion};
 use crate::GpuStrip;
@@ -11,6 +12,7 @@ use crate::rect::{RectPart, make_gpu_rect, split_rect};
 use crate::scene::RecordedDraw;
 use crate::util::{pack_opacity, pack_u16_pair};
 use ::alloc::vec::Vec;
+use core::ops::Range;
 use vello_common::TextureId;
 use vello_common::geometry::RectU16;
 use vello_common::kurbo::Rect;
@@ -23,13 +25,18 @@ use vello_common::util::{Clear, RectExt};
 
 #[derive(Debug, Default, Clone)]
 pub(super) struct Draw {
-    pub(super) strips: Vec<GpuStrip>,
+    pub(super) strip_ranges: Ranges,
     pub(super) external_texture_runs: Vec<ExternalTextureRun>,
 }
 
 impl Draw {
     #[inline(always)]
-    fn push(&mut self, gpu_strip: GpuStrip, external_texture_id: Option<TextureId>) {
+    fn push(
+        &mut self,
+        buffers: &mut ScheduleBuffers,
+        gpu_strip: GpuStrip,
+        external_texture_id: Option<TextureId>,
+    ) {
         if let Some(texture_id) = external_texture_id {
             let needs_new_run = self
                 .external_texture_runs
@@ -39,7 +46,7 @@ impl Draw {
                 let strips_start = if self.external_texture_runs.is_empty() {
                     0
                 } else {
-                    self.strips.len()
+                    self.strip_ranges.combined_len()
                 };
                 self.external_texture_runs.push(ExternalTextureRun {
                     strips_start,
@@ -48,17 +55,17 @@ impl Draw {
             }
         }
 
-        self.strips.push(gpu_strip);
+        buffers.strips.push(&mut self.strip_ranges, gpu_strip);
     }
 
     pub(super) fn is_empty(&self) -> bool {
-        self.strips.is_empty()
+        self.strip_ranges.is_empty()
     }
 }
 
 impl Clear for Draw {
     fn clear(&mut self) {
-        self.strips.clear();
+        self.strip_ranges.clear();
         self.external_texture_runs.clear();
     }
 }
@@ -70,7 +77,6 @@ pub(super) trait OpaqueStripsExt {
     fn is_enabled(&self) -> bool;
     fn push(&mut self, strip: GpuStrip) -> bool;
     fn reverse(&mut self);
-    fn strips(&self) -> Option<&[GpuStrip]>;
 }
 
 impl OpaqueStripsExt for OpaqueStrips {
@@ -95,15 +101,12 @@ impl OpaqueStripsExt for OpaqueStrips {
             strips.reverse();
         }
     }
-
-    fn strips(&self) -> Option<&[GpuStrip]> {
-        self.as_deref()
-    }
 }
 
 #[derive(Debug)]
 pub(super) struct DrawBuilder<'a> {
     draw: &'a mut Draw,
+    buffers: &'a mut ScheduleBuffers,
     opaque: &'a mut OpaqueStrips,
     depth: &'a mut DepthCounter,
     geometry_offset: (i32, i32),
@@ -111,11 +114,16 @@ pub(super) struct DrawBuilder<'a> {
 }
 
 impl<'a> DrawBuilder<'a> {
-    pub(super) fn new(draw: &'a mut Draw, state: &'a mut CommandStreamState) -> Self {
+    pub(super) fn new(
+        draw: &'a mut Draw,
+        buffers: &'a mut ScheduleBuffers,
+        state: &'a mut CommandStreamState,
+    ) -> Self {
         let geometry_offset = state.target.geometry_offset();
         let draw_bounds = state.draw_bounds;
         Self {
             draw,
+            buffers,
             opaque: &mut state.opaque,
             depth: &mut state.depth,
             geometry_offset,
@@ -146,7 +154,7 @@ impl<'a> DrawBuilder<'a> {
 
     fn push_path(
         &mut self,
-        strips: core::ops::Range<usize>,
+        strips: Range<usize>,
         paint: Paint,
         strip_storage: &StripStorage,
         paints: Paints<'_>,
@@ -175,6 +183,7 @@ impl<'a> DrawBuilder<'a> {
             StripSegment::Alpha(segment) => {
                 let processed = paints.pack(&paint, (segment.x0(), segment.y()));
                 self.draw.push(
+                    self.buffers,
                     self.get_fill_strip_with_packed_paint(
                         *segment,
                         Some(segment.col_idx()),
@@ -195,7 +204,8 @@ impl<'a> DrawBuilder<'a> {
                     depth_index,
                 );
                 if !is_opaque || !self.opaque.push(strip) {
-                    self.draw.push(strip, processed.external_texture_id);
+                    self.draw
+                        .push(self.buffers, strip, processed.external_texture_id);
                 }
             }
         });
@@ -230,6 +240,7 @@ impl<'a> DrawBuilder<'a> {
             // Layer samples are encoded as image-like rect paints. Geometry is transformed into the
             // target allocation, while the payload points at the source atlas coordinate.
             self.draw.push(
+                self.buffers,
                 make_gpu_rect(
                     RectPart {
                         rect: sample_bbox.shift(self.geometry_offset),
@@ -285,7 +296,7 @@ impl<'a> DrawBuilder<'a> {
         let payload = sample.payload_at(segment.x0(), segment.y());
         let strip =
             self.get_fill_strip_with_packed_paint(segment, col_idx, payload, paint, depth_index);
-        self.draw.push(strip, None);
+        self.draw.push(self.buffers, strip, None);
     }
 
     fn get_fill_strip_with_packed_paint(
@@ -345,7 +356,8 @@ impl<'a> DrawBuilder<'a> {
                 depth_index,
             );
             if !(is_first && is_paint_opaque && part.frac == 0 && self.opaque.push(strip)) {
-                self.draw.push(strip, processed.external_texture_id);
+                self.draw
+                    .push(self.buffers, strip, processed.external_texture_id);
             }
             is_first = false;
         }

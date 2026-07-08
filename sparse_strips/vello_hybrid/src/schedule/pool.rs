@@ -3,8 +3,9 @@
 
 //! Reusable schedule storage shared across rendered frames.
 
+use super::buffer::Ranges;
 use super::draw::{Draw, OpaqueStrips, OpaqueStripsExt};
-use super::round::{BlendOp, FilterOp, LayerPass, Round};
+use super::round::{LayerPass, Round};
 use crate::GpuStrip;
 use alloc::vec::Vec;
 use vello_common::geometry::RectU16;
@@ -15,8 +16,8 @@ pub(crate) struct Pools {
     opaque_strips: Pool<Vec<GpuStrip>>,
     root_draws: Pool<Draw>,
     layer_draws: Pool<Draw>,
-    filters: Pool<Vec<FilterOp>>,
-    blends: Pool<Vec<BlendOp>>,
+    filter_ranges: Pool<Ranges>,
+    blend_ranges: Pool<Ranges>,
     layer_texture_clears: Pool<Vec<RectU16>>,
     scratch_texture_clears: Pool<Vec<RectU16>>,
 }
@@ -55,31 +56,15 @@ impl Pools {
     fn take_layer_pass(&mut self) -> LayerPass {
         LayerPass {
             draw: self.take_layer_draw(),
-            filters: self.take_filters(),
-            blends: self.take_blends(),
+            filter_ranges: self.filter_ranges.take(),
+            blend_ranges: self.blend_ranges.take(),
         }
     }
 
     fn submit_layer_pass(&mut self, layer_pass: LayerPass) {
         self.submit_layer_draw(layer_pass.draw);
-        self.submit_filters(layer_pass.filters);
-        self.submit_blends(layer_pass.blends);
-    }
-
-    fn take_filters(&mut self) -> Vec<FilterOp> {
-        self.filters.take()
-    }
-
-    fn submit_filters(&mut self, filters: Vec<FilterOp>) {
-        self.filters.submit(filters);
-    }
-
-    fn take_blends(&mut self) -> Vec<BlendOp> {
-        self.blends.take()
-    }
-
-    fn submit_blends(&mut self, blends: Vec<BlendOp>) {
-        self.blends.submit(blends);
+        self.filter_ranges.submit(layer_pass.filter_ranges);
+        self.blend_ranges.submit(layer_pass.blend_ranges);
     }
 
     fn take_layer_texture_clears(&mut self) -> [Vec<RectU16>; 2] {
