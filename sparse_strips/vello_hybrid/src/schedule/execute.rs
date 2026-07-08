@@ -29,7 +29,7 @@ pub(crate) trait RendererBackend {
     fn layer_texture_size(&self) -> (u32, u32);
 
     /// Clear rectangular regions in a texture to transparent black.
-    fn clear_rects(&mut self, target: TextureTarget, populate: impl FnOnce(&mut Vec<RectU16>));
+    fn clear_rects(&mut self, target: TextureTarget, rects: &[RectU16]);
 
     /// Render the global opaque strips to the user-provided root surface.
     fn render_root_opaque(&mut self, strips: &[GpuStrip]);
@@ -142,9 +142,7 @@ impl Rounds {
         target: impl Fn(usize) -> TextureTarget,
     ) {
         for (texture_index, regions) in regions.iter().enumerate() {
-            renderer.clear_rects(target(texture_index), |clear_rects| {
-                clear_rects.extend(regions.iter().copied().filter(|region| !region.is_empty()));
-            });
+            renderer.clear_rects(target(texture_index), regions);
         }
     }
 

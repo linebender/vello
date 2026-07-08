@@ -2827,14 +2827,10 @@ impl WebGlRendererContext<'_> {
         );
     }
 
-    fn do_clear_stored_rects(&self, target: TextureTarget) {
-        if self.scratch.clear_rects.is_empty() {
-            return;
-        }
-
+    fn do_clear_rects(&self, target: TextureTarget, rects: &[RectU16]) {
         self.prepare_clear_rects(target);
-        for rect in self.scratch.clear_rects.iter() {
-            self.clear_rect(*rect);
+        for rect in rects.iter().copied().filter(|rect| !rect.is_empty()) {
+            self.clear_rect(rect);
         }
         self.finish_clear_rects();
     }
@@ -2851,10 +2847,6 @@ impl WebGlRendererContext<'_> {
     }
 
     fn clear_rect(&self, rect: RectU16) {
-        if rect.is_empty() {
-            return;
-        }
-
         self.gl.scissor(
             i32::from(rect.x0),
             i32::from(rect.y0),
@@ -2908,10 +2900,8 @@ impl RendererBackend for WebGlRendererContext<'_> {
         WebGlRendererContext::layer_texture_size(self)
     }
 
-    fn clear_rects(&mut self, target: TextureTarget, populate: impl FnOnce(&mut Vec<RectU16>)) {
-        self.scratch.clear_rects.clear();
-        populate(&mut self.scratch.clear_rects);
-        self.do_clear_stored_rects(target);
+    fn clear_rects(&mut self, target: TextureTarget, rects: &[RectU16]) {
+        self.do_clear_rects(target, rects);
         self.gl.enable(WebGl2RenderingContext::BLEND);
     }
 }

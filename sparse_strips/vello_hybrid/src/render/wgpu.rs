@@ -3156,14 +3156,15 @@ impl RendererContext<'_> {
         render_pass.draw(0..4, 0..instance_count);
     }
 
-    fn do_clear_stored_rects(&mut self, target: TextureTarget, label: &'static str) {
+    fn do_clear_rects(&mut self, target: TextureTarget, rects: &[RectU16], label: &'static str) {
         let target_size = self.layer_texture_size();
         self.scratch.clear_instances.clear();
         self.scratch.clear_instances.extend(
-            self.scratch
-                .clear_rects
+            rects
                 .iter()
-                .map(|rect| gpu_clear_instance(*rect, [target_size.0, target_size.1])),
+                .copied()
+                .filter(|rect| !rect.is_empty())
+                .map(|rect| gpu_clear_instance(rect, [target_size.0, target_size.1])),
         );
         self.do_clear_instances(target, label);
     }
@@ -3256,10 +3257,8 @@ impl RendererBackend for RendererContext<'_> {
         RendererContext::layer_texture_size(self)
     }
 
-    fn clear_rects(&mut self, target: TextureTarget, populate: impl FnOnce(&mut Vec<RectU16>)) {
-        self.scratch.clear_rects.clear();
-        populate(&mut self.scratch.clear_rects);
-        self.do_clear_stored_rects(target, "Clear Rects");
+    fn clear_rects(&mut self, target: TextureTarget, rects: &[RectU16]) {
+        self.do_clear_rects(target, rects, "Clear Rects");
     }
 }
 

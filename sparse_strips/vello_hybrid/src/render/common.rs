@@ -12,7 +12,6 @@ use crate::blend::GpuBlendInstance;
 use crate::copy::GpuCopyInstance;
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
-use vello_common::geometry::RectU16;
 use vello_common::multi_atlas::AtlasConfig;
 
 // GPU paint structure sizes in texels (1 texel = 16 bytes for RGBA32Uint texture format).
@@ -32,7 +31,6 @@ pub(crate) const IMAGE_PADDING: u16 = 0;
 /// Scratch allocations reused while rendering a frame.
 #[derive(Debug, Default)]
 pub(crate) struct ScratchBuffers {
-    pub(crate) clear_rects: Vec<RectU16>,
     #[cfg(feature = "wgpu")]
     pub(crate) clear_instances: Vec<GpuClearInstance>,
     pub(crate) blend_instances: Vec<GpuBlendInstance>,
