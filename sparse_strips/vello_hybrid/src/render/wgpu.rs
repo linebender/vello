@@ -938,10 +938,6 @@ struct GpuResources {
     filter_base_bind_group: BindGroup,
     /// Full-size layer/scratch texture dimension.
     layer_texture_size: u32,
-    /// Which layer atlas texture slots are currently allocated.
-    real_layer_textures: [bool; 2],
-    /// Which scratch texture slots are currently allocated.
-    real_scratch_textures: [bool; 2],
     /// Config buffer for rendering wide tile commands into the view texture.
     view_config_buffer: Buffer,
     /// Config buffer for rendering strips into a layer texture.
@@ -1000,25 +996,15 @@ impl GpuResources {
     }
 
     fn layer_binding_view(&self, index: usize) -> &WgpuTextureView {
-        if self.real_layer_textures[index] {
-            &self.layer_textures[index]
-                .as_ref()
-                .expect("vello_hybrid attempted to use a missing layer texture")
-                .view
-        } else {
-            &self.dummy_layer_texture.view
-        }
+        self.layer_textures[index]
+            .as_ref()
+            .map_or(&self.dummy_layer_texture.view, |texture| &texture.view)
     }
 
     fn scratch_binding_view(&self, index: usize) -> &WgpuTextureView {
-        if self.real_scratch_textures[index] {
-            &self.scratch_textures[index]
-                .as_ref()
-                .expect("vello_hybrid attempted to use a missing scratch texture")
-                .view
-        } else {
-            &self.dummy_scratch_texture.view
-        }
+        self.scratch_textures[index]
+            .as_ref()
+            .map_or(&self.dummy_scratch_texture.view, |texture| &texture.view)
     }
 
     fn layer_view(&self, index: usize) -> &WgpuTextureView {
@@ -1046,18 +1032,15 @@ impl GpuResources {
         &self,
         requirements: crate::schedule::TextureRequirements,
     ) -> bool {
-        self.real_layer_textures == requirements.layer_textures
-            && self.real_scratch_textures == requirements.scratch_textures
-            && self
-                .layer_textures
-                .iter()
-                .enumerate()
-                .all(|(index, texture)| texture.is_some() == requirements.layer_textures[index])
+        self.layer_textures
+            .iter()
+            .zip(requirements.layer_textures)
+            .all(|(texture, required)| texture.is_some() == required)
             && self
                 .scratch_textures
                 .iter()
-                .enumerate()
-                .all(|(index, texture)| texture.is_some() == requirements.scratch_textures[index])
+                .zip(requirements.scratch_textures)
+                .all(|(texture, required)| texture.is_some() == required)
     }
 }
 
@@ -1792,8 +1775,6 @@ impl Programs {
             filter_data_texture,
             filter_base_bind_group,
             layer_texture_size,
-            real_layer_textures: [false; 2],
-            real_scratch_textures: [false; 2],
             view_config_buffer,
         };
 
@@ -1915,8 +1896,6 @@ impl Programs {
                 None
             }
         });
-        self.resources.real_layer_textures = requirements.layer_textures;
-        self.resources.real_scratch_textures = requirements.scratch_textures;
 
         let (
             layer_filter_input_bind_groups,
@@ -2904,19 +2883,16 @@ impl RendererContext<'_> {
         let opaque_count = opaque_count as u32;
         let alpha_count = alpha_count as u32;
 
-        let (view, bind_group, scissor_rect): (&WgpuTextureView, &BindGroup, Option<[u32; 4]>) =
-            match target {
-                StripPassRenderTarget::Root(_) => (
-                    self.view,
-                    &self.programs.resources.root_layer_bind_groups[1],
-                    None,
-                ),
-                StripPassRenderTarget::LayerAtlas(texture_index) => (
-                    self.programs.resources.layer_view(texture_index),
-                    &self.programs.resources.layer_bind_groups[texture_index],
-                    None,
-                ),
-            };
+        let (view, bind_group): (&WgpuTextureView, &BindGroup) = match target {
+            StripPassRenderTarget::Root(_) => (
+                self.view,
+                &self.programs.resources.root_layer_bind_groups[1],
+            ),
+            StripPassRenderTarget::LayerAtlas(texture_index) => (
+                self.programs.resources.layer_view(texture_index),
+                &self.programs.resources.layer_bind_groups[texture_index],
+            ),
+        };
 
         let pipeline_idx = if matches!(
             target,
@@ -2928,9 +2904,12 @@ impl RendererContext<'_> {
             0
         };
 
-        let is_root_target = matches!(target, StripPassRenderTarget::Root(_));
+        let is_final_view = matches!(
+            target,
+            StripPassRenderTarget::Root(RootRenderTarget::UserSurface)
+        );
 
-        let depth_stencil_attachment = if is_root_target {
+        let depth_stencil_attachment = if is_final_view {
             let depth_load = if self.programs.depth_cleared_this_frame {
                 wgpu::LoadOp::Load
             } else {
@@ -2965,10 +2944,6 @@ impl RendererContext<'_> {
             timestamp_writes: None,
             multiview_mask: None,
         });
-        if let Some([x, y, width, height]) = scissor_rect {
-            render_pass.set_scissor_rect(x, y, width, height);
-        }
-
         render_pass.set_bind_group(0, bind_group, &[]);
         render_pass.set_bind_group(2, &self.programs.resources.encoded_paints_bind_group, &[]);
         render_pass.set_bind_group(3, &self.programs.resources.gradient_bind_group, &[]);
@@ -2977,8 +2952,8 @@ impl RendererContext<'_> {
         if opaque_count > 0 {
             // Opaque pass
             debug_assert!(
-                is_root_target,
-                "Layer targets need depth attachments before opaque strips can be enabled"
+                is_final_view,
+                "opaque strips require the final view depth attachment"
             );
             render_pass.set_pipeline(&self.programs.opaque_strip_pipelines[pipeline_idx]);
             render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
@@ -2987,7 +2962,7 @@ impl RendererContext<'_> {
 
         if alpha_count > 0 {
             // Alpha pass
-            if is_root_target {
+            if is_final_view {
                 render_pass.set_pipeline(&self.programs.alpha_strip_pipelines[pipeline_idx]);
             } else {
                 render_pass.set_pipeline(&self.programs.intermediate_strip_pipelines[pipeline_idx]);
@@ -3035,8 +3010,6 @@ impl RendererContext<'_> {
         if blend_ranges.is_empty() {
             return;
         }
-        self.programs.resources.scratch_view(BLEND_SCRATCH_INDEX);
-
         let blends = self.schedule_storage.buffers.blends.ranged(blend_ranges);
         let resources = &self.programs.resources;
         self.scratch.blend_instances.clear();
@@ -3132,8 +3105,6 @@ impl RendererContext<'_> {
         if passes.is_empty() {
             return;
         }
-        self.programs.resources.scratch_view(0);
-
         let resources = &self.programs.resources;
         for (step_index, step) in passes.steps.iter().enumerate() {
             let (input, output) = if step_index == 0 {
@@ -3339,12 +3310,19 @@ fn encode_filter_pass(
 }
 
 fn filter_input_bind_group(resources: &GpuResources, texture: TextureTarget) -> &BindGroup {
-    resources.texture_target_view(texture);
     match texture {
         TextureTarget::Layer0 | TextureTarget::Layer1 => {
+            assert!(
+                resources.layer_textures[texture.index()].is_some(),
+                "vello_hybrid attempted to sample a missing layer texture"
+            );
             &resources.layer_filter_input_bind_groups[texture.index()]
         }
         TextureTarget::Scratch0 | TextureTarget::Scratch1 => {
+            assert!(
+                resources.scratch_textures[texture.index()].is_some(),
+                "vello_hybrid attempted to sample a missing scratch texture"
+            );
             &resources.scratch_input_bind_groups[texture.index()]
         }
     }

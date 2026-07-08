@@ -33,6 +33,7 @@ pub(crate) const IMAGE_PADDING: u16 = 0;
 #[derive(Debug, Default)]
 pub(crate) struct ScratchBuffers {
     pub(crate) clear_rects: Vec<RectU16>,
+    #[cfg(feature = "wgpu")]
     pub(crate) clear_instances: Vec<GpuClearInstance>,
     pub(crate) blend_instances: Vec<GpuBlendInstance>,
     pub(crate) copy_instances: Vec<GpuCopyInstance>,

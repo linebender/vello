@@ -907,10 +907,6 @@ pub(crate) struct WebGlResources {
     layer_textures: [IntermediateTexture; 2],
     /// Dummy layer texture used when creating fixed-shape bindings.
     dummy_layer_texture: WebGlIntermediateTexture,
-    /// Which layer atlas texture slots are currently allocated.
-    real_layer_textures: [bool; 2],
-    /// Which scratch texture slots are currently allocated.
-    real_scratch_textures: [bool; 2],
 }
 
 type IntermediateTexture = Option<WebGlIntermediateTexture>;
@@ -933,14 +929,10 @@ impl WebGlIntermediateTexture {
 
 impl WebGlResources {
     fn layer_binding_texture(&self, index: usize) -> &Texture {
-        if self.real_layer_textures[index] {
-            self.layer_textures[index]
-                .as_ref()
-                .expect("vello_hybrid attempted to use a missing layer texture")
-                .binding_texture()
-        } else {
-            self.dummy_layer_texture.binding_texture()
-        }
+        self.layer_textures[index].as_ref().map_or_else(
+            || self.dummy_layer_texture.binding_texture(),
+            WebGlIntermediateTexture::binding_texture,
+        )
     }
 
     fn layer_texture(&self, index: usize) -> &Texture {
@@ -990,18 +982,15 @@ impl WebGlResources {
     }
 
     fn has_intermediate_textures(&self, requirements: TextureRequirements) -> bool {
-        self.real_layer_textures == requirements.layer_textures
-            && self.real_scratch_textures == requirements.scratch_textures
-            && self
-                .layer_textures
-                .iter()
-                .enumerate()
-                .all(|(index, texture)| texture.is_some() == requirements.layer_textures[index])
+        self.layer_textures
+            .iter()
+            .zip(requirements.layer_textures)
+            .all(|(texture, required)| texture.is_some() == required)
             && self
                 .scratch_textures
                 .iter()
-                .enumerate()
-                .all(|(index, texture)| texture.is_some() == requirements.scratch_textures[index])
+                .zip(requirements.scratch_textures)
+                .all(|(texture, required)| texture.is_some() == required)
     }
 }
 
@@ -1113,8 +1102,6 @@ impl WebGlPrograms {
                 None
             }
         });
-        self.resources.real_layer_textures = requirements.layer_textures;
-        self.resources.real_scratch_textures = requirements.scratch_textures;
     }
 
     /// Resize atlas texture array to accommodate more atlases.
@@ -2200,8 +2187,6 @@ fn create_webgl_resources(gl: &WebGl2RenderingContext, image_cache: &ImageCache)
         layer_config_buffer,
         layer_textures,
         dummy_layer_texture,
-        real_layer_textures: [false; 2],
-        real_scratch_textures: [false; 2],
     }
 }
 
