@@ -25,7 +25,7 @@ use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
     blend::{BLEND_SCRATCH_INDEX, GpuBlendInstance, gpu_blend_instance},
     copy::GpuCopyInstance,
-    filter::{FilterContext, FilterInstanceData, schedule},
+    filter::{FilterContext, FilterInstanceData},
     gradient_cache::GradientRampCache,
     render::{
         Config,
@@ -44,6 +44,7 @@ use crate::{
         ExternalTextureRun, RendererBackend, RootRenderTarget, ScheduleStorage,
         StripPassRenderTarget, TextureRequirements, TextureTarget,
         buffer::{RangedSlice, Ranges},
+        round::FilterPasses,
     },
 };
 use alloc::sync::Arc;
@@ -232,26 +233,6 @@ impl WebGlRenderer {
         }
     }
 
-    fn prepare_filter_textures(&mut self, scene: &Scene) {
-        self.filter_context.clear();
-
-        for layer_id in &scene.recorder.filter_layers {
-            let layer = &scene.recorder.layers[*layer_id as usize];
-            let vello_common::record::RecordedLayerKind::Filter { filter_data, .. } = &layer.kind
-            else {
-                continue;
-            };
-
-            let prepared_filter = vello_common::filter::PreparedFilter::new(
-                &filter_data.filter,
-                &filter_data.transform,
-            );
-            self.filter_context
-                .filters
-                .push(crate::filter::GpuFilterData::from(&prepared_filter));
-        }
-    }
-
     /// Render `scene` using WebGL2
     ///
     /// This method creates GPU resources as needed and schedules potentially multiple draw calls.
@@ -413,7 +394,7 @@ impl WebGlRenderer {
         let mut encoded_paints = scene.encoded_paints.borrow_mut();
         let original_scene_paint_count = encoded_paints.len();
 
-        self.prepare_filter_textures(scene);
+        self.filter_context.prepare(scene);
 
         self.prepare_gpu_encoded_paints(&encoded_paints, image_cache);
 
@@ -449,6 +430,7 @@ impl WebGlRenderer {
             root_output_target,
             &self.paint_idxs,
             &encoded_paints,
+            &self.filter_context,
         )?;
 
         // See: https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_invalidateframebuffer
@@ -2735,8 +2717,8 @@ impl WebGlRendererContext<'_> {
         self.gl.enable(WebGl2RenderingContext::BLEND);
     }
 
-    fn do_filter_layers_render_pass(&mut self, filter_ranges: &Ranges, texture_index: usize) {
-        if filter_ranges.is_empty() {
+    fn do_filter_layers_render_pass(&mut self, passes: &FilterPasses, texture_index: usize) {
+        if passes.is_empty() {
             return;
         }
         self.gl.disable(WebGl2RenderingContext::BLEND);
@@ -2769,15 +2751,8 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.filter_uniforms.layer_texture_1), 3);
 
-        let filters = self.schedule_storage.buffers.filters.ranged(filter_ranges);
         let target_texture_size = self.layer_texture_size_u16();
-        schedule(
-            filters.iter().copied(),
-            target_texture_size,
-            &mut self.scratch.filter_passes,
-        );
-
-        for (step_index, step) in self.scratch.filter_passes.steps.iter().enumerate() {
+        for (step_index, step) in passes.steps.iter().enumerate() {
             let (input, output) = if step_index == 0 {
                 (TextureTarget::layer(texture_index), TextureTarget::Scratch0)
             } else if step_index % 2 == 1 {
@@ -2785,7 +2760,12 @@ impl WebGlRendererContext<'_> {
             } else {
                 (TextureTarget::Scratch1, TextureTarget::Scratch0)
             };
-            self.do_filter_instance_pass(step, input, output, target_texture_size);
+            self.do_filter_instance_pass(
+                &self.schedule_storage.buffers.filter_instances[step.clone()],
+                input,
+                output,
+                target_texture_size,
+            );
         }
 
         self.gl
@@ -2799,12 +2779,8 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.blend_copy_uniforms.scratch_texture), 0);
 
-        if self.scratch.filter_passes.copy_back.is_empty() {
-            return;
-        }
-
-        self.programs
-            .upload_copy_instances(self.gl, &self.scratch.filter_passes.copy_back);
+        let copy_back = &self.schedule_storage.buffers.filter_copies[passes.copy_back.clone()];
+        self.programs.upload_copy_instances(self.gl, copy_back);
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
             Some(self.programs.resources.layer_framebuffer(texture_index)),
@@ -2819,7 +2795,7 @@ impl WebGlRendererContext<'_> {
             WebGl2RenderingContext::TRIANGLE_STRIP,
             0,
             4,
-            i32::try_from(self.scratch.filter_passes.copy_back.len()).unwrap(),
+            i32::try_from(copy_back.len()).unwrap(),
         );
 
         self.gl.bind_vertex_array(None);
@@ -2939,8 +2915,8 @@ impl RendererBackend for WebGlRendererContext<'_> {
         self.do_blend_render_pass(blends, texture_index);
     }
 
-    fn apply_filters(&mut self, filters: &Ranges, texture_index: usize) {
-        self.do_filter_layers_render_pass(filters, texture_index);
+    fn apply_filters(&mut self, passes: &FilterPasses, texture_index: usize) {
+        self.do_filter_layers_render_pass(passes, texture_index);
     }
 
     fn layer_texture_size(&self) -> (u32, u32) {

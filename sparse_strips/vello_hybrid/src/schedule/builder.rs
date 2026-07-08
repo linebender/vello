@@ -11,12 +11,11 @@ use super::pool::Pools;
 use super::round::{BlendOp, FilterOp, Rounds};
 use super::{LayerTextureRegion, RenderTarget, RootRenderTarget, Schedule, TextureRegion};
 use crate::blend::BLEND_SCRATCH_INDEX;
-use crate::filter::GpuFilterData;
+use crate::filter::{FilterContext, FilterPlanScratch, PreparedGpuFilter, build_filter_plan};
 use crate::paint::Paints;
 use crate::scene::RecordedDraw;
 use crate::{RenderError, Scene};
 use alloc::vec::Vec;
-use vello_common::filter::PreparedFilter;
 use vello_common::geometry::RectU16;
 use vello_common::multi_atlas::AtlasError;
 use vello_common::peniko::{BlendMode, Compose};
@@ -33,10 +32,11 @@ pub(super) struct ScheduleBuilder<'a, 'p> {
     paints: Paints<'a>,
     cursor: Cursor<Atlases>,
     layer_allocations: Vec<Option<ScheduledLayer>>,
-    filter_data_offsets: Vec<Option<u32>>,
+    filter_context: &'a FilterContext,
     layer_texture_size: (u32, u32),
     buffers: &'p mut ScheduleBuffers,
     pools: &'p mut Pools,
+    filter_plan_scratch: &'p mut FilterPlanScratch,
 }
 
 impl<'a, 'p> ScheduleBuilder<'a, 'p> {
@@ -45,29 +45,24 @@ impl<'a, 'p> ScheduleBuilder<'a, 'p> {
         strip_storage: &'a StripStorage,
         root_render_target: RootRenderTarget,
         paints: Paints<'a>,
+        filter_context: &'a FilterContext,
         layer_texture_size: (u32, u32),
         pools: &'p mut Pools,
         buffers: &'p mut ScheduleBuffers,
+        filter_plan_scratch: &'p mut FilterPlanScratch,
     ) -> Self {
-        let layer_count = scene.recorder.layers.len();
-        let mut filter_data_offsets = alloc::vec![None; layer_count];
-        let mut filter_data_offset = 0;
-        for layer_id in &scene.recorder.filter_layers {
-            filter_data_offsets[*layer_id as usize] = Some(filter_data_offset);
-            filter_data_offset += GpuFilterData::SIZE_TEXELS;
-        }
-
         Self {
             scene,
             strip_storage,
             root_render_target,
             paints,
             cursor: Cursor::new(Atlases::new(layer_texture_size)),
-            layer_allocations: alloc::vec![None; layer_count],
-            filter_data_offsets,
+            layer_allocations: alloc::vec![None; scene.recorder.layers.len()],
+            filter_context,
             layer_texture_size,
             buffers,
             pools,
+            filter_plan_scratch,
         }
     }
 
@@ -88,6 +83,7 @@ impl<'a, 'p> ScheduleBuilder<'a, 'p> {
             return Err(error);
         }
         opaque_strips.reverse();
+        self.build_filter_plans(&mut rounds);
 
         Ok(Schedule {
             opaque_strips,
@@ -160,6 +156,47 @@ impl<'a, 'p> ScheduleBuilder<'a, 'p> {
         }
 
         Ok(())
+    }
+
+    fn build_filter_plans(&mut self, rounds: &mut Rounds) {
+        let target_texture_size = (
+            u16::try_from(self.layer_texture_size.0)
+                .expect("layer texture width must fit into u16"),
+            u16::try_from(self.layer_texture_size.1)
+                .expect("layer texture height must fit into u16"),
+        );
+        let ScheduleBuffers {
+            filter_ops,
+            filter_instances,
+            filter_copies,
+            ..
+        } = &mut *self.buffers;
+
+        for round in &mut rounds.rounds {
+            for layer_pass in &mut round.layer_passes {
+                let filter_ops = filter_ops.ranged(&layer_pass.filter_ranges);
+                build_filter_plan(
+                    filter_ops.iter().copied(),
+                    target_texture_size,
+                    self.filter_plan_scratch,
+                );
+
+                layer_pass.filter_passes.steps.clear();
+                let step_count = self
+                    .filter_plan_scratch
+                    .steps
+                    .iter()
+                    .rposition(|step| !step.is_empty())
+                    .map_or(0, |index| index + 1);
+                layer_pass.filter_passes.steps.extend(
+                    self.filter_plan_scratch.steps[..step_count]
+                        .iter()
+                        .map(|step| filter_instances.extend_from_slice(step)),
+                );
+                layer_pass.filter_passes.copy_back =
+                    filter_copies.extend_from_slice(&self.filter_plan_scratch.copy_back);
+            }
+        }
     }
 
     fn schedule_command_stream(
@@ -355,8 +392,8 @@ impl<'a, 'p> ScheduleBuilder<'a, 'p> {
                     layer_region: target.region,
                     scratches: allocation_filter
                         .map(|scratch| scratch.map(|scratch| scratch.texture.region)),
-                    filter_data_offset: filter.filter_data_offset,
-                    gpu_filter: filter.gpu_filter,
+                    filter_data_offset: filter.data_offset,
+                    gpu_filter: filter.data,
                 },
             );
         }
@@ -538,21 +575,6 @@ impl<'a, 'p> ScheduleBuilder<'a, 'p> {
         Ok((allocation, region))
     }
 
-    fn filter_info(&self, layer_id: u32) -> Option<ScheduledFilter> {
-        let layer = &self.scene.recorder.layers[layer_id as usize];
-        let RecordedLayerKind::Filter { filter_data, .. } = &layer.kind else {
-            return None;
-        };
-
-        let prepared_filter = PreparedFilter::new(&filter_data.filter, &filter_data.transform);
-        let gpu_filter = GpuFilterData::from(&prepared_filter);
-        Some(ScheduledFilter {
-            filter_data_offset: self.filter_data_offsets[layer_id as usize]
-                .expect("filter layer must have a filter data offset"),
-            gpu_filter,
-        })
-    }
-
     fn layer_sample(&self, layer_id: u32, allocation: LayerTextureRegion) -> LayerSample {
         let layer = &self.scene.recorder.layers[layer_id as usize];
         let RecordedLayerKind::Filter { placement, .. } = &layer.kind else {
@@ -589,11 +611,11 @@ impl<'a, 'p> ScheduleBuilder<'a, 'p> {
         target: &'b mut Option<LayerCommandTarget>,
     ) -> Result<&'b mut LayerCommandTarget, RenderError> {
         if target.is_none() {
-            let filter = self.filter_info(layer_id);
+            let filter = self.filter_context.get(layer_id);
             let (allocation, region) = self.allocate_region(
                 texture_index,
                 bbox,
-                filter.map_or(0, ScheduledFilter::scratch_count),
+                filter.map_or(0, PreparedGpuFilter::scratch_count),
             )?;
             let stream = CommandStreamState::new(
                 RenderTarget::Layer(region),
@@ -649,24 +671,8 @@ struct ScheduledLayer {
 struct LayerCommandTarget {
     allocation: LayerAllocation,
     region: LayerTextureRegion,
-    filter: Option<ScheduledFilter>,
+    filter: Option<PreparedGpuFilter>,
     stream: CommandStreamState,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct ScheduledFilter {
-    filter_data_offset: u32,
-    gpu_filter: GpuFilterData,
-}
-
-impl ScheduledFilter {
-    fn scratch_count(self) -> usize {
-        if self.gpu_filter.is_multi_pass() {
-            2
-        } else {
-            1
-        }
-    }
 }
 
 #[derive(Debug)]

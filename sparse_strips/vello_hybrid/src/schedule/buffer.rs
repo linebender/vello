@@ -5,6 +5,8 @@
 
 use super::round::{BlendOp, FilterOp};
 use crate::GpuStrip;
+use crate::copy::GpuCopyInstance;
+use crate::filter::FilterInstanceData;
 use alloc::vec::Vec;
 use core::ops::{Index, Range};
 use core::slice::SliceIndex;
@@ -47,14 +49,18 @@ impl Clear for Ranges {
 #[derive(Debug, Default)]
 pub(crate) struct ScheduleBuffers {
     pub(crate) strips: RangedBuffer<GpuStrip>,
-    pub(crate) filters: RangedBuffer<FilterOp>,
+    pub(crate) filter_ops: RangedBuffer<FilterOp>,
+    pub(crate) filter_instances: RangedBuffer<FilterInstanceData>,
+    pub(crate) filter_copies: RangedBuffer<GpuCopyInstance>,
     pub(crate) blends: RangedBuffer<BlendOp>,
 }
 
 impl ScheduleBuffers {
     pub(super) fn clear(&mut self) {
         self.strips.clear();
-        self.filters.clear();
+        self.filter_ops.clear();
+        self.filter_instances.clear();
+        self.filter_copies.clear();
         self.blends.clear();
     }
 }
@@ -76,6 +82,15 @@ impl<T> RangedBuffer<T> {
         let end = self.values.len();
         let index = end - 1;
         ranges.push(index..end);
+    }
+
+    pub(super) fn extend_from_slice(&mut self, values: &[T]) -> Range<usize>
+    where
+        T: Copy,
+    {
+        let start = self.values.len();
+        self.values.extend_from_slice(values);
+        start..self.values.len()
     }
 
     pub(crate) fn ranged<'a>(&'a self, ranges: &'a Ranges) -> RangedSlice<'a, T> {

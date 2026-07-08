@@ -9,8 +9,10 @@ use super::pool::Pools;
 use super::{LayerTextureRegion, TextureRegion};
 use crate::filter::GpuFilterData;
 use alloc::vec::Vec;
+use core::ops::Range;
 use vello_common::geometry::RectU16;
 use vello_common::peniko::BlendMode;
+use vello_common::util::Clear;
 
 #[derive(Debug, Default)]
 pub(super) struct Rounds {
@@ -52,7 +54,7 @@ impl Round {
         filter: FilterOp,
     ) {
         buffers
-            .filters
+            .filter_ops
             .push(&mut self.layer_passes[texture_index].filter_ranges, filter);
     }
 }
@@ -75,7 +77,27 @@ impl Rounds {
 pub(super) struct LayerPass {
     pub(super) draw: Draw,
     pub(super) filter_ranges: Ranges,
+    pub(super) filter_passes: FilterPasses,
     pub(super) blend_ranges: Ranges,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct FilterPasses {
+    pub(crate) steps: Vec<Range<usize>>,
+    pub(crate) copy_back: Range<usize>,
+}
+
+impl FilterPasses {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.copy_back.is_empty()
+    }
+}
+
+impl Clear for FilterPasses {
+    fn clear(&mut self) {
+        self.steps.clear();
+        self.copy_back = 0..0;
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

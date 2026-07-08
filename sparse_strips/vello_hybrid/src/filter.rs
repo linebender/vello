@@ -8,11 +8,11 @@
 // expanded filter bounds rather than only the raw layer contents. Multi-pass filters also reserve
 // regions in the two scratch textures used for ping-ponging.
 //
-// At render time, each round first renders the layer contents into the allocated layer texture
-// region. Before that layer is blended or sampled by its parent, the filter step runs over all
-// filter layers scheduled for that texture in the round. The filter planner expands each filter
-// into a sequence of GPU passes such as offset, downscale, blur, upscale, and drop-shadow
-// composite. Passes at the same step with matching input/output textures are batched together.
+// While building the schedule, the filter planner expands each filter into a sequence of GPU
+// passes such as offset, downscale, blur, upscale, and drop-shadow composite. Passes at the same
+// step with matching input/output textures are batched together. At render time, each round first
+// renders the layer contents into the allocated layer texture region, then the backend executes
+// the already-planned filter passes before the layer is blended or sampled by its parent.
 //
 // The final filtered pixels are normalized into scratch texture 0 and then copied back into the
 // layer texture allocation. From that point on, the rest of the scheduler can treat the layer like
@@ -21,6 +21,7 @@
 
 //! GPU filter types and conversion utilities.
 
+use crate::Scene;
 use crate::copy::GpuCopyInstance;
 use crate::schedule::{TextureRegion, TextureTarget, round::FilterOp};
 use crate::util::{IntRect, IntSize, pack_u16_pair};
@@ -392,16 +393,33 @@ pub(crate) struct FilterInstanceData {
 pub(crate) struct FilterContext {
     /// The encoded data for each filter used in the current scene that will be uploaded to the
     /// filter data texture.
-    pub(crate) filters: Vec<GpuFilterData>,
+    filters: Vec<GpuFilterData>,
+    layer_filters: Vec<Option<PreparedGpuFilter>>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PreparedGpuFilter {
+    pub(crate) data_offset: u32,
+    pub(crate) data: GpuFilterData,
+}
+
+impl PreparedGpuFilter {
+    pub(crate) fn scratch_count(self) -> usize {
+        if self.data.is_multi_pass() {
+            return 2;
+        }
+
+        1
+    }
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct ScheduledFilterPasses {
+pub(crate) struct FilterPlanScratch {
     pub(crate) steps: Vec<Vec<FilterInstanceData>>,
     pub(crate) copy_back: Vec<GpuCopyInstance>,
 }
 
-impl ScheduledFilterPasses {
+impl FilterPlanScratch {
     fn clear(&mut self) {
         for step in &mut self.steps {
             step.clear();
@@ -419,10 +437,10 @@ impl ScheduledFilterPasses {
     }
 }
 
-pub(crate) fn schedule(
+pub(crate) fn build_filter_plan(
     filters: impl IntoIterator<Item = FilterOp>,
     target_texture_size: (u16, u16),
-    passes: &mut ScheduledFilterPasses,
+    passes: &mut FilterPlanScratch,
 ) {
     passes.clear();
 
@@ -447,7 +465,7 @@ pub(crate) fn schedule(
         }
 
         builder.ensure_result_in_scratch0();
-        builder.copy_back(&filter, target_texture_size);
+        builder.copy_back();
     }
 }
 
@@ -455,7 +473,7 @@ pub(crate) fn schedule(
 struct FilterPassBuilder<'a> {
     op: FilterOp,
     target_texture_size: (u16, u16),
-    passes: &'a mut ScheduledFilterPasses,
+    passes: &'a mut FilterPlanScratch,
     sizer: DecimationSizer,
     original: TextureTarget,
     current_scratch: Option<usize>,
@@ -466,7 +484,7 @@ impl<'a> FilterPassBuilder<'a> {
     fn new(
         op: FilterOp,
         target_texture_size: (u16, u16),
-        passes: &'a mut ScheduledFilterPasses,
+        passes: &'a mut FilterPlanScratch,
     ) -> Self {
         let mut sizer = DecimationSizer::default();
         sizer.reset(
@@ -599,25 +617,29 @@ impl<'a> FilterPassBuilder<'a> {
     fn other_data(&self, kind: u32) -> u32 {
         const OTHER_DATA_LAYER_TEXTURE_INDEX_SHIFT: u32 = 31;
 
-        debug_assert!(self.op.layer_region.texture.texture_index <= 1);
-        kind | ((self.op.layer_region.texture.texture_index as u32)
-            << OTHER_DATA_LAYER_TEXTURE_INDEX_SHIFT)
+        let texture_index = u32::try_from(self.op.layer_region.texture.texture_index)
+            .expect("layer texture index must fit into u32");
+        debug_assert!(texture_index <= 1, "layer texture index must fit in 1 bit");
+        kind | (texture_index << OTHER_DATA_LAYER_TEXTURE_INDEX_SHIFT)
     }
 
-    fn copy_back(&mut self, filter: &FilterOp, target_texture_size: (u16, u16)) {
-        let scratch = filter.scratches[0].expect("filter copy requires scratch texture 0");
+    fn copy_back(&mut self) {
+        let scratch = self.op.scratches[0].expect("filter copy requires scratch texture 0");
 
         let copy_instance = GpuCopyInstance {
             target_texture_origin: pack_u16_pair(
-                filter.layer_region.texture.rect.x0,
-                filter.layer_region.texture.rect.y0,
+                self.op.layer_region.texture.rect.x0,
+                self.op.layer_region.texture.rect.y0,
             ),
             source_texture_origin: pack_u16_pair(scratch.rect.x0, scratch.rect.y0),
             copy_rect_size: pack_u16_pair(
-                filter.layer_region.texture.rect.width(),
-                filter.layer_region.texture.rect.height(),
+                self.op.layer_region.texture.rect.width(),
+                self.op.layer_region.texture.rect.height(),
             ),
-            target_texture_size: pack_u16_pair(target_texture_size.0, target_texture_size.1),
+            target_texture_size: pack_u16_pair(
+                self.target_texture_size.0,
+                self.target_texture_size.1,
+            ),
         };
 
         self.passes.copy_back.push(copy_instance);
@@ -628,11 +650,32 @@ impl FilterContext {
     pub(crate) fn new() -> Self {
         Self {
             filters: Vec::new(),
+            layer_filters: Vec::new(),
         }
     }
 
-    pub(crate) fn clear(&mut self) {
+    pub(crate) fn prepare(&mut self, scene: &Scene) {
         self.filters.clear();
+        self.layer_filters.clear();
+        self.layer_filters.resize(scene.recorder.layers.len(), None);
+
+        let mut data_offset = 0;
+        for layer_id in &scene.recorder.filter_layers {
+            let layer = &scene.recorder.layers[*layer_id as usize];
+            let vello_common::record::RecordedLayerKind::Filter { filter_data, .. } = &layer.kind
+            else {
+                unreachable!("recorded filter layer must contain filter data");
+            };
+            let prepared = PreparedFilter::new(&filter_data.filter, &filter_data.transform);
+            let data = GpuFilterData::from(&prepared);
+            self.filters.push(data);
+            self.layer_filters[*layer_id as usize] = Some(PreparedGpuFilter { data_offset, data });
+            data_offset += GpuFilterData::SIZE_TEXELS;
+        }
+    }
+
+    pub(crate) fn get(&self, layer_id: u32) -> Option<PreparedGpuFilter> {
+        self.layer_filters[layer_id as usize]
     }
 
     pub(crate) fn is_empty(&self) -> bool {

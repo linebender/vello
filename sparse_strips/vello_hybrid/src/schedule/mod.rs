@@ -14,7 +14,8 @@ pub(crate) mod round;
 use self::buffer::{Ranges, ScheduleBuffers};
 use self::builder::ScheduleBuilder;
 use self::pool::Pools;
-use self::round::Rounds;
+use self::round::{FilterPasses, Rounds};
+use crate::filter::{FilterContext, FilterPlanScratch};
 use crate::paint::Paints;
 use crate::schedule::draw::{Draw, OpaqueStrips};
 use crate::{GpuStrip, RenderError, Scene};
@@ -136,6 +137,7 @@ struct Schedule {
 pub(crate) struct ScheduleStorage {
     pools: Pools,
     pub(crate) buffers: ScheduleBuffers,
+    filter_plan_scratch: FilterPlanScratch,
 }
 
 pub(crate) trait RendererBackend {
@@ -166,7 +168,7 @@ pub(crate) trait RendererBackend {
     fn blend(&mut self, blends: &Ranges, texture_index: usize);
 
     /// Apply filter operations to already-rendered layer atlas regions.
-    fn apply_filters(&mut self, filters: &Ranges, texture_index: usize);
+    fn apply_filters(&mut self, passes: &FilterPasses, texture_index: usize);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -212,27 +214,34 @@ pub(crate) fn render_scene<R: RendererBackend>(
     root_output_target: RootRenderTarget,
     paint_idxs: &[u32],
     encoded_paints: &[EncodedPaint],
+    filter_context: &FilterContext,
 ) -> Result<(), RenderError> {
     renderer.prepare_intermediate_textures(TextureRequirements::for_scene(scene));
     let strip_storage = scene.strip_storage.borrow();
     let paints = Paints::new(encoded_paints, paint_idxs);
     let layer_texture_size = renderer.layer_texture_size();
     let schedule = {
-        let ScheduleStorage { pools, buffers } = renderer.schedule_storage();
+        let ScheduleStorage {
+            pools,
+            buffers,
+            filter_plan_scratch,
+        } = renderer.schedule_storage();
         buffers.clear();
         let mut builder = ScheduleBuilder::new(
             scene,
             &strip_storage,
             root_output_target,
             paints,
+            filter_context,
             layer_texture_size,
             pools,
             buffers,
+            filter_plan_scratch,
         );
         builder.build()?
     };
     schedule.execute(renderer, root_output_target);
-    let ScheduleStorage { pools, buffers } = renderer.schedule_storage();
+    let ScheduleStorage { pools, buffers, .. } = renderer.schedule_storage();
     schedule.recycle(pools);
     buffers.clear();
     Ok(())
@@ -265,7 +274,7 @@ impl Rounds {
                     StripPassRenderTarget::LayerAtlas(texture_index),
                 );
 
-                renderer.apply_filters(&layer_round.filter_ranges, texture_index);
+                renderer.apply_filters(&layer_round.filter_passes, texture_index);
             }
 
             Self::execute_root_pass(renderer, &round.root_draw, root_output_target);

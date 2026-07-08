@@ -23,7 +23,7 @@ use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
     blend::{BLEND_SCRATCH_INDEX, GpuBlendInstance, gpu_blend_instance},
     copy::GpuCopyInstance,
-    filter::{FilterContext, FilterInstanceData, schedule},
+    filter::{FilterContext, FilterInstanceData},
     gradient_cache::GradientRampCache,
     render::{
         Config,
@@ -42,6 +42,7 @@ use crate::{
         ExternalTextureRun, RendererBackend, RootRenderTarget, ScheduleStorage,
         StripPassRenderTarget, TextureTarget,
         buffer::{RangedSlice, Ranges},
+        round::FilterPasses,
     },
 };
 use alloc::vec::Vec;
@@ -49,7 +50,7 @@ use alloc::{sync::Arc, vec};
 use core::{fmt::Debug, num::NonZeroU64};
 use hashbrown::{HashMap, hash_map::Entry};
 use vello_common::image_cache::{ImageCache, ImageResource};
-use vello_common::multi_atlas::{AtlasConfig, AtlasError, AtlasId};
+use vello_common::multi_atlas::{AtlasConfig, AtlasId};
 use vello_common::{
     TextureId,
     encode::{
@@ -216,57 +217,6 @@ impl Renderer {
         }
     }
 
-    fn prepare_filter_textures(
-        &mut self,
-        scene: &Scene,
-        _device: &Device,
-        encoder: &mut CommandEncoder,
-        _image_cache: &mut ImageCache,
-        _encoded_paints: &mut Vec<EncodedPaint>,
-    ) -> Result<(), AtlasError> {
-        // TODO: Maybe we can do the clear implicitly when using the textures for the first time.
-        if !self.filter_context.is_empty() {
-            for texture_index in self.programs.resources.real_scratch_texture_indices() {
-                let _pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                    label: Some("Clear Filter Scratch Texture"),
-                    color_attachments: &[Some(RenderPassColorAttachment {
-                        view: self.programs.resources.scratch_view(texture_index),
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    })],
-                    depth_stencil_attachment: None,
-                    occlusion_query_set: None,
-                    timestamp_writes: None,
-                    multiview_mask: None,
-                });
-            }
-        }
-
-        self.filter_context.clear();
-
-        for layer_id in &scene.recorder.filter_layers {
-            let layer = &scene.recorder.layers[*layer_id as usize];
-            let vello_common::record::RecordedLayerKind::Filter { filter_data, .. } = &layer.kind
-            else {
-                continue;
-            };
-
-            let prepared_filter = vello_common::filter::PreparedFilter::new(
-                &filter_data.filter,
-                &filter_data.transform,
-            );
-            self.filter_context
-                .filters
-                .push(crate::filter::GpuFilterData::from(&prepared_filter));
-        }
-
-        Ok(())
-    }
-
     /// Render `scene`.
     ///
     /// Every [`TextureId`] referenced by the scene must have a binding; this returns
@@ -318,14 +268,6 @@ impl Renderer {
 
         let mut encoded_paints = scene.encoded_paints.borrow_mut();
         let scene_paint_count = encoded_paints.len();
-
-        self.prepare_filter_textures(
-            scene,
-            device,
-            encoder,
-            &mut resources.image_cache,
-            &mut encoded_paints,
-        )?;
 
         let result = self.render_scene(
             scene,
@@ -479,6 +421,7 @@ impl Renderer {
         texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
         self.programs.depth_cleared_this_frame = false;
+        self.filter_context.prepare(scene);
         self.prepare_gpu_encoded_paints(encoded_paints, image_cache, texture_bindings)?;
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
@@ -514,6 +457,7 @@ impl Renderer {
             root_output_target,
             &self.paint_idxs,
             encoded_paints,
+            &self.filter_context,
         )?;
         self.gradient_cache.maintain();
 
@@ -1114,13 +1058,6 @@ impl GpuResources {
                 .iter()
                 .enumerate()
                 .all(|(index, texture)| texture.is_some() == requirements.scratch_textures[index])
-    }
-
-    fn real_scratch_texture_indices(&self) -> impl Iterator<Item = usize> + '_ {
-        self.real_scratch_textures
-            .iter()
-            .enumerate()
-            .filter_map(|(index, is_real)| is_real.then_some(index))
     }
 }
 
@@ -3191,21 +3128,14 @@ impl RendererContext<'_> {
         }
     }
 
-    fn do_filter_layers_render_pass(&mut self, filter_ranges: &Ranges, texture_index: usize) {
-        if filter_ranges.is_empty() {
+    fn do_filter_layers_render_pass(&mut self, passes: &FilterPasses, texture_index: usize) {
+        if passes.is_empty() {
             return;
         }
         self.programs.resources.scratch_view(0);
 
-        let filters = self.schedule_storage.buffers.filters.ranged(filter_ranges);
-        schedule(
-            filters.iter().copied(),
-            self.layer_texture_size_u16(),
-            &mut self.scratch.filter_passes,
-        );
-
         let resources = &self.programs.resources;
-        for (step_index, step) in self.scratch.filter_passes.steps.iter().enumerate() {
+        for (step_index, step) in passes.steps.iter().enumerate() {
             let (input, output) = if step_index == 0 {
                 (TextureTarget::layer(texture_index), TextureTarget::Scratch0)
             } else if step_index % 2 == 1 {
@@ -3218,22 +3148,19 @@ impl RendererContext<'_> {
                 self.encoder,
                 resources,
                 &self.programs.filter_pipeline,
-                step,
+                &self.schedule_storage.buffers.filter_instances[step.clone()],
                 input,
                 output,
             );
         }
 
-        if self.scratch.filter_passes.copy_back.is_empty() {
-            return;
-        }
-
-        let instance_count = u32::try_from(self.scratch.filter_passes.copy_back.len()).unwrap();
+        let copy_back = &self.schedule_storage.buffers.filter_copies[passes.copy_back.clone()];
+        let instance_count = u32::try_from(copy_back.len()).unwrap();
         let instance_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Filter Copy Instances Buffer"),
-                contents: bytemuck::cast_slice(&self.scratch.filter_passes.copy_back),
+                contents: bytemuck::cast_slice(copy_back),
                 usage: wgpu::BufferUsages::VERTEX,
             });
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
@@ -3350,8 +3277,8 @@ impl RendererBackend for RendererContext<'_> {
         self.do_blend_render_pass(blends, texture_index);
     }
 
-    fn apply_filters(&mut self, filters: &Ranges, texture_index: usize) {
-        self.do_filter_layers_render_pass(filters, texture_index);
+    fn apply_filters(&mut self, passes: &FilterPasses, texture_index: usize) {
+        self.do_filter_layers_render_pass(passes, texture_index);
     }
 
     fn layer_texture_size(&self) -> (u32, u32) {

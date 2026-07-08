@@ -10,7 +10,6 @@
 
 use crate::blend::GpuBlendInstance;
 use crate::copy::GpuCopyInstance;
-use crate::filter::ScheduledFilterPasses;
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use vello_common::geometry::RectU16;
@@ -37,7 +36,6 @@ pub(crate) struct ScratchBuffers {
     pub(crate) clear_instances: Vec<GpuClearInstance>,
     pub(crate) blend_instances: Vec<GpuBlendInstance>,
     pub(crate) copy_instances: Vec<GpuCopyInstance>,
-    pub(crate) filter_passes: ScheduledFilterPasses,
 }
 
 #[repr(C)]
