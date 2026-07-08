@@ -3,7 +3,7 @@
 
 //! Persistent renderer resources shared across frames.
 
-#[cfg(feature = "text")]
+#[cfg(all(feature = "text", any(feature = "webgl", feature = "wgpu")))]
 use crate::text::GlyphAtlasResources;
 #[cfg(feature = "text")]
 use glifo::GlyphPrepCache;
@@ -13,10 +13,17 @@ use vello_common::multi_atlas::AtlasConfig;
 /// Persistent resources required by Vello Hybrid for rendering.
 #[derive(Debug)]
 pub struct Resources {
+    #[cfg_attr(
+        not(any(feature = "webgl", feature = "wgpu")),
+        expect(
+            dead_code,
+            reason = "this is used by renderer backends, which may be disabled"
+        )
+    )]
     pub(crate) image_cache: ImageCache,
     #[cfg(feature = "text")]
     pub(crate) glyph_prep_cache: GlyphPrepCache,
-    #[cfg(feature = "text")]
+    #[cfg(all(feature = "text", any(feature = "webgl", feature = "wgpu")))]
     pub(crate) glyph_resources: Option<GlyphAtlasResources>,
 }
 
@@ -28,7 +35,7 @@ impl Resources {
             #[cfg(feature = "text")]
             glyph_prep_cache: GlyphPrepCache::default(),
             // Will be initialized lazily.
-            #[cfg(feature = "text")]
+            #[cfg(all(feature = "text", any(feature = "webgl", feature = "wgpu")))]
             glyph_resources: None,
         }
     }

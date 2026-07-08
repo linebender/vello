@@ -1156,16 +1156,16 @@ impl Scene {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(feature = "text")]
+    #[cfg(all(feature = "text", any(feature = "webgl", feature = "wgpu")))]
     use crate::resources::Resources;
-    #[cfg(feature = "text")]
+    #[cfg(all(feature = "text", any(feature = "webgl", feature = "wgpu")))]
     use alloc::sync::Arc;
     use core::f64::consts::PI;
-    #[cfg(feature = "text")]
+    #[cfg(all(feature = "text", any(feature = "webgl", feature = "wgpu")))]
     use glifo::Glyph;
     use vello_common::kurbo::{Affine, Point, Rect};
     use vello_common::peniko::Color;
-    #[cfg(feature = "text")]
+    #[cfg(all(feature = "text", any(feature = "webgl", feature = "wgpu")))]
     use vello_common::peniko::{Blob, FontData};
 
     // These tests serve the purpose of ensuring that the logic for selecting fast paths
@@ -1249,7 +1249,7 @@ mod tests {
         assert!(is_rect(&cmds[2]));
     }
 
-    #[cfg(feature = "text")]
+    #[cfg(all(feature = "text", any(feature = "webgl", feature = "wgpu")))]
     #[test]
     fn glyph_atlas_resources_are_lazy() {
         const ROBOTO_FONT: &[u8] =

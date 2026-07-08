@@ -12,28 +12,34 @@
 
 use core::ops::RangeInclusive;
 
-use crate::{AtlasId, Resources, Scene};
+#[cfg(any(feature = "webgl", feature = "wgpu"))]
+use crate::AtlasId;
+use crate::{Resources, Scene};
+#[cfg(any(feature = "webgl", feature = "wgpu"))]
 use glifo::atlas::{PendingBitmapUpload, PendingClearRect};
+#[cfg(any(feature = "webgl", feature = "wgpu"))]
 use glifo::renderer::replay_atlas_commands;
-use glifo::{
-    AtlasCacher, AtlasSlot, DrawSink, GLYPH_PADDING, Glyph, GlyphAtlas, GlyphCacheConfig,
-    GlyphRunBackend, ImageCache,
-};
+use glifo::{AtlasCacher, AtlasSlot, DrawSink, GLYPH_PADDING, Glyph, GlyphRunBackend};
+#[cfg(any(feature = "webgl", feature = "wgpu"))]
+use glifo::{GlyphAtlas, GlyphCacheConfig, ImageCache};
 use peniko::BlendMode;
 use peniko::color::palette::css::BLACK;
 use peniko::color::{AlphaColor, Srgb};
 use vello_common::kurbo::{Affine, BezPath, Rect};
+#[cfg(any(feature = "webgl", feature = "wgpu"))]
 use vello_common::multi_atlas::AtlasConfig;
 use vello_common::paint::{Image, ImageSource, PaintType};
 use vello_common::peniko;
 
 /// Glyph atlas cache for the hybrid (GPU) renderer.
 #[derive(Debug)]
+#[cfg(any(feature = "webgl", feature = "wgpu"))]
 pub(crate) struct GlyphAtlasResources {
     pub(crate) glyph_atlas: GlyphAtlas,
     pub(crate) glyph_renderer: Scene,
 }
 
+#[cfg(any(feature = "webgl", feature = "wgpu"))]
 impl GlyphAtlasResources {
     pub(crate) fn with_config(
         atlas_width: u16,
@@ -51,6 +57,7 @@ impl GlyphAtlasResources {
     }
 }
 
+#[cfg(any(feature = "webgl", feature = "wgpu"))]
 impl Resources {
     fn ensure_glyph_resources(&mut self) {
         if self.glyph_resources.is_none() {
@@ -217,16 +224,23 @@ impl<'a> HybridGlyphRunBackend<'a> {
         Glyphs: Iterator<Item = Glyph> + Clone,
     {
         let atlas_cacher = if self.atlas_cache_enabled {
-            self.resources.ensure_glyph_resources();
-            let glyph_resources = self
-                .resources
-                .glyph_resources
-                .as_mut()
-                .expect("glyph atlas resources must exist after initialization");
-            AtlasCacher::Enabled(
-                &mut glyph_resources.glyph_atlas,
-                &mut self.resources.image_cache,
-            )
+            #[cfg(any(feature = "webgl", feature = "wgpu"))]
+            {
+                self.resources.ensure_glyph_resources();
+                let glyph_resources = self
+                    .resources
+                    .glyph_resources
+                    .as_mut()
+                    .expect("glyph atlas resources must exist after initialization");
+                AtlasCacher::Enabled(
+                    &mut glyph_resources.glyph_atlas,
+                    &mut self.resources.image_cache,
+                )
+            }
+            #[cfg(not(any(feature = "webgl", feature = "wgpu")))]
+            {
+                AtlasCacher::Disabled
+            }
         } else {
             AtlasCacher::Disabled
         };

@@ -22,6 +22,7 @@
 //!
 //! # Feature Flags
 //!
+//! - `std` (enabled by default): Enables standard library support.
 //! - `wgpu` (enabled by default): Enables the GPU rendering backend via wgpu and includes the required sparse shaders.
 //! - `wgpu_default` (enabled by default): Enables wgpu with its default hardware backends (such as Vulkan, Metal, and DX12).
 //! - `text` (enabled by default): Enables glyph rendering ([`Scene::glyph_run`]).
@@ -45,8 +46,11 @@
 
 extern crate alloc;
 
+#[cfg(any(feature = "webgl", feature = "wgpu"))]
 pub(crate) mod filter;
+#[cfg(any(feature = "webgl", feature = "wgpu"))]
 mod gradient_cache;
+#[cfg(any(feature = "webgl", feature = "wgpu"))]
 mod render;
 mod resources;
 mod sampling;
@@ -60,6 +64,7 @@ pub mod util;
 
 #[cfg(feature = "wgpu")]
 pub use render::{AtlasWriter, RenderTargetConfig, Renderer, TextureBindings};
+#[cfg(any(feature = "webgl", feature = "wgpu"))]
 pub use render::{Config, GpuStrip, RenderSize};
 #[cfg(all(feature = "webgl", feature = "probe"))]
 pub use render::{Probe, ProbeResult};

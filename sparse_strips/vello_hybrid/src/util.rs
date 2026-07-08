@@ -111,6 +111,7 @@ pub(crate) struct IntRect {
 }
 
 impl IntRect {
+    #[cfg(any(feature = "webgl", feature = "wgpu"))]
     pub(crate) fn new(offset: impl Into<IntOffset>, size: impl Into<IntSize>) -> Self {
         Self {
             offset: offset.into(),
