@@ -155,28 +155,29 @@ impl<'a> DrawBuilder<'a> {
         // Note: This method will also take care of culling any strips to the active clip bbox.
         for_each_fill_segment(strips, tile_bounds, |segment| match segment {
             StripSegment::Alpha(segment) => {
-                self.draw.push(
-                    self.buffers,
-                    GpuStrip::from_fill(
-                        *segment,
-                        self.state.target.geometry_offset(),
-                        Some(segment.col_idx()),
-                        paint.payload_at(segment.x0(), segment.y()),
-                        paint.paint,
-                        depth_index,
-                    ),
-                    paint.external_texture_id,
+                let shifted = segment.shift(self.state.target.geometry_offset());
+                let strip = GpuStrip::from_fill(
+                    shifted,
+                    Some(segment.col_idx()),
+                    paint.payload_at(segment.x0(), segment.y()),
+                    paint.paint,
+                    depth_index,
                 );
+
+                self.draw
+                    .push(self.buffers, strip, paint.external_texture_id);
             }
             StripSegment::Fill(segment) => {
+                let shifted = segment.shift(self.state.target.geometry_offset());
+
                 let strip = GpuStrip::from_fill(
-                    segment,
-                    self.state.target.geometry_offset(),
+                    shifted,
                     None,
                     paint.payload_at(segment.x0(), segment.y()),
                     paint.paint,
                     depth_index,
                 );
+
                 if !is_opaque || !self.state.opaque.push(strip) {
                     self.draw
                         .push(self.buffers, strip, paint.external_texture_id);
@@ -202,7 +203,6 @@ impl<'a> DrawBuilder<'a> {
 
         let split = split_rect(&clipped_rect);
 
-        let mut is_first = true;
         for part in [
             Some(split.main),
             split.top,
@@ -213,17 +213,19 @@ impl<'a> DrawBuilder<'a> {
         .into_iter()
         .flatten()
         {
+            let shifted = part.shift(self.state.target.geometry_offset());
+
             let strip = GpuStrip::from_rect(
-                part.shift(self.state.target.geometry_offset()),
+                shifted,
                 paint.payload_at(part.rect.x0, part.rect.y0),
                 paint.paint,
                 depth_index,
             );
-            if !(is_first && is_paint_opaque && part.frac == 0 && self.state.opaque.push(strip)) {
+
+            if !(is_paint_opaque && part.frac == 0 && self.state.opaque.push(strip)) {
                 self.draw
                     .push(self.buffers, strip, paint.external_texture_id);
             }
-            is_first = false;
         }
     }
 
@@ -291,14 +293,8 @@ impl<'a> DrawBuilder<'a> {
         depth_index: u32,
     ) {
         let payload = sample.payload_at(segment.x0(), segment.y());
-        let strip = GpuStrip::from_fill(
-            segment,
-            self.state.target.geometry_offset(),
-            col_idx,
-            payload,
-            paint,
-            depth_index,
-        );
+        let shifted = segment.shift(self.state.target.geometry_offset());
+        let strip = GpuStrip::from_fill(shifted, col_idx, payload, paint, depth_index);
         self.draw.push(self.buffers, strip, None);
     }
 }
@@ -309,14 +305,12 @@ const RECT_STRIP_FLAG: u32 = 1 << 31;
 
 impl GpuStrip {
     fn from_fill(
-        segment: StripFillSegment,
-        geometry_offset: (i32, i32),
+        rect: RectU16,
         col_idx: Option<u32>,
         payload: u32,
         paint: u32,
         depth_index: u32,
     ) -> Self {
-        let rect = segment.shift(geometry_offset);
         let width = rect.width();
         let (dense_width_or_rect_height, col_idx_or_rect_frac) = if let Some(col_idx) = col_idx {
             (width, col_idx)
