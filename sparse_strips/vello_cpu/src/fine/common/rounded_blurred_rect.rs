@@ -80,7 +80,7 @@ impl<S: Simd> Iterator for BlurredRoundedRectFiller<S> {
 }
 
 impl<S: Simd> crate::fine::Painter for BlurredRoundedRectFiller<S> {
-    fn paint_u8(&mut self, buf: &mut [u8]) {
+    fn paint_u8(mut self, buf: &mut [u8]) {
         self.a.simd.vectorize(
             #[inline(always)]
             || {
@@ -106,7 +106,7 @@ impl<S: Simd> crate::fine::Painter for BlurredRoundedRectFiller<S> {
         );
     }
 
-    fn paint_f32(&mut self, buf: &mut [f32]) {
+    fn paint_f32(mut self, buf: &mut [f32]) {
         self.a.simd.vectorize(
             #[inline(always)]
             || {

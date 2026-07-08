@@ -1106,12 +1106,12 @@ pub(crate) struct FineRenderParams {
 ///
 /// Note: Some painters may only efficiently support one numeric type. The implementation
 /// may convert between types as needed.
-pub trait Painter {
+pub trait Painter: Sized {
     /// Paint pixel data into a u8 buffer (values in 0-255 range).
-    fn paint_u8(&mut self, buf: &mut [u8]);
+    fn paint_u8(self, buf: &mut [u8]);
 
     /// Paint pixel data into an f32 buffer (values in 0.0-1.0 range).
-    fn paint_f32(&mut self, buf: &mut [f32]);
+    fn paint_f32(self, buf: &mut [f32]);
 }
 
 /// Extension trait for creating position vectors for gradient and image sampling.
@@ -1196,7 +1196,7 @@ mod macros {
     macro_rules! f32x16_painter {
         ($($type_path:tt)+) => {
             impl<S: Simd> crate::fine::Painter for $($type_path)+ {
-                fn paint_u8(&mut self, buf: &mut [u8]) {
+                fn paint_u8(mut self, buf: &mut [u8]) {
                     use vello_common::fearless_simd::*;
                     use crate::fine::NumericVec;
 
@@ -1209,7 +1209,7 @@ mod macros {
                     })
                 }
 
-                fn paint_f32(&mut self, buf: &mut [f32]) {
+                fn paint_f32(mut self, buf: &mut [f32]) {
                     self.simd.vectorize(#[inline(always)] || {
                         for chunk in buf.chunks_exact_mut(16) {
                             let next = self.next().unwrap();
@@ -1228,7 +1228,7 @@ mod macros {
     macro_rules! u8x16_painter {
         ($($type_path:tt)+) => {
             impl<S: Simd> crate::fine::Painter for $($type_path)+ {
-                fn paint_u8(&mut self, buf: &mut [u8]) {
+                fn paint_u8(mut self, buf: &mut [u8]) {
                     self.simd.vectorize(#[inline(always)] || {
                         for chunk in buf.chunks_exact_mut(16) {
                             let next = self.next().unwrap();
@@ -1237,7 +1237,7 @@ mod macros {
                     })
                 }
 
-                fn paint_f32(&mut self, buf: &mut [f32]) {
+                fn paint_f32(mut self, buf: &mut [f32]) {
                     use vello_common::fearless_simd::*;
                     use crate::fine::NumericVec;
 

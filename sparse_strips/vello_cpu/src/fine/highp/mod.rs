@@ -103,7 +103,7 @@ impl<S: Simd> FineKernel<S> for F32Kernel {
     ///
     /// Delegates to the painter's f32-specific implementation.
     #[inline(always)]
-    fn apply_painter<'a>(_: S, dest: &mut [Self::Numeric], mut painter: impl Painter + 'a) {
+    fn apply_painter<'a>(_: S, dest: &mut [Self::Numeric], painter: impl Painter + 'a) {
         painter.paint_f32(dest);
     }
 
