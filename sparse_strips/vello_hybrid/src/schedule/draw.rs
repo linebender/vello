@@ -22,6 +22,23 @@ use vello_common::strip_generator::StripStorage;
 use vello_common::tile::Tile;
 use vello_common::util::{Clear, RectExt};
 
+trait RectU16Ext {
+    fn to_tile_bounds(self) -> RectU16;
+}
+
+impl RectU16Ext for RectU16 {
+    fn to_tile_bounds(self) -> RectU16 {
+        let bounds = self.snap_to_tile_coordinates();
+
+        RectU16::new(
+            bounds.x0 / Tile::WIDTH,
+            bounds.y0 / Tile::HEIGHT,
+            bounds.x1 / Tile::WIDTH,
+            bounds.y1 / Tile::HEIGHT,
+        )
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 pub(super) struct Draw {
     pub(super) strip_ranges: Ranges,
@@ -144,20 +161,12 @@ impl<'a> DrawBuilder<'a> {
 
         let is_opaque = self.state.opaque.is_enabled() && paints.is_opaque(&path.paint);
         let depth_index = self.state.depth.next(is_opaque);
-
-        let tile_bounds = {
-            let expanded = self.state.draw_bounds.snap_to_tile_coordinates();
-
-            RectU16::new(
-                expanded.x0 / Tile::WIDTH,
-                expanded.y0 / Tile::HEIGHT,
-                expanded.x1 / Tile::WIDTH,
-                expanded.y1 / Tile::HEIGHT,
-            )
-        };
+        let tile_bounds = self.state.draw_bounds.to_tile_bounds();
 
         for_each_fill_segment(strips, tile_bounds, |segment| match segment {
             StripSegment::Alpha(segment) => {
+                // TODO: It's wasteful to recompute the packing for each strip for solid colors,
+                // where the coordinates don't matter.
                 let processed = paints.pack(&path.paint, (segment.x0(), segment.y()));
                 self.draw.push(
                     self.buffers,
@@ -198,7 +207,7 @@ impl<'a> DrawBuilder<'a> {
         let is_paint_opaque = self.state.opaque.is_enabled() && paints.is_opaque(paint);
         let depth_index = self.state.depth.next(is_paint_opaque);
 
-        let split = split_rect(rect);
+        let split = split_rect(&clipped_rect);
 
         let mut is_first = true;
         for part in [
@@ -265,15 +274,7 @@ impl<'a> DrawBuilder<'a> {
         }
 
         let depth_index = self.state.depth.next(false);
-        let tile_bounds = {
-            let expanded = sample_bbox.snap_to_tile_coordinates();
-            RectU16::new(
-                expanded.x0 / Tile::WIDTH,
-                expanded.y0 / Tile::HEIGHT,
-                expanded.x1 / Tile::WIDTH,
-                expanded.y1 / Tile::HEIGHT,
-            )
-        };
+        let tile_bounds = sample_bbox.to_tile_bounds();
 
         for_each_fill_segment(strips, tile_bounds, |segment| match segment {
             StripSegment::Alpha(segment) => self.push_layer_fill_segment(
