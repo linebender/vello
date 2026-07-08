@@ -152,6 +152,7 @@ impl<'a> DrawBuilder<'a> {
         let depth_index = self.state.depth.next(is_opaque);
         let tile_bounds = self.state.draw_bounds.to_tile_bounds();
 
+        // Note: This method will also take care of culling any strips to the active clip bbox.
         for_each_fill_segment(strips, tile_bounds, |segment| match segment {
             StripSegment::Alpha(segment) => {
                 self.draw.push(
@@ -185,7 +186,11 @@ impl<'a> DrawBuilder<'a> {
     }
 
     fn push_rect(&mut self, rect: &Rect, paint: &Paint, paint_resolver: PaintResolver<'_>) {
-        // TODO: Add a comment why this is necessary.
+        // Recordings might contain geometry that exceeds the actual layer
+        // bounding box. This can happen when a clip path is associated with the layer.
+        // Recordings will not cull those for us, so we need to do this manually here.
+        // For normal paths, the `for_each_fill_segment` method takes care of doing this.
+        // For rectangles, we can do a simple intersection.
         let clipped_rect = rect.intersect(self.state.draw_bounds.as_rect());
         if clipped_rect.is_zero_area() {
             return;
