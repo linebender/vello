@@ -1276,13 +1276,6 @@ impl<const MODE: u8> Wide<MODE> {
                         .clip_fill(x_rel, width);
                 }
 
-                // If the next strip is a sentinel, skip the fill
-                // It's a sentinel in the row if there is non-zero winding for the sparse fill
-                // Look more into this in the strip.rs render function
-                if x2 == u16::MAX {
-                    continue;
-                }
-
                 // If fill extends to next tile, pop current and handle next
                 if x2 > (cur_wtile_x + 1) * WideTile::WIDTH {
                     if core::mem::take(&mut pop_pending) {

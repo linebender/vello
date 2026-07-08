@@ -202,11 +202,9 @@ impl SingleThreadedDispatcher {
         mask: Option<Mask>,
     ) {
         let strip_end = self.strip_storage.strips.len();
-        let viewport_width = self.strip_generator.width();
         self.recorder.push_fill(
             strip_start..strip_end,
             &self.strip_storage.strips[strip_start..strip_end],
-            viewport_width,
             paint,
             blend_mode,
             mask,
