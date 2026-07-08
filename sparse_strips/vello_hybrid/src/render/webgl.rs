@@ -56,8 +56,6 @@ use glifo::{GLYPH_PADDING, PendingClearRect};
 use resource::{Buffer, FragmentShader, Framebuffer, Program, Texture, VertexArray, VertexShader};
 use vello_common::image_cache::{ImageCache, ImageResource};
 use vello_common::multi_atlas::{AtlasConfig, AtlasId};
-#[cfg(feature = "probe")]
-use vello_common::probe::Probe;
 use vello_common::{
     encode::{
         EncodedBlurredRoundedRectangle, EncodedGradient, EncodedKind, EncodedPaint,
@@ -70,8 +68,6 @@ use vello_common::{
     tile::Tile,
 };
 use vello_sparse_shaders::{blend, copy, filter as filter_shader, render};
-#[cfg(feature = "probe")]
-use web_sys::WebGlSync;
 use web_sys::wasm_bindgen::{JsCast, JsValue};
 use web_sys::{
     HtmlCanvasElement, WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram,
@@ -104,7 +100,7 @@ fn get_max_texture_array_layers(gl: &WebGl2RenderingContext) -> u32 {
 #[derive(Debug)]
 pub struct WebGlRenderer {
     /// Programs for rendering.
-    programs: WebGlPrograms,
+    pub(super) programs: WebGlPrograms,
     /// WebGL context.
     pub(crate) gl: WebGl2RenderingContext,
     /// Encoded paints for storing encoded paints.
