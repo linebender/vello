@@ -12,7 +12,7 @@ use super::round::{BlendOp, FilterOp, Rounds};
 use super::{LayerTextureRegion, RenderTarget, RootRenderTarget, Schedule, TextureRegion};
 use crate::blend::BLEND_SCRATCH_INDEX;
 use crate::filter::{FilterContext, FilterPlanScratch, PreparedGpuFilter, build_filter_plan};
-use crate::paint::Paints;
+use crate::paint::PaintResolver;
 use crate::scene::RecordedDraw;
 use crate::{RenderError, Scene};
 use alloc::vec::Vec;
@@ -29,7 +29,7 @@ pub(super) struct ScheduleBuilder<'a, 'p> {
     scene: &'a Scene,
     strip_storage: &'a StripStorage,
     root_render_target: RootRenderTarget,
-    paints: Paints<'a>,
+    paint_resolver: PaintResolver<'a>,
     cursor: Cursor<Atlases>,
     layer_allocations: Vec<Option<ScheduledLayer>>,
     filter_context: &'a FilterContext,
@@ -44,7 +44,7 @@ impl<'a, 'p> ScheduleBuilder<'a, 'p> {
         scene: &'a Scene,
         strip_storage: &'a StripStorage,
         root_render_target: RootRenderTarget,
-        paints: Paints<'a>,
+        paint_resolver: PaintResolver<'a>,
         filter_context: &'a FilterContext,
         layer_texture_size: (u32, u32),
         pools: &'p mut Pools,
@@ -55,7 +55,7 @@ impl<'a, 'p> ScheduleBuilder<'a, 'p> {
             scene,
             strip_storage,
             root_render_target,
-            paints,
+            paint_resolver,
             cursor: Cursor::new(Atlases::new(layer_texture_size)),
             layer_allocations: alloc::vec![None; scene.recorder.layers.len()],
             filter_context,
@@ -294,7 +294,7 @@ impl<'a, 'p> ScheduleBuilder<'a, 'p> {
                         RecordedDraw::Rect(_) => &[],
                     };
                     bbox.union(draw.bbox(strips));
-                    builder.push_draw(draw, self.strip_storage, self.paints);
+                    builder.push_draw(draw, self.strip_storage, self.paint_resolver);
                 }
             }
         });

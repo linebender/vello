@@ -16,7 +16,7 @@ use self::builder::ScheduleBuilder;
 use self::pool::Pools;
 use self::round::{FilterPasses, Rounds};
 use crate::filter::{FilterContext, FilterPlanScratch};
-use crate::paint::Paints;
+use crate::paint::PaintResolver;
 use crate::schedule::draw::{Draw, OpaqueStrips};
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::vec::Vec;
@@ -218,7 +218,7 @@ pub(crate) fn render_scene<R: RendererBackend>(
 ) -> Result<(), RenderError> {
     renderer.prepare_intermediate_textures(TextureRequirements::for_scene(scene));
     let strip_storage = scene.strip_storage.borrow();
-    let paints = Paints::new(encoded_paints, paint_idxs);
+    let paint_resolver = PaintResolver::new(encoded_paints, paint_idxs);
     let layer_texture_size = renderer.layer_texture_size();
     let schedule = {
         let ScheduleStorage {
@@ -231,7 +231,7 @@ pub(crate) fn render_scene<R: RendererBackend>(
             scene,
             &strip_storage,
             root_output_target,
-            paints,
+            paint_resolver,
             filter_context,
             layer_texture_size,
             pools,

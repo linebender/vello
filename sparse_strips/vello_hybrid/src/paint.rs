@@ -3,6 +3,7 @@
 
 //! GPU paint packing for the hybrid renderer.
 
+use crate::util::pack_u16_pair;
 use vello_common::TextureId;
 use vello_common::encode::{EncodedKind, EncodedPaint};
 use vello_common::paint::{ImageSource, Paint};
@@ -19,18 +20,34 @@ const PAINT_TYPE_BLURRED_ROUNDED_RECT: u32 = 5;
 
 #[derive(Clone, Copy)]
 pub(crate) struct PackedPaint {
-    pub(crate) payload: u32,
+    payload: PaintPayload,
     pub(crate) paint: u32,
     pub(crate) external_texture_id: Option<TextureId>,
+    pub(crate) opaque: bool,
+}
+
+#[derive(Clone, Copy)]
+enum PaintPayload {
+    Solid(u32),
+    Position,
+}
+
+impl PackedPaint {
+    pub(crate) fn payload_at(self, x: u16, y: u16) -> u32 {
+        match self.payload {
+            PaintPayload::Solid(rgba) => rgba,
+            PaintPayload::Position => pack_u16_pair(x, y),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Paints<'a> {
+pub(crate) struct PaintResolver<'a> {
     encoded: &'a [EncodedPaint],
     gpu_offsets: &'a [u32],
 }
 
-impl<'a> Paints<'a> {
+impl<'a> PaintResolver<'a> {
     pub(crate) fn new(encoded: &'a [EncodedPaint], gpu_offsets: &'a [u32]) -> Self {
         Self {
             encoded,
@@ -38,85 +55,46 @@ impl<'a> Paints<'a> {
         }
     }
 
-    pub(crate) fn is_opaque(self, paint: &Paint) -> bool {
-        paint.is_opaque(self.encoded)
-    }
-
     #[inline]
-    pub(crate) fn pack(self, paint: &Paint, (x, y): (u16, u16)) -> PackedPaint {
+    pub(crate) fn pack(self, paint: &Paint) -> PackedPaint {
         match paint {
-            Paint::Solid(color) => {
-                let rgba = color.as_premul_rgba8().to_u32();
-                let paint_packed = (COLOR_SOURCE_PAYLOAD << 30) | (PAINT_TYPE_SOLID << 27);
-
-                PackedPaint {
-                    payload: rgba,
-                    paint: paint_packed,
-                    external_texture_id: None,
-                }
-            }
+            Paint::Solid(color) => PackedPaint {
+                payload: PaintPayload::Solid(color.as_premul_rgba8().to_u32()),
+                paint: (COLOR_SOURCE_PAYLOAD << 30) | (PAINT_TYPE_SOLID << 27),
+                external_texture_id: None,
+                opaque: color.is_opaque(),
+            },
             Paint::Indexed(indexed_paint) => {
                 let paint_id = indexed_paint.index();
                 let gpu_offset = self.gpu_offsets[paint_id];
                 let encoded_paint = &self.encoded[paint_id];
 
-                match encoded_paint {
+                let (paint_type, external_texture_id) = match encoded_paint {
                     EncodedPaint::Image(encoded_image) => match &encoded_image.source {
-                        ImageSource::OpaqueId { .. } => {
-                            let paint_packed = (COLOR_SOURCE_PAYLOAD << 29)
-                                | (PAINT_TYPE_IMAGE << 26)
-                                | (gpu_offset & 0x03FF_FFFF);
-                            let scene_strip_xy = ((y as u32) << 16) | (x as u32);
-
-                            PackedPaint {
-                                payload: scene_strip_xy,
-                                paint: paint_packed,
-                                external_texture_id: None,
-                            }
-                        }
+                        ImageSource::OpaqueId { .. } => (PAINT_TYPE_IMAGE, None),
                         _ => unimplemented!("Unsupported image source"),
                     },
                     EncodedPaint::ExternalTexture(texture) => {
-                        let paint_packed = (COLOR_SOURCE_PAYLOAD << 29)
-                            | (PAINT_TYPE_IMAGE << 26)
-                            | (gpu_offset & 0x03FF_FFFF);
-                        let scene_strip_xy = ((y as u32) << 16) | (x as u32);
-
-                        PackedPaint {
-                            payload: scene_strip_xy,
-                            paint: paint_packed,
-                            external_texture_id: Some(texture.texture_id),
-                        }
+                        (PAINT_TYPE_IMAGE, Some(texture.texture_id))
                     }
                     EncodedPaint::Gradient(gradient) => {
-                        let gradient_paint_type = match &gradient.kind {
+                        let paint_type = match &gradient.kind {
                             EncodedKind::Linear(_) => PAINT_TYPE_LINEAR_GRADIENT,
                             EncodedKind::Radial(_) => PAINT_TYPE_RADIAL_GRADIENT,
                             EncodedKind::Sweep(_) => PAINT_TYPE_SWEEP_GRADIENT,
                         };
-                        let paint_packed = (COLOR_SOURCE_PAYLOAD << 29)
-                            | (gradient_paint_type << 26)
-                            | (gpu_offset & 0x03FF_FFFF);
-                        let scene_strip_xy = ((y as u32) << 16) | (x as u32);
-
-                        PackedPaint {
-                            payload: scene_strip_xy,
-                            paint: paint_packed,
-                            external_texture_id: None,
-                        }
+                        (paint_type, None)
                     }
-                    EncodedPaint::BlurredRoundedRect(_) => {
-                        let paint_packed = (COLOR_SOURCE_PAYLOAD << 29)
-                            | (PAINT_TYPE_BLURRED_ROUNDED_RECT << 26)
-                            | (gpu_offset & 0x03FF_FFFF);
-                        let scene_strip_xy = ((y as u32) << 16) | (x as u32);
+                    EncodedPaint::BlurredRoundedRect(_) => (PAINT_TYPE_BLURRED_ROUNDED_RECT, None),
+                };
 
-                        PackedPaint {
-                            payload: scene_strip_xy,
-                            paint: paint_packed,
-                            external_texture_id: None,
-                        }
-                    }
+                PackedPaint {
+                    payload: PaintPayload::Position,
+                    paint: (COLOR_SOURCE_PAYLOAD << 29)
+                        | (paint_type << 26)
+                        | (gpu_offset & 0x03FF_FFFF),
+                    external_texture_id,
+                    opaque: encoded_paint.is_opaque(),
                 }
             }
         }

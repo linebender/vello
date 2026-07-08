@@ -7,7 +7,7 @@ use super::buffer::{Ranges, ScheduleBuffers};
 use super::builder::CommandStreamState;
 use super::{ExternalTextureRun, LayerTextureRegion};
 use crate::GpuStrip;
-use crate::paint::{COLOR_SOURCE_LAYER, Paints};
+use crate::paint::{COLOR_SOURCE_LAYER, PaintResolver};
 use crate::rect::{RectPart, make_gpu_rect, split_rect};
 use crate::scene::{RecordedDraw, RecordedPath};
 use crate::util::{pack_opacity, pack_u16_pair};
@@ -146,65 +146,68 @@ impl<'a> DrawBuilder<'a> {
         &mut self,
         draw: &RecordedDraw,
         strip_storage: &StripStorage,
-        paints: Paints<'_>,
+        paint_resolver: PaintResolver<'_>,
     ) {
         match draw {
-            RecordedDraw::Path(path) => self.push_path(path, strip_storage, paints),
+            RecordedDraw::Path(path) => self.push_path(path, strip_storage, paint_resolver),
             RecordedDraw::Rect(rect) => {
-                self.push_rect(&rect.rect, &rect.paint, paints);
+                self.push_rect(&rect.rect, &rect.paint, paint_resolver);
             }
         }
     }
 
-    fn push_path(&mut self, path: &RecordedPath, strip_storage: &StripStorage, paints: Paints<'_>) {
+    fn push_path(
+        &mut self,
+        path: &RecordedPath,
+        strip_storage: &StripStorage,
+        paint_resolver: PaintResolver<'_>,
+    ) {
         let strips = &strip_storage.strips[path.strips.clone()];
 
-        let is_opaque = self.state.opaque.is_enabled() && paints.is_opaque(&path.paint);
+        let paint = paint_resolver.pack(&path.paint);
+        let is_opaque = self.state.opaque.is_enabled() && paint.opaque;
         let depth_index = self.state.depth.next(is_opaque);
         let tile_bounds = self.state.draw_bounds.to_tile_bounds();
 
         for_each_fill_segment(strips, tile_bounds, |segment| match segment {
             StripSegment::Alpha(segment) => {
-                // TODO: It's wasteful to recompute the packing for each strip for solid colors,
-                // where the coordinates don't matter.
-                let processed = paints.pack(&path.paint, (segment.x0(), segment.y()));
                 self.draw.push(
                     self.buffers,
                     self.get_fill_strip_with_packed_paint(
                         *segment,
                         Some(segment.col_idx()),
-                        processed.payload,
-                        processed.paint,
+                        paint.payload_at(segment.x0(), segment.y()),
+                        paint.paint,
                         depth_index,
                     ),
-                    processed.external_texture_id,
+                    paint.external_texture_id,
                 );
             }
             StripSegment::Fill(segment) => {
-                let processed = paints.pack(&path.paint, (segment.x0(), segment.y()));
                 let strip = self.get_fill_strip_with_packed_paint(
                     segment,
                     None,
-                    processed.payload,
-                    processed.paint,
+                    paint.payload_at(segment.x0(), segment.y()),
+                    paint.paint,
                     depth_index,
                 );
                 if !is_opaque || !self.state.opaque.push(strip) {
                     self.draw
-                        .push(self.buffers, strip, processed.external_texture_id);
+                        .push(self.buffers, strip, paint.external_texture_id);
                 }
             }
         });
     }
 
-    fn push_rect(&mut self, rect: &Rect, paint: &Paint, paints: Paints<'_>) {
+    fn push_rect(&mut self, rect: &Rect, paint: &Paint, paint_resolver: PaintResolver<'_>) {
         // TODO: Add a comment why this is necessary.
         let clipped_rect = rect.intersect(self.state.draw_bounds.as_rect());
         if clipped_rect.is_zero_area() {
             return;
         }
 
-        let is_paint_opaque = self.state.opaque.is_enabled() && paints.is_opaque(paint);
+        let paint = paint_resolver.pack(paint);
+        let is_paint_opaque = self.state.opaque.is_enabled() && paint.opaque;
         let depth_index = self.state.depth.next(is_paint_opaque);
 
         let split = split_rect(&clipped_rect);
@@ -220,16 +223,15 @@ impl<'a> DrawBuilder<'a> {
         .into_iter()
         .flatten()
         {
-            let processed = paints.pack(paint, (part.rect.x0, part.rect.y0));
             let strip = make_gpu_rect(
                 part.shift(self.state.target.geometry_offset()),
-                processed.payload,
-                processed.paint,
+                paint.payload_at(part.rect.x0, part.rect.y0),
+                paint.paint,
                 depth_index,
             );
             if !(is_first && is_paint_opaque && part.frac == 0 && self.state.opaque.push(strip)) {
                 self.draw
-                    .push(self.buffers, strip, processed.external_texture_id);
+                    .push(self.buffers, strip, paint.external_texture_id);
             }
             is_first = false;
         }
