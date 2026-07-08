@@ -207,6 +207,7 @@ impl<'a> DrawBuilder<'a> {
     }
 
     fn push_rect(&mut self, rect: &Rect, paint: &Paint, paints: Paints<'_>) {
+        // TODO: Add a comment why this is necessary.
         let clipped_rect = rect.intersect(self.state.draw_bounds.as_rect());
         if clipped_rect.is_zero_area() {
             return;
@@ -214,7 +215,33 @@ impl<'a> DrawBuilder<'a> {
 
         let is_paint_opaque = self.state.opaque.is_enabled() && paints.is_opaque(paint);
         let depth_index = self.state.depth.next(is_paint_opaque);
-        self.push_rect_parts(&clipped_rect, paint, paints, depth_index, is_paint_opaque);
+
+        let split = split_rect(rect);
+
+        let mut is_first = true;
+        for part in [
+            Some(split.main),
+            split.top,
+            split.bottom,
+            split.left,
+            split.right,
+        ]
+            .into_iter()
+            .flatten()
+        {
+            let processed = paints.pack(paint, (part.rect.x0, part.rect.y0));
+            let strip = make_gpu_rect(
+                part.shift(self.state.target.geometry_offset()),
+                processed.payload,
+                processed.paint,
+                depth_index,
+            );
+            if !(is_first && is_paint_opaque && part.frac == 0 && self.state.opaque.push(strip)) {
+                self.draw
+                    .push(self.buffers, strip, processed.external_texture_id);
+            }
+            is_first = false;
+        }
     }
 
     pub(super) fn push_layer_fill(
@@ -319,42 +346,6 @@ impl<'a> DrawBuilder<'a> {
             payload,
             paint_and_rect_flag: paint,
             depth_index,
-        }
-    }
-
-    fn push_rect_parts(
-        &mut self,
-        rect: &Rect,
-        paint: &Paint,
-        paints: Paints<'_>,
-        depth_index: u32,
-        is_paint_opaque: bool,
-    ) {
-        let split = split_rect(rect);
-
-        let mut is_first = true;
-        for part in [
-            Some(split.main),
-            split.top,
-            split.bottom,
-            split.left,
-            split.right,
-        ]
-        .into_iter()
-        .flatten()
-        {
-            let processed = paints.pack(paint, (part.rect.x0, part.rect.y0));
-            let strip = make_gpu_rect(
-                part.shift(self.state.target.geometry_offset()),
-                processed.payload,
-                processed.paint,
-                depth_index,
-            );
-            if !(is_first && is_paint_opaque && part.frac == 0 && self.state.opaque.push(strip)) {
-                self.draw
-                    .push(self.buffers, strip, processed.external_texture_id);
-            }
-            is_first = false;
         }
     }
 }
