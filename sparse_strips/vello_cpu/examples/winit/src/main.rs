@@ -211,14 +211,7 @@ impl ApplicationHandler for App {
                     .unwrap();
 
                 self.pixmap.resize(width as u16, height as u16);
-                self.renderer = RenderContext::new_with(
-                    width as u16,
-                    height as u16,
-                    RenderSettings {
-                        num_threads: 0,
-                        ..Default::default()
-                    },
-                );
+                self.renderer.reset_and_resize(width as u16, height as u16);
 
                 window.request_redraw();
             }

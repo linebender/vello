@@ -36,8 +36,8 @@ impl Worker {
         self.thread_id
     }
 
-    pub(crate) fn reset(&mut self) {
-        self.strip_generator.reset();
+    pub(crate) fn reset(&mut self, width: u16, height: u16) {
+        self.strip_generator.reset(width, height);
     }
 
     pub(crate) fn run_render_task(
