@@ -9,10 +9,9 @@ use super::{ExternalTextureRun, LayerTextureRegion};
 use crate::GpuStrip;
 use crate::paint::{COLOR_SOURCE_LAYER, Paints};
 use crate::rect::{RectPart, make_gpu_rect, split_rect};
-use crate::scene::RecordedDraw;
+use crate::scene::{RecordedDraw, RecordedPath};
 use crate::util::{pack_opacity, pack_u16_pair};
 use ::alloc::vec::Vec;
-use core::ops::Range;
 use vello_common::TextureId;
 use vello_common::geometry::RectU16;
 use vello_common::kurbo::Rect;
@@ -133,34 +132,21 @@ impl<'a> DrawBuilder<'a> {
         paints: Paints<'_>,
     ) {
         match draw {
-            RecordedDraw::Path(path) => {
-                self.push_path(
-                    path.strips.clone(),
-                    path.paint.clone(),
-                    strip_storage,
-                    paints,
-                );
-            }
+            RecordedDraw::Path(path) => self.push_path(path, strip_storage, paints),
             RecordedDraw::Rect(rect) => {
                 self.push_rect(&rect.rect, &rect.paint, paints);
             }
         }
     }
 
-    fn push_path(
-        &mut self,
-        strips: Range<usize>,
-        paint: Paint,
-        strip_storage: &StripStorage,
-        paints: Paints<'_>,
-    ) {
-        let strips = &strip_storage.strips[strips];
+    fn push_path(&mut self, path: &RecordedPath, strip_storage: &StripStorage, paints: Paints<'_>) {
+        let strips = &strip_storage.strips[path.strips.clone()];
 
         if strips.is_empty() {
             return;
         }
 
-        let is_opaque = self.state.opaque.is_enabled() && paints.is_opaque(&paint);
+        let is_opaque = self.state.opaque.is_enabled() && paints.is_opaque(&path.paint);
         let depth_index = self.state.depth.next(is_opaque);
 
         let tile_bounds = {
@@ -176,7 +162,7 @@ impl<'a> DrawBuilder<'a> {
 
         for_each_fill_segment(strips, tile_bounds, |segment| match segment {
             StripSegment::Alpha(segment) => {
-                let processed = paints.pack(&paint, (segment.x0(), segment.y()));
+                let processed = paints.pack(&path.paint, (segment.x0(), segment.y()));
                 self.draw.push(
                     self.buffers,
                     self.get_fill_strip_with_packed_paint(
@@ -190,7 +176,7 @@ impl<'a> DrawBuilder<'a> {
                 );
             }
             StripSegment::Fill(segment) => {
-                let processed = paints.pack(&paint, (segment.x0(), segment.y()));
+                let processed = paints.pack(&path.paint, (segment.x0(), segment.y()));
                 let strip = self.get_fill_strip_with_packed_paint(
                     segment,
                     None,
@@ -226,8 +212,8 @@ impl<'a> DrawBuilder<'a> {
             split.left,
             split.right,
         ]
-            .into_iter()
-            .flatten()
+        .into_iter()
+        .flatten()
         {
             let processed = paints.pack(paint, (part.rect.x0, part.rect.y0));
             let strip = make_gpu_rect(
