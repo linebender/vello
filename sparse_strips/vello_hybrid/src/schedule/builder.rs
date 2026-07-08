@@ -5,7 +5,7 @@
 
 use super::allocate::{Atlases, LayerAllocation, LayerAllocationRequest};
 use super::cursor::Cursor;
-use super::draw::{DepthCounter, DrawBuilder, LayerSample, OpaqueStrips};
+use super::draw::{DepthCounter, DrawBuilder, LayerSample, OpaqueStrips, OpaqueStripsExt};
 use super::round::{BlendOp, FilterOp, Round, Rounds};
 use super::{LayerTextureRegion, RenderTarget, RootRenderTarget, Schedule, TextureRegion};
 use crate::blend::BLEND_SCRATCH_INDEX;
@@ -66,7 +66,7 @@ impl<'a> ScheduleBuilder<'a> {
     pub(super) fn build(&mut self) -> Result<Schedule, RenderError> {
         // TODO: Reuse round storage across frames so large schedules do not repeatedly allocate.
         let mut schedule = Schedule {
-            opaque_strips: OpaqueStrips::new(false),
+            opaque_strips: None,
             rounds: Rounds {
                 rounds: alloc::vec![Round::default()],
             },
@@ -95,7 +95,7 @@ impl<'a> ScheduleBuilder<'a> {
             let mut state = CommandStreamState::new(
                 target,
                 allocation.round_idx,
-                false,
+                None,
                 target.draw_bounds(self.scene),
             );
             let ready_round =
@@ -105,7 +105,7 @@ impl<'a> ScheduleBuilder<'a> {
             let mut root_state = CommandStreamState::new(
                 RenderTarget::Root,
                 ready_round,
-                false,
+                None,
                 RectU16::new(0, 0, self.scene.width, self.scene.height).snap_to_tile_coordinates(),
             );
             schedule
@@ -128,11 +128,12 @@ impl<'a> ScheduleBuilder<'a> {
             self.release_allocation_after_round(allocation, ready_round, &mut schedule.rounds);
         } else {
             let target = RenderTarget::Root;
-            let opaque_enabled = self.root_render_target == RootRenderTarget::UserSurface;
+            let opaque =
+                OpaqueStrips::new(self.root_render_target == RootRenderTarget::UserSurface);
             let mut state = CommandStreamState::new(
                 target,
                 self.cursor.current_round(),
-                opaque_enabled,
+                opaque,
                 target.draw_bounds(self.scene),
             );
             let ready_round =
@@ -592,7 +593,7 @@ impl<'a> ScheduleBuilder<'a> {
         let stream = CommandStreamState::new(
             RenderTarget::Layer(region),
             allocation.round_idx,
-            false,
+            None,
             region.scene_bbox,
         );
         *target = Some(LayerCommandTarget {
@@ -687,12 +688,12 @@ impl CommandStreamState {
     fn new(
         target: RenderTarget,
         round_idx: usize,
-        opaque_enabled: bool,
+        opaque: OpaqueStrips,
         draw_bounds: RectU16,
     ) -> Self {
         Self {
             target,
-            opaque: OpaqueStrips::new(opaque_enabled),
+            opaque,
             depth: DepthCounter::default(),
             sampled_layers: Vec::new(),
             backdrop_bbox: RectU16::INVERTED,

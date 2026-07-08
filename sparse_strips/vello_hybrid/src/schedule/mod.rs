@@ -16,7 +16,7 @@ pub(crate) use self::round::BlendOp;
 pub(crate) use self::round::FilterOp;
 use self::round::Rounds;
 use crate::paint::Paints;
-use crate::schedule::draw::{Draw, OpaqueStrips};
+use crate::schedule::draw::{Draw, OpaqueStrips, OpaqueStripsExt};
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::vec::Vec;
 use vello_common::TextureId;
@@ -218,7 +218,7 @@ pub(crate) fn render_scene<R: RendererBackend>(
 
 impl Schedule {
     fn execute<R: RendererBackend>(&self, renderer: &mut R, root_output_target: RootRenderTarget) {
-        if let Some(strips) = self.opaque_strips.as_slice() {
+        if let Some(strips) = self.opaque_strips.strips() {
             renderer.render_strips(
                 strips,
                 &[],

@@ -56,37 +56,41 @@ impl Draw {
     }
 }
 
-#[derive(Debug, Default)]
-pub(super) struct OpaqueStrips(Option<Vec<GpuStrip>>);
+pub(super) type OpaqueStrips = Option<Vec<GpuStrip>>;
 
-impl OpaqueStrips {
-    pub(super) fn new(enabled: bool) -> Self {
-        Self(enabled.then(Vec::new))
+pub(super) trait OpaqueStripsExt {
+    fn new(enabled: bool) -> Self;
+    fn is_enabled(&self) -> bool;
+    fn push(&mut self, strip: GpuStrip) -> bool;
+    fn reverse(&mut self);
+    fn strips(&self) -> Option<&[GpuStrip]>;
+}
+
+impl OpaqueStripsExt for OpaqueStrips {
+    fn new(enabled: bool) -> Self {
+        enabled.then(Vec::new)
     }
 
     fn is_enabled(&self) -> bool {
-        self.0.is_some()
+        self.is_some()
     }
 
-    #[must_use]
     fn push(&mut self, strip: GpuStrip) -> bool {
-        let Some(strips) = &mut self.0 else {
+        let Some(strips) = self else {
             return false;
         };
-
         strips.push(strip);
-
         true
     }
 
-    pub(super) fn reverse(&mut self) {
-        if let Some(strips) = &mut self.0 {
+    fn reverse(&mut self) {
+        if let Some(strips) = self {
             strips.reverse();
         }
     }
 
-    pub(super) fn as_slice(&self) -> Option<&[GpuStrip]> {
-        self.0.as_deref()
+    fn strips(&self) -> Option<&[GpuStrip]> {
+        self.as_deref()
     }
 }
 
