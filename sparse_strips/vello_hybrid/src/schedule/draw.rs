@@ -244,10 +244,6 @@ impl<'a> DrawBuilder<'a> {
         let paint = LayerSample::paint(opacity);
         if let Some(clip_path) = clip_path {
             let strips = &strip_storage.strips[clip_path.strip_range.clone()];
-            if strips.len() < 2 || clip_path.bbox.is_empty() {
-                return;
-            }
-
             let depth_index = self.state.depth.next(false);
             let tile_bounds = sample_bbox.to_tile_bounds();
 
@@ -265,15 +261,16 @@ impl<'a> DrawBuilder<'a> {
             });
         } else {
             let depth_index = self.state.depth.next(false);
-            // Layer samples are encoded as image-like rect paints. Geometry is transformed into the
-            // target allocation, while the payload points at the source atlas coordinate.
+
+            let rect_part = RectPart {
+                rect: sample_bbox.shift(self.state.target.geometry_offset()),
+                frac: 0,
+            };
+
             self.draw.push(
                 self.buffers,
                 GpuStrip::from_rect(
-                    RectPart {
-                        rect: sample_bbox.shift(self.state.target.geometry_offset()),
-                        frac: 0,
-                    },
+                    rect_part,
                     sample.payload_at(sample_bbox.x0, sample_bbox.y0),
                     paint,
                     depth_index,
