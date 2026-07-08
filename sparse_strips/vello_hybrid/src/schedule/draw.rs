@@ -142,10 +142,6 @@ impl<'a> DrawBuilder<'a> {
     fn push_path(&mut self, path: &RecordedPath, strip_storage: &StripStorage, paints: Paints<'_>) {
         let strips = &strip_storage.strips[path.strips.clone()];
 
-        if strips.is_empty() {
-            return;
-        }
-
         let is_opaque = self.state.opaque.is_enabled() && paints.is_opaque(&path.paint);
         let depth_index = self.state.depth.next(is_opaque);
 
