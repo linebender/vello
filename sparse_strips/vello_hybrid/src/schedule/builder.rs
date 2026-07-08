@@ -6,7 +6,8 @@
 use super::allocate::{Atlases, LayerAllocation, LayerAllocationRequest};
 use super::cursor::Cursor;
 use super::draw::{DepthCounter, DrawBuilder, LayerSample, OpaqueStrips, OpaqueStripsExt};
-use super::round::{BlendOp, FilterOp, Round, Rounds};
+use super::pool::Pools;
+use super::round::{BlendOp, FilterOp, Rounds};
 use super::{LayerTextureRegion, RenderTarget, RootRenderTarget, Schedule, TextureRegion};
 use crate::blend::BLEND_SCRATCH_INDEX;
 use crate::filter::GpuFilterData;
@@ -24,7 +25,7 @@ use vello_common::util::RectExt;
 
 /// Builds concrete, executable rounds from a recorded scene.
 #[derive(Debug)]
-pub(super) struct ScheduleBuilder<'a> {
+pub(super) struct ScheduleBuilder<'a, 'p> {
     scene: &'a Scene,
     strip_storage: &'a StripStorage,
     root_render_target: RootRenderTarget,
@@ -33,15 +34,17 @@ pub(super) struct ScheduleBuilder<'a> {
     layer_allocations: Vec<Option<ScheduledLayer>>,
     filter_data_offsets: Vec<Option<u32>>,
     layer_texture_size: (u32, u32),
+    pools: &'p mut Pools,
 }
 
-impl<'a> ScheduleBuilder<'a> {
+impl<'a, 'p> ScheduleBuilder<'a, 'p> {
     pub(super) fn new(
         scene: &'a Scene,
         strip_storage: &'a StripStorage,
         root_render_target: RootRenderTarget,
         paints: Paints<'a>,
         layer_texture_size: (u32, u32),
+        pools: &'p mut Pools,
     ) -> Self {
         let layer_count = scene.recorder.layers.len();
         let mut filter_data_offsets = alloc::vec![None; layer_count];
@@ -60,6 +63,7 @@ impl<'a> ScheduleBuilder<'a> {
             layer_allocations: alloc::vec![None; layer_count],
             filter_data_offsets,
             layer_texture_size,
+            pools,
         }
     }
 
@@ -68,14 +72,17 @@ impl<'a> ScheduleBuilder<'a> {
         let mut schedule = Schedule {
             opaque_strips: None,
             rounds: Rounds {
-                rounds: alloc::vec![Round::default()],
+                rounds: alloc::vec![self.pools.take_round()],
             },
         };
 
         // Walk the command tree left-to-right. Layer subtrees are scheduled lazily when their
         // parent command stream first needs to sample them. Atlas allocation is monotonic: pressure
         // advances the base round and applies completed cleanups instead of patching old states.
-        self.schedule_root(&mut schedule)?;
+        if let Err(error) = self.schedule_root(&mut schedule) {
+            schedule.recycle(self.pools);
+            return Err(error);
+        }
         schedule.opaque_strips.reverse();
 
         Ok(schedule)
@@ -101,7 +108,7 @@ impl<'a> ScheduleBuilder<'a> {
             let ready_round =
                 self.schedule_command_stream(cmds, &mut state, &mut schedule.rounds)?;
 
-            schedule.rounds.ensure_exists(ready_round);
+            schedule.rounds.ensure_exists(ready_round, self.pools);
             let mut root_state = CommandStreamState::new(
                 RenderTarget::Root,
                 ready_round,
@@ -110,7 +117,7 @@ impl<'a> ScheduleBuilder<'a> {
             );
             schedule
                 .rounds
-                .with_draw_builder(&mut root_state, |builder| {
+                .with_draw_builder(&mut root_state, self.pools, |builder| {
                     builder.push_layer_fill(
                         LayerSample {
                             source: region,
@@ -128,18 +135,19 @@ impl<'a> ScheduleBuilder<'a> {
             self.release_allocation_after_round(allocation, ready_round, &mut schedule.rounds);
         } else {
             let target = RenderTarget::Root;
-            let opaque =
-                OpaqueStrips::new(self.root_render_target == RootRenderTarget::UserSurface);
+            let opaque = self
+                .pools
+                .take_opaque_strips(self.root_render_target == RootRenderTarget::UserSurface);
             let mut state = CommandStreamState::new(
                 target,
                 self.cursor.current_round(),
                 opaque,
                 target.draw_bounds(self.scene),
             );
-            let ready_round =
-                self.schedule_command_stream(cmds, &mut state, &mut schedule.rounds)?;
+            let ready_round = self.schedule_command_stream(cmds, &mut state, &mut schedule.rounds);
             schedule.opaque_strips = state.opaque;
-            schedule.rounds.ensure_exists(ready_round);
+            let ready_round = ready_round?;
+            schedule.rounds.ensure_exists(ready_round, self.pools);
         }
 
         Ok(())
@@ -216,7 +224,7 @@ impl<'a> ScheduleBuilder<'a> {
     }
 
     fn push_command_batches(
-        &self,
+        &mut self,
         cmds: &[RecordedCmd],
         start: usize,
         end: usize,
@@ -235,7 +243,7 @@ impl<'a> ScheduleBuilder<'a> {
         }
 
         let mut bbox = RectU16::INVERTED;
-        rounds.with_draw_builder(state, |builder| {
+        rounds.with_draw_builder(state, self.pools, |builder| {
             for cmd in &cmds[start..end] {
                 let RecordedCmd::Draws(range) = cmd else {
                     continue;
@@ -339,7 +347,7 @@ impl<'a> ScheduleBuilder<'a> {
                 .allocation
                 .filter
                 .expect("filter target must have scratch allocations");
-            rounds.ensure_exists(ready_round);
+            rounds.ensure_exists(ready_round, self.pools);
             rounds.rounds[ready_round]
                 .layer_filters_mut(target.region.texture.texture_index)
                 .push(FilterOp {
@@ -377,7 +385,7 @@ impl<'a> ScheduleBuilder<'a> {
                     layer.region.texture.texture_index,
                     layer.round_idx,
                 ));
-            rounds.with_draw_builder(state, |builder| {
+            rounds.with_draw_builder(state, self.pools, |builder| {
                 builder.push_layer_fill(
                     layer.sample,
                     props.opacity,
@@ -408,7 +416,7 @@ impl<'a> ScheduleBuilder<'a> {
             return;
         }
 
-        rounds.ensure_exists(blend_round);
+        rounds.ensure_exists(blend_round, self.pools);
         let parent_region = state.target.layer_region();
         rounds.rounds[blend_round].scratch_texture_clears[BLEND_SCRATCH_INDEX]
             .push(parent_region.blend_scratch_clear_rect(bbox));
@@ -449,7 +457,7 @@ impl<'a> ScheduleBuilder<'a> {
             return;
         }
 
-        rounds.ensure_exists(parent_ready_round);
+        rounds.ensure_exists(parent_ready_round, self.pools);
         let parent_region = state.target.layer_region();
         rounds.rounds[parent_ready_round].scratch_texture_clears[BLEND_SCRATCH_INDEX]
             .push(parent_region.blend_scratch_clear_rect(bbox));
@@ -486,7 +494,7 @@ impl<'a> ScheduleBuilder<'a> {
             return;
         };
 
-        rounds.ensure_exists(round_idx);
+        rounds.ensure_exists(round_idx, self.pools);
         let clear_region = scheduled_layer.allocation.texture.clear_region();
         rounds.rounds[round_idx].layer_texture_clears[clear_region.texture_index]
             .push(clear_region.rect);
@@ -607,7 +615,7 @@ impl<'a> ScheduleBuilder<'a> {
     }
 
     fn push_layer_batches(
-        &self,
+        &mut self,
         layer_idx: usize,
         start: usize,
         end: usize,
@@ -629,7 +637,7 @@ impl<'a> ScheduleBuilder<'a> {
         round_idx: usize,
         rounds: &mut Rounds,
     ) {
-        rounds.ensure_exists(round_idx);
+        rounds.ensure_exists(round_idx, self.pools);
         self.cursor.release_after(allocation, round_idx);
     }
 
@@ -707,9 +715,10 @@ impl Rounds {
     fn with_draw_builder(
         &mut self,
         state: &mut CommandStreamState,
+        pools: &mut Pools,
         f: impl FnOnce(&mut DrawBuilder<'_>),
     ) {
-        self.ensure_exists(state.round_idx);
+        self.ensure_exists(state.round_idx, pools);
 
         let target_draw = match state.target {
             RenderTarget::Root => self.rounds[state.round_idx].root_draw_mut(),

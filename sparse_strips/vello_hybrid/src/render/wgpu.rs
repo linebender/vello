@@ -3304,6 +3304,10 @@ impl RendererContext<'_> {
 }
 
 impl RendererBackend for RendererContext<'_> {
+    fn pools(&mut self) -> &mut crate::schedule::Pools {
+        &mut self.scratch.pools
+    }
+
     fn prepare_intermediate_textures(
         &mut self,
         requirements: crate::schedule::TextureRequirements,

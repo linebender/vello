@@ -9,9 +9,11 @@ mod allocate;
 mod builder;
 mod cursor;
 mod draw;
+mod pool;
 mod round;
 
 use self::builder::ScheduleBuilder;
+pub(crate) use self::pool::Pools;
 pub(crate) use self::round::BlendOp;
 pub(crate) use self::round::FilterOp;
 use self::round::Rounds;
@@ -132,6 +134,9 @@ struct Schedule {
 }
 
 pub(crate) trait RendererBackend {
+    /// Return the persistent pools used to recycle schedule allocations across frames.
+    fn pools(&mut self) -> &mut Pools;
+
     /// Ensure intermediate layer/scratch textures required by this scene are allocated.
     fn prepare_intermediate_textures(&mut self, requirements: TextureRequirements);
 
@@ -204,15 +209,21 @@ pub(crate) fn render_scene<R: RendererBackend>(
     renderer.prepare_intermediate_textures(TextureRequirements::for_scene(scene));
     let strip_storage = scene.strip_storage.borrow();
     let paints = Paints::new(encoded_paints, paint_idxs);
-    let mut builder = ScheduleBuilder::new(
-        scene,
-        &strip_storage,
-        root_output_target,
-        paints,
-        renderer.layer_texture_size(),
-    );
-    let schedule = builder.build()?;
+    let layer_texture_size = renderer.layer_texture_size();
+    let schedule = {
+        let pools = renderer.pools();
+        let mut builder = ScheduleBuilder::new(
+            scene,
+            &strip_storage,
+            root_output_target,
+            paints,
+            layer_texture_size,
+            pools,
+        );
+        builder.build()?
+    };
     schedule.execute(renderer, root_output_target);
+    schedule.recycle(renderer.pools());
     Ok(())
 }
 
@@ -228,6 +239,11 @@ impl Schedule {
         }
 
         self.rounds.execute(renderer, root_output_target);
+    }
+
+    fn recycle(self, pools: &mut Pools) {
+        pools.submit_opaque_strips(self.opaque_strips);
+        self.rounds.recycle(pools);
     }
 }
 

@@ -2903,6 +2903,10 @@ impl WebGlRendererContext<'_> {
 }
 
 impl RendererBackend for WebGlRendererContext<'_> {
+    fn pools(&mut self) -> &mut crate::schedule::Pools {
+        &mut self.scratch.pools
+    }
+
     fn prepare_intermediate_textures(&mut self, requirements: TextureRequirements) {
         self.programs
             .prepare_intermediate_textures(self.gl, requirements);

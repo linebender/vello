@@ -19,7 +19,7 @@ use vello_common::record::LayerClip;
 use vello_common::strip::{StripFillSegment, StripSegment, for_each_fill_segment};
 use vello_common::strip_generator::StripStorage;
 use vello_common::tile::Tile;
-use vello_common::util::RectExt;
+use vello_common::util::{Clear, RectExt};
 
 #[derive(Debug, Default, Clone)]
 pub(super) struct Draw {
@@ -53,6 +53,13 @@ impl Draw {
 
     pub(super) fn is_empty(&self) -> bool {
         self.strips.is_empty()
+    }
+}
+
+impl Clear for Draw {
+    fn clear(&mut self) {
+        self.strips.clear();
+        self.external_texture_runs.clear();
     }
 }
 
