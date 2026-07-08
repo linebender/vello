@@ -1,13 +1,9 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::GpuStrip;
 use vello_common::geometry::RectU16;
 use vello_common::kurbo::Rect;
 
-/// Bit 31 of [`GpuStrip::paint_and_rect_flag`] signals that the strip
-/// represents a full rectangle.
-const RECT_STRIP_FLAG: u32 = 1 << 31;
 /// The threshold of the rectangle size after which a rectangle should be split up
 /// into multiple smaller ones.
 const LARGE_RECT_SPLIT_THRESHOLD: u16 = 32;
@@ -112,24 +108,6 @@ pub(crate) fn split_rect(rect: &Rect) -> SplitRect {
             rect: RectU16::new(x + width - 1, inner_y, x + width, inner_y + inner_height),
             frac: pack_unorm4x8([0.0, 0.0, right_frac, 0.0]),
         }),
-    }
-}
-
-pub(crate) fn make_gpu_rect(
-    part: RectPart,
-    payload: u32,
-    paint_packed: u32,
-    depth_index: u32,
-) -> GpuStrip {
-    GpuStrip {
-        x: part.rect.x0,
-        y: part.rect.y0,
-        width: part.rect.width(),
-        dense_width_or_rect_height: part.rect.height(),
-        col_idx_or_rect_frac: part.frac,
-        payload,
-        paint_and_rect_flag: paint_packed | RECT_STRIP_FLAG,
-        depth_index,
     }
 }
 

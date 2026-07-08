@@ -8,7 +8,7 @@ use super::builder::CommandStreamState;
 use super::{ExternalTextureRun, LayerTextureRegion};
 use crate::GpuStrip;
 use crate::paint::{COLOR_SOURCE_LAYER, PaintResolver};
-use crate::rect::{RectPart, make_gpu_rect, split_rect};
+use crate::rect::{RectPart, split_rect};
 use crate::scene::{RecordedDraw, RecordedPath};
 use crate::util::{pack_opacity, pack_u16_pair};
 use ::alloc::vec::Vec;
@@ -156,8 +156,9 @@ impl<'a> DrawBuilder<'a> {
             StripSegment::Alpha(segment) => {
                 self.draw.push(
                     self.buffers,
-                    self.strip_fill_to_gpu_strip(
+                    GpuStrip::from_fill(
                         *segment,
+                        self.state.target.geometry_offset(),
                         Some(segment.col_idx()),
                         paint.payload_at(segment.x0(), segment.y()),
                         paint.paint,
@@ -167,8 +168,9 @@ impl<'a> DrawBuilder<'a> {
                 );
             }
             StripSegment::Fill(segment) => {
-                let strip = self.strip_fill_to_gpu_strip(
+                let strip = GpuStrip::from_fill(
                     segment,
+                    self.state.target.geometry_offset(),
                     None,
                     paint.payload_at(segment.x0(), segment.y()),
                     paint.paint,
@@ -206,7 +208,7 @@ impl<'a> DrawBuilder<'a> {
         .into_iter()
         .flatten()
         {
-            let strip = make_gpu_rect(
+            let strip = GpuStrip::from_rect(
                 part.shift(self.state.target.geometry_offset()),
                 paint.payload_at(part.rect.x0, part.rect.y0),
                 paint.paint,
@@ -239,7 +241,7 @@ impl<'a> DrawBuilder<'a> {
             // target allocation, while the payload points at the source atlas coordinate.
             self.draw.push(
                 self.buffers,
-                make_gpu_rect(
+                GpuStrip::from_rect(
                     RectPart {
                         rect: sample_bbox.shift(self.state.target.geometry_offset()),
                         frac: 0,
@@ -284,20 +286,32 @@ impl<'a> DrawBuilder<'a> {
         depth_index: u32,
     ) {
         let payload = sample.payload_at(segment.x0(), segment.y());
-        let strip =
-            self.strip_fill_to_gpu_strip(segment, col_idx, payload, paint, depth_index);
+        let strip = GpuStrip::from_fill(
+            segment,
+            self.state.target.geometry_offset(),
+            col_idx,
+            payload,
+            paint,
+            depth_index,
+        );
         self.draw.push(self.buffers, strip, None);
     }
+}
 
-    fn strip_fill_to_gpu_strip(
-        &self,
+/// Bit 31 of [`GpuStrip::paint_and_rect_flag`] signals that the strip
+/// represents a full rectangle.
+const RECT_STRIP_FLAG: u32 = 1 << 31;
+
+impl GpuStrip {
+    fn from_fill(
         segment: StripFillSegment,
+        geometry_offset: (i32, i32),
         col_idx: Option<u32>,
         payload: u32,
         paint: u32,
         depth_index: u32,
-    ) -> GpuStrip {
-        let rect = segment.shift(self.state.target.geometry_offset());
+    ) -> Self {
+        let rect = segment.shift(geometry_offset);
         let width = rect.width();
         let (dense_width_or_rect_height, col_idx_or_rect_frac) = if let Some(col_idx) = col_idx {
             (width, col_idx)
@@ -305,7 +319,7 @@ impl<'a> DrawBuilder<'a> {
             (0, 0)
         };
 
-        GpuStrip {
+        Self {
             x: rect.x0,
             y: rect.y0,
             width,
@@ -313,6 +327,19 @@ impl<'a> DrawBuilder<'a> {
             col_idx_or_rect_frac,
             payload,
             paint_and_rect_flag: paint,
+            depth_index,
+        }
+    }
+
+    fn from_rect(part: RectPart, payload: u32, paint: u32, depth_index: u32) -> Self {
+        Self {
+            x: part.rect.x0,
+            y: part.rect.y0,
+            width: part.rect.width(),
+            dense_width_or_rect_height: part.rect.height(),
+            col_idx_or_rect_frac: part.frac,
+            payload,
+            paint_and_rect_flag: paint | RECT_STRIP_FLAG,
             depth_index,
         }
     }
