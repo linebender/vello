@@ -3,8 +3,8 @@
 
 //! Draw construction for scheduled strip render passes.
 
+use super::CommandStreamState;
 use super::buffer::{Ranges, ScheduleBuffers};
-use super::builder::CommandStreamState;
 use super::{ExternalTextureRun, LayerTextureRegion};
 use crate::GpuStrip;
 use crate::paint::{COLOR_SOURCE_LAYER, PaintResolver};
