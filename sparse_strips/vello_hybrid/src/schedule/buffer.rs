@@ -28,7 +28,7 @@ impl Ranges {
         }
     }
 
-    pub(crate) fn combined_len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.len
     }
 

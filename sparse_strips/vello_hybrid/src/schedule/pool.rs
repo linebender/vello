@@ -12,7 +12,7 @@ use vello_common::geometry::RectU16;
 use vello_common::util::Pool;
 
 #[derive(Debug, Default)]
-pub(crate) struct Pools {
+pub(super) struct Pools {
     opaque_strips: Pool<Vec<GpuStrip>>,
     root_draws: Pool<Draw>,
     layer_draws: Pool<Draw>,

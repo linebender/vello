@@ -30,7 +30,7 @@ impl RectU16Ext for RectU16 {
     fn to_tile_bounds(self) -> RectU16 {
         let bounds = self.snap_to_tile_coordinates();
 
-        RectU16::new(
+        Self::new(
             bounds.x0 / Tile::WIDTH,
             bounds.y0 / Tile::HEIGHT,
             bounds.x1 / Tile::WIDTH,
@@ -63,7 +63,7 @@ impl Draw {
                 let strips_start = if self.external_texture_runs.is_empty() {
                     0
                 } else {
-                    self.strip_ranges.combined_len()
+                    self.strip_ranges.len()
                 };
 
                 self.external_texture_runs.push(ExternalTextureRun {

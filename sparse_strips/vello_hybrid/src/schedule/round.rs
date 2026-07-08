@@ -26,15 +26,15 @@ pub(super) struct Round {
 }
 
 impl Round {
-    pub(crate) fn root_draw_mut(&mut self) -> &mut Draw {
+    pub(super) fn root_draw_mut(&mut self) -> &mut Draw {
         &mut self.root_draw
     }
 
-    pub(crate) fn layer_draw_mut(&mut self, texture_index: usize) -> &mut Draw {
+    pub(super) fn layer_draw_mut(&mut self, texture_index: usize) -> &mut Draw {
         &mut self.layer_passes[texture_index].draw
     }
 
-    pub(crate) fn push_blend(
+    pub(super) fn push_blend(
         &mut self,
         texture_index: usize,
         buffers: &mut ScheduleBuffers,
@@ -45,7 +45,7 @@ impl Round {
             .push(&mut self.layer_passes[texture_index].blend_ranges, blend);
     }
 
-    pub(crate) fn push_filter(
+    pub(super) fn push_filter(
         &mut self,
         texture_index: usize,
         buffers: &mut ScheduleBuffers,

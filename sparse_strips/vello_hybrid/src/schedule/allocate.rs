@@ -8,7 +8,7 @@ use crate::filter::FILTER_ATLAS_PADDING;
 use vello_common::geometry::RectU16;
 use vello_common::multi_atlas::{AllocId, Atlas, AtlasId};
 
-pub(crate) trait Allocator {
+pub(super) trait Allocator {
     type Request: Copy;
     type Allocation: Copy;
 
@@ -18,9 +18,9 @@ pub(crate) trait Allocator {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Allocation<T> {
-    pub(crate) allocation: T,
-    pub(crate) round_idx: usize,
+pub(super) struct Allocation<T> {
+    pub(super) allocation: T,
+    pub(super) round_idx: usize,
 }
 
 #[derive(Debug)]
@@ -118,7 +118,6 @@ impl Allocator for Atlases {
 
         Some(LayerAllocation {
             filter: (request.scratch_count > 0).then_some(scratch_allocations),
-            round_idx: 0,
             alloc_id: layer_allocation.id,
             texture: layer_texture,
         })
@@ -211,7 +210,6 @@ impl LayerAllocationRequest {
 #[derive(Debug, Clone, Copy)]
 pub(super) struct LayerAllocation {
     pub(super) filter: Option<FilterAllocation>,
-    pub(super) round_idx: usize,
     alloc_id: AllocId,
     pub(super) texture: AllocatedTextureRegion,
 }

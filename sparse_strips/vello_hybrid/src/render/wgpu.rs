@@ -39,10 +39,9 @@ use crate::{
     },
     scene::Scene,
     schedule::{
-        ExternalTextureRun, RendererBackend, RootRenderTarget, StripPassRenderTarget,
-        TextureTarget,
-        buffer::{RangedSlice, Ranges, ScheduleBuffers},
-        pool::Pools,
+        ExternalTextureRun, RendererBackend, RootRenderTarget, ScheduleStorage,
+        StripPassRenderTarget, TextureTarget,
+        buffer::{RangedSlice, Ranges},
     },
 };
 use alloc::vec::Vec;
@@ -157,8 +156,7 @@ pub struct Renderer {
     /// Context for GPU filter effects.
     filter_context: FilterContext,
     dummy_image_cache: Option<ImageCache>,
-    pools: Pools,
-    schedule_buffers: ScheduleBuffers,
+    schedule_storage: ScheduleStorage,
     scratch: ScratchBuffers,
 }
 
@@ -213,8 +211,7 @@ impl Renderer {
             paint_idxs: Vec::new(),
             filter_context,
             dummy_image_cache: Some(ImageCache::new_dummy()),
-            pools: Pools::default(),
-            schedule_buffers: ScheduleBuffers::default(),
+            schedule_storage: ScheduleStorage::default(),
             scratch: ScratchBuffers::default(),
         }
     }
@@ -508,8 +505,7 @@ impl Renderer {
             view,
             texture_bindings,
             external_paint_source_bind_groups: HashMap::new(),
-            pools: &mut self.pools,
-            schedule_buffers: &mut self.schedule_buffers,
+            schedule_storage: &mut self.schedule_storage,
             scratch: &mut self.scratch,
         };
         crate::schedule::render_scene(
@@ -2920,8 +2916,7 @@ struct RendererContext<'a> {
     view: &'a WgpuTextureView,
     texture_bindings: &'a TextureBindings,
     external_paint_source_bind_groups: HashMap<TextureId, BindGroup>,
-    pools: &'a mut Pools,
-    schedule_buffers: &'a mut ScheduleBuffers,
+    schedule_storage: &'a mut ScheduleStorage,
     scratch: &'a mut ScratchBuffers,
 }
 
@@ -2954,7 +2949,7 @@ impl RendererContext<'_> {
         target: StripPassRenderTarget,
     ) {
         let opaque_count = opaque_strips.len();
-        let alpha_count = alpha_ranges.combined_len();
+        let alpha_count = alpha_ranges.len();
         if opaque_count == 0 && alpha_count == 0 {
             return;
         }
@@ -2966,7 +2961,7 @@ impl RendererContext<'_> {
             self.external_paint_source_bind_group_for_texture(run.texture_id);
         }
 
-        let alpha_strips = self.schedule_buffers.strips.ranged(alpha_ranges);
+        let alpha_strips = self.schedule_storage.buffers.strips.ranged(alpha_ranges);
         self.programs
             .upload_strip_pair(self.device, self.queue, opaque_strips, alpha_strips);
         let opaque_count = opaque_count as u32;
@@ -3105,7 +3100,7 @@ impl RendererContext<'_> {
         }
         self.programs.resources.scratch_view(BLEND_SCRATCH_INDEX);
 
-        let blends = self.schedule_buffers.blends.ranged(blend_ranges);
+        let blends = self.schedule_storage.buffers.blends.ranged(blend_ranges);
         let resources = &self.programs.resources;
         self.scratch.blend_instances.clear();
         self.scratch.blend_instances.extend(
@@ -3202,7 +3197,7 @@ impl RendererContext<'_> {
         }
         self.programs.resources.scratch_view(0);
 
-        let filters = self.schedule_buffers.filters.ranged(filter_ranges);
+        let filters = self.schedule_storage.buffers.filters.ranged(filter_ranges);
         schedule(
             filters.iter().copied(),
             self.layer_texture_size_u16(),
@@ -3321,8 +3316,8 @@ impl RendererContext<'_> {
 }
 
 impl RendererBackend for RendererContext<'_> {
-    fn schedule_storage(&mut self) -> (&mut Pools, &mut ScheduleBuffers) {
-        (self.pools, self.schedule_buffers)
+    fn schedule_storage(&mut self) -> &mut ScheduleStorage {
+        self.schedule_storage
     }
 
     fn prepare_intermediate_textures(
@@ -3333,15 +3328,22 @@ impl RendererBackend for RendererContext<'_> {
             .prepare_intermediate_textures(self.device, requirements);
     }
 
-    /// Execute the render pass for rendering strips.
-    fn render_strips(
+    fn render_root_opaque(&mut self, strips: &[GpuStrip]) {
+        self.do_strip_render_pass(
+            strips,
+            &Ranges::default(),
+            &[],
+            StripPassRenderTarget::Root(RootRenderTarget::UserSurface),
+        );
+    }
+
+    fn render_draw(
         &mut self,
-        opaque_strips: &[GpuStrip],
-        alpha_strips: &Ranges,
+        strips: &Ranges,
         external_texture_runs: &[ExternalTextureRun],
         target: StripPassRenderTarget,
     ) {
-        self.do_strip_render_pass(opaque_strips, alpha_strips, external_texture_runs, target);
+        self.do_strip_render_pass(&[], strips, external_texture_runs, target);
     }
 
     fn blend(&mut self, blends: &Ranges, texture_index: usize) {

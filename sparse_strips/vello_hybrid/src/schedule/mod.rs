@@ -1,16 +1,14 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! New scheduler implementation for `vello_hybrid`.
-//!
-//! This first slice supports root-level draws and regular property-less layers.
+//! Builds and executes dependency-ordered rendering rounds for `vello_hybrid`.
 
 mod allocate;
 pub(crate) mod buffer;
 mod builder;
 mod cursor;
 mod draw;
-pub(crate) mod pool;
+mod pool;
 pub(crate) mod round;
 
 use self::buffer::{Ranges, ScheduleBuffers};
@@ -133,9 +131,16 @@ struct Schedule {
     rounds: Rounds,
 }
 
+/// Persistent buffers and allocation pools used to build schedules across frames.
+#[derive(Debug, Default)]
+pub(crate) struct ScheduleStorage {
+    pools: Pools,
+    pub(crate) buffers: ScheduleBuffers,
+}
+
 pub(crate) trait RendererBackend {
     /// Return the persistent storage used while scheduling and executing a scene.
-    fn schedule_storage(&mut self) -> (&mut Pools, &mut ScheduleBuffers);
+    fn schedule_storage(&mut self) -> &mut ScheduleStorage;
 
     /// Ensure intermediate layer/scratch textures required by this scene are allocated.
     fn prepare_intermediate_textures(&mut self, requirements: TextureRequirements);
@@ -146,11 +151,13 @@ pub(crate) trait RendererBackend {
     /// Clear rectangular regions in a texture to transparent black.
     fn clear_rects(&mut self, target: TextureTarget, populate: impl FnOnce(&mut Vec<RectU16>));
 
-    /// Execute a render pass for strips, split into opaque and alpha passes.
-    fn render_strips(
+    /// Render the global opaque strips to the user-provided root surface.
+    fn render_root_opaque(&mut self, strips: &[GpuStrip]);
+
+    /// Render ranged alpha strips to a root or layer target.
+    fn render_draw(
         &mut self,
-        opaque_strips: &[GpuStrip],
-        alpha_strips: &Ranges,
+        strips: &Ranges,
         external_texture_runs: &[ExternalTextureRun],
         target: StripPassRenderTarget,
     );
@@ -211,7 +218,7 @@ pub(crate) fn render_scene<R: RendererBackend>(
     let paints = Paints::new(encoded_paints, paint_idxs);
     let layer_texture_size = renderer.layer_texture_size();
     let schedule = {
-        let (pools, buffers) = renderer.schedule_storage();
+        let ScheduleStorage { pools, buffers } = renderer.schedule_storage();
         buffers.clear();
         let mut builder = ScheduleBuilder::new(
             scene,
@@ -225,7 +232,7 @@ pub(crate) fn render_scene<R: RendererBackend>(
         builder.build()?
     };
     schedule.execute(renderer, root_output_target);
-    let (pools, buffers) = renderer.schedule_storage();
+    let ScheduleStorage { pools, buffers } = renderer.schedule_storage();
     schedule.recycle(pools);
     buffers.clear();
     Ok(())
@@ -233,12 +240,9 @@ pub(crate) fn render_scene<R: RendererBackend>(
 
 impl Schedule {
     fn execute<R: RendererBackend>(&self, renderer: &mut R, root_output_target: RootRenderTarget) {
-        renderer.render_strips(
-            self.opaque_strips.as_deref().unwrap_or(&[]),
-            &Ranges::default(),
-            &[],
-            StripPassRenderTarget::Root(RootRenderTarget::UserSurface),
-        );
+        if let Some(strips) = &self.opaque_strips {
+            renderer.render_root_opaque(strips);
+        }
 
         self.rounds.execute(renderer, root_output_target);
     }
@@ -255,8 +259,7 @@ impl Rounds {
             for texture_index in [1, 0] {
                 let layer_round = &round.layer_passes[texture_index];
                 let draw = &layer_round.draw;
-                renderer.render_strips(
-                    &[],
+                renderer.render_draw(
                     &draw.strip_ranges,
                     &draw.external_texture_runs,
                     StripPassRenderTarget::LayerAtlas(texture_index),
@@ -303,8 +306,7 @@ impl Rounds {
             return;
         }
 
-        renderer.render_strips(
-            &[],
+        renderer.render_draw(
             &draw.strip_ranges,
             &draw.external_texture_runs,
             StripPassRenderTarget::Root(root_output_target),
