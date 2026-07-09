@@ -5,8 +5,6 @@
 
 use super::round::{BlendOp, FilterOp};
 use crate::GpuStrip;
-use crate::copy::GpuCopyInstance;
-use crate::filter::FilterInstanceData;
 use alloc::vec::Vec;
 use core::ops::Range;
 use vello_common::util::Clear;
@@ -45,8 +43,6 @@ impl Clear for Ranges {
 pub(crate) struct ScheduleBuffers {
     pub(crate) strips: Vec<GpuStrip>,
     pub(crate) filter_ops: Vec<FilterOp>,
-    pub(crate) filter_instances: Vec<FilterInstanceData>,
-    pub(crate) filter_copies: Vec<GpuCopyInstance>,
     pub(crate) blends: Vec<BlendOp>,
 }
 
@@ -54,8 +50,6 @@ impl ScheduleBuffers {
     pub(super) fn clear(&mut self) {
         self.strips.clear();
         self.filter_ops.clear();
-        self.filter_instances.clear();
-        self.filter_copies.clear();
         self.blends.clear();
     }
 }

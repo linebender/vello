@@ -24,7 +24,7 @@ use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
     blend::{BLEND_SCRATCH_INDEX, GpuBlendInstance, gpu_blend_instance},
     copy::GpuCopyInstance,
-    filter::{FilterContext, FilterInstanceData},
+    filter::{FilterContext, FilterInstanceData, FilterPassPlan},
     gradient_cache::GradientRampCache,
     paint::PaintResolver,
     render::{
@@ -42,9 +42,7 @@ use crate::{
     scene::Scene,
     schedule::{
         ExternalTextureRun, RendererBackend, RootRenderTarget, ScheduleStorage,
-        StripPassRenderTarget, TextureTarget,
-        buffer::RangedSlice,
-        round::{BlendOp, ResolvedFilterPasses},
+        StripPassRenderTarget, TextureTarget, buffer::RangedSlice, round::BlendOp,
     },
 };
 use alloc::vec::Vec;
@@ -3105,12 +3103,12 @@ impl RendererContext<'_> {
         }
     }
 
-    fn filter_pass_inner(&mut self, passes: ResolvedFilterPasses<'_>, texture_index: usize) {
-        if passes.is_empty() {
+    fn filter_pass_inner(&mut self, plan: &FilterPassPlan, texture_index: usize) {
+        if plan.is_empty() {
             return;
         }
         let resources = &self.programs.resources;
-        for (step_index, instances) in passes.steps().enumerate() {
+        for (step_index, instances) in plan.steps().enumerate() {
             let (input, output) = if step_index == 0 {
                 (TextureTarget::layer(texture_index), TextureTarget::Scratch0)
             } else if step_index % 2 == 1 {
@@ -3129,7 +3127,7 @@ impl RendererContext<'_> {
             );
         }
 
-        let copy_back = passes.copy_back();
+        let copy_back = plan.copy_back();
         let instance_count = u32::try_from(copy_back.len()).unwrap();
         let instance_buffer = self
             .device
@@ -3241,8 +3239,8 @@ impl RendererBackend for RendererContext<'_> {
         self.blend_pass_inner(blends, texture_index);
     }
 
-    fn filter_pass(&mut self, passes: ResolvedFilterPasses<'_>, texture_index: usize) {
-        self.filter_pass_inner(passes, texture_index);
+    fn filter_pass(&mut self, plan: &FilterPassPlan, texture_index: usize) {
+        self.filter_pass_inner(plan, texture_index);
     }
 
     fn clear_pass(&mut self, target: TextureTarget, rects: &[RectU16]) {

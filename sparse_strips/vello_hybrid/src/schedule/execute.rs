@@ -5,11 +5,12 @@
 
 use super::buffer::{RangedSlice, ScheduleBuffers, VecExt};
 use super::pool::Pools;
-use super::round::{BlendOp, ResolvedFilterPasses, Rounds};
+use super::round::{BlendOp, Rounds};
 use super::{
     ExternalTextureRun, RootRenderTarget, Schedule, ScheduleStorage, StripPassRenderTarget,
     TextureTarget,
 };
+use crate::filter::{FilterPassPlan, build_plan};
 use crate::{GpuStrip, Scene};
 use alloc::vec::Vec;
 use vello_common::geometry::RectU16;
@@ -33,7 +34,7 @@ pub(crate) trait RendererBackend {
     fn blend_pass(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: usize);
 
     /// Apply filter operations to already-rendered layer atlas regions.
-    fn filter_pass(&mut self, passes: ResolvedFilterPasses<'_>, texture_index: usize);
+    fn filter_pass(&mut self, plan: &FilterPassPlan, texture_index: usize);
 }
 
 pub(crate) fn execute<R: RendererBackend>(
@@ -42,9 +43,14 @@ pub(crate) fn execute<R: RendererBackend>(
     schedule: Schedule,
     root_output_target: RootRenderTarget,
 ) {
-    schedule.execute(renderer, root_output_target, &storage.buffers);
-    schedule.recycle(&mut storage.pools);
-    storage.buffers.clear();
+    let ScheduleStorage {
+        pools,
+        buffers,
+        filter_pass_plan: filter_plan,
+    } = storage;
+    schedule.execute(renderer, root_output_target, buffers, filter_plan);
+    schedule.recycle(pools);
+    buffers.clear();
 }
 
 impl Schedule {
@@ -53,12 +59,19 @@ impl Schedule {
         renderer: &mut R,
         root_output_target: RootRenderTarget,
         buffers: &ScheduleBuffers,
+        filter_plan: &mut FilterPassPlan,
     ) {
         if let Some(strips) = &self.opaque_strips {
             renderer.opaque_pass(strips);
         }
 
-        self.rounds.execute(renderer, root_output_target, buffers);
+        self.rounds.execute(
+            renderer,
+            root_output_target,
+            buffers,
+            filter_plan,
+            self.layer_texture_size,
+        );
     }
 
     fn recycle(self, pools: &mut Pools) {
@@ -73,6 +86,8 @@ impl Rounds {
         renderer: &mut R,
         root_output_target: RootRenderTarget,
         buffers: &ScheduleBuffers,
+        filter_plan: &mut FilterPassPlan,
+        layer_texture_size: (u16, u16),
     ) {
         for round in &self.rounds {
             for (index, pass) in round.layer_texture_passes.iter().enumerate().rev() {
@@ -83,7 +98,9 @@ impl Rounds {
                     StripPassRenderTarget::LayerAtlas(index),
                 );
 
-                renderer.filter_pass(pass.filter_passes.resolve(buffers), index);
+                let filter_ops = buffers.filter_ops.ranged(&pass.filter_ranges);
+                build_plan(filter_ops.iter().copied(), layer_texture_size, filter_plan);
+                renderer.filter_pass(filter_plan, index);
                 renderer.blend_pass(buffers.blends.ranged(&pass.blend_ranges), index);
             }
 

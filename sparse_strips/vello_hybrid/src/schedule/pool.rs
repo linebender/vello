@@ -5,7 +5,7 @@
 
 use super::buffer::Ranges;
 use super::draw::{Draw, OpaqueStrips, OpaqueStripsExt};
-use super::round::{FilterPasses, LayerTexturePass, Round};
+use super::round::{LayerTexturePass, Round};
 use crate::GpuStrip;
 use alloc::vec::Vec;
 use vello_common::geometry::RectU16;
@@ -17,7 +17,6 @@ pub(super) struct Pools {
     root_draws: Pool<Draw>,
     layer_draws: Pool<Draw>,
     filter_ops: Pool<Ranges>,
-    filter_passes: Pool<FilterPasses>,
     blend_ranges: Pool<Ranges>,
     layer_texture_clears: Pool<Vec<RectU16>>,
     scratch_texture_clears: Pool<Vec<RectU16>>,
@@ -58,7 +57,6 @@ impl Pools {
         LayerTexturePass {
             draw: self.take_layer_draw(),
             filter_ranges: self.filter_ops.take(),
-            filter_passes: self.filter_passes.take(),
             blend_ranges: self.blend_ranges.take(),
         }
     }
@@ -66,7 +64,6 @@ impl Pools {
     fn submit_layer_texture_pass(&mut self, layer_texture_pass: LayerTexturePass) {
         self.submit_layer_draw(layer_texture_pass.draw);
         self.filter_ops.submit(layer_texture_pass.filter_ranges);
-        self.filter_passes.submit(layer_texture_pass.filter_passes);
         self.blend_ranges.submit(layer_texture_pass.blend_ranges);
     }
 

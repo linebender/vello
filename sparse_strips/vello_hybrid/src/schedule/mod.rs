@@ -12,14 +12,14 @@ mod pool;
 pub(crate) mod round;
 
 use self::allocate::{Allocation, Atlases, LayerAllocation, LayerAllocationRequest};
-use self::buffer::{ScheduleBuffers, VecExt};
+use self::buffer::ScheduleBuffers;
 use self::cursor::Cursor;
 use self::draw::{DepthCounter, DrawBuilder, LayerSample, OpaqueStrips, OpaqueStripsExt};
 pub(crate) use self::execute::{RendererBackend, execute};
 use self::pool::Pools;
 use self::round::{BlendOp, FilterOp, Rounds};
 use crate::blend::BLEND_SCRATCH_INDEX;
-use crate::filter::{FilterContext, FilterPlanScratch, PreparedGpuFilter, build_plan};
+use crate::filter::{FilterContext, FilterPassPlan, PreparedGpuFilter};
 use crate::paint::PaintResolver;
 use crate::scene::RecordedDraw;
 use crate::{RenderError, Scene};
@@ -137,6 +137,7 @@ pub(crate) struct ExternalTextureRun {
 pub(crate) struct Schedule {
     opaque_strips: OpaqueStrips,
     rounds: Rounds,
+    layer_texture_size: (u16, u16),
 }
 
 /// Persistent buffers and allocation pools used to build schedules across frames.
@@ -144,7 +145,7 @@ pub(crate) struct Schedule {
 pub(crate) struct ScheduleStorage {
     pools: Pools,
     pub(crate) buffers: ScheduleBuffers,
-    filter_plan_scratch: FilterPlanScratch,
+    filter_pass_plan: FilterPassPlan,
 }
 
 pub(crate) fn build(
@@ -289,11 +290,16 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             return Err(error);
         }
         opaque_strips.reverse();
-        self.build_filter_plans(&mut rounds);
 
         Ok(Schedule {
             opaque_strips,
             rounds,
+            layer_texture_size: (
+                u16::try_from(self.layer_texture_size.0)
+                    .expect("layer texture width must fit into u16"),
+                u16::try_from(self.layer_texture_size.1)
+                    .expect("layer texture height must fit into u16"),
+            ),
         })
     }
 
@@ -368,54 +374,6 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         }
 
         Ok(())
-    }
-
-    fn build_filter_plans(&mut self, rounds: &mut Rounds) {
-        let target_texture_size = (
-            u16::try_from(self.layer_texture_size.0)
-                .expect("layer texture width must fit into u16"),
-            u16::try_from(self.layer_texture_size.1)
-                .expect("layer texture height must fit into u16"),
-        );
-        let ScheduleBuffers {
-            filter_ops,
-            filter_instances,
-            filter_copies,
-            ..
-        } = &mut self.storage.buffers;
-
-        for round in &mut rounds.rounds {
-            for layer_texture_pass in &mut round.layer_texture_passes {
-                let filter_ops = filter_ops.ranged(&layer_texture_pass.filter_ranges);
-                build_plan(
-                    filter_ops.iter().copied(),
-                    target_texture_size,
-                    &mut self.storage.filter_plan_scratch,
-                );
-
-                layer_texture_pass.filter_passes.steps.clear();
-                let step_count = self
-                    .storage
-                    .filter_plan_scratch
-                    .steps
-                    .iter()
-                    .rposition(|step| !step.is_empty())
-                    .map_or(0, |index| index + 1);
-                layer_texture_pass.filter_passes.steps.extend(
-                    self.storage.filter_plan_scratch.steps[..step_count]
-                        .iter()
-                        .map(|step| {
-                            // TODO: Remove
-                            let start = filter_instances.len();
-                            filter_instances.extend_from_slice(step);
-                            start..filter_instances.len()
-                        }),
-                );
-                let copy_start = filter_copies.len();
-                filter_copies.extend_from_slice(&self.storage.filter_plan_scratch.copy_back);
-                layer_texture_pass.filter_passes.copy_back = copy_start..filter_copies.len();
-            }
-        }
     }
 
     fn schedule_command_stream(

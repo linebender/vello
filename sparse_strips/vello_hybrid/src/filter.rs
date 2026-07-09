@@ -8,11 +8,11 @@
 // expanded filter bounds rather than only the raw layer contents. Multi-pass filters also reserve
 // regions in the two scratch textures used for ping-ponging.
 //
-// While building the schedule, the filter planner expands each filter into a sequence of GPU
+// While executing the schedule, each layer texture pass expands its filters into a sequence of GPU
 // passes such as offset, downscale, blur, upscale, and drop-shadow composite. Passes at the same
-// step with matching input/output textures are batched together. At render time, each round first
-// renders the layer contents into the allocated layer texture region, then the backend executes
-// the already-planned filter passes before the layer is blended or sampled by its parent.
+// step with matching input/output textures are batched together. The round first renders the layer
+// contents into the allocated layer texture region, then the backend executes the filter plan
+// before the layer is blended or sampled by its parent.
 //
 // The final filtered pixels are normalized into scratch texture 0 and then copied back into the
 // layer texture allocation. From that point on, the rest of the scheduler can treat the layer like
@@ -412,12 +412,29 @@ impl PreparedGpuFilter {
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct FilterPlanScratch {
-    pub(crate) steps: Vec<Vec<FilterInstanceData>>,
-    pub(crate) copy_back: Vec<GpuCopyInstance>,
+pub(crate) struct FilterPassPlan {
+    steps: Vec<Vec<FilterInstanceData>>,
+    copy_back: Vec<GpuCopyInstance>,
 }
 
-impl FilterPlanScratch {
+impl FilterPassPlan {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.copy_back.is_empty()
+    }
+
+    pub(crate) fn steps(&self) -> impl Iterator<Item = &[FilterInstanceData]> {
+        let step_count = self
+            .steps
+            .iter()
+            .rposition(|step| !step.is_empty())
+            .map_or(0, |index| index + 1);
+        self.steps[..step_count].iter().map(Vec::as_slice)
+    }
+
+    pub(crate) fn copy_back(&self) -> &[GpuCopyInstance] {
+        &self.copy_back
+    }
+
     fn clear(&mut self) {
         for step in &mut self.steps {
             step.clear();
@@ -438,7 +455,7 @@ impl FilterPlanScratch {
 pub(crate) fn build_plan(
     filters: impl IntoIterator<Item = FilterOp>,
     target_texture_size: (u16, u16),
-    passes: &mut FilterPlanScratch,
+    passes: &mut FilterPassPlan,
 ) {
     passes.clear();
 
@@ -471,7 +488,7 @@ pub(crate) fn build_plan(
 struct FilterPassBuilder<'a> {
     op: FilterOp,
     target_texture_size: (u16, u16),
-    passes: &'a mut FilterPlanScratch,
+    passes: &'a mut FilterPassPlan,
     sizer: DecimationSizer,
     original: TextureTarget,
     current_scratch: Option<usize>,
@@ -479,11 +496,7 @@ struct FilterPassBuilder<'a> {
 }
 
 impl<'a> FilterPassBuilder<'a> {
-    fn new(
-        op: FilterOp,
-        target_texture_size: (u16, u16),
-        passes: &'a mut FilterPlanScratch,
-    ) -> Self {
+    fn new(op: FilterOp, target_texture_size: (u16, u16), passes: &'a mut FilterPassPlan) -> Self {
         let mut sizer = DecimationSizer::default();
         sizer.reset(
             op.layer_region.texture.rect.width(),

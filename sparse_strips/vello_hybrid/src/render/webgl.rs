@@ -26,7 +26,7 @@ use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
     blend::{BLEND_SCRATCH_INDEX, GpuBlendInstance, gpu_blend_instance},
     copy::GpuCopyInstance,
-    filter::{FilterContext, FilterInstanceData},
+    filter::{FilterContext, FilterInstanceData, FilterPassPlan},
     gradient_cache::GradientRampCache,
     paint::PaintResolver,
     render::{
@@ -44,9 +44,7 @@ use crate::{
     scene::Scene,
     schedule::{
         ExternalTextureRun, RendererBackend, RootRenderTarget, ScheduleStorage,
-        StripPassRenderTarget, TextureTarget,
-        buffer::RangedSlice,
-        round::{BlendOp, ResolvedFilterPasses},
+        StripPassRenderTarget, TextureTarget, buffer::RangedSlice, round::BlendOp,
     },
 };
 use alloc::sync::Arc;
@@ -2708,8 +2706,8 @@ impl WebGlRendererContext<'_> {
         self.gl.enable(WebGl2RenderingContext::BLEND);
     }
 
-    fn filter_pass_inner(&mut self, passes: ResolvedFilterPasses<'_>, texture_index: usize) {
-        if passes.is_empty() {
+    fn filter_pass_inner(&mut self, plan: &FilterPassPlan, texture_index: usize) {
+        if plan.is_empty() {
             return;
         }
         self.gl.disable(WebGl2RenderingContext::BLEND);
@@ -2743,7 +2741,7 @@ impl WebGlRendererContext<'_> {
             .uniform1i(Some(&self.programs.filter_uniforms.layer_texture_1), 3);
 
         let target_texture_size = self.layer_texture_size_u16();
-        for (step_index, instances) in passes.steps().enumerate() {
+        for (step_index, instances) in plan.steps().enumerate() {
             let (input, output) = if step_index == 0 {
                 (TextureTarget::layer(texture_index), TextureTarget::Scratch0)
             } else if step_index % 2 == 1 {
@@ -2765,7 +2763,7 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.blend_copy_uniforms.scratch_texture), 0);
 
-        let copy_back = passes.copy_back();
+        let copy_back = plan.copy_back();
         self.programs.upload_copy_instances(self.gl, copy_back);
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
@@ -2884,8 +2882,8 @@ impl RendererBackend for WebGlRendererContext<'_> {
         self.blend_pass_inner(blends, texture_index);
     }
 
-    fn filter_pass(&mut self, passes: ResolvedFilterPasses<'_>, texture_index: usize) {
-        self.filter_pass_inner(passes, texture_index);
+    fn filter_pass(&mut self, plan: &FilterPassPlan, texture_index: usize) {
+        self.filter_pass_inner(plan, texture_index);
     }
 
     fn clear_pass(&mut self, target: TextureTarget, rects: &[RectU16]) {
