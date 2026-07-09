@@ -2863,7 +2863,7 @@ impl RendererContext<'_> {
     }
 
     /// Render the strips to the specified render target.
-    fn do_strip_render_pass(
+    fn strip_pass_inner(
         &mut self,
         opaque_strips: &[GpuStrip],
         alpha_strips: RangedSlice<'_, GpuStrip>,
@@ -3010,7 +3010,7 @@ impl RendererContext<'_> {
         (size, size)
     }
 
-    fn do_blend_render_pass(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: usize) {
+    fn blend_pass_inner(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: usize) {
         let parent_texture_size = self.layer_texture_size_u16();
         if blends.len() == 0 {
             return;
@@ -3105,11 +3105,7 @@ impl RendererContext<'_> {
         }
     }
 
-    fn do_filter_layers_render_pass(
-        &mut self,
-        passes: ResolvedFilterPasses<'_>,
-        texture_index: usize,
-    ) {
+    fn filter_pass_inner(&mut self, passes: ResolvedFilterPasses<'_>, texture_index: usize) {
         if passes.is_empty() {
             return;
         }
@@ -3224,7 +3220,7 @@ impl RendererContext<'_> {
 
 impl RendererBackend for RendererContext<'_> {
     fn opaque_pass(&mut self, strips: &[GpuStrip]) {
-        self.do_strip_render_pass(
+        self.strip_pass_inner(
             strips,
             RangedSlice::empty(),
             &[],
@@ -3238,15 +3234,15 @@ impl RendererBackend for RendererContext<'_> {
         external_texture_runs: &[ExternalTextureRun],
         target: StripPassRenderTarget,
     ) {
-        self.do_strip_render_pass(&[], strips, external_texture_runs, target);
+        self.strip_pass_inner(&[], strips, external_texture_runs, target);
     }
 
     fn blend_pass(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: usize) {
-        self.do_blend_render_pass(blends, texture_index);
+        self.blend_pass_inner(blends, texture_index);
     }
 
     fn filter_pass(&mut self, passes: ResolvedFilterPasses<'_>, texture_index: usize) {
-        self.do_filter_layers_render_pass(passes, texture_index);
+        self.filter_pass_inner(passes, texture_index);
     }
 
     fn clear_pass(&mut self, target: TextureTarget, rects: &[RectU16]) {
