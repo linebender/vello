@@ -84,9 +84,6 @@ impl Rounds {
                 );
 
                 renderer.filter_pass(pass.filter_passes.resolve(buffers), index);
-            }
-
-            for (index, pass) in round.layer_texture_passes.iter().enumerate().rev() {
                 renderer.blend_pass(buffers.blends.ranged(&pass.blend_ranges), index);
             }
 

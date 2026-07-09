@@ -671,8 +671,16 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         }
 
         let parent_ready_round = self.finish_stream_segment(state, rounds);
+        let parent_region = state.target.layer_region();
+        let parent_texture_index = parent_region.texture.texture_index;
+        let child_texture_index = layer.region.texture.texture_index;
+        debug_assert_ne!(
+            parent_texture_index, child_texture_index,
+            "blended parent and child layers must use opposite textures"
+        );
         let source_bbox = layer.sample.bbox;
-        let blend_round = parent_ready_round.max(layer.round_idx);
+        let blend_round =
+            parent_ready_round.max(layer.round_idx + usize::from(parent_texture_index == 1));
         let affected_bbox = if blend_mode.is_destructive() {
             let mut bbox = state.backdrop_bbox;
             bbox.union(source_bbox);
@@ -688,11 +696,10 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         }
 
         rounds.ensure_exists(blend_round, &mut self.storage.pools);
-        let parent_region = state.target.layer_region();
         rounds.rounds[blend_round].scratch_texture_clears[BLEND_SCRATCH_INDEX]
             .push(parent_region.blend_scratch_clear_rect(bbox));
         rounds.rounds[blend_round].push_blend_op(
-            parent_region.texture.texture_index,
+            parent_texture_index,
             &mut self.storage.buffers,
             BlendOp {
                 parent_region,
@@ -726,12 +733,14 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             return;
         }
 
-        rounds.ensure_exists(parent_ready_round, &mut self.storage.pools);
         let parent_region = state.target.layer_region();
-        rounds.rounds[parent_ready_round].scratch_texture_clears[BLEND_SCRATCH_INDEX]
+        let parent_texture_index = parent_region.texture.texture_index;
+        let blend_round = parent_ready_round;
+        rounds.ensure_exists(blend_round, &mut self.storage.pools);
+        rounds.rounds[blend_round].scratch_texture_clears[BLEND_SCRATCH_INDEX]
             .push(parent_region.blend_scratch_clear_rect(bbox));
-        rounds.rounds[parent_ready_round].push_blend_op(
-            parent_region.texture.texture_index,
+        rounds.rounds[blend_round].push_blend_op(
+            parent_texture_index,
             &mut self.storage.buffers,
             BlendOp {
                 parent_region,
@@ -745,7 +754,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             Compose::Clear | Compose::Copy | Compose::SrcIn | Compose::SrcOut => RectU16::INVERTED,
             _ => affected_bbox,
         };
-        state.round_idx = parent_ready_round + 1;
+        state.round_idx = blend_round + 1;
     }
 
     fn finish_stream_segment(

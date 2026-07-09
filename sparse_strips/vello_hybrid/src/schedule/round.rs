@@ -39,12 +39,12 @@ impl Round {
 
     pub(super) fn push_blend_op(
         &mut self,
-        texture_index: usize,
+        parent_texture_index: usize,
         buffers: &mut ScheduleBuffers,
         blend: BlendOp,
     ) {
         buffers.blends.push_ranged(
-            &mut self.layer_texture_passes[texture_index].blend_ranges,
+            &mut self.layer_texture_passes[parent_texture_index].blend_ranges,
             blend,
         );
     }
