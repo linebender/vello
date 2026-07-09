@@ -12,7 +12,7 @@ mod pool;
 pub(crate) mod round;
 
 use self::allocate::{Allocation, Atlases, LayerAllocation, LayerAllocationRequest};
-use self::buffer::ScheduleBuffers;
+use self::buffer::{ScheduleBuffers, VecExt};
 use self::cursor::Cursor;
 use self::draw::{DepthCounter, DrawBuilder, LayerSample, OpaqueStrips, OpaqueStripsExt};
 pub(crate) use self::execute::{RendererBackend, execute};
@@ -381,10 +381,16 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                 layer_pass.filter_passes.steps.extend(
                     self.storage.filter_plan_scratch.steps[..step_count]
                         .iter()
-                        .map(|step| filter_instances.extend_from_slice(step)),
+                        .map(|step| {
+                            // TODO: Remove
+                            let start = filter_instances.len();
+                            filter_instances.extend_from_slice(step);
+                            start..filter_instances.len()
+                        }),
                 );
-                layer_pass.filter_passes.copy_back =
-                    filter_copies.extend_from_slice(&self.storage.filter_plan_scratch.copy_back);
+                let copy_start = filter_copies.len();
+                filter_copies.extend_from_slice(&self.storage.filter_plan_scratch.copy_back);
+                layer_pass.filter_passes.copy_back = copy_start..filter_copies.len();
             }
         }
     }

@@ -8,8 +8,7 @@ use crate::GpuStrip;
 use crate::copy::GpuCopyInstance;
 use crate::filter::FilterInstanceData;
 use alloc::vec::Vec;
-use core::ops::{Index, Range};
-use core::slice::SliceIndex;
+use core::ops::Range;
 use vello_common::util::Clear;
 
 #[derive(Debug, Default, Clone)]
@@ -44,11 +43,11 @@ impl Clear for Ranges {
 
 #[derive(Debug, Default)]
 pub(crate) struct ScheduleBuffers {
-    pub(crate) strips: RangedBuffer<GpuStrip>,
-    pub(crate) filter_ops: RangedBuffer<FilterOp>,
-    pub(crate) filter_instances: RangedBuffer<FilterInstanceData>,
-    pub(crate) filter_copies: RangedBuffer<GpuCopyInstance>,
-    pub(crate) blends: RangedBuffer<BlendOp>,
+    pub(crate) strips: Vec<GpuStrip>,
+    pub(crate) filter_ops: Vec<FilterOp>,
+    pub(crate) filter_instances: Vec<FilterInstanceData>,
+    pub(crate) filter_copies: Vec<GpuCopyInstance>,
+    pub(crate) blends: Vec<BlendOp>,
 }
 
 impl ScheduleBuffers {
@@ -61,51 +60,22 @@ impl ScheduleBuffers {
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct RangedBuffer<T> {
-    values: Vec<T>,
+pub(super) trait VecExt<T> {
+    fn push_ranged(&mut self, ranges: &mut Ranges, value: T);
+
+    fn ranged<'a>(&'a self, ranges: &'a Ranges) -> RangedSlice<'a, T>;
 }
 
-impl<T> Default for RangedBuffer<T> {
-    fn default() -> Self {
-        Self { values: Vec::new() }
-    }
-}
-
-impl<T> RangedBuffer<T> {
-    pub(super) fn push(&mut self, ranges: &mut Ranges, value: T) {
-        self.values.push(value);
-        let end = self.values.len();
+impl<T> VecExt<T> for Vec<T> {
+    fn push_ranged(&mut self, ranges: &mut Ranges, value: T) {
+        self.push(value);
+        let end = self.len();
         let index = end - 1;
         ranges.push(index..end);
     }
 
-    pub(super) fn extend_from_slice(&mut self, values: &[T]) -> Range<usize>
-    where
-        T: Copy,
-    {
-        let start = self.values.len();
-        self.values.extend_from_slice(values);
-        start..self.values.len()
-    }
-
-    pub(crate) fn ranged<'a>(&'a self, ranges: &'a Ranges) -> RangedSlice<'a, T> {
-        RangedSlice::new(&self.values, ranges)
-    }
-
-    fn clear(&mut self) {
-        self.values.clear();
-    }
-}
-
-impl<T, I> Index<I> for RangedBuffer<T>
-where
-    I: SliceIndex<[T]>,
-{
-    type Output = I::Output;
-
-    fn index(&self, index: I) -> &Self::Output {
-        &self.values[index]
+    fn ranged<'a>(&'a self, ranges: &'a Ranges) -> RangedSlice<'a, T> {
+        RangedSlice::new(self, ranges)
     }
 }
 

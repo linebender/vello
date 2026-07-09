@@ -3,7 +3,7 @@
 
 //! Concrete round representation for the new hybrid scheduler.
 
-use super::buffer::{Ranges, ScheduleBuffers};
+use super::buffer::{Ranges, ScheduleBuffers, VecExt};
 use super::draw::Draw;
 use super::pool::Pools;
 use super::{LayerTextureRegion, TextureRegion};
@@ -45,7 +45,7 @@ impl Round {
     ) {
         buffers
             .blends
-            .push(&mut self.layer_passes[texture_index].blend_ranges, blend);
+            .push_ranged(&mut self.layer_passes[texture_index].blend_ranges, blend);
     }
 
     pub(super) fn push_filter(
@@ -56,7 +56,7 @@ impl Round {
     ) {
         buffers
             .filter_ops
-            .push(&mut self.layer_passes[texture_index].filter_ranges, filter);
+            .push_ranged(&mut self.layer_passes[texture_index].filter_ranges, filter);
     }
 }
 

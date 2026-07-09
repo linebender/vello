@@ -4,7 +4,7 @@
 //! Draw construction for scheduled strip render passes.
 
 use super::CommandStreamState;
-use super::buffer::{Ranges, ScheduleBuffers};
+use super::buffer::{Ranges, ScheduleBuffers, VecExt};
 use super::{ExternalTextureRun, LayerTextureRegion};
 use crate::GpuStrip;
 use crate::paint::{COLOR_SOURCE_LAYER, PaintResolver};
@@ -56,7 +56,9 @@ impl Draw {
             }
         }
 
-        buffers.strips.push(&mut self.strip_ranges, gpu_strip);
+        buffers
+            .strips
+            .push_ranged(&mut self.strip_ranges, gpu_strip);
     }
 }
 

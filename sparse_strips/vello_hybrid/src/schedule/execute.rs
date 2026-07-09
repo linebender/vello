@@ -3,7 +3,7 @@
 
 //! Executes planned rendering rounds through a backend.
 
-use super::buffer::{RangedSlice, ScheduleBuffers};
+use super::buffer::{RangedSlice, ScheduleBuffers, VecExt};
 use super::pool::Pools;
 use super::round::{BlendOp, ResolvedFilterPasses, Rounds};
 use super::{
