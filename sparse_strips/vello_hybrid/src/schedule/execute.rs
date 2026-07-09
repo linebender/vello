@@ -60,12 +60,8 @@ pub(crate) fn render_scene<R: RendererBackend>(
     let strip_storage = scene.strip_storage.borrow();
     let layer_texture_size = renderer.layer_texture_size();
     let schedule = {
-        let ScheduleStorage {
-            pools,
-            buffers,
-            filter_plan_scratch,
-        } = renderer.schedule_storage();
-        buffers.clear();
+        let storage = renderer.schedule_storage();
+        storage.buffers.clear();
         let mut planner = SchedulePlanner::new(
             scene,
             &strip_storage,
@@ -73,9 +69,9 @@ pub(crate) fn render_scene<R: RendererBackend>(
             paint_resolver,
             filter_context,
             layer_texture_size,
-            pools,
-            buffers,
-            filter_plan_scratch,
+            &mut storage.pools,
+            &mut storage.buffers,
+            &mut storage.filter_plan_scratch,
         );
         planner.build()?
     };
