@@ -30,10 +30,10 @@ pub(crate) trait RendererBackend {
     fn clear_rects(&mut self, target: TextureTarget, rects: &[RectU16]);
 
     /// Render the global opaque strips to the user-provided root surface.
-    fn render_root_opaque(&mut self, strips: &[GpuStrip]);
+    fn opaque_pass(&mut self, strips: &[GpuStrip]);
 
     /// Render ranged alpha strips to a root or layer target.
-    fn render_draw(
+    fn draw_pass(
         &mut self,
         strips: &Ranges,
         external_texture_runs: &[ExternalTextureRun],
@@ -89,7 +89,7 @@ pub(crate) fn render_scene<R: RendererBackend>(
 impl Schedule {
     fn execute<R: RendererBackend>(&self, renderer: &mut R, root_output_target: RootRenderTarget) {
         if let Some(strips) = &self.opaque_strips {
-            renderer.render_root_opaque(strips);
+            renderer.opaque_pass(strips);
         }
 
         self.rounds.execute(renderer, root_output_target);
@@ -107,7 +107,7 @@ impl Rounds {
             for texture_index in [1, 0] {
                 let layer_round = &round.layer_passes[texture_index];
                 let draw = &layer_round.draw;
-                renderer.render_draw(
+                renderer.draw_pass(
                     &draw.strip_ranges,
                     &draw.external_texture_runs,
                     StripPassRenderTarget::LayerAtlas(texture_index),
@@ -116,7 +116,7 @@ impl Rounds {
                 renderer.apply_filters(&layer_round.filter_passes, texture_index);
             }
 
-            renderer.render_draw(
+            renderer.draw_pass(
                 &round.root_draw.strip_ranges,
                 &round.root_draw.external_texture_runs,
                 StripPassRenderTarget::Root(root_output_target),

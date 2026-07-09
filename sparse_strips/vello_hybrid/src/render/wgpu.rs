@@ -3223,7 +3223,7 @@ impl RendererBackend for RendererContext<'_> {
             .prepare_intermediate_textures(self.device, requirements);
     }
 
-    fn render_root_opaque(&mut self, strips: &[GpuStrip]) {
+    fn opaque_pass(&mut self, strips: &[GpuStrip]) {
         self.do_strip_render_pass(
             strips,
             &Ranges::default(),
@@ -3232,7 +3232,7 @@ impl RendererBackend for RendererContext<'_> {
         );
     }
 
-    fn render_draw(
+    fn draw_pass(
         &mut self,
         strips: &Ranges,
         external_texture_runs: &[ExternalTextureRun],
