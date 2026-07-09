@@ -21,12 +21,14 @@ only break in edge cases, and some of them are also only related to conversions 
 )]
 
 use crate::render::common::IMAGE_PADDING;
+use crate::schedule::execute::TextureRequirements;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
     blend::{BLEND_SCRATCH_INDEX, GpuBlendInstance, gpu_blend_instance},
     copy::GpuCopyInstance,
     filter::{FilterContext, FilterInstanceData},
     gradient_cache::GradientRampCache,
+    paint::PaintResolver,
     render::{
         Config,
         common::{
@@ -73,7 +75,6 @@ use web_sys::{
     HtmlCanvasElement, WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram,
     WebGlShader, WebGlTexture, WebGlUniformLocation, WebGlVertexArrayObject,
 };
-use crate::schedule::execute::TextureRequirements;
 
 /// Placeholder value for uninitialized GPU encoded paints.
 const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
@@ -398,6 +399,7 @@ impl WebGlRenderer {
         self.filter_context.prepare(scene);
 
         self.prepare_gpu_encoded_paints(&encoded_paints, image_cache);
+        let paint_resolver = PaintResolver::new(&encoded_paints, &self.paint_idxs);
 
         self.programs
             .maybe_resize_atlas_texture_array(&self.gl, image_cache.atlas_count() as u32);
@@ -429,8 +431,7 @@ impl WebGlRenderer {
             &mut ctx,
             scene,
             root_output_target,
-            &self.paint_idxs,
-            &encoded_paints,
+            paint_resolver,
             &self.filter_context,
         )?;
 

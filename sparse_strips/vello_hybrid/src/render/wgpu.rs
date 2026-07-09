@@ -19,12 +19,14 @@ only break in edge cases, and some of them are also only related to conversions 
 )]
 
 use crate::render::common::IMAGE_PADDING;
+use crate::schedule::execute::TextureRequirements;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
     blend::{BLEND_SCRATCH_INDEX, GpuBlendInstance, gpu_blend_instance},
     copy::GpuCopyInstance,
     filter::{FilterContext, FilterInstanceData},
     gradient_cache::GradientRampCache,
+    paint::PaintResolver,
     render::{
         Config,
         common::{
@@ -69,7 +71,6 @@ use wgpu::{
     RenderPassDescriptor, RenderPipeline, Sampler, Texture, TextureView as WgpuTextureView,
     TextureViewDescriptor, util::DeviceExt,
 };
-use crate::schedule::execute::TextureRequirements;
 
 /// Placeholder value for uninitialized GPU encoded paints.
 const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
@@ -424,6 +425,7 @@ impl Renderer {
         self.programs.depth_cleared_this_frame = false;
         self.filter_context.prepare(scene);
         self.prepare_gpu_encoded_paints(encoded_paints, image_cache, texture_bindings)?;
+        let paint_resolver = PaintResolver::new(encoded_paints, &self.paint_idxs);
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
@@ -456,8 +458,7 @@ impl Renderer {
             &mut ctx,
             scene,
             root_output_target,
-            &self.paint_idxs,
-            encoded_paints,
+            paint_resolver,
             &self.filter_context,
         )?;
         self.gradient_cache.maintain();
@@ -1029,10 +1030,7 @@ impl GpuResources {
         }
     }
 
-    fn has_intermediate_textures(
-        &self,
-        requirements: TextureRequirements,
-    ) -> bool {
+    fn has_intermediate_textures(&self, requirements: TextureRequirements) -> bool {
         self.layer_textures
             .iter()
             .zip(requirements.layer_textures)
@@ -3220,10 +3218,7 @@ impl RendererBackend for RendererContext<'_> {
         self.schedule_storage
     }
 
-    fn prepare(
-        &mut self,
-        requirements: TextureRequirements,
-    ) {
+    fn prepare(&mut self, requirements: TextureRequirements) {
         self.programs
             .prepare_intermediate_textures(self.device, requirements);
     }

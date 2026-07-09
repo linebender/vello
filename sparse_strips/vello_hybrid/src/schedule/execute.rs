@@ -14,7 +14,6 @@ use crate::filter::FilterContext;
 use crate::paint::PaintResolver;
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::vec::Vec;
-use vello_common::encode::EncodedPaint;
 use vello_common::geometry::RectU16;
 
 pub(crate) trait RendererBackend {
@@ -53,14 +52,12 @@ pub(crate) fn render_scene<R: RendererBackend>(
     renderer: &mut R,
     scene: &Scene,
     root_output_target: RootRenderTarget,
-    paint_idxs: &[u32],
-    encoded_paints: &[EncodedPaint],
+    paint_resolver: PaintResolver<'_>,
     filter_context: &FilterContext,
 ) -> Result<(), RenderError> {
     renderer.prepare(TextureRequirements::for_scene(scene));
 
     let strip_storage = scene.strip_storage.borrow();
-    let paint_resolver = PaintResolver::new(encoded_paints, paint_idxs);
     let layer_texture_size = renderer.layer_texture_size();
     let schedule = {
         let ScheduleStorage {
