@@ -21,17 +21,16 @@
 
 //! GPU filter types and conversion utilities.
 
-use crate::Scene;
 use crate::copy::GpuCopyInstance;
 use crate::schedule::{TextureRegion, TextureTarget, round::FilterOp};
 use crate::util::{IntRect, IntSize, pack_u16_pair};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
-use vello_common::filter::PreparedFilter;
 use vello_common::filter::drop_shadow::DropShadow;
 use vello_common::filter::flood::Flood;
 use vello_common::filter::gaussian_blur::{DecimationSizer, GaussianBlur, MAX_KERNEL_SIZE};
 use vello_common::filter::offset::Offset;
+use vello_common::filter::{FilterData, PreparedFilter};
 use vello_common::filter_effects::EdgeMode;
 
 /// How much transparent padding to reserve for filter layers within the image. Needed so
@@ -394,7 +393,6 @@ pub(crate) struct FilterContext {
     /// The encoded data for each filter used in the current scene that will be uploaded to the
     /// filter data texture.
     filters: Vec<GpuFilterData>,
-    layer_filters: Vec<Option<PreparedGpuFilter>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -650,32 +648,19 @@ impl FilterContext {
     pub(crate) fn new() -> Self {
         Self {
             filters: Vec::new(),
-            layer_filters: Vec::new(),
         }
     }
 
-    pub(crate) fn prepare(&mut self, scene: &Scene) {
+    pub(crate) fn clear(&mut self) {
         self.filters.clear();
-        self.layer_filters.clear();
-        self.layer_filters.resize(scene.recorder.layers.len(), None);
-
-        let mut data_offset = 0;
-        for layer_id in &scene.recorder.filter_layers {
-            let layer = &scene.recorder.layers[*layer_id as usize];
-            let vello_common::record::RecordedLayerKind::Filter { filter_data, .. } = &layer.kind
-            else {
-                unreachable!("recorded filter layer must contain filter data");
-            };
-            let prepared = PreparedFilter::new(&filter_data.filter, &filter_data.transform);
-            let data = GpuFilterData::from(&prepared);
-            self.filters.push(data);
-            self.layer_filters[*layer_id as usize] = Some(PreparedGpuFilter { data_offset, data });
-            data_offset += GpuFilterData::SIZE_TEXELS;
-        }
     }
 
-    pub(crate) fn get(&self, layer_id: u32) -> Option<PreparedGpuFilter> {
-        self.layer_filters[layer_id as usize]
+    pub(crate) fn push(&mut self, filter_data: &FilterData) -> PreparedGpuFilter {
+        let data_offset = self.total_texels();
+        let prepared = PreparedFilter::new(&filter_data.filter, &filter_data.transform);
+        let data = GpuFilterData::from(&prepared);
+        self.filters.push(data);
+        PreparedGpuFilter { data_offset, data }
     }
 
     pub(crate) fn is_empty(&self) -> bool {

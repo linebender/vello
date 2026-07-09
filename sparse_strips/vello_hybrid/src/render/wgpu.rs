@@ -423,9 +423,17 @@ impl Renderer {
         texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
         self.programs.depth_cleared_this_frame = false;
-        self.filter_context.prepare(scene);
         self.prepare_gpu_encoded_paints(encoded_paints, image_cache, texture_bindings)?;
         let paint_resolver = PaintResolver::new(encoded_paints, &self.paint_idxs);
+        let layer_texture_size = self.programs.resources.layer_texture_size;
+        let schedule = crate::schedule::build(
+            &mut self.schedule_storage,
+            scene,
+            root_output_target,
+            paint_resolver,
+            &mut self.filter_context,
+            (layer_texture_size, layer_texture_size),
+        )?;
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
         // buffer fills.
@@ -458,11 +466,9 @@ impl Renderer {
         crate::schedule::execute(
             &mut ctx,
             &mut self.schedule_storage,
-            scene,
+            schedule,
             root_output_target,
-            paint_resolver,
-            &self.filter_context,
-        )?;
+        );
         self.gradient_cache.maintain();
 
         Ok(())
@@ -3241,10 +3247,6 @@ impl RendererBackend for RendererContext<'_> {
 
     fn filter_pass(&mut self, passes: ResolvedFilterPasses<'_>, texture_index: usize) {
         self.do_filter_layers_render_pass(passes, texture_index);
-    }
-
-    fn layer_texture_size(&self) -> (u32, u32) {
-        RendererContext::layer_texture_size(self)
     }
 
     fn clear_pass(&mut self, target: TextureTarget, rects: &[RectU16]) {

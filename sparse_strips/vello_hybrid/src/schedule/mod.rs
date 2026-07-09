@@ -15,7 +15,7 @@ use self::allocate::{Allocation, Atlases, LayerAllocation, LayerAllocationReques
 use self::buffer::{ScheduleBuffers, VecExt};
 use self::cursor::Cursor;
 use self::draw::{DepthCounter, DrawBuilder, LayerSample, OpaqueStrips, OpaqueStripsExt};
-pub(crate) use self::execute::{RendererBackend, execute};
+pub(crate) use self::execute::{RendererBackend, build, execute};
 use self::pool::Pools;
 use self::round::{BlendOp, FilterOp, Rounds};
 use crate::blend::BLEND_SCRATCH_INDEX;
@@ -134,7 +134,7 @@ pub(crate) struct ExternalTextureRun {
 }
 
 #[derive(Debug, Default)]
-struct Schedule {
+pub(crate) struct Schedule {
     opaque_strips: OpaqueStrips,
     rounds: Rounds,
 }
@@ -221,7 +221,7 @@ struct SchedulePlanner<'a, 'p> {
     paint_resolver: PaintResolver<'a>,
     cursor: Cursor<Atlases>,
     layer_allocations: Vec<Option<ScheduledLayer>>,
-    filter_context: &'a FilterContext,
+    filter_context: &'p mut FilterContext,
     layer_texture_size: (u32, u32),
     storage: &'p mut ScheduleStorage,
 }
@@ -232,7 +232,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         strip_storage: &'a StripStorage,
         root_render_target: RootRenderTarget,
         paint_resolver: PaintResolver<'a>,
-        filter_context: &'a FilterContext,
+        filter_context: &'p mut FilterContext,
         layer_texture_size: (u32, u32),
         storage: &'p mut ScheduleStorage,
     ) -> Self {
@@ -820,7 +820,12 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         target: &'b mut Option<LayerCommandTarget>,
     ) -> Result<&'b mut LayerCommandTarget, RenderError> {
         if target.is_none() {
-            let filter = self.filter_context.get(layer_id);
+            let filter = match &self.scene.recorder.layers[layer_id as usize].kind {
+                RecordedLayerKind::Filter { filter_data, .. } => {
+                    Some(self.filter_context.push(filter_data))
+                }
+                RecordedLayerKind::Regular => None,
+            };
             let (allocation, region) = self.allocate_region(
                 texture_index,
                 bbox,

@@ -396,10 +396,17 @@ impl WebGlRenderer {
         let mut encoded_paints = scene.encoded_paints.borrow_mut();
         let original_scene_paint_count = encoded_paints.len();
 
-        self.filter_context.prepare(scene);
-
         self.prepare_gpu_encoded_paints(&encoded_paints, image_cache);
         let paint_resolver = PaintResolver::new(&encoded_paints, &self.paint_idxs);
+        let layer_texture_size = self.programs.resources.max_texture_dimension_2d.min(4096);
+        let schedule = crate::schedule::build(
+            &mut self.schedule_storage,
+            scene,
+            root_output_target,
+            paint_resolver,
+            &mut self.filter_context,
+            (layer_texture_size, layer_texture_size),
+        )?;
 
         self.programs
             .maybe_resize_atlas_texture_array(&self.gl, image_cache.atlas_count() as u32);
@@ -431,11 +438,9 @@ impl WebGlRenderer {
         crate::schedule::execute(
             &mut ctx,
             &mut self.schedule_storage,
-            scene,
+            schedule,
             root_output_target,
-            paint_resolver,
-            &self.filter_context,
-        )?;
+        );
 
         // See: https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_invalidateframebuffer
         // We want to indicate to the GPU driver that we won't read the depth buffer again
@@ -2885,10 +2890,6 @@ impl RendererBackend for WebGlRendererContext<'_> {
 
     fn filter_pass(&mut self, passes: ResolvedFilterPasses<'_>, texture_index: usize) {
         self.do_filter_layers_render_pass(passes, texture_index);
-    }
-
-    fn layer_texture_size(&self) -> (u32, u32) {
-        WebGlRendererContext::layer_texture_size(self)
     }
 
     fn clear_pass(&mut self, target: TextureTarget, rects: &[RectU16]) {

@@ -17,9 +17,6 @@ use alloc::vec::Vec;
 use vello_common::geometry::RectU16;
 
 pub(crate) trait RendererBackend {
-    /// Return the dimensions of each layer atlas texture.
-    fn layer_texture_size(&self) -> (u32, u32);
-
     /// Clear rectangular regions in a texture to transparent black.
     fn clear_pass(&mut self, target: TextureTarget, rects: &[RectU16]);
 
@@ -41,19 +38,19 @@ pub(crate) trait RendererBackend {
     fn filter_pass(&mut self, passes: ResolvedFilterPasses<'_>, texture_index: usize);
 }
 
-/// Render the supported subset of a scene through the recorder-based scheduler.
-pub(crate) fn execute<R: RendererBackend>(
-    renderer: &mut R,
+/// Build a schedule for the recorded scene.
+pub(crate) fn build(
     storage: &mut ScheduleStorage,
     scene: &Scene,
     root_output_target: RootRenderTarget,
     paint_resolver: PaintResolver<'_>,
-    filter_context: &FilterContext,
-) -> Result<(), RenderError> {
+    filter_context: &mut FilterContext,
+    layer_texture_size: (u32, u32),
+) -> Result<Schedule, RenderError> {
     let strip_storage = scene.strip_storage.borrow();
-    let layer_texture_size = renderer.layer_texture_size();
+    filter_context.clear();
     storage.buffers.clear();
-    let schedule = SchedulePlanner::new(
+    SchedulePlanner::new(
         scene,
         &strip_storage,
         root_output_target,
@@ -62,11 +59,18 @@ pub(crate) fn execute<R: RendererBackend>(
         layer_texture_size,
         storage,
     )
-    .build()?;
+    .build()
+}
+
+pub(crate) fn execute<R: RendererBackend>(
+    renderer: &mut R,
+    storage: &mut ScheduleStorage,
+    schedule: Schedule,
+    root_output_target: RootRenderTarget,
+) {
     schedule.execute(renderer, root_output_target, &storage.buffers);
     schedule.recycle(&mut storage.pools);
     storage.buffers.clear();
-    Ok(())
 }
 
 impl Schedule {
