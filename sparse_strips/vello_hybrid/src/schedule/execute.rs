@@ -49,7 +49,6 @@ pub(crate) fn execute<R: RendererBackend>(
     } = storage;
     schedule.execute(renderer, root_output_target, buffers, filter_plan);
     schedule.recycle(pools);
-    buffers.clear();
 }
 
 impl Schedule {
