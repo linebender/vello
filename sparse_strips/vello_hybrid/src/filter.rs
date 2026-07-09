@@ -32,6 +32,7 @@ use vello_common::filter::gaussian_blur::{DecimationSizer, GaussianBlur, MAX_KER
 use vello_common::filter::offset::Offset;
 use vello_common::filter::{FilterData, PreparedFilter};
 use vello_common::filter_effects::EdgeMode;
+use vello_common::util::RetainVec;
 
 /// How much transparent padding to reserve for filter layers within the image. Needed so
 /// that the various shader programs can assume transparent pixels on the outside, making
@@ -413,7 +414,7 @@ impl PreparedGpuFilter {
 
 #[derive(Debug, Default)]
 pub(crate) struct FilterPassPlan {
-    steps: Vec<Vec<FilterInstanceData>>,
+    steps: RetainVec<Vec<FilterInstanceData>>,
     copy_back: Vec<GpuCopyInstance>,
 }
 
@@ -423,12 +424,7 @@ impl FilterPassPlan {
     }
 
     pub(crate) fn steps(&self) -> impl Iterator<Item = &[FilterInstanceData]> {
-        let step_count = self
-            .steps
-            .iter()
-            .rposition(|step| !step.is_empty())
-            .map_or(0, |index| index + 1);
-        self.steps[..step_count].iter().map(Vec::as_slice)
+        self.steps.as_slice().iter().map(Vec::as_slice)
     }
 
     pub(crate) fn copy_back(&self) -> &[GpuCopyInstance] {
@@ -436,10 +432,7 @@ impl FilterPassPlan {
     }
 
     fn clear(&mut self) {
-        for step in &mut self.steps {
-            step.clear();
-        }
-
+        self.steps.clear();
         self.copy_back.clear();
     }
 
