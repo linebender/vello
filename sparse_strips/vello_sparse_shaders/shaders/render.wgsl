@@ -377,11 +377,12 @@ fn fs_main(
             let image_source_kind = get_image_source_kind(image_texel0);
             let image_padding = get_image_padding(image_texel2);
             let packed_tint = image_texel2.y;
-            let has_tint = packed_tint != 0u;
-            // When packed_tint is zero (no tint), use identity color vec4(1.0) with
-            // Multiply mode so the math reduces to sample_color * 1.0 = sample_color.
+            let tint_mode = image_texel2.z;
+            let has_tint = tint_mode != TINT_MODE_NONE;
+            // With no tint, image_tint is identity vec4(1.0) and is_multiply is
+            // true, so the math reduces to sample_color * 1.0 = sample_color.
             let image_tint = select(vec4<f32>(1.0), unpack4x8unorm(packed_tint), has_tint);
-            let is_multiply = !has_tint || image_texel2.z != TINT_MODE_ALPHA_MASK;
+            let is_multiply = tint_mode != TINT_MODE_ALPHA_MASK;
             let local_xy = sample_xy - image_offset;
             // This offset doesn't exist in vello_cpu, and we use it because 45 degree skewing seems to cause
             // artifacts on the GPU. We have something similar in place for gradients. It might be worth revisiting
@@ -542,9 +543,11 @@ fn fs_main(
     return final_color;
 }
 
-/// Tint mode constants.
-const TINT_MODE_ALPHA_MASK: u32 = 0u;
-const TINT_MODE_MULTIPLY: u32 = 1u;
+/// Tint mode constants. Presence is carried by the mode, not the packed color:
+/// a fully transparent tint packs to 0 but must still be applied.
+const TINT_MODE_NONE: u32 = 0u;
+const TINT_MODE_ALPHA_MASK: u32 = 1u;
+const TINT_MODE_MULTIPLY: u32 = 2u;
 
 // Convert a flat texel index to 2D texture coordinates for the encoded paints texture.
 fn encoded_paint_coord(flat_idx: u32) -> vec2<u32> {
@@ -574,8 +577,8 @@ fn load_encoded_paint_texel(paint_tex_idx: u32, texel_offset: u32) -> vec4<u32> 
 // texel0.z: image_offset, packed as [x:16, y:16]
 // texel0.w/texel1.x/texel1.y/texel1.z: transform matrix [a, b, c, d]
 // texel1.w/texel2.x: translation [tx, ty]
-// texel2.y: premultiplied tint color packed as RGBA8 unorm; 0 means no tint
-// texel2.z: tint mode, only meaningful when texel2.y != 0
+// texel2.y: premultiplied tint color packed as RGBA8 unorm
+// texel2.z: tint mode (TINT_MODE_*); TINT_MODE_NONE = no tint
 // texel2.w: transparent padding pixels around the image in the atlas
 
 /// The rendering quality of the image.

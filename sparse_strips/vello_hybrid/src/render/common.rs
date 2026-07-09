@@ -184,6 +184,44 @@ mod tests {
     }
 
     #[test]
+    fn pack_tint_signals_presence_by_mode_not_color() {
+        use super::{
+            GPU_TINT_MODE_ALPHA_MASK, GPU_TINT_MODE_MULTIPLY, GPU_TINT_MODE_NONE, pack_tint,
+        };
+        use vello_common::color::palette::css::RED;
+        use vello_common::paint::{Tint, TintMode};
+        use vello_common::peniko::Color;
+
+        assert_eq!(pack_tint(None), (0, GPU_TINT_MODE_NONE));
+
+        // A fully transparent tint premultiplies to color 0 but must still be
+        // reported as present (it used to be read as "no tint", rendering the
+        // image opaque).
+        let transparent_white = Color::new([1.0, 1.0, 1.0, 0.0]);
+        assert_eq!(
+            pack_tint(Some(Tint {
+                color: transparent_white,
+                mode: TintMode::Multiply,
+            })),
+            (0, GPU_TINT_MODE_MULTIPLY),
+        );
+        assert_eq!(
+            pack_tint(Some(Tint {
+                color: transparent_white,
+                mode: TintMode::AlphaMask,
+            })),
+            (0, GPU_TINT_MODE_ALPHA_MASK),
+        );
+
+        let (color, mode) = pack_tint(Some(Tint {
+            color: RED,
+            mode: TintMode::Multiply,
+        }));
+        assert_ne!(color, 0);
+        assert_eq!(mode, GPU_TINT_MODE_MULTIPLY);
+    }
+
+    #[test]
     fn normalize_memory_settings_clamps_atlas_config_to_backend_limits() {
         let mut settings = MemorySettings {
             image_atlas_config: AtlasConfig {
@@ -439,9 +477,9 @@ pub(crate) struct GpuEncodedImage {
     /// Transform matrix [a, b, c, d, tx, ty].
     pub transform: [f32; 6],
     /// Premultiplied tint color packed as RGBA8 unorm (`pack4x8unorm` layout).
-    /// A value of `0` means no tint is applied.
+    /// Only meaningful when `tint_mode != GPU_TINT_MODE_NONE`.
     pub tint: u32,
-    /// [`TintMode`](vello_common::paint::TintMode) discriminant. Only meaningful when `tint != 0`.
+    /// One of the `GPU_TINT_MODE_*` markers. Carries tint presence, not `tint`.
     pub tint_mode: u32,
     /// Number of transparent padding pixels around the image in the atlas.
     pub image_padding: u32,
@@ -595,19 +633,33 @@ pub(crate) fn pack_image_params(
     (atlas_index << 6) | (extend_y << 4) | (extend_x << 2) | quality
 }
 
+/// GPU tint-mode markers written to [`GpuEncodedImage::tint_mode`], kept in sync
+/// with `render.wgsl`. Unlike the CPU-side
+/// [`TintMode`](vello_common::paint::TintMode), `0` marks the *absence* of a
+/// tint: presence must be carried by the mode rather than by the packed color,
+/// because a fully transparent tint premultiplies to a packed color of `0`.
+pub(crate) const GPU_TINT_MODE_NONE: u32 = 0;
+pub(crate) const GPU_TINT_MODE_ALPHA_MASK: u32 = 1;
+pub(crate) const GPU_TINT_MODE_MULTIPLY: u32 = 2;
+
 /// Pack an optional [`Tint`](vello_common::paint::Tint) into a (`tint_color_u32`, `tint_mode_u32`) pair for the GPU.
 ///
 /// The tint color is premultiplied before packing into a u32 in the same layout
-/// as WGSL `pack4x8unorm`. Returns `(0, 0)` when no tint is specified, which
-/// the shader interprets as "no tint".
+/// as WGSL `pack4x8unorm`. Presence is signalled by the mode, not the color
+/// (see [`GPU_TINT_MODE_NONE`]).
 #[inline(always)]
 pub(crate) fn pack_tint(tint: Option<vello_common::paint::Tint>) -> (u32, u32) {
+    use vello_common::paint::TintMode;
     match tint {
         Some(t) => {
             let color = t.color.premultiply().to_rgba8().to_u32();
-            (color, t.mode.as_u32())
+            let mode = match t.mode {
+                TintMode::AlphaMask => GPU_TINT_MODE_ALPHA_MASK,
+                TintMode::Multiply => GPU_TINT_MODE_MULTIPLY,
+            };
+            (color, mode)
         }
-        None => (0, 0),
+        None => (0, GPU_TINT_MODE_NONE),
     }
 }
 
