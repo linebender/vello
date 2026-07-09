@@ -437,7 +437,7 @@ impl FilterPlanScratch {
     }
 }
 
-pub(crate) fn build_filter_plan(
+pub(crate) fn build_plan(
     filters: impl IntoIterator<Item = FilterOp>,
     target_texture_size: (u16, u16),
     passes: &mut FilterPlanScratch,

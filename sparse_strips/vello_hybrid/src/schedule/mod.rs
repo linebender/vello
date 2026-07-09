@@ -19,7 +19,7 @@ pub(crate) use self::execute::{RendererBackend, execute};
 use self::pool::Pools;
 use self::round::{BlendOp, FilterOp, Rounds};
 use crate::blend::BLEND_SCRATCH_INDEX;
-use crate::filter::{FilterContext, FilterPlanScratch, PreparedGpuFilter, build_filter_plan};
+use crate::filter::{FilterContext, FilterPlanScratch, PreparedGpuFilter, build_plan};
 use crate::paint::PaintResolver;
 use crate::scene::RecordedDraw;
 use crate::{RenderError, Scene};
@@ -364,7 +364,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         for round in &mut rounds.rounds {
             for layer_pass in &mut round.layer_passes {
                 let filter_ops = filter_ops.ranged(&layer_pass.filter_ranges);
-                build_filter_plan(
+                build_plan(
                     filter_ops.iter().copied(),
                     target_texture_size,
                     &mut self.storage.filter_plan_scratch,
