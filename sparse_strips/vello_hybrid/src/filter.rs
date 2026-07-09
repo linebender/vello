@@ -445,7 +445,7 @@ impl FilterPassPlan {
     }
 }
 
-pub(crate) fn build_plan(
+pub(crate) fn plan(
     filters: impl IntoIterator<Item = FilterOp>,
     target_texture_size: (u16, u16),
     passes: &mut FilterPassPlan,

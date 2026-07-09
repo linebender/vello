@@ -10,9 +10,8 @@ use super::{
     ExternalTextureRun, RootRenderTarget, Schedule, ScheduleStorage, StripPassRenderTarget,
     TextureTarget,
 };
-use crate::filter::{FilterPassPlan, build_plan};
-use crate::{GpuStrip, Scene};
-use alloc::vec::Vec;
+use crate::filter::{FilterPassPlan, plan};
+use crate::{filter, GpuStrip, Scene};
 use vello_common::geometry::RectU16;
 
 pub(crate) trait RendererBackend {
@@ -89,8 +88,17 @@ impl Rounds {
         filter_plan: &mut FilterPassPlan,
         layer_texture_size: (u16, u16),
     ) {
+        // The core loop that ties everything together!
+
+        // We iterate over each round separately.
         for round in &self.rounds {
+            // For each round, we first draws to layer texture 1, then to layer texture 0.
+            // The order is important because draws to layer texture 0 might have dependencies
+            // on draws to layer texture 1 in the same round!
+
             for (index, pass) in round.layer_texture_passes.iter().enumerate().rev() {
+                // For each layer texture target, we first perform the draws of all layers that are
+                // allocated in this texture.
                 let draw = &pass.draw;
                 renderer.draw_pass(
                     buffers.strips.ranged(&draw.strip_ranges),
@@ -98,34 +106,26 @@ impl Rounds {
                     StripPassRenderTarget::LayerAtlas(index),
                 );
 
-                let filter_ops = buffers.filter_ops.ranged(&pass.filter_ranges);
-                build_plan(filter_ops.iter().copied(), layer_texture_size, filter_plan);
+                // Next, we apply all filters for layers in this pass.
+                filter::plan(buffers.filter_ops.ranged(&pass.filter_ranges).iter().copied(), layer_texture_size, filter_plan);
                 renderer.filter_pass(filter_plan, index);
+                // Finally, we apply all blend operations.
                 renderer.blend_pass(buffers.blends.ranged(&pass.blend_ranges), index);
             }
 
+            // Once layers are done, we perform any possibly scheduled draws to the root target.
             renderer.draw_pass(
                 buffers.strips.ranged(&round.root_draw.strip_ranges),
                 &round.root_draw.external_texture_runs,
                 StripPassRenderTarget::Root(root_output_target),
             );
 
-            Self::clear_regions(renderer, &round.layer_texture_clears, TextureTarget::layer);
-            Self::clear_regions(
-                renderer,
-                &round.scratch_texture_clears,
-                TextureTarget::scratch,
-            );
-        }
-    }
-
-    fn clear_regions<R: RendererBackend>(
-        renderer: &mut R,
-        regions: &[Vec<RectU16>; 2],
-        target: impl Fn(usize) -> TextureTarget,
-    ) {
-        for (texture_index, regions) in regions.iter().enumerate() {
-            renderer.clear_pass(target(texture_index), regions);
+            // Finally, we clear layer regions that are deallocated in this round as well as
+            // all painted rectangles in the scratch buffer, so future rounds can assume a clean slate.
+            for (round, (layer_clears, scratch_clears)) in round.layer_texture_clears.iter().zip(round.scratch_texture_clears.iter()).enumerate() {
+                renderer.clear_pass(TextureTarget::layer(round), layer_clears);
+                renderer.clear_pass(TextureTarget::scratch(round), scratch_clears);
+            }
         }
     }
 }
