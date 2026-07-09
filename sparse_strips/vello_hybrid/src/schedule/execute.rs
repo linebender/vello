@@ -86,20 +86,16 @@ impl Rounds {
                 renderer.filter_pass(pass.filter_passes.resolve(buffers), index);
             }
 
+            for (index, pass) in round.layer_texture_passes.iter().enumerate().rev() {
+                renderer.blend_pass(buffers.blends.ranged(&pass.blend_ranges), index);
+            }
+
             renderer.draw_pass(
                 buffers.strips.ranged(&round.root_draw.strip_ranges),
                 &round.root_draw.external_texture_runs,
                 StripPassRenderTarget::Root(root_output_target),
             );
 
-            for (index, pass) in round.layer_texture_passes.iter().enumerate().rev() {
-                renderer.blend_pass(
-                    buffers
-                        .blends
-                        .ranged(&pass.blend_ranges),
-                    index,
-                );
-            }
             Self::clear_regions(renderer, &round.layer_texture_clears, TextureTarget::layer);
             Self::clear_regions(
                 renderer,
