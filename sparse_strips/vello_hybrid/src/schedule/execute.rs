@@ -15,24 +15,15 @@ use crate::{GpuStrip, Scene};
 use vello_common::geometry::RectU16;
 
 pub(crate) trait RendererBackend {
-    /// Clear rectangular regions in a texture to transparent black.
-    fn clear_pass(&mut self, target: TextureTarget, rects: &[RectU16]);
-
-    /// Render the global opaque strips to the user-provided root surface.
     fn opaque_pass(&mut self, strips: &[GpuStrip]);
-
-    /// Render ranged alpha strips to a root or layer target.
     fn draw_pass(
         &mut self,
         strips: RangedSlice<'_, GpuStrip>,
         external_texture_runs: &[ExternalTextureRun],
         target: StripPassRenderTarget,
     );
-
-    /// Apply non-default blend layer operations.
+    fn clear_pass(&mut self, target: TextureTarget, rects: &[RectU16]);
     fn blend_pass(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: usize);
-
-    /// Apply filter operations to already-rendered layer atlas regions.
     fn filter_pass(&mut self, plan: &FilterPassPlan, texture_index: usize);
 }
 
@@ -45,9 +36,9 @@ pub(crate) fn execute<R: RendererBackend>(
     let ScheduleStorage {
         pools,
         buffers,
-        filter_pass_plan: filter_plan,
+        filter_pass_plan,
     } = storage;
-    schedule.execute(renderer, root_output_target, buffers, filter_plan);
+    schedule.execute(renderer, root_output_target, buffers, filter_pass_plan);
     schedule.recycle(pools);
 }
 

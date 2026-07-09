@@ -192,7 +192,7 @@ impl RenderTarget {
         }
     }
 
-    fn geometry_offset(self) -> (i32, i32) {
+    fn geometry_shift(self) -> (i32, i32) {
         match self {
             Self::Root => (0, 0),
             Self::Layer(region) => (

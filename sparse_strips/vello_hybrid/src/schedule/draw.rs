@@ -153,7 +153,7 @@ impl<'a> DrawBuilder<'a> {
         // Note: This method will also take care of culling any strips to the active clip bbox.
         for_each_fill_segment(strips, tile_bounds, |segment| match segment {
             StripSegment::Alpha(segment) => {
-                let shifted = segment.shift(self.state.target.geometry_offset());
+                let shifted = segment.shift(self.state.target.geometry_shift());
                 let strip = GpuStrip::from_fill(
                     shifted,
                     Some(segment.col_idx()),
@@ -166,7 +166,7 @@ impl<'a> DrawBuilder<'a> {
                     .push(self.buffers, strip, paint.external_texture_id);
             }
             StripSegment::Fill(segment) => {
-                let shifted = segment.shift(self.state.target.geometry_offset());
+                let shifted = segment.shift(self.state.target.geometry_shift());
 
                 let strip = GpuStrip::from_fill(
                     shifted,
@@ -211,7 +211,7 @@ impl<'a> DrawBuilder<'a> {
         .into_iter()
         .flatten()
         {
-            let shifted = part.shift(self.state.target.geometry_offset());
+            let shifted = part.shift(self.state.target.geometry_shift());
 
             let strip = GpuStrip::from_rect(
                 shifted,
@@ -261,7 +261,7 @@ impl<'a> DrawBuilder<'a> {
             let depth_index = self.state.depth.next(false);
 
             let rect_part = RectPart {
-                rect: sample_bbox.shift(self.state.target.geometry_offset()),
+                rect: sample_bbox.shift(self.state.target.geometry_shift()),
                 frac: 0,
             };
 
@@ -287,7 +287,7 @@ impl<'a> DrawBuilder<'a> {
         depth_index: u32,
     ) {
         let payload = sample.payload_at(segment.x0(), segment.y());
-        let shifted = segment.shift(self.state.target.geometry_offset());
+        let shifted = segment.shift(self.state.target.geometry_shift());
         let strip = GpuStrip::from_fill(shifted, col_idx, payload, paint, depth_index);
         self.draw.push(self.buffers, strip, None);
     }
