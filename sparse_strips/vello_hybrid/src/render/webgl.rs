@@ -427,7 +427,7 @@ impl WebGlRenderer {
             schedule_storage: &mut self.schedule_storage,
             scratch: &mut self.scratch,
         };
-        crate::schedule::render_scene(
+        crate::schedule::execute(
             &mut ctx,
             scene,
             root_output_target,

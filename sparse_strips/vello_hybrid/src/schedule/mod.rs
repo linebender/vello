@@ -15,7 +15,7 @@ use self::allocate::{Allocation, Atlases, LayerAllocation, LayerAllocationReques
 use self::buffer::ScheduleBuffers;
 use self::cursor::Cursor;
 use self::draw::{DepthCounter, DrawBuilder, LayerSample, OpaqueStrips, OpaqueStripsExt};
-pub(crate) use self::execute::{RendererBackend, render_scene};
+pub(crate) use self::execute::{RendererBackend, execute};
 use self::pool::Pools;
 use self::round::{BlendOp, FilterOp, Rounds};
 use crate::blend::BLEND_SCRATCH_INDEX;
@@ -223,9 +223,7 @@ struct SchedulePlanner<'a, 'p> {
     layer_allocations: Vec<Option<ScheduledLayer>>,
     filter_context: &'a FilterContext,
     layer_texture_size: (u32, u32),
-    buffers: &'p mut ScheduleBuffers,
-    pools: &'p mut Pools,
-    filter_plan_scratch: &'p mut FilterPlanScratch,
+    storage: &'p mut ScheduleStorage,
 }
 
 impl<'a, 'p> SchedulePlanner<'a, 'p> {
@@ -236,9 +234,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         paint_resolver: PaintResolver<'a>,
         filter_context: &'a FilterContext,
         layer_texture_size: (u32, u32),
-        pools: &'p mut Pools,
-        buffers: &'p mut ScheduleBuffers,
-        filter_plan_scratch: &'p mut FilterPlanScratch,
+        storage: &'p mut ScheduleStorage,
     ) -> Self {
         Self {
             scene,
@@ -249,26 +245,24 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             layer_allocations: alloc::vec![None; scene.recorder.layers.len()],
             filter_context,
             layer_texture_size,
-            buffers,
-            pools,
-            filter_plan_scratch,
+            storage,
         }
     }
 
-    fn build(&mut self) -> Result<Schedule, RenderError> {
+    fn build(mut self) -> Result<Schedule, RenderError> {
         // TODO: Reuse round storage across frames so large schedules do not repeatedly allocate.
         let mut opaque_strips = None;
         let mut rounds = Rounds {
-            rounds: alloc::vec![self.pools.take_round()],
+            rounds: alloc::vec![self.storage.pools.take_round()],
         };
 
         // Walk the command tree left-to-right. Layer subtrees are scheduled lazily when their
         // parent command stream first needs to sample them. Atlas allocation is monotonic: pressure
         // advances the base round and applies completed cleanups instead of patching old states.
         if let Err(error) = self.schedule_root(&mut opaque_strips, &mut rounds) {
-            self.pools.submit_opaque_strips(opaque_strips);
-            self.buffers.clear();
-            rounds.recycle(self.pools);
+            self.storage.pools.submit_opaque_strips(opaque_strips);
+            self.storage.buffers.clear();
+            rounds.recycle(&mut self.storage.pools);
             return Err(error);
         }
         opaque_strips.reverse();
@@ -303,25 +297,30 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             );
             let ready_round = self.schedule_command_stream(cmds, &mut state, rounds)?;
 
-            rounds.ensure_exists(ready_round, self.pools);
+            rounds.ensure_exists(ready_round, &mut self.storage.pools);
             let mut root_state = CommandStreamState::new(
                 RenderTarget::Root,
                 ready_round,
                 None,
                 RectU16::new(0, 0, self.scene.width, self.scene.height).snap_to_tile_coordinates(),
             );
-            rounds.with_draw_builder(&mut root_state, self.pools, &mut *self.buffers, |builder| {
-                builder.push_layer_fill(
-                    LayerSample {
-                        source: region,
-                        bbox: region.scene_bbox,
-                        source_origin: (0, 0),
-                    },
-                    1.0,
-                    None,
-                    self.strip_storage,
-                );
-            });
+            rounds.with_draw_builder(
+                &mut root_state,
+                &mut self.storage.pools,
+                &mut self.storage.buffers,
+                |builder| {
+                    builder.push_layer_fill(
+                        LayerSample {
+                            source: region,
+                            bbox: region.scene_bbox,
+                            source_origin: (0, 0),
+                        },
+                        1.0,
+                        None,
+                        self.strip_storage,
+                    );
+                },
+            );
             let clear_region = allocation.allocation.texture.clear_region();
             rounds.rounds[ready_round].layer_texture_clears[clear_region.texture_index]
                 .push(clear_region.rect);
@@ -330,6 +329,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         } else {
             let target = RenderTarget::Root;
             let opaque = self
+                .storage
                 .pools
                 .take_opaque_strips(self.root_render_target == RootRenderTarget::UserSurface);
             let mut state = CommandStreamState::new(
@@ -341,7 +341,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             let ready_round = self.schedule_command_stream(cmds, &mut state, rounds);
             *opaque_strips = state.opaque;
             let ready_round = ready_round?;
-            rounds.ensure_exists(ready_round, self.pools);
+            rounds.ensure_exists(ready_round, &mut self.storage.pools);
         }
 
         Ok(())
@@ -359,7 +359,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             filter_instances,
             filter_copies,
             ..
-        } = &mut *self.buffers;
+        } = &mut self.storage.buffers;
 
         for round in &mut rounds.rounds {
             for layer_pass in &mut round.layer_passes {
@@ -367,23 +367,24 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                 build_filter_plan(
                     filter_ops.iter().copied(),
                     target_texture_size,
-                    self.filter_plan_scratch,
+                    &mut self.storage.filter_plan_scratch,
                 );
 
                 layer_pass.filter_passes.steps.clear();
                 let step_count = self
+                    .storage
                     .filter_plan_scratch
                     .steps
                     .iter()
                     .rposition(|step| !step.is_empty())
                     .map_or(0, |index| index + 1);
                 layer_pass.filter_passes.steps.extend(
-                    self.filter_plan_scratch.steps[..step_count]
+                    self.storage.filter_plan_scratch.steps[..step_count]
                         .iter()
                         .map(|step| filter_instances.extend_from_slice(step)),
                 );
                 layer_pass.filter_passes.copy_back =
-                    filter_copies.extend_from_slice(&self.filter_plan_scratch.copy_back);
+                    filter_copies.extend_from_slice(&self.storage.filter_plan_scratch.copy_back);
             }
         }
     }
@@ -475,18 +476,26 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         };
 
         let mut bbox = RectU16::INVERTED;
-        rounds.with_draw_builder(state, self.pools, &mut *self.buffers, |builder| {
-            for range in core::iter::once(first_draw_range).chain(draw_ranges) {
-                for draw in &self.scene.recorder.draws[range.start as usize..range.end as usize] {
-                    let strips = match draw {
-                        RecordedDraw::Path(path) => &self.strip_storage.strips[path.strips.clone()],
-                        RecordedDraw::Rect(_) => &[],
-                    };
-                    bbox.union(draw.bbox(strips));
-                    builder.push_draw(draw, self.strip_storage, self.paint_resolver);
+        rounds.with_draw_builder(
+            state,
+            &mut self.storage.pools,
+            &mut self.storage.buffers,
+            |builder| {
+                for range in core::iter::once(first_draw_range).chain(draw_ranges) {
+                    for draw in &self.scene.recorder.draws[range.start as usize..range.end as usize]
+                    {
+                        let strips = match draw {
+                            RecordedDraw::Path(path) => {
+                                &self.strip_storage.strips[path.strips.clone()]
+                            }
+                            RecordedDraw::Rect(_) => &[],
+                        };
+                        bbox.union(draw.bbox(strips));
+                        builder.push_draw(draw, self.strip_storage, self.paint_resolver);
+                    }
                 }
-            }
-        });
+            },
+        );
         state.backdrop_bbox.union(bbox);
     }
 
@@ -573,10 +582,10 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                 .allocation
                 .filter
                 .expect("filter target must have scratch allocations");
-            rounds.ensure_exists(ready_round, self.pools);
+            rounds.ensure_exists(ready_round, &mut self.storage.pools);
             rounds.rounds[ready_round].push_filter(
                 target.region.texture.texture_index,
-                &mut *self.buffers,
+                &mut self.storage.buffers,
                 FilterOp {
                     layer_region: target.region,
                     scratches: allocation_filter
@@ -613,14 +622,19 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                     layer.region.texture.texture_index,
                     layer.round_idx,
                 ));
-            rounds.with_draw_builder(state, self.pools, &mut *self.buffers, |builder| {
-                builder.push_layer_fill(
-                    layer.sample,
-                    props.opacity,
-                    props.clip_path.as_ref(),
-                    self.strip_storage,
-                );
-            });
+            rounds.with_draw_builder(
+                state,
+                &mut self.storage.pools,
+                &mut self.storage.buffers,
+                |builder| {
+                    builder.push_layer_fill(
+                        layer.sample,
+                        props.opacity,
+                        props.clip_path.as_ref(),
+                        self.strip_storage,
+                    );
+                },
+            );
             state.backdrop_bbox.union(layer.sample.bbox);
             state.sampled_layers.push(layer_id);
             self.finish_stream_segment(state, rounds);
@@ -644,13 +658,13 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             return;
         }
 
-        rounds.ensure_exists(blend_round, self.pools);
+        rounds.ensure_exists(blend_round, &mut self.storage.pools);
         let parent_region = state.target.layer_region();
         rounds.rounds[blend_round].scratch_texture_clears[BLEND_SCRATCH_INDEX]
             .push(parent_region.blend_scratch_clear_rect(bbox));
         rounds.rounds[blend_round].push_blend(
             parent_region.texture.texture_index,
-            &mut *self.buffers,
+            &mut self.storage.buffers,
             BlendOp {
                 parent_region,
                 child_region: layer.sample.source,
@@ -683,13 +697,13 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             return;
         }
 
-        rounds.ensure_exists(parent_ready_round, self.pools);
+        rounds.ensure_exists(parent_ready_round, &mut self.storage.pools);
         let parent_region = state.target.layer_region();
         rounds.rounds[parent_ready_round].scratch_texture_clears[BLEND_SCRATCH_INDEX]
             .push(parent_region.blend_scratch_clear_rect(bbox));
         rounds.rounds[parent_ready_round].push_blend(
             parent_region.texture.texture_index,
-            &mut *self.buffers,
+            &mut self.storage.buffers,
             BlendOp {
                 parent_region,
                 child_region: LayerTextureRegion::empty_for_blend(bbox),
@@ -722,7 +736,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             return;
         };
 
-        rounds.ensure_exists(round_idx, self.pools);
+        rounds.ensure_exists(round_idx, &mut self.storage.pools);
         let clear_region = scheduled_layer.allocation.texture.clear_region();
         rounds.rounds[round_idx].layer_texture_clears[clear_region.texture_index]
             .push(clear_region.rect);

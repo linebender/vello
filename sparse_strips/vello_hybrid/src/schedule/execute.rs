@@ -48,7 +48,7 @@ pub(crate) trait RendererBackend {
 }
 
 /// Render the supported subset of a scene through the recorder-based scheduler.
-pub(crate) fn render_scene<R: RendererBackend>(
+pub(crate) fn execute<R: RendererBackend>(
     renderer: &mut R,
     scene: &Scene,
     root_output_target: RootRenderTarget,
@@ -59,22 +59,18 @@ pub(crate) fn render_scene<R: RendererBackend>(
 
     let strip_storage = scene.strip_storage.borrow();
     let layer_texture_size = renderer.layer_texture_size();
-    let schedule = {
-        let storage = renderer.schedule_storage();
-        storage.buffers.clear();
-        let mut planner = SchedulePlanner::new(
-            scene,
-            &strip_storage,
-            root_output_target,
-            paint_resolver,
-            filter_context,
-            layer_texture_size,
-            &mut storage.pools,
-            &mut storage.buffers,
-            &mut storage.filter_plan_scratch,
-        );
-        planner.build()?
-    };
+    let storage = renderer.schedule_storage();
+    storage.buffers.clear();
+    let schedule = SchedulePlanner::new(
+        scene,
+        &strip_storage,
+        root_output_target,
+        paint_resolver,
+        filter_context,
+        layer_texture_size,
+        storage,
+    )
+    .build()?;
     schedule.execute(renderer, root_output_target);
     let ScheduleStorage { pools, buffers, .. } = renderer.schedule_storage();
     schedule.recycle(pools);
