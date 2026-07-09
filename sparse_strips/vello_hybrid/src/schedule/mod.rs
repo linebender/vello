@@ -589,7 +589,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                 .filter
                 .expect("filter target must have scratch allocations");
             rounds.ensure_exists(ready_round, &mut self.storage.pools);
-            rounds.rounds[ready_round].push_filter(
+            rounds.rounds[ready_round].push_filter_op(
                 target.region.texture.texture_index,
                 &mut self.storage.buffers,
                 FilterOp {
@@ -668,7 +668,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         let parent_region = state.target.layer_region();
         rounds.rounds[blend_round].scratch_texture_clears[BLEND_SCRATCH_INDEX]
             .push(parent_region.blend_scratch_clear_rect(bbox));
-        rounds.rounds[blend_round].push_blend(
+        rounds.rounds[blend_round].push_blend_op(
             parent_region.texture.texture_index,
             &mut self.storage.buffers,
             BlendOp {
@@ -707,7 +707,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         let parent_region = state.target.layer_region();
         rounds.rounds[parent_ready_round].scratch_texture_clears[BLEND_SCRATCH_INDEX]
             .push(parent_region.blend_scratch_clear_rect(bbox));
-        rounds.rounds[parent_ready_round].push_blend(
+        rounds.rounds[parent_ready_round].push_blend_op(
             parent_region.texture.texture_index,
             &mut self.storage.buffers,
             BlendOp {

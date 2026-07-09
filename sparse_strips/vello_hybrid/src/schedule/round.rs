@@ -37,7 +37,7 @@ impl Round {
         &mut self.layer_texture_passes[texture_index].draw
     }
 
-    pub(super) fn push_blend(
+    pub(super) fn push_blend_op(
         &mut self,
         texture_index: usize,
         buffers: &mut ScheduleBuffers,
@@ -49,7 +49,7 @@ impl Round {
         );
     }
 
-    pub(super) fn push_filter(
+    pub(super) fn push_filter_op(
         &mut self,
         texture_index: usize,
         buffers: &mut ScheduleBuffers,
