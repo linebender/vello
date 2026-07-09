@@ -69,6 +69,7 @@ use wgpu::{
     RenderPassDescriptor, RenderPipeline, Sampler, Texture, TextureView as WgpuTextureView,
     TextureViewDescriptor, util::DeviceExt,
 };
+use crate::schedule::execute::TextureRequirements;
 
 /// Placeholder value for uninitialized GPU encoded paints.
 const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
@@ -1030,7 +1031,7 @@ impl GpuResources {
 
     fn has_intermediate_textures(
         &self,
-        requirements: crate::schedule::TextureRequirements,
+        requirements: TextureRequirements,
     ) -> bool {
         self.layer_textures
             .iter()
@@ -1863,7 +1864,7 @@ impl Programs {
     fn prepare_intermediate_textures(
         &mut self,
         device: &Device,
-        requirements: crate::schedule::TextureRequirements,
+        requirements: TextureRequirements,
     ) {
         if self.resources.has_intermediate_textures(requirements) {
             return;
@@ -3219,9 +3220,9 @@ impl RendererBackend for RendererContext<'_> {
         self.schedule_storage
     }
 
-    fn prepare_intermediate_textures(
+    fn prepare(
         &mut self,
-        requirements: crate::schedule::TextureRequirements,
+        requirements: TextureRequirements,
     ) {
         self.programs
             .prepare_intermediate_textures(self.device, requirements);

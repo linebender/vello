@@ -42,7 +42,7 @@ use crate::{
     scene::Scene,
     schedule::{
         ExternalTextureRun, RendererBackend, RootRenderTarget, ScheduleStorage,
-        StripPassRenderTarget, TextureRequirements, TextureTarget,
+        StripPassRenderTarget, TextureTarget,
         buffer::{RangedSlice, Ranges},
         round::FilterPasses,
     },
@@ -73,6 +73,7 @@ use web_sys::{
     HtmlCanvasElement, WebGl2RenderingContext, WebGlBuffer, WebGlFramebuffer, WebGlProgram,
     WebGlShader, WebGlTexture, WebGlUniformLocation, WebGlVertexArrayObject,
 };
+use crate::schedule::execute::TextureRequirements;
 
 /// Placeholder value for uninitialized GPU encoded paints.
 const GPU_PAINT_PLACEHOLDER: GpuEncodedPaint = GpuEncodedPaint::LinearGradient(GpuLinearGradient {
@@ -2866,7 +2867,7 @@ impl RendererBackend for WebGlRendererContext<'_> {
         self.schedule_storage
     }
 
-    fn prepare_intermediate_textures(&mut self, requirements: TextureRequirements) {
+    fn prepare(&mut self, requirements: TextureRequirements) {
         self.programs
             .prepare_intermediate_textures(self.gl, requirements);
     }

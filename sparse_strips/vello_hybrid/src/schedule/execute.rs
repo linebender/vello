@@ -8,7 +8,7 @@ use super::pool::Pools;
 use super::round::{FilterPasses, Rounds};
 use super::{
     ExternalTextureRun, RootRenderTarget, Schedule, SchedulePlanner, ScheduleStorage,
-    StripPassRenderTarget, TextureRequirements, TextureTarget,
+    StripPassRenderTarget, TextureTarget,
 };
 use crate::filter::FilterContext;
 use crate::paint::PaintResolver;
@@ -22,7 +22,7 @@ pub(crate) trait RendererBackend {
     fn schedule_storage(&mut self) -> &mut ScheduleStorage;
 
     /// Ensure intermediate layer/scratch textures required by this scene are allocated.
-    fn prepare_intermediate_textures(&mut self, requirements: TextureRequirements);
+    fn prepare(&mut self, requirements: TextureRequirements);
 
     /// Return the dimensions of each layer atlas texture.
     fn layer_texture_size(&self) -> (u32, u32);
@@ -57,7 +57,8 @@ pub(crate) fn render_scene<R: RendererBackend>(
     encoded_paints: &[EncodedPaint],
     filter_context: &FilterContext,
 ) -> Result<(), RenderError> {
-    renderer.prepare_intermediate_textures(TextureRequirements::for_scene(scene));
+    renderer.prepare(TextureRequirements::for_scene(scene));
+
     let strip_storage = scene.strip_storage.borrow();
     let paint_resolver = PaintResolver::new(encoded_paints, paint_idxs);
     let layer_texture_size = renderer.layer_texture_size();
@@ -146,6 +147,45 @@ impl Rounds {
     ) {
         for (texture_index, regions) in regions.iter().enumerate() {
             renderer.clear_rects(target(texture_index), regions);
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TextureRequirements {
+    pub(crate) layer_textures: [bool; 2],
+    pub(crate) scratch_textures: [bool; 2],
+}
+
+impl TextureRequirements {
+    fn for_scene(scene: &Scene) -> Self {
+        let mut layer_textures = [false; 2];
+        if scene.recorder.root_is_blend_target {
+            // When the root is blended into, the root as a whole needs to be rendered as a layer
+            // first so it can be sampled from, and then blit back into the user-provided view
+            // in the very end.
+            layer_textures[1] = true;
+        }
+
+        // Determine how many layer textures we need based on the maximum layer depth, taking our
+        // ping-pong scheme into consideration.
+        let depth_offset = usize::from(scene.recorder.root_is_blend_target);
+        for depth in 1..=scene.recorder.max_layer_depth.min(2) {
+            layer_textures[(depth + depth_offset) & 1] = true;
+        }
+
+        // Filter layers need 2 textures for ping-ponging, for blending we only need the first one.
+        let scratch_textures = if scene.recorder.has_filter_layer {
+            [true, true]
+        } else if scene.recorder.has_non_default_blend {
+            [true, false]
+        } else {
+            [false, false]
+        };
+
+        Self {
+            layer_textures,
+            scratch_textures,
         }
     }
 }

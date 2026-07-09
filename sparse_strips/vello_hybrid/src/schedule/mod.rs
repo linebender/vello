@@ -7,7 +7,7 @@ mod allocate;
 pub(crate) mod buffer;
 mod cursor;
 mod draw;
-mod execute;
+pub(crate) mod execute;
 mod pool;
 pub(crate) mod round;
 
@@ -145,42 +145,6 @@ pub(crate) struct ScheduleStorage {
     pools: Pools,
     pub(crate) buffers: ScheduleBuffers,
     filter_plan_scratch: FilterPlanScratch,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TextureRequirements {
-    pub(crate) layer_textures: [bool; 2],
-    pub(crate) scratch_textures: [bool; 2],
-}
-
-impl TextureRequirements {
-    fn for_scene(scene: &Scene) -> Self {
-        let mut layer_textures = [false; 2];
-        if scene.recorder.root_is_blend_target {
-            // When the root is a blend target, it becomes a synthetic direct child layer of the
-            // final output root.
-            layer_textures[1] = true;
-        }
-        // The root layer is depth 0. Direct child layers have depth 1 and need one atlas texture;
-        // deeper nesting alternates between the two atlas textures. If the root itself is rendered
-        // as an intermediate layer, recorded layers are effectively shifted down by one level.
-        let depth_offset = usize::from(scene.recorder.root_is_blend_target);
-        for depth in 1..=scene.recorder.max_layer_depth.min(2) {
-            layer_textures[(depth + depth_offset) & 1] = true;
-        }
-        let scratch_textures = if scene.recorder.has_filter_layer {
-            [true, true]
-        } else if scene.recorder.has_non_default_blend {
-            [true, false]
-        } else {
-            [false, false]
-        };
-
-        Self {
-            layer_textures,
-            scratch_textures,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
