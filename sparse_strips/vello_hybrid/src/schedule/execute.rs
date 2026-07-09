@@ -10,8 +10,8 @@ use super::{
     ExternalTextureRun, RootRenderTarget, Schedule, ScheduleStorage, StripPassRenderTarget,
     TextureTarget,
 };
-use crate::filter::{FilterPassPlan, plan};
-use crate::{filter, GpuStrip, Scene};
+use crate::filter::FilterPassPlan;
+use crate::{GpuStrip, Scene};
 use vello_common::geometry::RectU16;
 
 pub(crate) trait RendererBackend {
@@ -107,7 +107,14 @@ impl Rounds {
                 );
 
                 // Next, we apply all filters for layers in this pass.
-                filter::plan(buffers.filter_ops.ranged(&pass.filter_ranges).iter().copied(), layer_texture_size, filter_plan);
+                filter_plan.init(
+                    buffers
+                        .filter_ops
+                        .ranged(&pass.filter_ranges)
+                        .iter()
+                        .copied(),
+                    layer_texture_size,
+                );
                 renderer.filter_pass(filter_plan, index);
                 // Finally, we apply all blend operations.
                 renderer.blend_pass(buffers.blends.ranged(&pass.blend_ranges), index);
@@ -122,7 +129,12 @@ impl Rounds {
 
             // Finally, we clear layer regions that are deallocated in this round as well as
             // all painted rectangles in the scratch buffer, so future rounds can assume a clean slate.
-            for (round, (layer_clears, scratch_clears)) in round.layer_texture_clears.iter().zip(round.scratch_texture_clears.iter()).enumerate() {
+            for (round, (layer_clears, scratch_clears)) in round
+                .layer_texture_clears
+                .iter()
+                .zip(round.scratch_texture_clears.iter())
+                .enumerate()
+            {
                 renderer.clear_pass(TextureTarget::layer(round), layer_clears);
                 renderer.clear_pass(TextureTarget::scratch(round), scratch_clears);
             }

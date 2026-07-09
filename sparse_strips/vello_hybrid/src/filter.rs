@@ -419,6 +419,38 @@ pub(crate) struct FilterPassPlan {
 }
 
 impl FilterPassPlan {
+    pub(crate) fn init(
+        &mut self,
+        filters: impl IntoIterator<Item = FilterOp>,
+        target_texture_size: (u16, u16),
+    ) {
+        self.clear();
+
+        for filter in filters {
+            let mut builder = FilterPassBuilder::new(filter, target_texture_size, self);
+            match filter.gpu_filter.filter_type() {
+                filter_type::OFFSET => {
+                    builder.emit_to_scratch(pass_kind::OFFSET);
+                }
+                filter_type::FLOOD => {
+                    builder.emit_to_scratch(pass_kind::FLOOD);
+                }
+                filter_type::GAUSSIAN_BLUR => {
+                    builder.emit_blur_sequence(filter.gpu_filter.n_decimations());
+                }
+                filter_type::DROP_SHADOW => {
+                    builder.emit_to_scratch(pass_kind::OFFSET);
+                    builder.emit_blur_sequence(filter.gpu_filter.n_decimations());
+                    builder.emit_to_scratch(pass_kind::COMPOSITE_DROP_SHADOW);
+                }
+                _ => unreachable!("unsupported filter type was encoded"),
+            }
+
+            builder.ensure_result_in_scratch0();
+            builder.copy_back();
+        }
+    }
+
     pub(crate) fn is_empty(&self) -> bool {
         self.copy_back.is_empty()
     }
@@ -442,38 +474,6 @@ impl FilterPassPlan {
         }
 
         &mut self.steps[step]
-    }
-}
-
-pub(crate) fn plan(
-    filters: impl IntoIterator<Item = FilterOp>,
-    target_texture_size: (u16, u16),
-    passes: &mut FilterPassPlan,
-) {
-    passes.clear();
-
-    for filter in filters {
-        let mut builder = FilterPassBuilder::new(filter, target_texture_size, passes);
-        match filter.gpu_filter.filter_type() {
-            filter_type::OFFSET => {
-                builder.emit_to_scratch(pass_kind::OFFSET);
-            }
-            filter_type::FLOOD => {
-                builder.emit_to_scratch(pass_kind::FLOOD);
-            }
-            filter_type::GAUSSIAN_BLUR => {
-                builder.emit_blur_sequence(filter.gpu_filter.n_decimations());
-            }
-            filter_type::DROP_SHADOW => {
-                builder.emit_to_scratch(pass_kind::OFFSET);
-                builder.emit_blur_sequence(filter.gpu_filter.n_decimations());
-                builder.emit_to_scratch(pass_kind::COMPOSITE_DROP_SHADOW);
-            }
-            _ => unreachable!("unsupported filter type was encoded"),
-        }
-
-        builder.ensure_result_in_scratch0();
-        builder.copy_back();
     }
 }
 
