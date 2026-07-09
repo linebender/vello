@@ -23,7 +23,7 @@ pub(super) struct Rounds {
 #[derive(Debug, Default)]
 pub(super) struct Round {
     pub(super) root_draw: Draw,
-    pub(super) layer_passes: [LayerPass; 2],
+    pub(super) layer_texture_passes: [LayerTexturePass; 2],
     pub(super) layer_texture_clears: [Vec<RectU16>; 2],
     pub(super) scratch_texture_clears: [Vec<RectU16>; 2],
 }
@@ -34,7 +34,7 @@ impl Round {
     }
 
     pub(super) fn layer_draw_mut(&mut self, texture_index: usize) -> &mut Draw {
-        &mut self.layer_passes[texture_index].draw
+        &mut self.layer_texture_passes[texture_index].draw
     }
 
     pub(super) fn push_blend(
@@ -43,9 +43,10 @@ impl Round {
         buffers: &mut ScheduleBuffers,
         blend: BlendOp,
     ) {
-        buffers
-            .blends
-            .push_ranged(&mut self.layer_passes[texture_index].blend_ranges, blend);
+        buffers.blends.push_ranged(
+            &mut self.layer_texture_passes[texture_index].blend_ranges,
+            blend,
+        );
     }
 
     pub(super) fn push_filter(
@@ -54,9 +55,10 @@ impl Round {
         buffers: &mut ScheduleBuffers,
         filter: FilterOp,
     ) {
-        buffers
-            .filter_ops
-            .push_ranged(&mut self.layer_passes[texture_index].filter_ranges, filter);
+        buffers.filter_ops.push_ranged(
+            &mut self.layer_texture_passes[texture_index].filter_ranges,
+            filter,
+        );
     }
 }
 
@@ -75,7 +77,7 @@ impl Rounds {
 }
 
 #[derive(Debug, Default)]
-pub(super) struct LayerPass {
+pub(super) struct LayerTexturePass {
     pub(super) draw: Draw,
     pub(super) filter_ranges: Ranges,
     pub(super) filter_passes: FilterPasses,

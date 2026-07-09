@@ -5,7 +5,7 @@
 
 use super::buffer::Ranges;
 use super::draw::{Draw, OpaqueStrips, OpaqueStripsExt};
-use super::round::{FilterPasses, LayerPass, Round};
+use super::round::{FilterPasses, LayerTexturePass, Round};
 use crate::GpuStrip;
 use alloc::vec::Vec;
 use vello_common::geometry::RectU16;
@@ -54,8 +54,8 @@ impl Pools {
         self.layer_draws.submit(draw);
     }
 
-    fn take_layer_pass(&mut self) -> LayerPass {
-        LayerPass {
+    fn take_layer_texture_pass(&mut self) -> LayerTexturePass {
+        LayerTexturePass {
             draw: self.take_layer_draw(),
             filter_ranges: self.filter_ops.take(),
             filter_passes: self.filter_passes.take(),
@@ -63,11 +63,11 @@ impl Pools {
         }
     }
 
-    fn submit_layer_pass(&mut self, layer_pass: LayerPass) {
-        self.submit_layer_draw(layer_pass.draw);
-        self.filter_ops.submit(layer_pass.filter_ranges);
-        self.filter_passes.submit(layer_pass.filter_passes);
-        self.blend_ranges.submit(layer_pass.blend_ranges);
+    fn submit_layer_texture_pass(&mut self, layer_texture_pass: LayerTexturePass) {
+        self.submit_layer_draw(layer_texture_pass.draw);
+        self.filter_ops.submit(layer_texture_pass.filter_ranges);
+        self.filter_passes.submit(layer_texture_pass.filter_passes);
+        self.blend_ranges.submit(layer_texture_pass.blend_ranges);
     }
 
     fn take_layer_texture_clears(&mut self) -> [Vec<RectU16>; 2] {
@@ -99,7 +99,10 @@ impl Pools {
     pub(super) fn take_round(&mut self) -> Round {
         Round {
             root_draw: self.take_root_draw(),
-            layer_passes: [self.take_layer_pass(), self.take_layer_pass()],
+            layer_texture_passes: [
+                self.take_layer_texture_pass(),
+                self.take_layer_texture_pass(),
+            ],
             layer_texture_clears: self.take_layer_texture_clears(),
             scratch_texture_clears: self.take_scratch_texture_clears(),
         }
@@ -107,8 +110,8 @@ impl Pools {
 
     pub(super) fn submit_round(&mut self, round: Round) {
         self.submit_root_draw(round.root_draw);
-        for layer_pass in round.layer_passes {
-            self.submit_layer_pass(layer_pass);
+        for layer_texture_pass in round.layer_texture_passes {
+            self.submit_layer_texture_pass(layer_texture_pass);
         }
         self.submit_layer_texture_clears(round.layer_texture_clears);
         self.submit_scratch_texture_clears(round.scratch_texture_clears);

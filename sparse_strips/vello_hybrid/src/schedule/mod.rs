@@ -362,15 +362,15 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         } = &mut self.storage.buffers;
 
         for round in &mut rounds.rounds {
-            for layer_pass in &mut round.layer_passes {
-                let filter_ops = filter_ops.ranged(&layer_pass.filter_ranges);
+            for layer_texture_pass in &mut round.layer_texture_passes {
+                let filter_ops = filter_ops.ranged(&layer_texture_pass.filter_ranges);
                 build_plan(
                     filter_ops.iter().copied(),
                     target_texture_size,
                     &mut self.storage.filter_plan_scratch,
                 );
 
-                layer_pass.filter_passes.steps.clear();
+                layer_texture_pass.filter_passes.steps.clear();
                 let step_count = self
                     .storage
                     .filter_plan_scratch
@@ -378,7 +378,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                     .iter()
                     .rposition(|step| !step.is_empty())
                     .map_or(0, |index| index + 1);
-                layer_pass.filter_passes.steps.extend(
+                layer_texture_pass.filter_passes.steps.extend(
                     self.storage.filter_plan_scratch.steps[..step_count]
                         .iter()
                         .map(|step| {
@@ -390,7 +390,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                 );
                 let copy_start = filter_copies.len();
                 filter_copies.extend_from_slice(&self.storage.filter_plan_scratch.copy_back);
-                layer_pass.filter_passes.copy_back = copy_start..filter_copies.len();
+                layer_texture_pass.filter_passes.copy_back = copy_start..filter_copies.len();
             }
         }
     }

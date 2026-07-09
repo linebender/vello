@@ -98,15 +98,18 @@ impl Rounds {
     ) {
         for round in &self.rounds {
             for texture_index in [1, 0] {
-                let layer_round = &round.layer_passes[texture_index];
-                let draw = &layer_round.draw;
+                let layer_texture_pass = &round.layer_texture_passes[texture_index];
+                let draw = &layer_texture_pass.draw;
                 renderer.draw_pass(
                     buffers.strips.ranged(&draw.strip_ranges),
                     &draw.external_texture_runs,
                     StripPassRenderTarget::LayerAtlas(texture_index),
                 );
 
-                renderer.filter_pass(layer_round.filter_passes.resolve(buffers), texture_index);
+                renderer.filter_pass(
+                    layer_texture_pass.filter_passes.resolve(buffers),
+                    texture_index,
+                );
             }
 
             renderer.draw_pass(
@@ -115,11 +118,11 @@ impl Rounds {
                 StripPassRenderTarget::Root(root_output_target),
             );
 
-            for texture_index in 0..round.layer_passes.len() {
+            for texture_index in 0..round.layer_texture_passes.len() {
                 renderer.blend_pass(
                     buffers
                         .blends
-                        .ranged(&round.layer_passes[texture_index].blend_ranges),
+                        .ranged(&round.layer_texture_passes[texture_index].blend_ranges),
                     texture_index,
                 );
             }
