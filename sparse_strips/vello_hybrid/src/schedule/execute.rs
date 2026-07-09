@@ -7,12 +7,10 @@ use super::buffer::{RangedSlice, ScheduleBuffers, VecExt};
 use super::pool::Pools;
 use super::round::{BlendOp, ResolvedFilterPasses, Rounds};
 use super::{
-    ExternalTextureRun, RootRenderTarget, Schedule, SchedulePlanner, ScheduleStorage,
-    StripPassRenderTarget, TextureTarget,
+    ExternalTextureRun, RootRenderTarget, Schedule, ScheduleStorage, StripPassRenderTarget,
+    TextureTarget,
 };
-use crate::filter::FilterContext;
-use crate::paint::PaintResolver;
-use crate::{GpuStrip, RenderError, Scene};
+use crate::{GpuStrip, Scene};
 use alloc::vec::Vec;
 use vello_common::geometry::RectU16;
 
@@ -36,30 +34,6 @@ pub(crate) trait RendererBackend {
 
     /// Apply filter operations to already-rendered layer atlas regions.
     fn filter_pass(&mut self, passes: ResolvedFilterPasses<'_>, texture_index: usize);
-}
-
-/// Build a schedule for the recorded scene.
-pub(crate) fn build(
-    storage: &mut ScheduleStorage,
-    scene: &Scene,
-    root_output_target: RootRenderTarget,
-    paint_resolver: PaintResolver<'_>,
-    filter_context: &mut FilterContext,
-    layer_texture_size: (u32, u32),
-) -> Result<Schedule, RenderError> {
-    let strip_storage = scene.strip_storage.borrow();
-    filter_context.clear();
-    storage.buffers.clear();
-    SchedulePlanner::new(
-        scene,
-        &strip_storage,
-        root_output_target,
-        paint_resolver,
-        filter_context,
-        layer_texture_size,
-        storage,
-    )
-    .build()
 }
 
 pub(crate) fn execute<R: RendererBackend>(

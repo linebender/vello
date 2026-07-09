@@ -15,7 +15,7 @@ use self::allocate::{Allocation, Atlases, LayerAllocation, LayerAllocationReques
 use self::buffer::{ScheduleBuffers, VecExt};
 use self::cursor::Cursor;
 use self::draw::{DepthCounter, DrawBuilder, LayerSample, OpaqueStrips, OpaqueStripsExt};
-pub(crate) use self::execute::{RendererBackend, build, execute};
+pub(crate) use self::execute::{RendererBackend, execute};
 use self::pool::Pools;
 use self::round::{BlendOp, FilterOp, Rounds};
 use crate::blend::BLEND_SCRATCH_INDEX;
@@ -145,6 +145,29 @@ pub(crate) struct ScheduleStorage {
     pools: Pools,
     pub(crate) buffers: ScheduleBuffers,
     filter_plan_scratch: FilterPlanScratch,
+}
+
+pub(crate) fn build(
+    storage: &mut ScheduleStorage,
+    scene: &Scene,
+    root_output_target: RootRenderTarget,
+    paint_resolver: PaintResolver<'_>,
+    filter_context: &mut FilterContext,
+    layer_texture_size: (u32, u32),
+) -> Result<Schedule, RenderError> {
+    let strip_storage = scene.strip_storage.borrow();
+    filter_context.clear();
+    storage.buffers.clear();
+    SchedulePlanner::new(
+        scene,
+        &strip_storage,
+        root_output_target,
+        paint_resolver,
+        filter_context,
+        layer_texture_size,
+        storage,
+    )
+    .build()
 }
 
 #[derive(Debug, Clone, Copy)]
