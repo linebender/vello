@@ -7,7 +7,8 @@ use super::buffer::{Ranges, ScheduleBuffers};
 use super::draw::Draw;
 use super::pool::Pools;
 use super::{LayerTextureRegion, TextureRegion};
-use crate::filter::GpuFilterData;
+use crate::copy::GpuCopyInstance;
+use crate::filter::{FilterInstanceData, GpuFilterData};
 use alloc::vec::Vec;
 use core::ops::Range;
 use vello_common::geometry::RectU16;
@@ -88,8 +89,34 @@ pub(crate) struct FilterPasses {
 }
 
 impl FilterPasses {
-    pub(crate) fn is_empty(&self) -> bool {
-        self.copy_back.is_empty()
+    pub(crate) fn resolve<'a>(&'a self, buffers: &'a ScheduleBuffers) -> ResolvedFilterPasses<'a> {
+        ResolvedFilterPasses {
+            passes: self,
+            buffers,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ResolvedFilterPasses<'a> {
+    passes: &'a FilterPasses,
+    buffers: &'a ScheduleBuffers,
+}
+
+impl<'a> ResolvedFilterPasses<'a> {
+    pub(crate) fn is_empty(self) -> bool {
+        self.passes.copy_back.is_empty()
+    }
+
+    pub(crate) fn steps(self) -> impl Iterator<Item = &'a [FilterInstanceData]> {
+        self.passes
+            .steps
+            .iter()
+            .map(|step| &self.buffers.filter_instances[step.clone()])
+    }
+
+    pub(crate) fn copy_back(self) -> &'a [GpuCopyInstance] {
+        &self.buffers.filter_copies[self.passes.copy_back.clone()]
     }
 }
 

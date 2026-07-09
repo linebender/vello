@@ -43,8 +43,8 @@ use crate::{
     schedule::{
         ExternalTextureRun, RendererBackend, RootRenderTarget, ScheduleStorage,
         StripPassRenderTarget, TextureTarget,
-        buffer::{RangedSlice, Ranges},
-        round::FilterPasses,
+        buffer::RangedSlice,
+        round::{BlendOp, ResolvedFilterPasses},
     },
 };
 use alloc::vec::Vec;
@@ -439,6 +439,8 @@ impl Renderer {
             &self.paint_idxs,
             &self.filter_context,
         );
+        self.programs
+            .prepare_intermediate_textures(device, TextureRequirements::new(scene));
 
         if clear {
             Self::clear_view(encoder, view);
@@ -451,11 +453,11 @@ impl Renderer {
             view,
             texture_bindings,
             external_paint_source_bind_groups: HashMap::new(),
-            schedule_storage: &mut self.schedule_storage,
             scratch: &mut self.scratch,
         };
         crate::schedule::execute(
             &mut ctx,
+            &mut self.schedule_storage,
             scene,
             root_output_target,
             paint_resolver,
@@ -2831,7 +2833,6 @@ struct RendererContext<'a> {
     view: &'a WgpuTextureView,
     texture_bindings: &'a TextureBindings,
     external_paint_source_bind_groups: HashMap<TextureId, BindGroup>,
-    schedule_storage: &'a mut ScheduleStorage,
     scratch: &'a mut ScratchBuffers,
 }
 
@@ -2859,12 +2860,12 @@ impl RendererContext<'_> {
     fn do_strip_render_pass(
         &mut self,
         opaque_strips: &[GpuStrip],
-        alpha_ranges: &Ranges,
+        alpha_strips: RangedSlice<'_, GpuStrip>,
         external_texture_runs: &[ExternalTextureRun],
         target: StripPassRenderTarget,
     ) {
         let opaque_count = opaque_strips.len();
-        let alpha_count = alpha_ranges.len();
+        let alpha_count = alpha_strips.len();
         if opaque_count == 0 && alpha_count == 0 {
             return;
         }
@@ -2876,7 +2877,6 @@ impl RendererContext<'_> {
             self.external_paint_source_bind_group_for_texture(run.texture_id);
         }
 
-        let alpha_strips = self.schedule_storage.buffers.strips.ranged(alpha_ranges);
         self.programs
             .upload_strip_pair(self.device, self.queue, opaque_strips, alpha_strips);
         let opaque_count = opaque_count as u32;
@@ -3004,12 +3004,11 @@ impl RendererContext<'_> {
         (size, size)
     }
 
-    fn do_blend_render_pass(&mut self, blend_ranges: &Ranges, texture_index: usize) {
+    fn do_blend_render_pass(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: usize) {
         let parent_texture_size = self.layer_texture_size_u16();
-        if blend_ranges.is_empty() {
+        if blends.len() == 0 {
             return;
         }
-        let blends = self.schedule_storage.buffers.blends.ranged(blend_ranges);
         let resources = &self.programs.resources;
         self.scratch.blend_instances.clear();
         self.scratch.blend_instances.extend(
@@ -3100,12 +3099,16 @@ impl RendererContext<'_> {
         }
     }
 
-    fn do_filter_layers_render_pass(&mut self, passes: &FilterPasses, texture_index: usize) {
+    fn do_filter_layers_render_pass(
+        &mut self,
+        passes: ResolvedFilterPasses<'_>,
+        texture_index: usize,
+    ) {
         if passes.is_empty() {
             return;
         }
         let resources = &self.programs.resources;
-        for (step_index, step) in passes.steps.iter().enumerate() {
+        for (step_index, instances) in passes.steps().enumerate() {
             let (input, output) = if step_index == 0 {
                 (TextureTarget::layer(texture_index), TextureTarget::Scratch0)
             } else if step_index % 2 == 1 {
@@ -3118,13 +3121,13 @@ impl RendererContext<'_> {
                 self.encoder,
                 resources,
                 &self.programs.filter_pipeline,
-                &self.schedule_storage.buffers.filter_instances[step.clone()],
+                instances,
                 input,
                 output,
             );
         }
 
-        let copy_back = &self.schedule_storage.buffers.filter_copies[passes.copy_back.clone()];
+        let copy_back = passes.copy_back();
         let instance_count = u32::try_from(copy_back.len()).unwrap();
         let instance_buffer = self
             .device
@@ -3214,19 +3217,10 @@ impl RendererContext<'_> {
 }
 
 impl RendererBackend for RendererContext<'_> {
-    fn schedule_storage(&mut self) -> &mut ScheduleStorage {
-        self.schedule_storage
-    }
-
-    fn prepare(&mut self, requirements: TextureRequirements) {
-        self.programs
-            .prepare_intermediate_textures(self.device, requirements);
-    }
-
     fn opaque_pass(&mut self, strips: &[GpuStrip]) {
         self.do_strip_render_pass(
             strips,
-            &Ranges::default(),
+            RangedSlice::empty(),
             &[],
             StripPassRenderTarget::Root(RootRenderTarget::UserSurface),
         );
@@ -3234,18 +3228,18 @@ impl RendererBackend for RendererContext<'_> {
 
     fn draw_pass(
         &mut self,
-        strips: &Ranges,
+        strips: RangedSlice<'_, GpuStrip>,
         external_texture_runs: &[ExternalTextureRun],
         target: StripPassRenderTarget,
     ) {
         self.do_strip_render_pass(&[], strips, external_texture_runs, target);
     }
 
-    fn blend_pass(&mut self, blends: &Ranges, texture_index: usize) {
+    fn blend_pass(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: usize) {
         self.do_blend_render_pass(blends, texture_index);
     }
 
-    fn filter_pass(&mut self, passes: &FilterPasses, texture_index: usize) {
+    fn filter_pass(&mut self, passes: ResolvedFilterPasses<'_>, texture_index: usize) {
         self.do_filter_layers_render_pass(passes, texture_index);
     }
 

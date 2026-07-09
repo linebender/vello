@@ -45,8 +45,8 @@ use crate::{
     schedule::{
         ExternalTextureRun, RendererBackend, RootRenderTarget, ScheduleStorage,
         StripPassRenderTarget, TextureTarget,
-        buffer::{RangedSlice, Ranges},
-        round::FilterPasses,
+        buffer::RangedSlice,
+        round::{BlendOp, ResolvedFilterPasses},
     },
 };
 use alloc::sync::Arc;
@@ -416,6 +416,8 @@ impl WebGlRenderer {
             &self.paint_idxs,
             &self.filter_context,
         );
+        self.programs
+            .prepare_intermediate_textures(&self.gl, TextureRequirements::new(scene));
 
         if clear {
             self.programs.clear_view_framebuffer(&self.gl);
@@ -424,11 +426,11 @@ impl WebGlRenderer {
         let mut ctx = WebGlRendererContext {
             programs: &mut self.programs,
             gl: &self.gl,
-            schedule_storage: &mut self.schedule_storage,
             scratch: &mut self.scratch,
         };
         crate::schedule::execute(
             &mut ctx,
+            &mut self.schedule_storage,
             scene,
             root_output_target,
             paint_resolver,
@@ -2347,7 +2349,6 @@ fn initialize_strip_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources)
 struct WebGlRendererContext<'a> {
     programs: &'a mut WebGlPrograms,
     gl: &'a WebGl2RenderingContext,
-    schedule_storage: &'a mut ScheduleStorage,
     scratch: &'a mut ScratchBuffers,
 }
 
@@ -2356,11 +2357,11 @@ impl WebGlRendererContext<'_> {
     fn do_strip_render_pass(
         &mut self,
         opaque_strips: &[GpuStrip],
-        alpha_ranges: &Ranges,
+        alpha_strips: RangedSlice<'_, GpuStrip>,
         target: StripPassRenderTarget,
     ) {
         let opaque_count = opaque_strips.len();
-        let alpha_count = alpha_ranges.len();
+        let alpha_count = alpha_strips.len();
         if opaque_count == 0 && alpha_count == 0 {
             return;
         }
@@ -2492,7 +2493,6 @@ impl WebGlRendererContext<'_> {
             StripPassRenderTarget::Root(RootRenderTarget::UserSurface)
         );
 
-        let alpha_strips = self.schedule_storage.buffers.strips.ranged(alpha_ranges);
         self.programs
             .upload_strip_pair(self.gl, opaque_strips, alpha_strips);
         let opaque_count = opaque_count as i32;
@@ -2586,9 +2586,9 @@ impl WebGlRendererContext<'_> {
         (size, size)
     }
 
-    fn do_blend_render_pass(&mut self, blend_ranges: &Ranges, texture_index: usize) {
+    fn do_blend_render_pass(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: usize) {
         let parent_texture_size = self.layer_texture_size_u16();
-        if blend_ranges.is_empty() {
+        if blends.len() == 0 {
             return;
         }
         self.programs
@@ -2602,7 +2602,6 @@ impl WebGlRendererContext<'_> {
         self.gl
             .bind_vertex_array(Some(&self.programs.resources.blend_vao));
 
-        let blends = self.schedule_storage.buffers.blends.ranged(blend_ranges);
         let resources = &self.programs.resources;
         self.scratch.blend_instances.clear();
         self.scratch.blend_instances.extend(
@@ -2704,7 +2703,11 @@ impl WebGlRendererContext<'_> {
         self.gl.enable(WebGl2RenderingContext::BLEND);
     }
 
-    fn do_filter_layers_render_pass(&mut self, passes: &FilterPasses, texture_index: usize) {
+    fn do_filter_layers_render_pass(
+        &mut self,
+        passes: ResolvedFilterPasses<'_>,
+        texture_index: usize,
+    ) {
         if passes.is_empty() {
             return;
         }
@@ -2739,7 +2742,7 @@ impl WebGlRendererContext<'_> {
             .uniform1i(Some(&self.programs.filter_uniforms.layer_texture_1), 3);
 
         let target_texture_size = self.layer_texture_size_u16();
-        for (step_index, step) in passes.steps.iter().enumerate() {
+        for (step_index, instances) in passes.steps().enumerate() {
             let (input, output) = if step_index == 0 {
                 (TextureTarget::layer(texture_index), TextureTarget::Scratch0)
             } else if step_index % 2 == 1 {
@@ -2747,12 +2750,7 @@ impl WebGlRendererContext<'_> {
             } else {
                 (TextureTarget::Scratch1, TextureTarget::Scratch0)
             };
-            self.do_filter_instance_pass(
-                &self.schedule_storage.buffers.filter_instances[step.clone()],
-                input,
-                output,
-                target_texture_size,
-            );
+            self.do_filter_instance_pass(instances, input, output, target_texture_size);
         }
 
         self.gl
@@ -2766,7 +2764,7 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.blend_copy_uniforms.scratch_texture), 0);
 
-        let copy_back = &self.schedule_storage.buffers.filter_copies[passes.copy_back.clone()];
+        let copy_back = passes.copy_back();
         self.programs.upload_copy_instances(self.gl, copy_back);
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
@@ -2864,37 +2862,28 @@ impl WebGlRendererContext<'_> {
 }
 
 impl RendererBackend for WebGlRendererContext<'_> {
-    fn schedule_storage(&mut self) -> &mut ScheduleStorage {
-        self.schedule_storage
-    }
-
-    fn prepare(&mut self, requirements: TextureRequirements) {
-        self.programs
-            .prepare_intermediate_textures(self.gl, requirements);
-    }
-
     fn opaque_pass(&mut self, strips: &[GpuStrip]) {
         self.do_strip_render_pass(
             strips,
-            &Ranges::default(),
+            RangedSlice::empty(),
             StripPassRenderTarget::Root(RootRenderTarget::UserSurface),
         );
     }
 
     fn draw_pass(
         &mut self,
-        strips: &Ranges,
+        strips: RangedSlice<'_, GpuStrip>,
         _external_texture_runs: &[ExternalTextureRun],
         target: StripPassRenderTarget,
     ) {
         self.do_strip_render_pass(&[], strips, target);
     }
 
-    fn blend_pass(&mut self, blends: &Ranges, texture_index: usize) {
+    fn blend_pass(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: usize) {
         self.do_blend_render_pass(blends, texture_index);
     }
 
-    fn filter_pass(&mut self, passes: &FilterPasses, texture_index: usize) {
+    fn filter_pass(&mut self, passes: ResolvedFilterPasses<'_>, texture_index: usize) {
         self.do_filter_layers_render_pass(passes, texture_index);
     }
 

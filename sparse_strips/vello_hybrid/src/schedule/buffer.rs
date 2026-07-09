@@ -33,10 +33,6 @@ impl Ranges {
     pub(crate) fn len(&self) -> usize {
         self.len
     }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.ranges.is_empty()
-    }
 }
 
 impl Clear for Ranges {
@@ -121,6 +117,14 @@ pub(crate) struct RangedSlice<'a, T> {
 }
 
 impl<'a, T> RangedSlice<'a, T> {
+    pub(crate) const fn empty() -> Self {
+        Self {
+            buffer: &[],
+            ranges: &[],
+            len: 0,
+        }
+    }
+
     fn new(buffer: &'a [T], ranges: &'a Ranges) -> Self {
         Self {
             buffer,

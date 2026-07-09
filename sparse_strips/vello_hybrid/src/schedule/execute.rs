@@ -3,9 +3,9 @@
 
 //! Executes planned rendering rounds through a backend.
 
-use super::buffer::Ranges;
+use super::buffer::{RangedSlice, ScheduleBuffers};
 use super::pool::Pools;
-use super::round::{FilterPasses, Rounds};
+use super::round::{BlendOp, ResolvedFilterPasses, Rounds};
 use super::{
     ExternalTextureRun, RootRenderTarget, Schedule, SchedulePlanner, ScheduleStorage,
     StripPassRenderTarget, TextureTarget,
@@ -17,12 +17,6 @@ use alloc::vec::Vec;
 use vello_common::geometry::RectU16;
 
 pub(crate) trait RendererBackend {
-    /// Return the persistent storage used while scheduling and executing a scene.
-    fn schedule_storage(&mut self) -> &mut ScheduleStorage;
-
-    /// Ensure intermediate layer/scratch textures required by this scene are allocated.
-    fn prepare(&mut self, requirements: TextureRequirements);
-
     /// Return the dimensions of each layer atlas texture.
     fn layer_texture_size(&self) -> (u32, u32);
 
@@ -35,31 +29,29 @@ pub(crate) trait RendererBackend {
     /// Render ranged alpha strips to a root or layer target.
     fn draw_pass(
         &mut self,
-        strips: &Ranges,
+        strips: RangedSlice<'_, GpuStrip>,
         external_texture_runs: &[ExternalTextureRun],
         target: StripPassRenderTarget,
     );
 
     /// Apply non-default blend layer operations.
-    fn blend_pass(&mut self, blends: &Ranges, texture_index: usize);
+    fn blend_pass(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: usize);
 
     /// Apply filter operations to already-rendered layer atlas regions.
-    fn filter_pass(&mut self, passes: &FilterPasses, texture_index: usize);
+    fn filter_pass(&mut self, passes: ResolvedFilterPasses<'_>, texture_index: usize);
 }
 
 /// Render the supported subset of a scene through the recorder-based scheduler.
 pub(crate) fn execute<R: RendererBackend>(
     renderer: &mut R,
+    storage: &mut ScheduleStorage,
     scene: &Scene,
     root_output_target: RootRenderTarget,
     paint_resolver: PaintResolver<'_>,
     filter_context: &FilterContext,
 ) -> Result<(), RenderError> {
-    renderer.prepare(TextureRequirements::for_scene(scene));
-
     let strip_storage = scene.strip_storage.borrow();
     let layer_texture_size = renderer.layer_texture_size();
-    let storage = renderer.schedule_storage();
     storage.buffers.clear();
     let schedule = SchedulePlanner::new(
         scene,
@@ -71,20 +63,24 @@ pub(crate) fn execute<R: RendererBackend>(
         storage,
     )
     .build()?;
-    schedule.execute(renderer, root_output_target);
-    let ScheduleStorage { pools, buffers, .. } = renderer.schedule_storage();
-    schedule.recycle(pools);
-    buffers.clear();
+    schedule.execute(renderer, root_output_target, &storage.buffers);
+    schedule.recycle(&mut storage.pools);
+    storage.buffers.clear();
     Ok(())
 }
 
 impl Schedule {
-    fn execute<R: RendererBackend>(&self, renderer: &mut R, root_output_target: RootRenderTarget) {
+    fn execute<R: RendererBackend>(
+        &self,
+        renderer: &mut R,
+        root_output_target: RootRenderTarget,
+        buffers: &ScheduleBuffers,
+    ) {
         if let Some(strips) = &self.opaque_strips {
             renderer.opaque_pass(strips);
         }
 
-        self.rounds.execute(renderer, root_output_target);
+        self.rounds.execute(renderer, root_output_target, buffers);
     }
 
     fn recycle(self, pools: &mut Pools) {
@@ -94,29 +90,36 @@ impl Schedule {
 }
 
 impl Rounds {
-    fn execute<R: RendererBackend>(&self, renderer: &mut R, root_output_target: RootRenderTarget) {
+    fn execute<R: RendererBackend>(
+        &self,
+        renderer: &mut R,
+        root_output_target: RootRenderTarget,
+        buffers: &ScheduleBuffers,
+    ) {
         for round in &self.rounds {
             for texture_index in [1, 0] {
                 let layer_round = &round.layer_passes[texture_index];
                 let draw = &layer_round.draw;
                 renderer.draw_pass(
-                    &draw.strip_ranges,
+                    buffers.strips.ranged(&draw.strip_ranges),
                     &draw.external_texture_runs,
                     StripPassRenderTarget::LayerAtlas(texture_index),
                 );
 
-                renderer.filter_pass(&layer_round.filter_passes, texture_index);
+                renderer.filter_pass(layer_round.filter_passes.resolve(buffers), texture_index);
             }
 
             renderer.draw_pass(
-                &round.root_draw.strip_ranges,
+                buffers.strips.ranged(&round.root_draw.strip_ranges),
                 &round.root_draw.external_texture_runs,
                 StripPassRenderTarget::Root(root_output_target),
             );
 
             for texture_index in 0..round.layer_passes.len() {
                 renderer.blend_pass(
-                    &round.layer_passes[texture_index].blend_ranges,
+                    buffers
+                        .blends
+                        .ranged(&round.layer_passes[texture_index].blend_ranges),
                     texture_index,
                 );
             }
@@ -147,7 +150,7 @@ pub(crate) struct TextureRequirements {
 }
 
 impl TextureRequirements {
-    fn for_scene(scene: &Scene) -> Self {
+    pub(crate) fn new(scene: &Scene) -> Self {
         let mut layer_textures = [false; 2];
         if scene.recorder.root_is_blend_target {
             // When the root is blended into, the root as a whole needs to be rendered as a layer
