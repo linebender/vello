@@ -27,7 +27,7 @@ pub(crate) trait RendererBackend {
     fn layer_texture_size(&self) -> (u32, u32);
 
     /// Clear rectangular regions in a texture to transparent black.
-    fn clear_rects(&mut self, target: TextureTarget, rects: &[RectU16]);
+    fn clear_pass(&mut self, target: TextureTarget, rects: &[RectU16]);
 
     /// Render the global opaque strips to the user-provided root surface.
     fn opaque_pass(&mut self, strips: &[GpuStrip]);
@@ -41,10 +41,10 @@ pub(crate) trait RendererBackend {
     );
 
     /// Apply non-default blend layer operations.
-    fn blend(&mut self, blends: &Ranges, texture_index: usize);
+    fn blend_pass(&mut self, blends: &Ranges, texture_index: usize);
 
     /// Apply filter operations to already-rendered layer atlas regions.
-    fn apply_filters(&mut self, passes: &FilterPasses, texture_index: usize);
+    fn filter_pass(&mut self, passes: &FilterPasses, texture_index: usize);
 }
 
 /// Render the supported subset of a scene through the recorder-based scheduler.
@@ -113,7 +113,7 @@ impl Rounds {
                     StripPassRenderTarget::LayerAtlas(texture_index),
                 );
 
-                renderer.apply_filters(&layer_round.filter_passes, texture_index);
+                renderer.filter_pass(&layer_round.filter_passes, texture_index);
             }
 
             renderer.draw_pass(
@@ -123,7 +123,7 @@ impl Rounds {
             );
 
             for texture_index in 0..round.layer_passes.len() {
-                renderer.blend(
+                renderer.blend_pass(
                     &round.layer_passes[texture_index].blend_ranges,
                     texture_index,
                 );
@@ -143,7 +143,7 @@ impl Rounds {
         target: impl Fn(usize) -> TextureTarget,
     ) {
         for (texture_index, regions) in regions.iter().enumerate() {
-            renderer.clear_rects(target(texture_index), regions);
+            renderer.clear_pass(target(texture_index), regions);
         }
     }
 }

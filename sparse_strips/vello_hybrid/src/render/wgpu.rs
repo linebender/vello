@@ -3241,11 +3241,11 @@ impl RendererBackend for RendererContext<'_> {
         self.do_strip_render_pass(&[], strips, external_texture_runs, target);
     }
 
-    fn blend(&mut self, blends: &Ranges, texture_index: usize) {
+    fn blend_pass(&mut self, blends: &Ranges, texture_index: usize) {
         self.do_blend_render_pass(blends, texture_index);
     }
 
-    fn apply_filters(&mut self, passes: &FilterPasses, texture_index: usize) {
+    fn filter_pass(&mut self, passes: &FilterPasses, texture_index: usize) {
         self.do_filter_layers_render_pass(passes, texture_index);
     }
 
@@ -3253,7 +3253,7 @@ impl RendererBackend for RendererContext<'_> {
         RendererContext::layer_texture_size(self)
     }
 
-    fn clear_rects(&mut self, target: TextureTarget, rects: &[RectU16]) {
+    fn clear_pass(&mut self, target: TextureTarget, rects: &[RectU16]) {
         self.do_clear_rects(target, rects, "Clear Rects");
     }
 }
