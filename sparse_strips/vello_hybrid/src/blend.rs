@@ -10,36 +10,24 @@ use vello_common::peniko::{Compose, Mix};
 pub(crate) const BLEND_SCRATCH_INDEX: usize = 0;
 
 /// Per-instance data for `blend.wgsl`.
-///
-/// ```text
-/// offset  size  field
-/// 0       4     parent_texture_origin: packed u16x2
-/// 4       4     parent_texture_size: packed u16x2
-/// 8       4     child_texture_origin: packed u16x2
-/// 12      4     child_rect_origin: packed u16x2
-/// 16      4     child_rect_size: packed u16x2
-/// 20      4     blend_rect_origin: packed u16x2
-/// 24      4     blend_rect_size: packed u16x2
-/// 28      4     blend_config: u32
-/// ```
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub(crate) struct GpuBlendInstance {
-    /// Atlas-space origin in the parent layer texture.
+    /// Atlas-space origin in the parent layer texture, packed as `u16x2`.
     pub(crate) parent_texture_origin: u32,
-    /// Size of the parent texture that receives the blend result.
+    /// Width and height of the parent texture, packed as `u16x2`.
     pub(crate) parent_texture_size: u32,
-    /// Atlas-space origin in the child layer texture.
+    /// Atlas-space origin in the child layer texture, packed as `u16x2`.
     pub(crate) child_texture_origin: u32,
-    /// Scene-space origin of the sampled child layer.
+    /// Scene-space origin of the sampled child layer, packed as `u16x2`.
     pub(crate) child_rect_origin: u32,
-    /// Scene-space size of the sampled child layer.
+    /// Scene-space width and height of the sampled child layer, packed as `u16x2`.
     pub(crate) child_rect_size: u32,
-    /// Scene-space origin affected by this blend operation.
+    /// Scene-space origin affected by this blend operation, packed as `u16x2`.
     pub(crate) blend_rect_origin: u32,
-    /// Scene-space size affected by this blend operation.
+    /// Scene-space width and height affected by this blend operation, packed as `u16x2`.
     pub(crate) blend_rect_size: u32,
-    /// Blend mode, opacity, and parent/child texture indices.
+    /// Packed blend mode, opacity, and parent/child texture indices.
     pub(crate) blend_config: u32,
 }
 
