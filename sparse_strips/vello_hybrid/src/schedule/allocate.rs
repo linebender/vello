@@ -219,8 +219,8 @@ impl AllocatedTextureRegion {
     }
 
     pub(super) fn clear_region(self) -> TextureRegion {
-       // The padding region isn't drawn into, so we also don't need to clear it.
-       self.region
+        // The padding region isn't drawn into, so we also don't need to clear it.
+        self.region
     }
 
     fn allocation_size(self) -> Int32Size {

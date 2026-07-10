@@ -76,6 +76,8 @@ impl Atlas {
         })
     }
 
+    // TODO: Ideally, the user doesn't need to pass the width/height again, and it's instead
+    // derived.
     /// Deallocate an image from this atlas.
     pub fn deallocate(&mut self, alloc_id: AllocId, width: u32, height: u32) {
         self.allocator.deallocate(alloc_id);
