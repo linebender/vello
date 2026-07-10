@@ -14,20 +14,23 @@ pub(crate) enum RootRenderTarget {
     AtlasLayer,
 }
 
-/// Specifies the target for a strip render pass.
+/// A render target whose layer variant carries target-specific data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum StripPassRenderTarget {
+pub(crate) enum RenderTarget<L> {
     /// Render to the root output target.
     Root(RootRenderTarget),
-    /// Render to a whole layer atlas texture.
-    LayerAtlas(u8),
+    /// Render to a layer target.
+    Layer(L),
 }
 
-impl StripPassRenderTarget {
-    pub(crate) fn enable_opaque(self) -> bool {
+impl<L> RenderTarget<L> {
+    pub(crate) fn enable_opaque(&self) -> bool {
         matches!(self, Self::Root(RootRenderTarget::UserSurface))
     }
 }
+
+/// The target of an executable draw pass.
+pub(crate) type DrawPassTarget = RenderTarget<u8>;
 
 /// Identifies one of the intermediate textures used by the hybrid renderer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,6 +98,9 @@ pub(crate) struct LayerTextureRegion {
     /// Bounds of this layer in viewport coordinates.
     pub(crate) scene_bbox: RectU16,
 }
+
+/// The target of a scheduled draw stream.
+pub(crate) type DrawTarget = RenderTarget<LayerTextureRegion>;
 
 impl LayerTextureRegion {
     pub(crate) fn geometry_shift(&self) -> (i32, i32) {

@@ -21,7 +21,7 @@ use crate::filter::{FilterContext, FilterPassPlan, PreparedGpuFilter};
 use crate::paint::PaintResolver;
 use crate::scene::RecordedDraw;
 use crate::target::{
-    IntermediateTextureSizes, LayerTextureRegion, RootRenderTarget, StripPassRenderTarget,
+    DrawTarget, IntermediateTextureSizes, LayerTextureRegion, RenderTarget, RootRenderTarget,
     TextureRegion,
 };
 use crate::util::Int16Size;
@@ -100,24 +100,7 @@ pub(crate) fn build(
     .build()
 }
 
-#[derive(Debug, Clone, Copy)]
-enum RenderTarget {
-    Root(RootRenderTarget),
-    Layer(LayerTextureRegion),
-}
-
-impl RenderTarget {
-    fn strip_pass_target(self) -> StripPassRenderTarget {
-        match self {
-            Self::Root(target) => StripPassRenderTarget::Root(target),
-            Self::Layer(region) => StripPassRenderTarget::LayerAtlas(region.texture.texture_index),
-        }
-    }
-
-    fn enable_opaque(self) -> bool {
-        self.strip_pass_target().enable_opaque()
-    }
-
+impl RenderTarget<LayerTextureRegion> {
     fn texture_index(self) -> Option<u8> {
         match self {
             Self::Root(_) => None,
@@ -252,7 +235,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         opaque_strips: &mut OpaqueStrips,
         rounds: &mut Rounds,
     ) -> Result<usize, RenderError> {
-        let target = RenderTarget::Root(self.root_render_target);
+        let target = DrawTarget::Root(self.root_render_target);
         let opaque = self
             .storage
             .pools
@@ -278,7 +261,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             return Ok(self.cursor.current_round());
         };
 
-        let target = RenderTarget::Root(self.root_render_target);
+        let target = DrawTarget::Root(self.root_render_target);
         let mut state = DrawState::new(
             target,
             layer.round_idx,
@@ -370,7 +353,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
     }
 
     fn push_root_layer(&self) -> Option<OpenLayer<'a>> {
-        let bbox = RenderTarget::Root(self.root_render_target).draw_bounds(self.scene);
+        let bbox = DrawTarget::Root(self.root_render_target).draw_bounds(self.scene);
         (!bbox.is_empty()).then_some(OpenLayer {
             cmds: &self.scene.recorder.root_cmds,
             kind: &REGULAR_LAYER_KIND,
@@ -653,7 +636,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                 filter.map_or(0, PreparedGpuFilter::scratch_count),
             )?;
             let draw_state = DrawState::new(
-                RenderTarget::Layer(region),
+                DrawTarget::Layer(region),
                 allocation.round_idx,
                 None,
                 region.scene_bbox,
@@ -731,7 +714,7 @@ struct LayerTarget {
 
 #[derive(Debug)]
 struct DrawState {
-    target: RenderTarget,
+    target: DrawTarget,
     opaque: OpaqueStrips,
     depth: DepthCounter,
     sampled_layers: Vec<u32>,
@@ -742,7 +725,7 @@ struct DrawState {
 
 impl DrawState {
     fn new(
-        target: RenderTarget,
+        target: DrawTarget,
         round_idx: usize,
         opaque: OpaqueStrips,
         draw_bounds: RectU16,
@@ -770,8 +753,8 @@ impl Rounds {
         self.ensure_exists(state.round_idx, pools);
 
         let target_draw = match state.target {
-            RenderTarget::Root(_) => self.rounds[state.round_idx].root_draw_mut(),
-            RenderTarget::Layer(region) => {
+            DrawTarget::Root(_) => self.rounds[state.round_idx].root_draw_mut(),
+            DrawTarget::Layer(region) => {
                 self.rounds[state.round_idx].layer_draw_mut(region.texture.texture_index)
             }
         };

@@ -42,9 +42,7 @@ use crate::{
     },
     scene::Scene,
     schedule::{ExternalTextureRun, RendererBackend, ScheduleStorage, round::BlendOp},
-    target::{
-        IntermediateTextureSizes, RootRenderTarget, StripPassRenderTarget, TextureTarget,
-    },
+    target::{DrawPassTarget, IntermediateTextureSizes, RootRenderTarget, TextureTarget},
 };
 use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
@@ -2883,7 +2881,7 @@ impl RendererContext<'_> {
         opaque_strips: &[GpuStrip],
         alpha_strips: RangedSlice<'_, GpuStrip>,
         external_texture_runs: &[ExternalTextureRun],
-        target: StripPassRenderTarget,
+        target: DrawPassTarget,
     ) {
         let opaque_count = opaque_strips.len();
         let alpha_count = alpha_strips.len();
@@ -2904,11 +2902,11 @@ impl RendererContext<'_> {
         let alpha_count = alpha_count as u32;
 
         let (view, bind_group): (&WgpuTextureView, &BindGroup) = match target {
-            StripPassRenderTarget::Root(_) => (
+            DrawPassTarget::Root(_) => (
                 self.view,
                 &self.programs.resources.root_layer_bind_groups[1],
             ),
-            StripPassRenderTarget::LayerAtlas(texture_index) => (
+            DrawPassTarget::Layer(texture_index) => (
                 self.programs.resources.layer_view(texture_index),
                 &self.programs.resources.layer_bind_groups[usize::from(texture_index)],
             ),
@@ -3232,7 +3230,7 @@ impl RendererBackend for RendererContext<'_> {
             strips,
             RangedSlice::empty(),
             &[],
-            StripPassRenderTarget::Root(RootRenderTarget::UserSurface),
+            DrawPassTarget::Root(RootRenderTarget::UserSurface),
         );
     }
 
@@ -3240,7 +3238,7 @@ impl RendererBackend for RendererContext<'_> {
         &mut self,
         strips: RangedSlice<'_, GpuStrip>,
         external_texture_runs: &[ExternalTextureRun],
-        target: StripPassRenderTarget,
+        target: DrawPassTarget,
     ) {
         self.strip_pass_inner(&[], strips, external_texture_runs, target);
     }

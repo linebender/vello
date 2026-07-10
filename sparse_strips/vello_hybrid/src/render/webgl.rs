@@ -44,9 +44,7 @@ use crate::{
     },
     scene::Scene,
     schedule::{ExternalTextureRun, RendererBackend, ScheduleStorage, round::BlendOp},
-    target::{
-        IntermediateTextureSizes, RootRenderTarget, StripPassRenderTarget, TextureTarget,
-    },
+    target::{DrawPassTarget, IntermediateTextureSizes, RootRenderTarget, TextureTarget},
 };
 use alloc::sync::Arc;
 use alloc::vec;
@@ -2382,7 +2380,7 @@ impl WebGlRendererContext<'_> {
         &mut self,
         opaque_strips: &[GpuStrip],
         alpha_strips: RangedSlice<'_, GpuStrip>,
-        target: StripPassRenderTarget,
+        target: DrawPassTarget,
     ) {
         let opaque_count = opaque_strips.len();
         let alpha_count = alpha_strips.len();
@@ -2390,7 +2388,7 @@ impl WebGlRendererContext<'_> {
             return;
         }
         match &target {
-            StripPassRenderTarget::Root(_) => {
+            DrawPassTarget::Root(_) => {
                 self.gl.bind_framebuffer(
                     WebGl2RenderingContext::FRAMEBUFFER,
                     self.programs.resources.view_framebuffer_override.as_deref(),
@@ -2410,7 +2408,7 @@ impl WebGlRendererContext<'_> {
                     Some(&self.programs.resources.view_config_buffer),
                 );
             }
-            StripPassRenderTarget::LayerAtlas(texture_index) => {
+            DrawPassTarget::Layer(texture_index) => {
                 self.gl.bind_framebuffer(
                     WebGl2RenderingContext::FRAMEBUFFER,
                     Some(self.programs.resources.layer_framebuffer(*texture_index)),
@@ -2453,8 +2451,8 @@ impl WebGlRendererContext<'_> {
             .uniform1i(Some(&self.programs.strip_uniforms.alphas_texture), 0);
 
         let layer_texture_idx = match &target {
-            StripPassRenderTarget::LayerAtlas(texture_index) => *texture_index ^ 1,
-            StripPassRenderTarget::Root(_) => 1,
+            DrawPassTarget::Layer(texture_index) => *texture_index ^ 1,
+            DrawPassTarget::Root(_) => 1,
         };
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE1);
         self.gl.bind_texture(
@@ -2898,7 +2896,7 @@ impl RendererBackend for WebGlRendererContext<'_> {
         self.strip_pass_inner(
             strips,
             RangedSlice::empty(),
-            StripPassRenderTarget::Root(RootRenderTarget::UserSurface),
+            DrawPassTarget::Root(RootRenderTarget::UserSurface),
         );
     }
 
@@ -2906,7 +2904,7 @@ impl RendererBackend for WebGlRendererContext<'_> {
         &mut self,
         strips: RangedSlice<'_, GpuStrip>,
         _external_texture_runs: &[ExternalTextureRun],
-        target: StripPassRenderTarget,
+        target: DrawPassTarget,
     ) {
         self.strip_pass_inner(&[], strips, target);
     }

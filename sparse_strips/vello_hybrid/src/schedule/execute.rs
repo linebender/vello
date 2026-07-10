@@ -7,9 +7,7 @@ use super::pool::Pools;
 use super::round::{BlendOp, Rounds};
 use super::{ExternalTextureRun, Schedule, ScheduleBuffers, ScheduleStorage};
 use crate::filter::FilterPassPlan;
-use crate::target::{
-    IntermediateTextureSizes, RootRenderTarget, StripPassRenderTarget, TextureTarget,
-};
+use crate::target::{DrawPassTarget, IntermediateTextureSizes, RootRenderTarget, TextureTarget};
 use crate::util::{RangedSlice, VecExt};
 use crate::{GpuStrip, Scene};
 use vello_common::geometry::RectU16;
@@ -20,7 +18,7 @@ pub(crate) trait RendererBackend {
         &mut self,
         strips: RangedSlice<'_, GpuStrip>,
         external_texture_runs: &[ExternalTextureRun],
-        target: StripPassRenderTarget,
+        target: DrawPassTarget,
     );
     fn clear_pass(&mut self, target: TextureTarget, rects: &[RectU16]);
     fn blend_pass(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: u8);
@@ -94,7 +92,7 @@ impl Rounds {
                 renderer.draw_pass(
                     buffers.strips.ranged(&draw.strip_ranges),
                     &draw.external_texture_runs,
-                    StripPassRenderTarget::LayerAtlas(texture_index),
+                    DrawPassTarget::Layer(texture_index),
                 );
 
                 // Next, we apply all filters for layers in this pass.
@@ -115,7 +113,7 @@ impl Rounds {
             renderer.draw_pass(
                 buffers.strips.ranged(&round.root_draw.strip_ranges),
                 &round.root_draw.external_texture_runs,
-                StripPassRenderTarget::Root(root_output_target),
+                DrawPassTarget::Root(root_output_target),
             );
 
             // Finally, we clear layer regions that are deallocated in this round as well as
