@@ -43,7 +43,7 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{ExternalTextureRun, RendererBackend, ScheduleStorage, round::BlendOp},
+    schedule::{ExternalTextureRun, RendererBackend, Schedule, ScheduleStorage, round::BlendOp},
     target::{DrawPassTarget, IntermediateTextureSizes, RootRenderTarget, TextureTarget},
 };
 use alloc::sync::Arc;
@@ -395,7 +395,7 @@ impl WebGlRenderer {
 
         self.prepare_gpu_encoded_paints(&encoded_paints, image_cache);
         let paint_resolver = PaintResolver::new(&encoded_paints, &self.paint_idxs);
-        let schedule = crate::schedule::build(
+        let schedule = Schedule::try_new(
             &mut self.schedule_storage,
             scene,
             root_output_target,

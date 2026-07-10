@@ -3,9 +3,8 @@
 
 //! Reusable schedule storage shared across rendered frames.
 
-use super::draw::{Draw, OpaqueStrips, OpaqueStripsExt};
+use super::draw::Draw;
 use super::round::{LayerTexturePass, Round};
-use crate::GpuStrip;
 use crate::util::Ranges;
 use alloc::vec::Vec;
 use vello_common::geometry::RectU16;
@@ -13,7 +12,6 @@ use vello_common::util::Pool;
 
 #[derive(Debug, Default)]
 pub(super) struct Pools {
-    opaque_strips: Pool<Vec<GpuStrip>>,
     root_draws: Pool<Draw>,
     layer_draws: Pool<Draw>,
     filter_ops: Pool<Ranges>,
@@ -23,20 +21,6 @@ pub(super) struct Pools {
 }
 
 impl Pools {
-    pub(super) fn take_opaque_strips(&mut self, enabled: bool) -> OpaqueStrips {
-        if enabled {
-            Some(self.opaque_strips.take())
-        } else {
-            OpaqueStrips::new(false)
-        }
-    }
-
-    pub(super) fn submit_opaque_strips(&mut self, strips: OpaqueStrips) {
-        if let Some(strips) = strips {
-            self.opaque_strips.submit(strips);
-        }
-    }
-
     fn take_root_draw(&mut self) -> Draw {
         self.root_draws.take()
     }

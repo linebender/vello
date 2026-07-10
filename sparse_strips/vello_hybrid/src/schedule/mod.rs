@@ -12,7 +12,7 @@ pub(crate) mod round;
 
 use self::allocate::{Allocation, Atlases, LayerAllocationRequest, LayerAllocations};
 use self::cursor::Cursor;
-use self::draw::{DepthCounter, DrawBuilder, LayerSample, OpaqueStrips, OpaqueStripsExt};
+use self::draw::{DepthCounter, DrawBuilder, LayerSample};
 pub(crate) use self::execute::{RendererBackend, execute};
 use self::pool::Pools;
 use self::round::{BlendOp, FilterOp, Rounds};
@@ -49,13 +49,39 @@ pub(crate) struct ExternalTextureRun {
 
 #[derive(Debug)]
 pub(crate) struct Schedule {
-    opaque_strips: OpaqueStrips,
     rounds: Rounds,
     texture_sizes: IntermediateTextureSizes,
 }
 
+impl Schedule {
+    pub(crate) fn try_new(
+        storage: &mut ScheduleStorage,
+        scene: &Scene,
+        root_output_target: RootRenderTarget,
+        paint_resolver: PaintResolver<'_>,
+        filter_context: &mut FilterContext,
+        texture_sizes: IntermediateTextureSizes,
+    ) -> Result<Self, RenderError> {
+        let strip_storage = scene.strip_storage.borrow();
+        filter_context.clear();
+        storage.buffers.clear();
+        let planner = SchedulePlanner::new(
+            scene,
+            &strip_storage,
+            root_output_target,
+            paint_resolver,
+            filter_context,
+            texture_sizes,
+            storage,
+        );
+
+        planner.build()
+    }
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct ScheduleBuffers {
+    pub(crate) opaque_strips: Vec<GpuStrip>,
     pub(crate) strips: Vec<GpuStrip>,
     pub(crate) filter_ops: Vec<FilterOp>,
     pub(crate) blends: Vec<BlendOp>,
@@ -63,6 +89,7 @@ pub(crate) struct ScheduleBuffers {
 
 impl ScheduleBuffers {
     fn clear(&mut self) {
+        self.opaque_strips.clear();
         self.strips.clear();
         self.filter_ops.clear();
         self.blends.clear();
@@ -75,29 +102,6 @@ pub(crate) struct ScheduleStorage {
     pools: Pools,
     pub(crate) buffers: ScheduleBuffers,
     filter_pass_plan: FilterPassPlan,
-}
-
-pub(crate) fn build(
-    storage: &mut ScheduleStorage,
-    scene: &Scene,
-    root_output_target: RootRenderTarget,
-    paint_resolver: PaintResolver<'_>,
-    filter_context: &mut FilterContext,
-    texture_sizes: IntermediateTextureSizes,
-) -> Result<Schedule, RenderError> {
-    let strip_storage = scene.strip_storage.borrow();
-    filter_context.clear();
-    storage.buffers.clear();
-    SchedulePlanner::new(
-        scene,
-        &strip_storage,
-        root_output_target,
-        paint_resolver,
-        filter_context,
-        texture_sizes,
-        storage,
-    )
-    .build()
 }
 
 impl RenderTarget<LayerTextureRegion> {
@@ -192,7 +196,6 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
     }
 
     fn build(mut self) -> Result<Schedule, RenderError> {
-        let mut opaque_strips = None;
         let mut rounds = Rounds {
             rounds: alloc::vec![self.storage.pools.take_round()],
         };
@@ -200,55 +203,39 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         // Walk the layer tree left-to-right. Child layers are scheduled lazily when their parent
         // first needs to sample them. Atlas allocation is monotonic: pressure
         // advances the base round and applies completed cleanups instead of patching old states.
-        if let Err(error) = self.schedule_root(&mut opaque_strips, &mut rounds) {
-            self.storage.pools.submit_opaque_strips(opaque_strips);
+        if let Err(error) = self.schedule_root(&mut rounds) {
             self.storage.buffers.clear();
             rounds.recycle(&mut self.storage.pools);
             return Err(error);
         }
-        opaque_strips.reverse();
+        self.storage.buffers.opaque_strips.reverse();
 
         Ok(Schedule {
-            opaque_strips,
             rounds,
             texture_sizes: self.texture_sizes,
         })
     }
 
-    fn schedule_root(
-        &mut self,
-        opaque_strips: &mut OpaqueStrips,
-        rounds: &mut Rounds,
-    ) -> Result<(), RenderError> {
+    fn schedule_root(&mut self, rounds: &mut Rounds) -> Result<(), RenderError> {
         let ready_round = if self.scene.recorder.root_is_blend_target {
             self.schedule_root_blend_target(rounds)?
         } else {
-            self.schedule_root_direct(opaque_strips, rounds)?
+            self.schedule_root_direct(rounds)?
         };
         rounds.ensure_exists(ready_round, &mut self.storage.pools);
 
         Ok(())
     }
 
-    fn schedule_root_direct(
-        &mut self,
-        opaque_strips: &mut OpaqueStrips,
-        rounds: &mut Rounds,
-    ) -> Result<usize, RenderError> {
+    fn schedule_root_direct(&mut self, rounds: &mut Rounds) -> Result<usize, RenderError> {
         let target = DrawTarget::Root(self.root_render_target);
-        let opaque = self
-            .storage
-            .pools
-            .take_opaque_strips(target.enable_opaque());
         let mut state = DrawState::new(
             target,
             self.cursor.current_round(),
-            opaque,
             target.draw_bounds(self.scene),
         );
         let ready_round =
             self.schedule_commands(&self.scene.recorder.root_cmds, &mut state, rounds);
-        *opaque_strips = state.opaque;
         ready_round
     }
 
@@ -262,12 +249,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         };
 
         let target = DrawTarget::Root(self.root_render_target);
-        let mut state = DrawState::new(
-            target,
-            layer.round_idx,
-            None,
-            target.draw_bounds(self.scene),
-        );
+        let mut state = DrawState::new(target, layer.round_idx, target.draw_bounds(self.scene));
         rounds.with_draw_builder(
             &mut state,
             &mut self.storage.pools,
@@ -638,7 +620,6 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             let draw_state = DrawState::new(
                 DrawTarget::Layer(region),
                 allocation.round_idx,
-                None,
                 region.scene_bbox,
             );
             layer.target = Some(LayerTarget {
@@ -715,7 +696,6 @@ struct LayerTarget {
 #[derive(Debug)]
 struct DrawState {
     target: DrawTarget,
-    opaque: OpaqueStrips,
     depth: DepthCounter,
     sampled_layers: Vec<u32>,
     backdrop_bbox: RectU16,
@@ -724,15 +704,9 @@ struct DrawState {
 }
 
 impl DrawState {
-    fn new(
-        target: DrawTarget,
-        round_idx: usize,
-        opaque: OpaqueStrips,
-        draw_bounds: RectU16,
-    ) -> Self {
+    fn new(target: DrawTarget, round_idx: usize, draw_bounds: RectU16) -> Self {
         Self {
             target,
-            opaque,
             depth: DepthCounter::default(),
             sampled_layers: Vec::new(),
             backdrop_bbox: RectU16::INVERTED,
@@ -759,7 +733,11 @@ impl Rounds {
             }
         };
 
-        let mut builder = DrawBuilder::new(target_draw, buffers, state);
+        let opaque = state
+            .target
+            .enable_opaque()
+            .then_some(&mut buffers.opaque_strips);
+        let mut builder = DrawBuilder::new(target_draw, &mut buffers.strips, opaque, state);
         f(&mut builder);
     }
 }

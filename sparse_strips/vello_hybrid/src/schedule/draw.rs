@@ -4,7 +4,7 @@
 //! Draw construction for scheduled strip render passes.
 
 use super::DrawState;
-use super::{ExternalTextureRun, ScheduleBuffers};
+use super::ExternalTextureRun;
 use crate::GpuStrip;
 use crate::paint::{COLOR_SOURCE_LAYER, PaintResolver};
 use crate::rect::{RectPart, split_rect};
@@ -32,7 +32,7 @@ impl Draw {
     #[inline]
     fn push(
         &mut self,
-        buffers: &mut ScheduleBuffers,
+        strips: &mut Vec<GpuStrip>,
         gpu_strip: GpuStrip,
         external_texture_id: Option<TextureId>,
     ) {
@@ -56,9 +56,7 @@ impl Draw {
             }
         }
 
-        buffers
-            .strips
-            .push_ranged(&mut self.strip_ranges, gpu_strip);
+        strips.push_ranged(&mut self.strip_ranges, gpu_strip);
     }
 }
 
@@ -69,56 +67,25 @@ impl Clear for Draw {
     }
 }
 
-pub(super) type OpaqueStrips = Option<Vec<GpuStrip>>;
-
-pub(super) trait OpaqueStripsExt {
-    fn new(enabled: bool) -> Self;
-    fn is_enabled(&self) -> bool;
-    fn push(&mut self, strip: GpuStrip) -> bool;
-    fn reverse(&mut self);
-}
-
-impl OpaqueStripsExt for OpaqueStrips {
-    fn new(enabled: bool) -> Self {
-        enabled.then(Vec::new)
-    }
-
-    fn is_enabled(&self) -> bool {
-        self.is_some()
-    }
-
-    fn push(&mut self, strip: GpuStrip) -> bool {
-        let Some(strips) = self else {
-            return false;
-        };
-
-        strips.push(strip);
-        true
-    }
-
-    fn reverse(&mut self) {
-        if let Some(strips) = self {
-            strips.reverse();
-        }
-    }
-}
-
 #[derive(Debug)]
 pub(super) struct DrawBuilder<'a> {
     draw: &'a mut Draw,
-    buffers: &'a mut ScheduleBuffers,
+    strips: &'a mut Vec<GpuStrip>,
+    opaque: Option<&'a mut Vec<GpuStrip>>,
     state: &'a mut DrawState,
 }
 
 impl<'a> DrawBuilder<'a> {
     pub(super) fn new(
         draw: &'a mut Draw,
-        buffers: &'a mut ScheduleBuffers,
+        strips: &'a mut Vec<GpuStrip>,
+        opaque: Option<&'a mut Vec<GpuStrip>>,
         state: &'a mut DrawState,
     ) -> Self {
         Self {
             draw,
-            buffers,
+            strips,
+            opaque,
             state,
         }
     }
@@ -137,6 +104,15 @@ impl<'a> DrawBuilder<'a> {
         }
     }
 
+    fn push_opaque(&mut self, strip: GpuStrip) -> bool {
+        let Some(opaque) = &mut self.opaque else {
+            return false;
+        };
+
+        opaque.push(strip);
+        true
+    }
+
     fn push_path(
         &mut self,
         path: &RecordedPath,
@@ -146,7 +122,7 @@ impl<'a> DrawBuilder<'a> {
         let strips = &strip_storage.strips[path.strips.clone()];
 
         let paint = paint_resolver.pack(&path.paint);
-        let is_opaque = self.state.opaque.is_enabled() && paint.opaque;
+        let is_opaque = self.opaque.is_some() && paint.opaque;
         let depth_index = self.state.depth.next(is_opaque);
         let tile_bounds = self.state.draw_bounds.to_tile_bounds();
 
@@ -163,7 +139,7 @@ impl<'a> DrawBuilder<'a> {
                 );
 
                 self.draw
-                    .push(self.buffers, strip, paint.external_texture_id);
+                    .push(self.strips, strip, paint.external_texture_id);
             }
             StripSegment::Fill(segment) => {
                 let shifted = segment.shift(self.state.target.geometry_shift());
@@ -176,9 +152,9 @@ impl<'a> DrawBuilder<'a> {
                     depth_index,
                 );
 
-                if !is_opaque || !self.state.opaque.push(strip) {
+                if !is_opaque || !self.push_opaque(strip) {
                     self.draw
-                        .push(self.buffers, strip, paint.external_texture_id);
+                        .push(self.strips, strip, paint.external_texture_id);
                 }
             }
         });
@@ -196,7 +172,7 @@ impl<'a> DrawBuilder<'a> {
         }
 
         let paint = paint_resolver.pack(paint);
-        let is_paint_opaque = self.state.opaque.is_enabled() && paint.opaque;
+        let is_paint_opaque = self.opaque.is_some() && paint.opaque;
         let depth_index = self.state.depth.next(is_paint_opaque);
 
         let split = split_rect(&clipped_rect);
@@ -220,9 +196,9 @@ impl<'a> DrawBuilder<'a> {
                 depth_index,
             );
 
-            if !(is_paint_opaque && part.frac == 0 && self.state.opaque.push(strip)) {
+            if !(is_paint_opaque && part.frac == 0 && self.push_opaque(strip)) {
                 self.draw
-                    .push(self.buffers, strip, paint.external_texture_id);
+                    .push(self.strips, strip, paint.external_texture_id);
             }
         }
     }
@@ -266,7 +242,7 @@ impl<'a> DrawBuilder<'a> {
             };
 
             self.draw.push(
-                self.buffers,
+                self.strips,
                 GpuStrip::from_rect(
                     rect_part,
                     sample.payload_at(sample_bbox.x0, sample_bbox.y0),
@@ -289,7 +265,7 @@ impl<'a> DrawBuilder<'a> {
         let payload = sample.payload_at(segment.x0(), segment.y());
         let shifted = segment.shift(self.state.target.geometry_shift());
         let strip = GpuStrip::from_fill(shifted, col_idx, payload, paint, depth_index);
-        self.draw.push(self.buffers, strip, None);
+        self.draw.push(self.strips, strip, None);
     }
 }
 

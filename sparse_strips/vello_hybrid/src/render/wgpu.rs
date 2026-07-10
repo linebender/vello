@@ -41,7 +41,7 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{ExternalTextureRun, RendererBackend, ScheduleStorage, round::BlendOp},
+    schedule::{ExternalTextureRun, RendererBackend, Schedule, ScheduleStorage, round::BlendOp},
     target::{DrawPassTarget, IntermediateTextureSizes, RootRenderTarget, TextureTarget},
 };
 use alloc::vec::Vec;
@@ -422,7 +422,7 @@ impl Renderer {
         self.programs.depth_cleared_this_frame = false;
         self.prepare_gpu_encoded_paints(encoded_paints, image_cache, texture_bindings)?;
         let paint_resolver = PaintResolver::new(encoded_paints, &self.paint_idxs);
-        let schedule = crate::schedule::build(
+        let schedule = Schedule::try_new(
             &mut self.schedule_storage,
             scene,
             root_output_target,

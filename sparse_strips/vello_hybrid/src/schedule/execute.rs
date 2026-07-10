@@ -48,8 +48,8 @@ impl Schedule {
         buffers: &ScheduleBuffers,
         filter_plan: &mut FilterPassPlan,
     ) {
-        if let Some(strips) = &self.opaque_strips {
-            renderer.opaque_pass(strips);
+        if DrawPassTarget::Root(root_output_target).enable_opaque() {
+            renderer.opaque_pass(&buffers.opaque_strips);
         }
 
         self.rounds.execute(
@@ -62,7 +62,6 @@ impl Schedule {
     }
 
     fn recycle(self, pools: &mut Pools) {
-        pools.submit_opaque_strips(self.opaque_strips);
         self.rounds.recycle(pools);
     }
 }
