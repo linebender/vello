@@ -120,13 +120,14 @@ impl Rounds {
 
             // Finally, we clear layer regions that are deallocated in this round as well as
             // all painted rectangles in the scratch buffer, so future rounds can assume a clean slate.
-            for (round, (layer_clears, scratch_clears)) in round
+            for (texture_index, (layer_clears, scratch_clears)) in round
                 .layer_texture_clears
                 .iter()
                 .zip(round.scratch_texture_clears.iter())
                 .enumerate()
             {
-                let texture_index = u8::try_from(round).unwrap();
+                let texture_index = u8::try_from(texture_index).unwrap();
+
                 renderer.clear_pass(TextureTarget::layer(texture_index), layer_clears);
                 renderer.clear_pass(TextureTarget::scratch(texture_index), scratch_clears);
             }

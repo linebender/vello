@@ -2606,11 +2606,12 @@ impl WebGlRendererContext<'_> {
     }
 
     fn blend_pass_inner(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: u8) {
-        let parent_texture_size = self.texture_size(TextureTarget::layer(texture_index));
-        let scratch_texture_size = self.texture_size(TextureTarget::scratch(0));
         if blends.len() == 0 {
             return;
         }
+
+        let parent_texture_size = self.texture_size(TextureTarget::layer(texture_index));
+        let scratch_texture_size = self.texture_size(TextureTarget::scratch(0));
         self.programs
             .resources
             .scratch_framebuffer(BLEND_SCRATCH_INDEX);
@@ -2733,6 +2734,7 @@ impl WebGlRendererContext<'_> {
         if plan.is_empty() {
             return;
         }
+
         self.gl.disable(WebGl2RenderingContext::BLEND);
         self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
         self.gl.disable(WebGl2RenderingContext::DEPTH_TEST);
@@ -2751,14 +2753,14 @@ impl WebGlRendererContext<'_> {
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(self.programs.resources.layer_texture(0)),
+            Some(self.programs.resources.layer_binding_texture(0)),
         );
         self.gl
             .uniform1i(Some(&self.programs.filter_uniforms.layer_texture_0), 2);
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE3);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(self.programs.resources.layer_texture(1)),
+            Some(self.programs.resources.layer_binding_texture(1)),
         );
         self.gl
             .uniform1i(Some(&self.programs.filter_uniforms.layer_texture_1), 3);
@@ -2852,12 +2854,17 @@ impl WebGlRendererContext<'_> {
         );
     }
 
-    fn do_clear_rects(&self, target: TextureTarget, rects: &[RectU16]) {
+    fn clear_pass_inner(&self, target: TextureTarget, rects: &[RectU16]) {
+        if rects.is_empty() {
+            return;
+        }
+
         self.prepare_clear_rects(target);
         for rect in rects.iter().copied().filter(|rect| !rect.is_empty()) {
             self.clear_rect(rect);
         }
         self.finish_clear_rects();
+        self.gl.enable(WebGl2RenderingContext::BLEND);
     }
 
     fn prepare_clear_rects(&self, target: TextureTarget) {
@@ -2914,8 +2921,7 @@ impl RendererBackend for WebGlRendererContext<'_> {
     }
 
     fn clear_pass(&mut self, target: TextureTarget, rects: &[RectU16]) {
-        self.do_clear_rects(target, rects);
-        self.gl.enable(WebGl2RenderingContext::BLEND);
+        self.clear_pass_inner(target, rects);
     }
 }
 
