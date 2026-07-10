@@ -219,15 +219,8 @@ impl AllocatedTextureRegion {
     }
 
     pub(super) fn clear_region(self) -> TextureRegion {
-        TextureRegion {
-            texture_index: self.region.texture_index,
-            rect: self.region.rect.expand(RectU16::new(
-                self.padding,
-                self.padding,
-                self.padding,
-                self.padding,
-            )),
-        }
+       // The padding region isn't drawn into, so we also don't need to clear it.
+       self.region
     }
 
     fn allocation_size(self) -> Int32Size {
