@@ -30,9 +30,11 @@ use vello_common::TextureId;
 use vello_common::geometry::RectU16;
 use vello_common::multi_atlas::AtlasError;
 use vello_common::peniko::{BlendMode, Compose};
-use vello_common::record::{Drawable, RecordedCmd, RecordedLayerKind};
+use vello_common::record::{CmdNode, Drawable, RecordedLayerKind};
 use vello_common::strip_generator::StripStorage;
 use vello_common::util::RectExt;
+
+const REGULAR_LAYER_KIND: RecordedLayerKind = RecordedLayerKind::Regular;
 
 /// Specifies a run of strips inside a draw that can be drawn with the same external texture
 /// binding.
@@ -198,8 +200,8 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             rounds: alloc::vec![self.storage.pools.take_round()],
         };
 
-        // Walk the command tree left-to-right. Layer subtrees are scheduled lazily when their
-        // parent command stream first needs to sample them. Atlas allocation is monotonic: pressure
+        // Walk the layer tree left-to-right. Child layers are scheduled lazily when their parent
+        // first needs to sample them. Atlas allocation is monotonic: pressure
         // advances the base round and applies completed cleanups instead of patching old states.
         if let Err(error) = self.schedule_root(&mut opaque_strips, &mut rounds) {
             self.storage.pools.submit_opaque_strips(opaque_strips);
@@ -241,14 +243,14 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             .storage
             .pools
             .take_opaque_strips(self.root_render_target == RootRenderTarget::UserSurface);
-        let mut state = CommandStreamState::new(
+        let mut state = DrawState::new(
             target,
             self.cursor.current_round(),
             opaque,
             target.draw_bounds(self.scene),
         );
         let ready_round =
-            self.schedule_command_stream(&self.scene.recorder.root_cmds, &mut state, rounds);
+            self.schedule_commands(&self.scene.recorder.root_cmds, &mut state, rounds);
         *opaque_strips = state.opaque;
         ready_round
     }
@@ -257,13 +259,13 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         let Some(mut layer) = self.push_root_layer() else {
             return Ok(self.cursor.current_round());
         };
-        self.schedule_layer_command_stream(&mut layer, rounds)?;
+        self.schedule_layer_contents(&mut layer, rounds)?;
         let Some(layer) = self.pop_layer(layer, rounds) else {
             return Ok(self.cursor.current_round());
         };
 
         let target = RenderTarget::Root;
-        let mut state = CommandStreamState::new(
+        let mut state = DrawState::new(
             target,
             layer.round_idx,
             None,
@@ -282,35 +284,27 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         Ok(layer.round_idx)
     }
 
-    fn schedule_command_stream(
+    fn schedule_commands(
         &mut self,
-        cmds: &[RecordedCmd],
-        state: &mut CommandStreamState,
+        cmds: &[CmdNode],
+        state: &mut DrawState,
         rounds: &mut Rounds,
     ) -> Result<usize, RenderError> {
-        let command_count = cmds.len();
-        let mut segment_start = 0;
-        for (cmd_idx, cmd) in cmds.iter().enumerate() {
-            match cmd {
-                RecordedCmd::Draws(_) => {}
-                RecordedCmd::Layer(layer_id) => {
-                    self.push_command_batches(cmds, segment_start, cmd_idx, state, rounds);
+        for cmd in cmds {
+            let child_layer = if let Some(layer_id) = cmd.layer {
+                self.schedule_layer_subtree(layer_id, rounds)?;
+                self.layer_allocations[layer_id as usize]
+            } else {
+                None
+            };
 
-                    let layer_idx = *layer_id as usize;
-                    self.schedule_layer_subtree(*layer_id, rounds)?;
-                    self.schedule_child_layer(
-                        *layer_id,
-                        self.layer_allocations[layer_idx],
-                        state,
-                        rounds,
-                    );
-                    segment_start = cmd_idx + 1;
-                }
+            self.push_draws(&cmd.draws, state, rounds);
+            if let Some(layer_id) = cmd.layer {
+                self.schedule_child_layer(layer_id, child_layer, state, rounds);
             }
         }
 
-        self.push_command_batches(cmds, segment_start, command_count, state, rounds);
-        Ok(self.finish_stream_segment(state, rounds))
+        Ok(self.release_sampled_layers(state, rounds))
     }
 
     fn schedule_layer_subtree(
@@ -325,28 +319,54 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         let Some(mut layer) = self.push_layer(layer_id) else {
             return Ok(());
         };
-        self.schedule_layer_command_stream(&mut layer, rounds)?;
+        self.schedule_layer_contents(&mut layer, rounds)?;
         self.layer_allocations[layer_id as usize] = self.pop_layer(layer, rounds);
 
         Ok(())
     }
 
-    fn push_layer(&self, layer_id: u32) -> Option<OpenLayer> {
+    fn push_layer(&self, layer_id: u32) -> Option<OpenLayer<'a>> {
         let layer = &self.scene.recorder.layers[layer_id as usize];
-        (!layer.bbox.is_empty()).then(|| OpenLayer {
-            layer_id: Some(layer_id),
+        if layer.bbox.is_empty() {
+            return None;
+        }
+
+        let allocation_bbox = layer.bbox.snap_to_tile_coordinates();
+        let sample = match &layer.kind {
+            RecordedLayerKind::Regular => LayerSamplePlacement {
+                source_offset: (0, 0),
+                source_scene_bbox: allocation_bbox,
+                bbox: layer.bbox,
+            },
+            RecordedLayerKind::Filter { placement, .. } => LayerSamplePlacement {
+                source_offset: (placement.src_x, placement.src_y),
+                source_scene_bbox: placement.dest_bbox,
+                bbox: placement.dest_bbox,
+            },
+        };
+
+        Some(OpenLayer {
+            cmds: &layer.cmds,
+            kind: &layer.kind,
             texture_index: self.layer_texture_index(layer.depth),
-            bbox: layer.bbox.snap_to_tile_coordinates(),
+            allocation_bbox,
+            sample,
             target: None,
         })
     }
 
-    fn push_root_layer(&self) -> Option<OpenLayer> {
+    fn push_root_layer(&self) -> Option<OpenLayer<'a>> {
         let bbox = RenderTarget::Root.draw_bounds(self.scene);
         (!bbox.is_empty()).then_some(OpenLayer {
-            layer_id: None,
+            cmds: &self.scene.recorder.root_cmds,
+            kind: &REGULAR_LAYER_KIND,
             texture_index: 1,
-            bbox,
+            allocation_bbox: bbox,
+            sample: LayerSamplePlacement {
+                source_offset: (0, 0),
+                source_scene_bbox: bbox,
+                bbox,
+            },
             target: None,
         })
     }
@@ -357,21 +377,15 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             .unwrap()
     }
 
-    fn push_command_batches(
+    fn push_draws(
         &mut self,
-        cmds: &[RecordedCmd],
-        start: usize,
-        end: usize,
-        state: &mut CommandStreamState,
+        draws: &core::ops::Range<u32>,
+        state: &mut DrawState,
         rounds: &mut Rounds,
     ) {
-        let mut draw_ranges = cmds[start..end].iter().filter_map(|cmd| match cmd {
-            RecordedCmd::Draws(range) => Some(range.clone()),
-            RecordedCmd::Layer(_) => None,
-        });
-        let Some(first_draw_range) = draw_ranges.next() else {
+        if draws.is_empty() {
             return;
-        };
+        }
 
         let mut bbox = RectU16::INVERTED;
         rounds.with_draw_builder(
@@ -379,68 +393,45 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             &mut self.storage.pools,
             &mut self.storage.buffers,
             |builder| {
-                for range in core::iter::once(first_draw_range).chain(draw_ranges) {
-                    for draw in &self.scene.recorder.draws[range.start as usize..range.end as usize]
-                    {
-                        let strips = match draw {
-                            RecordedDraw::Path(path) => {
-                                &self.strip_storage.strips[path.strips.clone()]
-                            }
-                            RecordedDraw::Rect(_) => &[],
-                        };
-                        bbox.union(draw.bbox(strips));
-                        builder.push_draw(draw, self.strip_storage, self.paint_resolver);
-                    }
+                for draw in &self.scene.recorder.draws[draws.start as usize..draws.end as usize] {
+                    let strips = match draw {
+                        RecordedDraw::Path(path) => &self.strip_storage.strips[path.strips.clone()],
+                        RecordedDraw::Rect(_) => &[],
+                    };
+                    bbox.union(draw.bbox(strips));
+                    builder.push_draw(draw, self.strip_storage, self.paint_resolver);
                 }
             },
         );
         state.backdrop_bbox.union(bbox);
     }
 
-    fn schedule_layer_command_stream(
+    fn schedule_layer_contents(
         &mut self,
-        layer: &mut OpenLayer,
+        layer: &mut OpenLayer<'a>,
         rounds: &mut Rounds,
     ) -> Result<(), RenderError> {
-        let cmds = layer.layer_id.map_or(
-            self.scene.recorder.root_cmds.as_slice(),
-            |layer_id| self.scene.recorder.layers[layer_id as usize].cmds.as_slice(),
-        );
-        let command_count = cmds.len();
-        let mut segment_start = 0;
+        let cmds = layer.cmds;
+        for cmd in cmds {
+            if let Some(child_layer_id) = cmd.layer {
+                self.schedule_layer_subtree(child_layer_id, rounds)?;
+                let child_layer = self.layer_allocations[child_layer_id as usize];
+                if child_layer.is_none() && layer.target.is_none() && cmd.draws.is_empty() {
+                    continue;
+                }
 
-        for (cmd_idx, cmd) in cmds.iter().enumerate() {
-            let child_layer_id = match cmd {
-                RecordedCmd::Draws(_) => continue,
-                RecordedCmd::Layer(child_layer_id) => *child_layer_id,
-            };
-
-            let child_layer_idx = child_layer_id as usize;
-            self.schedule_layer_subtree(child_layer_id, rounds)?;
-            let child_layer = self.layer_allocations[child_layer_idx];
-            if child_layer.is_none()
-                && layer.target.is_none()
-                && !self.command_segment_has_draws(cmds, segment_start, cmd_idx)
-            {
-                segment_start = cmd_idx + 1;
-                continue;
+                let target = self.layer_target(layer)?;
+                self.push_draws(&cmd.draws, &mut target.draw_state, rounds);
+                self.schedule_child_layer(
+                    child_layer_id,
+                    child_layer,
+                    &mut target.draw_state,
+                    rounds,
+                );
+            } else if !cmd.draws.is_empty() {
+                let target = self.layer_target(layer)?;
+                self.push_draws(&cmd.draws, &mut target.draw_state, rounds);
             }
-
-            let target = self.layer_command_target(layer)?;
-            self.push_command_batches(cmds, segment_start, cmd_idx, &mut target.stream, rounds);
-            self.schedule_child_layer(child_layer_id, child_layer, &mut target.stream, rounds);
-            segment_start = cmd_idx + 1;
-        }
-
-        if self.command_segment_has_draws(cmds, segment_start, command_count) {
-            let target = self.layer_command_target(layer)?;
-            self.push_command_batches(
-                cmds,
-                segment_start,
-                command_count,
-                &mut target.stream,
-                rounds,
-            );
         }
 
         Ok(())
@@ -448,11 +439,11 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
 
     fn pop_layer(
         &mut self,
-        mut layer: OpenLayer,
+        mut layer: OpenLayer<'a>,
         rounds: &mut Rounds,
     ) -> Option<ScheduledLayer> {
         let mut target = layer.target.take()?;
-        let ready_round = self.finish_stream_segment(&mut target.stream, rounds);
+        let ready_round = self.release_sampled_layers(&mut target.draw_state, rounds);
         if let Some(filter) = target.filter {
             let allocation_filter = target.allocations.scratch_allocations;
             rounds.ensure_exists(ready_round, &mut self.storage.pools);
@@ -469,13 +460,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             );
         }
         Some(ScheduledLayer {
-            sample: layer.layer_id.map_or(
-                LayerSample {
-                    source: target.region,
-                    bbox: target.region.scene_bbox,
-                },
-                |layer_id| self.layer_sample(layer_id, target.region),
-            ),
+            sample: layer.sample.resolve(target.region),
             allocations: target.allocations,
             region: target.region,
             round_idx: ready_round,
@@ -486,7 +471,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         &mut self,
         layer_id: u32,
         layer: Option<ScheduledLayer>,
-        state: &mut CommandStreamState,
+        state: &mut DrawState,
         rounds: &mut Rounds,
     ) {
         let props = &self.scene.recorder.layers[layer_id as usize].props;
@@ -496,12 +481,13 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             let same_texture_as_target =
                 state.target.texture_index() == Some(layer.region.texture.texture_index);
             if blend_mode == BlendMode::default() && !same_texture_as_target {
-                state.round_idx = state
-                    .round_idx
-                    .max(state.target.required_round_for_layer_sample(
-                        layer.region.texture.texture_index,
-                        layer.round_idx,
-                    ));
+                state.round_idx =
+                    state
+                        .round_idx
+                        .max(state.target.required_round_for_layer_sample(
+                            layer.region.texture.texture_index,
+                            layer.round_idx,
+                        ));
                 rounds.with_draw_builder(
                     state,
                     &mut self.storage.pools,
@@ -517,7 +503,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                 );
                 state.backdrop_bbox.union(layer.sample.bbox);
                 state.sampled_layers.push(layer_id);
-                self.finish_stream_segment(state, rounds);
+                self.release_sampled_layers(state, rounds);
                 return;
             }
         }
@@ -534,7 +520,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             return;
         }
 
-        let parent_ready_round = self.finish_stream_segment(state, rounds);
+        let parent_ready_round = self.release_sampled_layers(state, rounds);
         let parent_region = state.target.layer_region();
         let parent_texture_index = parent_region.texture.texture_index;
         let blend_round = layer.map_or(parent_ready_round, |layer| {
@@ -579,11 +565,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         state.round_idx = blend_round + 1;
     }
 
-    fn finish_stream_segment(
-        &mut self,
-        state: &mut CommandStreamState,
-        rounds: &mut Rounds,
-    ) -> usize {
+    fn release_sampled_layers(&mut self, state: &mut DrawState, rounds: &mut Rounds) -> usize {
         for layer_id in core::mem::take(&mut state.sampled_layers) {
             self.consume_child_layer(layer_id, state.round_idx, rounds);
         }
@@ -604,12 +586,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         let clear_region = layer.allocations.main_allocation.clear_region();
         rounds.rounds[round_idx].layer_texture_clears[usize::from(clear_region.texture_index)]
             .push(clear_region.rect);
-        for scratch in layer
-            .allocations
-            .scratch_allocations
-            .into_iter()
-            .flatten()
-        {
+        for scratch in layer.allocations.scratch_allocations.into_iter().flatten() {
             let clear_region = scratch.clear_region();
             rounds.rounds[round_idx].scratch_texture_clears
                 [usize::from(clear_region.texture_index)]
@@ -644,71 +621,34 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         Ok((allocation, region))
     }
 
-    fn layer_sample(&self, layer_id: u32, allocation: LayerTextureRegion) -> LayerSample {
-        let layer = &self.scene.recorder.layers[layer_id as usize];
-        let RecordedLayerKind::Filter { placement, .. } = &layer.kind else {
-            return LayerSample {
-                source: allocation,
-                bbox: layer.bbox,
-            };
-        };
-
-        LayerSample {
-            source: LayerTextureRegion {
-                texture: TextureRegion {
-                    texture_index: allocation.texture.texture_index,
-                    rect: RectU16::new(
-                        allocation.texture.rect.x0 + placement.src_x,
-                        allocation.texture.rect.y0 + placement.src_y,
-                        allocation.texture.rect.x0 + placement.src_x + placement.dest_bbox.width(),
-                        allocation.texture.rect.y0 + placement.src_y + placement.dest_bbox.height(),
-                    ),
-                },
-                scene_bbox: placement.dest_bbox,
-            },
-            bbox: placement.dest_bbox,
-        }
-    }
-
-    fn layer_command_target<'b>(
+    fn layer_target<'b>(
         &mut self,
-        layer: &'b mut OpenLayer,
-    ) -> Result<&'b mut LayerCommandTarget, RenderError> {
+        layer: &'b mut OpenLayer<'a>,
+    ) -> Result<&'b mut LayerTarget, RenderError> {
         if layer.target.is_none() {
-            let filter = layer.layer_id.and_then(|layer_id| {
-                match &self.scene.recorder.layers[layer_id as usize].kind {
-                    RecordedLayerKind::Filter { filter_data, .. } => {
-                        Some(self.filter_context.push(filter_data))
-                    }
-                    RecordedLayerKind::Regular => None,
+            let filter = match layer.kind {
+                RecordedLayerKind::Filter { filter_data, .. } => {
+                    Some(self.filter_context.push(filter_data))
                 }
-            });
-            let (allocation, region) = if let Some(layer_id) = layer.layer_id {
-                self.allocate_region(
-                    layer.texture_index,
-                    layer.bbox,
-                    &self.scene.recorder.layers[layer_id as usize].kind,
-                    filter.map_or(0, PreparedGpuFilter::scratch_count),
-                )?
-            } else {
-                self.allocate_region(
-                    layer.texture_index,
-                    layer.bbox,
-                    &RecordedLayerKind::Regular,
-                    0,
-                )?
+                RecordedLayerKind::Regular => None,
             };
-            let stream = CommandStreamState::new(
+            let (allocation, region) = self.allocate_region(
+                layer.texture_index,
+                layer.allocation_bbox,
+                layer.kind,
+                filter.map_or(0, PreparedGpuFilter::scratch_count),
+            )?;
+            let draw_state = DrawState::new(
                 RenderTarget::Layer(region),
                 allocation.round_idx,
                 None,
                 region.scene_bbox,
             );
-            layer.target = Some(LayerCommandTarget {
+            layer.target = Some(LayerTarget {
                 allocations: allocation.allocation,
                 region,
                 filter,
-                stream,
+                draw_state,
             });
         }
 
@@ -716,12 +656,6 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             .target
             .as_mut()
             .expect("layer target must be initialized"))
-    }
-
-    fn command_segment_has_draws(&self, cmds: &[RecordedCmd], start: usize, end: usize) -> bool {
-        cmds[start..end]
-            .iter()
-            .any(|cmd| matches!(cmd, RecordedCmd::Draws(_)))
     }
 }
 
@@ -735,23 +669,54 @@ struct ScheduledLayer {
 }
 
 #[derive(Debug)]
-struct OpenLayer {
-    layer_id: Option<u32>,
+struct OpenLayer<'a> {
+    cmds: &'a [CmdNode],
+    kind: &'a RecordedLayerKind,
     texture_index: u8,
+    allocation_bbox: RectU16,
+    sample: LayerSamplePlacement,
+    target: Option<LayerTarget>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LayerSamplePlacement {
+    source_offset: (u16, u16),
+    source_scene_bbox: RectU16,
     bbox: RectU16,
-    target: Option<LayerCommandTarget>,
+}
+
+impl LayerSamplePlacement {
+    fn resolve(self, allocation: LayerTextureRegion) -> LayerSample {
+        let x0 = allocation.texture.rect.x0 + self.source_offset.0;
+        let y0 = allocation.texture.rect.y0 + self.source_offset.1;
+        LayerSample {
+            source: LayerTextureRegion {
+                texture: TextureRegion {
+                    texture_index: allocation.texture.texture_index,
+                    rect: RectU16::new(
+                        x0,
+                        y0,
+                        x0 + self.source_scene_bbox.width(),
+                        y0 + self.source_scene_bbox.height(),
+                    ),
+                },
+                scene_bbox: self.source_scene_bbox,
+            },
+            bbox: self.bbox,
+        }
+    }
 }
 
 #[derive(Debug)]
-struct LayerCommandTarget {
+struct LayerTarget {
     allocations: LayerAllocations,
     region: LayerTextureRegion,
     filter: Option<PreparedGpuFilter>,
-    stream: CommandStreamState,
+    draw_state: DrawState,
 }
 
 #[derive(Debug)]
-struct CommandStreamState {
+struct DrawState {
     target: RenderTarget,
     opaque: OpaqueStrips,
     depth: DepthCounter,
@@ -761,7 +726,7 @@ struct CommandStreamState {
     round_idx: usize,
 }
 
-impl CommandStreamState {
+impl DrawState {
     fn new(
         target: RenderTarget,
         round_idx: usize,
@@ -783,7 +748,7 @@ impl CommandStreamState {
 impl Rounds {
     fn with_draw_builder(
         &mut self,
-        state: &mut CommandStreamState,
+        state: &mut DrawState,
         pools: &mut Pools,
         buffers: &mut ScheduleBuffers,
         f: impl FnOnce(&mut DrawBuilder<'_>),

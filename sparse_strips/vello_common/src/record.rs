@@ -53,13 +53,13 @@ pub trait Drawable {
     fn bbox(&self, strips: &[Strip]) -> RectU16;
 }
 
-/// A recorded command.
+/// A node in the recorded render graph.
 #[derive(Debug)]
-pub enum RecordedCmd {
+pub struct CmdNode {
     /// A contiguous batch of draw commands in [`CommandRecorder::draws`].
-    Draws(Range<u32>),
-    /// Composite a recorded layer into the current layer.
-    Layer(u32),
+    pub draws: Range<u32>,
+    /// An optional layer composition, invoked after `draws`.
+    pub layer: Option<u32>,
 }
 
 /// Metadata and command stream for one recorded layer.
@@ -68,7 +68,7 @@ pub struct RecordedLayer {
     /// Layer compositing properties.
     pub props: LayerProps,
     /// The render commands of the layer.
-    pub cmds: Vec<RecordedCmd>,
+    pub cmds: Vec<CmdNode>,
     /// The kind of recorded layer.
     pub kind: RecordedLayerKind,
     /// Nesting depth. Direct child layers of the root have depth 1.
@@ -106,7 +106,7 @@ pub enum RecordedLayerKind {
 }
 
 impl RecordedLayer {
-    fn regular(props: LayerProps, cmds: Vec<RecordedCmd>, depth: usize) -> Self {
+    fn regular(props: LayerProps, cmds: Vec<CmdNode>, depth: usize) -> Self {
         Self {
             props,
             cmds,
@@ -120,7 +120,7 @@ impl RecordedLayer {
     fn filter(
         props: LayerProps,
         filter_plan: FilterData,
-        cmds: Vec<RecordedCmd>,
+        cmds: Vec<CmdNode>,
         depth: usize,
     ) -> Self {
         Self {
@@ -142,7 +142,7 @@ impl RecordedLayer {
 #[derive(Debug)]
 pub struct CommandRecorder<D> {
     /// The commands of the root layer.
-    pub root_cmds: Vec<RecordedCmd>,
+    pub root_cmds: Vec<CmdNode>,
     /// Flat storage for all draw commands referenced by batched draws.
     pub draws: Vec<D>,
     /// Data about recorded layers, indexed by their ID.
@@ -157,8 +157,8 @@ pub struct CommandRecorder<D> {
     pub has_non_default_blend: bool,
     /// Whether there exists at least one layer that has a filter.
     pub has_filter_layer: bool,
-    /// A pool for reusable `Vec<RecordedCmd>` allocations.
-    cmd_pool: VecPool<RecordedCmd>,
+    /// A pool for reusable `Vec<CmdNode>` allocations.
+    cmd_pool: VecPool<CmdNode>,
     /// The layer whose command stream is currently the base.
     ///
     /// This is `None` if there is no active layer and we are recording into the root layer instead.
@@ -259,7 +259,7 @@ impl<D> CommandRecorder<D> {
             }
         }
         let id = self.push_layer_metadata(layer);
-        self.push_render_cmd(RecordedCmd::Layer(id));
+        self.push_layer_node(id);
         self.active_layer = Some(id);
         self.layer_stack.push(OpenLayer {
             id,
@@ -308,11 +308,11 @@ impl<D> CommandRecorder<D> {
     }
 
     #[inline]
-    fn active_cmds_mut(&mut self) -> &mut Vec<RecordedCmd> {
+    fn active_cmds_mut(&mut self) -> &mut Vec<CmdNode> {
         self.layer_cmds_mut(self.active_layer)
     }
 
-    fn layer_cmds_mut(&mut self, root_layer: Option<u32>) -> &mut Vec<RecordedCmd> {
+    fn layer_cmds_mut(&mut self, root_layer: Option<u32>) -> &mut Vec<CmdNode> {
         if let Some(id) = root_layer {
             &mut self.layers[id as usize].cmds
         } else {
@@ -320,12 +320,20 @@ impl<D> CommandRecorder<D> {
         }
     }
 
-    #[inline]
-    fn push_render_cmd(&mut self, cmd: RecordedCmd) -> usize {
-        let cmds = self.active_cmds_mut();
-        let idx = cmds.len();
-        cmds.push(cmd);
-        idx
+    fn push_layer_node(&mut self, layer_id: u32) {
+        let draw_idx = self.draws.len() as u32;
+
+        match self.active_cmds_mut().last_mut() {
+            Some(node) if node.layer.is_none() => {
+                debug_assert_eq!(node.draws.end, draw_idx);
+
+                node.layer = Some(layer_id);
+            }
+            _ => self.active_cmds_mut().push(CmdNode {
+                draws: draw_idx..draw_idx,
+                layer: Some(layer_id),
+            }),
+        }
     }
 
     fn push_layer_metadata(&mut self, layer: RecordedLayer) -> u32 {
@@ -350,11 +358,14 @@ impl<D: Drawable> CommandRecorder<D> {
         self.draws.push(draw);
 
         match self.active_cmds_mut().last_mut() {
-            Some(RecordedCmd::Draws(range)) if range.end == draw_idx => {
-                range.end += 1;
+            Some(node) if node.layer.is_none() && node.draws.end == draw_idx => {
+                node.draws.end += 1;
             }
             _ => {
-                self.push_render_cmd(RecordedCmd::Draws(draw_idx..draw_idx + 1));
+                self.active_cmds_mut().push(CmdNode {
+                    draws: draw_idx..draw_idx + 1,
+                    layer: None,
+                });
             }
         };
     }
@@ -396,11 +407,6 @@ mod tests {
         }
     }
 
-    enum ExpectedCmd {
-        Layer(usize),
-        Batch(Range<u32>),
-    }
-
     fn layer_props() -> LayerProps {
         LayerProps {
             blend_mode: BlendMode::default(),
@@ -426,23 +432,16 @@ mod tests {
         }
     }
 
-    fn assert_cmds(cmds: &[RecordedCmd], expected: &[ExpectedCmd]) {
+    fn assert_cmds(cmds: &[CmdNode], expected: &[(Range<u32>, Option<u32>)]) {
         assert_eq!(cmds.len(), expected.len());
 
-        for (cmd, expected) in cmds.iter().zip(expected) {
-            match (cmd, expected) {
-                (RecordedCmd::Layer(id), ExpectedCmd::Layer(expected_id)) => {
-                    assert_eq!(*id as usize, *expected_id);
-                }
-                (RecordedCmd::Draws(range), ExpectedCmd::Batch(expected_range)) => {
-                    assert_eq!(range, expected_range);
-                }
-                _ => panic!("unexpected command: {cmd:?}"),
-            }
+        for (cmd, (draws, layer)) in cmds.iter().zip(expected) {
+            assert_eq!(&cmd.draws, draws);
+            assert_eq!(cmd.layer, *layer);
         }
     }
 
-    fn layer_cmds(recorder: &CommandRecorder<TestDraw>, id: usize) -> &[RecordedCmd] {
+    fn layer_cmds(recorder: &CommandRecorder<TestDraw>, id: usize) -> &[CmdNode] {
         &recorder.layers[id].cmds
     }
 
@@ -470,14 +469,14 @@ mod tests {
         assert_eq!(recorder.pop_layer(), PoppedLayer::Regular);
         assert_eq!(recorder.pop_layer(), PoppedLayer::Filter);
 
-        assert_cmds(&recorder.root_cmds, &[ExpectedCmd::Layer(0)]);
+        assert_cmds(&recorder.root_cmds, &[(0..0, Some(0))]);
         assert_cmds(
             layer_cmds(&recorder, 0),
-            &[ExpectedCmd::Layer(1), ExpectedCmd::Layer(3)],
+            &[(0..0, Some(1)), (1..1, Some(3))],
         );
-        assert_cmds(layer_cmds(&recorder, 1), &[ExpectedCmd::Layer(2)]);
-        assert_cmds(layer_cmds(&recorder, 2), &[ExpectedCmd::Batch(0..1)]);
-        assert_cmds(layer_cmds(&recorder, 3), &[ExpectedCmd::Batch(1..2)]);
+        assert_cmds(layer_cmds(&recorder, 1), &[(0..0, Some(2))]);
+        assert_cmds(layer_cmds(&recorder, 2), &[(0..1, None)]);
+        assert_cmds(layer_cmds(&recorder, 3), &[(1..2, None)]);
         assert_eq!(recorder.draws.len(), 2);
         assert_eq!(recorder.filter_layers.to_vec(), [0, 1]);
         assert_eq!(recorder.max_layer_depth, 3);
@@ -495,15 +494,8 @@ mod tests {
         recorder.pop_layer();
         recorder.push_draw(TestDraw, &[]);
 
-        assert_cmds(
-            &recorder.root_cmds,
-            &[
-                ExpectedCmd::Batch(0..2),
-                ExpectedCmd::Layer(0),
-                ExpectedCmd::Batch(3..4),
-            ],
-        );
-        assert_cmds(layer_cmds(&recorder, 0), &[ExpectedCmd::Batch(2..3)]);
+        assert_cmds(&recorder.root_cmds, &[(0..2, Some(0)), (3..4, None)]);
+        assert_cmds(layer_cmds(&recorder, 0), &[(2..3, None)]);
     }
 
     #[test]

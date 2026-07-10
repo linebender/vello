@@ -20,7 +20,7 @@ use vello_common::record::Drawable;
 use vello_common::strip::Strip;
 use vello_common::util::strip_bbox;
 
-pub(crate) type RecordedCmd = vello_common::record::RecordedCmd;
+pub(crate) type CmdNode = vello_common::record::CmdNode;
 pub(crate) type RecordedLayer = vello_common::record::RecordedLayer;
 
 #[derive(Debug)]

@@ -4,7 +4,7 @@
 use super::cmd::{DepthFill, LayerFill, LayerFillAttrs, PaintFill, PaintFillAttrs, RenderCmd};
 use super::depth::{DepthSegment, DepthState};
 use crate::coarse::depth;
-use crate::dispatch::{RecordedCmd, RecordedFill, RecordedLayer};
+use crate::dispatch::{CmdNode, RecordedFill, RecordedLayer};
 use crate::filter::context::FilterContext;
 use crate::kurbo::{Affine, Vec2};
 use crate::peniko::{BlendMode, Extend, ImageQuality, ImageSampler};
@@ -260,7 +260,7 @@ impl CommandBucketer {
 
     pub(crate) fn bucket_commands(
         &mut self,
-        cmds: &[RecordedCmd],
+        cmds: &[CmdNode],
         draws: &[RecordedFill],
         layers: &[RecordedLayer],
         strips: &[Strip],
@@ -287,70 +287,67 @@ impl CommandBucketer {
         );
 
         for cmd in cmds {
-            match cmd {
-                RecordedCmd::Draws(range) => {
-                    for RecordedFill {
-                        thread_idx,
-                        strip_range,
-                        paint,
-                        blend_mode,
-                        mask,
-                        ..
-                    } in &draws[range.start as usize..range.end as usize]
-                    {
-                        let draw_id = self.next_draw_id();
-                        let attrs = PaintFillAttrs {
-                            paint: paint.clone(),
-                            blend_mode: *blend_mode,
-                            mask: mask.clone(),
-                            draw_id,
-                            thread_idx: *thread_idx,
-                            origin: self.viewport_origin(),
-                        };
-                        self.generate_fill(&strips[strip_range.clone()], &attrs, encoded_paints);
+            for RecordedFill {
+                thread_idx,
+                strip_range,
+                paint,
+                blend_mode,
+                mask,
+                ..
+            } in &draws[cmd.draws.start as usize..cmd.draws.end as usize]
+            {
+                let draw_id = self.next_draw_id();
+                let attrs = PaintFillAttrs {
+                    paint: paint.clone(),
+                    blend_mode: *blend_mode,
+                    mask: mask.clone(),
+                    draw_id,
+                    thread_idx: *thread_idx,
+                    origin: self.viewport_origin(),
+                };
+                self.generate_fill(&strips[strip_range.clone()], &attrs, encoded_paints);
+            }
+
+            if let Some(id) = cmd.layer {
+                let layer = &layers[id as usize];
+                let props = &layer.props;
+
+                match &layer.kind {
+                    RecordedLayerKind::Regular => {
+                        // Regular layers are inlined and bucketed into the same command stream.
+                        self.push_layer(props);
+                        self.bucket_commands(
+                            &layer.cmds,
+                            draws,
+                            layers,
+                            strips,
+                            encoded_paints,
+                            filter_ctx,
+                        );
+                        self.pop_layer(strips);
                     }
-                }
-                RecordedCmd::Layer(id) => {
-                    let layer = &layers[*id as usize];
-                    let props = &layer.props;
+                    RecordedLayerKind::Filter { placement, .. } => {
+                        let needs_layer = props.blend_mode != BlendMode::default()
+                            || props.opacity != 1.0
+                            || props.mask.is_some()
+                            || props.clip_path.is_some();
 
-                    match &layer.kind {
-                        RecordedLayerKind::Regular => {
-                            // Regular layers are inlined and bucketed into the same command stream.
+                        if needs_layer {
                             self.push_layer(props);
-                            self.bucket_commands(
-                                &layer.cmds,
-                                draws,
-                                layers,
-                                strips,
-                                encoded_paints,
-                                filter_ctx,
-                            );
-                            self.pop_layer(strips);
                         }
-                        RecordedLayerKind::Filter { placement, .. } => {
-                            let needs_layer = props.blend_mode != BlendMode::default()
-                                || props.opacity != 1.0
-                                || props.mask.is_some()
-                                || props.clip_path.is_some();
 
-                            if needs_layer {
-                                self.push_layer(props);
-                            }
+                        // Note: At this point, we've already rasterized all dependent
+                        // filter layers, so this should never fail.
+                        if let Some(pixmap) = filter_ctx.filter_layer(id as usize) {
+                            self.generate_filter_layer_fill(
+                                pixmap,
+                                *placement,
+                                encoded_paints.len(),
+                            );
+                        }
 
-                            // Note: At this point, we've already rasterized all dependent
-                            // filter layers, so this should never fail.
-                            if let Some(pixmap) = filter_ctx.filter_layer(*id as usize) {
-                                self.generate_filter_layer_fill(
-                                    pixmap,
-                                    *placement,
-                                    encoded_paints.len(),
-                                );
-                            }
-
-                            if needs_layer {
-                                self.pop_layer(strips);
-                            }
+                        if needs_layer {
+                            self.pop_layer(strips);
                         }
                     }
                 }

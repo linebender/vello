@@ -3,7 +3,7 @@
 
 //! Draw construction for scheduled strip render passes.
 
-use super::CommandStreamState;
+use super::DrawState;
 use super::{ExternalTextureRun, ScheduleBuffers};
 use crate::GpuStrip;
 use crate::paint::{COLOR_SOURCE_LAYER, PaintResolver};
@@ -107,14 +107,14 @@ impl OpaqueStripsExt for OpaqueStrips {
 pub(super) struct DrawBuilder<'a> {
     draw: &'a mut Draw,
     buffers: &'a mut ScheduleBuffers,
-    state: &'a mut CommandStreamState,
+    state: &'a mut DrawState,
 }
 
 impl<'a> DrawBuilder<'a> {
     pub(super) fn new(
         draw: &'a mut Draw,
         buffers: &'a mut ScheduleBuffers,
-        state: &'a mut CommandStreamState,
+        state: &'a mut DrawState,
     ) -> Self {
         Self {
             draw,

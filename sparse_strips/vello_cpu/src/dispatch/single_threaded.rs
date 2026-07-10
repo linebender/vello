@@ -19,7 +19,7 @@ use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
 use vello_common::pixmap::{Pixmap, PixmapMut};
 use vello_common::record::{
-    CommandRecorder, LayerClip, LayerProps, PoppedLayer, RecordedCmd, RecordedLayerKind,
+    CmdNode, CommandRecorder, LayerClip, LayerProps, PoppedLayer, RecordedLayerKind,
 };
 use vello_common::strip_generator::{GenerationMode, StripStorage};
 use vello_common::util::control_point_bbox_u16;
@@ -130,7 +130,7 @@ impl SingleThreadedDispatcher {
     fn bucket_and_rasterize<S: Simd, F: FineKernel<S>>(
         &self,
         simd: S,
-        cmds: &[RecordedCmd],
+        cmds: &[CmdNode],
         viewport: RectU16,
         filter_ctx: &FilterContext,
         mut target: PixmapMut<'_>,
