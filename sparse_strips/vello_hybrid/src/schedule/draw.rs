@@ -346,9 +346,12 @@ pub(super) struct LayerSample {
 
 impl LayerSample {
     fn payload_at(self, x: u16, y: u16) -> u32 {
-        let source = self.source;
-        let source_x = source.texture.rect.x0 + x - source.scene_bbox.x0;
-        let source_y = source.texture.rect.y0 + y - source.scene_bbox.y0;
+        let shift = self.source.geometry_shift();
+        // This should never fail. The shift itself can be negative if the layer bbox doesn't
+        // start at 0, but we only sample values that are within the layer bbox.
+        let source_x = u16::try_from(x as i32 + shift.0).unwrap();
+        let source_y = u16::try_from(y as i32 + shift.1).unwrap();
+
         pack_u16_pair(source_x, source_y)
     }
 

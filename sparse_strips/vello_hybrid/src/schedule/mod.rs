@@ -106,6 +106,13 @@ pub(crate) struct LayerTextureRegion {
 }
 
 impl LayerTextureRegion {
+    fn geometry_shift(&self) -> (i32, i32) {
+        (
+            self.texture.rect.x0 as i32 - i32::from(self.scene_bbox.x0),
+            self.texture.rect.y0 as i32 - i32::from(self.scene_bbox.y0),
+        )
+    }
+
     fn empty_for_blend(bbox: RectU16) -> Self {
         Self {
             texture: TextureRegion {
@@ -195,10 +202,7 @@ impl RenderTarget {
     fn geometry_shift(self) -> (i32, i32) {
         match self {
             Self::Root => (0, 0),
-            Self::Layer(region) => (
-                region.texture.rect.x0 as i32 - i32::from(region.scene_bbox.x0),
-                region.texture.rect.y0 as i32 - i32::from(region.scene_bbox.y0),
-            ),
+            Self::Layer(region) => region.geometry_shift(),
         }
     }
 
