@@ -6,8 +6,8 @@
 use super::pool::Pools;
 use super::round::{BlendOp, Rounds};
 use super::{
-    ExternalTextureRun, RootRenderTarget, Schedule, ScheduleBuffers, ScheduleStorage,
-    StripPassRenderTarget, TextureTarget,
+    ExternalTextureRun, IntermediateTextureSizes, RootRenderTarget, Schedule, ScheduleBuffers,
+    ScheduleStorage, StripPassRenderTarget, TextureTarget,
 };
 use crate::filter::FilterPassPlan;
 use crate::util::{RangedSlice, VecExt};
@@ -59,7 +59,7 @@ impl Schedule {
             root_output_target,
             buffers,
             filter_plan,
-            self.layer_texture_size,
+            self.texture_sizes,
         );
     }
 
@@ -76,7 +76,7 @@ impl Rounds {
         root_output_target: RootRenderTarget,
         buffers: &ScheduleBuffers,
         filter_plan: &mut FilterPassPlan,
-        layer_texture_size: (u16, u16),
+        texture_sizes: IntermediateTextureSizes,
     ) {
         // The core loop that ties everything together!
 
@@ -103,7 +103,7 @@ impl Rounds {
                         .ranged(&pass.filter_ranges)
                         .iter()
                         .copied(),
-                    layer_texture_size,
+                    texture_sizes,
                 );
                 renderer.filter_pass(filter_plan, index);
                 // Finally, we apply all blend operations.

@@ -20,7 +20,7 @@ only break in edge cases, and some of them are also only related to conversions 
 
 use crate::render::common::IMAGE_PADDING;
 use crate::schedule::execute::TextureRequirements;
-use crate::util::RangedSlice;
+use crate::util::{Int16Size, RangedSlice};
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
     blend::{BLEND_SCRATCH_INDEX, GpuBlendInstance, gpu_blend_instance},
@@ -42,8 +42,8 @@ use crate::{
     },
     scene::Scene,
     schedule::{
-        ExternalTextureRun, RendererBackend, RootRenderTarget, ScheduleStorage,
-        StripPassRenderTarget, TextureTarget, round::BlendOp,
+        ExternalTextureRun, IntermediateTextureSizes, RendererBackend, RootRenderTarget,
+        ScheduleStorage, StripPassRenderTarget, TextureTarget, round::BlendOp,
     },
 };
 use alloc::vec::Vec;
@@ -424,14 +424,13 @@ impl Renderer {
         self.programs.depth_cleared_this_frame = false;
         self.prepare_gpu_encoded_paints(encoded_paints, image_cache, texture_bindings)?;
         let paint_resolver = PaintResolver::new(encoded_paints, &self.paint_idxs);
-        let layer_texture_size = self.programs.resources.layer_texture_size;
         let schedule = crate::schedule::build(
             &mut self.schedule_storage,
             scene,
             root_output_target,
             paint_resolver,
             &mut self.filter_context,
-            (layer_texture_size, layer_texture_size),
+            self.programs.resources.texture_sizes,
         )?;
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
@@ -945,12 +944,12 @@ struct GpuResources {
     filter_data_texture: Texture,
     /// Bind group for the filter data texture.
     filter_base_bind_group: BindGroup,
-    /// Full-size layer/scratch texture dimension.
-    layer_texture_size: u32,
+    /// Dimensions of the intermediate layer and scratch textures.
+    texture_sizes: IntermediateTextureSizes,
     /// Config buffer for rendering wide tile commands into the view texture.
     view_config_buffer: Buffer,
     /// Config buffer for rendering strips into a layer texture.
-    layer_config_buffer: Buffer,
+    layer_config_buffers: [Buffer; 2],
 
     /// Bind groups for rendering to the root target while sampling layer atlas textures.
     root_layer_bind_groups: [BindGroup; 2],
@@ -1590,7 +1589,13 @@ impl Programs {
             &copy_vertex_state,
         );
 
-        let layer_texture_size = device.limits().max_texture_dimension_2d.min(4096);
+        let intermediate_texture_size =
+            u16::try_from(device.limits().max_texture_dimension_2d.min(4096))
+                .unwrap();
+        let texture_sizes = IntermediateTextureSizes::uniform(Int16Size::new(
+            intermediate_texture_size,
+            intermediate_texture_size,
+        ));
         let filter_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("Filter Linear Sampler"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -1601,7 +1606,7 @@ impl Programs {
         let layer_textures: [IntermediateTexture; 2] = core::array::from_fn(|_| None);
         let dummy_layer_texture = WgpuIntermediateTexture::new(Self::create_intermediate_texture(
             device,
-            1,
+            Int16Size::new(1, 1),
             "Layer Placeholder Texture",
         ));
         let layer_binding_views = [&dummy_layer_texture.view, &dummy_layer_texture.view];
@@ -1619,9 +1624,12 @@ impl Programs {
             layer_binding_views,
         );
         let scratch_textures: [IntermediateTexture; 2] = core::array::from_fn(|_| None);
-        let dummy_scratch_texture = WgpuIntermediateTexture::new(
-            Self::create_intermediate_texture(device, 1, "Scratch Placeholder Texture"),
-        );
+        let dummy_scratch_texture =
+            WgpuIntermediateTexture::new(Self::create_intermediate_texture(
+                device,
+                Int16Size::new(1, 1),
+                "Scratch Placeholder Texture",
+            ));
         let scratch_binding_views = [&dummy_scratch_texture.view, &dummy_scratch_texture.view];
         let scratch_input_bind_groups = scratch_binding_views.map(|view| {
             create_filter_input_bind_group(
@@ -1631,13 +1639,16 @@ impl Programs {
                 view,
             )
         });
-        let layer_config_buffer = Self::create_config_buffer_for_size(
-            device,
-            layer_texture_size,
-            layer_texture_size,
-            device.limits().max_texture_dimension_2d,
-            0,
-        );
+        let layer_config_buffers = core::array::from_fn(|index| {
+            let size = texture_sizes.size(TextureTarget::layer(index));
+            Self::create_config_buffer_for_size(
+                device,
+                u32::from(size.width()),
+                u32::from(size.height()),
+                device.limits().max_texture_dimension_2d,
+                0,
+            )
+        });
 
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
         const INITIAL_ALPHA_TEXTURE_HEIGHT: u32 = 1;
@@ -1740,7 +1751,7 @@ impl Programs {
             device,
             &strip_bind_group_layout,
             &alphas_texture.create_view(&TextureViewDescriptor::default()),
-            &layer_config_buffer,
+            &layer_config_buffers,
             layer_binding_views,
         );
         let blend_layer_bind_group = Self::create_blend_layer_bind_group(
@@ -1765,7 +1776,7 @@ impl Programs {
             scratch_input_bind_groups,
             blend_layer_bind_group,
             blend_copy_bind_group,
-            layer_config_buffer,
+            layer_config_buffers,
             root_layer_bind_groups,
             layer_bind_groups,
             alphas_texture,
@@ -1780,7 +1791,7 @@ impl Programs {
             gradient_bind_group,
             filter_data_texture,
             filter_base_bind_group,
-            layer_texture_size,
+            texture_sizes,
             view_config_buffer,
         };
 
@@ -1849,12 +1860,16 @@ impl Programs {
         })
     }
 
-    fn create_intermediate_texture(device: &Device, size: u32, label: &'static str) -> Texture {
+    fn create_intermediate_texture(
+        device: &Device,
+        size: Int16Size,
+        label: &'static str,
+    ) -> Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some(label),
             size: Extent3d {
-                width: size,
-                height: size,
+                width: u32::from(size.width()),
+                height: u32::from(size.height()),
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -1875,15 +1890,14 @@ impl Programs {
             return;
         }
 
-        let layer_texture_size = self.resources.layer_texture_size;
         self.resources.layer_textures = core::array::from_fn(|index| {
             if requirements.layer_textures[index] {
+                let size = self
+                    .resources
+                    .texture_sizes
+                    .size(TextureTarget::layer(index));
                 Some(WgpuIntermediateTexture::new(
-                    Self::create_intermediate_texture(
-                        device,
-                        layer_texture_size,
-                        "Layer Atlas Texture",
-                    ),
+                    Self::create_intermediate_texture(device, size, "Layer Atlas Texture"),
                 ))
             } else {
                 None
@@ -1891,12 +1905,12 @@ impl Programs {
         });
         self.resources.scratch_textures = core::array::from_fn(|index| {
             if requirements.scratch_textures[index] {
+                let size = self
+                    .resources
+                    .texture_sizes
+                    .size(TextureTarget::scratch(index));
                 Some(WgpuIntermediateTexture::new(
-                    Self::create_intermediate_texture(
-                        device,
-                        layer_texture_size,
-                        "Scratch Texture",
-                    ),
+                    Self::create_intermediate_texture(device, size, "Scratch Texture"),
                 ))
             } else {
                 None
@@ -1955,7 +1969,7 @@ impl Programs {
                     device,
                     &self.strip_bind_group_layout,
                     &alphas_texture_view,
-                    &self.resources.layer_config_buffer,
+                    &self.resources.layer_config_buffers,
                     layer_binding_views,
                 ),
                 Self::create_blend_layer_bind_group(
@@ -2257,7 +2271,7 @@ impl Programs {
         device: &Device,
         strip_bind_group_layout: &BindGroupLayout,
         alphas_texture_view: &WgpuTextureView,
-        layer_config_buffer: &Buffer,
+        layer_config_buffers: &[Buffer; 2],
         layer_texture_views: [&WgpuTextureView; 2],
     ) -> [BindGroup; 2] {
         [
@@ -2265,14 +2279,14 @@ impl Programs {
                 device,
                 strip_bind_group_layout,
                 alphas_texture_view,
-                layer_config_buffer,
+                &layer_config_buffers[0],
                 layer_texture_views[1],
             ),
             Self::create_strip_bind_group(
                 device,
                 strip_bind_group_layout,
                 alphas_texture_view,
-                layer_config_buffer,
+                &layer_config_buffers[1],
                 layer_texture_views[0],
             ),
         ]
@@ -2447,7 +2461,7 @@ impl Programs {
                     .resources
                     .alphas_texture
                     .create_view(&TextureViewDescriptor::default()),
-                &self.resources.layer_config_buffer,
+                &self.resources.layer_config_buffers,
                 self.resources.layer_binding_views(),
             );
         }
@@ -2998,19 +3012,13 @@ impl RendererContext<'_> {
         }
     }
 
-    fn layer_texture_size(&self) -> (u32, u32) {
-        let size = self.programs.resources.layer_texture_size;
-        (size, size)
-    }
-
-    fn layer_texture_size_u16(&self) -> (u16, u16) {
-        let size = u16::try_from(self.programs.resources.layer_texture_size)
-            .expect("layer texture size must fit into u16");
-        (size, size)
+    fn texture_size(&self, target: TextureTarget) -> Int16Size {
+        self.programs.resources.texture_sizes.size(target)
     }
 
     fn blend_pass_inner(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: usize) {
-        let parent_texture_size = self.layer_texture_size_u16();
+        let parent_texture_size = self.texture_size(TextureTarget::layer(texture_index));
+        let scratch_texture_size = self.texture_size(TextureTarget::Scratch0);
         if blends.len() == 0 {
             return;
         }
@@ -3025,7 +3033,7 @@ impl RendererContext<'_> {
                     debug_assert_eq!(blend.parent_region.texture.texture_index, texture_index);
                     resources.layer_view(blend.parent_region.texture.texture_index);
                     resources.layer_view(blend.child_region.texture.texture_index);
-                    gpu_blend_instance(blend, parent_texture_size)
+                    gpu_blend_instance(blend, scratch_texture_size)
                 }),
         );
         if self.scratch.blend_instances.is_empty() {
@@ -3070,7 +3078,7 @@ impl RendererContext<'_> {
                 .blend_instances
                 .iter()
                 .copied()
-                .map(GpuBlendInstance::copy_from_parent_in_scratch),
+                .map(|instance| instance.copy_from_parent_in_scratch(parent_texture_size)),
         );
         let copy_instance_buffer =
             self.device
@@ -3160,14 +3168,22 @@ impl RendererContext<'_> {
     }
 
     fn do_clear_rects(&mut self, target: TextureTarget, rects: &[RectU16], label: &'static str) {
-        let target_size = self.layer_texture_size();
+        let target_size = self.texture_size(target);
         self.scratch.clear_instances.clear();
         self.scratch.clear_instances.extend(
             rects
                 .iter()
                 .copied()
                 .filter(|rect| !rect.is_empty())
-                .map(|rect| gpu_clear_instance(rect, [target_size.0, target_size.1])),
+                .map(|rect| {
+                    gpu_clear_instance(
+                        rect,
+                        [
+                            u32::from(target_size.width()),
+                            u32::from(target_size.height()),
+                        ],
+                    )
+                }),
         );
         self.do_clear_instances(target, label);
     }

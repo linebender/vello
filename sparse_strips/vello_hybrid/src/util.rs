@@ -97,25 +97,52 @@ impl Default for DimensionConstraints {
     }
 }
 
-// TODO: Make u16?
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
-pub(crate) struct IntOffset(pub [u32; 2]);
+pub(crate) struct Int32Offset(pub [u32; 2]);
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
-pub(crate) struct IntSize(pub [u32; 2]);
+pub(crate) struct Int32Size(pub [u32; 2]);
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable, PartialEq, Eq)]
+pub(crate) struct Int16Size(pub [u16; 2]);
+
+impl Int16Size {
+    pub(crate) const fn new(width: u16, height: u16) -> Self {
+        Self([width, height])
+    }
+
+    pub(crate) const fn width(self) -> u16 {
+        self.0[0]
+    }
+
+    pub(crate) const fn height(self) -> u16 {
+        self.0[1]
+    }
+}
+
+impl Int32Size {
+    pub(crate) const fn width(self) -> u32 {
+        self.0[0]
+    }
+
+    pub(crate) const fn height(self) -> u32 {
+        self.0[1]
+    }
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub(crate) struct IntRect {
-    pub offset: IntOffset,
-    pub size: IntSize,
+    pub offset: Int32Offset,
+    pub size: Int32Size,
 }
 
 impl IntRect {
-    pub(crate) fn new(offset: impl Into<IntOffset>, size: impl Into<IntSize>) -> Self {
+    pub(crate) fn new(offset: impl Into<Int32Offset>, size: impl Into<Int32Size>) -> Self {
         Self {
             offset: offset.into(),
             size: size.into(),
@@ -123,15 +150,27 @@ impl IntRect {
     }
 }
 
-impl From<[u32; 2]> for IntOffset {
+impl From<[u32; 2]> for Int32Offset {
     fn from(v: [u32; 2]) -> Self {
         Self(v)
     }
 }
 
-impl From<[u32; 2]> for IntSize {
+impl From<[u32; 2]> for Int32Size {
     fn from(v: [u32; 2]) -> Self {
         Self(v)
+    }
+}
+
+impl From<[u16; 2]> for Int16Size {
+    fn from(v: [u16; 2]) -> Self {
+        Self(v)
+    }
+}
+
+impl From<Int16Size> for Int32Size {
+    fn from(size: Int16Size) -> Self {
+        Self([u32::from(size.width()), u32::from(size.height())])
     }
 }
 

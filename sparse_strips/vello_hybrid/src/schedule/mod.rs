@@ -20,6 +20,7 @@ use crate::blend::BLEND_SCRATCH_INDEX;
 use crate::filter::{FilterContext, FilterPassPlan, PreparedGpuFilter};
 use crate::paint::PaintResolver;
 use crate::scene::RecordedDraw;
+use crate::util::Int16Size;
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::vec::Vec;
 use vello_common::TextureId;
@@ -85,6 +86,30 @@ impl TextureTarget {
     }
 }
 
+/// Dimensions of the intermediate textures used by the hybrid renderer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct IntermediateTextureSizes {
+    layer: [Int16Size; 2],
+    scratch: [Int16Size; 2],
+}
+
+impl IntermediateTextureSizes {
+    pub(crate) fn new(layer: [Int16Size; 2], scratch: [Int16Size; 2]) -> Self {
+        Self { layer, scratch }
+    }
+
+    pub(crate) fn uniform(size: Int16Size) -> Self {
+        Self::new([size; 2], [size; 2])
+    }
+
+    pub(crate) fn size(self, target: TextureTarget) -> Int16Size {
+        match target {
+            TextureTarget::Layer0 | TextureTarget::Layer1 => self.layer[target.index()],
+            TextureTarget::Scratch0 | TextureTarget::Scratch1 => self.scratch[target.index()],
+        }
+    }
+}
+
 /// A rectangular region in one of the intermediate textures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TextureRegion {
@@ -138,11 +163,11 @@ pub(crate) struct ExternalTextureRun {
     pub(crate) strips_start: usize,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct Schedule {
     opaque_strips: OpaqueStrips,
     rounds: Rounds,
-    layer_texture_size: (u16, u16),
+    texture_sizes: IntermediateTextureSizes,
 }
 
 #[derive(Debug, Default)]
@@ -174,7 +199,7 @@ pub(crate) fn build(
     root_output_target: RootRenderTarget,
     paint_resolver: PaintResolver<'_>,
     filter_context: &mut FilterContext,
-    layer_texture_size: (u32, u32),
+    texture_sizes: IntermediateTextureSizes,
 ) -> Result<Schedule, RenderError> {
     let strip_storage = scene.strip_storage.borrow();
     filter_context.clear();
@@ -185,7 +210,7 @@ pub(crate) fn build(
         root_output_target,
         paint_resolver,
         filter_context,
-        layer_texture_size,
+        texture_sizes,
         storage,
     )
     .build()
@@ -263,7 +288,7 @@ struct SchedulePlanner<'a, 'p> {
     cursor: Cursor<Atlases>,
     layer_allocations: Vec<Option<ScheduledLayer>>,
     filter_context: &'p mut FilterContext,
-    layer_texture_size: (u32, u32),
+    texture_sizes: IntermediateTextureSizes,
     storage: &'p mut ScheduleStorage,
 }
 
@@ -274,7 +299,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         root_render_target: RootRenderTarget,
         paint_resolver: PaintResolver<'a>,
         filter_context: &'p mut FilterContext,
-        layer_texture_size: (u32, u32),
+        texture_sizes: IntermediateTextureSizes,
         storage: &'p mut ScheduleStorage,
     ) -> Self {
         Self {
@@ -282,10 +307,10 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             strip_storage,
             root_render_target,
             paint_resolver,
-            cursor: Cursor::new(Atlases::new(layer_texture_size)),
+            cursor: Cursor::new(Atlases::new(texture_sizes)),
             layer_allocations: alloc::vec![None; scene.recorder.layers.len()],
             filter_context,
-            layer_texture_size,
+            texture_sizes,
             storage,
         }
     }
@@ -311,12 +336,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         Ok(Schedule {
             opaque_strips,
             rounds,
-            layer_texture_size: (
-                u16::try_from(self.layer_texture_size.0)
-                    .expect("layer texture width must fit into u16"),
-                u16::try_from(self.layer_texture_size.1)
-                    .expect("layer texture height must fit into u16"),
-            ),
+            texture_sizes: self.texture_sizes,
         })
     }
 
@@ -771,10 +791,10 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
     ) -> Result<(Allocation<LayerAllocation>, LayerTextureRegion), RenderError> {
         let request = LayerAllocationRequest::new(
             texture_index,
-            (bbox.width(), bbox.height()),
+            Int16Size::new(bbox.width(), bbox.height()),
             scratch_count,
         );
-        if !request.fits_texture(self.layer_texture_size) {
+        if !request.fits_textures(self.texture_sizes) {
             return Err(RenderError::AtlasError(AtlasError::NoSpaceAvailable));
         }
 

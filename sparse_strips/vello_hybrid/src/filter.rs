@@ -22,8 +22,8 @@
 //! GPU filter types and conversion utilities.
 
 use crate::copy::GpuCopyInstance;
-use crate::schedule::{TextureRegion, TextureTarget, round::FilterOp};
-use crate::util::{IntRect, IntSize, pack_u16_pair};
+use crate::schedule::{IntermediateTextureSizes, TextureRegion, TextureTarget, round::FilterOp};
+use crate::util::{Int16Size, Int32Size, IntRect, pack_u16_pair};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use vello_common::filter::drop_shadow::DropShadow;
@@ -375,7 +375,7 @@ pub(crate) struct FilterInstanceData {
     /// Destination region in the output atlas.
     pub dest: IntRect,
     /// Full pixel dimensions of the destination atlas texture.
-    pub dest_atlas_size: IntSize,
+    pub dest_atlas_size: Int32Size,
     /// Texel offset into `filter_data` where this filter's data is stored.
     pub filter_data_offset: u32,
     /// The region of the original (unfiltered) content.
@@ -422,12 +422,12 @@ impl FilterPassPlan {
     pub(crate) fn init(
         &mut self,
         filters: impl IntoIterator<Item = FilterOp>,
-        target_texture_size: (u16, u16),
+        texture_sizes: IntermediateTextureSizes,
     ) {
         self.clear();
 
         for filter in filters {
-            let mut builder = FilterPassBuilder::new(filter, target_texture_size, self);
+            let mut builder = FilterPassBuilder::new(filter, texture_sizes, self);
             match filter.gpu_filter.filter_type() {
                 filter_type::OFFSET => {
                     builder.emit_to_scratch(pass_kind::OFFSET);
@@ -480,7 +480,7 @@ impl FilterPassPlan {
 #[derive(Debug)]
 struct FilterPassBuilder<'a> {
     op: FilterOp,
-    target_texture_size: (u16, u16),
+    texture_sizes: IntermediateTextureSizes,
     passes: &'a mut FilterPassPlan,
     sizer: DecimationSizer,
     original: TextureTarget,
@@ -489,7 +489,11 @@ struct FilterPassBuilder<'a> {
 }
 
 impl<'a> FilterPassBuilder<'a> {
-    fn new(op: FilterOp, target_texture_size: (u16, u16), passes: &'a mut FilterPassPlan) -> Self {
+    fn new(
+        op: FilterOp,
+        texture_sizes: IntermediateTextureSizes,
+        passes: &'a mut FilterPassPlan,
+    ) -> Self {
         let mut sizer = DecimationSizer::default();
         sizer.reset(
             op.layer_region.texture.rect.width(),
@@ -498,7 +502,7 @@ impl<'a> FilterPassBuilder<'a> {
         let original = TextureTarget::layer(op.layer_region.texture.texture_index);
         Self {
             op,
-            target_texture_size,
+            texture_sizes,
             passes,
             sizer,
             original,
@@ -533,27 +537,21 @@ impl<'a> FilterPassBuilder<'a> {
         self.current_scratch.map_or(0, |scratch| 1 - scratch)
     }
 
-    fn apply_pass_dimensions(&mut self, kind: u32) -> (IntSize, IntSize) {
+    fn apply_pass_dimensions(&mut self, kind: u32) -> (Int16Size, Int16Size) {
         match kind {
             pass_kind::DOWNSCALE => {
                 let (sw, sh) = self.sizer.current();
                 let (dw, dh) = self.sizer.downscale();
-                (
-                    IntSize([u32::from(sw), u32::from(sh)]),
-                    IntSize([u32::from(dw), u32::from(dh)]),
-                )
+                (Int16Size::new(sw, sh), Int16Size::new(dw, dh))
             }
             pass_kind::UPSCALE => {
                 let (sw, sh) = self.sizer.current();
                 let (dw, dh) = self.sizer.upscale();
-                (
-                    IntSize([u32::from(sw), u32::from(sh)]),
-                    IntSize([u32::from(dw), u32::from(dh)]),
-                )
+                (Int16Size::new(sw, sh), Int16Size::new(dw, dh))
             }
             _ => {
                 let (w, h) = self.sizer.current();
-                let size = IntSize([u32::from(w), u32::from(h)]);
+                let size = Int16Size::new(w, h);
                 (size, size)
             }
         }
@@ -564,22 +562,20 @@ impl<'a> FilterPassBuilder<'a> {
         let input = self.current_texture();
         let src_offset = self.texture_offset(input);
         let dest_offset = self.texture_offset(output);
+        let dest_texture_size = self.texture_sizes.size(output);
         let original_offset = self.texture_offset(self.original);
         let other_data = self.other_data(kind);
         self.passes.step_mut(self.step).push(FilterInstanceData {
             src: IntRect::new(src_offset, src_size),
             dest: IntRect::new(dest_offset, dest_size),
-            dest_atlas_size: IntSize([
-                u32::from(self.target_texture_size.0),
-                u32::from(self.target_texture_size.1),
-            ]),
+            dest_atlas_size: dest_texture_size.into(),
             filter_data_offset: self.op.filter_data_offset,
             original: IntRect::new(
                 original_offset,
-                [
-                    u32::from(self.op.layer_region.texture.rect.width()),
-                    u32::from(self.op.layer_region.texture.rect.height()),
-                ],
+                Int16Size::new(
+                    self.op.layer_region.texture.rect.width(),
+                    self.op.layer_region.texture.rect.height(),
+                ),
             ),
             other_data,
         });
@@ -629,6 +625,7 @@ impl<'a> FilterPassBuilder<'a> {
 
     fn copy_back(&mut self) {
         let scratch = self.op.scratches[0].expect("filter copy requires scratch texture 0");
+        let target_texture_size = self.texture_sizes.size(self.original);
 
         let copy_instance = GpuCopyInstance {
             target_texture_origin: pack_u16_pair(
@@ -640,10 +637,7 @@ impl<'a> FilterPassBuilder<'a> {
                 self.op.layer_region.texture.rect.width(),
                 self.op.layer_region.texture.rect.height(),
             ),
-            target_texture_size: pack_u16_pair(
-                self.target_texture_size.0,
-                self.target_texture_size.1,
-            ),
+            target_texture_size: pack_u16_pair(target_texture_size.width(), target_texture_size.height()),
         };
 
         self.passes.copy_back.push(copy_instance);

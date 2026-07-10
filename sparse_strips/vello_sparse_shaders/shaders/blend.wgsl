@@ -37,7 +37,7 @@ const MIX_LUMINOSITY = 15u;
 
 struct BlendInstance {
     @location(0) parent_texture_origin: u32,
-    @location(1) parent_texture_size: u32,
+    @location(1) target_texture_size: u32,
     @location(2) child_texture_origin: u32,
     @location(3) child_rect_origin: u32,
     @location(4) child_rect_size: u32,
@@ -71,7 +71,7 @@ fn vs_main(
     instance: BlendInstance,
 ) -> VertexOutput {
     let parent_texture_origin = unpack_u16_pair(instance.parent_texture_origin);
-    let parent_texture_size = unpack_u16_pair(instance.parent_texture_size);
+    let target_texture_size = unpack_u16_pair(instance.target_texture_size);
     let child_texture_origin = unpack_u16_pair(instance.child_texture_origin);
     let child_rect_origin = unpack_u16_pair(instance.child_rect_origin);
     let blend_rect_origin = unpack_u16_pair(instance.blend_rect_origin);
@@ -91,8 +91,8 @@ fn vs_main(
     out.child_rect_size = instance.child_rect_size;
     out.blend_config = instance.blend_config;
 
-    let ndc_x = parent_xy.x * 2.0 / f32(parent_texture_size.x) - 1.0;
-    let ndc_y = 1.0 - parent_xy.y * 2.0 / f32(parent_texture_size.y);
+    let ndc_x = parent_xy.x * 2.0 / f32(target_texture_size.x) - 1.0;
+    let ndc_y = 1.0 - parent_xy.y * 2.0 / f32(target_texture_size.y);
     out.position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
     return out;
 }
