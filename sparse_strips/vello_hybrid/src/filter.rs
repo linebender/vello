@@ -637,7 +637,10 @@ impl<'a> FilterPassBuilder<'a> {
                 self.op.layer_region.texture.rect.width(),
                 self.op.layer_region.texture.rect.height(),
             ),
-            target_texture_size: pack_u16_pair(target_texture_size.width(), target_texture_size.height()),
+            target_texture_size: pack_u16_pair(
+                target_texture_size.width(),
+                target_texture_size.height(),
+            ),
         };
 
         self.passes.copy_back.push(copy_instance);

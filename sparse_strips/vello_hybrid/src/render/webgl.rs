@@ -939,10 +939,12 @@ impl WebGlIntermediateTexture {
 
 impl WebGlResources {
     fn layer_binding_texture(&self, index: u8) -> &Texture {
-        self.layer_textures[usize::from(index)].as_ref().map_or_else(
-            || self.dummy_layer_texture.binding_texture(),
-            WebGlIntermediateTexture::binding_texture,
-        )
+        self.layer_textures[usize::from(index)]
+            .as_ref()
+            .map_or_else(
+                || self.dummy_layer_texture.binding_texture(),
+                WebGlIntermediateTexture::binding_texture,
+            )
     }
 
     fn layer_texture(&self, index: u8) -> &Texture {
@@ -2417,8 +2419,8 @@ impl WebGlRendererContext<'_> {
                 self.gl
                     .viewport(0, 0, i32::from(size.width()), i32::from(size.height()));
 
-                let buf = &self.programs.resources.layer_config_buffers
-                    [usize::from(*texture_index)];
+                let buf =
+                    &self.programs.resources.layer_config_buffers[usize::from(*texture_index)];
                 self.gl.bind_buffer_base(
                     WebGl2RenderingContext::UNIFORM_BUFFER,
                     self.programs.strip_uniforms.config_vs_block_index,
@@ -2792,8 +2794,7 @@ impl WebGlRendererContext<'_> {
             WebGl2RenderingContext::FRAMEBUFFER,
             Some(self.programs.resources.layer_framebuffer(texture_index)),
         );
-        let target_texture_size =
-            self.texture_size(TextureTarget::layer(texture_index));
+        let target_texture_size = self.texture_size(TextureTarget::layer(texture_index));
         self.gl.viewport(
             0,
             0,

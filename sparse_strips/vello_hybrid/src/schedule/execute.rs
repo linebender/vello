@@ -108,10 +108,7 @@ impl Rounds {
                 );
                 renderer.filter_pass(filter_plan, texture_index);
                 // Finally, we apply all blend operations.
-                renderer.blend_pass(
-                    buffers.blends.ranged(&pass.blend_ranges),
-                    texture_index,
-                );
+                renderer.blend_pass(buffers.blends.ranged(&pass.blend_ranges), texture_index);
             }
 
             // Once layers are done, we perform any possibly scheduled draws to the root target.

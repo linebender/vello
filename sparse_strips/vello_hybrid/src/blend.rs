@@ -3,7 +3,7 @@
 
 use crate::copy::GpuCopyInstance;
 use crate::schedule::round::BlendOp;
-use crate::util::{Int16Size, pack_u16_pair, pack_opacity};
+use crate::util::{Int16Size, pack_opacity, pack_u16_pair};
 use bytemuck::{Pod, Zeroable};
 use vello_common::peniko::{Compose, Mix};
 
@@ -40,7 +40,10 @@ impl GpuBlendInstance {
             target_texture_origin: self.parent_texture_origin,
             source_texture_origin: self.parent_texture_origin,
             copy_rect_size: self.blend_rect_size,
-            target_texture_size: pack_u16_pair(parent_texture_size.width(), parent_texture_size.height()),
+            target_texture_size: pack_u16_pair(
+                parent_texture_size.width(),
+                parent_texture_size.height(),
+            ),
         }
     }
 }
@@ -56,7 +59,10 @@ pub(crate) fn gpu_blend_instance(
 
     GpuBlendInstance {
         parent_texture_origin: pack_u16_pair(parent_x, parent_y),
-        target_texture_size: pack_u16_pair(target_texture_size.width(), target_texture_size.height()),
+        target_texture_size: pack_u16_pair(
+            target_texture_size.width(),
+            target_texture_size.height(),
+        ),
         child_texture_origin: pack_u16_pair(
             blend.child_region.texture.rect.x0,
             blend.child_region.texture.rect.y0,

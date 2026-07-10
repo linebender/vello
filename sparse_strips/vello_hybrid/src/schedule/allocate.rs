@@ -97,22 +97,16 @@ impl Atlases {
         Some(region)
     }
 
-    fn deallocate_region(
-        &mut self,
-        atlas_kind: AtlasKind,
-        texture: AllocatedTextureRegion,
-    ) {
+    fn deallocate_region(&mut self, atlas_kind: AtlasKind, texture: AllocatedTextureRegion) {
         let atlas = match atlas_kind {
-            AtlasKind::Layer => {
-                &mut self.layer_atlases[usize::from(texture.region.texture_index)]
-            }
+            AtlasKind::Layer => &mut self.layer_atlases[usize::from(texture.region.texture_index)],
             AtlasKind::Scratch => {
                 &mut self.scratch_atlases[usize::from(texture.region.texture_index)]
             }
         };
-        
+
         let allocation_size = texture.allocation_size();
-        
+
         atlas.deallocate(
             texture.alloc_id,
             allocation_size.width(),
@@ -123,55 +117,51 @@ impl Atlases {
 
 impl Allocator for Atlases {
     type Request = LayerAllocationRequest;
-    type Allocation = LayerAllocation;
+    type Allocation = LayerAllocations;
 
     fn allocate(&mut self, request: Self::Request) -> Option<Self::Allocation> {
         // First allocate the main region for the layer in the layer atlas.
-        let layer_region =
+        let main_allocation =
             self.allocate_region(TextureTarget::layer(request.texture_index), request)?;
-        
+
         // Then, depending on how many regions in scratch textures are needed, allocate those.
         // If at least one allocation fails, we need to make sure to undo all other allocations
         // we have done so far.
         let mut scratch_allocations = [None, None];
 
         if request.scratch_count > 0 {
-            let Some(texture) = self.allocate_region(TextureTarget::scratch(0), request)
-            else {
-                self.deallocate_region(AtlasKind::Layer, layer_region);
-                
+            let Some(texture) = self.allocate_region(TextureTarget::scratch(0), request) else {
+                self.deallocate_region(AtlasKind::Layer, main_allocation);
+
                 return None;
             };
-            
+
             scratch_allocations[0] = Some(texture);
         }
 
         if request.scratch_count > 1 {
-            let Some(texture) = self.allocate_region(TextureTarget::scratch(1), request)
-            else {
+            let Some(texture) = self.allocate_region(TextureTarget::scratch(1), request) else {
                 let scratch_0 = scratch_allocations[0].expect("scratch 0 must be allocated");
                 self.deallocate_region(AtlasKind::Scratch, scratch_0);
-                self.deallocate_region(AtlasKind::Layer, layer_region);
-                
+                self.deallocate_region(AtlasKind::Layer, main_allocation);
+
                 return None;
             };
-            
+
             scratch_allocations[1] = Some(texture);
         }
 
-        Some(LayerAllocation {
-            scratch_regions: (request.scratch_count > 0).then_some(scratch_allocations),
-            main_region: layer_region,
+        Some(LayerAllocations {
+            scratch_allocations,
+            main_allocation,
         })
     }
 
     fn release(&mut self, allocation: Self::Allocation) {
-        self.deallocate_region(AtlasKind::Layer, allocation.main_region);
-        
-        if let Some(filter) = allocation.scratch_regions {
-            for scratch in filter.into_iter().flatten() {
-                self.deallocate_region(AtlasKind::Scratch, scratch);
-            }
+        self.deallocate_region(AtlasKind::Layer, allocation.main_allocation);
+
+        for scratch in allocation.scratch_allocations.into_iter().flatten() {
+            self.deallocate_region(AtlasKind::Scratch, scratch);
         }
     }
 }
@@ -207,9 +197,9 @@ impl LayerAllocationRequest {
 
 /// A layer texture region plus the allocator handle needed to release it.
 #[derive(Debug, Clone, Copy)]
-pub(super) struct LayerAllocation {
-    pub(super) scratch_regions: Option<[Option<AllocatedTextureRegion>; 2]>,
-    pub(super) main_region: AllocatedTextureRegion,
+pub(super) struct LayerAllocations {
+    pub(super) scratch_allocations: [Option<AllocatedTextureRegion>; 2],
+    pub(super) main_allocation: AllocatedTextureRegion,
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -10,7 +10,7 @@ pub(crate) mod execute;
 mod pool;
 pub(crate) mod round;
 
-use self::allocate::{Allocation, Atlases, LayerAllocation, LayerAllocationRequest};
+use self::allocate::{Allocation, Atlases, LayerAllocationRequest, LayerAllocations};
 use self::cursor::Cursor;
 use self::draw::{DepthCounter, DrawBuilder, LayerSample, OpaqueStrips, OpaqueStripsExt};
 pub(crate) use self::execute::{RendererBackend, execute};
@@ -238,11 +238,7 @@ impl RenderTarget {
         }
     }
 
-    fn required_round_for_layer_sample(
-        self,
-        child_texture_index: u8,
-        child_round: usize,
-    ) -> usize {
+    fn required_round_for_layer_sample(self, child_texture_index: u8, child_round: usize) -> usize {
         match self.texture_index() {
             Some(parent_texture_index)
                 if parent_texture_index != child_texture_index
@@ -374,10 +370,10 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                     );
                 },
             );
-            let clear_region = allocation.allocation.main_region.clear_region();
+            let clear_region = allocation.allocation.main_allocation.clear_region();
             rounds.rounds[ready_round].layer_texture_clears
                 [usize::from(clear_region.texture_index)]
-                .push(clear_region.rect);
+            .push(clear_region.rect);
             self.cursor
                 .release_after(allocation.allocation, ready_round);
         } else {
@@ -592,10 +588,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         };
         let ready_round = self.finish_stream_segment(&mut target.stream, rounds);
         if let Some(filter) = target.filter {
-            let allocation_filter = target
-                .allocation
-                .scratch_regions
-                .expect("filter target must have scratch allocations");
+            let allocation_filter = target.allocations.scratch_allocations;
             rounds.ensure_exists(ready_round, &mut self.storage.pools);
             rounds.rounds[ready_round].push_filter_op(
                 target.region.texture.texture_index,
@@ -611,7 +604,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         }
         Ok(Some(ScheduledLayer {
             sample: self.layer_sample(layer_id, target.region),
-            allocation: target.allocation,
+            allocations: target.allocations,
             region: target.region,
             round_idx: ready_round,
         }))
@@ -681,8 +674,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         }
 
         rounds.ensure_exists(blend_round, &mut self.storage.pools);
-        rounds.rounds[blend_round].scratch_texture_clears
-            [usize::from(BLEND_SCRATCH_INDEX)]
+        rounds.rounds[blend_round].scratch_texture_clears[usize::from(BLEND_SCRATCH_INDEX)]
             .push(parent_region.blend_scratch_clear_rect(bbox));
         rounds.rounds[blend_round].push_blend_op(
             parent_texture_index,
@@ -723,8 +715,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         let parent_texture_index = parent_region.texture.texture_index;
         let blend_round = parent_ready_round;
         rounds.ensure_exists(blend_round, &mut self.storage.pools);
-        rounds.rounds[blend_round].scratch_texture_clears
-            [usize::from(BLEND_SCRATCH_INDEX)]
+        rounds.rounds[blend_round].scratch_texture_clears[usize::from(BLEND_SCRATCH_INDEX)]
             .push(parent_region.blend_scratch_clear_rect(bbox));
         rounds.rounds[blend_round].push_blend_op(
             parent_texture_index,
@@ -762,19 +753,22 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         };
 
         rounds.ensure_exists(round_idx, &mut self.storage.pools);
-        let clear_region = scheduled_layer.allocation.main_region.clear_region();
+        let clear_region = scheduled_layer.allocations.main_allocation.clear_region();
         rounds.rounds[round_idx].layer_texture_clears[usize::from(clear_region.texture_index)]
             .push(clear_region.rect);
-        if let Some(filter) = scheduled_layer.allocation.scratch_regions {
-            for scratch in filter.into_iter().flatten() {
-                let clear_region = scratch.clear_region();
-                rounds.rounds[round_idx].scratch_texture_clears
-                    [usize::from(clear_region.texture_index)]
-                    .push(clear_region.rect);
-            }
+        for scratch in scheduled_layer
+            .allocations
+            .scratch_allocations
+            .into_iter()
+            .flatten()
+        {
+            let clear_region = scratch.clear_region();
+            rounds.rounds[round_idx].scratch_texture_clears
+                [usize::from(clear_region.texture_index)]
+            .push(clear_region.rect);
         }
         self.cursor
-            .release_after(scheduled_layer.allocation, round_idx);
+            .release_after(scheduled_layer.allocations, round_idx);
     }
 
     fn allocate_region(
@@ -783,7 +777,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         bbox: RectU16,
         kind: &RecordedLayerKind,
         scratch_count: u8,
-    ) -> Result<(Allocation<LayerAllocation>, LayerTextureRegion), RenderError> {
+    ) -> Result<(Allocation<LayerAllocations>, LayerTextureRegion), RenderError> {
         let request = LayerAllocationRequest::new(
             texture_index,
             Int16Size::new(bbox.width(), bbox.height()),
@@ -796,7 +790,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         };
 
         let region = LayerTextureRegion {
-            texture: allocation.allocation.main_region.region,
+            texture: allocation.allocation.main_allocation.region,
             scene_bbox: bbox,
         };
 
@@ -857,7 +851,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                 region.scene_bbox,
             );
             *target = Some(LayerCommandTarget {
-                allocation: allocation.allocation,
+                allocations: allocation.allocation,
                 region,
                 filter,
                 stream,
@@ -894,7 +888,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
 /// A layer that has been scheduled and can be sampled by its parent.
 #[derive(Debug, Clone, Copy)]
 struct ScheduledLayer {
-    allocation: LayerAllocation,
+    allocations: LayerAllocations,
     region: LayerTextureRegion,
     sample: LayerSample,
     round_idx: usize,
@@ -902,7 +896,7 @@ struct ScheduledLayer {
 
 #[derive(Debug)]
 struct LayerCommandTarget {
-    allocation: LayerAllocation,
+    allocations: LayerAllocations,
     region: LayerTextureRegion,
     filter: Option<PreparedGpuFilter>,
     stream: CommandStreamState,

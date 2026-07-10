@@ -1590,8 +1590,7 @@ impl Programs {
         );
 
         let intermediate_texture_size =
-            u16::try_from(device.limits().max_texture_dimension_2d.min(4096))
-                .unwrap();
+            u16::try_from(device.limits().max_texture_dimension_2d.min(4096)).unwrap();
         let texture_sizes = IntermediateTextureSizes::uniform(Int16Size::new(
             intermediate_texture_size,
             intermediate_texture_size,
