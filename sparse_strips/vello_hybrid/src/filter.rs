@@ -22,7 +22,8 @@
 //! GPU filter types and conversion utilities.
 
 use crate::copy::GpuCopyInstance;
-use crate::schedule::{IntermediateTextureSizes, TextureRegion, TextureTarget, round::FilterOp};
+use crate::schedule::round::FilterOp;
+use crate::target::{IntermediateTextureSizes, TextureRegion, TextureTarget};
 use crate::util::{Int16Size, Int32Size, IntRect, pack_u16_pair};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};

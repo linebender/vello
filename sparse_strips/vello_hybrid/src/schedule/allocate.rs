@@ -3,8 +3,8 @@
 
 //! Atlas allocation for scheduled layer and scratch texture regions.
 
-use super::{IntermediateTextureSizes, TextureRegion, TextureTarget};
 use crate::filter::FILTER_ATLAS_PADDING;
+use crate::target::{IntermediateTextureSizes, TextureRegion, TextureTarget};
 use crate::util::{Int16Size, Int32Size};
 use vello_common::geometry::RectU16;
 use vello_common::multi_atlas::{AllocId, Atlas, AtlasId};

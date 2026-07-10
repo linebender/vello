@@ -43,9 +43,9 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{
-        ExternalTextureRun, IntermediateTextureSizes, RendererBackend, RootRenderTarget,
-        ScheduleStorage, StripPassRenderTarget, TextureTarget, round::BlendOp,
+    schedule::{ExternalTextureRun, RendererBackend, ScheduleStorage, round::BlendOp},
+    target::{
+        IntermediateTextureSizes, RootRenderTarget, StripPassRenderTarget, TextureTarget,
     },
 };
 use alloc::sync::Arc;

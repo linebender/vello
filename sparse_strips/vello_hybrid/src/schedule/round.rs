@@ -5,8 +5,9 @@
 
 use super::draw::Draw;
 use super::pool::Pools;
-use super::{LayerTextureRegion, ScheduleBuffers, TextureRegion};
+use super::ScheduleBuffers;
 use crate::filter::GpuFilterData;
+use crate::target::{LayerTextureRegion, TextureRegion};
 use crate::util::{Ranges, VecExt};
 use alloc::vec::Vec;
 use vello_common::geometry::RectU16;

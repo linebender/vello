@@ -56,6 +56,8 @@ mod sampling;
 mod scene;
 #[cfg(any(feature = "webgl", feature = "wgpu"))]
 mod schedule;
+#[cfg(any(feature = "webgl", feature = "wgpu"))]
+mod target;
 #[cfg(feature = "text")]
 mod text;
 

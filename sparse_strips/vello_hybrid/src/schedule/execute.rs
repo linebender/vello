@@ -5,11 +5,11 @@
 
 use super::pool::Pools;
 use super::round::{BlendOp, Rounds};
-use super::{
-    ExternalTextureRun, IntermediateTextureSizes, RootRenderTarget, Schedule, ScheduleBuffers,
-    ScheduleStorage, StripPassRenderTarget, TextureTarget,
-};
+use super::{ExternalTextureRun, Schedule, ScheduleBuffers, ScheduleStorage};
 use crate::filter::FilterPassPlan;
+use crate::target::{
+    IntermediateTextureSizes, RootRenderTarget, StripPassRenderTarget, TextureTarget,
+};
 use crate::util::{RangedSlice, VecExt};
 use crate::{GpuStrip, Scene};
 use vello_common::geometry::RectU16;
