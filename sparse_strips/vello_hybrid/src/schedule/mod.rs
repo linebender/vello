@@ -10,6 +10,7 @@ pub(crate) mod execute;
 mod pool;
 pub(crate) mod round;
 
+use alloc::vec;
 use self::allocate::{Allocation, Atlases, LayerAllocationRequest, LayerAllocations};
 use self::cursor::Cursor;
 use self::draw::{DepthCounter, DrawBuilder, LayerSample};
@@ -188,7 +189,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             root_render_target,
             paint_resolver,
             cursor: Cursor::new(Atlases::new(texture_sizes)),
-            layer_allocations: alloc::vec![None; scene.recorder.layers.len()],
+            layer_allocations: vec![None; scene.recorder.layers.len()],
             filter_context,
             texture_sizes,
             storage,
@@ -197,15 +198,15 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
 
     fn build(mut self) -> Result<Schedule, RenderError> {
         let mut rounds = Rounds {
-            rounds: alloc::vec![self.storage.pools.take_round()],
+            rounds: vec![self.storage.pools.take_round()],
         };
 
-        // Walk the layer tree left-to-right. Child layers are scheduled lazily when their parent
-        // first needs to sample them. Atlas allocation is monotonic: pressure
-        // advances the base round and applies completed cleanups instead of patching old states.
-        if let Err(error) = self.schedule_root(&mut rounds) {
+        let result = self.schedule_root(&mut rounds);
+
+        if let Err(error) = result {
             self.storage.buffers.clear();
             rounds.recycle(&mut self.storage.pools);
+
             return Err(error);
         }
         self.storage.buffers.opaque_strips.reverse();
