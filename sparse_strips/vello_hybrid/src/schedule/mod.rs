@@ -7,15 +7,12 @@ mod allocate;
 mod cursor;
 mod draw;
 pub(crate) mod execute;
-mod pool;
 pub(crate) mod round;
 
-use alloc::vec;
 use self::allocate::{Allocation, Atlases, LayerAllocationRequest, LayerAllocations};
 use self::cursor::Cursor;
 use self::draw::{DepthCounter, DrawBuilder, LayerSample};
 pub(crate) use self::execute::{RendererBackend, execute};
-use self::pool::Pools;
 use self::round::{BlendOp, FilterOp, Rounds};
 use crate::blend::BLEND_SCRATCH_INDEX;
 use crate::filter::{FilterContext, FilterPassPlan, PreparedGpuFilter};
@@ -27,6 +24,7 @@ use crate::target::{
 };
 use crate::util::Int16Size;
 use crate::{GpuStrip, RenderError, Scene};
+use alloc::vec;
 use alloc::vec::Vec;
 use vello_common::TextureId;
 use vello_common::geometry::RectU16;
@@ -97,10 +95,9 @@ impl ScheduleBuffers {
     }
 }
 
-/// Persistent buffers and allocation pools used to build schedules across frames.
+/// Persistent buffers used to build schedules across frames.
 #[derive(Debug, Default)]
 pub(crate) struct ScheduleStorage {
-    pools: Pools,
     pub(crate) buffers: ScheduleBuffers,
     filter_pass_plan: FilterPassPlan,
 }
@@ -197,15 +194,13 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
     }
 
     fn build(mut self) -> Result<Schedule, RenderError> {
-        let mut rounds = Rounds {
-            rounds: vec![self.storage.pools.take_round()],
-        };
+        let mut rounds = Rounds::default();
+        rounds.ensure_exists(0);
 
         let result = self.schedule_root(&mut rounds);
 
         if let Err(error) = result {
             self.storage.buffers.clear();
-            rounds.recycle(&mut self.storage.pools);
 
             return Err(error);
         }
@@ -223,7 +218,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         } else {
             self.schedule_root_direct(rounds)?
         };
-        rounds.ensure_exists(ready_round, &mut self.storage.pools);
+        rounds.ensure_exists(ready_round);
 
         Ok(())
     }
@@ -251,14 +246,9 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
 
         let target = DrawTarget::Root(self.root_render_target);
         let mut state = DrawState::new(target, layer.round_idx, target.draw_bounds(self.scene));
-        rounds.with_draw_builder(
-            &mut state,
-            &mut self.storage.pools,
-            &mut self.storage.buffers,
-            |builder| {
-                builder.push_layer_fill(layer.sample, 1.0, None, self.strip_storage);
-            },
-        );
+        rounds.with_draw_builder(&mut state, &mut self.storage.buffers, |builder| {
+            builder.push_layer_fill(layer.sample, 1.0, None, self.strip_storage);
+        });
         self.release_layer(layer, layer.round_idx, rounds);
 
         Ok(layer.round_idx)
@@ -368,21 +358,16 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         }
 
         let mut bbox = RectU16::INVERTED;
-        rounds.with_draw_builder(
-            state,
-            &mut self.storage.pools,
-            &mut self.storage.buffers,
-            |builder| {
-                for draw in &self.scene.recorder.draws[draws.start as usize..draws.end as usize] {
-                    let strips = match draw {
-                        RecordedDraw::Path(path) => &self.strip_storage.strips[path.strips.clone()],
-                        RecordedDraw::Rect(_) => &[],
-                    };
-                    bbox.union(draw.bbox(strips));
-                    builder.push_draw(draw, self.strip_storage, self.paint_resolver);
-                }
-            },
-        );
+        rounds.with_draw_builder(state, &mut self.storage.buffers, |builder| {
+            for draw in &self.scene.recorder.draws[draws.start as usize..draws.end as usize] {
+                let strips = match draw {
+                    RecordedDraw::Path(path) => &self.strip_storage.strips[path.strips.clone()],
+                    RecordedDraw::Rect(_) => &[],
+                };
+                bbox.union(draw.bbox(strips));
+                builder.push_draw(draw, self.strip_storage, self.paint_resolver);
+            }
+        });
         state.backdrop_bbox.union(bbox);
     }
 
@@ -426,7 +411,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         let ready_round = self.release_sampled_layers(&mut target.draw_state, rounds);
         if let Some(filter) = target.filter {
             let allocation_filter = target.allocations.scratch_allocations;
-            rounds.ensure_exists(ready_round, &mut self.storage.pools);
+            rounds.ensure_exists(ready_round);
             rounds.rounds[ready_round].push_filter_op(
                 target.region.texture.texture_index,
                 &mut self.storage.buffers,
@@ -468,19 +453,14 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                             layer.region.texture.texture_index,
                             layer.round_idx,
                         ));
-                rounds.with_draw_builder(
-                    state,
-                    &mut self.storage.pools,
-                    &mut self.storage.buffers,
-                    |builder| {
-                        builder.push_layer_fill(
-                            layer.sample,
-                            props.opacity,
-                            props.clip_path.as_ref(),
-                            self.strip_storage,
-                        );
-                    },
-                );
+                rounds.with_draw_builder(state, &mut self.storage.buffers, |builder| {
+                    builder.push_layer_fill(
+                        layer.sample,
+                        props.opacity,
+                        props.clip_path.as_ref(),
+                        self.strip_storage,
+                    );
+                });
                 state.backdrop_bbox.union(layer.sample.bbox);
                 state.sampled_layers.push(layer_id);
                 self.release_sampled_layers(state, rounds);
@@ -519,7 +499,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             return;
         }
 
-        rounds.ensure_exists(blend_round, &mut self.storage.pools);
+        rounds.ensure_exists(blend_round);
         rounds.rounds[blend_round].scratch_texture_clears[usize::from(BLEND_SCRATCH_INDEX)]
             .push(parent_region.blend_scratch_clear_rect(bbox));
         rounds.rounds[blend_round].push_blend_op(
@@ -562,7 +542,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
     }
 
     fn release_layer(&mut self, layer: ScheduledLayer, round_idx: usize, rounds: &mut Rounds) {
-        rounds.ensure_exists(round_idx, &mut self.storage.pools);
+        rounds.ensure_exists(round_idx);
         let clear_region = layer.allocations.main_allocation.clear_region();
         rounds.rounds[round_idx].layer_texture_clears[usize::from(clear_region.texture_index)]
             .push(clear_region.rect);
@@ -721,11 +701,10 @@ impl Rounds {
     fn with_draw_builder(
         &mut self,
         state: &mut DrawState,
-        pools: &mut Pools,
         buffers: &mut ScheduleBuffers,
         f: impl FnOnce(&mut DrawBuilder<'_>),
     ) {
-        self.ensure_exists(state.round_idx, pools);
+        self.ensure_exists(state.round_idx);
 
         let target_draw = match state.target {
             DrawTarget::Root(_) => self.rounds[state.round_idx].root_draw_mut(),

@@ -3,7 +3,6 @@
 
 //! Executes planned rendering rounds through a backend.
 
-use super::pool::Pools;
 use super::round::{BlendOp, Rounds};
 use super::{ExternalTextureRun, Schedule, ScheduleBuffers, ScheduleStorage};
 use crate::filter::FilterPassPlan;
@@ -32,12 +31,10 @@ pub(crate) fn execute<R: RendererBackend>(
     root_output_target: RootRenderTarget,
 ) {
     let ScheduleStorage {
-        pools,
         buffers,
         filter_pass_plan,
     } = storage;
     schedule.execute(renderer, root_output_target, buffers, filter_pass_plan);
-    schedule.recycle(pools);
 }
 
 impl Schedule {
@@ -59,10 +56,6 @@ impl Schedule {
             filter_plan,
             self.texture_sizes,
         );
-    }
-
-    fn recycle(self, pools: &mut Pools) {
-        self.rounds.recycle(pools);
     }
 }
 

@@ -5,7 +5,6 @@
 
 use super::ScheduleBuffers;
 use super::draw::Draw;
-use super::pool::Pools;
 use crate::filter::GpuFilterData;
 use crate::target::{LayerTextureRegion, TextureRegion};
 use crate::util::{Ranges, VecExt};
@@ -61,15 +60,9 @@ impl Round {
 }
 
 impl Rounds {
-    pub(super) fn ensure_exists(&mut self, round_idx: usize, pools: &mut Pools) {
+    pub(super) fn ensure_exists(&mut self, round_idx: usize) {
         while self.rounds.len() <= round_idx {
-            self.rounds.push(pools.take_round());
-        }
-    }
-
-    pub(super) fn recycle(self, pools: &mut Pools) {
-        for round in self.rounds {
-            pools.submit_round(round);
+            self.rounds.push(Round::default());
         }
     }
 }
