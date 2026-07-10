@@ -97,6 +97,8 @@ impl Default for DimensionConstraints {
     }
 }
 
+// TODO: Right now, we are mixing 16-bit and 32-bit sizes pretty randomly, even though it should be
+// possible to use u16 nearly everywhere. Streamline this.
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
