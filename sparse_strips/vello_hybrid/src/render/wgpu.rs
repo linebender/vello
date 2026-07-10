@@ -1031,8 +1031,8 @@ impl GpuResources {
 
     fn texture_target_view(&self, target: TextureTarget) -> &WgpuTextureView {
         match target {
-            TextureTarget::Layer0 | TextureTarget::Layer1 => self.layer_view(target.index()),
-            TextureTarget::Scratch0 | TextureTarget::Scratch1 => self.scratch_view(target.index()),
+            TextureTarget::Layer(_) => self.layer_view(target.index()),
+            TextureTarget::Scratch(_) => self.scratch_view(target.index()),
         }
     }
 
@@ -3018,7 +3018,7 @@ impl RendererContext<'_> {
 
     fn blend_pass_inner(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: usize) {
         let parent_texture_size = self.texture_size(TextureTarget::layer(texture_index));
-        let scratch_texture_size = self.texture_size(TextureTarget::Scratch0);
+        let scratch_texture_size = self.texture_size(TextureTarget::scratch(0));
         if blends.len() == 0 {
             return;
         }
@@ -3119,11 +3119,14 @@ impl RendererContext<'_> {
         let resources = &self.programs.resources;
         for (step_index, instances) in plan.steps().enumerate() {
             let (input, output) = if step_index == 0 {
-                (TextureTarget::layer(texture_index), TextureTarget::Scratch0)
+                (
+                    TextureTarget::layer(texture_index),
+                    TextureTarget::scratch(0),
+                )
             } else if step_index % 2 == 1 {
-                (TextureTarget::Scratch0, TextureTarget::Scratch1)
+                (TextureTarget::scratch(0), TextureTarget::scratch(1))
             } else {
-                (TextureTarget::Scratch1, TextureTarget::Scratch0)
+                (TextureTarget::scratch(1), TextureTarget::scratch(0))
             };
             encode_filter_pass(
                 self.device,
@@ -3203,10 +3206,8 @@ impl RendererContext<'_> {
             });
         let resources = &self.programs.resources;
         let view = match target {
-            TextureTarget::Layer0 | TextureTarget::Layer1 => resources.layer_view(target.index()),
-            TextureTarget::Scratch0 | TextureTarget::Scratch1 => {
-                resources.scratch_view(target.index())
-            }
+            TextureTarget::Layer(_) => resources.layer_view(target.index()),
+            TextureTarget::Scratch(_) => resources.scratch_view(target.index()),
         };
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some(label),
@@ -3313,14 +3314,14 @@ fn encode_filter_pass(
 
 fn filter_input_bind_group(resources: &GpuResources, texture: TextureTarget) -> &BindGroup {
     match texture {
-        TextureTarget::Layer0 | TextureTarget::Layer1 => {
+        TextureTarget::Layer(_) => {
             assert!(
                 resources.layer_textures[texture.index()].is_some(),
                 "vello_hybrid attempted to sample a missing layer texture"
             );
             &resources.layer_filter_input_bind_groups[texture.index()]
         }
-        TextureTarget::Scratch0 | TextureTarget::Scratch1 => {
+        TextureTarget::Scratch(_) => {
             assert!(
                 resources.scratch_textures[texture.index()].is_some(),
                 "vello_hybrid attempted to sample a missing scratch texture"

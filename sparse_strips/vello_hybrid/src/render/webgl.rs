@@ -975,19 +975,15 @@ impl WebGlResources {
 
     fn texture_target_texture(&self, target: TextureTarget) -> &Texture {
         match target {
-            TextureTarget::Layer0 | TextureTarget::Layer1 => self.layer_texture(target.index()),
-            TextureTarget::Scratch0 | TextureTarget::Scratch1 => {
-                self.scratch_texture(target.index())
-            }
+            TextureTarget::Layer(_) => self.layer_texture(target.index()),
+            TextureTarget::Scratch(_) => self.scratch_texture(target.index()),
         }
     }
 
     fn texture_target_framebuffer(&self, target: TextureTarget) -> &Framebuffer {
         match target {
-            TextureTarget::Layer0 | TextureTarget::Layer1 => self.layer_framebuffer(target.index()),
-            TextureTarget::Scratch0 | TextureTarget::Scratch1 => {
-                self.scratch_framebuffer(target.index())
-            }
+            TextureTarget::Layer(_) => self.layer_framebuffer(target.index()),
+            TextureTarget::Scratch(_) => self.scratch_framebuffer(target.index()),
         }
     }
 
@@ -2605,7 +2601,7 @@ impl WebGlRendererContext<'_> {
 
     fn blend_pass_inner(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: usize) {
         let parent_texture_size = self.texture_size(TextureTarget::layer(texture_index));
-        let scratch_texture_size = self.texture_size(TextureTarget::Scratch0);
+        let scratch_texture_size = self.texture_size(TextureTarget::scratch(0));
         if blends.len() == 0 {
             return;
         }
@@ -2763,11 +2759,14 @@ impl WebGlRendererContext<'_> {
 
         for (step_index, instances) in plan.steps().enumerate() {
             let (input, output) = if step_index == 0 {
-                (TextureTarget::layer(texture_index), TextureTarget::Scratch0)
+                (
+                    TextureTarget::layer(texture_index),
+                    TextureTarget::scratch(0),
+                )
             } else if step_index % 2 == 1 {
-                (TextureTarget::Scratch0, TextureTarget::Scratch1)
+                (TextureTarget::scratch(0), TextureTarget::scratch(1))
             } else {
-                (TextureTarget::Scratch1, TextureTarget::Scratch0)
+                (TextureTarget::scratch(1), TextureTarget::scratch(0))
             };
             self.do_filter_instance_pass(instances, input, output);
         }

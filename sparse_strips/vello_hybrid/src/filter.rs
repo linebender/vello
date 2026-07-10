@@ -517,11 +517,11 @@ impl<'a> FilterPassBuilder<'a> {
 
     fn texture_offset(&self, texture: TextureTarget) -> [u32; 2] {
         match texture {
-            TextureTarget::Layer0 | TextureTarget::Layer1 => [
+            TextureTarget::Layer(_) => [
                 u32::from(self.op.layer_region.texture.rect.x0),
                 u32::from(self.op.layer_region.texture.rect.y0),
             ],
-            TextureTarget::Scratch0 | TextureTarget::Scratch1 => {
+            TextureTarget::Scratch(_) => {
                 let scratch = self.scratch_region(texture.index());
                 [u32::from(scratch.rect.x0), u32::from(scratch.rect.y0)]
             }
@@ -589,11 +589,11 @@ impl<'a> FilterPassBuilder<'a> {
     }
 
     fn ensure_result_in_scratch0(&mut self) {
-        if self.current_texture() == TextureTarget::Scratch0 {
+        if self.current_texture() == TextureTarget::scratch(0) {
             return;
         }
 
-        self.emit(pass_kind::COPY, TextureTarget::Scratch0);
+        self.emit(pass_kind::COPY, TextureTarget::scratch(0));
         self.current_scratch = Some(0);
     }
 

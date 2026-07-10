@@ -49,12 +49,12 @@ impl Atlases {
 
         Self {
             layer_atlases: [
-                new_atlas(TextureTarget::Layer0, 0),
-                new_atlas(TextureTarget::Layer1, 1),
+                new_atlas(TextureTarget::layer(0), 0),
+                new_atlas(TextureTarget::layer(1), 1),
             ],
             scratch_atlases: [
-                new_atlas(TextureTarget::Scratch0, 0),
-                new_atlas(TextureTarget::Scratch1, 1),
+                new_atlas(TextureTarget::scratch(0), 0),
+                new_atlas(TextureTarget::scratch(1), 1),
             ],
         }
     }

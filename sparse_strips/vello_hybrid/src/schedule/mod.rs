@@ -48,40 +48,51 @@ pub(crate) enum StripPassRenderTarget {
     LayerAtlas(usize),
 }
 
+/// Index of one of the two intermediate textures of a given kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TextureIndex {
+    Zero,
+    One,
+}
+
+impl TextureIndex {
+    fn new(index: usize) -> Self {
+        match index {
+            0 => Self::Zero,
+            1 => Self::One,
+            _ => panic!("only two intermediate textures are supported"),
+        }
+    }
+
+    fn index(self) -> usize {
+        match self {
+            Self::Zero => 0,
+            Self::One => 1,
+        }
+    }
+}
+
 /// Identifies one of the intermediate textures used by the hybrid renderer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TextureTarget {
-    /// First layer atlas texture.
-    Layer0,
-    /// Second layer atlas texture.
-    Layer1,
-    /// First scratch texture.
-    Scratch0,
-    /// Second scratch texture.
-    Scratch1,
+    /// A layer atlas texture.
+    Layer(TextureIndex),
+    /// A scratch texture.
+    Scratch(TextureIndex),
 }
 
 impl TextureTarget {
     pub(crate) fn layer(index: usize) -> Self {
-        match index {
-            0 => Self::Layer0,
-            1 => Self::Layer1,
-            _ => panic!("vello_hybrid only supports two layer textures"),
-        }
+        Self::Layer(TextureIndex::new(index))
     }
 
     pub(crate) fn scratch(index: usize) -> Self {
-        match index {
-            0 => Self::Scratch0,
-            1 => Self::Scratch1,
-            _ => panic!("vello_hybrid only supports two scratch textures"),
-        }
+        Self::Scratch(TextureIndex::new(index))
     }
 
     pub(crate) fn index(self) -> usize {
         match self {
-            Self::Layer0 | Self::Scratch0 => 0,
-            Self::Layer1 | Self::Scratch1 => 1,
+            Self::Layer(index) | Self::Scratch(index) => index.index(),
         }
     }
 }
@@ -104,8 +115,8 @@ impl IntermediateTextureSizes {
 
     pub(crate) fn size(self, target: TextureTarget) -> Int16Size {
         match target {
-            TextureTarget::Layer0 | TextureTarget::Layer1 => self.layer[target.index()],
-            TextureTarget::Scratch0 | TextureTarget::Scratch1 => self.scratch[target.index()],
+            TextureTarget::Layer(index) => self.layer[index.index()],
+            TextureTarget::Scratch(index) => self.scratch[index.index()],
         }
     }
 }
