@@ -938,36 +938,36 @@ impl WebGlIntermediateTexture {
 }
 
 impl WebGlResources {
-    fn layer_binding_texture(&self, index: usize) -> &Texture {
-        self.layer_textures[index].as_ref().map_or_else(
+    fn layer_binding_texture(&self, index: u8) -> &Texture {
+        self.layer_textures[usize::from(index)].as_ref().map_or_else(
             || self.dummy_layer_texture.binding_texture(),
             WebGlIntermediateTexture::binding_texture,
         )
     }
 
-    fn layer_texture(&self, index: usize) -> &Texture {
-        self.layer_textures[index]
+    fn layer_texture(&self, index: u8) -> &Texture {
+        self.layer_textures[usize::from(index)]
             .as_ref()
             .expect("vello_hybrid attempted to use a missing layer texture")
             .binding_texture()
     }
 
-    fn layer_framebuffer(&self, index: usize) -> &Framebuffer {
-        self.layer_textures[index]
+    fn layer_framebuffer(&self, index: u8) -> &Framebuffer {
+        self.layer_textures[usize::from(index)]
             .as_ref()
             .expect("vello_hybrid attempted to use a missing layer texture")
             .framebuffer()
     }
 
-    fn scratch_texture(&self, index: usize) -> &Texture {
-        self.scratch_textures[index]
+    fn scratch_texture(&self, index: u8) -> &Texture {
+        self.scratch_textures[usize::from(index)]
             .as_ref()
             .expect("vello_hybrid attempted to use a missing scratch texture")
             .binding_texture()
     }
 
-    fn scratch_framebuffer(&self, index: usize) -> &Framebuffer {
-        self.scratch_textures[index]
+    fn scratch_framebuffer(&self, index: u8) -> &Framebuffer {
+        self.scratch_textures[usize::from(index)]
             .as_ref()
             .expect("vello_hybrid attempted to use a missing scratch texture")
             .framebuffer()
@@ -1093,25 +1093,27 @@ impl WebGlPrograms {
             return;
         }
 
-        self.resources.layer_textures = core::array::from_fn(|index| {
-            if requirements.layer_textures[index] {
+        self.resources.layer_textures = core::array::from_fn(|array_index| {
+            let texture_index = u8::try_from(array_index).unwrap();
+            if requirements.layer_textures[array_index] {
                 create_layer_intermediate_texture(
                     gl,
                     self.resources
                         .texture_sizes
-                        .size(TextureTarget::layer(index)),
+                        .size(TextureTarget::layer(texture_index)),
                 )
             } else {
                 None
             }
         });
-        self.resources.scratch_textures = core::array::from_fn(|index| {
-            if requirements.scratch_textures[index] {
+        self.resources.scratch_textures = core::array::from_fn(|array_index| {
+            let texture_index = u8::try_from(array_index).unwrap();
+            if requirements.scratch_textures[array_index] {
                 create_scratch_intermediate_texture(
                     gl,
                     self.resources
                         .texture_sizes
-                        .size(TextureTarget::scratch(index)),
+                        .size(TextureTarget::scratch(texture_index)),
                 )
             } else {
                 None
@@ -1375,11 +1377,12 @@ impl WebGlPrograms {
             }
 
             // Update layer config buffers.
-            for (index, buffer) in self.resources.layer_config_buffers.iter().enumerate() {
+            for (array_index, buffer) in self.resources.layer_config_buffers.iter().enumerate() {
+                let texture_index = u8::try_from(array_index).unwrap();
                 let size = self
                     .resources
                     .texture_sizes
-                    .size(TextureTarget::layer(index));
+                    .size(TextureTarget::layer(texture_index));
                 let layer_config = Config {
                     width: u32::from(size.width()),
                     height: u32::from(size.height()),
@@ -2414,7 +2417,8 @@ impl WebGlRendererContext<'_> {
                 self.gl
                     .viewport(0, 0, i32::from(size.width()), i32::from(size.height()));
 
-                let buf = &self.programs.resources.layer_config_buffers[*texture_index];
+                let buf = &self.programs.resources.layer_config_buffers
+                    [usize::from(*texture_index)];
                 self.gl.bind_buffer_base(
                     WebGl2RenderingContext::UNIFORM_BUFFER,
                     self.programs.strip_uniforms.config_vs_block_index,
@@ -2447,7 +2451,7 @@ impl WebGlRendererContext<'_> {
             .uniform1i(Some(&self.programs.strip_uniforms.alphas_texture), 0);
 
         let layer_texture_idx = match &target {
-            StripPassRenderTarget::LayerAtlas(texture_index) => texture_index ^ 1,
+            StripPassRenderTarget::LayerAtlas(texture_index) => *texture_index ^ 1,
             StripPassRenderTarget::Root(_) => 1,
         };
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE1);
@@ -2599,7 +2603,7 @@ impl WebGlRendererContext<'_> {
         self.programs.resources.texture_sizes.size(target)
     }
 
-    fn blend_pass_inner(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: usize) {
+    fn blend_pass_inner(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: u8) {
         let parent_texture_size = self.texture_size(TextureTarget::layer(texture_index));
         let scratch_texture_size = self.texture_size(TextureTarget::scratch(0));
         if blends.len() == 0 {
@@ -2723,7 +2727,7 @@ impl WebGlRendererContext<'_> {
         self.gl.enable(WebGl2RenderingContext::BLEND);
     }
 
-    fn filter_pass_inner(&mut self, plan: &FilterPassPlan, texture_index: usize) {
+    fn filter_pass_inner(&mut self, plan: &FilterPassPlan, texture_index: u8) {
         if plan.is_empty() {
             return;
         }
@@ -2788,7 +2792,8 @@ impl WebGlRendererContext<'_> {
             WebGl2RenderingContext::FRAMEBUFFER,
             Some(self.programs.resources.layer_framebuffer(texture_index)),
         );
-        let target_texture_size = self.texture_size(TextureTarget::layer(texture_index));
+        let target_texture_size =
+            self.texture_size(TextureTarget::layer(texture_index));
         self.gl.viewport(
             0,
             0,
@@ -2899,11 +2904,11 @@ impl RendererBackend for WebGlRendererContext<'_> {
         self.strip_pass_inner(&[], strips, target);
     }
 
-    fn blend_pass(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: usize) {
+    fn blend_pass(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: u8) {
         self.blend_pass_inner(blends, texture_index);
     }
 
-    fn filter_pass(&mut self, plan: &FilterPassPlan, texture_index: usize) {
+    fn filter_pass(&mut self, plan: &FilterPassPlan, texture_index: u8) {
         self.filter_pass_inner(plan, texture_index);
     }
 

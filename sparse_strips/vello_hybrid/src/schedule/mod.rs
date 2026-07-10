@@ -45,54 +45,30 @@ pub(crate) enum StripPassRenderTarget {
     /// Render to the root output target.
     Root(RootRenderTarget),
     /// Render to a whole layer atlas texture.
-    LayerAtlas(usize),
-}
-
-/// Index of one of the two intermediate textures of a given kind.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TextureIndex {
-    Zero,
-    One,
-}
-
-impl TextureIndex {
-    fn new(index: usize) -> Self {
-        match index {
-            0 => Self::Zero,
-            1 => Self::One,
-            _ => panic!("only two intermediate textures are supported"),
-        }
-    }
-
-    fn index(self) -> usize {
-        match self {
-            Self::Zero => 0,
-            Self::One => 1,
-        }
-    }
+    LayerAtlas(u8),
 }
 
 /// Identifies one of the intermediate textures used by the hybrid renderer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TextureTarget {
     /// A layer atlas texture.
-    Layer(TextureIndex),
+    Layer(u8),
     /// A scratch texture.
-    Scratch(TextureIndex),
+    Scratch(u8),
 }
 
 impl TextureTarget {
-    pub(crate) fn layer(index: usize) -> Self {
-        Self::Layer(TextureIndex::new(index))
+    pub(crate) fn layer(index: u8) -> Self {
+        Self::Layer(index)
     }
 
-    pub(crate) fn scratch(index: usize) -> Self {
-        Self::Scratch(TextureIndex::new(index))
+    pub(crate) fn scratch(index: u8) -> Self {
+        Self::Scratch(index)
     }
 
-    pub(crate) fn index(self) -> usize {
+    pub(crate) fn index(self) -> u8 {
         match self {
-            Self::Layer(index) | Self::Scratch(index) => index.index(),
+            Self::Layer(index) | Self::Scratch(index) => index,
         }
     }
 }
@@ -115,8 +91,8 @@ impl IntermediateTextureSizes {
 
     pub(crate) fn size(self, target: TextureTarget) -> Int16Size {
         match target {
-            TextureTarget::Layer(index) => self.layer[index.index()],
-            TextureTarget::Scratch(index) => self.scratch[index.index()],
+            TextureTarget::Layer(index) => self.layer[usize::from(index)],
+            TextureTarget::Scratch(index) => self.scratch[usize::from(index)],
         }
     }
 }
@@ -125,7 +101,7 @@ impl IntermediateTextureSizes {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TextureRegion {
     /// Texture index, currently `0` or `1`.
-    pub(crate) texture_index: usize,
+    pub(crate) texture_index: u8,
     /// Region in the texture.
     pub(crate) rect: RectU16,
 }
@@ -234,7 +210,7 @@ enum RenderTarget {
 }
 
 impl RenderTarget {
-    fn texture_index(self) -> Option<usize> {
+    fn texture_index(self) -> Option<u8> {
         match self {
             Self::Root => None,
             Self::Layer(region) => Some(region.texture.texture_index),
@@ -264,7 +240,7 @@ impl RenderTarget {
 
     fn required_round_for_layer_sample(
         self,
-        child_texture_index: usize,
+        child_texture_index: u8,
         child_round: usize,
     ) -> usize {
         match self.texture_index() {
@@ -280,7 +256,7 @@ impl RenderTarget {
         }
     }
 
-    fn layer_texture_order(texture_index: usize) -> usize {
+    fn layer_texture_order(texture_index: u8) -> u8 {
         match texture_index {
             1 => 0,
             0 => 1,
@@ -398,7 +374,8 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                 },
             );
             let clear_region = allocation.allocation.texture.clear_region();
-            rounds.rounds[ready_round].layer_texture_clears[clear_region.texture_index]
+            rounds.rounds[ready_round].layer_texture_clears
+                [usize::from(clear_region.texture_index)]
                 .push(clear_region.rect);
             self.cursor
                 .release_after(allocation.allocation, ready_round);
@@ -489,8 +466,10 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         Ok(())
     }
 
-    fn layer_texture_index(&self, layer_depth: usize) -> usize {
-        (layer_depth + usize::from(self.scene.recorder.root_is_blend_target)) & 1
+    fn layer_texture_index(&self, layer_depth: usize) -> u8 {
+        ((layer_depth + usize::from(self.scene.recorder.root_is_blend_target)) & 1)
+            .try_into()
+            .unwrap()
     }
 
     fn push_command_batches(
@@ -536,7 +515,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
     fn schedule_layer_command_stream(
         &mut self,
         layer_id: u32,
-        texture_index: usize,
+        texture_index: u8,
         bbox: RectU16,
         rounds: &mut Rounds,
     ) -> Result<Option<ScheduledLayer>, RenderError> {
@@ -701,7 +680,8 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         }
 
         rounds.ensure_exists(blend_round, &mut self.storage.pools);
-        rounds.rounds[blend_round].scratch_texture_clears[BLEND_SCRATCH_INDEX]
+        rounds.rounds[blend_round].scratch_texture_clears
+            [usize::from(BLEND_SCRATCH_INDEX)]
             .push(parent_region.blend_scratch_clear_rect(bbox));
         rounds.rounds[blend_round].push_blend_op(
             parent_texture_index,
@@ -742,7 +722,8 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         let parent_texture_index = parent_region.texture.texture_index;
         let blend_round = parent_ready_round;
         rounds.ensure_exists(blend_round, &mut self.storage.pools);
-        rounds.rounds[blend_round].scratch_texture_clears[BLEND_SCRATCH_INDEX]
+        rounds.rounds[blend_round].scratch_texture_clears
+            [usize::from(BLEND_SCRATCH_INDEX)]
             .push(parent_region.blend_scratch_clear_rect(bbox));
         rounds.rounds[blend_round].push_blend_op(
             parent_texture_index,
@@ -781,12 +762,13 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
 
         rounds.ensure_exists(round_idx, &mut self.storage.pools);
         let clear_region = scheduled_layer.allocation.texture.clear_region();
-        rounds.rounds[round_idx].layer_texture_clears[clear_region.texture_index]
+        rounds.rounds[round_idx].layer_texture_clears[usize::from(clear_region.texture_index)]
             .push(clear_region.rect);
         if let Some(filter) = scheduled_layer.allocation.filter {
             for scratch in filter.into_iter().flatten() {
                 let clear_region = scratch.texture.clear_region();
-                rounds.rounds[round_idx].scratch_texture_clears[clear_region.texture_index]
+                rounds.rounds[round_idx].scratch_texture_clears
+                    [usize::from(clear_region.texture_index)]
                     .push(clear_region.rect);
             }
         }
@@ -796,9 +778,9 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
 
     fn allocate_region(
         &mut self,
-        texture_index: usize,
+        texture_index: u8,
         bbox: RectU16,
-        scratch_count: usize,
+        scratch_count: u8,
     ) -> Result<(Allocation<LayerAllocation>, LayerTextureRegion), RenderError> {
         let request = LayerAllocationRequest::new(
             texture_index,
@@ -850,7 +832,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
     fn layer_command_target<'b>(
         &mut self,
         layer_id: u32,
-        texture_index: usize,
+        texture_index: u8,
         bbox: RectU16,
         target: &'b mut Option<LayerCommandTarget>,
     ) -> Result<&'b mut LayerCommandTarget, RenderError> {

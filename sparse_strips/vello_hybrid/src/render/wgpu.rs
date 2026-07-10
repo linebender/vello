@@ -1003,27 +1003,27 @@ impl GpuResources {
         [self.layer_binding_view(0), self.layer_binding_view(1)]
     }
 
-    fn layer_binding_view(&self, index: usize) -> &WgpuTextureView {
-        self.layer_textures[index]
+    fn layer_binding_view(&self, index: u8) -> &WgpuTextureView {
+        self.layer_textures[usize::from(index)]
             .as_ref()
             .map_or(&self.dummy_layer_texture.view, |texture| &texture.view)
     }
 
-    fn scratch_binding_view(&self, index: usize) -> &WgpuTextureView {
-        self.scratch_textures[index]
+    fn scratch_binding_view(&self, index: u8) -> &WgpuTextureView {
+        self.scratch_textures[usize::from(index)]
             .as_ref()
             .map_or(&self.dummy_scratch_texture.view, |texture| &texture.view)
     }
 
-    fn layer_view(&self, index: usize) -> &WgpuTextureView {
-        &self.layer_textures[index]
+    fn layer_view(&self, index: u8) -> &WgpuTextureView {
+        &self.layer_textures[usize::from(index)]
             .as_ref()
             .expect("vello_hybrid attempted to use a missing layer texture")
             .view
     }
 
-    fn scratch_view(&self, index: usize) -> &WgpuTextureView {
-        &self.scratch_textures[index]
+    fn scratch_view(&self, index: u8) -> &WgpuTextureView {
+        &self.scratch_textures[usize::from(index)]
             .as_ref()
             .expect("vello_hybrid attempted to use a missing scratch texture")
             .view
@@ -1639,8 +1639,9 @@ impl Programs {
                 view,
             )
         });
-        let layer_config_buffers = core::array::from_fn(|index| {
-            let size = texture_sizes.size(TextureTarget::layer(index));
+        let layer_config_buffers = core::array::from_fn(|array_index| {
+            let texture_index = u8::try_from(array_index).unwrap();
+            let size = texture_sizes.size(TextureTarget::layer(texture_index));
             Self::create_config_buffer_for_size(
                 device,
                 u32::from(size.width()),
@@ -1762,7 +1763,7 @@ impl Programs {
         let blend_copy_bind_group = Self::create_blend_copy_bind_group(
             device,
             &blend_copy_bind_group_layout,
-            scratch_binding_views[BLEND_SCRATCH_INDEX],
+            scratch_binding_views[usize::from(BLEND_SCRATCH_INDEX)],
         );
 
         let resources = GpuResources {
@@ -1890,12 +1891,13 @@ impl Programs {
             return;
         }
 
-        self.resources.layer_textures = core::array::from_fn(|index| {
-            if requirements.layer_textures[index] {
+        self.resources.layer_textures = core::array::from_fn(|array_index| {
+            let texture_index = u8::try_from(array_index).unwrap();
+            if requirements.layer_textures[array_index] {
                 let size = self
                     .resources
                     .texture_sizes
-                    .size(TextureTarget::layer(index));
+                    .size(TextureTarget::layer(texture_index));
                 Some(WgpuIntermediateTexture::new(
                     Self::create_intermediate_texture(device, size, "Layer Atlas Texture"),
                 ))
@@ -1903,12 +1905,13 @@ impl Programs {
                 None
             }
         });
-        self.resources.scratch_textures = core::array::from_fn(|index| {
-            if requirements.scratch_textures[index] {
+        self.resources.scratch_textures = core::array::from_fn(|array_index| {
+            let texture_index = u8::try_from(array_index).unwrap();
+            if requirements.scratch_textures[array_index] {
                 let size = self
                     .resources
                     .texture_sizes
-                    .size(TextureTarget::scratch(index));
+                    .size(TextureTarget::scratch(texture_index));
                 Some(WgpuIntermediateTexture::new(
                     Self::create_intermediate_texture(device, size, "Scratch Texture"),
                 ))
@@ -1980,7 +1983,7 @@ impl Programs {
                 Self::create_blend_copy_bind_group(
                     device,
                     &self.blend_copy_bind_group_layout,
-                    scratch_binding_views[BLEND_SCRATCH_INDEX],
+                    scratch_binding_views[usize::from(BLEND_SCRATCH_INDEX)],
                 ),
             )
         };
@@ -2908,7 +2911,7 @@ impl RendererContext<'_> {
             ),
             StripPassRenderTarget::LayerAtlas(texture_index) => (
                 self.programs.resources.layer_view(texture_index),
-                &self.programs.resources.layer_bind_groups[texture_index],
+                &self.programs.resources.layer_bind_groups[usize::from(texture_index)],
             ),
         };
 
@@ -3016,7 +3019,7 @@ impl RendererContext<'_> {
         self.programs.resources.texture_sizes.size(target)
     }
 
-    fn blend_pass_inner(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: usize) {
+    fn blend_pass_inner(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: u8) {
         let parent_texture_size = self.texture_size(TextureTarget::layer(texture_index));
         let scratch_texture_size = self.texture_size(TextureTarget::scratch(0));
         if blends.len() == 0 {
@@ -3112,7 +3115,7 @@ impl RendererContext<'_> {
         }
     }
 
-    fn filter_pass_inner(&mut self, plan: &FilterPassPlan, texture_index: usize) {
+    fn filter_pass_inner(&mut self, plan: &FilterPassPlan, texture_index: u8) {
         if plan.is_empty() {
             return;
         }
@@ -3253,11 +3256,11 @@ impl RendererBackend for RendererContext<'_> {
         self.strip_pass_inner(&[], strips, external_texture_runs, target);
     }
 
-    fn blend_pass(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: usize) {
+    fn blend_pass(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: u8) {
         self.blend_pass_inner(blends, texture_index);
     }
 
-    fn filter_pass(&mut self, plan: &FilterPassPlan, texture_index: usize) {
+    fn filter_pass(&mut self, plan: &FilterPassPlan, texture_index: u8) {
         self.filter_pass_inner(plan, texture_index);
     }
 
@@ -3316,17 +3319,17 @@ fn filter_input_bind_group(resources: &GpuResources, texture: TextureTarget) -> 
     match texture {
         TextureTarget::Layer(_) => {
             assert!(
-                resources.layer_textures[texture.index()].is_some(),
+                resources.layer_textures[usize::from(texture.index())].is_some(),
                 "vello_hybrid attempted to sample a missing layer texture"
             );
-            &resources.layer_filter_input_bind_groups[texture.index()]
+            &resources.layer_filter_input_bind_groups[usize::from(texture.index())]
         }
         TextureTarget::Scratch(_) => {
             assert!(
-                resources.scratch_textures[texture.index()].is_some(),
+                resources.scratch_textures[usize::from(texture.index())].is_some(),
                 "vello_hybrid attempted to sample a missing scratch texture"
             );
-            &resources.scratch_input_bind_groups[texture.index()]
+            &resources.scratch_input_bind_groups[usize::from(texture.index())]
         }
     }
 }

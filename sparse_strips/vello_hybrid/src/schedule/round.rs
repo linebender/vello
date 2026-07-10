@@ -30,30 +30,30 @@ impl Round {
         &mut self.root_draw
     }
 
-    pub(super) fn layer_draw_mut(&mut self, texture_index: usize) -> &mut Draw {
-        &mut self.layer_texture_passes[texture_index].draw
+    pub(super) fn layer_draw_mut(&mut self, texture_index: u8) -> &mut Draw {
+        &mut self.layer_texture_passes[usize::from(texture_index)].draw
     }
 
     pub(super) fn push_blend_op(
         &mut self,
-        parent_texture_index: usize,
+        parent_texture_index: u8,
         buffers: &mut ScheduleBuffers,
         blend: BlendOp,
     ) {
         buffers.blends.push_ranged(
-            &mut self.layer_texture_passes[parent_texture_index].blend_ranges,
+            &mut self.layer_texture_passes[usize::from(parent_texture_index)].blend_ranges,
             blend,
         );
     }
 
     pub(super) fn push_filter_op(
         &mut self,
-        texture_index: usize,
+        texture_index: u8,
         buffers: &mut ScheduleBuffers,
         filter: FilterOp,
     ) {
         buffers.filter_ops.push_ranged(
-            &mut self.layer_texture_passes[texture_index].filter_ranges,
+            &mut self.layer_texture_passes[usize::from(texture_index)].filter_ranges,
             filter,
         );
     }

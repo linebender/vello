@@ -403,7 +403,7 @@ pub(crate) struct PreparedGpuFilter {
 }
 
 impl PreparedGpuFilter {
-    pub(crate) fn scratch_count(self) -> usize {
+    pub(crate) fn scratch_count(self) -> u8 {
         if self.data.is_multi_pass() {
             return 2;
         }
@@ -484,7 +484,7 @@ struct FilterPassBuilder<'a> {
     passes: &'a mut FilterPassPlan,
     sizer: DecimationSizer,
     original: TextureTarget,
-    current_scratch: Option<usize>,
+    current_scratch: Option<u8>,
     step: usize,
 }
 
@@ -511,8 +511,9 @@ impl<'a> FilterPassBuilder<'a> {
         }
     }
 
-    fn scratch_region(&self, index: usize) -> TextureRegion {
-        self.op.scratches[index].expect("filter pass requires allocated scratch region")
+    fn scratch_region(&self, index: u8) -> TextureRegion {
+        self.op.scratches[usize::from(index)]
+            .expect("filter pass requires allocated scratch region")
     }
 
     fn texture_offset(&self, texture: TextureTarget) -> [u32; 2] {
@@ -521,8 +522,8 @@ impl<'a> FilterPassBuilder<'a> {
                 u32::from(self.op.layer_region.texture.rect.x0),
                 u32::from(self.op.layer_region.texture.rect.y0),
             ],
-            TextureTarget::Scratch(_) => {
-                let scratch = self.scratch_region(texture.index());
+            TextureTarget::Scratch(index) => {
+                let scratch = self.scratch_region(index);
                 [u32::from(scratch.rect.x0), u32::from(scratch.rect.y0)]
             }
         }
@@ -533,7 +534,7 @@ impl<'a> FilterPassBuilder<'a> {
             .map_or_else(|| self.original, TextureTarget::scratch)
     }
 
-    fn next_scratch(&self) -> usize {
+    fn next_scratch(&self) -> u8 {
         self.current_scratch.map_or(0, |scratch| 1 - scratch)
     }
 
@@ -617,8 +618,7 @@ impl<'a> FilterPassBuilder<'a> {
     fn other_data(&self, kind: u32) -> u32 {
         const OTHER_DATA_LAYER_TEXTURE_INDEX_SHIFT: u32 = 31;
 
-        let texture_index = u32::try_from(self.op.layer_region.texture.texture_index)
-            .expect("layer texture index must fit into u32");
+        let texture_index = u32::from(self.op.layer_region.texture.texture_index);
         debug_assert!(texture_index <= 1, "layer texture index must fit in 1 bit");
         kind | (texture_index << OTHER_DATA_LAYER_TEXTURE_INDEX_SHIFT)
     }

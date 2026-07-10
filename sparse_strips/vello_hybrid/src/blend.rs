@@ -7,7 +7,7 @@ use crate::util::{Int16Size, pack_u16_pair, pack_opacity};
 use bytemuck::{Pod, Zeroable};
 use vello_common::peniko::{Compose, Mix};
 
-pub(crate) const BLEND_SCRATCH_INDEX: usize = 0;
+pub(crate) const BLEND_SCRATCH_INDEX: u8 = 0;
 
 /// Per-instance data for `blend.wgsl`.
 #[repr(C)]
@@ -85,8 +85,8 @@ fn pack_blend_config(
     mix: Mix,
     compose: Compose,
     opacity: f32,
-    parent_texture_index: usize,
-    child_texture_index: usize,
+    parent_texture_index: u8,
+    child_texture_index: u8,
 ) -> u32 {
     debug_assert!(parent_texture_index <= 1);
     debug_assert!(child_texture_index <= 1);
@@ -94,8 +94,8 @@ fn pack_blend_config(
     pack_compose(compose)
         | (pack_mix(mix) << 8)
         | (u32::from(pack_opacity(opacity)) << 16)
-        | ((parent_texture_index as u32) << 24)
-        | ((child_texture_index as u32) << 25)
+        | (u32::from(parent_texture_index) << 24)
+        | (u32::from(child_texture_index) << 25)
 }
 
 fn pack_mix(mix: Mix) -> u32 {

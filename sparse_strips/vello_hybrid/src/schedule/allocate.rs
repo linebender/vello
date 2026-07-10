@@ -61,11 +61,11 @@ impl Atlases {
 
     fn allocate_scratch(
         &mut self,
-        scratch_index: usize,
+        scratch_index: u8,
         request: LayerAllocationRequest,
         allocation_size: Int32Size,
     ) -> Option<ScratchAllocation> {
-        let allocation = self.scratch_atlases[scratch_index]
+        let allocation = self.scratch_atlases[usize::from(scratch_index)]
             .allocate(allocation_size.width(), allocation_size.height())?;
 
         Some(ScratchAllocation {
@@ -81,8 +81,12 @@ impl Atlases {
         texture: AllocatedTextureRegion,
     ) {
         let atlas = match atlas_kind {
-            AtlasKind::Layer => &mut self.layer_atlases[texture.region.texture_index],
-            AtlasKind::Scratch => &mut self.scratch_atlases[texture.region.texture_index],
+            AtlasKind::Layer => {
+                &mut self.layer_atlases[usize::from(texture.region.texture_index)]
+            }
+            AtlasKind::Scratch => {
+                &mut self.scratch_atlases[usize::from(texture.region.texture_index)]
+            }
         };
         let allocation_size = texture.allocation_size();
         atlas.deallocate(alloc_id, allocation_size.width(), allocation_size.height());
@@ -100,7 +104,7 @@ impl Allocator for Atlases {
         );
 
         let allocation_size = request.allocation_size();
-        let layer_allocation = self.layer_atlases[request.texture_index]
+        let layer_allocation = self.layer_atlases[usize::from(request.texture_index)]
             .allocate(allocation_size.width(), allocation_size.height())?;
         let layer_texture = request.allocated_texture_region(
             request.texture_index,
@@ -145,14 +149,14 @@ impl Allocator for Atlases {
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct LayerAllocationRequest {
-    texture_index: usize,
+    texture_index: u8,
     size: Int16Size,
     padding: u16,
-    scratch_count: usize,
+    scratch_count: u8,
 }
 
 impl LayerAllocationRequest {
-    pub(super) fn new(texture_index: usize, size: Int16Size, scratch_count: usize) -> Self {
+    pub(super) fn new(texture_index: u8, size: Int16Size, scratch_count: u8) -> Self {
         let padding = if scratch_count > 0 {
             FILTER_ATLAS_PADDING
         } else {
@@ -174,7 +178,8 @@ impl LayerAllocationRequest {
         };
 
         fits(TextureTarget::layer(self.texture_index))
-            && (0..self.scratch_count).all(|index| fits(TextureTarget::scratch(index)))
+            && (0..self.scratch_count)
+                .all(|texture_index| fits(TextureTarget::scratch(texture_index)))
     }
 
     fn allocation_width(self) -> u16 {
@@ -191,7 +196,7 @@ impl LayerAllocationRequest {
 
     fn allocated_texture_region(
         self,
-        texture_index: usize,
+        texture_index: u8,
         allocation_origin: (u32, u32),
     ) -> AllocatedTextureRegion {
         let padding = u32::from(self.padding);

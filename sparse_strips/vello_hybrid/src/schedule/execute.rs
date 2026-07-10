@@ -23,8 +23,8 @@ pub(crate) trait RendererBackend {
         target: StripPassRenderTarget,
     );
     fn clear_pass(&mut self, target: TextureTarget, rects: &[RectU16]);
-    fn blend_pass(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: usize);
-    fn filter_pass(&mut self, plan: &FilterPassPlan, texture_index: usize);
+    fn blend_pass(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: u8);
+    fn filter_pass(&mut self, plan: &FilterPassPlan, texture_index: u8);
 }
 
 pub(crate) fn execute<R: RendererBackend>(
@@ -86,14 +86,15 @@ impl Rounds {
             // The order is important because draws to layer texture 0 might have dependencies
             // on draws to layer texture 1 in the same round!
 
-            for (index, pass) in round.layer_texture_passes.iter().enumerate().rev() {
+            for (texture_index, pass) in round.layer_texture_passes.iter().enumerate().rev() {
+                let texture_index = u8::try_from(texture_index).unwrap();
                 // For each layer texture target, we first perform the draws of all layers that are
                 // allocated in this texture.
                 let draw = &pass.draw;
                 renderer.draw_pass(
                     buffers.strips.ranged(&draw.strip_ranges),
                     &draw.external_texture_runs,
-                    StripPassRenderTarget::LayerAtlas(index),
+                    StripPassRenderTarget::LayerAtlas(texture_index),
                 );
 
                 // Next, we apply all filters for layers in this pass.
@@ -105,9 +106,12 @@ impl Rounds {
                         .copied(),
                     texture_sizes,
                 );
-                renderer.filter_pass(filter_plan, index);
+                renderer.filter_pass(filter_plan, texture_index);
                 // Finally, we apply all blend operations.
-                renderer.blend_pass(buffers.blends.ranged(&pass.blend_ranges), index);
+                renderer.blend_pass(
+                    buffers.blends.ranged(&pass.blend_ranges),
+                    texture_index,
+                );
             }
 
             // Once layers are done, we perform any possibly scheduled draws to the root target.
@@ -125,8 +129,9 @@ impl Rounds {
                 .zip(round.scratch_texture_clears.iter())
                 .enumerate()
             {
-                renderer.clear_pass(TextureTarget::layer(round), layer_clears);
-                renderer.clear_pass(TextureTarget::scratch(round), scratch_clears);
+                let texture_index = u8::try_from(round).unwrap();
+                renderer.clear_pass(TextureTarget::layer(texture_index), layer_clears);
+                renderer.clear_pass(TextureTarget::scratch(texture_index), scratch_clears);
             }
         }
     }
