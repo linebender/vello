@@ -3,11 +3,11 @@
 
 //! Concrete round representation for the new hybrid scheduler.
 
-use super::buffer::{Ranges, ScheduleBuffers, VecExt};
 use super::draw::Draw;
 use super::pool::Pools;
-use super::{LayerTextureRegion, TextureRegion};
+use super::{LayerTextureRegion, ScheduleBuffers, TextureRegion};
 use crate::filter::GpuFilterData;
+use crate::util::{Ranges, VecExt};
 use alloc::vec::Vec;
 use vello_common::geometry::RectU16;
 use vello_common::peniko::BlendMode;

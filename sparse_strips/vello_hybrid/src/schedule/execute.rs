@@ -3,14 +3,14 @@
 
 //! Executes planned rendering rounds through a backend.
 
-use super::buffer::{RangedSlice, ScheduleBuffers, VecExt};
 use super::pool::Pools;
 use super::round::{BlendOp, Rounds};
 use super::{
-    ExternalTextureRun, RootRenderTarget, Schedule, ScheduleStorage, StripPassRenderTarget,
-    TextureTarget,
+    ExternalTextureRun, RootRenderTarget, Schedule, ScheduleBuffers, ScheduleStorage,
+    StripPassRenderTarget, TextureTarget,
 };
 use crate::filter::FilterPassPlan;
+use crate::util::{RangedSlice, VecExt};
 use crate::{GpuStrip, Scene};
 use vello_common::geometry::RectU16;
 

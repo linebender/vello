@@ -4,7 +4,6 @@
 //! Builds and executes dependency-ordered rendering rounds for `vello_hybrid`.
 
 mod allocate;
-pub(crate) mod buffer;
 mod cursor;
 mod draw;
 pub(crate) mod execute;
@@ -12,7 +11,6 @@ mod pool;
 pub(crate) mod round;
 
 use self::allocate::{Allocation, Atlases, LayerAllocation, LayerAllocationRequest};
-use self::buffer::ScheduleBuffers;
 use self::cursor::Cursor;
 use self::draw::{DepthCounter, DrawBuilder, LayerSample, OpaqueStrips, OpaqueStripsExt};
 pub(crate) use self::execute::{RendererBackend, execute};
@@ -22,7 +20,7 @@ use crate::blend::BLEND_SCRATCH_INDEX;
 use crate::filter::{FilterContext, FilterPassPlan, PreparedGpuFilter};
 use crate::paint::PaintResolver;
 use crate::scene::RecordedDraw;
-use crate::{RenderError, Scene};
+use crate::{GpuStrip, RenderError, Scene};
 use alloc::vec::Vec;
 use vello_common::TextureId;
 use vello_common::geometry::RectU16;
@@ -145,6 +143,21 @@ pub(crate) struct Schedule {
     opaque_strips: OpaqueStrips,
     rounds: Rounds,
     layer_texture_size: (u16, u16),
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct ScheduleBuffers {
+    pub(crate) strips: Vec<GpuStrip>,
+    pub(crate) filter_ops: Vec<FilterOp>,
+    pub(crate) blends: Vec<BlendOp>,
+}
+
+impl ScheduleBuffers {
+    fn clear(&mut self) {
+        self.strips.clear();
+        self.filter_ops.clear();
+        self.blends.clear();
+    }
 }
 
 /// Persistent buffers and allocation pools used to build schedules across frames.

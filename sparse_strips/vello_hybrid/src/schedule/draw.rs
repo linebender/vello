@@ -4,13 +4,12 @@
 //! Draw construction for scheduled strip render passes.
 
 use super::CommandStreamState;
-use super::buffer::{Ranges, ScheduleBuffers, VecExt};
-use super::{ExternalTextureRun, LayerTextureRegion};
+use super::{ExternalTextureRun, LayerTextureRegion, ScheduleBuffers};
 use crate::GpuStrip;
 use crate::paint::{COLOR_SOURCE_LAYER, PaintResolver};
 use crate::rect::{RectPart, split_rect};
 use crate::scene::{RecordedDraw, RecordedPath};
-use crate::util::{pack_opacity, pack_u16_pair};
+use crate::util::{Ranges, VecExt, pack_opacity, pack_u16_pair};
 use ::alloc::vec::Vec;
 use vello_common::TextureId;
 use vello_common::geometry::RectU16;

@@ -20,6 +20,7 @@ only break in edge cases, and some of them are also only related to conversions 
 
 use crate::render::common::IMAGE_PADDING;
 use crate::schedule::execute::TextureRequirements;
+use crate::util::RangedSlice;
 use crate::{
     GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
     blend::{BLEND_SCRATCH_INDEX, GpuBlendInstance, gpu_blend_instance},
@@ -42,7 +43,7 @@ use crate::{
     scene::Scene,
     schedule::{
         ExternalTextureRun, RendererBackend, RootRenderTarget, ScheduleStorage,
-        StripPassRenderTarget, TextureTarget, buffer::RangedSlice, round::BlendOp,
+        StripPassRenderTarget, TextureTarget, round::BlendOp,
     },
 };
 use alloc::vec::Vec;

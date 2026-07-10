@@ -3,10 +3,10 @@
 
 //! Reusable schedule storage shared across rendered frames.
 
-use super::buffer::Ranges;
 use super::draw::{Draw, OpaqueStrips, OpaqueStripsExt};
 use super::round::{LayerTexturePass, Round};
 use crate::GpuStrip;
+use crate::util::Ranges;
 use alloc::vec::Vec;
 use vello_common::geometry::RectU16;
 use vello_common::util::Pool;
