@@ -41,7 +41,7 @@ impl Round {
         buffers: &mut ScheduleBuffers,
         blend: BlendOp,
     ) {
-        buffers.blends.push_ranged(
+        buffers.blend_ops.push_ranged(
             &mut self.layer_texture_passes[usize::from(parent_texture_index)].blend_ranges,
             blend,
         );

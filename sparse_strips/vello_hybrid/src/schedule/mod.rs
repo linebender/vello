@@ -84,7 +84,7 @@ pub(crate) struct ScheduleBuffers {
     pub(crate) opaque_strips: Vec<GpuStrip>,
     pub(crate) strips: Vec<GpuStrip>,
     pub(crate) filter_ops: Vec<FilterOp>,
-    pub(crate) blends: Vec<BlendOp>,
+    pub(crate) blend_ops: Vec<BlendOp>,
 }
 
 impl ScheduleBuffers {
@@ -92,7 +92,7 @@ impl ScheduleBuffers {
         self.opaque_strips.clear();
         self.strips.clear();
         self.filter_ops.clear();
-        self.blends.clear();
+        self.blend_ops.clear();
     }
 }
 
