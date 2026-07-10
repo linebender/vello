@@ -21,7 +21,8 @@ use crate::filter::{FilterContext, FilterPassPlan, PreparedGpuFilter};
 use crate::paint::PaintResolver;
 use crate::scene::RecordedDraw;
 use crate::target::{
-    IntermediateTextureSizes, LayerTextureRegion, RootRenderTarget, TextureRegion,
+    IntermediateTextureSizes, LayerTextureRegion, RootRenderTarget, StripPassRenderTarget,
+    TextureRegion,
 };
 use crate::util::Int16Size;
 use crate::{GpuStrip, RenderError, Scene};
@@ -101,14 +102,25 @@ pub(crate) fn build(
 
 #[derive(Debug, Clone, Copy)]
 enum RenderTarget {
-    Root,
+    Root(RootRenderTarget),
     Layer(LayerTextureRegion),
 }
 
 impl RenderTarget {
+    fn strip_pass_target(self) -> StripPassRenderTarget {
+        match self {
+            Self::Root(target) => StripPassRenderTarget::Root(target),
+            Self::Layer(region) => StripPassRenderTarget::LayerAtlas(region.texture.texture_index),
+        }
+    }
+
+    fn enable_opaque(self) -> bool {
+        self.strip_pass_target().enable_opaque()
+    }
+
     fn texture_index(self) -> Option<u8> {
         match self {
-            Self::Root => None,
+            Self::Root(_) => None,
             Self::Layer(region) => Some(region.texture.texture_index),
         }
     }
@@ -116,20 +128,22 @@ impl RenderTarget {
     fn layer_region(self) -> LayerTextureRegion {
         match self {
             Self::Layer(region) => region,
-            Self::Root => panic!("root targets do not have layer regions"),
+            Self::Root(_) => panic!("root targets do not have layer regions"),
         }
     }
 
     fn geometry_shift(self) -> (i32, i32) {
         match self {
-            Self::Root => (0, 0),
+            Self::Root(_) => (0, 0),
             Self::Layer(region) => region.geometry_shift(),
         }
     }
 
     fn draw_bounds(self, scene: &Scene) -> RectU16 {
         match self {
-            Self::Root => RectU16::new(0, 0, scene.width, scene.height).snap_to_tile_coordinates(),
+            Self::Root(_) => {
+                RectU16::new(0, 0, scene.width, scene.height).snap_to_tile_coordinates()
+            }
             Self::Layer(region) => region.scene_bbox,
         }
     }
@@ -238,11 +252,11 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         opaque_strips: &mut OpaqueStrips,
         rounds: &mut Rounds,
     ) -> Result<usize, RenderError> {
-        let target = RenderTarget::Root;
+        let target = RenderTarget::Root(self.root_render_target);
         let opaque = self
             .storage
             .pools
-            .take_opaque_strips(self.root_render_target == RootRenderTarget::UserSurface);
+            .take_opaque_strips(target.enable_opaque());
         let mut state = DrawState::new(
             target,
             self.cursor.current_round(),
@@ -264,7 +278,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             return Ok(self.cursor.current_round());
         };
 
-        let target = RenderTarget::Root;
+        let target = RenderTarget::Root(self.root_render_target);
         let mut state = DrawState::new(
             target,
             layer.round_idx,
@@ -356,7 +370,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
     }
 
     fn push_root_layer(&self) -> Option<OpenLayer<'a>> {
-        let bbox = RenderTarget::Root.draw_bounds(self.scene);
+        let bbox = RenderTarget::Root(self.root_render_target).draw_bounds(self.scene);
         (!bbox.is_empty()).then_some(OpenLayer {
             cmds: &self.scene.recorder.root_cmds,
             kind: &REGULAR_LAYER_KIND,
@@ -756,7 +770,7 @@ impl Rounds {
         self.ensure_exists(state.round_idx, pools);
 
         let target_draw = match state.target {
-            RenderTarget::Root => self.rounds[state.round_idx].root_draw_mut(),
+            RenderTarget::Root(_) => self.rounds[state.round_idx].root_draw_mut(),
             RenderTarget::Layer(region) => {
                 self.rounds[state.round_idx].layer_draw_mut(region.texture.texture_index)
             }

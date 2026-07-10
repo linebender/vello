@@ -2914,22 +2914,10 @@ impl RendererContext<'_> {
             ),
         };
 
-        let pipeline_idx = if matches!(
-            target,
-            StripPassRenderTarget::Root(RootRenderTarget::AtlasLayer)
-                | StripPassRenderTarget::LayerAtlas(_)
-        ) {
-            1
-        } else {
-            0
-        };
+        let enable_opaque = target.enable_opaque();
+        let pipeline_idx = usize::from(!enable_opaque);
 
-        let is_final_view = matches!(
-            target,
-            StripPassRenderTarget::Root(RootRenderTarget::UserSurface)
-        );
-
-        let depth_stencil_attachment = if is_final_view {
+        let depth_stencil_attachment = if enable_opaque {
             let depth_load = if self.programs.depth_cleared_this_frame {
                 wgpu::LoadOp::Load
             } else {
@@ -2972,7 +2960,7 @@ impl RendererContext<'_> {
         if opaque_count > 0 {
             // Opaque pass
             debug_assert!(
-                is_final_view,
+                enable_opaque,
                 "opaque strips require the final view depth attachment"
             );
             render_pass.set_pipeline(&self.programs.opaque_strip_pipelines[pipeline_idx]);
@@ -2982,7 +2970,7 @@ impl RendererContext<'_> {
 
         if alpha_count > 0 {
             // Alpha pass
-            if is_final_view {
+            if enable_opaque {
                 render_pass.set_pipeline(&self.programs.alpha_strip_pipelines[pipeline_idx]);
             } else {
                 render_pass.set_pipeline(&self.programs.intermediate_strip_pipelines[pipeline_idx]);

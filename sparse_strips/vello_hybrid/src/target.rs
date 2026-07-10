@@ -23,6 +23,12 @@ pub(crate) enum StripPassRenderTarget {
     LayerAtlas(u8),
 }
 
+impl StripPassRenderTarget {
+    pub(crate) fn enable_opaque(self) -> bool {
+        matches!(self, Self::Root(RootRenderTarget::UserSurface))
+    }
+}
+
 /// Identifies one of the intermediate textures used by the hybrid renderer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TextureTarget {

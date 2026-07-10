@@ -2514,17 +2514,14 @@ impl WebGlRendererContext<'_> {
         // TODO: Today, we only support early-z rejection on the final view. If we wanted to support
         // intermediate layers, we would require separate depth buffers for each target. We can explore
         // that possibility in the future.
-        let is_final_view = matches!(
-            target,
-            StripPassRenderTarget::Root(RootRenderTarget::UserSurface)
-        );
+        let enable_opaque = target.enable_opaque();
 
         self.programs
             .upload_strip_pair(self.gl, opaque_strips, alpha_strips);
         let opaque_count = opaque_count as i32;
         let alpha_count = alpha_count as i32;
 
-        if is_final_view {
+        if enable_opaque {
             self.gl.enable(WebGl2RenderingContext::DEPTH_TEST);
             self.gl.depth_func(WebGl2RenderingContext::LEQUAL);
 
