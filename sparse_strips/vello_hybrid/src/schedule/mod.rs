@@ -340,7 +340,8 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                 return Ok(());
             }
 
-            let (allocation, region) = self.allocate_region(1, bbox, 0)?;
+            let (allocation, region) =
+                self.allocate_region(1, bbox, &RecordedLayerKind::Regular, 0)?;
             let target = RenderTarget::Layer(region);
             let mut state = CommandStreamState::new(
                 target,
@@ -373,7 +374,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                     );
                 },
             );
-            let clear_region = allocation.allocation.texture.clear_region();
+            let clear_region = allocation.allocation.main_region.clear_region();
             rounds.rounds[ready_round].layer_texture_clears
                 [usize::from(clear_region.texture_index)]
                 .push(clear_region.rect);
@@ -593,7 +594,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         if let Some(filter) = target.filter {
             let allocation_filter = target
                 .allocation
-                .filter
+                .scratch_regions
                 .expect("filter target must have scratch allocations");
             rounds.ensure_exists(ready_round, &mut self.storage.pools);
             rounds.rounds[ready_round].push_filter_op(
@@ -602,7 +603,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                 FilterOp {
                     layer_region: target.region,
                     scratches: allocation_filter
-                        .map(|scratch| scratch.map(|scratch| scratch.texture.region)),
+                        .map(|scratch| scratch.map(|texture| texture.region)),
                     filter_data_offset: filter.data_offset,
                     gpu_filter: filter.data,
                 },
@@ -761,12 +762,12 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         };
 
         rounds.ensure_exists(round_idx, &mut self.storage.pools);
-        let clear_region = scheduled_layer.allocation.texture.clear_region();
+        let clear_region = scheduled_layer.allocation.main_region.clear_region();
         rounds.rounds[round_idx].layer_texture_clears[usize::from(clear_region.texture_index)]
             .push(clear_region.rect);
-        if let Some(filter) = scheduled_layer.allocation.filter {
+        if let Some(filter) = scheduled_layer.allocation.scratch_regions {
             for scratch in filter.into_iter().flatten() {
-                let clear_region = scratch.texture.clear_region();
+                let clear_region = scratch.clear_region();
                 rounds.rounds[round_idx].scratch_texture_clears
                     [usize::from(clear_region.texture_index)]
                     .push(clear_region.rect);
@@ -780,23 +781,22 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         &mut self,
         texture_index: u8,
         bbox: RectU16,
+        kind: &RecordedLayerKind,
         scratch_count: u8,
     ) -> Result<(Allocation<LayerAllocation>, LayerTextureRegion), RenderError> {
         let request = LayerAllocationRequest::new(
             texture_index,
             Int16Size::new(bbox.width(), bbox.height()),
+            kind,
             scratch_count,
         );
-        if !request.fits_textures(self.texture_sizes) {
-            return Err(RenderError::AtlasError(AtlasError::NoSpaceAvailable));
-        }
 
         let Some(allocation) = self.cursor.allocate(request) else {
             return Err(RenderError::AtlasError(AtlasError::NoSpaceAvailable));
         };
 
         let region = LayerTextureRegion {
-            texture: allocation.allocation.texture.region,
+            texture: allocation.allocation.main_region.region,
             scene_bbox: bbox,
         };
 
@@ -837,7 +837,8 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         target: &'b mut Option<LayerCommandTarget>,
     ) -> Result<&'b mut LayerCommandTarget, RenderError> {
         if target.is_none() {
-            let filter = match &self.scene.recorder.layers[layer_id as usize].kind {
+            let kind = &self.scene.recorder.layers[layer_id as usize].kind;
+            let filter = match kind {
                 RecordedLayerKind::Filter { filter_data, .. } => {
                     Some(self.filter_context.push(filter_data))
                 }
@@ -846,6 +847,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             let (allocation, region) = self.allocate_region(
                 texture_index,
                 bbox,
+                kind,
                 filter.map_or(0, PreparedGpuFilter::scratch_count),
             )?;
             let stream = CommandStreamState::new(
