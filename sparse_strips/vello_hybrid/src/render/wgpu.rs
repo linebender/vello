@@ -3034,7 +3034,9 @@ impl RendererContext<'_> {
                 .map(|blend| {
                     debug_assert_eq!(blend.parent_region.texture.texture_index, texture_index);
                     resources.layer_view(blend.parent_region.texture.texture_index);
-                    resources.layer_view(blend.child_region.texture.texture_index);
+                    if let Some(child_region) = blend.child_region {
+                        resources.layer_view(child_region.texture.texture_index);
+                    }
                     gpu_blend_instance(blend, scratch_texture_size)
                 }),
         );

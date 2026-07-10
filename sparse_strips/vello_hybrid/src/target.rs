@@ -98,16 +98,6 @@ impl LayerTextureRegion {
         )
     }
 
-    pub(crate) fn empty_for_blend(bbox: RectU16) -> Self {
-        Self {
-            texture: TextureRegion {
-                texture_index: 0,
-                rect: RectU16::ZERO,
-            },
-            scene_bbox: RectU16::new(bbox.x0, bbox.y0, bbox.x0, bbox.y0),
-        }
-    }
-
     pub(crate) fn blend_scratch_clear_rect(self, blend_bbox: RectU16) -> RectU16 {
         let x0 = self.texture.rect.x0 + (blend_bbox.x0 - self.scene_bbox.x0);
         let y0 = self.texture.rect.y0 + (blend_bbox.y0 - self.scene_bbox.y0);

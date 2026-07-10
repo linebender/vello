@@ -307,21 +307,12 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
 
                     let layer_idx = *layer_id as usize;
                     self.schedule_layer_subtree(*layer_id, rounds)?;
-                    let Some(layer) = self.layer_allocations[layer_idx] else {
-                        let props = &self.scene.recorder.layers[layer_idx].props;
-                        if props.blend_mode.is_destructive() {
-                            self.schedule_empty_destructive_blend(
-                                state,
-                                props.blend_mode,
-                                props.opacity,
-                                rounds,
-                            );
-                        }
-                        segment_start = cmd_idx + 1;
-                        continue;
-                    };
-
-                    self.schedule_child_layer_sample(*layer_id, layer, state, rounds);
+                    self.schedule_child_layer(
+                        *layer_id,
+                        self.layer_allocations[layer_idx],
+                        state,
+                        rounds,
+                    );
                     segment_start = cmd_idx + 1;
                 }
             }
@@ -424,30 +415,14 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
 
             let child_layer_idx = child_layer_id as usize;
             self.schedule_layer_subtree(child_layer_id, rounds)?;
-            let Some(child_layer) = self.layer_allocations[child_layer_idx] else {
-                let props = &self.scene.recorder.layers[child_layer_idx].props;
-                let blend_mode = props.blend_mode;
-                let opacity = props.opacity;
-                if blend_mode.is_destructive() {
-                    let target =
-                        self.layer_command_target(layer_id, texture_index, bbox, &mut target)?;
-                    self.push_layer_batches(
-                        layer_idx,
-                        segment_start,
-                        cmd_idx,
-                        &mut target.stream,
-                        rounds,
-                    );
-                    self.schedule_empty_destructive_blend(
-                        &mut target.stream,
-                        blend_mode,
-                        opacity,
-                        rounds,
-                    );
-                    segment_start = cmd_idx + 1;
-                }
+            let child_layer = self.layer_allocations[child_layer_idx];
+            if child_layer.is_none()
+                && target.is_none()
+                && !self.command_segment_has_draws(cmds, segment_start, cmd_idx)
+            {
+                segment_start = cmd_idx + 1;
                 continue;
-            };
+            }
 
             let target = self.layer_command_target(layer_id, texture_index, bbox, &mut target)?;
             self.push_layer_batches(
@@ -457,12 +432,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                 &mut target.stream,
                 rounds,
             );
-            self.schedule_child_layer_sample(
-                child_layer_id,
-                child_layer,
-                &mut target.stream,
-                rounds,
-            );
+            self.schedule_child_layer(child_layer_id, child_layer, &mut target.stream, rounds);
             segment_start = cmd_idx + 1;
         }
 
@@ -504,55 +474,47 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         }))
     }
 
-    fn schedule_child_layer_sample(
+    fn schedule_child_layer(
         &mut self,
         layer_id: u32,
-        layer: ScheduledLayer,
+        layer: Option<ScheduledLayer>,
         state: &mut CommandStreamState,
         rounds: &mut Rounds,
     ) {
         let props = &self.scene.recorder.layers[layer_id as usize].props;
         let blend_mode = props.blend_mode;
         let opacity = props.opacity;
-        let same_texture_as_target =
-            state.target.texture_index() == Some(layer.region.texture.texture_index);
-        if blend_mode == BlendMode::default() && !same_texture_as_target {
-            state.round_idx = state
-                .round_idx
-                .max(state.target.required_round_for_layer_sample(
-                    layer.region.texture.texture_index,
-                    layer.round_idx,
-                ));
-            rounds.with_draw_builder(
-                state,
-                &mut self.storage.pools,
-                &mut self.storage.buffers,
-                |builder| {
-                    builder.push_layer_fill(
-                        layer.sample,
-                        props.opacity,
-                        props.clip_path.as_ref(),
-                        self.strip_storage,
-                    );
-                },
-            );
-            state.backdrop_bbox.union(layer.sample.bbox);
-            state.sampled_layers.push(layer_id);
-            self.finish_stream_segment(state, rounds);
-            return;
+        if let Some(layer) = layer {
+            let same_texture_as_target =
+                state.target.texture_index() == Some(layer.region.texture.texture_index);
+            if blend_mode == BlendMode::default() && !same_texture_as_target {
+                state.round_idx = state
+                    .round_idx
+                    .max(state.target.required_round_for_layer_sample(
+                        layer.region.texture.texture_index,
+                        layer.round_idx,
+                    ));
+                rounds.with_draw_builder(
+                    state,
+                    &mut self.storage.pools,
+                    &mut self.storage.buffers,
+                    |builder| {
+                        builder.push_layer_fill(
+                            layer.sample,
+                            props.opacity,
+                            props.clip_path.as_ref(),
+                            self.strip_storage,
+                        );
+                    },
+                );
+                state.backdrop_bbox.union(layer.sample.bbox);
+                state.sampled_layers.push(layer_id);
+                self.finish_stream_segment(state, rounds);
+                return;
+            }
         }
 
-        let parent_ready_round = self.finish_stream_segment(state, rounds);
-        let parent_region = state.target.layer_region();
-        let parent_texture_index = parent_region.texture.texture_index;
-        let child_texture_index = layer.region.texture.texture_index;
-        debug_assert_ne!(
-            parent_texture_index, child_texture_index,
-            "blended parent and child layers must use opposite textures"
-        );
-        let source_bbox = layer.sample.bbox;
-        let blend_round =
-            parent_ready_round.max(layer.round_idx + usize::from(parent_texture_index == 1));
+        let source_bbox = layer.map_or(RectU16::INVERTED, |layer| layer.sample.bbox);
         let affected_bbox = if blend_mode.is_destructive() {
             let mut bbox = state.backdrop_bbox;
             bbox.union(source_bbox);
@@ -560,10 +522,26 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         } else {
             source_bbox
         };
+        if affected_bbox.is_empty() {
+            return;
+        }
+
+        let parent_ready_round = self.finish_stream_segment(state, rounds);
+        let parent_region = state.target.layer_region();
+        let parent_texture_index = parent_region.texture.texture_index;
+        let blend_round = layer.map_or(parent_ready_round, |layer| {
+            debug_assert_ne!(
+                parent_texture_index, layer.region.texture.texture_index,
+                "blended parent and child layers must use opposite textures"
+            );
+            parent_ready_round.max(layer.round_idx + usize::from(parent_texture_index == 1))
+        });
         let bbox = affected_bbox.intersect(state.target.layer_region().scene_bbox);
         if bbox.is_empty() {
-            self.consume_child_layer(layer_id, blend_round, rounds);
-            state.round_idx = state.round_idx.max(blend_round);
+            if layer.is_some() {
+                self.consume_child_layer(layer_id, blend_round, rounds);
+                state.round_idx = state.round_idx.max(blend_round);
+            }
             return;
         }
 
@@ -575,55 +553,19 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             &mut self.storage.buffers,
             BlendOp {
                 parent_region,
-                child_region: layer.sample.source,
+                child_region: layer.map(|layer| layer.sample.source),
                 blend_bbox: bbox,
                 blend_mode,
                 opacity,
             },
         );
-        self.consume_child_layer(layer_id, blend_round, rounds);
+        if layer.is_some() {
+            self.consume_child_layer(layer_id, blend_round, rounds);
+        }
         state.backdrop_bbox = match blend_mode.compose {
             Compose::Clear => RectU16::INVERTED,
             Compose::Copy | Compose::SrcOut => source_bbox,
             Compose::SrcIn | Compose::DestIn => state.backdrop_bbox.intersect(source_bbox),
-            _ => affected_bbox,
-        };
-        state.round_idx = blend_round + 1;
-    }
-
-    fn schedule_empty_destructive_blend(
-        &mut self,
-        state: &mut CommandStreamState,
-        blend_mode: BlendMode,
-        opacity: f32,
-        rounds: &mut Rounds,
-    ) {
-        let parent_ready_round = self.finish_stream_segment(state, rounds);
-        let affected_bbox = state.backdrop_bbox;
-        let bbox = affected_bbox.intersect(state.target.layer_region().scene_bbox);
-        if bbox.is_empty() {
-            return;
-        }
-
-        let parent_region = state.target.layer_region();
-        let parent_texture_index = parent_region.texture.texture_index;
-        let blend_round = parent_ready_round;
-        rounds.ensure_exists(blend_round, &mut self.storage.pools);
-        rounds.rounds[blend_round].scratch_texture_clears[usize::from(BLEND_SCRATCH_INDEX)]
-            .push(parent_region.blend_scratch_clear_rect(bbox));
-        rounds.rounds[blend_round].push_blend_op(
-            parent_texture_index,
-            &mut self.storage.buffers,
-            BlendOp {
-                parent_region,
-                child_region: LayerTextureRegion::empty_for_blend(bbox),
-                blend_bbox: bbox,
-                blend_mode,
-                opacity,
-            },
-        );
-        state.backdrop_bbox = match blend_mode.compose {
-            Compose::Clear | Compose::Copy | Compose::SrcIn | Compose::SrcOut => RectU16::INVERTED,
             _ => affected_bbox,
         };
         state.round_idx = blend_round + 1;
