@@ -342,7 +342,6 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                         LayerSample {
                             source: region,
                             bbox: region.scene_bbox,
-                            source_origin: (0, 0),
                         },
                         1.0,
                         None,
@@ -780,7 +779,6 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             return LayerSample {
                 source: allocation,
                 bbox: layer.bbox,
-                source_origin: (0, 0),
             };
         };
 
@@ -798,7 +796,6 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                 scene_bbox: placement.dest_bbox,
             },
             bbox: placement.dest_bbox,
-            source_origin: (0, 0),
         }
     }
 

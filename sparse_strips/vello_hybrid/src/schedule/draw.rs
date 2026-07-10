@@ -342,14 +342,13 @@ impl GpuStrip {
 pub(super) struct LayerSample {
     pub(super) source: LayerTextureRegion,
     pub(super) bbox: RectU16,
-    pub(super) source_origin: (u16, u16),
 }
 
 impl LayerSample {
     fn payload_at(self, x: u16, y: u16) -> u32 {
         let source = self.source;
-        let source_x = source.texture.rect.x0 + self.source_origin.0 + (x - source.scene_bbox.x0);
-        let source_y = source.texture.rect.y0 + self.source_origin.1 + (y - source.scene_bbox.y0);
+        let source_x = source.texture.rect.x0 + x - source.scene_bbox.x0;
+        let source_y = source.texture.rect.y0 + y - source.scene_bbox.y0;
         pack_u16_pair(source_x, source_y)
     }
 
