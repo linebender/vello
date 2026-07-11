@@ -402,11 +402,6 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         let opacity = props.opacity;
         let child_texture_index = layer.sample.source.texture.texture_index;
         if blend_mode == BlendMode::default() {
-            debug_assert_ne!(
-                state.draw_state.target.texture_index(),
-                Some(child_texture_index),
-                "parent and child layers must use opposite textures"
-            );
             state.next_draw_round = state.next_draw_round.max(
                 state
                     .draw_state
