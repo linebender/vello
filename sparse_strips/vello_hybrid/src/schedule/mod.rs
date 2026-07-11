@@ -71,83 +71,6 @@ impl Schedule {
     }
 }
 
-#[derive(Debug, Default)]
-pub(crate) struct ScheduleBuffers {
-    pub(crate) draw_buffers: DrawBuffers,
-    pub(crate) filter_ops: Vec<FilterOp>,
-    pub(crate) blend_ops: Vec<BlendOp>,
-}
-
-impl ScheduleBuffers {
-    fn clear(&mut self) {
-        self.draw_buffers.clear();
-        self.filter_ops.clear();
-        self.blend_ops.clear();
-    }
-}
-
-/// Persistent buffers used to build schedules across frames.
-#[derive(Debug, Default)]
-pub(crate) struct ScheduleStorage {
-    pub(crate) buffers: ScheduleBuffers,
-    filter_pass_plan: FilterPassPlan,
-}
-
-#[derive(Debug)]
-struct TargetScheduleState<T: ScheduleTarget> {
-    draw_state: DrawState<T>,
-    next_draw_round: usize,
-}
-
-impl<T: ScheduleTarget> TargetScheduleState<T> {
-    fn new(target: T, next_draw_round: usize, target_bbox: RectU16) -> Self {
-        Self {
-            draw_state: DrawState::new(target, target_bbox),
-            next_draw_round,
-        }
-    }
-}
-
-trait ScheduleTarget: DrawTarget {
-    fn draw_mut<'a>(&self, round: &'a mut Round) -> &'a mut Draw;
-
-    /// Given that a child layer finishes rendering at `child_round` and is stored in
-    /// the texture at index `child_texture_index`, return the round smallest round in which
-    /// the composition into parent can be scheduled.
-    fn composite_round(&self, child_texture_index: TextureIndex, child_round: usize) -> usize;
-}
-
-impl ScheduleTarget for RootRenderTarget {
-    fn draw_mut<'a>(&self, round: &'a mut Round) -> &'a mut Draw {
-        round.root_draw_mut()
-    }
-
-    fn composite_round(&self, _: TextureIndex, child_round: usize) -> usize {
-        // Within a single round, root draws are performed once all layer texture operations
-        // finished (see `Rounds::execute`), so we can always schedule it in that same round.
-        child_round
-    }
-}
-
-impl ScheduleTarget for LayerTextureRegion {
-    fn draw_mut<'a>(&self, round: &'a mut Round) -> &'a mut Draw {
-        round.layer_draw_mut(self.texture.texture_index)
-    }
-
-    fn composite_round(&self, child_texture_index: TextureIndex, child_round: usize) -> usize {
-        // As seen in `Rounds::execute`, the order within a round is:
-        // - All texture 1 draws.
-        // - All texture 0 draws.
-        // - All root draws.
-        //
-        // Therefore:
-        // - If the child is in texture 1, we can schedule the compositing operation in the same
-        // round.
-        // - Otherwise, we need to do it in the next round.
-        child_round + usize::from(child_texture_index.is_even())
-    }
-}
-
 /// Plans concrete, executable rounds from a recorded scene.
 #[derive(Debug)]
 struct SchedulePlanner<'a, 'p> {
@@ -200,7 +123,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
     }
 
     fn schedule_root(&mut self, rounds: &mut Rounds) -> Result<(), RenderError> {
-        let ready_round = if self.recorder.root_is_blend_target {
+        if self.recorder.root_is_blend_target {
             let layer = self.finish_layer(self.open_root_layer(), rounds)?;
 
             let target = self.root_render_target;
@@ -213,16 +136,12 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                 },
             );
             self.release_layer(layer, layer.ready_round, rounds);
-
-            layer.ready_round
         } else {
             let target = self.root_render_target;
             let mut state =
                 TargetScheduleState::new(target, self.cursor.current_round(), self.scene_bbox);
             self.schedule_root_nodes(&self.recorder.root_cmds, &mut state, rounds)?;
-            state.next_draw_round
         };
-        rounds.ensure_exists(ready_round);
 
         Ok(())
     }
@@ -628,5 +547,82 @@ impl Rounds {
 
         let mut builder = DrawBuilder::new(target_draw, draw_buffers, &mut state.draw_state);
         f(&mut builder);
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct ScheduleBuffers {
+    pub(crate) draw_buffers: DrawBuffers,
+    pub(crate) filter_ops: Vec<FilterOp>,
+    pub(crate) blend_ops: Vec<BlendOp>,
+}
+
+impl ScheduleBuffers {
+    fn clear(&mut self) {
+        self.draw_buffers.clear();
+        self.filter_ops.clear();
+        self.blend_ops.clear();
+    }
+}
+
+/// Persistent buffers used to build schedules across frames.
+#[derive(Debug, Default)]
+pub(crate) struct ScheduleStorage {
+    pub(crate) buffers: ScheduleBuffers,
+    filter_pass_plan: FilterPassPlan,
+}
+
+#[derive(Debug)]
+struct TargetScheduleState<T: ScheduleTarget> {
+    draw_state: DrawState<T>,
+    next_draw_round: usize,
+}
+
+impl<T: ScheduleTarget> TargetScheduleState<T> {
+    fn new(target: T, next_draw_round: usize, target_bbox: RectU16) -> Self {
+        Self {
+            draw_state: DrawState::new(target, target_bbox),
+            next_draw_round,
+        }
+    }
+}
+
+trait ScheduleTarget: DrawTarget {
+    fn draw_mut<'a>(&self, round: &'a mut Round) -> &'a mut Draw;
+
+    /// Given that a child layer finishes rendering at `child_round` and is stored in
+    /// the texture at index `child_texture_index`, return the round smallest round in which
+    /// the composition into parent can be scheduled.
+    fn composite_round(&self, child_texture_index: TextureIndex, child_round: usize) -> usize;
+}
+
+impl ScheduleTarget for RootRenderTarget {
+    fn draw_mut<'a>(&self, round: &'a mut Round) -> &'a mut Draw {
+        round.root_draw_mut()
+    }
+
+    fn composite_round(&self, _: TextureIndex, child_round: usize) -> usize {
+        // Within a single round, root draws are performed once all layer texture operations
+        // finished (see `Rounds::execute`), so we can always schedule it in that same round.
+        child_round
+    }
+}
+
+impl ScheduleTarget for LayerTextureRegion {
+    fn draw_mut<'a>(&self, round: &'a mut Round) -> &'a mut Draw {
+        round.layer_draw_mut(self.texture.texture_index)
+    }
+
+    fn composite_round(&self, child_texture_index: TextureIndex, child_round: usize) -> usize {
+        // As seen in `Rounds::execute`, the order within a round is:
+        // - All texture 1 draws.
+        // - All texture 0 draws.
+        // - All root draws.
+        //
+        // Therefore:
+        // - If the child is in texture 1, we can schedule the compositing operation in the same
+        // round.
+        // - Otherwise, we need to do it in the next round.
+        child_round + usize::from(child_texture_index.is_even())
     }
 }
