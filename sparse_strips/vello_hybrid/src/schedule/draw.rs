@@ -120,8 +120,10 @@ impl<'a> DrawBuilder<'a> {
         let strips = &strip_storage.strips[path.strips.clone()];
 
         let paint = paint_resolver.pack(&path.paint);
-        let is_opaque = self.state.target.enable_opaque() && paint.opaque;
-        let depth_index = self.state.depth.next(is_opaque);
+        // Note: This will also advance the depth index for layer root draws even though
+        // those _currently_ never use the depth buffer, but it's better to keep the
+        // condition simple.
+        let depth_index = self.state.depth.next(paint.opaque);
         let tile_bounds = self.state.draw_bounds.to_tile_bounds();
         let geometry_shift = self.state.target.geometry_shift();
 
@@ -155,7 +157,7 @@ impl<'a> DrawBuilder<'a> {
                     depth_index,
                 );
 
-                if !is_opaque || !builder.push_opaque(strip) {
+                if !paint.opaque || !builder.push_opaque(strip) {
                     builder
                         .draw
                         .push(builder.strips, strip, paint.external_texture_id);
@@ -176,8 +178,7 @@ impl<'a> DrawBuilder<'a> {
         }
 
         let paint = paint_resolver.pack(paint);
-        let is_paint_opaque = self.state.target.enable_opaque() && paint.opaque;
-        let depth_index = self.state.depth.next(is_paint_opaque);
+        let depth_index = self.state.depth.next(paint.opaque);
 
         let split = split_rect(&clipped_rect);
 
@@ -200,7 +201,7 @@ impl<'a> DrawBuilder<'a> {
                 depth_index,
             );
 
-            if !(is_paint_opaque && part.frac == 0 && self.push_opaque(strip)) {
+            if !(paint.opaque && part.frac == 0 && self.push_opaque(strip)) {
                 self.draw
                     .push(self.strips, strip, paint.external_texture_id);
             }
