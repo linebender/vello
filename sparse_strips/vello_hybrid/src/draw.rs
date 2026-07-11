@@ -21,9 +21,9 @@ use vello_common::tile::Tile;
 use vello_common::util::{Clear, RectExt};
 
 #[derive(Debug, Default, Clone)]
-pub(super) struct Draw {
-    pub(super) strip_ranges: Ranges,
-    pub(super) external_texture_runs: Vec<ExternalTextureRun>,
+pub(crate) struct Draw {
+    pub(crate) strip_ranges: Ranges,
+    pub(crate) external_texture_runs: Vec<ExternalTextureRun>,
 }
 
 impl Draw {
@@ -66,7 +66,7 @@ impl Clear for Draw {
 }
 
 #[derive(Debug)]
-pub(super) struct DrawBuilder<'a> {
+pub(crate) struct DrawBuilder<'a> {
     draw: &'a mut Draw,
     strips: &'a mut Vec<GpuStrip>,
     opaque: &'a mut Vec<GpuStrip>,
@@ -74,7 +74,7 @@ pub(super) struct DrawBuilder<'a> {
 }
 
 impl<'a> DrawBuilder<'a> {
-    pub(super) fn new(
+    pub(crate) fn new(
         draw: &'a mut Draw,
         draw_buffers: &'a mut DrawBuffers,
         state: &'a mut DrawState,
@@ -87,7 +87,7 @@ impl<'a> DrawBuilder<'a> {
         }
     }
 
-    pub(super) fn push_draw(
+    pub(crate) fn push_draw(
         &mut self,
         draw: &RecordedDraw,
         strip_storage: &StripStorage,
@@ -207,7 +207,7 @@ impl<'a> DrawBuilder<'a> {
         }
     }
 
-    pub(super) fn push_layer_fill(
+    pub(crate) fn push_layer_fill(
         &mut self,
         sample: LayerSample,
         opacity: f32,
@@ -285,22 +285,22 @@ pub(crate) struct DrawBuffers {
 }
 
 impl DrawBuffers {
-    pub(super) fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.opaque_strips.clear();
         self.strips.clear();
     }
 }
 
 #[derive(Debug)]
-pub(super) struct DrawState {
-    pub(super) target: DrawTarget,
+pub(crate) struct DrawState {
+    pub(crate) target: DrawTarget,
     depth: DepthCounter,
-    pub(super) draw_bounds: RectU16,
-    pub(super) draw_round: usize,
+    pub(crate) draw_bounds: RectU16,
+    pub(crate) draw_round: usize,
 }
 
 impl DrawState {
-    pub(super) fn new(target: DrawTarget, draw_round: usize, draw_bounds: RectU16) -> Self {
+    pub(crate) fn new(target: DrawTarget, draw_round: usize, draw_bounds: RectU16) -> Self {
         Self {
             target,
             depth: DepthCounter::default(),
@@ -356,9 +356,9 @@ impl GpuStrip {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(super) struct LayerSample {
-    pub(super) source: LayerTextureRegion,
-    pub(super) bbox: RectU16,
+pub(crate) struct LayerSample {
+    pub(crate) source: LayerTextureRegion,
+    pub(crate) bbox: RectU16,
 }
 
 impl LayerSample {
@@ -388,7 +388,7 @@ pub(crate) struct ExternalTextureRun {
 }
 
 #[derive(Debug, Default, Clone, Copy)]
-pub(super) struct DepthCounter {
+pub(crate) struct DepthCounter {
     count: u32,
 }
 

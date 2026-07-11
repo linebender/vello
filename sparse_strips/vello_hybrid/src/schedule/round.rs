@@ -4,7 +4,7 @@
 //! Concrete round representation for the new hybrid scheduler.
 
 use super::ScheduleBuffers;
-use super::draw::Draw;
+use crate::draw::Draw;
 use crate::filter::GpuFilterData;
 use crate::target::{LayerTextureRegion, TextureRegion};
 use crate::util::{Ranges, VecExt};

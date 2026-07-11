@@ -5,8 +5,8 @@
 
 use super::round::{BlendOp, Rounds};
 use super::{Schedule, ScheduleBuffers, ScheduleStorage};
+use crate::draw::ExternalTextureRun;
 use crate::filter::FilterPassPlan;
-use crate::schedule::draw::ExternalTextureRun;
 use crate::target::{DrawPassTarget, IntermediateTextureSizes, RootRenderTarget, TextureTarget};
 use crate::util::{RangedSlice, VecExt};
 use crate::{GpuStrip, Scene};

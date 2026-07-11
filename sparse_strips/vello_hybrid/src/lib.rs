@@ -61,6 +61,7 @@ mod target;
 #[cfg(feature = "text")]
 mod text;
 
+pub(crate) mod draw;
 pub mod util;
 
 #[cfg(feature = "wgpu")]

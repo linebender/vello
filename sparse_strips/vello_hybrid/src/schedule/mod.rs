@@ -5,16 +5,15 @@
 
 mod allocate;
 mod cursor;
-pub(crate) mod draw;
 pub(crate) mod execute;
 pub(crate) mod round;
 
 use self::allocate::{Allocation, Atlases, LayerAllocationRequest, LayerAllocations};
 use self::cursor::Cursor;
-use self::draw::{DrawBuffers, DrawBuilder, DrawState, LayerSample};
 pub(crate) use self::execute::{RendererBackend, execute};
 use self::round::{BlendOp, FilterOp, Rounds};
 use crate::blend::BLEND_SCRATCH_INDEX;
+use crate::draw::{DrawBuffers, DrawBuilder, DrawState, LayerSample};
 use crate::filter::{FilterContext, FilterPassPlan, PreparedGpuFilter};
 use crate::paint::PaintResolver;
 use crate::target::{
