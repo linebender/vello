@@ -66,18 +66,18 @@ impl Clear for Draw {
 }
 
 #[derive(Debug)]
-pub(crate) struct DrawBuilder<'a> {
+pub(crate) struct DrawBuilder<'a, T: DrawTarget> {
     draw: &'a mut Draw,
     strips: &'a mut Vec<GpuStrip>,
     opaque: &'a mut Vec<GpuStrip>,
-    state: &'a mut DrawState,
+    state: &'a mut DrawState<T>,
 }
 
-impl<'a> DrawBuilder<'a> {
+impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
     pub(crate) fn new(
         draw: &'a mut Draw,
         draw_buffers: &'a mut DrawBuffers,
-        state: &'a mut DrawState,
+        state: &'a mut DrawState<T>,
     ) -> Self {
         Self {
             draw,
@@ -292,14 +292,14 @@ impl DrawBuffers {
 }
 
 #[derive(Debug)]
-pub(crate) struct DrawState {
-    pub(crate) target: DrawTarget,
+pub(crate) struct DrawState<T: DrawTarget> {
+    pub(crate) target: T,
     depth_counter: DepthCounter,
     pub(crate) target_bbox: RectU16,
 }
 
-impl DrawState {
-    pub(crate) fn new(target: DrawTarget, target_bbox: RectU16) -> Self {
+impl<T: DrawTarget> DrawState<T> {
+    pub(crate) fn new(target: T, target_bbox: RectU16) -> Self {
         Self {
             target,
             depth_counter: DepthCounter::default(),

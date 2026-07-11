@@ -99,26 +99,36 @@ pub(crate) struct LayerTextureRegion {
     pub(crate) layer_bbox: RectU16,
 }
 
-/// The target of a scheduled draw stream.
-pub(crate) type DrawTarget = RenderTarget<LayerTextureRegion>;
+pub(crate) trait DrawTarget {
+    fn enable_opaque(&self) -> bool;
 
-impl RenderTarget<LayerTextureRegion> {
-    pub(crate) fn geometry_shift(self) -> (i32, i32) {
-        match self {
-            Self::Root(_) => (0, 0),
-            Self::Layer(region) => region.geometry_shift(),
-        }
+    fn geometry_shift(&self) -> (i32, i32);
+}
+
+impl DrawTarget for RootRenderTarget {
+    fn enable_opaque(&self) -> bool {
+        matches!(self, Self::UserSurface)
+    }
+
+    fn geometry_shift(&self) -> (i32, i32) {
+        (0, 0)
     }
 }
 
-impl LayerTextureRegion {
-    pub(crate) fn geometry_shift(&self) -> (i32, i32) {
+impl DrawTarget for LayerTextureRegion {
+    fn enable_opaque(&self) -> bool {
+        false
+    }
+
+    fn geometry_shift(&self) -> (i32, i32) {
         (
             self.texture.rect.x0 as i32 - i32::from(self.layer_bbox.x0),
             self.texture.rect.y0 as i32 - i32::from(self.layer_bbox.y0),
         )
     }
+}
 
+impl LayerTextureRegion {
     pub(crate) fn blend_scratch_clear_rect(self, blend_bbox: RectU16) -> RectU16 {
         let x0 = self.texture.rect.x0 + (blend_bbox.x0 - self.layer_bbox.x0);
         let y0 = self.texture.rect.y0 + (blend_bbox.y0 - self.layer_bbox.y0);

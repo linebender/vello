@@ -11,15 +11,14 @@ pub(crate) mod round;
 use self::allocate::{Allocation, Atlases, LayerAllocationRequest, LayerAllocations};
 use self::cursor::Cursor;
 pub(crate) use self::execute::{RendererBackend, execute};
-use self::round::{BlendOp, FilterOp, Rounds};
+use self::round::{BlendOp, FilterOp, Round, Rounds};
 use crate::blend::BLEND_SCRATCH_INDEX;
-use crate::draw::{DrawBuffers, DrawBuilder, DrawState, LayerSample};
+use crate::draw::{Draw, DrawBuffers, DrawBuilder, DrawState, LayerSample};
 use crate::filter::{FilterContext, FilterPassPlan, PreparedGpuFilter};
 use crate::paint::PaintResolver;
 use crate::scene::RecordedDraw;
 use crate::target::{
-    DrawTarget, IntermediateTextureSizes, LayerTextureRegion, RenderTarget, RootRenderTarget,
-    TextureRegion,
+    DrawTarget, IntermediateTextureSizes, LayerTextureRegion, RootRenderTarget, TextureRegion,
 };
 use crate::util::Int16Size;
 use crate::{RenderError, Scene};
@@ -94,13 +93,13 @@ pub(crate) struct ScheduleStorage {
 }
 
 #[derive(Debug)]
-struct TargetScheduleState {
-    draw_state: DrawState,
+struct TargetScheduleState<T: ScheduleTarget> {
+    draw_state: DrawState<T>,
     next_draw_round: usize,
 }
 
-impl TargetScheduleState {
-    fn new(target: DrawTarget, next_draw_round: usize, target_bbox: RectU16) -> Self {
+impl<T: ScheduleTarget> TargetScheduleState<T> {
+    fn new(target: T, next_draw_round: usize, target_bbox: RectU16) -> Self {
         Self {
             draw_state: DrawState::new(target, target_bbox),
             next_draw_round,
@@ -108,27 +107,21 @@ impl TargetScheduleState {
     }
 }
 
-impl RenderTarget<LayerTextureRegion> {
-    fn texture_index(self) -> Option<u8> {
-        match self {
-            Self::Root(_) => None,
-            Self::Layer(region) => Some(region.texture.texture_index),
-        }
-    }
+trait ScheduleTarget: DrawTarget {
+    fn draw_mut<'a>(&self, round: &'a mut Round) -> &'a mut Draw;
 
-    fn layer_region(self) -> LayerTextureRegion {
-        match self {
-            Self::Layer(region) => region,
-            Self::Root(_) => panic!("root targets do not have layer regions"),
-        }
-    }
+    fn texture_index(&self) -> Option<u8>;
 
-    fn required_round_for_layer_sample(self, child_texture_index: u8, child_round: usize) -> usize {
+    fn required_round_for_layer_sample(
+        &self,
+        child_texture_index: u8,
+        child_round: usize,
+    ) -> usize {
         match self.texture_index() {
             Some(parent_texture_index)
                 if parent_texture_index != child_texture_index
-                    && Self::layer_texture_order(child_texture_index)
-                        < Self::layer_texture_order(parent_texture_index) =>
+                    && layer_texture_order(child_texture_index)
+                        < layer_texture_order(parent_texture_index) =>
             {
                 child_round
             }
@@ -136,13 +129,33 @@ impl RenderTarget<LayerTextureRegion> {
             None => child_round,
         }
     }
+}
 
-    fn layer_texture_order(texture_index: u8) -> u8 {
-        match texture_index {
-            1 => 0,
-            0 => 1,
-            _ => texture_index,
-        }
+impl ScheduleTarget for RootRenderTarget {
+    fn draw_mut<'a>(&self, round: &'a mut Round) -> &'a mut Draw {
+        round.root_draw_mut()
+    }
+
+    fn texture_index(&self) -> Option<u8> {
+        None
+    }
+}
+
+impl ScheduleTarget for LayerTextureRegion {
+    fn draw_mut<'a>(&self, round: &'a mut Round) -> &'a mut Draw {
+        round.layer_draw_mut(self.texture.texture_index)
+    }
+
+    fn texture_index(&self) -> Option<u8> {
+        Some(self.texture.texture_index)
+    }
+}
+
+fn layer_texture_order(texture_index: u8) -> u8 {
+    match texture_index {
+        1 => 0,
+        0 => 1,
+        _ => texture_index,
     }
 }
 
@@ -201,7 +214,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         let ready_round = if self.recorder.root_is_blend_target {
             let layer = self.finish_layer(self.open_root_layer(), rounds)?;
 
-            let target = DrawTarget::Root(self.root_render_target);
+            let target = self.root_render_target;
             let mut state = TargetScheduleState::new(target, layer.ready_round, self.scene_bbox);
             rounds.build_draw(
                 &mut state,
@@ -214,10 +227,10 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
 
             layer.ready_round
         } else {
-            let target = DrawTarget::Root(self.root_render_target);
+            let target = self.root_render_target;
             let mut state =
                 TargetScheduleState::new(target, self.cursor.current_round(), self.scene_bbox);
-            self.schedule_nodes(&self.recorder.root_cmds, &mut state, rounds)?;
+            self.schedule_root_nodes(&self.recorder.root_cmds, &mut state, rounds)?;
             state.next_draw_round
         };
         rounds.ensure_exists(ready_round);
@@ -225,16 +238,20 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         Ok(())
     }
 
-    fn schedule_nodes(
+    fn schedule_root_nodes(
         &mut self,
         cmds: &[CmdNode],
-        state: &mut TargetScheduleState,
+        state: &mut TargetScheduleState<RootRenderTarget>,
         rounds: &mut Rounds,
     ) -> Result<(), RenderError> {
         for cmd in cmds {
             let child = self.prepare_node(cmd, state.draw_state.target_bbox, rounds)?;
 
-            self.emit_node(cmd, child, state, rounds);
+            self.push_draws(&cmd.draws, state, rounds);
+            if let Some(child) = child {
+                debug_assert_eq!(child.props.blend_mode, BlendMode::default());
+                self.compose_default_layer(child.props, child.layer, state, rounds);
+            }
         }
 
         Ok(())
@@ -276,11 +293,11 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         }))
     }
 
-    fn emit_node(
+    fn emit_layer_node(
         &mut self,
         cmd: &CmdNode,
         child: Option<PreparedChild<'a>>,
-        state: &mut TargetScheduleState,
+        state: &mut TargetScheduleState<LayerTextureRegion>,
         rounds: &mut Rounds,
     ) {
         self.push_draws(&cmd.draws, state, rounds);
@@ -331,12 +348,14 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             .unwrap()
     }
 
-    fn push_draws(
+    fn push_draws<T: ScheduleTarget>(
         &mut self,
         draws: &core::ops::Range<u32>,
-        state: &mut TargetScheduleState,
+        state: &mut TargetScheduleState<T>,
         rounds: &mut Rounds,
-    ) {
+    ) where
+        T: ScheduleTarget,
+    {
         if draws.is_empty() {
             return;
         }
@@ -360,7 +379,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             }
 
             let target = self.ensure_layer_target(&mut layer)?;
-            self.emit_node(cmd, child, &mut target.schedule_state, rounds);
+            self.emit_layer_node(cmd, child, &mut target.schedule_state, rounds);
         }
 
         self.ensure_layer_target(&mut layer)?;
@@ -395,34 +414,21 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         &mut self,
         props: &LayerProps,
         layer: ScheduledLayer,
-        state: &mut TargetScheduleState,
+        state: &mut TargetScheduleState<LayerTextureRegion>,
         rounds: &mut Rounds,
     ) {
         let blend_mode = props.blend_mode;
         let opacity = props.opacity;
         let child_texture_index = layer.sample.source.texture.texture_index;
         if blend_mode == BlendMode::default() {
-            state.next_draw_round = state.next_draw_round.max(
-                state
-                    .draw_state
-                    .target
-                    .required_round_for_layer_sample(child_texture_index, layer.ready_round),
-            );
-            rounds.build_draw(state, &mut self.storage.buffers.draw_buffers, |builder| {
-                builder.push_layer_fill(
-                    layer.sample,
-                    props.opacity,
-                    props.clip_path.as_ref(),
-                    self.strip_storage,
-                );
-            });
-            self.release_layer(layer, state.next_draw_round, rounds);
+            self.compose_default_layer(props, layer, state, rounds);
             return;
         }
 
+        let parent_region = state.draw_state.target;
         let source_bbox = layer.sample.bbox;
         let affected_bbox = if blend_mode.is_destructive() {
-            let parent_bbox = state.draw_state.target.layer_region().layer_bbox;
+            let parent_bbox = parent_region.layer_bbox;
             props
                 .clip_path
                 .as_ref()
@@ -430,7 +436,6 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         } else {
             source_bbox
         };
-        let parent_region = state.draw_state.target.layer_region();
         let parent_texture_index = parent_region.texture.texture_index;
         debug_assert_ne!(
             parent_texture_index, child_texture_index,
@@ -442,7 +447,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                 .target
                 .required_round_for_layer_sample(child_texture_index, layer.ready_round),
         );
-        let bbox = affected_bbox.intersect(state.draw_state.target.layer_region().layer_bbox);
+        let bbox = affected_bbox.intersect(parent_region.layer_bbox);
         if bbox.is_empty() {
             self.release_layer(layer, blend_round, rounds);
             state.next_draw_round = state.next_draw_round.max(blend_round);
@@ -465,6 +470,31 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         );
         self.release_layer(layer, blend_round, rounds);
         state.next_draw_round = blend_round + 1;
+    }
+
+    fn compose_default_layer<T: ScheduleTarget>(
+        &mut self,
+        props: &LayerProps,
+        layer: ScheduledLayer,
+        state: &mut TargetScheduleState<T>,
+        rounds: &mut Rounds,
+    ) {
+        let child_texture_index = layer.sample.source.texture.texture_index;
+        state.next_draw_round = state.next_draw_round.max(
+            state
+                .draw_state
+                .target
+                .required_round_for_layer_sample(child_texture_index, layer.ready_round),
+        );
+        rounds.build_draw(state, &mut self.storage.buffers.draw_buffers, |builder| {
+            builder.push_layer_fill(
+                layer.sample,
+                props.opacity,
+                props.clip_path.as_ref(),
+                self.strip_storage,
+            );
+        });
+        self.release_layer(layer, state.next_draw_round, rounds);
     }
 
     fn release_layer(&mut self, layer: ScheduledLayer, round_idx: usize, rounds: &mut Rounds) {
@@ -524,11 +554,8 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                 layer.kind,
                 filter.map_or(0, PreparedGpuFilter::scratch_count),
             )?;
-            let schedule_state = TargetScheduleState::new(
-                DrawTarget::Layer(region),
-                allocation.round_idx,
-                region.layer_bbox,
-            );
+            let schedule_state =
+                TargetScheduleState::new(region, allocation.round_idx, region.layer_bbox);
             layer.target = Some(LayerTarget {
                 allocations: allocation.allocation,
                 region,
@@ -596,24 +623,22 @@ struct LayerTarget {
     allocations: LayerAllocations,
     region: LayerTextureRegion,
     filter: Option<PreparedGpuFilter>,
-    schedule_state: TargetScheduleState,
+    schedule_state: TargetScheduleState<LayerTextureRegion>,
 }
 
 impl Rounds {
-    fn build_draw(
+    fn build_draw<T: ScheduleTarget>(
         &mut self,
-        state: &mut TargetScheduleState,
+        state: &mut TargetScheduleState<T>,
         draw_buffers: &mut DrawBuffers,
-        f: impl FnOnce(&mut DrawBuilder<'_>),
+        f: impl FnOnce(&mut DrawBuilder<'_, T>),
     ) {
         self.ensure_exists(state.next_draw_round);
 
-        let target_draw = match state.draw_state.target {
-            DrawTarget::Root(_) => self.rounds[state.next_draw_round].root_draw_mut(),
-            DrawTarget::Layer(region) => {
-                self.rounds[state.next_draw_round].layer_draw_mut(region.texture.texture_index)
-            }
-        };
+        let target_draw = state
+            .draw_state
+            .target
+            .draw_mut(&mut self.rounds[state.next_draw_round]);
 
         let mut builder = DrawBuilder::new(target_draw, draw_buffers, &mut state.draw_state);
         f(&mut builder);
