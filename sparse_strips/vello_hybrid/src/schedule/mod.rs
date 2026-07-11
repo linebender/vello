@@ -244,11 +244,29 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         rounds: &mut Rounds,
     ) -> Result<usize, RenderError> {
         for cmd in cmds {
-            if let Some(layer_id) = cmd.layer {
-                let Some(bbox) = self.layer_bbox(layer_id, state.draw_bounds) else {
-                    self.push_draws(&cmd.draws, state, rounds);
-                    continue;
+            if let Some((layer_id, layer)) = cmd
+                .layer
+                .map(|layer_id| (layer_id, &self.scene.recorder.layers[layer_id as usize]))
+            {
+                let bbox = if layer.bbox.is_empty() {
+                    if layer.props.blend_mode.is_destructive() {
+                        // Unlike in the non-destructive case, empty _destructive_ layers are
+                        // not a no-op. Instead, they clear the whole parent layer. Therefore, we
+                        // need to set an explicit bounding box instead of keeping an empty one,
+                        // as a workaround since we cannot allocate a 0x0 area in the atlas.
+                        // TODO: Properly handle clipped blend layers.
+                        state.draw_bounds
+                    } else {
+                        // TODO: Prune empty layers at the recording layer, so we don't need
+                        // this here.
+                        self.push_draws(&cmd.draws, state, rounds);
+
+                        continue;
+                    }
+                } else {
+                    layer.bbox
                 };
+
                 let child_layer = self.schedule_layer_subtree(layer_id, bbox, rounds)?;
                 self.push_draws(&cmd.draws, state, rounds);
                 self.schedule_child_layer(layer_id, child_layer, state, rounds);
