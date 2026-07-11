@@ -7,7 +7,9 @@ use super::round::{BlendOp, Rounds};
 use super::{Schedule, ScheduleBuffers, ScheduleStorage};
 use crate::draw::ExternalTextureRun;
 use crate::filter::FilterPassPlan;
-use crate::target::{DrawPassTarget, IntermediateTextureSizes, RootRenderTarget, TextureTarget};
+use crate::target::{
+    DrawPassTarget, IntermediateTextureSizes, RootRenderTarget, TextureIndex, TextureTarget,
+};
 use crate::util::{RangedSlice, VecExt};
 use crate::{GpuStrip, Scene};
 use vello_common::geometry::RectU16;
@@ -21,8 +23,8 @@ pub(crate) trait RendererBackend {
         target: DrawPassTarget,
     );
     fn clear_pass(&mut self, target: TextureTarget, rects: &[RectU16]);
-    fn blend_pass(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: u8);
-    fn filter_pass(&mut self, plan: &FilterPassPlan, texture_index: u8);
+    fn blend_pass(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: TextureIndex);
+    fn filter_pass(&mut self, plan: &FilterPassPlan, texture_index: TextureIndex);
 }
 
 pub(crate) fn execute<R: RendererBackend>(
@@ -77,8 +79,8 @@ impl Rounds {
             // The order is important because draws to layer texture 0 might have dependencies
             // on draws to layer texture 1 in the same round!
 
-            for (texture_index, pass) in round.layer_texture_passes.iter().enumerate().rev() {
-                let texture_index = u8::try_from(texture_index).unwrap();
+            for (index, pass) in round.layer_texture_passes.iter().enumerate().rev() {
+                let texture_index = TextureIndex::from_index(index);
                 // For each layer texture target, we first perform the draws of all layers that are
                 // allocated in this texture.
                 let draw = &pass.draw;
@@ -114,14 +116,13 @@ impl Rounds {
 
             // Finally, we clear layer regions that are deallocated in this round as well as
             // all painted rectangles in the scratch buffer, so future rounds can assume a clean slate.
-            for (texture_index, (layer_clears, scratch_clears)) in round
+            for (index, (layer_clears, scratch_clears)) in round
                 .layer_texture_clears
                 .iter()
                 .zip(round.scratch_texture_clears.iter())
                 .enumerate()
             {
-                let texture_index = u8::try_from(texture_index).unwrap();
-
+                let texture_index = TextureIndex::from_index(index);
                 renderer.clear_pass(TextureTarget::layer(texture_index), layer_clears);
                 renderer.clear_pass(TextureTarget::scratch(texture_index), scratch_clears);
             }

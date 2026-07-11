@@ -29,28 +29,83 @@ impl<L> RenderTarget<L> {
     }
 }
 
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TextureIndex {
+    Even = 0,
+    Odd = 1,
+}
+
+impl TextureIndex {
+    pub(crate) const fn from_parity(value: usize) -> Self {
+        if value & 1 == 0 {
+            Self::Even
+        } else {
+            Self::Odd
+        }
+    }
+
+    pub(crate) const fn from_index(index: usize) -> Self {
+        match index {
+            0 => Self::Even,
+            1 => Self::Odd,
+            _ => panic!("texture index must be 0 or 1"),
+        }
+    }
+
+    pub(crate) const fn is_even(self) -> bool {
+        matches!(self, Self::Even)
+    }
+
+    pub(crate) const fn get_index(self) -> usize {
+        match self {
+            Self::Even => 0,
+            Self::Odd => 1,
+        }
+    }
+
+    pub(crate) const fn opposite(self) -> Self {
+        match self {
+            Self::Even => Self::Odd,
+            Self::Odd => Self::Even,
+        }
+    }
+}
+
+impl From<TextureIndex> for u8 {
+    fn from(index: TextureIndex) -> Self {
+        index as Self
+    }
+}
+
+impl From<TextureIndex> for u32 {
+    fn from(index: TextureIndex) -> Self {
+        u8::from(index).into()
+    }
+}
+
 /// The target of an executable draw pass.
-pub(crate) type DrawPassTarget = RenderTarget<u8>;
+pub(crate) type DrawPassTarget = RenderTarget<TextureIndex>;
 
 /// Identifies one of the intermediate textures used by the hybrid renderer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TextureTarget {
     /// A layer atlas texture.
-    Layer(u8),
+    Layer(TextureIndex),
     /// A scratch texture.
-    Scratch(u8),
+    Scratch(TextureIndex),
 }
 
 impl TextureTarget {
-    pub(crate) fn layer(index: u8) -> Self {
+    pub(crate) fn layer(index: TextureIndex) -> Self {
         Self::Layer(index)
     }
 
-    pub(crate) fn scratch(index: u8) -> Self {
+    pub(crate) fn scratch(index: TextureIndex) -> Self {
         Self::Scratch(index)
     }
 
-    pub(crate) fn index(self) -> u8 {
+    pub(crate) fn index(self) -> TextureIndex {
         match self {
             Self::Layer(index) | Self::Scratch(index) => index,
         }
@@ -75,8 +130,8 @@ impl IntermediateTextureSizes {
 
     pub(crate) fn size(self, target: TextureTarget) -> Int16Size {
         match target {
-            TextureTarget::Layer(index) => self.layer[usize::from(index)],
-            TextureTarget::Scratch(index) => self.scratch[usize::from(index)],
+            TextureTarget::Layer(index) => self.layer[index.get_index()],
+            TextureTarget::Scratch(index) => self.scratch[index.get_index()],
         }
     }
 }
@@ -85,7 +140,7 @@ impl IntermediateTextureSizes {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TextureRegion {
     /// Texture index, currently `0` or `1`.
-    pub(crate) texture_index: u8,
+    pub(crate) texture_index: TextureIndex,
     /// Region in the texture.
     pub(crate) rect: RectU16,
 }

@@ -23,7 +23,7 @@
 
 use crate::copy::GpuCopyInstance;
 use crate::schedule::round::FilterOp;
-use crate::target::{IntermediateTextureSizes, TextureRegion, TextureTarget};
+use crate::target::{IntermediateTextureSizes, TextureIndex, TextureRegion, TextureTarget};
 use crate::util::{Int16Size, Int32Size, IntRect, pack_u16_pair};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
@@ -485,7 +485,7 @@ struct FilterPassBuilder<'a> {
     passes: &'a mut FilterPassPlan,
     sizer: DecimationSizer,
     original: TextureTarget,
-    current_scratch: Option<u8>,
+    current_scratch: Option<TextureIndex>,
     step: usize,
 }
 
@@ -512,9 +512,8 @@ impl<'a> FilterPassBuilder<'a> {
         }
     }
 
-    fn scratch_region(&self, index: u8) -> TextureRegion {
-        self.op.scratches[usize::from(index)]
-            .expect("filter pass requires allocated scratch region")
+    fn scratch_region(&self, index: TextureIndex) -> TextureRegion {
+        self.op.scratches[index.get_index()].expect("filter pass requires allocated scratch region")
     }
 
     fn texture_offset(&self, texture: TextureTarget) -> [u32; 2] {
@@ -535,8 +534,9 @@ impl<'a> FilterPassBuilder<'a> {
             .map_or_else(|| self.original, TextureTarget::scratch)
     }
 
-    fn next_scratch(&self) -> u8 {
-        self.current_scratch.map_or(0, |scratch| 1 - scratch)
+    fn next_scratch(&self) -> TextureIndex {
+        self.current_scratch
+            .map_or(TextureIndex::Even, TextureIndex::opposite)
     }
 
     fn apply_pass_dimensions(&mut self, kind: u32) -> (Int16Size, Int16Size) {
@@ -591,12 +591,12 @@ impl<'a> FilterPassBuilder<'a> {
     }
 
     fn ensure_result_in_scratch0(&mut self) {
-        if self.current_texture() == TextureTarget::scratch(0) {
+        if self.current_texture() == TextureTarget::scratch(TextureIndex::Even) {
             return;
         }
 
-        self.emit(pass_kind::COPY, TextureTarget::scratch(0));
-        self.current_scratch = Some(0);
+        self.emit(pass_kind::COPY, TextureTarget::scratch(TextureIndex::Even));
+        self.current_scratch = Some(TextureIndex::Even);
     }
 
     fn emit_blur_sequence(&mut self, n_decimations: usize) {
@@ -620,7 +620,6 @@ impl<'a> FilterPassBuilder<'a> {
         const OTHER_DATA_LAYER_TEXTURE_INDEX_SHIFT: u32 = 31;
 
         let texture_index = u32::from(self.op.layer_region.texture.texture_index);
-        debug_assert!(texture_index <= 1, "layer texture index must fit in 1 bit");
         kind | (texture_index << OTHER_DATA_LAYER_TEXTURE_INDEX_SHIFT)
     }
 

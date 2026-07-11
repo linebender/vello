@@ -18,7 +18,8 @@ use crate::filter::{FilterContext, FilterPassPlan, PreparedGpuFilter};
 use crate::paint::PaintResolver;
 use crate::scene::RecordedDraw;
 use crate::target::{
-    DrawTarget, IntermediateTextureSizes, LayerTextureRegion, RootRenderTarget, TextureRegion,
+    DrawTarget, IntermediateTextureSizes, LayerTextureRegion, RootRenderTarget, TextureIndex,
+    TextureRegion,
 };
 use crate::util::Int16Size;
 use crate::{RenderError, Scene};
@@ -113,8 +114,7 @@ trait ScheduleTarget: DrawTarget {
     /// Given that a child layer finishes rendering at `child_round` and is stored in
     /// the texture at index `child_texture_index`, return the round smallest round in which
     /// the composition into parent can be scheduled.
-    fn composite_round(&self, child_texture_index: u8, child_round: usize)
-                       -> usize;
+    fn composite_round(&self, child_texture_index: TextureIndex, child_round: usize) -> usize;
 }
 
 impl ScheduleTarget for RootRenderTarget {
@@ -122,7 +122,7 @@ impl ScheduleTarget for RootRenderTarget {
         round.root_draw_mut()
     }
 
-    fn composite_round(&self, _: u8, child_round: usize) -> usize {
+    fn composite_round(&self, _: TextureIndex, child_round: usize) -> usize {
         // Within a single round, root draws are performed once all layer texture operations
         // finished (see `Rounds::execute`), so we can always schedule it in that same round.
         child_round
@@ -134,11 +134,7 @@ impl ScheduleTarget for LayerTextureRegion {
         round.layer_draw_mut(self.texture.texture_index)
     }
 
-    fn composite_round(
-        &self,
-        child_texture_index: u8,
-        child_round: usize,
-    ) -> usize {
+    fn composite_round(&self, child_texture_index: TextureIndex, child_round: usize) -> usize {
         // As seen in `Rounds::execute`, the order within a round is:
         // - All texture 1 draws.
         // - All texture 0 draws.
@@ -148,7 +144,7 @@ impl ScheduleTarget for LayerTextureRegion {
         // - If the child is in texture 1, we can schedule the compositing operation in the same
         // round.
         // - Otherwise, we need to do it in the next round.
-        child_round + usize::from(child_texture_index % 2 == 0 )
+        child_round + usize::from(child_texture_index.is_even())
     }
 }
 
@@ -325,7 +321,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         OpenLayer {
             cmds: &self.recorder.root_cmds,
             kind: &REGULAR_LAYER_KIND,
-            texture_index: 1,
+            texture_index: TextureIndex::Odd,
             bbox: self.scene_bbox,
             sample: LayerSamplePlacement {
                 src_offset: (0, 0),
@@ -335,10 +331,8 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         }
     }
 
-    fn layer_texture_index(&self, layer_depth: usize) -> u8 {
-        ((layer_depth + usize::from(self.recorder.root_is_blend_target)) & 1)
-            .try_into()
-            .unwrap()
+    fn layer_texture_index(&self, layer_depth: usize) -> TextureIndex {
+        TextureIndex::from_parity(layer_depth + usize::from(self.recorder.root_is_blend_target))
     }
 
     fn push_draws<T: ScheduleTarget>(
@@ -448,7 +442,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         }
 
         rounds.ensure_exists(blend_round);
-        rounds.rounds[blend_round].scratch_texture_clears[usize::from(BLEND_SCRATCH_INDEX)]
+        rounds.rounds[blend_round].scratch_texture_clears[BLEND_SCRATCH_INDEX.get_index()]
             .push(parent_region.blend_scratch_clear_rect(bbox));
         rounds.rounds[blend_round].push_blend_op(
             parent_texture_index,
@@ -493,20 +487,19 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
     fn release_layer(&mut self, layer: ScheduledLayer, round_idx: usize, rounds: &mut Rounds) {
         rounds.ensure_exists(round_idx);
         let clear_region = layer.allocations.main_allocation.clear_region();
-        rounds.rounds[round_idx].layer_texture_clears[usize::from(clear_region.texture_index)]
+        rounds.rounds[round_idx].layer_texture_clears[clear_region.texture_index.get_index()]
             .push(clear_region.rect);
         for scratch in layer.allocations.scratch_allocations.into_iter().flatten() {
             let clear_region = scratch.clear_region();
-            rounds.rounds[round_idx].scratch_texture_clears
-                [usize::from(clear_region.texture_index)]
-            .push(clear_region.rect);
+            rounds.rounds[round_idx].scratch_texture_clears[clear_region.texture_index.get_index()]
+                .push(clear_region.rect);
         }
         self.cursor.release(layer.allocations, round_idx);
     }
 
     fn allocate_region(
         &mut self,
-        texture_index: u8,
+        texture_index: TextureIndex,
         bbox: RectU16,
         kind: &RecordedLayerKind,
         scratch_count: u8,
@@ -582,7 +575,7 @@ struct PreparedChild<'a> {
 struct OpenLayer<'a> {
     cmds: &'a [CmdNode],
     kind: &'a RecordedLayerKind,
-    texture_index: u8,
+    texture_index: TextureIndex,
     bbox: RectU16,
     sample: LayerSamplePlacement,
     target: Option<LayerTarget>,

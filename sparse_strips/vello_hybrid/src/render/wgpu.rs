@@ -43,7 +43,9 @@ use crate::{
     },
     scene::Scene,
     schedule::{RendererBackend, Schedule, ScheduleStorage, round::BlendOp},
-    target::{DrawPassTarget, IntermediateTextureSizes, RootRenderTarget, TextureTarget},
+    target::{
+        DrawPassTarget, IntermediateTextureSizes, RootRenderTarget, TextureIndex, TextureTarget,
+    },
 };
 use alloc::vec::Vec;
 use alloc::{sync::Arc, vec};
@@ -999,30 +1001,33 @@ impl WgpuIntermediateTexture {
 
 impl GpuResources {
     fn layer_binding_views(&self) -> [&WgpuTextureView; 2] {
-        [self.layer_binding_view(0), self.layer_binding_view(1)]
+        [
+            self.layer_binding_view(TextureIndex::Even),
+            self.layer_binding_view(TextureIndex::Odd),
+        ]
     }
 
-    fn layer_binding_view(&self, index: u8) -> &WgpuTextureView {
-        self.layer_textures[usize::from(index)]
+    fn layer_binding_view(&self, index: TextureIndex) -> &WgpuTextureView {
+        self.layer_textures[index.get_index()]
             .as_ref()
             .map_or(&self.dummy_layer_texture.view, |texture| &texture.view)
     }
 
-    fn scratch_binding_view(&self, index: u8) -> &WgpuTextureView {
-        self.scratch_textures[usize::from(index)]
+    fn scratch_binding_view(&self, index: TextureIndex) -> &WgpuTextureView {
+        self.scratch_textures[index.get_index()]
             .as_ref()
             .map_or(&self.dummy_scratch_texture.view, |texture| &texture.view)
     }
 
-    fn layer_view(&self, index: u8) -> &WgpuTextureView {
-        &self.layer_textures[usize::from(index)]
+    fn layer_view(&self, index: TextureIndex) -> &WgpuTextureView {
+        &self.layer_textures[index.get_index()]
             .as_ref()
             .expect("vello_hybrid attempted to use a missing layer texture")
             .view
     }
 
-    fn scratch_view(&self, index: u8) -> &WgpuTextureView {
-        &self.scratch_textures[usize::from(index)]
+    fn scratch_view(&self, index: TextureIndex) -> &WgpuTextureView {
+        &self.scratch_textures[index.get_index()]
             .as_ref()
             .expect("vello_hybrid attempted to use a missing scratch texture")
             .view
@@ -1637,8 +1642,8 @@ impl Programs {
                 view,
             )
         });
-        let layer_config_buffers = core::array::from_fn(|array_index| {
-            let texture_index = u8::try_from(array_index).unwrap();
+        let layer_config_buffers = core::array::from_fn(|index| {
+            let texture_index = TextureIndex::from_index(index);
             let size = texture_sizes.size(TextureTarget::layer(texture_index));
             Self::create_config_buffer_for_size(
                 device,
@@ -1761,7 +1766,7 @@ impl Programs {
         let blend_copy_bind_group = Self::create_blend_copy_bind_group(
             device,
             &blend_copy_bind_group_layout,
-            scratch_binding_views[usize::from(BLEND_SCRATCH_INDEX)],
+            scratch_binding_views[BLEND_SCRATCH_INDEX.get_index()],
         );
 
         let resources = GpuResources {
@@ -1889,9 +1894,9 @@ impl Programs {
             return;
         }
 
-        self.resources.layer_textures = core::array::from_fn(|array_index| {
-            let texture_index = u8::try_from(array_index).unwrap();
-            if requirements.layer_textures[array_index] {
+        self.resources.layer_textures = core::array::from_fn(|index| {
+            let texture_index = TextureIndex::from_index(index);
+            if requirements.layer_textures[texture_index.get_index()] {
                 let size = self
                     .resources
                     .texture_sizes
@@ -1903,9 +1908,9 @@ impl Programs {
                 None
             }
         });
-        self.resources.scratch_textures = core::array::from_fn(|array_index| {
-            let texture_index = u8::try_from(array_index).unwrap();
-            if requirements.scratch_textures[array_index] {
+        self.resources.scratch_textures = core::array::from_fn(|index| {
+            let texture_index = TextureIndex::from_index(index);
+            if requirements.scratch_textures[texture_index.get_index()] {
                 let size = self
                     .resources
                     .texture_sizes
@@ -1929,8 +1934,8 @@ impl Programs {
         ) = {
             let layer_binding_views = self.resources.layer_binding_views();
             let scratch_binding_views = [
-                self.resources.scratch_binding_view(0),
-                self.resources.scratch_binding_view(1),
+                self.resources.scratch_binding_view(TextureIndex::Even),
+                self.resources.scratch_binding_view(TextureIndex::Odd),
             ];
             let alphas_texture_view = self
                 .resources
@@ -1981,7 +1986,7 @@ impl Programs {
                 Self::create_blend_copy_bind_group(
                     device,
                     &self.blend_copy_bind_group_layout,
-                    scratch_binding_views[usize::from(BLEND_SCRATCH_INDEX)],
+                    scratch_binding_views[BLEND_SCRATCH_INDEX.get_index()],
                 ),
             )
         };
@@ -2909,7 +2914,7 @@ impl RendererContext<'_> {
             ),
             DrawPassTarget::Layer(texture_index) => (
                 self.programs.resources.layer_view(texture_index),
-                &self.programs.resources.layer_bind_groups[usize::from(texture_index)],
+                &self.programs.resources.layer_bind_groups[texture_index.get_index()],
             ),
         };
 
@@ -3005,9 +3010,9 @@ impl RendererContext<'_> {
         self.programs.resources.texture_sizes.size(target)
     }
 
-    fn blend_pass_inner(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: u8) {
+    fn blend_pass_inner(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: TextureIndex) {
         let parent_texture_size = self.texture_size(TextureTarget::layer(texture_index));
-        let scratch_texture_size = self.texture_size(TextureTarget::scratch(0));
+        let scratch_texture_size = self.texture_size(TextureTarget::scratch(TextureIndex::Even));
         if blends.len() == 0 {
             return;
         }
@@ -3101,7 +3106,7 @@ impl RendererContext<'_> {
         }
     }
 
-    fn filter_pass_inner(&mut self, plan: &FilterPassPlan, texture_index: u8) {
+    fn filter_pass_inner(&mut self, plan: &FilterPassPlan, texture_index: TextureIndex) {
         if plan.is_empty() {
             return;
         }
@@ -3110,12 +3115,18 @@ impl RendererContext<'_> {
             let (input, output) = if step_index == 0 {
                 (
                     TextureTarget::layer(texture_index),
-                    TextureTarget::scratch(0),
+                    TextureTarget::scratch(TextureIndex::Even),
                 )
             } else if step_index % 2 == 1 {
-                (TextureTarget::scratch(0), TextureTarget::scratch(1))
+                (
+                    TextureTarget::scratch(TextureIndex::Even),
+                    TextureTarget::scratch(TextureIndex::Odd),
+                )
             } else {
-                (TextureTarget::scratch(1), TextureTarget::scratch(0))
+                (
+                    TextureTarget::scratch(TextureIndex::Odd),
+                    TextureTarget::scratch(TextureIndex::Even),
+                )
             };
             encode_filter_pass(
                 self.device,
@@ -3242,11 +3253,11 @@ impl RendererBackend for RendererContext<'_> {
         self.strip_pass_inner(&[], strips, external_texture_runs, target);
     }
 
-    fn blend_pass(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: u8) {
+    fn blend_pass(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: TextureIndex) {
         self.blend_pass_inner(blends, texture_index);
     }
 
-    fn filter_pass(&mut self, plan: &FilterPassPlan, texture_index: u8) {
+    fn filter_pass(&mut self, plan: &FilterPassPlan, texture_index: TextureIndex) {
         self.filter_pass_inner(plan, texture_index);
     }
 
@@ -3305,17 +3316,17 @@ fn filter_input_bind_group(resources: &GpuResources, texture: TextureTarget) -> 
     match texture {
         TextureTarget::Layer(_) => {
             assert!(
-                resources.layer_textures[usize::from(texture.index())].is_some(),
+                resources.layer_textures[texture.index().get_index()].is_some(),
                 "vello_hybrid attempted to sample a missing layer texture"
             );
-            &resources.layer_filter_input_bind_groups[usize::from(texture.index())]
+            &resources.layer_filter_input_bind_groups[texture.index().get_index()]
         }
         TextureTarget::Scratch(_) => {
             assert!(
-                resources.scratch_textures[usize::from(texture.index())].is_some(),
+                resources.scratch_textures[texture.index().get_index()].is_some(),
                 "vello_hybrid attempted to sample a missing scratch texture"
             );
-            &resources.scratch_input_bind_groups[usize::from(texture.index())]
+            &resources.scratch_input_bind_groups[texture.index().get_index()]
         }
     }
 }

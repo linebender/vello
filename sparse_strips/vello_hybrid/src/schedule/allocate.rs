@@ -4,7 +4,7 @@
 //! Atlas allocation for scheduled layer and scratch texture regions.
 
 use crate::filter::FILTER_ATLAS_PADDING;
-use crate::target::{IntermediateTextureSizes, TextureRegion, TextureTarget};
+use crate::target::{IntermediateTextureSizes, TextureIndex, TextureRegion, TextureTarget};
 use crate::util::Int16Size;
 use vello_common::geometry::RectU16;
 use vello_common::multi_atlas::{AllocId, Atlas, AtlasId};
@@ -50,12 +50,12 @@ impl Atlases {
 
         Self {
             layer_atlases: [
-                new_atlas(TextureTarget::layer(0), 0),
-                new_atlas(TextureTarget::layer(1), 1),
+                new_atlas(TextureTarget::layer(TextureIndex::Even), 0),
+                new_atlas(TextureTarget::layer(TextureIndex::Odd), 1),
             ],
             scratch_atlases: [
-                new_atlas(TextureTarget::scratch(0), 0),
-                new_atlas(TextureTarget::scratch(1), 1),
+                new_atlas(TextureTarget::scratch(TextureIndex::Even), 0),
+                new_atlas(TextureTarget::scratch(TextureIndex::Odd), 1),
             ],
         }
     }
@@ -73,10 +73,10 @@ impl Atlases {
 
         let atlas = match target {
             TextureTarget::Layer(texture_index) => {
-                &mut self.layer_atlases[usize::from(texture_index)]
+                &mut self.layer_atlases[texture_index.get_index()]
             }
             TextureTarget::Scratch(texture_index) => {
-                &mut self.scratch_atlases[usize::from(texture_index)]
+                &mut self.scratch_atlases[texture_index.get_index()]
             }
         };
         let allocation = atlas.allocate(
@@ -99,9 +99,9 @@ impl Atlases {
 
     fn deallocate_region(&mut self, atlas_kind: AtlasKind, texture: AllocatedTextureRegion) {
         let atlas = match atlas_kind {
-            AtlasKind::Layer => &mut self.layer_atlases[usize::from(texture.region.texture_index)],
+            AtlasKind::Layer => &mut self.layer_atlases[texture.region.texture_index.get_index()],
             AtlasKind::Scratch => {
-                &mut self.scratch_atlases[usize::from(texture.region.texture_index)]
+                &mut self.scratch_atlases[texture.region.texture_index.get_index()]
             }
         };
 
@@ -130,7 +130,9 @@ impl Allocator for Atlases {
         let mut scratch_allocations = [None, None];
 
         if request.scratch_count > 0 {
-            let Some(texture) = self.allocate_region(TextureTarget::scratch(0), request) else {
+            let Some(texture) =
+                self.allocate_region(TextureTarget::scratch(TextureIndex::Even), request)
+            else {
                 self.deallocate_region(AtlasKind::Layer, main_allocation);
 
                 return None;
@@ -140,7 +142,9 @@ impl Allocator for Atlases {
         }
 
         if request.scratch_count > 1 {
-            let Some(texture) = self.allocate_region(TextureTarget::scratch(1), request) else {
+            let Some(texture) =
+                self.allocate_region(TextureTarget::scratch(TextureIndex::Odd), request)
+            else {
                 let scratch_0 = scratch_allocations[0].expect("scratch 0 must be allocated");
                 self.deallocate_region(AtlasKind::Scratch, scratch_0);
                 self.deallocate_region(AtlasKind::Layer, main_allocation);
@@ -168,7 +172,7 @@ impl Allocator for Atlases {
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct LayerAllocationRequest {
-    texture_index: u8,
+    texture_index: TextureIndex,
     size: Int16Size,
     padding: u16,
     scratch_count: u8,
@@ -176,7 +180,7 @@ pub(super) struct LayerAllocationRequest {
 
 impl LayerAllocationRequest {
     pub(super) fn new(
-        texture_index: u8,
+        texture_index: TextureIndex,
         size: Int16Size,
         kind: &RecordedLayerKind,
         scratch_count: u8,

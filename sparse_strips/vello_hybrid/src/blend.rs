@@ -3,11 +3,12 @@
 
 use crate::copy::GpuCopyInstance;
 use crate::schedule::round::BlendOp;
+use crate::target::TextureIndex;
 use crate::util::{Int16Size, pack_opacity, pack_u16_pair};
 use bytemuck::{Pod, Zeroable};
 use vello_common::peniko::{Compose, Mix};
 
-pub(crate) const BLEND_SCRATCH_INDEX: u8 = 0;
+pub(crate) const BLEND_SCRATCH_INDEX: TextureIndex = TextureIndex::Even;
 
 /// Per-instance data for `blend.wgsl`.
 #[repr(C)]
@@ -90,12 +91,9 @@ fn pack_blend_config(
     mix: Mix,
     compose: Compose,
     opacity: f32,
-    parent_texture_index: u8,
-    child_texture_index: u8,
+    parent_texture_index: TextureIndex,
+    child_texture_index: TextureIndex,
 ) -> u32 {
-    debug_assert!(parent_texture_index <= 1);
-    debug_assert!(child_texture_index <= 1);
-
     pack_compose(compose)
         | (pack_mix(mix) << 8)
         | (u32::from(pack_opacity(opacity)) << 16)

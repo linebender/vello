@@ -6,7 +6,7 @@
 use super::ScheduleBuffers;
 use crate::draw::Draw;
 use crate::filter::GpuFilterData;
-use crate::target::{LayerTextureRegion, TextureRegion};
+use crate::target::{LayerTextureRegion, TextureIndex, TextureRegion};
 use crate::util::{Ranges, VecExt};
 use alloc::vec::Vec;
 use vello_common::geometry::RectU16;
@@ -30,30 +30,30 @@ impl Round {
         &mut self.root_draw
     }
 
-    pub(super) fn layer_draw_mut(&mut self, texture_index: u8) -> &mut Draw {
-        &mut self.layer_texture_passes[usize::from(texture_index)].draw
+    pub(super) fn layer_draw_mut(&mut self, texture_index: TextureIndex) -> &mut Draw {
+        &mut self.layer_texture_passes[texture_index.get_index()].draw
     }
 
     pub(super) fn push_blend_op(
         &mut self,
-        parent_texture_index: u8,
+        parent_texture_index: TextureIndex,
         buffers: &mut ScheduleBuffers,
         blend: BlendOp,
     ) {
         buffers.blend_ops.push_ranged(
-            &mut self.layer_texture_passes[usize::from(parent_texture_index)].blend_ranges,
+            &mut self.layer_texture_passes[parent_texture_index.get_index()].blend_ranges,
             blend,
         );
     }
 
     pub(super) fn push_filter_op(
         &mut self,
-        texture_index: u8,
+        texture_index: TextureIndex,
         buffers: &mut ScheduleBuffers,
         filter: FilterOp,
     ) {
         buffers.filter_ops.push_ranged(
-            &mut self.layer_texture_passes[usize::from(texture_index)].filter_ranges,
+            &mut self.layer_texture_passes[texture_index.get_index()].filter_ranges,
             filter,
         );
     }
