@@ -152,33 +152,22 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             let mut state =
                 TargetScheduleState::new(target, self.cursor.current_round(), self.scene_bbox);
 
-            self.schedule_root_commands(&self.recorder.root_cmds, &mut state, rounds)?;
-        };
+            for cmd in &self.recorder.root_cmds {
+                // Remember: Each command node consists of a sequence of draws + an option layer invocation.
 
-        Ok(())
-    }
+                // First, we schedule the layer node. This might trigger advances to our current base round.
+                let child = self.prepare_node(cmd, state.draw_state.target_bbox, rounds)?;
 
-    fn schedule_root_commands(
-        &mut self,
-        cmds: &[CmdNode],
-        state: &mut TargetScheduleState<RootRenderTarget>,
-        rounds: &mut Rounds,
-    ) -> Result<(), RenderError> {
-        for cmd in cmds {
-            // Remember: Each command node consists of a sequence of draws + an option layer invocation.
+                // Then, we just submit all draws to the root output target for whatever round we are
+                // currently in.
+                self.push_draws(&cmd.draws, &mut state, rounds);
 
-            // First, we schedule the layer node. This might trigger advances to our current base round.
-            let child = self.prepare_node(cmd, state.draw_state.target_bbox, rounds)?;
-
-            // Then, we just submit all draws to the root output target for whatever round we are
-            // currently in.
-            self.push_draws(&cmd.draws, state, rounds);
-
-            // Finally, we also schedule the layer sampling operation.
-            if let Some(child) = child {
-                self.compose_simple_layer(child.props, child.layer, state, rounds);
+                // Finally, we also schedule the layer sampling operation.
+                if let Some(child) = child {
+                    self.compose_simple_layer(child.props, child.layer, &mut state, rounds);
+                }
             }
-        }
+        };
 
         Ok(())
     }
