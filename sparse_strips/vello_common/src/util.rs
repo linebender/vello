@@ -6,7 +6,7 @@
 use crate::geometry::RectU16;
 use crate::kurbo::PathEl;
 use crate::math::FloatExt;
-use crate::strip::{Strip, StripSegment, for_each_fill_segment};
+use crate::strip::{Strip, StripFillSegment, for_each_fill_segment};
 use crate::tile::Tile;
 use alloc::vec::Vec;
 use core::ops::{Index, IndexMut};
@@ -392,18 +392,9 @@ pub fn strip_bbox(strips: &[Strip]) -> RectU16 {
             u16::MAX.div_ceil(Tile::WIDTH),
             u16::MAX.div_ceil(Tile::HEIGHT),
         ),
-        |segment| {
-            let (tile_x0, tile_x1, strip_y) = match segment {
-                StripSegment::Alpha(segment) => (segment.tile_x0, segment.tile_x1, segment.tile_y),
-                StripSegment::Fill(segment) => (segment.tile_x0, segment.tile_x1, segment.tile_y),
-            };
-            tile_bbox.union(RectU16::new(
-                tile_x0,
-                strip_y,
-                tile_x1,
-                strip_y.saturating_add(1),
-            ));
-        },
+        &mut tile_bbox,
+        |bbox, segment| union_strip_bbox(bbox, *segment),
+        union_strip_bbox,
     );
 
     if tile_bbox.is_empty() {
@@ -416,6 +407,15 @@ pub fn strip_bbox(strips: &[Strip]) -> RectU16 {
             tile_bbox.y1.saturating_mul(Tile::HEIGHT),
         )
     }
+}
+
+fn union_strip_bbox(bbox: &mut RectU16, segment: StripFillSegment) {
+    bbox.union(RectU16::new(
+        segment.tile_x0,
+        segment.tile_y,
+        segment.tile_x1,
+        segment.tile_y.saturating_add(1),
+    ));
 }
 
 #[cfg(test)]
@@ -444,7 +444,7 @@ mod tests {
 
     #[test]
     fn empty_strip_bbox() {
-        let strips = [sentinel(0, 0), sentinel(0, 0)];
+        let strips = [];
 
         assert_eq!(strip_bbox(&strips), RectU16::INVERTED);
     }
@@ -485,7 +485,7 @@ mod tests {
     fn strips_with_multiple_rows_bbox() {
         let strips = [
             Strip::new(12, 0, 0, false),
-            sentinel(0, u32::from(Tile::HEIGHT) * 4),
+            Strip::new(16, 0, u32::from(Tile::HEIGHT) * 4, false),
             Strip::new(4, 8, u32::from(Tile::HEIGHT) * 4, false),
             sentinel(8, u32::from(Tile::HEIGHT) * 8),
         ];

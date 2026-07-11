@@ -19,7 +19,7 @@ use vello_common::mask::Mask;
 use vello_common::paint::{ImageSource, IndexedPaint, Paint};
 use vello_common::pixmap::Pixmap;
 use vello_common::record::{LayerClip, LayerProps, RecordedLayerKind};
-use vello_common::strip::{Strip, StripSegment, for_each_fill_segment};
+use vello_common::strip::{Strip, for_each_fill_segment};
 use vello_common::tile::Tile;
 use vello_common::util::{Clear, RectExt, RetainVec, VecPool};
 
@@ -691,33 +691,36 @@ impl CommandBucketer {
             clip_scene_y1 / Tile::HEIGHT,
         );
 
-        for_each_fill_segment(strip_buf, bounds, |segment| match segment {
-            StripSegment::Alpha(segment) => {
+        for_each_fill_segment(
+            strip_buf,
+            bounds,
+            self,
+            |bucketer, segment| {
                 let row_idx = usize::from(segment.tile_y - origin_tile_y);
                 let x0 = (segment.tile_x0 - origin_tile_x) * Tile::WIDTH;
                 let x1 = (segment.tile_x1 - origin_tile_x) * Tile::WIDTH;
                 alpha_fill_cmd(
-                    self,
+                    bucketer,
                     GeneratedAlphaFill {
                         row_idx,
                         span: Span::new(x0, x1 - x0),
                         alpha_idx: segment.alpha_idx,
                     },
                 );
-            }
-            StripSegment::Fill(segment) => {
+            },
+            |bucketer, segment| {
                 let row_idx = usize::from(segment.tile_y - origin_tile_y);
                 let x0 = (segment.tile_x0 - origin_tile_x) * Tile::WIDTH;
                 let x1 = (segment.tile_x1 - origin_tile_x) * Tile::WIDTH;
                 fill_cmd(
-                    self,
+                    bucketer,
                     GeneratedFill {
                         row_idx,
                         span: Span::new(x0, x1 - x0),
                     },
                 );
-            }
-        });
+            },
+        );
     }
 
     /// Note: If depth-culling should be disabled, pass `None` to `draw_id`.

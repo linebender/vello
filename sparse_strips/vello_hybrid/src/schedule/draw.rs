@@ -17,7 +17,7 @@ use vello_common::geometry::RectU16;
 use vello_common::kurbo::Rect;
 use vello_common::paint::Paint;
 use vello_common::record::LayerClip;
-use vello_common::strip::{StripFillSegment, StripSegment, for_each_fill_segment};
+use vello_common::strip::{StripFillSegment, for_each_fill_segment};
 use vello_common::strip_generator::StripStorage;
 use vello_common::tile::Tile;
 use vello_common::util::{Clear, RectExt};
@@ -125,11 +125,15 @@ impl<'a> DrawBuilder<'a> {
         let is_opaque = self.opaque.is_some() && paint.opaque;
         let depth_index = self.state.depth.next(is_opaque);
         let tile_bounds = self.state.draw_bounds.to_tile_bounds();
+        let geometry_shift = self.state.target.geometry_shift();
 
         // Note: This method will also take care of culling any strips to the active clip bbox.
-        for_each_fill_segment(strips, tile_bounds, |segment| match segment {
-            StripSegment::Alpha(segment) => {
-                let shifted = segment.shift(self.state.target.geometry_shift());
+        for_each_fill_segment(
+            strips,
+            tile_bounds,
+            self,
+            |builder, segment| {
+                let shifted = segment.shift(geometry_shift);
                 let strip = GpuStrip::from_fill(
                     shifted,
                     Some(segment.col_idx()),
@@ -138,11 +142,12 @@ impl<'a> DrawBuilder<'a> {
                     depth_index,
                 );
 
-                self.draw
-                    .push(self.strips, strip, paint.external_texture_id);
-            }
-            StripSegment::Fill(segment) => {
-                let shifted = segment.shift(self.state.target.geometry_shift());
+                builder
+                    .draw
+                    .push(builder.strips, strip, paint.external_texture_id);
+            },
+            |builder, segment| {
+                let shifted = segment.shift(geometry_shift);
 
                 let strip = GpuStrip::from_fill(
                     shifted,
@@ -152,12 +157,13 @@ impl<'a> DrawBuilder<'a> {
                     depth_index,
                 );
 
-                if !is_opaque || !self.push_opaque(strip) {
-                    self.draw
-                        .push(self.strips, strip, paint.external_texture_id);
+                if !is_opaque || !builder.push_opaque(strip) {
+                    builder
+                        .draw
+                        .push(builder.strips, strip, paint.external_texture_id);
                 }
-            }
-        });
+            },
+        );
     }
 
     fn push_rect(&mut self, rect: &Rect, paint: &Paint, paint_resolver: PaintResolver<'_>) {
@@ -221,18 +227,23 @@ impl<'a> DrawBuilder<'a> {
             let depth_index = self.state.depth.next(false);
             let tile_bounds = sample_bbox.to_tile_bounds();
 
-            for_each_fill_segment(strips, tile_bounds, |segment| match segment {
-                StripSegment::Alpha(segment) => self.push_layer_fill_segment(
-                    sample,
-                    *segment,
-                    Some(segment.col_idx()),
-                    paint,
-                    depth_index,
-                ),
-                StripSegment::Fill(segment) => {
-                    self.push_layer_fill_segment(sample, segment, None, paint, depth_index);
-                }
-            });
+            for_each_fill_segment(
+                strips,
+                tile_bounds,
+                self,
+                |builder, segment| {
+                    builder.push_layer_fill_segment(
+                        sample,
+                        *segment,
+                        Some(segment.col_idx()),
+                        paint,
+                        depth_index,
+                    );
+                },
+                |builder, segment| {
+                    builder.push_layer_fill_segment(sample, segment, None, paint, depth_index);
+                },
+            );
         } else {
             let depth_index = self.state.depth.next(false);
 

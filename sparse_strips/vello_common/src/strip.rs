@@ -27,15 +27,6 @@ pub struct Strip {
     packed_alpha_idx_fill_gap: u32,
 }
 
-/// A strip-derived region that needs to be filled.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StripSegment {
-    /// A fill region with alpha coverage.
-    Alpha(StripAlphaFillSegment),
-    /// A fill region without alpha coverage.
-    Fill(StripFillSegment),
-}
-
 /// A fill region with alpha coverage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StripAlphaFillSegment {
@@ -108,10 +99,12 @@ impl StripFillSegment {
 
 /// Iterate over all fill and alpha-fill regions formed by the sequence of strips,
 /// within the tile-unit bounds indicated by `viewport`.
-pub fn for_each_fill_segment(
+pub fn for_each_fill_segment<C>(
     strips: &[Strip],
     viewport: RectU16,
-    mut segment: impl FnMut(StripSegment),
+    context: &mut C,
+    mut alpha_fill: impl FnMut(&mut C, StripAlphaFillSegment),
+    mut fill: impl FnMut(&mut C, StripFillSegment),
 ) {
     // Need at least two strips: 1 (or more) for the generated path, and the sentinel strip.
     if strips.len() < 2 || viewport.is_empty() {
@@ -149,17 +142,20 @@ pub fn for_each_fill_segment(
         let tile_x1 = strip_tile_x1.min(viewport.x1);
 
         if tile_x0 < tile_x1 {
-            segment(StripSegment::Alpha(StripAlphaFillSegment {
-                fill: StripFillSegment {
-                    tile_x0,
-                    tile_x1,
-                    tile_y,
+            alpha_fill(
+                context,
+                StripAlphaFillSegment {
+                    fill: StripFillSegment {
+                        tile_x0,
+                        tile_x1,
+                        tile_y,
+                    },
+                    alpha_idx: strip.alpha_idx()
+                        + u32::from(tile_x0 - strip_tile_x0)
+                            * u32::from(Tile::WIDTH)
+                            * u32::from(Tile::HEIGHT),
                 },
-                alpha_idx: strip.alpha_idx()
-                    + u32::from(tile_x0 - strip_tile_x0)
-                        * u32::from(Tile::WIDTH)
-                        * u32::from(Tile::HEIGHT),
-            }));
+            );
         }
 
         if next_strip.fill_gap() && next_strip.y == strip.y {
@@ -172,11 +168,14 @@ pub fn for_each_fill_segment(
             let tile_x0 = strip_tile_x1.max(viewport.x0);
             let tile_x1 = (next_strip.x / Tile::WIDTH).min(viewport.x1);
             if tile_x0 < tile_x1 {
-                segment(StripSegment::Fill(StripFillSegment {
-                    tile_x0,
-                    tile_x1,
-                    tile_y,
-                }));
+                fill(
+                    context,
+                    StripFillSegment {
+                        tile_x0,
+                        tile_x1,
+                        tile_y,
+                    },
+                );
             }
         }
     }
