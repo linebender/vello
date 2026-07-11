@@ -17,7 +17,6 @@ use self::round::{BlendOp, FilterOp, Rounds};
 use crate::blend::BLEND_SCRATCH_INDEX;
 use crate::filter::{FilterContext, FilterPassPlan, PreparedGpuFilter};
 use crate::paint::PaintResolver;
-use crate::scene::RecordedDraw;
 use crate::target::{
     DrawTarget, IntermediateTextureSizes, LayerTextureRegion, RenderTarget, RootRenderTarget,
     TextureRegion,
@@ -29,8 +28,8 @@ use alloc::vec::Vec;
 use vello_common::TextureId;
 use vello_common::geometry::RectU16;
 use vello_common::multi_atlas::AtlasError;
-use vello_common::peniko::{BlendMode, Compose};
-use vello_common::record::{CmdNode, Drawable, RecordedLayerKind};
+use vello_common::peniko::BlendMode;
+use vello_common::record::{CmdNode, RecordedLayerKind};
 use vello_common::strip_generator::StripStorage;
 use vello_common::util::RectExt;
 
@@ -236,9 +235,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
     }
 
     fn schedule_root_blend_target(&mut self, rounds: &mut Rounds) -> Result<usize, RenderError> {
-        let Some(mut layer) = self.push_root_layer() else {
-            return Ok(self.cursor.current_round());
-        };
+        let mut layer = self.push_root_layer();
         self.schedule_layer_contents(&mut layer, rounds)?;
         let Some(layer) = self.pop_layer(layer, rounds) else {
             return Ok(self.cursor.current_round());
@@ -325,9 +322,10 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         })
     }
 
-    fn push_root_layer(&self) -> Option<OpenLayer<'a>> {
+    fn push_root_layer(&self) -> OpenLayer<'a> {
         let bbox = DrawTarget::Root(self.root_render_target).draw_bounds(self.scene);
-        (!bbox.is_empty()).then_some(OpenLayer {
+
+        OpenLayer {
             cmds: &self.scene.recorder.root_cmds,
             kind: &REGULAR_LAYER_KIND,
             texture_index: 1,
@@ -338,7 +336,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                 bbox,
             },
             target: None,
-        })
+        }
     }
 
     fn layer_texture_index(&self, layer_depth: usize) -> u8 {
@@ -357,23 +355,11 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             return;
         }
 
-        let track_backdrop_bbox = matches!(state.target, DrawTarget::Layer(_));
-        let mut bbox = RectU16::INVERTED;
         rounds.with_draw_builder(state, &mut self.storage.buffers, |builder| {
             for draw in &self.scene.recorder.draws[draws.start as usize..draws.end as usize] {
-                if track_backdrop_bbox {
-                    let strips = match draw {
-                        RecordedDraw::Path(path) => &self.strip_storage.strips[path.strips.clone()],
-                        RecordedDraw::Rect(_) => &[],
-                    };
-                    bbox.union(draw.bbox(strips));
-                }
                 builder.push_draw(draw, self.strip_storage, self.paint_resolver);
             }
         });
-        if track_backdrop_bbox {
-            state.backdrop_bbox.union(bbox);
-        }
     }
 
     fn schedule_layer_contents(
@@ -466,7 +452,6 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                         self.strip_storage,
                     );
                 });
-                state.backdrop_bbox.union(layer.sample.bbox);
                 state.sampled_layers.push(layer_id);
                 self.release_sampled_layers(state, rounds);
                 return;
@@ -475,9 +460,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
 
         let source_bbox = layer.map_or(RectU16::INVERTED, |layer| layer.sample.bbox);
         let affected_bbox = if blend_mode.is_destructive() {
-            let mut bbox = state.backdrop_bbox;
-            bbox.union(source_bbox);
-            bbox
+            state.target.layer_region().scene_bbox
         } else {
             source_bbox
         };
@@ -521,12 +504,6 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         if layer.is_some() {
             self.consume_child_layer(layer_id, blend_round, rounds);
         }
-        state.backdrop_bbox = match blend_mode.compose {
-            Compose::Clear => RectU16::INVERTED,
-            Compose::Copy | Compose::SrcOut => source_bbox,
-            Compose::SrcIn | Compose::DestIn => state.backdrop_bbox.intersect(source_bbox),
-            _ => affected_bbox,
-        };
         state.round_idx = blend_round + 1;
     }
 
@@ -684,7 +661,6 @@ struct DrawState {
     target: DrawTarget,
     depth: DepthCounter,
     sampled_layers: Vec<u32>,
-    backdrop_bbox: RectU16,
     draw_bounds: RectU16,
     round_idx: usize,
 }
@@ -695,7 +671,6 @@ impl DrawState {
             target,
             depth: DepthCounter::default(),
             sampled_layers: Vec::new(),
-            backdrop_bbox: RectU16::INVERTED,
             draw_bounds,
             round_idx,
         }
