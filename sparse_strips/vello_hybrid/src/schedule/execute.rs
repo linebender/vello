@@ -75,11 +75,11 @@ impl Rounds {
 
         // We iterate over each round separately.
         for round in &self.rounds {
-            // For each round, we first draws to layer texture 1, then to layer texture 0.
-            // The order is important because draws to layer texture 0 might have dependencies
-            // on draws to layer texture 1 in the same round!
+            // For each round, we first draw to the even layer texture, then to the odd layer
+            // texture. The order is important because odd layers can depend on draws to the even
+            // texture in the same round.
 
-            for (index, pass) in round.layer_texture_passes.iter().enumerate().rev() {
+            for (index, pass) in round.layer_texture_passes.iter().enumerate() {
                 let texture_index = TextureIndex::from_index(index);
                 // For each layer texture target, we first perform the draws of all layers that are
                 // allocated in this texture.

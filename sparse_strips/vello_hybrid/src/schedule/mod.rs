@@ -126,6 +126,11 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         let target = self.root_render_target;
 
         if self.recorder.root_is_blend_target {
+            // If the layer is a target of a non-default blending operation, we need to be able to
+            // sample from it. However, this is not possible if we render directly into the
+            // user-provided view. Therefore, we need to simulate a layer push, do all the rendering
+            // there and then blit back into the main frame buffer.
+
             let layer = self.finish_layer(self.open_root_layer(), rounds)?;
             let mut state = TargetScheduleState::new(target, layer.ready_round, self.scene_bbox);
             rounds.build_draw(
@@ -614,14 +619,14 @@ impl ScheduleTarget for LayerTextureRegion {
 
     fn composite_round(&self, child_texture_index: TextureIndex, child_round: usize) -> usize {
         // As seen in `Rounds::execute`, the order within a round is:
-        // - All texture 1 draws.
-        // - All texture 0 draws.
+        // - All even texture draws.
+        // - All odd texture draws.
         // - All root draws.
         //
         // Therefore:
-        // - If the child is in texture 1, we can schedule the compositing operation in the same
-        // round.
+        // - If the child is in the even texture, we can schedule the compositing operation in the
+        //   same round.
         // - Otherwise, we need to do it in the next round.
-        child_round + usize::from(child_texture_index.is_even())
+        child_round + usize::from(!child_texture_index.is_even())
     }
 }
