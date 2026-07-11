@@ -22,7 +22,9 @@ pub(super) trait Allocator {
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Allocation<T> {
+    /// The underlying allocation.
     pub(super) allocation: T,
+    /// The round starting from which this allocation is available.
     pub(super) round_idx: usize,
 }
 

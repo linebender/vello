@@ -444,6 +444,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         self.cursor.release(layer.allocations, round_idx);
     }
 
+    /// Lazily allocate space for an open layer.
     fn ensure_layer_target<'b>(
         &mut self,
         layer: &'b mut OpenLayer<'a>,
@@ -457,11 +458,15 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             };
 
             let request = LayerAllocationRequest::new(layer, filter.as_ref());
+            // Note: this might advance the base round, in case the atlas is already full
+            // and we therefore need to advance the round cursor until enough space has been
+            // freed.
             let allocation = self.cursor.allocate(request)?;
             let region = LayerTextureRegion {
                 texture: allocation.allocation.main_allocation.region,
                 layer_bbox: layer.bbox,
             };
+
             let schedule_state =
                 TargetScheduleState::new(region, allocation.round_idx, region.layer_bbox);
             layer.target = Some(LayerTarget {
