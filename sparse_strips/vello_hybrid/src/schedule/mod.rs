@@ -110,8 +110,11 @@ impl<T: ScheduleTarget> TargetScheduleState<T> {
 trait ScheduleTarget: DrawTarget {
     fn draw_mut<'a>(&self, round: &'a mut Round) -> &'a mut Draw;
 
-    fn required_round_for_layer_sample(&self, child_texture_index: u8, child_round: usize)
-    -> usize;
+    /// Given that a child layer finishes rendering at `child_round` and is stored in
+    /// the texture at index `child_texture_index`, return the round smallest round in which
+    /// the composition into parent can be scheduled.
+    fn composite_round(&self, child_texture_index: u8, child_round: usize)
+                       -> usize;
 }
 
 impl ScheduleTarget for RootRenderTarget {
@@ -119,7 +122,9 @@ impl ScheduleTarget for RootRenderTarget {
         round.root_draw_mut()
     }
 
-    fn required_round_for_layer_sample(&self, _: u8, child_round: usize) -> usize {
+    fn composite_round(&self, _: u8, child_round: usize) -> usize {
+        // Within a single round, root draws are performed once all layer texture operations
+        // finished (see `Rounds::execute`), so we can always schedule it in that same round.
         child_round
     }
 }
@@ -129,19 +134,21 @@ impl ScheduleTarget for LayerTextureRegion {
         round.layer_draw_mut(self.texture.texture_index)
     }
 
-    fn required_round_for_layer_sample(
+    fn composite_round(
         &self,
         child_texture_index: u8,
         child_round: usize,
     ) -> usize {
-        let parent_texture_index = self.texture.texture_index;
-        if parent_texture_index != child_texture_index
-            && (child_texture_index ^ 1) < (parent_texture_index ^ 1)
-        {
-            child_round
-        } else {
-            child_round + 1
-        }
+        // As seen in `Rounds::execute`, the order within a round is:
+        // - All texture 1 draws.
+        // - All texture 0 draws.
+        // - All root draws.
+        //
+        // Therefore:
+        // - If the child is in texture 1, we can schedule the compositing operation in the same
+        // round.
+        // - Otherwise, we need to do it in the next round.
+        child_round + usize::from(child_texture_index % 2 == 0 )
     }
 }
 
@@ -431,7 +438,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             state
                 .draw_state
                 .target
-                .required_round_for_layer_sample(child_texture_index, layer.ready_round),
+                .composite_round(child_texture_index, layer.ready_round),
         );
         let bbox = affected_bbox.intersect(parent_region.layer_bbox);
         if bbox.is_empty() {
@@ -470,7 +477,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             state
                 .draw_state
                 .target
-                .required_round_for_layer_sample(child_texture_index, layer.ready_round),
+                .composite_round(child_texture_index, layer.ready_round),
         );
         rounds.build_draw(state, &mut self.storage.buffers.draw_buffers, |builder| {
             builder.push_layer_fill(
