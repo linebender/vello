@@ -78,6 +78,7 @@ struct Scheduler<'a, 'p> {
     root_render_target: RootRenderTarget,
     paint_resolver: PaintResolver<'a>,
     cursor: Cursor<Atlases>,
+    unreleased_layer_count: usize,
     texture_sizes: IntermediateTextureSizes,
     storage: &'p mut ScheduleStorage,
 }
@@ -99,6 +100,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             root_render_target,
             paint_resolver,
             cursor: Cursor::new(Atlases::new(texture_sizes)),
+            unreleased_layer_count: 0,
             texture_sizes,
             storage,
         }
@@ -107,6 +109,11 @@ impl<'a, 'p> Scheduler<'a, 'p> {
     fn build(mut self) -> Result<Schedule, RenderError> {
         let mut rounds = Rounds::default();
         self.schedule_root(&mut rounds)?;
+
+        assert_eq!(
+            self.unreleased_layer_count, 0,
+            "all layers should have been released"
+        );
 
         // Since the strips should be rendered front-to-back.
         self.storage.buffers.draw_buffers.opaque_strips.reverse();
@@ -128,6 +135,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
 
             let layer = self.finish_layer(self.open_root_layer(), rounds)?;
             let mut state = TargetScheduleState::new(target, layer.ready_round, self.scene_bbox);
+
             rounds.build_draw(
                 &mut state,
                 &mut self.storage.buffers.draw_buffers,
@@ -135,7 +143,9 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                     builder.push_layer_fill(layer.sample, 1.0, None, self.strip_storage);
                 },
             );
-            self.release_layer(layer, layer.ready_round, rounds);
+
+            let ready_round = layer.ready_round;
+            self.release_layer(layer, ready_round, rounds);
         } else {
             let mut state =
                 TargetScheduleState::new(target, self.cursor.current_round(), self.scene_bbox);
@@ -299,11 +309,14 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 },
             );
         }
-        Ok(ScheduledLayer {
+        let scheduled = ScheduledLayer {
             sample: layer.sample.resolve(target.region),
             allocations: target.allocations,
             ready_round,
-        })
+        };
+        self.unreleased_layer_count += 1;
+
+        Ok(scheduled)
     }
 
     fn compose_layer(
@@ -394,6 +407,8 @@ impl<'a, 'p> Scheduler<'a, 'p> {
     }
 
     fn release_layer(&mut self, layer: ScheduledLayer, round_idx: usize, rounds: &mut Rounds) {
+        self.unreleased_layer_count -= 1;
+
         rounds.ensure_exists(round_idx);
         let clear_region = layer.allocations.main_allocation.clear_region();
         rounds.rounds[round_idx].layer_texture_clears[clear_region.texture_index.get_index()]
@@ -467,14 +482,15 @@ impl<'a, 'p> Scheduler<'a, 'p> {
 }
 
 /// A layer that has been scheduled and can be sampled by its parent.
-#[derive(Debug, Clone, Copy)]
+#[must_use = "scheduled layers must be released"]
+#[derive(Debug)]
 struct ScheduledLayer {
     allocations: LayerAllocations,
     sample: LayerSample,
     ready_round: usize,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 struct PreparedChild<'a> {
     props: &'a LayerProps,
     layer: ScheduledLayer,
