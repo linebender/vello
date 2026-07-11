@@ -3,7 +3,8 @@
 
 //! Atlas allocation for scheduled layer and scratch texture regions.
 
-use crate::filter::FILTER_ATLAS_PADDING;
+use super::OpenLayer;
+use crate::filter::{FILTER_ATLAS_PADDING, PreparedGpuFilter};
 use crate::target::{IntermediateTextureSizes, TextureIndex, TextureRegion, TextureTarget};
 use crate::util::Int16Size;
 use vello_common::geometry::RectU16;
@@ -179,22 +180,17 @@ pub(super) struct LayerAllocationRequest {
 }
 
 impl LayerAllocationRequest {
-    pub(super) fn new(
-        texture_index: TextureIndex,
-        size: Int16Size,
-        kind: &RecordedLayerKind,
-        scratch_count: u8,
-    ) -> Self {
-        let padding = match kind {
+    pub(super) fn new(layer: &OpenLayer<'_>, filter: Option<&PreparedGpuFilter>) -> Self {
+        let padding = match layer.kind {
             RecordedLayerKind::Regular => 0,
             RecordedLayerKind::Filter { .. } => FILTER_ATLAS_PADDING,
         };
 
         Self {
-            texture_index,
-            size,
+            texture_index: layer.texture_index,
+            size: Int16Size::new(layer.bbox.width(), layer.bbox.height()),
             padding,
-            scratch_count,
+            scratch_count: filter.map_or(0, |filter| filter.scratch_count()),
         }
     }
 }

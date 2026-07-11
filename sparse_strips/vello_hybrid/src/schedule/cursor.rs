@@ -5,6 +5,7 @@
 
 use crate::schedule::allocate::{Allocation, Allocator};
 use alloc::vec::Vec;
+use vello_common::multi_atlas::AtlasError;
 
 #[derive(Debug)]
 pub(super) struct Cursor<R: Allocator> {
@@ -28,17 +29,20 @@ impl<R: Allocator> Cursor<R> {
         self.current_round
     }
 
-    pub(super) fn allocate(&mut self, request: R::Request) -> Option<Allocation<R::Allocation>> {
+    pub(super) fn allocate(
+        &mut self,
+        request: R::Request,
+    ) -> Result<Allocation<R::Allocation>, AtlasError> {
         loop {
             if let Some(allocation) = self.resource.allocate(request) {
-                return Some(Allocation {
+                return Ok(Allocation {
                     allocation,
                     round_idx: self.current_round,
                 });
             }
 
             if self.pending_release_count == 0 {
-                return None;
+                return Err(AtlasError::NoSpaceAvailable);
             }
 
             self.advance();

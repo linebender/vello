@@ -8,7 +8,7 @@ mod cursor;
 pub(crate) mod execute;
 pub(crate) mod round;
 
-use self::allocate::{Allocation, Atlases, LayerAllocationRequest, LayerAllocations};
+use self::allocate::{Atlases, LayerAllocationRequest, LayerAllocations};
 use self::cursor::Cursor;
 pub(crate) use self::execute::{RendererBackend, execute};
 use self::round::{BlendOp, FilterOp, Round, Rounds};
@@ -21,12 +21,10 @@ use crate::target::{
     DrawTarget, IntermediateTextureSizes, LayerTextureRegion, RootRenderTarget, TextureIndex,
     TextureRegion,
 };
-use crate::util::Int16Size;
 use crate::{RenderError, Scene};
 use alloc::vec::Vec;
 use vello_common::filter::FilterLayerPlacement;
 use vello_common::geometry::RectU16;
-use vello_common::multi_atlas::AtlasError;
 use vello_common::peniko::BlendMode;
 use vello_common::record::{
     CmdNode, CommandRecorder, LayerProps, RecordedLayer, RecordedLayerKind,
@@ -446,32 +444,6 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         self.cursor.release(layer.allocations, round_idx);
     }
 
-    fn allocate_region(
-        &mut self,
-        texture_index: TextureIndex,
-        bbox: RectU16,
-        kind: &RecordedLayerKind,
-        scratch_count: u8,
-    ) -> Result<(Allocation<LayerAllocations>, LayerTextureRegion), RenderError> {
-        let request = LayerAllocationRequest::new(
-            texture_index,
-            Int16Size::new(bbox.width(), bbox.height()),
-            kind,
-            scratch_count,
-        );
-
-        let Some(allocation) = self.cursor.allocate(request) else {
-            return Err(RenderError::AtlasError(AtlasError::NoSpaceAvailable));
-        };
-
-        let region = LayerTextureRegion {
-            texture: allocation.allocation.main_allocation.region,
-            layer_bbox: bbox,
-        };
-
-        Ok((allocation, region))
-    }
-
     fn ensure_layer_target<'b>(
         &mut self,
         layer: &'b mut OpenLayer<'a>,
@@ -483,12 +455,13 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 }
                 RecordedLayerKind::Regular => None,
             };
-            let (allocation, region) = self.allocate_region(
-                layer.texture_index,
-                layer.bbox,
-                layer.kind,
-                filter.map_or(0, PreparedGpuFilter::scratch_count),
-            )?;
+
+            let request = LayerAllocationRequest::new(layer, filter.as_ref());
+            let allocation = self.cursor.allocate(request)?;
+            let region = LayerTextureRegion {
+                texture: allocation.allocation.main_allocation.region,
+                layer_bbox: layer.bbox,
+            };
             let schedule_state =
                 TargetScheduleState::new(region, allocation.round_idx, region.layer_bbox);
             layer.target = Some(LayerTarget {
@@ -499,10 +472,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             });
         }
 
-        Ok(layer
-            .target
-            .as_mut()
-            .expect("layer target must be initialized"))
+        Ok(layer.target.as_mut().unwrap())
     }
 }
 
