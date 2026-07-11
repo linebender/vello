@@ -47,7 +47,7 @@ impl Schedule {
         filter_plan: &mut FilterPassPlan,
     ) {
         if DrawPassTarget::Root(root_output_target).enable_opaque() {
-            renderer.opaque_pass(&buffers.opaque_strips);
+            renderer.opaque_pass(&buffers.draw_buffers.opaque_strips);
         }
 
         self.rounds.execute(
@@ -83,7 +83,7 @@ impl Rounds {
                 // allocated in this texture.
                 let draw = &pass.draw;
                 renderer.draw_pass(
-                    buffers.strips.ranged(&draw.strip_ranges),
+                    buffers.draw_buffers.strips.ranged(&draw.strip_ranges),
                     &draw.external_texture_runs,
                     DrawPassTarget::Layer(texture_index),
                 );
@@ -104,7 +104,10 @@ impl Rounds {
 
             // Once layers are done, we perform any possibly scheduled draws to the root target.
             renderer.draw_pass(
-                buffers.strips.ranged(&round.root_draw.strip_ranges),
+                buffers
+                    .draw_buffers
+                    .strips
+                    .ranged(&round.root_draw.strip_ranges),
                 &round.root_draw.external_texture_runs,
                 DrawPassTarget::Root(root_output_target),
             );

@@ -3,12 +3,11 @@
 
 //! Draw construction for scheduled strip render passes.
 
-use super::{DrawState, ScheduleBuffers};
 use crate::GpuStrip;
 use crate::paint::{COLOR_SOURCE_LAYER, PaintResolver};
 use crate::rect::{RectPart, split_rect};
 use crate::scene::{RecordedDraw, RecordedPath};
-use crate::target::LayerTextureRegion;
+use crate::target::{DrawTarget, LayerTextureRegion};
 use crate::util::{Ranges, VecExt, pack_opacity, pack_u16_pair};
 use alloc::vec::Vec;
 use vello_common::TextureId;
@@ -77,13 +76,13 @@ pub(super) struct DrawBuilder<'a> {
 impl<'a> DrawBuilder<'a> {
     pub(super) fn new(
         draw: &'a mut Draw,
-        buffers: &'a mut ScheduleBuffers,
+        draw_buffers: &'a mut DrawBuffers,
         state: &'a mut DrawState,
     ) -> Self {
         Self {
             draw,
-            strips: &mut buffers.strips,
-            opaque: &mut buffers.opaque_strips,
+            strips: &mut draw_buffers.strips,
+            opaque: &mut draw_buffers.opaque_strips,
             state,
         }
     }
@@ -276,6 +275,38 @@ impl<'a> DrawBuilder<'a> {
         let shifted = segment.shift(self.state.target.geometry_shift());
         let strip = GpuStrip::from_fill(shifted, col_idx, payload, paint, depth_index);
         self.draw.push(self.strips, strip, None);
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct DrawBuffers {
+    pub(crate) opaque_strips: Vec<GpuStrip>,
+    pub(crate) strips: Vec<GpuStrip>,
+}
+
+impl DrawBuffers {
+    pub(super) fn clear(&mut self) {
+        self.opaque_strips.clear();
+        self.strips.clear();
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct DrawState {
+    pub(super) target: DrawTarget,
+    depth: DepthCounter,
+    pub(super) draw_bounds: RectU16,
+    pub(super) draw_round: usize,
+}
+
+impl DrawState {
+    pub(super) fn new(target: DrawTarget, draw_round: usize, draw_bounds: RectU16) -> Self {
+        Self {
+            target,
+            depth: DepthCounter::default(),
+            draw_bounds,
+            draw_round,
+        }
     }
 }
 

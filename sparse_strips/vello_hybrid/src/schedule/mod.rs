@@ -11,7 +11,7 @@ pub(crate) mod round;
 
 use self::allocate::{Allocation, Atlases, LayerAllocationRequest, LayerAllocations};
 use self::cursor::Cursor;
-use self::draw::{DepthCounter, DrawBuilder, LayerSample};
+use self::draw::{DrawBuffers, DrawBuilder, DrawState, LayerSample};
 pub(crate) use self::execute::{RendererBackend, execute};
 use self::round::{BlendOp, FilterOp, Rounds};
 use crate::blend::BLEND_SCRATCH_INDEX;
@@ -22,7 +22,7 @@ use crate::target::{
     TextureRegion,
 };
 use crate::util::Int16Size;
-use crate::{GpuStrip, RenderError, Scene};
+use crate::{RenderError, Scene};
 use alloc::vec::Vec;
 use vello_common::geometry::RectU16;
 use vello_common::multi_atlas::AtlasError;
@@ -67,16 +67,14 @@ impl Schedule {
 
 #[derive(Debug, Default)]
 pub(crate) struct ScheduleBuffers {
-    pub(crate) opaque_strips: Vec<GpuStrip>,
-    pub(crate) strips: Vec<GpuStrip>,
+    pub(crate) draw_buffers: DrawBuffers,
     pub(crate) filter_ops: Vec<FilterOp>,
     pub(crate) blend_ops: Vec<BlendOp>,
 }
 
 impl ScheduleBuffers {
     fn clear(&mut self) {
-        self.opaque_strips.clear();
-        self.strips.clear();
+        self.draw_buffers.clear();
         self.filter_ops.clear();
         self.blend_ops.clear();
     }
@@ -189,7 +187,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
 
             return Err(error);
         }
-        self.storage.buffers.opaque_strips.reverse();
+        self.storage.buffers.draw_buffers.opaque_strips.reverse();
 
         Ok(Schedule {
             rounds,
@@ -204,9 +202,13 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             let target = DrawTarget::Root(self.root_render_target);
             let mut state =
                 DrawState::new(target, layer.ready_round, target.draw_bounds(self.scene));
-            rounds.build_draw(&mut state, &mut self.storage.buffers, |builder| {
-                builder.push_layer_fill(layer.sample, 1.0, None, self.strip_storage);
-            });
+            rounds.build_draw(
+                &mut state,
+                &mut self.storage.buffers.draw_buffers,
+                |builder| {
+                    builder.push_layer_fill(layer.sample, 1.0, None, self.strip_storage);
+                },
+            );
             self.release_layer(layer, layer.ready_round, rounds);
 
             layer.ready_round
@@ -343,7 +345,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             return;
         }
 
-        rounds.build_draw(state, &mut self.storage.buffers, |builder| {
+        rounds.build_draw(state, &mut self.storage.buffers.draw_buffers, |builder| {
             for draw in &self.scene.recorder.draws[draws.start as usize..draws.end as usize] {
                 builder.push_draw(draw, self.strip_storage, self.paint_resolver);
             }
@@ -414,7 +416,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                     .target
                     .required_round_for_layer_sample(child_texture_index, layer.ready_round),
             );
-            rounds.build_draw(state, &mut self.storage.buffers, |builder| {
+            rounds.build_draw(state, &mut self.storage.buffers.draw_buffers, |builder| {
                 builder.push_layer_fill(
                     layer.sample,
                     props.opacity,
@@ -604,30 +606,11 @@ struct LayerTarget {
     draw_state: DrawState,
 }
 
-#[derive(Debug)]
-struct DrawState {
-    target: DrawTarget,
-    depth: DepthCounter,
-    draw_bounds: RectU16,
-    draw_round: usize,
-}
-
-impl DrawState {
-    fn new(target: DrawTarget, draw_round: usize, draw_bounds: RectU16) -> Self {
-        Self {
-            target,
-            depth: DepthCounter::default(),
-            draw_bounds,
-            draw_round,
-        }
-    }
-}
-
 impl Rounds {
     fn build_draw(
         &mut self,
         state: &mut DrawState,
-        buffers: &mut ScheduleBuffers,
+        draw_buffers: &mut DrawBuffers,
         f: impl FnOnce(&mut DrawBuilder<'_>),
     ) {
         self.ensure_exists(state.draw_round);
@@ -639,7 +622,7 @@ impl Rounds {
             }
         };
 
-        let mut builder = DrawBuilder::new(target_draw, buffers, state);
+        let mut builder = DrawBuilder::new(target_draw, draw_buffers, state);
         f(&mut builder);
     }
 }
