@@ -357,18 +357,23 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             return;
         }
 
+        let track_backdrop_bbox = matches!(state.target, DrawTarget::Layer(_));
         let mut bbox = RectU16::INVERTED;
         rounds.with_draw_builder(state, &mut self.storage.buffers, |builder| {
             for draw in &self.scene.recorder.draws[draws.start as usize..draws.end as usize] {
-                let strips = match draw {
-                    RecordedDraw::Path(path) => &self.strip_storage.strips[path.strips.clone()],
-                    RecordedDraw::Rect(_) => &[],
-                };
-                bbox.union(draw.bbox(strips));
+                if track_backdrop_bbox {
+                    let strips = match draw {
+                        RecordedDraw::Path(path) => &self.strip_storage.strips[path.strips.clone()],
+                        RecordedDraw::Rect(_) => &[],
+                    };
+                    bbox.union(draw.bbox(strips));
+                }
                 builder.push_draw(draw, self.strip_storage, self.paint_resolver);
             }
         });
-        state.backdrop_bbox.union(bbox);
+        if track_backdrop_bbox {
+            state.backdrop_bbox.union(bbox);
+        }
     }
 
     fn schedule_layer_contents(
