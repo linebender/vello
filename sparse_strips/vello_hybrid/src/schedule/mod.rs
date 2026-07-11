@@ -16,6 +16,7 @@ use crate::blend::BLEND_SCRATCH_INDEX;
 use crate::draw::{DrawBuffers, DrawBuilder, DrawState, LayerSample};
 use crate::filter::{FilterContext, FilterPassPlan, PreparedGpuFilter};
 use crate::paint::PaintResolver;
+use crate::scene::RecordedDraw;
 use crate::target::{
     DrawTarget, IntermediateTextureSizes, LayerTextureRegion, RenderTarget, RootRenderTarget,
     TextureRegion,
@@ -26,7 +27,9 @@ use alloc::vec::Vec;
 use vello_common::geometry::RectU16;
 use vello_common::multi_atlas::AtlasError;
 use vello_common::peniko::BlendMode;
-use vello_common::record::{CmdNode, LayerProps, RecordedLayer, RecordedLayerKind};
+use vello_common::record::{
+    CmdNode, CommandRecorder, LayerProps, RecordedLayer, RecordedLayerKind,
+};
 use vello_common::strip_generator::StripStorage;
 use vello_common::util::RectExt;
 
@@ -48,10 +51,12 @@ impl Schedule {
         texture_sizes: IntermediateTextureSizes,
     ) -> Result<Self, RenderError> {
         let strip_storage = scene.strip_storage.borrow();
+        let scene_bbox = RectU16::new(0, 0, scene.width, scene.height).snap_to_tile_coordinates();
         filter_context.clear();
         storage.buffers.clear();
         let planner = SchedulePlanner::new(
-            scene,
+            &scene.recorder,
+            scene_bbox,
             &strip_storage,
             root_output_target,
             paint_resolver,
@@ -101,11 +106,9 @@ impl RenderTarget<LayerTextureRegion> {
         }
     }
 
-    fn draw_bounds(self, scene: &Scene) -> RectU16 {
+    fn draw_bounds(self, scene_bbox: RectU16) -> RectU16 {
         match self {
-            Self::Root(_) => {
-                RectU16::new(0, 0, scene.width, scene.height).snap_to_tile_coordinates()
-            }
+            Self::Root(_) => scene_bbox,
             Self::Layer(region) => region.layer_bbox,
         }
     }
@@ -136,7 +139,8 @@ impl RenderTarget<LayerTextureRegion> {
 /// Plans concrete, executable rounds from a recorded scene.
 #[derive(Debug)]
 struct SchedulePlanner<'a, 'p> {
-    scene: &'a Scene,
+    recorder: &'a CommandRecorder<RecordedDraw>,
+    scene_bbox: RectU16,
     strip_storage: &'a StripStorage,
     root_render_target: RootRenderTarget,
     paint_resolver: PaintResolver<'a>,
@@ -148,7 +152,8 @@ struct SchedulePlanner<'a, 'p> {
 
 impl<'a, 'p> SchedulePlanner<'a, 'p> {
     fn new(
-        scene: &'a Scene,
+        recorder: &'a CommandRecorder<RecordedDraw>,
+        scene_bbox: RectU16,
         strip_storage: &'a StripStorage,
         root_render_target: RootRenderTarget,
         paint_resolver: PaintResolver<'a>,
@@ -157,7 +162,8 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         storage: &'p mut ScheduleStorage,
     ) -> Self {
         Self {
-            scene,
+            recorder,
+            scene_bbox,
             strip_storage,
             root_render_target,
             paint_resolver,
@@ -188,12 +194,15 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
     }
 
     fn schedule_root(&mut self, rounds: &mut Rounds) -> Result<(), RenderError> {
-        let ready_round = if self.scene.recorder.root_is_blend_target {
+        let ready_round = if self.recorder.root_is_blend_target {
             let layer = self.finish_layer(self.open_root_layer(), rounds)?;
 
             let target = DrawTarget::Root(self.root_render_target);
-            let mut state =
-                DrawState::new(target, layer.ready_round, target.draw_bounds(self.scene));
+            let mut state = DrawState::new(
+                target,
+                layer.ready_round,
+                target.draw_bounds(self.scene_bbox),
+            );
             rounds.build_draw(
                 &mut state,
                 &mut self.storage.buffers.draw_buffers,
@@ -209,9 +218,9 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             let mut state = DrawState::new(
                 target,
                 self.cursor.current_round(),
-                target.draw_bounds(self.scene),
+                target.draw_bounds(self.scene_bbox),
             );
-            self.schedule_nodes(&self.scene.recorder.root_cmds, &mut state, rounds)?;
+            self.schedule_nodes(&self.recorder.root_cmds, &mut state, rounds)?;
             state.draw_round
         };
         rounds.ensure_exists(ready_round);
@@ -244,7 +253,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             return Ok(None);
         };
 
-        let layer = &self.scene.recorder.layers[layer_id as usize];
+        let layer = &self.recorder.layers[layer_id as usize];
 
         let bbox = if layer.bbox.is_empty() {
             if layer.props.blend_mode.is_destructive() {
@@ -306,10 +315,10 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
     }
 
     fn open_root_layer(&self) -> OpenLayer<'a> {
-        let bbox = DrawTarget::Root(self.root_render_target).draw_bounds(self.scene);
+        let bbox = DrawTarget::Root(self.root_render_target).draw_bounds(self.scene_bbox);
 
         OpenLayer {
-            cmds: &self.scene.recorder.root_cmds,
+            cmds: &self.recorder.root_cmds,
             kind: &REGULAR_LAYER_KIND,
             texture_index: 1,
             bbox,
@@ -322,7 +331,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
     }
 
     fn layer_texture_index(&self, layer_depth: usize) -> u8 {
-        ((layer_depth + usize::from(self.scene.recorder.root_is_blend_target)) & 1)
+        ((layer_depth + usize::from(self.recorder.root_is_blend_target)) & 1)
             .try_into()
             .unwrap()
     }
@@ -338,7 +347,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         }
 
         rounds.build_draw(state, &mut self.storage.buffers.draw_buffers, |builder| {
-            for draw in &self.scene.recorder.draws[draws.start as usize..draws.end as usize] {
+            for draw in &self.recorder.draws[draws.start as usize..draws.end as usize] {
                 builder.push_draw(draw, self.strip_storage, self.paint_resolver);
             }
         });
