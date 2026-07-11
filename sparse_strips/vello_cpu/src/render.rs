@@ -1227,6 +1227,29 @@ mod tests {
         ctx.render_with(&mut pixmap, &mut resources, rasterizer_settings);
     }
 
+    #[cfg(feature = "multithreading")]
+    #[test]
+    fn multithreaded_reset_with_pending_tasks() {
+        use crate::RenderSettings;
+
+        let mut ctx = RenderContext::new_with(
+            100,
+            100,
+            RenderSettings {
+                num_threads: 4,
+                ..Default::default()
+            },
+        );
+
+        // Note: This test only works if we draw enough rectangles
+        // to trigger a batch send.
+        for _ in 0..300 {
+            ctx.fill_rect(&Rect::new(0.0, 0.0, 100., 100.0));
+        }
+
+        ctx.reset();
+    }
+
     #[cfg(feature = "text")]
     #[test]
     fn glyph_atlas_resources_are_lazy() {

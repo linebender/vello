@@ -587,6 +587,8 @@ impl Dispatcher for MultiThreadedDispatcher {
     }
 
     fn reset(&mut self, width: u16, height: u16) {
+        self.flush();
+
         // Bucketer will be reset lazily during rasterization with the active viewport.
         self.clip_context.reset();
         self.recorder.reset();
