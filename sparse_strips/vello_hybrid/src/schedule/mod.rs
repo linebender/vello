@@ -315,16 +315,14 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
     }
 
     fn open_root_layer(&self) -> OpenLayer<'a> {
-        let bbox = DrawTarget::Root(self.root_render_target).draw_bounds(self.scene_bbox);
-
         OpenLayer {
             cmds: &self.recorder.root_cmds,
             kind: &REGULAR_LAYER_KIND,
             texture_index: 1,
-            bbox,
+            bbox: self.scene_bbox,
             sample: LayerSamplePlacement {
                 src_offset: (0, 0),
-                bbox,
+                bbox: self.scene_bbox,
             },
             target: None,
         }
