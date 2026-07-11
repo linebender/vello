@@ -50,10 +50,12 @@ impl Schedule {
         filter_context: &mut FilterContext,
         texture_sizes: IntermediateTextureSizes,
     ) -> Result<Self, RenderError> {
-        let strip_storage = scene.strip_storage.borrow();
-        let scene_bbox = RectU16::new(0, 0, scene.width, scene.height).snap_to_tile_coordinates();
         filter_context.clear();
         storage.buffers.clear();
+
+        let strip_storage = scene.strip_storage.borrow();
+        let scene_bbox = RectU16::new(0, 0, scene.width, scene.height).snap_to_tile_coordinates();
+
         let planner = SchedulePlanner::new(
             &scene.recorder,
             scene_bbox,
@@ -184,15 +186,9 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
 
     fn build(mut self) -> Result<Schedule, RenderError> {
         let mut rounds = Rounds::default();
-        rounds.ensure_exists(0);
+        self.schedule_root(&mut rounds)?;
 
-        let result = self.schedule_root(&mut rounds);
-
-        if let Err(error) = result {
-            self.storage.buffers.clear();
-
-            return Err(error);
-        }
+        // Since the strips should be rendered front-to-back.
         self.storage.buffers.draw_buffers.opaque_strips.reverse();
 
         Ok(Schedule {
