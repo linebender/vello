@@ -85,10 +85,7 @@ pub(crate) struct FilterOp {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BlendOp {
     pub(crate) parent_region: LayerTextureRegion,
-    // Needs to be an option because we could have a layer with a destructive
-    // blend mode but no children, which still clears the whole parent.
-    // TODO: Optimize those away in recordings so we don't need to distinguish here.
-    pub(crate) child_region: Option<LayerTextureRegion>,
+    pub(crate) child_region: LayerTextureRegion,
     pub(crate) blend_bbox: RectU16,
     pub(crate) blend_mode: BlendMode,
     pub(crate) opacity: f32,

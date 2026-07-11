@@ -2628,9 +2628,7 @@ impl WebGlRendererContext<'_> {
                 .map(|blend| {
                     debug_assert_eq!(blend.parent_region.texture.texture_index, texture_index);
                     resources.layer_texture(blend.parent_region.texture.texture_index);
-                    if let Some(child_region) = blend.child_region {
-                        resources.layer_texture(child_region.texture.texture_index);
-                    }
+                    resources.layer_texture(blend.child_region.texture.texture_index);
                     gpu_blend_instance(blend, scratch_texture_size)
                 }),
         );

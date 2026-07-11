@@ -62,18 +62,18 @@ pub(crate) fn gpu_blend_instance(
             target_texture_size.width(),
             target_texture_size.height(),
         ),
-        child_texture_origin: blend
-            .child_region
-            .map(|child| pack_u16_pair(child.texture.rect.x0, child.texture.rect.y0))
-            .unwrap_or(0),
-        child_rect_origin: blend
-            .child_region
-            .map(|child| pack_u16_pair(child.scene_bbox.x0, child.scene_bbox.y0))
-            .unwrap_or(0),
-        child_rect_size: blend
-            .child_region
-            .map(|child| pack_u16_pair(child.scene_bbox.width(), child.scene_bbox.height()))
-            .unwrap_or(0),
+        child_texture_origin: pack_u16_pair(
+            blend.child_region.texture.rect.x0,
+            blend.child_region.texture.rect.y0,
+        ),
+        child_rect_origin: pack_u16_pair(
+            blend.child_region.scene_bbox.x0,
+            blend.child_region.scene_bbox.y0,
+        ),
+        child_rect_size: pack_u16_pair(
+            blend.child_region.scene_bbox.width(),
+            blend.child_region.scene_bbox.height(),
+        ),
         blend_rect_origin: pack_u16_pair(blend.blend_bbox.x0, blend.blend_bbox.y0),
         blend_rect_size: pack_u16_pair(blend.blend_bbox.width(), blend.blend_bbox.height()),
         blend_config: pack_blend_config(
@@ -81,10 +81,7 @@ pub(crate) fn gpu_blend_instance(
             blend.blend_mode.compose,
             blend.opacity,
             blend.parent_region.texture.texture_index,
-            blend
-                .child_region
-                .map(|child| child.texture.texture_index)
-                .unwrap_or(0),
+            blend.child_region.texture.texture_index,
         ),
     }
 }
