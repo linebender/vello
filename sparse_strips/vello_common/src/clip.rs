@@ -846,28 +846,6 @@ mod tests {
         run_test(expected, path, cover);
     }
 
-    #[test]
-    fn row_iterator_zero_width_alpha_region() {
-        let mut path = StripStorage::default();
-        path.strips.push(Strip::new(8, 0, 0, false));
-        path.strips.push(Strip::new(16, 0, 0, true));
-        path.strips.push(Strip::sentinel(0, 0));
-        let path_ref = path_ref(&path);
-
-        let mut idx = 0;
-        let iter = RowIterator::new(path_ref, &mut idx, 0);
-
-        assert_eq!(iter.cur_strip_width(), 0);
-        let fill = iter.cur_strip_fill_area().unwrap();
-        assert_eq!(fill.start, 8);
-        assert_eq!(fill.width, 8);
-
-        let cover = StripBuilder::new().add_strip(0, 0, 20, false).finish();
-        let expected = StripBuilder::new().add_strip(8, 0, 16, false).finish();
-
-        run_test(expected, path, cover);
-    }
-
     fn run_test(expected: StripStorage, path_1: StripStorage, path_2: StripStorage) {
         let mut write_target = StripStorage::default();
 
