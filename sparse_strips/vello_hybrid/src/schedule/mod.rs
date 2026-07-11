@@ -301,33 +301,22 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
     }
 
     fn open_layer(&self, layer: &'a RecordedLayer, bbox: RectU16) -> OpenLayer<'a> {
-        let allocation_bbox = bbox;
-        let sample = if layer.bbox.is_empty() {
-            LayerSamplePlacement {
-                source_offset: (0, 0),
-                source_scene_bbox: allocation_bbox,
+        let sample =  match &layer.kind {
+            RecordedLayerKind::Regular => LayerSamplePlacement {
+                src_offset: (0, 0),
                 bbox,
-            }
-        } else {
-            match &layer.kind {
-                RecordedLayerKind::Regular => LayerSamplePlacement {
-                    source_offset: (0, 0),
-                    source_scene_bbox: allocation_bbox,
-                    bbox,
-                },
-                RecordedLayerKind::Filter { placement, .. } => LayerSamplePlacement {
-                    source_offset: (placement.src_x, placement.src_y),
-                    source_scene_bbox: placement.dest_bbox,
-                    bbox: placement.dest_bbox,
-                },
-            }
+            },
+            RecordedLayerKind::Filter { placement, .. } => LayerSamplePlacement {
+                src_offset: (placement.src_x, placement.src_y),
+                bbox: placement.dest_bbox,
+            },
         };
 
         OpenLayer {
             cmds: &layer.cmds,
             kind: &layer.kind,
             texture_index: self.layer_texture_index(layer.depth),
-            allocation_bbox,
+            bbox,
             sample,
             target: None,
         }
@@ -340,10 +329,9 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             cmds: &self.scene.recorder.root_cmds,
             kind: &REGULAR_LAYER_KIND,
             texture_index: 1,
-            allocation_bbox: bbox,
+            bbox,
             sample: LayerSamplePlacement {
-                source_offset: (0, 0),
-                source_scene_bbox: bbox,
+                src_offset: (0, 0),
                 bbox,
             },
             target: None,
@@ -548,7 +536,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             };
             let (allocation, region) = self.allocate_region(
                 layer.texture_index,
-                layer.allocation_bbox,
+                layer.bbox,
                 layer.kind,
                 filter.map_or(0, PreparedGpuFilter::scratch_count),
             )?;
@@ -591,34 +579,28 @@ struct OpenLayer<'a> {
     cmds: &'a [CmdNode],
     kind: &'a RecordedLayerKind,
     texture_index: u8,
-    allocation_bbox: RectU16,
+    bbox: RectU16,
     sample: LayerSamplePlacement,
     target: Option<LayerTarget>,
 }
 
 #[derive(Debug, Clone, Copy)]
 struct LayerSamplePlacement {
-    source_offset: (u16, u16),
-    source_scene_bbox: RectU16,
+    src_offset: (u16, u16),
     bbox: RectU16,
 }
 
 impl LayerSamplePlacement {
     fn resolve(self, allocation: LayerTextureRegion) -> LayerSample {
-        let x0 = allocation.texture.rect.x0 + self.source_offset.0;
-        let y0 = allocation.texture.rect.y0 + self.source_offset.1;
+        let x0 = allocation.texture.rect.x0 + self.src_offset.0;
+        let y0 = allocation.texture.rect.y0 + self.src_offset.1;
         LayerSample {
             source: LayerTextureRegion {
                 texture: TextureRegion {
                     texture_index: allocation.texture.texture_index,
-                    rect: RectU16::new(
-                        x0,
-                        y0,
-                        x0 + self.source_scene_bbox.width(),
-                        y0 + self.source_scene_bbox.height(),
-                    ),
+                    rect: RectU16::new(x0, y0, x0 + self.bbox.width(), y0 + self.bbox.height()),
                 },
-                scene_bbox: self.source_scene_bbox,
+                scene_bbox: self.bbox,
             },
             bbox: self.bbox,
         }

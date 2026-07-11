@@ -280,7 +280,8 @@ impl<D> CommandRecorder<D> {
                 let mut bbox = layer.bbox;
 
                 if let Some(clip_path) = &recorded_layer.props.clip_path {
-                    bbox = bbox.intersect(clip_path.bbox)
+                    bbox = bbox
+                        .intersect(clip_path.bbox)
                         // The clip path bounding box is derived directly from the clip path
                         // (and hence not necessarily tile-aligned), but we want to ensure that
                         // all bounding boxes _are_ tile-aligned since they should denote the
