@@ -5,7 +5,7 @@
 
 use crate::filter::FILTER_ATLAS_PADDING;
 use crate::target::{IntermediateTextureSizes, TextureRegion, TextureTarget};
-use crate::util::{Int16Size, Int32Size};
+use crate::util::Int16Size;
 use vello_common::geometry::RectU16;
 use vello_common::multi_atlas::{AllocId, Atlas, AtlasId};
 use vello_common::record::RecordedLayerKind;
@@ -105,12 +105,12 @@ impl Atlases {
             }
         };
 
-        let allocation_size = texture.allocation_size();
+        let allocation_region = texture.allocation_region();
 
         atlas.deallocate(
             texture.alloc_id,
-            allocation_size.width(),
-            allocation_size.height(),
+            u32::from(allocation_region.width()),
+            u32::from(allocation_region.height()),
         );
     }
 }
@@ -223,10 +223,12 @@ impl AllocatedTextureRegion {
         self.region
     }
 
-    fn allocation_size(self) -> Int32Size {
-        Int32Size([
-            u32::from(self.region.rect.width()) + u32::from(self.padding) * 2,
-            u32::from(self.region.rect.height()) + u32::from(self.padding) * 2,
-        ])
+    fn allocation_region(self) -> RectU16 {
+        RectU16::new(
+            self.region.rect.x0 - self.padding,
+            self.region.rect.y0 - self.padding,
+            self.region.rect.x1 + self.padding,
+            self.region.rect.y1 + self.padding,
+        )
     }
 }

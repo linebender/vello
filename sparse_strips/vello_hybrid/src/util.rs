@@ -126,16 +126,6 @@ impl Int16Size {
     }
 }
 
-impl Int32Size {
-    pub(crate) const fn width(self) -> u32 {
-        self.0[0]
-    }
-
-    pub(crate) const fn height(self) -> u32 {
-        self.0[1]
-    }
-}
-
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub(crate) struct IntRect {
