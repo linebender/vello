@@ -202,8 +202,8 @@ impl LayerAllocationRequest {
 /// A layer texture region plus the allocator handle needed to release it.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct LayerAllocations {
-    pub(super) scratch_allocations: [Option<AllocatedTextureRegion>; 2],
     pub(super) main_allocation: AllocatedTextureRegion,
+    pub(super) scratch_allocations: [Option<AllocatedTextureRegion>; 2],
 }
 
 #[derive(Debug, Clone, Copy)]
