@@ -107,7 +107,7 @@ impl RenderTarget<LayerTextureRegion> {
             Self::Root(_) => {
                 RectU16::new(0, 0, scene.width, scene.height).snap_to_tile_coordinates()
             }
-            Self::Layer(region) => region.scene_bbox,
+            Self::Layer(region) => region.layer_bbox,
         }
     }
 
@@ -423,7 +423,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
 
         let source_bbox = layer.sample.bbox;
         let affected_bbox = if blend_mode.is_destructive() {
-            let parent_bbox = state.target.layer_region().scene_bbox;
+            let parent_bbox = state.target.layer_region().layer_bbox;
             props
                 .clip_path
                 .as_ref()
@@ -442,7 +442,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                 .target
                 .required_round_for_layer_sample(child_texture_index, layer.ready_round),
         );
-        let bbox = affected_bbox.intersect(state.target.layer_region().scene_bbox);
+        let bbox = affected_bbox.intersect(state.target.layer_region().layer_bbox);
         if bbox.is_empty() {
             self.release_layer(layer, blend_round, rounds);
             state.draw_round = state.draw_round.max(blend_round);
@@ -501,7 +501,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
 
         let region = LayerTextureRegion {
             texture: allocation.allocation.main_allocation.region,
-            scene_bbox: bbox,
+            layer_bbox: bbox,
         };
 
         Ok((allocation, region))
@@ -527,7 +527,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             let draw_state = DrawState::new(
                 DrawTarget::Layer(region),
                 allocation.round_idx,
-                region.scene_bbox,
+                region.layer_bbox,
             );
             layer.target = Some(LayerTarget {
                 allocations: allocation.allocation,
@@ -584,7 +584,7 @@ impl LayerSamplePlacement {
                     texture_index: allocation.texture.texture_index,
                     rect: RectU16::new(x0, y0, x0 + self.bbox.width(), y0 + self.bbox.height()),
                 },
-                scene_bbox: self.bbox,
+                layer_bbox: self.bbox,
             },
             bbox: self.bbox,
         }

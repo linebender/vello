@@ -96,7 +96,7 @@ pub(crate) struct LayerTextureRegion {
     /// Region in the layer texture.
     pub(crate) texture: TextureRegion,
     /// Bounds of this layer in viewport coordinates.
-    pub(crate) scene_bbox: RectU16,
+    pub(crate) layer_bbox: RectU16,
 }
 
 /// The target of a scheduled draw stream.
@@ -114,14 +114,14 @@ impl RenderTarget<LayerTextureRegion> {
 impl LayerTextureRegion {
     pub(crate) fn geometry_shift(&self) -> (i32, i32) {
         (
-            self.texture.rect.x0 as i32 - i32::from(self.scene_bbox.x0),
-            self.texture.rect.y0 as i32 - i32::from(self.scene_bbox.y0),
+            self.texture.rect.x0 as i32 - i32::from(self.layer_bbox.x0),
+            self.texture.rect.y0 as i32 - i32::from(self.layer_bbox.y0),
         )
     }
 
     pub(crate) fn blend_scratch_clear_rect(self, blend_bbox: RectU16) -> RectU16 {
-        let x0 = self.texture.rect.x0 + (blend_bbox.x0 - self.scene_bbox.x0);
-        let y0 = self.texture.rect.y0 + (blend_bbox.y0 - self.scene_bbox.y0);
+        let x0 = self.texture.rect.x0 + (blend_bbox.x0 - self.layer_bbox.x0);
+        let y0 = self.texture.rect.y0 + (blend_bbox.y0 - self.layer_bbox.y0);
         RectU16::new(x0, y0, x0 + blend_bbox.width(), y0 + blend_bbox.height())
     }
 }

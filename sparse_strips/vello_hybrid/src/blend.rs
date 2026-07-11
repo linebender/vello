@@ -53,9 +53,9 @@ pub(crate) fn gpu_blend_instance(
     target_texture_size: Int16Size,
 ) -> GpuBlendInstance {
     let parent_x = blend.parent_region.texture.rect.x0
-        + (blend.blend_bbox.x0 - blend.parent_region.scene_bbox.x0);
+        + (blend.blend_bbox.x0 - blend.parent_region.layer_bbox.x0);
     let parent_y = blend.parent_region.texture.rect.y0
-        + (blend.blend_bbox.y0 - blend.parent_region.scene_bbox.y0);
+        + (blend.blend_bbox.y0 - blend.parent_region.layer_bbox.y0);
     GpuBlendInstance {
         parent_texture_origin: pack_u16_pair(parent_x, parent_y),
         target_texture_size: pack_u16_pair(
@@ -67,12 +67,12 @@ pub(crate) fn gpu_blend_instance(
             blend.child_region.texture.rect.y0,
         ),
         child_rect_origin: pack_u16_pair(
-            blend.child_region.scene_bbox.x0,
-            blend.child_region.scene_bbox.y0,
+            blend.child_region.layer_bbox.x0,
+            blend.child_region.layer_bbox.y0,
         ),
         child_rect_size: pack_u16_pair(
-            blend.child_region.scene_bbox.width(),
-            blend.child_region.scene_bbox.height(),
+            blend.child_region.layer_bbox.width(),
+            blend.child_region.layer_bbox.height(),
         ),
         blend_rect_origin: pack_u16_pair(blend.blend_bbox.x0, blend.blend_bbox.y0),
         blend_rect_size: pack_u16_pair(blend.blend_bbox.width(), blend.blend_bbox.height()),
