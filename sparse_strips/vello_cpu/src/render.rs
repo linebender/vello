@@ -1240,7 +1240,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        
+
         // Note: This test only works if we draw enough rectangles
         // to trigger a batch send.
         for _ in 0..300 {
