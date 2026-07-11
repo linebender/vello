@@ -102,6 +102,15 @@ pub(crate) struct LayerTextureRegion {
 /// The target of a scheduled draw stream.
 pub(crate) type DrawTarget = RenderTarget<LayerTextureRegion>;
 
+impl RenderTarget<LayerTextureRegion> {
+    pub(crate) fn geometry_shift(self) -> (i32, i32) {
+        match self {
+            Self::Root(_) => (0, 0),
+            Self::Layer(region) => region.geometry_shift(),
+        }
+    }
+}
+
 impl LayerTextureRegion {
     pub(crate) fn geometry_shift(&self) -> (i32, i32) {
         (

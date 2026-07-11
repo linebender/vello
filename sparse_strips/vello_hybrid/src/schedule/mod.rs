@@ -102,13 +102,6 @@ impl RenderTarget<LayerTextureRegion> {
         }
     }
 
-    fn geometry_shift(self) -> (i32, i32) {
-        match self {
-            Self::Root(_) => (0, 0),
-            Self::Layer(region) => region.geometry_shift(),
-        }
-    }
-
     fn draw_bounds(self, scene: &Scene) -> RectU16 {
         match self {
             Self::Root(_) => {
