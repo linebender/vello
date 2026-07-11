@@ -110,25 +110,8 @@ impl<T: ScheduleTarget> TargetScheduleState<T> {
 trait ScheduleTarget: DrawTarget {
     fn draw_mut<'a>(&self, round: &'a mut Round) -> &'a mut Draw;
 
-    fn texture_index(&self) -> Option<u8>;
-
-    fn required_round_for_layer_sample(
-        &self,
-        child_texture_index: u8,
-        child_round: usize,
-    ) -> usize {
-        match self.texture_index() {
-            Some(parent_texture_index)
-                if parent_texture_index != child_texture_index
-                    && layer_texture_order(child_texture_index)
-                        < layer_texture_order(parent_texture_index) =>
-            {
-                child_round
-            }
-            Some(_) => child_round + 1,
-            None => child_round,
-        }
-    }
+    fn required_round_for_layer_sample(&self, child_texture_index: u8, child_round: usize)
+    -> usize;
 }
 
 impl ScheduleTarget for RootRenderTarget {
@@ -136,8 +119,8 @@ impl ScheduleTarget for RootRenderTarget {
         round.root_draw_mut()
     }
 
-    fn texture_index(&self) -> Option<u8> {
-        None
+    fn required_round_for_layer_sample(&self, _: u8, child_round: usize) -> usize {
+        child_round
     }
 }
 
@@ -146,16 +129,19 @@ impl ScheduleTarget for LayerTextureRegion {
         round.layer_draw_mut(self.texture.texture_index)
     }
 
-    fn texture_index(&self) -> Option<u8> {
-        Some(self.texture.texture_index)
-    }
-}
-
-fn layer_texture_order(texture_index: u8) -> u8 {
-    match texture_index {
-        1 => 0,
-        0 => 1,
-        _ => texture_index,
+    fn required_round_for_layer_sample(
+        &self,
+        child_texture_index: u8,
+        child_round: usize,
+    ) -> usize {
+        let parent_texture_index = self.texture.texture_index;
+        if parent_texture_index != child_texture_index
+            && (child_texture_index ^ 1) < (parent_texture_index ^ 1)
+        {
+            child_round
+        } else {
+            child_round + 1
+        }
     }
 }
 
