@@ -57,7 +57,7 @@ impl Schedule {
         let strip_storage = scene.strip_storage.borrow();
         let scene_bbox = RectU16::new(0, 0, scene.width, scene.height).snap_to_tile_coordinates();
 
-        let planner = SchedulePlanner::new(
+        let scheduler = Scheduler::new(
             &scene.recorder,
             scene_bbox,
             &strip_storage,
@@ -68,13 +68,13 @@ impl Schedule {
             storage,
         );
 
-        planner.build()
+        scheduler.build()
     }
 }
 
 /// Plans concrete, executable rounds from a recorded scene.
 #[derive(Debug)]
-struct SchedulePlanner<'a, 'p> {
+struct Scheduler<'a, 'p> {
     recorder: &'a CommandRecorder<RecordedDraw>,
     scene_bbox: RectU16,
     strip_storage: &'a StripStorage,
@@ -86,7 +86,7 @@ struct SchedulePlanner<'a, 'p> {
     storage: &'p mut ScheduleStorage,
 }
 
-impl<'a, 'p> SchedulePlanner<'a, 'p> {
+impl<'a, 'p> Scheduler<'a, 'p> {
     fn new(
         recorder: &'a CommandRecorder<RecordedDraw>,
         scene_bbox: RectU16,
