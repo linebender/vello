@@ -28,7 +28,7 @@ use vello_common::TextureId;
 use vello_common::geometry::RectU16;
 use vello_common::multi_atlas::AtlasError;
 use vello_common::peniko::BlendMode;
-use vello_common::record::{CmdNode, RecordedLayerKind};
+use vello_common::record::{CmdNode, LayerProps, RecordedLayer, RecordedLayerKind};
 use vello_common::strip_generator::StripStorage;
 use vello_common::util::RectExt;
 
@@ -209,28 +209,27 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
     }
 
     fn schedule_root(&mut self, rounds: &mut Rounds) -> Result<(), RenderError> {
-        let ready_round = if !self.scene.recorder.root_is_blend_target {
+        let ready_round = if self.scene.recorder.root_is_blend_target {
+            let layer = self.finish_layer(self.open_root_layer(), rounds)?;
+
+            let target = DrawTarget::Root(self.root_render_target);
+            let mut state =
+                DrawState::new(target, layer.ready_round, target.draw_bounds(self.scene));
+            rounds.build_draw(&mut state, &mut self.storage.buffers, |builder| {
+                builder.push_layer_fill(layer.sample, 1.0, None, self.strip_storage);
+            });
+            self.release_layer(layer, layer.ready_round, rounds);
+
+            layer.ready_round
+        } else {
             let target = DrawTarget::Root(self.root_render_target);
             let mut state = DrawState::new(
                 target,
                 self.cursor.current_round(),
                 target.draw_bounds(self.scene),
             );
-            let ready_round =
-                self.schedule_nodes(&self.scene.recorder.root_cmds, &mut state, rounds)?;
-
-            ready_round
-        } else {
-            let layer = self.finish_layer(self.push_root_layer(), rounds)?;
-
-            let target = DrawTarget::Root(self.root_render_target);
-            let mut state = DrawState::new(target, layer.round_idx, target.draw_bounds(self.scene));
-            rounds.build_draw(&mut state, &mut self.storage.buffers, |builder| {
-                builder.push_layer_fill(layer.sample, 1.0, None, self.strip_storage);
-            });
-            self.release_layer(layer, layer.round_idx, rounds);
-
-            layer.round_idx
+            self.schedule_nodes(&self.scene.recorder.root_cmds, &mut state, rounds)?;
+            state.draw_round
         };
         rounds.ensure_exists(ready_round);
 
@@ -242,75 +241,64 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         cmds: &[CmdNode],
         state: &mut DrawState,
         rounds: &mut Rounds,
-    ) -> Result<usize, RenderError> {
+    ) -> Result<(), RenderError> {
         for cmd in cmds {
-            if let Some((layer_id, layer)) = cmd
-                .layer
-                .map(|layer_id| (layer_id, &self.scene.recorder.layers[layer_id as usize]))
-            {
-                let bbox = if layer.bbox.is_empty() {
-                    if layer.props.blend_mode.is_destructive() {
-                        // Unlike in the non-destructive case, empty _destructive_ layers are
-                        // not a no-op. Instead, they clear the whole parent layer. Therefore, we
-                        // need to set an explicit bounding box instead of keeping an empty one,
-                        // as a workaround since we cannot allocate a 0x0 area in the atlas.
-                        // TODO: Properly handle clipped blend layers.
-                        state.draw_bounds
-                    } else {
-                        // TODO: Prune empty layers at the recording layer, so we don't need
-                        // this here.
-                        self.push_draws(&cmd.draws, state, rounds);
-
-                        continue;
-                    }
-                } else {
-                    layer.bbox
-                };
-
-                // First schedule the subtree of
-                let child_layer = self.schedule_layer_subtree(layer_id, bbox, rounds)?;
-                self.push_draws(&cmd.draws, state, rounds);
-                self.schedule_child_layer(layer_id, child_layer, state, rounds);
-            } else {
-                // If there is no layer, we can just schedule the draws for the current round.
-                self.push_draws(&cmd.draws, state, rounds);
-            }
+            let child = self.prepare_node(cmd, state.draw_bounds, rounds)?;
+            self.emit_node(cmd, child, state, rounds);
         }
 
-        Ok(state.draw_round)
+        Ok(())
     }
 
-    fn schedule_layer_subtree(
+    fn prepare_node(
         &mut self,
-        layer_id: u32,
-        bbox: RectU16,
+        cmd: &CmdNode,
+        parent_bounds: RectU16,
         rounds: &mut Rounds,
-    ) -> Result<ScheduledLayer, RenderError> {
-        let layer = self.push_layer(layer_id, bbox);
-        let layer = self.finish_layer(layer, rounds)?;
-        Ok(layer)
-    }
-
-    fn layer_bbox(&self, layer_id: u32, parent_bbox: RectU16) -> Option<RectU16> {
-        let layer = &self.scene.recorder.layers[layer_id as usize];
+    ) -> Result<Option<PreparedChild<'a>>, RenderError> {
+        let Some(layer_id) = cmd.layer else {
+            return Ok(None);
+        };
+        let scene = self.scene;
+        let layer = &scene.recorder.layers[layer_id as usize];
         let bbox = if layer.bbox.is_empty() {
-            if !layer.props.blend_mode.is_destructive() {
-                return None;
+            if layer.props.blend_mode.is_destructive() {
+                // Unlike in the non-destructive case, empty *destructive* layers are
+                // not a no-op. Instead, they clear the whole parent layer. Therefore, we
+                // need to set an explicit bounding box instead of keeping an empty one,
+                // as a workaround since we cannot allocate a 0x0 area in the atlas.
+                // TODO: Properly handle clipped blend layers.
+                parent_bounds
+            } else {
+                // TODO: Prune empty layers at the recording layer, so we don't need
+                // this here.
+                return Ok(None);
             }
-
-            layer
-                .props
-                .clip_path
-                .as_ref()
-                .map_or(parent_bbox, |clip| parent_bbox.intersect(clip.bbox))
         } else {
             layer.bbox
         };
-        (!bbox.is_empty()).then_some(bbox)
+
+        let scheduled = self.finish_layer(self.open_layer(layer, bbox), rounds)?;
+        Ok(Some(PreparedChild {
+            props: &layer.props,
+            layer: scheduled,
+        }))
     }
 
-    fn push_layer(&self, layer_id: u32, bbox: RectU16) -> OpenLayer<'a> {
-        let layer = &self.scene.recorder.layers[layer_id as usize];
+    fn emit_node(
+        &mut self,
+        cmd: &CmdNode,
+        child: Option<PreparedChild<'a>>,
+        state: &mut DrawState,
+        rounds: &mut Rounds,
+    ) {
+        self.push_draws(&cmd.draws, state, rounds);
+        if let Some(child) = child {
+            self.compose_layer(child.props, child.layer, state, rounds);
+        }
+    }
+
+    fn open_layer(&self, layer: &'a RecordedLayer, bbox: RectU16) -> OpenLayer<'a> {
         let allocation_bbox = bbox.snap_to_tile_coordinates();
         let sample = if layer.bbox.is_empty() {
             LayerSamplePlacement {
@@ -343,7 +331,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         }
     }
 
-    fn push_root_layer(&self) -> OpenLayer<'a> {
+    fn open_root_layer(&self) -> OpenLayer<'a> {
         let bbox = DrawTarget::Root(self.root_render_target).draw_bounds(self.scene);
 
         OpenLayer {
@@ -383,49 +371,22 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         });
     }
 
-    fn schedule_layer_contents(
-        &mut self,
-        layer: &mut OpenLayer<'a>,
-        rounds: &mut Rounds,
-    ) -> Result<(), RenderError> {
-        let cmds = layer.cmds;
-        for cmd in cmds {
-            if let Some(child_layer_id) = cmd.layer {
-                let Some(bbox) = self.layer_bbox(child_layer_id, layer.sample.bbox) else {
-                    if !cmd.draws.is_empty() {
-                        let target = self.layer_target(layer)?;
-                        self.push_draws(&cmd.draws, &mut target.draw_state, rounds);
-                    }
-                    continue;
-                };
-                let child_layer = self.schedule_layer_subtree(child_layer_id, bbox, rounds)?;
-
-                let target = self.layer_target(layer)?;
-                self.push_draws(&cmd.draws, &mut target.draw_state, rounds);
-                self.schedule_child_layer(
-                    child_layer_id,
-                    child_layer,
-                    &mut target.draw_state,
-                    rounds,
-                );
-            } else if !cmd.draws.is_empty() {
-                let target = self.layer_target(layer)?;
-                self.push_draws(&cmd.draws, &mut target.draw_state, rounds);
-            }
-        }
-
-        Ok(())
-    }
-
     fn finish_layer(
         &mut self,
         mut layer: OpenLayer<'a>,
         rounds: &mut Rounds,
     ) -> Result<ScheduledLayer, RenderError> {
-        self.schedule_layer_contents(&mut layer, rounds)?;
-        if layer.target.is_none() {
-            self.layer_target(&mut layer)?;
+        for cmd in layer.cmds {
+            let child = self.prepare_node(cmd, layer.sample.bbox, rounds)?;
+            if cmd.draws.is_empty() && child.is_none() {
+                continue;
+            }
+
+            let target = self.ensure_layer_target(&mut layer)?;
+            self.emit_node(cmd, child, &mut target.draw_state, rounds);
         }
+
+        self.ensure_layer_target(&mut layer)?;
         let target = layer
             .target
             .take()
@@ -449,30 +410,31 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         Ok(ScheduledLayer {
             sample: layer.sample.resolve(target.region),
             allocations: target.allocations,
-            region: target.region,
-            round_idx: ready_round,
+            ready_round,
         })
     }
 
-    fn schedule_child_layer(
+    fn compose_layer(
         &mut self,
-        layer_id: u32,
+        props: &LayerProps,
         layer: ScheduledLayer,
         state: &mut DrawState,
         rounds: &mut Rounds,
     ) {
-        let props = &self.scene.recorder.layers[layer_id as usize].props;
         let blend_mode = props.blend_mode;
         let opacity = props.opacity;
-        let same_texture_as_target =
-            state.target.texture_index() == Some(layer.region.texture.texture_index);
-        if blend_mode == BlendMode::default() && !same_texture_as_target {
-            state.draw_round = state
-                .draw_round
-                .max(state.target.required_round_for_layer_sample(
-                    layer.region.texture.texture_index,
-                    layer.round_idx,
-                ));
+        let child_texture_index = layer.sample.source.texture.texture_index;
+        if blend_mode == BlendMode::default() {
+            debug_assert_ne!(
+                state.target.texture_index(),
+                Some(child_texture_index),
+                "parent and child layers must use opposite textures"
+            );
+            state.draw_round = state.draw_round.max(
+                state
+                    .target
+                    .required_round_for_layer_sample(child_texture_index, layer.ready_round),
+            );
             rounds.build_draw(state, &mut self.storage.buffers, |builder| {
                 builder.push_layer_fill(
                     layer.sample,
@@ -495,15 +457,17 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         } else {
             source_bbox
         };
-        let parent_ready_round = state.draw_round;
         let parent_region = state.target.layer_region();
         let parent_texture_index = parent_region.texture.texture_index;
         debug_assert_ne!(
-            parent_texture_index, layer.region.texture.texture_index,
+            parent_texture_index, child_texture_index,
             "blended parent and child layers must use opposite textures"
         );
-        let blend_round =
-            parent_ready_round.max(layer.round_idx + usize::from(parent_texture_index == 1));
+        let blend_round = state.draw_round.max(
+            state
+                .target
+                .required_round_for_layer_sample(child_texture_index, layer.ready_round),
+        );
         let bbox = affected_bbox.intersect(state.target.layer_region().scene_bbox);
         if bbox.is_empty() {
             self.release_layer(layer, blend_round, rounds);
@@ -569,7 +533,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         Ok((allocation, region))
     }
 
-    fn layer_target<'b>(
+    fn ensure_layer_target<'b>(
         &mut self,
         layer: &'b mut OpenLayer<'a>,
     ) -> Result<&'b mut LayerTarget, RenderError> {
@@ -610,9 +574,14 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
 #[derive(Debug, Clone, Copy)]
 struct ScheduledLayer {
     allocations: LayerAllocations,
-    region: LayerTextureRegion,
     sample: LayerSample,
-    round_idx: usize,
+    ready_round: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PreparedChild<'a> {
+    props: &'a LayerProps,
+    layer: ScheduledLayer,
 }
 
 #[derive(Debug)]
