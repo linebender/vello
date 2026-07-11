@@ -43,7 +43,7 @@ use crate::geometry::RectU16;
 use crate::mask::Mask;
 use crate::peniko::BlendMode;
 use crate::strip::Strip;
-use crate::util::VecPool;
+use crate::util::{RectExt, VecPool};
 use alloc::vec::Vec;
 use core::ops::Range;
 
@@ -280,7 +280,7 @@ impl<D> CommandRecorder<D> {
                 let mut bbox = layer.bbox;
 
                 if let Some(clip_path) = &recorded_layer.props.clip_path {
-                    bbox = bbox.intersect(clip_path.bbox);
+                    bbox = bbox.intersect(clip_path.bbox).snap_to_tile_coordinates();
                 }
 
                 recorded_layer.bbox = bbox;

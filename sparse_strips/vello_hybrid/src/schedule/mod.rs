@@ -244,6 +244,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
     ) -> Result<(), RenderError> {
         for cmd in cmds {
             let child = self.prepare_node(cmd, state.draw_bounds, rounds)?;
+
             self.emit_node(cmd, child, state, rounds);
         }
 
@@ -259,8 +260,9 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         let Some(layer_id) = cmd.layer else {
             return Ok(None);
         };
-        let scene = self.scene;
-        let layer = &scene.recorder.layers[layer_id as usize];
+
+        let layer = &self.scene.recorder.layers[layer_id as usize];
+
         let bbox = if layer.bbox.is_empty() {
             if layer.props.blend_mode.is_destructive() {
                 // Unlike in the non-destructive case, empty *destructive* layers are
@@ -299,7 +301,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
     }
 
     fn open_layer(&self, layer: &'a RecordedLayer, bbox: RectU16) -> OpenLayer<'a> {
-        let allocation_bbox = bbox.snap_to_tile_coordinates();
+        let allocation_bbox = bbox;
         let sample = if layer.bbox.is_empty() {
             LayerSamplePlacement {
                 source_offset: (0, 0),
