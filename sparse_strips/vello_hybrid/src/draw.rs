@@ -123,7 +123,7 @@ impl<'a> DrawBuilder<'a> {
         // those _currently_ never use the depth buffer, but it's better to keep the
         // condition simple.
         let depth_index = self.state.depth.next(paint.opaque);
-        let tile_bounds = self.state.draw_bounds.to_tile_bounds();
+        let tile_bounds = self.state.target_bbox.to_tile_bounds();
         let geometry_shift = self.state.target.geometry_shift();
 
         // Note: This method will also take care of culling any strips to the active clip bbox.
@@ -171,7 +171,7 @@ impl<'a> DrawBuilder<'a> {
         // Recordings will not cull those for us, so we need to do this manually here.
         // For normal paths, the `for_each_fill_segment` method takes care of doing this.
         // For rectangles, we can do a simple intersection.
-        let clipped_rect = rect.intersect(self.state.draw_bounds.as_rect());
+        let clipped_rect = rect.intersect(self.state.target_bbox.as_rect());
         if clipped_rect.is_zero_area() {
             return;
         }
@@ -214,7 +214,7 @@ impl<'a> DrawBuilder<'a> {
         clip_path: Option<&LayerClip>,
         strip_storage: &StripStorage,
     ) {
-        let sample_bbox = sample.bbox.intersect(self.state.draw_bounds);
+        let sample_bbox = sample.bbox.intersect(self.state.target_bbox);
         if sample_bbox.is_empty() {
             return;
         }
@@ -295,16 +295,16 @@ impl DrawBuffers {
 pub(crate) struct DrawState {
     pub(crate) target: DrawTarget,
     depth: DepthCounter,
-    pub(crate) draw_bounds: RectU16,
+    pub(crate) target_bbox: RectU16,
     pub(crate) draw_round: usize,
 }
 
 impl DrawState {
-    pub(crate) fn new(target: DrawTarget, draw_round: usize, draw_bounds: RectU16) -> Self {
+    pub(crate) fn new(target: DrawTarget, draw_round: usize, target_bbox: RectU16) -> Self {
         Self {
             target,
             depth: DepthCounter::default(),
-            draw_bounds,
+            target_bbox,
             draw_round,
         }
     }

@@ -220,7 +220,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         rounds: &mut Rounds,
     ) -> Result<(), RenderError> {
         for cmd in cmds {
-            let child = self.prepare_node(cmd, state.draw_bounds, rounds)?;
+            let child = self.prepare_node(cmd, state.target_bbox, rounds)?;
 
             self.emit_node(cmd, child, state, rounds);
         }
