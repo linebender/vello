@@ -4,8 +4,9 @@
 //! Executes planned rendering rounds through a backend.
 
 use super::round::{BlendOp, Rounds};
-use super::{ExternalTextureRun, Schedule, ScheduleBuffers, ScheduleStorage};
+use super::{Schedule, ScheduleBuffers, ScheduleStorage};
 use crate::filter::FilterPassPlan;
+use crate::schedule::draw::ExternalTextureRun;
 use crate::target::{DrawPassTarget, IntermediateTextureSizes, RootRenderTarget, TextureTarget};
 use crate::util::{RangedSlice, VecExt};
 use crate::{GpuStrip, Scene};

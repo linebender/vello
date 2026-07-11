@@ -5,7 +5,7 @@
 
 mod allocate;
 mod cursor;
-mod draw;
+pub(crate) mod draw;
 pub(crate) mod execute;
 pub(crate) mod round;
 
@@ -24,7 +24,6 @@ use crate::target::{
 use crate::util::Int16Size;
 use crate::{GpuStrip, RenderError, Scene};
 use alloc::vec::Vec;
-use vello_common::TextureId;
 use vello_common::geometry::RectU16;
 use vello_common::multi_atlas::AtlasError;
 use vello_common::peniko::BlendMode;
@@ -33,16 +32,6 @@ use vello_common::strip_generator::StripStorage;
 use vello_common::util::RectExt;
 
 const REGULAR_LAYER_KIND: RecordedLayerKind = RecordedLayerKind::Regular;
-
-/// Specifies a run of strips inside a draw that can be drawn with the same external texture
-/// binding.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ExternalTextureRun {
-    pub(crate) texture_id: TextureId,
-    /// Start index of the strip range for this run. The end is implicitly the start of the next
-    /// run, or, for the last run, the total number of strips.
-    pub(crate) strips_start: usize,
-}
 
 #[derive(Debug)]
 pub(crate) struct Schedule {
@@ -301,7 +290,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
     }
 
     fn open_layer(&self, layer: &'a RecordedLayer, bbox: RectU16) -> OpenLayer<'a> {
-        let sample =  match &layer.kind {
+        let sample = match &layer.kind {
             RecordedLayerKind::Regular => LayerSamplePlacement {
                 src_offset: (0, 0),
                 bbox,

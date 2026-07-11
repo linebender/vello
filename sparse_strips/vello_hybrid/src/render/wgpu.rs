@@ -19,6 +19,7 @@ only break in edge cases, and some of them are also only related to conversions 
 )]
 
 use crate::render::common::IMAGE_PADDING;
+use crate::schedule::draw::ExternalTextureRun;
 use crate::schedule::execute::TextureRequirements;
 use crate::util::{Int16Size, RangedSlice};
 use crate::{
@@ -41,7 +42,7 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{ExternalTextureRun, RendererBackend, Schedule, ScheduleStorage, round::BlendOp},
+    schedule::{RendererBackend, Schedule, ScheduleStorage, round::BlendOp},
     target::{DrawPassTarget, IntermediateTextureSizes, RootRenderTarget, TextureTarget},
 };
 use alloc::vec::Vec;

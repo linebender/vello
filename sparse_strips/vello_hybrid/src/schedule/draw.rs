@@ -3,14 +3,14 @@
 
 //! Draw construction for scheduled strip render passes.
 
-use super::{DrawState, ExternalTextureRun, ScheduleBuffers};
+use super::{DrawState, ScheduleBuffers};
 use crate::GpuStrip;
 use crate::paint::{COLOR_SOURCE_LAYER, PaintResolver};
 use crate::rect::{RectPart, split_rect};
 use crate::scene::{RecordedDraw, RecordedPath};
 use crate::target::LayerTextureRegion;
 use crate::util::{Ranges, VecExt, pack_opacity, pack_u16_pair};
-use ::alloc::vec::Vec;
+use alloc::vec::Vec;
 use vello_common::TextureId;
 use vello_common::geometry::RectU16;
 use vello_common::kurbo::Rect;
@@ -344,6 +344,16 @@ impl LayerSample {
     fn paint(opacity: f32) -> u32 {
         (COLOR_SOURCE_LAYER << 29) | u32::from(pack_opacity(opacity))
     }
+}
+
+/// Specifies a run of strips inside a draw that can be drawn with the same external texture
+/// binding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ExternalTextureRun {
+    pub(crate) texture_id: TextureId,
+    /// Start index of the strip range for this run. The end is implicitly the start of the next
+    /// run, or, for the last run, the total number of strips.
+    pub(crate) strips_start: usize,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
