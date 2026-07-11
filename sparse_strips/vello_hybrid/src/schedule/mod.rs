@@ -69,6 +69,8 @@ impl Schedule {
     }
 }
 
+// TODO: Explain how the scheduling algorithm works.
+
 /// Plans concrete, executable rounds from a recorded scene.
 #[derive(Debug)]
 struct Scheduler<'a, 'p> {
@@ -149,25 +151,32 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         } else {
             let mut state =
                 TargetScheduleState::new(target, self.cursor.current_round(), self.scene_bbox);
-            self.schedule_root_nodes(&self.recorder.root_cmds, &mut state, rounds)?;
+
+            self.schedule_root_commands(&self.recorder.root_cmds, &mut state, rounds)?;
         };
 
         Ok(())
     }
 
-    fn schedule_root_nodes(
+    fn schedule_root_commands(
         &mut self,
         cmds: &[CmdNode],
         state: &mut TargetScheduleState<RootRenderTarget>,
         rounds: &mut Rounds,
     ) -> Result<(), RenderError> {
         for cmd in cmds {
+            // Remember: Each command node consists of a sequence of draws + an option layer invocation.
+
+            // First, we schedule the layer node. This might trigger advances to our current base round.
             let child = self.prepare_node(cmd, state.draw_state.target_bbox, rounds)?;
 
+            // Then, we just submit all draws to the root output target for whatever round we are
+            // currently in.
             self.push_draws(&cmd.draws, state, rounds);
+
+            // Finally, we also schedule the layer sampling operation.
             if let Some(child) = child {
-                debug_assert_eq!(child.props.blend_mode, BlendMode::default());
-                self.compose_default_layer(child.props, child.layer, state, rounds);
+                self.compose_simple_layer(child.props, child.layer, state, rounds);
             }
         }
 
@@ -218,6 +227,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         rounds: &mut Rounds,
     ) {
         self.push_draws(&cmd.draws, state, rounds);
+
         if let Some(child) = child {
             self.compose_layer(child.props, child.layer, state, rounds);
         }
@@ -319,25 +329,29 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         Ok(scheduled)
     }
 
+    /// Schedule a composition operation for an arbitrary layer.
     fn compose_layer(
         &mut self,
         props: &LayerProps,
-        layer: ScheduledLayer,
+        child_layer: ScheduledLayer,
         state: &mut TargetScheduleState<LayerTextureRegion>,
         rounds: &mut Rounds,
     ) {
         let blend_mode = props.blend_mode;
         let opacity = props.opacity;
-        let child_texture_index = layer.sample.source.texture.texture_index;
+        let child_texture_index = child_layer.sample.source.texture.texture_index;
+
         if blend_mode == BlendMode::default() {
-            self.compose_default_layer(props, layer, state, rounds);
+            self.compose_simple_layer(props, child_layer, state, rounds);
+
             return;
         }
 
         let parent_region = state.draw_state.target;
-        let source_bbox = layer.sample.bbox;
+        let source_bbox = child_layer.sample.bbox;
         let affected_bbox = if blend_mode.is_destructive() {
             let parent_bbox = parent_region.layer_bbox;
+
             props
                 .clip_path
                 .as_ref()
@@ -354,11 +368,11 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             state
                 .draw_state
                 .target
-                .composite_round(child_texture_index, layer.ready_round),
+                .composite_round(child_texture_index, child_layer.ready_round),
         );
         let bbox = affected_bbox.intersect(parent_region.layer_bbox);
         if bbox.is_empty() {
-            self.release_layer(layer, blend_round, rounds);
+            self.release_layer(child_layer, blend_round, rounds);
             state.next_draw_round = state.next_draw_round.max(blend_round);
             return;
         }
@@ -371,53 +385,73 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             &mut self.storage.buffers,
             BlendOp {
                 parent_region,
-                child_region: layer.sample.source,
+                child_region: child_layer.sample.source,
                 blend_bbox: bbox,
                 blend_mode,
                 opacity,
             },
         );
-        self.release_layer(layer, blend_round, rounds);
+
+        self.release_layer(child_layer, blend_round, rounds);
+
         state.next_draw_round = blend_round + 1;
     }
 
-    fn compose_default_layer<T: ScheduleTarget>(
+    /// Schedule a composition operation for a layer using src-over blending.
+    fn compose_simple_layer<T: ScheduleTarget>(
         &mut self,
         props: &LayerProps,
-        layer: ScheduledLayer,
+        child_layer: ScheduledLayer,
         state: &mut TargetScheduleState<T>,
         rounds: &mut Rounds,
     ) {
-        let child_texture_index = layer.sample.source.texture.texture_index;
+        let child_texture_index = child_layer.sample.source.texture.texture_index;
+
+        // Determine if we can still do it in the current round or need to do it in the next one,
+        // depending on when the child layer is ready and which texture it lies in.
         state.next_draw_round = state.next_draw_round.max(
             state
                 .draw_state
                 .target
-                .composite_round(child_texture_index, layer.ready_round),
+                .composite_round(child_texture_index, child_layer.ready_round),
         );
+
+        // Now simply schedule the layer sample draw for the chosen round.
         rounds.build_draw(state, &mut self.storage.buffers.draw_buffers, |builder| {
             builder.push_layer_fill(
-                layer.sample,
+                child_layer.sample,
                 props.opacity,
                 props.clip_path.as_ref(),
                 self.strip_storage,
             );
         });
-        self.release_layer(layer, state.next_draw_round, rounds);
+
+        // And don't forget to release the child layer at the end of this round, since it does not
+        // need to be retained anymore as it's already been composited into the parent!
+        self.release_layer(child_layer, state.next_draw_round, rounds);
     }
 
     fn release_layer(&mut self, layer: ScheduledLayer, round_idx: usize, rounds: &mut Rounds) {
-        self.unreleased_layer_count -= 1;
+        // When releasing the layer, we need to make sure whatever regions in the different textures
+        // where used are cleared properly.
 
+        self.unreleased_layer_count -= 1;
         rounds.ensure_exists(round_idx);
-        let clear_region = layer.allocations.main_allocation.clear_region();
-        rounds.rounds[round_idx].layer_texture_clears[clear_region.texture_index.get_index()]
-            .push(clear_region.rect);
-        for scratch in layer.allocations.scratch_allocations.into_iter().flatten() {
-            let clear_region = scratch.clear_region();
+
+        // First the main layer allocation.
+        let layer_region = layer.allocations.main_allocation.clear_region();
+        rounds.rounds[round_idx].layer_texture_clears[layer_region.texture_index.get_index()]
+            .push(layer_region.rect);
+
+        // Then any potential scratch texture allocations.
+        for scratch_region in layer.allocations.scratch_allocations.into_iter().flatten() {
+            let clear_region = scratch_region.clear_region();
+
             rounds.rounds[round_idx].scratch_texture_clears[clear_region.texture_index.get_index()]
                 .push(clear_region.rect);
         }
+
+        // And make sure the atlas allocation will also be released.
         self.cursor.release(layer.allocations, round_idx);
     }
 
