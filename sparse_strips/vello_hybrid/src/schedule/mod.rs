@@ -24,6 +24,7 @@ use crate::target::{
 use crate::util::Int16Size;
 use crate::{RenderError, Scene};
 use alloc::vec::Vec;
+use vello_common::filter::FilterLayerPlacement;
 use vello_common::geometry::RectU16;
 use vello_common::multi_atlas::AtlasError;
 use vello_common::peniko::BlendMode;
@@ -220,14 +221,8 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
 
     fn open_layer(&self, layer: &'a RecordedLayer, bbox: RectU16) -> OpenLayer<'a> {
         let sample = match &layer.kind {
-            RecordedLayerKind::Regular => LayerSamplePlacement {
-                src_offset: (0, 0),
-                bbox,
-            },
-            RecordedLayerKind::Filter { placement, .. } => LayerSamplePlacement {
-                src_offset: (placement.src_x, placement.src_y),
-                bbox: placement.dest_bbox,
-            },
+            RecordedLayerKind::Regular => LayerSamplePlacement::regular(bbox),
+            RecordedLayerKind::Filter { placement, .. } => LayerSamplePlacement::filter(*placement),
         };
 
         OpenLayer {
@@ -246,10 +241,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             kind: &REGULAR_LAYER_KIND,
             texture_index: TextureIndex::Odd,
             bbox: self.scene_bbox,
-            sample: LayerSamplePlacement {
-                src_offset: (0, 0),
-                bbox: self.scene_bbox,
-            },
+            sample: LayerSamplePlacement::regular(self.scene_bbox),
             target: None,
         }
     }
@@ -511,6 +503,20 @@ struct LayerSamplePlacement {
 }
 
 impl LayerSamplePlacement {
+    fn regular(bbox: RectU16) -> Self {
+        Self {
+            src_offset: (0, 0),
+            bbox,
+        }
+    }
+
+    fn filter(placement: FilterLayerPlacement) -> Self {
+        Self {
+            src_offset: (placement.src_x, placement.src_y),
+            bbox: placement.dest_bbox,
+        }
+    }
+
     fn resolve(self, allocation: LayerTextureRegion) -> LayerSample {
         let x0 = allocation.texture.rect.x0 + self.src_offset.0;
         let y0 = allocation.texture.rect.y0 + self.src_offset.1;
