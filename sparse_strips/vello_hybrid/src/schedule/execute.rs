@@ -36,6 +36,7 @@ pub(crate) fn execute<R: RendererBackend>(
     let ScheduleStorage {
         buffers,
         filter_pass_plan,
+        ..
     } = storage;
     schedule.execute(renderer, root_output_target, buffers, filter_pass_plan);
 }

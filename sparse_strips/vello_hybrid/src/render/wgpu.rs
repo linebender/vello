@@ -156,8 +156,6 @@ pub struct Renderer {
     paint_idxs: Vec<u32>,
     /// Gradient cache for storing gradient ramps.
     gradient_cache: GradientRampCache,
-    /// Context for GPU filter effects.
-    filter_context: FilterContext,
     dummy_image_cache: Option<ImageCache>,
     schedule_storage: ScheduleStorage,
     scratch: ScratchBuffers,
@@ -206,13 +204,11 @@ impl Renderer {
             max_texture_dimension_2d * max_texture_dimension_2d / MAX_GRADIENT_LUT_SIZE as u32;
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
 
-        let filter_context = FilterContext::new();
         Self {
             programs: Programs::new(device, &image_cache, render_target_config),
             gradient_cache,
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
-            filter_context,
             dummy_image_cache: Some(ImageCache::new_dummy()),
             schedule_storage: ScheduleStorage::default(),
             scratch: ScratchBuffers::default(),
@@ -430,7 +426,6 @@ impl Renderer {
             scene,
             root_output_target,
             paint_resolver,
-            &mut self.filter_context,
             self.programs.resources.texture_sizes,
         )?;
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
@@ -444,7 +439,7 @@ impl Renderer {
             &mut scene.strip_storage.borrow_mut().alphas,
             render_size,
             &self.paint_idxs,
-            &self.filter_context,
+            &self.schedule_storage.filter_context,
         );
         self.programs
             .prepare_intermediate_textures(device, TextureRequirements::new(scene));

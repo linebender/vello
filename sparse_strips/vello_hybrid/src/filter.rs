@@ -390,7 +390,7 @@ pub(crate) struct FilterInstanceData {
 }
 
 /// Context used for keeping track of state necessary for filter rendering.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct FilterContext {
     /// The encoded data for each filter used in the current scene that will be uploaded to the
     /// filter data texture.
@@ -648,12 +648,6 @@ impl<'a> FilterPassBuilder<'a> {
 }
 
 impl FilterContext {
-    pub(crate) fn new() -> Self {
-        Self {
-            filters: Vec::new(),
-        }
-    }
-
     pub(crate) fn clear(&mut self) {
         self.filters.clear();
     }

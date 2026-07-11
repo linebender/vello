@@ -48,11 +48,9 @@ impl Schedule {
         scene: &Scene,
         root_output_target: RootRenderTarget,
         paint_resolver: PaintResolver<'_>,
-        filter_context: &mut FilterContext,
         texture_sizes: IntermediateTextureSizes,
     ) -> Result<Self, RenderError> {
-        filter_context.clear();
-        storage.buffers.clear();
+        storage.clear();
 
         let strip_storage = scene.strip_storage.borrow();
         let scene_bbox = RectU16::new(0, 0, scene.width, scene.height).snap_to_tile_coordinates();
@@ -63,7 +61,6 @@ impl Schedule {
             &strip_storage,
             root_output_target,
             paint_resolver,
-            filter_context,
             texture_sizes,
             storage,
         );
@@ -81,7 +78,6 @@ struct Scheduler<'a, 'p> {
     root_render_target: RootRenderTarget,
     paint_resolver: PaintResolver<'a>,
     cursor: Cursor<Atlases>,
-    filter_context: &'p mut FilterContext,
     texture_sizes: IntermediateTextureSizes,
     storage: &'p mut ScheduleStorage,
 }
@@ -93,7 +89,6 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         strip_storage: &'a StripStorage,
         root_render_target: RootRenderTarget,
         paint_resolver: PaintResolver<'a>,
-        filter_context: &'p mut FilterContext,
         texture_sizes: IntermediateTextureSizes,
         storage: &'p mut ScheduleStorage,
     ) -> Self {
@@ -104,7 +99,6 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             root_render_target,
             paint_resolver,
             cursor: Cursor::new(Atlases::new(texture_sizes)),
-            filter_context,
             texture_sizes,
             storage,
         }
@@ -445,7 +439,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         if layer.target.is_none() {
             let filter = match layer.kind {
                 RecordedLayerKind::Filter { filter_data, .. } => {
-                    Some(self.filter_context.push(filter_data))
+                    Some(self.storage.filter_context.push(filter_data))
                 }
                 RecordedLayerKind::Regular => None,
             };
@@ -579,7 +573,15 @@ impl ScheduleBuffers {
 #[derive(Debug, Default)]
 pub(crate) struct ScheduleStorage {
     pub(crate) buffers: ScheduleBuffers,
+    pub(crate) filter_context: FilterContext,
     filter_pass_plan: FilterPassPlan,
+}
+
+impl ScheduleStorage {
+    fn clear(&mut self) {
+        self.buffers.clear();
+        self.filter_context.clear();
+    }
 }
 
 #[derive(Debug)]
