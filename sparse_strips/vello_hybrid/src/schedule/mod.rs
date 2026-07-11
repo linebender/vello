@@ -135,7 +135,8 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             // user-provided view. Therefore, we need to simulate a layer push, do all the rendering
             // there and then blit back into the main frame buffer.
 
-            let layer = self.finish_layer(self.open_root_layer(), rounds)?;
+            let opened_layer = self.open_root_layer();
+            let layer = self.finish_layer(opened_layer, rounds)?;
             let mut state = TargetScheduleState::new(target, layer.ready_round, self.scene_bbox);
 
             rounds.build_draw(
@@ -201,7 +202,8 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             layer.bbox
         };
 
-        let scheduled = self.finish_layer(self.open_layer(layer, bbox), rounds)?;
+        let opened_layer = self.open_layer(layer, bbox);
+        let scheduled = self.finish_layer(opened_layer, rounds)?;
         Ok(Some(PreparedChild {
             props: &layer.props,
             layer: scheduled,
