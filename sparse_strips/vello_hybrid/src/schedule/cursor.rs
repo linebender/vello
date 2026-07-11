@@ -45,7 +45,7 @@ impl<R: Allocator> Cursor<R> {
         }
     }
 
-    pub(super) fn release_after(&mut self, allocation: R::Allocation, round_idx: usize) {
+    pub(super) fn release(&mut self, allocation: R::Allocation, round_idx: usize) {
         while self.pending_releases.len() <= round_idx {
             self.pending_releases.push(Vec::new());
         }

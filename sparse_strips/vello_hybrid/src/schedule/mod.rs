@@ -506,7 +506,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                 [usize::from(clear_region.texture_index)]
             .push(clear_region.rect);
         }
-        self.cursor.release_after(layer.allocations, round_idx);
+        self.cursor.release(layer.allocations, round_idx);
     }
 
     fn allocate_region(
