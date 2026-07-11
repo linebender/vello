@@ -208,7 +208,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         }))
     }
 
-    fn emit_layer_node(
+    fn schedule_node(
         &mut self,
         cmd: &CmdNode,
         child: Option<PreparedChild<'a>>,
@@ -277,27 +277,40 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         mut layer: OpenLayer<'a>,
         rounds: &mut Rounds,
     ) -> Result<ScheduledLayer, RenderError> {
-        for cmd in layer.cmds {
-            let child = self.prepare_node(cmd, layer.sample.bbox, rounds)?;
-            if cmd.draws.is_empty() && child.is_none() {
-                continue;
-            }
+        // Overall we follow a similar flow to `schedule_root` here.
 
+        for cmd in layer.cmds {
+            // First make sure that the child node is scheduled, in case it exists.
+            let child = self.prepare_node(cmd, layer.sample.bbox, rounds)?;
+
+            // This is probably one of the most crucial lines in this scheduling algorithm: As can
+            // be seen, when traversing the render graph, we only allocate space for the current
+            // layer lazily **after** we have scheduled any potential child node (which happens
+            // in the line above), not before. So allocations of layers happens in a bottom-up
+            // fashion instead up top-down.
+            //
+            // This is crucial for memory reasons: Imagine if we had a render graph with 10 nested
+            // layers. If we reserved space up eagerly top-down, at peak we would need to reserve
+            // space for all 10 layers in the layer texture atlas. On the other hand, by doing
+            // bottom-up, we need to retain 2 layers at most if we want to be memory-efficient:
+            // Once the child layer has been composed into the parent, it's atlas allocation can
+            // be released and therefore the paren't parent can reuse that same space in the next round.
+            // In the best case, if we have many small layers, we can still batch many layers
+            // in the same round, which is also what we currently do.
             let target = self.ensure_layer_target(&mut layer)?;
-            self.emit_layer_node(cmd, child, &mut target.schedule_state, rounds);
+
+            // Now schedule the draws + optional layer composition of this node.
+            self.schedule_node(cmd, child, &mut target.schedule_state, rounds);
         }
 
         self.ensure_layer_target(&mut layer)?;
-        let target = layer
-            .target
-            .take()
-            .expect("finished layers must have an allocated target");
+        let target = layer.target.take().unwrap();
         let region = target.schedule_state.draw_state.target;
-        let ready_round = target.schedule_state.base_round;
+        let base_round = target.schedule_state.base_round;
         if let Some(filter) = target.filter {
             let allocation_filter = target.allocations.scratch_allocations;
-            rounds.ensure_exists(ready_round);
-            rounds.rounds[ready_round].push_filter_op(
+            rounds.ensure_exists(base_round);
+            rounds.rounds[base_round].push_filter_op(
                 region.texture.texture_index,
                 &mut self.storage.buffers,
                 FilterOp {
@@ -312,7 +325,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         let scheduled = ScheduledLayer {
             sample: layer.sample.resolve(region),
             allocations: target.allocations,
-            ready_round,
+            ready_round: base_round,
         };
         self.unreleased_layer_count += 1;
 
