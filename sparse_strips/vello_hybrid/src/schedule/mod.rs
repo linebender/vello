@@ -106,13 +106,6 @@ impl RenderTarget<LayerTextureRegion> {
         }
     }
 
-    fn draw_bounds(self, scene_bbox: RectU16) -> RectU16 {
-        match self {
-            Self::Root(_) => scene_bbox,
-            Self::Layer(region) => region.layer_bbox,
-        }
-    }
-
     fn required_round_for_layer_sample(self, child_texture_index: u8, child_round: usize) -> usize {
         match self.texture_index() {
             Some(parent_texture_index)
@@ -198,11 +191,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             let layer = self.finish_layer(self.open_root_layer(), rounds)?;
 
             let target = DrawTarget::Root(self.root_render_target);
-            let mut state = DrawState::new(
-                target,
-                layer.ready_round,
-                target.draw_bounds(self.scene_bbox),
-            );
+            let mut state = DrawState::new(target, layer.ready_round, self.scene_bbox);
             rounds.build_draw(
                 &mut state,
                 &mut self.storage.buffers.draw_buffers,
@@ -215,11 +204,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             layer.ready_round
         } else {
             let target = DrawTarget::Root(self.root_render_target);
-            let mut state = DrawState::new(
-                target,
-                self.cursor.current_round(),
-                target.draw_bounds(self.scene_bbox),
-            );
+            let mut state = DrawState::new(target, self.cursor.current_round(), self.scene_bbox);
             self.schedule_nodes(&self.recorder.root_cmds, &mut state, rounds)?;
             state.draw_round
         };
