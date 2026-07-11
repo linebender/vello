@@ -209,39 +209,32 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
     }
 
     fn schedule_root(&mut self, rounds: &mut Rounds) -> Result<(), RenderError> {
-        let ready_round = if self.scene.recorder.root_is_blend_target {
-            self.schedule_root_blend_target(rounds)?
+        let ready_round = if !self.scene.recorder.root_is_blend_target {
+            let target = DrawTarget::Root(self.root_render_target);
+            let mut state = DrawState::new(
+                target,
+                self.cursor.current_round(),
+                target.draw_bounds(self.scene),
+            );
+            let ready_round =
+                self.schedule_commands(&self.scene.recorder.root_cmds, &mut state, rounds)?;
+
+            ready_round
         } else {
-            self.schedule_root_direct(rounds)?
+            let layer = self.finish_layer(self.push_root_layer(), rounds)?;
+
+            let target = DrawTarget::Root(self.root_render_target);
+            let mut state = DrawState::new(target, layer.round_idx, target.draw_bounds(self.scene));
+            rounds.with_draw_builder(&mut state, &mut self.storage.buffers, |builder| {
+                builder.push_layer_fill(layer.sample, 1.0, None, self.strip_storage);
+            });
+            self.release_layer(layer, layer.round_idx, rounds);
+
+            layer.round_idx
         };
         rounds.ensure_exists(ready_round);
 
         Ok(())
-    }
-
-    fn schedule_root_direct(&mut self, rounds: &mut Rounds) -> Result<usize, RenderError> {
-        let target = DrawTarget::Root(self.root_render_target);
-        let mut state = DrawState::new(
-            target,
-            self.cursor.current_round(),
-            target.draw_bounds(self.scene),
-        );
-        let ready_round =
-            self.schedule_commands(&self.scene.recorder.root_cmds, &mut state, rounds);
-        ready_round
-    }
-
-    fn schedule_root_blend_target(&mut self, rounds: &mut Rounds) -> Result<usize, RenderError> {
-        let layer = self.finish_layer(self.push_root_layer(), rounds)?;
-
-        let target = DrawTarget::Root(self.root_render_target);
-        let mut state = DrawState::new(target, layer.round_idx, target.draw_bounds(self.scene));
-        rounds.with_draw_builder(&mut state, &mut self.storage.buffers, |builder| {
-            builder.push_layer_fill(layer.sample, 1.0, None, self.strip_storage);
-        });
-        self.release_layer(layer, layer.round_idx, rounds);
-
-        Ok(layer.round_idx)
     }
 
     fn schedule_commands(
