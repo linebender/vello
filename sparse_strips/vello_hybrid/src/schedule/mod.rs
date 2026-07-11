@@ -217,7 +217,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                 target.draw_bounds(self.scene),
             );
             let ready_round =
-                self.schedule_commands(&self.scene.recorder.root_cmds, &mut state, rounds)?;
+                self.schedule_nodes(&self.scene.recorder.root_cmds, &mut state, rounds)?;
 
             ready_round
         } else {
@@ -225,7 +225,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
 
             let target = DrawTarget::Root(self.root_render_target);
             let mut state = DrawState::new(target, layer.round_idx, target.draw_bounds(self.scene));
-            rounds.with_draw_builder(&mut state, &mut self.storage.buffers, |builder| {
+            rounds.build_draw(&mut state, &mut self.storage.buffers, |builder| {
                 builder.push_layer_fill(layer.sample, 1.0, None, self.strip_storage);
             });
             self.release_layer(layer, layer.round_idx, rounds);
@@ -237,7 +237,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
         Ok(())
     }
 
-    fn schedule_commands(
+    fn schedule_nodes(
         &mut self,
         cmds: &[CmdNode],
         state: &mut DrawState,
@@ -267,10 +267,12 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                     layer.bbox
                 };
 
+                // First schedule the subtree of
                 let child_layer = self.schedule_layer_subtree(layer_id, bbox, rounds)?;
                 self.push_draws(&cmd.draws, state, rounds);
                 self.schedule_child_layer(layer_id, child_layer, state, rounds);
             } else {
+                // If there is no layer, we can just schedule the draws for the current round.
                 self.push_draws(&cmd.draws, state, rounds);
             }
         }
@@ -374,7 +376,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             return;
         }
 
-        rounds.with_draw_builder(state, &mut self.storage.buffers, |builder| {
+        rounds.build_draw(state, &mut self.storage.buffers, |builder| {
             for draw in &self.scene.recorder.draws[draws.start as usize..draws.end as usize] {
                 builder.push_draw(draw, self.strip_storage, self.paint_resolver);
             }
@@ -471,7 +473,7 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
                     layer.region.texture.texture_index,
                     layer.round_idx,
                 ));
-            rounds.with_draw_builder(state, &mut self.storage.buffers, |builder| {
+            rounds.build_draw(state, &mut self.storage.buffers, |builder| {
                 builder.push_layer_fill(
                     layer.sample,
                     props.opacity,
@@ -680,7 +682,7 @@ impl DrawState {
 }
 
 impl Rounds {
-    fn with_draw_builder(
+    fn build_draw(
         &mut self,
         state: &mut DrawState,
         buffers: &mut ScheduleBuffers,
