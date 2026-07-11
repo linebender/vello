@@ -122,7 +122,7 @@ impl<'a> DrawBuilder<'a> {
         // Note: This will also advance the depth index for layer root draws even though
         // those _currently_ never use the depth buffer, but it's better to keep the
         // condition simple.
-        let depth_index = self.state.depth.next(paint.opaque);
+        let depth_index = self.state.depth_counter.next(paint.opaque);
         let tile_bounds = self.state.target_bbox.to_tile_bounds();
         let geometry_shift = self.state.target.geometry_shift();
 
@@ -177,7 +177,7 @@ impl<'a> DrawBuilder<'a> {
         }
 
         let paint = paint_resolver.pack(paint);
-        let depth_index = self.state.depth.next(paint.opaque);
+        let depth_index = self.state.depth_counter.next(paint.opaque);
 
         let split = split_rect(&clipped_rect);
 
@@ -222,7 +222,7 @@ impl<'a> DrawBuilder<'a> {
         let paint = LayerSample::paint(opacity);
         if let Some(clip_path) = clip_path {
             let strips = &strip_storage.strips[clip_path.strip_range.clone()];
-            let depth_index = self.state.depth.next(false);
+            let depth_index = self.state.depth_counter.next(false);
             let tile_bounds = sample_bbox.to_tile_bounds();
 
             for_each_fill_segment(
@@ -243,7 +243,7 @@ impl<'a> DrawBuilder<'a> {
                 },
             );
         } else {
-            let depth_index = self.state.depth.next(false);
+            let depth_index = self.state.depth_counter.next(false);
 
             let rect_part = RectPart {
                 rect: sample_bbox.shift(self.state.target.geometry_shift()),
@@ -294,7 +294,7 @@ impl DrawBuffers {
 #[derive(Debug)]
 pub(crate) struct DrawState {
     pub(crate) target: DrawTarget,
-    depth: DepthCounter,
+    depth_counter: DepthCounter,
     pub(crate) target_bbox: RectU16,
     pub(crate) draw_round: usize,
 }
@@ -303,7 +303,7 @@ impl DrawState {
     pub(crate) fn new(target: DrawTarget, draw_round: usize, target_bbox: RectU16) -> Self {
         Self {
             target,
-            depth: DepthCounter::default(),
+            depth_counter: DepthCounter::default(),
             target_bbox,
             draw_round,
         }
