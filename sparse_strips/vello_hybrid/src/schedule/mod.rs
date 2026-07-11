@@ -292,15 +292,16 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             .target
             .take()
             .expect("finished layers must have an allocated target");
+        let region = target.schedule_state.draw_state.target;
         let ready_round = target.schedule_state.next_draw_round;
         if let Some(filter) = target.filter {
             let allocation_filter = target.allocations.scratch_allocations;
             rounds.ensure_exists(ready_round);
             rounds.rounds[ready_round].push_filter_op(
-                target.region.texture.texture_index,
+                region.texture.texture_index,
                 &mut self.storage.buffers,
                 FilterOp {
-                    layer_region: target.region,
+                    layer_region: region,
                     scratches: allocation_filter
                         .map(|scratch| scratch.map(|texture| texture.region)),
                     filter_data_offset: filter.data_offset,
@@ -309,7 +310,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             );
         }
         let scheduled = ScheduledLayer {
-            sample: layer.sample.resolve(target.region),
+            sample: layer.sample.resolve(region),
             allocations: target.allocations,
             ready_round,
         };
@@ -467,11 +468,9 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 layer_bbox: layer.bbox,
             };
 
-            let schedule_state =
-                TargetScheduleState::new(region, allocation.round_idx, region.layer_bbox);
+            let schedule_state = TargetScheduleState::new_layer(region, allocation.round_idx);
             layer.target = Some(LayerTarget {
                 allocations: allocation.allocation,
-                region,
                 filter,
                 schedule_state,
             });
@@ -546,7 +545,6 @@ impl LayerSamplePlacement {
 #[derive(Debug)]
 struct LayerTarget {
     allocations: LayerAllocations,
-    region: LayerTextureRegion,
     filter: Option<PreparedGpuFilter>,
     schedule_state: TargetScheduleState<LayerTextureRegion>,
 }
@@ -612,6 +610,12 @@ impl<T: ScheduleTarget> TargetScheduleState<T> {
             draw_state: DrawState::new(target, target_bbox),
             next_draw_round,
         }
+    }
+}
+
+impl TargetScheduleState<LayerTextureRegion> {
+    fn new_layer(target: LayerTextureRegion, next_draw_round: usize) -> Self {
+        Self::new(target, next_draw_round, target.layer_bbox)
     }
 }
 
