@@ -123,10 +123,10 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
     }
 
     fn schedule_root(&mut self, rounds: &mut Rounds) -> Result<(), RenderError> {
+        let target = self.root_render_target;
+
         if self.recorder.root_is_blend_target {
             let layer = self.finish_layer(self.open_root_layer(), rounds)?;
-
-            let target = self.root_render_target;
             let mut state = TargetScheduleState::new(target, layer.ready_round, self.scene_bbox);
             rounds.build_draw(
                 &mut state,
@@ -137,7 +137,6 @@ impl<'a, 'p> SchedulePlanner<'a, 'p> {
             );
             self.release_layer(layer, layer.ready_round, rounds);
         } else {
-            let target = self.root_render_target;
             let mut state =
                 TargetScheduleState::new(target, self.cursor.current_round(), self.scene_bbox);
             self.schedule_root_nodes(&self.recorder.root_cmds, &mut state, rounds)?;
