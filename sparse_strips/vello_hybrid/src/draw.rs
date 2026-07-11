@@ -296,16 +296,14 @@ pub(crate) struct DrawState {
     pub(crate) target: DrawTarget,
     depth_counter: DepthCounter,
     pub(crate) target_bbox: RectU16,
-    pub(crate) draw_round: usize,
 }
 
 impl DrawState {
-    pub(crate) fn new(target: DrawTarget, draw_round: usize, target_bbox: RectU16) -> Self {
+    pub(crate) fn new(target: DrawTarget, target_bbox: RectU16) -> Self {
         Self {
             target,
             depth_counter: DepthCounter::default(),
             target_bbox,
-            draw_round,
         }
     }
 }
