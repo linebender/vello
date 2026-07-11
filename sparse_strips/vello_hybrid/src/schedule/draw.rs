@@ -3,8 +3,7 @@
 
 //! Draw construction for scheduled strip render passes.
 
-use super::DrawState;
-use super::ExternalTextureRun;
+use super::{DrawState, ExternalTextureRun, ScheduleBuffers};
 use crate::GpuStrip;
 use crate::paint::{COLOR_SOURCE_LAYER, PaintResolver};
 use crate::rect::{RectPart, split_rect};
@@ -71,21 +70,20 @@ impl Clear for Draw {
 pub(super) struct DrawBuilder<'a> {
     draw: &'a mut Draw,
     strips: &'a mut Vec<GpuStrip>,
-    opaque: Option<&'a mut Vec<GpuStrip>>,
+    opaque: &'a mut Vec<GpuStrip>,
     state: &'a mut DrawState,
 }
 
 impl<'a> DrawBuilder<'a> {
     pub(super) fn new(
         draw: &'a mut Draw,
-        strips: &'a mut Vec<GpuStrip>,
-        opaque: Option<&'a mut Vec<GpuStrip>>,
+        buffers: &'a mut ScheduleBuffers,
         state: &'a mut DrawState,
     ) -> Self {
         Self {
             draw,
-            strips,
-            opaque,
+            strips: &mut buffers.strips,
+            opaque: &mut buffers.opaque_strips,
             state,
         }
     }
@@ -105,11 +103,11 @@ impl<'a> DrawBuilder<'a> {
     }
 
     fn push_opaque(&mut self, strip: GpuStrip) -> bool {
-        let Some(opaque) = &mut self.opaque else {
+        if !self.state.target.enable_opaque() {
             return false;
-        };
+        }
 
-        opaque.push(strip);
+        self.opaque.push(strip);
         true
     }
 
@@ -122,7 +120,7 @@ impl<'a> DrawBuilder<'a> {
         let strips = &strip_storage.strips[path.strips.clone()];
 
         let paint = paint_resolver.pack(&path.paint);
-        let is_opaque = self.opaque.is_some() && paint.opaque;
+        let is_opaque = self.state.target.enable_opaque() && paint.opaque;
         let depth_index = self.state.depth.next(is_opaque);
         let tile_bounds = self.state.draw_bounds.to_tile_bounds();
         let geometry_shift = self.state.target.geometry_shift();
@@ -178,7 +176,7 @@ impl<'a> DrawBuilder<'a> {
         }
 
         let paint = paint_resolver.pack(paint);
-        let is_paint_opaque = self.opaque.is_some() && paint.opaque;
+        let is_paint_opaque = self.state.target.enable_opaque() && paint.opaque;
         let depth_index = self.state.depth.next(is_paint_opaque);
 
         let split = split_rect(&clipped_rect);

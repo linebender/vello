@@ -697,11 +697,7 @@ impl Rounds {
             }
         };
 
-        let opaque = state
-            .target
-            .enable_opaque()
-            .then_some(&mut buffers.opaque_strips);
-        let mut builder = DrawBuilder::new(target_draw, &mut buffers.strips, opaque, state);
+        let mut builder = DrawBuilder::new(target_draw, buffers, state);
         f(&mut builder);
     }
 }
