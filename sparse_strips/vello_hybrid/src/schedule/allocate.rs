@@ -14,10 +14,11 @@ use vello_common::record::RecordedLayerKind;
 pub(super) trait Allocator {
     type Request: Copy;
     type Allocation: Copy;
+    type Release: Copy;
 
     fn allocate(&mut self, request: Self::Request) -> Option<Self::Allocation>;
 
-    fn release(&mut self, allocation: Self::Allocation);
+    fn release(&mut self, allocation: Self::Release);
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -121,6 +122,7 @@ impl Atlases {
 impl Allocator for Atlases {
     type Request = LayerAllocationRequest;
     type Allocation = LayerAllocations;
+    type Release = AtlasAllocation;
 
     fn allocate(&mut self, request: Self::Request) -> Option<Self::Allocation> {
         // First allocate the main region for the layer in the layer atlas.
@@ -164,11 +166,14 @@ impl Allocator for Atlases {
         })
     }
 
-    fn release(&mut self, allocation: Self::Allocation) {
-        self.deallocate_region(AtlasKind::Layer, allocation.main_allocation);
-
-        for scratch in allocation.scratch_allocations.into_iter().flatten() {
-            self.deallocate_region(AtlasKind::Scratch, scratch);
+    fn release(&mut self, allocation: Self::Release) {
+        match allocation {
+            AtlasAllocation::Layer(texture) => {
+                self.deallocate_region(AtlasKind::Layer, texture);
+            }
+            AtlasAllocation::Scratch(texture) => {
+                self.deallocate_region(AtlasKind::Scratch, texture);
+            }
         }
     }
 }
@@ -202,6 +207,12 @@ impl LayerAllocationRequest {
 pub(super) struct LayerAllocations {
     pub(super) main_allocation: AllocatedTextureRegion,
     pub(super) scratch_allocations: [Option<AllocatedTextureRegion>; 2],
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) enum AtlasAllocation {
+    Layer(AllocatedTextureRegion),
+    Scratch(AllocatedTextureRegion),
 }
 
 #[derive(Debug, Clone, Copy)]

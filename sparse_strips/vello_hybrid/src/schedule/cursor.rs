@@ -11,7 +11,7 @@ use vello_common::multi_atlas::AtlasError;
 pub(super) struct Cursor<R: Allocator> {
     current_round: usize,
     resource: R,
-    pending_releases: Vec<Vec<R::Allocation>>,
+    pending_releases: Vec<Vec<R::Release>>,
     pending_release_count: usize,
 }
 
@@ -49,7 +49,7 @@ impl<R: Allocator> Cursor<R> {
         }
     }
 
-    pub(super) fn release(&mut self, allocation: R::Allocation, round_idx: usize) {
+    pub(super) fn release(&mut self, allocation: R::Release, round_idx: usize) {
         while self.pending_releases.len() <= round_idx {
             self.pending_releases.push(Vec::new());
         }

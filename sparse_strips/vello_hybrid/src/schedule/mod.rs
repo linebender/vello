@@ -8,7 +8,7 @@ mod cursor;
 pub(crate) mod execute;
 pub(crate) mod round;
 
-use self::allocate::{Atlases, LayerAllocationRequest, LayerAllocations};
+use self::allocate::{AtlasAllocation, Atlases, LayerAllocationRequest, LayerAllocations};
 use self::cursor::Cursor;
 pub(crate) use self::execute::{RendererBackend, execute};
 use self::round::{BlendOp, FilterOp, Round, Rounds};
@@ -31,6 +31,7 @@ use vello_common::record::{
 };
 use vello_common::strip_generator::StripStorage;
 use vello_common::util::RectExt;
+use crate::schedule::allocate::AllocatedTextureRegion;
 
 const REGULAR_LAYER_KIND: RecordedLayerKind = RecordedLayerKind::Regular;
 
@@ -302,7 +303,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         let base_round = target.schedule_state.base_round;
 
         if let Some(filter) = target.filter {
-            let allocations = target.allocations.scratch_allocations;
+            let scratch_allocations = target.allocations.scratch_allocations;
 
             rounds.ensure_exists(base_round);
             rounds.rounds[base_round].push_filter_op(
@@ -310,16 +311,30 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 &mut self.storage.buffers,
                 FilterOp {
                     layer_region: region,
-                    scratches: allocations.map(|scratch| scratch.map(|texture| texture.region)),
+                    scratches: scratch_allocations
+                        .map(|scratch| scratch.map(|texture| texture.region)),
                     filter_data_offset: filter.data_offset,
                     gpu_filter: filter.data,
                 },
             );
+
+            // Clean up scratch regions since they are not needed anymore after the filter
+            // has been applied.
+            for scratch_region in scratch_allocations.into_iter().flatten() {
+                let clear_region = scratch_region.clear_region();
+
+                rounds.rounds[base_round].scratch_texture_clears
+                    [clear_region.texture_index.get_index()]
+                .push(clear_region.rect);
+
+                self.cursor
+                    .release(AtlasAllocation::Scratch(scratch_region), base_round);
+            }
         }
 
         let scheduled = ScheduledLayer {
             sample_region: layer.sample.resolve(region),
-            allocations: target.allocations,
+            allocation: target.allocations.main_allocation,
             ready_round: base_round,
         };
         self.unreleased_layer_count += 1;
@@ -433,27 +448,18 @@ impl<'a, 'p> Scheduler<'a, 'p> {
     }
 
     fn release_layer(&mut self, layer: ScheduledLayer, round_idx: usize, rounds: &mut Rounds) {
-        // When releasing the layer, we need to make sure whatever regions in the different textures
-        // where used are  deallocated and cleared properly.
+        // When releasing the layer, we need to make sure to deallocate and clear the space in the
+        // layer texture.
 
         self.unreleased_layer_count -= 1;
         rounds.ensure_exists(round_idx);
 
-        // First the main layer allocation.
-        let layer_region = layer.allocations.main_allocation.clear_region();
+        let layer_region = layer.allocation.clear_region();
         rounds.rounds[round_idx].layer_texture_clears[layer_region.texture_index.get_index()]
             .push(layer_region.rect);
 
-        // Then any potential scratch texture allocations.
-        for scratch_region in layer.allocations.scratch_allocations.into_iter().flatten() {
-            let clear_region = scratch_region.clear_region();
-
-            rounds.rounds[round_idx].scratch_texture_clears[clear_region.texture_index.get_index()]
-                .push(clear_region.rect);
-        }
-
-        // And make sure the atlas allocation will also be released.
-        self.cursor.release(layer.allocations, round_idx);
+        self.cursor
+            .release(AtlasAllocation::Layer(layer.allocation), round_idx);
     }
 
     /// Lazily allocate space for an open layer.
@@ -495,7 +501,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
 #[must_use = "scheduled layers must be released"]
 #[derive(Debug)]
 struct ScheduledLayer {
-    allocations: LayerAllocations,
+    allocation: AllocatedTextureRegion,
     sample_region: LayerTextureRegion,
     ready_round: usize,
 }
