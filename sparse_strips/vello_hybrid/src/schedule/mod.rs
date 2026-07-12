@@ -202,24 +202,11 @@ impl<'a, 'p> Scheduler<'a, 'p> {
 
         let opened_layer = self.open_layer(layer, bbox);
         let scheduled = self.schedule_layer(opened_layer, rounds)?;
+
         Ok(Some(PreparedChild {
             props: &layer.props,
             layer: scheduled,
         }))
-    }
-
-    fn schedule_node(
-        &mut self,
-        cmd: &CmdNode,
-        child: Option<PreparedChild<'a>>,
-        state: &mut TargetScheduleState<LayerTextureRegion>,
-        rounds: &mut Rounds,
-    ) {
-        self.push_draws(&cmd.draws, state, rounds);
-
-        if let Some(child) = child {
-            self.compose_layer(child.props, child.layer, state, rounds);
-        }
     }
 
     fn open_layer(&self, layer: &'a RecordedLayer, bbox: RectU16) -> OpenLayer<'a> {
@@ -299,8 +286,12 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             // in the same round, which is also what we currently do.
             let target = self.ensure_layer_target(&mut layer)?;
 
-            // Now schedule the draws + optional layer composition of this node.
-            self.schedule_node(cmd, child, &mut target.schedule_state, rounds);
+            // Now schedule the draws + optionally the composition of the child layer node.
+            self.push_draws(&cmd.draws, &mut target.schedule_state, rounds);
+
+            if let Some(child) = child {
+                self.compose_layer(child.props, child.layer, &mut target.schedule_state, rounds);
+            }
         }
 
         self.ensure_layer_target(&mut layer)?;
@@ -337,7 +328,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         Ok(scheduled)
     }
 
-    /// Schedule a composition operation for an arbitrary layer.
+    /// Schedule a composition operation for a layer.
     fn compose_layer(
         &mut self,
         props: &LayerProps,
