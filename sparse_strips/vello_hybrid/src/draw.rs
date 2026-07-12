@@ -209,17 +209,17 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
 
     pub(crate) fn push_layer_fill(
         &mut self,
-        sample: LayerSample,
+        sample: LayerTextureRegion,
         opacity: f32,
         clip_path: Option<&LayerClip>,
         strip_storage: &StripStorage,
     ) {
-        let sample_bbox = sample.bbox.intersect(self.state.target_bbox);
+        let sample_bbox = sample.layer_bbox.intersect(self.state.target_bbox);
         if sample_bbox.is_empty() {
             return;
         }
 
-        let paint = LayerSample::paint(opacity);
+        let paint = (COLOR_SOURCE_LAYER << 29) | u32::from(pack_opacity(opacity));
         if let Some(clip_path) = clip_path {
             let strips = &strip_storage.strips[clip_path.strip_range.clone()];
             let depth_index = self.state.depth_counter.next(false);
@@ -265,7 +265,7 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
 
     fn push_layer_fill_segment(
         &mut self,
-        sample: LayerSample,
+        sample: LayerTextureRegion,
         segment: StripFillSegment,
         col_idx: Option<u32>,
         paint: u32,
@@ -353,25 +353,15 @@ impl GpuStrip {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct LayerSample {
-    pub(crate) source: LayerTextureRegion,
-    pub(crate) bbox: RectU16,
-}
-
-impl LayerSample {
+impl LayerTextureRegion {
     fn payload_at(self, x: u16, y: u16) -> u32 {
-        let shift = self.source.geometry_shift();
+        let shift = self.geometry_shift();
         // This should never fail. The shift itself can be negative if the layer bbox doesn't
         // start at 0, but we only sample values that are within the layer bbox.
         let source_x = u16::try_from(x as i32 + shift.0).unwrap();
         let source_y = u16::try_from(y as i32 + shift.1).unwrap();
 
         pack_u16_pair(source_x, source_y)
-    }
-
-    fn paint(opacity: f32) -> u32 {
-        (COLOR_SOURCE_LAYER << 29) | u32::from(pack_opacity(opacity))
     }
 }
 

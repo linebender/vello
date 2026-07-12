@@ -13,7 +13,7 @@ use self::cursor::Cursor;
 pub(crate) use self::execute::{RendererBackend, execute};
 use self::round::{BlendOp, FilterOp, Round, Rounds};
 use crate::blend::BLEND_SCRATCH_INDEX;
-use crate::draw::{Draw, DrawBuffers, DrawBuilder, DrawState, LayerSample};
+use crate::draw::{Draw, DrawBuffers, DrawBuilder, DrawState};
 use crate::filter::{FilterContext, FilterPassPlan, PreparedGpuFilter};
 use crate::paint::PaintResolver;
 use crate::scene::RecordedDraw;
@@ -304,24 +304,29 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         }
 
         self.ensure_layer_target(&mut layer)?;
+
         let target = layer.target.take().unwrap();
+
         let region = target.schedule_state.draw_state.target;
         let base_round = target.schedule_state.base_round;
+
         if let Some(filter) = target.filter {
-            let allocation_filter = target.allocations.scratch_allocations;
+            let allocations = target.allocations.scratch_allocations;
+
             rounds.ensure_exists(base_round);
             rounds.rounds[base_round].push_filter_op(
                 region.texture.texture_index,
                 &mut self.storage.buffers,
                 FilterOp {
                     layer_region: region,
-                    scratches: allocation_filter
+                    scratches: allocations
                         .map(|scratch| scratch.map(|texture| texture.region)),
                     filter_data_offset: filter.data_offset,
                     gpu_filter: filter.data,
                 },
             );
         }
+
         let scheduled = ScheduledLayer {
             sample: layer.sample.resolve(region),
             allocations: target.allocations,
@@ -342,7 +347,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
     ) {
         let blend_mode = props.blend_mode;
         let opacity = props.opacity;
-        let child_texture_index = child_layer.sample.source.texture.texture_index;
+        let child_texture_index = child_layer.sample.texture.texture_index;
 
         if blend_mode == BlendMode::default() {
             self.compose_simple_layer(props, child_layer, state, rounds);
@@ -351,7 +356,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         }
 
         let parent_region = state.draw_state.target;
-        let source_bbox = child_layer.sample.bbox;
+        let source_bbox = child_layer.sample.layer_bbox;
         let affected_bbox = if blend_mode.is_destructive() {
             let parent_bbox = parent_region.layer_bbox;
 
@@ -388,7 +393,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             &mut self.storage.buffers,
             BlendOp {
                 parent_region,
-                child_region: child_layer.sample.source,
+                child_region: child_layer.sample,
                 blend_bbox: bbox,
                 blend_mode,
                 opacity,
@@ -408,7 +413,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         state: &mut TargetScheduleState<T>,
         rounds: &mut Rounds,
     ) {
-        let child_texture_index = child_layer.sample.source.texture.texture_index;
+        let child_texture_index = child_layer.sample.texture.texture_index;
 
         // Layer invocations can introduce a barrier! We need to update the base round of the
         // current target such that the layer fill is scheduled only once the layer actually
@@ -501,7 +506,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
 #[derive(Debug)]
 struct ScheduledLayer {
     allocations: LayerAllocations,
-    sample: LayerSample,
+    sample: LayerTextureRegion,
     ready_round: usize,
 }
 
@@ -542,18 +547,16 @@ impl LayerSamplePlacement {
         }
     }
 
-    fn resolve(self, allocation: LayerTextureRegion) -> LayerSample {
+    fn resolve(self, allocation: LayerTextureRegion) -> LayerTextureRegion {
         let x0 = allocation.texture.rect.x0 + self.src_offset.0;
         let y0 = allocation.texture.rect.y0 + self.src_offset.1;
-        LayerSample {
-            source: LayerTextureRegion {
-                texture: TextureRegion {
-                    texture_index: allocation.texture.texture_index,
-                    rect: RectU16::new(x0, y0, x0 + self.bbox.width(), y0 + self.bbox.height()),
-                },
-                layer_bbox: self.bbox,
+
+        LayerTextureRegion {
+            texture: TextureRegion {
+                texture_index: allocation.texture.texture_index,
+                rect: RectU16::new(x0, y0, x0 + self.bbox.width(), y0 + self.bbox.height()),
             },
-            bbox: self.bbox,
+            layer_bbox: self.bbox,
         }
     }
 }
