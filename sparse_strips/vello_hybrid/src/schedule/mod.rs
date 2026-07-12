@@ -141,7 +141,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 &mut state,
                 &mut self.storage.buffers.draw_buffers,
                 |builder| {
-                    builder.push_layer_fill(layer.sample, 1.0, None, self.strip_storage);
+                    builder.push_layer_fill(layer.sample_region, 1.0, None, self.strip_storage);
                 },
             );
 
@@ -319,7 +319,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         }
 
         let scheduled = ScheduledLayer {
-            sample: layer.sample.resolve(region),
+            sample_region: layer.sample.resolve(region),
             allocations: target.allocations,
             ready_round: base_round,
         };
@@ -338,7 +338,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
     ) {
         let blend_mode = props.blend_mode;
         let opacity = props.opacity;
-        let child_texture_index = child_layer.sample.texture.texture_index;
+        let child_texture_index = child_layer.sample_region.texture.texture_index;
 
         if blend_mode == BlendMode::default() {
             self.compose_simple_layer(props, child_layer, state, rounds);
@@ -347,45 +347,36 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         }
 
         let parent_region = state.draw_state.target;
-        let source_bbox = child_layer.sample.layer_bbox;
-        let affected_bbox = if blend_mode.is_destructive() {
-            let parent_bbox = parent_region.layer_bbox;
+        let child_bbox = child_layer.sample_region.layer_bbox;
 
-            props
-                .clip_path
-                .as_ref()
-                .map_or(parent_bbox, |clip| parent_bbox.intersect(clip.bbox))
+        // For non-destructive blend modes, choose the (smaller) child bbox as the
+        // affected region. Otherwise, we need to choose the (bigger) parent bbox.
+        let affected_bbox = if blend_mode.is_destructive() {
+            // TODO: Properly handle clipped blend layers.
+            parent_region.layer_bbox
         } else {
-            source_bbox
+            child_bbox
         };
+
         let parent_texture_index = parent_region.texture.texture_index;
-        debug_assert_ne!(
-            parent_texture_index, child_texture_index,
-            "blended parent and child layers must use opposite textures"
-        );
+
         let blend_round = state.base_round.max(
             state
                 .draw_state
                 .target
                 .min_round(child_texture_index, child_layer.ready_round),
         );
-        let bbox = affected_bbox.intersect(parent_region.layer_bbox);
-        if bbox.is_empty() {
-            self.release_layer(child_layer, blend_round, rounds);
-            state.base_round = state.base_round.max(blend_round);
-            return;
-        }
 
         rounds.ensure_exists(blend_round);
         rounds.rounds[blend_round].scratch_texture_clears[BLEND_SCRATCH_INDEX.get_index()]
-            .push(parent_region.blend_scratch_clear_rect(bbox));
+            .push(parent_region.blend_scratch_clear_rect(affected_bbox));
         rounds.rounds[blend_round].push_blend_op(
             parent_texture_index,
             &mut self.storage.buffers,
             BlendOp {
                 parent_region,
-                child_region: child_layer.sample,
-                blend_bbox: bbox,
+                child_region: child_layer.sample_region,
+                blend_bbox: affected_bbox,
                 blend_mode,
                 opacity,
             },
@@ -404,7 +395,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         state: &mut TargetScheduleState<T>,
         rounds: &mut Rounds,
     ) {
-        let child_texture_index = child_layer.sample.texture.texture_index;
+        let child_texture_index = child_layer.sample_region.texture.texture_index;
 
         // Layer invocations can introduce a barrier! We need to update the base round of the
         // current target such that the layer fill is scheduled only once the layer actually
@@ -420,7 +411,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         // Schedule the actual layer fill command.
         rounds.build_draw(state, &mut self.storage.buffers.draw_buffers, |builder| {
             builder.push_layer_fill(
-                child_layer.sample,
+                child_layer.sample_region,
                 props.opacity,
                 props.clip_path.as_ref(),
                 self.strip_storage,
@@ -497,7 +488,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
 #[derive(Debug)]
 struct ScheduledLayer {
     allocations: LayerAllocations,
-    sample: LayerTextureRegion,
+    sample_region: LayerTextureRegion,
     ready_round: usize,
 }
 
