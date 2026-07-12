@@ -310,8 +310,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 &mut self.storage.buffers,
                 FilterOp {
                     layer_region: region,
-                    scratches: allocations
-                        .map(|scratch| scratch.map(|texture| texture.region)),
+                    scratches: allocations.map(|scratch| scratch.map(|texture| texture.region)),
                     filter_data_offset: filter.data_offset,
                     gpu_filter: filter.data,
                 },
@@ -347,19 +346,22 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         }
 
         let parent_region = state.draw_state.target;
-        let child_bbox = child_layer.sample_region.layer_bbox;
+        let child_region = child_layer.sample_region;
 
         // For non-destructive blend modes, choose the (smaller) child bbox as the
         // affected region. Otherwise, we need to choose the (bigger) parent bbox.
-        let affected_bbox = if blend_mode.is_destructive() {
+        let blend_bbox = if blend_mode.is_destructive() {
             // TODO: Properly handle clipped blend layers.
             parent_region.layer_bbox
         } else {
-            child_bbox
+            child_region.layer_bbox
         };
 
         let parent_texture_index = parent_region.texture.texture_index;
 
+        // We need to make sure that both, the parent (the current layer) and the
+        // child are ready for sampling. Since any blending operation happens after normal layer
+        // draws, it's fine to use `state.base_round` instead of `state.base_round + 1` here.
         let blend_round = state.base_round.max(
             state
                 .draw_state
@@ -367,23 +369,29 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 .min_round(child_texture_index, child_layer.ready_round),
         );
 
+        // Schedule the blend operation.
         rounds.ensure_exists(blend_round);
-        rounds.rounds[blend_round].scratch_texture_clears[BLEND_SCRATCH_INDEX.get_index()]
-            .push(parent_region.blend_scratch_clear_rect(affected_bbox));
         rounds.rounds[blend_round].push_blend_op(
             parent_texture_index,
             &mut self.storage.buffers,
             BlendOp {
                 parent_region,
-                child_region: child_layer.sample_region,
-                blend_bbox: affected_bbox,
+                child_region,
+                blend_bbox,
                 blend_mode,
                 opacity,
             },
         );
 
+        // Make sure to clean up after blending is done!
+        rounds.rounds[blend_round].scratch_texture_clears[BLEND_SCRATCH_INDEX.get_index()]
+            .push(parent_region.blend_scratch_clear_rect(blend_bbox));
+
+        // And make sure to release the child now that it's been composited into the parent.
         self.release_layer(child_layer, blend_round, rounds);
 
+        // Blending operations happen after all layer draws in that round happened, so we
+        // _have_ to force advance the base round for any subsequent draws in this layer.
         state.base_round = blend_round + 1;
     }
 
@@ -426,7 +434,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
 
     fn release_layer(&mut self, layer: ScheduledLayer, round_idx: usize, rounds: &mut Rounds) {
         // When releasing the layer, we need to make sure whatever regions in the different textures
-        // where used are cleared properly.
+        // where used are  deallocated and cleared properly.
 
         self.unreleased_layer_count -= 1;
         rounds.ensure_exists(round_idx);
