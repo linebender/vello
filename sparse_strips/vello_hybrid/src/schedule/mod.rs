@@ -17,6 +17,7 @@ use crate::draw::{Draw, DrawBuffers, DrawBuilder, DrawState};
 use crate::filter::{FilterContext, FilterPassPlan, PreparedGpuFilter};
 use crate::paint::PaintResolver;
 use crate::scene::RecordedDraw;
+use crate::schedule::allocate::AllocatedTextureRegion;
 use crate::target::{
     DrawTarget, IntermediateTextureSizes, LayerTextureRegion, RootRenderTarget, TextureIndex,
     TextureRegion,
@@ -31,7 +32,6 @@ use vello_common::record::{
 };
 use vello_common::strip_generator::StripStorage;
 use vello_common::util::RectExt;
-use crate::schedule::allocate::AllocatedTextureRegion;
 
 const REGULAR_LAYER_KIND: RecordedLayerKind = RecordedLayerKind::Regular;
 
@@ -337,7 +337,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             allocation: target.allocations.main_allocation,
             ready_round: base_round,
         };
-        self.unreleased_layer_count += 1;
+        self.unreleased_layer_count = self.unreleased_layer_count.checked_add(1).unwrap();
 
         Ok(scheduled)
     }
@@ -451,7 +451,11 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         // When releasing the layer, we need to make sure to deallocate and clear the space in the
         // layer texture.
 
-        self.unreleased_layer_count -= 1;
+        assert!(
+            round_idx >= layer.ready_round,
+            "layer released before it became ready"
+        );
+        self.unreleased_layer_count = self.unreleased_layer_count.checked_sub(1).unwrap();
         rounds.ensure_exists(round_idx);
 
         let layer_region = layer.allocation.clear_region();
