@@ -53,10 +53,6 @@ impl TextureIndex {
         }
     }
 
-    pub(crate) const fn is_even(self) -> bool {
-        matches!(self, Self::Even)
-    }
-
     pub(crate) const fn get_index(self) -> usize {
         match self {
             Self::Even => 0,

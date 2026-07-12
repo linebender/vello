@@ -12,6 +12,81 @@ use alloc::vec::Vec;
 use vello_common::geometry::RectU16;
 use vello_common::peniko::BlendMode;
 
+// Note that the field order of these enums matters since we implement
+// `PartialOrd` and use this to represent the order in which the stages
+// happen.
+
+/// A stage in the execution of a rendering round.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum RoundStage {
+    Start,
+    Even(LayerStage),
+    Odd(LayerStage),
+    RootDraw,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum LayerStage {
+    Draw,
+    Filter,
+    Blend,
+}
+
+impl RoundStage {
+    pub(super) const fn draw(texture_index: TextureIndex) -> Self {
+        match texture_index {
+            TextureIndex::Even => Self::Even(LayerStage::Draw),
+            TextureIndex::Odd => Self::Odd(LayerStage::Draw),
+        }
+    }
+
+    pub(super) const fn filter(texture_index: TextureIndex) -> Self {
+        match texture_index {
+            TextureIndex::Even => Self::Even(LayerStage::Filter),
+            TextureIndex::Odd => Self::Odd(LayerStage::Filter),
+        }
+    }
+
+    pub(super) const fn blend(texture_index: TextureIndex) -> Self {
+        match texture_index {
+            TextureIndex::Even => Self::Even(LayerStage::Blend),
+            TextureIndex::Odd => Self::Odd(LayerStage::Blend),
+        }
+    }
+}
+
+// As for `RoundStage`, the order of fields here is important!
+/// A precise point in the execution timeline of the schedule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct SchedulePoint {
+    pub(super) round: usize,
+    pub(super) stage: RoundStage,
+}
+
+impl SchedulePoint {
+    pub(super) const fn start(round: usize) -> Self {
+        Self {
+            round,
+            stage: RoundStage::Start,
+        }
+    }
+
+    /// Return the first occurrence of `stage` strictly after this point.
+    pub(super) fn next(self, stage: RoundStage) -> Self {
+        if stage > self.stage {
+            Self {
+                round: self.round,
+                stage,
+            }
+        } else {
+            Self {
+                round: self.round + 1,
+                stage,
+            }
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub(super) struct Rounds {
     pub(super) rounds: Vec<Round>,
