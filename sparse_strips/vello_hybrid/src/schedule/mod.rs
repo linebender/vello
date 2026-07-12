@@ -8,7 +8,7 @@ mod cursor;
 pub(crate) mod execute;
 pub(crate) mod round;
 
-use self::allocate::{AtlasAllocation, Atlases, LayerAllocationRequest, LayerAllocations};
+use self::allocate::{AtlasAllocation, Atlases, LayerAllocationRequest, ScratchAllocationRequest};
 use self::cursor::Cursor;
 pub(crate) use self::execute::{RendererBackend, execute};
 use self::round::{BlendOp, FilterOp, Round, RoundStage, Rounds, SchedulePoint};
@@ -303,8 +303,13 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         let mut ready = target.schedule_state.ready;
 
         if let Some(filter) = target.filter {
-            let scratch_allocations = target.allocations.scratch_allocations;
-            let filter_point = ready.next(RoundStage::filter(region.texture.texture_index));
+            let scratch_allocation = self
+                .cursor
+                .allocate(ScratchAllocationRequest::new(region.texture, &filter))?;
+            let scratch_regions = scratch_allocation.allocation;
+            let filter_point = ready
+                .max(SchedulePoint::start(scratch_allocation.round_idx))
+                .next(RoundStage::filter(region.texture.texture_index));
 
             rounds.ensure_exists(filter_point.round);
             rounds.rounds[filter_point.round].push_filter_op(
@@ -312,8 +317,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 &mut self.storage.buffers,
                 FilterOp {
                     layer_region: region,
-                    scratches: scratch_allocations
-                        .map(|scratch| scratch.map(|texture| texture.region)),
+                    scratches: scratch_regions.map(|scratch| scratch.map(|texture| texture.region)),
                     filter_data_offset: filter.data_offset,
                     gpu_filter: filter.data,
                 },
@@ -321,7 +325,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
 
             // Clean up scratch regions since they are not needed anymore after the filter
             // has been applied.
-            for scratch_region in scratch_allocations.into_iter().flatten() {
+            for scratch_region in scratch_regions.into_iter().flatten() {
                 let clear_region = scratch_region.clear_region();
 
                 rounds.rounds[filter_point.round].scratch_texture_clears
@@ -337,7 +341,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
 
         let scheduled = ScheduledLayer {
             sample_region: layer.sample.resolve(region),
-            allocation: target.allocations.main_allocation,
+            allocation: target.allocation,
             ready,
         };
         self.unreleased_layer_count = self.unreleased_layer_count.checked_add(1).unwrap();
@@ -468,19 +472,21 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 RecordedLayerKind::Regular => None,
             };
 
-            let request = LayerAllocationRequest::new(layer, filter.as_ref());
+            let request = LayerAllocationRequest::new(layer);
             // Note: this might advance the base round, in case the atlas is already full
             // and we therefore need to advance the round cursor until enough space has been
             // freed.
             let allocation = self.cursor.allocate(request)?;
+            let round = allocation.round_idx;
+            let allocation = allocation.allocation;
             let region = LayerTextureRegion {
-                texture: allocation.allocation.main_allocation.region,
+                texture: allocation.region,
                 layer_bbox: layer.bbox,
             };
 
-            let schedule_state = TargetScheduleState::new_layer(region, allocation.round_idx);
+            let schedule_state = TargetScheduleState::new_layer(region, round);
             layer.target = Some(LayerTarget {
-                allocations: allocation.allocation,
+                allocation,
                 filter,
                 schedule_state,
             });
@@ -552,7 +558,7 @@ impl LayerSamplePlacement {
 
 #[derive(Debug)]
 struct LayerTarget {
-    allocations: LayerAllocations,
+    allocation: AllocatedTextureRegion,
     filter: Option<PreparedGpuFilter>,
     schedule_state: TargetScheduleState<LayerTextureRegion>,
 }

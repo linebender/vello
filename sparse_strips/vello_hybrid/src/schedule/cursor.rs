@@ -3,7 +3,7 @@
 
 //! Monotonic allocation cursor for scheduled rounds.
 
-use crate::schedule::allocate::{Allocation, Allocator};
+use crate::schedule::allocate::{Allocation, AllocationRequest, Allocator};
 use alloc::vec::Vec;
 use vello_common::multi_atlas::AtlasError;
 
@@ -27,12 +27,15 @@ impl<R: Allocator> Cursor<R> {
         self.current_round
     }
 
-    pub(super) fn allocate(
+    pub(super) fn allocate<Q>(
         &mut self,
-        request: R::Request,
-    ) -> Result<Allocation<R::Allocation>, AtlasError> {
+        request: Q,
+    ) -> Result<Allocation<Q::Allocation>, AtlasError>
+    where
+        Q: AllocationRequest<R>,
+    {
         loop {
-            if let Some(allocation) = self.resource.allocate(request) {
+            if let Some(allocation) = request.allocate(&mut self.resource) {
                 return Ok(Allocation {
                     allocation,
                     round_idx: self.current_round,

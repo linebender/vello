@@ -12,13 +12,15 @@ use vello_common::multi_atlas::{AllocId, Atlas, AtlasId};
 use vello_common::record::RecordedLayerKind;
 
 pub(super) trait Allocator {
-    type Request: Copy;
-    type Allocation: Copy;
     type Release: Copy;
 
-    fn allocate(&mut self, request: Self::Request) -> Option<Self::Allocation>;
-
     fn release(&mut self, allocation: Self::Release);
+}
+
+pub(super) trait AllocationRequest<R>: Copy {
+    type Allocation: Copy;
+
+    fn allocate(self, resource: &mut R) -> Option<Self::Allocation>;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -67,7 +69,7 @@ impl Atlases {
     fn allocate_region(
         &mut self,
         target: TextureTarget,
-        request: LayerAllocationRequest,
+        request: RegionAllocationRequest,
     ) -> Option<AllocatedTextureRegion> {
         let padding = u32::from(request.padding);
         let full_padding = padding * 2;
@@ -120,51 +122,7 @@ impl Atlases {
 }
 
 impl Allocator for Atlases {
-    type Request = LayerAllocationRequest;
-    type Allocation = LayerAllocations;
     type Release = AtlasAllocation;
-
-    fn allocate(&mut self, request: Self::Request) -> Option<Self::Allocation> {
-        // First allocate the main region for the layer in the layer atlas.
-        let main_allocation =
-            self.allocate_region(TextureTarget::layer(request.texture_index), request)?;
-
-        // Then, depending on how many regions in scratch textures are needed, allocate those.
-        // If at least one allocation fails, we need to make sure to undo all other allocations
-        // we have done so far.
-        let mut scratch_allocations = [None, None];
-
-        if request.scratch_count > 0 {
-            let Some(texture) =
-                self.allocate_region(TextureTarget::scratch(TextureIndex::Even), request)
-            else {
-                self.deallocate_region(AtlasKind::Layer, main_allocation);
-
-                return None;
-            };
-
-            scratch_allocations[0] = Some(texture);
-        }
-
-        if request.scratch_count > 1 {
-            let Some(texture) =
-                self.allocate_region(TextureTarget::scratch(TextureIndex::Odd), request)
-            else {
-                let scratch_0 = scratch_allocations[0].expect("scratch 0 must be allocated");
-                self.deallocate_region(AtlasKind::Scratch, scratch_0);
-                self.deallocate_region(AtlasKind::Layer, main_allocation);
-
-                return None;
-            };
-
-            scratch_allocations[1] = Some(texture);
-        }
-
-        Some(LayerAllocations {
-            scratch_allocations,
-            main_allocation,
-        })
-    }
 
     fn release(&mut self, allocation: Self::Release) {
         match allocation {
@@ -178,35 +136,93 @@ impl Allocator for Atlases {
     }
 }
 
+impl AllocationRequest<Atlases> for LayerAllocationRequest {
+    type Allocation = AllocatedTextureRegion;
+
+    fn allocate(self, atlases: &mut Atlases) -> Option<Self::Allocation> {
+        atlases.allocate_region(TextureTarget::layer(self.texture_index), self.region)
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(super) struct LayerAllocationRequest {
     texture_index: TextureIndex,
-    size: Int16Size,
-    padding: u16,
-    scratch_count: u8,
+    region: RegionAllocationRequest,
 }
 
 impl LayerAllocationRequest {
-    pub(super) fn new(layer: &OpenLayer<'_>, filter: Option<&PreparedGpuFilter>) -> Self {
+    pub(super) fn new(layer: &OpenLayer<'_>) -> Self {
         let padding = match layer.kind {
             RecordedLayerKind::Regular => 0,
+            // We not only need the padding for the scratch textures of a filter layer, but also
+            // in the main layer atlas. The reason is that when applying the filter, we merge
+            // the steps "copy into scratch texture + first filter pass".
             RecordedLayerKind::Filter { .. } => FILTER_ATLAS_PADDING,
+        };
+
+        let region = RegionAllocationRequest {
+            size: Int16Size::new(layer.bbox.width(), layer.bbox.height()),
+            padding,
         };
 
         Self {
             texture_index: layer.texture_index,
-            size: Int16Size::new(layer.bbox.width(), layer.bbox.height()),
-            padding,
-            scratch_count: filter.map_or(0, |filter| filter.scratch_count()),
+            region,
         }
     }
 }
 
-/// A layer texture region plus the allocator handle needed to release it.
 #[derive(Debug, Clone, Copy)]
-pub(super) struct LayerAllocations {
-    pub(super) main_allocation: AllocatedTextureRegion,
-    pub(super) scratch_allocations: [Option<AllocatedTextureRegion>; 2],
+struct RegionAllocationRequest {
+    size: Int16Size,
+    padding: u16,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct ScratchAllocationRequest {
+    region: RegionAllocationRequest,
+    count: u8,
+}
+
+impl ScratchAllocationRequest {
+    pub(super) fn new(region: TextureRegion, filter: &PreparedGpuFilter) -> Self {
+        Self {
+            region: RegionAllocationRequest {
+                size: Int16Size::new(region.rect.width(), region.rect.height()),
+                padding: FILTER_ATLAS_PADDING,
+            },
+            count: filter.scratch_count(),
+        }
+    }
+}
+
+impl AllocationRequest<Atlases> for ScratchAllocationRequest {
+    type Allocation = [Option<AllocatedTextureRegion>; 2];
+
+    fn allocate(self, atlases: &mut Atlases) -> Option<Self::Allocation> {
+        debug_assert!(self.count <= 2);
+
+        let mut allocations = [None, None];
+
+        for index in 0..usize::from(self.count) {
+            let texture_index = TextureIndex::from_index(index);
+            let Some(allocation) =
+                atlases.allocate_region(TextureTarget::scratch(texture_index), self.region)
+            else {
+                // Both allocations must succeed, if the second one doesn't succeed we also need
+                // to undo the first one.
+                for allocation in allocations.into_iter().flatten() {
+                    atlases.deallocate_region(AtlasKind::Scratch, allocation);
+                }
+
+                return None;
+            };
+
+            allocations[index] = Some(allocation);
+        }
+
+        Some(allocations)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
