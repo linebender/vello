@@ -10,7 +10,6 @@ use kompari_tasks::{Actions, Args, Task};
 use std::path::Path;
 use std::process::Command;
 
-#[derive(Debug)]
 struct ActionsImpl();
 
 #[derive(Parser, Debug)]
