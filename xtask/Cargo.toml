@@ -11,8 +11,8 @@ categories = ["testing", "graphics"]
 
 
 [dependencies]
-kompari = { git = "https://github.com/linebender/kompari.git", rev = "4b851413e1b17307064aa48c50e59d7e29656543" }
-kompari-tasks = { git = "https://github.com/linebender/kompari.git", rev = "4b851413e1b17307064aa48c50e59d7e29656543" }
+kompari = { git = "https://github.com/linebender/kompari.git", rev = "2643680d3e54a34b354a2dac5c62765c49d86176" }
+kompari_tasks = { git = "https://github.com/linebender/kompari.git", rev = "2643680d3e54a34b354a2dac5c62765c49d86176" }
 clap = { workspace = true, features = ["derive"] }
 
 [lints]

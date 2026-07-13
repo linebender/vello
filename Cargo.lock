@@ -579,15 +579,14 @@ dependencies = [
 
 [[package]]
 name = "console"
-version = "0.15.11"
+version = "0.16.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "054ccb5b10f9f2cbf51eb355ca1d05c2d279ce1804688d0db74b4733a5aeafd8"
+checksum = "4fe5f465a4f6fee88fad41b85d990f84c835335e85b5d9e6e63e0d06d28cba7c"
 dependencies = [
  "encode_unicode",
  "libc",
- "once_cell",
  "unicode-width",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -988,16 +987,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "filetime"
-version = "0.2.29"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c287a33c7f0a620c38e641e7f60827713987b3c0f26e8ddc9462cc69cf75759"
-dependencies = [
- "cfg-if",
- "libc",
-]
-
-[[package]]
 name = "find-msvc-tools"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1033,9 +1022,9 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "font-types"
-version = "0.11.3"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b38ad915f6dadd993ced50848a8291a543bd41ca62bc10740d5e64e2ab4cfd7"
+checksum = "ad67eced03f5504d9cbd3a879b5958b5c54d4e5fd794361c6eb21b05fb703411"
 dependencies = [
  "bytemuck",
 ]
@@ -1065,9 +1054,9 @@ dependencies = [
 
 [[package]]
 name = "fontique"
-version = "0.9.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c20b425addb8661e97fe1d51c4d8bcec3ec29ed6ad0db983976a7521276b8f7"
+checksum = "1e04c4750a17111ebd77c3e0aea00476ce33f59235bc4d9e7f0aded5033ad3fc"
 dependencies = [
  "hashbrown 0.17.1",
  "linebender_resource_handle",
@@ -1321,13 +1310,12 @@ dependencies = [
 
 [[package]]
 name = "harfrust"
-version = "0.6.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9ce5e848d21ba97a324266e41c70e0eb5e2577a610c1fbd546e15096f2e8e37"
+checksum = "f0589ddd0d2935dd2845827ac606b4081c266225d613b268ed2910f832889cab"
 dependencies = [
  "bitflags 2.11.1",
  "bytemuck",
- "core_maths",
  "read-fonts",
  "smallvec",
 ]
@@ -1662,9 +1650,9 @@ dependencies = [
 
 [[package]]
 name = "imagesize"
-version = "0.13.0"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edcd27d72f2f071c64249075f42e205ff93c9a4c5f6c6da53e79ed9f9832c285"
+checksum = "09e54e57b4c48b40f7aec75635392b12b3421fa26fe8b4332e63138ed278459c"
 
 [[package]]
 name = "indexmap"
@@ -1681,14 +1669,14 @@ dependencies = [
 
 [[package]]
 name = "indicatif"
-version = "0.17.11"
+version = "0.18.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "183b3088984b400f4cfac3620d5e076c84da5364016b4f49473de574b2586235"
+checksum = "9433806cd6b4ec1aba79c021c7e4c58fb4c3b9977c085062e611ac929998fb0c"
 dependencies = [
  "console",
- "number_prefix",
  "portable-atomic",
  "unicode-width",
+ "unit-prefix",
  "web-time",
 ]
 
@@ -1882,20 +1870,22 @@ checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 [[package]]
 name = "kompari"
 version = "0.1.0"
-source = "git+https://github.com/linebender/kompari.git?rev=4b851413e1b17307064aa48c50e59d7e29656543#4b851413e1b17307064aa48c50e59d7e29656543"
+source = "git+https://github.com/linebender/kompari.git?rev=2643680d3e54a34b354a2dac5c62765c49d86176#2643680d3e54a34b354a2dac5c62765c49d86176"
 dependencies = [
- "image",
+ "bytemuck",
+ "color",
  "log",
- "oxipng 9.1.5",
+ "oxipng",
+ "png",
  "rayon",
  "thiserror 2.0.18",
  "walkdir",
 ]
 
 [[package]]
-name = "kompari-html"
+name = "kompari_html"
 version = "0.1.0"
-source = "git+https://github.com/linebender/kompari.git?rev=4b851413e1b17307064aa48c50e59d7e29656543#4b851413e1b17307064aa48c50e59d7e29656543"
+source = "git+https://github.com/linebender/kompari.git?rev=2643680d3e54a34b354a2dac5c62765c49d86176#2643680d3e54a34b354a2dac5c62765c49d86176"
 dependencies = [
  "axum",
  "base64",
@@ -1909,15 +1899,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "kompari-tasks"
+name = "kompari_tasks"
 version = "0.1.0"
-source = "git+https://github.com/linebender/kompari.git?rev=4b851413e1b17307064aa48c50e59d7e29656543#4b851413e1b17307064aa48c50e59d7e29656543"
+source = "git+https://github.com/linebender/kompari.git?rev=2643680d3e54a34b354a2dac5c62765c49d86176#2643680d3e54a34b354a2dac5c62765c49d86176"
 dependencies = [
  "clap",
  "humansize",
  "indicatif",
  "kompari",
- "kompari-html",
+ "kompari_html",
  "rayon",
  "termcolor",
 ]
@@ -1940,17 +1930,6 @@ checksum = "07293a4e297ac234359b510362495713f75ea345d5307140414f20c69ffeb087"
 dependencies = [
  "bitflags 2.11.1",
  "libc",
-]
-
-[[package]]
-name = "kurbo"
-version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c62026ae44756f8a599ba21140f350303d4f08dcdcc71b5ad9c9bb8128c13c62"
-dependencies = [
- "arrayvec",
- "euclid",
- "smallvec",
 ]
 
 [[package]]
@@ -2334,12 +2313,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "number_prefix"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "830b246a0e5f20af87141b25c173cd1b609bd7779a4617d6ec582abaf90870f3"
-
-[[package]]
 name = "nv-flip"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2707,24 +2680,6 @@ dependencies = [
 
 [[package]]
 name = "oxipng"
-version = "9.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26c613f0f566526a647c7473f6a8556dbce22c91b13485ee4b4ec7ab648e4973"
-dependencies = [
- "bitvec",
- "crossbeam-channel",
- "filetime",
- "indexmap",
- "libdeflater",
- "log",
- "rayon",
- "rgb",
- "rustc-hash 2.1.2",
- "zopfli",
-]
-
-[[package]]
-name = "oxipng"
 version = "10.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85eaaaa67c73558edaf5270e28abdf8d0663d88e8e7570cf894eff25305f4ed2"
@@ -2736,6 +2691,7 @@ dependencies = [
  "rayon",
  "rgb",
  "rustc-hash 2.1.2",
+ "zopfli",
 ]
 
 [[package]]
@@ -2769,9 +2725,9 @@ checksum = "4b6937eda350acc1a5d05872c3cbf99fe78619c269096e2be3d4a350058639d5"
 
 [[package]]
 name = "parley"
-version = "0.9.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8fad031076f48f0d4d85ce1aea9b94b4e715a4d636a030a123038f8f5b5e4343"
+checksum = "e0478b47dd9885a5e0a4f1c0782ffc42bf6ee8c41dea0917d7a9bcee3e6585fc"
 dependencies = [
  "fontique",
  "harfrust",
@@ -2787,9 +2743,9 @@ dependencies = [
 
 [[package]]
 name = "parley_data"
-version = "0.9.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19ab9ace3fad1b9ed603ddac5b595e69931fc50263d7e04e4055015b77b02da5"
+checksum = "a649e01a1acc917247ee147b56b8a1fa91824acf7117bd003b4204306d601255"
 dependencies = [
  "icu_properties",
 ]
@@ -2802,7 +2758,7 @@ checksum = "839c8299360d2e998bdb106dc0a6cd71dcc5f4df51df1b620361bf50e283cca6"
 dependencies = [
  "bytemuck",
  "color",
- "kurbo 0.13.1",
+ "kurbo",
  "linebender_resource_handle",
  "smallvec",
 ]
@@ -3102,13 +3058,14 @@ dependencies = [
 
 [[package]]
 name = "read-fonts"
-version = "0.39.2"
+version = "0.40.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4ed38b89c2c77ff968c524145ad65fb010f38af5c7a224b53b81d47ac2daa81"
+checksum = "487889119a5f19ff7c0a20637196bdc76b9f54ebec17e3588b5d75e4999f8773"
 dependencies = [
  "bytemuck",
  "core_maths",
  "font-types",
+ "once_cell",
 ]
 
 [[package]]
@@ -3509,9 +3466,9 @@ checksum = "8ee5873ec9cce0195efcb7a4e9507a04cd49aec9c83d0389df45b1ef7ba2e649"
 
 [[package]]
 name = "skrifa"
-version = "0.42.1"
+version = "0.43.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c34617370ae968efb7161bb2beb517d9084659aae19e24b89e3db25b46e4564"
+checksum = "4cbe997d0f2480442d727488fbe2150779114cbe480ecdbadef58b33e0318ffb"
 dependencies = [
  "bytemuck",
  "core_maths",
@@ -3665,11 +3622,11 @@ checksum = "0193cc4331cfd2f3d2011ef287590868599a2f33c3e69bc22c1a3d3acf9e02fb"
 
 [[package]]
 name = "svgtypes"
-version = "0.15.3"
+version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68c7541fff44b35860c1a7a47a7cadf3e4a304c457b58f9870d9706ece028afc"
+checksum = "695b5790b3131dafa99b3bbfd25a216edb3d216dad9ca208d4657bfb8f2abc3d"
 dependencies = [
- "kurbo 0.11.3",
+ "kurbo",
  "siphasher",
 ]
 
@@ -3776,7 +3733,7 @@ dependencies = [
  "bytemuck",
  "cfg-if",
  "log",
- "tiny-skia-path",
+ "tiny-skia-path 0.11.4",
 ]
 
 [[package]]
@@ -3784,6 +3741,17 @@ name = "tiny-skia-path"
 version = "0.11.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c9e7fc0c2e86a30b117d0462aa261b72b7a99b7ebd7deb3a14ceda95c5bdc93"
+dependencies = [
+ "arrayref",
+ "bytemuck",
+ "strict-num",
+]
+
+[[package]]
+name = "tiny-skia-path"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edca365c3faccca67d06593c5980fa6c57687de727a03131735bb85f01fdeeb9"
 dependencies = [
  "arrayref",
  "bytemuck",
@@ -4045,26 +4013,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
 
 [[package]]
-name = "usvg"
-version = "0.45.1"
+name = "unit-prefix"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80be9b06fbae3b8b303400ab20778c80bbaf338f563afe567cf3c9eea17b47ef"
+checksum = "81e544489bf3d8ef66c953931f56617f423cd4b5494be343d9b9d3dda037b9a3"
+
+[[package]]
+name = "usvg"
+version = "0.47.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d46cf96c5f498d36b7a9693bc6a7075c0bb9303189d61b2249b0dc3d309c07de"
 dependencies = [
  "base64",
  "data-url",
  "flate2",
  "fontdb",
  "imagesize",
- "kurbo 0.11.3",
+ "kurbo",
  "log",
  "pico-args",
- "roxmltree 0.20.0",
+ "roxmltree 0.21.1",
  "rustybuzz",
  "simplecss",
  "siphasher",
  "strict-num",
  "svgtypes",
- "tiny-skia-path",
+ "tiny-skia-path 0.12.0",
+ "ttf-parser",
  "unicode-bidi",
  "unicode-script",
  "unicode-vo",
@@ -4260,7 +4235,7 @@ dependencies = [
  "fearless_simd",
  "glifo",
  "image",
- "oxipng 10.1.1",
+ "oxipng",
  "pollster",
  "serde",
  "serde_json",
@@ -4286,7 +4261,7 @@ dependencies = [
  "futures-intrusive",
  "image",
  "nv-flip",
- "oxipng 10.1.1",
+ "oxipng",
  "png",
  "pollster",
  "scenes",
@@ -5315,7 +5290,7 @@ dependencies = [
  "env_logger",
  "getrandom",
  "jni 0.21.1",
- "kurbo 0.13.1",
+ "kurbo",
  "log",
  "notify-debouncer-full",
  "pollster",
@@ -5424,7 +5399,7 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "kompari",
- "kompari-tasks",
+ "kompari_tasks",
 ]
 
 [[package]]
