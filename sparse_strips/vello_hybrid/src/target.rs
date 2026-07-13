@@ -97,7 +97,7 @@ pub(crate) struct LayerTexturePair {
 }
 
 impl LayerTexturePair {
-    pub(crate) const fn id(self, parity: TextureParity) -> LayerTextureId {
+    pub(crate) const fn layer_id(self, parity: TextureParity) -> LayerTextureId {
         LayerTextureId::new(parity, self.page_indices[parity.get_parity()])
     }
 }
