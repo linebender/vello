@@ -9,23 +9,32 @@ use crate::math::FloatExt;
 use crate::tile::Tile;
 use alloc::vec::Vec;
 use core::ops::{Index, IndexMut};
-use fearless_simd::{
-    Bytes, Simd, SimdBase, SimdFloat, f32x16, u8x16, u8x32, u16x16, u16x32, u32x16,
-};
+use fearless_simd::{Bytes, Simd, SimdBase, SimdFloat, f32x16, u8x16, u8x32, u16x16, u16x32};
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
 use peniko::kurbo::{Affine, Rect};
 
 /// Convert f32x16 to u8x16.
-///
-/// **Important note: The values need to be between 0.0 and 1.0, otherwise you might
-/// get inconsistent results across different platforms.**
-// We can't guarantee correctness for values < 0.0 due to a restriction in fearless_simd:
-// https://github.com/linebender/fearless_simd/blob/3f4489389940b7c3c6ee1847a2d007a22494eeff/fearless_simd/src/generated/simd_types.rs#L1623
 #[inline(always)]
 pub fn f32_to_u8<S: Simd>(val: f32x16<S>) -> u8x16<S> {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    use fearless_simd::i32x16;
+    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+    use fearless_simd::u32x16;
+
     let simd = val.simd;
-    let converted = val.to_int::<u32x16<S>>().to_bytes();
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    let converted = val
+        .max(f32x16::splat(simd, 0.0))
+        .min(f32x16::splat(simd, 255.0))
+        .to_int::<i32x16<S>>()
+        .to_bytes();
+
+    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+    let converted = val
+        .min(f32x16::splat(simd, 255.0))
+        .to_int::<u32x16<S>>()
+        .to_bytes();
 
     let (x8_1, x8_2) = simd.split_u8x64(converted);
     let (p1, p2) = simd.split_u8x32(x8_1);
