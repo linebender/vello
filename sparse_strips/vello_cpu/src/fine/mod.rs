@@ -1108,7 +1108,7 @@ pub(crate) struct FineRenderParams {
 /// may convert between types as needed.
 pub trait Painter: Sized {
     /// Paint pixel data into a u8 buffer (values in 0-255 range).
-    fn paint_u8(self, buf: &mut [u8]);
+    fn paint_u8(mut self, buf: &mut [u8]);
 
     /// Paint pixel data into an f32 buffer (values in 0.0-1.0 range).
     fn paint_f32(self, buf: &mut [f32]);
