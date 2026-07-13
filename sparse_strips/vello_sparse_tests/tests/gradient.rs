@@ -309,13 +309,10 @@ mod linear {
         ctx.fill_path(&path);
     }
 
-    // This test needs a higher threshold because it contains sharp gradients that change
+    // This test needs a slightly higher threshold because it contains sharp gradients that change
     // in nearly every pixel interval. Small floating point errors can result in completely
-    // different colors being sampled at inflection points, meaning that a completely different
-    // color is sampled. This threshold was previously only 2, but had to be increased due to
-    // a change in vello_cpu (see https://github.com/linebender/vello/pull/1728) which changed
-    // the accumulation behavior and leads to higher discrepancies compared to Vello Hybrid.
-    #[vello_test(diff_pixels = 80)]
+    // different colors being sampled at inflection points.
+    #[vello_test(diff_pixels = 15)]
     fn gradient_linear_with_y_repeat(ctx: &mut impl Renderer) {
         let rect = Rect::new(10.0, 10.0, 90.0, 90.0);
 

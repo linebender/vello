@@ -377,7 +377,7 @@ impl<'a, S: Simd> ImagePainterData<'a, S> {
     #[inline(always)]
     pub(crate) fn positions<V>(&self, simd: S) -> PaintPositions<S, V>
     where
-        V: PosExt<S> + SimdBase<S, Element = f32> + core::ops::AddAssign,
+        V: PosExt<S> + SimdFloat<S, Element = f32>,
     {
         PaintPositions::new(
             simd,
@@ -391,7 +391,7 @@ impl<'a, S: Simd> ImagePainterData<'a, S> {
     #[inline(always)]
     pub(crate) fn plain_positions<V>(&self, simd: S) -> PlainPaintPositions<S, V>
     where
-        V: PosExt<S> + SimdBase<S, Element = f32> + core::ops::AddAssign,
+        V: PosExt<S> + SimdFloat<S, Element = f32>,
     {
         PlainPaintPositions::new(
             simd,

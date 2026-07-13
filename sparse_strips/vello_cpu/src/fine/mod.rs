@@ -1134,37 +1134,41 @@ pub(crate) trait PositionIterator<S: Simd>: Sized {
 
 #[derive(Debug)]
 pub(crate) struct PaintPositions<S: Simd, V> {
-    x_pos: V,
-    y_pos: V,
+    x_base: V,
+    y_base: V,
     x_step: V,
     y_step: V,
+    i: V,
     simd: core::marker::PhantomData<S>,
 }
 
 impl<S, V> PaintPositions<S, V>
 where
     S: Simd,
-    V: PosExt<S> + SimdBase<S, Element = f32> + core::ops::AddAssign,
+    V: PosExt<S> + SimdFloat<S, Element = f32>,
 {
     pub(crate) fn new(simd: S, pos: Point, x_advance: Vec2, y_advance: Vec2, step: f64) -> Self {
         simd.vectorize(|| Self {
-            x_pos: V::splat_pos(simd, pos.x as f32, x_advance.x as f32, y_advance.x as f32),
-            y_pos: V::splat_pos(simd, pos.y as f32, x_advance.y as f32, y_advance.y as f32),
+            x_base: V::splat_pos(simd, pos.x as f32, x_advance.x as f32, y_advance.x as f32),
+            y_base: V::splat_pos(simd, pos.y as f32, x_advance.y as f32, y_advance.y as f32),
             x_step: V::splat(simd, (step * x_advance.x) as f32),
             y_step: V::splat(simd, (step * x_advance.y) as f32),
+            i: V::splat(simd, 0.0),
             simd: core::marker::PhantomData,
         })
     }
 
     #[inline(always)]
     pub(crate) fn current(&self) -> (V, V) {
-        (self.x_pos, self.y_pos)
+        (
+            self.i.mul_add(self.x_step, self.x_base),
+            self.i.mul_add(self.y_step, self.y_base),
+        )
     }
 
     #[inline(always)]
     pub(crate) fn advance(&mut self) {
-        self.x_pos += self.x_step;
-        self.y_pos += self.y_step;
+        self.i += 1.0;
     }
 }
 
@@ -1182,32 +1186,34 @@ impl<S: Simd> PositionIterator<S> for PaintPositions<S, f32x8<S>> {
 
 #[derive(Debug)]
 pub(crate) struct PlainPaintPositions<S: Simd, V> {
-    pos: V,
+    base: V,
     step: V,
+    i: V,
     simd: core::marker::PhantomData<S>,
 }
 
 impl<S, V> PlainPaintPositions<S, V>
 where
     S: Simd,
-    V: PosExt<S> + SimdBase<S, Element = f32> + core::ops::AddAssign,
+    V: PosExt<S> + SimdFloat<S, Element = f32>,
 {
     pub(crate) fn new(simd: S, pos: Point, x_advance: Vec2, y_advance: Vec2, step: f64) -> Self {
         simd.vectorize(|| Self {
-            pos: V::splat_pos(simd, pos.x as f32, x_advance.x as f32, y_advance.x as f32),
+            base: V::splat_pos(simd, pos.x as f32, x_advance.x as f32, y_advance.x as f32),
             step: V::splat(simd, (step * x_advance.x) as f32),
+            i: V::splat(simd, 0.0),
             simd: core::marker::PhantomData,
         })
     }
 
     #[inline(always)]
     pub(crate) fn current(&self) -> V {
-        self.pos
+        self.i.mul_add(self.step, self.base)
     }
 
     #[inline(always)]
     pub(crate) fn advance(&mut self) {
-        self.pos += self.step;
+        self.i += 1.0;
     }
 }
 
