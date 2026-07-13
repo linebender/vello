@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::fine::macros::{f32x16_painter, u8x16_painter};
-use crate::fine::{PaintPositions, PlainPaintPositions, PosExt, Splat4thExt, u8_to_f32};
+use crate::fine::{
+    PaintPositions, PlainPaintPositions, PosExt, PositionIterator, Splat4thExt, u8_to_f32,
+};
 use crate::kurbo::Point;
 use vello_common::encode::EncodedImage;
 use vello_common::fearless_simd::{Bytes, Simd, SimdBase, SimdFloat, f32x4, f32x16, u8x16, u32x4};

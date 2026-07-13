@@ -3,7 +3,7 @@
 
 use crate::fine::common::image::{ImagePainterData, extend, fract_floor, sample};
 use crate::fine::macros::u8x16_painter;
-use crate::fine::{PaintPositions, PlainPaintPositions, PosExt};
+use crate::fine::{PaintPositions, PlainPaintPositions, PosExt, PositionIterator};
 use vello_common::encode::EncodedImage;
 use vello_common::fearless_simd::{f32x4, prelude::*, u8x16, u16x16};
 use vello_common::pixmap::Pixmap;
