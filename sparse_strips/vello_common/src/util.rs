@@ -9,6 +9,7 @@ use crate::math::FloatExt;
 use crate::strip::{Strip, StripFillSegment, for_each_fill_segment};
 use crate::tile::Tile;
 use alloc::vec::Vec;
+use bytemuck::{Pod, Zeroable};
 use core::ops::{Index, IndexMut};
 use fearless_simd::{
     Bytes, Simd, SimdBase, SimdFloat, f32x16, u8x16, u8x32, u16x16, u16x32, u32x16,
@@ -16,6 +17,51 @@ use fearless_simd::{
 #[cfg(not(feature = "std"))]
 use peniko::kurbo::common::FloatFuncs as _;
 use peniko::kurbo::{Affine, Rect};
+
+/// A size represented by two 16-bit unsigned integers.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable, PartialEq, Eq)]
+pub struct Int16Size(pub [u16; 2]);
+
+impl Int16Size {
+    /// A zero size.
+    pub const ZERO: Self = Self::new(0, 0);
+
+    /// Create a new size from its width and height.
+    pub const fn new(width: u16, height: u16) -> Self {
+        Self([width, height])
+    }
+
+    /// The width of this size.
+    pub const fn width(self) -> u16 {
+        self.0[0]
+    }
+
+    /// The height of this size.
+    pub const fn height(self) -> u16 {
+        self.0[1]
+    }
+
+    /// Return the component-wise maximum of two sizes.
+    pub fn max(self, other: Self) -> Self {
+        Self::new(
+            self.width().max(other.width()),
+            self.height().max(other.height()),
+        )
+    }
+}
+
+impl From<[u16; 2]> for Int16Size {
+    fn from(value: [u16; 2]) -> Self {
+        Self(value)
+    }
+}
+
+impl From<RectU16> for Int16Size {
+    fn from(rect: RectU16) -> Self {
+        Self::new(rect.width(), rect.height())
+    }
+}
 
 /// Convert f32x16 to u8x16.
 ///

@@ -75,7 +75,7 @@ pub use render::{WebGlAtlasWriter, WebGlRenderer, WebGlTextureWithDimensions};
 pub use render::{WebGlPendingProbe, WebGlProbeError, WebGlProbeStatus};
 pub use resources::Resources;
 pub use sampling::SampleRect;
-pub use scene::{RenderSettings, Scene};
+pub use scene::{LayersConfig, MemorySettings, RenderSettings, Scene, TextureAllocationStrategy};
 #[cfg(feature = "text")]
 pub use text::{GlyphRunBuilder, HybridGlyphRunBackend};
 pub use util::DimensionConstraints;

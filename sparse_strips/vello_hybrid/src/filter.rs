@@ -23,8 +23,8 @@
 
 use crate::copy::GpuCopyInstance;
 use crate::schedule::round::FilterOp;
-use crate::target::{IntermediateTextureSizes, TextureIndex, TextureRegion, TextureTarget};
-use crate::util::{Int16Size, Int32Size, IntRect, pack_u16_pair};
+use crate::target::{IntermediateTextureSizes, TextureParity, TextureRegion, TextureTarget};
+use crate::util::{Int32Size, IntRect, pack_u16_pair};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use vello_common::filter::drop_shadow::DropShadow;
@@ -33,7 +33,7 @@ use vello_common::filter::gaussian_blur::{DecimationSizer, GaussianBlur, MAX_KER
 use vello_common::filter::offset::Offset;
 use vello_common::filter::{FilterData, PreparedFilter};
 use vello_common::filter_effects::EdgeMode;
-use vello_common::util::RetainVec;
+use vello_common::util::{Int16Size, RetainVec};
 
 /// How much transparent padding to reserve for filter layers within the image. Needed so
 /// that the various shader programs can assume transparent pixels on the outside, making
@@ -485,7 +485,7 @@ struct FilterPassBuilder<'a> {
     passes: &'a mut FilterPassPlan,
     sizer: DecimationSizer,
     original: TextureTarget,
-    current_scratch: Option<TextureIndex>,
+    current_scratch: Option<TextureParity>,
     step: usize,
 }
 
@@ -500,7 +500,7 @@ impl<'a> FilterPassBuilder<'a> {
             op.layer_region.texture.rect.width(),
             op.layer_region.texture.rect.height(),
         );
-        let original = TextureTarget::layer(op.layer_region.texture.texture_index);
+        let original = TextureTarget::layer(op.layer_region.texture.texture_parity);
         Self {
             op,
             texture_sizes,
@@ -512,8 +512,9 @@ impl<'a> FilterPassBuilder<'a> {
         }
     }
 
-    fn scratch_region(&self, index: TextureIndex) -> TextureRegion {
-        self.op.scratches[index.get_index()].expect("filter pass requires allocated scratch region")
+    fn scratch_region(&self, parity: TextureParity) -> TextureRegion {
+        self.op.scratches[parity.get_parity()]
+            .expect("filter pass requires allocated scratch region")
     }
 
     fn texture_offset(&self, texture: TextureTarget) -> [u32; 2] {
@@ -522,8 +523,8 @@ impl<'a> FilterPassBuilder<'a> {
                 u32::from(self.op.layer_region.texture.rect.x0),
                 u32::from(self.op.layer_region.texture.rect.y0),
             ],
-            TextureTarget::Scratch(index) => {
-                let scratch = self.scratch_region(index);
+            TextureTarget::Scratch(parity) => {
+                let scratch = self.scratch_region(parity);
                 [u32::from(scratch.rect.x0), u32::from(scratch.rect.y0)]
             }
         }
@@ -534,9 +535,9 @@ impl<'a> FilterPassBuilder<'a> {
             .map_or_else(|| self.original, TextureTarget::scratch)
     }
 
-    fn next_scratch(&self) -> TextureIndex {
+    fn next_scratch(&self) -> TextureParity {
         self.current_scratch
-            .map_or(TextureIndex::Even, TextureIndex::opposite)
+            .map_or(TextureParity::Even, TextureParity::opposite)
     }
 
     fn apply_pass_dimensions(&mut self, kind: u32) -> (Int16Size, Int16Size) {
@@ -591,12 +592,12 @@ impl<'a> FilterPassBuilder<'a> {
     }
 
     fn ensure_result_in_scratch0(&mut self) {
-        if self.current_texture() == TextureTarget::scratch(TextureIndex::Even) {
+        if self.current_texture() == TextureTarget::scratch(TextureParity::Even) {
             return;
         }
 
-        self.emit(pass_kind::COPY, TextureTarget::scratch(TextureIndex::Even));
-        self.current_scratch = Some(TextureIndex::Even);
+        self.emit(pass_kind::COPY, TextureTarget::scratch(TextureParity::Even));
+        self.current_scratch = Some(TextureParity::Even);
     }
 
     fn emit_blur_sequence(&mut self, n_decimations: usize) {
@@ -617,10 +618,10 @@ impl<'a> FilterPassBuilder<'a> {
     }
 
     fn other_data(&self, kind: u32) -> u32 {
-        const OTHER_DATA_LAYER_TEXTURE_INDEX_SHIFT: u32 = 31;
+        const OTHER_DATA_LAYER_TEXTURE_PARITY_SHIFT: u32 = 31;
 
-        let texture_index = u32::from(self.op.layer_region.texture.texture_index);
-        kind | (texture_index << OTHER_DATA_LAYER_TEXTURE_INDEX_SHIFT)
+        let texture_parity = u32::from(self.op.layer_region.texture.texture_parity);
+        kind | (texture_parity << OTHER_DATA_LAYER_TEXTURE_PARITY_SHIFT)
     }
 
     fn copy_back(&mut self) {

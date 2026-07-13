@@ -8,7 +8,7 @@
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use core::ops::{Range, RangeInclusive};
-use vello_common::util::Clear;
+use vello_common::util::{Clear, Int16Size};
 
 /// Represents dimension constraints for surfaces
 #[derive(Debug)]
@@ -109,24 +109,6 @@ pub(crate) struct Int32Offset(pub [u32; 2]);
 pub(crate) struct Int32Size(pub [u32; 2]);
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable, PartialEq, Eq)]
-pub(crate) struct Int16Size(pub [u16; 2]);
-
-impl Int16Size {
-    pub(crate) const fn new(width: u16, height: u16) -> Self {
-        Self([width, height])
-    }
-
-    pub(crate) const fn width(self) -> u16 {
-        self.0[0]
-    }
-
-    pub(crate) const fn height(self) -> u16 {
-        self.0[1]
-    }
-}
-
-#[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub(crate) struct IntRect {
     pub offset: Int32Offset,
@@ -150,12 +132,6 @@ impl From<[u32; 2]> for Int32Offset {
 
 impl From<[u32; 2]> for Int32Size {
     fn from(v: [u32; 2]) -> Self {
-        Self(v)
-    }
-}
-
-impl From<[u16; 2]> for Int16Size {
-    fn from(v: [u16; 2]) -> Self {
         Self(v)
     }
 }

@@ -42,8 +42,18 @@ impl<R: Allocator> Cursor<R> {
                 });
             }
 
+            // Nothing more available to free just by advancing the round counter,
+            // but we still need place for the allocation, so we try to allocate
+            // a new texture.
             if self.current_round >= self.pending_releases.len() {
-                return Err(AtlasError::NoSpaceAvailable);
+                return request
+                    .grow(&mut self.resource)
+                    .map(|allocation| Allocation {
+                        allocation,
+                        round_idx: self.current_round,
+                    })
+                    // TODO: Add a better error.
+                    .ok_or(AtlasError::NoSpaceAvailable);
             }
 
             self.advance();

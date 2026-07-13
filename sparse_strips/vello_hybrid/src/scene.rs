@@ -144,7 +144,7 @@ pub struct LayersConfig {
     /// Must not be larger than `max_texture_size`. It is recommended to *not* make this smaller than
     /// the default value of 512x512, but you can consider raising it to 1024x1024 if you are
     /// willing to consume more memory by default.
-    pub min_texture_size: (u16, u16),
+    pub min_texture_size: (u32, u32),
     /// Maximum width and height, of each allocated intermediate texture.
     ///
     /// In order to render most scenes correctly, this value should be at least as large as the size
@@ -163,7 +163,7 @@ pub struct LayersConfig {
     ///
     /// In any case, Vello Hybrid will also honor the maximum texture size enforced by the device
     /// it is running on.
-    pub max_texture_size: (u16, u16),
+    pub max_texture_size: (u32, u32),
     /// Strategy used to size intermediate textures.
     ///
     /// Please see the documentation of [`GrowthStrategy`] for more information.

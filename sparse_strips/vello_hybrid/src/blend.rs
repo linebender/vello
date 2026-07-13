@@ -3,12 +3,13 @@
 
 use crate::copy::GpuCopyInstance;
 use crate::schedule::round::BlendOp;
-use crate::target::TextureIndex;
-use crate::util::{Int16Size, pack_opacity, pack_u16_pair};
+use crate::target::TextureParity;
+use crate::util::{pack_opacity, pack_u16_pair};
 use bytemuck::{Pod, Zeroable};
 use vello_common::peniko::{Compose, Mix};
+use vello_common::util::Int16Size;
 
-pub(crate) const BLEND_SCRATCH_INDEX: TextureIndex = TextureIndex::Even;
+pub(crate) const BLEND_SCRATCH_PARITY: TextureParity = TextureParity::Even;
 
 /// Per-instance data for `blend.wgsl`.
 #[repr(C)]
@@ -81,8 +82,8 @@ pub(crate) fn gpu_blend_instance(
             blend.blend_mode.mix,
             blend.blend_mode.compose,
             blend.opacity,
-            blend.parent_region.texture.texture_index,
-            blend.child_region.texture.texture_index,
+            blend.parent_region.texture.texture_parity,
+            blend.child_region.texture.texture_parity,
         ),
     }
 }
@@ -91,14 +92,14 @@ fn pack_blend_config(
     mix: Mix,
     compose: Compose,
     opacity: f32,
-    parent_texture_index: TextureIndex,
-    child_texture_index: TextureIndex,
+    parent_texture_parity: TextureParity,
+    child_texture_parity: TextureParity,
 ) -> u32 {
     pack_compose(compose)
         | (pack_mix(mix) << 8)
         | (u32::from(pack_opacity(opacity)) << 16)
-        | (u32::from(parent_texture_index) << 24)
-        | (u32::from(child_texture_index) << 25)
+        | (u32::from(parent_texture_parity) << 24)
+        | (u32::from(child_texture_parity) << 25)
 }
 
 fn pack_mix(mix: Mix) -> u32 {

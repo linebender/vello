@@ -43,6 +43,7 @@ use crate::geometry::RectU16;
 use crate::mask::Mask;
 use crate::peniko::BlendMode;
 use crate::strip::Strip;
+use crate::util::Int16Size;
 use crate::util::{RectExt, VecPool};
 use alloc::vec::Vec;
 use core::ops::Range;
@@ -153,6 +154,10 @@ pub struct CommandRecorder<D> {
     pub root_is_blend_target: bool,
     /// Maximum layer depth across the whole layer graph.
     pub max_layer_depth: usize,
+    /// Component-wise largest dimensions of any recorded layer.
+    pub largest_layer_size: Int16Size,
+    /// Component-wise largest dimensions of any recorded filter layer.
+    pub largest_filter_size: Int16Size,
     /// Whether there exists at least one layer that uses a non-default blend mode.
     pub has_non_default_blend: bool,
     /// Whether there exists at least one layer that has a filter.
@@ -176,6 +181,8 @@ impl<D> Default for CommandRecorder<D> {
             filter_layers: Vec::new(),
             root_is_blend_target: false,
             max_layer_depth: 0,
+            largest_layer_size: Int16Size::ZERO,
+            largest_filter_size: Int16Size::ZERO,
             has_non_default_blend: false,
             has_filter_layer: false,
             cmd_pool: VecPool::default(),
@@ -217,6 +224,8 @@ impl<D> CommandRecorder<D> {
         self.filter_layers.clear();
         self.root_is_blend_target = false;
         self.max_layer_depth = 0;
+        self.largest_layer_size = Int16Size::ZERO;
+        self.largest_filter_size = Int16Size::ZERO;
         self.has_non_default_blend = false;
         self.has_filter_layer = false;
         self.active_layer = None;
@@ -274,36 +283,44 @@ impl<D> CommandRecorder<D> {
     pub fn pop_layer(&mut self) -> PoppedLayer {
         let layer = self.layer_stack.pop().unwrap();
         let id = layer.id;
-        let recorded_layer = &mut self.layers[id as usize];
-        let (popped_layer, bbox) = match &mut recorded_layer.kind {
-            RecordedLayerKind::Regular => {
-                let mut bbox = layer.bbox;
+        let (popped_layer, bbox) = {
+            let recorded_layer = &mut self.layers[id as usize];
+            match &mut recorded_layer.kind {
+                RecordedLayerKind::Regular => {
+                    let mut bbox = layer.bbox;
 
-                if let Some(clip_path) = &recorded_layer.props.clip_path {
-                    bbox = bbox
-                        .intersect(clip_path.bbox)
-                        // The clip path bounding box is derived directly from the clip path
-                        // (and hence not necessarily tile-aligned), but we want to ensure that
-                        // all bounding boxes _are_ tile-aligned since they should denote the
-                        // bounding box of the strips, which are always tile-aligned.
-                        .snap_to_tile_coordinates();
+                    if let Some(clip_path) = &recorded_layer.props.clip_path {
+                        bbox = bbox
+                            .intersect(clip_path.bbox)
+                            // The clip path bounding box is derived directly from the clip path
+                            // (and hence not necessarily tile-aligned), but we want to ensure that
+                            // all bounding boxes _are_ tile-aligned since they should denote the
+                            // bounding box of the strips, which are always tile-aligned.
+                            .snap_to_tile_coordinates();
+                    }
+
+                    recorded_layer.bbox = bbox;
+                    self.largest_layer_size = self.largest_layer_size.max(bbox.into());
+
+                    (PoppedLayer::Regular, bbox)
                 }
+                RecordedLayerKind::Filter {
+                    filter_data: filter_plan,
+                    placement,
+                    ..
+                } => {
+                    *placement = FilterLayerPlacement::new(layer.bbox, filter_plan);
+                    // Unlike normal layers, we don't want to intersect with the current clip bbox
+                    // because effects of spatial filters shouldn't be clipped away.
+                    recorded_layer.bbox = placement.pixmap_bbox;
+                    let dest_bbox = placement.dest_bbox;
 
-                recorded_layer.bbox = bbox;
-                (PoppedLayer::Regular, bbox)
-            }
-            RecordedLayerKind::Filter {
-                filter_data: filter_plan,
-                placement,
-                ..
-            } => {
-                *placement = FilterLayerPlacement::new(layer.bbox, filter_plan);
-                // Unlike normal layers, we don't want to intersect with the current clip bbox
-                // because effects of spatial filters shouldn't be clipped away.
-                recorded_layer.bbox = placement.pixmap_bbox;
-                let dest_bbox = placement.dest_bbox;
+                    let filter_size = placement.pixmap_bbox.into();
+                    self.largest_layer_size = self.largest_layer_size.max(filter_size);
+                    self.largest_filter_size = self.largest_filter_size.max(filter_size);
 
-                (PoppedLayer::Filter, dest_bbox)
+                    (PoppedLayer::Filter, dest_bbox)
+                }
             }
         };
 
