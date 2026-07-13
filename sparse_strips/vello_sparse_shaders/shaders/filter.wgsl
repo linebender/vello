@@ -7,10 +7,9 @@
 @group(1) @binding(0) var in_tex: texture_2d<f32>;
 // A bilinear sampler.
 @group(1) @binding(1) var linear_sampler: sampler;
-// Layer atlas textures containing original (unfiltered) layer content. This is only needed because
+// Layer atlas texture containing original (unfiltered) layer content. This is only needed because
 // for the drop shadow filter, we need to composite the original content on top of the shadow.
-@group(2) @binding(0) var layer_texture_0: texture_2d<f32>;
-@group(2) @binding(1) var layer_texture_1: texture_2d<f32>;
+@group(2) @binding(0) var original_texture: texture_2d<f32>;
 
 // Keep these variables and layouts in sync with the ones in `filter.rs`!
 
@@ -163,13 +162,9 @@ fn vs_main(
 // Sample a pixel from the original texture.
 // Note: `rel_cord` needs to be positive and must not exceed the width/height of the image
 // that is to be sampled.
-fn sample_original(layer_texture_index: u32, original_offset: vec2<u32>, rel_coord: vec2<f32>) -> vec4<f32> {
+fn sample_original(original_offset: vec2<u32>, rel_coord: vec2<f32>) -> vec4<f32> {
     let src_coord = vec2<u32>(vec2<i32>(original_offset) + vec2<i32>(rel_coord));
-    if layer_texture_index == 0u {
-        return textureLoad(layer_texture_0, src_coord, 0);
-    }   else {
-        return textureLoad(layer_texture_1, src_coord, 0);
-    }
+    return textureLoad(original_texture, src_coord, 0);
 }
 
 // Sample a pixel from the input texture.
@@ -325,8 +320,7 @@ fn fs_main(
 ) -> @location(0) vec4<f32> {
     let frag_coord = vec2<u32>(position.xy);
     let rel_coord = vec2<f32>(frag_coord - dest_offset);
-    let layer_texture_index = other_data >> 31u;
-    let filter_pass_kind = other_data & 0x7fffffffu;
+    let filter_pass_kind = other_data;
 
     // See the comment in `vs_main`.
     if rel_coord.x >= f32(dest_size.x) || rel_coord.y >= f32(dest_size.y) {
@@ -393,7 +387,7 @@ fn fs_main(
             let blurred = sample_input(src_offset, rel_coord);
             let shadow_color = unpack4x8unorm(get_drop_shadow_color(filter_texel2));
             let shadow_result = shadow_color * blurred.a;
-            let original = sample_original(layer_texture_index, original_offset, rel_coord);
+            let original = sample_original(original_offset, rel_coord);
 
             // Simple source-over compositing.
             return original + shadow_result * (1.0 - original.a);

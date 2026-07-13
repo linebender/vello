@@ -548,7 +548,6 @@ impl<'a> FilterPassBuilder<'a> {
             .map_or(original_rect, |parity| self.scratch_region(parity).rect);
         let dest_rect = self.scratch_region(output).rect;
         let dest_texture_size = self.texture_sizes.scratch_size(output);
-        let other_data = self.other_data(kind);
         let rect_with_size = |rect: RectU16, size: SizeU16| {
             let x0 = u32::from(rect.x0);
             let y0 = u32::from(rect.y0);
@@ -568,7 +567,7 @@ impl<'a> FilterPassBuilder<'a> {
                 original_rect,
                 SizeU16::from_wh(original_rect.width(), original_rect.height()),
             ),
-            other_data,
+            other_data: kind,
         });
         self.step += 1;
     }
@@ -603,13 +602,6 @@ impl<'a> FilterPassBuilder<'a> {
             final_pass = pass_kind::UPSCALE;
         }
         self.emit_to_scratch(final_pass);
-    }
-
-    fn other_data(&self, kind: u32) -> u32 {
-        const OTHER_DATA_LAYER_TEXTURE_PARITY_SHIFT: u32 = 31;
-
-        let texture_parity = u32::from(self.op.layer_region.texture.target.texture_parity);
-        kind | (texture_parity << OTHER_DATA_LAYER_TEXTURE_PARITY_SHIFT)
     }
 
     fn copy_back(&mut self) {
