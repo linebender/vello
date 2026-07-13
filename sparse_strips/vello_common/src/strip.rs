@@ -10,6 +10,145 @@ use crate::util::f32_to_u8;
 use alloc::vec::Vec;
 use fearless_simd::*;
 
+#[derive(Clone, Copy)]
+struct GenericStripKernel;
+
+trait StripKernel<S: Simd>: Copy {
+    fn update_coverage(
+        s: S,
+        location_winding: &mut [f32x4<S>; Tile::WIDTH as usize],
+        p0_x: f32,
+        p0_y: f32,
+        p1_x: f32,
+        p1_y: f32,
+    ) -> (f32x4<S>, i32);
+
+    fn alpha_to_u8(s: S, values: [f32x4<S>; Tile::WIDTH as usize]) -> u8x16<S>;
+}
+
+trait F32x4MaxExt {
+    fn max_if_first_nan_take_second(self, rhs: Self) -> Self;
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+impl<S: Simd> F32x4MaxExt for f32x4<S> {
+    #[inline(always)]
+    fn max_if_first_nan_take_second(self, rhs: Self) -> Self {
+        self.max(rhs)
+    }
+}
+
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+impl<S: Simd> F32x4MaxExt for f32x4<S> {
+    #[inline(always)]
+    fn max_if_first_nan_take_second(self, rhs: Self) -> Self {
+        self.max_precise(rhs)
+    }
+}
+
+impl<S: Simd> StripKernel<S> for GenericStripKernel {
+    #[inline(always)]
+    fn update_coverage(
+        s: S,
+        location_winding: &mut [f32x4<S>; Tile::WIDTH as usize],
+        p0_x: f32,
+        p0_y: f32,
+        p1_x: f32,
+        p1_y: f32,
+    ) -> (f32x4<S>, i32) {
+        let (line_top_y, line_top_x, line_bottom_y, line_bottom_x, sign, sign_f32) = if p0_y < p1_y
+        {
+            (p0_y, p0_x, p1_y, p1_x, -1, -1.0)
+        } else {
+            (p1_y, p1_x, p0_y, p0_x, 1, 1.0)
+        };
+
+        let y_slope = (line_bottom_y - line_top_y) / (line_bottom_x - line_top_x);
+        let x_slope = 1. / y_slope;
+
+        let line_top_y = f32x4::splat(s, line_top_y);
+        let line_bottom_y = f32x4::splat(s, line_bottom_y);
+        let line_px_base_yx = line_top_y.mul_add(-x_slope, line_top_x);
+        let px_top_y = f32x4::simd_from(s, [0., 1., 2., 3.]);
+        let px_bottom_y = 1. + px_top_y;
+        let ymin = line_top_y.max(px_top_y);
+        let ymax = line_bottom_y.min(px_bottom_y);
+        let mut acc = f32x4::splat(s, 0.0);
+
+        for (x_idx, winding) in location_winding.iter_mut().enumerate() {
+            let px_left_x = f32x4::splat(s, x_idx as f32);
+            let px_right_x = 1.0 + px_left_x;
+            let line_px_left_y = (px_left_x - line_top_x)
+                .mul_add(y_slope, line_top_y)
+                .max_if_first_nan_take_second(ymin)
+                .min(ymax);
+            let line_px_right_y = (px_right_x - line_top_x)
+                .mul_add(y_slope, line_top_y)
+                .max_if_first_nan_take_second(ymin)
+                .min(ymax);
+            let line_px_left_yx = line_px_left_y.mul_add(x_slope, line_px_base_yx);
+            let line_px_right_yx = line_px_right_y.mul_add(x_slope, line_px_base_yx);
+            let h = (line_px_right_y - line_px_left_y).abs();
+            let area = h * (line_px_right_yx + line_px_left_yx).mul_add(-0.5, px_right_x);
+            *winding += area.mul_add(sign_f32, acc);
+            acc = h.mul_add(sign_f32, acc);
+        }
+
+        (acc, sign)
+    }
+
+    #[inline(always)]
+    fn alpha_to_u8(s: S, values: [f32x4<S>; Tile::WIDTH as usize]) -> u8x16<S> {
+        let p1 = s.combine_f32x4(values[0], values[1]);
+        let p2 = s.combine_f32x4(values[2], values[3]);
+        f32_to_u8(s.combine_f32x8(p1, p2))
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[derive(Clone, Copy)]
+struct Avx2AsmStripKernel;
+
+#[cfg(target_arch = "x86_64")]
+impl StripKernel<Avx2> for Avx2AsmStripKernel {
+    #[inline(always)]
+    fn update_coverage(
+        _s: Avx2,
+        location_winding: &mut [f32x4<Avx2>; Tile::WIDTH as usize],
+        p0_x: f32,
+        p0_y: f32,
+        p1_x: f32,
+        p1_y: f32,
+    ) -> (f32x4<Avx2>, i32) {
+        let (line_top_y, line_top_x, line_bottom_y, line_bottom_x, sign, sign_f32) = if p0_y < p1_y
+        {
+            (p0_y, p0_x, p1_y, p1_x, -1, -1.0)
+        } else {
+            (p1_y, p1_x, p0_y, p0_x, 1, 1.0)
+        };
+        let delta_y = line_bottom_y - line_top_y;
+        let delta_x = line_bottom_x - line_top_x;
+        // These divisions are independent, unlike `x_slope = 1.0 / y_slope`.
+        let y_slope = delta_y / delta_x;
+        let x_slope = delta_x / delta_y;
+        let acc = crate::strip_avx2::update_coverage(
+            location_winding,
+            line_top_y,
+            line_top_x,
+            line_bottom_y,
+            y_slope,
+            x_slope,
+            sign_f32,
+        );
+        (acc, sign)
+    }
+
+    #[inline(always)]
+    fn alpha_to_u8(_s: Avx2, values: [f32x4<Avx2>; Tile::WIDTH as usize]) -> u8x16<Avx2> {
+        crate::strip_avx2::alpha_to_u8(values)
+    }
+}
+
 /// A strip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Strip {
@@ -148,17 +287,38 @@ pub fn render(
     aliasing_threshold: Option<u8>,
     lines: &[Line],
 ) {
+    #[cfg(target_arch = "x86_64")]
+    if let Some(avx2) = level.as_avx2() {
+        avx2.vectorize(
+            #[inline(always)]
+            || {
+                render_impl(
+                    avx2,
+                    tiles,
+                    strip_buf,
+                    alpha_buf,
+                    fill_rule,
+                    aliasing_threshold,
+                    lines,
+                    Avx2AsmStripKernel,
+                );
+            },
+        );
+        return;
+    }
+
     dispatch!(level, simd => render_impl(simd,
                                          tiles,
                                          strip_buf,
                                          alpha_buf,
                                          fill_rule,
                                          aliasing_threshold,
-                                         lines));
+                                         lines,
+                                         GenericStripKernel));
 }
 
 #[inline(always)]
-fn render_impl<S: Simd>(
+fn render_impl<S: Simd, K: StripKernel<S>>(
     s: S,
     tiles: &Tiles,
     strip_buf: &mut Vec<Strip>,
@@ -166,6 +326,7 @@ fn render_impl<S: Simd>(
     fill_rule: Fill,
     aliasing_threshold: Option<u8>,
     lines: &[Line],
+    _kernel: K,
 ) {
     let row_windings = &tiles.windings.coarse;
     let has_culled_tiles = tiles.has_culled_tiles();
@@ -314,10 +475,7 @@ fn render_impl<S: Simd>(
                 }
             };
 
-            let p1 = s.combine_f32x4(location_winding[0], location_winding[1]);
-            let p2 = s.combine_f32x4(location_winding[2], location_winding[3]);
-
-            let mut u8_vals = f32_to_u8(s.combine_f32x8(p1, p2));
+            let mut u8_vals = K::alpha_to_u8(s, location_winding);
 
             if let Some(aliasing_threshold) = aliasing_threshold {
                 u8_vals = s.select_u8x16(
@@ -407,10 +565,6 @@ fn render_impl<S: Simd>(
             continue;
         }
 
-        // Lines moving upwards (in a y-down coordinate system) add to winding; lines moving
-        // downwards subtract from winding.
-        let sign = (p0_y - p1_y).signum();
-
         // Calculate winding / pixel area coverage.
         //
         // Conceptually, horizontal rays are shot from left to right. Every time the ray crosses a
@@ -441,114 +595,8 @@ fn render_impl<S: Simd>(
         //     *
         //    *
 
-        let (line_top_y, line_top_x, line_bottom_y, line_bottom_x) = if p0_y < p1_y {
-            (p0_y, p0_x, p1_y, p1_x)
-        } else {
-            (p1_y, p1_x, p0_y, p0_x)
-        };
-
-        let y_slope = (line_bottom_y - line_top_y) / (line_bottom_x - line_top_x);
-        let x_slope = 1. / y_slope;
-
-        winding_delta += sign as i32 * i32::from(tile.winding());
-
-        let line_top_y = f32x4::splat(s, line_top_y);
-        let line_bottom_y = f32x4::splat(s, line_bottom_y);
-
-        // See the explanation of this term on the `line_px_left_yx` and `line_px_right_yx`
-        // variables below.
-        let line_px_base_yx = line_top_y.mul_add(-x_slope, line_top_x);
-
-        let px_top_y = f32x4::simd_from(s, [0., 1., 2., 3.]);
-        let px_bottom_y = 1. + px_top_y;
-
-        let ymin = line_top_y.max(px_top_y);
-        let ymax = line_bottom_y.min(px_bottom_y);
-
-        let mut acc = f32x4::splat(s, 0.0);
-
-        for x_idx in 0..Tile::WIDTH {
-            let x_idx_s = f32x4::splat(s, x_idx as f32);
-            let px_left_x = x_idx_s;
-            let px_right_x = 1.0 + x_idx_s;
-
-            // The y-coordinate of the intersections between the line and the pixel's left and
-            // right edges respectively.
-            //
-            // There is some subtlety going on here: `y_slope` will usually be finite, but will
-            // be `inf` for purely vertical lines (`p0_x == p1_x`).
-            //
-            // In the case of `inf`, the resulting slope calculation will be `-inf` or `inf`
-            // depending on whether the pixel edge is left or right of the line, respectively
-            // (from the viewport's coordinate system perspective). The `min` and `max`
-            // y-clamping logic generalizes nicely, as a pixel edge to the left of the line is
-            // clamped to `ymin`, and a pixel edge to the right is clamped to `ymax`.
-            //
-            // In the special case where a vertical line and pixel edge are at the exact same
-            // x-position (collinear), the line belongs to the pixel on whose _left_ edge it is
-            // situated. The resulting slope calculation for the edge the line is situated on
-            // will be NaN, as `0 * inf` results in NaN. This is true for both the left and
-            // right edge.
-            //
-            // We know `ymin` and `ymax` are finite. We require the `max` operation to pick `ymin`
-            // if its first operand is NaN. On x86, that maps to the semantics of `_mm_max_ps`,
-            // which `f32x4::max` emits: that instruction takes element-wise
-            // `if first > second { first } else { second }`. For AArch64, we do require the
-            // `f32x4::max_precise` semantics (as `vmax_f32` returns NaN if either operand is NaN);
-            // however, for AArch64 the precise version should be comparatively less expensive than
-            // on x86. For `min`, we then know both operands are finite, so we can unambiguously
-            // use the relaxed version. If this ever breaks, tests should fail loudly, because NaNs
-            // happen a lot here!
-            trait F32x4MaxExt {
-                fn max_if_first_nan_take_second(self, rhs: Self) -> Self;
-            }
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            impl<S: Simd> F32x4MaxExt for f32x4<S> {
-                #[inline(always)]
-                fn max_if_first_nan_take_second(self, rhs: Self) -> Self {
-                    self.max(rhs)
-                }
-            }
-            #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-            impl<S: Simd> F32x4MaxExt for f32x4<S> {
-                #[inline(always)]
-                fn max_if_first_nan_take_second(self, rhs: Self) -> Self {
-                    self.max_precise(rhs)
-                }
-            }
-            let line_px_left_y = (px_left_x - line_top_x)
-                .mul_add(y_slope, line_top_y)
-                .max_if_first_nan_take_second(ymin)
-                .min(ymax);
-            let line_px_right_y = (px_right_x - line_top_x)
-                .mul_add(y_slope, line_top_y)
-                .max_if_first_nan_take_second(ymin)
-                .min(ymax);
-
-            // For each pixel we calculate the x-coordinates of the left- and rightmost points on
-            // the line segment within that pixel. We do this based on the y-offsets of those two
-            // points from the top of the line. This can be calculated as, e.g.,
-            // `(line_px_left_y - line_top_y) * x_slope + line_top_x`.
-            //
-            // Rather than calculating that y-offset twice for each pixel within the loop through
-            // subtracting from the points' y-coordinates, we get rid of that subtraction by baking
-            // it into the algebraic "base" x-coordinate `line_px_base_yx` calculated above the
-            // loop. When adding that term to `y * x_slope` it gives the x-coordinate of the point
-            // along the line.
-            //
-            // Note `x_slope` is always finite, as horizontal geometry is elided.
-            let line_px_left_yx = line_px_left_y.mul_add(x_slope, line_px_base_yx);
-            let line_px_right_yx = line_px_right_y.mul_add(x_slope, line_px_base_yx);
-            let h = (line_px_right_y - line_px_left_y).abs();
-
-            // The trapezoidal area enclosed between the line and the right edge of the pixel
-            // square. More straightforwardly written as follows, but the `madd` is faster.
-            // 0.5 * h * (2. * px_right_x - line_px_right_yx - line_px_left_yx).
-            let area = h * (line_px_right_yx + line_px_left_yx).mul_add(-0.5, px_right_x);
-            location_winding[x_idx as usize] += area.mul_add(sign, acc);
-            acc = h.mul_add(sign, acc);
-        }
-
+        let (acc, sign) = K::update_coverage(s, &mut location_winding, p0_x, p0_y, p1_x, p1_y);
+        winding_delta += sign * i32::from(tile.winding());
         accumulated_winding += acc;
     }
 

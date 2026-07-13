@@ -47,7 +47,7 @@
 #![cfg_attr(target_pointer_width = "64", warn(clippy::trivially_copy_pass_by_ref))]
 // END LINEBENDER LINT SET
 #![cfg_attr(docsrs, feature(doc_cfg))]
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 #![expect(
     clippy::cast_possible_truncation,
     reason = "We temporarily ignore those because the casts\
@@ -89,6 +89,9 @@ pub mod render_graph;
 pub mod render_state;
 pub mod simd;
 pub mod strip;
+#[cfg(target_arch = "x86_64")]
+#[allow(unsafe_code, reason = "Experimental hand-written AVX2 baseline")]
+mod strip_avx2;
 pub mod strip_generator;
 pub mod tile;
 pub mod util;
