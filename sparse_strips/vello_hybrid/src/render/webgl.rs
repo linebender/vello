@@ -22,11 +22,10 @@ only break in edge cases, and some of them are also only related to conversions 
 
 use crate::draw::ExternalTextureRun;
 use crate::render::common::IMAGE_PADDING;
-use crate::schedule::execute::TextureRequirements;
-use crate::util::{Int16Size, RangedSlice};
+use crate::util::RangedSlice;
 use crate::{
-    GpuStrip, RenderError, RenderSettings, RenderSize, Resources,
-    blend::{BLEND_SCRATCH_INDEX, GpuBlendInstance, gpu_blend_instance},
+    GpuStrip, LayersConfig, RenderError, RenderSettings, RenderSize, Resources,
+    blend::{BLEND_SCRATCH_PARITY, GpuBlendInstance, gpu_blend_instance},
     copy::GpuCopyInstance,
     filter::{FilterContext, FilterInstanceData, FilterPassPlan},
     gradient_cache::GradientRampCache,
@@ -38,15 +37,15 @@ use crate::{
             GPU_LINEAR_GRADIENT_SIZE_TEXELS, GPU_RADIAL_GRADIENT_SIZE_TEXELS,
             GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuBlurredRoundedRect, GpuEncodedImage,
             GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
-            ScratchBuffers, normalize_atlas_config, pack_image_offset, pack_image_params,
-            pack_image_size, pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode,
-            pack_tint,
+            ScratchBuffers, pack_image_offset, pack_image_params, pack_image_size,
+            pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode, pack_tint,
         },
     },
     scene::Scene,
     schedule::{RendererBackend, Schedule, ScheduleStorage, round::BlendOp},
     target::{
-        DrawPassTarget, IntermediateTextureSizes, RootRenderTarget, TextureIndex, TextureTarget,
+        DrawPassTarget, IntermediateTextureSizes, LayerTextureId, LayerTexturePair,
+        RootRenderTarget, TextureParity, TextureTarget,
     },
 };
 use alloc::sync::Arc;
@@ -63,7 +62,7 @@ use vello_common::{
         EncodedBlurredRoundedRectangle, EncodedGradient, EncodedKind, EncodedPaint,
         MAX_GRADIENT_LUT_SIZE, RadialKind,
     },
-    geometry::RectU16,
+    geometry::{RectU16, SizeU16},
     paint::{ImageId, ImageSource},
     peniko::{self},
     pixmap::Pixmap,
@@ -114,6 +113,7 @@ pub struct WebGlRenderer {
     dummy_image_cache: Option<ImageCache>,
     schedule_storage: ScheduleStorage,
     scratch: ScratchBuffers,
+    layer_config: LayersConfig,
 }
 
 impl WebGlRenderer {
@@ -198,8 +198,7 @@ impl WebGlRenderer {
 
         let mut settings = settings;
         let max_texture_dimension_2d = get_max_texture_dimension_2d(&gl);
-        normalize_atlas_config(
-            &mut settings.atlas_config,
+        settings.memory.normalize(
             max_texture_dimension_2d,
             get_max_texture_array_layers(&gl),
             1,
@@ -212,14 +211,15 @@ impl WebGlRenderer {
                 >= 24.0,
             "Depth buffer must be at least 24 bits"
         );
-        let image_cache = ImageCache::new_with_config(settings.atlas_config);
+        let image_cache = ImageCache::new_with_config(settings.memory.image_atlas_config);
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
         // and the maximum gradient LUT size - worst case scenario.
         let max_gradient_cache_size =
             max_texture_dimension_2d * max_texture_dimension_2d / MAX_GRADIENT_LUT_SIZE as u32;
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
+        let layer_config = settings.memory.layers_config;
         Self {
-            programs: WebGlPrograms::new(gl.clone(), &image_cache),
+            programs: WebGlPrograms::new(gl.clone(), &image_cache, layer_config),
             gl,
             encoded_paints: Vec::new(),
             paint_idxs: Vec::new(),
@@ -227,6 +227,7 @@ impl WebGlRenderer {
             dummy_image_cache: Some(ImageCache::new_dummy()),
             schedule_storage: ScheduleStorage::default(),
             scratch: ScratchBuffers::default(),
+            layer_config,
         }
     }
 
@@ -392,17 +393,32 @@ impl WebGlRenderer {
         let original_scene_paint_count = encoded_paints.len();
 
         self.prepare_gpu_encoded_paints(&encoded_paints, image_cache);
+        self.programs
+            .maybe_resize_atlas_texture_array(&self.gl, image_cache.atlas_count() as u32);
+
+        let required_texture_sizes = self
+            .layer_config
+            .intermediate_texture_requirements(&scene.recorder);
+
+        // We currently only grow and never shrink textures, so max it with whatever
+        // we had in the previous run.
+        let texture_sizes = self
+            .programs
+            .resources
+            .texture_sizes
+            .max(required_texture_sizes);
+
         let paint_resolver = PaintResolver::new(&encoded_paints, &self.paint_idxs);
         let schedule = Schedule::try_new(
             &mut self.schedule_storage,
             scene,
             root_output_target,
             paint_resolver,
-            self.programs.resources.texture_sizes,
+            texture_sizes,
+            self.layer_config,
         )?;
-
         self.programs
-            .maybe_resize_atlas_texture_array(&self.gl, image_cache.atlas_count() as u32);
+            .prepare_intermediate_textures(&self.gl, &schedule, texture_sizes);
 
         // TODO: For the time being, we upload the entire alpha buffer as one big chunk. As a future
         // refinement, we could have a bounded alpha buffer, and break draws when the alpha
@@ -416,9 +432,6 @@ impl WebGlRenderer {
             &self.paint_idxs,
             &self.schedule_storage.filter_context,
         );
-        self.programs
-            .prepare_intermediate_textures(&self.gl, TextureRequirements::new(scene));
-
         if clear {
             self.programs.clear_view_framebuffer(&self.gl);
         }
@@ -792,6 +805,8 @@ pub(crate) struct WebGlPrograms {
     render_size: RenderSize,
     /// Whether the last config buffer upload had NDC Y negation enabled.
     negate_ndc: bool,
+    /// Whether intermediate texture growth requires updated layer config buffers.
+    intermediate_texture_sizes_changed: bool,
     /// Scratch buffer for staging encoded paints texture data.
     encoded_paints_data: Vec<u8>,
     /// Scratch buffer for staging filter data texture data.
@@ -802,8 +817,7 @@ pub(crate) struct WebGlPrograms {
 struct FilterPassUniforms {
     filter_data: WebGlUniformLocation,
     in_tex: WebGlUniformLocation,
-    layer_texture_0: WebGlUniformLocation,
-    layer_texture_1: WebGlUniformLocation,
+    original_texture: WebGlUniformLocation,
 }
 
 #[derive(Debug)]
@@ -909,7 +923,7 @@ pub(crate) struct WebGlResources {
     /// Config buffer for rendering strips into a layer texture.
     layer_config_buffers: [Buffer; 2],
     /// Layer atlas texture slots.
-    layer_textures: [IntermediateTexture; 2],
+    layer_textures: [Vec<WebGlIntermediateTexture>; 2],
     /// Dummy layer texture used when creating fixed-shape bindings.
     dummy_layer_texture: WebGlIntermediateTexture,
 }
@@ -933,36 +947,38 @@ impl WebGlIntermediateTexture {
 }
 
 impl WebGlResources {
-    fn layer_binding_texture(&self, index: TextureIndex) -> &Texture {
-        self.layer_textures[index.get_index()].as_ref().map_or_else(
-            || self.dummy_layer_texture.binding_texture(),
-            WebGlIntermediateTexture::binding_texture,
-        )
+    fn layer_binding_texture(&self, id: LayerTextureId) -> &Texture {
+        self.layer_textures[id.texture_parity.get_parity()]
+            .get(usize::from(id.page_index))
+            .map_or_else(
+                || self.dummy_layer_texture.binding_texture(),
+                WebGlIntermediateTexture::binding_texture,
+            )
     }
 
-    fn layer_texture(&self, index: TextureIndex) -> &Texture {
-        self.layer_textures[index.get_index()]
-            .as_ref()
+    fn layer_texture(&self, id: LayerTextureId) -> &Texture {
+        self.layer_textures[id.texture_parity.get_parity()]
+            .get(usize::from(id.page_index))
             .expect("vello_hybrid attempted to use a missing layer texture")
             .binding_texture()
     }
 
-    fn layer_framebuffer(&self, index: TextureIndex) -> &Framebuffer {
-        self.layer_textures[index.get_index()]
-            .as_ref()
+    fn layer_framebuffer(&self, id: LayerTextureId) -> &Framebuffer {
+        self.layer_textures[id.texture_parity.get_parity()]
+            .get(usize::from(id.page_index))
             .expect("vello_hybrid attempted to use a missing layer texture")
             .framebuffer()
     }
 
-    fn scratch_texture(&self, index: TextureIndex) -> &Texture {
-        self.scratch_textures[index.get_index()]
+    fn scratch_texture(&self, parity: TextureParity) -> &Texture {
+        self.scratch_textures[parity.get_parity()]
             .as_ref()
             .expect("vello_hybrid attempted to use a missing scratch texture")
             .binding_texture()
     }
 
-    fn scratch_framebuffer(&self, index: TextureIndex) -> &Framebuffer {
-        self.scratch_textures[index.get_index()]
+    fn scratch_framebuffer(&self, parity: TextureParity) -> &Framebuffer {
+        self.scratch_textures[parity.get_parity()]
             .as_ref()
             .expect("vello_hybrid attempted to use a missing scratch texture")
             .framebuffer()
@@ -970,34 +986,26 @@ impl WebGlResources {
 
     fn texture_target_texture(&self, target: TextureTarget) -> &Texture {
         match target {
-            TextureTarget::Layer(_) => self.layer_texture(target.index()),
-            TextureTarget::Scratch(_) => self.scratch_texture(target.index()),
+            TextureTarget::Layer(id) => self.layer_texture(id),
+            TextureTarget::Scratch(_) => self.scratch_texture(target.parity()),
         }
     }
 
     fn texture_target_framebuffer(&self, target: TextureTarget) -> &Framebuffer {
         match target {
-            TextureTarget::Layer(_) => self.layer_framebuffer(target.index()),
-            TextureTarget::Scratch(_) => self.scratch_framebuffer(target.index()),
+            TextureTarget::Layer(id) => self.layer_framebuffer(id),
+            TextureTarget::Scratch(_) => self.scratch_framebuffer(target.parity()),
         }
-    }
-
-    fn has_intermediate_textures(&self, requirements: TextureRequirements) -> bool {
-        self.layer_textures
-            .iter()
-            .zip(requirements.layer_textures)
-            .all(|(texture, required)| texture.is_some() == required)
-            && self
-                .scratch_textures
-                .iter()
-                .zip(requirements.scratch_textures)
-                .all(|(texture, required)| texture.is_some() == required)
     }
 }
 
 impl WebGlPrograms {
     /// Creates programs and initializes resources.
-    fn new(gl: WebGl2RenderingContext, image_cache: &ImageCache) -> Self {
+    fn new(
+        gl: WebGl2RenderingContext,
+        image_cache: &ImageCache,
+        layer_config: LayersConfig,
+    ) -> Self {
         let strip_program =
             create_shader_program(&gl, render::VERTEX_SOURCE, render::FRAGMENT_SOURCE);
         let filter_program = create_shader_program(
@@ -1015,7 +1023,7 @@ impl WebGlPrograms {
 
         let strip_uniforms = get_strip_uniforms(&gl, &strip_program);
 
-        let resources = create_webgl_resources(&gl, image_cache);
+        let resources = create_webgl_resources(&gl, image_cache, layer_config);
 
         initialize_strip_vao(&gl, &resources);
         initialize_filter_vao(&gl, &resources);
@@ -1045,6 +1053,7 @@ impl WebGlPrograms {
                 height: 0,
             },
             negate_ndc: false,
+            intermediate_texture_sizes_changed: false,
             encoded_paints_data,
             filter_data: Vec::new(),
         }
@@ -1082,38 +1091,49 @@ impl WebGlPrograms {
     fn prepare_intermediate_textures(
         &mut self,
         gl: &WebGl2RenderingContext,
-        requirements: TextureRequirements,
+        schedule: &Schedule,
+        texture_sizes: IntermediateTextureSizes,
     ) {
-        if self.resources.has_intermediate_textures(requirements) {
-            return;
+        let current_sizes = self.resources.texture_sizes;
+        let layer_pages = schedule.layer_page_counts();
+        let scratch_textures = schedule.scratch_textures();
+
+        for (index, textures) in self.resources.layer_textures.iter_mut().enumerate() {
+            let texture_parity = TextureParity::from_parity(index);
+            let required = layer_pages[index];
+
+            let size = texture_sizes.layer_size(texture_parity);
+            // Note: Currently, `texture_sizes` only grows across frames, so if this condition
+            // is true it means that the new required size is _larger_ then what we currently have.
+            if current_sizes.layer_size(texture_parity) != size {
+                for texture in textures.iter_mut() {
+                    *texture = create_intermediate_texture(gl, size);
+                }
+            }
+
+            textures.extend(
+                (textures.len()..required).map(|_| create_intermediate_texture(gl, size)),
+            );
         }
 
-        self.resources.layer_textures = core::array::from_fn(|index| {
-            let texture_index = TextureIndex::from_index(index);
-            if requirements.layer_textures[texture_index.get_index()] {
-                create_layer_intermediate_texture(
-                    gl,
-                    self.resources
-                        .texture_sizes
-                        .size(TextureTarget::layer(texture_index)),
-                )
-            } else {
-                None
+        for (index, texture) in self.resources.scratch_textures.iter_mut().enumerate() {
+            let texture_parity = TextureParity::from_parity(index);
+            let required = scratch_textures[index];
+
+            let size = texture_sizes.scratch_size(texture_parity);
+
+            let recreate = (texture.is_some() && current_sizes.scratch_size(texture_parity) != size)
+            || (texture.is_none() && required);
+
+            if recreate {
+                *texture = Some(create_scratch_buffer(gl, size));
             }
-        });
-        self.resources.scratch_textures = core::array::from_fn(|index| {
-            let texture_index = TextureIndex::from_index(index);
-            if requirements.scratch_textures[texture_index.get_index()] {
-                create_scratch_intermediate_texture(
-                    gl,
-                    self.resources
-                        .texture_sizes
-                        .size(TextureTarget::scratch(texture_index)),
-                )
-            } else {
-                None
-            }
-        });
+        }
+
+        if current_sizes != texture_sizes {
+            self.resources.texture_sizes = texture_sizes;
+            self.intermediate_texture_sizes_changed = true;
+        }
     }
 
     /// Resize atlas texture array to accommodate more atlases.
@@ -1345,7 +1365,10 @@ impl WebGlPrograms {
         // TODO: Collect all attributes that influence the config buffer into a
         // single struct and compare that, such that we cannot forget to update the
         // condition in case we add new fields in the future.
-        if self.render_size != *new_render_size || self.negate_ndc != negate_ndc {
+        if self.render_size != *new_render_size
+            || self.negate_ndc != negate_ndc
+            || self.intermediate_texture_sizes_changed
+        {
             // Update view config buffer
             {
                 let config = Config {
@@ -1373,11 +1396,8 @@ impl WebGlPrograms {
 
             // Update layer config buffers.
             for (index, buffer) in self.resources.layer_config_buffers.iter().enumerate() {
-                let texture_index = TextureIndex::from_index(index);
-                let size = self
-                    .resources
-                    .texture_sizes
-                    .size(TextureTarget::layer(texture_index));
+                let texture_parity = TextureParity::from_parity(index);
+                let size = self.resources.texture_sizes.layer_size(texture_parity);
                 let layer_config = Config {
                     width: u32::from(size.width()),
                     height: u32::from(size.height()),
@@ -1401,6 +1421,7 @@ impl WebGlPrograms {
 
             self.render_size = new_render_size.clone();
             self.negate_ndc = negate_ndc;
+            self.intermediate_texture_sizes_changed = false;
         }
     }
 
@@ -1908,17 +1929,13 @@ fn get_filter_pass_uniforms(gl: &WebGl2RenderingContext, program: &Program) -> F
     let in_tex = gl
         .get_uniform_location(program, filter_shader::fragment::IN_TEX)
         .unwrap();
-    let layer_texture_0 = gl
-        .get_uniform_location(program, filter_shader::fragment::LAYER_TEXTURE_0)
-        .unwrap();
-    let layer_texture_1 = gl
-        .get_uniform_location(program, filter_shader::fragment::LAYER_TEXTURE_1)
+    let original_texture = gl
+        .get_uniform_location(program, filter_shader::fragment::ORIGINAL_TEXTURE)
         .unwrap();
     FilterPassUniforms {
         filter_data,
         in_tex,
-        layer_texture_0,
-        layer_texture_1,
+        original_texture,
     }
 }
 
@@ -1982,14 +1999,14 @@ fn create_filter_atlas_texture(gl: &WebGl2RenderingContext, width: u32, height: 
 
 /// Vertex attribute layout for [`FilterInstanceData`].
 const FILTER_ATTRIBS: [(i32, i32); 9] = [
-    (2, 0),  // src_offset
-    (2, 8),  // src_size
-    (2, 16), // dest_offset
-    (2, 24), // dest_size
+    (2, 0),  // src_min
+    (2, 8),  // src_max
+    (2, 16), // dest_min
+    (2, 24), // dest_max
     (2, 32), // dest_atlas_size
     (1, 40), // filter_data_offset
-    (2, 44), // original_offset
-    (2, 52), // original_size
+    (2, 44), // original_min
+    (2, 52), // original_max
     (1, 60), // other_data
 ];
 
@@ -2126,7 +2143,11 @@ fn create_placeholder_texture(gl: &WebGl2RenderingContext) -> Texture {
 }
 
 /// Create all WebGL resources needed for rendering.
-fn create_webgl_resources(gl: &WebGl2RenderingContext, image_cache: &ImageCache) -> WebGlResources {
+fn create_webgl_resources(
+    gl: &WebGl2RenderingContext,
+    image_cache: &ImageCache,
+    layer_config: LayersConfig,
+) -> WebGlResources {
     let strip_vao = VertexArray::new(gl);
     let filter_vao = VertexArray::new(gl);
     let blend_vao = VertexArray::new(gl);
@@ -2138,12 +2159,7 @@ fn create_webgl_resources(gl: &WebGl2RenderingContext, image_cache: &ImageCache)
     let strips_buffer = Buffer::new(gl);
     let view_config_buffer = Buffer::new(gl);
     let max_texture_dimension_2d = get_max_texture_dimension_2d(gl);
-    let intermediate_texture_size = u16::try_from(max_texture_dimension_2d.min(4096))
-        .expect("intermediate texture size must fit into u16");
-    let texture_sizes = IntermediateTextureSizes::uniform(Int16Size::new(
-        intermediate_texture_size,
-        intermediate_texture_size,
-    ));
+    let texture_sizes = layer_config.initial_intermediate_texture_sizes();
     let layer_config_buffers = core::array::from_fn(|_| Buffer::new(gl));
 
     // Create and configure alpha texture.
@@ -2168,9 +2184,9 @@ fn create_webgl_resources(gl: &WebGl2RenderingContext, image_cache: &ImageCache)
     let gradient_texture = create_texture(gl);
     let placeholder_external_texture = create_placeholder_texture(gl);
 
-    let layer_textures: [IntermediateTexture; 2] = core::array::from_fn(|_| None);
+    let layer_textures: [Vec<WebGlIntermediateTexture>; 2] = core::array::from_fn(|_| Vec::new());
     let scratch_textures: [IntermediateTexture; 2] = core::array::from_fn(|_| None);
-    let dummy_layer_texture = create_layer_intermediate_payload(gl, Int16Size::new(1, 1));
+    let dummy_layer_texture = create_intermediate_texture(gl, SizeU16::new(1));
     let filter_data_texture = create_texture(gl);
 
     WebGlResources {
@@ -2210,9 +2226,9 @@ fn create_webgl_resources(gl: &WebGl2RenderingContext, image_cache: &ImageCache)
     }
 }
 
-fn create_layer_intermediate_payload(
+fn create_intermediate_texture(
     gl: &WebGl2RenderingContext,
-    size: Int16Size,
+    size: SizeU16,
 ) -> WebGlIntermediateTexture {
     let texture = create_layer_texture(gl, size);
     let framebuffer = create_framebuffer_for_texture(gl, &texture);
@@ -2222,16 +2238,9 @@ fn create_layer_intermediate_payload(
     }
 }
 
-fn create_layer_intermediate_texture(
+fn create_scratch_buffer(
     gl: &WebGl2RenderingContext,
-    size: Int16Size,
-) -> IntermediateTexture {
-    Some(create_layer_intermediate_payload(gl, size))
-}
-
-fn create_scratch_intermediate_payload(
-    gl: &WebGl2RenderingContext,
-    size: Int16Size,
+    size: SizeU16,
 ) -> WebGlIntermediateTexture {
     let texture =
         create_filter_atlas_texture(gl, u32::from(size.width()), u32::from(size.height()));
@@ -2240,13 +2249,6 @@ fn create_scratch_intermediate_payload(
         texture,
         framebuffer,
     }
-}
-
-fn create_scratch_intermediate_texture(
-    gl: &WebGl2RenderingContext,
-    size: Int16Size,
-) -> IntermediateTexture {
-    Some(create_scratch_intermediate_payload(gl, size))
 }
 
 /// Create an atlas texture array.
@@ -2277,7 +2279,7 @@ pub(crate) fn create_atlas_texture_array(
 }
 
 /// Create a texture for layer rendering.
-fn create_layer_texture(gl: &WebGl2RenderingContext, size: Int16Size) -> Texture {
+fn create_layer_texture(gl: &WebGl2RenderingContext, size: SizeU16) -> Texture {
     let texture = create_texture(gl);
     gl.tex_parameteri(
         WebGl2RenderingContext::TEXTURE_2D,
@@ -2376,6 +2378,7 @@ impl WebGlRendererContext<'_> {
         opaque_strips: &[GpuStrip],
         alpha_strips: RangedSlice<'_, GpuStrip>,
         target: DrawPassTarget,
+        child_layer_texture: Option<LayerTextureId>,
     ) {
         let opaque_count = opaque_strips.len();
         let alpha_count = alpha_strips.len();
@@ -2403,16 +2406,17 @@ impl WebGlRendererContext<'_> {
                     Some(&self.programs.resources.view_config_buffer),
                 );
             }
-            DrawPassTarget::Layer(texture_index) => {
+            DrawPassTarget::Layer(id) => {
                 self.gl.bind_framebuffer(
                     WebGl2RenderingContext::FRAMEBUFFER,
-                    Some(self.programs.resources.layer_framebuffer(*texture_index)),
+                    Some(self.programs.resources.layer_framebuffer(*id)),
                 );
-                let size = self.texture_size(TextureTarget::layer(*texture_index));
+                let size = self.texture_size(TextureTarget::layer_page(*id));
                 self.gl
                     .viewport(0, 0, i32::from(size.width()), i32::from(size.height()));
 
-                let buf = &self.programs.resources.layer_config_buffers[texture_index.get_index()];
+                let buf =
+                    &self.programs.resources.layer_config_buffers[id.texture_parity.get_parity()];
                 self.gl.bind_buffer_base(
                     WebGl2RenderingContext::UNIFORM_BUFFER,
                     self.programs.strip_uniforms.config_vs_block_index,
@@ -2444,18 +2448,18 @@ impl WebGlRendererContext<'_> {
         self.gl
             .uniform1i(Some(&self.programs.strip_uniforms.alphas_texture), 0);
 
-        let layer_texture_idx = match &target {
-            DrawPassTarget::Layer(texture_index) => texture_index.opposite(),
-            DrawPassTarget::Root(_) => TextureIndex::Odd,
-        };
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE1);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(
-                self.programs
-                    .resources
-                    .layer_binding_texture(layer_texture_idx),
-            ),
+            Some(child_layer_texture.map_or_else(
+                || {
+                    self.programs
+                        .resources
+                        .dummy_layer_texture
+                        .binding_texture()
+                },
+                |id| self.programs.resources.layer_binding_texture(id),
+            )),
         );
         self.gl
             .uniform1i(Some(&self.programs.strip_uniforms.layer_input_texture), 1);
@@ -2590,20 +2594,27 @@ impl WebGlRendererContext<'_> {
         self.gl.bind_vertex_array(None);
     }
 
-    fn texture_size(&self, target: TextureTarget) -> Int16Size {
+    fn texture_size(&self, target: TextureTarget) -> SizeU16 {
         self.programs.resources.texture_sizes.size(target)
     }
 
-    fn blend_pass_inner(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: TextureIndex) {
+    fn blend_pass_inner(
+        &mut self,
+        blends: RangedSlice<'_, BlendOp>,
+        parent_texture_parity: TextureParity,
+        texture_pair: LayerTexturePair,
+    ) {
         if blends.len() == 0 {
             return;
         }
 
-        let parent_texture_size = self.texture_size(TextureTarget::layer(texture_index));
-        let scratch_texture_size = self.texture_size(TextureTarget::scratch(TextureIndex::Even));
+        let parent_texture_size = self.texture_size(TextureTarget::layer_page(
+            texture_pair.layer_id(parent_texture_parity),
+        ));
+        let scratch_texture_size = self.texture_size(TextureTarget::scratch(TextureParity::Even));
         self.programs
             .resources
-            .scratch_framebuffer(BLEND_SCRATCH_INDEX);
+            .scratch_framebuffer(BLEND_SCRATCH_PARITY);
 
         self.gl.disable(WebGl2RenderingContext::BLEND);
         self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
@@ -2620,9 +2631,8 @@ impl WebGlRendererContext<'_> {
                 .copied()
                 .filter(|blend| !blend.blend_bbox.is_empty())
                 .map(|blend| {
-                    debug_assert_eq!(blend.parent_region.texture.texture_index, texture_index);
-                    resources.layer_texture(blend.parent_region.texture.texture_index);
-                    resources.layer_texture(blend.child_region.texture.texture_index);
+                    resources.layer_texture(blend.parent_region.texture.target);
+                    resources.layer_texture(blend.child_region.texture.target);
                     gpu_blend_instance(blend, scratch_texture_size)
                 }),
         );
@@ -2643,7 +2653,7 @@ impl WebGlRendererContext<'_> {
             Some(
                 self.programs
                     .resources
-                    .scratch_framebuffer(BLEND_SCRATCH_INDEX),
+                    .scratch_framebuffer(BLEND_SCRATCH_PARITY),
             ),
         );
         self.gl.viewport(
@@ -2664,7 +2674,7 @@ impl WebGlRendererContext<'_> {
             Some(
                 self.programs
                     .resources
-                    .layer_binding_texture(TextureIndex::Even),
+                    .layer_binding_texture(texture_pair.layer_id(TextureParity::Even)),
             ),
         );
         self.gl
@@ -2676,7 +2686,7 @@ impl WebGlRendererContext<'_> {
             Some(
                 self.programs
                     .resources
-                    .layer_binding_texture(TextureIndex::Odd),
+                    .layer_binding_texture(texture_pair.layer_id(TextureParity::Odd)),
             ),
         );
         self.gl
@@ -2698,7 +2708,11 @@ impl WebGlRendererContext<'_> {
 
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
-            Some(self.programs.resources.layer_framebuffer(texture_index)),
+            Some(
+                self.programs
+                    .resources
+                    .layer_framebuffer(texture_pair.layer_id(parent_texture_parity)),
+            ),
         );
         self.gl.viewport(
             0,
@@ -2713,7 +2727,11 @@ impl WebGlRendererContext<'_> {
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(self.programs.resources.scratch_texture(BLEND_SCRATCH_INDEX)),
+            Some(
+                self.programs
+                    .resources
+                    .scratch_texture(BLEND_SCRATCH_PARITY),
+            ),
         );
         self.gl
             .uniform1i(Some(&self.programs.blend_copy_uniforms.scratch_texture), 0);
@@ -2727,7 +2745,7 @@ impl WebGlRendererContext<'_> {
         self.gl.enable(WebGl2RenderingContext::BLEND);
     }
 
-    fn filter_pass_inner(&mut self, plan: &FilterPassPlan, texture_index: TextureIndex) {
+    fn filter_pass_inner(&mut self, plan: &FilterPassPlan, layer_id: LayerTextureId) {
         if plan.is_empty() {
             return;
         }
@@ -2750,41 +2768,26 @@ impl WebGlRendererContext<'_> {
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE2);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(
-                self.programs
-                    .resources
-                    .layer_binding_texture(TextureIndex::Even),
-            ),
+            Some(self.programs.resources.layer_binding_texture(layer_id)),
         );
         self.gl
-            .uniform1i(Some(&self.programs.filter_uniforms.layer_texture_0), 2);
-        self.gl.active_texture(WebGl2RenderingContext::TEXTURE3);
-        self.gl.bind_texture(
-            WebGl2RenderingContext::TEXTURE_2D,
-            Some(
-                self.programs
-                    .resources
-                    .layer_binding_texture(TextureIndex::Odd),
-            ),
-        );
-        self.gl
-            .uniform1i(Some(&self.programs.filter_uniforms.layer_texture_1), 3);
+            .uniform1i(Some(&self.programs.filter_uniforms.original_texture), 2);
 
         for (step_index, instances) in plan.steps().enumerate() {
             let (input, output) = if step_index == 0 {
                 (
-                    TextureTarget::layer(texture_index),
-                    TextureTarget::scratch(TextureIndex::Even),
+                    TextureTarget::layer_page(layer_id),
+                    TextureTarget::scratch(TextureParity::Even),
                 )
             } else if step_index % 2 == 1 {
                 (
-                    TextureTarget::scratch(TextureIndex::Even),
-                    TextureTarget::scratch(TextureIndex::Odd),
+                    TextureTarget::scratch(TextureParity::Even),
+                    TextureTarget::scratch(TextureParity::Odd),
                 )
             } else {
                 (
-                    TextureTarget::scratch(TextureIndex::Odd),
-                    TextureTarget::scratch(TextureIndex::Even),
+                    TextureTarget::scratch(TextureParity::Odd),
+                    TextureTarget::scratch(TextureParity::Even),
                 )
             };
             self.do_filter_instance_pass(instances, input, output);
@@ -2796,7 +2799,7 @@ impl WebGlRendererContext<'_> {
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE0);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(self.programs.resources.scratch_texture(TextureIndex::Even)),
+            Some(self.programs.resources.scratch_texture(TextureParity::Even)),
         );
         self.gl
             .uniform1i(Some(&self.programs.blend_copy_uniforms.scratch_texture), 0);
@@ -2805,9 +2808,9 @@ impl WebGlRendererContext<'_> {
         self.programs.upload_copy_instances(self.gl, copy_back);
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
-            Some(self.programs.resources.layer_framebuffer(texture_index)),
+            Some(self.programs.resources.layer_framebuffer(layer_id)),
         );
-        let target_texture_size = self.texture_size(TextureTarget::layer(texture_index));
+        let target_texture_size = self.texture_size(TextureTarget::layer_page(layer_id));
         self.gl.viewport(
             0,
             0,
@@ -2911,6 +2914,7 @@ impl RendererBackend for WebGlRendererContext<'_> {
             strips,
             RangedSlice::empty(),
             DrawPassTarget::Root(RootRenderTarget::UserSurface),
+            None,
         );
     }
 
@@ -2919,16 +2923,22 @@ impl RendererBackend for WebGlRendererContext<'_> {
         strips: RangedSlice<'_, GpuStrip>,
         _external_texture_runs: &[ExternalTextureRun],
         target: DrawPassTarget,
+        child_layer_texture: Option<LayerTextureId>,
     ) {
-        self.strip_pass_inner(&[], strips, target);
+        self.strip_pass_inner(&[], strips, target, child_layer_texture);
     }
 
-    fn blend_pass(&mut self, blends: RangedSlice<'_, BlendOp>, texture_index: TextureIndex) {
-        self.blend_pass_inner(blends, texture_index);
+    fn blend_pass(
+        &mut self,
+        blends: RangedSlice<'_, BlendOp>,
+        parent_texture_parity: TextureParity,
+        texture_pair: LayerTexturePair,
+    ) {
+        self.blend_pass_inner(blends, parent_texture_parity, texture_pair);
     }
 
-    fn filter_pass(&mut self, plan: &FilterPassPlan, texture_index: TextureIndex) {
-        self.filter_pass_inner(plan, texture_index);
+    fn filter_pass(&mut self, plan: &FilterPassPlan, layer_id: LayerTextureId) {
+        self.filter_pass_inner(plan, layer_id);
     }
 
     fn clear_pass(&mut self, target: TextureTarget, rects: &[RectU16]) {
