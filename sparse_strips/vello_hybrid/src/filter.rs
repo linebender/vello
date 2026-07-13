@@ -23,7 +23,7 @@
 
 use crate::copy::GpuCopyInstance;
 use crate::schedule::round::FilterOp;
-use crate::target::{IntermediateTextureSizes, TextureParity, TextureRegion, TextureTarget};
+use crate::target::{IntermediateTextureSizes, ScratchRegion, TextureParity};
 use crate::util::{Int32Size, IntRect, pack_u16_pair};
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
@@ -484,7 +484,6 @@ struct FilterPassBuilder<'a> {
     texture_sizes: IntermediateTextureSizes,
     passes: &'a mut FilterPassPlan,
     sizer: DecimationSizer,
-    original: TextureTarget,
     current_scratch: Option<TextureParity>,
     step: usize,
 }
@@ -500,39 +499,19 @@ impl<'a> FilterPassBuilder<'a> {
             op.layer_region.texture.rect.width(),
             op.layer_region.texture.rect.height(),
         );
-        let original = TextureTarget::layer(op.layer_region.texture.texture_parity);
         Self {
             op,
             texture_sizes,
             passes,
             sizer,
-            original,
             current_scratch: None,
             step: 0,
         }
     }
 
-    fn scratch_region(&self, parity: TextureParity) -> TextureRegion {
+    fn scratch_region(&self, parity: TextureParity) -> ScratchRegion {
         self.op.scratches[parity.get_parity()]
             .expect("filter pass requires allocated scratch region")
-    }
-
-    fn texture_offset(&self, texture: TextureTarget) -> [u32; 2] {
-        match texture {
-            TextureTarget::Layer(_) => [
-                u32::from(self.op.layer_region.texture.rect.x0),
-                u32::from(self.op.layer_region.texture.rect.y0),
-            ],
-            TextureTarget::Scratch(parity) => {
-                let scratch = self.scratch_region(parity);
-                [u32::from(scratch.rect.x0), u32::from(scratch.rect.y0)]
-            }
-        }
-    }
-
-    fn current_texture(&self) -> TextureTarget {
-        self.current_scratch
-            .map_or_else(|| self.original, TextureTarget::scratch)
     }
 
     fn next_scratch(&self) -> TextureParity {
@@ -545,40 +524,42 @@ impl<'a> FilterPassBuilder<'a> {
             pass_kind::DOWNSCALE => {
                 let (sw, sh) = self.sizer.current();
                 let (dw, dh) = self.sizer.downscale();
-                (Int16Size::new(sw, sh), Int16Size::new(dw, dh))
+                (Int16Size::from_wh(sw, sh), Int16Size::from_wh(dw, dh))
             }
             pass_kind::UPSCALE => {
                 let (sw, sh) = self.sizer.current();
                 let (dw, dh) = self.sizer.upscale();
-                (Int16Size::new(sw, sh), Int16Size::new(dw, dh))
+                (Int16Size::from_wh(sw, sh), Int16Size::from_wh(dw, dh))
             }
             _ => {
                 let (w, h) = self.sizer.current();
-                let size = Int16Size::new(w, h);
+                let size = Int16Size::from_wh(w, h);
                 (size, size)
             }
         }
     }
 
-    fn emit(&mut self, kind: u32, output: TextureTarget) {
+    fn emit(&mut self, kind: u32, output: TextureParity) {
         let (src_size, dest_size) = self.apply_pass_dimensions(kind);
-        let input = self.current_texture();
-        let src_offset = self.texture_offset(input);
-        let dest_offset = self.texture_offset(output);
-        let dest_texture_size = self.texture_sizes.size(output);
-        let original_offset = self.texture_offset(self.original);
+        let original_rect = self.op.layer_region.texture.rect;
+        let original_offset = [u32::from(original_rect.x0), u32::from(original_rect.y0)];
+        let src_rect = self
+            .current_scratch
+            .map_or(original_rect, |parity| self.scratch_region(parity).rect);
+        let dest_rect = self.scratch_region(output).rect;
+        let dest_texture_size = self.texture_sizes.scratch_size(output);
         let other_data = self.other_data(kind);
         self.passes.step_mut(self.step).push(FilterInstanceData {
-            src: IntRect::new(src_offset, src_size),
-            dest: IntRect::new(dest_offset, dest_size),
+            src: IntRect::new([u32::from(src_rect.x0), u32::from(src_rect.y0)], src_size),
+            dest: IntRect::new(
+                [u32::from(dest_rect.x0), u32::from(dest_rect.y0)],
+                dest_size,
+            ),
             dest_atlas_size: dest_texture_size.into(),
             filter_data_offset: self.op.filter_data_offset,
             original: IntRect::new(
                 original_offset,
-                Int16Size::new(
-                    self.op.layer_region.texture.rect.width(),
-                    self.op.layer_region.texture.rect.height(),
-                ),
+                Int16Size::from_wh(original_rect.width(), original_rect.height()),
             ),
             other_data,
         });
@@ -587,16 +568,16 @@ impl<'a> FilterPassBuilder<'a> {
 
     fn emit_to_scratch(&mut self, kind: u32) {
         let scratch = self.next_scratch();
-        self.emit(kind, TextureTarget::scratch(scratch));
+        self.emit(kind, scratch);
         self.current_scratch = Some(scratch);
     }
 
     fn ensure_result_in_scratch0(&mut self) {
-        if self.current_texture() == TextureTarget::scratch(TextureParity::Even) {
+        if self.current_scratch == Some(TextureParity::Even) {
             return;
         }
 
-        self.emit(pass_kind::COPY, TextureTarget::scratch(TextureParity::Even));
+        self.emit(pass_kind::COPY, TextureParity::Even);
         self.current_scratch = Some(TextureParity::Even);
     }
 
@@ -620,13 +601,15 @@ impl<'a> FilterPassBuilder<'a> {
     fn other_data(&self, kind: u32) -> u32 {
         const OTHER_DATA_LAYER_TEXTURE_PARITY_SHIFT: u32 = 31;
 
-        let texture_parity = u32::from(self.op.layer_region.texture.texture_parity);
+        let texture_parity = u32::from(self.op.layer_region.texture.target.texture_parity);
         kind | (texture_parity << OTHER_DATA_LAYER_TEXTURE_PARITY_SHIFT)
     }
 
     fn copy_back(&mut self) {
         let scratch = self.op.scratches[0].expect("filter copy requires scratch texture 0");
-        let target_texture_size = self.texture_sizes.size(self.original);
+        let target_texture_size = self
+            .texture_sizes
+            .layer_size(self.op.layer_region.texture.target.texture_parity);
 
         let copy_instance = GpuCopyInstance {
             target_texture_origin: pack_u16_pair(

@@ -82,8 +82,8 @@ pub(crate) fn gpu_blend_instance(
             blend.blend_mode.mix,
             blend.blend_mode.compose,
             blend.opacity,
-            blend.parent_region.texture.texture_parity,
-            blend.child_region.texture.texture_parity,
+            blend.parent_region.texture.target.texture_parity,
+            blend.child_region.texture.target.texture_parity,
         ),
     }
 }

@@ -309,7 +309,7 @@ impl Scene {
             paint_visible: true,
             strip_storage: RefCell::new(StripStorage::new(GenerationMode::Append)),
             filter: None,
-            recorder: CommandRecorder::new(),
+            recorder: CommandRecorder::new(width, height),
         }
     }
 
@@ -997,7 +997,7 @@ impl Scene {
 
         self.render_state.reset();
 
-        self.recorder.reset();
+        self.recorder.reset(self.width, self.height);
         self.filter = None;
     }
 

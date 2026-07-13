@@ -25,10 +25,15 @@ pub struct Int16Size(pub [u16; 2]);
 
 impl Int16Size {
     /// A zero size.
-    pub const ZERO: Self = Self::new(0, 0);
+    pub const ZERO: Self = Self::new(0);
+
+    /// Create a new square size.
+    pub const fn new(size: u16) -> Self {
+        Self([size; 2])
+    }
 
     /// Create a new size from its width and height.
-    pub const fn new(width: u16, height: u16) -> Self {
+    pub const fn from_wh(width: u16, height: u16) -> Self {
         Self([width, height])
     }
 
@@ -44,7 +49,7 @@ impl Int16Size {
 
     /// Return the component-wise maximum of two sizes.
     pub fn max(self, other: Self) -> Self {
-        Self::new(
+        Self::from_wh(
             self.width().max(other.width()),
             self.height().max(other.height()),
         )
@@ -59,7 +64,7 @@ impl From<[u16; 2]> for Int16Size {
 
 impl From<RectU16> for Int16Size {
     fn from(rect: RectU16) -> Self {
-        Self::new(rect.width(), rect.height())
+        Self::from_wh(rect.width(), rect.height())
     }
 }
 

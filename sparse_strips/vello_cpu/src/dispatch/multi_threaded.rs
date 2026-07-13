@@ -149,7 +149,7 @@ impl MultiThreadedDispatcher {
             flushed,
             workers,
             clip_context: ClipContext::new(),
-            recorder: CommandRecorder::new(),
+            recorder: CommandRecorder::new(width, height),
             task_sender: None,
             recorded_command_receiver: None,
             strip_generator: StripGenerator::new(width, height, level),
@@ -590,7 +590,7 @@ impl Dispatcher for MultiThreadedDispatcher {
     fn reset(&mut self, width: u16, height: u16) {
         // Bucketer will be reset lazily during rasterization with the active viewport.
         self.clip_context.reset();
-        self.recorder.reset();
+        self.recorder.reset(width, height);
         self.strip_storage.clear();
         self.allocation_group.clear();
         self.batch_cost = 0.0;
