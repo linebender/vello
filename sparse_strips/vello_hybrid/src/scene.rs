@@ -86,25 +86,180 @@ impl Drawable for RecordedDraw {
 pub struct RenderSettings {
     /// The SIMD level that should be used for rendering operations.
     pub level: Level,
-    /// The configuration for the texture atlas.
+    /// Configuration for GPU memory used while rendering.
+    pub memory: MemorySettings,
+}
+
+/// Settings controlling usage of GPU memory.
+#[derive(Copy, Clone, Debug, Default)]
+pub struct MemorySettings {
+    /// Configuration for the atlas holding uploaded images.
+    pub image_atlas_config: AtlasConfig,
+    /// Configuration for intermediate layer and scratch textures.
+    pub layers_config: LayersConfig,
+}
+
+/// Configuration for intermediate layer and scratch textures.
+///
+/// In order for Vello Hybrid to be able to render layers (including blending and filters),
+/// it inevitably needs to allocate a number of intermediate textures. There are a number of
+/// trade-offs and decisions that need to be made relating to how performant rendering should be,
+/// what the maximum peak memory usage can be and what kind of scenes should render successfully.
+///
+/// Since this is very application-specific, you can tune the parameters here according to your
+/// own needs.
+#[derive(Copy, Clone, Debug)]
+pub struct LayersConfig {
+    /// Maximum number of intermediate textures that may be allocated.
     ///
-    /// This controls how images are managed in GPU memory through texture atlases.
-    /// The atlas system packs multiple images into larger textures to reduce the
-    /// number of GPU texture bindings. This config allows customizing atlas parameters such as:
-    /// - The number and size of atlases
-    /// - How images are allocated across multiple atlases
-    /// - Whether new atlases are automatically created when needed
+    /// In general, if you want to be able to render _any_ scene successfully (subject to device limits)
+    /// with arbitrarily nested layer groups, you need to set this to `None`. This way, Vello Hybrid
+    /// can make all the layer texture allocations necessary to render the scene successfully.
     ///
-    /// Adjusting these settings can affect memory usage and rendering performance
-    /// depending on your application's image usage patterns.
-    pub atlas_config: AtlasConfig,
+    /// However, in many cases it's better to enforce a limit to guard against adversarial inputs,
+    /// at the cost of potentially rejecting certain scenes. This parameter allows you to tune that.
+    ///
+    /// **If the below doesn't make sense to you, but you still want to have some kind of limit,
+    /// setting this to `Some(6)` should be appropriate for most scenarios.**
+    ///
+    /// Below you can find a number of hints that should help guide your decision:
+    /// 1) If you don't use layers at all (including COLR glyphs!), you can set this to 0.
+    /// 2) If you have a maximum layer depth of 1 without blending or filters (and no COLR glyphs),
+    ///   you can set this to 1.
+    /// 3) If your scene graph resembles a "grid structure" (you can have arbitrarily deeply nested
+    ///   layers and multiple of those, but a layer must not have more than 1 child), have no
+    ///   blending and no filters or COLR glyphs, you can set this to 2.
+    /// 4) If your scene graph resembles a "grid structure", you have blend operations in-between
+    ///   layers (but _not_ against the root output!) or use COLR glyphs, but you have no filter
+    ///   layers, you can set this to 3.
+    /// 5) If 4) applies, but you also have filter layers, set this value to 4.
+    /// 6) if you have blend operations against the root output target, take the value from 4)
+    ///    or 5) plus one.
+    /// 7) If your scenes can contain layers with multiple children, it is not possible to
+    ///    determine the maximum number of texture that need to be allocated. Therefore, either
+    ///    leave this at `None` or set a limit > 5, depending on what you are comfortable with.
+    pub max_textures: Option<usize>,
+    /// Minimum width and height of each allocated intermediate texture.
+    ///
+    /// Must not be larger than `max_texture_size`. It is recommended to *not* make this smaller than
+    /// the default value of 512x512, but you can consider raising it to 1024x1024 if you are
+    /// willing to consume more memory by default.
+    pub min_texture_size: (u16, u16),
+    /// Maximum width and height, of each allocated intermediate texture.
+    ///
+    /// In order to render most scenes correctly, this value should be at least as large as the size
+    /// of the main scene. If you ensure this is the case, then you will be able to render all
+    /// scenes successfully **as long as you don't use filter layers** (and `max_textures` is large enough).
+    ///
+    /// The main problem is that filter layers might require larger allocations.
+    /// If you have a circle that spans the whole size of the scene but has a Gaussian blur with `std`
+    /// 100, a texture that is larger than the size of the scene is required. Therefore, the
+    /// appropriate value for this parameter once again depends on your exact use case.
+    ///
+    /// In general, it is recommended to set this to 4096x4096. If you are running on
+    /// memory-constrained devices (e.g. phones), you can consider setting this even lower, only
+    /// covering the main scene size plus some additional padding for some filters. **It is not
+    /// recommended that you set this value higher than 8192x8192.**
+    ///
+    /// In any case, Vello Hybrid will also honor the maximum texture size enforced by the device
+    /// it is running on.
+    pub max_texture_size: (u16, u16),
+    /// Strategy used to size intermediate textures.
+    ///
+    /// Please see the documentation of [`GrowthStrategy`] for more information.
+    pub grow_strategy: TextureAllocationStrategy,
+}
+
+impl Default for LayersConfig {
+    fn default() -> Self {
+        Self {
+            max_textures: None,
+            min_texture_size: (512, 512),
+            max_texture_size: (4096, 4096),
+            grow_strategy: TextureAllocationStrategy::default(),
+        }
+    }
+}
+
+/// Strategy used to size intermediate layer textures.
+///
+/// **TLDR: If you are targeting mobile devices, set this to [`TextureAllocationStrategy::Conservative`].
+/// If you are only targeting desktop devices or laptops and memory is not a primary
+/// concern, set this to [`TextureAllocationStrategy::Eager`]. The recommended value for
+/// `LayersConfig::max_texture_size` is 4096x4096, but you can raise it up to 8192x8192 if you
+/// don't care about memory, expect scenes with lots of layers and want the absolute best
+/// performance. In all other cases or if you are unsure, stick to
+/// [`TextureAllocationStrategy::Conservative`], setting `LayersConfig::min_texture_size` as high as
+/// you are comfortable**.
+///
+/// When rendering with the GPU, there is a fundamental balance that needs to be struck when
+/// rendering layers. You either allocate large textures, allowing you to batch multiple layers
+/// together and therefore reduce the number of render passes, at the cost of higher memory. Or you
+/// keep memory usage as low as possible, at the cost of more render passes and therefore (in some
+/// cases, see further below) worse performance.
+///
+/// Vello Hybrid's scheduling algorithm was written in such a way that it is compatible with
+/// both approaches, therefore allowing the user to make a decision on that trade-off themselves,
+/// based on their use case. In case a valid schedule exists for a scene graph, Vello Hybrid will
+/// always find it. However, it might not be the most optimal one in terms of rounds. The great
+/// thing is that if you give Vello Hybrid high memory constraints, it can still make use of batching
+/// to reduce the number of render passes, all while still guaranteeing that a valid schedule will
+/// always be found as long as it exists.
+///
+/// Consider a scene where you are drawing 100 COLR glyphs (which often consists of deeply nested
+/// layer chains), and each glyph has a maximum size of 50x50.
+///
+/// If you were to set `max_texture_size`
+/// to `50x50` and `max_textures` to 3, Vello Hybrid will still render the scene successfully,
+/// working its way bottom-up in a ping-pong fashion to ensure that no more than 2 layers are
+/// ever retained at the same time. However, the number of render passes corresponds (simplified!) to
+/// the total number of layers in the whole graph.
+///
+/// On the other hand if you set the maximum texture size to 8192x8192 for example, then Vello Hybrid
+/// is able to batch compatible layer draws and blending operations together. As a result, the
+/// number of render passes corresponds (simplified!) to the maximum layer depth across the whole
+/// graph.
+///
+/// It turns out that on desktop devices, for the best performance it's usually better to increase
+/// the texture sizes if it allows reducing the number of invoked render passess per frame. However,
+/// our experimentation showed that on mobile devices, this does not seem to be the case. Instead,
+/// it is much more important to keep the size of the target texture low, even if it means more
+/// render passes need to be invoked. While the exact reason why has not been investigated yet,
+/// it's likely related to the fact that mobile GPU's use tiled rendering, and the cost of repeated
+/// frame buffer switches is therefore much heavier for larger textures.
+///
+/// Because of this, Vello Hybrid allows you to choose between two different allocation strategies
+/// for textures.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum TextureAllocationStrategy {
+    /// Intermediate textures are always allocated at size [`LayersConfig::max_texture_size`]. This
+    /// means higher memory usage, but allows to reduce the number of invoked render passes for a
+    /// scene.
+    ///
+    /// If you are running on desktop devices and expect many layers, this is likely to be
+    /// a win if you care about the best performance.
+    Eager,
+    /// Intermediate textures are always allocated at size max([`LayersConfig::min_texture_size`],
+    /// `max_scene_bbox`). This ensures that you can still always render all scenes (subject
+    /// to `LayersConfig::max_textures` being large enough), but the peak memory usage is kept
+    /// more minimal.
+    ///
+    /// This is the right choice if you
+    /// 1) Care about memory usage, or
+    /// 2) Run on mobile devices, since, as mentioned above, performance also seems to be better, or
+    /// 3) You don't know for sure what environment you are going to be running on.
+    ///
+    /// Even if you choose this option, you can still ensure that an appropriate amount of batching
+    /// happens by increasing [`LayersConfig::min_texture_size`].
+    #[default]
+    Conservative,
 }
 
 impl Default for RenderSettings {
     fn default() -> Self {
         Self {
             level: Level::try_detect().unwrap_or(Level::baseline()),
-            atlas_config: AtlasConfig::default(),
+            memory: MemorySettings::default(),
         }
     }
 }
