@@ -1147,7 +1147,22 @@ where
     S: Simd,
     V: PosExt<S> + SimdFloat<S, Element = f32>,
 {
-    pub(crate) fn new(simd: S, pos: Point, x_advance: Vec2, y_advance: Vec2, step: f64) -> Self {
+    #[inline(always)]
+    pub(crate) fn current(&self) -> (V, V) {
+        (
+            self.i.mul_add(self.x_step, self.x_base),
+            self.i.mul_add(self.y_step, self.y_base),
+        )
+    }
+}
+
+impl<S, V> PositionIterator<S> for PaintPositions<S, V>
+where
+    S: Simd,
+    V: PosExt<S> + SimdFloat<S, Element = f32>,
+{
+    #[inline(always)]
+    fn new(simd: S, pos: Point, x_advance: Vec2, y_advance: Vec2, step: f64) -> Self {
         simd.vectorize(|| Self {
             x_base: V::splat_pos(simd, pos.x as f32, x_advance.x as f32, y_advance.x as f32),
             y_base: V::splat_pos(simd, pos.y as f32, x_advance.y as f32, y_advance.y as f32),
@@ -1159,28 +1174,8 @@ where
     }
 
     #[inline(always)]
-    pub(crate) fn current(&self) -> (V, V) {
-        (
-            self.i.mul_add(self.x_step, self.x_base),
-            self.i.mul_add(self.y_step, self.y_base),
-        )
-    }
-
-    #[inline(always)]
-    pub(crate) fn advance(&mut self) {
-        self.i += 1.0;
-    }
-}
-
-impl<S: Simd> PositionIterator<S> for PaintPositions<S, f32x8<S>> {
-    #[inline(always)]
-    fn new(simd: S, pos: Point, x_advance: Vec2, y_advance: Vec2, step: f64) -> Self {
-        Self::new(simd, pos, x_advance, y_advance, step)
-    }
-
-    #[inline(always)]
     fn advance(&mut self) {
-        Self::advance(self);
+        self.i += 1.0;
     }
 }
 
@@ -1197,7 +1192,19 @@ where
     S: Simd,
     V: PosExt<S> + SimdFloat<S, Element = f32>,
 {
-    pub(crate) fn new(simd: S, pos: Point, x_advance: Vec2, y_advance: Vec2, step: f64) -> Self {
+    #[inline(always)]
+    pub(crate) fn current(&self) -> V {
+        self.i.mul_add(self.step, self.base)
+    }
+}
+
+impl<S, V> PositionIterator<S> for PlainPaintPositions<S, V>
+where
+    S: Simd,
+    V: PosExt<S> + SimdFloat<S, Element = f32>,
+{
+    #[inline(always)]
+    fn new(simd: S, pos: Point, x_advance: Vec2, y_advance: Vec2, step: f64) -> Self {
         simd.vectorize(|| Self {
             base: V::splat_pos(simd, pos.x as f32, x_advance.x as f32, y_advance.x as f32),
             step: V::splat(simd, (step * x_advance.x) as f32),
@@ -1207,25 +1214,8 @@ where
     }
 
     #[inline(always)]
-    pub(crate) fn current(&self) -> V {
-        self.i.mul_add(self.step, self.base)
-    }
-
-    #[inline(always)]
-    pub(crate) fn advance(&mut self) {
-        self.i += 1.0;
-    }
-}
-
-impl<S: Simd> PositionIterator<S> for PlainPaintPositions<S, f32x8<S>> {
-    #[inline(always)]
-    fn new(simd: S, pos: Point, x_advance: Vec2, y_advance: Vec2, step: f64) -> Self {
-        Self::new(simd, pos, x_advance, y_advance, step)
-    }
-
-    #[inline(always)]
     fn advance(&mut self) {
-        Self::advance(self);
+        self.i += 1.0;
     }
 }
 
