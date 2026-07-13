@@ -24,6 +24,7 @@ use vello_common::util::{Clear, RectExt};
 pub(crate) struct Draw {
     pub(crate) strip_ranges: Ranges,
     pub(crate) external_texture_runs: Vec<ExternalTextureRun>,
+    pub(crate) has_child_layer: bool,
 }
 
 impl Draw {
@@ -62,6 +63,7 @@ impl Clear for Draw {
     fn clear(&mut self) {
         self.strip_ranges.clear();
         self.external_texture_runs.clear();
+        self.has_child_layer = false;
     }
 }
 
@@ -250,6 +252,7 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
                 frac: 0,
             };
 
+            self.draw.has_child_layer = true;
             self.draw.push(
                 self.strips,
                 GpuStrip::from_rect(
@@ -271,6 +274,7 @@ impl<'a, T: DrawTarget> DrawBuilder<'a, T> {
         paint: u32,
         depth_index: u32,
     ) {
+        self.draw.has_child_layer = true;
         let payload = sample.payload_at(segment.x0(), segment.y());
         let shifted = segment.shift(self.state.target.geometry_shift());
         let strip = GpuStrip::from_fill(shifted, col_idx, payload, paint, depth_index);
