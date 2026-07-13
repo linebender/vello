@@ -95,14 +95,14 @@ fn get_drop_shadow_dy(texel2: vec4<u32>) -> f32 { return bitcast<f32>(texel2.y);
 fn get_drop_shadow_color(texel2: vec4<u32>) -> u32 { return texel2.z; }
 
 struct FilterInstanceData {
-    @location(0) src_offset: vec2<u32>,
-    @location(1) src_size: vec2<u32>,
-    @location(2) dest_offset: vec2<u32>,
-    @location(3) dest_size: vec2<u32>,
+    @location(0) src_min: vec2<u32>,
+    @location(1) src_max: vec2<u32>,
+    @location(2) dest_min: vec2<u32>,
+    @location(3) dest_max: vec2<u32>,
     @location(4) dest_atlas_size: vec2<u32>,
     @location(5) filter_offset: u32,
-    @location(6) original_offset: vec2<u32>,
-    @location(7) original_size: vec2<u32>,
+    @location(6) original_min: vec2<u32>,
+    @location(7) original_max: vec2<u32>,
     @location(8) other_data: u32,
 }
 
@@ -127,6 +127,9 @@ fn vs_main(
     let quad_vertex = vertex_index % 4u;
     let x = f32((quad_vertex & 1u));
     let y = f32((quad_vertex >> 1u));
+    let src_size = instance.src_max - instance.src_min;
+    let dest_size = instance.dest_max - instance.dest_min;
+    let original_size = instance.original_max - instance.original_min;
 
     // Note: We are using `original_size` instead of `dest_size` on purpose here. When allocating the regions
     // in the atlas, we always allocate the same size as is used by the original texture. However, `dest_size`
@@ -136,8 +139,8 @@ fn vs_main(
     // because some filters assume that the border pixels are transparent. In the fragment shader, we have a shortcut
     // to check whether the pixel lies outside of the destination region, in which case we just return a transparent
     // pixel instead of doing actual computational work.
-    let pix_x = f32(instance.dest_offset.x) + x * f32(instance.original_size.x);
-    let pix_y = f32(instance.dest_offset.y) + y * f32(instance.original_size.y);
+    let pix_x = f32(instance.dest_min.x) + x * f32(original_size.x);
+    let pix_y = f32(instance.dest_min.y) + y * f32(original_size.y);
 
     let atlas_size = vec2<f32>(instance.dest_atlas_size);
     let ndc_x = pix_x * 2.0 / atlas_size.x - 1.0;
@@ -146,13 +149,13 @@ fn vs_main(
     var out: FilterVertexOutput;
     out.position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
     out.filter_offset = instance.filter_offset;
-    out.src_offset = instance.src_offset;
-    out.src_size = instance.src_size;
-    out.dest_offset = instance.dest_offset;
-    out.dest_size = instance.dest_size;
+    out.src_offset = instance.src_min;
+    out.src_size = src_size;
+    out.dest_offset = instance.dest_min;
+    out.dest_size = dest_size;
     out.dest_atlas_size = instance.dest_atlas_size;
-    out.original_offset = instance.original_offset;
-    out.original_size = instance.original_size;
+    out.original_offset = instance.original_min;
+    out.original_size = original_size;
     out.other_data = instance.other_data;
     return out;
 }

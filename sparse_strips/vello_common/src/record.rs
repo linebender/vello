@@ -39,11 +39,10 @@
 //! where to place a filter layer and what size to allocate for it).
 
 use crate::filter::{FilterData, FilterLayerPlacement};
-use crate::geometry::RectU16;
+use crate::geometry::{RectU16, SizeU16};
 use crate::mask::Mask;
 use crate::peniko::BlendMode;
 use crate::strip::Strip;
-use crate::util::Int16Size;
 use crate::util::{RectExt, VecPool};
 use alloc::vec::Vec;
 use core::ops::Range;
@@ -143,7 +142,7 @@ impl RecordedLayer {
 #[derive(Debug)]
 pub struct CommandRecorder<D> {
     /// Dimensions of the root scene.
-    pub scene_size: Int16Size,
+    pub scene_size: SizeU16,
     /// The commands of the root layer.
     pub root_cmds: Vec<CmdNode>,
     /// Flat storage for all draw commands referenced by batched draws.
@@ -157,9 +156,9 @@ pub struct CommandRecorder<D> {
     /// Maximum layer depth across the whole layer graph.
     pub max_layer_depth: usize,
     /// The largest dimensions of any recorded layer.
-    pub largest_layer_size: Int16Size,
+    pub largest_layer_size: SizeU16,
     /// The largest dimensions of any recorded filter layer.
-    pub largest_filter_layer_size: Int16Size,
+    pub largest_filter_layer_size: SizeU16,
     /// Whether there exists at least one layer that uses a non-default blend mode.
     pub has_non_default_blend: bool,
     /// Whether there exists at least one layer that has a filter.
@@ -177,15 +176,15 @@ pub struct CommandRecorder<D> {
 impl<D> Default for CommandRecorder<D> {
     fn default() -> Self {
         Self {
-            scene_size: Int16Size::ZERO,
+            scene_size: SizeU16::ZERO,
             root_cmds: Vec::new(),
             draws: Vec::new(),
             layers: Vec::new(),
             filter_layers: Vec::new(),
             root_is_blend_target: false,
             max_layer_depth: 0,
-            largest_layer_size: Int16Size::ZERO,
-            largest_filter_layer_size: Int16Size::ZERO,
+            largest_layer_size: SizeU16::ZERO,
+            largest_filter_layer_size: SizeU16::ZERO,
             has_non_default_blend: false,
             has_filter_layer: false,
             cmd_pool: VecPool::default(),
@@ -207,7 +206,7 @@ impl<D> CommandRecorder<D> {
     /// Create an new command recorder.
     pub fn new(width: u16, height: u16) -> Self {
         Self {
-            scene_size: Int16Size::from_wh(width, height),
+            scene_size: SizeU16::from_wh(width, height),
             ..Self::default()
         }
     }
@@ -220,7 +219,7 @@ impl<D> CommandRecorder<D> {
     /// Reset the command recorder.
     #[inline]
     pub fn reset(&mut self, width: u16, height: u16) {
-        self.scene_size = Int16Size::from_wh(width, height);
+        self.scene_size = SizeU16::from_wh(width, height);
         self.root_cmds.clear();
         self.draws.clear();
 
@@ -231,8 +230,8 @@ impl<D> CommandRecorder<D> {
         self.filter_layers.clear();
         self.root_is_blend_target = false;
         self.max_layer_depth = 0;
-        self.largest_layer_size = Int16Size::ZERO;
-        self.largest_filter_layer_size = Int16Size::ZERO;
+        self.largest_layer_size = SizeU16::ZERO;
+        self.largest_filter_layer_size = SizeU16::ZERO;
         self.has_non_default_blend = false;
         self.has_filter_layer = false;
         self.active_layer = None;

@@ -4,6 +4,56 @@
 //! Geometry utilities.
 
 use crate::kurbo::Rect;
+use bytemuck::{Pod, Zeroable};
+
+/// A size represented by two 16-bit unsigned integers.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable, PartialEq, Eq)]
+pub struct SizeU16(pub [u16; 2]);
+
+impl SizeU16 {
+    /// A zero size.
+    pub const ZERO: Self = Self::new(0);
+
+    /// Create a new square size.
+    pub const fn new(size: u16) -> Self {
+        Self([size; 2])
+    }
+
+    /// Create a new size from its width and height.
+    pub const fn from_wh(width: u16, height: u16) -> Self {
+        Self([width, height])
+    }
+
+    /// The width of this size.
+    pub const fn width(self) -> u16 {
+        self.0[0]
+    }
+
+    /// The height of this size.
+    pub const fn height(self) -> u16 {
+        self.0[1]
+    }
+
+    /// Return the maximum of the two sizes.
+    pub fn max(self, other: Self) -> Self {
+        Self::from_wh(
+            self.width().max(other.width()),
+            self.height().max(other.height()),
+        )
+    }
+
+    /// Clamp both dimensions to the given range.
+    pub fn clamp(self, min: u16, max: u16) -> Self {
+        Self::from_wh(self.width().clamp(min, max), self.height().clamp(min, max))
+    }
+}
+
+impl From<[u16; 2]> for SizeU16 {
+    fn from(value: [u16; 2]) -> Self {
+        Self(value)
+    }
+}
 
 /// An axis-aligned rectangle with `u16` coordinates, stored as two corners `(x0, y0)` and
 /// `(x1, y1)`.
@@ -142,6 +192,148 @@ impl RectU16 {
             self.x1 as f64,
             self.y1 as f64,
         )
+    }
+}
+
+impl From<RectU16> for SizeU16 {
+    fn from(rect: RectU16) -> Self {
+        Self::from_wh(rect.width(), rect.height())
+    }
+}
+
+// TODO: Remove these types once we've completely moved to u16 everywhere in Vello Hybrid
+
+/// An offset represented by two 32-bit unsigned integers.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable, PartialEq, Eq)]
+pub struct OffsetU32(pub [u32; 2]);
+
+impl OffsetU32 {
+    /// A zero offset.
+    pub const ZERO: Self = Self::new(0);
+
+    /// Create a new offset with equal x and y coordinates.
+    pub const fn new(offset: u32) -> Self {
+        Self([offset; 2])
+    }
+
+    /// Create a new offset from its x and y coordinates.
+    pub const fn from_xy(x: u32, y: u32) -> Self {
+        Self([x, y])
+    }
+
+    /// The x coordinate of this offset.
+    pub const fn x(self) -> u32 {
+        self.0[0]
+    }
+
+    /// The y coordinate of this offset.
+    pub const fn y(self) -> u32 {
+        self.0[1]
+    }
+}
+
+impl From<[u32; 2]> for OffsetU32 {
+    fn from(value: [u32; 2]) -> Self {
+        Self(value)
+    }
+}
+
+/// A size represented by two 32-bit unsigned integers.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable, PartialEq, Eq)]
+pub struct SizeU32(pub [u32; 2]);
+
+impl SizeU32 {
+    /// A zero size.
+    pub const ZERO: Self = Self::new(0);
+
+    /// Create a new square size.
+    pub const fn new(size: u32) -> Self {
+        Self([size; 2])
+    }
+
+    /// Create a new size from its width and height.
+    pub const fn from_wh(width: u32, height: u32) -> Self {
+        Self([width, height])
+    }
+
+    /// The width of this size.
+    pub const fn width(self) -> u32 {
+        self.0[0]
+    }
+
+    /// The height of this size.
+    pub const fn height(self) -> u32 {
+        self.0[1]
+    }
+
+    /// Return the maximum of the two sizes.
+    pub fn max(self, other: Self) -> Self {
+        Self::from_wh(
+            self.width().max(other.width()),
+            self.height().max(other.height()),
+        )
+    }
+
+    /// Clamp both dimensions to the given range.
+    pub fn clamp(self, min: u32, max: u32) -> Self {
+        Self::from_wh(self.width().clamp(min, max), self.height().clamp(min, max))
+    }
+}
+
+impl From<[u32; 2]> for SizeU32 {
+    fn from(value: [u32; 2]) -> Self {
+        Self(value)
+    }
+}
+
+impl From<(u32, u32)> for SizeU32 {
+    fn from((width, height): (u32, u32)) -> Self {
+        Self::from_wh(width, height)
+    }
+}
+
+impl From<SizeU32> for (u32, u32) {
+    fn from(size: SizeU32) -> Self {
+        (size.width(), size.height())
+    }
+}
+
+impl From<SizeU16> for SizeU32 {
+    fn from(size: SizeU16) -> Self {
+        Self::from_wh(u32::from(size.width()), u32::from(size.height()))
+    }
+}
+
+/// An axis-aligned rectangle with `u32` coordinates.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable, PartialEq, Eq)]
+pub struct RectU32 {
+    /// The minimum x coordinate.
+    pub x0: u32,
+    /// The minimum y coordinate.
+    pub y0: u32,
+    /// The exclusive maximum x coordinate.
+    pub x1: u32,
+    /// The exclusive maximum y coordinate.
+    pub y1: u32,
+}
+
+impl RectU32 {
+    /// Create a new rectangle from its corner coordinates.
+    pub const fn new(x0: u32, y0: u32, x1: u32, y1: u32) -> Self {
+        Self { x0, y0, x1, y1 }
+    }
+
+    /// The width of this rectangle.
+    pub const fn width(self) -> u32 {
+        self.x1.saturating_sub(self.x0)
+    }
+
+    /// The height of this rectangle.
+    pub const fn height(self) -> u32 {
+        self.y1.saturating_sub(self.y0)
     }
 }
 

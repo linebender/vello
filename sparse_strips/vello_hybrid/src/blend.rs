@@ -6,8 +6,8 @@ use crate::schedule::round::BlendOp;
 use crate::target::TextureParity;
 use crate::util::{pack_opacity, pack_u16_pair};
 use bytemuck::{Pod, Zeroable};
+use vello_common::geometry::SizeU16;
 use vello_common::peniko::{Compose, Mix};
-use vello_common::util::Int16Size;
 
 pub(crate) const BLEND_SCRATCH_PARITY: TextureParity = TextureParity::Even;
 
@@ -36,7 +36,7 @@ pub(crate) struct GpuBlendInstance {
 impl GpuBlendInstance {
     pub(crate) fn copy_from_parent_in_scratch(
         self,
-        parent_texture_size: Int16Size,
+        parent_texture_size: SizeU16,
     ) -> GpuCopyInstance {
         GpuCopyInstance {
             target_texture_origin: self.parent_texture_origin,
@@ -50,10 +50,7 @@ impl GpuBlendInstance {
     }
 }
 
-pub(crate) fn gpu_blend_instance(
-    blend: BlendOp,
-    target_texture_size: Int16Size,
-) -> GpuBlendInstance {
+pub(crate) fn gpu_blend_instance(blend: BlendOp, target_texture_size: SizeU16) -> GpuBlendInstance {
     let parent_x = blend.parent_region.texture.rect.x0
         + (blend.blend_bbox.x0 - blend.parent_region.layer_bbox.x0);
     let parent_y = blend.parent_region.texture.rect.y0

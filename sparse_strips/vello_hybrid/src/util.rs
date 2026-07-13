@@ -6,9 +6,8 @@
 //! Simple helpers for managing wgpu state and surfaces.
 
 use alloc::vec::Vec;
-use bytemuck::{Pod, Zeroable};
 use core::ops::{Range, RangeInclusive};
-use vello_common::util::{Clear, Int16Size};
+use vello_common::util::Clear;
 
 /// Represents dimension constraints for surfaces
 #[derive(Debug)]
@@ -94,51 +93,6 @@ impl Default for DimensionConstraints {
             width_range: 100.0..=2000.0,
             height_range: 100.0..=2000.0,
         }
-    }
-}
-
-// TODO: Right now, we are mixing 16-bit and 32-bit sizes pretty randomly, even though it should be
-// possible to use u16 nearly everywhere. Streamline this.
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
-pub(crate) struct Int32Offset(pub [u32; 2]);
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
-pub(crate) struct Int32Size(pub [u32; 2]);
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
-pub(crate) struct IntRect {
-    pub offset: Int32Offset,
-    pub size: Int32Size,
-}
-
-impl IntRect {
-    pub(crate) fn new(offset: impl Into<Int32Offset>, size: impl Into<Int32Size>) -> Self {
-        Self {
-            offset: offset.into(),
-            size: size.into(),
-        }
-    }
-}
-
-impl From<[u32; 2]> for Int32Offset {
-    fn from(v: [u32; 2]) -> Self {
-        Self(v)
-    }
-}
-
-impl From<[u32; 2]> for Int32Size {
-    fn from(v: [u32; 2]) -> Self {
-        Self(v)
-    }
-}
-
-impl From<Int16Size> for Int32Size {
-    fn from(size: Int16Size) -> Self {
-        Self([u32::from(size.width()), u32::from(size.height())])
     }
 }
 

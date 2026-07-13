@@ -24,7 +24,7 @@
 use crate::copy::GpuCopyInstance;
 use crate::schedule::round::FilterOp;
 use crate::target::{IntermediateTextureSizes, ScratchRegion, TextureParity};
-use crate::util::{Int32Size, IntRect, pack_u16_pair};
+use crate::util::pack_u16_pair;
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use vello_common::filter::drop_shadow::DropShadow;
@@ -33,7 +33,8 @@ use vello_common::filter::gaussian_blur::{DecimationSizer, GaussianBlur, MAX_KER
 use vello_common::filter::offset::Offset;
 use vello_common::filter::{FilterData, PreparedFilter};
 use vello_common::filter_effects::EdgeMode;
-use vello_common::util::{Int16Size, RetainVec};
+use vello_common::geometry::{RectU16, RectU32, SizeU16, SizeU32};
+use vello_common::util::RetainVec;
 
 /// How much transparent padding to reserve for filter layers within the image. Needed so
 /// that the various shader programs can assume transparent pixels on the outside, making
@@ -372,15 +373,15 @@ impl From<&PreparedFilter> for GpuFilterData {
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub(crate) struct FilterInstanceData {
     /// Source region in the input atlas.
-    pub src: IntRect,
+    pub src: RectU32,
     /// Destination region in the output atlas.
-    pub dest: IntRect,
+    pub dest: RectU32,
     /// Full pixel dimensions of the destination atlas texture.
-    pub dest_atlas_size: Int32Size,
+    pub dest_atlas_size: SizeU32,
     /// Texel offset into `filter_data` where this filter's data is stored.
     pub filter_data_offset: u32,
     /// The region of the original (unfiltered) content.
-    pub original: IntRect,
+    pub original: RectU32,
     /// Additional per-pass data.
     ///
     /// Layout:
@@ -519,21 +520,21 @@ impl<'a> FilterPassBuilder<'a> {
             .map_or(TextureParity::Even, TextureParity::opposite)
     }
 
-    fn apply_pass_dimensions(&mut self, kind: u32) -> (Int16Size, Int16Size) {
+    fn apply_pass_dimensions(&mut self, kind: u32) -> (SizeU16, SizeU16) {
         match kind {
             pass_kind::DOWNSCALE => {
                 let (sw, sh) = self.sizer.current();
                 let (dw, dh) = self.sizer.downscale();
-                (Int16Size::from_wh(sw, sh), Int16Size::from_wh(dw, dh))
+                (SizeU16::from_wh(sw, sh), SizeU16::from_wh(dw, dh))
             }
             pass_kind::UPSCALE => {
                 let (sw, sh) = self.sizer.current();
                 let (dw, dh) = self.sizer.upscale();
-                (Int16Size::from_wh(sw, sh), Int16Size::from_wh(dw, dh))
+                (SizeU16::from_wh(sw, sh), SizeU16::from_wh(dw, dh))
             }
             _ => {
                 let (w, h) = self.sizer.current();
-                let size = Int16Size::from_wh(w, h);
+                let size = SizeU16::from_wh(w, h);
                 (size, size)
             }
         }
@@ -542,24 +543,30 @@ impl<'a> FilterPassBuilder<'a> {
     fn emit(&mut self, kind: u32, output: TextureParity) {
         let (src_size, dest_size) = self.apply_pass_dimensions(kind);
         let original_rect = self.op.layer_region.texture.rect;
-        let original_offset = [u32::from(original_rect.x0), u32::from(original_rect.y0)];
         let src_rect = self
             .current_scratch
             .map_or(original_rect, |parity| self.scratch_region(parity).rect);
         let dest_rect = self.scratch_region(output).rect;
         let dest_texture_size = self.texture_sizes.scratch_size(output);
         let other_data = self.other_data(kind);
+        let rect_with_size = |rect: RectU16, size: SizeU16| {
+            let x0 = u32::from(rect.x0);
+            let y0 = u32::from(rect.y0);
+            RectU32::new(
+                x0,
+                y0,
+                x0 + u32::from(size.width()),
+                y0 + u32::from(size.height()),
+            )
+        };
         self.passes.step_mut(self.step).push(FilterInstanceData {
-            src: IntRect::new([u32::from(src_rect.x0), u32::from(src_rect.y0)], src_size),
-            dest: IntRect::new(
-                [u32::from(dest_rect.x0), u32::from(dest_rect.y0)],
-                dest_size,
-            ),
+            src: rect_with_size(src_rect, src_size),
+            dest: rect_with_size(dest_rect, dest_size),
             dest_atlas_size: dest_texture_size.into(),
             filter_data_offset: self.op.filter_data_offset,
-            original: IntRect::new(
-                original_offset,
-                Int16Size::from_wh(original_rect.width(), original_rect.height()),
+            original: rect_with_size(
+                original_rect,
+                SizeU16::from_wh(original_rect.width(), original_rect.height()),
             ),
             other_data,
         });

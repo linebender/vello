@@ -3,8 +3,7 @@
 
 //! Render targets and regions used by the hybrid renderer.
 
-use vello_common::geometry::RectU16;
-use vello_common::util::Int16Size;
+use vello_common::geometry::{RectU16, SizeU16};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RootRenderTarget {
@@ -177,31 +176,31 @@ impl TextureTarget {
 /// Dimensions of the intermediate textures used by the hybrid renderer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct IntermediateTextureSizes {
-    layer: [Int16Size; 2],
-    scratch: [Int16Size; 2],
+    layer: [SizeU16; 2],
+    scratch: [SizeU16; 2],
 }
 
 impl IntermediateTextureSizes {
-    pub(crate) fn new(layer: [Int16Size; 2], scratch: [Int16Size; 2]) -> Self {
+    pub(crate) fn new(layer: [SizeU16; 2], scratch: [SizeU16; 2]) -> Self {
         Self { layer, scratch }
     }
 
-    pub(crate) fn uniform(size: Int16Size) -> Self {
+    pub(crate) fn uniform(size: SizeU16) -> Self {
         Self::new([size; 2], [size; 2])
     }
 
-    pub(crate) fn size(self, target: TextureTarget) -> Int16Size {
+    pub(crate) fn size(self, target: TextureTarget) -> SizeU16 {
         match target {
             TextureTarget::Layer(id) => self.layer_size(id.texture_parity),
             TextureTarget::Scratch(parity) => self.scratch_size(parity),
         }
     }
 
-    pub(crate) fn layer_size(self, parity: TextureParity) -> Int16Size {
+    pub(crate) fn layer_size(self, parity: TextureParity) -> SizeU16 {
         self.layer[parity.get_parity()]
     }
 
-    pub(crate) fn scratch_size(self, parity: TextureParity) -> Int16Size {
+    pub(crate) fn scratch_size(self, parity: TextureParity) -> SizeU16 {
         self.scratch[parity.get_parity()]
     }
 
