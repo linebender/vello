@@ -3,7 +3,7 @@
 
 use crate::coarse::CommandBucketer;
 use crate::coarse::depth::DepthBuffer;
-use crate::dispatch::Dispatcher;
+use crate::dispatch::{Dispatcher, RecordedFill};
 use crate::filter::context::FilterContext;
 use crate::fine::{Fine, FineKernel, FineRenderParams, FineResources, rasterize_region};
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
@@ -19,7 +19,7 @@ use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
 use vello_common::pixmap::{Pixmap, PixmapMut};
 use vello_common::record::{
-    CommandRecorder, LayerClip, LayerProps, PoppedLayer, RecordedCmd, RecordedLayerKind,
+    CommandRecorder, LayerClip, LayerProps, Node, PoppedLayer, RecordedLayerKind,
 };
 use vello_common::strip_generator::{GenerationMode, StripStorage};
 use vello_common::util::control_point_bbox_u16;
@@ -33,7 +33,7 @@ pub(crate) struct SingleThreadedDispatcher {
     /// Viewport state.
     viewport: ViewportState,
     /// Recorder for root and filter-layer command streams, plus layer metadata.
-    recorder: CommandRecorder,
+    recorder: CommandRecorder<RecordedFill>,
     /// Storage for generated strips and alpha coverage data.
     strip_storage: StripStorage,
     /// SIMD level for fearless SIMD dispatch.
@@ -116,7 +116,7 @@ impl SingleThreadedDispatcher {
 
         self.bucket_and_rasterize::<S, F>(
             simd,
-            &self.recorder.root_cmds,
+            &self.recorder.nodes,
             RectU16::new(0, 0, scene_width, scene_height),
             &filters,
             target,
@@ -130,7 +130,7 @@ impl SingleThreadedDispatcher {
     fn bucket_and_rasterize<S: Simd, F: FineKernel<S>>(
         &self,
         simd: S,
-        cmds: &[RecordedCmd],
+        cmds: &[Node],
         viewport: RectU16,
         filter_ctx: &FilterContext,
         mut target: PixmapMut<'_>,
@@ -143,6 +143,7 @@ impl SingleThreadedDispatcher {
         bucketer.reset(viewport);
         bucketer.bucket_commands(
             cmds,
+            &self.recorder.draws,
             &self.recorder.layers,
             &self.strip_storage.strips,
             encoded_paints,
@@ -195,14 +196,11 @@ impl SingleThreadedDispatcher {
         mask: Option<Mask>,
     ) {
         let strip_end = self.strip_storage.strips.len();
-        self.recorder.push_fill(
-            strip_start..strip_end,
-            &self.strip_storage.strips[strip_start..strip_end],
-            paint,
-            blend_mode,
-            mask,
-            0,
-        );
+        let strip_range = strip_start..strip_end;
+        let draw = RecordedFill::new(0, strip_range.clone(), paint, blend_mode, mask);
+
+        self.recorder
+            .push_draw(draw, &self.strip_storage.strips[strip_range]);
     }
 
     fn rasterize_filter_layers<S: Simd, F: FineKernel<S>>(
@@ -213,19 +211,17 @@ impl SingleThreadedDispatcher {
     ) -> FilterContext {
         // TODO: Reuse across frames so that pixmaps can be reused.
         let mut filter_ctx = FilterContext::new(self.recorder.layers.len());
-        // We record layers upon "push", so nested filter layers get higher IDs
-        // than their parents. Subsequent sibling filter layers also get a higher ID
-        // than the previous layer they are composited into. Therefore, iterating in reverse
-        // order over the layer IDs is enough to ensure that all dependencies have been rendered
-        // before they are invoked.
-        for id in (0..self.recorder.layers.len()).rev() {
+        // We record filter layers upon "push", so nested filter layers get added after their
+        // parents. Subsequent sibling filter layers also get added after the previous layer they
+        // are composited into. Therefore, iterating in reverse order is enough to ensure that all
+        // dependencies have been rendered before they are invoked.
+        for id in self.recorder.filter_layers.iter().rev().copied() {
             let RecordedLayerKind::Filter {
-                cmds,
                 filter_data: filter_plan,
                 placement,
-            } = &self.recorder.layers[id].kind
+            } = &self.recorder.layers[id as usize].kind
             else {
-                continue;
+                unreachable!("filter_layers only contains filter layers");
             };
             let pixmap_bbox = placement.pixmap_bbox;
             if pixmap_bbox.is_empty() {
@@ -244,7 +240,7 @@ impl SingleThreadedDispatcher {
 
             self.bucket_and_rasterize::<S, F>(
                 simd,
-                cmds,
+                &self.recorder.layers[id as usize].nodes,
                 pixmap_bbox,
                 &filter_ctx,
                 (&mut pixmap).into(),
@@ -265,7 +261,7 @@ impl SingleThreadedDispatcher {
             // #[cfg(all(debug_assertions, feature = "std", feature = "png"))]
             // save_filtered_layer_debug(&pixmap, id);
 
-            filter_ctx.set_layer(id, pixmap);
+            filter_ctx.set_layer(id as usize, pixmap);
         }
 
         filter_ctx
@@ -562,14 +558,14 @@ mod tests {
 
         // Ensure there is data to clear.
         assert!(!dispatcher.strip_storage.strips.is_empty());
-        assert!(!dispatcher.recorder.root_cmds.is_empty());
+        assert!(!dispatcher.recorder.nodes.is_empty());
 
         dispatcher.reset(100, 100);
 
         // Verify all buffers are cleared.
         assert!(dispatcher.strip_storage.strips.is_empty());
         assert!(dispatcher.strip_storage.alphas.is_empty());
-        assert!(dispatcher.recorder.root_cmds.is_empty());
+        assert!(dispatcher.recorder.nodes.is_empty());
         assert!(dispatcher.recorder.layers.is_empty());
         assert!(!dispatcher.viewport.has_filter_viewports());
     }

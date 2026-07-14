@@ -3,9 +3,9 @@
 
 use crate::coarse::CommandBucketer;
 use crate::coarse::depth::DepthBuffer;
-use crate::dispatch::Dispatcher;
 use crate::dispatch::multi_threaded::cost::{COST_THRESHOLD, estimate_render_task_cost};
 use crate::dispatch::multi_threaded::worker::Worker;
+use crate::dispatch::{Dispatcher, RecordedFill};
 use crate::filter::context::FilterContext;
 use crate::fine::{Fine, FineKernel, FineRenderParams, FineResources, rasterize_region};
 use crate::kurbo::{Affine, BezPath, PathEl, Point, Rect, Stroke};
@@ -57,7 +57,7 @@ type RecordedCommandReceiver = ordered_channel::Receiver<RecordedCommandTask>;
 pub(crate) struct MultiThreadedDispatcher {
     bucketer: Mutex<CommandBucketer>,
     clip_context: ClipContext,
-    recorder: CommandRecorder,
+    recorder: CommandRecorder<RecordedFill>,
     strip_storage: StripStorage,
     /// The thread pool that is used for dispatching tasks.
     thread_pool: ThreadPool,
@@ -318,15 +318,16 @@ impl MultiThreadedDispatcher {
                                     &task.allocation_group.strips
                                         [strip_range.start as usize..strip_range.end as usize],
                                 );
-                                let strips = &self.strip_storage.strips[strip_range.clone()];
-                                self.recorder.push_fill(
-                                    strip_range,
-                                    strips,
+                                let draw = RecordedFill::new(
+                                    thread_id,
+                                    strip_range.clone(),
                                     paint.clone(),
                                     blend_mode,
                                     mask,
-                                    thread_id,
                                 );
+
+                                self.recorder
+                                    .push_draw(draw, &self.strip_storage.strips[strip_range]);
                             }
                             RecordedCommand::PushLayer {
                                 thread_id,
@@ -398,7 +399,8 @@ impl MultiThreadedDispatcher {
         let filters = FilterContext::new(0);
         bucketer.reset(RectU16::new(0, 0, scene_width, scene_height));
         bucketer.bucket_commands(
-            &self.recorder.root_cmds,
+            &self.recorder.nodes,
+            &self.recorder.draws,
             &self.recorder.layers,
             &self.strip_storage.strips,
             encoded_paints,
