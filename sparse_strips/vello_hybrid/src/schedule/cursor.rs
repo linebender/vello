@@ -31,6 +31,10 @@ impl Cursor {
         self.current_round
     }
 
+    pub(super) fn scratch_textures(&self) -> [bool; 2] {
+        self.atlases.scratch_textures()
+    }
+
     pub(super) fn allocate_layer(
         &mut self,
         request: LayerAllocationRequest,

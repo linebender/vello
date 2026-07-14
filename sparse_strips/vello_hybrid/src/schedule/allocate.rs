@@ -38,6 +38,10 @@ impl Atlases {
         }
     }
 
+    pub(super) fn scratch_textures(&self) -> [bool; 2] {
+        self.scratch_atlases.each_ref().map(Option::is_some)
+    }
+
     pub(super) fn allocate_layer(
         &mut self,
         request: &LayerAllocationRequest,
@@ -211,10 +215,6 @@ impl ScratchAllocationRequest {
             },
             count: filter.scratch_count(),
         }
-    }
-
-    pub(super) fn required_textures(self) -> [bool; 2] {
-        core::array::from_fn(|index| index < usize::from(self.count))
     }
 }
 

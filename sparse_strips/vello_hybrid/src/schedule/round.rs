@@ -94,7 +94,6 @@ impl SchedulePoint {
 pub(super) struct Rounds {
     pub(super) rounds: Vec<Round>,
     pub(super) layer_page_counts: [usize; 2],
-    pub(super) scratch_textures: [bool; 2],
 }
 
 #[derive(Debug, Default)]
@@ -171,10 +170,6 @@ impl Rounds {
         let required = usize::from(texture.page_index) + 1;
         let page_count = &mut self.layer_page_counts[texture.texture_parity.get_parity()];
         *page_count = (*page_count).max(required);
-    }
-
-    pub(super) fn require_scratch_texture(&mut self, texture_parity: TextureParity) {
-        self.scratch_textures[texture_parity.get_parity()] = true;
     }
 
     pub(super) fn ensure_exists(&mut self, round_idx: usize) {
