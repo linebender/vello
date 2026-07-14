@@ -6,7 +6,10 @@
 use super::ScheduleBuffers;
 use crate::draw::Draw;
 use crate::filter::GpuFilterData;
-use crate::target::{LayerTextureRegion, TextureIndex, TextureRegion};
+use crate::target::{
+    LayerTextureId, LayerTexturePair, LayerTexturePairConstraint, LayerTextureRegion,
+    ScratchRegion, TextureParity,
+};
 use crate::util::{Ranges, VecExt};
 use alloc::vec::Vec;
 use vello_common::geometry::RectU16;
@@ -33,24 +36,24 @@ pub(super) enum LayerStage {
 }
 
 impl RoundStage {
-    pub(super) const fn draw(texture_index: TextureIndex) -> Self {
-        match texture_index {
-            TextureIndex::Even => Self::Even(LayerStage::Draw),
-            TextureIndex::Odd => Self::Odd(LayerStage::Draw),
+    pub(super) const fn draw(texture_parity: TextureParity) -> Self {
+        match texture_parity {
+            TextureParity::Even => Self::Even(LayerStage::Draw),
+            TextureParity::Odd => Self::Odd(LayerStage::Draw),
         }
     }
 
-    pub(super) const fn filter(texture_index: TextureIndex) -> Self {
-        match texture_index {
-            TextureIndex::Even => Self::Even(LayerStage::Filter),
-            TextureIndex::Odd => Self::Odd(LayerStage::Filter),
+    pub(super) const fn filter(texture_parity: TextureParity) -> Self {
+        match texture_parity {
+            TextureParity::Even => Self::Even(LayerStage::Filter),
+            TextureParity::Odd => Self::Odd(LayerStage::Filter),
         }
     }
 
-    pub(super) const fn blend(texture_index: TextureIndex) -> Self {
-        match texture_index {
-            TextureIndex::Even => Self::Even(LayerStage::Blend),
-            TextureIndex::Odd => Self::Odd(LayerStage::Blend),
+    pub(super) const fn blend(texture_parity: TextureParity) -> Self {
+        match texture_parity {
+            TextureParity::Even => Self::Even(LayerStage::Blend),
+            TextureParity::Odd => Self::Odd(LayerStage::Blend),
         }
     }
 }
@@ -90,10 +93,13 @@ impl SchedulePoint {
 #[derive(Debug, Default)]
 pub(super) struct Rounds {
     pub(super) rounds: Vec<Round>,
+    pub(super) layer_page_counts: [usize; 2],
+    pub(super) scratch_textures: [bool; 2],
 }
 
 #[derive(Debug, Default)]
 pub(super) struct Round {
+    texture_binding: LayerTexturePairConstraint,
     pub(super) root_draw: Draw,
     pub(super) layer_texture_passes: [LayerTexturePass; 2],
     pub(super) layer_texture_clears: [Vec<RectU16>; 2],
@@ -101,43 +107,106 @@ pub(super) struct Round {
 }
 
 impl Round {
+    pub(super) fn resolve_texture_binding(&self) -> LayerTexturePair {
+        self.texture_binding.resolve()
+    }
+
     pub(super) fn root_draw_mut(&mut self) -> &mut Draw {
         &mut self.root_draw
     }
 
-    pub(super) fn layer_draw_mut(&mut self, texture_index: TextureIndex) -> &mut Draw {
-        &mut self.layer_texture_passes[texture_index.get_index()].draw
+    pub(super) fn layer_draw_mut(&mut self, texture_parity: TextureParity) -> &mut Draw {
+        &mut self.layer_texture_passes[texture_parity.get_parity()].draw
     }
 
     pub(super) fn push_blend_op(
         &mut self,
-        parent_texture_index: TextureIndex,
+        parent_texture_parity: TextureParity,
         buffers: &mut ScheduleBuffers,
         blend: BlendOp,
     ) {
         buffers.blend_ops.push_ranged(
-            &mut self.layer_texture_passes[parent_texture_index.get_index()].blend_ranges,
+            &mut self.layer_texture_passes[parent_texture_parity.get_parity()].blend_ranges,
             blend,
         );
     }
 
     pub(super) fn push_filter_op(
         &mut self,
-        texture_index: TextureIndex,
+        texture_parity: TextureParity,
         buffers: &mut ScheduleBuffers,
         filter: FilterOp,
     ) {
         buffers.filter_ops.push_ranged(
-            &mut self.layer_texture_passes[texture_index.get_index()].filter_ranges,
+            &mut self.layer_texture_passes[texture_parity.get_parity()].filter_ranges,
             filter,
         );
     }
 }
 
 impl Rounds {
+    pub(super) fn push_layer_clear(
+        &mut self,
+        round_idx: usize,
+        texture_parity: TextureParity,
+        rect: RectU16,
+    ) {
+        let parity = texture_parity.get_parity();
+
+        self.rounds[round_idx].layer_texture_clears[parity].push(rect);
+    }
+
+    pub(super) fn push_scratch_clear(
+        &mut self,
+        round_idx: usize,
+        texture_parity: TextureParity,
+        rect: RectU16,
+    ) {
+        let parity = texture_parity.get_parity();
+
+        self.rounds[round_idx].scratch_texture_clears[parity].push(rect);
+    }
+
+    pub(super) fn require_layer_texture(&mut self, texture: LayerTextureId) {
+        let required = usize::from(texture.page_index) + 1;
+        let page_count = &mut self.layer_page_counts[texture.texture_parity.get_parity()];
+        *page_count = (*page_count).max(required);
+    }
+
+    pub(super) fn require_scratch_texture(&mut self, texture_parity: TextureParity) {
+        self.scratch_textures[texture_parity.get_parity()] = true;
+    }
+
     pub(super) fn ensure_exists(&mut self, round_idx: usize) {
         while self.rounds.len() <= round_idx {
             self.rounds.push(Round::default());
+        }
+    }
+
+    pub(super) fn resolve_binding_point(
+        &mut self,
+        mut point: SchedulePoint,
+        requirement: LayerTexturePairConstraint,
+    ) -> SchedulePoint {
+        for texture in requirement.required_textures().into_iter().flatten() {
+            self.require_layer_texture(texture);
+        }
+
+        loop {
+            self.ensure_exists(point.round);
+
+            let round = &mut self.rounds[point.round];
+
+            // If the given round has a compatible texture binding, we can fold
+            // into it.
+            if let Some(binding) = round.texture_binding.merge(requirement) {
+                round.texture_binding = binding;
+
+                return point;
+            }
+
+            // Otherwise, keep looking.
+            point.round += 1;
         }
     }
 }
@@ -152,7 +221,7 @@ pub(super) struct LayerTexturePass {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FilterOp {
     pub(crate) layer_region: LayerTextureRegion,
-    pub(crate) scratches: [Option<TextureRegion>; 2],
+    pub(crate) scratches: [Option<ScratchRegion>; 2],
     pub(crate) filter_data_offset: u32,
     pub(crate) gpu_filter: GpuFilterData,
 }
