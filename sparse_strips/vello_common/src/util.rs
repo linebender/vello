@@ -322,6 +322,45 @@ pub fn control_point_bbox_u16(
     )
 }
 
+fn strip_bbox(strips: &[Strip]) -> RectU16 {
+    let mut bbox = RectU16::INVERTED;
+
+    // Need at least one strip (and the sentinel one).
+    if strips.len() < 2 {
+        return bbox;
+    }
+
+    // TODO: It _feels_ like this "iterating over strips code" should be possible to
+    // deduplicate with other locations (i.e. the code used to generate fill commands).
+
+    for pair in strips.windows(2) {
+        let strip = pair[0];
+        let next_strip = pair[1];
+        if strip.is_sentinel() {
+            continue;
+        }
+
+        let strip_y = strip.strip_y();
+        let row_y = strip_y.saturating_mul(Tile::HEIGHT);
+        let row_y1 = row_y.saturating_add(Tile::HEIGHT);
+        let strip_width = strip.width_to(&next_strip);
+        let strip_x1 = strip.x.saturating_add(strip_width);
+
+        if strip_width > 0 {
+            bbox.union(RectU16::new(strip.x, row_y, strip_x1, row_y1));
+        }
+
+        if next_strip.fill_gap() && strip_y == next_strip.strip_y() {
+            let fill_x1 = next_strip.x;
+            if strip_x1 < fill_x1 {
+                bbox.union(RectU16::new(strip_x1, row_y, fill_x1, row_y1));
+            }
+        }
+    }
+
+    bbox
+}
+
 #[cfg(test)]
 mod tests {
     use super::RectExt;
