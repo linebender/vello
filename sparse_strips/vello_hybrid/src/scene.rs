@@ -31,6 +31,7 @@ use vello_common::peniko::{BlendMode, Compose, Extend, Fill, ImageQuality, Image
 use vello_common::render_graph::{RenderGraph, RenderNodeKind};
 use vello_common::render_state::RenderState;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
+use vello_common::transforms::Transforms;
 use vello_common::util::is_axis_aligned;
 
 /// Default tolerance for curve flattening
@@ -325,6 +326,14 @@ impl Scene {
         }
     }
 
+    fn transforms(&self) -> &Transforms {
+        &self.render_state.transforms
+    }
+
+    fn transforms_mut(&mut self) -> &mut Transforms {
+        &mut self.render_state.transforms
+    }
+
     /// Encode the current paint into a `Paint` that can be used for rendering.
     ///
     /// For solid colors, this is a simple conversion. For gradients and images,
@@ -340,12 +349,12 @@ impl Scene {
             PaintType::Solid(s) => s.into(),
             PaintType::Gradient(g) => g.encode_into(
                 &mut self.encoded_paints.borrow_mut(),
-                self.render_state.transform * self.render_state.paint_transform,
+                *self.transforms().transform() * *self.transforms().paint_transform(),
                 None,
             ),
             PaintType::Image(i) => i.encode_into(
                 &mut self.encoded_paints.borrow_mut(),
-                self.render_state.transform * self.render_state.paint_transform,
+                *self.transforms().transform() * *self.transforms().paint_transform(),
                 self.render_state.tint,
             ),
         }
@@ -391,7 +400,7 @@ impl Scene {
             let paint = ctx.encode_current_paint();
             ctx.fill_path_with(
                 path,
-                ctx.render_state.transform,
+                *ctx.transforms().transform(),
                 ctx.render_state.fill_rule,
                 paint,
                 ctx.aliasing_threshold,
@@ -432,11 +441,12 @@ impl Scene {
     /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
     /// example for how this method differs from `push_clip_layer`.
     pub fn push_clip_path(&mut self, path: &BezPath) {
+        let transform = *self.transforms().transform();
         self.clip_context.push_clip(
             path.iter(),
             &mut self.strip_generator,
             self.render_state.fill_rule,
-            self.render_state.transform,
+            transform,
             self.aliasing_threshold,
         );
     }
@@ -459,7 +469,7 @@ impl Scene {
             let paint = ctx.encode_current_paint();
             ctx.stroke_path_with(
                 path,
-                ctx.render_state.transform,
+                *ctx.transforms().transform(),
                 paint,
                 ctx.aliasing_threshold,
             );
@@ -518,10 +528,10 @@ impl Scene {
             return;
         }
 
-        if is_axis_aligned(&self.render_state.transform) && self.aliasing_threshold.is_none() {
+        if is_axis_aligned(self.transforms().transform()) && self.aliasing_threshold.is_none() {
             self.with_optional_filter(|ctx| {
                 let paint = ctx.encode_current_paint();
-                let transformed_rect = ctx.render_state.transform.transform_rect_bbox(*rect);
+                let transformed_rect = ctx.transforms().transform().transform_rect_bbox(*rect);
                 let strip_storage = &mut ctx.strip_storage.borrow_mut();
                 let strip_start = strip_storage.strips.len();
                 ctx.strip_generator.generate_filled_rect_fast(
@@ -591,7 +601,7 @@ impl Scene {
 
                 let w = f64::from(rect.source_region.width());
                 let h = f64::from(rect.source_region.height());
-                let transform = self.render_state.transform * rect.transform;
+                let transform = *self.transforms().transform() * rect.transform;
 
                 if !is_axis_aligned(&transform) {
                     // Non-axis-aligned rects fall back to the strip path (still
@@ -656,7 +666,7 @@ impl Scene {
 
                     let w = f64::from(rect.source_region.width());
                     let h = f64::from(rect.source_region.height());
-                    let transform = ctx.render_state.transform * rect.transform;
+                    let transform = *ctx.transforms().transform() * rect.transform;
                     let paint = ctx.encode_external_texture_paint(
                         texture_id,
                         rect.source_region,
@@ -714,11 +724,11 @@ impl Scene {
 
         // We can't handle skewed rectangles.
         // TODO: Maybe support rotated rectangles (https://github.com/linebender/vello/pull/1482#discussion_r2881223621)
-        if !is_axis_aligned(&self.render_state.transform) {
+        if !is_axis_aligned(self.transforms().transform()) {
             return None;
         }
 
-        let transformed_rect = self.render_state.transform.transform_rect_bbox(*rect);
+        let transformed_rect = self.transforms().transform().transform_rect_bbox(*rect);
 
         let x0 = transformed_rect.x0.max(0.0).min(f64::from(self.width));
         let y0 = transformed_rect.y0.max(0.0).min(f64::from(self.height));
@@ -773,7 +783,7 @@ impl Scene {
 
             let kernel_size = 2.5 * std_dev;
             let inflated_rect = rect.inflate(f64::from(kernel_size), f64::from(kernel_size));
-            let transform = ctx.render_state.transform * ctx.render_state.paint_transform;
+            let transform = *ctx.transforms().transform() * *ctx.transforms().paint_transform();
             let paint =
                 blurred_rect.encode_into(&mut ctx.encoded_paints.borrow_mut(), transform, None);
 
@@ -782,10 +792,10 @@ impl Scene {
                 return;
             }
 
-            if is_axis_aligned(&ctx.render_state.transform) && ctx.aliasing_threshold.is_none() {
+            if is_axis_aligned(ctx.transforms().transform()) && ctx.aliasing_threshold.is_none() {
                 let transformed_rect = ctx
-                    .render_state
-                    .transform
+                    .transforms()
+                    .transform()
                     .transform_rect_bbox(inflated_rect);
                 let strip_storage = &mut ctx.strip_storage.borrow_mut();
                 let strip_start = strip_storage.strips.len();
@@ -799,7 +809,7 @@ impl Scene {
             } else {
                 ctx.fill_path_with(
                     &inflated_rect.to_path(DEFAULT_TOLERANCE),
-                    ctx.render_state.transform,
+                    *ctx.transforms().transform(),
                     Fill::NonZero,
                     paint,
                     ctx.aliasing_threshold,
@@ -817,8 +827,8 @@ impl Scene {
     ) -> GlyphRunBuilder<'a> {
         glifo::GlyphRunBuilder::new(
             font.clone(),
-            self.render_state.transform,
-            self.render_state.paint_transform,
+            *self.transforms().transform(),
+            *self.transforms().paint_transform(),
             crate::text::HybridGlyphRunBackend {
                 scene: self,
                 resources,
@@ -911,12 +921,13 @@ impl Scene {
         }
 
         let mut strip_storage = self.strip_storage.borrow_mut();
+        let transform = *self.transforms().transform();
 
         let clip = if let Some(c) = clip_path {
             self.strip_generator.generate_filled_path(
                 c,
                 self.render_state.fill_rule,
-                self.render_state.transform,
+                transform,
                 self.aliasing_threshold,
                 &mut strip_storage,
                 self.clip_context.get(),
@@ -939,7 +950,7 @@ impl Scene {
             None,
             opacity.unwrap_or(1.),
             filter,
-            self.render_state.transform,
+            transform,
             &mut self.render_graph,
             0,
         );
@@ -1047,12 +1058,12 @@ impl Scene {
     /// is drawn in, i.e., the paint transform is applied after the global transform. This allows
     /// transforming the paint independently from the drawn geometry.
     pub fn set_paint_transform(&mut self, paint_transform: Affine) {
-        self.render_state.paint_transform = paint_transform;
+        self.transforms_mut().set_paint_transform(paint_transform);
     }
 
     /// Reset the current paint transform.
     pub fn reset_paint_transform(&mut self) {
-        self.render_state.paint_transform = Affine::IDENTITY;
+        self.transforms_mut().reset_paint_transform();
     }
 
     /// Set the fill rule for subsequent fill operations.
@@ -1062,12 +1073,12 @@ impl Scene {
 
     /// Set the transform for subsequent rendering operations.
     pub fn set_transform(&mut self, transform: Affine) {
-        self.render_state.transform = transform;
+        self.transforms_mut().set_transform(transform);
     }
 
     /// Reset the transform to identity.
     pub fn reset_transform(&mut self) {
-        self.render_state.transform = Affine::IDENTITY;
+        self.transforms_mut().reset_transform();
     }
 
     /// Apply filter to the current paint (affects next drawn element).
