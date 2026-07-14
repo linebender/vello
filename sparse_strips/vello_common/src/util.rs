@@ -6,6 +6,7 @@
 use crate::geometry::RectU16;
 use crate::kurbo::PathEl;
 use crate::math::FloatExt;
+use crate::strip::Strip;
 use crate::tile::Tile;
 use alloc::vec::Vec;
 use core::ops::{Index, IndexMut};
@@ -190,7 +191,7 @@ impl<T> Clear for Vec<T> {
 
 /// Pool for reusing allocations.
 #[derive(Debug)]
-pub(crate) struct Pool<T> {
+pub struct Pool<T> {
     entries: Vec<T>,
     clear_on_submit: bool,
 }
@@ -207,21 +208,23 @@ impl<T> Pool<T> {
     /// `clear_on_submit` decides whether submitted values should
     /// be cleared when they are submitted or whether they should retain
     /// their original contents.
-    pub(crate) fn new(clear_on_submit: bool) -> Self {
+    pub fn new(clear_on_submit: bool) -> Self {
         Self {
             entries: Vec::new(),
             clear_on_submit,
         }
     }
 
-    pub(crate) fn take(&mut self) -> T
+    /// Take an object from the pool or create a new one.
+    pub fn take(&mut self) -> T
     where
         T: Default,
     {
         self.entries.pop().unwrap_or_default()
     }
 
-    pub(crate) fn submit(&mut self, mut entry: T)
+    /// Return an object to the pool.
+    pub fn submit(&mut self, mut entry: T)
     where
         T: Clear,
     {
@@ -234,7 +237,7 @@ impl<T> Pool<T> {
 }
 
 /// Pool for reusing vector allocations.
-pub(crate) type VecPool<T> = Pool<Vec<T>>;
+pub type VecPool<T> = Pool<Vec<T>>;
 
 /// A resizable vector that retains inner elements upon resizing.
 #[derive(Debug)]
@@ -376,7 +379,7 @@ pub fn control_point_bbox_u16(
     )
 }
 
-fn strip_bbox(strips: &[Strip]) -> RectU16 {
+pub(crate) fn strip_bbox(strips: &[Strip]) -> RectU16 {
     let mut bbox = RectU16::INVERTED;
 
     // Need at least one strip (and the sentinel one).
@@ -417,8 +420,9 @@ fn strip_bbox(strips: &[Strip]) -> RectU16 {
 
 #[cfg(test)]
 mod tests {
-    use super::RectExt;
-    use super::RectU16;
+    use super::{RectExt, RectU16, strip_bbox};
+    use crate::strip::Strip;
+    use crate::tile::Tile;
     use peniko::kurbo::Rect;
 
     #[test]
@@ -465,7 +469,7 @@ mod tests {
     fn strip_with_row_end_fill_gap_bbox_is_clamped_to_viewport() {
         let strips = [
             Strip::new(4, 0, 0, false),
-            row_end(32, 0, u32::from(Tile::HEIGHT) * 4, true),
+            Strip::new(32, 0, u32::from(Tile::HEIGHT) * 4, true),
             Strip::sentinel(0, u32::from(Tile::HEIGHT) * 4),
         ];
 

@@ -8,10 +8,10 @@ use crate::kurbo::{Affine, BezPath, PathEl};
 use crate::strip::Strip;
 use crate::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use crate::tile::Tile;
-use crate::util::normalized_mul_u8x16;
+use crate::util::{Clear, Pool, normalized_mul_u8x16};
 use alloc::vec;
 use alloc::vec::Vec;
-use std::ops::Range;
+use core::ops::Range;
 use fearless_simd::{Level, Simd, SimdBase, dispatch, u8x16};
 use peniko::Fill;
 
@@ -186,7 +186,7 @@ struct ClipFrame {
 // to regenerate the clip context for that specific layer to ensure clips are applied correctly.
 /// State for managing clip paths across multiple viewports.
 #[derive(Debug)]
-pub(crate) struct ClipState {
+pub struct ClipState {
     /// The currently active clip context.
     context: ClipContext,
     /// A pool of reusable clip contexts.
@@ -207,8 +207,15 @@ impl Clear for ClipContext {
     }
 }
 
+impl Default for ClipState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ClipState {
-    pub(crate) fn new() -> Self {
+    /// Create a new clip state.
+    pub fn new() -> Self {
         Self {
             context: ClipContext::new(),
             context_pool: Pool::default(),
@@ -219,11 +226,13 @@ impl ClipState {
         }
     }
 
-    pub(crate) fn get(&self) -> Option<PathDataRef<'_>> {
+    /// Return the current clip path.
+    pub fn get(&self) -> Option<PathDataRef<'_>> {
         self.context.get()
     }
 
-    pub(crate) fn push_filter_surface(
+    /// Push a new filter surface.
+    pub fn push_filter_surface(
         &mut self,
         source_shift: (u16, u16),
         strip_generator: &mut StripGenerator,
@@ -240,7 +249,8 @@ impl ClipState {
         self.rebuild_context(strip_generator);
     }
 
-    pub(crate) fn pop_filter_surface(&mut self, strip_generator: &mut StripGenerator) {
+    /// Pop the active filter surface.
+    pub fn pop_filter_surface(&mut self, strip_generator: &mut StripGenerator) {
         let frame = self.frames.pop().expect("filter clip stack underflow");
         let filter_context = core::mem::replace(&mut self.context, frame.parent_context);
         self.context_pool.submit(filter_context);
@@ -251,7 +261,8 @@ impl ClipState {
         }
     }
 
-    pub(crate) fn push_clip(
+    /// Push a clip path.
+    pub fn push_clip(
         &mut self,
         path: &BezPath,
         strip_generator: &mut StripGenerator,
@@ -280,14 +291,16 @@ impl ClipState {
         self.revision = self.revision.wrapping_add(1);
     }
 
-    pub(crate) fn pop_clip(&mut self) {
+    /// Pop the active clip path.
+    pub fn pop_clip(&mut self) {
         let raw_clip = self.raw_clips.pop().expect("clip stack underflowed");
         self.path_elements.truncate(raw_clip.path.start);
         self.context.pop_clip();
         self.revision = self.revision.wrapping_add(1);
     }
 
-    pub(crate) fn reset(&mut self) {
+    /// Reset the clip state.
+    pub fn reset(&mut self) {
         self.context.reset();
         for frame in self.frames.drain(..) {
             self.context_pool.submit(frame.parent_context);
@@ -317,7 +330,6 @@ impl ClipState {
         }
     }
 }
-
 
 /// Borrowed data of a stripped path.
 #[derive(Clone, Copy, Debug)]

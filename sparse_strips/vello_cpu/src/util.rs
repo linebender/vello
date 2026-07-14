@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::peniko::ImageQuality;
-use alloc::vec::Vec;
 use vello_common::encode::EncodedImage;
 use vello_common::fearless_simd::{Simd, SimdBase, f32x4, u8x32};
 use vello_common::math::FloatExt;

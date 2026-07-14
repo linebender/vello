@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 use crate::coarse::CommandBucketer;
-use crate::coarse::bucketer::LayerClip;
 use crate::coarse::depth::DepthBuffer;
 use crate::dispatch::Dispatcher;
 use crate::dispatch::multi_threaded::cost::{COST_THRESHOLD, estimate_render_task_cost};
@@ -11,7 +10,6 @@ use crate::filter::context::FilterContext;
 use crate::fine::{Fine, FineKernel, FineRenderParams, FineResources, rasterize_region};
 use crate::kurbo::{Affine, BezPath, PathEl, Point, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
-use crate::record::{CommandRecorder, FilterData, LayerProps, PoppedLayer};
 use crate::region::Regions;
 use crate::{CompositeMode, RasterizerSettings};
 use alloc::boxed::Box;
@@ -29,10 +27,12 @@ use thread_local::ThreadLocal;
 use vello_common::clip::ClipContext;
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, dispatch};
+use vello_common::filter::FilterData;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
 use vello_common::pixmap::PixmapMut;
+use vello_common::record::{CommandRecorder, LayerClip, LayerProps, PoppedLayer};
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use vello_common::util::control_point_bbox_u16;
