@@ -141,7 +141,7 @@ impl RecordedLayer {
 /// Records draw commands and nested layers into reusable command streams.
 #[derive(Debug)]
 pub struct CommandRecorder<D> {
-    /// Dimensions of the root scene.
+    /// Tile-aligned dimensions of the root scene.
     pub scene_size: SizeU16,
     /// The commands of the root layer.
     pub root_cmds: Vec<CmdNode>,
@@ -203,7 +203,7 @@ impl<D> CommandRecorder<D> {
     /// Create an new command recorder.
     pub fn new(width: u16, height: u16) -> Self {
         Self {
-            scene_size: SizeU16::from_wh(width, height),
+            scene_size: snapped_scene_size(width, height),
             ..Self::default()
         }
     }
@@ -216,7 +216,7 @@ impl<D> CommandRecorder<D> {
     /// Reset the command recorder.
     #[inline]
     pub fn reset(&mut self, width: u16, height: u16) {
-        self.scene_size = SizeU16::from_wh(width, height);
+        self.scene_size = snapped_scene_size(width, height);
         self.root_cmds.clear();
         self.draws.clear();
 
@@ -383,6 +383,12 @@ impl<D> CommandRecorder<D> {
     }
 }
 
+fn snapped_scene_size(width: u16, height: u16) -> SizeU16 {
+    RectU16::new(0, 0, width, height)
+        .snap_to_tile_coordinates()
+        .into()
+}
+
 impl<D: Drawable> CommandRecorder<D> {
     /// Push a draw command into the current command stream.
     #[inline]
@@ -431,6 +437,7 @@ mod tests {
     use crate::filter_effects::{Filter, FilterPrimitive};
     use crate::kurbo::Affine;
     use crate::peniko::Mix;
+    use crate::tile::Tile;
 
     const DEFAULT_SIZE: u16 = 10;
 
@@ -479,6 +486,21 @@ mod tests {
 
     fn layer_cmds(recorder: &CommandRecorder<TestDraw>, id: usize) -> &[CmdNode] {
         &recorder.layers[id].cmds
+    }
+
+    #[test]
+    fn scene_size_is_tile_aligned() {
+        let mut recorder = CommandRecorder::<TestDraw>::new(10, 10);
+        assert_eq!(recorder.scene_size, SizeU16::new(12));
+
+        recorder.reset(13, 7);
+        assert_eq!(recorder.scene_size, SizeU16::from_wh(16, 8));
+
+        recorder.reset(Tile::WIDTH * 5, Tile::HEIGHT * 3);
+        assert_eq!(
+            recorder.scene_size,
+            SizeU16::from_wh(Tile::WIDTH * 5, Tile::HEIGHT * 3)
+        );
     }
 
     #[test]
