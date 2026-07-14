@@ -83,7 +83,7 @@ impl Rounds {
 
         // We iterate over each round separately.
         for round in &self.rounds {
-            let texture_pair = round.texture_pair();
+            let texture_pair = round.resolve_texture_binding();
             // For each round, we first draw to the even layer texture, then to the odd layer
             // texture. The order is important because odd layers can depend on draws to the even
             // texture in the same round.

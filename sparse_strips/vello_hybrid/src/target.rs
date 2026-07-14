@@ -136,10 +136,13 @@ impl LayerTexturePairConstraint {
         }
     }
 
-    /// Return the number of pages for each parity required by this constraint.
-    pub(crate) fn page_counts(self) -> [usize; 2] {
-        self.pages
-            .map(|page| page.map_or(0, |page| usize::from(page) + 1))
+    /// Return the layer textures required by this constraint.
+    pub(crate) fn required_textures(self) -> [Option<LayerTextureId>; 2] {
+        core::array::from_fn(|index| {
+            self.pages[index].map(|page_index| {
+                LayerTextureId::new(TextureParity::from_parity(index), page_index)
+            })
+        })
     }
 }
 
