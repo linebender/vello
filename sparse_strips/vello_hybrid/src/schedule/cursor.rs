@@ -3,22 +3,26 @@
 
 //! Monotonic allocation cursor for scheduled rounds.
 
-use crate::schedule::allocate::{Allocation, AllocationRequest, Allocator};
+use crate::schedule::allocate::{
+    AllocatedTextureRegion, Allocation, AtlasAllocation, Atlases, LayerAllocationRequest,
+    ScratchAllocationRequest,
+};
+use crate::target::{LayerTextureId, TextureParity};
 use alloc::vec::Vec;
 use vello_common::multi_atlas::AtlasError;
 
 #[derive(Debug)]
-pub(super) struct Cursor<R: Allocator> {
+pub(super) struct Cursor {
     current_round: usize,
-    resource: R,
-    pending_releases: Vec<Vec<R::Release>>,
+    atlases: Atlases,
+    pending_releases: Vec<Vec<AtlasAllocation>>,
 }
 
-impl<R: Allocator> Cursor<R> {
-    pub(super) fn new(resource: R) -> Self {
+impl Cursor {
+    pub(super) fn new(atlases: Atlases) -> Self {
         Self {
             current_round: 0,
-            resource,
+            atlases,
             pending_releases: Vec::new(),
         }
     }
@@ -27,40 +31,72 @@ impl<R: Allocator> Cursor<R> {
         self.current_round
     }
 
-    pub(super) fn allocate<Q>(
+    pub(super) fn allocate_layer(
         &mut self,
-        request: Q,
-    ) -> Result<Allocation<Q::Allocation>, AtlasError>
-    where
-        Q: AllocationRequest<R>,
-    {
+        request: LayerAllocationRequest,
+    ) -> Result<Allocation<AllocatedTextureRegion<LayerTextureId>>, AtlasError> {
+        if let Some(allocation) =
+            self.allocate_reusing(|atlases| Ok(atlases.allocate_layer(&request)))?
+        {
+            return Ok(allocation);
+        }
+
+        // The currently available layer textures do not have enough room to store our layer.
+        // Therefore, we need to create a new one.
+
+        self.atlases.add_layer_atlas(request.texture_parity)?;
+        let allocation = self
+            .atlases
+            .allocate_layer(&request)
+            .ok_or(AtlasError::NoSpaceAvailable)?;
+
+        Ok(Allocation {
+            allocation,
+            round_idx: self.current_round,
+        })
+    }
+
+    pub(super) fn allocate_scratch(
+        &mut self,
+        request: ScratchAllocationRequest,
+    ) -> Result<Allocation<[Option<AllocatedTextureRegion<TextureParity>>; 2]>, AtlasError> {
+        self.allocate_reusing(|atlases| atlases.allocate_scratch(&request))?
+            .ok_or(AtlasError::NoSpaceAvailable)
+    }
+
+    pub(super) fn require_scratch_texture(
+        &mut self,
+        texture_parity: TextureParity,
+    ) -> Result<(), AtlasError> {
+        self.atlases.ensure_scratch_texture(texture_parity)
+    }
+
+    /// Advance the round counter until enough resources have been freed such that
+    /// the given allocation succeeds.
+    ///
+    /// Return `Ok(None)` in case it's not possible to perform the allocation using the
+    /// currently available resources.
+    fn allocate_reusing<T: Copy>(
+        &mut self,
+        mut allocate: impl FnMut(&mut Atlases) -> Result<Option<T>, AtlasError>,
+    ) -> Result<Option<Allocation<T>>, AtlasError> {
         loop {
-            if let Some(allocation) = request.allocate(&mut self.resource) {
-                return Ok(Allocation {
+            if let Some(allocation) = allocate(&mut self.atlases)? {
+                return Ok(Some(Allocation {
                     allocation,
                     round_idx: self.current_round,
-                });
+                }));
             }
 
-            // Nothing more available to free just by advancing the round counter,
-            // but we still need place for the allocation, so we try to allocate
-            // a new texture.
             if self.current_round >= self.pending_releases.len() {
-                return request
-                    .grow(&mut self.resource)
-                    .map(|allocation| Allocation {
-                        allocation,
-                        round_idx: self.current_round,
-                    })
-                    // TODO: Add a better error.
-                    .ok_or(AtlasError::NoSpaceAvailable);
+                return Ok(None);
             }
 
             self.advance();
         }
     }
 
-    pub(super) fn release(&mut self, allocation: R::Release, round_idx: usize) {
+    pub(super) fn release(&mut self, allocation: AtlasAllocation, round_idx: usize) {
         assert!(
             round_idx >= self.current_round,
             "cannot release an allocation in a round already passed by the cursor"
@@ -77,7 +113,7 @@ impl<R: Allocator> Cursor<R> {
     fn advance(&mut self) {
         if let Some(releases) = self.pending_releases.get_mut(self.current_round) {
             for allocation in releases.drain(..) {
-                self.resource.release(allocation);
+                self.atlases.deallocate(allocation);
             }
         }
 
