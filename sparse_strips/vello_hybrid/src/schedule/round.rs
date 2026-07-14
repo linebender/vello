@@ -197,6 +197,7 @@ impl Rounds {
         loop {
             // This shouldn't ever happen, unless there is some kind of logic bug. But better
             // to panic at some point than loop on forever.
+            // TODO: Turn this into an error once we have refactored error handling.
             if point.round > MAX_ROUNDS {
                 panic!("possible deadlock in scheduler detected");
             }
