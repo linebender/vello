@@ -6,7 +6,7 @@
 use crate::geometry::RectU16;
 use crate::kurbo::PathEl;
 use crate::math::FloatExt;
-use crate::strip::Strip;
+use crate::strip::{Strip, for_each_fill_segment};
 use crate::tile::Tile;
 use alloc::vec::Vec;
 use core::ops::{Index, IndexMut};
@@ -379,51 +379,50 @@ pub fn control_point_bbox_u16(
     )
 }
 
-pub(crate) fn strip_bbox(strips: &[Strip]) -> RectU16 {
-    let mut bbox = RectU16::INVERTED;
+/// Calculate the bounding box of the strips.
+pub fn strip_bbox(strips: &[Strip]) -> RectU16 {
+    // Fill and alpha fill segments internally store their coordinates in tile units,
+    // in order to avoid multiplications in every invocation of the closure we calculate
+    // the bbox in tile units first and then convert back to pixel units.
+    let mut tile_bbox = RectU16::INVERTED;
 
-    // Need at least one strip (and the sentinel one).
-    if strips.len() < 2 {
-        return bbox;
+    for_each_fill_segment(
+        strips,
+        RectU16::new(
+            0,
+            0,
+            u16::MAX.div_ceil(Tile::WIDTH),
+            u16::MAX.div_ceil(Tile::HEIGHT),
+        ),
+        &mut tile_bbox,
+        |bbox, segment| bbox.union(segment.fill.tile_rect()),
+        |bbox, segment| bbox.union(segment.tile_rect()),
+    );
+
+    // Convert to pixel units.
+    if tile_bbox.is_empty() {
+        tile_bbox
+    } else {
+        RectU16::new(
+            tile_bbox.x0.saturating_mul(Tile::WIDTH),
+            tile_bbox.y0.saturating_mul(Tile::HEIGHT),
+            tile_bbox.x1.saturating_mul(Tile::WIDTH),
+            tile_bbox.y1.saturating_mul(Tile::HEIGHT),
+        )
     }
-
-    // TODO: It _feels_ like this "iterating over strips code" should be possible to
-    // deduplicate with other locations (i.e. the code used to generate fill commands).
-
-    for pair in strips.windows(2) {
-        let strip = pair[0];
-        let next_strip = pair[1];
-        if strip.is_sentinel() {
-            continue;
-        }
-
-        let strip_y = strip.strip_y();
-        let row_y = strip_y.saturating_mul(Tile::HEIGHT);
-        let row_y1 = row_y.saturating_add(Tile::HEIGHT);
-        let strip_width = strip.width_to(&next_strip);
-        let strip_x1 = strip.x.saturating_add(strip_width);
-
-        if strip_width > 0 {
-            bbox.union(RectU16::new(strip.x, row_y, strip_x1, row_y1));
-        }
-
-        if next_strip.fill_gap() && strip_y == next_strip.strip_y() {
-            let fill_x1 = next_strip.x;
-            if strip_x1 < fill_x1 {
-                bbox.union(RectU16::new(strip_x1, row_y, fill_x1, row_y1));
-            }
-        }
-    }
-
-    bbox
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{RectExt, RectU16, strip_bbox};
+    use super::RectU16;
+    use super::{RectExt, strip_bbox};
     use crate::strip::Strip;
     use crate::tile::Tile;
     use peniko::kurbo::Rect;
+
+    fn sentinel(y: u16, alpha_idx: u32) -> Strip {
+        Strip::new(u16::MAX, y, alpha_idx, false)
+    }
 
     #[test]
     fn snap_to_tile_coordinates_rounds_outward() {
@@ -439,7 +438,7 @@ mod tests {
 
     #[test]
     fn empty_strip_bbox() {
-        let strips = [Strip::sentinel(0, 0), Strip::sentinel(0, 0)];
+        let strips = [Strip::sentinel(0, 0)];
 
         assert_eq!(strip_bbox(&strips), RectU16::INVERTED);
     }
@@ -448,7 +447,7 @@ mod tests {
     fn single_strip_bbox() {
         let strips = [
             Strip::new(8, 4, 0, false),
-            Strip::sentinel(4, u32::from(Tile::HEIGHT) * 4),
+            sentinel(4, u32::from(Tile::HEIGHT) * 4),
         ];
 
         assert_eq!(strip_bbox(&strips), RectU16::new(8, 4, 12, 8));
@@ -459,7 +458,7 @@ mod tests {
         let strips = [
             Strip::new(4, 0, 0, false),
             Strip::new(20, 0, u32::from(Tile::HEIGHT) * 4, true),
-            Strip::sentinel(0, u32::from(Tile::HEIGHT) * 8),
+            sentinel(0, u32::from(Tile::HEIGHT) * 8),
         ];
 
         assert_eq!(strip_bbox(&strips), RectU16::new(4, 0, 24, 4));
@@ -470,7 +469,7 @@ mod tests {
         let strips = [
             Strip::new(4, 0, 0, false),
             Strip::new(32, 0, u32::from(Tile::HEIGHT) * 4, true),
-            Strip::sentinel(0, u32::from(Tile::HEIGHT) * 4),
+            sentinel(0, u32::from(Tile::HEIGHT) * 4),
         ];
 
         assert_eq!(strip_bbox(&strips), RectU16::new(4, 0, 32, 4));
@@ -481,7 +480,7 @@ mod tests {
         let strips = [
             Strip::new(12, 0, 0, false),
             Strip::new(4, 8, u32::from(Tile::HEIGHT) * 4, false),
-            Strip::sentinel(8, u32::from(Tile::HEIGHT) * 8),
+            sentinel(8, u32::from(Tile::HEIGHT) * 8),
         ];
 
         assert_eq!(strip_bbox(&strips), RectU16::new(4, 0, 16, 12));
