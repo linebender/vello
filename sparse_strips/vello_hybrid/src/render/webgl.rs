@@ -33,7 +33,7 @@ use crate::{
     render::{
         Config,
         common::{
-            GPU_BLURRED_ROUNDED_RECT_SIZE_TEXELS, GPU_ENCODED_IMAGE_SIZE_TEXELS,
+            DeviceLimits, GPU_BLURRED_ROUNDED_RECT_SIZE_TEXELS, GPU_ENCODED_IMAGE_SIZE_TEXELS,
             GPU_LINEAR_GRADIENT_SIZE_TEXELS, GPU_RADIAL_GRADIENT_SIZE_TEXELS,
             GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuBlurredRoundedRect, GpuEncodedImage,
             GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
@@ -197,12 +197,11 @@ impl WebGlRenderer {
         }
 
         let mut settings = settings;
-        let max_texture_dimension_2d = get_max_texture_dimension_2d(&gl);
-        settings.memory.normalize(
-            max_texture_dimension_2d,
-            get_max_texture_array_layers(&gl),
-            1,
-        );
+        let device_limits = DeviceLimits {
+            max_texture_dimension_2d: get_max_texture_dimension_2d(&gl),
+            max_texture_array_layers: get_max_texture_array_layers(&gl),
+        };
+        settings.memory.normalize(&device_limits, 1);
         assert!(
             gl.get_parameter(WebGl2RenderingContext::DEPTH_BITS)
                 .unwrap()
@@ -212,6 +211,8 @@ impl WebGlRenderer {
             "Depth buffer must be at least 24 bits"
         );
         let image_cache = ImageCache::new_with_config(settings.memory.image_atlas_config);
+        let max_texture_dimension_2d = device_limits.max_texture_dimension_2d;
+
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
         // and the maximum gradient LUT size - worst case scenario.
         let max_gradient_cache_size =

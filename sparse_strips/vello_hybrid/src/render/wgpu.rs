@@ -31,7 +31,7 @@ use crate::{
     render::{
         Config,
         common::{
-            GPU_BLURRED_ROUNDED_RECT_SIZE_TEXELS, GPU_ENCODED_IMAGE_SIZE_TEXELS,
+            DeviceLimits, GPU_BLURRED_ROUNDED_RECT_SIZE_TEXELS, GPU_ENCODED_IMAGE_SIZE_TEXELS,
             GPU_LINEAR_GRADIENT_SIZE_TEXELS, GPU_RADIAL_GRADIENT_SIZE_TEXELS,
             GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuBlurredRoundedRect, GpuClearInstance,
             GpuEncodedImage, GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient,
@@ -177,7 +177,11 @@ impl Renderer {
         super::common::maybe_warn_about_webgl_feature_conflict();
 
         let mut settings = settings;
-        let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
+        let limits = device.limits();
+        let device_limits = DeviceLimits {
+            max_texture_dimension_2d: limits.max_texture_dimension_2d,
+            max_texture_array_layers: limits.max_texture_array_layers,
+        };
         // When targeting wasm32 with a WebGL/GLES backend, we need to set
         // `initial_atlas_count` to 2. In WGPU's GLES backend, heuristics are used to decide
         // whether a texture should be treated as D2 or D2Array. However, this can cause a
@@ -192,12 +196,11 @@ impl Renderer {
         let min_initial_atlas_count = 2;
         #[cfg(not(target_arch = "wasm32"))]
         let min_initial_atlas_count = 1;
-        settings.memory.normalize(
-            max_texture_dimension_2d,
-            device.limits().max_texture_array_layers,
-            min_initial_atlas_count,
-        );
+        settings
+            .memory
+            .normalize(&device_limits, min_initial_atlas_count);
         let image_cache = ImageCache::new_with_config(settings.memory.image_atlas_config);
+        let max_texture_dimension_2d = device_limits.max_texture_dimension_2d;
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
         // and the maximum gradient LUT size - worst case scenario.
         let max_gradient_cache_size =
