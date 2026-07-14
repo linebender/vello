@@ -5,6 +5,7 @@
 
 use crate::kurbo::Rect;
 use bytemuck::{Pod, Zeroable};
+use core::ops::Add;
 
 /// A size represented by two 16-bit unsigned integers.
 #[repr(C)]
@@ -52,6 +53,22 @@ impl SizeU16 {
 impl From<[u16; 2]> for SizeU16 {
     fn from(value: [u16; 2]) -> Self {
         Self(value)
+    }
+}
+
+impl Add for SizeU16 {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self::from_wh(self.width() + rhs.width(), self.height() + rhs.height())
+    }
+}
+
+impl Add<u16> for SizeU16 {
+    type Output = Self;
+
+    fn add(self, rhs: u16) -> Self::Output {
+        self + Self::new(rhs)
     }
 }
 
@@ -306,6 +323,22 @@ impl From<SizeU16> for SizeU32 {
     }
 }
 
+impl Add for SizeU32 {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self::from_wh(self.width() + rhs.width(), self.height() + rhs.height())
+    }
+}
+
+impl Add<u32> for SizeU32 {
+    type Output = Self;
+
+    fn add(self, rhs: u32) -> Self::Output {
+        self + Self::new(rhs)
+    }
+}
+
 /// An axis-aligned rectangle with `u32` coordinates.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable, PartialEq, Eq)]
@@ -345,4 +378,23 @@ const fn const_max(a: u16, b: u16) -> u16 {
 #[inline(always)]
 const fn const_min(a: u16, b: u16) -> u16 {
     if a < b { a } else { b }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SizeU16, SizeU32};
+
+    #[test]
+    fn size_addition() {
+        assert_eq!(
+            SizeU16::from_wh(2, 3) + SizeU16::from_wh(5, 7),
+            SizeU16::from_wh(7, 10)
+        );
+        assert_eq!(SizeU16::from_wh(2, 3) + 5, SizeU16::from_wh(7, 8));
+        assert_eq!(
+            SizeU32::from_wh(11, 13) + SizeU32::from_wh(17, 19),
+            SizeU32::from_wh(28, 32)
+        );
+        assert_eq!(SizeU32::from_wh(11, 13) + 17, SizeU32::from_wh(28, 30));
+    }
 }
