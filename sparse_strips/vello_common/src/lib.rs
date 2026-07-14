@@ -92,6 +92,7 @@ pub mod simd;
 pub mod strip;
 pub mod strip_generator;
 pub mod tile;
+pub mod transforms;
 pub mod util;
 
 pub use fearless_simd;
