@@ -39,10 +39,11 @@
 //! filter layer and what size to allocate for it).
 
 use crate::filter::{FilterData, FilterLayerPlacement};
-use crate::geometry::RectU16;
+use crate::geometry::{RectU16, SizeU16};
 use crate::mask::Mask;
 use crate::peniko::BlendMode;
 use crate::strip::Strip;
+use crate::util::RectExt;
 use alloc::vec::Vec;
 use core::ops::Range;
 
@@ -70,6 +71,8 @@ pub struct RecordedLayer {
     pub nodes: Vec<Node>,
     /// The kind of recorded layer.
     pub kind: RecordedLayerKind,
+    /// Nesting depth of the layer.
+    pub depth: usize,
     /// Bounding box of the layer.
     pub bbox: RectU16,
 }
@@ -114,17 +117,18 @@ pub enum RecordedLayerKind {
 }
 
 impl RecordedLayer {
-    fn regular(props: LayerProps, nodes: Vec<Node>) -> Self {
+    fn regular(props: LayerProps, nodes: Vec<Node>, depth: usize) -> Self {
         Self {
             props,
             nodes,
             kind: RecordedLayerKind::Regular,
+            depth,
             // Will be initialized once we call `pop_layer`.
             bbox: RectU16::INVERTED,
         }
     }
 
-    fn filter(props: LayerProps, filter_plan: FilterData, nodes: Vec<Node>) -> Self {
+    fn filter(props: LayerProps, filter_plan: FilterData, nodes: Vec<Node>, depth: usize) -> Self {
         Self {
             props,
             nodes,
@@ -133,6 +137,7 @@ impl RecordedLayer {
                 // Will be initialized once we call `pop_layer`.
                 placement: FilterLayerPlacement::EMPTY,
             },
+            depth,
             // Will be initialized once we call `pop_layer`.
             bbox: RectU16::INVERTED,
         }
@@ -142,6 +147,8 @@ impl RecordedLayer {
 /// Recorder for a scene description.
 #[derive(Debug)]
 pub struct CommandRecorder<D> {
+    /// Tile-aligned dimensions of the root scene.
+    pub scene_size: SizeU16,
     /// The nodes of the root layer.
     pub nodes: Vec<Node>,
     /// Flat storage for all draw commands that are part of the recording.
@@ -150,6 +157,16 @@ pub struct CommandRecorder<D> {
     pub layers: Vec<RecordedLayer>,
     /// IDs of recorded filter layers in creation order.
     pub filter_layers: Vec<u32>,
+    /// Whether the root is the target of a non-default blending operation.
+    pub root_is_blend_target: bool,
+    /// Maximum layer depth across the whole layer graph.
+    pub max_layer_depth: usize,
+    /// The largest dimensions of any recorded layer.
+    pub largest_layer_size: Option<SizeU16>,
+    /// The largest dimensions of any recorded filter layer.
+    pub largest_filter_layer_size: Option<SizeU16>,
+    /// Whether there exists at least one layer that uses a non-default blend mode.
+    pub has_non_default_blend: bool,
     /// The layer whose command stream is currently the base.
     ///
     /// This is `None` if there is no active layer and we are recording into the root layer instead.
@@ -161,10 +178,16 @@ pub struct CommandRecorder<D> {
 impl<D> Default for CommandRecorder<D> {
     fn default() -> Self {
         Self {
+            scene_size: SizeU16::ZERO,
             nodes: Vec::new(),
             draws: Vec::new(),
             layers: Vec::new(),
             filter_layers: Vec::new(),
+            root_is_blend_target: false,
+            max_layer_depth: 0,
+            largest_layer_size: None,
+            largest_filter_layer_size: None,
+            has_non_default_blend: false,
             active_layer: None,
             layer_stack: Vec::new(),
         }
@@ -181,8 +204,11 @@ struct OpenLayer {
 
 impl<D> CommandRecorder<D> {
     /// Create a new command recorder.
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(width: u16, height: u16) -> Self {
+        Self {
+            scene_size: snapped_scene_size(width, height),
+            ..Self::default()
+        }
     }
 
     /// Whether any layers are currently open.
@@ -192,12 +218,18 @@ impl<D> CommandRecorder<D> {
 
     /// Reset the command recorder.
     #[inline]
-    pub fn reset(&mut self) {
+    pub fn reset(&mut self, width: u16, height: u16) {
+        self.scene_size = snapped_scene_size(width, height);
         self.nodes.clear();
         self.draws.clear();
 
         self.layers.clear();
         self.filter_layers.clear();
+        self.root_is_blend_target = false;
+        self.max_layer_depth = 0;
+        self.largest_layer_size = None;
+        self.largest_filter_layer_size = None;
+        self.has_non_default_blend = false;
         self.active_layer = None;
         self.layer_stack.clear();
     }
@@ -214,17 +246,30 @@ impl<D> CommandRecorder<D> {
     }
 
     fn push_regular_layer(&mut self, props: LayerProps) {
-        self.push_recorded_layer(RecordedLayer::regular(props, Vec::new()));
+        let depth = self.layer_stack.len() + 1;
+        self.push_recorded_layer(RecordedLayer::regular(props, Vec::new(), depth));
     }
 
     fn push_filter_layer(&mut self, props: LayerProps, filter_plan: FilterData) {
-        let id = self.push_recorded_layer(RecordedLayer::filter(props, filter_plan, Vec::new()));
+        let depth = self.layer_stack.len() + 1;
+        let id =
+            self.push_recorded_layer(RecordedLayer::filter(props, filter_plan, Vec::new(), depth));
 
         self.filter_layers.push(id);
     }
 
     fn push_recorded_layer(&mut self, layer: RecordedLayer) -> u32 {
         let parent_layer = self.active_layer;
+        self.max_layer_depth = self.max_layer_depth.max(layer.depth);
+
+        if layer.props.blend_mode != BlendMode::default() {
+            self.has_non_default_blend = true;
+
+            if parent_layer.is_none() {
+                self.root_is_blend_target = true;
+            }
+        }
+
         let id = self.push_layer_metadata(layer);
         self.push_layer_node(id);
         self.active_layer = Some(id);
@@ -249,6 +294,12 @@ impl<D> CommandRecorder<D> {
                 RecordedLayerKind::Regular => {
                     recorded_layer.bbox = layer.bbox;
 
+                    let layer_size = layer.bbox.into();
+                    self.largest_layer_size = Some(
+                        self.largest_layer_size
+                            .map_or(layer_size, |current| current.max(layer_size)),
+                    );
+
                     (PoppedLayer::Regular, layer.bbox)
                 }
                 RecordedLayerKind::Filter {
@@ -257,6 +308,16 @@ impl<D> CommandRecorder<D> {
                 } => {
                     *placement = FilterLayerPlacement::new(layer.bbox, filter_plan);
                     recorded_layer.bbox = placement.pixmap_bbox;
+
+                    let filter_size = placement.pixmap_bbox.into();
+                    self.largest_layer_size = Some(
+                        self.largest_layer_size
+                            .map_or(filter_size, |current| current.max(filter_size)),
+                    );
+                    self.largest_filter_layer_size = Some(
+                        self.largest_filter_layer_size
+                            .map_or(filter_size, |current| current.max(filter_size)),
+                    );
 
                     (PoppedLayer::Filter, placement.dest_bbox)
                 }
@@ -310,6 +371,12 @@ impl<D> CommandRecorder<D> {
     }
 }
 
+fn snapped_scene_size(width: u16, height: u16) -> SizeU16 {
+    RectU16::new(0, 0, width, height)
+        .snap_to_tile_coordinates()
+        .into()
+}
+
 impl<D: Drawable> CommandRecorder<D> {
     /// Push a draw command.
     #[inline]
@@ -346,6 +413,10 @@ mod tests {
     use super::*;
     use crate::filter_effects::{Filter, FilterPrimitive};
     use crate::kurbo::Affine;
+    use crate::peniko::Mix;
+    use crate::tile::Tile;
+
+    const DEFAULT_SIZE: u16 = 10;
 
     #[derive(Debug)]
     struct TestDraw;
@@ -362,6 +433,13 @@ mod tests {
             opacity: 1.0,
             mask: None,
             clip_path: None,
+        }
+    }
+
+    fn blended_layer_props() -> LayerProps {
+        LayerProps {
+            blend_mode: Mix::Multiply.into(),
+            ..layer_props()
         }
     }
 
@@ -385,6 +463,21 @@ mod tests {
 
     fn layer_cmds(recorder: &CommandRecorder<TestDraw>, id: usize) -> &[Node] {
         &recorder.layers[id].nodes
+    }
+
+    #[test]
+    fn scene_size_is_tile_aligned() {
+        let mut recorder = CommandRecorder::<TestDraw>::new(10, 10);
+        assert_eq!(recorder.scene_size, SizeU16::new(12));
+
+        recorder.reset(13, 7);
+        assert_eq!(recorder.scene_size, SizeU16::from_wh(16, 8));
+
+        recorder.reset(Tile::WIDTH * 5, Tile::HEIGHT * 3);
+        assert_eq!(
+            recorder.scene_size,
+            SizeU16::from_wh(Tile::WIDTH * 5, Tile::HEIGHT * 3)
+        );
     }
 
     #[test]
@@ -419,7 +512,7 @@ mod tests {
 
     #[test]
     fn layer_behavior() {
-        let mut recorder = CommandRecorder::<TestDraw>::new();
+        let mut recorder = CommandRecorder::<TestDraw>::new(DEFAULT_SIZE, DEFAULT_SIZE);
 
         recorder.push_layer(
             layer_props(),
@@ -451,11 +544,26 @@ mod tests {
         assert_cmds(layer_cmds(&recorder, 3), &[(1..2, None)]);
         assert_eq!(recorder.draws.len(), 2);
         assert_eq!(recorder.filter_layers, [0, 1]);
+        assert_eq!(
+            recorder
+                .layers
+                .iter()
+                .map(|layer| layer.depth)
+                .collect::<Vec<_>>(),
+            [1, 2, 3, 2]
+        );
+        assert_eq!(recorder.max_layer_depth, 3);
+        assert!(!recorder.has_non_default_blend);
+        assert_eq!(recorder.largest_layer_size, Some(SizeU16::from_wh(64, 4)));
+        assert_eq!(
+            recorder.largest_filter_layer_size,
+            Some(SizeU16::from_wh(64, 4))
+        );
     }
 
     #[test]
     fn draw_batches_are_split_by_layers() {
-        let mut recorder = CommandRecorder::<TestDraw>::new();
+        let mut recorder = CommandRecorder::<TestDraw>::new(DEFAULT_SIZE, DEFAULT_SIZE);
 
         recorder.push_draw(TestDraw, &[]);
         recorder.push_draw(TestDraw, &[]);
@@ -466,5 +574,53 @@ mod tests {
 
         assert_cmds(&recorder.nodes, &[(0..2, Some(0)), (3..4, None)]);
         assert_cmds(layer_cmds(&recorder, 0), &[(2..3, None)]);
+    }
+
+    #[test]
+    fn blend_metadata_distinguishes_root_and_nested_targets() {
+        let mut recorder = CommandRecorder::<TestDraw>::new(DEFAULT_SIZE, DEFAULT_SIZE);
+
+        recorder.push_layer(layer_props(), None);
+        recorder.push_layer(blended_layer_props(), None);
+
+        assert!(!recorder.root_is_blend_target);
+        assert!(recorder.has_non_default_blend);
+        assert_eq!(recorder.max_layer_depth, 2);
+
+        recorder.pop_layer();
+        recorder.pop_layer();
+        recorder.push_layer(blended_layer_props(), None);
+
+        assert!(recorder.root_is_blend_target);
+    }
+
+    #[test]
+    fn reset_clears_all_metadata() {
+        let mut recorder = CommandRecorder::<TestDraw>::new(DEFAULT_SIZE, DEFAULT_SIZE);
+
+        recorder.push_layer(blended_layer_props(), None);
+        recorder.push_layer(
+            layer_props(),
+            Some(filter_data(RectU16::ZERO, RectU16::ZERO)),
+        );
+        recorder.push_draw(TestDraw, &[]);
+        recorder.pop_layer();
+        recorder.pop_layer();
+
+        assert!(recorder.root_is_blend_target);
+        assert!(recorder.has_non_default_blend);
+        assert_eq!(recorder.max_layer_depth, 2);
+        assert!(recorder.largest_layer_size.is_some());
+        assert!(recorder.largest_filter_layer_size.is_some());
+
+        recorder.reset(13, 7);
+
+        assert_eq!(recorder.scene_size, SizeU16::from_wh(16, 8));
+        assert!(!recorder.root_is_blend_target);
+        assert!(!recorder.has_non_default_blend);
+        assert_eq!(recorder.max_layer_depth, 0);
+        assert!(recorder.largest_layer_size.is_none());
+        assert!(recorder.largest_filter_layer_size.is_none());
+        assert!(recorder.filter_layers.is_empty());
     }
 }
