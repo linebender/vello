@@ -116,10 +116,7 @@ impl Atlases {
         }
     }
 
-    pub(super) fn ensure_scratch_texture(
-        &mut self,
-        texture_parity: TextureParity,
-    ) -> Result<(), AtlasError> {
+    fn ensure_scratch_texture(&mut self, texture_parity: TextureParity) -> Result<(), AtlasError> {
         let index = texture_parity.get_parity();
         if self.scratch_atlases[index].is_some() {
             return Ok(());
@@ -207,13 +204,23 @@ pub(super) struct ScratchAllocationRequest {
 }
 
 impl ScratchAllocationRequest {
-    pub(super) fn new(rect: RectU16, filter: &PreparedGpuFilter) -> Self {
+    pub(super) fn for_filter(rect: RectU16, filter: &PreparedGpuFilter) -> Self {
         Self {
             region: RegionAllocationRequest {
                 size: SizeU16::from_wh(rect.width(), rect.height()),
                 padding: FILTER_ATLAS_PADDING,
             },
             count: filter.scratch_count(),
+        }
+    }
+
+    pub(super) fn for_blend(rect: RectU16) -> Self {
+        Self {
+            region: RegionAllocationRequest {
+                size: SizeU16::from_wh(rect.width(), rect.height()),
+                padding: 0,
+            },
+            count: 1,
         }
     }
 }

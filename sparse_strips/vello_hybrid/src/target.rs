@@ -266,11 +266,3 @@ impl DrawTarget for LayerTextureRegion {
         )
     }
 }
-
-impl LayerTextureRegion {
-    pub(crate) fn blend_scratch_clear_rect(self, blend_bbox: RectU16) -> RectU16 {
-        let x0 = self.texture.rect.x0 + (blend_bbox.x0 - self.layer_bbox.x0);
-        let y0 = self.texture.rect.y0 + (blend_bbox.y0 - self.layer_bbox.y0);
-        RectU16::new(x0, y0, x0 + blend_bbox.width(), y0 + blend_bbox.height())
-    }
-}

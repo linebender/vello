@@ -68,13 +68,6 @@ impl Cursor {
             .ok_or(AtlasError::NoSpaceAvailable)
     }
 
-    pub(super) fn require_scratch_texture(
-        &mut self,
-        texture_parity: TextureParity,
-    ) -> Result<(), AtlasError> {
-        self.atlases.ensure_scratch_texture(texture_parity)
-    }
-
     /// Advance the round counter until enough resources have been freed such that
     /// the given allocation succeeds.
     ///

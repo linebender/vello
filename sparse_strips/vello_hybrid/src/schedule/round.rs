@@ -234,6 +234,7 @@ pub(crate) struct FilterOp {
 pub(crate) struct BlendOp {
     pub(crate) parent_region: LayerTextureRegion,
     pub(crate) child_region: LayerTextureRegion,
+    pub(crate) scratch_region: ScratchRegion,
     pub(crate) blend_bbox: RectU16,
     pub(crate) blend_mode: BlendMode,
     pub(crate) opacity: f32,

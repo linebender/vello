@@ -31,16 +31,15 @@ pub(crate) struct GpuBlendInstance {
     pub(crate) blend_rect_size: u32,
     /// Packed blend mode, opacity, and parent/child texture indices.
     pub(crate) blend_config: u32,
+    /// Atlas-space origin in the scratch texture, packed as `u16x2`.
+    pub(crate) scratch_texture_origin: u32,
 }
 
 impl GpuBlendInstance {
-    pub(crate) fn copy_from_parent_in_scratch(
-        self,
-        parent_texture_size: SizeU16,
-    ) -> GpuCopyInstance {
+    pub(crate) fn copy_from_scratch(self, parent_texture_size: SizeU16) -> GpuCopyInstance {
         GpuCopyInstance {
             target_texture_origin: self.parent_texture_origin,
-            source_texture_origin: self.parent_texture_origin,
+            source_texture_origin: self.scratch_texture_origin,
             copy_rect_size: self.blend_rect_size,
             target_texture_size: pack_u16_pair(
                 parent_texture_size.width(),
@@ -81,6 +80,10 @@ pub(crate) fn gpu_blend_instance(blend: BlendOp, target_texture_size: SizeU16) -
             blend.opacity,
             blend.parent_region.texture.target.texture_parity,
             blend.child_region.texture.target.texture_parity,
+        ),
+        scratch_texture_origin: pack_u16_pair(
+            blend.scratch_region.rect.x0,
+            blend.scratch_region.rect.y0,
         ),
     }
 }

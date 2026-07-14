@@ -326,7 +326,8 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         let mut ready = target.schedule_state.ready;
 
         if let Some(filter) = target.filter {
-            let scratch_request = ScratchAllocationRequest::new(region.texture.rect, &filter);
+            let scratch_request =
+                ScratchAllocationRequest::for_filter(region.texture.rect, &filter);
             let scratch_allocation = self.cursor.allocate_scratch(scratch_request)?;
             let scratch_regions = scratch_allocation.allocation;
 
@@ -410,25 +411,24 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         };
 
         let parent_texture_parity = parent_region.texture.target.texture_parity;
+        let scratch_allocation = self
+            .cursor
+            .allocate_scratch(ScratchAllocationRequest::for_blend(blend_bbox))?;
+        let scratch_region = scratch_allocation.allocation[BLEND_SCRATCH_PARITY.get_parity()]
+            .expect("blend scratch requests must allocate the even scratch texture");
 
         // A blend must execute after both the parent and child are ready.
         let blend_stage = RoundStage::blend(parent_texture_parity);
         let blend_point = state
             .ready
             .next(blend_stage)
-            .max(child_layer.ready.next(blend_stage));
+            .max(child_layer.ready.next(blend_stage))
+            .max(SchedulePoint::start(scratch_allocation.round_idx).next(blend_stage));
         let blend_binding = LayerTexturePairConstraint::new(parent_region.texture.target)
             .merge(LayerTexturePairConstraint::new(child_region.texture.target))
             .expect("parent and child layers must have compatible texture parities");
         let blend_point = rounds.resolve_binding_point(blend_point, blend_binding);
 
-        // Unlike filters, blends don't allocate independent scratch regions. Instead, each blend
-        // mirrors its parent region at the same coordinates in the even scratch texture. This is
-        // possible because intermediate texture sizing guarantees that, whenever a non-default
-        // blend was recorded, the even scratch texture is at least as large as either layer
-        // texture.
-        // TODO: Revisit this.
-        self.cursor.require_scratch_texture(BLEND_SCRATCH_PARITY)?;
         rounds.ensure_exists(blend_point.round);
         rounds.rounds[blend_point.round].push_blend_op(
             parent_texture_parity,
@@ -436,18 +436,18 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             BlendOp {
                 parent_region,
                 child_region,
+                scratch_region: scratch_region.region,
                 blend_bbox,
                 blend_mode,
                 opacity,
             },
         );
 
-        // Make sure to clean up after blending is done!
-        rounds.push_scratch_clear(
-            blend_point.round,
-            BLEND_SCRATCH_PARITY,
-            parent_region.blend_scratch_clear_rect(blend_bbox),
-        );
+        // Make sure to clean up after blending is done.
+        let clear_region = scratch_region.clear_region();
+        rounds.push_scratch_clear(blend_point.round, clear_region.target, clear_region.rect);
+        self.cursor
+            .release(AtlasAllocation::Scratch(scratch_region), blend_point.round);
 
         // And make sure to release the child now that it's been composited into the parent.
         self.release_layer(child_layer, blend_point, rounds);

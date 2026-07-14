@@ -1521,6 +1521,7 @@ impl Programs {
                 5 => Uint32,
                 6 => Uint32,
                 7 => Uint32,
+                8 => Uint32,
             ],
         };
         let copy_vertex_state = wgpu::VertexBufferLayout {
@@ -2968,7 +2969,7 @@ impl RendererContext<'_> {
                 .blend_instances
                 .iter()
                 .copied()
-                .map(|instance| instance.copy_from_parent_in_scratch(parent_texture_size)),
+                .map(|instance| instance.copy_from_scratch(parent_texture_size)),
         );
         let copy_instance_buffer =
             self.device

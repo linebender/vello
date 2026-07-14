@@ -1995,7 +1995,7 @@ fn initialize_filter_vao(gl: &WebGl2RenderingContext, resources: &WebGlResources
     gl.bind_vertex_array(None);
 }
 
-const BLEND_ATTRIB_COUNT: u32 = 8;
+const BLEND_ATTRIB_COUNT: u32 = 9;
 const BLEND_INSTANCE_STRIDE: i32 = size_of::<GpuBlendInstance>() as i32;
 
 const COPY_ATTRIB_COUNT: u32 = 4;
@@ -2681,7 +2681,7 @@ impl WebGlRendererContext<'_> {
                 .blend_instances
                 .iter()
                 .copied()
-                .map(|instance| instance.copy_from_parent_in_scratch(parent_texture_size)),
+                .map(|instance| instance.copy_from_scratch(parent_texture_size)),
         );
         self.programs
             .upload_copy_instances(self.gl, &self.scratch.copy_instances);
