@@ -188,11 +188,19 @@ impl Rounds {
         mut point: SchedulePoint,
         requirement: LayerTexturePairConstraint,
     ) -> SchedulePoint {
+        const MAX_ROUNDS: usize = 100_000;
+
         for texture in requirement.required_textures().into_iter().flatten() {
             self.require_layer_texture(texture);
         }
 
         loop {
+            // This shouldn't ever happen, unless there is some kind of logic bug. But better
+            // to panic at some point than loop on forever.
+            if point.round > MAX_ROUNDS {
+                panic!("possible deadlock in scheduler detected");
+            }
+
             self.ensure_exists(point.round);
 
             let round = &mut self.rounds[point.round];
