@@ -434,7 +434,7 @@ impl Renderer {
         );
         let required_texture_sizes = self
             .layer_config
-            .intermediate_texture_requirements(&scene.recorder);
+            .intermediate_texture_requirements(&scene.recorder)?;
 
         // We currently only grow and never shrink textures, so max it with whatever
         // we had in the previous run.
