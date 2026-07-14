@@ -52,14 +52,6 @@ impl DerefMut for StripAlphaFillSegment {
     }
 }
 
-impl StripAlphaFillSegment {
-    /// The alpha column index.
-    #[inline(always)]
-    pub const fn col_idx(self) -> u32 {
-        self.alpha_idx / Tile::HEIGHT as u32
-    }
-}
-
 /// A fill region without alpha coverage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StripFillSegment {

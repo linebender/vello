@@ -15,7 +15,7 @@ use vello_common::geometry::RectU16;
 use vello_common::kurbo::Rect;
 use vello_common::paint::Paint;
 use vello_common::record::LayerClip;
-use vello_common::strip::{StripFillSegment, for_each_fill_segment};
+use vello_common::strip::{StripAlphaFillSegment, StripFillSegment, for_each_fill_segment};
 use vello_common::strip_generator::StripStorage;
 use vello_common::tile::Tile;
 use vello_common::util::{Clear, RectExt};
@@ -407,5 +407,16 @@ impl RectU16Ext for RectU16 {
             bounds.x1 / Tile::WIDTH,
             bounds.y1 / Tile::HEIGHT,
         )
+    }
+}
+
+trait StripAlphaFillSegmentExt {
+    fn col_idx(self) -> u32;
+}
+
+impl StripAlphaFillSegmentExt for StripAlphaFillSegment {
+    #[inline(always)]
+    fn col_idx(self) -> u32 {
+        self.alpha_idx / u32::from(Tile::HEIGHT)
     }
 }

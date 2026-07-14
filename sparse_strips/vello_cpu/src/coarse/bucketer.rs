@@ -679,7 +679,7 @@ impl CommandBucketer {
         let viewport_y1 = self.viewport.y1;
         let origin_tile_x = origin.0 / Tile::WIDTH;
         let origin_tile_y = origin.1 / Tile::HEIGHT;
-        let clip_scene_y0 = origin.1.saturating_add(clip_bbox.y0);
+        let clip_scene_y0 = viewport_y1.min(origin.1.saturating_add(clip_bbox.y0));
         let clip_scene_y1 = viewport_y1.min(origin.1.saturating_add(clip_bbox.y1));
         // Convert to scene coordinates.
         let clip_scene_x0 = origin.0.saturating_add(clip_x0);
