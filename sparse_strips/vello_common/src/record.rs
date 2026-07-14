@@ -95,6 +95,13 @@ pub(crate) struct LayerProps {
     pub(crate) clip_path: Option<LayerClip>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct LayerClip {
+    pub(crate) strip_range: Range<usize>,
+    pub(crate) thread_idx: u8,
+    pub(crate) bbox: RectU16,
+}
+
 #[derive(Debug)]
 pub(crate) enum RecordedLayerKind {
     /// A regular layer whose commands will be inlined into the parent root layer.

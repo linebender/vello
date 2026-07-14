@@ -745,13 +745,6 @@ pub(crate) struct ActiveLayer {
     pub(crate) occupied_rows: Vec<usize>,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct LayerClip {
-    pub(crate) strip_range: Range<usize>,
-    pub(crate) thread_idx: u8,
-    pub(crate) bbox: RectU16,
-}
-
 /// A generic fill to allow using `generate_fill` to create either paint fills or blend fills.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct GeneratedFill {
