@@ -378,4 +378,54 @@ mod tests {
         let rect = RectU16::new(5, 3, 9, 7).snap_to_tile_coordinates();
         assert_eq!(rect, RectU16::new(4, 0, 12, 8));
     }
+
+    #[test]
+    fn empty_strip_bbox() {
+        let strips = [Strip::sentinel(0, 0), Strip::sentinel(0, 0)];
+
+        assert_eq!(strip_bbox(&strips), RectU16::INVERTED);
+    }
+
+    #[test]
+    fn single_strip_bbox() {
+        let strips = [
+            Strip::new(8, 4, 0, false),
+            Strip::sentinel(4, u32::from(Tile::HEIGHT) * 4),
+        ];
+
+        assert_eq!(strip_bbox(&strips), RectU16::new(8, 4, 12, 8));
+    }
+
+    #[test]
+    fn strip_with_fill_bbox() {
+        let strips = [
+            Strip::new(4, 0, 0, false),
+            Strip::new(20, 0, u32::from(Tile::HEIGHT) * 4, true),
+            Strip::sentinel(0, u32::from(Tile::HEIGHT) * 8),
+        ];
+
+        assert_eq!(strip_bbox(&strips), RectU16::new(4, 0, 24, 4));
+    }
+
+    #[test]
+    fn strip_with_row_end_fill_gap_bbox_is_clamped_to_viewport() {
+        let strips = [
+            Strip::new(4, 0, 0, false),
+            row_end(32, 0, u32::from(Tile::HEIGHT) * 4, true),
+            Strip::sentinel(0, u32::from(Tile::HEIGHT) * 4),
+        ];
+
+        assert_eq!(strip_bbox(&strips), RectU16::new(4, 0, 32, 4));
+    }
+
+    #[test]
+    fn strips_with_multiple_rows_bbox() {
+        let strips = [
+            Strip::new(12, 0, 0, false),
+            Strip::new(4, 8, u32::from(Tile::HEIGHT) * 4, false),
+            Strip::sentinel(8, u32::from(Tile::HEIGHT) * 8),
+        ];
+
+        assert_eq!(strip_bbox(&strips), RectU16::new(4, 0, 16, 12));
+    }
 }
