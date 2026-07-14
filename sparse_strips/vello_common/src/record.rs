@@ -156,13 +156,11 @@ pub struct CommandRecorder<D> {
     /// Maximum layer depth across the whole layer graph.
     pub max_layer_depth: usize,
     /// The largest dimensions of any recorded layer.
-    pub largest_layer_size: SizeU16,
+    pub largest_layer_size: Option<SizeU16>,
     /// The largest dimensions of any recorded filter layer.
-    pub largest_filter_layer_size: SizeU16,
+    pub largest_filter_layer_size: Option<SizeU16>,
     /// Whether there exists at least one layer that uses a non-default blend mode.
     pub has_non_default_blend: bool,
-    /// Whether there exists at least one layer that has a filter.
-    pub has_filter_layer: bool,
     /// A pool for reusable `Vec<CmdNode>` allocations.
     cmd_pool: VecPool<CmdNode>,
     /// The layer whose command stream is currently the base.
@@ -183,10 +181,9 @@ impl<D> Default for CommandRecorder<D> {
             filter_layers: Vec::new(),
             root_is_blend_target: false,
             max_layer_depth: 0,
-            largest_layer_size: SizeU16::ZERO,
-            largest_filter_layer_size: SizeU16::ZERO,
+            largest_layer_size: None,
+            largest_filter_layer_size: None,
             has_non_default_blend: false,
-            has_filter_layer: false,
             cmd_pool: VecPool::default(),
             active_layer: None,
             layer_stack: Vec::new(),
@@ -230,10 +227,9 @@ impl<D> CommandRecorder<D> {
         self.filter_layers.clear();
         self.root_is_blend_target = false;
         self.max_layer_depth = 0;
-        self.largest_layer_size = SizeU16::ZERO;
-        self.largest_filter_layer_size = SizeU16::ZERO;
+        self.largest_layer_size = None;
+        self.largest_filter_layer_size = None;
         self.has_non_default_blend = false;
-        self.has_filter_layer = false;
         self.active_layer = None;
         self.layer_stack.clear();
     }
@@ -260,7 +256,6 @@ impl<D> CommandRecorder<D> {
         let depth = self.layer_stack.len() + 1;
         let id = self.push_recorded_layer(RecordedLayer::filter(props, filter_plan, cmds, depth));
         self.filter_layers.push(id);
-        self.has_filter_layer = true;
     }
 
     fn push_recorded_layer(&mut self, layer: RecordedLayer) -> u32 {
@@ -306,7 +301,11 @@ impl<D> CommandRecorder<D> {
                     }
 
                     recorded_layer.bbox = bbox;
-                    self.largest_layer_size = self.largest_layer_size.max(bbox.into());
+                    let bbox_size = bbox.into();
+                    self.largest_layer_size = Some(
+                        self.largest_layer_size
+                            .map_or(bbox_size, |current| current.max(bbox_size)),
+                    );
 
                     (PoppedLayer::Regular, bbox)
                 }
@@ -322,9 +321,14 @@ impl<D> CommandRecorder<D> {
                     let dest_bbox = placement.dest_bbox;
 
                     let filter_size = placement.pixmap_bbox.into();
-                    self.largest_layer_size = self.largest_layer_size.max(filter_size);
-                    self.largest_filter_layer_size =
-                        self.largest_filter_layer_size.max(filter_size);
+                    self.largest_layer_size = Some(
+                        self.largest_layer_size
+                            .map_or(filter_size, |current| current.max(filter_size)),
+                    );
+                    self.largest_filter_layer_size = Some(
+                        self.largest_filter_layer_size
+                            .map_or(filter_size, |current| current.max(filter_size)),
+                    );
 
                     (PoppedLayer::Filter, dest_bbox)
                 }
@@ -544,13 +548,13 @@ mod tests {
         assert!(recorder.root_is_blend_target);
         assert!(recorder.has_non_default_blend);
         assert_eq!(recorder.max_layer_depth, 1);
-        assert!(!recorder.has_filter_layer);
+        assert!(recorder.largest_filter_layer_size.is_none());
 
         recorder.reset(DEFAULT_SIZE, DEFAULT_SIZE);
         assert!(!recorder.root_is_blend_target);
         assert!(!recorder.has_non_default_blend);
         assert_eq!(recorder.max_layer_depth, 0);
-        assert!(!recorder.has_filter_layer);
+        assert!(recorder.largest_filter_layer_size.is_none());
     }
 
     #[test]
@@ -568,15 +572,21 @@ mod tests {
     #[test]
     fn filter_layers_are_tracked() {
         let mut recorder = CommandRecorder::<TestDraw>::new(DEFAULT_SIZE, DEFAULT_SIZE);
-        assert!(!recorder.has_filter_layer);
+        assert!(recorder.largest_filter_layer_size.is_none());
 
         recorder.push_layer(
             layer_props(),
             Some(filter_data(RectU16::ZERO, RectU16::ZERO)),
         );
-        assert!(recorder.has_filter_layer);
+        recorder.push_draw(TestDraw, &[]);
+        recorder.pop_layer();
+
+        assert_eq!(
+            recorder.largest_filter_layer_size,
+            Some(SizeU16::from_wh(64, 4))
+        );
 
         recorder.reset(DEFAULT_SIZE, DEFAULT_SIZE);
-        assert!(!recorder.has_filter_layer);
+        assert!(recorder.largest_filter_layer_size.is_none());
     }
 }
