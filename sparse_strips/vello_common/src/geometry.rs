@@ -5,6 +5,7 @@
 
 use crate::kurbo::Rect;
 use bytemuck::{Pod, Zeroable};
+use core::num::TryFromIntError;
 use core::ops::Add;
 
 /// A size represented by two 16-bit unsigned integers.
@@ -41,6 +42,14 @@ impl SizeU16 {
         Self::from_wh(
             self.width().max(other.width()),
             self.height().max(other.height()),
+        )
+    }
+
+    /// Return the minimum of the two sizes.
+    pub fn min(self, other: Self) -> Self {
+        Self::from_wh(
+            self.width().min(other.width()),
+            self.height().min(other.height()),
         )
     }
 
@@ -293,6 +302,14 @@ impl SizeU32 {
         )
     }
 
+    /// Return the minimum of the two sizes.
+    pub fn min(self, other: Self) -> Self {
+        Self::from_wh(
+            self.width().min(other.width()),
+            self.height().min(other.height()),
+        )
+    }
+
     /// Clamp both dimensions to the given range.
     pub fn clamp(self, min: u32, max: u32) -> Self {
         Self::from_wh(self.width().clamp(min, max), self.height().clamp(min, max))
@@ -320,6 +337,17 @@ impl From<SizeU32> for (u32, u32) {
 impl From<SizeU16> for SizeU32 {
     fn from(size: SizeU16) -> Self {
         Self::from_wh(u32::from(size.width()), u32::from(size.height()))
+    }
+}
+
+impl TryFrom<SizeU32> for SizeU16 {
+    type Error = TryFromIntError;
+
+    fn try_from(size: SizeU32) -> Result<Self, Self::Error> {
+        Ok(Self::from_wh(
+            u16::try_from(size.width())?,
+            u16::try_from(size.height())?,
+        ))
     }
 }
 
@@ -396,5 +424,26 @@ mod tests {
             SizeU32::from_wh(28, 32)
         );
         assert_eq!(SizeU32::from_wh(11, 13) + 17, SizeU32::from_wh(28, 30));
+    }
+
+    #[test]
+    fn size_minimum() {
+        assert_eq!(
+            SizeU16::from_wh(2, 7).min(SizeU16::from_wh(5, 3)),
+            SizeU16::from_wh(2, 3)
+        );
+        assert_eq!(
+            SizeU32::from_wh(11, 19).min(SizeU32::from_wh(17, 13)),
+            SizeU32::from_wh(11, 13)
+        );
+    }
+
+    #[test]
+    fn size_u32_to_u16_conversion() {
+        assert_eq!(
+            SizeU16::try_from(SizeU32::from_wh(11, 13)),
+            Ok(SizeU16::from_wh(11, 13))
+        );
+        assert!(SizeU16::try_from(SizeU32::from_wh(u32::from(u16::MAX) + 1, 13)).is_err());
     }
 }
