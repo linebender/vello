@@ -110,7 +110,7 @@ pub(crate) struct LayerTexturePairConstraint {
 
 impl LayerTexturePairConstraint {
     /// Create a new layer texture pair constraint with the given layer texture ID.
-    pub(crate) const fn require(id: LayerTextureId) -> Self {
+    pub(crate) const fn new(id: LayerTextureId) -> Self {
         let mut pages = [None; 2];
         pages[id.texture_parity.get_parity()] = Some(id.page_index);
         Self { pages }
