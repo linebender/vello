@@ -1091,6 +1091,9 @@ impl WebGlPrograms {
             // Note: Currently, `texture_sizes` only grows across frames, so if this condition
             // is true it means that the new required size is larger than what we currently have.
             if current_sizes.layer_size(texture_parity) != size {
+                // TODO: Drop old layer explicitly before creating new one to ensure WebGL
+                // driver has the chance to reduce peak memory usage instead of having to keep both
+                // textures alive at the same time?
                 for texture in textures.iter_mut() {
                     *texture = create_intermediate_texture(gl, size);
                 }
