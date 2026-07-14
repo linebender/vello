@@ -1,28 +1,28 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::clip::ClipState;
 use crate::coarse::CommandBucketer;
-use crate::coarse::bucketer::LayerClip;
 use crate::coarse::depth::DepthBuffer;
 use crate::dispatch::Dispatcher;
 use crate::filter::context::FilterContext;
 use crate::fine::{Fine, FineKernel, FineRenderParams, FineResources, rasterize_region};
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
-use crate::record::{
-    CommandRecorder, FilterData, LayerProps, PoppedLayer, RecordedCmd, RecordedLayerKind,
-};
 use crate::region::Regions;
 use crate::{CompositeMode, RasterizerSettings};
 use alloc::vec::Vec;
 use core::cell::RefCell;
+use vello_common::clip::ClipState;
 use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd};
+use vello_common::filter::FilterData;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
 use vello_common::pixmap::{Pixmap, PixmapMut};
+use vello_common::record::{
+    CommandRecorder, LayerClip, LayerProps, PoppedLayer, RecordedCmd, RecordedLayerKind,
+};
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use vello_common::util::control_point_bbox_u16;
 

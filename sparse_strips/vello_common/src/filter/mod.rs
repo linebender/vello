@@ -12,7 +12,9 @@ use crate::filter::flood::Flood;
 use crate::filter::gaussian_blur::{GaussianBlur, transform_blur_params};
 use crate::filter::offset::Offset;
 use crate::filter_effects::{Filter, FilterPrimitive};
-use crate::kurbo::{Affine, Vec2};
+use crate::geometry::RectU16;
+use crate::kurbo::{Affine, Rect, Vec2};
+use crate::util::RectExt;
 
 pub mod drop_shadow;
 pub mod flood;
@@ -82,10 +84,9 @@ impl PreparedFilter {
     }
 }
 
-
 /// Metadata about a filter layer and how it should be composited back into the parent layer.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct FilterLayerPlacement {
+pub struct FilterLayerPlacement {
     /// The conceptual bounding box of the pixmap that needs to be allocated to render
     /// a layer correctly, including the area affected by the filter.
     ///
@@ -93,31 +94,31 @@ pub(crate) struct FilterLayerPlacement {
     /// with a blur that has a radius exceeding the rectangle 40 pixels on each side, the pixmap
     /// bbox will be (160, 160) to (340, 340).
     ///
-    /// See the comments in [`FilterLayerPlacement::new`] for more information.
-    pub(crate) pixmap_bbox: RectU16,
+    /// See the comments in `FilterLayerPlacement::new` for more information.
+    pub pixmap_bbox: RectU16,
     /// Rectangle in the parent layer's coordinate space the filtered pixmap is composited into.
     ///
-    /// See the comments in [`FilterLayerPlacement::new`] for more information.
-    pub(crate) dest_bbox: RectU16,
+    /// See the comments in `FilterLayerPlacement::new` for more information.
+    pub dest_bbox: RectU16,
     /// Source x offset used when sampling from the filter pixmap.
     ///
-    /// See the comments in [`FilterLayerPlacement::new`] for more information.
-    pub(crate) src_x: u16,
+    /// See the comments in `FilterLayerPlacement::new` for more information.
+    pub src_x: u16,
     /// Source y offset used when sampling from the filter pixmap.
     ///
-    /// See the comments in [`FilterLayerPlacement::new`] for more information.
-    pub(crate) src_y: u16,
+    /// See the comments in `FilterLayerPlacement::new` for more information.
+    pub src_y: u16,
 }
 
 impl FilterLayerPlacement {
-    const EMPTY: Self = Self {
+    pub(crate) const EMPTY: Self = Self {
         pixmap_bbox: RectU16::INVERTED,
         dest_bbox: RectU16::INVERTED,
         src_x: 0,
         src_y: 0,
     };
 
-    fn new(bbox: RectU16, filter_plan: &FilterData) -> Self {
+    pub(crate) fn new(bbox: RectU16, filter_plan: &FilterData) -> Self {
         // Some more detailed explanations of what's going on here since this
         // part is a bit confusing.
 
@@ -152,28 +153,32 @@ impl FilterLayerPlacement {
         }
     }
 
-    pub(crate) fn src_origin(self) -> (u16, u16) {
+    /// Return the source origin of the filter layer.
+    pub fn src_origin(self) -> (u16, u16) {
         (self.src_x, self.src_y)
     }
 }
 
+/// Precomputed data for a filter layer.
 #[derive(Debug, Clone)]
-pub(crate) struct FilterData {
-    pub(crate) filter: Filter,
+pub struct FilterData {
+    /// The underlying filter.
+    pub filter: Filter,
     /// The transform that was in place when the filter layer was invoked.
-    pub(crate) transform: Affine,
+    pub transform: Affine,
     /// Padding that needs to be added for the area where the filter is applied.
     ///
     /// See [`Filter::filter_expansion`].
-    pub(crate) filter_padding: RectU16,
+    pub filter_padding: RectU16,
     /// Padding that needs to be added to the source region for correct filter application.
     ///
     /// See [`Filter::source_expansion`].
-    pub(crate) source_padding: RectU16,
+    pub source_padding: RectU16,
 }
 
 impl FilterData {
-    pub(crate) fn new(filter: Filter, transform: Affine) -> Self {
+    /// Create precomputed data for a filter and transform.
+    pub fn new(filter: Filter, transform: Affine) -> Self {
         fn expansion_padding(expansion: Rect) -> RectU16 {
             // TODO: We technically shouldn't need to snap here. `source_padding` is only
             // used to shift the contents when rendering into the render context, and the
@@ -204,7 +209,7 @@ impl FilterData {
 
     /// By how much to shift all rendered contents to ensure that all rendered contents
     /// are visible in the viewport [0, 0, width, height].
-    pub(crate) fn source_shift(&self) -> (u16, u16) {
+    pub fn source_shift(&self) -> (u16, u16) {
         (self.source_padding.x0, self.source_padding.y0)
     }
 }

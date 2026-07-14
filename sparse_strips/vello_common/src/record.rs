@@ -3,6 +3,9 @@
 
 //! Recording rendering commands.
 //!
+//! Note: The description below was written with Vello CPU in mind, but also applies to Vello
+//! Hybrid, except that Vello Hybrid does not perform bucketing.
+//!
 //! Currently, the pipeline of Vello CPU can be split into roughly three parts:
 //! 1) Recording rendering commands by generating strips + layer metadata.
 //! 2) Bucketing the recorded commands per-strip row into render commands (coarse rasterization).
@@ -26,7 +29,7 @@
 //!   exceed the viewport.
 //!
 //! If we decided to skip step 1) and do 2) directly, we would need to store and reuse instances
-//! of [`crate::coarse::bucketer::CommandBucketer`] for the root and each filter layer, which is especially cumbersome because
+//! of Vello CPU's command bucketer for the root and each filter layer, which is especially cumbersome because
 //! conceptually, a command bucketer is a 2D array. This makes it very difficult to resize and reuse
 //! it while having the ability to retain and reuse inner allocations. By first recording all commands
 //! and their strips into a single [`Vec<RecordedCmd>`], we can basically represent the commands of
@@ -35,75 +38,98 @@
 //! decisions about how to render them (for example, where to place a filter layer and what size to
 //! allocate for it).
 
-use crate::coarse::bucketer::LayerClip;
-use crate::kurbo::{Affine, Rect};
+use crate::filter::{FilterData, FilterLayerPlacement};
+use crate::geometry::RectU16;
+use crate::mask::Mask;
+use crate::paint::Paint;
 use crate::peniko::BlendMode;
-use crate::util::VecPool;
+use crate::strip::Strip;
+use crate::util::{VecPool, strip_bbox};
 use alloc::vec::Vec;
 use core::ops::Range;
-use vello_common::filter_effects::Filter;
-use vello_common::geometry::RectU16;
-use vello_common::mask::Mask;
-use vello_common::paint::Paint;
-use vello_common::strip::Strip;
-use vello_common::tile::Tile;
-use vello_common::util::RectExt;
 
 /// A recorded command.
 #[derive(Debug)]
-pub(crate) enum RecordedCmd {
+pub enum RecordedCmd {
     /// A path fill command.
     Fill {
+        /// Index of the thread-local strip storage containing the strips.
         thread_idx: u8,
+        /// Range of strips representing the fill.
         strip_range: Range<usize>,
+        /// Paint applied to the fill.
         paint: Paint,
+        /// Blend mode applied to the fill.
         blend_mode: BlendMode,
+        /// Optional mask applied to the fill.
         mask: Option<Mask>,
     },
     /// Push a new (non-filter) layer to the layer stack.
-    PushLayer { id: LayerId },
+    PushLayer {
+        /// Identifier of the layer.
+        id: LayerId,
+    },
     /// Composite the filter layer with the given ID into the current layer.
-    FilterLayer { id: LayerId },
+    FilterLayer {
+        /// Identifier of the filter layer.
+        id: LayerId,
+    },
     /// Pop the last (non-filter) layer from the layer stack.
     PopLayer,
 }
 
+/// Identifier of a recorded layer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct LayerId(u32);
+pub struct LayerId(u32);
 
 impl LayerId {
-    pub(crate) fn new(id: usize) -> Self {
+    /// Create a layer identifier from an index.
+    pub fn new(id: usize) -> Self {
         Self(id as u32)
     }
 
-    pub(crate) fn get(self) -> usize {
+    /// Return the layer index.
+    pub fn get(self) -> usize {
         self.0 as usize
     }
 }
 
+/// Metadata for a recorded layer.
 #[derive(Debug)]
-pub(crate) struct RecordedLayer {
-    pub(crate) props: LayerProps,
-    pub(crate) kind: RecordedLayerKind,
+pub struct RecordedLayer {
+    /// Properties of the layer.
+    pub props: LayerProps,
+    /// Kind-specific layer data.
+    pub kind: RecordedLayerKind,
 }
 
+/// Properties for a recorded layer.
 #[derive(Debug)]
-pub(crate) struct LayerProps {
-    pub(crate) blend_mode: BlendMode,
-    pub(crate) opacity: f32,
-    pub(crate) mask: Option<Mask>,
-    pub(crate) clip_path: Option<LayerClip>,
+pub struct LayerProps {
+    /// Blend mode used when compositing the layer.
+    pub blend_mode: BlendMode,
+    /// Opacity applied when compositing the layer.
+    pub opacity: f32,
+    /// Optional mask applied when compositing the layer.
+    pub mask: Option<Mask>,
+    /// Optional clip path applied when compositing the layer.
+    pub clip_path: Option<LayerClip>,
 }
 
+/// Clip path associated with a recorded layer.
 #[derive(Debug, Clone)]
-pub(crate) struct LayerClip {
-    pub(crate) strip_range: Range<usize>,
-    pub(crate) thread_idx: u8,
-    pub(crate) bbox: RectU16,
+pub struct LayerClip {
+    /// Range of strips representing the clip path.
+    pub strip_range: Range<usize>,
+    /// Index of the thread-local strip storage containing the strips.
+    pub thread_idx: u8,
+    /// Coarse bounds of the clip path.
+    pub bbox: RectU16,
 }
 
+/// Additional data for each kind of recorded layer.
 #[derive(Debug)]
-pub(crate) enum RecordedLayerKind {
+pub enum RecordedLayerKind {
     /// A regular layer whose commands will be inlined into the parent root layer.
     Regular,
     /// A filter layer storing its commands separately.
@@ -119,7 +145,8 @@ pub(crate) enum RecordedLayerKind {
 }
 
 impl RecordedLayer {
-    pub(crate) fn regular(props: LayerProps) -> Self {
+    /// Create a regular recorded layer.
+    pub fn regular(props: LayerProps) -> Self {
         Self {
             props,
             kind: RecordedLayerKind::Regular,
@@ -139,12 +166,13 @@ impl RecordedLayer {
     }
 }
 
+/// Recorder for fills and nested layers.
 #[derive(Debug, Default)]
-pub(crate) struct CommandRecorder {
+pub struct CommandRecorder {
     /// The commands of the root layer.
-    pub(crate) root_cmds: Vec<RecordedCmd>,
+    pub root_cmds: Vec<RecordedCmd>,
     /// Data about recorded layers, indexed by their ID.
-    pub(crate) layers: Vec<RecordedLayer>,
+    pub layers: Vec<RecordedLayer>,
     /// A pool for reusable `Vec<RecordedCmd>` allocations.
     cmd_pool: VecPool<RecordedCmd>,
     /// The filter layer whose command stream is currently the base.
@@ -165,16 +193,19 @@ struct OpenLayer {
 }
 
 impl CommandRecorder {
-    pub(crate) fn new() -> Self {
+    /// Create a new command recorder.
+    pub fn new() -> Self {
         Self::default()
     }
 
-    pub(crate) fn has_layers(&self) -> bool {
+    /// Return whether any layers are currently open.
+    pub fn has_layers(&self) -> bool {
         !self.layer_stack.is_empty()
     }
 
+    /// Reset the recorder.
     #[inline]
-    pub(crate) fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.root_cmds.clear();
 
         for layer in self.layers.drain(..) {
@@ -187,8 +218,9 @@ impl CommandRecorder {
         self.layer_stack.clear();
     }
 
+    /// Record a path fill.
     #[inline]
-    pub(crate) fn push_fill(
+    pub fn push_fill(
         &mut self,
         strip_range: Range<usize>,
         strips: &[Strip],
@@ -208,7 +240,8 @@ impl CommandRecorder {
         self.record_bbox(|| strip_bbox(strips));
     }
 
-    pub(crate) fn push_layer(&mut self, props: LayerProps, filter_plan: Option<FilterData>) {
+    /// Push a layer.
+    pub fn push_layer(&mut self, props: LayerProps, filter_plan: Option<FilterData>) {
         if let Some(filter_plan) = filter_plan {
             self.push_filter_layer(props, filter_plan);
             return;
@@ -242,7 +275,8 @@ impl CommandRecorder {
         });
     }
 
-    pub(crate) fn pop_layer(&mut self) -> PoppedLayer {
+    /// Pop the currently active layer.
+    pub fn pop_layer(&mut self) -> PoppedLayer {
         let layer = self.layer_stack.pop().unwrap();
         let id = layer.id;
         match &mut self.layers[id.get()].kind {
@@ -306,9 +340,12 @@ impl CommandRecorder {
     }
 }
 
+/// Kind of layer returned by [`CommandRecorder::pop_layer`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum PoppedLayer {
+pub enum PoppedLayer {
+    /// A regular layer.
     Regular,
+    /// A filter layer.
     Filter,
 }
 
@@ -316,8 +353,9 @@ pub(crate) enum PoppedLayer {
 mod tests {
     use super::*;
     use crate::color::palette::css::BLACK;
-    use vello_common::filter_effects::FilterPrimitive;
-    use vello_common::paint::PremulColor;
+    use crate::filter_effects::{Filter, FilterPrimitive};
+    use crate::kurbo::Affine;
+    use crate::paint::PremulColor;
 
     enum ExpectedCmd {
         PushLayer(usize),

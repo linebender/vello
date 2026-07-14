@@ -7,22 +7,20 @@ use crate::coarse::depth;
 use crate::filter::context::FilterContext;
 use crate::kurbo::{Affine, Vec2};
 use crate::peniko::{BlendMode, Extend, ImageQuality, ImageSampler};
-use crate::record::{
-    FilterLayerPlacement, LayerProps, RecordedCmd, RecordedLayer, RecordedLayerKind,
-};
-use crate::util::{Span, VecPool};
+use crate::util::Span;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::ops::Range;
 use vello_common::encode::{EncodedImage, EncodedPaint};
+use vello_common::filter::FilterLayerPlacement;
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageSource, IndexedPaint, Paint};
 use vello_common::pixmap::Pixmap;
+use vello_common::record::{LayerClip, LayerProps, RecordedCmd, RecordedLayer, RecordedLayerKind};
 use vello_common::strip::Strip;
 use vello_common::tile::Tile;
-use vello_common::util::{Clear, RectExt, RetainVec};
+use vello_common::util::{Clear, RectExt, RetainVec, VecPool};
 
 /// State for a single row of strips.
 #[derive(Debug, Default)]
@@ -766,12 +764,12 @@ mod tests {
     use crate::coarse::CommandBucketer;
     use crate::coarse::cmd::{PaintFillAttrs, RenderCmd};
     use crate::coarse::depth::{BucketRange, DEPTH_BUCKET_WIDTH};
-    use crate::record::LayerProps;
     use vello_common::color::palette::css::{BLUE, RED};
     use vello_common::color::{AlphaColor, Srgb};
     use vello_common::geometry::RectU16;
     use vello_common::paint::{Paint, PremulColor};
     use vello_common::peniko::BlendMode;
+    use vello_common::record::LayerProps;
     use vello_common::strip::Strip;
     use vello_common::tile::Tile;
 
