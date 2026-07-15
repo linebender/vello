@@ -37,7 +37,7 @@ use crate::{
             GPU_LINEAR_GRADIENT_SIZE_TEXELS, GPU_RADIAL_GRADIENT_SIZE_TEXELS,
             GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuBlurredRoundedRect, GpuEncodedImage,
             GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient, GpuSweepGradient,
-            ScratchBuffers, pack_image_offset, pack_image_params, pack_image_size,
+            ScratchBuffers, ScratchTexture, pack_image_offset, pack_image_params, pack_image_size,
             pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode, pack_tint,
         },
     },
@@ -45,7 +45,7 @@ use crate::{
     schedule::{RendererBackend, Schedule, ScheduleStorage, round::BlendOp},
     target::{
         DrawPassTarget, FilterTexturePair, LayerTextureId, LayerTexturePair, RootRenderTarget,
-        TextureParity, TextureTarget,
+        TextureParity,
     },
 };
 use alloc::sync::Arc;
@@ -918,7 +918,7 @@ pub(crate) struct WebGlResources {
     /// VAO for copy rendering.
     copy_vao: VertexArray,
     /// Scratch texture for blend and certain filter operations.
-    scratch_texture: Option<WebGlIntermediateTexture>,
+    scratch_texture: Option<ScratchTexture<WebGlIntermediateTexture>>,
     /// Config buffer for rendering strips into a layer texture.
     layer_config_buffers: [Buffer; 2],
     /// Layer texture pages grouped by parity.
@@ -960,7 +960,7 @@ impl WebGlResources {
         self.scratch_texture
             .as_ref()
             .map_or(&self.placeholder_external_texture, |texture| {
-                texture.binding_texture()
+                texture.get().binding_texture()
             })
     }
 
@@ -968,21 +968,8 @@ impl WebGlResources {
         self.scratch_texture
             .as_ref()
             .expect("vello_hybrid attempted to use a missing scratch texture")
+            .get()
             .framebuffer()
-    }
-
-    fn texture_target_texture(&self, target: TextureTarget) -> &Texture {
-        match target {
-            TextureTarget::Layer(id) => self.layer_texture(id),
-            TextureTarget::Scratch => self.scratch_binding_texture(),
-        }
-    }
-
-    fn texture_target_framebuffer(&self, target: TextureTarget) -> &Framebuffer {
-        match target {
-            TextureTarget::Layer(id) => self.layer_framebuffer(id),
-            TextureTarget::Scratch => self.scratch_framebuffer(),
-        }
     }
 }
 
@@ -1114,7 +1101,9 @@ impl WebGlPrograms {
             || (self.resources.scratch_texture.is_none() && scratch_required);
 
         if recreate_scratch {
-            self.resources.scratch_texture = Some(create_intermediate_texture(gl, texture_size));
+            self.resources.scratch_texture = Some(ScratchTexture::new(
+                create_intermediate_texture(gl, texture_size),
+            ));
         }
 
         self.resources.texture_size = texture_size;
@@ -2715,8 +2704,8 @@ impl WebGlRendererContext<'_> {
         for (step_index, instances) in plan.steps().enumerate() {
             self.do_filter_instance_pass(
                 instances,
-                TextureTarget::layer_page(textures.input(step_index)),
-                TextureTarget::layer_page(textures.output(step_index)),
+                textures.input(step_index),
+                textures.output(step_index),
             );
         }
 
@@ -2728,8 +2717,8 @@ impl WebGlRendererContext<'_> {
     fn do_filter_instance_pass(
         &self,
         instances: &[FilterInstanceData],
-        input: TextureTarget,
-        output: TextureTarget,
+        input: LayerTextureId,
+        output: LayerTextureId,
     ) {
         if instances.is_empty() {
             return;
@@ -2737,7 +2726,7 @@ impl WebGlRendererContext<'_> {
 
         self.gl.bind_framebuffer(
             WebGl2RenderingContext::FRAMEBUFFER,
-            Some(self.programs.resources.texture_target_framebuffer(output)),
+            Some(self.programs.resources.layer_framebuffer(output)),
         );
         let target_texture_size = self.texture_size();
         self.gl.viewport(
@@ -2750,7 +2739,7 @@ impl WebGlRendererContext<'_> {
         self.gl.active_texture(WebGl2RenderingContext::TEXTURE1);
         self.gl.bind_texture(
             WebGl2RenderingContext::TEXTURE_2D,
-            Some(self.programs.resources.texture_target_texture(input)),
+            Some(self.programs.resources.layer_texture(input)),
         );
         self.gl
             .uniform1i(Some(&self.programs.filter_uniforms.in_tex), 1);
@@ -2764,7 +2753,7 @@ impl WebGlRendererContext<'_> {
         );
     }
 
-    fn clear_pass_inner(&self, target: TextureTarget, rects: &[RectU16]) {
+    fn clear_pass_inner(&self, target: LayerTextureId, rects: &[RectU16]) {
         if rects.is_empty() {
             return;
         }
@@ -2777,11 +2766,11 @@ impl WebGlRendererContext<'_> {
         self.gl.enable(WebGl2RenderingContext::BLEND);
     }
 
-    fn prepare_clear_rects(&self, target: TextureTarget) {
+    fn prepare_clear_rects(&self, target: LayerTextureId) {
         let size = self.texture_size();
         self.gl.disable(WebGl2RenderingContext::BLEND);
         self.gl.clear_color(0.0, 0.0, 0.0, 0.0);
-        let framebuffer = self.programs.resources.texture_target_framebuffer(target);
+        let framebuffer = self.programs.resources.layer_framebuffer(target);
         self.gl
             .bind_framebuffer(WebGl2RenderingContext::FRAMEBUFFER, Some(framebuffer));
         self.gl
@@ -2837,7 +2826,7 @@ impl RendererBackend for WebGlRendererContext<'_> {
         self.filter_pass_inner(plan, textures);
     }
 
-    fn clear_pass(&mut self, target: TextureTarget, rects: &[RectU16]) {
+    fn clear_pass(&mut self, target: LayerTextureId, rects: &[RectU16]) {
         self.clear_pass_inner(target, rects);
     }
 }

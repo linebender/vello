@@ -10,7 +10,7 @@ use crate::draw::ExternalTextureRun;
 use crate::filter::FilterPassPlan;
 use crate::target::{
     DrawPassTarget, FilterTexturePair, LayerTextureId, LayerTexturePair, RootRenderTarget,
-    TextureParity, TextureTarget,
+    TextureParity,
 };
 use crate::util::{RangedSlice, VecExt};
 use vello_common::geometry::{RectU16, SizeU16};
@@ -24,7 +24,7 @@ pub(crate) trait RendererBackend {
         target: DrawPassTarget,
         child_layer_texture: Option<LayerTextureId>,
     );
-    fn clear_pass(&mut self, target: TextureTarget, rects: &[RectU16]);
+    fn clear_pass(&mut self, target: LayerTextureId, rects: &[RectU16]);
     fn blend_pass(
         &mut self,
         blends: RangedSlice<'_, BlendOp>,
@@ -137,17 +137,11 @@ impl Rounds {
                     .then(|| texture_pair.layer_id(TextureParity::Odd)),
             );
 
-            // Finally, we clear layer regions that are deallocated in this round as well as
-            // all painted rectangles in the scratch buffer, so future rounds can assume a clean slate.
+            // Finally, clear layer regions that are deallocated in this round.
             for (index, layer_clears) in round.layer_texture_clears.iter().enumerate() {
                 let texture_parity = TextureParity::from_parity(index);
-                renderer.clear_pass(
-                    TextureTarget::layer_page(texture_pair.layer_id(texture_parity)),
-                    layer_clears,
-                );
+                renderer.clear_pass(texture_pair.layer_id(texture_parity), layer_clears);
             }
-
-            renderer.clear_pass(TextureTarget::scratch(), &round.scratch_texture_clears);
         }
     }
 }

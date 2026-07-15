@@ -102,7 +102,6 @@ pub(super) struct Round {
     pub(super) root_draw: Draw,
     pub(super) layer_texture_passes: [LayerTexturePass; 2],
     pub(super) layer_texture_clears: [Vec<RectU16>; 2],
-    pub(super) scratch_texture_clears: Vec<RectU16>,
 }
 
 impl Round {
@@ -153,10 +152,6 @@ impl Rounds {
         let parity = texture_parity.get_parity();
 
         self.rounds[round_idx].layer_texture_clears[parity].push(rect);
-    }
-
-    pub(super) fn push_scratch_clear(&mut self, round_idx: usize, rect: RectU16) {
-        self.rounds[round_idx].scratch_texture_clears.push(rect);
     }
 
     pub(super) fn require_layer_texture(&mut self, texture: LayerTextureId) {

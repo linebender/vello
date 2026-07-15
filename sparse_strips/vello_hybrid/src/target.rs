@@ -193,25 +193,6 @@ impl LayerTexturePairConstraint {
 /// The target of an executable draw pass.
 pub(crate) type DrawPassTarget = RenderTarget<LayerTextureId>;
 
-/// Identifies one of the intermediate textures used by the hybrid renderer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TextureTarget {
-    /// A layer atlas texture.
-    Layer(LayerTextureId),
-    /// A scratch texture.
-    Scratch,
-}
-
-impl TextureTarget {
-    pub(crate) fn layer_page(id: LayerTextureId) -> Self {
-        Self::Layer(id)
-    }
-
-    pub(crate) const fn scratch() -> Self {
-        Self::Scratch
-    }
-}
-
 /// A rectangular region in one of the intermediate textures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TextureRegion<T> {

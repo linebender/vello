@@ -35,7 +35,7 @@ use crate::{
             GPU_LINEAR_GRADIENT_SIZE_TEXELS, GPU_RADIAL_GRADIENT_SIZE_TEXELS,
             GPU_SWEEP_GRADIENT_SIZE_TEXELS, GpuBlurredRoundedRect, GpuClearInstance,
             GpuEncodedImage, GpuEncodedPaint, GpuLinearGradient, GpuRadialGradient,
-            GpuSweepGradient, ScratchBuffers, pack_image_offset, pack_image_params,
+            GpuSweepGradient, ScratchBuffers, ScratchTexture, pack_image_offset, pack_image_params,
             pack_image_size, pack_radial_kind_and_swapped, pack_texture_width_and_extend_mode,
             pack_tint,
         },
@@ -44,7 +44,7 @@ use crate::{
     schedule::{RendererBackend, Schedule, ScheduleStorage, round::BlendOp},
     target::{
         DrawPassTarget, FilterTexturePair, LayerTextureId, LayerTexturePair, RootRenderTarget,
-        TextureParity, TextureTarget,
+        TextureParity,
     },
 };
 use alloc::vec::Vec;
@@ -983,7 +983,7 @@ struct GpuResources {
     /// Layer texture pages grouped by parity.
     layer_textures: [Vec<WgpuIntermediateTexture>; 2],
     /// Shared scratch texture used for blend output and filter copy passes.
-    scratch_texture: Option<WgpuIntermediateTexture>,
+    scratch_texture: Option<ScratchTexture<WgpuIntermediateTexture>>,
     /// Bind group for sampling filter copy-pass output from scratch.
     filter_original_bind_group: BindGroup,
 
@@ -1033,14 +1033,8 @@ impl GpuResources {
             .scratch_texture
             .as_ref()
             .expect("vello_hybrid attempted to use a missing scratch texture")
+            .get()
             .view
-    }
-
-    fn texture_target_view(&self, target: TextureTarget) -> &WgpuTextureView {
-        match target {
-            TextureTarget::Layer(id) => self.layer_view(id),
-            TextureTarget::Scratch => self.scratch_view(),
-        }
     }
 }
 
@@ -1852,10 +1846,8 @@ impl Programs {
         let scratch_changed = (self.resources.scratch_texture.is_some() && scratch_size_changed)
             || (self.resources.scratch_texture.is_none() && scratch_required);
         if scratch_changed {
-            self.resources.scratch_texture = Some(Self::create_intermediate_texture(
-                device,
-                texture_size,
-                "Scratch Texture",
+            self.resources.scratch_texture = Some(ScratchTexture::new(
+                Self::create_intermediate_texture(device, texture_size, "Scratch Texture"),
             ));
         }
 
@@ -3050,12 +3042,12 @@ impl RendererContext<'_> {
                 instances,
                 &filter_pair_bind_groups.inputs[input.texture_parity.get_parity()],
                 &resources.filter_original_bind_group,
-                TextureTarget::layer_page(output),
+                output,
             );
         }
     }
 
-    fn do_clear_rects(&mut self, target: TextureTarget, rects: &[RectU16], label: &'static str) {
+    fn do_clear_rects(&mut self, target: LayerTextureId, rects: &[RectU16], label: &'static str) {
         let target_size = self.texture_size();
         self.scratch.clear_instances.clear();
         self.scratch.clear_instances.extend(
@@ -3076,7 +3068,7 @@ impl RendererContext<'_> {
         self.do_clear_instances(target, label);
     }
 
-    fn do_clear_instances(&mut self, target: TextureTarget, label: &'static str) {
+    fn do_clear_instances(&mut self, target: LayerTextureId, label: &'static str) {
         if self.scratch.clear_instances.is_empty() {
             return;
         }
@@ -3089,11 +3081,7 @@ impl RendererContext<'_> {
                 contents: bytemuck::cast_slice(&self.scratch.clear_instances),
                 usage: wgpu::BufferUsages::VERTEX,
             });
-        let resources = &self.programs.resources;
-        let view = match target {
-            TextureTarget::Layer(id) => resources.layer_view(id),
-            TextureTarget::Scratch => resources.scratch_view(),
-        };
+        let view = self.programs.resources.layer_view(target);
         let mut render_pass = self.encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some(label),
             color_attachments: &[Some(RenderPassColorAttachment {
@@ -3159,7 +3147,7 @@ impl RendererBackend for RendererContext<'_> {
         self.filter_pass_inner(plan, textures);
     }
 
-    fn clear_pass(&mut self, target: TextureTarget, rects: &[RectU16]) {
+    fn clear_pass(&mut self, target: LayerTextureId, rects: &[RectU16]) {
         self.do_clear_rects(target, rects, "Clear Rects");
     }
 }
@@ -3172,13 +3160,13 @@ fn encode_filter_pass(
     instances: &[FilterInstanceData],
     input_bind_group: &BindGroup,
     original_texture_bind_group: &BindGroup,
-    output: TextureTarget,
+    output: LayerTextureId,
 ) {
     if instances.is_empty() {
         return;
     }
 
-    let output_view = resources.texture_target_view(output);
+    let output_view = resources.layer_view(output);
     let instance_count = u32::try_from(instances.len()).unwrap();
     let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Filter Instances Buffer"),

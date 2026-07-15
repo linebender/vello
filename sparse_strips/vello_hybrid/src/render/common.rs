@@ -39,6 +39,34 @@ pub(crate) struct DeviceLimits {
     pub(crate) max_texture_array_layers: u32,
 }
 
+// This new type only serves the purpose of documenting the below invariants in a single place.
+/// A scratch texture.
+///
+/// Right now, for a given scene, we always have _at most_ one scratch texture. At the moment,
+/// it is used for the following purposes:
+/// - Serving as the write destination for a blending operation of two textures.
+/// - Serving as a temporary space for persisting the original version of a filter layer.
+///
+/// In both cases, each operation always _overrides_ existing contents, and we later on
+/// only sample from that very same area. **Because of this, it is currently safe to never
+/// explicitly clear the scratch texture after it was used, even across frames**. While it
+/// would still be best practice to do so, in the interest of getting the best performance
+/// on low-tier devices, we take this shortcut and explicitly document this constraint.
+///
+/// If the purpose of a scratch texture is ever expanded upon, this needs to be revisited.
+#[derive(Debug)]
+pub(crate) struct ScratchTexture<T>(T);
+
+impl<T> ScratchTexture<T> {
+    pub(crate) fn new(texture: T) -> Self {
+        Self(texture)
+    }
+
+    pub(crate) fn get(&self) -> &T {
+        &self.0
+    }
+}
+
 /// Scratch allocations reused while rendering a frame.
 #[derive(Debug, Default)]
 pub(crate) struct ScratchBuffers {

@@ -365,10 +365,6 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             self.cursor
                 .release(temporary.allocation, filter_point.round);
 
-            if filter.data.needs_copy_pass() {
-                rounds.push_scratch_clear(filter_point.round, region.texture.rect);
-            }
-
             ready = filter_point;
         }
 
@@ -436,9 +432,6 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 opacity,
             },
         );
-
-        // Make sure to clean up after blending is done.
-        rounds.push_scratch_clear(blend_point.round, parent_region.texture_rect(blend_bbox));
 
         // And make sure to release the child now that it's been composited into the parent.
         self.release_layer(child_layer, blend_point, rounds);
