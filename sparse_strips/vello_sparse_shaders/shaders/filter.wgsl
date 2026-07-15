@@ -134,9 +134,7 @@ fn vs_main(
     let original_size = instance.original_max - instance.original_min;
 
     // Decimated passes only write `dest_size`, but must also clear a small border of stale pixels
-    // to transparent for later sampling. Bounding each instance's geometry to that useful region
-    // preserves batching without rasterizing the full original layer. The old renderer enforced the
-    // same bound with a per-instance scissor rectangle.
+    // to transparent so our bilinear taps don't accidentally sample stale pixels.
     let render_size = min(original_size, dest_size + vec2(FILTER_ATLAS_PADDING));
     let pix_x = f32(instance.dest_min.x) + x * f32(render_size.x);
     let pix_y = f32(instance.dest_min.y) + y * f32(render_size.y);
