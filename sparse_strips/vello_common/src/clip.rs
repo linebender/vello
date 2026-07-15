@@ -844,9 +844,6 @@ mod tests {
         let expected = StripBuilder::new().add_strip(0, 0, 8, false).finish();
 
         run_test(expected, path, cover);
-
-
-        debug_assert!(0 != 0, "this should fail in CI!");
     }
 
     fn run_test(expected: StripStorage, path_1: StripStorage, path_2: StripStorage) {
