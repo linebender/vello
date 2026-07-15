@@ -196,21 +196,31 @@ impl Renderer {
         let min_initial_atlas_count = 2;
         #[cfg(not(target_arch = "wasm32"))]
         let min_initial_atlas_count = 1;
+        let max_texture_array_layers = device.limits().max_texture_array_layers;
         normalize_atlas_config(
-            &mut settings.atlas_config,
+            &mut settings.image_atlas_config,
             max_texture_dimension_2d,
-            device.limits().max_texture_array_layers,
+            max_texture_array_layers,
             min_initial_atlas_count,
         );
+        // Filter scratch textures are individual 2D textures (see `FilterAtlasState`), not a
+        // D2Array, so the GLES D2/D2Array workaround above does not apply. They can start at zero
+        // and only be allocated on demand when a scene actually uses filters.
+        normalize_atlas_config(
+            &mut settings.filter_atlas_config,
+            max_texture_dimension_2d,
+            max_texture_array_layers,
+            0,
+        );
         let total_slots = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
-        let image_cache = ImageCache::new_with_config(settings.atlas_config);
+        let image_cache = ImageCache::new_with_config(settings.image_atlas_config);
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
         // and the maximum gradient LUT size - worst case scenario.
         let max_gradient_cache_size =
             max_texture_dimension_2d * max_texture_dimension_2d / MAX_GRADIENT_LUT_SIZE as u32;
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
 
-        let filter_context = FilterContext::new(settings.atlas_config);
+        let filter_context = FilterContext::new(settings.filter_atlas_config);
         Self {
             programs: Programs::new(
                 device,

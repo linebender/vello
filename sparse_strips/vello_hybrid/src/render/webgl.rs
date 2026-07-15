@@ -198,11 +198,20 @@ impl WebGlRenderer {
 
         let mut settings = settings;
         let max_texture_dimension_2d = get_max_texture_dimension_2d(&gl);
+        let max_texture_array_layers = get_max_texture_array_layers(&gl);
         normalize_atlas_config(
-            &mut settings.atlas_config,
+            &mut settings.image_atlas_config,
             max_texture_dimension_2d,
-            get_max_texture_array_layers(&gl),
+            max_texture_array_layers,
             1,
+        );
+        normalize_atlas_config(
+            &mut settings.filter_atlas_config,
+            max_texture_dimension_2d,
+            max_texture_array_layers,
+            // Filter scratch textures are individual 2D textures (not a D2Array), so they can
+            // start at zero and only be allocated on demand when a scene actually uses filters.
+            0,
         );
         let total_slots: usize = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
         assert!(
@@ -213,13 +222,13 @@ impl WebGlRenderer {
                 >= 24.0,
             "Depth buffer must be at least 24 bits"
         );
-        let image_cache = ImageCache::new_with_config(settings.atlas_config);
+        let image_cache = ImageCache::new_with_config(settings.image_atlas_config);
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
         // and the maximum gradient LUT size - worst case scenario.
         let max_gradient_cache_size =
             max_texture_dimension_2d * max_texture_dimension_2d / MAX_GRADIENT_LUT_SIZE as u32;
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
-        let filter_context = FilterContext::new(settings.atlas_config);
+        let filter_context = FilterContext::new(settings.filter_atlas_config);
 
         Self {
             programs: WebGlPrograms::new(gl.clone(), &image_cache, &filter_context, total_slots),
