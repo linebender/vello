@@ -596,7 +596,6 @@ impl Dispatcher for MultiThreadedDispatcher {
         self.allocation_group.clear();
         self.batch_cost = 0.0;
         self.task_idx = 0;
-        self.flushed = false;
         self.layer_depth = 0;
         self.task_sender = None;
         self.recorded_command_receiver = None;
