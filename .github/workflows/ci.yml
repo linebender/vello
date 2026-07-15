@@ -301,6 +301,7 @@ jobs:
         # TODO: Maybe use --release; the CPU shaders are extremely slow when unoptimised
         run: cargo nextest run --workspace --locked --all-features --no-fail-fast --release
         env:
+          CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: "true"
           VELLO_CI_GPU_SUPPORT: ${{ matrix.gpu }}
           # We are experimenting with git lfs, and we don't expect to run out of bandwidth.
           # However, if we do, the tests are designed to be robust against that, if this environment variable is set.
