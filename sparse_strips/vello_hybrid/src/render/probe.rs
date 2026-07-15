@@ -243,7 +243,6 @@ fn webgl_error_name(error: u32) -> String {
         WebGl2RenderingContext::CONTEXT_LOST_WEBGL => "CONTEXT_LOST_WEBGL",
         _ => return format!("UNKNOWN_WEBGL_ERROR ({error:#06x})"),
     };
-
     String::from(name)
 }
 
