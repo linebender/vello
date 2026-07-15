@@ -183,7 +183,7 @@ pub struct RenderSettings {
     /// The configuration for the filter scratch texture atlas.
     ///
     /// Filters (e.g. blurs) render intermediate results into their own set of scratch atlas
-    /// textures, independent from the image/glyph atlas.
+    /// textures, separate from the image/glyph atlas.
     pub filter_atlas_config: AtlasConfig,
     /// Constraints on the scene that the renderer can exploit for optimisation.
     pub constraints: SceneConstraints,
