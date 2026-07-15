@@ -877,7 +877,17 @@ impl Scene {
     }
 
     /// Set the blend mode for subsequent rendering operations.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `blend_mode` is destructive, which is currently not supported for
+    /// non-isolated blends. You need to use clip layers instead if you need that behavior.
     pub fn set_blend_mode(&mut self, blend_mode: BlendMode) {
+        assert!(
+            !blend_mode.is_destructive(),
+            "destructive blend modes are currently not supported"
+        );
+
         self.render_state.blend_mode = blend_mode;
     }
 
@@ -975,10 +985,6 @@ impl Scene {
         let filter = self.filter.clone();
 
         if blend_mode.is_some() || filter.is_some() {
-            // TODO: For now, we simulate non-isolated blends by wrapping the contents into a
-            // layer. This will work fine for non-destructive blend modes, but yields different
-            // results for destructive ones, hence why we don't have full feature parity
-            // with Vello CPU for those yet.
             self.push_layer(None, blend_mode, None, None, filter);
             let result = f(self);
             self.pop_layer();

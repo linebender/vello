@@ -413,12 +413,12 @@ fn compose_non_isolated_xor(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::Xor);
 }
 
-#[vello_test]
+#[vello_test(skip_hybrid)]
 fn compose_non_isolated_clear(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::Clear);
 }
 
-#[vello_test]
+#[vello_test(skip_hybrid)]
 fn compose_non_isolated_copy(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::Copy);
 }
@@ -433,17 +433,17 @@ fn compose_non_isolated_dest_over(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::DestOver);
 }
 
-#[vello_test]
+#[vello_test(skip_hybrid)]
 fn compose_non_isolated_src_in(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::SrcIn);
 }
 
-#[vello_test]
+#[vello_test(skip_hybrid)]
 fn compose_non_isolated_src_out(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::SrcOut);
 }
 
-#[vello_test]
+#[vello_test(skip_hybrid)]
 fn compose_non_isolated_dest_in(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::DestIn);
 }
@@ -458,7 +458,7 @@ fn compose_non_isolated_src_atop(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::SrcAtop);
 }
 
-#[vello_test]
+#[vello_test(skip_hybrid)]
 fn compose_non_isolated_dest_atop(ctx: &mut impl Renderer) {
     compose_non_isolated(ctx, Compose::DestAtop);
 }
