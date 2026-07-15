@@ -38,7 +38,7 @@ use vello_common::util::RetainVec;
 /// that the various shader programs can assume transparent pixels on the outside, making
 /// the code significantly easier since we don't need to special-case border pixels. Since we
 /// do use checked accesses for the offset filter, the bottleneck is formed by the gaussian blur
-/// convolution.
+/// convolution. Keep this in sync with `FILTER_ATLAS_PADDING` in `filter.wgsl`.
 #[expect(clippy::cast_possible_truncation, reason = "safe in this case")]
 pub(crate) const FILTER_ATLAS_PADDING: u16 = MAX_KERNEL_SIZE as u16 / 2;
 

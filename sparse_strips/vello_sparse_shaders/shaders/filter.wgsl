@@ -31,6 +31,9 @@ const PASS_BLUR_V: u32 = 5u;
 const PASS_UPSCALE: u32 = 6u;
 const PASS_COMPOSITE_DROP_SHADOW: u32 = 7u;
 
+// Keep in sync with FILTER_ATLAS_PADDING in vello_hybrid/src/filter.rs.
+const FILTER_ATLAS_PADDING: u32 = 6u;
+
 const MAX_TAPS_PER_SIDE: u32 = 3u;
 
 // The layout of the header:
@@ -130,16 +133,13 @@ fn vs_main(
     let dest_size = instance.dest_max - instance.dest_min;
     let original_size = instance.original_max - instance.original_min;
 
-    // Note: We are using `original_size` instead of `dest_size` on purpose here. When allocating the regions
-    // in the atlas, we always allocate the same size as is used by the original texture. However, `dest_size`
-    // can be smaller than `original_size`, for example because we applied a decimation pass for gaussian blurs.
-    // However, in the vertex shader we ALWAYS cover the whole region instead of just the destination size.
-    // The reason is that we need to make sure that all unaffected pixels are set to transparent, which is important
-    // because some filters assume that the border pixels are transparent. In the fragment shader, we have a shortcut
-    // to check whether the pixel lies outside of the destination region, in which case we just return a transparent
-    // pixel instead of doing actual computational work.
-    let pix_x = f32(instance.dest_min.x) + x * f32(original_size.x);
-    let pix_y = f32(instance.dest_min.y) + y * f32(original_size.y);
+    // Decimated passes only write `dest_size`, but must also clear a small border of stale pixels
+    // to transparent for later sampling. Bounding each instance's geometry to that useful region
+    // preserves batching without rasterizing the full original layer. The old renderer enforced the
+    // same bound with a per-instance scissor rectangle.
+    let render_size = min(original_size, dest_size + vec2(FILTER_ATLAS_PADDING));
+    let pix_x = f32(instance.dest_min.x) + x * f32(render_size.x);
+    let pix_y = f32(instance.dest_min.y) + y * f32(render_size.y);
 
     let atlas_size = vec2<f32>(instance.dest_atlas_size);
     let ndc_x = pix_x * 2.0 / atlas_size.x - 1.0;
