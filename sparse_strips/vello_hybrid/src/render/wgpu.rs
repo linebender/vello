@@ -197,16 +197,16 @@ impl Renderer {
         #[cfg(not(target_arch = "wasm32"))]
         let min_initial_atlas_count = 1;
         settings
-            .memory
+            .memory_settings
             .normalize(&device_limits, min_initial_atlas_count);
-        let image_cache = ImageCache::new_with_config(settings.memory.image_atlas_config);
+        let image_cache = ImageCache::new_with_config(settings.memory_settings.image_atlas_config);
         let max_texture_dimension_2d = device_limits.max_texture_dimension_2d;
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
         // and the maximum gradient LUT size - worst case scenario.
         let max_gradient_cache_size =
             max_texture_dimension_2d * max_texture_dimension_2d / MAX_GRADIENT_LUT_SIZE as u32;
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
-        let layer_config = settings.memory.layers_config;
+        let layer_config = settings.memory_settings.layers_config;
 
         Self {
             programs: Programs::new(device, &image_cache, render_target_config, layer_config),

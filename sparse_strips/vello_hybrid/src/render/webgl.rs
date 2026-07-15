@@ -201,7 +201,7 @@ impl WebGlRenderer {
             max_texture_dimension_2d: get_max_texture_dimension_2d(&gl),
             max_texture_array_layers: get_max_texture_array_layers(&gl),
         };
-        settings.memory.normalize(&device_limits, 1);
+        settings.memory_settings.normalize(&device_limits, 1);
         assert!(
             gl.get_parameter(WebGl2RenderingContext::DEPTH_BITS)
                 .unwrap()
@@ -210,7 +210,7 @@ impl WebGlRenderer {
                 >= 24.0,
             "Depth buffer must be at least 24 bits"
         );
-        let image_cache = ImageCache::new_with_config(settings.memory.image_atlas_config);
+        let image_cache = ImageCache::new_with_config(settings.memory_settings.image_atlas_config);
         let max_texture_dimension_2d = device_limits.max_texture_dimension_2d;
 
         // Estimate the maximum number of gradient cache entries based on the max texture dimension
@@ -218,7 +218,7 @@ impl WebGlRenderer {
         let max_gradient_cache_size =
             max_texture_dimension_2d * max_texture_dimension_2d / MAX_GRADIENT_LUT_SIZE as u32;
         let gradient_cache = GradientRampCache::new(max_gradient_cache_size, settings.level);
-        let layer_config = settings.memory.layers_config;
+        let layer_config = settings.memory_settings.layers_config;
         Self {
             programs: WebGlPrograms::new(gl.clone(), &image_cache, layer_config),
             gl,

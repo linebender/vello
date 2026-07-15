@@ -91,7 +91,7 @@ pub struct RenderSettings {
     /// The SIMD level that should be used for rendering operations.
     pub level: Level,
     /// Configuration for GPU memory used while rendering.
-    pub memory: MemorySettings,
+    pub memory_settings: MemorySettings,
 }
 
 /// Settings controlling usage of GPU memory.
@@ -265,7 +265,7 @@ impl Default for RenderSettings {
     fn default() -> Self {
         Self {
             level: Level::try_detect().unwrap_or(Level::baseline()),
-            memory: MemorySettings::default(),
+            memory_settings: MemorySettings::default(),
         }
     }
 }
