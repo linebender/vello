@@ -159,8 +159,6 @@ pub struct CommandRecorder<D> {
     pub filter_layers: Vec<u32>,
     /// Whether the root is the target of a non-default blending operation.
     pub root_is_blend_target: bool,
-    /// Maximum layer depth across the whole layer graph.
-    pub max_layer_depth: usize,
     /// The largest dimensions of any recorded layer.
     pub largest_layer_size: Option<SizeU16>,
     /// The largest dimensions of any recorded filter layer.
@@ -182,7 +180,6 @@ impl<D> Default for CommandRecorder<D> {
             layers: Vec::new(),
             filter_layers: Vec::new(),
             root_is_blend_target: false,
-            max_layer_depth: 0,
             largest_layer_size: None,
             largest_filter_layer_size: None,
             active_layer: None,
@@ -223,7 +220,6 @@ impl<D> CommandRecorder<D> {
         self.layers.clear();
         self.filter_layers.clear();
         self.root_is_blend_target = false;
-        self.max_layer_depth = 0;
         self.largest_layer_size = None;
         self.largest_filter_layer_size = None;
         self.active_layer = None;
@@ -256,7 +252,6 @@ impl<D> CommandRecorder<D> {
 
     fn push_recorded_layer(&mut self, layer: RecordedLayer) -> u32 {
         let parent_layer = self.active_layer;
-        self.max_layer_depth = self.max_layer_depth.max(layer.depth);
 
         if layer.props.blend_mode != BlendMode::default() && parent_layer.is_none() {
             self.root_is_blend_target = true;
@@ -550,7 +545,6 @@ mod tests {
                 .collect::<Vec<_>>(),
             [1, 2, 3, 2]
         );
-        assert_eq!(recorder.max_layer_depth, 3);
         assert_eq!(recorder.largest_layer_size, Some(SizeU16::from_wh(64, 4)));
         assert_eq!(
             recorder.largest_filter_layer_size,
@@ -581,7 +575,6 @@ mod tests {
         recorder.push_layer(blended_layer_props(), None);
 
         assert!(!recorder.root_is_blend_target);
-        assert_eq!(recorder.max_layer_depth, 2);
 
         recorder.pop_layer();
         recorder.pop_layer();
@@ -604,7 +597,6 @@ mod tests {
         recorder.pop_layer();
 
         assert!(recorder.root_is_blend_target);
-        assert_eq!(recorder.max_layer_depth, 2);
         assert!(recorder.largest_layer_size.is_some());
         assert!(recorder.largest_filter_layer_size.is_some());
 
@@ -612,7 +604,6 @@ mod tests {
 
         assert_eq!(recorder.scene_size, SizeU16::from_wh(16, 8));
         assert!(!recorder.root_is_blend_target);
-        assert_eq!(recorder.max_layer_depth, 0);
         assert!(recorder.largest_layer_size.is_none());
         assert!(recorder.largest_filter_layer_size.is_none());
         assert!(recorder.filter_layers.is_empty());
