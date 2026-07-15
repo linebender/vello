@@ -214,7 +214,13 @@ impl CommandBucketer {
     }
 
     fn bbox_span(bbox: RectU16) -> Span {
-        Span::new(bbox.x0, bbox.x1.saturating_sub(bbox.x0))
+        // Bbox might be empty vertically but not horizontally. In this case,
+        // it should still be considered a zero-sized span, though.
+        if bbox.is_empty() {
+            Span::new(bbox.x0, 0)
+        } else {
+            Span::new(bbox.x0, bbox.x1 - bbox.x0)
+        }
     }
 
     pub(crate) fn rows(&self) -> &[RowState] {
@@ -373,10 +379,6 @@ impl CommandBucketer {
             })
             .unwrap_or(parent_bbox);
 
-        // Once again, this need to be snapped because fine rasterization assumes tile-alignment.
-        // The bbox is used to clip fill commands, but if the bbox itself is not aligned we might
-        // end up making the fill commands unaligned as well.
-        let bbox = bbox.snap_to_tile_coordinates();
         if props.clip_path.is_some() {
             self.clip_bboxes.push(bbox);
         }
@@ -396,7 +398,7 @@ impl CommandBucketer {
         // If the blend mode is destructive, we need to eagerly push to all rows in the clip bbox,
         // since even areas where we didn't draw anything need to be blended with the destructive
         // blend mode.
-        if props.blend_mode.is_destructive() {
+        if props.blend_mode.is_destructive() && !bbox.is_empty() {
             let row_start = usize::from(bbox.y0 / Tile::HEIGHT);
             let row_end = usize::from(bbox.y1.div_ceil(Tile::HEIGHT)).min(self.rows.len());
             for row_idx in row_start..row_end {
@@ -636,9 +638,16 @@ impl CommandBucketer {
         }
 
         let clip_bbox = *self.clip_bboxes.last().unwrap();
+
+        // TODO: Don't emit layers with empty clip bboxes (and non-destructive blend modes)
+        // in the first place during recordings.
+        if clip_bbox.is_empty() {
+            return;
+        }
+
         // Note: Those will always be aligned to tile coordinates.
         let clip_x0 = clip_bbox.x0;
-        let clip_x1 = clip_bbox.x1.min(self.width());
+        let clip_x1 = clip_bbox.x1;
 
         debug_assert_tile_aligned((clip_x0, clip_bbox.y0), "clip start");
         debug_assert_tile_aligned((clip_x1, clip_bbox.y1), "clip end");
@@ -654,11 +663,10 @@ impl CommandBucketer {
         // mean that this method might be called with strips that do not lie within the viewport.
         // Therefore, we need to make sure to clip those appropriately.
 
-        let viewport_y1 = self.viewport.y1;
         let origin_tile_x = origin.0 / Tile::WIDTH;
         let origin_tile_y = origin.1 / Tile::HEIGHT;
-        let clip_scene_y0 = viewport_y1.min(origin.1.saturating_add(clip_bbox.y0));
-        let clip_scene_y1 = viewport_y1.min(origin.1.saturating_add(clip_bbox.y1));
+        let clip_scene_y0 = origin.1.saturating_add(clip_bbox.y0);
+        let clip_scene_y1 = origin.1.saturating_add(clip_bbox.y1);
         // Convert to scene coordinates.
         let clip_scene_x0 = origin.0.saturating_add(clip_x0);
         let clip_scene_x1 = origin.0.saturating_add(clip_x1);
@@ -766,7 +774,7 @@ mod tests {
     use vello_common::color::{AlphaColor, Srgb};
     use vello_common::geometry::RectU16;
     use vello_common::paint::{Paint, PremulColor};
-    use vello_common::peniko::BlendMode;
+    use vello_common::peniko::{BlendMode, Compose, Mix};
     use vello_common::record::LayerProps;
     use vello_common::strip::Strip;
     use vello_common::tile::Tile;
@@ -805,6 +813,13 @@ mod tests {
                 thread_idx: 0,
                 bbox,
             }),
+        }
+    }
+
+    fn destructive_clipped_layer_props(bbox: RectU16) -> LayerProps {
+        LayerProps {
+            blend_mode: BlendMode::new(Mix::Normal, Compose::Clear),
+            ..clipped_layer_props(bbox)
         }
     }
 
@@ -868,6 +883,28 @@ mod tests {
                     && cmd.span.pixel_width() == 4
                     && cmd.alpha_idx() == Some(u32::from(4 * Tile::HEIGHT))
         ));
+    }
+
+    #[test]
+    fn disjoint_nested_clip_bounds_do_not_emit_commands() {
+        let mut bucketer = CommandBucketer::from_wh(16, 4);
+        let strips = [Strip::new(0, 0, 0, false), Strip::new(16, 0, 0, true)];
+
+        bucketer.push_layer(&clipped_layer_props(RectU16::new(0, 0, 4, 4)));
+        bucketer.push_layer(&clipped_layer_props(RectU16::new(8, 0, 12, 4)));
+        bucketer.generate_fill(&strips, &fill_attrs(Paint::Solid(color(RED))), &[]);
+
+        assert!(bucketer.rows().iter().all(|row| row.render_cmds.is_empty()));
+    }
+
+    #[test]
+    fn empty_destructive_clip_does_not_push_rows() {
+        let mut bucketer = CommandBucketer::from_wh(16, 4);
+
+        bucketer.push_layer(&clipped_layer_props(RectU16::new(0, 0, 4, 4)));
+        bucketer.push_layer(&destructive_clipped_layer_props(RectU16::new(8, 0, 12, 4)));
+
+        assert!(bucketer.rows().iter().all(|row| row.render_cmds.is_empty()));
     }
 
     #[test]

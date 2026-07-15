@@ -13,6 +13,8 @@ use crate::filter::gaussian_blur::{GaussianBlur, transform_blur_params};
 use crate::filter::offset::Offset;
 use crate::filter_effects::{Filter, FilterPrimitive};
 use crate::geometry::{PaddingU16, RectU16};
+#[cfg(not(feature = "std"))]
+use crate::kurbo::common::FloatFuncs as _;
 use crate::kurbo::{Affine, Rect, Vec2};
 use crate::tile::Tile;
 use crate::util::RectExt;
@@ -113,13 +115,17 @@ pub struct FilterLayerPlacement {
 
 impl FilterLayerPlacement {
     pub(crate) const EMPTY: Self = Self {
-        pixmap_bbox: RectU16::INVERTED,
-        dest_bbox: RectU16::INVERTED,
+        pixmap_bbox: RectU16::ZERO,
+        dest_bbox: RectU16::ZERO,
         src_x: 0,
         src_y: 0,
     };
 
     pub(crate) fn new(bbox: RectU16, filter_plan: &FilterData) -> Self {
+        if bbox.is_empty() {
+            return Self::EMPTY;
+        }
+
         // Some more detailed explanations of what's going on here since this
         // part is a bit confusing.
 

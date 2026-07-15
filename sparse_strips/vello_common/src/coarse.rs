@@ -285,10 +285,12 @@ impl WideTilesBbox {
         }
     }
 
-    /// Update this bounding box to include another bounding box (union in place).
+    /// Update this bounding box to include another bounding box.
     #[inline(always)]
     pub(crate) fn union(&mut self, other: Self) {
-        self.bbox.union(other.bbox);
+        if !other.is_empty() {
+            self.bbox.union(other.bbox);
+        }
     }
 
     /// Update the bbox to include the given tile coordinates.

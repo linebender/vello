@@ -36,7 +36,6 @@ use vello_common::pixmap::PixmapMut;
 use vello_common::record::{CommandRecorder, LayerClip, LayerProps, PoppedLayer};
 use vello_common::strip::Strip;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
-use vello_common::util::control_point_bbox_u16;
 
 mod cost;
 mod worker;
@@ -563,12 +562,8 @@ impl Dispatcher for MultiThreadedDispatcher {
             let start = self.allocation_group.path.len() as u32;
             self.allocation_group.path.extend(c);
             let end = self.allocation_group.path.len() as u32;
-            let mut bbox = control_point_bbox_u16(c.iter(), clip_transform);
-            if let Some(existing_clip) = self.clip_context.get() {
-                bbox = bbox.intersect(existing_clip.bbox);
-            }
 
-            (start..end, clip_transform, bbox)
+            (start..end, clip_transform)
         });
 
         self.register_task(RenderTaskType::PushLayer {
@@ -868,7 +863,7 @@ pub(crate) enum RenderTaskType {
         mask: Option<Mask>,
     },
     PushLayer {
-        clip_path: Option<(Range<u32>, Affine, RectU16)>,
+        clip_path: Option<(Range<u32>, Affine)>,
         blend_mode: BlendMode,
         opacity: f32,
         mask: Option<Mask>,

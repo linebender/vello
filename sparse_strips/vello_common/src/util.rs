@@ -4,7 +4,6 @@
 //! Utility functions.
 
 use crate::geometry::RectU16;
-use crate::kurbo::PathEl;
 use crate::math::FloatExt;
 use crate::strip::{Strip, visit_strip_fill_segments};
 use crate::tile::Tile;
@@ -140,9 +139,16 @@ pub trait RectExt {
 impl RectExt for Rect {
     #[inline]
     fn snap_to_tile_coordinates(self) -> Self {
+        let x0 = snap_down(self.x0, Tile::WIDTH);
+        let y0 = snap_down(self.y0, Tile::HEIGHT);
+
+        if self.is_zero_area() {
+            return Self::new(x0, y0, x0, y0);
+        }
+
         Self::new(
-            snap_down(self.x0, Tile::WIDTH),
-            snap_down(self.y0, Tile::HEIGHT),
+            x0,
+            y0,
             snap_up(self.x1, Tile::WIDTH),
             snap_up(self.y1, Tile::HEIGHT),
         )
@@ -152,15 +158,21 @@ impl RectExt for Rect {
 impl RectExt for RectU16 {
     #[inline]
     fn snap_to_tile_coordinates(self) -> Self {
+        // This method will panic if we have a viewport of size u16::MAX and draw
+        // at the very edge, but better than returning a wrong result.
+
+        let x0 = (self.x0 / Tile::WIDTH).checked_mul(Tile::WIDTH).unwrap();
+        let y0 = (self.y0 / Tile::HEIGHT).checked_mul(Tile::HEIGHT).unwrap();
+
+        if self.is_empty() {
+            return Self::new(x0, y0, x0, y0);
+        }
+
         Self::new(
-            (self.x0 / Tile::WIDTH) * Tile::WIDTH,
-            (self.y0 / Tile::HEIGHT) * Tile::HEIGHT,
-            self.x1
-                .checked_next_multiple_of(Tile::WIDTH)
-                .unwrap_or(u16::MAX),
-            self.y1
-                .checked_next_multiple_of(Tile::HEIGHT)
-                .unwrap_or(u16::MAX),
+            x0,
+            y0,
+            self.x1.checked_next_multiple_of(Tile::WIDTH).unwrap(),
+            self.y1.checked_next_multiple_of(Tile::HEIGHT).unwrap(),
         )
     }
 }
@@ -330,57 +342,8 @@ impl<T> IndexMut<usize> for RetainVec<T> {
     }
 }
 
-/// Compute a conservative bounding box for the transformed path by computing the bounding box of
-/// the transformed control points.
-///
-/// If `path` is empty, this returns an infinite, inversed [`Rect`] (`left` > `right` and `top` > `bottom`).
-pub fn control_point_bbox(path: impl IntoIterator<Item = PathEl>, transform: Affine) -> Rect {
-    // Start with an infinite, inversed rectangle. Adding the first point immediately collapses it
-    // without branching.
-    let mut bbox = Rect::new(
-        f64::INFINITY,
-        f64::INFINITY,
-        f64::NEG_INFINITY,
-        f64::NEG_INFINITY,
-    );
-    for el in path {
-        match el {
-            PathEl::MoveTo(p) | PathEl::LineTo(p) => {
-                bbox = bbox.union_pt(transform * p);
-            }
-            PathEl::QuadTo(p1, p2) => {
-                bbox = bbox.union_pt(transform * p1);
-                bbox = bbox.union_pt(transform * p2);
-            }
-            PathEl::CurveTo(p1, p2, p3) => {
-                bbox = bbox.union_pt(transform * p1);
-                bbox = bbox.union_pt(transform * p2);
-                bbox = bbox.union_pt(transform * p3);
-            }
-            PathEl::ClosePath => {}
-        }
-    }
-    bbox
-}
-
-/// Compute a conservative bounding box for the transformed path in pixel coordinates.
-///
-/// If `path` is empty, this returns an inverted [`RectU16`].
-pub fn control_point_bbox_u16(
-    path: impl IntoIterator<Item = PathEl>,
-    transform: Affine,
-) -> RectU16 {
-    let bbox = control_point_bbox(path, transform);
-    RectU16::new(
-        bbox.x0 as u16,
-        bbox.y0 as u16,
-        bbox.x1.ceil() as u16,
-        bbox.y1.ceil() as u16,
-    )
-}
-
 /// Calculate the bounding box of the strips.
-pub fn strip_bbox(strips: &[Strip]) -> RectU16 {
+pub fn strip_bbox(strips: &[Strip]) -> Option<RectU16> {
     // Fill and alpha fill segments internally store their coordinates in tile units,
     // in order to avoid multiplications in every invocation of the closure we calculate
     // the bbox in tile units first and then convert back to pixel units.
@@ -401,14 +364,14 @@ pub fn strip_bbox(strips: &[Strip]) -> RectU16 {
 
     // Convert to pixel units.
     if tile_bbox.is_empty() {
-        tile_bbox
+        None
     } else {
-        RectU16::new(
-            tile_bbox.x0.saturating_mul(Tile::WIDTH),
-            tile_bbox.y0.saturating_mul(Tile::HEIGHT),
-            tile_bbox.x1.saturating_mul(Tile::WIDTH),
-            tile_bbox.y1.saturating_mul(Tile::HEIGHT),
-        )
+        Some(RectU16::new(
+            tile_bbox.x0.checked_mul(Tile::WIDTH).unwrap(),
+            tile_bbox.y0.checked_mul(Tile::HEIGHT).unwrap(),
+            tile_bbox.x1.checked_mul(Tile::WIDTH).unwrap(),
+            tile_bbox.y1.checked_mul(Tile::HEIGHT).unwrap(),
+        ))
     }
 }
 
@@ -437,10 +400,22 @@ mod tests {
     }
 
     #[test]
+    fn snap_to_tile_coordinates_preserves_empty_rects() {
+        assert_eq!(
+            Rect::new(5.0, 3.0, 5.0, 7.0).snap_to_tile_coordinates(),
+            Rect::new(4.0, 0.0, 4.0, 0.0)
+        );
+        assert_eq!(
+            RectU16::new(5, 3, 9, 3).snap_to_tile_coordinates(),
+            RectU16::new(4, 0, 4, 0)
+        );
+    }
+
+    #[test]
     fn empty_strip_bbox() {
         let strips = [Strip::sentinel(0, 0)];
 
-        assert_eq!(strip_bbox(&strips), RectU16::INVERTED);
+        assert_eq!(strip_bbox(&strips), None);
     }
 
     #[test]
@@ -450,7 +425,7 @@ mod tests {
             sentinel(4, u32::from(Tile::HEIGHT) * 4),
         ];
 
-        assert_eq!(strip_bbox(&strips), RectU16::new(8, 4, 12, 8));
+        assert_eq!(strip_bbox(&strips), Some(RectU16::new(8, 4, 12, 8)));
     }
 
     #[test]
@@ -461,7 +436,7 @@ mod tests {
             sentinel(0, u32::from(Tile::HEIGHT) * 8),
         ];
 
-        assert_eq!(strip_bbox(&strips), RectU16::new(4, 0, 24, 4));
+        assert_eq!(strip_bbox(&strips), Some(RectU16::new(4, 0, 24, 4)));
     }
 
     #[test]
@@ -472,7 +447,7 @@ mod tests {
             sentinel(0, u32::from(Tile::HEIGHT) * 4),
         ];
 
-        assert_eq!(strip_bbox(&strips), RectU16::new(4, 0, 32, 4));
+        assert_eq!(strip_bbox(&strips), Some(RectU16::new(4, 0, 32, 4)));
     }
 
     #[test]
@@ -483,6 +458,6 @@ mod tests {
             sentinel(8, u32::from(Tile::HEIGHT) * 8),
         ];
 
-        assert_eq!(strip_bbox(&strips), RectU16::new(4, 0, 16, 12));
+        assert_eq!(strip_bbox(&strips), Some(RectU16::new(4, 0, 16, 12)));
     }
 }

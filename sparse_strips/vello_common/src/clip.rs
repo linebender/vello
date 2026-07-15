@@ -8,14 +8,12 @@ use crate::kurbo::{Affine, BezPath, PathEl};
 use crate::strip::Strip;
 use crate::strip_generator::{GenerationMode, StripGenerator, StripStorage};
 use crate::tile::Tile;
-use crate::util::{Clear, Pool, normalized_mul_u8x16};
+use crate::util::{Clear, Pool, normalized_mul_u8x16, strip_bbox};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Range;
 use fearless_simd::{Level, Simd, SimdBase, dispatch, u8x16};
 use peniko::Fill;
-
-use crate::util;
 
 #[derive(Debug)]
 struct ClipData {
@@ -91,7 +89,7 @@ impl ClipContext {
     #[inline]
     pub fn push_clip(
         &mut self,
-        clip_path: impl IntoIterator<Item = PathEl> + Clone,
+        clip_path: impl IntoIterator<Item = PathEl>,
         strip_generator: &mut StripGenerator,
         fill_rule: Fill,
         transform: Affine,
@@ -101,31 +99,6 @@ impl ClipContext {
 
         let alpha_start = self.storage.alphas.len() as u32;
         let strip_start = self.storage.strips.len() as u32;
-
-        // Calculate a coarse bounding box of the path. If the path is empty, the bounding box is
-        // an infinite and inversed `kurbo::Rect`. This is harmless in practice: an empty path does
-        // not produce any strips.
-        //
-        // Note this iterates `clip_path`, which means we iterate it twice: once here, and once in
-        // flattening. If we ever take an iterator instead, or want to prevent iterating twice, we
-        // could move this calculation into flattening (perhaps with a const-generic as to not
-        // pessimize calls that don't require the bbox).
-        let mut bbox = util::control_point_bbox_u16(clip_path.clone(), transform);
-
-        // Intersect with the existing clip bounding box, or the viewport if this is the outermost
-        // clip.
-        if let Some(existing) = self.clip_stack.last() {
-            bbox = bbox.intersect(existing.bbox);
-        } else {
-            bbox.x1 = bbox.x1.min(strip_generator.width());
-            bbox.y1 = bbox.y1.min(strip_generator.height());
-        }
-
-        let clip_data = ClipData {
-            alpha_start,
-            strip_start,
-            bbox,
-        };
 
         let existing_clip = self
             .clip_stack
@@ -140,6 +113,13 @@ impl ClipContext {
             &mut self.temp_storage,
             existing_clip,
         );
+
+        let bbox = strip_bbox(&self.temp_storage.strips).unwrap_or(RectU16::ZERO);
+        let clip_data = ClipData {
+            alpha_start,
+            strip_start,
+            bbox,
+        };
 
         self.storage.extend(&self.temp_storage);
         self.clip_stack.push(clip_data);
@@ -338,8 +318,7 @@ pub struct PathDataRef<'a> {
     pub strips: &'a [Strip],
     /// The alpha buffer.
     pub alphas: &'a [u8],
-
-    /// A coarse bounding box of the clip path in pixel coordinates.
+    /// A tile-aligned coarse bounding box of the clip path in pixel coordinates.
     ///
     /// These bounds have already been intersected with the viewport.
     pub bbox: RectU16,

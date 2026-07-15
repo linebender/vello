@@ -44,8 +44,9 @@ use smallvec::SmallVec;
 
 /// A drawable object that can report its bounding box.
 pub trait Drawable {
-    /// Return the bounding box of the given object.
-    fn bbox(&self, strips: &[Strip]) -> RectU16;
+    /// Return the **tile-aligned** bounding box of the given object, if it
+    /// has one.
+    fn bbox(&self, strips: &[Strip]) -> Option<RectU16>;
 }
 
 /// A node in the recorded render graph.
@@ -75,7 +76,7 @@ pub struct RecordedLayer {
     pub kind: RecordedLayerKind,
     /// Nesting depth of the layer.
     pub depth: usize,
-    /// Bounding box of the layer.
+    /// Tile-aligned bounding box of the layer.
     pub bbox: RectU16,
 }
 
@@ -99,7 +100,7 @@ pub struct LayerClip {
     pub strip_range: Range<usize>,
     /// Index of the thread-local strip storage containing the strips.
     pub thread_idx: u8,
-    /// Coarse bounds of the clip path.
+    /// Tile-aligned bounds of the clip path.
     pub bbox: RectU16,
 }
 
@@ -126,7 +127,7 @@ impl RecordedLayer {
             kind: RecordedLayerKind::Regular,
             depth,
             // Will be initialized once we call `pop_layer`.
-            bbox: RectU16::INVERTED,
+            bbox: RectU16::ZERO,
         }
     }
 
@@ -141,7 +142,7 @@ impl RecordedLayer {
             },
             depth,
             // Will be initialized once we call `pop_layer`.
-            bbox: RectU16::INVERTED,
+            bbox: RectU16::ZERO,
         }
     }
 }
@@ -294,15 +295,26 @@ impl<D> CommandRecorder<D> {
             let recorded_layer = &mut self.layers[id as usize];
             match &mut recorded_layer.kind {
                 RecordedLayerKind::Regular => {
-                    recorded_layer.bbox = layer.bbox;
+                    let mut bbox = layer.bbox;
 
-                    let layer_size = layer.bbox.into();
+                    // Turn the potentially still-inverted bbox into a zero-sized one.
+                    if bbox.is_empty() {
+                        bbox = RectU16::ZERO;
+                    }
+
+                    if let Some(clip_path) = &recorded_layer.props.clip_path {
+                        bbox = bbox.intersect(clip_path.bbox);
+                    }
+
+                    recorded_layer.bbox = bbox;
+
+                    let layer_size = bbox.into();
                     self.largest_layer_size = Some(
                         self.largest_layer_size
                             .map_or(layer_size, |current| current.max(layer_size)),
                     );
 
-                    (PoppedLayer::Regular, layer.bbox)
+                    (PoppedLayer::Regular, bbox)
                 }
                 RecordedLayerKind::Filter {
                     filter_data: filter_plan,
@@ -328,7 +340,7 @@ impl<D> CommandRecorder<D> {
 
         // Update the parent bbox as well.
         self.active_layer = layer.parent_layer;
-        self.record_bbox(|| bbox_in_parent);
+        self.record_bbox(|| Some(bbox_in_parent));
 
         popped_layer
     }
@@ -370,10 +382,16 @@ impl<D> CommandRecorder<D> {
         id
     }
 
-    fn record_bbox(&mut self, bbox: impl FnOnce() -> RectU16) {
-        if let Some(layer) = self.layer_stack.last_mut() {
-            layer.bbox.union(bbox());
-        }
+    fn record_bbox(&mut self, bbox: impl FnOnce() -> Option<RectU16>) {
+        let Some(layer) = self.layer_stack.last_mut() else {
+            return;
+        };
+
+        let Some(bbox) = bbox().and_then(|b| if b.is_empty() { None } else { Some(b) }) else {
+            return;
+        };
+
+        layer.bbox.union(bbox);
     }
 }
 
@@ -429,8 +447,17 @@ mod tests {
     struct TestDraw;
 
     impl Drawable for TestDraw {
-        fn bbox(&self, _strips: &[Strip]) -> RectU16 {
-            RectU16::new(0, 0, 64, 4)
+        fn bbox(&self, _strips: &[Strip]) -> Option<RectU16> {
+            Some(RectU16::new(0, 0, 64, 4))
+        }
+    }
+
+    #[derive(Debug)]
+    struct EmptyDraw;
+
+    impl Drawable for EmptyDraw {
+        fn bbox(&self, _strips: &[Strip]) -> Option<RectU16> {
+            None
         }
     }
 
@@ -592,6 +619,33 @@ mod tests {
         };
 
         assert_eq!(node.draws_in(&draws), &[1, 2]);
+    }
+
+    #[test]
+    fn empty_draws_do_not_affect_layer_bounds() {
+        let mut recorder = CommandRecorder::<EmptyDraw>::new(DEFAULT_SIZE, DEFAULT_SIZE);
+        recorder.push_layer(layer_props(), None);
+        recorder.push_draw(EmptyDraw, &[]);
+        recorder.pop_layer();
+
+        assert!(recorder.layers[0].bbox.is_empty());
+    }
+
+    #[test]
+    fn disjoint_layer_bounds_are_empty_but_not_inverted() {
+        let mut recorder = CommandRecorder::<TestDraw>::new(DEFAULT_SIZE, DEFAULT_SIZE);
+        let mut props = layer_props();
+        props.clip_path = Some(LayerClip {
+            strip_range: 0..0,
+            thread_idx: 0,
+            bbox: RectU16::new(8, 8, 12, 12),
+        });
+
+        recorder.push_layer(props, None);
+        recorder.push_draw(TestDraw, &[]);
+        recorder.pop_layer();
+
+        assert_eq!(recorder.layers[0].bbox, RectU16::new(8, 8, 12, 8));
     }
 
     #[test]

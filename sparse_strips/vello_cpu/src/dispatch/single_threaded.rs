@@ -23,7 +23,7 @@ use vello_common::record::{
     CommandRecorder, LayerClip, LayerProps, Node, PoppedLayer, RecordedLayerKind,
 };
 use vello_common::strip_generator::{GenerationMode, StripStorage};
-use vello_common::util::control_point_bbox_u16;
+use vello_common::util::strip_bbox;
 use vello_common::viewport::ViewportState;
 
 /// Single-threaded implementation of the rendering dispatcher.
@@ -362,11 +362,6 @@ impl Dispatcher for SingleThreadedDispatcher {
             let strip_storage = &mut self.strip_storage;
             self.viewport
                 .with_generator_and_clip(|strip_generator, existing_clip| {
-                    let mut bbox = control_point_bbox_u16(clip_path.iter(), clip_transform);
-                    if let Some(existing_clip) = existing_clip {
-                        bbox = bbox.intersect(existing_clip.bbox);
-                    }
-
                     strip_generator.generate_filled_path(
                         clip_path,
                         fill_rule,
@@ -376,10 +371,12 @@ impl Dispatcher for SingleThreadedDispatcher {
                         existing_clip,
                     );
 
+                    let strip_range = strip_start..strip_storage.strips.len();
                     LayerClip {
-                        strip_range: strip_start..strip_storage.strips.len(),
+                        bbox: strip_bbox(&strip_storage.strips[strip_range.clone()])
+                            .unwrap_or(RectU16::ZERO),
+                        strip_range,
                         thread_idx: 0,
-                        bbox,
                     }
                 })
         });

@@ -7,7 +7,9 @@ use crate::dispatch::multi_threaded::{
 };
 use std::vec::Vec;
 use vello_common::clip::PathDataRef;
+use vello_common::geometry::RectU16;
 use vello_common::strip_generator::{GenerationMode, StripGenerator, StripStorage};
+use vello_common::util::strip_bbox;
 
 #[derive(Debug)]
 pub(crate) struct Worker {
@@ -142,7 +144,7 @@ impl Worker {
                     fill_rule,
                     aliasing_threshold,
                 } => {
-                    let (clip, clip_bbox) = if let Some((path_range, transform, bbox)) = clip_path {
+                    let (clip, clip_bbox) = if let Some((path_range, transform)) = clip_path {
                         let start = self.strip_storage.strips.len() as u32;
                         let path = &render_task.allocation_group.path
                             [path_range.start as usize..path_range.end as usize];
@@ -157,8 +159,13 @@ impl Worker {
                         );
 
                         let end = self.strip_storage.strips.len() as u32;
+                        let range = start..end;
+                        let bbox = strip_bbox(
+                            &self.strip_storage.strips[range.start as usize..range.end as usize],
+                        )
+                        .unwrap_or(RectU16::ZERO);
 
-                        (Some(start..end), Some(bbox))
+                        (Some(range), Some(bbox))
                     } else {
                         (None, None)
                     };

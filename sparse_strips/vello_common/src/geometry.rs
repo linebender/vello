@@ -184,15 +184,15 @@ impl RectU16 {
 
     /// Compute the intersection of two rectangles.
     ///
-    /// The result may be empty if the rectangles do not overlap.
+    /// The result may have zero area if the rectangles do not overlap, but is never inverted.
     #[inline(always)]
     pub const fn intersect(self, other: Self) -> Self {
-        Self {
-            x0: const_max(self.x0, other.x0),
-            y0: const_max(self.y0, other.y0),
-            x1: const_min(self.x1, other.x1),
-            y1: const_min(self.y1, other.y1),
-        }
+        let x0 = const_max(self.x0, other.x0);
+        let y0 = const_max(self.y0, other.y0);
+        let x1 = const_min(self.x1, other.x1);
+        let y1 = const_min(self.y1, other.y1);
+
+        Self::new(x0, y0, const_max(x1, x0), const_max(y1, y0))
     }
 
     /// Expand this rectangle by the given left, top, right, and bottom padding.
@@ -456,5 +456,15 @@ mod tests {
         let rect = RectU16::new(10, 20, 30, 40);
 
         assert_eq!(rect.relative_to_origin((20, 35)), RectU16::new(0, 0, 10, 5));
+    }
+
+    #[test]
+    fn disjoint_intersection_is_empty_but_not_inverted() {
+        let intersection = RectU16::new(0, 0, 4, 4).intersect(RectU16::new(8, 1, 12, 3));
+
+        assert_eq!(intersection, RectU16::new(8, 1, 8, 3));
+        assert!(intersection.is_empty());
+        assert!(intersection.x0 <= intersection.x1);
+        assert!(intersection.y0 <= intersection.y1);
     }
 }
