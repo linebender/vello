@@ -1,12 +1,12 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Atlas allocation for scheduled layer and scratch texture regions.
+//! Atlas allocation for scheduled layer texture regions.
 
 use super::OpenLayer;
-use crate::filter::{FILTER_ATLAS_PADDING, PreparedGpuFilter};
+use crate::filter::FILTER_ATLAS_PADDING;
 use crate::scene::LayersConfig;
-use crate::target::{IntermediateTextureSizes, LayerTextureId, TextureParity, TextureRegion};
+use crate::target::{LayerTextureId, TextureParity, TextureRegion};
 use alloc::vec::Vec;
 use vello_common::geometry::{RectU16, SizeU16, SizeU32};
 use vello_common::multi_atlas::{AllocId, Atlas, AtlasError, AtlasId};
@@ -23,23 +23,23 @@ pub(super) struct Allocation<T> {
 #[derive(Debug)]
 pub(super) struct Atlases {
     layer_atlases: [Vec<Atlas>; 2],
-    scratch_atlases: [Option<Atlas>; 2],
+    scratch_texture: bool,
     remaining_textures: usize,
-    texture_sizes: IntermediateTextureSizes,
+    texture_size: SizeU16,
 }
 
 impl Atlases {
-    pub(super) fn new(texture_sizes: IntermediateTextureSizes, layer_config: LayersConfig) -> Self {
+    pub(super) fn new(texture_size: SizeU16, layer_config: LayersConfig) -> Self {
         Self {
             layer_atlases: core::array::from_fn(|_| Vec::new()),
-            scratch_atlases: [None, None],
+            scratch_texture: false,
             remaining_textures: layer_config.max_textures.unwrap_or(usize::MAX),
-            texture_sizes,
+            texture_size,
         }
     }
 
-    pub(super) fn scratch_textures(&self) -> [bool; 2] {
-        self.scratch_atlases.each_ref().map(Option::is_some)
+    pub(super) fn scratch_texture(&self) -> bool {
+        self.scratch_texture
     }
 
     pub(super) fn allocate_layer(
@@ -64,71 +64,21 @@ impl Atlases {
         None
     }
 
-    pub(super) fn allocate_scratch(
-        &mut self,
-        request: &ScratchAllocationRequest,
-    ) -> Result<Option<[Option<AllocatedTextureRegion<TextureParity>>; 2]>, AtlasError> {
-        let mut allocations: [Option<AllocatedTextureRegion<TextureParity>>; 2] = [None, None];
+    pub(super) fn deallocate(&mut self, texture: AllocatedTextureRegion<LayerTextureId>) {
+        let id = texture.region.target;
+        let atlas =
+            &mut self.layer_atlases[id.texture_parity.get_parity()][usize::from(id.page_index)];
 
-        for index in 0..usize::from(request.count) {
-            let texture_parity = TextureParity::from_parity(index);
-            self.ensure_scratch_texture(texture_parity)?;
-
-            let atlas = self.scratch_atlases[texture_parity.get_parity()]
-                .as_mut()
-                .unwrap();
-            let Some(allocation) = atlas.allocate_region(texture_parity, request.region) else {
-                // Both allocations must succeed, if the second one doesn't succeed we also need
-                // to undo the first one.
-                for allocation in allocations.into_iter().flatten() {
-                    let atlas = self.scratch_atlases[allocation.region.target.get_parity()]
-                        .as_mut()
-                        .unwrap();
-
-                    atlas.deallocate_region(allocation);
-                }
-
-                return Ok(None);
-            };
-
-            allocations[index] = Some(allocation);
-        }
-
-        Ok(Some(allocations))
+        atlas.deallocate_region(texture);
     }
 
-    pub(super) fn deallocate(&mut self, allocation: AtlasAllocation) {
-        match allocation {
-            AtlasAllocation::Layer(texture) => {
-                let id = texture.region.target;
-                let atlas = &mut self.layer_atlases[id.texture_parity.get_parity()]
-                    [usize::from(id.page_index)];
-
-                atlas.deallocate_region(texture);
-            }
-            AtlasAllocation::Scratch(texture) => {
-                let atlas = self.scratch_atlases[texture.region.target.get_parity()]
-                    .as_mut()
-                    .unwrap();
-
-                atlas.deallocate_region(texture);
-            }
-        }
-    }
-
-    fn ensure_scratch_texture(&mut self, texture_parity: TextureParity) -> Result<(), AtlasError> {
-        let index = texture_parity.get_parity();
-        if self.scratch_atlases[index].is_some() {
+    pub(super) fn require_scratch_texture(&mut self) -> Result<(), AtlasError> {
+        if self.scratch_texture {
             return Ok(());
         }
 
         self.request_textures(1)?;
-        let size = self.texture_sizes.scratch_size(texture_parity);
-        self.scratch_atlases[index] = Some(Atlas::new(
-            AtlasId::new(u32::try_from(index).unwrap()),
-            u32::from(size.width()),
-            u32::from(size.height()),
-        ));
+        self.scratch_texture = true;
 
         Ok(())
     }
@@ -141,7 +91,7 @@ impl Atlases {
 
         let parity = texture_parity.get_parity();
         let page_index = u16::try_from(self.layer_atlases[parity].len()).unwrap();
-        let size = self.texture_sizes.layer_size(texture_parity);
+        let size = self.texture_size;
         let atlas = Atlas::new(
             AtlasId::new(u32::from(page_index)),
             u32::from(size.width()),
@@ -173,9 +123,9 @@ impl LayerAllocationRequest {
     pub(super) fn new(layer: &OpenLayer<'_>) -> Self {
         let padding = match layer.kind {
             RecordedLayerKind::Regular => 0,
-            // We not only need the padding for the scratch textures of a filter layer, but also
-            // in the main layer atlas. The reason is that when applying the filter, we merge
-            // the steps "copy into scratch texture + first filter pass".
+            // Padding is needed because some filters use bilinear sampling for
+            // improved performance. Therefore, we need to ensure there is transparent
+            // padding on the outside.
             RecordedLayerKind::Filter { .. } => FILTER_ATLAS_PADDING,
         };
 
@@ -189,46 +139,22 @@ impl LayerAllocationRequest {
             region,
         }
     }
+
+    pub(super) fn filter_temporary(layer_region: RectU16, texture_parity: TextureParity) -> Self {
+        Self {
+            texture_parity,
+            region: RegionAllocationRequest {
+                size: SizeU16::from_wh(layer_region.width(), layer_region.height()),
+                padding: FILTER_ATLAS_PADDING,
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
 struct RegionAllocationRequest {
     size: SizeU16,
     padding: u16,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(super) struct ScratchAllocationRequest {
-    region: RegionAllocationRequest,
-    count: u8,
-}
-
-impl ScratchAllocationRequest {
-    pub(super) fn for_filter(rect: RectU16, filter: &PreparedGpuFilter) -> Self {
-        Self {
-            region: RegionAllocationRequest {
-                size: SizeU16::from_wh(rect.width(), rect.height()),
-                padding: FILTER_ATLAS_PADDING,
-            },
-            count: filter.scratch_count(),
-        }
-    }
-
-    pub(super) fn for_blend(rect: RectU16) -> Self {
-        Self {
-            region: RegionAllocationRequest {
-                size: SizeU16::from_wh(rect.width(), rect.height()),
-                padding: 0,
-            },
-            count: 1,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(super) enum AtlasAllocation {
-    Layer(AllocatedTextureRegion<LayerTextureId>),
-    Scratch(AllocatedTextureRegion<TextureParity>),
 }
 
 #[derive(Debug, Clone, Copy)]

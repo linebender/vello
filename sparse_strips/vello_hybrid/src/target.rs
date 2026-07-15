@@ -3,7 +3,7 @@
 
 //! Render targets and regions used by the hybrid renderer.
 
-use vello_common::geometry::{RectU16, SizeU16};
+use vello_common::geometry::RectU16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RootRenderTarget {
@@ -102,6 +102,50 @@ impl LayerTexturePair {
     }
 }
 
+/// A pair of two layer textures used for a filter operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct FilterTexturePair {
+    pair: LayerTexturePair,
+    original_parity: TextureParity,
+}
+
+impl FilterTexturePair {
+    pub(crate) const fn new(pair: LayerTexturePair, original_parity: TextureParity) -> Self {
+        Self {
+            pair,
+            original_parity,
+        }
+    }
+
+    pub(crate) const fn original(self) -> LayerTextureId {
+        self.pair.layer_id(self.original_parity)
+    }
+
+    pub(crate) const fn pair(self) -> LayerTexturePair {
+        self.pair
+    }
+
+    pub(crate) const fn temporary(self) -> LayerTextureId {
+        self.pair.layer_id(self.original_parity.opposite())
+    }
+
+    pub(crate) const fn input(self, step: usize) -> LayerTextureId {
+        if step & 1 == 0 {
+            self.original()
+        } else {
+            self.temporary()
+        }
+    }
+
+    pub(crate) const fn output(self, step: usize) -> LayerTextureId {
+        if step & 1 == 0 {
+            self.temporary()
+        } else {
+            self.original()
+        }
+    }
+}
+
 /// A constraint for layer texture pairs.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct LayerTexturePairConstraint {
@@ -155,7 +199,7 @@ pub(crate) enum TextureTarget {
     /// A layer atlas texture.
     Layer(LayerTextureId),
     /// A scratch texture.
-    Scratch(TextureParity),
+    Scratch,
 }
 
 impl TextureTarget {
@@ -163,55 +207,8 @@ impl TextureTarget {
         Self::Layer(id)
     }
 
-    pub(crate) fn scratch(parity: TextureParity) -> Self {
-        Self::Scratch(parity)
-    }
-
-    pub(crate) const fn parity(self) -> TextureParity {
-        match self {
-            Self::Layer(id) => id.texture_parity,
-            Self::Scratch(parity) => parity,
-        }
-    }
-}
-
-// TODO: Remove this, since we use the same texture size everywhere?
-/// Dimensions of the intermediate textures used by the hybrid renderer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct IntermediateTextureSizes {
-    layer: [SizeU16; 2],
-    scratch: [SizeU16; 2],
-}
-
-impl IntermediateTextureSizes {
-    pub(crate) fn new(layer: [SizeU16; 2], scratch: [SizeU16; 2]) -> Self {
-        Self { layer, scratch }
-    }
-
-    pub(crate) fn uniform(size: SizeU16) -> Self {
-        Self::new([size; 2], [size; 2])
-    }
-
-    pub(crate) fn size(self, target: TextureTarget) -> SizeU16 {
-        match target {
-            TextureTarget::Layer(id) => self.layer_size(id.texture_parity),
-            TextureTarget::Scratch(parity) => self.scratch_size(parity),
-        }
-    }
-
-    pub(crate) fn layer_size(self, parity: TextureParity) -> SizeU16 {
-        self.layer[parity.get_parity()]
-    }
-
-    pub(crate) fn scratch_size(self, parity: TextureParity) -> SizeU16 {
-        self.scratch[parity.get_parity()]
-    }
-
-    pub(crate) fn max(self, other: Self) -> Self {
-        Self::new(
-            core::array::from_fn(|index| self.layer[index].max(other.layer[index])),
-            core::array::from_fn(|index| self.scratch[index].max(other.scratch[index])),
-        )
+    pub(crate) const fn scratch() -> Self {
+        Self::Scratch
     }
 }
 
@@ -226,8 +223,6 @@ pub(crate) struct TextureRegion<T> {
 
 /// A rectangular region in a layer texture.
 pub(crate) type LayerRegion = TextureRegion<LayerTextureId>;
-/// A rectangular region in a scratch texture.
-pub(crate) type ScratchRegion = TextureRegion<TextureParity>;
 
 /// A layer texture region with its corresponding viewport-space bounds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -236,6 +231,18 @@ pub(crate) struct LayerTextureRegion {
     pub(crate) texture: LayerRegion,
     /// Bounds of this layer in viewport coordinates.
     pub(crate) layer_bbox: RectU16,
+}
+
+impl LayerTextureRegion {
+    /// Translate a scene-space rectangle within this layer to texture coordinates.
+    ///
+    /// The given bbox must be fully contained within the layer bbox.
+    pub(crate) fn texture_rect(self, bbox: RectU16) -> RectU16 {
+        let x0 = self.texture.rect.x0 + (bbox.x0.checked_sub(self.layer_bbox.x0).unwrap());
+        let y0 = self.texture.rect.y0 + (bbox.y0.checked_sub(self.layer_bbox.y0).unwrap());
+
+        RectU16::new(x0, y0, x0 + bbox.width(), y0 + bbox.height())
+    }
 }
 
 pub(crate) trait DrawTarget {

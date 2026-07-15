@@ -9,8 +9,6 @@ use bytemuck::{Pod, Zeroable};
 use vello_common::geometry::SizeU16;
 use vello_common::peniko::{Compose, Mix};
 
-pub(crate) const BLEND_SCRATCH_PARITY: TextureParity = TextureParity::Even;
-
 /// Per-instance data for `blend.wgsl`.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
@@ -31,15 +29,13 @@ pub(crate) struct GpuBlendInstance {
     pub(crate) blend_rect_size: u32,
     /// Packed blend mode, opacity, and parent/child texture indices.
     pub(crate) blend_config: u32,
-    /// Atlas-space origin in the scratch texture, packed as `u16x2`.
-    pub(crate) scratch_texture_origin: u32,
 }
 
 impl GpuBlendInstance {
     pub(crate) fn copy_from_scratch(self, parent_texture_size: SizeU16) -> GpuCopyInstance {
         GpuCopyInstance {
             target_texture_origin: self.parent_texture_origin,
-            source_texture_origin: self.scratch_texture_origin,
+            source_texture_origin: self.parent_texture_origin,
             copy_rect_size: self.blend_rect_size,
             target_texture_size: pack_u16_pair(
                 parent_texture_size.width(),
@@ -50,12 +46,10 @@ impl GpuBlendInstance {
 }
 
 pub(crate) fn gpu_blend_instance(blend: BlendOp, target_texture_size: SizeU16) -> GpuBlendInstance {
-    let parent_x = blend.parent_region.texture.rect.x0
-        + (blend.blend_bbox.x0 - blend.parent_region.layer_bbox.x0);
-    let parent_y = blend.parent_region.texture.rect.y0
-        + (blend.blend_bbox.y0 - blend.parent_region.layer_bbox.y0);
+    let parent_rect = blend.parent_region.texture_rect(blend.blend_bbox);
+
     GpuBlendInstance {
-        parent_texture_origin: pack_u16_pair(parent_x, parent_y),
+        parent_texture_origin: pack_u16_pair(parent_rect.x0, parent_rect.y0),
         target_texture_size: pack_u16_pair(
             target_texture_size.width(),
             target_texture_size.height(),
@@ -80,10 +74,6 @@ pub(crate) fn gpu_blend_instance(blend: BlendOp, target_texture_size: SizeU16) -
             blend.opacity,
             blend.parent_region.texture.target.texture_parity,
             blend.child_region.texture.target.texture_parity,
-        ),
-        scratch_texture_origin: pack_u16_pair(
-            blend.scratch_region.rect.x0,
-            blend.scratch_region.rect.y0,
         ),
     }
 }

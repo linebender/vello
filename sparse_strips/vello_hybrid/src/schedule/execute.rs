@@ -9,11 +9,11 @@ use crate::GpuStrip;
 use crate::draw::ExternalTextureRun;
 use crate::filter::FilterPassPlan;
 use crate::target::{
-    DrawPassTarget, IntermediateTextureSizes, LayerTextureId, LayerTexturePair, RootRenderTarget,
+    DrawPassTarget, FilterTexturePair, LayerTextureId, LayerTexturePair, RootRenderTarget,
     TextureParity, TextureTarget,
 };
 use crate::util::{RangedSlice, VecExt};
-use vello_common::geometry::RectU16;
+use vello_common::geometry::{RectU16, SizeU16};
 
 pub(crate) trait RendererBackend {
     fn opaque_pass(&mut self, strips: &[GpuStrip]);
@@ -31,7 +31,7 @@ pub(crate) trait RendererBackend {
         parent_texture_parity: TextureParity,
         texture_pair: LayerTexturePair,
     );
-    fn filter_pass(&mut self, plan: &FilterPassPlan, layer_id: LayerTextureId);
+    fn filter_pass(&mut self, plan: &FilterPassPlan, textures: FilterTexturePair);
 }
 
 pub(crate) fn execute<R: RendererBackend>(
@@ -65,7 +65,7 @@ impl Schedule {
             root_output_target,
             buffers,
             filter_plan,
-            self.texture_sizes,
+            self.texture_size,
         );
     }
 }
@@ -77,7 +77,7 @@ impl Rounds {
         root_output_target: RootRenderTarget,
         buffers: &ScheduleBuffers,
         filter_plan: &mut FilterPassPlan,
-        texture_sizes: IntermediateTextureSizes,
+        texture_size: SizeU16,
     ) {
         // The core loop that ties everything together!
 
@@ -109,9 +109,12 @@ impl Rounds {
                         .ranged(&pass.filter_ranges)
                         .iter()
                         .copied(),
-                    texture_sizes,
+                    texture_size,
                 );
-                renderer.filter_pass(filter_plan, layer_id);
+                renderer.filter_pass(
+                    filter_plan,
+                    FilterTexturePair::new(texture_pair, texture_parity),
+                );
                 // Finally, we apply all blend operations.
                 renderer.blend_pass(
                     buffers.blend_ops.ranged(&pass.blend_ranges),
@@ -136,19 +139,15 @@ impl Rounds {
 
             // Finally, we clear layer regions that are deallocated in this round as well as
             // all painted rectangles in the scratch buffer, so future rounds can assume a clean slate.
-            for (index, (layer_clears, scratch_clears)) in round
-                .layer_texture_clears
-                .iter()
-                .zip(round.scratch_texture_clears.iter())
-                .enumerate()
-            {
+            for (index, layer_clears) in round.layer_texture_clears.iter().enumerate() {
                 let texture_parity = TextureParity::from_parity(index);
                 renderer.clear_pass(
                     TextureTarget::layer_page(texture_pair.layer_id(texture_parity)),
                     layer_clears,
                 );
-                renderer.clear_pass(TextureTarget::scratch(texture_parity), scratch_clears);
             }
+
+            renderer.clear_pass(TextureTarget::scratch(), &round.scratch_texture_clears);
         }
     }
 }

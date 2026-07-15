@@ -4,10 +4,9 @@
 //! Monotonic allocation cursor for scheduled rounds.
 
 use crate::schedule::allocate::{
-    AllocatedTextureRegion, Allocation, AtlasAllocation, Atlases, LayerAllocationRequest,
-    ScratchAllocationRequest,
+    AllocatedTextureRegion, Allocation, Atlases, LayerAllocationRequest,
 };
-use crate::target::{LayerTextureId, TextureParity};
+use crate::target::LayerTextureId;
 use alloc::vec::Vec;
 use vello_common::multi_atlas::AtlasError;
 
@@ -15,7 +14,7 @@ use vello_common::multi_atlas::AtlasError;
 pub(super) struct Cursor {
     current_round: usize,
     atlases: Atlases,
-    pending_releases: Vec<Vec<AtlasAllocation>>,
+    pending_releases: Vec<Vec<AllocatedTextureRegion<LayerTextureId>>>,
 }
 
 impl Cursor {
@@ -31,8 +30,12 @@ impl Cursor {
         self.current_round
     }
 
-    pub(super) fn scratch_textures(&self) -> [bool; 2] {
-        self.atlases.scratch_textures()
+    pub(super) fn scratch_texture(&self) -> bool {
+        self.atlases.scratch_texture()
+    }
+
+    pub(super) fn require_scratch_texture(&mut self) -> Result<(), AtlasError> {
+        self.atlases.require_scratch_texture()
     }
 
     pub(super) fn allocate_layer(
@@ -60,14 +63,6 @@ impl Cursor {
         })
     }
 
-    pub(super) fn allocate_scratch(
-        &mut self,
-        request: ScratchAllocationRequest,
-    ) -> Result<Allocation<[Option<AllocatedTextureRegion<TextureParity>>; 2]>, AtlasError> {
-        self.allocate_reusing(|atlases| atlases.allocate_scratch(&request))?
-            .ok_or(AtlasError::NoSpaceAvailable)
-    }
-
     /// Advance the round counter until enough resources have been freed such that
     /// the given allocation succeeds.
     ///
@@ -93,7 +88,11 @@ impl Cursor {
         }
     }
 
-    pub(super) fn release(&mut self, allocation: AtlasAllocation, round_idx: usize) {
+    pub(super) fn release(
+        &mut self,
+        allocation: AllocatedTextureRegion<LayerTextureId>,
+        round_idx: usize,
+    ) {
         assert!(
             round_idx >= self.current_round,
             "cannot release an allocation in a round already passed by the cursor"

@@ -133,12 +133,12 @@ pub struct LayersConfig {
     /// 3) If your scene graph resembles a "grid structure" (you can have arbitrarily deeply nested
     ///    layers and multiple of those, but a layer must not have more than 1 child), have no
     ///    blending and no filters or COLR glyphs, you can set this to 2.
-    /// 4) If your scene graph resembles a "grid structure", you have blend operations in-between
-    ///    layers (but _not_ against the root output!) or use COLR glyphs, but you have no filter
-    ///    layers, you can set this to 3.
-    /// 5) If 4) applies, but you also have filter layers, set this value to 4.
-    /// 6) if you have blend operations against the root output target, take the value from 4)
-    ///    or 5) plus one.
+    /// 4) If your scene graph resembles a "grid structure" and uses blend operations, drop
+    ///    shadows, or COLR glyphs, you can set this to 3. The third texture is the shared scratch
+    ///    texture. Other filters ping-pong directly between the two layer textures and do not need
+    ///    it.
+    /// 5) If you have blend operations against the root output target, add one to the applicable
+    ///    value above.
     /// 7) If your scenes can contain layers with multiple children, it is not possible to
     ///    determine the maximum number of texture that need to be allocated. Therefore, either
     ///    leave this at `None` or set a limit > 5, depending on what you are comfortable with.
@@ -153,9 +153,10 @@ pub struct LayersConfig {
     ///
     /// In order to render most scenes correctly, this value should be at least as large as the size
     /// of the main scene. If you ensure this is the case, then you will be able to render all
-    /// scenes successfully **as long as you don't use filter layers** (and `max_textures` is large enough).
+    /// scenes successfully as long as `max_textures` is large enough. Filter layers can require
+    /// allocations larger than the main scene, however.
     ///
-    /// The main problem is that filter layers might require larger allocations.
+    /// For example, filter layers might require larger allocations.
     /// If you have a circle that spans the whole size of the scene but has a Gaussian blur with `std`
     /// 100, a texture that is larger than the size of the scene is required. Therefore, the
     /// appropriate value for this parameter once again depends on your exact use case.

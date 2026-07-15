@@ -12,7 +12,6 @@ use crate::blend::GpuBlendInstance;
 use crate::copy::GpuCopyInstance;
 use crate::filter::FILTER_ATLAS_PADDING;
 use crate::scene::{LayersConfig, MemorySettings, RecordedDraw, TextureAllocationStrategy};
-use crate::target::IntermediateTextureSizes;
 use alloc::vec::Vec;
 use bytemuck::{Pod, Zeroable};
 use vello_common::geometry::{SizeU16, SizeU32};
@@ -96,21 +95,17 @@ impl MemorySettings {
 }
 
 impl LayersConfig {
-    pub(crate) fn initial_intermediate_texture_sizes(self) -> IntermediateTextureSizes {
+    pub(crate) fn initial_intermediate_texture_size(self) -> SizeU16 {
         match self.grow_strategy {
-            TextureAllocationStrategy::Eager => {
-                IntermediateTextureSizes::uniform(self.max_texture_size)
-            }
-            TextureAllocationStrategy::Conservative => {
-                IntermediateTextureSizes::uniform(self.min_texture_size)
-            }
+            TextureAllocationStrategy::Eager => self.max_texture_size,
+            TextureAllocationStrategy::Conservative => self.min_texture_size,
         }
     }
 
-    pub(crate) fn intermediate_texture_requirements(
+    pub(crate) fn required_intermediate_texture_size(
         self,
         recorder: &CommandRecorder<RecordedDraw>,
-    ) -> Result<IntermediateTextureSizes, AtlasError> {
+    ) -> Result<SizeU16, AtlasError> {
         let min_size = self.min_texture_size;
         let max_size = self.max_texture_size;
 
@@ -145,28 +140,13 @@ impl LayersConfig {
         }
 
         let layer_size = checked_size(layer_size)?;
-        let filter_scratch_size = checked_size(filter_size)?;
-
         // Always allocate at the maximum allowed by the user for `Eager`.
         if self.grow_strategy == TextureAllocationStrategy::Eager {
-            return Ok(self.initial_intermediate_texture_sizes());
+            return Ok(self.initial_intermediate_texture_size());
         }
 
         let layer_size = layer_size.max(min_size);
-        let filter_scratch_size = filter_scratch_size.max(min_size);
-        let blend_scratch_size = if recorder.has_non_default_blend {
-            layer_size
-        } else {
-            min_size
-        };
-
-        Ok(IntermediateTextureSizes::new(
-            [layer_size; 2],
-            [
-                filter_scratch_size.max(blend_scratch_size),
-                filter_scratch_size,
-            ],
-        ))
+        Ok(layer_size)
     }
 }
 
@@ -286,7 +266,7 @@ mod tests {
     }
 
     #[test]
-    fn intermediate_texture_requirements_reject_oversized_layers() {
+    fn required_intermediate_texture_size_rejects_oversized_layers() {
         let mut recorder = CommandRecorder::<RecordedDraw>::new(10, 10);
         recorder.largest_layer_size = Some(SizeU16::from_wh(513, 10));
 
@@ -302,7 +282,7 @@ mod tests {
             };
 
             assert!(matches!(
-                config.intermediate_texture_requirements(&recorder),
+                config.required_intermediate_texture_size(&recorder),
                 Err(AtlasError::TextureTooLarge {
                     width: 513,
                     height: 10

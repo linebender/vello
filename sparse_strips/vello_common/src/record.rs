@@ -165,8 +165,6 @@ pub struct CommandRecorder<D> {
     pub largest_layer_size: Option<SizeU16>,
     /// The largest dimensions of any recorded filter layer.
     pub largest_filter_layer_size: Option<SizeU16>,
-    /// Whether there exists at least one layer that uses a non-default blend mode.
-    pub has_non_default_blend: bool,
     /// The layer whose command stream is currently the base.
     ///
     /// This is `None` if there is no active layer and we are recording into the root layer instead.
@@ -187,7 +185,6 @@ impl<D> Default for CommandRecorder<D> {
             max_layer_depth: 0,
             largest_layer_size: None,
             largest_filter_layer_size: None,
-            has_non_default_blend: false,
             active_layer: None,
             layer_stack: Vec::new(),
         }
@@ -229,7 +226,6 @@ impl<D> CommandRecorder<D> {
         self.max_layer_depth = 0;
         self.largest_layer_size = None;
         self.largest_filter_layer_size = None;
-        self.has_non_default_blend = false;
         self.active_layer = None;
         self.layer_stack.clear();
     }
@@ -262,12 +258,8 @@ impl<D> CommandRecorder<D> {
         let parent_layer = self.active_layer;
         self.max_layer_depth = self.max_layer_depth.max(layer.depth);
 
-        if layer.props.blend_mode != BlendMode::default() {
-            self.has_non_default_blend = true;
-
-            if parent_layer.is_none() {
-                self.root_is_blend_target = true;
-            }
+        if layer.props.blend_mode != BlendMode::default() && parent_layer.is_none() {
+            self.root_is_blend_target = true;
         }
 
         let id = self.push_layer_metadata(layer);
@@ -559,7 +551,6 @@ mod tests {
             [1, 2, 3, 2]
         );
         assert_eq!(recorder.max_layer_depth, 3);
-        assert!(!recorder.has_non_default_blend);
         assert_eq!(recorder.largest_layer_size, Some(SizeU16::from_wh(64, 4)));
         assert_eq!(
             recorder.largest_filter_layer_size,
@@ -583,14 +574,13 @@ mod tests {
     }
 
     #[test]
-    fn blend_metadata_distinguishes_root_and_nested_targets() {
+    fn blend_metadata_tracks_root_targets() {
         let mut recorder = CommandRecorder::<TestDraw>::new(DEFAULT_SIZE, DEFAULT_SIZE);
 
         recorder.push_layer(layer_props(), None);
         recorder.push_layer(blended_layer_props(), None);
 
         assert!(!recorder.root_is_blend_target);
-        assert!(recorder.has_non_default_blend);
         assert_eq!(recorder.max_layer_depth, 2);
 
         recorder.pop_layer();
@@ -614,7 +604,6 @@ mod tests {
         recorder.pop_layer();
 
         assert!(recorder.root_is_blend_target);
-        assert!(recorder.has_non_default_blend);
         assert_eq!(recorder.max_layer_depth, 2);
         assert!(recorder.largest_layer_size.is_some());
         assert!(recorder.largest_filter_layer_size.is_some());
@@ -623,7 +612,6 @@ mod tests {
 
         assert_eq!(recorder.scene_size, SizeU16::from_wh(16, 8));
         assert!(!recorder.root_is_blend_target);
-        assert!(!recorder.has_non_default_blend);
         assert_eq!(recorder.max_layer_depth, 0);
         assert!(recorder.largest_layer_size.is_none());
         assert!(recorder.largest_filter_layer_size.is_none());

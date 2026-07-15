@@ -89,10 +89,8 @@ use thiserror::Error;
 /// Errors that can occur during rendering.
 #[derive(Error, Debug, Clone)]
 pub enum RenderError {
-    /// An allocation error occurred while trying to allocate a new image. This can happen
-    /// if the scene contains filter layers, which need space in the image atlas for intermediate
-    /// storage.
-    #[error("Filter atlas allocation failed: {0}")]
+    /// An atlas allocation failed.
+    #[error("Atlas allocation failed: {0}")]
     AtlasError(#[from] vello_common::multi_atlas::AtlasError),
     /// A draw referenced a [`TextureId`] that was not provided at render time.
     #[error("Missing texture binding for {0:?}")]

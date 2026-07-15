@@ -1,7 +1,7 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Copy atlas regions from scratch back into the layer atlas.
+//! Copy rectangular regions between intermediate textures.
 
 struct CopyInstance {
     @location(0) target_texture_origin: u32,
@@ -16,7 +16,7 @@ struct VertexOutput {
 }
 
 @group(1) @binding(0)
-var scratch_texture: texture_2d<f32>;
+var source_texture: texture_2d<f32>;
 
 fn unpack_u16_pair(value: u32) -> vec2<u32> {
     return vec2<u32>(value & 0xffffu, value >> 16u);
@@ -50,5 +50,5 @@ fn vs_main(
 fn fs_main(
     @location(0) source_texture_xy: vec2<f32>,
 ) -> @location(0) vec4<f32> {
-    return textureLoad(scratch_texture, vec2<i32>(source_texture_xy), 0);
+    return textureLoad(source_texture, vec2<i32>(source_texture_xy), 0);
 }

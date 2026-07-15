@@ -8,24 +8,25 @@ mod cursor;
 pub(crate) mod execute;
 pub(crate) mod round;
 
-use self::allocate::{AtlasAllocation, Atlases, LayerAllocationRequest, ScratchAllocationRequest};
+use self::allocate::{Atlases, LayerAllocationRequest};
 use self::cursor::Cursor;
 pub(crate) use self::execute::{RendererBackend, execute};
-use self::round::{BlendOp, FilterOp, Round, RoundStage, Rounds, SchedulePoint};
-use crate::blend::BLEND_SCRATCH_PARITY;
+use self::round::{
+    BlendOp, FilterOp, FilterTextureRegions, Round, RoundStage, Rounds, SchedulePoint,
+};
 use crate::draw::{Draw, DrawBuffers, DrawBuilder, DrawState};
 use crate::filter::{FilterContext, FilterPassPlan, PreparedGpuFilter};
 use crate::paint::PaintResolver;
 use crate::scene::RecordedDraw;
 use crate::schedule::allocate::AllocatedTextureRegion;
 use crate::target::{
-    DrawTarget, IntermediateTextureSizes, LayerTextureId, LayerTexturePairConstraint,
-    LayerTextureRegion, RootRenderTarget, TextureParity, TextureRegion,
+    DrawTarget, LayerTextureId, LayerTexturePairConstraint, LayerTextureRegion, RootRenderTarget,
+    TextureParity, TextureRegion,
 };
 use crate::{LayersConfig, RenderError, Scene};
 use alloc::vec::Vec;
 use vello_common::filter::FilterLayerPlacement;
-use vello_common::geometry::RectU16;
+use vello_common::geometry::{RectU16, SizeU16};
 use vello_common::peniko::BlendMode;
 use vello_common::record::{CommandRecorder, LayerProps, Node, RecordedLayer, RecordedLayerKind};
 use vello_common::strip_generator::StripStorage;
@@ -35,8 +36,8 @@ const REGULAR_LAYER_KIND: RecordedLayerKind = RecordedLayerKind::Regular;
 #[derive(Debug)]
 pub(crate) struct Schedule {
     rounds: Rounds,
-    texture_sizes: IntermediateTextureSizes,
-    scratch_textures: [bool; 2],
+    texture_size: SizeU16,
+    scratch_texture: bool,
 }
 
 impl Schedule {
@@ -45,7 +46,7 @@ impl Schedule {
         scene: &Scene,
         root_output_target: RootRenderTarget,
         paint_resolver: PaintResolver<'_>,
-        texture_sizes: IntermediateTextureSizes,
+        texture_size: SizeU16,
         layer_config: LayersConfig,
     ) -> Result<Self, RenderError> {
         storage.clear();
@@ -65,7 +66,7 @@ impl Schedule {
             &strip_storage,
             root_output_target,
             paint_resolver,
-            texture_sizes,
+            texture_size,
             layer_config,
             storage,
         );
@@ -77,8 +78,8 @@ impl Schedule {
         self.rounds.layer_page_counts
     }
 
-    pub(crate) fn scratch_textures(&self) -> [bool; 2] {
-        self.scratch_textures
+    pub(crate) fn scratch_texture(&self) -> bool {
+        self.scratch_texture
     }
 }
 
@@ -94,7 +95,7 @@ struct Scheduler<'a, 'p> {
     paint_resolver: PaintResolver<'a>,
     cursor: Cursor,
     unreleased_layer_count: usize,
-    texture_sizes: IntermediateTextureSizes,
+    texture_size: SizeU16,
     storage: &'p mut ScheduleStorage,
 }
 
@@ -105,7 +106,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         strip_storage: &'a StripStorage,
         root_render_target: RootRenderTarget,
         paint_resolver: PaintResolver<'a>,
-        texture_sizes: IntermediateTextureSizes,
+        texture_size: SizeU16,
         layer_config: LayersConfig,
         storage: &'p mut ScheduleStorage,
     ) -> Self {
@@ -115,9 +116,9 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             strip_storage,
             root_render_target,
             paint_resolver,
-            cursor: Cursor::new(Atlases::new(texture_sizes, layer_config)),
+            cursor: Cursor::new(Atlases::new(texture_size, layer_config)),
             unreleased_layer_count: 0,
-            texture_sizes,
+            texture_size,
             storage,
         }
     }
@@ -134,11 +135,11 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         // Since the strips should be rendered front-to-back.
         self.storage.buffers.draw_buffers.opaque_strips.reverse();
 
-        let scratch_textures = self.cursor.scratch_textures();
+        let scratch_texture = self.cursor.scratch_texture();
         Ok(Schedule {
             rounds,
-            texture_sizes: self.texture_sizes,
-            scratch_textures,
+            texture_size: self.texture_size,
+            scratch_texture,
         })
     }
 
@@ -324,47 +325,48 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         let mut ready = target.schedule_state.ready;
 
         if let Some(filter) = target.filter {
-            let scratch_request =
-                ScratchAllocationRequest::for_filter(region.texture.rect, &filter);
-            let scratch_allocation = self.cursor.allocate_scratch(scratch_request)?;
-            let scratch_regions = scratch_allocation.allocation;
+            let temporary =
+                self.cursor
+                    .allocate_layer(LayerAllocationRequest::filter_temporary(
+                        region.texture.rect,
+                        region.texture.target.texture_parity.opposite(),
+                    ))?;
+            let textures = FilterTextureRegions::new(region.texture, temporary.allocation.region);
+
+            if filter.data.needs_copy_pass() {
+                self.cursor.require_scratch_texture()?;
+            }
 
             let base_point = ready
                 // We must wait until our reserved space is available in the atlas.
-                .max(SchedulePoint::start(scratch_allocation.round_idx))
+                .max(SchedulePoint::start(temporary.round_idx))
                 // Wait until we reach the filter stage.
                 .next(RoundStage::filter(region.texture.target.texture_parity));
 
-            let filter_point = rounds.resolve_binding_point(
-                base_point,
-                LayerTexturePairConstraint::new(region.texture.target),
-            );
+            let filter_point = rounds.resolve_binding_point(base_point, textures.texture_binding());
 
             rounds.ensure_exists(filter_point.round);
             rounds.rounds[filter_point.round].push_filter_op(
                 region.texture.target.texture_parity,
                 &mut self.storage.buffers,
                 FilterOp {
-                    layer_region: region,
-                    scratches: scratch_regions.map(|scratch| scratch.map(|texture| texture.region)),
+                    textures,
                     filter_data_offset: filter.data_offset,
                     gpu_filter: filter.data,
                 },
             );
 
-            // Clean up scratch regions since they are not needed anymore after the filter
-            // has been applied.
-            for scratch_region in scratch_regions.into_iter().flatten() {
-                let clear_region = scratch_region.clear_region();
+            let clear_region = temporary.allocation.clear_region();
+            rounds.push_layer_clear(
+                filter_point.round,
+                clear_region.target.texture_parity,
+                clear_region.rect,
+            );
+            self.cursor
+                .release(temporary.allocation, filter_point.round);
 
-                rounds.push_scratch_clear(
-                    filter_point.round,
-                    clear_region.target,
-                    clear_region.rect,
-                );
-
-                self.cursor
-                    .release(AtlasAllocation::Scratch(scratch_region), filter_point.round);
+            if filter.data.needs_copy_pass() {
+                rounds.push_scratch_clear(filter_point.round, region.texture.rect);
             }
 
             ready = filter_point;
@@ -409,19 +411,14 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         };
 
         let parent_texture_parity = parent_region.texture.target.texture_parity;
-        let scratch_allocation = self
-            .cursor
-            .allocate_scratch(ScratchAllocationRequest::for_blend(blend_bbox))?;
-        let scratch_region = scratch_allocation.allocation[BLEND_SCRATCH_PARITY.get_parity()]
-            .expect("blend scratch requests must allocate the even scratch texture");
+        self.cursor.require_scratch_texture()?;
 
         // A blend must execute after both the parent and child are ready.
         let blend_stage = RoundStage::blend(parent_texture_parity);
         let blend_point = state
             .ready
             .next(blend_stage)
-            .max(child_layer.ready.next(blend_stage))
-            .max(SchedulePoint::start(scratch_allocation.round_idx).next(blend_stage));
+            .max(child_layer.ready.next(blend_stage));
         let blend_binding = LayerTexturePairConstraint::new(parent_region.texture.target)
             .merge(LayerTexturePairConstraint::new(child_region.texture.target))
             .expect("parent and child layers must have compatible texture parities");
@@ -434,7 +431,6 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             BlendOp {
                 parent_region,
                 child_region,
-                scratch_region: scratch_region.region,
                 blend_bbox,
                 blend_mode,
                 opacity,
@@ -442,10 +438,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         );
 
         // Make sure to clean up after blending is done.
-        let clear_region = scratch_region.clear_region();
-        rounds.push_scratch_clear(blend_point.round, clear_region.target, clear_region.rect);
-        self.cursor
-            .release(AtlasAllocation::Scratch(scratch_region), blend_point.round);
+        rounds.push_scratch_clear(blend_point.round, parent_region.texture_rect(blend_bbox));
 
         // And make sure to release the child now that it's been composited into the parent.
         self.release_layer(child_layer, blend_point, rounds);
@@ -507,8 +500,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             layer_region.rect,
         );
 
-        self.cursor
-            .release(AtlasAllocation::Layer(layer.allocation), point.round);
+        self.cursor.release(layer.allocation, point.round);
     }
 
     /// Lazily allocate space for an open layer.

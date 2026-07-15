@@ -44,7 +44,6 @@ struct BlendInstance {
     @location(5) blend_rect_origin: u32,
     @location(6) blend_rect_size: u32,
     @location(7) blend_config: u32,
-    @location(8) scratch_texture_origin: u32,
 }
 
 struct VertexOutput {
@@ -77,13 +76,11 @@ fn vs_main(
     let child_rect_origin = unpack_u16_pair(instance.child_rect_origin);
     let blend_rect_origin = unpack_u16_pair(instance.blend_rect_origin);
     let blend_rect_size = unpack_u16_pair(instance.blend_rect_size);
-    let scratch_texture_origin = unpack_u16_pair(instance.scratch_texture_origin);
 
     let x = f32(vertex_index & 1u);
     let y = f32(vertex_index >> 1u);
     let local = vec2<f32>(x, y) * vec2<f32>(blend_rect_size);
     let parent_xy = vec2<f32>(parent_texture_origin) + local;
-    let scratch_xy = vec2<f32>(scratch_texture_origin) + local;
     let scene_xy = vec2<f32>(blend_rect_origin) + local;
     let child_local = scene_xy - vec2<f32>(child_rect_origin);
 
@@ -94,8 +91,8 @@ fn vs_main(
     out.child_rect_size = instance.child_rect_size;
     out.blend_config = instance.blend_config;
 
-    let ndc_x = scratch_xy.x * 2.0 / f32(target_texture_size.x) - 1.0;
-    let ndc_y = 1.0 - scratch_xy.y * 2.0 / f32(target_texture_size.y);
+    let ndc_x = parent_xy.x * 2.0 / f32(target_texture_size.x) - 1.0;
+    let ndc_y = 1.0 - parent_xy.y * 2.0 / f32(target_texture_size.y);
     out.position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
     return out;
 }
