@@ -168,10 +168,10 @@ impl SceneConstraints {
 pub struct RenderSettings {
     /// The SIMD level that should be used for rendering operations.
     pub level: Level,
-    /// The configuration for the texture atlas.
+    /// The configuration for the image/glyph texture atlas.
     ///
-    /// This controls how images are managed in GPU memory through texture atlases.
-    /// The atlas system packs multiple images into larger textures to reduce the
+    /// This controls how uploaded images and glyphs are managed in GPU memory through texture
+    /// atlases. The atlas system packs multiple images into larger textures to reduce the
     /// number of GPU texture bindings. This config allows customizing atlas parameters such as:
     /// - The number and size of atlases
     /// - How images are allocated across multiple atlases
@@ -179,7 +179,12 @@ pub struct RenderSettings {
     ///
     /// Adjusting these settings can affect memory usage and rendering performance
     /// depending on your application's image usage patterns.
-    pub atlas_config: AtlasConfig,
+    pub image_atlas_config: AtlasConfig,
+    /// The configuration for the filter scratch texture atlas.
+    ///
+    /// Filters (e.g. blurs) render intermediate results into their own set of scratch atlas
+    /// textures, independent from the image/glyph atlas.
+    pub filter_atlas_config: AtlasConfig,
     /// Constraints on the scene that the renderer can exploit for optimisation.
     pub constraints: SceneConstraints,
 }
@@ -188,7 +193,13 @@ impl Default for RenderSettings {
     fn default() -> Self {
         Self {
             level: Level::try_detect().unwrap_or(Level::baseline()),
-            atlas_config: AtlasConfig::default(),
+            image_atlas_config: AtlasConfig::default(),
+            filter_atlas_config: AtlasConfig {
+                // Filter scratch textures are only needed when a scene actually uses filters,
+                // so start with none and let `auto_grow` allocate them on demand.
+                initial_atlas_count: 0,
+                ..AtlasConfig::default()
+            },
             constraints: SceneConstraints::new(),
         }
     }
