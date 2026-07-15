@@ -237,13 +237,6 @@ impl Default for LayersConfig {
 /// for textures.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum TextureAllocationStrategy {
-    /// Intermediate textures are always allocated at size [`LayersConfig::max_texture_size`]. This
-    /// means higher memory usage, but allows to reduce the number of invoked render passes for a
-    /// scene.
-    ///
-    /// If you are running on desktop devices and expect many layers, this is likely to be
-    /// a win if you care about the best performance.
-    Eager,
     /// Intermediate textures are always allocated at size max([`LayersConfig::min_texture_size`],
     /// `max_scene_bbox`). This ensures that you can still always render all scenes (subject
     /// to `LayersConfig::max_textures` being large enough), but the peak memory usage is kept
@@ -258,6 +251,14 @@ pub enum TextureAllocationStrategy {
     /// happens by increasing [`LayersConfig::min_texture_size`].
     #[default]
     Conservative,
+    /// Intermediate textures are always allocated at size [`LayersConfig::max_texture_size`]. This
+    /// means higher memory usage, but allows to reduce the number of invoked render passes for a
+    /// scene.
+    ///
+    /// If you are running on desktop devices and expect many layers in your scenes, this is likely
+    /// to be a win if you care about the best performance. Otherwise, choosing this option is
+    /// discouraged
+    Eager,
 }
 
 impl Default for RenderSettings {
