@@ -9,7 +9,7 @@ use crate::render::webgl::{
 };
 use crate::schedule::RootRenderTarget;
 use crate::{RenderError, RenderSize, Scene, WebGlRenderer};
-use alloc::sync::Arc;
+use alloc::{borrow::Cow, format, sync::Arc};
 use core::ops::Deref;
 use thiserror::Error;
 use vello_common::filter_effects::Filter;
@@ -38,9 +38,9 @@ pub enum WebGlProbeError {
     /// Rendering the probe scene failed.
     #[error("probe render failed: {0}")]
     Render(RenderError),
-    /// Probe readback failed.
-    #[error("probe readback failed")]
-    ReadbackFailed,
+    /// Finishing the probe failed.
+    #[error("probe failed to finish: {}", webgl_error_name(*.0))]
+    FinishFailed(u32),
 }
 
 /// Result of polling the WebGL probe.
@@ -227,9 +227,24 @@ impl WebGlPendingProbe {
         Probe::from_actual(pixmap)
     }
 
-    fn finish_failure(&mut self) -> WebGlProbeError {
-        WebGlProbeError::ReadbackFailed
+    fn finish_failure(&self) -> WebGlProbeError {
+        WebGlProbeError::FinishFailed(self.gl.get_error())
     }
+}
+
+fn webgl_error_name(error: u32) -> Cow<'static, str> {
+    let name = match error {
+        WebGl2RenderingContext::NO_ERROR => "NO_ERROR",
+        WebGl2RenderingContext::INVALID_ENUM => "INVALID_ENUM",
+        WebGl2RenderingContext::INVALID_VALUE => "INVALID_VALUE",
+        WebGl2RenderingContext::INVALID_OPERATION => "INVALID_OPERATION",
+        WebGl2RenderingContext::INVALID_FRAMEBUFFER_OPERATION => "INVALID_FRAMEBUFFER_OPERATION",
+        WebGl2RenderingContext::OUT_OF_MEMORY => "OUT_OF_MEMORY",
+        WebGl2RenderingContext::CONTEXT_LOST_WEBGL => "CONTEXT_LOST_WEBGL",
+        _ => return Cow::Owned(format!("UNKNOWN_WEBGL_ERROR ({error:#06x})")),
+    };
+
+    Cow::Borrowed(name)
 }
 
 impl Drop for WebGlPendingProbe {
