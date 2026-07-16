@@ -507,6 +507,8 @@ impl WebGlRenderer {
     ) -> ImageId {
         let width = writer.width();
         let height = writer.height();
+        // TODO: `upload_image` should return a `Result` rather than unwrapping here, so callers can
+        // handle images that are too large for the atlas instead of panicking.
         let image_id = image_cache.allocate(width, height, padding).unwrap();
         self.write_to_atlas(image_cache, image_id, writer, None);
         image_id
