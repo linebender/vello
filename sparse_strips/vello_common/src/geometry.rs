@@ -85,6 +85,34 @@ impl Add<u16> for SizeU16 {
     }
 }
 
+/// Padding for the four sides of a region.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct PaddingU16 {
+    /// The left padding.
+    pub left: u16,
+    /// The top padding.
+    pub top: u16,
+    /// The right padding.
+    pub right: u16,
+    /// The bottom padding.
+    pub bottom: u16,
+}
+
+impl PaddingU16 {
+    /// Padding with all sides set to zero.
+    pub const ZERO: Self = Self::new(0, 0, 0, 0);
+
+    /// Create padding from its left, top, right, and bottom amounts.
+    pub const fn new(left: u16, top: u16, right: u16, bottom: u16) -> Self {
+        Self {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
+}
+
 /// An axis-aligned rectangle with `u16` coordinates, stored as two corners `(x0, y0)` and
 /// `(x1, y1)`.
 ///
@@ -169,12 +197,12 @@ impl RectU16 {
 
     /// Expand this rectangle by the given left, top, right, and bottom padding.
     #[inline(always)]
-    pub const fn expand(self, padding: Self) -> Self {
+    pub const fn expand(self, padding: PaddingU16) -> Self {
         Self {
-            x0: self.x0.saturating_sub(padding.x0),
-            y0: self.y0.saturating_sub(padding.y0),
-            x1: self.x1.saturating_add(padding.x1),
-            y1: self.y1.saturating_add(padding.y1),
+            x0: self.x0.saturating_sub(padding.left),
+            y0: self.y0.saturating_sub(padding.top),
+            x1: self.x1.saturating_add(padding.right),
+            y1: self.y1.saturating_add(padding.bottom),
         }
     }
 

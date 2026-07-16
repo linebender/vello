@@ -418,6 +418,7 @@ pub enum PoppedLayer {
 mod tests {
     use super::*;
     use crate::filter_effects::{Filter, FilterPrimitive};
+    use crate::geometry::PaddingU16;
     use crate::kurbo::Affine;
     use crate::peniko::Mix;
     use crate::tile::Tile;
@@ -449,7 +450,7 @@ mod tests {
         }
     }
 
-    fn filter_data(filter_padding: RectU16, source_padding: RectU16) -> FilterData {
+    fn filter_data(filter_padding: PaddingU16, source_padding: PaddingU16) -> FilterData {
         FilterData {
             filter: Filter::from_primitive(FilterPrimitive::Offset { dx: 0.0, dy: 0.0 }),
             transform: Affine::IDENTITY,
@@ -490,7 +491,7 @@ mod tests {
     fn filter_placement_padding_expands_bbox() {
         let placement = FilterLayerPlacement::new(
             RectU16::new(8, 8, 16, 20),
-            &filter_data(RectU16::new(2, 4, 6, 8), RectU16::ZERO),
+            &filter_data(PaddingU16::new(2, 4, 6, 8), PaddingU16::ZERO),
         );
 
         // Since we are tile-aligned, values are expanded to a multiple of tile-size.
@@ -503,7 +504,7 @@ mod tests {
     fn filter_placement_with_source_shift() {
         let placement = FilterLayerPlacement::new(
             RectU16::new(8, 12, 20, 24),
-            &filter_data(RectU16::new(6, 2, 4, 6), RectU16::new(10, 16, 0, 0)),
+            &filter_data(PaddingU16::new(6, 2, 4, 6), PaddingU16::new(10, 16, 0, 0)),
         );
 
         // Bbox expanded with padding is [8 - 6, 12 - 2, 20 + 4, 24 + 6]
@@ -522,11 +523,11 @@ mod tests {
 
         recorder.push_layer(
             layer_props(),
-            Some(filter_data(RectU16::ZERO, RectU16::ZERO)),
+            Some(filter_data(PaddingU16::ZERO, PaddingU16::ZERO)),
         );
         recorder.push_layer(
             layer_props(),
-            Some(filter_data(RectU16::ZERO, RectU16::ZERO)),
+            Some(filter_data(PaddingU16::ZERO, PaddingU16::ZERO)),
         );
         recorder.push_layer(layer_props(), None);
 
@@ -618,7 +619,7 @@ mod tests {
         recorder.push_layer(blended_layer_props(), None);
         recorder.push_layer(
             layer_props(),
-            Some(filter_data(RectU16::ZERO, RectU16::ZERO)),
+            Some(filter_data(PaddingU16::ZERO, PaddingU16::ZERO)),
         );
         recorder.push_draw(TestDraw, &[]);
         recorder.pop_layer();

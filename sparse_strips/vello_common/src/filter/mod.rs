@@ -12,8 +12,9 @@ use crate::filter::flood::Flood;
 use crate::filter::gaussian_blur::{GaussianBlur, transform_blur_params};
 use crate::filter::offset::Offset;
 use crate::filter_effects::{Filter, FilterPrimitive};
-use crate::geometry::RectU16;
+use crate::geometry::{PaddingU16, RectU16};
 use crate::kurbo::{Affine, Rect, Vec2};
+use crate::tile::Tile;
 use crate::util::RectExt;
 
 pub mod drop_shadow;
@@ -169,35 +170,38 @@ pub struct FilterData {
     /// Padding that needs to be added for the area where the filter is applied.
     ///
     /// See [`Filter::filter_expansion`].
-    pub filter_padding: RectU16,
+    pub filter_padding: PaddingU16,
     /// Padding that needs to be added to the source region for correct filter application.
     ///
     /// See [`Filter::source_expansion`].
-    pub source_padding: RectU16,
+    pub source_padding: PaddingU16,
 }
 
 impl FilterData {
     /// Create precomputed data for a filter and transform.
     pub fn new(filter: Filter, transform: Affine) -> Self {
-        fn expansion_padding(expansion: Rect) -> RectU16 {
+        fn snapped_padding(expansion: Rect) -> PaddingU16 {
             // TODO: We technically shouldn't need to snap here. `source_padding` is only
             // used to shift the contents when rendering into the render context, and the
             // final pixmap bbox (which is derived from `filter_expansion` will be snapped
             // separately. However, not snapping here causes larger mismatches with Vello Hybrid
             // since the size of the final pixmap determines in which way we decimate for the
             // gaussian blur filter. Therefore, we keep this for compatibility.
-            let expansion = expansion.snap_to_tile_coordinates();
+            fn snap_up(value: f64, step: u16) -> u16 {
+                let step = f64::from(step);
+                ((value / step).ceil() * step) as u16
+            }
 
-            RectU16::new(
-                (-expansion.x0) as u16,
-                (-expansion.y0) as u16,
-                expansion.x1 as u16,
-                expansion.y1 as u16,
+            PaddingU16::new(
+                snap_up(-expansion.x0, Tile::WIDTH),
+                snap_up(-expansion.y0, Tile::HEIGHT),
+                snap_up(expansion.x1, Tile::WIDTH),
+                snap_up(expansion.y1, Tile::HEIGHT),
             )
         }
 
-        let source_padding = expansion_padding(filter.source_expansion(&transform));
-        let filter_padding = expansion_padding(filter.filter_expansion(&transform));
+        let source_padding = snapped_padding(filter.source_expansion(&transform));
+        let filter_padding = snapped_padding(filter.filter_expansion(&transform));
 
         Self {
             filter,
@@ -210,7 +214,7 @@ impl FilterData {
     /// By how much to shift all rendered contents to ensure that all rendered contents
     /// are visible in the viewport [0, 0, width, height].
     pub fn source_shift(&self) -> (u16, u16) {
-        (self.source_padding.x0, self.source_padding.y0)
+        (self.source_padding.left, self.source_padding.top)
     }
 }
 
