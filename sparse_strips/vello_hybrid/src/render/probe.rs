@@ -9,7 +9,7 @@ use crate::render::webgl::{
 };
 use crate::schedule::RootRenderTarget;
 use crate::{RenderError, RenderSize, Scene, WebGlRenderer};
-use alloc::{format, string::String, sync::Arc};
+use alloc::{borrow::Cow, format, sync::Arc};
 use core::ops::Deref;
 use thiserror::Error;
 use vello_common::filter_effects::Filter;
@@ -232,7 +232,7 @@ impl WebGlPendingProbe {
     }
 }
 
-fn webgl_error_name(error: u32) -> String {
+fn webgl_error_name(error: u32) -> Cow<'static, str> {
     let name = match error {
         WebGl2RenderingContext::NO_ERROR => "NO_ERROR",
         WebGl2RenderingContext::INVALID_ENUM => "INVALID_ENUM",
@@ -241,9 +241,10 @@ fn webgl_error_name(error: u32) -> String {
         WebGl2RenderingContext::INVALID_FRAMEBUFFER_OPERATION => "INVALID_FRAMEBUFFER_OPERATION",
         WebGl2RenderingContext::OUT_OF_MEMORY => "OUT_OF_MEMORY",
         WebGl2RenderingContext::CONTEXT_LOST_WEBGL => "CONTEXT_LOST_WEBGL",
-        _ => return format!("UNKNOWN_WEBGL_ERROR ({error:#06x})"),
+        _ => return Cow::Owned(format!("UNKNOWN_WEBGL_ERROR ({error:#06x})")),
     };
-    String::from(name)
+    
+    Cow::Borrowed(name)
 }
 
 impl Drop for WebGlPendingProbe {
