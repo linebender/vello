@@ -40,6 +40,8 @@ mod filter;
 mod glyph;
 mod gradient;
 mod image;
+#[cfg(all(target_arch = "wasm32", feature = "webgl"))]
+mod image_atlas;
 mod issues;
 mod layer;
 mod mask;
