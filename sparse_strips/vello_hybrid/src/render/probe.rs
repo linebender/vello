@@ -243,7 +243,7 @@ fn webgl_error_name(error: u32) -> Cow<'static, str> {
         WebGl2RenderingContext::CONTEXT_LOST_WEBGL => "CONTEXT_LOST_WEBGL",
         _ => return Cow::Owned(format!("UNKNOWN_WEBGL_ERROR ({error:#06x})")),
     };
-    
+
     Cow::Borrowed(name)
 }
 
