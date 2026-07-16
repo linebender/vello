@@ -23,8 +23,17 @@ pub struct Resources {
 impl Resources {
     /// Create a new set of renderer resources.
     pub fn new() -> Self {
+        Self::new_with_config(AtlasConfig::default())
+    }
+
+    /// Create a new set of renderer resources with a custom image/glyph atlas configuration.
+    ///
+    /// This should match the [`image_atlas_config`](crate::RenderSettings::image_atlas_config)
+    /// passed to the renderer so that allocations and the GPU atlas texture agree on the atlas
+    /// size.
+    pub fn new_with_config(image_atlas_config: AtlasConfig) -> Self {
         Self {
-            image_cache: ImageCache::new_with_config(AtlasConfig::default()),
+            image_cache: ImageCache::new_with_config(image_atlas_config),
             #[cfg(feature = "text")]
             glyph_prep_cache: GlyphPrepCache::default(),
             // Will be initialized lazily.
