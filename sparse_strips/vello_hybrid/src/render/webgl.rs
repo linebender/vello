@@ -402,13 +402,6 @@ impl WebGlRenderer {
         clear: bool,
         root_output_target: RootRenderTarget,
     ) -> Result<(), RenderError> {
-        if !self.filter_context.filter_textures.is_empty() {
-            self.programs.clear_filter_atlas_textures(&self.gl);
-        }
-
-        self.filter_context
-            .deallocate_all_and_clear_context(image_cache);
-
         let mut encoded_paints = scene.encoded_paints.borrow_mut();
         let original_scene_paint_count = encoded_paints.len();
 
@@ -458,6 +451,10 @@ impl WebGlRenderer {
             &encoded_paints,
         )?;
 
+        // TODO: Most likely we will want to clean up even if rendering fails. The current assumption
+        // is that if something fails, the user will create a new renderer instead of trying
+        // to reuse the existing one. This should likely be changed in the future.
+
         // See: https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices#use_invalidateframebuffer
         // We want to indicate to the GPU driver that we won't read the depth buffer again
         // until the next clear. This enables the GPU to avoid storing depth tiles back to VRAM.
@@ -476,6 +473,12 @@ impl WebGlRenderer {
 
         encoded_paints.truncate(original_scene_paint_count);
         self.gradient_cache.maintain();
+
+        if !self.filter_context.filter_textures.is_empty() {
+            self.programs.clear_filter_atlas_textures(&self.gl);
+        }
+        self.filter_context
+            .deallocate_all_and_clear_context(image_cache);
 
         Ok(())
     }
