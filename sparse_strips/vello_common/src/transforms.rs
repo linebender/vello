@@ -131,3 +131,50 @@ impl RootTransforms {
         self.transforms.push(Affine::IDENTITY);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn root_transforms_accumulate_relative_transforms() {
+        let mut roots = RootTransforms::new();
+        let parent = Affine::translate((10.0, 20.0));
+        let child = Affine::scale(2.0);
+
+        roots.push_root(parent);
+        roots.push_root(child);
+
+        assert_eq!(roots.root_transform(), child * parent);
+    }
+
+    #[test]
+    fn pop_root_restores_parent_transform() {
+        let mut roots = RootTransforms::new();
+        let parent = Affine::translate((10.0, 20.0));
+
+        roots.push_root(parent);
+        roots.push_root(Affine::scale(2.0));
+        roots.pop_root();
+
+        assert_eq!(roots.root_transform(), parent);
+    }
+
+    #[test]
+    fn effective_transforms_include_root_scene_and_paint_transforms() {
+        let mut roots = RootTransforms::new();
+        let root = Affine::translate((10.0, 20.0));
+        let scene = Affine::scale(2.0);
+        let paint = Affine::translate((3.0, 4.0));
+        let mut transforms = Transforms::new();
+        transforms.set_transform(scene);
+        transforms.set_paint_transform(paint);
+        roots.push_root(root);
+
+        assert_eq!(roots.effective_path_transform(&transforms), root * scene);
+        assert_eq!(
+            roots.effective_paint_transform(&transforms),
+            root * scene * paint
+        );
+    }
+}
