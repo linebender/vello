@@ -33,6 +33,11 @@ impl Transforms {
         &self.transform
     }
 
+    /// Return the transform used for rendering scene geometry.
+    pub fn scene_transform(&self) -> Affine {
+        self.transform
+    }
+
     /// Set the current scene transform.
     pub fn set_transform(&mut self, transform: Affine) {
         self.transform = transform;
@@ -46,6 +51,11 @@ impl Transforms {
     /// Return the current paint transform.
     pub fn paint_transform(&self) -> &Affine {
         &self.paint_transform
+    }
+
+    /// Return the transform used for rendering scene paints.
+    pub fn scene_paint_transform(&self) -> Affine {
+        self.scene_transform() * self.paint_transform
     }
 
     /// Set the current paint transform.

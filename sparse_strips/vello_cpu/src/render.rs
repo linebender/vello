@@ -442,7 +442,7 @@ impl RenderContext {
     ) -> GlyphRunBuilder<'a> {
         glifo::GlyphRunBuilder::new(
             font.clone(),
-            *self.transforms().transform(),
+            self.transforms().scene_transform(),
             *self.transforms().paint_transform(),
             crate::text::CpuGlyphRunBackend {
                 ctx: self,

@@ -360,12 +360,12 @@ impl Scene {
             PaintType::Solid(s) => s.into(),
             PaintType::Gradient(g) => g.encode_into(
                 &mut self.encoded_paints.borrow_mut(),
-                *self.transforms().transform() * *self.transforms().paint_transform(),
+                self.transforms().scene_paint_transform(),
                 None,
             ),
             PaintType::Image(i) => i.encode_into(
                 &mut self.encoded_paints.borrow_mut(),
-                *self.transforms().transform() * *self.transforms().paint_transform(),
+                self.transforms().scene_paint_transform(),
                 self.render_state.tint,
             ),
         }
@@ -411,7 +411,7 @@ impl Scene {
             let paint = ctx.encode_current_paint();
             ctx.fill_path_with(
                 path,
-                *ctx.transforms().transform(),
+                ctx.transforms().scene_transform(),
                 ctx.render_state.fill_rule,
                 paint,
                 ctx.aliasing_threshold,
@@ -452,7 +452,7 @@ impl Scene {
     /// See the explanation in the [clipping](https://github.com/linebender/vello/tree/main/sparse_strips/vello_cpu/examples)
     /// example for how this method differs from `push_clip_layer`.
     pub fn push_clip_path(&mut self, path: &BezPath) {
-        let transform = *self.transforms().transform();
+        let transform = self.transforms().scene_transform();
         self.clip_context.push_clip(
             path.iter(),
             &mut self.strip_generator,
@@ -480,7 +480,7 @@ impl Scene {
             let paint = ctx.encode_current_paint();
             ctx.stroke_path_with(
                 path,
-                *ctx.transforms().transform(),
+                ctx.transforms().scene_transform(),
                 paint,
                 ctx.aliasing_threshold,
             );
@@ -539,10 +539,15 @@ impl Scene {
             return;
         }
 
-        if is_axis_aligned(self.transforms().transform()) && self.aliasing_threshold.is_none() {
+        if is_axis_aligned(&self.transforms().scene_transform())
+            && self.aliasing_threshold.is_none()
+        {
             self.with_optional_filter(|ctx| {
                 let paint = ctx.encode_current_paint();
-                let transformed_rect = ctx.transforms().transform().transform_rect_bbox(*rect);
+                let transformed_rect = ctx
+                    .transforms()
+                    .scene_transform()
+                    .transform_rect_bbox(*rect);
                 let strip_storage = &mut ctx.strip_storage.borrow_mut();
                 let strip_start = strip_storage.strips.len();
                 ctx.strip_generator.generate_filled_rect_fast(
@@ -612,7 +617,7 @@ impl Scene {
 
                 let w = f64::from(rect.source_region.width());
                 let h = f64::from(rect.source_region.height());
-                let transform = *self.transforms().transform() * rect.transform;
+                let transform = self.transforms().scene_transform() * rect.transform;
 
                 if !is_axis_aligned(&transform) {
                     // Non-axis-aligned rects fall back to the strip path (still
@@ -677,7 +682,7 @@ impl Scene {
 
                     let w = f64::from(rect.source_region.width());
                     let h = f64::from(rect.source_region.height());
-                    let transform = *ctx.transforms().transform() * rect.transform;
+                    let transform = ctx.transforms().scene_transform() * rect.transform;
                     let paint = ctx.encode_external_texture_paint(
                         texture_id,
                         rect.source_region,
@@ -735,11 +740,14 @@ impl Scene {
 
         // We can't handle skewed rectangles.
         // TODO: Maybe support rotated rectangles (https://github.com/linebender/vello/pull/1482#discussion_r2881223621)
-        if !is_axis_aligned(self.transforms().transform()) {
+        if !is_axis_aligned(&self.transforms().scene_transform()) {
             return None;
         }
 
-        let transformed_rect = self.transforms().transform().transform_rect_bbox(*rect);
+        let transformed_rect = self
+            .transforms()
+            .scene_transform()
+            .transform_rect_bbox(*rect);
 
         let x0 = transformed_rect.x0.max(0.0).min(f64::from(self.width));
         let y0 = transformed_rect.y0.max(0.0).min(f64::from(self.height));
@@ -794,7 +802,7 @@ impl Scene {
 
             let kernel_size = 2.5 * std_dev;
             let inflated_rect = rect.inflate(f64::from(kernel_size), f64::from(kernel_size));
-            let transform = *ctx.transforms().transform() * *ctx.transforms().paint_transform();
+            let transform = ctx.transforms().scene_paint_transform();
             let paint =
                 blurred_rect.encode_into(&mut ctx.encoded_paints.borrow_mut(), transform, None);
 
@@ -803,10 +811,12 @@ impl Scene {
                 return;
             }
 
-            if is_axis_aligned(ctx.transforms().transform()) && ctx.aliasing_threshold.is_none() {
+            if is_axis_aligned(&ctx.transforms().scene_transform())
+                && ctx.aliasing_threshold.is_none()
+            {
                 let transformed_rect = ctx
                     .transforms()
-                    .transform()
+                    .scene_transform()
                     .transform_rect_bbox(inflated_rect);
                 let strip_storage = &mut ctx.strip_storage.borrow_mut();
                 let strip_start = strip_storage.strips.len();
@@ -820,7 +830,7 @@ impl Scene {
             } else {
                 ctx.fill_path_with(
                     &inflated_rect.to_path(DEFAULT_TOLERANCE),
-                    *ctx.transforms().transform(),
+                    ctx.transforms().scene_transform(),
                     Fill::NonZero,
                     paint,
                     ctx.aliasing_threshold,
@@ -838,7 +848,7 @@ impl Scene {
     ) -> GlyphRunBuilder<'a> {
         glifo::GlyphRunBuilder::new(
             font.clone(),
-            *self.transforms().transform(),
+            self.transforms().scene_transform(),
             *self.transforms().paint_transform(),
             crate::text::HybridGlyphRunBackend {
                 scene: self,
@@ -932,7 +942,7 @@ impl Scene {
         }
 
         let mut strip_storage = self.strip_storage.borrow_mut();
-        let transform = *self.transforms().transform();
+        let transform = self.transforms().scene_transform();
 
         let clip = if let Some(c) = clip_path {
             self.strip_generator.generate_filled_path(
