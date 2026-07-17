@@ -133,6 +133,19 @@ impl Clear for RowState {
     }
 }
 
+fn debug_assert_tile_aligned(point: (u16, u16), description: &str) {
+    debug_assert_eq!(
+        point.0 % Tile::WIDTH,
+        0,
+        "{description} must be tile-width aligned",
+    );
+    debug_assert_eq!(
+        point.1 % Tile::HEIGHT,
+        0,
+        "{description} must be tile-height aligned",
+    );
+}
+
 /// A bucketer that groups commands into strip-row-sized buckets.
 #[derive(Debug)]
 pub(crate) struct CommandBucketer {
@@ -273,16 +286,7 @@ impl CommandBucketer {
         // Therefore, we need to keep track of this offset so that for example paints know that
         // they should actually be sampled at (200, 200) instead of (0, 0).
 
-        debug_assert_eq!(
-            self.viewport.x0 % Tile::WIDTH,
-            0,
-            "viewport origin must be tile-width aligned",
-        );
-        debug_assert_eq!(
-            self.viewport.y0 % Tile::HEIGHT,
-            0,
-            "viewport origin must be tile-height aligned",
-        );
+        debug_assert_tile_aligned(self.viewport_origin(), "viewport origin");
 
         for cmd in cmds {
             match cmd {
@@ -618,38 +622,11 @@ impl CommandBucketer {
         let clip_x0 = clip_bbox.x0;
         let clip_x1 = clip_bbox.x1.min(self.width());
 
-        debug_assert_eq!(
-            clip_x0 % Tile::WIDTH,
-            0,
-            "clip start must be tile-width aligned",
-        );
-        debug_assert_eq!(
-            clip_x1 % Tile::WIDTH,
-            0,
-            "clip end must be tile-width aligned",
-        );
-        debug_assert_eq!(
-            clip_bbox.y0 % Tile::HEIGHT,
-            0,
-            "clip start must be tile-height aligned",
-        );
-        debug_assert_eq!(
-            clip_bbox.y1 % Tile::HEIGHT,
-            0,
-            "clip end must be tile-height aligned",
-        );
+        debug_assert_tile_aligned((clip_x0, clip_bbox.y0), "clip start");
+        debug_assert_tile_aligned((clip_x1, clip_bbox.y1), "clip end");
 
         let origin = self.viewport_origin();
-        debug_assert_eq!(
-            origin.0 % Tile::WIDTH,
-            0,
-            "viewport x origin must be tile-width aligned",
-        );
-        debug_assert_eq!(
-            origin.1 % Tile::HEIGHT,
-            0,
-            "viewport y origin must be tile-height aligned",
-        );
+        debug_assert_tile_aligned(origin, "viewport origin");
 
         // Note: the viewport of a filter layer is based on the bounds of its rendered contents.
         // Therefore, those are always guaranteed to be within the viewport rect. However, this does not
