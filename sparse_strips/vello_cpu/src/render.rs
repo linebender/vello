@@ -480,7 +480,17 @@ impl RenderContext {
             .effective_path_transform(self.transforms());
         let filter_data = filter.map(|filter| FilterData::new(filter, layer_transform));
 
-        self.root_transforms.push_root(filter_data.as_ref());
+        // The important part! Let's say we have an element placed in a way such that
+        // its drop shadow starts at (0, 0). In order for it to render correctly, we would
+        // have to render parts of the shape that at negative viewport coordinates, which is
+        // not supported. Therefore, we instead shift everything down such that we can assume
+        // everything left/above (0, 0) is not needed for correct rendering, and simply
+        // shift everything back when actually compositing the rendered filter layer.
+        let relative_transform = filter_data.as_ref().map_or(Affine::IDENTITY, |data| {
+            let (shift_x, shift_y) = data.source_shift();
+            Affine::translate((f64::from(shift_x), f64::from(shift_y)))
+        });
+        self.root_transforms.push_root(relative_transform);
 
         self.dispatcher.push_layer(
             clip_path,

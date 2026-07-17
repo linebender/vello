@@ -3,7 +3,6 @@
 
 //! Shared structures for holding different transforms.
 
-use crate::filter::FilterData;
 use crate::kurbo::Affine;
 use smallvec::{SmallVec, smallvec};
 
@@ -105,20 +104,8 @@ impl RootTransforms {
         self.effective_path_transform(transforms) * transforms.paint_transform
     }
 
-    /// Push a new root layer.
-    pub fn push_root(&mut self, filter_data: Option<&FilterData>) {
-        // The important part! Let's say we have an element placed in a way such that
-        // its drop shadow starts at (0, 0). In order for it to render correctly, we would
-        // have to render parts of the shape that at negative viewport coordinates, which is
-        // not supported. Therefore, we instead shift everything down such that we can assume
-        // everything left/above (0, 0) is not needed for correct rendering, and simply
-        // shift everything back when actually compositing the rendered filter layer.
-        let relative_transform = filter_data.map_or(Affine::IDENTITY, |filter_data| {
-            let (shift_x, shift_y) = filter_data.source_shift();
-
-            Affine::translate((f64::from(shift_x), f64::from(shift_y)))
-        });
-
+    /// Push a new root transform relative to the currently active root transform.
+    pub fn push_root(&mut self, relative_transform: Affine) {
         self.transforms
             .push(relative_transform * self.root_transform());
     }
