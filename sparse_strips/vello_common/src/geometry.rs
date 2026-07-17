@@ -69,7 +69,11 @@ impl Add for SizeU16 {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Self::from_wh(self.width() + rhs.width(), self.height() + rhs.height())
+        // Shouldn't overflow for our use cases.
+        Self::from_wh(
+            self.width().checked_add(rhs.width()).unwrap(),
+            self.height().checked_add(rhs.height()).unwrap(),
+        )
     }
 }
 
