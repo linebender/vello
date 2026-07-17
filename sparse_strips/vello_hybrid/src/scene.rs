@@ -391,6 +391,8 @@ impl Scene {
                 quality,
                 alpha: 1.0,
             },
+            // TODO: Make this configurable by the user, and also take `ImageSampler` alpha into
+            // account.
             may_have_transparency: true,
             transform: transform.inverse(),
             tint: self.render_state.tint,

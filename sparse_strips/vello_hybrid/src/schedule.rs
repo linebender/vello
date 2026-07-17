@@ -874,7 +874,7 @@ impl Scheduler {
         for cmd in &scene.fast_strips_buffer.commands[range] {
             match cmd {
                 FastStripCommand::Path(path) => {
-                    let is_opaque = Self::is_paint_opaque(&path.paint, encoded_paints);
+                    let is_opaque = !path.paint.may_have_transparency(encoded_paints);
                     let depth_index = depth.next(is_opaque && allow_opaque_split);
                     generate_gpu_strips_for_fast_path(
                         path,
@@ -888,7 +888,7 @@ impl Scheduler {
                     );
                 }
                 FastStripCommand::Rect(r) => {
-                    let is_opaque = Self::is_paint_opaque(&r.paint, encoded_paints);
+                    let is_opaque = !r.paint.may_have_transparency(encoded_paints);
                     let depth_index = depth.next(is_opaque && allow_opaque_split);
                     pack_rectangle_into_gpu(
                         r,
@@ -1597,7 +1597,7 @@ impl Scheduler {
         attrs: &CommandAttrs,
     ) {
         let fill_attrs = &attrs.fill[cmd.attrs_idx as usize];
-        let is_opaque = Self::is_paint_opaque(&fill_attrs.paint, encoded_paints);
+        let is_opaque = !fill_attrs.paint.may_have_transparency(encoded_paints);
         let stack_depth = state.tile_state.stack.len();
         let is_root_opaque = stack_depth == 1 && is_opaque && self.is_rendering_to_user_surface();
         let depth_index = self.depth.next(
@@ -1656,34 +1656,6 @@ impl Scheduler {
             draw.push_opaque(strip);
         } else {
             draw.push_alpha(strip, processed.external_texture_id);
-        }
-    }
-
-    /// Determine if a paint is fully opaque.
-    #[inline]
-    fn is_paint_opaque(paint: &Paint, encoded_paints: &[EncodedPaint]) -> bool {
-        match paint {
-            Paint::Solid(color) => color.is_opaque(),
-            Paint::Indexed(indexed_paint) => {
-                let paint_id = indexed_paint.index();
-                match encoded_paints.get(paint_id) {
-                    Some(EncodedPaint::Image(img)) => {
-                        !img.may_have_transparency
-                            && img.sampler.alpha == 1.0
-                            && img.tint.is_none_or(|t| t.color.components[3] >= 1.0)
-                    }
-                    Some(EncodedPaint::ExternalTexture(g)) => {
-                        debug_assert!(
-                            g.may_have_transparency,
-                            "Front-to-back drawing of known-opaque external textures has not been implemented yet, so vello_hybrid always set `may_have_transparency` to `true` for now."
-                        );
-                        false
-                    }
-                    Some(EncodedPaint::Gradient(g)) => !g.may_have_transparency,
-                    Some(EncodedPaint::BlurredRoundedRect(_)) => false,
-                    None => unreachable!("Paint must be in encoded paints"),
-                }
-            }
         }
     }
 
