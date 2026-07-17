@@ -96,13 +96,11 @@ impl StripFillSegment {
     /// Return this segment's rectangle in pixel coordinates.
     #[inline(always)]
     pub const fn pixel_rect(self) -> RectU16 {
-        let rect = self.tile_rect();
-
         RectU16::new(
-            rect.x0.saturating_mul(Tile::WIDTH),
-            rect.y0.saturating_mul(Tile::HEIGHT),
-            rect.x1.saturating_mul(Tile::WIDTH),
-            rect.y1.saturating_mul(Tile::HEIGHT),
+            self.tile_x0.saturating_mul(Tile::WIDTH),
+            self.tile_y.saturating_mul(Tile::HEIGHT),
+            self.tile_x1.saturating_mul(Tile::WIDTH),
+            self.tile_y.saturating_add(1).saturating_mul(Tile::HEIGHT),
         )
     }
 
