@@ -28,12 +28,13 @@ const CIRCLE_CENTER_OFFSET_X: f64 = 1.5;
 const IMAGE_SOURCE_SIZE: f64 = 5.0;
 const PATH_TOLERANCE: f64 = 0.1;
 
-const ELEMENTS: [ProbeElement; 9] = [
+const ELEMENTS: [ProbeElement; 8] = [
     ProbeElement::SolidRect,
     ProbeElement::AlphaBlending,
     ProbeElement::Gradient,
     ProbeElement::ImageNearest,
-    ProbeElement::Filter,
+    // Temporarily disabled.
+    // ProbeElement::Filter,
     ProbeElement::ImageBilinear,
     ProbeElement::OpacityLayer,
     ProbeElement::Blending,
@@ -138,7 +139,7 @@ enum ProbeElement {
     AlphaBlending,
     Gradient,
     ImageNearest,
-    Filter,
+    // Filter,
     ImageBilinear,
     OpacityLayer,
     Blending,
@@ -201,7 +202,7 @@ impl ProbeElement {
             | Self::Gradient
             | Self::ImageNearest
             | Self::ImageBilinear
-            | Self::Filter
+            // | Self::Filter
             | Self::OpacityLayer => (RECT_SIZE, RECT_SIZE),
             Self::Transformed => (
                 RECT_SIZE * core::f64::consts::SQRT_2,
@@ -317,7 +318,7 @@ fn draw_probe_element(
             ctx.fill_rect(&rect);
         }
         ProbeElement::ImageNearest => draw_centered_padded_image(ctx, cell, image_nearest),
-        ProbeElement::Filter => draw_blurred_rect(ctx, centered_rect(cell, RECT_SIZE, RECT_SIZE)),
+        // ProbeElement::Filter => draw_blurred_rect(ctx, centered_rect(cell, RECT_SIZE, RECT_SIZE)),
         ProbeElement::ImageBilinear => draw_centered_padded_image(ctx, cell, image_bilinear),
         ProbeElement::OpacityLayer => {
             draw_opacity_layer_rect(ctx, centered_rect(cell, RECT_SIZE, RECT_SIZE));
@@ -360,6 +361,7 @@ fn draw_transformed_rect(ctx: &mut impl ProbeRenderer, rect: Rect) {
     ctx.set_transform(Affine::IDENTITY);
 }
 
+#[allow(dead_code)]
 fn draw_blurred_rect(ctx: &mut impl ProbeRenderer, rect: Rect) {
     let blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 0.5,
