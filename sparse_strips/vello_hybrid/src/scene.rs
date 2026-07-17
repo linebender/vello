@@ -782,8 +782,12 @@ impl Scene {
                 invert,
             };
 
-            let kernel_size = 2.5 * std_dev;
-            let inflated_rect = rect.inflate(f64::from(kernel_size), f64::from(kernel_size));
+            let inflated_rect = if invert {
+                rect.inflate(rect.origin().x.abs(), rect.origin().y.abs())
+            } else {
+                let kernel_size = 2.5 * std_dev;
+                rect.inflate(f64::from(kernel_size), f64::from(kernel_size))
+            };
             let transform = ctx.render_state.transform * ctx.render_state.paint_transform;
             let paint =
                 blurred_rect.encode_into(&mut ctx.encoded_paints.borrow_mut(), transform, None);

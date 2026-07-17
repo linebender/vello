@@ -71,6 +71,11 @@ fn inverse_rect_with(ctx: &mut impl Renderer, radius: f32, std_dev: f32, affine:
 }
 
 #[vello_test]
+fn inverse_blurred_rounded_rect_zero_with_radius(ctx: &mut impl Renderer) {
+    inverse_rect_with(ctx, 10.0, 0.0, Affine::IDENTITY);
+}
+
+#[vello_test]
 fn inverse_blurred_rounded_rect_small_std_dev(ctx: &mut impl Renderer) {
     inverse_rect_with(ctx, 0.0, 5.0, Affine::IDENTITY);
 }

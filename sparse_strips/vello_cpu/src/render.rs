@@ -420,8 +420,12 @@ impl RenderContext {
         // is not cut off.
         // The impulse response of a gaussian filter is infinite.
         // For performance reason we cut off the filter at some extent where the response is close to zero.
-        let kernel_size = 2.5 * std_dev;
-        let inflated_rect = rect.inflate(f64::from(kernel_size), f64::from(kernel_size));
+        let inflated_rect = if invert {
+            rect.inflate(rect.origin().x.abs(), rect.origin().y.abs())
+        } else {
+            let kernel_size = 2.5 * std_dev;
+            rect.inflate(f64::from(kernel_size), f64::from(kernel_size))
+        };
         let transform = self.effective_path_transform();
         let paint_transform = self.effective_paint_transform();
 
