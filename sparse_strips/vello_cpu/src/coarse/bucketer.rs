@@ -18,7 +18,7 @@ use vello_common::mask::Mask;
 use vello_common::paint::{ImageSource, IndexedPaint, Paint};
 use vello_common::pixmap::Pixmap;
 use vello_common::record::{LayerClip, LayerProps, RecordedCmd, RecordedLayer, RecordedLayerKind};
-use vello_common::strip::{Strip, for_each_fill_segment};
+use vello_common::strip::{Strip, visit_strip_fill_segments};
 use vello_common::tile::Tile;
 use vello_common::util::{Clear, RectExt, RetainVec, VecPool};
 
@@ -676,7 +676,7 @@ impl CommandBucketer {
             clip_scene_y1 / Tile::HEIGHT,
         );
 
-        for_each_fill_segment(
+        visit_strip_fill_segments(
             strip_buf,
             tile_bounds,
             self,
