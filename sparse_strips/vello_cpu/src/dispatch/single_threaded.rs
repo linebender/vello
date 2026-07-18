@@ -13,7 +13,7 @@ use crate::peniko::{BlendMode, Fill};
 use crate::record::{
     CommandRecorder, FilterData, LayerProps, PoppedLayer, RecordedCmd, RecordedLayerKind,
 };
-use crate::region::Regions;
+use crate::region::{Region, Regions};
 use crate::{CompositeMode, RasterizerSettings};
 use alloc::vec::Vec;
 use core::cell::RefCell;
@@ -77,10 +77,11 @@ impl SingleThreadedDispatcher {
         settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
+        cancel: Option<&(dyn Fn() -> bool + Sync)>,
     ) {
         use crate::fine::F32Kernel;
         use vello_common::fearless_simd::dispatch;
-        dispatch!(self.level, simd => self.rasterize_with::<_, F32Kernel>(simd, target, scene_width, scene_height, settings, encoded_paints, image_resolver));
+        dispatch!(self.level, simd => self.rasterize_with::<_, F32Kernel>(simd, target, scene_width, scene_height, settings, encoded_paints, image_resolver, cancel));
     }
 
     /// Rasterizes the scene using u8 precision (fast).
@@ -96,10 +97,11 @@ impl SingleThreadedDispatcher {
         settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
+        cancel: Option<&(dyn Fn() -> bool + Sync)>,
     ) {
         use crate::fine::U8Kernel;
         use vello_common::fearless_simd::dispatch;
-        dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, target, scene_width, scene_height, settings, encoded_paints, image_resolver));
+        dispatch!(self.level, simd => self.rasterize_with::<_, U8Kernel>(simd, target, scene_width, scene_height, settings, encoded_paints, image_resolver, cancel));
     }
 
     // Note: We purposefully don't add `vectorize` to each of these helpers,
@@ -113,8 +115,10 @@ impl SingleThreadedDispatcher {
         settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
+        cancel: Option<&(dyn Fn() -> bool + Sync)>,
     ) {
-        let filters = self.rasterize_filter_layers::<S, F>(simd, encoded_paints, image_resolver);
+        let filters =
+            self.rasterize_filter_layers::<S, F>(simd, encoded_paints, image_resolver, cancel);
         let use_src_over = settings.composite_mode == CompositeMode::SrcOver;
         let params = FineRenderParams {
             scene_size: (scene_width, scene_height),
@@ -131,6 +135,7 @@ impl SingleThreadedDispatcher {
             use_src_over,
             encoded_paints,
             image_resolver,
+            cancel,
         );
     }
 
@@ -145,6 +150,7 @@ impl SingleThreadedDispatcher {
         use_src_over: bool,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
+        cancel: Option<&(dyn Fn() -> bool + Sync)>,
     ) {
         let mut bucketer = self.bucketer.borrow_mut();
         bucketer.reset(viewport);
@@ -169,7 +175,14 @@ impl SingleThreadedDispatcher {
             params.target_offset,
             bucketer.rows().len(),
         );
-        Self::rasterize_target::<S, F>(simd, &bucketer, resources, &mut regions, use_src_over);
+        Self::rasterize_target::<S, F>(
+            simd,
+            &bucketer,
+            resources,
+            &mut regions,
+            use_src_over,
+            cancel,
+        );
     }
 
     fn rasterize_target<S: Simd, F: FineKernel<S>>(
@@ -178,11 +191,12 @@ impl SingleThreadedDispatcher {
         resources: FineResources<'_>,
         regions: &mut Regions<'_>,
         use_src_over: bool,
+        cancel: Option<&(dyn Fn() -> bool + Sync)>,
     ) {
         // TODO: Reuse fine and depth buffer across targets?
         let mut fine = Fine::<S, F>::new(simd, bucketer.width());
         let mut depth = DepthBuffer::new(bucketer.width());
-        regions.update(|region| {
+        let render_region = |region: &mut Region<'_>| {
             rasterize_region::<S, F>(
                 &mut fine,
                 &mut depth,
@@ -191,7 +205,14 @@ impl SingleThreadedDispatcher {
                 resources,
                 use_src_over,
             );
-        });
+        };
+        // Keep the original zero-overhead path when there's nothing to cancel.
+        match cancel {
+            Some(cancel) => {
+                regions.update_cancellable(cancel, render_region);
+            }
+            None => regions.update(render_region),
+        }
     }
 
     fn record_fill(
@@ -217,6 +238,7 @@ impl SingleThreadedDispatcher {
         simd: S,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
+        cancel: Option<&(dyn Fn() -> bool + Sync)>,
     ) -> FilterContext {
         // TODO: Reuse across frames so that pixmaps can be reused.
         let mut filter_ctx = FilterContext::new(self.recorder.layers.len());
@@ -259,6 +281,7 @@ impl SingleThreadedDispatcher {
                 false,
                 encoded_paints,
                 image_resolver,
+                cancel,
             );
 
             F::filter_layer(
@@ -459,6 +482,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         settings: RasterizerSettings,
         encoded_paints: &[EncodedPaint],
         image_resolver: &dyn ImageResolver,
+        cancel: Option<&(dyn Fn() -> bool + Sync)>,
     ) {
         // If only the u8 pipeline is enabled, then use it.
         #[cfg(all(feature = "u8_pipeline", not(feature = "f32_pipeline")))]
@@ -470,6 +494,7 @@ impl Dispatcher for SingleThreadedDispatcher {
                 settings,
                 encoded_paints,
                 image_resolver,
+                cancel,
             );
         }
 
@@ -483,6 +508,7 @@ impl Dispatcher for SingleThreadedDispatcher {
                 settings,
                 encoded_paints,
                 image_resolver,
+                cancel,
             );
         }
 
@@ -498,6 +524,7 @@ impl Dispatcher for SingleThreadedDispatcher {
                     settings,
                     encoded_paints,
                     image_resolver,
+                    cancel,
                 );
             }
             crate::RenderMode::OptimizeQuality => {
@@ -509,6 +536,7 @@ impl Dispatcher for SingleThreadedDispatcher {
                     settings,
                     encoded_paints,
                     image_resolver,
+                    cancel,
                 );
             }
         }
@@ -524,6 +552,7 @@ impl Dispatcher for SingleThreadedDispatcher {
                 settings,
                 encoded_paints,
                 image_resolver,
+                cancel,
             );
         }
     }
