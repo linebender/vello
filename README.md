@@ -24,8 +24,11 @@ For now, prefer updating the package-level readmes, e.g. vello/README.md.
 
 </div>
 
-Vello is a 2D graphics rendering engine written in Rust, with a focus on GPU compute.
-It can draw large 2D scenes with interactive or near-interactive performance, using [`wgpu`] for GPU access.
+The Vello project is a set of high-performance vector renderers written in Rust:
+
+- **Vello** is an experimental renderer with a focus on doing as much work as possible with GPU compute.
+- **Vello CPU** is a pure Rust, CPU-only renderer optimized for multithreading and SIMD.
+- **Vello Hybrid** is a renderer that does heavy pre-processing on the CPU but still does most of the work on the GPU. It aims to be the main Vello implementation for production use-cases.
 
 Quickstart to run an example program:
 
@@ -35,16 +38,6 @@ cargo run -p with_winit
 
 ![image](https://github.com/linebender/vello/assets/8573618/cc2b742e-2135-4b70-8051-c49aeddb5d19)
 
-It is used as the rendering backend for [Xilem], a Rust GUI toolkit.
-
-> [!WARNING]
-> Vello can currently be considered in an alpha state. In particular, we're still working on the following:
->
-> - [Implementing blur and filter effects](https://github.com/linebender/vello/issues/476).
-> - [Conflations artifacts](https://github.com/linebender/vello/issues/49).
-> - [GPU memory allocation strategy](https://github.com/linebender/vello/issues/366)
-> - [Glyph caching](https://github.com/linebender/vello/issues/204)
-
 Significant changes are documented in [the changelog].
 
 ## Motivation
@@ -52,173 +45,8 @@ Significant changes are documented in [the changelog].
 Vello is meant to fill the same place in the graphics stack as other vector graphics renderers like [Skia](https://skia.org/), [Cairo](https://www.cairographics.org/), and its predecessor project [Piet](https://github.com/linebender/piet).
 On a basic level, that means it provides tools to render shapes, images, gradients, text, etc, using a PostScript-inspired API, the same that powers SVG files and [the browser `<canvas>` element](https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D).
 
-Vello's selling point is that it gets better performance than other renderers by better leveraging the GPU.
-In traditional PostScript-style renderers, some steps of the render process like sorting and clipping either need to be handled in the CPU or done through the use of intermediary textures.
-Vello avoids this by using prefix-sum algorithms to parallelize work that usually needs to happen in sequence, so that work can be offloaded to the GPU with minimal use of temporary buffers.
+The selling point of Vello's implementations is that they get better performance than other renderers by better leveraging the SIMD, multithreading and the GPU.
 
-This means that Vello needs a GPU with support for compute shaders to run.
-
-## Getting started
-
-Vello is meant to be integrated deep in UI render stacks.
-While drawing in a Vello scene is easy, actually rendering that scene to a surface requires setting up a wgpu context, which is a non-trivial task.
-
-To use Vello as the renderer for your PDF reader / GUI toolkit / etc, your code will have to look roughly like this:
-
-```rust
-use vello::{
-    kurbo::{Affine, Circle},
-    peniko::{Color, Fill},
-    *,
-};
-
-// Initialize wgpu and get handles
-let (width, height) = ...;
-let device: wgpu::Device = ...;
-let queue: wgpu::Queue = ...;
-let mut renderer = Renderer::new(
-   &device,
-   RendererOptions::default()
-).expect("Failed to create renderer");
-// Create scene and draw stuff in it
-let mut scene = vello::Scene::new();
-scene.fill(
-   vello::peniko::Fill::NonZero,
-   vello::Affine::IDENTITY,
-   vello::Color::from_rgb8(242, 140, 168),
-   None,
-   &vello::Circle::new((420.0, 200.0), 120.0),
-);
-// Draw more stuff
-scene.push_layer(...);
-scene.fill(...);
-scene.stroke(...);
-scene.pop_layer(...);
-let texture = device.create_texture(&...);
-
-// Render to a wgpu Texture
-renderer
-   .render_to_texture(
-      &device,
-      &queue,
-      &scene,
-      &texture,
-      &vello::RenderParams {
-         base_color: palette::css::BLACK, // Background color
-         width,
-         height,
-         antialiasing_method: AaConfig::Msaa16,
-      },
-   )
-   .expect("Failed to render to a texture");
-// Do things with `texture`, such as blitting it to the Surface using
-// wgpu::util::TextureBlitter
-```
-
-See the [`examples`](https://github.com/linebender/vello/tree/main/examples) directory for code that integrates with frameworks like winit.
-
-## Performance
-
-We've observed 177 fps for the paris-30k test scene on an M1 Max, at a resolution of 1600 pixels square, which is excellent performance and represents something of a best case for the engine.
-
-More formal benchmarks are on their way.
-
-## Integrations
-
-### SVG
-
-A separate Linebender integration for rendering SVG files is available through [`vello_svg`](https://github.com/linebender/vello_svg).
-
-### Lottie
-
-A separate Linebender integration for playing Lottie animations is available through [`velato`](https://github.com/linebender/velato).
-
-### Bevy
-
-A separate Linebender integration for rendering raw scenes or Lottie and SVG files in [Bevy] through [`bevy_vello`](https://github.com/linebender/bevy_vello).
-
-## Examples
-
-Our examples are provided in separate packages in the [`examples`](https://github.com/linebender/vello/tree/main/examples) directory.
-This allows them to have independent dependencies and faster builds.
-Examples must be selected using the `--package` (or `-p`) Cargo flag.
-
-### Winit
-
-Our [winit] example ([examples/with_winit](https://github.com/linebender/vello/tree/main/examples/with_winit)) demonstrates rendering to a [winit] window.
-By default, this renders the [GhostScript Tiger] as well as all SVG files you add in the [examples/assets/downloads](https://github.com/linebender/vello/tree/main/examples/assets/downloads) directory.
-A custom list of SVG file paths (and directories to render all SVG files from) can be provided as arguments instead.
-It also includes a collection of test scenes showing the capabilities of `vello`, which can be shown with `--test-scenes`.
-
-```shell
-cargo run -p with_winit
-```
-
-<!-- ### Headless -->
-
-## Platforms
-
-We aim to target all environments which can support WebGPU with the [default limits](https://www.w3.org/TR/webgpu/#limits).
-We defer to [`wgpu`] for this support.
-Other platforms are more tricky, and may require special building/running procedures.
-
-### Web
-
-Because Vello relies heavily on compute shaders, we rely on the emerging WebGPU standard to run on the web.
-Browser support for WebGPU is still evolving.
-Vello has been tested using production versions of Chrome, but WebGPU support in Firefox and Safari is still experimental.
-It may be necessary to use development browsers and explicitly enable WebGPU.
-
-The following command builds and runs a web version of the [winit demo](#winit).
-This uses [`cargo-run-wasm`](https://github.com/rukai/cargo-run-wasm) to build the example for web, and host a local server for it
-
-```shell
-# Make sure the Rust toolchain supports the wasm32 target
-rustup target add wasm32-unknown-unknown
-
-# The binary name must also be explicitly provided as it differs from the package name
-cargo run_wasm -p with_winit --bin with_winit_bin
-```
-
-There is also a web demo [available here](https://linebender.github.io/vello) on supporting web browsers.
-
-> [!WARNING]
-> The web is not currently a primary target for Vello, and WebGPU implementations are incomplete, so you might run into issues running this example.
-
-### Android
-
-The [`with_winit`](#winit) example supports running on Android, using [cargo apk](https://crates.io/crates/cargo-apk).
-
-```shell
-cargo apk run -p with_winit --lib
-```
-
-> [!TIP]
-> cargo apk doesn't support running in release mode without configuration.
-> See [their crates page docs](https://crates.io/crates/cargo-apk) (around `package.metadata.android.signing.<profile>`).
->
-> See also [cargo-apk#16](https://github.com/rust-mobile/cargo-apk/issues/16).
-> To run in release mode, you must add the following to `examples/with_winit/Cargo.toml` (changing `$HOME` to your home directory):
-
-```toml
-[package.metadata.android.signing.release]
-path = "$HOME/.android/debug.keystore"
-keystore_password = "android"
-```
-
-> [!NOTE]
-> As `cargo apk` does not allow passing command line arguments or environment variables to the app when ran, these can be embedded into the
-> program at compile time (currently for Android only)
-> `with_winit` currently supports the environment variables:
->
-> - `VELLO_STATIC_LOG`, which is equivalent to `RUST_LOG`
-> - `VELLO_STATIC_ARGS`, which is equivalent to passing in command line arguments
-
-For example (with unix shell environment variable syntax):
-
-```sh
-VELLO_STATIC_LOG="vello=trace" VELLO_STATIC_ARGS="--test-scenes" cargo apk run -p with_winit --lib
-```
 
 ## Minimum supported Rust Version (MSRV)
 
@@ -249,29 +77,6 @@ Contributions are welcome by pull request.
 The [Rust code of conduct] applies.
 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache 2.0 license, shall be licensed as noted in the [License](#license) section, without any additional terms or conditions.
-
-## History
-
-Vello was previously known as `piet-gpu`.
-This prior incarnation used a custom cross-API hardware abstraction layer, called `piet-gpu-hal`, instead of [`wgpu`].
-
-An archive of this version can be found in the branches [`custom-hal-archive-with-shaders`] and [`custom-hal-archive`].
-This succeeded the previous prototype, [piet-metal], and included work adapted from [piet-dx12].
-
-The decision to lay down `piet-gpu-hal` in favor of WebGPU is discussed in detail in the blog post [Requiem for piet-gpu-hal].
-
-A [vision](https://github.com/linebender/vello/tree/main/doc/vision.md) document dated December 2020 explained the longer-term goals of the project, and how we might get there.
-Many of these items are out-of-date or completed, but it still may provide some useful background.
-
-## Related projects
-
-Vello takes inspiration from many other rendering projects, including:
-
-- [Pathfinder](https://github.com/servo/pathfinder)
-- [Spinel](https://fuchsia.googlesource.com/fuchsia/+/refs/heads/master/src/graphics/lib/compute/spinel/)
-- [Forma](https://github.com/google/forma)
-- [Massively Parallel Vector Graphics](https://w3.impa.br/~diego/projects/GanEtAl14/)
-- [Random-access rendering of general vector graphics](https://hhoppe.com/proj/ravg/)
 
 ## License
 
