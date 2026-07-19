@@ -317,6 +317,7 @@ impl HybridRenderer {
             power_preference: wgpu::PowerPreference::default(),
             force_fallback_adapter: false,
             compatible_surface: None,
+            ..Default::default()
         }))
         .expect("Failed to find an appropriate adapter");
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
@@ -634,6 +635,7 @@ impl Renderer for HybridRenderer {
         for (row, buf) in texture_copy_buffer
             .slice(..)
             .get_mapped_range()
+            .unwrap()
             .chunks_exact(bytes_per_row as usize)
             .zip(
                 pixmap

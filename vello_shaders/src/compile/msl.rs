@@ -43,6 +43,7 @@ pub fn translate(shader: &ShaderInfo) -> Result<String, naga_msl::Error> {
         bounds_check_policies: naga::proc::BoundsCheckPolicies::default(),
         zero_initialize_workgroup_memory: true,
         force_loop_bounding: true,
+        ..Default::default()
     };
     let (source, _) = naga_msl::write_string(
         &shader.module,
