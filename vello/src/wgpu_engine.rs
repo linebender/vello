@@ -342,7 +342,7 @@ impl WgpuEngine {
             vertex: wgpu::VertexState {
                 module,
                 entry_point: Some(vertex_main),
-                buffers: vertex_buffer.as_slice(),
+                buffers: &[vertex_buffer],
                 compilation_options: PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {

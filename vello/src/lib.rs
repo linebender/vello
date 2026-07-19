@@ -756,7 +756,7 @@ impl Renderer {
             let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();
             buf_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
             receiver.receive().await.expect("channel was closed")?;
-            let mapped = buf_slice.get_mapped_range();
+            let mapped = buf_slice.get_mapped_range().unwrap();
             bump = Some(bytemuck::pod_read_unaligned(&mapped));
         }
         // TODO: apply logic to determine whether we need to rerun coarse, and also
