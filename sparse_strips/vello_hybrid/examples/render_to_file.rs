@@ -47,6 +47,7 @@ async fn run() {
         power_preference: wgpu::PowerPreference::default(),
         force_fallback_adapter: false,
         compatible_surface: None,
+        ..Default::default()
     }))
     .expect("Failed to find an appropriate adapter");
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
@@ -151,6 +152,7 @@ async fn run() {
     for row in texture_copy_buffer
         .slice(..)
         .get_mapped_range()
+        .unwrap()
         .chunks_exact(bytes_per_row as usize)
     {
         img_data.extend_from_slice(bytemuck::cast_slice(&row[0..usize::from(width) * 4]));

@@ -1203,7 +1203,7 @@ impl Programs {
                     vertex: wgpu::VertexState {
                         module: &strip_shader,
                         entry_point: Some("vs_main"),
-                        buffers: core::slice::from_ref(&strip_vertex_state),
+                        buffers: &[Some(strip_vertex_state.clone())],
                         compilation_options: PipelineCompilationOptions::default(),
                     },
                     fragment: Some(wgpu::FragmentState {
@@ -1262,7 +1262,7 @@ impl Programs {
             vertex: wgpu::VertexState {
                 module: &clear_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[wgpu::VertexBufferLayout {
+                buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: size_of::<GpuClearInstance>() as u64,
                     step_mode: wgpu::VertexStepMode::Instance,
                     attributes: &wgpu::vertex_attr_array![
@@ -1270,7 +1270,7 @@ impl Programs {
                         1 => Uint32x2,
                         2 => Uint32x2,
                     ],
-                }],
+                })],
                 compilation_options: PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -1396,7 +1396,7 @@ impl Programs {
             vertex: wgpu::VertexState {
                 module: &filter_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[wgpu::VertexBufferLayout {
+                buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: size_of::<FilterInstanceData>() as u64,
                     step_mode: wgpu::VertexStepMode::Instance,
                     attributes: &wgpu::vertex_attr_array![
@@ -1410,7 +1410,7 @@ impl Programs {
                         7 => Uint32,
                         8 => Uint32,
                     ],
-                }],
+                })],
                 compilation_options: PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -1538,7 +1538,7 @@ impl Programs {
                     vertex: wgpu::VertexState {
                         module: shader_module,
                         entry_point: Some("vs_main"),
-                        buffers: core::slice::from_ref(vertex_state),
+                        buffers: &[Some(vertex_state.clone())],
                         compilation_options: PipelineCompilationOptions::default(),
                     },
                     fragment: Some(wgpu::FragmentState {
