@@ -3,6 +3,7 @@
 
 //! Shared render state.
 
+use crate::color::{AlphaColor, Srgb};
 use crate::kurbo::{Affine, Cap, Join, Stroke};
 use crate::paint::{PaintType, Tint};
 use crate::peniko::color::palette::css::BLACK;
@@ -11,9 +12,9 @@ use crate::peniko::{BlendMode, Compose, Fill, Mix};
 /// A render state which contains the style properties for path rendering and
 /// the current transform.
 #[derive(Debug, Clone)]
-pub struct RenderState {
-    /// The paint type (solid color, gradient, or image).
-    pub paint: PaintType,
+pub struct RenderState<P = PaintType> {
+    /// The current paint.
+    pub paint: P,
     /// Transform applied to the paint coordinates.
     pub paint_transform: Affine,
     /// Stroke style for path stroking operations.
@@ -28,7 +29,10 @@ pub struct RenderState {
     pub tint: Option<Tint>,
 }
 
-impl Default for RenderState {
+impl<P> Default for RenderState<P>
+where
+    P: From<AlphaColor<Srgb>>,
+{
     fn default() -> Self {
         Self {
             paint: BLACK.into(),
@@ -48,9 +52,12 @@ impl Default for RenderState {
     }
 }
 
-impl RenderState {
+impl<P> RenderState<P> {
     /// Reset to default state.
-    pub fn reset(&mut self) {
+    pub fn reset(&mut self)
+    where
+        Self: Default,
+    {
         *self = Self::default();
     }
 }

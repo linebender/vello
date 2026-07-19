@@ -6,6 +6,7 @@ use super::depth::{DepthSegment, DepthState};
 use crate::coarse::depth;
 use crate::filter::context::FilterContext;
 use crate::kurbo::{Affine, Vec2};
+use crate::paint::PaintResource;
 use crate::peniko::{BlendMode, Extend, ImageQuality, ImageSampler};
 use crate::record::{
     FilterLayerPlacement, LayerProps, RecordedCmd, RecordedLayer, RecordedLayerKind,
@@ -23,6 +24,13 @@ use vello_common::pixmap::Pixmap;
 use vello_common::strip::Strip;
 use vello_common::tile::Tile;
 use vello_common::util::{Clear, RectExt, RetainVec};
+
+fn paint_may_have_transparency(paint: &Paint, resources: &[PaintResource]) -> bool {
+    match paint {
+        Paint::Solid(color) => !color.is_opaque(),
+        Paint::Indexed(index) => resources[index.index()].may_have_transparency(),
+    }
+}
 
 /// State for a single row of strips.
 #[derive(Debug, Default)]
@@ -264,7 +272,7 @@ impl CommandBucketer {
         cmds: &[RecordedCmd],
         layers: &[RecordedLayer],
         strips: &[Strip],
-        encoded_paints: &[EncodedPaint],
+        encoded_paints: &[PaintResource],
         filter_ctx: &FilterContext,
     ) {
         // When rendering filter layers, we always anchor them so that the top-left of the bounding
@@ -563,7 +571,7 @@ impl CommandBucketer {
         &mut self,
         strip_buf: &[Strip],
         attrs: &PaintFillAttrs,
-        encoded_paints: &[EncodedPaint],
+        encoded_paints: &[PaintResource],
     ) {
         if strip_buf.is_empty() {
             return;
@@ -581,7 +589,7 @@ impl CommandBucketer {
             (self.active_layers.is_empty()
                 && attrs.blend_mode == BlendMode::default()
                 && attrs.mask.is_none()
-                && !attrs.paint.may_have_transparency(encoded_paints))
+                && !paint_may_have_transparency(&attrs.paint, encoded_paints))
                 .then_some(attrs.draw_id);
 
         self.generate(

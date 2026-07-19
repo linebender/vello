@@ -41,7 +41,6 @@ use skrifa::raw::TableProvider;
 use skrifa::{FontRef, OutlineGlyphCollection};
 use skrifa::{GlyphId, MetadataProvider};
 use smallvec::SmallVec;
-use vello_common::paint::PaintType;
 
 /// Positioned glyph.
 #[derive(Copy, Clone, Default, Debug)]
@@ -390,7 +389,7 @@ impl<'a, 'b, Glyphs: Iterator<Item = Glyph> + Clone> GlyphRunRenderer<'a, 'b, Gl
             && style == Style::Fill
             // We use image tinting to color cached glyphs, which is not 
             // supported for complex paints.
-            && matches!(renderer.current_paint(), PaintType::Solid(_));
+            && renderer.current_paint_is_solid();
 
         let context_color = renderer.get_context_color();
         let context_color_packed = pack_color(context_color);
@@ -2183,7 +2182,7 @@ mod tests {
     use crate::peniko::Blob;
     use crate::peniko::color::{AlphaColor, Srgb};
     use alloc::sync::Arc;
-    use vello_common::paint::{Image, ImageId, ImageSource, PaintType, Tint};
+    use vello_common::paint::{Image, ImageId, ImageSource, Tint};
 
     const _NORMALISED_COORD_SIZE_MATCHES: () =
         assert!(size_of::<skrifa::instance::NormalizedCoord>() == size_of::<NormalizedCoord>());
@@ -2205,8 +2204,6 @@ mod tests {
 
     #[derive(Default)]
     struct NoopRenderer;
-
-    static BLACK_PAINT: PaintType = PaintType::Solid(BLACK);
 
     struct TestResources {
         renderer: NoopRenderer,
@@ -2272,8 +2269,8 @@ mod tests {
             BLACK
         }
 
-        fn current_paint(&self) -> &PaintType {
-            &BLACK_PAINT
+        fn current_paint_is_solid(&self) -> bool {
+            true
         }
 
         fn atlas_image_source(&self, atlas_slot: &AtlasSlot) -> ImageSource {

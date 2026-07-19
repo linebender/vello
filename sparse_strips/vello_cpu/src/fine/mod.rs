@@ -21,6 +21,7 @@ pub(crate) use crate::fine::common::gradient::radial::SimdRadialKind;
 pub(crate) use crate::fine::common::gradient::sweep::SimdSweepKind;
 use crate::fine::common::image::{FilteredImagePainter, NNImagePainter, PlainNNImagePainter};
 use crate::fine::common::rounded_blurred_rect::BlurredRoundedRectFiller;
+use crate::paint::PaintSpan;
 use crate::peniko::{BlendMode, ImageQuality};
 use crate::region::Region;
 use crate::util::{EncodedImageExt, VecPool};
@@ -36,7 +37,7 @@ use vello_common::fearless_simd::{
     u32x8,
 };
 use vello_common::filter_effects::Filter;
-use vello_common::kurbo::Affine;
+use vello_common::kurbo::{Affine, Point};
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, ImageSource, Paint, PremulColor, Tint};
 use vello_common::pixmap::Pixmap;
@@ -46,6 +47,8 @@ use vello_common::util::f32_to_u8;
 
 #[doc(hidden)]
 pub use crate::coarse::PaintFillAttrs;
+#[doc(hidden)]
+pub use crate::paint::{EncodedCustomPaint, PaintResource};
 #[doc(hidden)]
 pub use crate::util::Span;
 pub use highp::F32Kernel;
@@ -857,28 +860,33 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
         let y = self.row_y;
         let sample_x = x.saturating_add(self.origin.0);
         let sample_y = y.saturating_add(self.origin.1);
-        let width = span.pixel_width();
-        let len = usize::from(width) * TILE_HEIGHT_COMPONENTS;
+        let span_width = span.pixel_width();
+        let len = usize::from(span_width) * TILE_HEIGHT_COMPONENTS;
         if self.paint_buf.len() < len {
             self.paint_buf.resize(len, T::Numeric::ZERO);
         }
 
-        let t_len = usize::from(width) * Tile::HEIGHT as usize;
+        let t_len = usize::from(span_width) * Tile::HEIGHT as usize;
         if self.f32_buf.len() < t_len {
             self.f32_buf.resize(t_len, 0.0);
         }
 
         let simd = self.simd;
-        let width = usize::from(width);
+        let width = usize::from(span_width);
         let start = usize::from(x) * TILE_HEIGHT_COMPONENTS;
         let dest = &mut self.blend_buffers.last_mut().unwrap()[start..start + len];
         let color_buf = &mut self.paint_buf[..len];
-        let encoded_paint = resources
-            .encoded_paints
-            .get(paint_index)
-            .unwrap_or_else(|| {
-                &resources.filter_paints[paint_index - resources.encoded_paints.len()]
-            });
+        let encoded_paint = resources.encoded_paints.get(paint_index).map_or_else(
+            || {
+                ResolvedPaint::BuiltIn(
+                    &resources.filter_paints[paint_index - resources.encoded_paints.len()],
+                )
+            },
+            |paint| match paint {
+                PaintResource::BuiltIn(paint) => ResolvedPaint::BuiltIn(paint),
+                PaintResource::Custom(paint) => ResolvedPaint::Custom(paint),
+            },
+        );
 
         let sampler_x = f64::from(sample_x) + PIXEL_CENTER_OFFSET;
         let sampler_y = f64::from(sample_y) + PIXEL_CENTER_OFFSET;
@@ -927,6 +935,24 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
                 }
             };
         }
+
+        let encoded_paint = match encoded_paint {
+            ResolvedPaint::Custom(paint) => {
+                let span = PaintSpan {
+                    start: paint.transform * Point::new(sampler_x, sampler_y),
+                    x_advance: paint.x_advance,
+                    y_advance: paint.y_advance,
+                    width: span_width,
+                    height: Tile::HEIGHT,
+                };
+                fill_complex_paint!(
+                    paint.paint.may_have_transparency(),
+                    CustomPainter { paint, span }
+                );
+                return;
+            }
+            ResolvedPaint::BuiltIn(encoded_paint) => encoded_paint,
+        };
 
         match encoded_paint {
             EncodedPaint::BlurredRoundedRect(rect) => {
@@ -1070,11 +1096,31 @@ impl<S: Simd, T: FineKernel<S>> Fine<S, T> {
     }
 }
 
+enum ResolvedPaint<'a> {
+    BuiltIn(&'a EncodedPaint),
+    Custom(&'a EncodedCustomPaint),
+}
+
+struct CustomPainter<'a> {
+    paint: &'a EncodedCustomPaint,
+    span: PaintSpan,
+}
+
+impl Painter for CustomPainter<'_> {
+    fn paint_u8(self, buf: &mut [u8]) {
+        self.paint.paint.shader.paint_u8(buf, self.span);
+    }
+
+    fn paint_f32(self, buf: &mut [f32]) {
+        self.paint.paint.shader.paint_f32(buf, self.span);
+    }
+}
+
 #[derive(Clone, Copy)]
 #[doc(hidden)]
 pub struct FineResources<'a> {
     pub alpha_buffers: &'a [&'a [u8]],
-    pub encoded_paints: &'a [EncodedPaint],
+    pub encoded_paints: &'a [PaintResource],
     pub filter_paints: &'a [EncodedPaint],
     pub image_resolver: &'a dyn ImageResolver,
 }

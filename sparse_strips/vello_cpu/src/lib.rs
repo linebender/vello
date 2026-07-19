@@ -144,6 +144,7 @@ extern crate std;
 #[cfg(all(not(feature = "u8_pipeline"), not(feature = "f32_pipeline")))]
 compile_error!("vello_cpu must have at least one of the u8 or f32 pipelines enabled");
 
+mod paint;
 mod render;
 
 mod clip;
@@ -162,9 +163,12 @@ pub(crate) mod record;
 #[doc(hidden)]
 pub mod region;
 
+pub use paint::{CustomPaint, PaintShader, PaintSpan, PaintType};
 pub use render::{
     CompositeMode, PixelFormat, RasterizerSettings, RenderContext, RenderSettings, Resources,
 };
+/// Rendering state used by [`RenderContext`].
+pub type RenderState = vello_common::render_state::RenderState<PaintType>;
 // Note: The first one is not something that should be
 // exposed, but is currently needed by vello_sparse_tests.
 #[cfg(feature = "text")]
@@ -173,7 +177,7 @@ pub use glifo::Glyph;
 pub use text::{CpuGlyphRunBackend, GlyphRunBuilder};
 pub use vello_common::fearless_simd::Level;
 pub use vello_common::mask::Mask;
-pub use vello_common::paint::{Image, ImageSource, Paint, PaintType};
+pub use vello_common::paint::{Image, ImageSource, Paint};
 pub use vello_common::pixmap::{Pixmap, PixmapMut};
 pub use vello_common::{color, kurbo, peniko};
 

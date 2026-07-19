@@ -12,7 +12,9 @@ use vello_common::mask::Mask;
 use vello_common::paint::{ImageId, ImageSource, PaintType, Tint};
 use vello_common::peniko::{BlendMode, Fill, FontData, ImageQuality};
 use vello_common::pixmap::Pixmap;
-use vello_cpu::{Level, RasterizerSettings, RenderContext, RenderMode, RenderSettings, Resources};
+use vello_cpu::{
+    CustomPaint, Level, RasterizerSettings, RenderContext, RenderMode, RenderSettings, Resources,
+};
 use vello_hybrid::{
     RenderSettings as HybridRenderSettings, Resources as HybridResources, SampleRect, Scene,
     SceneConstraints, TextureId,
@@ -62,6 +64,7 @@ pub(crate) trait Renderer: Sized {
     fn set_stroke(&mut self, stroke: Stroke);
     fn set_mask(&mut self, mask: Mask);
     fn set_paint(&mut self, paint: impl Into<PaintType>);
+    fn set_custom_paint(&mut self, paint: CustomPaint);
     fn set_tint(&mut self, tint: Option<Tint>);
     fn set_paint_transform(&mut self, affine: Affine);
     fn set_fill_rule(&mut self, fill_rule: Fill);
@@ -209,6 +212,10 @@ impl Renderer for CpuRenderer {
     }
 
     fn set_paint(&mut self, paint: impl Into<PaintType>) {
+        self.ctx.set_paint(paint);
+    }
+
+    fn set_custom_paint(&mut self, paint: CustomPaint) {
         self.ctx.set_paint(paint);
     }
 
@@ -497,6 +504,10 @@ impl Renderer for HybridRenderer {
 
     fn set_paint(&mut self, paint: impl Into<PaintType>) {
         self.scene.set_paint(paint);
+    }
+
+    fn set_custom_paint(&mut self, _: CustomPaint) {
+        unimplemented!("custom paints are only supported by vello_cpu")
     }
 
     fn set_tint(&mut self, tint: Option<Tint>) {
@@ -873,6 +884,10 @@ impl Renderer for HybridRenderer {
 
     fn set_paint(&mut self, paint: impl Into<PaintType>) {
         self.scene.set_paint(paint);
+    }
+
+    fn set_custom_paint(&mut self, _: CustomPaint) {
+        unimplemented!("custom paints are only supported by vello_cpu")
     }
 
     fn set_tint(&mut self, tint: Option<Tint>) {

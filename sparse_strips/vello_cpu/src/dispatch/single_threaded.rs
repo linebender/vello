@@ -9,6 +9,7 @@ use crate::dispatch::Dispatcher;
 use crate::filter::context::FilterContext;
 use crate::fine::{Fine, FineKernel, FineRenderParams, FineResources, rasterize_region};
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
+use crate::paint::PaintResource;
 use crate::peniko::{BlendMode, Fill};
 use crate::record::{
     CommandRecorder, FilterData, LayerProps, PoppedLayer, RecordedCmd, RecordedLayerKind,
@@ -17,7 +18,6 @@ use crate::region::Regions;
 use crate::{CompositeMode, RasterizerSettings};
 use alloc::vec::Vec;
 use core::cell::RefCell;
-use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd};
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
@@ -75,7 +75,7 @@ impl SingleThreadedDispatcher {
         scene_width: u16,
         scene_height: u16,
         settings: RasterizerSettings,
-        encoded_paints: &[EncodedPaint],
+        encoded_paints: &[PaintResource],
         image_resolver: &dyn ImageResolver,
     ) {
         use crate::fine::F32Kernel;
@@ -94,7 +94,7 @@ impl SingleThreadedDispatcher {
         scene_width: u16,
         scene_height: u16,
         settings: RasterizerSettings,
-        encoded_paints: &[EncodedPaint],
+        encoded_paints: &[PaintResource],
         image_resolver: &dyn ImageResolver,
     ) {
         use crate::fine::U8Kernel;
@@ -111,7 +111,7 @@ impl SingleThreadedDispatcher {
         scene_width: u16,
         scene_height: u16,
         settings: RasterizerSettings,
-        encoded_paints: &[EncodedPaint],
+        encoded_paints: &[PaintResource],
         image_resolver: &dyn ImageResolver,
     ) {
         let filters = self.rasterize_filter_layers::<S, F>(simd, encoded_paints, image_resolver);
@@ -143,7 +143,7 @@ impl SingleThreadedDispatcher {
         mut target: PixmapMut<'_>,
         params: FineRenderParams,
         use_src_over: bool,
-        encoded_paints: &[EncodedPaint],
+        encoded_paints: &[PaintResource],
         image_resolver: &dyn ImageResolver,
     ) {
         let mut bucketer = self.bucketer.borrow_mut();
@@ -215,7 +215,7 @@ impl SingleThreadedDispatcher {
     fn rasterize_filter_layers<S: Simd, F: FineKernel<S>>(
         &self,
         simd: S,
-        encoded_paints: &[EncodedPaint],
+        encoded_paints: &[PaintResource],
         image_resolver: &dyn ImageResolver,
     ) -> FilterContext {
         // TODO: Reuse across frames so that pixmaps can be reused.
@@ -457,7 +457,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         scene_width: u16,
         scene_height: u16,
         settings: RasterizerSettings,
-        encoded_paints: &[EncodedPaint],
+        encoded_paints: &[PaintResource],
         image_resolver: &dyn ImageResolver,
     ) {
         // If only the u8 pipeline is enabled, then use it.

@@ -14,23 +14,24 @@ use glifo::GlyphPrepCache;
 
 use crate::dispatch::single_threaded::SingleThreadedDispatcher;
 use crate::kurbo::{PathEl, Point};
+use crate::paint::{EncodedCustomPaint, PaintResource};
 use crate::record::FilterData;
+use crate::{PaintType, RenderState};
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use hashbrown::HashMap;
 use vello_common::blurred_rounded_rect::BlurredRoundedRectangle;
-use vello_common::encode::{EncodeExt, EncodedPaint};
+use vello_common::encode::EncodeExt;
 use vello_common::fearless_simd::Level;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::mask::Mask;
-use vello_common::paint::{ImageId, ImageResolver, Paint, PaintType, Tint};
+use vello_common::paint::{ImageId, ImageResolver, IndexedPaint, Paint, Tint};
 use vello_common::peniko::color::palette::css::BLACK;
 use vello_common::peniko::{BlendMode, Fill};
 use vello_common::pixmap::{Pixmap, PixmapMut};
-use vello_common::render_state::RenderState;
 use vello_common::util::is_axis_aligned;
 
 #[cfg(feature = "text")]
@@ -163,7 +164,7 @@ pub struct RenderContext {
     pub(crate) temp_path: BezPath,
     /// Optional threshold for aliasing.
     pub(crate) aliasing_threshold: Option<u8>,
-    pub(crate) encoded_paints: Vec<EncodedPaint>,
+    pub(crate) encoded_paints: Vec<PaintResource>,
     pub(crate) filter: Option<Filter>,
     #[cfg_attr(
         not(feature = "text"),
@@ -244,15 +245,26 @@ impl RenderContext {
 
     fn encode_current_paint(&mut self) -> Paint {
         match self.state.paint.clone() {
-            PaintType::Solid(s) => s.into(),
-            PaintType::Gradient(g) => {
+            PaintType::Brush(paint) => match paint {
+                vello_common::paint::PaintType::Solid(s) => s.into(),
+                vello_common::paint::PaintType::Gradient(g) => {
+                    let transform = self.effective_paint_transform();
+                    // TODO: Add caching?
+                    g.encode_into(&mut self.encoded_paints, transform, None)
+                }
+                vello_common::paint::PaintType::Image(i) => {
+                    let transform = self.effective_paint_transform();
+                    i.encode_into(&mut self.encoded_paints, transform, self.state.tint)
+                }
+            },
+            PaintType::Custom(paint) => {
+                let index = self.encoded_paints.len();
                 let transform = self.effective_paint_transform();
-                // TODO: Add caching?
-                g.encode_into(&mut self.encoded_paints, transform, None)
-            }
-            PaintType::Image(i) => {
-                let transform = self.effective_paint_transform();
-                i.encode_into(&mut self.encoded_paints, transform, self.state.tint)
+                self.encoded_paints
+                    .push(PaintResource::Custom(EncodedCustomPaint::new(
+                        paint, transform,
+                    )));
+                Paint::Indexed(IndexedPaint::new(index))
             }
         }
     }
@@ -402,8 +414,8 @@ impl RenderContext {
         invert: bool,
     ) {
         let rect = rect.abs();
-        let color = match self.state.paint {
-            PaintType::Solid(s) => s,
+        let color = match &self.state.paint {
+            PaintType::Brush(vello_common::paint::PaintType::Solid(s)) => *s,
             // Fallback to black when attempting to blur a rectangle with an image/gradient paint
             _ => BLACK,
         };
@@ -953,7 +965,10 @@ impl ImageResolver for ImageRegistry {
 mod tests {
     #[cfg(feature = "text")]
     use crate::peniko::{Blob, FontData};
-    use crate::{CompositeMode, RasterizerSettings, RenderContext, Resources};
+    use crate::{
+        CompositeMode, CustomPaint, PaintShader, PaintSpan, RasterizerSettings, RenderContext,
+        Resources,
+    };
     #[cfg(feature = "text")]
     use alloc::sync::Arc;
     use alloc::vec;
@@ -961,7 +976,7 @@ mod tests {
     use glifo::Glyph;
     use vello_common::color::PremulRgba8;
     use vello_common::color::palette::css::{BLUE, RED};
-    use vello_common::kurbo::{Rect, Shape};
+    use vello_common::kurbo::{Affine, Rect, Shape};
     use vello_common::pixmap::{Pixmap, PixmapMut};
     use vello_common::tile::Tile;
 
@@ -990,6 +1005,100 @@ mod tests {
             width,
             height,
         )
+    }
+
+    struct SplitShader;
+
+    impl SplitShader {
+        fn is_red(span: PaintSpan, x: u16, y: u16) -> bool {
+            let position =
+                span.start + span.x_advance * f64::from(x) + span.y_advance * f64::from(y);
+            position.x < 1.0
+        }
+    }
+
+    impl PaintShader for SplitShader {
+        fn paint_u8(&self, buffer: &mut [u8], span: PaintSpan) {
+            for x in 0..span.width {
+                for y in 0..span.height {
+                    let offset = (usize::from(x) * usize::from(span.height) + usize::from(y)) * 4;
+                    let color = if Self::is_red(span, x, y) {
+                        [255, 0, 0, 255]
+                    } else {
+                        [0, 0, 255, 255]
+                    };
+                    buffer[offset..offset + 4].copy_from_slice(&color);
+                }
+            }
+        }
+
+        fn paint_f32(&self, buffer: &mut [f32], span: PaintSpan) {
+            for x in 0..span.width {
+                for y in 0..span.height {
+                    let offset = (usize::from(x) * usize::from(span.height) + usize::from(y)) * 4;
+                    let color = if Self::is_red(span, x, y) {
+                        [1.0, 0.0, 0.0, 1.0]
+                    } else {
+                        [0.0, 0.0, 1.0, 1.0]
+                    };
+                    buffer[offset..offset + 4].copy_from_slice(&color);
+                }
+            }
+        }
+    }
+
+    fn split_shader_context() -> RenderContext {
+        let mut ctx = RenderContext::new(4, 1);
+        ctx.set_paint(CustomPaint::new(SplitShader).opaque());
+        ctx.set_paint_transform(Affine::scale(2.0));
+        ctx.fill_rect(&Rect::new(0.0, 0.0, 4.0, 1.0));
+        ctx.flush();
+        ctx
+    }
+
+    fn assert_split_shader(pixmap: &Pixmap) {
+        assert_eq!(pixmap.sample(0, 0), red_pixel());
+        assert_eq!(pixmap.sample(1, 0), red_pixel());
+        assert_eq!(pixmap.sample(2, 0), blue_pixel());
+        assert_eq!(pixmap.sample(3, 0), blue_pixel());
+    }
+
+    #[cfg(feature = "u8_pipeline")]
+    #[test]
+    fn custom_paint_u8_respects_paint_transform() {
+        let ctx = split_shader_context();
+        let mut resources = Resources::new();
+        let mut pixmap = Pixmap::new(4, 1);
+
+        ctx.render_with(
+            &mut pixmap,
+            &mut resources,
+            RasterizerSettings {
+                render_mode: crate::RenderMode::OptimizeSpeed,
+                ..Default::default()
+            },
+        );
+
+        assert_split_shader(&pixmap);
+    }
+
+    #[cfg(feature = "f32_pipeline")]
+    #[test]
+    fn custom_paint_f32_respects_paint_transform() {
+        let ctx = split_shader_context();
+        let mut resources = Resources::new();
+        let mut pixmap = Pixmap::new(4, 1);
+
+        ctx.render_with(
+            &mut pixmap,
+            &mut resources,
+            RasterizerSettings {
+                render_mode: crate::RenderMode::OptimizeQuality,
+                ..Default::default()
+            },
+        );
+
+        assert_split_shader(&pixmap);
     }
 
     fn red_rect_context(width: u16, height: u16, rect: Rect) -> RenderContext {

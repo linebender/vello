@@ -31,7 +31,7 @@ use kurbo::{Affine, BezPath, Rect};
 use peniko::BlendMode;
 use peniko::color::{AlphaColor, Srgb};
 use vello_common::fearless_simd::Level;
-use vello_common::paint::ImageId;
+use vello_common::paint::{ImageId, PaintType as PenikoPaint};
 
 fn atlas_page_image_id(page_index: u32) -> ImageId {
     ImageId::new(ATLAS_IMAGE_ID_BASE + page_index)
@@ -403,7 +403,7 @@ impl DrawSink for RenderContext {
 }
 
 impl glifo::GlyphRenderer for RenderContext {
-    type SavedState = vello_common::render_state::RenderState;
+    type SavedState = crate::RenderState;
 
     #[inline]
     fn save_state(&mut self) -> Self::SavedState {
@@ -432,16 +432,15 @@ impl glifo::GlyphRenderer for RenderContext {
 
     #[inline]
     fn get_context_color(&self) -> AlphaColor<Srgb> {
-        let paint = self.paint().clone();
-        match paint {
-            PaintType::Solid(s) => s,
+        match self.paint() {
+            PaintType::Brush(PenikoPaint::Solid(s)) => *s,
             _ => BLACK,
         }
     }
 
     #[inline]
-    fn current_paint(&self) -> &PaintType {
-        self.paint()
+    fn current_paint_is_solid(&self) -> bool {
+        matches!(self.paint(), PaintType::Brush(PenikoPaint::Solid(_)))
     }
 
     #[inline]

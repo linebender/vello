@@ -47,6 +47,7 @@ mod layer;
 mod mask;
 mod mix;
 mod opacity;
+mod paint;
 mod renderer;
 mod scenes;
 #[macro_use]

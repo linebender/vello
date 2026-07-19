@@ -7,10 +7,10 @@ pub(crate) mod single_threaded;
 
 use crate::RasterizerSettings;
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
+use crate::paint::PaintResource;
 use crate::peniko::{BlendMode, Fill};
 use crate::record::FilterData;
 use core::fmt::Debug;
-use vello_common::encode::EncodedPaint;
 use vello_common::mask::Mask;
 use vello_common::paint::{ImageResolver, Paint};
 use vello_common::pixmap::PixmapMut;
@@ -73,7 +73,7 @@ pub(crate) trait Dispatcher: Debug + Send {
         scene_width: u16,
         scene_height: u16,
         settings: RasterizerSettings,
-        encoded_paints: &[EncodedPaint],
+        encoded_paints: &[PaintResource],
         image_resolver: &dyn ImageResolver,
     );
     fn is_multi_threaded(&self) -> bool;

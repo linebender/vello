@@ -7,7 +7,7 @@ use crate::atlas::{AtlasPaint, AtlasSlot};
 use crate::color::{AlphaColor, Srgb};
 use crate::kurbo::{Affine, BezPath, Rect};
 use crate::peniko::BlendMode;
-use vello_common::paint::{Image, ImageSource, PaintType, Tint};
+use vello_common::paint::{Image, ImageSource, Tint};
 
 // TODO: This trait is only temporary and will hopefully be replaced once we have a better
 // unifying imaging API.
@@ -79,8 +79,8 @@ pub trait GlyphRenderer: DrawSink {
     /// context-dependent colors of COLR glyphs.
     fn get_context_color(&self) -> AlphaColor<Srgb>;
 
-    /// Get the currently active paint.
-    fn current_paint(&self) -> &PaintType;
+    /// Return whether the currently active paint is a solid color.
+    fn current_paint_is_solid(&self) -> bool;
 
     // Hopefully we can get rid of those below in the future.
 

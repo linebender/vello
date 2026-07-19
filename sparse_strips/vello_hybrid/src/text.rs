@@ -325,8 +325,8 @@ impl glifo::GlyphRenderer for Scene {
     }
 
     #[inline]
-    fn current_paint(&self) -> &PaintType {
-        self.paint()
+    fn current_paint_is_solid(&self) -> bool {
+        matches!(self.paint(), PaintType::Solid(_))
     }
 
     #[inline]

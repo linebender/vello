@@ -4,11 +4,10 @@
 use crate::fine::default_blend;
 use criterion::{Bencher, Criterion};
 use vello_common::color::palette::css::ROYAL_BLUE;
-use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::Simd;
 use vello_common::paint::{NoOpImageResolver, Paint, PremulColor};
 use vello_common::peniko::BlendMode;
-use vello_cpu::fine::{Fine, FineKernel, FineResources, PaintFillAttrs, Span};
+use vello_cpu::fine::{Fine, FineKernel, FineResources, PaintFillAttrs, PaintResource, Span};
 use vello_dev_macros::vello_bench;
 
 pub fn fill(c: &mut Criterion) {
@@ -52,7 +51,7 @@ pub fn transparent_long<S: Simd, N: FineKernel<S>>(b: &mut Bencher<'_>, fine: &m
 
 pub(crate) fn fill_single<S: Simd, N: FineKernel<S>>(
     paint: &Paint,
-    encoded_paints: &[EncodedPaint],
+    encoded_paints: &[PaintResource],
     width: u16,
     b: &mut Bencher<'_>,
     blend_mode: BlendMode,

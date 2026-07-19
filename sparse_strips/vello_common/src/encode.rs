@@ -56,9 +56,9 @@ fn exp(val: f32) -> f32 {
 pub trait EncodeExt: private::Sealed {
     /// Encode the paint and push it into a vector of encoded paints, returning
     /// the corresponding paint in the process. This will also validate the paint.
-    fn encode_into(
+    fn encode_into<P: From<EncodedPaint>>(
         &self,
-        paints: &mut Vec<EncodedPaint>,
+        paints: &mut Vec<P>,
         transform: Affine,
         tint: Option<Tint>,
     ) -> Paint;
@@ -66,9 +66,9 @@ pub trait EncodeExt: private::Sealed {
 
 impl EncodeExt for Gradient {
     /// Encode the gradient into a paint.
-    fn encode_into(
+    fn encode_into<P: From<EncodedPaint>>(
         &self,
-        paints: &mut Vec<EncodedPaint>,
+        paints: &mut Vec<P>,
         transform: Affine,
         _tint: Option<Tint>,
     ) -> Paint {
@@ -239,7 +239,7 @@ impl EncodeExt for Gradient {
         };
 
         let idx = paints.len();
-        paints.push(encoded.into());
+        paints.push(EncodedPaint::Gradient(encoded).into());
 
         Paint::Indexed(IndexedPaint::new(idx))
     }
@@ -484,9 +484,9 @@ pub(crate) fn x_y_advances(transform: &Affine) -> (Vec2, Vec2) {
 impl private::Sealed for Image {}
 
 impl EncodeExt for Image {
-    fn encode_into(
+    fn encode_into<P: From<EncodedPaint>>(
         &self,
-        paints: &mut Vec<EncodedPaint>,
+        paints: &mut Vec<P>,
         transform: Affine,
         tint: Option<Tint>,
     ) -> Paint {
@@ -531,7 +531,7 @@ impl EncodeExt for Image {
             tint,
         };
 
-        paints.push(EncodedPaint::Image(encoded));
+        paints.push(EncodedPaint::Image(encoded).into());
 
         Paint::Indexed(IndexedPaint::new(idx))
     }
@@ -899,9 +899,9 @@ pub struct EncodedBlurredRoundedRectangle {
 impl private::Sealed for BlurredRoundedRectangle {}
 
 impl EncodeExt for BlurredRoundedRectangle {
-    fn encode_into(
+    fn encode_into<P: From<EncodedPaint>>(
         &self,
-        paints: &mut Vec<EncodedPaint>,
+        paints: &mut Vec<P>,
         transform: Affine,
         _tint: Option<Tint>,
     ) -> Paint {
@@ -970,7 +970,7 @@ impl EncodeExt for BlurredRoundedRectangle {
         };
 
         let idx = paints.len();
-        paints.push(encoded.into());
+        paints.push(EncodedPaint::BlurredRoundedRect(encoded).into());
 
         Paint::Indexed(IndexedPaint::new(idx))
     }
@@ -1188,18 +1188,18 @@ mod private {
 
 #[cfg(test)]
 mod tests {
-    use super::{EncodeExt, Gradient};
+    use super::{EncodeExt, EncodedPaint, Gradient};
     use crate::color::DynamicColor;
     use crate::color::palette::css::{BLACK, BLUE, GREEN};
     use crate::kurbo::{Affine, Point};
     use crate::peniko::{ColorStop, ColorStops};
-    use alloc::vec;
+    use alloc::vec::Vec;
     use peniko::{LinearGradientPosition, RadialGradientPosition};
     use smallvec::smallvec;
 
     #[test]
     fn gradient_missing_stops() {
-        let mut buf = vec![];
+        let mut buf = Vec::<EncodedPaint>::new();
 
         let gradient = Gradient {
             kind: LinearGradientPosition {
@@ -1218,7 +1218,7 @@ mod tests {
 
     #[test]
     fn gradient_one_stop() {
-        let mut buf = vec![];
+        let mut buf = Vec::<EncodedPaint>::new();
 
         let gradient = Gradient {
             kind: LinearGradientPosition {
@@ -1242,7 +1242,7 @@ mod tests {
 
     #[test]
     fn gradient_not_sorted_stops() {
-        let mut buf = vec![];
+        let mut buf = Vec::<EncodedPaint>::new();
 
         let gradient = Gradient {
             kind: LinearGradientPosition {
@@ -1271,7 +1271,7 @@ mod tests {
 
     #[test]
     fn gradient_linear_degenerate() {
-        let mut buf = vec![];
+        let mut buf = Vec::<EncodedPaint>::new();
 
         let gradient = Gradient {
             kind: LinearGradientPosition {
@@ -1300,7 +1300,7 @@ mod tests {
 
     #[test]
     fn gradient_last_stop_with_infinity_offset() {
-        let mut buf = vec![];
+        let mut buf = Vec::<EncodedPaint>::new();
 
         let gradient = Gradient {
             kind: LinearGradientPosition {
@@ -1330,7 +1330,7 @@ mod tests {
 
     #[test]
     fn gradient_stop_with_nan_offset() {
-        let mut buf = vec![];
+        let mut buf = Vec::<EncodedPaint>::new();
 
         let gradient = Gradient {
             kind: LinearGradientPosition {
@@ -1360,7 +1360,7 @@ mod tests {
 
     #[test]
     fn gradient_radial_degenerate() {
-        let mut buf = vec![];
+        let mut buf = Vec::<EncodedPaint>::new();
 
         let gradient = Gradient {
             kind: RadialGradientPosition {

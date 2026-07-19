@@ -10,6 +10,7 @@ use crate::dispatch::multi_threaded::worker::Worker;
 use crate::filter::context::FilterContext;
 use crate::fine::{Fine, FineKernel, FineRenderParams, FineResources, rasterize_region};
 use crate::kurbo::{Affine, BezPath, PathEl, Point, Rect, Stroke};
+use crate::paint::PaintResource;
 use crate::peniko::{BlendMode, Fill};
 use crate::record::{CommandRecorder, FilterData, LayerProps, PoppedLayer};
 use crate::region::Regions;
@@ -27,7 +28,6 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Barrier, Mutex};
 use thread_local::ThreadLocal;
 use vello_common::clip::ClipContext;
-use vello_common::encode::EncodedPaint;
 use vello_common::fearless_simd::{Level, Simd, dispatch};
 use vello_common::geometry::RectU16;
 use vello_common::mask::Mask;
@@ -172,7 +172,7 @@ impl MultiThreadedDispatcher {
         scene_width: u16,
         scene_height: u16,
         settings: RasterizerSettings,
-        encoded_paints: &[EncodedPaint],
+        encoded_paints: &[PaintResource],
         image_resolver: &dyn ImageResolver,
     ) {
         use crate::fine::F32Kernel;
@@ -186,7 +186,7 @@ impl MultiThreadedDispatcher {
         scene_width: u16,
         scene_height: u16,
         settings: RasterizerSettings,
-        encoded_paints: &[EncodedPaint],
+        encoded_paints: &[PaintResource],
         image_resolver: &dyn ImageResolver,
     ) {
         use crate::fine::U8Kernel;
@@ -391,7 +391,7 @@ impl MultiThreadedDispatcher {
         scene_width: u16,
         scene_height: u16,
         settings: RasterizerSettings,
-        encoded_paints: &[EncodedPaint],
+        encoded_paints: &[PaintResource],
         image_resolver: &dyn ImageResolver,
     ) {
         let mut bucketer = self.bucketer.lock().unwrap();
@@ -644,7 +644,7 @@ impl Dispatcher for MultiThreadedDispatcher {
         scene_width: u16,
         scene_height: u16,
         settings: RasterizerSettings,
-        encoded_paints: &[EncodedPaint],
+        encoded_paints: &[PaintResource],
         image_resolver: &dyn ImageResolver,
     ) {
         assert!(self.flushed, "attempted to rasterize before flushing");
