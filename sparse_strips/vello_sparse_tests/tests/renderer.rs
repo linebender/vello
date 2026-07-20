@@ -367,6 +367,12 @@ impl HybridRenderer {
         }
     }
 
+    /// Direct access to the underlying scene, for hybrid-only APIs not on
+    /// the [`Renderer`] trait (e.g. `Scene::set_cull_hint`).
+    pub(crate) fn scene_mut(&mut self) -> &mut Scene {
+        &mut self.scene
+    }
+
     fn upload_image_with_resources(
         &mut self,
         pixmap: &Arc<Pixmap>,

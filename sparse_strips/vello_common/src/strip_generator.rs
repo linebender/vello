@@ -87,6 +87,7 @@ pub struct StripGenerator {
     tiles: Tiles,
     width: u16,
     height: u16,
+    cull_hint: Option<RectU16>,
 }
 
 impl StripGenerator {
@@ -101,6 +102,22 @@ impl StripGenerator {
             temp_storage: StripStorage::default(),
             width,
             height,
+            cull_hint: None,
+        }
+    }
+
+    /// Hint that pixels outside `hint` are undefined for subsequent generation: flattening and
+    /// strip production are culled to it. Pixels inside are bit-identical to un-hinted
+    /// generation. Cleared by [`Self::reset`].
+    pub fn set_cull_hint(&mut self, hint: Option<RectU16>) {
+        self.cull_hint = hint;
+    }
+
+    #[inline]
+    fn apply_cull_hint(&self, bbox: RectU16) -> RectU16 {
+        match self.cull_hint {
+            Some(hint) => bbox.intersect(hint),
+            None => bbox,
         }
     }
 
@@ -126,9 +143,11 @@ impl StripGenerator {
         strip_storage: &mut StripStorage,
         clip_path: Option<PathDataRef<'_>>,
     ) {
-        let cull_bbox = clip_path
-            .map(|clip_path| clip_path.bbox)
-            .unwrap_or(RectU16::new(0, 0, self.width, self.height));
+        let cull_bbox = self.apply_cull_hint(
+            clip_path
+                .map(|clip_path| clip_path.bbox)
+                .unwrap_or(RectU16::new(0, 0, self.width, self.height)),
+        );
         flatten::fill(
             self.level,
             path,
@@ -151,9 +170,11 @@ impl StripGenerator {
         strip_storage: &mut StripStorage,
         clip_path: Option<PathDataRef<'_>>,
     ) {
-        let cull_bbox = clip_path
-            .map(|clip_path| clip_path.bbox)
-            .unwrap_or(RectU16::new(0, 0, self.width, self.height));
+        let cull_bbox = self.apply_cull_hint(
+            clip_path
+                .map(|clip_path| clip_path.bbox)
+                .unwrap_or(RectU16::new(0, 0, self.width, self.height)),
+        );
         flatten::stroke(
             self.level,
             path,
@@ -224,6 +245,17 @@ impl StripGenerator {
                 )
             })
             .unwrap_or(viewport);
+        // The cull hint has integer edges, so clamping to it keeps in-hint coverage
+        // bit-identical (clamped edges land on full-coverage columns).
+        let clip_bbox = match self.cull_hint {
+            Some(hint) => clip_bbox.intersect(Rect::new(
+                f64::from(hint.x0),
+                f64::from(hint.y0),
+                f64::from(hint.x1),
+                f64::from(hint.y1),
+            )),
+            None => clip_bbox,
+        };
         let clamped = rect.abs().intersect(clip_bbox);
 
         let level = self.level;
@@ -245,6 +277,7 @@ impl StripGenerator {
         self.line_buf.clear();
         self.tiles.reset(width, height);
         self.temp_storage.clear();
+        self.cull_hint = None;
     }
 }
 
@@ -287,9 +320,79 @@ mod tests {
     use alloc::format;
 
     use crate::fearless_simd::Level;
+    use crate::geometry::RectU16;
     use crate::kurbo::{Affine, Rect, Shape};
     use crate::peniko::Fill;
     use crate::strip_generator::{StripGenerator, StripStorage};
+
+    #[test]
+    fn cull_hint_rect_fast_matches_pre_intersected_rect() {
+        // Clamping a rect to the (integer-edged) hint must produce exactly the strips of the
+        // pre-intersected rect.
+        let mut hinted = StripGenerator::new(100, 100, Level::baseline());
+        hinted.set_cull_hint(Some(RectU16::new(8, 8, 24, 24)));
+        let mut storage_hinted = StripStorage::default();
+        hinted.generate_filled_rect_fast(
+            &Rect::new(0.5, 0.5, 90.5, 90.5),
+            &mut storage_hinted,
+            None,
+        );
+
+        let mut plain = StripGenerator::new(100, 100, Level::baseline());
+        let mut storage_plain = StripStorage::default();
+        plain.generate_filled_rect_fast(&Rect::new(8.0, 8.0, 24.0, 24.0), &mut storage_plain, None);
+
+        assert_eq!(storage_hinted, storage_plain);
+    }
+
+    #[test]
+    fn cull_hint_culls_generation() {
+        let mut generator = StripGenerator::new(100, 100, Level::baseline());
+        let path = Rect::new(50.0, 50.0, 90.0, 90.0).to_path(0.1);
+
+        let mut unhinted = StripStorage::default();
+        generator.generate_filled_path(
+            path.iter(),
+            Fill::NonZero,
+            Affine::IDENTITY,
+            None,
+            &mut unhinted,
+            None,
+        );
+        assert!(!unhinted.is_empty());
+
+        // A hint disjoint from the path culls everything.
+        generator.reset(100, 100);
+        generator.set_cull_hint(Some(RectU16::new(0, 0, 8, 8)));
+        let mut hinted = StripStorage::default();
+        generator.generate_filled_path(
+            path.iter(),
+            Fill::NonZero,
+            Affine::IDENTITY,
+            None,
+            &mut hinted,
+            None,
+        );
+        assert!(hinted.strips.is_empty());
+    }
+
+    #[test]
+    fn reset_clears_cull_hint() {
+        let mut generator = StripGenerator::new(100, 100, Level::baseline());
+        generator.set_cull_hint(Some(RectU16::new(0, 0, 8, 8)));
+        generator.reset(100, 100);
+
+        let mut storage = StripStorage::default();
+        generator.generate_filled_path(
+            Rect::new(50.0, 50.0, 90.0, 90.0).to_path(0.1).iter(),
+            Fill::NonZero,
+            Affine::IDENTITY,
+            None,
+            &mut storage,
+            None,
+        );
+        assert!(!storage.is_empty());
+    }
 
     #[test]
     fn reset() {

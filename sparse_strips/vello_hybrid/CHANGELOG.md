@@ -15,6 +15,8 @@ This release has an [MSRV][] of 1.88.
 ### Added
 
 - Partial (damage-region) rendering: `Renderer::render_with_config` with `RenderConfig { load: TargetLoad, scissors: &[RectU16] }` controls the target load (`Clear`/`Load`/`DontCare`) and scissors and culls root drawing to a set of disjoint damage rects. Also `Renderer::clear_rects` for clearing damage rects. ([#1737][] by [@AdrianEddy][])
+- `Scene::set_cull_hint`: cull path flattening and strip generation to a bounding box for renders that only present part of the target; in-hint pixels are bit-identical. ([#1737][] by [@AdrianEddy][])
+- Clips that are axis-aligned integer rectangles no longer demote rects from the fast rect path: `fill_rect`, `draw_texture_rects`, and `fill_blurred_rounded_rect` clamp to the clip instead; output is byte-identical. ([#1737][] by [@AdrianEddy][])
 
 ### Changed
 

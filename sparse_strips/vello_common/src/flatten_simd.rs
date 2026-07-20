@@ -113,8 +113,15 @@ pub(crate) fn flatten<S: Simd>(
                 callback.callback(LinePathEl::MoveTo(p));
             }
             PathEl::LineTo(p) => {
+                // Same culling as for the curves below: a segment fully to the right, top, or
+                // bottom of the cull bbox affects neither coverage nor winding inside it (winding
+                // accumulates left-to-right, and strip rows are independent).
+                if line_culled(last_pt, p, right, top, bottom) {
+                    callback.callback(LinePathEl::MoveTo(p));
+                } else {
+                    callback.callback(LinePathEl::LineTo(p));
+                }
                 last_pt = p;
-                callback.callback(LinePathEl::LineTo(p));
             }
             PathEl::QuadTo(p1, p2) => {
                 let p0 = last_pt;
@@ -223,7 +230,11 @@ pub(crate) fn flatten<S: Simd>(
             }
             PathEl::ClosePath => {
                 if last_pt != start_pt {
-                    callback.callback(LinePathEl::LineTo(start_pt));
+                    if line_culled(last_pt, start_pt, right, top, bottom) {
+                        callback.callback(LinePathEl::MoveTo(start_pt));
+                    } else {
+                        callback.callback(LinePathEl::LineTo(start_pt));
+                    }
 
                     // Kurbo says: "If `quad_to` [or another drawing op] is called immediately
                     // after `close_path` then the current subpath starts at the initial point of
@@ -236,9 +247,15 @@ pub(crate) fn flatten<S: Simd>(
         }
     }
 
-    if last_pt != start_pt {
+    if last_pt != start_pt && !line_culled(last_pt, start_pt, right, top, bottom) {
         callback.callback(LinePathEl::LineTo(start_pt));
     }
+}
+
+/// Whether a line segment lies fully to the right, top, or bottom of the cull bbox.
+#[inline(always)]
+fn line_culled(p0: Point, p1: Point, right: f64, top: f64, bottom: f64) -> bool {
+    (p0.x > right && p1.x > right) || (p0.y < top && p1.y < top) || (p0.y > bottom && p1.y > bottom)
 }
 
 // The below methods are copied from kurbo and needed to implement flattening of normal quad curves.
