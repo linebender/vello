@@ -18,7 +18,7 @@ use vello_common::mask::Mask;
 use vello_common::paint::{ImageSource, IndexedPaint, Paint};
 use vello_common::pixmap::Pixmap;
 use vello_common::record::{LayerClip, LayerProps, RecordedCmd, RecordedLayer, RecordedLayerKind};
-use vello_common::strip::Strip;
+use vello_common::strip::{Strip, visit_strip_fill_segments};
 use vello_common::tile::Tile;
 use vello_common::util::{Clear, RectExt, RetainVec, VecPool};
 
@@ -131,6 +131,19 @@ impl Clear for RowState {
     fn clear(&mut self) {
         Self::clear(self);
     }
+}
+
+fn debug_assert_tile_aligned(point: (u16, u16), description: &str) {
+    debug_assert_eq!(
+        point.0 % Tile::WIDTH,
+        0,
+        "{description} must be tile-width aligned",
+    );
+    debug_assert_eq!(
+        point.1 % Tile::HEIGHT,
+        0,
+        "{description} must be tile-height aligned",
+    );
 }
 
 /// A bucketer that groups commands into strip-row-sized buckets.
@@ -273,16 +286,7 @@ impl CommandBucketer {
         // Therefore, we need to keep track of this offset so that for example paints know that
         // they should actually be sampled at (200, 200) instead of (0, 0).
 
-        debug_assert_eq!(
-            self.viewport.x0 % Tile::WIDTH,
-            0,
-            "viewport origin must be tile-width aligned",
-        );
-        debug_assert_eq!(
-            self.viewport.y0 % Tile::HEIGHT,
-            0,
-            "viewport origin must be tile-height aligned",
-        );
+        debug_assert_tile_aligned(self.viewport_origin(), "viewport origin");
 
         for cmd in cmds {
             match cmd {
@@ -618,18 +622,11 @@ impl CommandBucketer {
         let clip_x0 = clip_bbox.x0;
         let clip_x1 = clip_bbox.x1.min(self.width());
 
-        debug_assert_eq!(
-            clip_x0 % Tile::WIDTH,
-            0,
-            "clip start must be tile-width aligned",
-        );
-        debug_assert_eq!(
-            clip_x1 % Tile::WIDTH,
-            0,
-            "clip end must be tile-width aligned",
-        );
+        debug_assert_tile_aligned((clip_x0, clip_bbox.y0), "clip start");
+        debug_assert_tile_aligned((clip_x1, clip_bbox.y1), "clip end");
 
         let origin = self.viewport_origin();
+        debug_assert_tile_aligned(origin, "viewport origin");
 
         // Note: the viewport of a filter layer is based on the bounds of its rendered contents.
         // Therefore, those are always guaranteed to be within the viewport rect. However, this does not
@@ -640,69 +637,52 @@ impl CommandBucketer {
         // Therefore, we need to make sure to clip those appropriately.
 
         let viewport_y1 = self.viewport.y1;
-        // Convert to viewport coordinates.
+        let origin_tile_x = origin.0 / Tile::WIDTH;
+        let origin_tile_y = origin.1 / Tile::HEIGHT;
+        let clip_scene_y0 = viewport_y1.min(origin.1.saturating_add(clip_bbox.y0));
+        let clip_scene_y1 = viewport_y1.min(origin.1.saturating_add(clip_bbox.y1));
+        // Convert to scene coordinates.
         let clip_scene_x0 = origin.0.saturating_add(clip_x0);
         let clip_scene_x1 = origin.0.saturating_add(clip_x1);
 
-        let strip_row = |strip: &Strip| (strip.y - origin.1) / Tile::HEIGHT;
+        // Clip bounding box in tile units.
+        let tile_bounds = RectU16::new(
+            clip_scene_x0 / Tile::WIDTH,
+            clip_scene_y0 / Tile::HEIGHT,
+            clip_scene_x1 / Tile::WIDTH,
+            clip_scene_y1 / Tile::HEIGHT,
+        );
 
-        // Clip strips that are outside the viewport horizontally.
-        let clip_span = |x0: u16, x1: u16| (x0.max(clip_scene_x0), x1.min(clip_scene_x1));
-
-        for i in 0..strip_buf.len() - 1 {
-            let strip = &strip_buf[i];
-
-            // Skip strips that are outside the viewport vertically.
-            if strip.y < origin.1 {
-                continue;
-            }
-            if strip.y >= viewport_y1 {
-                break;
-            }
-
-            let strip_y = strip_row(strip);
-            let row_y = strip_y.saturating_mul(Tile::HEIGHT);
-
-            if row_y < clip_bbox.y0 {
-                continue;
-            }
-            if row_y >= clip_bbox.y1 {
-                break;
-            }
-
-            let row_idx = strip_y as usize;
-
-            let next_strip = &strip_buf[i + 1];
-            let strip_width = strip.width_to(next_strip);
-            let x0 = strip.x;
-            let x1 = x0.saturating_add(strip_width);
-            let (clipped_x0, clipped_x1) = clip_span(x0, x1);
-
-            if clipped_x0 < clipped_x1 {
+        visit_strip_fill_segments(
+            strip_buf,
+            tile_bounds,
+            self,
+            |bucketer, segment| {
+                let row_idx = usize::from(segment.tile_y - origin_tile_y);
+                let x0 = (segment.tile_x0 - origin_tile_x) * Tile::WIDTH;
+                let x1 = (segment.tile_x1 - origin_tile_x) * Tile::WIDTH;
                 alpha_fill_cmd(
-                    self,
+                    bucketer,
                     GeneratedAlphaFill {
                         row_idx,
-                        span: Span::new(clipped_x0 - origin.0, clipped_x1 - clipped_x0),
-                        alpha_idx: strip.alpha_idx()
-                            + u32::from(clipped_x0 - x0) * u32::from(Tile::HEIGHT),
+                        span: Span::new(x0, x1 - x0),
+                        alpha_idx: segment.alpha_idx,
                     },
                 );
-            }
-
-            if next_strip.fill_gap() && next_strip.y == strip.y {
-                let (fill_x0, fill_x1) = clip_span(x1, next_strip.x);
-                if fill_x0 < fill_x1 {
-                    fill_cmd(
-                        self,
-                        GeneratedFill {
-                            row_idx,
-                            span: Span::new(fill_x0 - origin.0, fill_x1 - fill_x0),
-                        },
-                    );
-                }
-            }
-        }
+            },
+            |bucketer, segment| {
+                let row_idx = usize::from(segment.tile_y - origin_tile_y);
+                let x0 = (segment.tile_x0 - origin_tile_x) * Tile::WIDTH;
+                let x1 = (segment.tile_x1 - origin_tile_x) * Tile::WIDTH;
+                fill_cmd(
+                    bucketer,
+                    GeneratedFill {
+                        row_idx,
+                        span: Span::new(x0, x1 - x0),
+                    },
+                );
+            },
+        );
     }
 
     /// Note: If depth-culling should be disabled, pass `None` to `draw_id`.
