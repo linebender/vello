@@ -33,68 +33,50 @@
 //! intermediate representation.
 
 use crate::filter::{FilterData, FilterLayerPlacement};
-use crate::geometry::RectU16;
+use crate::geometry::{RectU16, SizeU16};
 use crate::mask::Mask;
-use crate::paint::Paint;
 use crate::peniko::BlendMode;
 use crate::strip::Strip;
-use crate::util::{VecPool, strip_bbox};
+use crate::util::RectExt;
 use alloc::vec::Vec;
 use core::ops::Range;
+use smallvec::SmallVec;
 
-/// A recorded command.
+/// A drawable object that can report its bounding box.
+pub trait Drawable {
+    /// Return the bounding box of the given object.
+    fn bbox(&self, strips: &[Strip]) -> RectU16;
+}
+
+/// A node in the recorded render graph.
 #[derive(Debug)]
-pub enum RecordedCmd {
-    /// A path fill command.
-    Fill {
-        /// Index of the thread-local strip storage containing the strips.
-        thread_idx: u8,
-        /// Range of strips representing the fill.
-        strip_range: Range<usize>,
-        /// Paint applied to the fill.
-        paint: Paint,
-        /// Blend mode applied to the fill.
-        blend_mode: BlendMode,
-        /// Optional mask applied to the fill.
-        mask: Option<Mask>,
-    },
-    /// Push a new (non-filter) layer to the layer stack.
-    PushLayer {
-        /// Identifier of the layer.
-        id: LayerId,
-    },
-    /// Composite the filter layer with the given ID into the current layer.
-    FilterLayer {
-        /// Identifier of the filter layer.
-        id: LayerId,
-    },
-    /// Pop the last (non-filter) layer from the layer stack.
-    PopLayer,
+pub struct Node {
+    /// A contiguous (possibly empty) batch of draw commands indexing [`CommandRecorder::draws`].
+    pub draws: Range<u32>,
+    /// An optional layer composition, invoked after `draws`.
+    pub layer: Option<u32>,
 }
 
-/// Identifier of a recorded layer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct LayerId(u32);
-
-impl LayerId {
-    /// Create a layer identifier from an index.
-    pub fn new(id: usize) -> Self {
-        Self(id as u32)
-    }
-
-    /// Return the layer index.
-    pub fn get(self) -> usize {
-        self.0 as usize
+impl Node {
+    /// Return the draw commands referenced by this node.
+    pub fn draws_in<'a, D>(&self, draws: &'a [D]) -> &'a [D] {
+        &draws[self.draws.start as usize..self.draws.end as usize]
     }
 }
 
-/// Metadata for a recorded layer.
+/// Metadata and child nodes for a recorded layer.
 #[derive(Debug)]
 pub struct RecordedLayer {
     /// Properties of the layer.
     pub props: LayerProps,
-    /// Kind-specific layer data.
+    /// The child nodes of the layer.
+    pub nodes: SmallVec<[Node; 2]>,
+    /// The kind of recorded layer.
     pub kind: RecordedLayerKind,
+    /// Nesting depth of the layer.
+    pub depth: usize,
+    /// Bounding box of the layer.
+    pub bbox: RectU16,
 }
 
 /// Properties for a recorded layer.
@@ -121,15 +103,13 @@ pub struct LayerClip {
     pub bbox: RectU16,
 }
 
-/// Additional data for each kind of recorded layer.
+/// Additional metadata for regular and filter layers.
 #[derive(Debug)]
 pub enum RecordedLayerKind {
-    /// A regular layer whose commands will be inlined into the parent root layer.
+    /// A regular layer.
     Regular,
-    /// A filter layer storing its commands separately.
+    /// A filter layer.
     Filter {
-        /// The render commands of the layer.
-        cmds: Vec<RecordedCmd>,
         /// Static data about the filter itself.
         filter_data: FilterData,
         /// Data about how to place the filter layer, which can only be determined once its
@@ -139,102 +119,126 @@ pub enum RecordedLayerKind {
 }
 
 impl RecordedLayer {
-    /// Create a regular recorded layer.
-    pub fn regular(props: LayerProps) -> Self {
+    fn regular(props: LayerProps, depth: usize) -> Self {
         Self {
             props,
+            nodes: SmallVec::new(),
             kind: RecordedLayerKind::Regular,
+            depth,
+            // Will be initialized once we call `pop_layer`.
+            bbox: RectU16::INVERTED,
         }
     }
 
-    fn filter(props: LayerProps, filter_plan: FilterData, cmds: Vec<RecordedCmd>) -> Self {
+    fn filter(props: LayerProps, filter_plan: FilterData, depth: usize) -> Self {
         Self {
             props,
+            nodes: SmallVec::new(),
             kind: RecordedLayerKind::Filter {
-                cmds,
                 filter_data: filter_plan,
                 // Will be initialized once we call `pop_layer`.
                 placement: FilterLayerPlacement::EMPTY,
             },
+            depth,
+            // Will be initialized once we call `pop_layer`.
+            bbox: RectU16::INVERTED,
         }
     }
 }
 
-/// Recorder for fills and nested layers.
-#[derive(Debug, Default)]
-pub struct CommandRecorder {
-    /// The commands of the root layer.
-    pub root_cmds: Vec<RecordedCmd>,
+// TODO: Rename this: https://github.com/linebender/vello/pull/1746#discussion_r3611799919
+/// Recorder for a scene description.
+#[derive(Debug)]
+pub struct CommandRecorder<D> {
+    /// Tile-aligned dimensions of the root scene.
+    pub scene_size: SizeU16,
+    /// The nodes of the root layer.
+    pub nodes: Vec<Node>,
+    /// Flat storage for all draw commands that are part of the recording.
+    pub draws: Vec<D>,
     /// Data about recorded layers, indexed by their ID.
     pub layers: Vec<RecordedLayer>,
-    /// A pool for reusable `Vec<RecordedCmd>` allocations.
-    cmd_pool: VecPool<RecordedCmd>,
-    /// The filter layer whose command stream is currently the base.
+    /// IDs of recorded filter layers in creation order.
+    pub filter_layers: Vec<u32>,
+    /// Whether the root is the target of a non-default blending operation.
+    pub root_is_blend_target: bool,
+    /// Maximum layer depth across the whole layer graph.
+    pub max_layer_depth: usize,
+    /// The largest dimensions of any recorded layer.
+    pub largest_layer_size: Option<SizeU16>,
+    /// The largest dimensions of any recorded filter layer.
+    pub largest_filter_layer_size: Option<SizeU16>,
+    /// Whether there exists at least one layer that uses a non-default blend mode.
+    pub has_non_default_blend: bool,
+    /// The layer whose command stream is currently the base.
     ///
-    /// This is `None` if there is no active filter layer and we are recording into the
-    /// root layer instead.
-    active_filter_layer: Option<LayerId>,
+    /// This is `None` if there is no active layer and we are recording into the root layer instead.
+    active_layer: Option<u32>,
     /// Stack of currently pushed layers.
     layer_stack: Vec<OpenLayer>,
 }
 
-#[derive(Debug)]
-struct OpenLayer {
-    id: LayerId,
-    /// The bounding box of the contents recorded into this layer.
-    bbox: RectU16,
-    enclosing_filter_layer: Option<LayerId>,
+impl<D> Default for CommandRecorder<D> {
+    fn default() -> Self {
+        Self {
+            scene_size: SizeU16::ZERO,
+            nodes: Vec::new(),
+            draws: Vec::new(),
+            layers: Vec::new(),
+            filter_layers: Vec::new(),
+            root_is_blend_target: false,
+            max_layer_depth: 0,
+            largest_layer_size: None,
+            largest_filter_layer_size: None,
+            has_non_default_blend: false,
+            active_layer: None,
+            layer_stack: Vec::new(),
+        }
+    }
 }
 
-impl CommandRecorder {
+#[derive(Debug)]
+struct OpenLayer {
+    id: u32,
+    /// The bounding box of the contents recorded into this layer.
+    bbox: RectU16,
+    parent_layer: Option<u32>,
+}
+
+impl<D> CommandRecorder<D> {
     /// Create a new command recorder.
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(width: u16, height: u16) -> Self {
+        Self {
+            scene_size: snapped_scene_size(width, height),
+            ..Self::default()
+        }
     }
 
-    /// Return whether any layers are currently open.
+    /// Whether any layers are currently open.
     pub fn has_layers(&self) -> bool {
         !self.layer_stack.is_empty()
     }
 
-    /// Reset the recorder.
+    /// Reset the command recorder.
     #[inline]
-    pub fn reset(&mut self) {
-        self.root_cmds.clear();
+    pub fn reset(&mut self, width: u16, height: u16) {
+        self.scene_size = snapped_scene_size(width, height);
+        self.nodes.clear();
+        self.draws.clear();
 
-        for layer in self.layers.drain(..) {
-            // Make sure to reuse the allocations for those!
-            if let RecordedLayerKind::Filter { cmds, .. } = layer.kind {
-                self.cmd_pool.submit(cmds);
-            }
-        }
-        self.active_filter_layer = None;
+        self.layers.clear();
+        self.filter_layers.clear();
+        self.root_is_blend_target = false;
+        self.max_layer_depth = 0;
+        self.largest_layer_size = None;
+        self.largest_filter_layer_size = None;
+        self.has_non_default_blend = false;
+        self.active_layer = None;
         self.layer_stack.clear();
     }
 
-    /// Record a path fill.
+    /// Push a new layer.
     #[inline]
-    pub fn push_fill(
-        &mut self,
-        strip_range: Range<usize>,
-        strips: &[Strip],
-        paint: Paint,
-        blend_mode: BlendMode,
-        mask: Option<Mask>,
-        thread_idx: u8,
-    ) {
-        self.active_cmds_mut().push(RecordedCmd::Fill {
-            thread_idx,
-            strip_range,
-            paint,
-            blend_mode,
-            mask,
-        });
-
-        self.record_bbox(|| strip_bbox(strips));
-    }
-
-    /// Push a layer.
     pub fn push_layer(&mut self, props: LayerProps, filter_plan: Option<FilterData>) {
         if let Some(filter_plan) = filter_plan {
             self.push_filter_layer(props, filter_plan);
@@ -245,84 +249,123 @@ impl CommandRecorder {
     }
 
     fn push_regular_layer(&mut self, props: LayerProps) {
-        let id = self.push_layer_metadata(RecordedLayer::regular(props));
-        self.push_render_cmd(RecordedCmd::PushLayer { id });
-        self.layer_stack.push(OpenLayer {
-            id,
-            // Will be populated as we record commands.
-            bbox: RectU16::INVERTED,
-            enclosing_filter_layer: self.active_filter_layer,
-        });
+        let depth = self.layer_stack.len() + 1;
+        self.push_recorded_layer(RecordedLayer::regular(props, depth));
     }
 
     fn push_filter_layer(&mut self, props: LayerProps, filter_plan: FilterData) {
-        let enclosing_filter_layer = self.active_filter_layer;
-        let cmds = self.cmd_pool.take();
-        let id = self.push_layer_metadata(RecordedLayer::filter(props, filter_plan, cmds));
-        self.push_render_cmd(RecordedCmd::FilterLayer { id });
-        self.active_filter_layer = Some(id);
+        let depth = self.layer_stack.len() + 1;
+        let id = self.push_recorded_layer(RecordedLayer::filter(props, filter_plan, depth));
+
+        self.filter_layers.push(id);
+    }
+
+    fn push_recorded_layer(&mut self, layer: RecordedLayer) -> u32 {
+        let parent_layer = self.active_layer;
+        self.max_layer_depth = self.max_layer_depth.max(layer.depth);
+
+        if layer.props.blend_mode != BlendMode::default() {
+            self.has_non_default_blend = true;
+
+            if parent_layer.is_none() {
+                self.root_is_blend_target = true;
+            }
+        }
+
+        let id = self.push_layer_metadata(layer);
+        self.push_layer_node(id);
+        self.active_layer = Some(id);
         self.layer_stack.push(OpenLayer {
             id,
             // Will be populated as we record commands.
             bbox: RectU16::INVERTED,
-            enclosing_filter_layer,
+            parent_layer,
         });
+
+        id
     }
 
     /// Pop the currently active layer.
     pub fn pop_layer(&mut self) -> PoppedLayer {
         let layer = self.layer_stack.pop().unwrap();
         let id = layer.id;
-        match &mut self.layers[id.get()].kind {
-            RecordedLayerKind::Regular => {
-                self.record_bbox(|| layer.bbox);
-                self.active_cmds_mut().push(RecordedCmd::PopLayer);
 
-                PoppedLayer::Regular
-            }
-            RecordedLayerKind::Filter {
-                filter_data: filter_plan,
-                placement,
-                ..
-            } => {
-                *placement = FilterLayerPlacement::new(layer.bbox, filter_plan);
-                let dest_bbox = placement.dest_bbox;
-
-                self.active_filter_layer = layer.enclosing_filter_layer;
-                self.record_bbox(|| dest_bbox);
-                PoppedLayer::Filter
-            }
-        }
-    }
-
-    #[inline]
-    fn active_cmds_mut(&mut self) -> &mut Vec<RecordedCmd> {
-        self.layer_cmds_mut(self.active_filter_layer)
-    }
-
-    fn layer_cmds_mut(&mut self, root_layer: Option<LayerId>) -> &mut Vec<RecordedCmd> {
-        if let Some(id) = root_layer {
-            match &mut self.layers[id.get()].kind {
-                RecordedLayerKind::Filter { cmds, .. } => cmds,
+        let (popped_layer, bbox_in_parent) = {
+            let recorded_layer = &mut self.layers[id as usize];
+            match &mut recorded_layer.kind {
                 RecordedLayerKind::Regular => {
-                    unreachable!("regular layers cannot be active root layers")
+                    recorded_layer.bbox = layer.bbox;
+
+                    let layer_size = layer.bbox.into();
+                    self.largest_layer_size = Some(
+                        self.largest_layer_size
+                            .map_or(layer_size, |current| current.max(layer_size)),
+                    );
+
+                    (PoppedLayer::Regular, layer.bbox)
+                }
+                RecordedLayerKind::Filter {
+                    filter_data: filter_plan,
+                    placement,
+                } => {
+                    *placement = FilterLayerPlacement::new(layer.bbox, filter_plan);
+                    recorded_layer.bbox = placement.pixmap_bbox;
+
+                    let filter_size = placement.pixmap_bbox.into();
+                    self.largest_layer_size = Some(
+                        self.largest_layer_size
+                            .map_or(filter_size, |current| current.max(filter_size)),
+                    );
+                    self.largest_filter_layer_size = Some(
+                        self.largest_filter_layer_size
+                            .map_or(filter_size, |current| current.max(filter_size)),
+                    );
+
+                    (PoppedLayer::Filter, placement.dest_bbox)
                 }
             }
-        } else {
-            &mut self.root_cmds
-        }
+        };
+
+        // Update the parent bbox as well.
+        self.active_layer = layer.parent_layer;
+        self.record_bbox(|| bbox_in_parent);
+
+        popped_layer
     }
 
     #[inline]
-    fn push_render_cmd(&mut self, cmd: RecordedCmd) -> usize {
-        let cmds = self.active_cmds_mut();
-        let idx = cmds.len();
-        cmds.push(cmd);
-        idx
+    fn active_node_mut(&mut self) -> Option<&mut Node> {
+        if let Some(id) = self.active_layer {
+            self.layers[id as usize].nodes.last_mut()
+        } else {
+            self.nodes.last_mut()
+        }
     }
 
-    fn push_layer_metadata(&mut self, layer: RecordedLayer) -> LayerId {
-        let id = LayerId::new(self.layers.len());
+    fn push_node(&mut self, node: Node) {
+        if let Some(id) = self.active_layer {
+            self.layers[id as usize].nodes.push(node);
+        } else {
+            self.nodes.push(node);
+        }
+    }
+
+    fn push_layer_node(&mut self, layer_id: u32) {
+        let draw_idx = self.draws.len() as u32;
+
+        match self.active_node_mut() {
+            Some(node) if node.layer.is_none() => {
+                node.layer = Some(layer_id);
+            }
+            _ => self.push_node(Node {
+                draws: draw_idx..draw_idx,
+                layer: Some(layer_id),
+            }),
+        }
+    }
+
+    fn push_layer_metadata(&mut self, layer: RecordedLayer) -> u32 {
+        let id = self.layers.len() as u32;
         self.layers.push(layer);
         id
     }
@@ -331,6 +374,34 @@ impl CommandRecorder {
         if let Some(layer) = self.layer_stack.last_mut() {
             layer.bbox.union(bbox());
         }
+    }
+}
+
+fn snapped_scene_size(width: u16, height: u16) -> SizeU16 {
+    RectU16::new(0, 0, width, height)
+        .snap_to_tile_coordinates()
+        .into()
+}
+
+impl<D: Drawable> CommandRecorder<D> {
+    /// Push a draw command.
+    #[inline]
+    pub fn push_draw(&mut self, draw: D, strips: &[Strip]) {
+        self.record_bbox(|| draw.bbox(strips));
+        let draw_idx = self.draws.len() as u32;
+        self.draws.push(draw);
+
+        match self.active_node_mut() {
+            Some(node) if node.layer.is_none() && node.draws.end == draw_idx => {
+                node.draws.end += 1;
+            }
+            _ => {
+                self.push_node(Node {
+                    draws: draw_idx..draw_idx + 1,
+                    layer: None,
+                });
+            }
+        };
     }
 }
 
@@ -346,20 +417,20 @@ pub enum PoppedLayer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::color::palette::css::BLACK;
     use crate::filter_effects::{Filter, FilterPrimitive};
     use crate::kurbo::Affine;
-    use crate::paint::PremulColor;
+    use crate::peniko::Mix;
+    use crate::tile::Tile;
 
-    enum ExpectedCmd {
-        PushLayer(usize),
-        FilterLayer(usize),
-        Fill,
-        PopLayer,
-    }
+    const DEFAULT_SIZE: u16 = 10;
 
-    fn row_end(x: u16, y: u16, alpha_idx: u32, fill_gap: bool) -> Strip {
-        Strip::new(x, y, alpha_idx, fill_gap)
+    #[derive(Debug)]
+    struct TestDraw;
+
+    impl Drawable for TestDraw {
+        fn bbox(&self, _strips: &[Strip]) -> RectU16 {
+            RectU16::new(0, 0, 64, 4)
+        }
     }
 
     fn layer_props() -> LayerProps {
@@ -368,6 +439,13 @@ mod tests {
             opacity: 1.0,
             mask: None,
             clip_path: None,
+        }
+    }
+
+    fn blended_layer_props() -> LayerProps {
+        LayerProps {
+            blend_mode: Mix::Multiply.into(),
+            ..layer_props()
         }
     }
 
@@ -380,29 +458,32 @@ mod tests {
         }
     }
 
-    fn assert_cmds(cmds: &[RecordedCmd], expected: &[ExpectedCmd]) {
+    fn assert_cmds(cmds: &[Node], expected: &[(Range<u32>, Option<u32>)]) {
         assert_eq!(cmds.len(), expected.len());
 
-        for (cmd, expected) in cmds.iter().zip(expected) {
-            match (cmd, expected) {
-                (RecordedCmd::PushLayer { id }, ExpectedCmd::PushLayer(expected_id)) => {
-                    assert_eq!(id.get(), *expected_id);
-                }
-                (RecordedCmd::FilterLayer { id }, ExpectedCmd::FilterLayer(expected_id)) => {
-                    assert_eq!(id.get(), *expected_id);
-                }
-                (RecordedCmd::Fill { .. }, ExpectedCmd::Fill) => {}
-                (RecordedCmd::PopLayer, ExpectedCmd::PopLayer) => {}
-                _ => panic!("unexpected command: {cmd:?}"),
-            }
+        for (cmd, (draws, layer)) in cmds.iter().zip(expected) {
+            assert_eq!(&cmd.draws, draws);
+            assert_eq!(cmd.layer, *layer);
         }
     }
 
-    fn filter_cmds(recorder: &CommandRecorder, id: usize) -> &[RecordedCmd] {
-        match &recorder.layers[id].kind {
-            RecordedLayerKind::Filter { cmds, .. } => cmds,
-            RecordedLayerKind::Regular => panic!("expected filter layer"),
-        }
+    fn layer_cmds(recorder: &CommandRecorder<TestDraw>, id: usize) -> &[Node] {
+        &recorder.layers[id].nodes
+    }
+
+    #[test]
+    fn scene_size_is_tile_aligned() {
+        let mut recorder = CommandRecorder::<TestDraw>::new(10, 10);
+        assert_eq!(recorder.scene_size, SizeU16::new(12));
+
+        recorder.reset(13, 7);
+        assert_eq!(recorder.scene_size, SizeU16::from_wh(16, 8));
+
+        recorder.reset(Tile::WIDTH * 5, Tile::HEIGHT * 3);
+        assert_eq!(
+            recorder.scene_size,
+            SizeU16::from_wh(Tile::WIDTH * 5, Tile::HEIGHT * 3)
+        );
     }
 
     #[test]
@@ -437,7 +518,7 @@ mod tests {
 
     #[test]
     fn layer_behavior() {
-        let mut recorder = CommandRecorder::new();
+        let mut recorder = CommandRecorder::<TestDraw>::new(DEFAULT_SIZE, DEFAULT_SIZE);
 
         recorder.push_layer(
             layer_props(),
@@ -449,55 +530,114 @@ mod tests {
         );
         recorder.push_layer(layer_props(), None);
 
-        recorder.push_fill(
-            0..3,
-            &[
-                Strip::new(0, 0, 0, false),
-                row_end(64, 0, 16, true),
-                Strip::sentinel(0, 16),
-            ],
-            Paint::Solid(PremulColor::from_alpha_color(BLACK)),
-            BlendMode::default(),
-            None,
-            0,
-        );
+        recorder.push_draw(TestDraw, &[]);
 
         assert_eq!(recorder.pop_layer(), PoppedLayer::Regular);
         assert_eq!(recorder.pop_layer(), PoppedLayer::Filter);
 
         recorder.push_layer(layer_props(), None);
-        recorder.push_fill(
-            0..3,
-            &[
-                Strip::new(0, 0, 16, false),
-                row_end(64, 0, 32, true),
-                Strip::sentinel(0, 32),
-            ],
-            Paint::Solid(PremulColor::from_alpha_color(BLACK)),
-            BlendMode::default(),
-            None,
-            0,
-        );
+        recorder.push_draw(TestDraw, &[]);
         assert_eq!(recorder.pop_layer(), PoppedLayer::Regular);
         assert_eq!(recorder.pop_layer(), PoppedLayer::Filter);
 
-        assert_cmds(&recorder.root_cmds, &[ExpectedCmd::FilterLayer(0)]);
+        assert_cmds(&recorder.nodes, &[(0..0, Some(0))]);
         assert_cmds(
-            filter_cmds(&recorder, 0),
-            &[
-                ExpectedCmd::FilterLayer(1),
-                ExpectedCmd::PushLayer(3),
-                ExpectedCmd::Fill,
-                ExpectedCmd::PopLayer,
-            ],
+            layer_cmds(&recorder, 0),
+            &[(0..0, Some(1)), (1..1, Some(3))],
         );
-        assert_cmds(
-            filter_cmds(&recorder, 1),
-            &[
-                ExpectedCmd::PushLayer(2),
-                ExpectedCmd::Fill,
-                ExpectedCmd::PopLayer,
-            ],
+        assert_cmds(layer_cmds(&recorder, 1), &[(0..0, Some(2))]);
+        assert_cmds(layer_cmds(&recorder, 2), &[(0..1, None)]);
+        assert_cmds(layer_cmds(&recorder, 3), &[(1..2, None)]);
+        assert_eq!(recorder.draws.len(), 2);
+        assert_eq!(recorder.filter_layers, [0, 1]);
+        assert_eq!(
+            recorder
+                .layers
+                .iter()
+                .map(|layer| layer.depth)
+                .collect::<Vec<_>>(),
+            [1, 2, 3, 2]
         );
+        assert_eq!(recorder.max_layer_depth, 3);
+        assert!(!recorder.has_non_default_blend);
+        assert_eq!(recorder.largest_layer_size, Some(SizeU16::from_wh(64, 4)));
+        assert_eq!(
+            recorder.largest_filter_layer_size,
+            Some(SizeU16::from_wh(64, 4))
+        );
+    }
+
+    #[test]
+    fn draw_batches_are_split_by_layers() {
+        let mut recorder = CommandRecorder::<TestDraw>::new(DEFAULT_SIZE, DEFAULT_SIZE);
+
+        recorder.push_draw(TestDraw, &[]);
+        recorder.push_draw(TestDraw, &[]);
+        recorder.push_layer(layer_props(), None);
+        recorder.push_draw(TestDraw, &[]);
+        recorder.pop_layer();
+        recorder.push_draw(TestDraw, &[]);
+
+        assert_cmds(&recorder.nodes, &[(0..2, Some(0)), (3..4, None)]);
+        assert_cmds(layer_cmds(&recorder, 0), &[(2..3, None)]);
+    }
+
+    #[test]
+    fn node_resolves_draw_range() {
+        let draws = [0, 1, 2, 3];
+        let node = Node {
+            draws: 1..3,
+            layer: None,
+        };
+
+        assert_eq!(node.draws_in(&draws), &[1, 2]);
+    }
+
+    #[test]
+    fn blend_metadata_distinguishes_root_and_nested_targets() {
+        let mut recorder = CommandRecorder::<TestDraw>::new(DEFAULT_SIZE, DEFAULT_SIZE);
+
+        recorder.push_layer(layer_props(), None);
+        recorder.push_layer(blended_layer_props(), None);
+
+        assert!(!recorder.root_is_blend_target);
+        assert!(recorder.has_non_default_blend);
+        assert_eq!(recorder.max_layer_depth, 2);
+
+        recorder.pop_layer();
+        recorder.pop_layer();
+        recorder.push_layer(blended_layer_props(), None);
+
+        assert!(recorder.root_is_blend_target);
+    }
+
+    #[test]
+    fn reset_clears_all_metadata() {
+        let mut recorder = CommandRecorder::<TestDraw>::new(DEFAULT_SIZE, DEFAULT_SIZE);
+
+        recorder.push_layer(blended_layer_props(), None);
+        recorder.push_layer(
+            layer_props(),
+            Some(filter_data(RectU16::ZERO, RectU16::ZERO)),
+        );
+        recorder.push_draw(TestDraw, &[]);
+        recorder.pop_layer();
+        recorder.pop_layer();
+
+        assert!(recorder.root_is_blend_target);
+        assert!(recorder.has_non_default_blend);
+        assert_eq!(recorder.max_layer_depth, 2);
+        assert!(recorder.largest_layer_size.is_some());
+        assert!(recorder.largest_filter_layer_size.is_some());
+
+        recorder.reset(13, 7);
+
+        assert_eq!(recorder.scene_size, SizeU16::from_wh(16, 8));
+        assert!(!recorder.root_is_blend_target);
+        assert!(!recorder.has_non_default_blend);
+        assert_eq!(recorder.max_layer_depth, 0);
+        assert!(recorder.largest_layer_size.is_none());
+        assert!(recorder.largest_filter_layer_size.is_none());
+        assert!(recorder.filter_layers.is_empty());
     }
 }

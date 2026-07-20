@@ -10,6 +10,7 @@ use crate::filter::context::FilterContext;
 use crate::fine::{Fine, FineKernel, FineRenderParams, FineResources, rasterize_region};
 use crate::kurbo::{Affine, BezPath, PathEl, Point, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
+use crate::record::RecordedFill;
 use crate::region::Regions;
 use crate::{CompositeMode, RasterizerSettings};
 use alloc::boxed::Box;
@@ -57,7 +58,7 @@ type RecordedCommandReceiver = ordered_channel::Receiver<RecordedCommandTask>;
 pub(crate) struct MultiThreadedDispatcher {
     bucketer: Mutex<CommandBucketer>,
     clip_context: ClipContext,
-    recorder: CommandRecorder,
+    recorder: CommandRecorder<RecordedFill>,
     strip_storage: StripStorage,
     /// The thread pool that is used for dispatching tasks.
     thread_pool: ThreadPool,
@@ -149,7 +150,7 @@ impl MultiThreadedDispatcher {
             flushed,
             workers,
             clip_context: ClipContext::new(),
-            recorder: CommandRecorder::new(),
+            recorder: CommandRecorder::new(width, height),
             task_sender: None,
             recorded_command_receiver: None,
             strip_generator: StripGenerator::new(width, height, level),
@@ -318,15 +319,17 @@ impl MultiThreadedDispatcher {
                                     &task.allocation_group.strips
                                         [strip_range.start as usize..strip_range.end as usize],
                                 );
-                                let strips = &self.strip_storage.strips[strip_range.clone()];
-                                self.recorder.push_fill(
+                                let strips =
+                                    &self.strip_storage.strips[strip_range.start..strip_range.end];
+                                let draw = RecordedFill::new(
+                                    thread_id,
                                     strip_range,
-                                    strips,
                                     paint.clone(),
                                     blend_mode,
                                     mask,
-                                    thread_id,
                                 );
+
+                                self.recorder.push_draw(draw, strips);
                             }
                             RecordedCommand::PushLayer {
                                 thread_id,
@@ -398,7 +401,8 @@ impl MultiThreadedDispatcher {
         let filters = FilterContext::new(0);
         bucketer.reset(RectU16::new(0, 0, scene_width, scene_height));
         bucketer.bucket_commands(
-            &self.recorder.root_cmds,
+            &self.recorder.nodes,
+            &self.recorder.draws,
             &self.recorder.layers,
             &self.strip_storage.strips,
             encoded_paints,
@@ -591,7 +595,7 @@ impl Dispatcher for MultiThreadedDispatcher {
 
         // Bucketer will be reset lazily during rasterization with the active viewport.
         self.clip_context.reset();
-        self.recorder.reset();
+        self.recorder.reset(width, height);
         self.strip_storage.clear();
         self.allocation_group.clear();
         self.batch_cost = 0.0;
