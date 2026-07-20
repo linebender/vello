@@ -733,6 +733,12 @@ impl Debug for MultiThreadedDispatcher {
     }
 }
 
+impl Drop for MultiThreadedDispatcher {
+    fn drop(&mut self) {
+        self.flush();
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct OwnedClip {
     strips: Box<[Strip]>,

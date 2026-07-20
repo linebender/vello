@@ -1250,6 +1250,32 @@ mod tests {
         ctx.reset();
     }
 
+    #[cfg(feature = "multithreading")]
+    #[test]
+    fn multithreaded_drop_with_pending_tasks() {
+        use crate::RenderSettings;
+
+        for _ in 0..100 {
+            let mut ctx = RenderContext::new_with(
+                100,
+                100,
+                RenderSettings {
+                    num_threads: 4,
+                    ..Default::default()
+                },
+            );
+            
+            // Note: This test only works if we draw enough rectangles
+            // to trigger a batch send.
+            for _ in 0..300 {
+                ctx.fill_rect(&Rect::new(0.0, 0.0, 100., 100.0));
+            }
+
+            drop(ctx);
+        }
+    }
+
+
     #[cfg(feature = "text")]
     #[test]
     fn glyph_atlas_resources_are_lazy() {
