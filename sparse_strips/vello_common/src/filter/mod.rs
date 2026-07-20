@@ -12,7 +12,9 @@ use crate::filter::flood::Flood;
 use crate::filter::gaussian_blur::{GaussianBlur, transform_blur_params};
 use crate::filter::offset::Offset;
 use crate::filter_effects::{Filter, FilterPrimitive};
-use crate::kurbo::{Affine, Vec2};
+use crate::geometry::RectU16;
+use crate::kurbo::{Affine, Rect, Vec2};
+use crate::util::RectExt;
 
 pub mod drop_shadow;
 pub mod flood;
@@ -79,6 +81,136 @@ impl PreparedFilter {
                 unimplemented!("Other filter primitives not yet implemented");
             }
         }
+    }
+}
+
+/// Metadata about a filter layer and how it should be composited back into the parent layer.
+#[derive(Debug, Clone, Copy)]
+pub struct FilterLayerPlacement {
+    /// The conceptual bounding box of the pixmap that needs to be allocated to render
+    /// a layer correctly, including the area affected by the filter.
+    ///
+    /// For example, if the filter layer contains a rect spanning (200, 200) to (300, 300)
+    /// with a blur that has a radius exceeding the rectangle 40 pixels on each side, the pixmap
+    /// bbox will be (160, 160) to (340, 340).
+    ///
+    /// See the comments in `FilterLayerPlacement::new` for more information.
+    pub pixmap_bbox: RectU16,
+    /// Rectangle in the parent layer's coordinate space the filtered pixmap is composited into.
+    ///
+    /// See the comments in `FilterLayerPlacement::new` for more information.
+    pub dest_bbox: RectU16,
+    /// Source x offset used when sampling from the filter pixmap.
+    ///
+    /// See the comments in `FilterLayerPlacement::new` for more information.
+    pub src_x: u16,
+    /// Source y offset used when sampling from the filter pixmap.
+    ///
+    /// See the comments in `FilterLayerPlacement::new` for more information.
+    pub src_y: u16,
+}
+
+impl FilterLayerPlacement {
+    pub(crate) const EMPTY: Self = Self {
+        pixmap_bbox: RectU16::INVERTED,
+        dest_bbox: RectU16::INVERTED,
+        src_x: 0,
+        src_y: 0,
+    };
+
+    pub(crate) fn new(bbox: RectU16, filter_plan: &FilterData) -> Self {
+        // Some more detailed explanations of what's going on here since this
+        // part is a bit confusing.
+
+        // `bbox` is the tight bounding box across all strips in the filter
+        // layer. We now need to expand it by the filter padding to know how
+        // large of a pixmap we actually need to allocate. Also, as mentioned
+        // in [`FilterLayerPlan::new`], we need to ensure the pixmap itself is
+        // also a multiple of the tile width / tile height.
+        let pixmap_bbox = bbox
+            .expand(filter_plan.filter_padding)
+            .snap_to_tile_coordinates();
+
+        // Remember that in `RenderContext`, we eagerly shift everything drawn by `source_shift`
+        // to conservatively ensure that everything that might be needed for the filter is in the
+        // viewport area. Therefore, when compositing the filter layer back, we need to undo that
+        // shift.
+        let (shift_x, shift_y) = filter_plan.source_shift();
+        // For example, if `shift_x` is 20 and `pixmap_bbox.x0` is 4,
+        // shifting the pixmap back would place its left edge at -16. Since we
+        // start compositing at x=0, we need to skip the first 16 pixels
+        // inside the cropped pixmap (`src_x = 20 - 4`). If `pixmap_bbox.x0`
+        // is already >= `shift_x`, nothing is clipped and `src_x` is 0.
+        let src_x = shift_x.saturating_sub(pixmap_bbox.x0);
+        let src_y = shift_y.saturating_sub(pixmap_bbox.y0);
+        let dest_bbox = pixmap_bbox.relative_to_origin((shift_x, shift_y));
+
+        Self {
+            pixmap_bbox,
+            dest_bbox,
+            src_x,
+            src_y,
+        }
+    }
+
+    /// Return the source origin of the filter layer.
+    pub fn src_origin(self) -> (u16, u16) {
+        (self.src_x, self.src_y)
+    }
+}
+
+/// Precomputed data for a filter layer.
+#[derive(Debug, Clone)]
+pub struct FilterData {
+    /// The underlying filter.
+    pub filter: Filter,
+    /// The transform that was in place when the filter layer was invoked.
+    pub transform: Affine,
+    /// Padding that needs to be added for the area where the filter is applied.
+    ///
+    /// See [`Filter::filter_expansion`].
+    pub filter_padding: RectU16,
+    /// Padding that needs to be added to the source region for correct filter application.
+    ///
+    /// See [`Filter::source_expansion`].
+    pub source_padding: RectU16,
+}
+
+impl FilterData {
+    /// Create precomputed data for a filter and transform.
+    pub fn new(filter: Filter, transform: Affine) -> Self {
+        fn expansion_padding(expansion: Rect) -> RectU16 {
+            // TODO: We technically shouldn't need to snap here. `source_padding` is only
+            // used to shift the contents when rendering into the render context, and the
+            // final pixmap bbox (which is derived from `filter_expansion` will be snapped
+            // separately. However, not snapping here causes larger mismatches with Vello Hybrid
+            // since the size of the final pixmap determines in which way we decimate for the
+            // gaussian blur filter. Therefore, we keep this for compatibility.
+            let expansion = expansion.snap_to_tile_coordinates();
+
+            RectU16::new(
+                (-expansion.x0) as u16,
+                (-expansion.y0) as u16,
+                expansion.x1 as u16,
+                expansion.y1 as u16,
+            )
+        }
+
+        let source_padding = expansion_padding(filter.source_expansion(&transform));
+        let filter_padding = expansion_padding(filter.filter_expansion(&transform));
+
+        Self {
+            filter,
+            transform,
+            filter_padding,
+            source_padding,
+        }
+    }
+
+    /// By how much to shift all rendered contents to ensure that all rendered contents
+    /// are visible in the viewport [0, 0, width, height].
+    pub fn source_shift(&self) -> (u16, u16) {
+        (self.source_padding.x0, self.source_padding.y0)
     }
 }
 

@@ -23,7 +23,7 @@ use crate::fine::common::image::{FilteredImagePainter, NNImagePainter, PlainNNIm
 use crate::fine::common::rounded_blurred_rect::BlurredRoundedRectFiller;
 use crate::peniko::{BlendMode, ImageQuality};
 use crate::region::Region;
-use crate::util::{EncodedImageExt, VecPool};
+use crate::util::EncodedImageExt;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
@@ -42,7 +42,7 @@ use vello_common::paint::{ImageResolver, ImageSource, Paint, PremulColor, Tint};
 use vello_common::pixmap::Pixmap;
 use vello_common::simd::Splat4thExt;
 use vello_common::tile::Tile;
-use vello_common::util::f32_to_u8;
+use vello_common::util::{VecPool, f32_to_u8};
 
 #[doc(hidden)]
 pub use crate::coarse::PaintFillAttrs;

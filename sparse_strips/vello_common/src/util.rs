@@ -6,6 +6,7 @@
 use crate::geometry::RectU16;
 use crate::kurbo::PathEl;
 use crate::math::FloatExt;
+use crate::strip::Strip;
 use crate::tile::Tile;
 use alloc::vec::Vec;
 use core::ops::{Index, IndexMut};
@@ -182,6 +183,62 @@ pub trait Clear {
     fn clear(&mut self);
 }
 
+impl<T> Clear for Vec<T> {
+    fn clear(&mut self) {
+        Self::clear(self);
+    }
+}
+
+/// Pool for reusing allocations.
+#[derive(Debug)]
+pub struct Pool<T> {
+    entries: Vec<T>,
+    clear_on_submit: bool,
+}
+
+impl<T> Default for Pool<T> {
+    fn default() -> Self {
+        Self::new(true)
+    }
+}
+
+impl<T> Pool<T> {
+    /// Create a new pool.
+    ///
+    /// `clear_on_submit` decides whether submitted values should
+    /// be cleared when they are submitted or whether they should retain
+    /// their original contents.
+    pub fn new(clear_on_submit: bool) -> Self {
+        Self {
+            entries: Vec::new(),
+            clear_on_submit,
+        }
+    }
+
+    /// Take an object from the pool or create a new one.
+    pub fn take(&mut self) -> T
+    where
+        T: Default,
+    {
+        self.entries.pop().unwrap_or_default()
+    }
+
+    /// Return an object to the pool.
+    pub fn submit(&mut self, mut entry: T)
+    where
+        T: Clear,
+    {
+        if self.clear_on_submit {
+            entry.clear();
+        }
+
+        self.entries.push(entry);
+    }
+}
+
+/// Pool for reusing vector allocations.
+pub type VecPool<T> = Pool<Vec<T>>;
+
 /// A resizable vector that retains inner elements upon resizing.
 #[derive(Debug)]
 pub struct RetainVec<T> {
@@ -322,10 +379,50 @@ pub fn control_point_bbox_u16(
     )
 }
 
+pub(crate) fn strip_bbox(strips: &[Strip]) -> RectU16 {
+    let mut bbox = RectU16::INVERTED;
+
+    // Need at least one strip (and the sentinel one).
+    if strips.len() < 2 {
+        return bbox;
+    }
+
+    // TODO: It _feels_ like this "iterating over strips code" should be possible to
+    // deduplicate with other locations (i.e. the code used to generate fill commands).
+
+    for pair in strips.windows(2) {
+        let strip = pair[0];
+        let next_strip = pair[1];
+        if strip.is_sentinel() {
+            continue;
+        }
+
+        let strip_y = strip.strip_y();
+        let row_y = strip_y.saturating_mul(Tile::HEIGHT);
+        let row_y1 = row_y.saturating_add(Tile::HEIGHT);
+        let strip_width = strip.width_to(&next_strip);
+        let strip_x1 = strip.x.saturating_add(strip_width);
+
+        if strip_width > 0 {
+            bbox.union(RectU16::new(strip.x, row_y, strip_x1, row_y1));
+        }
+
+        if next_strip.fill_gap() && strip_y == next_strip.strip_y() {
+            let fill_x1 = next_strip.x;
+            if strip_x1 < fill_x1 {
+                bbox.union(RectU16::new(strip_x1, row_y, fill_x1, row_y1));
+            }
+        }
+    }
+
+    bbox
+}
+
 #[cfg(test)]
 mod tests {
-    use super::RectExt;
-    use super::RectU16;
+    use super::{RectExt, RectU16, strip_bbox};
+    use crate::strip::Strip;
+    use crate::tile::Tile;
     use peniko::kurbo::Rect;
 
     #[test]
@@ -338,5 +435,55 @@ mod tests {
     fn snap_u16_to_tile_coordinates_rounds_outward() {
         let rect = RectU16::new(5, 3, 9, 7).snap_to_tile_coordinates();
         assert_eq!(rect, RectU16::new(4, 0, 12, 8));
+    }
+
+    #[test]
+    fn empty_strip_bbox() {
+        let strips = [Strip::sentinel(0, 0), Strip::sentinel(0, 0)];
+
+        assert_eq!(strip_bbox(&strips), RectU16::INVERTED);
+    }
+
+    #[test]
+    fn single_strip_bbox() {
+        let strips = [
+            Strip::new(8, 4, 0, false),
+            Strip::sentinel(4, u32::from(Tile::HEIGHT) * 4),
+        ];
+
+        assert_eq!(strip_bbox(&strips), RectU16::new(8, 4, 12, 8));
+    }
+
+    #[test]
+    fn strip_with_fill_bbox() {
+        let strips = [
+            Strip::new(4, 0, 0, false),
+            Strip::new(20, 0, u32::from(Tile::HEIGHT) * 4, true),
+            Strip::sentinel(0, u32::from(Tile::HEIGHT) * 8),
+        ];
+
+        assert_eq!(strip_bbox(&strips), RectU16::new(4, 0, 24, 4));
+    }
+
+    #[test]
+    fn strip_with_row_end_fill_gap_bbox_is_clamped_to_viewport() {
+        let strips = [
+            Strip::new(4, 0, 0, false),
+            Strip::new(32, 0, u32::from(Tile::HEIGHT) * 4, true),
+            Strip::sentinel(0, u32::from(Tile::HEIGHT) * 4),
+        ];
+
+        assert_eq!(strip_bbox(&strips), RectU16::new(4, 0, 32, 4));
+    }
+
+    #[test]
+    fn strips_with_multiple_rows_bbox() {
+        let strips = [
+            Strip::new(12, 0, 0, false),
+            Strip::new(4, 8, u32::from(Tile::HEIGHT) * 4, false),
+            Strip::sentinel(8, u32::from(Tile::HEIGHT) * 8),
+        ];
+
+        assert_eq!(strip_bbox(&strips), RectU16::new(4, 0, 16, 12));
     }
 }

@@ -3,100 +3,127 @@
 
 //! Recording rendering commands.
 //!
-//! Currently, the pipeline of Vello CPU can be split into roughly three parts:
-//! 1) Recording rendering commands by generating strips + layer metadata.
-//! 2) Bucketing the recorded commands per-strip row into render commands (coarse rasterization).
-//! 3) Executing the render commands (fine rasterization).
+//! Vello CPU and Vello Hybrid share a recording stage before their pipelines diverge. Their
+//! pipelines can be split into roughly three parts:
 //!
-//! Why do we need 1) instead of just doing 2) as soon as the user sends their commands? Well,
-//! this is actually what an earlier version of Vello CPU did. The main reason why we _don't_ do
-//! this anymore are **filter layers**. Unlike normal layers with blends/opacity/masks/clips,
-//! filter layers are special in two ways:
+//! 1. Record rendering commands into a scene-graph-like structure.
+//! 2. Turn the complete recording into renderer-specific work. Vello CPU buckets commands by
+//!    strip row, while Vello Hybrid schedules draws and layer operations
+//!    across intermediate textures and render passes.
+//! 3. Execute that work using CPU fine rasterization or GPU render passes, respectively.
 //!
-//! - They always need to be rendered separately (assuming spatial filters are used), independently
-//!   of the parent layer command stream.
-//!   This is because spatial filters might require sampling neighboring pixels, so the whole filter
-//!   layer needs to be rendered as a whole before you can apply the filter and then composite it into
-//!   the parent layer. Therefore, commands for filter layers cannot simply be inlined into the
-//!   parent layer stream (this is what was done in previous versions of Vello CPU, and resulted in
-//!   incredibly complex and fragile code).
+//! The reasons for completing the recording before renderer-specific planning differ somewhat
+//! between the two renderers:
 //!
-//! - Filter layers might have a different dimension than the main viewport. If you apply a big
-//!   blur filter, you might have to render shapes that would normally be culled away because they
-//!   exceed the viewport.
+//! - Vello CPU can inline regular layers with blends, opacity, masks, or clips into their parent
+//!   command stream. However, filter layers must instead be rendered separately because
+//!   spatial filters might sample neighboring pixels. The complete layer must be rendered before
+//!   the filter can be applied and its result composited into the parent.
 //!
-//! If we decided to skip step 1) and do 2) directly, we would need to store and reuse instances
-//! of [`crate::coarse::bucketer::CommandBucketer`] for the root and each filter layer, which is especially cumbersome because
-//! conceptually, a command bucketer is a 2D array. This makes it very difficult to resize and reuse
-//! it while having the ability to retain and reuse inner allocations. By first recording all commands
-//! and their strips into a single [`Vec<RecordedCmd>`], we can basically represent the commands of
-//! a single layer with just one flat buffer, making it much easier to reuse them across frames. It
-//! also allows us to collect useful metadata (e.g. the bounding box of a layer) and make appropriate
-//! decisions about how to render them (for example, where to place a filter layer and what size to
-//! allocate for it).
+//! - Vello Hybrid needs to render *every* layer separately. Its scheduler therefore
+//!   needs the complete layer hierarchy and bounds before it can allocate intermediate textures and
+//!   order draws, filters, and composition operations.
+//!
+//! - In both renderers, filter layers might have different dimensions than the main viewport. A
+//!   large blur, for example, might require rendering shapes that would normally be culled because
+//!   they exceed the viewport.
+//!
+//! The recording stage allows us to serialize the whole scene into a graph that is enrichened
+//! with metadata, allowing each renderer to "do their own thing" while providing a common
+//! intermediate representation.
 
-use crate::coarse::bucketer::LayerClip;
-use crate::kurbo::{Affine, Rect};
+use crate::filter::{FilterData, FilterLayerPlacement};
+use crate::geometry::RectU16;
+use crate::mask::Mask;
+use crate::paint::Paint;
 use crate::peniko::BlendMode;
-use crate::util::VecPool;
+use crate::strip::Strip;
+use crate::util::{VecPool, strip_bbox};
 use alloc::vec::Vec;
 use core::ops::Range;
-use vello_common::filter_effects::Filter;
-use vello_common::geometry::RectU16;
-use vello_common::mask::Mask;
-use vello_common::paint::Paint;
-use vello_common::strip::Strip;
-use vello_common::tile::Tile;
-use vello_common::util::RectExt;
 
 /// A recorded command.
 #[derive(Debug)]
-pub(crate) enum RecordedCmd {
+pub enum RecordedCmd {
     /// A path fill command.
     Fill {
+        /// Index of the thread-local strip storage containing the strips.
         thread_idx: u8,
+        /// Range of strips representing the fill.
         strip_range: Range<usize>,
+        /// Paint applied to the fill.
         paint: Paint,
+        /// Blend mode applied to the fill.
         blend_mode: BlendMode,
+        /// Optional mask applied to the fill.
         mask: Option<Mask>,
     },
     /// Push a new (non-filter) layer to the layer stack.
-    PushLayer { id: LayerId },
+    PushLayer {
+        /// Identifier of the layer.
+        id: LayerId,
+    },
     /// Composite the filter layer with the given ID into the current layer.
-    FilterLayer { id: LayerId },
+    FilterLayer {
+        /// Identifier of the filter layer.
+        id: LayerId,
+    },
     /// Pop the last (non-filter) layer from the layer stack.
     PopLayer,
 }
 
+/// Identifier of a recorded layer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct LayerId(u32);
+pub struct LayerId(u32);
 
 impl LayerId {
-    pub(crate) fn new(id: usize) -> Self {
+    /// Create a layer identifier from an index.
+    pub fn new(id: usize) -> Self {
         Self(id as u32)
     }
 
-    pub(crate) fn get(self) -> usize {
+    /// Return the layer index.
+    pub fn get(self) -> usize {
         self.0 as usize
     }
 }
 
+/// Metadata for a recorded layer.
 #[derive(Debug)]
-pub(crate) struct RecordedLayer {
-    pub(crate) props: LayerProps,
-    pub(crate) kind: RecordedLayerKind,
+pub struct RecordedLayer {
+    /// Properties of the layer.
+    pub props: LayerProps,
+    /// Kind-specific layer data.
+    pub kind: RecordedLayerKind,
 }
 
+/// Properties for a recorded layer.
 #[derive(Debug)]
-pub(crate) struct LayerProps {
-    pub(crate) blend_mode: BlendMode,
-    pub(crate) opacity: f32,
-    pub(crate) mask: Option<Mask>,
-    pub(crate) clip_path: Option<LayerClip>,
+pub struct LayerProps {
+    /// Blend mode used when compositing the layer.
+    pub blend_mode: BlendMode,
+    /// Opacity applied when compositing the layer.
+    pub opacity: f32,
+    /// Optional mask applied when compositing the layer.
+    pub mask: Option<Mask>,
+    /// Optional clip path applied when compositing the layer.
+    pub clip_path: Option<LayerClip>,
 }
 
+/// Clip path associated with a recorded layer.
+#[derive(Debug, Clone)]
+pub struct LayerClip {
+    /// Range of strips representing the clip path.
+    pub strip_range: Range<usize>,
+    /// Index of the thread-local strip storage containing the strips.
+    pub thread_idx: u8,
+    /// Coarse bounds of the clip path.
+    pub bbox: RectU16,
+}
+
+/// Additional data for each kind of recorded layer.
 #[derive(Debug)]
-pub(crate) enum RecordedLayerKind {
+pub enum RecordedLayerKind {
     /// A regular layer whose commands will be inlined into the parent root layer.
     Regular,
     /// A filter layer storing its commands separately.
@@ -112,7 +139,8 @@ pub(crate) enum RecordedLayerKind {
 }
 
 impl RecordedLayer {
-    pub(crate) fn regular(props: LayerProps) -> Self {
+    /// Create a regular recorded layer.
+    pub fn regular(props: LayerProps) -> Self {
         Self {
             props,
             kind: RecordedLayerKind::Regular,
@@ -132,138 +160,13 @@ impl RecordedLayer {
     }
 }
 
-/// Metadata about a filter layer and how it should be composited back into the parent layer.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct FilterLayerPlacement {
-    /// The conceptual bounding box of the pixmap that needs to be allocated to render
-    /// a layer correctly, including the area affected by the filter.
-    ///
-    /// For example, if the filter layer contains a rect spanning (200, 200) to (300, 300)
-    /// with a blur that has a radius exceeding the rectangle 40 pixels on each side, the pixmap
-    /// bbox will be (160, 160) to (340, 340).
-    ///
-    /// See the comments in [`FilterLayerPlacement::new`] for more information.
-    pub(crate) pixmap_bbox: RectU16,
-    /// Rectangle in the parent layer's coordinate space the filtered pixmap is composited into.
-    ///
-    /// See the comments in [`FilterLayerPlacement::new`] for more information.
-    pub(crate) dest_bbox: RectU16,
-    /// Source x offset used when sampling from the filter pixmap.
-    ///
-    /// See the comments in [`FilterLayerPlacement::new`] for more information.
-    pub(crate) src_x: u16,
-    /// Source y offset used when sampling from the filter pixmap.
-    ///
-    /// See the comments in [`FilterLayerPlacement::new`] for more information.
-    pub(crate) src_y: u16,
-}
-
-impl FilterLayerPlacement {
-    const EMPTY: Self = Self {
-        pixmap_bbox: RectU16::INVERTED,
-        dest_bbox: RectU16::INVERTED,
-        src_x: 0,
-        src_y: 0,
-    };
-
-    fn new(bbox: RectU16, filter_plan: &FilterData) -> Self {
-        // Some more detailed explanations of what's going on here since this
-        // part is a bit confusing.
-
-        // `bbox` is the tight bounding box across all strips in the filter
-        // layer. We now need to expand it by the filter padding to know how
-        // large of a pixmap we actually need to allocate. Also, as mentioned
-        // in [`FilterLayerPlan::new`], we need to ensure the pixmap itself is
-        // also a multiple of the tile width / tile height.
-        let pixmap_bbox = bbox
-            .expand(filter_plan.filter_padding)
-            .snap_to_tile_coordinates();
-
-        // Remember that in `RenderContext`, we eagerly shift everything drawn by `source_shift`
-        // to conservatively ensure that everything that might be needed for the filter is in the
-        // viewport area. Therefore, when compositing the filter layer back, we need to undo that
-        // shift.
-        let (shift_x, shift_y) = filter_plan.source_shift();
-        // For example, if `shift_x` is 20 and `pixmap_bbox.x0` is 4,
-        // shifting the pixmap back would place its left edge at -16. Since we
-        // start compositing at x=0, we need to skip the first 16 pixels
-        // inside the cropped pixmap (`src_x = 20 - 4`). If `pixmap_bbox.x0`
-        // is already >= `shift_x`, nothing is clipped and `src_x` is 0.
-        let src_x = shift_x.saturating_sub(pixmap_bbox.x0);
-        let src_y = shift_y.saturating_sub(pixmap_bbox.y0);
-        let dest_bbox = pixmap_bbox.relative_to_origin((shift_x, shift_y));
-
-        Self {
-            pixmap_bbox,
-            dest_bbox,
-            src_x,
-            src_y,
-        }
-    }
-
-    pub(crate) fn src_origin(self) -> (u16, u16) {
-        (self.src_x, self.src_y)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct FilterData {
-    pub(crate) filter: Filter,
-    /// The transform that was in place when the filter layer was invoked.
-    pub(crate) transform: Affine,
-    /// Padding that needs to be added for the area where the filter is applied.
-    ///
-    /// See [`Filter::filter_expansion`].
-    pub(crate) filter_padding: RectU16,
-    /// Padding that needs to be added to the source region for correct filter application.
-    ///
-    /// See [`Filter::source_expansion`].
-    pub(crate) source_padding: RectU16,
-}
-
-impl FilterData {
-    pub(crate) fn new(filter: Filter, transform: Affine) -> Self {
-        fn expansion_padding(expansion: Rect) -> RectU16 {
-            // TODO: We technically shouldn't need to snap here. `source_padding` is only
-            // used to shift the contents when rendering into the render context, and the
-            // final pixmap bbox (which is derived from `filter_expansion` will be snapped
-            // separately. However, not snapping here causes larger mismatches with Vello Hybrid
-            // since the size of the final pixmap determines in which way we decimate for the
-            // gaussian blur filter. Therefore, we keep this for compatibility.
-            let expansion = expansion.snap_to_tile_coordinates();
-
-            RectU16::new(
-                (-expansion.x0) as u16,
-                (-expansion.y0) as u16,
-                expansion.x1 as u16,
-                expansion.y1 as u16,
-            )
-        }
-
-        let source_padding = expansion_padding(filter.source_expansion(&transform));
-        let filter_padding = expansion_padding(filter.filter_expansion(&transform));
-
-        Self {
-            filter,
-            transform,
-            filter_padding,
-            source_padding,
-        }
-    }
-
-    /// By how much to shift all rendered contents to ensure that all rendered contents
-    /// are visible in the viewport [0, 0, width, height].
-    pub(crate) fn source_shift(&self) -> (u16, u16) {
-        (self.source_padding.x0, self.source_padding.y0)
-    }
-}
-
+/// Recorder for fills and nested layers.
 #[derive(Debug, Default)]
-pub(crate) struct CommandRecorder {
+pub struct CommandRecorder {
     /// The commands of the root layer.
-    pub(crate) root_cmds: Vec<RecordedCmd>,
+    pub root_cmds: Vec<RecordedCmd>,
     /// Data about recorded layers, indexed by their ID.
-    pub(crate) layers: Vec<RecordedLayer>,
+    pub layers: Vec<RecordedLayer>,
     /// A pool for reusable `Vec<RecordedCmd>` allocations.
     cmd_pool: VecPool<RecordedCmd>,
     /// The filter layer whose command stream is currently the base.
@@ -284,16 +187,19 @@ struct OpenLayer {
 }
 
 impl CommandRecorder {
-    pub(crate) fn new() -> Self {
+    /// Create a new command recorder.
+    pub fn new() -> Self {
         Self::default()
     }
 
-    pub(crate) fn has_layers(&self) -> bool {
+    /// Return whether any layers are currently open.
+    pub fn has_layers(&self) -> bool {
         !self.layer_stack.is_empty()
     }
 
+    /// Reset the recorder.
     #[inline]
-    pub(crate) fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.root_cmds.clear();
 
         for layer in self.layers.drain(..) {
@@ -306,8 +212,9 @@ impl CommandRecorder {
         self.layer_stack.clear();
     }
 
+    /// Record a path fill.
     #[inline]
-    pub(crate) fn push_fill(
+    pub fn push_fill(
         &mut self,
         strip_range: Range<usize>,
         strips: &[Strip],
@@ -327,7 +234,8 @@ impl CommandRecorder {
         self.record_bbox(|| strip_bbox(strips));
     }
 
-    pub(crate) fn push_layer(&mut self, props: LayerProps, filter_plan: Option<FilterData>) {
+    /// Push a layer.
+    pub fn push_layer(&mut self, props: LayerProps, filter_plan: Option<FilterData>) {
         if let Some(filter_plan) = filter_plan {
             self.push_filter_layer(props, filter_plan);
             return;
@@ -361,7 +269,8 @@ impl CommandRecorder {
         });
     }
 
-    pub(crate) fn pop_layer(&mut self) -> PoppedLayer {
+    /// Pop the currently active layer.
+    pub fn pop_layer(&mut self) -> PoppedLayer {
         let layer = self.layer_stack.pop().unwrap();
         let id = layer.id;
         match &mut self.layers[id.get()].kind {
@@ -425,57 +334,22 @@ impl CommandRecorder {
     }
 }
 
+/// Kind of layer returned by [`CommandRecorder::pop_layer`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum PoppedLayer {
+pub enum PoppedLayer {
+    /// A regular layer.
     Regular,
+    /// A filter layer.
     Filter,
-}
-
-fn strip_bbox(strips: &[Strip]) -> RectU16 {
-    let mut bbox = RectU16::INVERTED;
-
-    // Need at least one strip (and the sentinel one).
-    if strips.len() < 2 {
-        return bbox;
-    }
-
-    // TODO: It _feels_ like this "iterating over strips code" should be possible to
-    // deduplicate with other locations (i.e. the code used to generate fill commands).
-
-    for pair in strips.windows(2) {
-        let strip = pair[0];
-        let next_strip = pair[1];
-        if strip.is_sentinel() {
-            continue;
-        }
-
-        let strip_y = strip.strip_y();
-        let row_y = strip_y.saturating_mul(Tile::HEIGHT);
-        let row_y1 = row_y.saturating_add(Tile::HEIGHT);
-        let strip_width = strip.width_to(&next_strip);
-        let strip_x1 = strip.x.saturating_add(strip_width);
-
-        if strip_width > 0 {
-            bbox.union(RectU16::new(strip.x, row_y, strip_x1, row_y1));
-        }
-
-        if next_strip.fill_gap() && strip_y == next_strip.strip_y() {
-            let fill_x1 = next_strip.x;
-            if strip_x1 < fill_x1 {
-                bbox.union(RectU16::new(strip_x1, row_y, fill_x1, row_y1));
-            }
-        }
-    }
-
-    bbox
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::color::palette::css::BLACK;
-    use vello_common::filter_effects::FilterPrimitive;
-    use vello_common::paint::PremulColor;
+    use crate::filter_effects::{Filter, FilterPrimitive};
+    use crate::kurbo::Affine;
+    use crate::paint::PremulColor;
 
     enum ExpectedCmd {
         PushLayer(usize),
@@ -625,54 +499,5 @@ mod tests {
                 ExpectedCmd::PopLayer,
             ],
         );
-    }
-    #[test]
-    fn empty_strip_bbox() {
-        let strips = [Strip::sentinel(0, 0), Strip::sentinel(0, 0)];
-
-        assert_eq!(strip_bbox(&strips), RectU16::INVERTED);
-    }
-
-    #[test]
-    fn single_strip_bbox() {
-        let strips = [
-            Strip::new(8, 4, 0, false),
-            Strip::sentinel(4, u32::from(Tile::HEIGHT) * 4),
-        ];
-
-        assert_eq!(strip_bbox(&strips), RectU16::new(8, 4, 12, 8));
-    }
-
-    #[test]
-    fn strip_with_fill_bbox() {
-        let strips = [
-            Strip::new(4, 0, 0, false),
-            Strip::new(20, 0, u32::from(Tile::HEIGHT) * 4, true),
-            Strip::sentinel(0, u32::from(Tile::HEIGHT) * 8),
-        ];
-
-        assert_eq!(strip_bbox(&strips), RectU16::new(4, 0, 24, 4));
-    }
-
-    #[test]
-    fn strip_with_row_end_fill_gap_bbox_is_clamped_to_viewport() {
-        let strips = [
-            Strip::new(4, 0, 0, false),
-            row_end(32, 0, u32::from(Tile::HEIGHT) * 4, true),
-            Strip::sentinel(0, u32::from(Tile::HEIGHT) * 4),
-        ];
-
-        assert_eq!(strip_bbox(&strips), RectU16::new(4, 0, 32, 4));
-    }
-
-    #[test]
-    fn strips_with_multiple_rows_bbox() {
-        let strips = [
-            Strip::new(12, 0, 0, false),
-            Strip::new(4, 8, u32::from(Tile::HEIGHT) * 4, false),
-            Strip::sentinel(8, u32::from(Tile::HEIGHT) * 8),
-        ];
-
-        assert_eq!(strip_bbox(&strips), RectU16::new(4, 0, 16, 12));
     }
 }
