@@ -96,7 +96,8 @@ impl RootTransforms {
         }
     }
 
-    /// Return the currently active root transform.
+    /// Return the root transform of the currently active filter viewport, including
+    /// shifts inherited from nested filters.
     pub fn root_transform(&self) -> Affine {
         *self
             .transforms
