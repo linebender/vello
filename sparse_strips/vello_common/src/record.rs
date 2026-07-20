@@ -63,6 +63,13 @@ pub struct Node {
     pub layer: Option<u32>,
 }
 
+impl Node {
+    /// Return the draw commands referenced by this node.
+    pub fn draws_in<'a, D>(&self, draws: &'a [D]) -> &'a [D] {
+        &draws[self.draws.start as usize..self.draws.end as usize]
+    }
+}
+
 /// Metadata and child nodes for a recorded layer.
 #[derive(Debug)]
 pub struct RecordedLayer {
@@ -579,6 +586,17 @@ mod tests {
 
         assert_cmds(&recorder.nodes, &[(0..2, Some(0)), (3..4, None)]);
         assert_cmds(layer_cmds(&recorder, 0), &[(2..3, None)]);
+    }
+
+    #[test]
+    fn node_resolves_draw_range() {
+        let draws = [0, 1, 2, 3];
+        let node = Node {
+            draws: 1..3,
+            layer: None,
+        };
+
+        assert_eq!(node.draws_in(&draws), &[1, 2]);
     }
 
     #[test]

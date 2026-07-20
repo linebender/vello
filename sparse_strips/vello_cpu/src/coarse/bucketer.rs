@@ -293,7 +293,7 @@ impl CommandBucketer {
                 paint,
                 blend_mode,
                 mask,
-            } in &draws[node.draws.start as usize..node.draws.end as usize]
+            } in node.draws_in(draws)
             {
                 let draw_id = self.next_draw_id();
                 let attrs = PaintFillAttrs {
