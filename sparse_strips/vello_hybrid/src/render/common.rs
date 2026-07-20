@@ -79,6 +79,19 @@ mod tests {
         assert_eq!(config.max_atlases, 2);
         assert_eq!(config.atlas_size, (1, 1));
     }
+
+    #[test]
+    fn normalize_atlas_config_allows_lazy_initial_allocation() {
+        let mut config = AtlasConfig {
+            initial_atlas_count: 0,
+            ..Default::default()
+        };
+
+        normalize_atlas_config(&mut config, 4096, 8, 0);
+
+        assert_eq!(config.initial_atlas_count, 0);
+        assert_eq!(config.max_atlases, 8);
+    }
 }
 
 /// Dimensions of the rendering target.

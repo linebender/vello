@@ -116,6 +116,17 @@ pub struct WebGlRenderer {
     dummy_image_cache: Option<ImageCache>,
 }
 
+/// Current allocation state of the WebGL image/glyph atlas texture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AtlasTextureInfo {
+    /// Width of the currently bound texture array.
+    pub width: u32,
+    /// Height of the currently bound texture array.
+    pub height: u32,
+    /// Number of real atlas layers available to the image cache.
+    pub layer_count: u32,
+}
+
 impl WebGlRenderer {
     /// Creates a new WebGL2 renderer
     pub fn new(canvas: &HtmlCanvasElement) -> Self {
@@ -203,7 +214,7 @@ impl WebGlRenderer {
             &mut settings.image_atlas_config,
             max_texture_dimension_2d,
             max_texture_array_layers,
-            1,
+            0,
         );
         normalize_atlas_config(
             &mut settings.filter_atlas_config,
@@ -571,9 +582,20 @@ impl WebGlRenderer {
     ///
     /// This is a 2D array texture (`TextureViewDimension::D2Array`) containing all
     /// atlas layers used by the image cache. Each layer holds cached image data
-    /// (e.g., rasterised glyphs) that the renderer samples during draw calls.
+    /// (e.g., rasterised glyphs) that the renderer samples during draw calls. Before the first
+    /// layer is allocated, this returns the 1x1 placeholder texture.
     pub fn atlas_texture(&self) -> &WebGlTexture {
         &self.programs.resources.atlas_texture_array.texture
+    }
+
+    /// Returns the current allocation state of the image/glyph atlas texture.
+    pub fn atlas_info(&self) -> AtlasTextureInfo {
+        let resources = &self.programs.resources;
+        AtlasTextureInfo {
+            width: resources.atlas_texture_array.size.width,
+            height: resources.atlas_texture_array.size.height,
+            layer_count: resources.atlas_layer_count,
+        }
     }
 
     /// Clear a specific region of the atlas texture array.
@@ -872,6 +894,10 @@ pub(crate) struct WebGlResources {
     alpha_texture_height: u32,
     /// Texture array for atlas data (multiple atlases supported)
     pub(crate) atlas_texture_array: WebGlTextureArray,
+    /// Configured dimensions used when promoting the placeholder to a real atlas.
+    pub(crate) atlas_size: (u32, u32),
+    /// Number of real atlas layers currently allocated.
+    pub(crate) atlas_layer_count: u32,
     /// Encoded paints texture for image metadata.
     encoded_paints_texture: Texture,
     /// Height of encoded paints texture.
@@ -1048,12 +1074,9 @@ impl WebGlPrograms {
         gl: &WebGl2RenderingContext,
         required_atlas_count: u32,
     ) {
-        let WebGlTextureSize {
-            width,
-            height,
-            depth_or_array_layers: current_atlas_count,
-        } = self.resources.atlas_texture_array.size();
+        let current_atlas_count = self.resources.atlas_layer_count;
         if required_atlas_count > current_atlas_count {
+            let (width, height) = self.resources.atlas_size;
             // Create new texture array with more layers
             let new_atlas_texture_array =
                 create_atlas_texture_array(gl, width, height, required_atlas_count);
@@ -1063,6 +1086,7 @@ impl WebGlPrograms {
 
             // Replace the old resources
             self.resources.atlas_texture_array = new_atlas_texture_array;
+            self.resources.atlas_layer_count = required_atlas_count;
             // Cached FBOs were attached to the old texture; drop them so we recreate on next use.
             self.resources.atlas_render_framebuffer = None;
             self.resources.filter_main_atlas_framebuffer = None;
@@ -2061,8 +2085,15 @@ fn create_webgl_resources(
         initial_atlas_count,
         ..
     } = image_cache.atlas_manager().config();
-    let atlas_texture_array =
-        create_atlas_texture_array(gl, *atlas_width, *atlas_height, *initial_atlas_count as u32);
+    let atlas_size = (*atlas_width, *atlas_height);
+    let atlas_layer_count = *initial_atlas_count as u32;
+    let atlas_texture_array = if atlas_layer_count == 0 {
+        // Texture arrays cannot have zero layers. Keep a tiny bindable placeholder until the image
+        // cache makes its first real allocation.
+        create_atlas_texture_array(gl, 1, 1, 1)
+    } else {
+        create_atlas_texture_array(gl, *atlas_width, *atlas_height, atlas_layer_count)
+    };
 
     // Create a 1x1 stub atlas texture array for use during render_to_atlas.
     // This avoids binding the real atlas as a shader input while it is the render target.
@@ -2102,6 +2133,8 @@ fn create_webgl_resources(
         alphas_texture,
         alpha_texture_height: 0,
         atlas_texture_array,
+        atlas_size,
+        atlas_layer_count,
         encoded_paints_texture,
         encoded_paints_texture_height: 0,
         gradient_texture,
@@ -2143,6 +2176,10 @@ pub(crate) fn create_atlas_texture_array(
     height: u32,
     layer_count: u32,
 ) -> WebGlTextureArray {
+    debug_assert!(
+        layer_count > 0,
+        "atlas texture arrays must have at least one physical layer"
+    );
     let atlas_texture = create_texture_array(gl);
 
     // Initialize with empty texture array data
@@ -2160,7 +2197,7 @@ pub(crate) fn create_atlas_texture_array(
     )
     .unwrap();
 
-    WebGlTextureArray::new(atlas_texture, width, height, layer_count)
+    WebGlTextureArray::new(atlas_texture, width, height)
 }
 
 /// Create a texture for slot rendering.
@@ -2962,14 +2999,10 @@ pub(crate) struct WebGlTextureArray {
 
 impl WebGlTextureArray {
     /// Create a new WebGL texture array wrapper.
-    fn new(texture: Texture, width: u32, height: u32, depth_or_array_layers: u32) -> Self {
+    fn new(texture: Texture, width: u32, height: u32) -> Self {
         Self {
             texture,
-            size: WebGlTextureSize {
-                width,
-                height,
-                depth_or_array_layers,
-            },
+            size: WebGlTextureSize { width, height },
         }
     }
 
@@ -2986,8 +3019,6 @@ struct WebGlTextureSize {
     width: u32,
     /// The height of the texture.
     height: u32,
-    /// The number of layers in the texture array.
-    depth_or_array_layers: u32,
 }
 
 /// Helper function to copy from a source texture/framebuffer to a destination texture array layer.

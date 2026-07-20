@@ -182,30 +182,15 @@ impl Renderer {
 
         let mut settings = settings;
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
-        // When targeting wasm32 with a WebGL/GLES backend, we need to set
-        // `initial_atlas_count` to 2. In WGPU's GLES backend, heuristics are used to decide
-        // whether a texture should be treated as D2 or D2Array. However, this can cause a
-        // mismatch: when depth_or_array_layers == 1, the backend assumes the texture is D2,
-        // even if it was actually created as a D2Array. This issue only occurs with the GLES
-        // backend.
-        //
-        // @see https://github.com/gfx-rs/wgpu/blob/61e5124eb9530d3b3865556a7da4fd320d03ddc5/wgpu-hal/src/gles/mod.rs#L470-L517
-        // TODO: Can we somehow dynamically detect whether the WebGL backend was chosen, so that the
-        // wgpu backend isn't affected by this?
-        #[cfg(target_arch = "wasm32")]
-        let min_initial_atlas_count = 2;
-        #[cfg(not(target_arch = "wasm32"))]
-        let min_initial_atlas_count = 1;
         let max_texture_array_layers = device.limits().max_texture_array_layers;
         normalize_atlas_config(
             &mut settings.image_atlas_config,
             max_texture_dimension_2d,
             max_texture_array_layers,
-            min_initial_atlas_count,
+            0,
         );
-        // Filter scratch textures are individual 2D textures (see `FilterAtlasState`), not a
-        // D2Array, so the GLES D2/D2Array workaround above does not apply. They can start at zero
-        // and only be allocated on demand when a scene actually uses filters.
+        // Filter scratch textures are individual 2D textures (see `FilterAtlasState`). They can
+        // start at zero and only be allocated on demand when a scene actually uses filters.
         normalize_atlas_config(
             &mut settings.filter_atlas_config,
             max_texture_dimension_2d,
@@ -1104,6 +1089,10 @@ struct GpuResources {
     atlas_texture_array: Texture,
     /// View for atlas texture array
     atlas_texture_array_view: TextureView,
+    /// Configured dimensions used when promoting the placeholder to a real atlas.
+    atlas_size: (u32, u32),
+    /// Number of real atlas layers currently exposed by the texture view.
+    atlas_layer_count: u32,
     /// Bind group for paint sources: an atlas textures as texture array plus an external texture.
     atlas_bind_group: BindGroup,
     /// Transparent 1x1 placeholder texture in case no external texture is bound by the user.
@@ -1641,12 +1630,15 @@ impl Programs {
             initial_atlas_count,
             ..
         } = image_cache.atlas_manager().config();
-        let (atlas_texture_array, atlas_texture_array_view) = Self::create_atlas_texture_array(
-            device,
-            *atlas_width,
-            *atlas_height,
-            *initial_atlas_count as u32,
-        );
+        let atlas_size = (*atlas_width, *atlas_height);
+        let atlas_layer_count = *initial_atlas_count as u32;
+        let (atlas_texture_array, atlas_texture_array_view) = if atlas_layer_count == 0 {
+            // Texture arrays cannot have zero layers. Keep a tiny bindable placeholder until the
+            // image cache makes its first real allocation.
+            Self::create_atlas_texture_array(device, 1, 1, 1)
+        } else {
+            Self::create_atlas_texture_array(device, *atlas_width, *atlas_height, atlas_layer_count)
+        };
         let placeholder_external_texture_view = Self::create_placeholder_external_texture(device);
         let atlas_bind_group = Self::create_paint_source_bind_group(
             device,
@@ -1742,6 +1734,8 @@ impl Programs {
             alphas_texture,
             atlas_texture_array,
             atlas_texture_array_view,
+            atlas_size,
+            atlas_layer_count,
             atlas_bind_group,
             placeholder_external_texture_view,
             filter_atlas,
@@ -1877,8 +1871,14 @@ impl Programs {
         height: u32,
         atlas_count: u32,
     ) -> (Texture, TextureView) {
-        // See the comment in `Renderer::new_with`. On WASM, we need to set this to at
-        // least 2 so it works with the wgpu WebGL backend.
+        debug_assert!(
+            atlas_count > 0,
+            "atlas texture arrays must have at least one physical layer"
+        );
+        // In WGPU's GLES backend, heuristics classify a one-layer texture as D2 even when it was
+        // created as D2Array. Allocate at least two physical layers on WASM to keep the backend's
+        // classification consistent with the D2Array view.
+        // See https://github.com/gfx-rs/wgpu/blob/61e5124eb9530d3b3865556a7da4fd320d03ddc5/wgpu-hal/src/gles/mod.rs#L470-L517.
         #[cfg(target_arch = "wasm32")]
         let depth_or_array_layers = atlas_count.max(2);
         #[cfg(not(target_arch = "wasm32"))]
@@ -1902,7 +1902,17 @@ impl Programs {
             view_formats: &[],
         });
 
-        let atlas_texture_array_view = atlas_texture_array.create_view(&TextureViewDescriptor {
+        let atlas_texture_array_view =
+            Self::create_atlas_texture_array_view(&atlas_texture_array, atlas_count);
+
+        (atlas_texture_array, atlas_texture_array_view)
+    }
+
+    fn create_atlas_texture_array_view(
+        atlas_texture_array: &Texture,
+        atlas_count: u32,
+    ) -> TextureView {
+        atlas_texture_array.create_view(&TextureViewDescriptor {
             label: Some("Atlas Texture Array View"),
             format: None,
             dimension: Some(wgpu::TextureViewDimension::D2Array),
@@ -1912,9 +1922,7 @@ impl Programs {
             base_array_layer: 0,
             array_layer_count: Some(atlas_count),
             usage: None,
-        });
-
-        (atlas_texture_array, atlas_texture_array_view)
+        })
     }
 
     fn create_filter_data_texture(device: &Device, width: u32, height: u32) -> Texture {
@@ -2351,25 +2359,48 @@ impl Programs {
         atlas_bind_group_layout: &BindGroupLayout,
         required_atlas_count: u32,
     ) {
-        let Extent3d {
-            width,
-            height,
-            depth_or_array_layers: current_atlas_count,
-        } = resources.atlas_texture_array.size();
+        let current_atlas_count = resources.atlas_layer_count;
         if required_atlas_count > current_atlas_count {
+            let (width, height) = resources.atlas_size;
+            let physical_layer_count = resources.atlas_texture_array.size().depth_or_array_layers;
+
+            // WGPU's WebGL backend allocates at least two physical layers to keep the texture
+            // classified as D2Array. Expose an already-allocated layer without replacing the
+            // texture when that spare capacity is available.
+            if current_atlas_count > 0 && required_atlas_count <= physical_layer_count {
+                let new_atlas_texture_array_view = Self::create_atlas_texture_array_view(
+                    &resources.atlas_texture_array,
+                    required_atlas_count,
+                );
+                let new_atlas_bind_group = Self::create_paint_source_bind_group(
+                    device,
+                    atlas_bind_group_layout,
+                    &new_atlas_texture_array_view,
+                    &resources.placeholder_external_texture_view,
+                );
+                resources.atlas_texture_array_view = new_atlas_texture_array_view;
+                resources.atlas_bind_group = new_atlas_bind_group;
+                resources.atlas_layer_count = required_atlas_count;
+                return;
+            }
+
             // Create new texture array with more layers
             let (new_atlas_texture_array, new_atlas_texture_array_view) =
                 Self::create_atlas_texture_array(device, width, height, required_atlas_count);
 
-            // Copy existing atlas data from old texture array to new one
-            Self::copy_atlas_texture_data(
-                encoder,
-                &resources.atlas_texture_array,
-                &new_atlas_texture_array,
-                current_atlas_count,
-                width,
-                height,
-            );
+            if current_atlas_count > 0 {
+                // Copy existing atlas data from old texture array to new one. A zero-depth copy is
+                // still validated against the placeholder's 1x1 extent by WGPU, so skip it when
+                // promoting the placeholder.
+                Self::copy_atlas_texture_data(
+                    encoder,
+                    &resources.atlas_texture_array,
+                    &new_atlas_texture_array,
+                    current_atlas_count,
+                    width,
+                    height,
+                );
+            }
 
             // Update the bind group with the new texture array view
             let new_atlas_bind_group = Self::create_paint_source_bind_group(
@@ -2383,6 +2414,7 @@ impl Programs {
             resources.atlas_texture_array = new_atlas_texture_array;
             resources.atlas_texture_array_view = new_atlas_texture_array_view;
             resources.atlas_bind_group = new_atlas_bind_group;
+            resources.atlas_layer_count = required_atlas_count;
         }
     }
 
