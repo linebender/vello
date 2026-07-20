@@ -3,40 +3,34 @@
 
 //! Recording rendering commands.
 //!
-//! Note: The description below was written with Vello CPU in mind, but also applies to Vello
-//! Hybrid, except that Vello Hybrid does not perform bucketing.
+//! Vello CPU and Vello Hybrid share a recording stage before their pipelines diverge. Their
+//! pipelines can be split into roughly three parts:
 //!
-//! Currently, the pipeline of Vello CPU can be split into roughly three parts:
-//! 1) Recording rendering commands by generating strips + layer metadata.
-//! 2) Bucketing the recorded commands per-strip row into render commands (coarse rasterization).
-//! 3) Executing the render commands (fine rasterization).
+//! 1. Record rendering commands into a scene-graph-like structure.
+//! 2. Turn the complete recording into renderer-specific work. Vello CPU buckets commands by
+//!    strip row, while Vello Hybrid schedules draws and layer operations
+//!    across intermediate textures and render passes.
+//! 3. Execute that work using CPU fine rasterization or GPU render passes, respectively.
 //!
-//! Why do we need 1) instead of just doing 2) as soon as the user sends their commands? Well,
-//! this is actually what an earlier version of Vello CPU did. The main reason why we _don't_ do
-//! this anymore are **filter layers**. Unlike normal layers with blends/opacity/masks/clips,
-//! filter layers are special in two ways:
+//! The reasons for completing the recording before renderer-specific planning differ somewhat
+//! between the two renderers:
 //!
-//! - They always need to be rendered separately (assuming spatial filters are used), independently
-//!   of the parent layer command stream.
-//!   This is because spatial filters might require sampling neighboring pixels, so the whole filter
-//!   layer needs to be rendered as a whole before you can apply the filter and then composite it into
-//!   the parent layer. Therefore, commands for filter layers cannot simply be inlined into the
-//!   parent layer stream (this is what was done in previous versions of Vello CPU, and resulted in
-//!   incredibly complex and fragile code).
+//! - Vello CPU can inline regular layers with blends, opacity, masks, or clips into their parent
+//!   command stream. However, filter layers must instead be rendered separately because
+//!   spatial filters might sample neighboring pixels. The complete layer must be rendered before
+//!   the filter can be applied and its result composited into the parent.
 //!
-//! - Filter layers might have a different dimension than the main viewport. If you apply a big
-//!   blur filter, you might have to render shapes that would normally be culled away because they
-//!   exceed the viewport.
+//! - Vello Hybrid needs to render *every* layer separately. Its scheduler therefore
+//!   needs the complete layer hierarchy and bounds before it can allocate intermediate textures and
+//!   order draws, filters, and composition operations.
 //!
-//! If we decided to skip step 1) and do 2) directly, we would need to store and reuse instances
-//! of Vello CPU's command bucketer for the root and each filter layer, which is especially cumbersome because
-//! conceptually, a command bucketer is a 2D array. This makes it very difficult to resize and reuse
-//! it while having the ability to retain and reuse inner allocations. By first recording all commands
-//! and their strips into a single draw buffer, we can represent the commands of a single layer with
-//! one flat command buffer plus batch ranges into that shared draw buffer, making it much easier to
-//! reuse them across frames. It also allows us to collect useful metadata (e.g. the bounding box of
-//! a layer) and make appropriate decisions about how to render them (for example, where to place a
-//! filter layer and what size to allocate for it).
+//! - In both renderers, filter layers might have different dimensions than the main viewport. A
+//!   large blur, for example, might require rendering shapes that would normally be culled because
+//!   they exceed the viewport.
+//!
+//! The recording stage allows us to serialize the whole scene into a graph that is enrichened
+//! with metadata, allowing each renderer to "do their own thing" while providing a common
+//! intermediate representation.
 
 use crate::filter::{FilterData, FilterLayerPlacement};
 use crate::geometry::{RectU16, SizeU16};

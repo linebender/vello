@@ -12,7 +12,7 @@ use fearless_simd::Level;
 use peniko::Fill;
 
 /// Viewport state storing information about clip state and active strip generators in
-/// currently active filter layers.
+/// currently active root viewports.
 #[derive(Debug)]
 pub struct ViewportState {
     clip_state: ClipState,
@@ -47,8 +47,8 @@ impl ViewportState {
         self.clip_state.get()
     }
 
-    /// Whether any filter viewports are currently pushed.
-    pub fn has_filter_viewports(&self) -> bool {
+    /// Whether any root viewports are currently pushed.
+    pub fn has_root_viewports(&self) -> bool {
         !self.strip_generator_stack.is_empty()
     }
 
@@ -84,8 +84,8 @@ impl ViewportState {
         self.clip_state.pop_clip();
     }
 
-    /// Push a new filter viewport.
-    pub fn push_filter_viewport(&mut self, filter_data: &FilterData) {
+    /// Push a new root viewport.
+    pub fn push_root_viewport(&mut self, filter_data: &FilterData) {
         let padding = filter_data.source_padding;
         let width = self
             .strip_generator
@@ -103,18 +103,17 @@ impl ViewportState {
         self.strip_generator_stack.push(parent_generator);
 
         self.clip_state
-            .push_filter_viewport(filter_data.source_shift(), &mut self.strip_generator);
+            .push_root_viewport(filter_data.source_shift(), &mut self.strip_generator);
     }
 
-    /// Pop the last filter viewport.
-    pub fn pop_filter_viewport(&mut self) {
+    /// Pop the last root viewport.
+    pub fn pop_root_viewport(&mut self) {
         self.strip_generator = self
             .strip_generator_stack
             .pop()
-            .expect("filter viewport stack underflow");
+            .expect("root viewport stack underflow");
 
-        self.clip_state
-            .pop_filter_viewport(&mut self.strip_generator);
+        self.clip_state.pop_root_viewport(&mut self.strip_generator);
     }
 
     /// Reset strip generation and clipping for a new viewport.

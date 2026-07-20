@@ -3,7 +3,6 @@
 
 //! Shared structures for holding different transforms.
 
-use crate::filter::FilterData;
 use crate::kurbo::Affine;
 use smallvec::{SmallVec, smallvec};
 
@@ -34,6 +33,11 @@ impl Transforms {
         &self.transform
     }
 
+    /// Return the transform used for rendering scene geometry.
+    pub fn scene_transform(&self) -> Affine {
+        self.transform
+    }
+
     /// Set the current scene transform.
     pub fn set_transform(&mut self, transform: Affine) {
         self.transform = transform;
@@ -49,6 +53,11 @@ impl Transforms {
         &self.paint_transform
     }
 
+    /// Return the transform used for rendering scene paints.
+    pub fn scene_paint_transform(&self) -> Affine {
+        self.scene_transform() * self.paint_transform
+    }
+
     /// Set the current paint transform.
     pub fn set_paint_transform(&mut self, paint_transform: Affine) {
         self.paint_transform = paint_transform;
@@ -60,7 +69,7 @@ impl Transforms {
     }
 
     // Unlike [`Self::effective_path_transform`], this intentionally does not apply
-    // the root transform because clipping handles filter viewport shifts separately.
+    // the root transform because clipping handles root viewport shifts separately.
     /// Return the transform used for non-isolated clip paths.
     pub fn clip_path_transform(&self) -> Affine {
         self.transform
@@ -87,7 +96,8 @@ impl RootTransforms {
         }
     }
 
-    /// Return the currently active root transform.
+    /// Return the root transform of the currently active root viewport, including
+    /// shifts inherited from nested filters.
     pub fn root_transform(&self) -> Affine {
         *self
             .transforms
@@ -105,20 +115,8 @@ impl RootTransforms {
         self.effective_path_transform(transforms) * transforms.paint_transform
     }
 
-    /// Push a new root layer.
-    pub fn push_root(&mut self, filter_data: Option<&FilterData>) {
-        // The important part! Let's say we have an element placed in a way such that
-        // its drop shadow starts at (0, 0). In order for it to render correctly, we would
-        // have to render parts of the shape that at negative viewport coordinates, which is
-        // not supported. Therefore, we instead shift everything down such that we can assume
-        // everything left/above (0, 0) is not needed for correct rendering, and simply
-        // shift everything back when actually compositing the rendered filter layer.
-        let relative_transform = filter_data.map_or(Affine::IDENTITY, |filter_data| {
-            let (shift_x, shift_y) = filter_data.source_shift();
-
-            Affine::translate((f64::from(shift_x), f64::from(shift_y)))
-        });
-
+    /// Push a new root transform relative to the currently active root transform.
+    pub fn push_root(&mut self, relative_transform: Affine) {
         self.transforms
             .push(relative_transform * self.root_transform());
     }
@@ -132,5 +130,52 @@ impl RootTransforms {
     pub fn reset(&mut self) {
         self.transforms.clear();
         self.transforms.push(Affine::IDENTITY);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn root_transforms_accumulate_relative_transforms() {
+        let mut roots = RootTransforms::new();
+        let parent = Affine::translate((10.0, 20.0));
+        let child = Affine::scale(2.0);
+
+        roots.push_root(parent);
+        roots.push_root(child);
+
+        assert_eq!(roots.root_transform(), child * parent);
+    }
+
+    #[test]
+    fn pop_root_restores_parent_transform() {
+        let mut roots = RootTransforms::new();
+        let parent = Affine::translate((10.0, 20.0));
+
+        roots.push_root(parent);
+        roots.push_root(Affine::scale(2.0));
+        roots.pop_root();
+
+        assert_eq!(roots.root_transform(), parent);
+    }
+
+    #[test]
+    fn effective_transforms_include_root_scene_and_paint_transforms() {
+        let mut roots = RootTransforms::new();
+        let root = Affine::translate((10.0, 20.0));
+        let scene = Affine::scale(2.0);
+        let paint = Affine::translate((3.0, 4.0));
+        let mut transforms = Transforms::new();
+        transforms.set_transform(scene);
+        transforms.set_paint_transform(paint);
+        roots.push_root(root);
+
+        assert_eq!(roots.effective_path_transform(&transforms), root * scene);
+        assert_eq!(
+            roots.effective_paint_transform(&transforms),
+            root * scene * paint
+        );
     }
 }

@@ -96,13 +96,11 @@ impl StripFillSegment {
     /// Return this segment's rectangle in pixel coordinates.
     #[inline(always)]
     pub const fn pixel_rect(self) -> RectU16 {
-        let rect = self.tile_rect();
-
         RectU16::new(
-            rect.x0.saturating_mul(Tile::WIDTH),
-            rect.y0.saturating_mul(Tile::HEIGHT),
-            rect.x1.saturating_mul(Tile::WIDTH),
-            rect.y1.saturating_mul(Tile::HEIGHT),
+            self.tile_x0.saturating_mul(Tile::WIDTH),
+            self.tile_y.saturating_mul(Tile::HEIGHT),
+            self.tile_x1.saturating_mul(Tile::WIDTH),
+            self.tile_y.saturating_add(1).saturating_mul(Tile::HEIGHT),
         )
     }
 
@@ -114,16 +112,16 @@ impl StripFillSegment {
 }
 
 /// Iterate over all fill and alpha-fill regions formed by the sequence of strips,
-/// within the tile-unit bounds indicated by `viewport`.
-pub fn for_each_fill_segment<C>(
+/// within the tile-unit bounds indicated by `tile_bounds`.
+pub fn visit_strip_fill_segments<C>(
     strips: &[Strip],
-    viewport: RectU16,
+    tile_bounds: RectU16,
     context: &mut C,
     mut alpha_fill: impl FnMut(&mut C, StripAlphaFillSegment),
     mut fill: impl FnMut(&mut C, StripFillSegment),
 ) {
     // Need at least two strips: 1 (or more) for the generated path, and the sentinel strip.
-    if strips.len() < 2 || viewport.is_empty() {
+    if strips.len() < 2 || tile_bounds.is_empty() {
         return;
     }
 
@@ -132,10 +130,10 @@ pub fn for_each_fill_segment<C>(
         let tile_y = strip.strip_y();
 
         // Skip strips that are outside the viewport vertically.
-        if tile_y < viewport.y0 {
+        if tile_y < tile_bounds.y0 {
             continue;
         }
-        if tile_y >= viewport.y1 {
+        if tile_y >= tile_bounds.y1 {
             break;
         }
 
@@ -156,8 +154,8 @@ pub fn for_each_fill_segment<C>(
         let strip_tile_x0 = strip.x / Tile::WIDTH;
         let strip_tile_x1 = strip_tile_x0.saturating_add(strip_width / Tile::WIDTH);
         // Clip strips that are outside the viewport horizontally.
-        let tile_x0 = strip_tile_x0.max(viewport.x0);
-        let tile_x1 = strip_tile_x1.min(viewport.x1);
+        let tile_x0 = strip_tile_x0.max(tile_bounds.x0);
+        let tile_x1 = strip_tile_x1.min(tile_bounds.x1);
 
         if tile_x0 < tile_x1 {
             alpha_fill(
@@ -180,8 +178,8 @@ pub fn for_each_fill_segment<C>(
         if next_strip.fill_gap() && next_strip.y == strip.y {
             // Similar procedure to above.
 
-            let tile_x0 = strip_tile_x1.max(viewport.x0);
-            let tile_x1 = (next_strip.x / Tile::WIDTH).min(viewport.x1);
+            let tile_x0 = strip_tile_x1.max(tile_bounds.x0);
+            let tile_x1 = (next_strip.x / Tile::WIDTH).min(tile_bounds.x1);
 
             if tile_x0 < tile_x1 {
                 fill(

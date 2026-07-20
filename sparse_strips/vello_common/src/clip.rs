@@ -231,8 +231,8 @@ impl ClipState {
         self.context.get()
     }
 
-    /// Push a new filter viewport.
-    pub fn push_filter_viewport(
+    /// Push a new root viewport.
+    pub fn push_root_viewport(
         &mut self,
         source_shift: (u16, u16),
         strip_generator: &mut StripGenerator,
@@ -249,8 +249,8 @@ impl ClipState {
         self.rebuild_context(strip_generator);
     }
 
-    /// Pop the last filter viewport.
-    pub fn pop_filter_viewport(&mut self, strip_generator: &mut StripGenerator) {
+    /// Pop the last root viewport.
+    pub fn pop_root_viewport(&mut self, strip_generator: &mut StripGenerator) {
         let frame = self.frames.pop().expect("filter clip stack underflow");
         let filter_context = core::mem::replace(&mut self.context, frame.parent_context);
         self.context_pool.submit(filter_context);

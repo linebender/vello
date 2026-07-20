@@ -6,7 +6,7 @@
 use crate::geometry::RectU16;
 use crate::kurbo::PathEl;
 use crate::math::FloatExt;
-use crate::strip::{Strip, for_each_fill_segment};
+use crate::strip::{Strip, visit_strip_fill_segments};
 use crate::tile::Tile;
 use alloc::vec::Vec;
 use core::ops::{Index, IndexMut};
@@ -386,7 +386,7 @@ pub fn strip_bbox(strips: &[Strip]) -> RectU16 {
     // the bbox in tile units first and then convert back to pixel units.
     let mut tile_bbox = RectU16::INVERTED;
 
-    for_each_fill_segment(
+    visit_strip_fill_segments(
         strips,
         RectU16::new(
             0,

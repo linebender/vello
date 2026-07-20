@@ -69,7 +69,11 @@ impl Add for SizeU16 {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Self::from_wh(self.width() + rhs.width(), self.height() + rhs.height())
+        // Shouldn't overflow for our use cases.
+        Self::from_wh(
+            self.width().checked_add(rhs.width()).unwrap(),
+            self.height().checked_add(rhs.height()).unwrap(),
+        )
     }
 }
 
@@ -406,4 +410,23 @@ const fn const_max(a: u16, b: u16) -> u16 {
 #[inline(always)]
 const fn const_min(a: u16, b: u16) -> u16 {
     if a < b { a } else { b }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RectU16;
+
+    #[test]
+    fn rect_u16_relative_to_origin() {
+        let rect = RectU16::new(10, 20, 30, 40);
+
+        assert_eq!(rect.relative_to_origin((5, 12)), RectU16::new(5, 8, 25, 28));
+    }
+
+    #[test]
+    fn rect_u16_relative_to_origin_clamps_to_zero() {
+        let rect = RectU16::new(10, 20, 30, 40);
+
+        assert_eq!(rect.relative_to_origin((20, 35)), RectU16::new(0, 0, 10, 5));
+    }
 }
