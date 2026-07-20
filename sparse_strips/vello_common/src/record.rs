@@ -46,6 +46,7 @@ use crate::strip::Strip;
 use crate::util::RectExt;
 use alloc::vec::Vec;
 use core::ops::Range;
+use smallvec::SmallVec;
 
 /// A drawable object that can report its bounding box.
 pub trait Drawable {
@@ -68,7 +69,7 @@ pub struct RecordedLayer {
     /// Properties of the layer.
     pub props: LayerProps,
     /// The child nodes of the layer.
-    pub nodes: Vec<Node>,
+    pub nodes: SmallVec<[Node; 2]>,
     /// The kind of recorded layer.
     pub kind: RecordedLayerKind,
     /// Nesting depth of the layer.
@@ -117,10 +118,10 @@ pub enum RecordedLayerKind {
 }
 
 impl RecordedLayer {
-    fn regular(props: LayerProps, nodes: Vec<Node>, depth: usize) -> Self {
+    fn regular(props: LayerProps, depth: usize) -> Self {
         Self {
             props,
-            nodes,
+            nodes: SmallVec::new(),
             kind: RecordedLayerKind::Regular,
             depth,
             // Will be initialized once we call `pop_layer`.
@@ -128,10 +129,10 @@ impl RecordedLayer {
         }
     }
 
-    fn filter(props: LayerProps, filter_plan: FilterData, nodes: Vec<Node>, depth: usize) -> Self {
+    fn filter(props: LayerProps, filter_plan: FilterData, depth: usize) -> Self {
         Self {
             props,
-            nodes,
+            nodes: SmallVec::new(),
             kind: RecordedLayerKind::Filter {
                 filter_data: filter_plan,
                 // Will be initialized once we call `pop_layer`.
@@ -247,13 +248,12 @@ impl<D> CommandRecorder<D> {
 
     fn push_regular_layer(&mut self, props: LayerProps) {
         let depth = self.layer_stack.len() + 1;
-        self.push_recorded_layer(RecordedLayer::regular(props, Vec::new(), depth));
+        self.push_recorded_layer(RecordedLayer::regular(props, depth));
     }
 
     fn push_filter_layer(&mut self, props: LayerProps, filter_plan: FilterData) {
         let depth = self.layer_stack.len() + 1;
-        let id =
-            self.push_recorded_layer(RecordedLayer::filter(props, filter_plan, Vec::new(), depth));
+        let id = self.push_recorded_layer(RecordedLayer::filter(props, filter_plan, depth));
 
         self.filter_layers.push(id);
     }
@@ -332,26 +332,30 @@ impl<D> CommandRecorder<D> {
     }
 
     #[inline]
-    fn active_cmds_mut(&mut self) -> &mut Vec<Node> {
-        self.layer_cmds_mut(self.active_layer)
+    fn active_node_mut(&mut self) -> Option<&mut Node> {
+        if let Some(id) = self.active_layer {
+            self.layers[id as usize].nodes.last_mut()
+        } else {
+            self.nodes.last_mut()
+        }
     }
 
-    fn layer_cmds_mut(&mut self, root_layer: Option<u32>) -> &mut Vec<Node> {
-        if let Some(id) = root_layer {
-            &mut self.layers[id as usize].nodes
+    fn push_node(&mut self, node: Node) {
+        if let Some(id) = self.active_layer {
+            self.layers[id as usize].nodes.push(node);
         } else {
-            &mut self.nodes
+            self.nodes.push(node);
         }
     }
 
     fn push_layer_node(&mut self, layer_id: u32) {
         let draw_idx = self.draws.len() as u32;
 
-        match self.active_cmds_mut().last_mut() {
+        match self.active_node_mut() {
             Some(node) if node.layer.is_none() => {
                 node.layer = Some(layer_id);
             }
-            _ => self.active_cmds_mut().push(Node {
+            _ => self.push_node(Node {
                 draws: draw_idx..draw_idx,
                 layer: Some(layer_id),
             }),
@@ -385,12 +389,12 @@ impl<D: Drawable> CommandRecorder<D> {
         let draw_idx = self.draws.len() as u32;
         self.draws.push(draw);
 
-        match self.active_cmds_mut().last_mut() {
+        match self.active_node_mut() {
             Some(node) if node.layer.is_none() && node.draws.end == draw_idx => {
                 node.draws.end += 1;
             }
             _ => {
-                self.active_cmds_mut().push(Node {
+                self.push_node(Node {
                     draws: draw_idx..draw_idx + 1,
                     layer: None,
                 });
