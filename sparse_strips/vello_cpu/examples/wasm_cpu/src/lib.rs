@@ -28,6 +28,7 @@ struct AppState {
     width: u32,
     height: u32,
     renderer: RenderContext,
+    resources: vello_cpu::Resources,
     pixmap: vello_common::pixmap::Pixmap,
     need_render: bool,
     canvas: HtmlCanvasElement,
@@ -58,6 +59,7 @@ impl AppState {
             width,
             height,
             renderer,
+            resources: vello_cpu::Resources::new(),
             pixmap,
             need_render: true,
             canvas,
@@ -69,13 +71,14 @@ impl AppState {
             return;
         }
         self.renderer.reset();
-        self.scenes[self.current_scene].render(&mut self.renderer, self.transform);
+        self.scenes[self.current_scene].render(
+            &mut self.renderer,
+            &mut self.resources,
+            self.transform,
+        );
 
         // Render the current scene with transform
-        self.renderer.render(
-            &mut self.pixmap,
-            self.scenes[self.current_scene].resources_mut(),
-        );
+        self.renderer.render(&mut self.pixmap, &mut self.resources);
         let rgba_bytes = self.pixmap.data_as_u8_slice();
         let image_data = web_sys::ImageData::new_with_u8_clamped_array_and_sh(
             wasm_bindgen::Clamped(rgba_bytes),

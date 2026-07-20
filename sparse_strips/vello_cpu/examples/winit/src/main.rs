@@ -36,6 +36,7 @@ struct App {
     current_scene: usize,
     render_state: RenderState,
     renderer: RenderContext,
+    resources: vello_cpu::Resources,
     pixmap: Pixmap,
     transform: Affine,
     mouse_down: bool,
@@ -120,6 +121,7 @@ fn main() {
                 ..Default::default()
             },
         ),
+        resources: vello_cpu::Resources::new(),
         pixmap: Pixmap::new(width, height),
         transform: Affine::IDENTITY,
         mouse_down: false,
@@ -448,12 +450,13 @@ impl ApplicationHandler for App {
                 // Render the scene
                 self.renderer.reset();
 
-                self.scenes[self.current_scene].render(&mut self.renderer, self.transform);
-                self.renderer.flush();
-                self.renderer.render(
-                    &mut self.pixmap,
-                    self.scenes[self.current_scene].resources_mut(),
+                self.scenes[self.current_scene].render(
+                    &mut self.renderer,
+                    &mut self.resources,
+                    self.transform,
                 );
+                self.renderer.flush();
+                self.renderer.render(&mut self.pixmap, &mut self.resources);
 
                 // Copy pixmap to window surface
                 let mut buffer = surface.buffer_mut().unwrap();
