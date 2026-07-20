@@ -214,15 +214,13 @@ impl WebGlRenderer {
             &mut settings.image_atlas_config,
             max_texture_dimension_2d,
             max_texture_array_layers,
-            0,
         );
+        // Filter scratch textures are individual 2D textures (not a D2Array), so they can
+        // start at zero and only be allocated on demand when a scene actually uses filters.
         normalize_atlas_config(
             &mut settings.filter_atlas_config,
             max_texture_dimension_2d,
             max_texture_array_layers,
-            // Filter scratch textures are individual 2D textures (not a D2Array), so they can
-            // start at zero and only be allocated on demand when a scene actually uses filters.
-            0,
         );
         let total_slots: usize = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
         assert!(

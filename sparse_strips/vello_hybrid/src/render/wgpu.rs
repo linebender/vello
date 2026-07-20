@@ -187,7 +187,6 @@ impl Renderer {
             &mut settings.image_atlas_config,
             max_texture_dimension_2d,
             max_texture_array_layers,
-            0,
         );
         // Filter scratch textures are individual 2D textures (see `FilterAtlasState`). They can
         // start at zero and only be allocated on demand when a scene actually uses filters.
@@ -195,7 +194,6 @@ impl Renderer {
             &mut settings.filter_atlas_config,
             max_texture_dimension_2d,
             max_texture_array_layers,
-            0,
         );
         let total_slots = (max_texture_dimension_2d / u32::from(Tile::HEIGHT)) as usize;
         let image_cache = ImageCache::new_with_config(settings.image_atlas_config);
