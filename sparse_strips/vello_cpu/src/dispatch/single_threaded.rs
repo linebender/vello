@@ -3,11 +3,12 @@
 
 use crate::coarse::CommandBucketer;
 use crate::coarse::depth::DepthBuffer;
-use crate::dispatch::{Dispatcher, RecordedFill};
+use crate::dispatch::Dispatcher;
 use crate::filter::context::FilterContext;
 use crate::fine::{Fine, FineKernel, FineRenderParams, FineResources, rasterize_region};
 use crate::kurbo::{Affine, BezPath, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
+use crate::record::RecordedFill;
 use crate::region::Regions;
 use crate::{CompositeMode, RasterizerSettings};
 use core::cell::RefCell;

@@ -149,6 +149,7 @@ mod render;
 mod coarse;
 mod dispatch;
 mod filter;
+mod record;
 #[cfg(feature = "text")]
 mod text;
 #[cfg(all(feature = "text", feature = "std", debug_assertions))]

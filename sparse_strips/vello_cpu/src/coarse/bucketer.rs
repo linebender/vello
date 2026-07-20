@@ -4,10 +4,10 @@
 use super::cmd::{DepthFill, LayerFill, LayerFillAttrs, PaintFill, PaintFillAttrs, RenderCmd};
 use super::depth::{DepthSegment, DepthState};
 use crate::coarse::depth;
-use crate::dispatch::RecordedFill;
 use crate::filter::context::FilterContext;
 use crate::kurbo::{Affine, Vec2};
 use crate::peniko::{BlendMode, Extend, ImageQuality, ImageSampler};
+use crate::record::RecordedFill;
 use crate::util::Span;
 use alloc::sync::Arc;
 use alloc::vec;

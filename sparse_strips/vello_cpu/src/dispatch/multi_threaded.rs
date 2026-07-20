@@ -3,13 +3,14 @@
 
 use crate::coarse::CommandBucketer;
 use crate::coarse::depth::DepthBuffer;
+use crate::dispatch::Dispatcher;
 use crate::dispatch::multi_threaded::cost::{COST_THRESHOLD, estimate_render_task_cost};
 use crate::dispatch::multi_threaded::worker::Worker;
-use crate::dispatch::{Dispatcher, RecordedFill};
 use crate::filter::context::FilterContext;
 use crate::fine::{Fine, FineKernel, FineRenderParams, FineResources, rasterize_region};
 use crate::kurbo::{Affine, BezPath, PathEl, Point, Rect, Stroke};
 use crate::peniko::{BlendMode, Fill};
+use crate::record::RecordedFill;
 use crate::region::Regions;
 use crate::{CompositeMode, RasterizerSettings};
 use alloc::boxed::Box;
