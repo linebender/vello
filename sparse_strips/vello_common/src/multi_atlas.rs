@@ -469,6 +469,8 @@ pub struct AtlasAllocation {
 #[derive(Debug, Clone, Copy)]
 pub struct AtlasConfig {
     /// Initial number of atlases to create.
+    ///
+    /// Set this to zero to allocate the first atlas lazily.
     pub initial_atlas_count: usize,
     /// Maximum number of atlases to create.
     pub max_atlases: usize,
@@ -484,7 +486,7 @@ pub struct AtlasConfig {
 impl Default for AtlasConfig {
     fn default() -> Self {
         Self {
-            initial_atlas_count: 1,
+            initial_atlas_count: 0,
             max_atlases: 8,
             atlas_size: (4096, 4096),
             auto_grow: true,
@@ -520,6 +522,16 @@ mod tests {
 
         let atlas_id = manager.create_atlas().unwrap();
         assert_eq!(atlas_id.as_u32(), 0);
+        assert_eq!(manager.atlas_count(), 1);
+    }
+
+    #[test]
+    fn test_default_lazily_creates_first_atlas() {
+        let mut manager = MultiAtlasManager::new(AtlasConfig::default());
+        assert_eq!(manager.atlas_count(), 0);
+
+        let allocation = manager.try_allocate(100, 100).unwrap();
+        assert_eq!(allocation.atlas_id.as_u32(), 0);
         assert_eq!(manager.atlas_count(), 1);
     }
 

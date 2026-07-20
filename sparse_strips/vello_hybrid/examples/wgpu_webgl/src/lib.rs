@@ -17,7 +17,7 @@ use vello_common::{
     paint::{ImageId, ImageSource},
 };
 use vello_example_scenes::{AnyScene, image::ImageScene};
-use vello_hybrid::{AtlasConfig, Pixmap, RenderSettings, RenderTargetConfig, Renderer, Scene};
+use vello_hybrid::{Pixmap, RenderSettings, RenderTargetConfig, Renderer, Scene};
 use wasm_bindgen::prelude::*;
 use web_sys::{Event, HtmlCanvasElement, KeyboardEvent, MouseEvent, WheelEvent};
 use wgpu::{
@@ -88,7 +88,6 @@ impl RendererWrapper {
         };
         surface.configure(&device, &surface_config);
 
-        let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
         let renderer = Renderer::new_with(
             &device,
             &RenderTargetConfig {
@@ -98,10 +97,6 @@ impl RendererWrapper {
             },
             RenderSettings {
                 level: Level::try_detect().unwrap_or(Level::baseline()),
-                image_atlas_config: AtlasConfig {
-                    atlas_size: (max_texture_dimension_2d, max_texture_dimension_2d),
-                    ..AtlasConfig::default()
-                },
                 ..Default::default()
             },
         );

@@ -123,9 +123,19 @@ impl WebGlRenderer {
         let mut probe_image_cache = ImageCache::new_with_config(atlas_config);
         let mut probe_atlas_texture_array =
             create_atlas_texture_array(&self.gl, atlas_width, atlas_height, 1);
+        let mut probe_atlas_size = (atlas_width, atlas_height);
+        let mut probe_atlas_layer_count = 1;
         core::mem::swap(
             &mut self.programs.resources.atlas_texture_array,
             &mut probe_atlas_texture_array,
+        );
+        core::mem::swap(
+            &mut self.programs.resources.atlas_size,
+            &mut probe_atlas_size,
+        );
+        core::mem::swap(
+            &mut self.programs.resources.atlas_layer_count,
+            &mut probe_atlas_layer_count,
         );
 
         let probe_image = Arc::new(vello_common::probe::probe_image_pixmap());
@@ -165,6 +175,14 @@ impl WebGlRenderer {
         core::mem::swap(
             &mut self.programs.resources.atlas_texture_array,
             &mut probe_atlas_texture_array,
+        );
+        core::mem::swap(
+            &mut self.programs.resources.atlas_size,
+            &mut probe_atlas_size,
+        );
+        core::mem::swap(
+            &mut self.programs.resources.atlas_layer_count,
+            &mut probe_atlas_layer_count,
         );
 
         // We do this here instead of above such that in case the render result is not

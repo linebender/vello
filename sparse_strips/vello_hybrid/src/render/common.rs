@@ -29,18 +29,12 @@ pub(crate) fn normalize_atlas_config(
     config: &mut AtlasConfig,
     max_texture_dimension_2d: u32,
     max_texture_array_layers: u32,
-    min_initial_atlas_count: usize,
 ) {
     config.atlas_size.0 = config.atlas_size.0.clamp(1, max_texture_dimension_2d);
     config.atlas_size.1 = config.atlas_size.1.clamp(1, max_texture_dimension_2d);
 
-    let supported_max_atlases = (max_texture_array_layers as usize).max(min_initial_atlas_count);
-    config.max_atlases = config
-        .max_atlases
-        .clamp(min_initial_atlas_count, supported_max_atlases);
-    config.initial_atlas_count = config
-        .initial_atlas_count
-        .clamp(min_initial_atlas_count, config.max_atlases);
+    config.max_atlases = config.max_atlases.min(max_texture_array_layers as usize);
+    config.initial_atlas_count = config.initial_atlas_count.min(config.max_atlases);
 }
 
 #[cfg(test)]
@@ -57,7 +51,7 @@ mod tests {
             ..Default::default()
         };
 
-        normalize_atlas_config(&mut config, 4096, 4, 1);
+        normalize_atlas_config(&mut config, 4096, 4);
 
         assert_eq!(config.initial_atlas_count, 4);
         assert_eq!(config.max_atlases, 4);
@@ -65,19 +59,16 @@ mod tests {
     }
 
     #[test]
-    fn normalize_atlas_config_enforces_minimum_initial_count() {
+    fn normalize_atlas_config_allows_lazy_initial_allocation() {
         let mut config = AtlasConfig {
             initial_atlas_count: 0,
-            max_atlases: 1,
-            atlas_size: (0, 0),
             ..Default::default()
         };
 
-        normalize_atlas_config(&mut config, 4096, 8, 2);
+        normalize_atlas_config(&mut config, 4096, 8);
 
-        assert_eq!(config.initial_atlas_count, 2);
-        assert_eq!(config.max_atlases, 2);
-        assert_eq!(config.atlas_size, (1, 1));
+        assert_eq!(config.initial_atlas_count, 0);
+        assert_eq!(config.max_atlases, 8);
     }
 }
 
