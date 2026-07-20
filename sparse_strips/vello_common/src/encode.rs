@@ -553,16 +553,6 @@ pub enum EncodedPaint {
 }
 
 impl EncodedPaint {
-    /// Returns whether this encoded paint is guaranteed to only produce opaque pixels.
-    pub fn is_opaque(&self) -> bool {
-        match self {
-            Self::Gradient(gradient) => !gradient.may_have_transparency,
-            Self::Image(image) => !image.may_have_transparency,
-            Self::ExternalTexture(_) => false,
-            Self::BlurredRoundedRect(_) => false,
-        }
-    }
-
     /// Returns whether this encoded paint may produce non-opaque pixels.
     pub fn may_have_transparency(&self) -> bool {
         match self {
@@ -575,14 +565,6 @@ impl EncodedPaint {
 }
 
 impl Paint {
-    /// Returns whether this paint is guaranteed to only produce opaque pixels.
-    pub fn is_opaque(&self, encoded_paints: &[EncodedPaint]) -> bool {
-        match self {
-            Self::Solid(color) => color.is_opaque(),
-            Self::Indexed(index) => encoded_paints[index.index()].is_opaque(),
-        }
-    }
-
     /// Returns whether this paint may produce non-opaque pixels.
     pub fn may_have_transparency(&self, encoded_paints: &[EncodedPaint]) -> bool {
         match self {
