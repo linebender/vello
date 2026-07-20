@@ -319,16 +319,17 @@ impl MultiThreadedDispatcher {
                                     &task.allocation_group.strips
                                         [strip_range.start as usize..strip_range.end as usize],
                                 );
+                                let strips =
+                                    &self.strip_storage.strips[strip_range.start..strip_range.end];
                                 let draw = RecordedFill::new(
                                     thread_id,
-                                    strip_range.clone(),
+                                    strip_range,
                                     paint.clone(),
                                     blend_mode,
                                     mask,
                                 );
 
-                                self.recorder
-                                    .push_draw(draw, &self.strip_storage.strips[strip_range]);
+                                self.recorder.push_draw(draw, strips);
                             }
                             RecordedCommand::PushLayer {
                                 thread_id,
