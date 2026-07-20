@@ -315,6 +315,8 @@ impl CommandBucketer {
                     RecordedLayerKind::Regular => {
                         // Regular layers are inlined and bucketed into the same command stream.
                         self.push_layer(props);
+                        // TODO: Avoid recursion to prevent stack overflows for deeply nested
+                        // layers.
                         self.bucket_commands(
                             &layer.nodes,
                             draws,
