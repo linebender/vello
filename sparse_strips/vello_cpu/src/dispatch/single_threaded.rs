@@ -357,7 +357,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         filter_data: Option<FilterData>,
     ) {
         if let Some(filter_data) = &filter_data {
-            self.viewport.push_filter_viewport(filter_data);
+            self.viewport.push_root_viewport(filter_data);
         }
 
         let clip_path = clip_path.map(|clip_path| {
@@ -402,7 +402,7 @@ impl Dispatcher for SingleThreadedDispatcher {
         match self.recorder.pop_layer() {
             PoppedLayer::Regular => {}
             PoppedLayer::Filter => {
-                self.viewport.pop_filter_viewport();
+                self.viewport.pop_root_viewport();
             }
         }
     }
@@ -571,6 +571,6 @@ mod tests {
         assert!(dispatcher.strip_storage.alphas.is_empty());
         assert!(dispatcher.recorder.root_cmds.is_empty());
         assert!(dispatcher.recorder.layers.is_empty());
-        assert!(!dispatcher.viewport.has_filter_viewports());
+        assert!(!dispatcher.viewport.has_root_viewports());
     }
 }

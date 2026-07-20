@@ -69,7 +69,7 @@ impl Transforms {
     }
 
     // Unlike [`Self::effective_path_transform`], this intentionally does not apply
-    // the root transform because clipping handles filter viewport shifts separately.
+    // the root transform because clipping handles root viewport shifts separately.
     /// Return the transform used for non-isolated clip paths.
     pub fn clip_path_transform(&self) -> Affine {
         self.transform
@@ -96,7 +96,7 @@ impl RootTransforms {
         }
     }
 
-    /// Return the root transform of the currently active filter viewport, including
+    /// Return the root transform of the currently active root viewport, including
     /// shifts inherited from nested filters.
     pub fn root_transform(&self) -> Affine {
         *self
