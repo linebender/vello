@@ -300,6 +300,144 @@ struct ProcessedPaint {
     external_texture_id: Option<TextureId>,
 }
 
+/// Cull bounds for root-destined strips, in device pixels, derived from the
+/// root-pass scissor rects ([`crate::RenderConfig::scissors`]). This is
+/// the prepare-side complement to those scissors: rather than only clipping in
+/// the render pass, strips outside the region are never built or uploaded.
+///
+/// Every render pass that attaches the root target is scissored to this
+/// rectangle, so a strip whose quad lies entirely outside it can never
+/// contribute a pixel. The scheduler therefore skips building and uploading
+/// such strips ([`generate_gpu_strips_for_fast_path`],
+/// [`pack_rectangle_into_gpu`]) and skips whole wide tiles outside the
+/// rectangle in root coarse batches ([`Scheduler::process_coarse_batch`]),
+/// removing the per-render CPU cost that otherwise scales with the full
+/// encoded scene rather than with the damaged region.
+///
+/// # Why this is winding-safe
+///
+/// Culling happens strictly *after* winding resolution. Sparse-strip
+/// generation (`vello_common::strip::render`) folds a path's winding into
+/// per-strip alpha coverage plus a `fill_gap` bit ("the gap between the
+/// previous strip in this row and this strip is interior"), and coarse
+/// rasterization (`Wide::generate`) folds those into self-contained
+/// per-wide-tile command lists. At scheduling time no winding state flows
+/// between emitted quads: a fill spanning the scissor boundary is emitted as
+/// coverage quads at the path's edges plus interior gap quads, and each quad
+/// is culled independently (a gap quad crossing the boundary is kept even
+/// when the coverage strips that delimit it lie outside the scissor and are
+/// culled). Wide tiles are likewise independent: a tile's commands only draw
+/// within the tile's own screen rectangle, and the slot-texture scratch they
+/// claim ([`Scheduler::do_push_buf`]) is consumed by that same tile's draws
+/// before being freed, so skipping a tile wholesale cannot affect any other
+/// tile.
+///
+/// Content destined for intermediate targets is never culled: filter layers
+/// ([`Scheduler::process_filter_node`]) render to the filter atlas in full
+/// (the root pass samples them), and slot-texture work only exists inside a
+/// wide tile's command list, which is culled all-or-nothing with the tile
+/// itself.
+#[derive(Debug, Clone)]
+pub(crate) struct StripCull {
+    /// Bounding box of `rects` — left/top inclusive, right/bottom exclusive,
+    /// device pixels. The cheap first test (and the whole test for a single
+    /// rect).
+    x0: u16,
+    y0: u16,
+    x1: u16,
+    y1: u16,
+    /// The individual scissor rects in the same edge form, populated only
+    /// when there is more than one (multi-rect damage): a quad inside the
+    /// bounding box must still intersect one of these to survive.
+    rects: Vec<[u16; 4]>,
+}
+
+impl StripCull {
+    /// Build cull bounds from a set of `[x, y, width, height]` scissor
+    /// rectangles (the per-rect scissored root draws).
+    ///
+    /// An empty/degenerate set culls everything. Edges beyond `u16::MAX` are
+    /// clamped (strip coordinates are `u16`, so nothing representable is
+    /// lost).
+    fn new(scissors: &[[u32; 4]]) -> Self {
+        let clamp = |v: u32| v.min(u32::from(u16::MAX)) as u16;
+        let mut rects: Vec<[u16; 4]> = Vec::new();
+        let (mut x0, mut y0, mut x1, mut y1) = (u16::MAX, u16::MAX, 0_u16, 0_u16);
+        for &[x, y, w, h] in scissors {
+            if w == 0 || h == 0 {
+                continue;
+            }
+            let r = [
+                clamp(x),
+                clamp(y),
+                clamp(x.saturating_add(w)),
+                clamp(y.saturating_add(h)),
+            ];
+            x0 = x0.min(r[0]);
+            y0 = y0.min(r[1]);
+            x1 = x1.max(r[2]);
+            y1 = y1.max(r[3]);
+            rects.push(r);
+        }
+        if rects.is_empty() {
+            // Everything degenerate: cull everything.
+            return Self {
+                x0: 0,
+                y0: 0,
+                x1: 0,
+                y1: 0,
+                rects,
+            };
+        }
+        if rects.len() == 1 {
+            // The bounding box IS the one rect — no per-rect pass needed.
+            rects.clear();
+        }
+        Self {
+            x0,
+            y0,
+            x1,
+            y1,
+            rects,
+        }
+    }
+
+    /// Whether a quad at `(x, y)` spanning `width × height` pixels lies fully
+    /// outside every scissor rect (and therefore cannot produce any pixel in
+    /// the per-rect scissored root draws).
+    #[inline(always)]
+    fn culls_quad(&self, x: u16, y: u16, width: u16, height: u16) -> bool {
+        let outside_bounds = x >= self.x1
+            || y >= self.y1
+            || u32::from(x) + u32::from(width) <= u32::from(self.x0)
+            || u32::from(y) + u32::from(height) <= u32::from(self.y0);
+        if outside_bounds || self.rects.is_empty() {
+            return outside_bounds;
+        }
+        // Multi-rect: a quad in the gap between rects has no scissored draw.
+        !self.rects.iter().any(|&[rx0, ry0, rx1, ry1]| {
+            x < rx1
+                && y < ry1
+                && u32::from(x) + u32::from(width) > u32::from(rx0)
+                && u32::from(y) + u32::from(height) > u32::from(ry0)
+        })
+    }
+
+    /// The wide-tile columns intersecting the scissor bounds, clamped to `cols`.
+    fn wtile_cols(&self, cols: u16) -> Range<u16> {
+        let c0 = (self.x0 / WideTile::WIDTH).min(cols);
+        let c1 = self.x1.div_ceil(WideTile::WIDTH).clamp(c0, cols);
+        c0..c1
+    }
+
+    /// The wide-tile rows intersecting the scissor bounds, clamped to `rows`.
+    fn wtile_rows(&self, rows: u16) -> Range<u16> {
+        let r0 = (self.y0 / Tile::HEIGHT).min(rows);
+        let r1 = self.y1.div_ceil(Tile::HEIGHT).clamp(r0, rows);
+        r0..r1
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct Scheduler {
     /// Index of the current round
@@ -319,6 +457,19 @@ pub(crate) struct Scheduler {
     output_target: StripPassRenderTarget,
     /// See [`DepthCounter`].
     depth: DepthCounter,
+    /// Cull bounds for root-destined strips, derived from the root-pass
+    /// scissor for the duration of one [`Scheduler::do_scene`] call. `None`
+    /// (the default, and always the value between calls) disables culling.
+    /// See [`StripCull`].
+    root_cull: Option<StripCull>,
+    /// Total number of root-destined strip emissions (fast-path coverage,
+    /// gap, and rectangle quads) skipped by scissor culling. Debug counter;
+    /// see [`StripCull`].
+    culled_strips: u64,
+    /// Total number of wide tiles skipped wholesale by scissor culling in
+    /// root coarse batches (counted per batch sweep). Debug counter; see
+    /// [`StripCull`].
+    culled_wide_tiles: u64,
 }
 
 /// Assigns z depth indices to GPU strips for early z rejection.
@@ -563,7 +714,22 @@ impl Scheduler {
             round_pool: RoundPool::default(),
             output_target: StripPassRenderTarget::Root(RootRenderTarget::UserSurface),
             depth: DepthCounter::default(),
+            root_cull: None,
+            culled_strips: 0,
+            culled_wide_tiles: 0,
         }
+    }
+
+    /// Total number of root-destined strip emissions skipped by scissor
+    /// culling across all renders. See [`StripCull`].
+    pub(crate) fn culled_strips(&self) -> u64 {
+        self.culled_strips
+    }
+
+    /// Total number of wide tiles skipped wholesale by scissor culling in
+    /// root coarse batches across all renders. See [`StripCull`].
+    pub(crate) fn culled_wide_tiles(&self) -> u64 {
+        self.culled_wide_tiles
     }
 
     fn claim_free_slot<R: RendererBackend>(
@@ -597,6 +763,13 @@ impl Scheduler {
     // However, unlike `vello_cpu` we have one combined method that handles both, the
     // filter and no-filter case.
     /// Schedule and render the scene.
+    ///
+    /// `root_scissors` is the root-pass scissor rect set (N pairwise-disjoint
+    /// rects from [`crate::RenderConfig::scissors`]): root-destined strips and
+    /// wide tiles outside every rect are culled during scheduling (see
+    /// [`StripCull`] for the mechanism and its correctness argument). Pass
+    /// `&[]` (full render) to schedule everything — byte-identical to the
+    /// pre-culling behavior.
     pub(crate) fn do_scene<R: RendererBackend>(
         &mut self,
         state: &mut SchedulerState,
@@ -606,8 +779,10 @@ impl Scheduler {
         paint_idxs: &[u32],
         filter_context: &FilterContext,
         encoded_paints: &[EncodedPaint],
+        root_scissors: &[[u32; 4]],
     ) -> Result<(), RenderError> {
         self.depth.reset();
+        self.root_cull = (!root_scissors.is_empty()).then(|| StripCull::new(root_scissors));
         for node_id in scene.render_graph.execution_order() {
             let node = &scene.render_graph.nodes[node_id];
 
@@ -659,6 +834,7 @@ impl Scheduler {
 
         // Restore state to reuse allocations.
         self.round = 0;
+        self.root_cull = None;
         #[cfg(debug_assertions)]
         {
             for i in 0..self.total_slots {
@@ -869,6 +1045,12 @@ impl Scheduler {
         let mut depth = core::mem::take(&mut self.depth);
         // TODO: Also allow the split when rendering to an atlas layer.
         let allow_opaque_split = self.is_rendering_to_user_surface();
+        // Direct strips only ever draw to the (scissored) root target, so
+        // quads entirely outside the scissor rects are culled (see
+        // `StripCull`). Depth indices are still allocated per command so that
+        // the kept strips are packed identically to a full render.
+        let cull = self.root_cull.clone();
+        let mut culled_strips = 0_u64;
         let draw = self.draw_mut(round, 2);
 
         for cmd in &scene.fast_strips_buffer.commands[range] {
@@ -884,6 +1066,8 @@ impl Scheduler {
                         paint_idxs,
                         depth_index,
                         is_opaque && allow_opaque_split,
+                        cull.as_ref(),
+                        &mut culled_strips,
                         draw,
                     );
                 }
@@ -896,12 +1080,15 @@ impl Scheduler {
                         paint_idxs,
                         depth_index,
                         is_opaque && allow_opaque_split,
+                        cull.as_ref(),
+                        &mut culled_strips,
                         draw,
                     );
                 }
             }
         }
         self.depth = depth;
+        self.culled_strips += culled_strips;
     }
 
     /// Process one batch of coarse-rasterized wide tile commands.
@@ -921,8 +1108,34 @@ impl Scheduler {
         filter_context: &FilterContext,
         encoded_paints: &[EncodedPaint],
     ) -> Result<(), RenderError> {
-        for row in 0..rows {
-            for col in 0..cols {
+        // Root coarse batches only draw to the root target and to per-tile
+        // slot scratch, so wide tiles entirely outside the root scissor are
+        // skipped wholesale (see `StripCull`). The scissor is constant for
+        // the whole `do_scene`, so a skipped tile is skipped in *every*
+        // batch, and its `cmd_offsets` entry — never advanced — is never
+        // consumed either.
+        let (row_range, col_range) = match &self.root_cull {
+            Some(cull) => (cull.wtile_rows(rows), cull.wtile_cols(cols)),
+            None => (0..rows, 0..cols),
+        };
+        self.culled_wide_tiles +=
+            u64::from(rows) * u64::from(cols) - row_range.len() as u64 * col_range.len() as u64;
+        for row in row_range {
+            for col in col_range.clone() {
+                // Multi-rect damage: gap tiles are skipped like the
+                // out-of-bounds ones (same never-consumed `cmd_offsets`
+                // argument).
+                if let Some(cull) = &self.root_cull
+                    && cull.culls_quad(
+                        col * WideTile::WIDTH,
+                        row * Tile::HEIGHT,
+                        WideTile::WIDTH,
+                        Tile::HEIGHT,
+                    )
+                {
+                    self.culled_wide_tiles += 1;
+                    continue;
+                }
                 let idx = (row * cols + col) as usize;
                 let tile = wide.get(col, row);
                 let start_offset = cmd_offsets[idx];
@@ -1984,6 +2197,8 @@ fn generate_gpu_strips_for_fast_path(
     paint_idxs: &[u32],
     depth_index: u32,
     is_opaque: bool,
+    cull: Option<&StripCull>,
+    culled_strips: &mut u64,
     draw: &mut Draw,
 ) {
     let strips = &strip_storage.strips[path.strips.clone()];
@@ -2011,15 +2226,25 @@ fn generate_gpu_strips_for_fast_path(
         let y = strip.y;
 
         // Alpha fill for the strip's coverage region.
+        //
+        // The coverage quad and the gap quad below are culled independently
+        // against the root scissor: winding is already resolved into
+        // coverage + `fill_gap` at this point (see `StripCull`), so a gap
+        // quad reaching into the scissor is kept even when the coverage
+        // strips delimiting it are culled.
         if strip_width > 0 {
-            let processed =
-                Scheduler::process_paint(&path.paint, encoded_paints, (x0, y), paint_idxs);
-            draw.push_alpha(
-                GpuStripBuilder::at_surface(x0, y, strip_width)
-                    .with_sparse(strip_width, col)
-                    .paint(processed.payload, processed.paint, depth_index),
-                processed.external_texture_id,
-            );
+            if cull.is_some_and(|c| c.culls_quad(x0, y, strip_width, Tile::HEIGHT)) {
+                *culled_strips += 1;
+            } else {
+                let processed =
+                    Scheduler::process_paint(&path.paint, encoded_paints, (x0, y), paint_idxs);
+                draw.push_alpha(
+                    GpuStripBuilder::at_surface(x0, y, strip_width)
+                        .with_sparse(strip_width, col)
+                        .paint(processed.payload, processed.paint, depth_index),
+                    processed.external_texture_id,
+                );
+            }
         }
 
         // Solid fill for the gap to the next strip.
@@ -2032,17 +2257,21 @@ fn generate_gpu_strips_for_fast_path(
                     .unwrap_or(u16::MAX),
             );
             if x2 > x1 {
-                let processed =
-                    Scheduler::process_paint(&path.paint, encoded_paints, (x1, y), paint_idxs);
-                let strip = GpuStripBuilder::at_surface(x1, y, x2 - x1).paint(
-                    processed.payload,
-                    processed.paint,
-                    depth_index,
-                );
-                if is_opaque {
-                    draw.push_opaque(strip);
+                if cull.is_some_and(|c| c.culls_quad(x1, y, x2 - x1, Tile::HEIGHT)) {
+                    *culled_strips += 1;
                 } else {
-                    draw.push_alpha(strip, processed.external_texture_id);
+                    let processed =
+                        Scheduler::process_paint(&path.paint, encoded_paints, (x1, y), paint_idxs);
+                    let strip = GpuStripBuilder::at_surface(x1, y, x2 - x1).paint(
+                        processed.payload,
+                        processed.paint,
+                        depth_index,
+                    );
+                    if is_opaque {
+                        draw.push_opaque(strip);
+                    } else {
+                        draw.push_alpha(strip, processed.external_texture_id);
+                    }
                 }
             }
         }
@@ -2055,6 +2284,8 @@ fn pack_rectangle_into_gpu(
     paint_idxs: &[u32],
     depth_index: u32,
     is_opaque: bool,
+    cull: Option<&StripCull>,
+    culled_strips: &mut u64,
     draw: &mut Draw,
 ) {
     let split = split_rect(rect);
@@ -2070,15 +2301,27 @@ fn pack_rectangle_into_gpu(
     .into_iter()
     .flatten()
     {
+        // The main part is always the first entry; remember that before the
+        // cull below so a culled main part cannot promote an AA edge part
+        // into the opaque pass.
+        let is_main = is_first;
+        is_first = false;
+
+        // Each split part is an independent quad; parts entirely outside the
+        // root scissor are culled (see `StripCull`).
+        if cull.is_some_and(|c| c.culls_quad(part.x, part.y, part.width, part.height)) {
+            *culled_strips += 1;
+            continue;
+        }
+
         let processed =
             Scheduler::process_paint(&rect.paint, encoded_paints, (part.x, part.y), paint_idxs);
         let strip = make_gpu_rect(part, processed.payload, processed.paint, depth_index);
-        if is_first && is_opaque && part.frac == 0 {
+        if is_main && is_opaque && part.frac == 0 {
             draw.push_opaque(strip);
         } else {
             draw.push_alpha(strip, processed.external_texture_id);
         }
-        is_first = false;
     }
 }
 
@@ -2223,16 +2466,22 @@ fn pack_unorm4x8(v: [f32; 4]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        Draw, ExternalTextureRun, GpuStrip, RECT_STRIP_FLAG, RectPart, SplitRect, TextureId,
-        pack_rectangle_into_gpu, pack_unorm4x8, split_rect,
+        Draw, ExternalTextureRun, GpuStrip, LoadOp, RECT_STRIP_FLAG, RectPart, RendererBackend,
+        RootRenderTarget, Scheduler, SchedulerState, SplitRect, StripCull, StripPassRenderTarget,
+        TextureId, Tile, generate_gpu_strips_for_fast_path, pack_rectangle_into_gpu, pack_unorm4x8,
+        split_rect,
     };
-    use crate::scene::FastPathRect;
+    use crate::Scene;
+    use crate::filter::FilterContext;
+    use crate::scene::{FastPathRect, FastStripCommand};
     use alloc::vec;
     use alloc::vec::Vec;
     use vello_common::encode::EncodedImage;
-    use vello_common::kurbo::{Affine, Vec2};
+    use vello_common::kurbo::{Affine, BezPath, Rect, Vec2};
+    use vello_common::multi_atlas::AtlasConfig;
     use vello_common::paint::{Color, ImageId, ImageSource, IndexedPaint, Paint};
     use vello_common::peniko::ImageSampler;
+    use vello_common::render_graph::LayerId;
 
     const DUMMY_STRIP: GpuStrip = GpuStrip {
         x: 0,
@@ -2476,7 +2725,7 @@ mod tests {
         let rect = solid_rect(10.0, 20.5, 42.0, 53.0);
         let mut draw = Draw::default();
 
-        pack_rectangle_into_gpu(&rect, &[], &[], 0, true, &mut draw);
+        pack_rectangle_into_gpu(&rect, &[], &[], 0, true, None, &mut 0, &mut draw);
 
         let out: Vec<_> = draw.opaque.iter().chain(draw.alpha.iter()).collect();
         assert_eq!(out.len(), 2);
@@ -2529,7 +2778,16 @@ mod tests {
         })];
         let mut draw = Draw::default();
 
-        pack_rectangle_into_gpu(&rect, &encoded_paints, &[7], 0, true, &mut draw);
+        pack_rectangle_into_gpu(
+            &rect,
+            &encoded_paints,
+            &[7],
+            0,
+            true,
+            None,
+            &mut 0,
+            &mut draw,
+        );
 
         let out: Vec<_> = draw.opaque.iter().chain(draw.alpha.iter()).collect();
         assert_eq!(out.len(), 5);
@@ -2538,5 +2796,378 @@ mod tests {
         assert_eq!(out[2].payload, (52_u32 << 16) | 10_u32);
         assert_eq!(out[3].payload, (21_u32 << 16) | 10_u32);
         assert_eq!(out[4].payload, (21_u32 << 16) | 42_u32);
+    }
+
+    // ------------------------------------------------------------------
+    // Prepare-side scissor strip culling (see `StripCull`).
+    // ------------------------------------------------------------------
+
+    /// All eight `GpuStrip` fields, for exact comparisons (`GpuStrip` itself
+    /// deliberately doesn't derive `PartialEq`).
+    type StripKey = (u16, u16, u16, u16, u32, u32, u32, u32);
+
+    fn strip_key(s: &GpuStrip) -> StripKey {
+        (
+            s.x,
+            s.y,
+            s.width,
+            s.dense_width_or_rect_height,
+            s.col_idx_or_rect_frac,
+            s.payload,
+            s.paint_and_rect_flag,
+            s.depth_index,
+        )
+    }
+
+    #[test]
+    fn strip_cull_quad_and_tile_range_semantics() {
+        // Scissor x ∈ [32, 80), y ∈ [16, 56).
+        let c = StripCull::new(&[[32, 16, 48, 40]]);
+
+        // Inside and 1px overlaps are kept.
+        assert!(!c.culls_quad(32, 16, 1, 1));
+        assert!(!c.culls_quad(0, 16, 33, 10), "1px x-overlap must be kept");
+        assert!(
+            !c.culls_quad(79, 55, 100, 100),
+            "corner overlap must be kept"
+        );
+
+        // Half-open boundaries: touching without overlapping is culled.
+        assert!(c.culls_quad(80, 16, 10, 10), "starts at the right edge");
+        assert!(c.culls_quad(0, 16, 32, 10), "ends at the left edge");
+        assert!(c.culls_quad(32, 56, 10, 10), "starts at the bottom edge");
+        assert!(c.culls_quad(32, 0, 10, 16), "ends at the top edge");
+
+        // Wide-tile ranges (256×4 tiles) and their clamping.
+        assert_eq!(c.wtile_cols(5), 0..1);
+        assert_eq!(c.wtile_rows(240), 4..14);
+        assert_eq!(c.wtile_rows(10), 4..10);
+        assert_eq!(StripCull::new(&[[600, 0, 100, 4]]).wtile_cols(2), 2..2);
+
+        // An empty scissor culls everything.
+        let e = StripCull::new(&[[32, 16, 0, 40]]);
+        assert!(e.culls_quad(0, 0, u16::MAX, u16::MAX));
+        assert_eq!(e.wtile_cols(5), 0..0);
+        assert_eq!(e.wtile_rows(240), 0..0);
+    }
+
+    #[test]
+    fn strip_cull_multi_rect_culls_the_gap() {
+        // Two disjoint rects (opposite corners): quads inside either rect
+        // survive, quads in the GAP — inside the bounding box, outside both
+        // rects — are culled, and the wide-tile ranges span the bounding box.
+        let c = StripCull::new(&[[10, 10, 40, 40], [200, 200, 40, 40]]);
+        assert!(!c.culls_quad(12, 12, 8, 8), "inside rect 1");
+        assert!(!c.culls_quad(210, 210, 8, 8), "inside rect 2");
+        assert!(
+            c.culls_quad(100, 100, 8, 8),
+            "gap quad (inside bounds, outside both rects)"
+        );
+        assert!(
+            c.culls_quad(45, 100, 8, 8),
+            "gap quad under rect 1's columns"
+        );
+        assert!(
+            !c.culls_quad(45, 45, 160, 160),
+            "quad straddling into a rect survives"
+        );
+        assert!(c.culls_quad(300, 10, 8, 8), "outside the bounding box");
+        // Bounding-box tile ranges (WideTile::WIDTH = 256, Tile::HEIGHT = 4).
+        assert_eq!(c.wtile_cols(4), 0..1);
+        assert_eq!(c.wtile_rows(240), 2..60);
+        // Degenerate members are dropped; a lone survivor collapses to the
+        // single-rect fast path (no per-rect scan).
+        let one = StripCull::new(&[[10, 10, 40, 40], [5, 5, 0, 9]]);
+        assert!(one.culls_quad(60, 12, 4, 4), "outside the lone survivor");
+        assert!(!one.culls_quad(12, 12, 4, 4));
+    }
+
+    #[test]
+    fn rect_parts_cull_independently_against_scissor() {
+        // Large rect with AA on all four edges → 5 split parts.
+        let rect = solid_rect(10.25, 20.5, 90.75, 80.25);
+
+        let mut full = Draw::default();
+        pack_rectangle_into_gpu(&rect, &[], &[], 3, true, None, &mut 0, &mut full);
+        assert_eq!(full.opaque.len() + full.alpha.len(), 5);
+
+        // Scissor x ∈ [0, 11): keeps the left AA column plus the top/bottom
+        // edge strips (both start at x = 10); culls the main part (starts at
+        // x = 11) and the right AA column.
+        let cull = StripCull::new(&[[0, 0, 11, 200]]);
+        let mut culled = 0_u64;
+        let mut part = Draw::default();
+        pack_rectangle_into_gpu(
+            &rect,
+            &[],
+            &[],
+            3,
+            true,
+            Some(&cull),
+            &mut culled,
+            &mut part,
+        );
+
+        assert_eq!(culled, 2, "main + right AA column must be culled");
+        assert!(
+            part.opaque.is_empty(),
+            "the culled main part must not promote an AA edge into the opaque pass"
+        );
+        let expected: Vec<StripKey> = full
+            .opaque
+            .iter()
+            .chain(full.alpha.iter())
+            .filter(|s| s.x < 11)
+            .map(strip_key)
+            .collect();
+        let kept: Vec<StripKey> = part.alpha.iter().map(strip_key).collect();
+        assert_eq!(
+            kept, expected,
+            "kept parts must be byte-identical to the full run's"
+        );
+    }
+
+    #[test]
+    fn fast_path_strips_cull_per_emitted_quad() {
+        // A triangle spanning rows 2..48, so both coverage quads and interior
+        // gap quads exist on both sides of the scissor band.
+        let mut scene = Scene::new(200, 200);
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        let mut path = BezPath::new();
+        path.move_to((10.0, 2.0));
+        path.line_to((190.0, 25.0));
+        path.line_to((10.0, 48.0));
+        path.close_path();
+        scene.fill_path(&path);
+
+        let storage = scene.strip_storage.borrow();
+        let FastStripCommand::Path(path_cmd) = &scene.fast_strips_buffer.commands[0] else {
+            panic!("triangle must take the fast strip path");
+        };
+
+        let mut full = Draw::default();
+        generate_gpu_strips_for_fast_path(
+            path_cmd,
+            &storage,
+            &scene,
+            &[],
+            &[],
+            7,
+            true,
+            None,
+            &mut 0,
+            &mut full,
+        );
+        let full_total = full.opaque.len() + full.alpha.len();
+        assert!(full_total > 0, "reference run must emit strips");
+
+        // A strip-row-aligned horizontal band: y ∈ [16, 32).
+        let cull = StripCull::new(&[[0, 16, 200, 16]]);
+        let in_band = |s: &GpuStrip| s.y < 32 && u32::from(s.y) + u32::from(Tile::HEIGHT) > 16;
+        let mut culled = 0_u64;
+        let mut part = Draw::default();
+        generate_gpu_strips_for_fast_path(
+            path_cmd,
+            &storage,
+            &scene,
+            &[],
+            &[],
+            7,
+            true,
+            Some(&cull),
+            &mut culled,
+            &mut part,
+        );
+
+        // Kept strips are byte-identical to the full run's in-band strips
+        // (same depth index, same packing); everything else is counted.
+        let expected_opaque: Vec<StripKey> = full
+            .opaque
+            .iter()
+            .filter(|s| in_band(s))
+            .map(strip_key)
+            .collect();
+        let expected_alpha: Vec<StripKey> = full
+            .alpha
+            .iter()
+            .filter(|s| in_band(s))
+            .map(strip_key)
+            .collect();
+        assert!(
+            !expected_opaque.is_empty(),
+            "band must contain interior gap fills"
+        );
+        assert!(
+            !expected_alpha.is_empty(),
+            "band must contain coverage strips"
+        );
+        assert_eq!(
+            part.opaque.iter().map(strip_key).collect::<Vec<_>>(),
+            expected_opaque
+        );
+        assert_eq!(
+            part.alpha.iter().map(strip_key).collect::<Vec<_>>(),
+            expected_alpha
+        );
+        let kept_total = part.opaque.len() + part.alpha.len();
+        assert_eq!(culled as usize, full_total - kept_total);
+
+        // An empty scissor culls every emission.
+        let empty = StripCull::new(&[[50, 50, 0, 0]]);
+        let mut all_culled = 0_u64;
+        let mut none = Draw::default();
+        generate_gpu_strips_for_fast_path(
+            path_cmd,
+            &storage,
+            &scene,
+            &[],
+            &[],
+            7,
+            true,
+            Some(&empty),
+            &mut all_culled,
+            &mut none,
+        );
+        assert!(none.opaque.is_empty() && none.alpha.is_empty());
+        assert_eq!(all_culled as usize, full_total);
+    }
+
+    /// Records every strip pass the scheduler issues.
+    #[derive(Default)]
+    struct RecordingBackend {
+        passes: Vec<(Vec<GpuStrip>, Vec<GpuStrip>, StripPassRenderTarget)>,
+    }
+
+    impl RendererBackend for RecordingBackend {
+        fn clear_slots(&mut self, _texture_index: usize, _slots: &[u32]) {}
+
+        fn render_strips(
+            &mut self,
+            opaque_strips: &[GpuStrip],
+            alpha_strips: &[GpuStrip],
+            _external_texture_runs: &[ExternalTextureRun],
+            target: StripPassRenderTarget,
+            _load_op: LoadOp,
+        ) {
+            self.passes
+                .push((opaque_strips.to_vec(), alpha_strips.to_vec(), target));
+        }
+
+        fn apply_filter(&mut self, _layer_id: LayerId) {}
+    }
+
+    impl RecordingBackend {
+        /// All strips issued against the root target, in issue order.
+        fn root_strips(&self) -> Vec<GpuStrip> {
+            self.passes
+                .iter()
+                .filter(|(_, _, target)| matches!(target, StripPassRenderTarget::Root(_)))
+                .flat_map(|(opaque, alpha, _)| opaque.iter().chain(alpha.iter()).copied())
+                .collect()
+        }
+
+        /// Total number of strips issued against the slot textures.
+        fn slot_strip_count(&self) -> usize {
+            self.passes
+                .iter()
+                .filter(|(_, _, target)| matches!(target, StripPassRenderTarget::SlotTexture(_)))
+                .map(|(opaque, alpha, _)| opaque.len() + alpha.len())
+                .sum()
+        }
+    }
+
+    /// 512×16 scene (2 wide-tile columns × 4 rows) that goes through coarse
+    /// rasterization (a clip layer), with content on both sides of the
+    /// wide-tile boundary at x = 256.
+    fn coarse_scene() -> Scene {
+        let mut scene = Scene::new(512, 16);
+        scene.set_paint(Color::from_rgba8(255, 0, 0, 255));
+        // Root-level rect crossing the wide-tile boundary.
+        scene.fill_rect(&Rect::new(200.0, 2.0, 300.0, 10.0));
+        // Clip layer spanning both wide-tile columns (forces `CoarseOnly`).
+        let mut clip = BezPath::new();
+        clip.move_to((100.0, 0.0));
+        clip.line_to((400.0, 16.0));
+        clip.line_to((100.0, 16.0));
+        clip.close_path();
+        scene.push_clip_layer(&clip);
+        scene.set_paint(Color::from_rgba8(0, 255, 0, 128));
+        scene.fill_rect(&Rect::new(0.0, 0.0, 512.0, 16.0));
+        scene.pop_layer();
+        scene
+    }
+
+    fn run_scheduler(scene: &Scene, root_scissors: &[[u32; 4]]) -> (RecordingBackend, u64) {
+        let mut scheduler = Scheduler::new(64);
+        let mut state = SchedulerState::default();
+        let mut backend = RecordingBackend::default();
+        let filter_context = FilterContext::new(AtlasConfig::default());
+        scheduler
+            .do_scene(
+                &mut state,
+                &mut backend,
+                scene,
+                RootRenderTarget::UserSurface,
+                &[],
+                &filter_context,
+                &[],
+                root_scissors,
+            )
+            .expect("scheduling must succeed");
+        (backend, scheduler.culled_wide_tiles())
+    }
+
+    #[test]
+    fn coarse_batches_skip_wide_tiles_outside_scissor() {
+        let scene = coarse_scene();
+
+        let (full, full_culled_tiles) = run_scheduler(&scene, &[]);
+        assert_eq!(full_culled_tiles, 0, "no scissor ⇒ no culled tiles");
+        let full_root = full.root_strips();
+        assert!(
+            full_root.iter().any(|s| s.x < 256) && full_root.iter().any(|s| s.x >= 256),
+            "reference run must emit root strips in both wide-tile columns"
+        );
+        assert!(
+            full.slot_strip_count() > 0,
+            "clip content must use slot textures"
+        );
+
+        // Scissor entirely within wide-tile column 1: x ∈ [320, 384).
+        let (part, culled_tiles) = run_scheduler(&scene, &[[320, 0, 64, 16]]);
+        assert_eq!(culled_tiles, 4, "the 4 tiles of column 0 must be skipped");
+        let part_root = part.root_strips();
+        assert!(
+            part_root.iter().all(|s| s.x >= 256),
+            "no root strip may originate from a culled tile"
+        );
+
+        // Kept tiles schedule the same root-target geometry as the full run
+        // (slot indices and depth indices may differ once tiles are skipped,
+        // so compare geometry only; byte-exact pixel equality inside the
+        // scissor is pinned by the GPU tests).
+        let geometry = |strips: &[GpuStrip]| {
+            let mut v: Vec<(u16, u16, u16, u16)> = strips
+                .iter()
+                .map(|s| (s.x, s.y, s.width, s.dense_width_or_rect_height))
+                .collect();
+            v.sort_unstable();
+            v
+        };
+        let expected: Vec<_> = full_root.iter().filter(|s| s.x >= 256).copied().collect();
+        assert_eq!(geometry(&part_root), geometry(&expected));
+        assert!(
+            part.slot_strip_count() < full.slot_strip_count(),
+            "clip content of culled tiles must not reach the slot textures"
+        );
+
+        // An empty scissor culls every tile and issues no strips at all.
+        let (none, all_culled) = run_scheduler(&scene, &[[0, 0, 0, 0]]);
+        assert_eq!(all_culled, 8);
+        assert!(
+            none.passes
+                .iter()
+                .all(|(o, a, _)| o.is_empty() && a.is_empty())
+        );
     }
 }

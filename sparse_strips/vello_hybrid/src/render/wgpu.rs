@@ -57,6 +57,7 @@ use vello_common::{
         EncodedBlurredRoundedRectangle, EncodedExternalTexture, EncodedGradient, EncodedKind,
         EncodedPaint, MAX_GRADIENT_LUT_SIZE, RadialKind,
     },
+    geometry::RectU16,
     paint::ImageSource,
     peniko,
     pixmap::Pixmap,
@@ -87,6 +88,84 @@ pub struct RenderTargetConfig {
     pub width: u32,
     /// Height of the rendering target
     pub height: u32,
+}
+
+/// How the target's existing contents are treated at the start of a
+/// [`Renderer::render_with_config`] render.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum TargetLoad {
+    /// Start from transparent black (applied as the first root pass's
+    /// `LoadOp::Clear`, so no separate clear pass is needed). Note that
+    /// `LoadOp::Clear` clears the whole attachment regardless of any
+    /// scissors; damage-region renders want [`Self::Load`] plus
+    /// [`Renderer::clear_rects`] instead.
+    #[default]
+    Clear,
+    /// Preserve the target's existing pixels; the scene draws over them.
+    Load,
+    /// The target's existing pixels are undefined at render start
+    /// (`wgpu::LoadOp::DontCare`) — on tiled GPUs this avoids both the clear
+    /// and the tile-memory load. The caller must guarantee every pixel is
+    /// covered opaquely before any blending or store (e.g. a full-viewport
+    /// opaque background); blending over undefined pixels is undefined
+    /// behavior.
+    DontCare,
+}
+
+/// Per-render configuration for [`Renderer::render_with_config`]. The
+/// default (`Clear`, no scissors) is semantically [`Renderer::render`].
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct RenderConfig<'a> {
+    /// How the target's existing contents are treated.
+    pub load: TargetLoad,
+    /// Damage rects to confine root drawing to (empty = draw everywhere).
+    /// Each root pass executes its draws once per rect under that rect's
+    /// scissor, and the scheduler culls strips/wide tiles outside every
+    /// rect, so multi-rect damage is a single render call. Rects must be
+    /// pairwise disjoint (an overlap would double-blend translucent
+    /// content); they are clamped to `render_size`.
+    ///
+    /// Intermediate passes (slot textures, filter atlases) are not scissored —
+    /// their texels reach the target only through the scissored root passes.
+    /// The depth buffer is renderer-internal per-render scratch: it is still
+    /// fully cleared at the first root pass regardless of the scissors, which
+    /// is correct because scissored draws cannot write depth (or color)
+    /// outside the rects, and depth never carries state across renders.
+    pub scissors: &'a [RectU16],
+}
+
+/// Resolved initialization plan for one root render (the internal form of
+/// [`RenderConfig`]).
+#[derive(Clone, Debug)]
+struct RenderPassPlan {
+    /// Color `LoadOp` for the FIRST root view strip pass (`None` = `Load`).
+    first_view_load: Option<wgpu::LoadOp<wgpu::Color>>,
+    /// Clamped root-pass scissor rects; empty = unscissored.
+    root_scissors: Vec<[u32; 4]>,
+}
+
+impl RenderPassPlan {
+    /// No load override, no scissors: preserve the target and draw everywhere.
+    const PRESERVE: Self = Self {
+        first_view_load: None,
+        root_scissors: Vec::new(),
+    };
+}
+
+/// Clamp `rects` to `size` as `[x, y, width, height]` and drop empties
+/// (zero-extent scissors are rejected by some Metal drivers).
+fn sanitize_rects<'a>(
+    rects: &'a [RectU16],
+    size: &RenderSize,
+) -> impl Iterator<Item = [u32; 4]> + 'a {
+    let (w, h) = (size.width, size.height);
+    rects.iter().filter_map(move |r| {
+        let x0 = u32::from(r.x0).min(w);
+        let y0 = u32::from(r.y0).min(h);
+        let x1 = u32::from(r.x1).min(w);
+        let y1 = u32::from(r.y1).min(h);
+        (x1 > x0 && y1 > y0).then(|| [x0, y0, x1 - x0, y1 - y0])
+    })
 }
 
 /// Runtime bindings for [externally owned textures](`TextureId`) sampled by texture-rect draws.
@@ -164,6 +243,11 @@ pub struct Renderer {
     dummy_image_cache: Option<ImageCache>,
     #[cfg(feature = "text")]
     atlas_clear_scratch: Vec<u8>,
+    /// Number of renders that preserved the target and/or scissored the root
+    /// passes ([`Self::render_with_config`] with a non-default
+    /// [`RenderConfig`]). Lets damage-tracking callers assert that partial
+    /// rendering actually happened rather than a silent full-render fallback.
+    partial_renders: u64,
 }
 
 impl Renderer {
@@ -222,7 +306,33 @@ impl Renderer {
             dummy_image_cache: Some(ImageCache::new_dummy()),
             #[cfg(feature = "text")]
             atlas_clear_scratch: Vec::new(),
+            partial_renders: 0,
         }
+    }
+
+    /// Number of [`Self::render_with_config`] calls that took the partial
+    /// path (a non-default [`RenderConfig`]).
+    pub fn partial_renders(&self) -> u64 {
+        self.partial_renders
+    }
+
+    /// Number of root-destined strip emissions (fast-path coverage, gap, and
+    /// rectangle quads) skipped by prepare-side scissor culling across all
+    /// renders. Lets damage-tracking callers assert the cull actually engaged;
+    /// see also [`Self::culled_wide_tiles`].
+    pub fn culled_strips(&self) -> u64 {
+        self.scheduler.culled_strips()
+    }
+
+    /// Number of wide tiles skipped wholesale by prepare-side scissor culling
+    /// in root coarse batches across all renders, counted per coarse-batch
+    /// sweep (a tile skipped across several batches of one render counts
+    /// several times, so treat this as an engaged/not-engaged signal rather
+    /// than a unique-tile count). Companion counter to [`Self::culled_strips`]
+    /// for scenes that go through coarse rasterization (clip/blend/opacity
+    /// layers).
+    pub fn culled_wide_tiles(&self) -> u64 {
+        self.scheduler.culled_wide_tiles()
     }
 
     fn prepare_filter_textures(
@@ -285,6 +395,9 @@ impl Renderer {
     /// requirements on the bound texture views.
     ///
     /// To render without any texture bindings, you can pass an empty [`TextureBindings`].
+    /// The whole-target clear rides the first root strip pass's `LoadOp`
+    /// (with a standalone clear-pass fallback when the scene schedules no
+    /// root pass).
     pub fn render(
         &mut self,
         scene: &Scene,
@@ -296,6 +409,59 @@ impl Renderer {
         view: &TextureView,
         texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
+        self.render_with_config(
+            scene,
+            resources,
+            device,
+            queue,
+            encoder,
+            render_size,
+            view,
+            texture_bindings,
+            RenderConfig::default(),
+        )
+    }
+
+    /// Render `scene` with a consumer-driven [`RenderConfig`]: the caller
+    /// picks the target's load semantics and the damage-rect scissors, and
+    /// performs any region clears itself via [`Self::clear_rects`] on the
+    /// same encoder before this call.
+    pub fn render_with_config(
+        &mut self,
+        scene: &Scene,
+        resources: &mut Resources,
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+        render_size: &RenderSize,
+        view: &TextureView,
+        texture_bindings: &TextureBindings,
+        config: RenderConfig<'_>,
+    ) -> Result<(), RenderError> {
+        if !config.scissors.is_empty() || config.load != TargetLoad::Clear {
+            self.partial_renders += 1;
+        }
+        let first_view_load = match config.load {
+            TargetLoad::Clear => Some(wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)),
+            TargetLoad::Load => None,
+            // SAFETY: `TargetLoad::DontCare` forwards wgpu's opaque-coverage
+            // contract to the caller (see its documentation).
+            TargetLoad::DontCare => Some(wgpu::LoadOp::DontCare(unsafe {
+                wgpu::LoadOpDontCare::enabled()
+            })),
+        };
+        let mut root_scissors: Vec<[u32; 4]> =
+            sanitize_rects(config.scissors, render_size).collect();
+        if root_scissors.is_empty() && !config.scissors.is_empty() {
+            // Every rect clamped away: draw nothing to the root rather than
+            // silently degrading to an unscissored full render (the zero-area
+            // sentinel culls everything; the draw loop never submits it).
+            root_scissors.push([0, 0, 0, 0]);
+        }
+        let plan = RenderPassPlan {
+            first_view_load,
+            root_scissors,
+        };
         #[cfg(feature = "text")]
         {
             resources.before_render(
@@ -347,7 +513,7 @@ impl Renderer {
             view,
             &resources.image_cache,
             &encoded_paints,
-            true,
+            plan,
             RootRenderTarget::UserSurface,
             texture_bindings,
         );
@@ -358,6 +524,23 @@ impl Renderer {
             clear_atlas_region(queue, renderer, rect);
         });
         result
+    }
+
+    /// Clear `rects` to transparent black in one render pass, leaving every
+    /// other pixel untouched. Rects are clamped to `render_size` and empty
+    /// ones skipped. The damage-region companion of
+    /// [`Self::render_with_config`]: clear the damage rects on the same
+    /// `encoder`, then render with [`TargetLoad::Load`] (skip the clear when
+    /// the scene repaints every damage-rect pixel opaquely).
+    pub fn clear_rects(
+        &self,
+        encoder: &mut CommandEncoder,
+        view: &TextureView,
+        render_size: &RenderSize,
+        rects: &[RectU16],
+    ) {
+        self.programs
+            .clear_view_regions(encoder, view, sanitize_rects(rects, render_size));
     }
 
     /// Render a `scene` directly into an atlas layer.
@@ -445,7 +628,11 @@ impl Renderer {
             &layer_view,
             &dummy_image_cache,
             &encoded_paints,
-            false,
+            // Atlas layers are composited from allocated sub-rects and are never
+            // whole-view-cleared here (glyph uploads blend `SrcOver` into slots
+            // the atlas allocator guarantees transparent) — i.e. exactly
+            // preserve semantics.
+            RenderPassPlan::PRESERVE,
             RootRenderTarget::AtlasLayer,
             texture_bindings,
         );
@@ -467,8 +654,8 @@ impl Renderer {
     /// Shared render pipeline: prepares GPU resources, runs the scheduler against
     /// the provided `view` at `render_size`, and maintains caches.
     ///
-    /// When `clear` is true the render target is cleared to transparent black
-    /// before drawing (normal frame rendering).
+    /// `plan` selects the first-root-pass `LoadOp` override and the
+    /// root-pass scissors — see [`RenderPassPlan`].
     fn render_scene(
         &mut self,
         scene: &Scene,
@@ -479,7 +666,7 @@ impl Renderer {
         view: &TextureView,
         image_cache: &ImageCache,
         encoded_paints: &[EncodedPaint],
-        clear: bool,
+        plan: RenderPassPlan,
         root_output_target: RootRenderTarget,
         texture_bindings: &TextureBindings,
     ) -> Result<(), RenderError> {
@@ -499,9 +686,6 @@ impl Renderer {
             &self.filter_context,
         );
 
-        if clear {
-            Self::clear_view(encoder, view);
-        }
         let mut ctx = RendererContext {
             programs: &mut self.programs,
             device,
@@ -513,7 +697,13 @@ impl Renderer {
             filter_pass_state: &mut self.filter_pass_state,
             texture_bindings,
             external_paint_source_bind_groups: HashMap::new(),
+            root_scissors: plan.root_scissors,
+            first_view_color_load: plan.first_view_load,
         };
+        // Prepare-side strip culling against the same rect set the root
+        // passes are scissored to: strips the scissors would clip entirely
+        // are not generated or uploaded in the first place.
+        let cull_rects = ctx.root_scissors.clone();
         self.scheduler.do_scene(
             &mut self.scheduler_state,
             &mut ctx,
@@ -522,7 +712,16 @@ impl Renderer {
             &self.paint_idxs,
             &self.filter_context,
             encoded_paints,
+            &cull_rects,
         )?;
+        // `TargetLoad::Clear` rides the first root view pass; if the scene
+        // scheduled none (empty/fully culled), honor it with the standalone
+        // pass. Unconsumed `Load`/`DontCare` need no fallback.
+        let unconsumed_clear = matches!(ctx.first_view_color_load, Some(wgpu::LoadOp::Clear(_)));
+        drop(ctx);
+        if unconsumed_clear {
+            Self::clear_view(encoder, view);
+        }
         self.gradient_cache.maintain();
 
         Ok(())
@@ -988,6 +1187,11 @@ struct Programs {
     clear_pipeline: RenderPipeline,
     /// Pipeline for clearing atlas regions.
     atlas_clear_pipeline: RenderPipeline,
+    /// Pipeline for clearing a scissored region of the user render target,
+    /// used by partial rendering. Same fullscreen-quad clear shader as
+    /// `atlas_clear_pipeline`, but built at the target's own color format (a
+    /// clone of `atlas_clear_pipeline` when the target is already `Rgba8Unorm`).
+    view_clear_pipeline: RenderPipeline,
     /// GPU resources for rendering (created during prepare)
     resources: GpuResources,
     /// Dimensions of the rendering target
@@ -1422,35 +1626,55 @@ impl Programs {
                 bind_group_layouts: &[],
                 immediate_size: 0,
             });
-        let atlas_clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Atlas Clear Pipeline"),
-            layout: Some(&atlas_clear_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &clear_shader,
-                // Use a different vertex shader entry point
-                entry_point: Some("vs_main_fullscreen"),
-                buffers: &[],
-                compilation_options: PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &clear_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    blend: None,
-                    write_mask: ColorWrites::ALL,
-                })],
-                compilation_options: PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleStrip,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
+        let fullscreen_scissored_clear_pipeline = |label, format| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&atlas_clear_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &clear_shader,
+                    // Use a different vertex shader entry point
+                    entry_point: Some("vs_main_fullscreen"),
+                    buffers: &[],
+                    compilation_options: PipelineCompilationOptions::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &clear_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(ColorTargetState {
+                        format,
+                        blend: None,
+                        write_mask: ColorWrites::ALL,
+                    })],
+                    compilation_options: PipelineCompilationOptions::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleStrip,
+                    ..Default::default()
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let atlas_clear_pipeline = fullscreen_scissored_clear_pipeline(
+            "Atlas Clear Pipeline",
+            wgpu::TextureFormat::Rgba8Unorm,
+        );
+        // The same scissored fullscreen-quad clear at the user target's format,
+        // for partial rendering's region clear (`LoadOp::Clear` ignores the
+        // scissor by WebGPU semantics). When the target is already `Rgba8Unorm`
+        // the two pipelines would be identical apart from the label, so reuse
+        // the atlas pipeline (`RenderPipeline` is a cheap `Arc`-backed handle).
+        let view_clear_pipeline = if render_target_config.format == wgpu::TextureFormat::Rgba8Unorm
+        {
+            atlas_clear_pipeline.clone()
+        } else {
+            fullscreen_scissored_clear_pipeline(
+                "View Region Clear Pipeline",
+                render_target_config.format,
+            )
+        };
 
         let filter_texture_entry = wgpu::BindGroupLayoutEntry {
             binding: 0,
@@ -1777,6 +2001,7 @@ impl Programs {
             },
             clear_pipeline,
             atlas_clear_pipeline,
+            view_clear_pipeline,
         }
     }
 
@@ -2349,6 +2574,46 @@ impl Programs {
         }
     }
 
+    /// Clear N pre-clamped, non-empty `[x, y, width, height]` regions to
+    /// transparent black in one render pass (`wgpu::LoadOp::Clear` ignores
+    /// the scissor per WebGPU semantics, so each rect is a scissored quad
+    /// draw through [`Self::view_clear_pipeline`]). No-ops on an empty
+    /// iterator.
+    fn clear_view_regions(
+        &self,
+        encoder: &mut CommandEncoder,
+        view: &TextureView,
+        regions: impl IntoIterator<Item = [u32; 4]>,
+    ) {
+        let mut regions = regions.into_iter().peekable();
+        if regions.peek().is_none() {
+            return;
+        }
+        let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("Clear View Region"),
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    // Don't clear the entire target, just the scissor regions.
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+                depth_slice: None,
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+            multiview_mask: None,
+        });
+        render_pass.set_pipeline(&self.view_clear_pipeline);
+        for [x, y, width, height] in regions {
+            render_pass.set_scissor_rect(x, y, width, height);
+            // Fullscreen quad; the scissor confines the clear to the region.
+            render_pass.draw(0..4, 0..1);
+        }
+    }
+
     /// Resize the texture array to accommodate more atlases.
     fn maybe_resize_atlas_texture_array(
         device: &Device,
@@ -2642,6 +2907,12 @@ struct RendererContext<'a> {
     filter_pass_state: &'a mut FilterPassState,
     texture_bindings: &'a TextureBindings,
     external_paint_source_bind_groups: HashMap<TextureId, BindGroup>,
+    /// Scissor rects for the root strip passes; each gets its own scissored
+    /// draw sequence within the pass. Empty = unscissored.
+    root_scissors: Vec<[u32; 4]>,
+    /// Color `LoadOp` for the first root view strip pass (`take()`n on
+    /// consumption, the `depth_cleared_this_frame` idiom); later passes `Load`.
+    first_view_color_load: Option<wgpu::LoadOp<wgpu::Color>>,
 }
 
 impl RendererContext<'_> {
@@ -2710,6 +2981,10 @@ impl RendererContext<'_> {
             StripPassRenderTarget::Root(_) => (
                 self.view,
                 MaybeOwned::Borrowed(&self.programs.resources.slot_bind_groups[2]),
+                // Root scissoring is multi-rect and handled below via
+                // `root_scissors` (one scissored draw sequence per damage
+                // rect); this per-target single rect stays the filter-layer
+                // atlas sub-rect carrier.
                 None,
             ),
             StripPassRenderTarget::FilterLayer(layer_id) => {
@@ -2860,55 +3135,74 @@ impl RendererContext<'_> {
             timestamp_writes: None,
             multiview_mask: None,
         });
-        if let Some([x, y, width, height]) = scissor_rect {
-            render_pass.set_scissor_rect(x, y, width, height);
-        }
-
         render_pass.set_bind_group(0, bind_group.as_ref(), &[]);
         render_pass.set_bind_group(2, &self.programs.resources.encoded_paints_bind_group, &[]);
         render_pass.set_bind_group(3, &self.programs.resources.gradient_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.programs.resources.strips_buffer.slice(..));
 
-        if opaque_count > 0 {
-            // Opaque pass
-            debug_assert!(
-                is_final_view,
-                "The scheduler only allows the final view to have opaque strips"
-            );
-            render_pass.set_pipeline(&self.programs.opaque_strip_pipelines[pipeline_idx]);
-            render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
-            render_pass.draw(0..4, 0..opaque_count);
-        }
-
-        if alpha_count > 0 {
-            // Alpha pass
-            if is_final_view {
-                render_pass.set_pipeline(&self.programs.alpha_strip_pipelines[pipeline_idx]);
+        // The draw sequence runs once per root damage rect (disjoint, so
+        // each pixel draws exactly once), once under the filter-layer atlas
+        // sub-rect, or once unscissored — all within this single pass.
+        let single_storage;
+        let multi_storage: Vec<Option<[u32; 4]>>;
+        let scissors: &[Option<[u32; 4]>] =
+            if matches!(target, StripPassRenderTarget::Root(_)) && !self.root_scissors.is_empty() {
+                multi_storage = self.root_scissors.iter().copied().map(Some).collect();
+                &multi_storage
             } else {
-                render_pass.set_pipeline(&self.programs.slot_strip_pipelines[pipeline_idx]);
+                single_storage = [scissor_rect];
+                &single_storage
+            };
+        for entry in scissors {
+            if let Some([x, y, width, height]) = *entry {
+                if width == 0 || height == 0 {
+                    // Degenerate sentinel: never submit a zero-extent scissor.
+                    continue;
+                }
+                render_pass.set_scissor_rect(x, y, width, height);
             }
 
-            let alpha_start = opaque_count;
-            if external_texture_runs.is_empty() {
+            if opaque_count > 0 {
+                // Opaque pass
+                debug_assert!(
+                    is_final_view,
+                    "The scheduler only allows the final view to have opaque strips"
+                );
+                render_pass.set_pipeline(&self.programs.opaque_strip_pipelines[pipeline_idx]);
                 render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
-                render_pass.draw(0..4, alpha_start..alpha_start + alpha_count);
-            } else {
-                // Each run is drawn with a different external texture binding. Runs go from
-                // `run.strips_start` to the next run's `strips_start`; the last run goes to the end of
-                // the strips buffer.
-                for (i, run) in external_texture_runs.iter().enumerate() {
-                    let paint_source_bind_group = self
-                        .external_paint_source_bind_groups
-                        .get(&run.texture_id)
-                        .unwrap();
-                    render_pass.set_bind_group(1, paint_source_bind_group, &[]);
-                    let start = u32::try_from(run.strips_start).unwrap();
-                    let end = external_texture_runs
-                        .get(i + 1)
-                        .map_or(alpha_count, |next| {
-                            u32::try_from(next.strips_start).unwrap()
-                        });
-                    render_pass.draw(0..4, alpha_start + start..alpha_start + end);
+                render_pass.draw(0..4, 0..opaque_count);
+            }
+
+            if alpha_count > 0 {
+                // Alpha pass
+                if is_final_view {
+                    render_pass.set_pipeline(&self.programs.alpha_strip_pipelines[pipeline_idx]);
+                } else {
+                    render_pass.set_pipeline(&self.programs.slot_strip_pipelines[pipeline_idx]);
+                }
+
+                let alpha_start = opaque_count;
+                if external_texture_runs.is_empty() {
+                    render_pass.set_bind_group(1, &self.programs.resources.atlas_bind_group, &[]);
+                    render_pass.draw(0..4, alpha_start..alpha_start + alpha_count);
+                } else {
+                    // Each run is drawn with a different external texture binding. Runs go from
+                    // `run.strips_start` to the next run's `strips_start`; the last run goes to the end of
+                    // the strips buffer.
+                    for (i, run) in external_texture_runs.iter().enumerate() {
+                        let paint_source_bind_group = self
+                            .external_paint_source_bind_groups
+                            .get(&run.texture_id)
+                            .unwrap();
+                        render_pass.set_bind_group(1, paint_source_bind_group, &[]);
+                        let start = u32::try_from(run.strips_start).unwrap();
+                        let end = external_texture_runs
+                            .get(i + 1)
+                            .map_or(alpha_count, |next| {
+                                u32::try_from(next.strips_start).unwrap()
+                            });
+                        render_pass.draw(0..4, alpha_start + start..alpha_start + end);
+                    }
                 }
             }
         }
@@ -2979,6 +3273,26 @@ impl RendererBackend for RendererContext<'_> {
         target: StripPassRenderTarget,
         load_op: LoadOp,
     ) {
+        // The first root view pass honors the consumer's `TargetLoad`; the
+        // scheduler's own view `load_op` is always `Load`.
+        if matches!(
+            target,
+            StripPassRenderTarget::Root(RootRenderTarget::UserSurface)
+        ) && let Some(first_load) = self.first_view_color_load.take()
+        {
+            debug_assert!(
+                matches!(load_op, LoadOp::Load),
+                "the scheduler always passes Load for view passes"
+            );
+            self.do_strip_render_pass(
+                opaque_strips,
+                alpha_strips,
+                external_texture_runs,
+                target,
+                first_load,
+            );
+            return;
+        }
         let wgpu_load_op = match load_op {
             LoadOp::Load => wgpu::LoadOp::Load,
             LoadOp::Clear => wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
@@ -3271,5 +3585,45 @@ impl AtlasWriter for Arc<Pixmap> {
             width,
             height,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RectU16, RenderConfig, RenderSize, TargetLoad, sanitize_rects};
+    use alloc::{vec, vec::Vec};
+
+    fn size(width: u32, height: u32) -> RenderSize {
+        RenderSize { width, height }
+    }
+
+    #[test]
+    fn render_config_default_is_clear_no_scissor() {
+        // `RenderConfig::default()` must stay semantically `render()`.
+        assert_eq!(
+            RenderConfig::default(),
+            RenderConfig {
+                load: TargetLoad::Clear,
+                scissors: &[],
+            }
+        );
+    }
+
+    #[test]
+    fn sanitize_rects_clamps_and_drops_empties() {
+        let rects = [
+            RectU16::new(10, 20, 40, 60),     // in-bounds: unchanged
+            RectU16::new(90, 90, 140, 140),   // overhang: trimmed to 10×10
+            RectU16::new(200, 200, 210, 210), // fully outside → dropped
+            RectU16::new(5, 5, 5, 12),        // zero width → dropped (Metal zero-scissor caveat)
+        ];
+        let out: Vec<[u32; 4]> = sanitize_rects(&rects, &size(100, 100)).collect();
+        assert_eq!(out, vec![[10, 20, 30, 40], [90, 90, 10, 10]]);
+    }
+
+    #[test]
+    fn sanitize_rects_empty_input_yields_nothing() {
+        // `clear_rects` must not open a render pass for this case.
+        assert_eq!(sanitize_rects(&[], &size(100, 100)).count(), 0);
     }
 }
