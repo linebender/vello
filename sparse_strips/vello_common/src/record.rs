@@ -145,6 +145,7 @@ impl RecordedLayer {
     }
 }
 
+// TODO: Rename this: https://github.com/linebender/vello/pull/1746#discussion_r3611799919
 /// Recorder for a scene description.
 #[derive(Debug)]
 pub struct CommandRecorder<D> {
