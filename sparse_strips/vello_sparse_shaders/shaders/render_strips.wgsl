@@ -1495,10 +1495,10 @@ fn calculate_blurred_rounded_rect(
     let x0 = r1 + abs(x) - 0.5 * w;
     let x1 = max(x0, 0.0);
 
-    let d_pos = pow(
-        pow(x1, exponent) + pow(y1, exponent),
-        recip_exponent,
-    );
+    let max_fact = max(x1, y1);
+    let min_fact = min(x1, y1);
+    let t = select(min_fact / max_fact, 0.0, max_fact == 0.0);
+    let d_pos = max_fact * pow(1.0 + pow(t, exponent), recip_exponent);
     let d_neg = min(max(x0, y0), 0.0);
     let d = d_pos + d_neg - r1;
     let blur_coverage = scale * (

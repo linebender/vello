@@ -177,7 +177,7 @@ impl<S: Simd> Iterator for AlphaCalculator<S> {
         // Equivalent to r.r1 + x.abs() - (r.w * r.v1)
         let x0 = r.r1 - r.w.mul_sub(r.v1, x.abs());
         let x1 = x0.max(r.v0);
-        let d_pos = (x1.powf(r.exponent) + y1.powf(r.exponent)).powf(r.recip_exponent);
+        let d_pos = p_norm_distance(self.simd, x1, y1, r.exponent, r.recip_exponent);
         let d_neg = x0.max(y0).min(r.v0);
         let d = d_pos + d_neg - r.r1;
         let z = r.scale
@@ -241,6 +241,34 @@ impl<S: Simd> SimdRoundedBlurredRect<S> {
             },
         )
     }
+}
+
+#[inline(always)]
+fn p_norm_distance<S: Simd>(
+    simd: S,
+    x: f32x8<S>,
+    y: f32x8<S>,
+    exponent: f32,
+    recip_exponent: f32,
+) -> f32x8<S> {
+    // Note: In our case, x and y are always >= 0.
+
+    let max_fact = x.max(y);
+    let min_fact = x.min(y);
+
+    // This is the 2D p-norm, normalized by the larger component:
+    //
+    //   d = (x^p + y^p)^(1/p)
+    //     = (max_fact^p + min_fact^p)^(1/p)
+    //     = (max_fact^p * (1 + (min_fact / max_fact)^p))^(1/p)
+    //     = max_fact * (1 + t^p)^(1/p), where t = min_fact / max_fact.
+    let t = simd.select_f32x8(
+        max_fact.simd_eq(f32x8::splat(simd, 0.0)),
+        f32x8::splat(simd, 0.0),
+        min_fact / max_fact,
+    );
+
+    max_fact * (f32x8::splat(simd, 1.0) + t.powf(exponent)).powf(recip_exponent)
 }
 
 trait FloatExt<S: Simd> {
