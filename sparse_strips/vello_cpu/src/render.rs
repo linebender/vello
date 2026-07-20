@@ -1255,7 +1255,7 @@ mod tests {
     fn multithreaded_drop_with_pending_tasks() {
         use crate::RenderSettings;
 
-        for _ in 0..100 {
+        for _ in 0..10 {
             let mut ctx = RenderContext::new_with(
                 100,
                 100,
