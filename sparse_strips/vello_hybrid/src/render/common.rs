@@ -49,11 +49,13 @@ pub(crate) struct DeviceLimits {
 /// - Serving as the write destination for a blending operation of two textures.
 /// - Serving as a temporary space for persisting the original version of a filter layer.
 ///
-/// In both cases, each operation always _overrides_ existing contents, and we later on
-/// only sample from that very same area. **Because of this, it is currently safe to never
-/// explicitly clear the scratch texture after it was used, even across frames**. While it
-/// would still be best practice to do so, in the interest of getting the best performance
-/// on low-tier devices, we take this shortcut and explicitly document this constraint.
+/// The scratch texture has the same dimensions as every intermediate layer page and does not have
+/// separate atlas allocations. Blends and filters use the same rectangle coordinates in scratch as
+/// in the corresponding parent or filter-layer texture. Every area later read from scratch is
+/// therefore fully overwritten first. **Because of this, it is currently safe to never explicitly
+/// clear the scratch texture after it was used, even across frames**. While it would still be best
+/// practice to do so, in the interest of getting the best performance on low-tier devices, we take
+/// this shortcut and explicitly document this constraint.
 ///
 /// If the purpose of a scratch texture is ever expanded upon, this needs to be revisited.
 #[derive(Debug)]
