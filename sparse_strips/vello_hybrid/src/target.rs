@@ -120,7 +120,10 @@ pub(crate) struct FilterPassBindings {
 
 impl FilterPassBindings {
     pub(crate) const fn new(target: LayerTextureId, temporary: LayerTextureId) -> Self {
-        debug_assert!(target.texture_parity as u8 != temporary.texture_parity as u8);
+        debug_assert!(
+            target.texture_parity as u8 != temporary.texture_parity as u8,
+            "filter target and temporary textures must have opposite parity"
+        );
 
         Self { target, temporary }
     }
@@ -161,7 +164,10 @@ pub(crate) struct BlendPassBindings {
 
 impl BlendPassBindings {
     pub(crate) const fn new(target: LayerTextureId, child: LayerTextureId) -> Self {
-        debug_assert!(target.texture_parity as u8 != child.texture_parity as u8);
+        debug_assert!(
+            target.texture_parity as u8 != child.texture_parity as u8,
+            "blend target and child textures must have opposite parity"
+        );
 
         Self { target, child }
     }

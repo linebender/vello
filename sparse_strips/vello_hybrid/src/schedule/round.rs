@@ -540,10 +540,12 @@ mod tests {
 
     #[test]
     fn unused_bindings_do_not_resolve_passes() {
-        let mut round = Round::default();
-        round.texture_binding = RoundBindings::new(layer_id(TextureParity::Even, 2))
-            .merge(RoundBindings::new(layer_id(TextureParity::Odd, 5)))
-            .unwrap();
+        let round = Round {
+            texture_binding: RoundBindings::new(layer_id(TextureParity::Even, 2))
+                .merge(RoundBindings::new(layer_id(TextureParity::Odd, 5)))
+                .unwrap(),
+            ..Round::default()
+        };
 
         assert_eq!(round.layer_passes(&ScheduleBuffers::default()).count(), 0);
         assert_eq!(round.clear_passes().count(), 0);
@@ -553,10 +555,12 @@ mod tests {
     fn pass_iterators_skip_empty_parities() {
         let even = layer_id(TextureParity::Even, 2);
         let odd = layer_id(TextureParity::Odd, 5);
-        let mut round = Round::default();
-        round.texture_binding = RoundBindings::new(even)
-            .merge(RoundBindings::new(odd))
-            .unwrap();
+        let mut round = Round {
+            texture_binding: RoundBindings::new(even)
+                .merge(RoundBindings::new(odd))
+                .unwrap(),
+            ..Round::default()
+        };
 
         let mut buffers = ScheduleBuffers::default();
         round.push_filter_op(TextureParity::Even, &mut buffers, filter_op(10));
