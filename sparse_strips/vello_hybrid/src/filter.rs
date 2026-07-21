@@ -369,7 +369,10 @@ pub(crate) struct FilterInstanceData {
     pub filter_pass_kind: u32,
 }
 
-const _: () = assert!(size_of::<FilterInstanceData>() == 9 * size_of::<u32>());
+const _: () = assert!(
+    size_of::<FilterInstanceData>() == 9 * size_of::<u32>(),
+    "filter instance data must match the shader layout"
+);
 
 /// Context used for keeping track of state necessary for filter rendering.
 #[derive(Debug, Default)]

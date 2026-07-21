@@ -148,7 +148,7 @@ pub struct LayersConfig {
     /// - `0` for scenes without layers, including layers introduced by COLR glyphs.
     /// - `1` for scenes with only single-child layers and no blend modes / filters.
     /// - `4` for scenes with only single-child layers with potentially blend modes
-    ///    or simple filters.
+    ///   or simple filters.
     ///
     /// Any other type of complex nested scene might need more intermediate textures depending on
     /// the exact contents.
