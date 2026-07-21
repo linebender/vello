@@ -427,7 +427,7 @@ impl DepthCounter {
     }
 }
 
-trait RectU16Ext {
+pub(crate) trait RectU16Ext {
     fn to_tile_bounds(self) -> RectU16;
 }
 

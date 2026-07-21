@@ -130,7 +130,7 @@ pub(crate) use self::execute::{Backend, execute};
 use self::round::{
     BlendOp, FilterOp, FilterTextureRegions, Round, RoundStage, Rounds, SchedulePoint,
 };
-use crate::draw::{Draw, DrawBuffers, DrawBuilder, DrawState};
+use crate::draw::{Draw, DrawBuffers, DrawBuilder, DrawState, RectU16Ext};
 use crate::filter::{FilterContext, FilterPassPlan, PreparedGpuFilter};
 use crate::paint::PaintResolver;
 use crate::scene::RecordedDraw;
@@ -389,15 +389,11 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 },
             );
 
-            // Make sure to clear and deallocate the temporary allocation.
-            let clear_region = temporary.allocation.clear_region();
-            rounds.push_layer_clear(
+            self.clear_and_release_allocation(
+                temporary.allocation,
                 filter_schedule_point.round,
-                clear_region.target.texture_parity,
-                clear_region.rect,
+                rounds,
             );
-            self.cursor
-                .release(temporary.allocation, filter_schedule_point.round);
 
             // Since the layer has a filter, it's only ready once it's filtered version finished
             // rendering.
@@ -430,7 +426,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         let mut bbox = if layer.bbox.is_empty() {
             if layer.props.blend_mode.is_destructive() {
                 // Unlike in the non-destructive case, empty *destructive* layers are
-                // not a no-op.
+                // not a no-op, and we need to clear the whole parent region.
                 parent_bounds
             } else {
                 return Ok(None);
@@ -441,7 +437,8 @@ impl<'a, 'p> Scheduler<'a, 'p> {
 
         // We cannot do this for filter layers, because the filter needs to be applied to the whole
         // region _BEFORE_ applying clips. Instead, the clip is simply applied when sampling from
-        // the filter layer.
+        // the filter layer. However, for non-filter layers, we can reduce the work to the clip
+        // bbox.
         if matches!(layer.kind, RecordedLayerKind::Regular) {
             bbox = layer
                 .props
@@ -511,6 +508,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         rounds.build_draw(
             state,
             &mut self.storage.buffers.draw_buffers,
+            // We don't have any dependencies on other layers for normal draws.
             RoundBindings::default(),
             |builder| {
                 for draw in &self.recorder.draws[draws.start as usize..draws.end as usize] {
@@ -520,7 +518,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         );
     }
 
-    /// Compose a completed child into a parent layer.
+    /// Compose a rendered child into a parent layer.
     fn compose_layer(
         &mut self,
         props: &LayerProps,
@@ -530,17 +528,21 @@ impl<'a, 'p> Scheduler<'a, 'p> {
     ) -> Result<(), RenderError> {
         let blend_mode = props.blend_mode;
         let opacity = props.opacity;
+
         if blend_mode == BlendMode::default() {
             self.compose_simple_layer(props, child_layer, state, rounds);
 
             return Ok(());
         }
 
+        // If we don't have default src-over, we need to schedule a blend operation.
+
         let parent_region = state.draw_state.target;
         let child_region = child_layer.sample_region;
 
         // For non-destructive blend modes, choose the (smaller) child bbox as the
-        // affected region. Otherwise, we need to choose the (larger) parent bbox.
+        // affected region. Otherwise, we need to choose the (larger) parent bbox, since
+        // any pixel that doesn't lie in the child needs to be cleared.
         let mut blend_bbox = if blend_mode.is_destructive() {
             parent_region.layer_bbox
         } else {
@@ -551,6 +553,10 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             blend_bbox = blend_bbox.intersect(clip_path.bbox);
         }
 
+        // If the affected area would be empty, nothing to do, so just release the child and
+        // we are done.
+        // TODO: As mentioned elsewhere, we should change the recording so that such layers aren't
+        // produced in the first place.
         if blend_bbox.is_empty() {
             let child_ready = child_layer.ready;
             self.release_layer(child_layer, child_ready, rounds);
@@ -558,16 +564,12 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             return Ok(());
         }
 
+        // If there is a clip path associated, blending should be limited to its area.
         let clip_strips = props.clip_path.as_ref().map(|clip_path| {
             let start = self.storage.buffers.blend_strips.len();
             let strips = &self.strip_storage.strips[clip_path.strip_range.clone()];
             let geometry_shift = parent_region.geometry_shift();
-            let tile_bounds = RectU16::new(
-                blend_bbox.x0 / Tile::WIDTH,
-                blend_bbox.y0 / Tile::HEIGHT,
-                blend_bbox.x1 / Tile::WIDTH,
-                blend_bbox.y1 / Tile::HEIGHT,
-            );
+            let tile_bounds = blend_bbox.to_tile_bounds();
 
             visit_strip_fill_segments(
                 strips,
@@ -670,16 +672,26 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             point >= layer.ready,
             "layer released before it became ready"
         );
-        rounds.ensure_exists(point.round);
+        self.clear_and_release_allocation(layer.allocation, point.round, rounds);
+    }
 
-        let layer_region = layer.allocation.clear_region();
+    /// Schedule an allocation to be cleared and released after the given round.
+    fn clear_and_release_allocation(
+        &mut self,
+        allocation: AllocatedTextureRegion,
+        round_idx: usize,
+        rounds: &mut Rounds,
+    ) {
+        rounds.ensure_exists(round_idx);
+
+        let clear_region = allocation.clear_region();
         rounds.push_layer_clear(
-            point.round,
-            layer_region.target.texture_parity,
-            layer_region.rect,
+            round_idx,
+            clear_region.target.texture_parity,
+            clear_region.rect,
         );
 
-        self.cursor.release(layer.allocation, point.round);
+        self.cursor.release(allocation, round_idx);
     }
 
     /// Lazily allocate a target for an open layer and return its scheduling state.
