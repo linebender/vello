@@ -412,6 +412,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
 
         for cmd in layer.cmds {
             // First make sure that the child node is scheduled, in case it exists.
+            // TODO: Similarly to Vello CPU, flatten this to avoid stack overflows for deep layers
             let child = self.prepare_node(cmd, layer.sample.bbox, rounds)?;
 
             // Important: Keep this after `prepare_node`: allocating lazily is what makes traversal

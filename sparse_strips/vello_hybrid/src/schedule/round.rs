@@ -213,7 +213,10 @@ impl Rounds {
         mut point: SchedulePoint,
         requirement: RoundBindings,
     ) -> SchedulePoint {
-        const MAX_ROUNDS: usize = 100_000;
+        // This should be more than enough for any sane scene. If it turns out not, we
+        // can always just remove the guard since _in theory_, it should never be hit
+        // anyway.
+        const MAX_ROUNDS: usize = 40_000;
 
         for texture in requirement.required_textures().into_iter().flatten() {
             self.require_layer_texture(texture);
