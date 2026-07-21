@@ -100,7 +100,7 @@ fn filter_offset_no_offset(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-#[vello_test(skip_multithreaded, skip_hybrid, cpu_u8_tolerance = 1)]
+#[vello_test(skip_multithreaded, cpu_u8_tolerance = 1)]
 fn filter_clip_layer_correctly_culls_strips_vertical(ctx: &mut impl Renderer) {
     filter_clip_layer_correctly_culls_strips(
         ctx,
@@ -110,7 +110,7 @@ fn filter_clip_layer_correctly_culls_strips_vertical(ctx: &mut impl Renderer) {
     );
 }
 
-#[vello_test(skip_multithreaded, skip_hybrid, cpu_u8_tolerance = 1)]
+#[vello_test(skip_multithreaded, cpu_u8_tolerance = 1)]
 fn filter_clip_layer_correctly_culls_strips_horizontal(ctx: &mut impl Renderer) {
     filter_clip_layer_correctly_culls_strips(
         ctx,
@@ -258,7 +258,7 @@ fn filter_drop_shadow(ctx: &mut impl Renderer) {
 }
 
 // Make sure drop shadows are not cut off at the top/left.
-#[vello_test(skip_multithreaded, skip_hybrid, width = 100, height = 100)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 1, width = 100, height = 100)]
 fn filter_drop_shadow_offscreen(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::DropShadow {
         dx: 20.0,
@@ -932,13 +932,7 @@ fn filter_varying_depths_clips_and_compositions(ctx: &mut impl Renderer) {
 /// This verifies that the expansion calculation uses `transform_rect_bbox` to account for
 /// the full transformation matrix (including rotation and shear), rather than just extracting
 /// x/y scales separately. A 45-degree rotation should produce a diamond-shaped blur.
-// TODO: Re-enable hybrid once proper edge handling is implemented in Vello hybrid.
-#[vello_test(
-    skip_multithreaded,
-    skip_hybrid,
-    skip_hybrid_constrained,
-    hybrid_tolerance = 2
-)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 2)]
 fn filter_rotated_blur(ctx: &mut impl Renderer) {
     let filter_gaussian_blur = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 4.0,
@@ -1154,13 +1148,7 @@ fn filter_nested_layers(ctx: &mut impl Renderer) {
 }
 
 /// Test blur with very large `std_deviation`.
-// TODO: Re-enable hybrid once proper edge handling is implemented in Vello hybrid.
-#[vello_test(
-    skip_multithreaded,
-    skip_hybrid,
-    skip_hybrid_constrained,
-    hybrid_tolerance = 3
-)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 3)]
 fn filter_extreme_blur(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 20.0,
@@ -1174,15 +1162,7 @@ fn filter_extreme_blur(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-// TODO: Re-enable hybrid once proper edge handling is implemented in Vello hybrid.
-#[vello_test(
-    skip_multithreaded,
-    skip_hybrid,
-    skip_hybrid_constrained,
-    hybrid_tolerance = 4,
-    width = 400,
-    height = 400
-)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 4, width = 400, height = 400)]
 fn filter_extreme_blur_2(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 36.0,
@@ -1250,16 +1230,8 @@ fn filter_stroked_paths(ctx: &mut impl Renderer) {
 
 /// Test filter on shapes at canvas boundaries.
 ///
-/// TODO: This test currently demonstrates a bug where filters render incorrectly
-/// when filtered elements are near or extend beyond viewport boundaries.
 /// See: <https://github.com/linebender/vello/issues/1304>
-// TODO: Re-enable hybrid once proper edge handling is implemented in Vello hybrid.
-#[vello_test(
-    skip_multithreaded,
-    skip_hybrid,
-    skip_hybrid_constrained,
-    hybrid_tolerance = 2
-)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 2)]
 fn issue_filter_canvas_boundaries(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 5.0,
@@ -1573,13 +1545,7 @@ fn filter_layer_with_blending_and_opacity(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-// TODO: Re-enable hybrid once proper edge handling is implemented in Vello hybrid.
-#[vello_test(
-    skip_multithreaded,
-    skip_hybrid,
-    skip_hybrid_constrained,
-    hybrid_tolerance = 3
-)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 3)]
 fn filter_clip_with_constrained_blur(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 16.0,
@@ -1626,13 +1592,7 @@ fn filter_clip_blend_nested(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-// TODO: Re-enable hybrid once proper edge handling is implemented in Vello hybrid.
-#[vello_test(
-    skip_multithreaded,
-    skip_hybrid,
-    skip_hybrid_constrained,
-    hybrid_tolerance = 2
-)]
+#[vello_test(skip_multithreaded, hybrid_tolerance = 2)]
 fn filter_with_non_rect_clip(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 7.0,
@@ -1688,8 +1648,7 @@ fn filter_sequential_clip_layers(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-// TODO: Re-enable hybrid once proper edge handling is implemented in Vello hybrid.
-#[vello_test(skip_multithreaded, skip_hybrid, skip_hybrid_constrained)]
+#[vello_test(skip_multithreaded)]
 fn filter_with_out_of_bounds_clip(ctx: &mut impl Renderer) {
     let filter = Filter::from_primitive(FilterPrimitive::GaussianBlur {
         std_deviation: 2.0,
@@ -1734,15 +1693,7 @@ fn filter_with_inner_clip_shifted(ctx: &mut impl Renderer) {
     ctx.pop_layer();
 }
 
-// TODO: Re-enable hybrid once proper edge handling is implemented in Vello hybrid.
-#[vello_test(
-    skip_multithreaded,
-    skip_hybrid,
-    skip_hybrid_constrained,
-    width = 256,
-    height = 100,
-    hybrid_tolerance = 2
-)]
+#[vello_test(skip_multithreaded, width = 256, height = 100, hybrid_tolerance = 2)]
 fn filter_gaussian_blur_edge_mode_none(ctx: &mut impl Renderer) {
     blur_with_edge_mode(ctx, EdgeMode::None);
 }
@@ -1807,7 +1758,7 @@ fn filter_nested_with_outer_clip_path(ctx: &mut impl Renderer) {
     ctx.pop_clip_path();
 }
 
-#[vello_test(skip_multithreaded, skip_hybrid)]
+#[vello_test(skip_multithreaded)]
 fn filter_with_clip_paths_outside_of_viewport(ctx: &mut impl Renderer) {
     // This test draws 100x100 rectangles at the border of each viewport side, but
     // clips them to a smaller 10x60 (or 60x10) rectangle. The drop shadow is drawn with such
