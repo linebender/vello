@@ -320,7 +320,7 @@ impl GpuFilterData {
 
     pub(crate) fn needs_copy_pass(&self) -> bool {
         // For drop shadows, we need to retain the original rendered layer because in the end
-        // we need to composite it _on top_ of the actual shadow, so it needs to be retained.
+        // we need to composite it _on top_ of the actual shadow.
         self.filter_type() == filter_type::DROP_SHADOW
     }
 }
@@ -349,25 +349,25 @@ impl From<&PreparedFilter> for GpuFilterData {
     }
 }
 
-/// Per-instance vertex data for filter rendering.
+/// Per-instance vertex data for one filter pass.
 #[repr(C, align(16))]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub(crate) struct FilterInstanceData {
-    /// Source origin in the input atlas, packed as `u16x2`.
+    /// Origin of the current ping-pong input region, packed as `u16x2`.
     pub src_origin: u32,
-    /// Source region size, packed as `u16x2`.
+    /// Size of the input region, packed as `u16x2`.
     pub src_size: u32,
-    /// Destination origin in the output atlas, packed as `u16x2`.
+    /// Origin of the opposite ping-pong output region, packed as `u16x2`.
     pub dest_origin: u32,
-    /// Destination region size, packed as `u16x2`.
+    /// Size of the output region, packed as `u16x2`.
     pub dest_size: u32,
-    /// Full pixel dimensions of the destination atlas texture, packed as `u16x2`.
+    /// Dimension of the destination texture page, packed as `u16x2`.
     pub dest_atlas_size: u32,
     /// Texel offset into `filter_data` where this filter's data is stored.
     pub filter_data_offset: u32,
-    /// Origin of the original (unfiltered) content, packed as `u16x2`.
+    /// Origin of the original region, packed as `u16x2`.
     pub original_origin: u32,
-    /// Size of the original (unfiltered) content, packed as `u16x2`.
+    /// Size of the original region, packed as `u16x2`.
     pub original_size: u32,
     /// The filter pass that should be executed.
     pub filter_pass_kind: u32,
@@ -390,7 +390,7 @@ pub(crate) struct PreparedGpuFilter {
     pub(crate) data: GpuFilterData,
 }
 
-/// The concrete filter-execution plan for a single pass, split into two steps:
+/// The concrete filter-execution plan for a batch of scheduled filters, split into two phases:
 ///
 /// First an optional copy step which moves the original layer contents into the scratch texture.
 /// Then, the actual sequence of filter passes.
@@ -471,7 +471,7 @@ struct FilterPassBuilder<'a> {
     passes: &'a mut FilterPassPlan,
     /// Tracks dimensions through blur downscaling and upscaling.
     sizer: DecimationSizer,
-    /// Whether the next pass reads from the original region.
+    /// Whether the next pass reads from the original region; it writes to the other region.
     current_is_original: bool,
     /// Index of the next pass in this filter's sequence.
     step: usize,

@@ -3,12 +3,12 @@
 
 // The texture that holds the encoded parameters for all filter effects used in the scene.
 @group(0) @binding(0) var filter_data: texture_2d<u32>;
-// The texture holding the input texture we want to filter.
+// The texture page containing the current ping-pong input for this filter pass.
 @group(1) @binding(0) var in_tex: texture_2d<f32>;
 // A bilinear sampler.
 @group(1) @binding(1) var linear_sampler: sampler;
-// Layer atlas texture containing original (unfiltered) layer content, if needed by a
-// filter. Otherwise, this is potentially just a dummy texture.
+// Texture containing preserved original, unfiltered layer content for filters
+// that need it. Otherwise, this is potentially just a dummy texture.
 @group(2) @binding(0) var original_texture: texture_2d<f32>;
 
 // Keep these variables and layouts in sync with the ones in `filter.rs`!
