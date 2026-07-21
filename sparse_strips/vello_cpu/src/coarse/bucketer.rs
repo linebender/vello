@@ -216,6 +216,7 @@ impl CommandBucketer {
     fn bbox_span(bbox: RectU16) -> Span {
         // Bbox might be empty vertically but not horizontally. In this case,
         // it should still be considered a zero-sized span, though.
+        // TODO: Discard empty layers in an earlier stage.
         if bbox.is_empty() {
             Span::new(bbox.x0, 0)
         } else {
