@@ -367,19 +367,20 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             }
 
             // Now we determine the point at which we can perform the filter operation.
-            // Obviously, we first need to wait until renderin of the underlying layer finished.
-            let min_point = layer_ready
+            let mut filter_point =
+                // Obviously, we first need to wait until rendering of the underlying layer finished.
+                layer_ready
                 // Then, we must wait until our reserved space in the atlas is available.
                 .max(SchedulePoint::start(temporary.round_idx))
                 // Finally, wait until we reach the filter stage.
                 .next(RoundStage::filter(region.texture.target.texture_parity));
 
-            // Now find the _actual_ schedule point that corresponds to a around that matches our
+            // Now find the _actual_ schedule point that corresponds to a round that matches our
             // requirements for texture bindings.
-            let filter_schedule_point = rounds.resolve_binding_point(min_point, textures.round_bindings());
+            filter_point = rounds.resolve_binding_point(filter_point, textures.round_bindings());
 
-            rounds.ensure_exists(filter_schedule_point.round);
-            rounds.round_mut(filter_schedule_point.round).push_filter_op(
+            rounds.ensure_exists(filter_point.round);
+            rounds.round_mut(filter_point.round).push_filter_op(
                 region.texture.target.texture_parity,
                 &mut self.storage.buffers,
                 FilterOp {
@@ -389,15 +390,11 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 },
             );
 
-            self.clear_and_release_allocation(
-                temporary.allocation,
-                filter_schedule_point.round,
-                rounds,
-            );
+            self.clear_and_release_allocation(temporary.allocation, filter_point.round, rounds);
 
             // Since the layer has a filter, it's only ready once it's filtered version finished
             // rendering.
-            layer_ready = filter_schedule_point;
+            layer_ready = filter_point;
         }
 
         let scheduled = ScheduledLayer {
@@ -523,21 +520,21 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         &mut self,
         props: &LayerProps,
         child_layer: ScheduledLayer,
-        state: &mut TargetScheduleState<LayerTextureRegion>,
+        parent_state: &mut TargetScheduleState<LayerTextureRegion>,
         rounds: &mut Rounds,
     ) -> Result<(), RenderError> {
         let blend_mode = props.blend_mode;
         let opacity = props.opacity;
 
         if blend_mode == BlendMode::default() {
-            self.compose_simple_layer(props, child_layer, state, rounds);
+            self.compose_simple_layer(props, child_layer, parent_state, rounds);
 
             return Ok(());
         }
 
         // If we don't have default src-over, we need to schedule a blend operation.
 
-        let parent_region = state.draw_state.target;
+        let parent_region = parent_state.draw_state.target;
         let child_region = child_layer.sample_region;
 
         // For non-destructive blend modes, choose the (smaller) child bbox as the
@@ -568,6 +565,8 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         let clip_strips = props.clip_path.as_ref().map(|clip_path| {
             let start = self.storage.buffers.blend_strips.len();
             let strips = &self.strip_storage.strips[clip_path.strip_range.clone()];
+            // As mentioned in the documentation of `ScratchTexture`, in the scratch atlas we use
+            // the same space as the allocation of the parent layer.
             let geometry_shift = parent_region.geometry_shift();
             let tile_bounds = blend_bbox.to_tile_bounds();
 
@@ -596,16 +595,19 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         let parent_texture_parity = parent_region.texture.target.texture_parity;
         self.cursor.require_scratch_texture()?;
 
-        // A blend must execute after both the parent and child are ready.
         let blend_stage = RoundStage::blend(parent_texture_parity);
-        let blend_point = state
-            .ready
-            .next(blend_stage)
-            .max(child_layer.ready.next(blend_stage));
         let blend_binding = RoundBindings::new(parent_region.texture.target)
             .merge(RoundBindings::new(child_region.texture.target))
             .expect("parent and child layers must have compatible texture parities");
-        let blend_point = rounds.resolve_binding_point(blend_point, blend_binding);
+        let mut blend_point =
+            // A blend must execute after both the parent is ready.
+             parent_state.ready
+            // The child must also be ready.
+            .max(child_layer.ready)
+            // And we must have reached the blend stage.
+            .next(blend_stage);
+        // Then, simply find the next round that matches binds the parent and child texture.
+        blend_point = rounds.resolve_binding_point(blend_point, blend_binding);
 
         rounds.ensure_exists(blend_point.round);
         rounds.round_mut(blend_point.round).push_blend_op(
@@ -624,8 +626,9 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         // And make sure to release the child now that it's been composited into the parent.
         self.release_layer(child_layer, blend_point, rounds);
 
-        state.ready = blend_point;
-        state.next_draw = blend_point.next(state.draw_state.target.draw_stage());
+        // See the documentation for what the difference between these two is.
+        parent_state.ready = blend_point;
+        parent_state.wait_until(blend_point);
 
         Ok(())
     }
@@ -635,16 +638,16 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         &mut self,
         props: &LayerProps,
         child_layer: ScheduledLayer,
-        state: &mut TargetScheduleState<T>,
+        parent_state: &mut TargetScheduleState<T>,
         rounds: &mut Rounds,
     ) {
         // Layer invocations introduce a dependency barrier. Find the first draw stage on the
         // parent that executes after the child is ready.
-        state.wait_until(child_layer.ready);
+        parent_state.wait_until(child_layer.ready);
 
         // Schedule the actual layer fill command.
         let draw_point = rounds.build_draw(
-            state,
+            parent_state,
             &mut self.storage.buffers.draw_buffers,
             RoundBindings::new(child_layer.sample_region.texture.target),
             |builder| {
