@@ -41,7 +41,7 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{RendererBackend, Schedule, ScheduleStorage, round::BlendOp},
+    schedule::{Backend, Schedule, ScheduleStorage, round::BlendOp},
     target::{
         BlendPassBindings, DrawPassBindings, DrawPassTarget, FilterPassBindings, LayerTextureId,
         RootTarget, TextureParity,
@@ -2900,9 +2900,6 @@ impl RendererContext<'_> {
         bindings: BlendPassBindings,
     ) {
         let texture_size = self.texture_size();
-        if blends.len() == 0 {
-            return;
-        }
         let resources = &self.programs.resources;
         let blend_layer_bind_group = match self.programs.blend_layer_bind_groups.entry(bindings) {
             Entry::Occupied(entry) => entry.into_mut(),
@@ -3021,9 +3018,6 @@ impl RendererContext<'_> {
     }
 
     fn filter_pass_inner(&mut self, plan: &FilterPassPlan, bindings: FilterPassBindings) {
-        if plan.is_empty() {
-            return;
-        }
         let resources = &self.programs.resources;
         if !self
             .programs
@@ -3174,7 +3168,7 @@ impl RendererContext<'_> {
     }
 }
 
-impl RendererBackend for RendererContext<'_> {
+impl Backend for RendererContext<'_> {
     fn opaque_pass(&mut self, strips: &[GpuStrip]) {
         self.strip_pass_inner(
             strips,

@@ -8,41 +8,50 @@ use super::{Schedule, ScheduleBuffers, ScheduleStorage};
 use crate::draw::ExternalTextureRun;
 use crate::filter::FilterPassPlan;
 use crate::target::{
-    DrawPassTarget, FilterTexturePair, LayerTextureId, LayerTexturePair, RootTarget, TextureParity,
+    BlendPassBindings, DrawPassBindings, DrawPassTarget, FilterPassBindings, LayerTextureId,
+    RootTarget,
 };
-use crate::util::{RangedSlice, VecExt};
+use crate::util::RangedSlice;
 use crate::{GpuStrip, blend::BlendStrip};
 use vello_common::geometry::{RectU16, SizeU16};
 
-/// A sink for rendering operations.
-pub(crate) trait RendererBackend {
+/// A backend for executing GPU render passes.
+pub(crate) trait Backend {
     /// Execute the single opaque pass against the root target with the given strips.
     ///
     /// This method is called first before any of the other ones and only once.
+    ///
+    /// The strips are guaranteed to be non-empty.
     fn opaque_pass(&mut self, strips: &[GpuStrip]);
     /// Execute a draw pass against the given target.
+    ///
+    /// The strips are guaranteed to be non-empty.
     fn draw_pass(
         &mut self,
         strips: RangedSlice<'_, GpuStrip>,
         external_texture_runs: &[ExternalTextureRun],
-        target: DrawPassTarget,
-        child_layer_texture: Option<LayerTextureId>,
+        bindings: DrawPassBindings,
     );
     /// Execute a clear pass with the given rectangles against the target.
+    ///
+    /// The clear rectangles are guaranteed to be non-empty.
     fn clear_pass(&mut self, target: LayerTextureId, rects: &[RectU16]);
-    /// Execute a blend bass between a parent and child texture.
+    /// Execute a blend pass between a parent and child texture.
+    ///
+    /// The blends are guaranteed to be non-empty.
     fn blend_pass(
         &mut self,
         blends: RangedSlice<'_, BlendOp>,
         blend_strips: &[BlendStrip],
-        parent_texture_parity: TextureParity,
-        texture_pair: LayerTexturePair,
+        bindings: BlendPassBindings,
     );
     /// Execute a filter pass according to the filter plan between two textures.
-    fn filter_pass(&mut self, plan: &FilterPassPlan, textures: FilterTexturePair);
+    ///
+    /// The filter pass plan is guaranteed to be non-empty.
+    fn filter_pass(&mut self, plan: &FilterPassPlan, bindings: FilterPassBindings);
 }
 
-pub(crate) fn execute<R: RendererBackend>(
+pub(crate) fn execute<R: Backend>(
     renderer: &mut R,
     storage: &mut ScheduleStorage,
     schedule: Schedule,
@@ -58,14 +67,16 @@ pub(crate) fn execute<R: RendererBackend>(
 }
 
 impl Schedule {
-    fn execute<R: RendererBackend>(
+    fn execute<R: Backend>(
         &self,
         renderer: &mut R,
         root_output_target: RootTarget,
         buffers: &ScheduleBuffers,
         filter_plan: &mut FilterPassPlan,
     ) {
-        if DrawPassTarget::Root(root_output_target).enable_opaque() {
+        if DrawPassTarget::Root(root_output_target).enable_opaque()
+            && !buffers.draw_buffers.opaque_strips.is_empty()
+        {
             renderer.opaque_pass(&buffers.draw_buffers.opaque_strips);
         }
 
@@ -80,9 +91,9 @@ impl Schedule {
 }
 
 impl Rounds {
-    fn execute<R: RendererBackend>(
+    fn execute<R: Backend>(
         &self,
-        renderer: &mut R,
+        backend: &mut R,
         root_output_target: RootTarget,
         buffers: &ScheduleBuffers,
         filter_plan: &mut FilterPassPlan,
@@ -91,67 +102,39 @@ impl Rounds {
         // The core loop that ties everything together!
 
         // We iterate over each round separately.
-        for round in &self.rounds {
-            let texture_pair = round.resolve_texture_binding();
+        for round in self.iter() {
             // For each round, we first draw to the even layer texture, then to the odd layer
             // texture. The order is important because odd layers can depend on draws to the even
             // texture in the same round.
 
-            for (index, pass) in round.layer_texture_passes.iter().enumerate() {
-                let texture_parity = TextureParity::from_parity(index);
+            for layer_passes in round.layer_passes(buffers) {
                 // For each layer texture target, we first perform the draws of all layers that are
                 // allocated in this texture.
-                let draw = &pass.draw;
-                let layer_id = texture_pair.layer_id(texture_parity);
-                renderer.draw_pass(
-                    buffers.draw_buffers.strips.ranged(&draw.strip_ranges),
-                    &draw.external_texture_runs,
-                    DrawPassTarget::Layer(layer_id),
-                    draw.has_child_layer
-                        .then(|| texture_pair.layer_id(texture_parity.opposite())),
-                );
+                if let Some(pass) = layer_passes.draw {
+                    backend.draw_pass(pass.strips, pass.external_texture_runs, pass.bindings);
+                }
 
                 // Next, we apply all filters for layers in this pass.
-                filter_plan.init(
-                    buffers
-                        .filter_ops
-                        .ranged(&pass.filter_ranges)
-                        .iter()
-                        .copied(),
-                    texture_size,
-                );
-                renderer.filter_pass(
-                    filter_plan,
-                    FilterTexturePair::new(texture_pair, texture_parity),
-                );
+                if let Some(pass) = layer_passes.filter {
+                    filter_plan.init(pass.filters.iter().copied(), texture_size);
+
+                    backend.filter_pass(filter_plan, pass.bindings);
+                }
 
                 // Finally, we apply all blend operations.
-                renderer.blend_pass(
-                    buffers.blend_ops.ranged(&pass.blend_ranges),
-                    &buffers.blend_strips,
-                    texture_parity,
-                    texture_pair,
-                );
+                if let Some(pass) = layer_passes.blend {
+                    backend.blend_pass(pass.blends, pass.blend_strips, pass.bindings);
+                }
             }
 
             // Once layers are done, we perform draws against the root target.
-            renderer.draw_pass(
-                buffers
-                    .draw_buffers
-                    .strips
-                    .ranged(&round.root_draw.strip_ranges),
-                &round.root_draw.external_texture_runs,
-                DrawPassTarget::Root(root_output_target),
-                round
-                    .root_draw
-                    .has_child_layer
-                    .then(|| texture_pair.layer_id(TextureParity::Odd)),
-            );
+            if let Some(pass) = round.root_draw_pass(buffers, root_output_target) {
+                backend.draw_pass(pass.strips, pass.external_texture_runs, pass.bindings);
+            }
 
             // And in the end, clear layer regions that are deallocated in this round.
-            for (index, layer_clears) in round.layer_texture_clears.iter().enumerate() {
-                let texture_parity = TextureParity::from_parity(index);
-                renderer.clear_pass(texture_pair.layer_id(texture_parity), layer_clears);
+            for props in round.clear_passes() {
+                backend.clear_pass(props.target, props.rects);
             }
         }
     }
@@ -161,7 +144,10 @@ impl Rounds {
 mod tests {
     use super::*;
     use crate::schedule::test_support::{SceneCase, ScheduledCase};
+    use crate::target::{LayerTextureId, TextureParity};
     use alloc::vec::Vec;
+    use vello_common::filter_effects::{Filter, FilterPrimitive};
+    use vello_common::peniko::{BlendMode, Compose, Mix};
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum Call {
@@ -214,7 +200,7 @@ mod tests {
         calls: Vec<Call>,
     }
 
-    impl RendererBackend for Recorder {
+    impl Backend for Recorder {
         fn opaque_pass(&mut self, _strips: &[GpuStrip]) {
             self.calls.push(Call::Opaque);
         }
@@ -223,10 +209,9 @@ mod tests {
             &mut self,
             _strips: RangedSlice<'_, GpuStrip>,
             _external_texture_runs: &[ExternalTextureRun],
-            target: DrawPassTarget,
-            child_layer_texture: Option<LayerTextureId>,
+            bindings: DrawPassBindings,
         ) {
-            self.calls.push(Call::Draw(target, child_layer_texture));
+            self.calls.push(Call::Draw(bindings.target, bindings.child));
         }
 
         fn clear_pass(&mut self, target: LayerTextureId, _rects: &[RectU16]) {
@@ -237,14 +222,14 @@ mod tests {
             &mut self,
             _blends: RangedSlice<'_, BlendOp>,
             _blend_strips: &[BlendStrip],
-            parent_texture_parity: TextureParity,
-            _texture_pair: LayerTexturePair,
+            bindings: BlendPassBindings,
         ) {
-            self.calls.push(Call::Blend(parent_texture_parity));
+            self.calls
+                .push(Call::Blend(bindings.target().texture_parity));
         }
 
-        fn filter_pass(&mut self, _plan: &FilterPassPlan, textures: FilterTexturePair) {
-            self.calls.push(Call::Filter(textures.original()));
+        fn filter_pass(&mut self, _plan: &FilterPassPlan, bindings: FilterPassBindings) {
+            self.calls.push(Call::Filter(bindings.target()));
         }
     }
 
@@ -264,40 +249,51 @@ mod tests {
         }
 
         let mut case = SceneCase::new(16, 8);
+        case.draw_at(0.0, 1.0);
         chain(&mut case, depth);
         case.schedule(root_target, SizeU16::new(64), 2).unwrap()
+    }
+
+    fn round_order_case() -> ScheduledCase {
+        let mut case = SceneCase::new(32, 8);
+        case.draw_at(0.0, 1.0);
+
+        case.layer(|case| {
+            case.draw_at(4.0, 0.5);
+            case.layer_with(
+                None,
+                Some(BlendMode::new(Mix::Multiply, Compose::SrcOver)),
+                Some(Filter::from_primitive(FilterPrimitive::Offset {
+                    dx: 0.0,
+                    dy: 0.0,
+                })),
+                |case| case.draw_at(8.0, 0.5),
+            );
+        });
+
+        case.layer(|case| {
+            case.layer(|case| {
+                case.draw_at(16.0, 0.5);
+                case.layer_with(
+                    None,
+                    Some(BlendMode::new(Mix::Multiply, Compose::SrcOver)),
+                    Some(Filter::from_primitive(FilterPrimitive::Offset {
+                        dx: 0.0,
+                        dy: 0.0,
+                    })),
+                    |case| case.draw_at(20.0, 0.5),
+                );
+            });
+        });
+
+        case.schedule(RootTarget::UserSurface, SizeU16::new(128), 6)
+            .unwrap()
     }
 
     #[test]
     fn round_order() {
         let mut recorder = Recorder::default();
-        execution_case(RootTarget::UserSurface, 2).execute(&mut recorder);
-
-        assert_eq!(
-            recorder
-                .calls
-                .into_iter()
-                .map(Call::stage)
-                .collect::<Vec<_>>(),
-            [
-                Stage::Opaque,
-                Stage::EvenDraw,
-                Stage::EvenFilter,
-                Stage::EvenBlend,
-                Stage::OddDraw,
-                Stage::OddFilter,
-                Stage::OddBlend,
-                Stage::RootDraw,
-                Stage::EvenClear,
-                Stage::OddClear,
-            ]
-        );
-    }
-
-    #[test]
-    fn two_round_order() {
-        let mut recorder = Recorder::default();
-        execution_case(RootTarget::UserSurface, 3).execute(&mut recorder);
+        round_order_case().execute(&mut recorder);
 
         assert_eq!(
             recorder
@@ -310,7 +306,6 @@ mod tests {
                 Stage::Opaque,
                 Stage::EvenDraw,
                 Stage::EvenFilter,
-                Stage::EvenBlend,
                 Stage::OddDraw,
                 Stage::OddFilter,
                 Stage::OddBlend,
@@ -318,12 +313,8 @@ mod tests {
                 Stage::EvenClear,
                 Stage::OddClear,
                 // Second round.
-                Stage::EvenDraw,
-                Stage::EvenFilter,
                 Stage::EvenBlend,
                 Stage::OddDraw,
-                Stage::OddFilter,
-                Stage::OddBlend,
                 Stage::RootDraw,
                 Stage::EvenClear,
                 Stage::OddClear,
@@ -366,5 +357,13 @@ mod tests {
         execution_case(RootTarget::AtlasLayer, 2).execute(&mut recorder);
 
         assert!(!recorder.calls.contains(&Call::Opaque));
+    }
+
+    #[test]
+    fn empty_passes_are_skipped() {
+        let mut recorder = Recorder::default();
+        SceneCase::new(16, 8).schedule_root().execute(&mut recorder);
+
+        assert!(recorder.calls.is_empty());
     }
 }

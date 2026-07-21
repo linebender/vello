@@ -42,7 +42,7 @@ use crate::{
         },
     },
     scene::Scene,
-    schedule::{RendererBackend, Schedule, ScheduleStorage, round::BlendOp},
+    schedule::{Backend, Schedule, ScheduleStorage, round::BlendOp},
     target::{
         BlendPassBindings, DrawPassBindings, DrawPassTarget, FilterPassBindings, LayerTextureId,
         RootTarget, TextureParity,
@@ -2534,10 +2534,6 @@ impl WebGlRendererContext<'_> {
         blend_strips: &[BlendStrip],
         bindings: BlendPassBindings,
     ) {
-        if blends.len() == 0 {
-            return;
-        }
-
         let texture_size = self.texture_size();
         self.gl.disable(WebGl2RenderingContext::BLEND);
         self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
@@ -2672,10 +2668,6 @@ impl WebGlRendererContext<'_> {
     }
 
     fn filter_pass_inner(&mut self, plan: &FilterPassPlan, bindings: FilterPassBindings) {
-        if plan.is_empty() {
-            return;
-        }
-
         self.gl.disable(WebGl2RenderingContext::BLEND);
         self.gl.disable(WebGl2RenderingContext::SCISSOR_TEST);
         self.gl.disable(WebGl2RenderingContext::DEPTH_TEST);
@@ -2785,10 +2777,6 @@ impl WebGlRendererContext<'_> {
     }
 
     fn clear_pass_inner(&self, target: LayerTextureId, rects: &[RectU16]) {
-        if rects.is_empty() {
-            return;
-        }
-
         self.prepare_clear_rects(target);
         for rect in rects.iter().copied().filter(|rect| !rect.is_empty()) {
             self.clear_rect(rect);
@@ -2824,7 +2812,7 @@ impl WebGlRendererContext<'_> {
     }
 }
 
-impl RendererBackend for WebGlRendererContext<'_> {
+impl Backend for WebGlRendererContext<'_> {
     fn opaque_pass(&mut self, strips: &[GpuStrip]) {
         self.strip_pass_inner(
             strips,

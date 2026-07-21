@@ -1,12 +1,12 @@
 // Copyright 2026 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use super::{RendererBackend, Schedule, ScheduleStorage};
-use crate::draw::Draw;
+use super::{Backend, Schedule, ScheduleStorage};
 use crate::paint::PaintResolver;
 use crate::scene::LayersConfig;
+use crate::schedule::round::DrawPass;
 use crate::target::RootTarget;
-use crate::{GpuStrip, RenderError, Scene};
+use crate::{RenderError, Scene};
 use alloc::vec;
 use alloc::vec::Vec;
 use vello_common::filter_effects::Filter;
@@ -121,7 +121,7 @@ pub(super) struct ScheduledCase {
 }
 
 impl ScheduledCase {
-    pub(super) fn execute<R: RendererBackend>(mut self, renderer: &mut R) {
+    pub(super) fn execute<R: Backend>(mut self, renderer: &mut R) {
         super::execute(renderer, &mut self.storage, self.schedule, self.root_target);
     }
 
@@ -136,20 +136,42 @@ impl ScheduledCase {
     pub(super) fn views(&self) -> Vec<RoundView> {
         self.schedule
             .rounds
-            .rounds
             .iter()
-            .map(|round| RoundView {
-                binding: round.texture_binding_page_indices(),
-                even: self.draw_view(&round.layer_texture_passes[0].draw),
-                odd: self.draw_view(&round.layer_texture_passes[1].draw),
-                root: self.draw_view(&round.root_draw),
-                clears: round.layer_texture_clears.clone(),
-                filter_passes: core::array::from_fn(|index| {
-                    round.layer_texture_passes[index].filter_ranges.len()
-                }),
-                blend_passes: core::array::from_fn(|index| {
-                    round.layer_texture_passes[index].blend_ranges.len()
-                }),
+            .map(|round| {
+                let mut draws = [None, None];
+                let mut filter_passes = [0; 2];
+                let mut blend_passes = [0; 2];
+                for pass in round.layer_passes(&self.storage.buffers) {
+                    let index = pass.texture_parity.get_parity();
+
+                    if let Some(draw) = pass.draw {
+                        draws[index] = Some(Self::draw_view(draw));
+                    }
+                    if let Some(filter) = pass.filter {
+                        filter_passes[index] = filter.filters.len();
+                    }
+                    if let Some(blend) = pass.blend {
+                        blend_passes[index] = blend.blends.len();
+                    }
+                }
+
+                let mut clears = core::array::from_fn(|_| Vec::new());
+                for clear in round.clear_passes() {
+                    clears[clear.target.texture_parity.get_parity()].extend_from_slice(clear.rects);
+                }
+
+                RoundView {
+                    binding: round.texture_binding.page_indices(),
+                    even: draws[0].take().unwrap_or_else(Self::empty_draw_view),
+                    odd: draws[1].take().unwrap_or_else(Self::empty_draw_view),
+                    root: round
+                        .root_draw_pass(&self.storage.buffers, self.root_target)
+                        .map(Self::draw_view)
+                        .unwrap_or_else(Self::empty_draw_view),
+                    clears,
+                    filter_passes,
+                    blend_passes,
+                }
             })
             .collect()
     }
@@ -167,33 +189,23 @@ impl ScheduledCase {
     pub(super) fn total_clears(&self) -> usize {
         self.schedule
             .rounds
-            .rounds
             .iter()
-            .flat_map(|round| &round.layer_texture_clears)
-            .map(Vec::len)
+            .flat_map(|round| round.clear_passes())
+            .map(|clear| clear.rects.len())
             .sum()
     }
 
-    fn draw_view(&self, draw: &Draw) -> DrawView {
+    fn draw_view(draw: DrawPass<'_>) -> DrawView {
         DrawView {
-            x: self
-                .draw_strips(draw)
-                .into_iter()
-                .map(|strip| strip.x)
-                .collect(),
-            has_child_layer: draw.has_child_layer,
+            x: draw.strips.iter().map(|strip| strip.x).collect(),
+            has_child_layer: draw.bindings.child.is_some(),
         }
     }
 
-    fn draw_strips<'a>(&'a self, draw: &'a Draw) -> Vec<&'a GpuStrip> {
-        use crate::util::VecExt;
-
-        self.storage
-            .buffers
-            .draw_buffers
-            .strips
-            .ranged(&draw.strip_ranges)
-            .iter()
-            .collect()
+    fn empty_draw_view() -> DrawView {
+        DrawView {
+            x: Vec::new(),
+            has_child_layer: false,
+        }
     }
 }

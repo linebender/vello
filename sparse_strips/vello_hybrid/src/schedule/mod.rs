@@ -116,7 +116,7 @@ mod test_support;
 
 use self::allocate::{Atlases, LayerAllocationRequest};
 use self::cursor::Cursor;
-pub(crate) use self::execute::{RendererBackend, execute};
+pub(crate) use self::execute::{Backend, execute};
 use self::round::{
     BlendOp, FilterOp, FilterTextureRegions, Round, RoundStage, Rounds, SchedulePoint,
 };
@@ -186,7 +186,7 @@ impl Schedule {
     }
 
     pub(crate) fn layer_page_counts(&self) -> [usize; 2] {
-        self.rounds.layer_page_counts
+        self.rounds.layer_page_counts()
     }
 
     pub(crate) fn scratch_texture(&self) -> bool {
@@ -456,7 +456,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             let filter_point = rounds.resolve_binding_point(base_point, textures.texture_binding());
 
             rounds.ensure_exists(filter_point.round);
-            rounds.rounds[filter_point.round].push_filter_op(
+            rounds.round_mut(filter_point.round).push_filter_op(
                 region.texture.target.texture_parity,
                 &mut self.storage.buffers,
                 FilterOp {
@@ -570,7 +570,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         let blend_point = rounds.resolve_binding_point(blend_point, blend_binding);
 
         rounds.ensure_exists(blend_point.round);
-        rounds.rounds[blend_point.round].push_blend_op(
+        rounds.round_mut(blend_point.round).push_blend_op(
             parent_texture_parity,
             &mut self.storage.buffers,
             BlendOp {
@@ -791,7 +791,7 @@ impl Rounds {
         let target_draw = state
             .draw_state
             .target
-            .draw_mut(&mut self.rounds[point.round]);
+            .draw_mut(self.round_mut(point.round));
 
         let mut builder = DrawBuilder::new(target_draw, draw_buffers, &mut state.draw_state);
         f(&mut builder);
@@ -1675,11 +1675,11 @@ mod tests {
         assert!(storage.filter_context.is_empty());
         assert_eq!(second_schedule.rounds.rounds.len(), 1);
         let round = &second_schedule.rounds.rounds[0];
-        assert_eq!(round.root_draw.strip_ranges.len(), 1);
-        assert!(round.root_draw.external_texture_runs.is_empty());
-        assert_eq!(round.layer_texture_passes[0].filter_ranges.len(), 0);
-        assert_eq!(round.layer_texture_passes[1].filter_ranges.len(), 0);
-        assert_eq!(round.layer_texture_passes[0].blend_ranges.len(), 0);
-        assert_eq!(round.layer_texture_passes[1].blend_ranges.len(), 0);
+        let root = round
+            .root_draw_pass(&storage.buffers, RootTarget::UserSurface)
+            .unwrap();
+        assert_eq!(root.strips.len(), 1);
+        assert!(root.external_texture_runs.is_empty());
+        assert_eq!(round.layer_passes(&storage.buffers).count(), 0);
     }
 }
