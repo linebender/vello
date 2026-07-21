@@ -322,8 +322,23 @@ impl SchedulePoint {
     }
 
     /// Return the first occurrence of `stage` strictly after this point.
-    pub(super) fn next(self, stage: RoundStage) -> Self {
+    pub(super) fn after(self, stage: RoundStage) -> Self {
         if stage > self.stage {
+            Self {
+                round: self.round,
+                stage,
+            }
+        } else {
+            Self {
+                round: self.round + 1,
+                stage,
+            }
+        }
+    }
+
+    /// Return the first occurrence of `stage` at or after this point.
+    pub(super) fn after_or_at(self, stage: RoundStage) -> Self {
+        if stage >= self.stage {
             Self {
                 round: self.round,
                 stage,
@@ -486,35 +501,36 @@ mod tests {
     }
 
     #[test]
-    fn schedule_point_next() {
+    fn schedule_point_stage_occurrences() {
         let draw = SchedulePoint {
             round: 4,
             stage: RoundStage::Even(LayerStage::Draw),
         };
 
         assert_eq!(
-            draw.next(RoundStage::Even(LayerStage::Filter)),
+            draw.after(RoundStage::Even(LayerStage::Filter)),
             SchedulePoint {
                 round: 4,
                 stage: RoundStage::Even(LayerStage::Filter),
             }
         );
         assert_eq!(
-            draw.next(RoundStage::Odd(LayerStage::Draw)),
+            draw.after(RoundStage::Odd(LayerStage::Draw)),
             SchedulePoint {
                 round: 4,
                 stage: RoundStage::Odd(LayerStage::Draw),
             }
         );
         assert_eq!(
-            draw.next(RoundStage::Even(LayerStage::Draw)),
+            draw.after(RoundStage::Even(LayerStage::Draw)),
             SchedulePoint {
                 round: 5,
                 stage: RoundStage::Even(LayerStage::Draw),
             }
         );
+        assert_eq!(draw.after_or_at(RoundStage::Even(LayerStage::Draw)), draw);
         assert_eq!(
-            draw.next(RoundStage::Start),
+            draw.after_or_at(RoundStage::Start),
             SchedulePoint {
                 round: 5,
                 stage: RoundStage::Start,

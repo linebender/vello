@@ -280,12 +280,13 @@ impl<'a, 'p> Scheduler<'a, 'p> {
 
             let opened_layer = self.open_root_layer();
             let layer = self.schedule_layer(opened_layer, rounds)?;
-            state.wait_until(layer.ready);
 
             // Schedule the blit back into the main framebuffer.
             let draw_point = rounds.build_draw(
                 &mut state,
                 &mut self.storage.buffers.draw_buffers,
+                // The blit must wait until the layer is ready for sampling.
+                Some(layer.ready),
                 RoundBindings::new(layer.sample_region.texture.target),
                 |builder| {
                     builder.push_layer_fill(layer.sample_region, 1.0, None, self.strip_storage);
@@ -371,7 +372,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 // Then, we must wait until our reserved space in the atlas is available.
                 .max(SchedulePoint::start(temporary.round_idx))
                 // Finally, wait until we reach the filter stage.
-                .next(RoundStage::filter(region.texture.target.texture_parity));
+                .after(RoundStage::filter(region.texture.target.texture_parity));
 
             // Now find the _actual_ schedule point that corresponds to a round that matches our
             // requirements for texture bindings.
@@ -391,7 +392,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             self.clear_and_release_allocation(temporary.allocation, filter_point.round, rounds);
 
             // Since we need to apply a filter, update the state of the current target.
-            target.schedule_state.set_ready(filter_point);
+            target.schedule_state.ready = filter_point;
         }
 
         let scheduled = ScheduledLayer {
@@ -503,6 +504,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             state,
             &mut self.storage.buffers.draw_buffers,
             // We don't have any dependencies on other layers for normal draws.
+            None,
             RoundBindings::default(),
             |builder| {
                 for draw in &self.recorder.draws[draws.start as usize..draws.end as usize] {
@@ -602,7 +604,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             // The child must also be ready.
             .max(child_layer.ready)
             // And we must have reached the blend stage.
-            .next(blend_stage);
+            .after(blend_stage);
         // Then, simply find the next round that matches binds the parent and child texture.
         blend_point = rounds.resolve_binding_point(blend_point, blend_binding);
 
@@ -624,7 +626,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         self.release_layer(child_layer, blend_point, rounds);
 
         // Make sure the layer's ready state accounts for the blend operation.
-        parent_state.set_ready(blend_point);
+        parent_state.ready = blend_point;
 
         Ok(())
     }
@@ -637,14 +639,12 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         parent_state: &mut TargetScheduleState<T>,
         rounds: &mut Rounds,
     ) {
-        // Layer invocations introduce a dependency barrier. Find the first draw stage on the
-        // parent that executes after the child is ready.
-        parent_state.wait_until(child_layer.ready);
-
         // Schedule the actual layer fill command.
         let draw_point = rounds.build_draw(
             parent_state,
             &mut self.storage.buffers.draw_buffers,
+            // The draw obviously needs to wait until the child layer is ready.
+            Some(child_layer.ready),
             RoundBindings::new(child_layer.sample_region.texture.target),
             |builder| {
                 builder.push_layer_fill(
@@ -822,6 +822,7 @@ impl Rounds {
         &mut self,
         state: &mut TargetScheduleState<T>,
         draw_buffers: &mut DrawBuffers,
+        dependency: Option<SchedulePoint>,
         sampled: RoundBindings,
         f: impl FnOnce(&mut DrawBuilder<'_, T>),
     ) -> SchedulePoint {
@@ -832,8 +833,12 @@ impl Rounds {
             .merge(sampled)
             .expect("draw target and sampled layer must have compatible texture parities");
 
-        let point = self.resolve_binding_point(state.next_draw, requirement);
-        state.schedule_draw(point);
+        let next_draw = dependency.map_or_else(
+            || state.next_draw(),
+            |dependency| state.next_draw_after(dependency),
+        );
+        let point = self.resolve_binding_point(next_draw, requirement);
+        state.ready = point;
         self.ensure_exists(point.round);
 
         let target_draw = state
@@ -893,60 +898,42 @@ impl ScheduleStorage {
 struct TargetScheduleState<T: ScheduleTarget> {
     /// The underlying draw state.
     draw_state: DrawState<T>,
-    // This can be later than [`Self::ready`]. For example, assume we have a sequence of three
-    // nested layers allocated as follows:
-    // - L0 in odd texture
-    // - L1 in even texture
-    // - L2 in odd texture
-    //
-    // In a round, we first execute even blends, so we do Blend(L1, L2). That same layer is now
-    // ready for L0 to sample _in that same round_, so `Self::ready` will still have the same round
-    // index. However, if we want to append more draws we need to wait until the next round, since
-    // all draws in a round happen before blend ops.
-    //
-    // In other cases, this is often the same as `Self::ready`.
-    /// Earliest point at which another draw can be appended to this target.
-    next_draw: SchedulePoint,
     /// Point after which all currently scheduled contents of this target are available.
     ready: SchedulePoint,
 }
 
 impl<T: ScheduleTarget> TargetScheduleState<T> {
     fn new(target: T, start_round: usize, target_bbox: RectU16) -> Self {
-        let ready = SchedulePoint::start(start_round);
-        let next_draw = ready.next(target.draw_stage());
-
         Self {
             draw_state: DrawState::new(target, target_bbox),
-            next_draw,
-            ready,
+            ready: SchedulePoint::start(start_round),
         }
     }
 
-    fn wait_until(&mut self, dependency: SchedulePoint) {
-        self.next_draw = self
-            .next_draw
-            .max(dependency.next(self.draw_state.target.draw_stage()));
+    /// Return the earliest point at which another draw can be appended to this target.
+    ///
+    /// If [`Self::ready`] is already at this target's draw stage, the new draw can be batched into
+    /// the same pass. Otherwise, it must use the next occurrence of the target's draw stage. The
+    /// resulting point can therefore be later than [`Self::ready`]. For example, assume we have a
+    /// sequence of three nested layers allocated as follows:
+    ///
+    /// - L0 in odd texture
+    /// - L1 in even texture
+    /// - L2 in odd texture
+    ///
+    /// In a round, we first execute even blends, so we do `Blend(L1, L2)`. L1 is now ready for L0
+    /// to sample _in that same round_, so [`Self::ready`] of L1 will still have the same round
+    /// index. However, if we want to append more draws to L1, we need to wait until the next round,
+    /// since all draws in a round happen before blend ops. Since the next draw depends on the
+    /// previous blend to have finished, it cannot happen in the same round anymore.
+    fn next_draw(&self) -> SchedulePoint {
+        self.ready.after_or_at(self.draw_state.target.draw_stage())
     }
 
-    /// Mark the target contents ready and ensure subsequent draws execute after this point.
-    fn set_ready(&mut self, point: SchedulePoint) {
-        debug_assert!(
-            point >= self.ready,
-            "target readiness must advance monotonically"
-        );
-
-        self.ready = point;
-        self.wait_until(point);
-    }
-
-    fn schedule_draw(&mut self, point: SchedulePoint) {
-        debug_assert!(
-            point >= self.next_draw,
-            "draw schedule points must be monotonically increasing"
-        );
-        self.next_draw = point;
-        self.ready = point;
+    /// Return the earliest draw point that executes after an external dependency.
+    fn next_draw_after(&self, dependency: SchedulePoint) -> SchedulePoint {
+        self.next_draw()
+            .max(dependency.after(self.draw_state.target.draw_stage()))
     }
 }
 
