@@ -51,7 +51,7 @@ impl Cursor {
     pub(super) fn allocate_layer(
         &mut self,
         request: LayerAllocationRequest,
-    ) -> Result<Allocation<AllocatedTextureRegion>, AtlasError> {
+    ) -> Result<Allocation, AtlasError> {
         // TODO: This can be optimized further. Currently, we try go through all pending releases
         // until we have enough space or are forced to create a new texture. However, we don't
         // consider the parity of the texture request. In case we are requesting an even
@@ -59,8 +59,7 @@ impl Cursor {
         // create the new page since we now that advancing the round won't give us more space
         // in the even pool.
 
-        if let Some(allocation) = self.allocate_reusing(|atlases| atlases.allocate_layer(&request))
-        {
+        if let Some(allocation) = self.allocate_reusing(&request) {
             return Ok(allocation);
         }
 
@@ -82,12 +81,9 @@ impl Cursor {
 
     /// Advance the round counter until enough resources have been freed such that
     /// the given allocation succeeds, if possible.
-    fn allocate_reusing<T: Copy>(
-        &mut self,
-        mut allocate: impl FnMut(&mut Atlases) -> Option<T>,
-    ) -> Option<Allocation<T>> {
+    fn allocate_reusing(&mut self, request: &LayerAllocationRequest) -> Option<Allocation> {
         loop {
-            if let Some(allocation) = allocate(&mut self.atlases) {
+            if let Some(allocation) = self.atlases.allocate_layer(request) {
                 return Some(Allocation {
                     allocation,
                     round_idx: self.current_round,

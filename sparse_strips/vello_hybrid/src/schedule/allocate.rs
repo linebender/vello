@@ -14,9 +14,9 @@ use vello_common::record::RecordedLayerKind;
 
 /// An allocation and the first round in which it can be used.
 #[derive(Debug, Clone, Copy)]
-pub(super) struct Allocation<T> {
-    /// The underlying allocation.
-    pub(super) allocation: T,
+pub(super) struct Allocation {
+    /// The allocated texture region.
+    pub(super) allocation: AllocatedTextureRegion,
     /// The round starting from which this allocation is available.
     pub(super) round_idx: usize,
 }
