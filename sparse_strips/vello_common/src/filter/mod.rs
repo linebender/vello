@@ -13,9 +13,8 @@ use crate::filter::gaussian_blur::{GaussianBlur, transform_blur_params};
 use crate::filter::offset::Offset;
 use crate::filter_effects::{Filter, FilterPrimitive};
 use crate::geometry::{PaddingU16, RectU16};
-#[cfg(not(feature = "std"))]
-use crate::kurbo::common::FloatFuncs as _;
 use crate::kurbo::{Affine, Rect, Vec2};
+use crate::math::snap_up;
 use crate::tile::Tile;
 use crate::util::RectExt;
 
@@ -193,16 +192,11 @@ impl FilterData {
             // separately. However, not snapping here causes larger mismatches with Vello Hybrid
             // since the size of the final pixmap determines in which way we decimate for the
             // gaussian blur filter. Therefore, we keep this for compatibility.
-            fn snap_up(value: f64, step: u16) -> u16 {
-                let step = f64::from(step);
-                ((value / step).ceil() * step) as u16
-            }
-
             PaddingU16::new(
-                snap_up(-expansion.x0, Tile::WIDTH),
-                snap_up(-expansion.y0, Tile::HEIGHT),
-                snap_up(expansion.x1, Tile::WIDTH),
-                snap_up(expansion.y1, Tile::HEIGHT),
+                snap_up(-expansion.x0, Tile::WIDTH) as u16,
+                snap_up(-expansion.y0, Tile::HEIGHT) as u16,
+                snap_up(expansion.x1, Tile::WIDTH) as u16,
+                snap_up(expansion.y1, Tile::HEIGHT) as u16,
             )
         }
 

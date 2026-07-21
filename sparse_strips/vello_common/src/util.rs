@@ -4,7 +4,7 @@
 //! Utility functions.
 
 use crate::geometry::RectU16;
-use crate::math::FloatExt;
+use crate::math::{FloatExt, snap_up};
 use crate::strip::{Strip, visit_strip_fill_segments};
 use crate::tile::Tile;
 use alloc::vec::Vec;
@@ -181,12 +181,6 @@ impl RectExt for RectU16 {
 fn snap_down(value: f64, step: u16) -> f64 {
     let step = f64::from(step);
     (value / step).floor() * step
-}
-
-#[inline]
-fn snap_up(value: f64, step: u16) -> f64 {
-    let step = f64::from(step);
-    (value / step).ceil() * step
 }
 
 /// A type that can be cleared.
