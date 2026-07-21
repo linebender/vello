@@ -285,9 +285,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             let draw_point = rounds.build_draw(
                 &mut state,
                 &mut self.storage.buffers.draw_buffers,
-                // The blit must wait until the layer is ready for sampling.
-                Some(layer.ready),
-                RoundBindings::new(layer.sample_region.texture.target),
+                Some(&layer),
                 |builder| {
                     builder.push_layer_fill(layer.sample_region, 1.0, None, self.strip_storage);
                 },
@@ -503,9 +501,8 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         rounds.build_draw(
             state,
             &mut self.storage.buffers.draw_buffers,
-            // We don't have any dependencies on other layers for normal draws.
+            // Normal draws don't depend on any child layer.
             None,
-            RoundBindings::default(),
             |builder| {
                 for draw in &self.recorder.draws[draws.start as usize..draws.end as usize] {
                     builder.push_draw(draw, self.strip_storage, self.paint_resolver);
@@ -646,9 +643,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         let draw_point = rounds.build_draw(
             parent_state,
             &mut self.storage.buffers.draw_buffers,
-            // The draw obviously needs to wait until the child layer is ready.
-            Some(child_layer.ready),
-            RoundBindings::new(child_layer.sample_region.texture.target),
+            Some(&child_layer),
             |builder| {
                 builder.push_layer_fill(
                     child_layer.sample_region,
@@ -820,22 +815,25 @@ impl Rounds {
         &mut self,
         state: &mut TargetScheduleState<T>,
         draw_buffers: &mut DrawBuffers,
-        dependency: Option<SchedulePoint>,
-        sampled: RoundBindings,
+        sampled_layer: Option<&ScheduledLayer>,
         f: impl FnOnce(&mut DrawBuilder<'_, T>),
     ) -> SchedulePoint {
-        let requirement = state
+        let mut round_bindings = sampled_layer.map_or_else(RoundBindings::default, |layer| {
+            RoundBindings::new(layer.sample_region.texture.target)
+        });
+
+        round_bindings = state
             .draw_state
             .target
             .round_bindings()
-            .merge(sampled)
+            .merge(round_bindings)
             .expect("draw target and sampled layer must have compatible texture parities");
 
-        let next_draw = dependency.map_or_else(
+        let next_draw = sampled_layer.map_or_else(
             || state.next_draw(),
-            |dependency| state.next_draw_after(dependency),
+            |layer| state.next_draw_after(layer.ready),
         );
-        let point = self.resolve_binding_point(next_draw, requirement);
+        let point = self.resolve_binding_point(next_draw, round_bindings);
         state.ready = point;
         self.ensure_exists(point.round);
 
