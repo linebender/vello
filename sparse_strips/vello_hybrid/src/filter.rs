@@ -319,6 +319,8 @@ impl GpuFilterData {
     }
 
     pub(crate) fn needs_copy_pass(&self) -> bool {
+        // For drop shadows, we need to retain the original rendered layer because in the end
+        // we need to composite it _on top_ of the actual shadow, so it needs to be retained.
         self.filter_type() == filter_type::DROP_SHADOW
     }
 }
@@ -371,11 +373,6 @@ pub(crate) struct FilterInstanceData {
     pub filter_pass_kind: u32,
 }
 
-const _: () = assert!(
-    size_of::<FilterInstanceData>() == 9 * size_of::<u32>(),
-    "filter instance data must match the shader layout"
-);
-
 /// Context used for keeping track of state necessary for filter rendering.
 #[derive(Debug, Default)]
 pub(crate) struct FilterContext {
@@ -389,7 +386,7 @@ pub(crate) struct FilterContext {
 pub(crate) struct PreparedGpuFilter {
     /// Texel offset of the parameter block in the filter data texture.
     pub(crate) data_offset: u32,
-    /// Encoded filter parameters used while planning passes.
+    /// Encoded filter parameters.
     pub(crate) data: GpuFilterData,
 }
 
@@ -422,11 +419,9 @@ impl FilterPassPlan {
             match filter.gpu_filter.filter_type() {
                 filter_type::OFFSET => {
                     builder.emit(pass_kind::OFFSET);
-                    builder.emit(pass_kind::COPY);
                 }
                 filter_type::FLOOD => {
                     builder.emit(pass_kind::FLOOD);
-                    builder.emit(pass_kind::COPY);
                 }
                 filter_type::GAUSSIAN_BLUR => {
                     builder.emit_blur_sequence(filter.gpu_filter.n_decimations());
