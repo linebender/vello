@@ -348,11 +348,9 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         // In case there weren't any commands, still make sure the target exists.
         self.ensure_layer_target(&mut layer)?;
 
-        let target = layer.target.take().unwrap();
+        let mut target = layer.target.take().unwrap();
 
-        // Extract the state of the scheduled layer so we know when it's ready for sampling.
         let region = target.schedule_state.draw_state.target;
-        let mut layer_ready = target.schedule_state.ready;
 
         if let Some(filter) = target.filter {
             let temporary = self.cursor.allocate_layer(LayerAllocationRequest::new(
@@ -369,7 +367,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             // Now we determine the point at which we can perform the filter operation.
             let mut filter_point =
                 // Obviously, we first need to wait until rendering of the underlying layer finished.
-                layer_ready
+                target.schedule_state.ready
                 // Then, we must wait until our reserved space in the atlas is available.
                 .max(SchedulePoint::start(temporary.round_idx))
                 // Finally, wait until we reach the filter stage.
@@ -392,15 +390,14 @@ impl<'a, 'p> Scheduler<'a, 'p> {
 
             self.clear_and_release_allocation(temporary.allocation, filter_point.round, rounds);
 
-            // Since the layer has a filter, it's only ready once it's filtered version finished
-            // rendering.
-            layer_ready = filter_point;
+            // Since we need to apply a filter, update the state of the current target.
+            target.schedule_state.set_ready(filter_point);
         }
 
         let scheduled = ScheduledLayer {
             sample_region: layer.sample.resolve(region),
             allocation: target.allocation,
-            ready: layer_ready,
+            ready: target.schedule_state.ready,
         };
 
         Ok(scheduled)
@@ -600,7 +597,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
             .merge(RoundBindings::new(child_region.texture.target))
             .expect("parent and child layers must have compatible texture parities");
         let mut blend_point =
-            // A blend must execute after both the parent is ready.
+            // A blend must execute after the parent is ready.
              parent_state.ready
             // The child must also be ready.
             .max(child_layer.ready)
@@ -626,9 +623,8 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         // And make sure to release the child now that it's been composited into the parent.
         self.release_layer(child_layer, blend_point, rounds);
 
-        // See the documentation for what the difference between these two is.
-        parent_state.ready = blend_point;
-        parent_state.wait_until(blend_point);
+        // Make sure the layer's ready state accounts for the blend operation.
+        parent_state.set_ready(blend_point);
 
         Ok(())
     }
@@ -931,6 +927,17 @@ impl<T: ScheduleTarget> TargetScheduleState<T> {
         self.next_draw = self
             .next_draw
             .max(dependency.next(self.draw_state.target.draw_stage()));
+    }
+
+    /// Mark the target contents ready and ensure subsequent draws execute after this point.
+    fn set_ready(&mut self, point: SchedulePoint) {
+        debug_assert!(
+            point >= self.ready,
+            "target readiness must advance monotonically"
+        );
+
+        self.ready = point;
+        self.wait_until(point);
     }
 
     fn schedule_draw(&mut self, point: SchedulePoint) {
