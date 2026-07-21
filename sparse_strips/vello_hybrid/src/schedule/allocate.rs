@@ -3,7 +3,6 @@
 
 //! Atlas allocation for scheduled layer texture regions.
 
-use super::OpenLayer;
 use crate::filter::FILTER_ATLAS_PADDING;
 use crate::scene::LayersConfig;
 use crate::target::{LayerTextureId, TextureParity, TextureRegion};
@@ -133,8 +132,12 @@ pub(super) struct LayerAllocationRequest {
 }
 
 impl LayerAllocationRequest {
-    pub(super) fn new(layer: &OpenLayer<'_>) -> Self {
-        let padding = match layer.kind {
+    pub(super) fn new(
+        bbox: RectU16,
+        kind: &RecordedLayerKind,
+        texture_parity: TextureParity,
+    ) -> Self {
+        let padding = match kind {
             RecordedLayerKind::Regular => 0,
             // Padding is needed because some filters use bilinear sampling for
             // improved performance. Therefore, we need to ensure there is transparent
@@ -143,23 +146,13 @@ impl LayerAllocationRequest {
         };
 
         let region = RegionProps {
-            size: SizeU16::from_wh(layer.bbox.width(), layer.bbox.height()),
+            size: SizeU16::from_wh(bbox.width(), bbox.height()),
             padding,
         };
 
         Self {
-            texture_parity: layer.texture_parity,
-            region,
-        }
-    }
-
-    pub(super) fn filter_temporary(layer_region: RectU16, texture_parity: TextureParity) -> Self {
-        Self {
             texture_parity,
-            region: RegionProps {
-                size: SizeU16::from_wh(layer_region.width(), layer_region.height()),
-                padding: FILTER_ATLAS_PADDING,
-            },
+            region,
         }
     }
 }
@@ -258,7 +251,6 @@ impl AtlasExt for Atlas {
 mod tests {
     use super::{AtlasExt, Atlases, FILTER_ATLAS_PADDING, LayerAllocationRequest, RegionProps};
     use crate::scene::LayersConfig;
-    use crate::schedule::{LayerSamplePlacement, OpenLayer};
     use crate::target::{LayerTextureId, TextureParity};
     use vello_common::filter::{FilterData, FilterLayerPlacement};
     use vello_common::filter_effects::{Filter, FilterPrimitive};
@@ -285,22 +277,11 @@ mod tests {
         }
     }
 
-    fn open_layer(kind: &RecordedLayerKind) -> OpenLayer<'_> {
-        let bbox = RectU16::new(4, 8, 20, 32);
-        OpenLayer {
-            cmds: &[],
-            kind,
-            texture_parity: TextureParity::Odd,
-            bbox,
-            sample: LayerSamplePlacement::regular(bbox),
-            target: None,
-        }
-    }
-
     #[test]
     fn layer_requests() {
+        let bbox = RectU16::new(4, 8, 20, 32);
         let regular_kind = RecordedLayerKind::Regular;
-        let regular = LayerAllocationRequest::new(&open_layer(&regular_kind));
+        let regular = LayerAllocationRequest::new(bbox, &regular_kind, TextureParity::Odd);
         assert_eq!(regular.texture_parity, TextureParity::Odd);
         assert_eq!(regular.region.size, SizeU16::from_wh(16, 24));
         assert_eq!(regular.region.padding, 0);
@@ -317,13 +298,14 @@ mod tests {
                 src_y: 0,
             },
         };
-        let filter = LayerAllocationRequest::new(&open_layer(&filter_kind));
+        let filter = LayerAllocationRequest::new(bbox, &filter_kind, TextureParity::Odd);
         assert_eq!(filter.texture_parity, TextureParity::Odd);
         assert_eq!(filter.region.size, SizeU16::from_wh(16, 24));
         assert_eq!(filter.region.padding, FILTER_ATLAS_PADDING);
 
-        let temporary = LayerAllocationRequest::filter_temporary(
+        let temporary = LayerAllocationRequest::new(
             RectU16::new(10, 20, 42, 68),
+            &filter_kind,
             TextureParity::Even,
         );
         assert_eq!(temporary.texture_parity, TextureParity::Even);

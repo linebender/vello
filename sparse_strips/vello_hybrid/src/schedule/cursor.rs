@@ -131,7 +131,6 @@ mod tests {
     use super::Cursor;
     use crate::scene::LayersConfig;
     use crate::schedule::allocate::{Atlases, LayerAllocationRequest};
-    use crate::schedule::{LayerSamplePlacement, OpenLayer};
     use crate::target::{LayerTextureId, TextureParity};
     use vello_common::geometry::{RectU16, SizeU16};
     use vello_common::multi_atlas::AtlasError;
@@ -149,16 +148,8 @@ mod tests {
     fn request(texture_parity: TextureParity, size: SizeU16) -> LayerAllocationRequest {
         let kind = RecordedLayerKind::Regular;
         let bbox = RectU16::new(0, 0, size.width(), size.height());
-        let layer = OpenLayer {
-            cmds: &[],
-            kind: &kind,
-            texture_parity,
-            bbox,
-            sample: LayerSamplePlacement::regular(bbox),
-            target: None,
-        };
 
-        LayerAllocationRequest::new(&layer)
+        LayerAllocationRequest::new(bbox, &kind, texture_parity)
     }
 
     #[test]

@@ -435,12 +435,11 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         let mut ready = target.schedule_state.ready;
 
         if let Some(filter) = target.filter {
-            let temporary =
-                self.cursor
-                    .allocate_layer(LayerAllocationRequest::filter_temporary(
-                        region.texture.rect,
-                        region.texture.target.texture_parity.opposite(),
-                    ))?;
+            let temporary = self.cursor.allocate_layer(LayerAllocationRequest::new(
+                region.texture.rect,
+                layer.kind,
+                region.texture.target.texture_parity.opposite(),
+            ))?;
             let textures = FilterTextureRegions::new(region.texture, temporary.allocation.region);
 
             if filter.data.needs_copy_pass() {
@@ -661,7 +660,7 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 RecordedLayerKind::Regular => None,
             };
 
-            let request = LayerAllocationRequest::new(layer);
+            let request = LayerAllocationRequest::new(layer.bbox, layer.kind, layer.texture_parity);
             // Note: this might advance the base round, in case the atlas is already full,
             // and we therefore need to advance the round cursor until enough space has been
             // freed.
