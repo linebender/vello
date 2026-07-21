@@ -7,17 +7,17 @@
 //! of the scene, with individual nodes that represent a contiguous sequence of batched draws,
 //! followed by an optional layer composition. The task of the scheduler is to consume this
 //! representation and, given the constraints on intermediate resources imposed by [`LayersConfig`],
-//! schedule draw and layer operations in such a way that they can be executed by the GPU, to
-//! achieve the final intended visual result.
+//! schedule draw and layer operations in such a way that they can be executed in render passes
+//! by the GPU, to achieve the final intended visual result.
 //!
 //! There are many different ways of finding such a schedule, each with different advantages and
 //! disadvantages. Vello Hybrid's scheduling algorithm has the following core properties:
 //!
 //! - It always finds a valid schedule for any scene, assuming such a schedule exists given the
 //!   resource constraints.
-//! - It always chooses a schedule that minimizes the number of texture allocations, even if that
-//!   means increasing the number of render passes (and thus sacrificing performance), and even
-//!   if the user allows allocating more resources.
+//! - It always chooses a schedule that tries to minimize the number of texture allocations, even
+//!   if that means increasing the number of render passes (and thus sacrificing performance),
+//!   and even if the user permits allocating more resources.
 //! - If the _already_ allocated resources are abundant enough, it employs batching to reduce
 //!   the number of render passes. However, the schedule is not necessarily the globally most
 //!   optimal one in terms of render passes.
@@ -28,29 +28,30 @@
 //!
 //! The scheduler descends into a child layer before scheduling the part of its parent that
 //! composes it. Layer depth determines which intermediate texture group is used: even-depth layers
-//! use the even group and odd-depth layers use the odd group. A simple chain can therefore render
-//! by ping-ponging between one page from each group:
+//! use the even group and odd-depth layers use the odd group. Recorded layer depths start at one,
+//! so a simple chain labeled from `L0` can render by ping-ponging between one page from each group:
 //!
 //! ```text
-//! L1 (even)
-//! `-- L2 (odd)
-//!     `-- L3 (even)
-//!         `-- L4 (odd)
-//!             `-- L5 (even)
+//! L0 (odd)
+//! `-- L1 (even)
+//!     `-- L2 (odd)
+//!         `-- L3 (even)
+//!             `-- L4 (odd)
 //! ```
 //!
-//! `L5` is rendered first into the even page. `L4` is then rendered into the odd page and composes
-//! `L5`, after which the `L5` allocation can be released. `L3` reuses the even page and composes
-//! `L4`; `L2` reuses the odd page and composes `L3`; and finally `L1` reuses the even page and
-//! composes `L2`. This pattern continues for arbitrarily deep chains, with at most two adjacent
-//! layer allocations live at once.
+//! `L4` is rendered first into the odd page. `L3` is then rendered into the even page and composes
+//! `L4`, after which the `L4` allocation can be released. `L2` reuses the odd page and composes
+//! `L3`; after `L3` is released, `L1` reuses the even page and composes `L2`; and finally `L0`
+//! reuses the odd page and composes `L1`. This pattern applies arbitrarily deep chains, with
+//! at most two adjacent layer allocations live at once and therefore ensuring minimal memory
+//! usage.
 //!
 //! ## Lazy layer allocation
 //!
 //! Bottom-up traversal only provides this memory behavior because entering a layer does not
 //! immediately allocate its target. The target is allocated lazily when the layer first has draws
-//! or a completed child to receive. In the chain above, `L1` through `L4` do not occupy atlas space
-//! while the scheduler descends to `L5`. If their targets were allocated eagerly, the outer layers
+//! or a completed child to receive. In the chain above, `L0` through `L3` do not occupy atlas space
+//! while the scheduler descends to `L4`. If their targets were allocated eagerly, the outer layers
 //! would occupy the even and odd pages before the inner layers could reuse them, defeating the
 //! two-page ping-pong scheme.
 //!
@@ -58,20 +59,21 @@
 //! where the second child itself has a child:
 //!
 //! ```text
-//! L1 (even)
-//! |-- L2 (odd)
-//! `-- L3 (odd)
-//!     `-- L4 (even)
+//! L0 (odd)
+//! |-- L1 (even)
+//! `-- L2 (even)
+//!     `-- L3 (odd)
 //! ```
 //!
-//! After `L2` is composed, `L1` has an even allocation containing that result. This allocation must
-//! remain live while `L3` is scheduled. Descending into `L3` then reaches `L4`, which also needs an
-//! even allocation. `L1` and `L4` may share an even atlas page if both regions fit; otherwise `L4`
-//! requires a second even page. Together with the odd page used by `L3`, this means the branch can
+//! After `L1` is composed, `L0` has an odd allocation containing that result. This allocation must
+//! remain live while `L2` is scheduled. Descending into `L2` then reaches `L3`, which also needs an
+//! odd allocation. `L0` and `L3` may share an odd atlas page if both regions fit; otherwise `L3`
+//! requires a second odd page. Together with the even page used by `L2`, this means the branch can
 //! require three intermediate textures. Lazy allocation minimizes the overlap, but cannot remove
 //! allocations whose contents are simultaneously live. However, it should become apparent that,
 //! even for complexly nested layer graphs, the number of allocations kept alive at the same time
-//! is basically as small as possible.
+//! is basically as small as possible and never exceeds the maximum layer depth across the whole
+//! scene graph.
 //!
 //! ## Batching into rounds
 //!
@@ -80,32 +82,40 @@
 //! at the earliest round and stage allowed by its dependencies. Operations can batch into the same
 //! round when they require the same even and odd pages and their stages are compatible; otherwise
 //! scheduling advances until the dependency is satisfied or the required page pair can be bound.
-//! The scheduler does not allocate additional pages merely to improve batching.
+//! The scheduler does **not** allocate additional pages merely to improve batching, ensuring that
+//! the memory minimization property is upheld.
 //!
-//! This process is monotonic and conservative: it does not backtrack to find a globally minimal
-//! number of render passes. This is accepted as a downside of the current algorithm in the interest
-//! of keeping the already non-trivial logic as simple as possible. The concrete contents and
-//! texture bindings of a round are described in the [`round`] module.
+//! This process is monotonic and conservative: given that our cursor is currently at some base
+//! round, we **never** attempt to backtrack to find a spot for a layer allocation in a previous
+//! round, in an attempt to minimize the number of render passes. This is accepted as a downside of
+//! the current algorithm in the interest of keeping the already non-trivial logic as simple as
+//! possible. The concrete contents and texture bindings of a round are described in the [`round`]
+//! module.
 //!
-//! ## Filters and non-default blends
+//! For example, consider a single 30x30 texture page. We first allocate a 5x5 region in round 0,
+//! followed by a 30x30 region that must wait until the first allocation is released and therefore
+//! advances the cursor to round 1. If we then request another 5x5 region, the scheduler does not
+//! reconsider round 0, even if that region could have fit beside the first 5x5 allocation.
 //!
-//! A filter layer first follows the same bottom-up and lazy allocation process as a regular layer.
-//! Its main allocation covers the filter's expanded bounds. Once the layer draws are ready, the
-//! scheduler allocates an equally sized temporary region from the opposite texture group and
-//! places the filter in the first compatible filter stage. The main and temporary regions provide
-//! the input/output pair for the GPU pass sequence, whose final result is written back to the main
-//! allocation. The temporary region is then cleared and released. Filters that must preserve the
-//! unfiltered pixels, such as drop shadows, additionally reserve the shared scratch texture. The
-//! layer is not made available to its parent until the filter is complete.
+//! ## Filter and blend layers
 //!
-//! Default source-over composition needs no separate blend operation: the completed child is
-//! sampled by the parent's next draw. A non-default blend instead waits until both the child and
-//! the existing parent contents are ready. It is placed in the next compatible blend stage for the
-//! parent's texture group and constrains the round to bind both required layer pages. The backend
-//! blends through the shared scratch texture and copies the result back into the parent, after
-//! which the child can be cleared and released. If a non-default blend targets the root, the root
-//! is first rendered into an intermediate layer because the user-provided target cannot be sampled
-//! directly. Apart from that, this case is handled the same as any other layer.
+//! A filter layer follows the same bottom-up scheduling and lazy allocation process as a regular
+//! layer. Its allocation covers the filter's expanded bounds. Once the layer contents have been
+//! rendered, the scheduler allocates an equally sized temporary region from the opposite texture
+//! group. Filter passes alternate their source and destination between these two regions, and the
+//! pass plan ensures that the final result is left in the layer's allocation. The temporary region
+//! is then cleared and released. Filters that must preserve the unfiltered pixels, such as drop
+//! shadows, additionally use the shared scratch texture. The layer is not made available to its
+//! parent until filtering is complete.
+//!
+//! Default source-over composition does not require a separate blend pass. Instead, the parent
+//! draw samples the completed child layer directly. Non-default blending must read both the child
+//! and the existing parent contents, so it waits until both are ready and is placed in the next
+//! compatible blend stage. The round must bind the pages containing both layers. The backend writes
+//! the blended result to the shared scratch texture and copies it back into the parent, after which
+//! the child can be cleared and released. When a non-default blend targets the root, the root is
+//! first rendered into an intermediate layer because the user-provided target cannot be sampled
+//! directly. The remaining process is the same as for any other non-default blend.
 
 mod allocate;
 mod cursor;
