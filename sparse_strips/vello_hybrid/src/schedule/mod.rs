@@ -155,7 +155,7 @@ const REGULAR_LAYER_KIND: RecordedLayerKind = RecordedLayerKind::Regular;
 pub(crate) struct Schedule {
     /// Rendering rounds in execution order.
     rounds: Rounds,
-    /// Dimensions shared by every intermediate texture.
+    /// The dimensions of every intermediate texture.
     texture_size: SizeU16,
     /// Whether execution requires the shared scratch texture.
     scratch_texture: bool,
@@ -266,6 +266,9 @@ impl<'a, 'p> Scheduler<'a, 'p> {
     fn schedule_root(&mut self, rounds: &mut Rounds) -> Result<(), RenderError> {
         let target = self.root_render_target;
 
+        let mut state =
+            TargetScheduleState::new(target, self.cursor.current_round(), self.scene_bbox);
+
         if self.recorder.root_is_blend_target {
             // If the layer is a target of a non-default blending operation, we need to be able to
             // sample from it. However, this is not possible if we render directly into the
@@ -274,9 +277,9 @@ impl<'a, 'p> Scheduler<'a, 'p> {
 
             let opened_layer = self.open_root_layer();
             let layer = self.schedule_layer(opened_layer, rounds)?;
-            let mut state = TargetScheduleState::new(target, layer.ready.round, self.scene_bbox);
             state.wait_until(layer.ready);
 
+            // Schedule the blit back into the main framebuffer.
             let draw_point = rounds.build_draw(
                 &mut state,
                 &mut self.storage.buffers.draw_buffers,
@@ -286,22 +289,23 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 },
             );
 
+            // Once the blit back is done, we can release the temporary layer.
             self.release_layer(layer, draw_point, rounds);
         } else {
-            let mut state =
-                TargetScheduleState::new(target, self.cursor.current_round(), self.scene_bbox);
-
             for cmd in &self.recorder.nodes {
-                // Remember: Each command node consists of a sequence of draws + an option layer invocation.
+                // Remember: Each command node consists of a sequence of draws + an optional layer invocation.
 
-                // First, we schedule the layer node. This might trigger advances to our current base round.
-                let child = self.prepare_node(cmd, state.draw_state.target_bbox, rounds)?;
-
-                // Then, we just submit all draws to the root output target for whatever round we are
-                // currently in.
+                // First submit all the draws. Note that unlike for layers, it's fine to submit
+                // the draws before scheduling the child node. This is because the root target is
+                // _already_ allocated, so we don't need to ensure lazy allocation here.
                 self.push_draws(&cmd.draws, &mut state, rounds);
 
-                // Finally, we also schedule the layer sampling operation.
+                // Next, we schedule the layer node. This might trigger advances to our current
+                // base round.
+                let child = self.prepare_node(cmd, state.draw_state.target_bbox, rounds)?;
+
+                // Finally, we also schedule the layer sampling operation. It's guaranteed to be
+                // a simple layer, since we know for sure that the root isn't a blend target.
                 if let Some(child) = child {
                     self.compose_simple_layer(child.props, child.layer, &mut state, rounds);
                 }
@@ -309,6 +313,100 @@ impl<'a, 'p> Scheduler<'a, 'p> {
         };
 
         Ok(())
+    }
+
+    fn schedule_layer(
+        &mut self,
+        mut layer: OpenLayer<'a>,
+        rounds: &mut Rounds,
+    ) -> Result<ScheduledLayer, RenderError> {
+        // Overall we follow a similar flow to `schedule_root` here.
+
+        for cmd in layer.cmds {
+            // First make sure that the child node is scheduled, in case it exists. Unlike for root
+            // layers, we need to make sure to do this _before_ pushing any draws.
+            // TODO: Similarly to Vello CPU, flatten this to avoid stack overflows for deep layers
+            let child = self.prepare_node(cmd, layer.sample.bbox, rounds)?;
+
+            // Keep this after `prepare_node`: allocating lazily is what makes traversal
+            // bottom-up with respect to memory, while still allowing compatible layers to batch.
+            let target = self.ensure_layer_target(&mut layer)?;
+
+            // Now schedule the draws.
+            self.push_draws(&cmd.draws, &mut target.schedule_state, rounds);
+
+            // And optionally the composition of the child layer node.
+            if let Some(child) = child {
+                self.compose_layer(child.props, child.layer, &mut target.schedule_state, rounds)?;
+            }
+        }
+
+        // In case there weren't any commands, still make sure the target exists.
+        self.ensure_layer_target(&mut layer)?;
+
+        let target = layer.target.take().unwrap();
+
+        // Extract the state of the scheduled layer so we know when it's ready for sampling.
+        let region = target.schedule_state.draw_state.target;
+        let mut layer_ready = target.schedule_state.ready;
+
+        if let Some(filter) = target.filter {
+            let temporary = self.cursor.allocate_layer(LayerAllocationRequest::new(
+                region.texture.rect,
+                layer.kind,
+                region.texture.target.texture_parity.opposite(),
+            ))?;
+            let textures = FilterTextureRegions::new(region.texture, temporary.allocation.region);
+
+            if filter.data.needs_copy_pass() {
+                self.cursor.require_scratch_texture()?;
+            }
+
+            // Now we determine the point at which we can perform the filter operation.
+            // Obviously, we first need to wait until renderin of the underlying layer finished.
+            let min_point = layer_ready
+                // Then, we must wait until our reserved space in the atlas is available.
+                .max(SchedulePoint::start(temporary.round_idx))
+                // Finally, wait until we reach the filter stage.
+                .next(RoundStage::filter(region.texture.target.texture_parity));
+
+            // Now find the _actual_ schedule point that corresponds to a around that matches our
+            // requirements for texture bindings.
+            let filter_schedule_point = rounds.resolve_binding_point(min_point, textures.round_bindings());
+
+            rounds.ensure_exists(filter_schedule_point.round);
+            rounds.round_mut(filter_schedule_point.round).push_filter_op(
+                region.texture.target.texture_parity,
+                &mut self.storage.buffers,
+                FilterOp {
+                    textures,
+                    filter_data_offset: filter.data_offset,
+                    gpu_filter: filter.data,
+                },
+            );
+
+            // Make sure to clear and deallocate the temporary allocation.
+            let clear_region = temporary.allocation.clear_region();
+            rounds.push_layer_clear(
+                filter_schedule_point.round,
+                clear_region.target.texture_parity,
+                clear_region.rect,
+            );
+            self.cursor
+                .release(temporary.allocation, filter_schedule_point.round);
+
+            // Since the layer has a filter, it's only ready once it's filtered version finished
+            // rendering.
+            layer_ready = filter_schedule_point;
+        }
+
+        let scheduled = ScheduledLayer {
+            sample_region: layer.sample.resolve(region),
+            allocation: target.allocation,
+            ready: layer_ready,
+        };
+
+        Ok(scheduled)
     }
 
     fn prepare_node(
@@ -411,89 +509,6 @@ impl<'a, 'p> Scheduler<'a, 'p> {
                 }
             },
         );
-    }
-
-    fn schedule_layer(
-        &mut self,
-        mut layer: OpenLayer<'a>,
-        rounds: &mut Rounds,
-    ) -> Result<ScheduledLayer, RenderError> {
-        // Overall we follow a similar flow to `schedule_root` here.
-
-        for cmd in layer.cmds {
-            // First make sure that the child node is scheduled, in case it exists.
-            // TODO: Similarly to Vello CPU, flatten this to avoid stack overflows for deep layers
-            let child = self.prepare_node(cmd, layer.sample.bbox, rounds)?;
-
-            // Important: Keep this after `prepare_node`: allocating lazily is what makes traversal
-            // bottom-up with respect to memory, while still allowing compatible layers to batch.
-            let target = self.ensure_layer_target(&mut layer)?;
-
-            // Now schedule the draws + optionally the composition of the child layer node.
-            self.push_draws(&cmd.draws, &mut target.schedule_state, rounds);
-
-            if let Some(child) = child {
-                self.compose_layer(child.props, child.layer, &mut target.schedule_state, rounds)?;
-            }
-        }
-
-        self.ensure_layer_target(&mut layer)?;
-
-        let target = layer.target.take().unwrap();
-
-        let region = target.schedule_state.draw_state.target;
-        let mut ready = target.schedule_state.ready;
-
-        if let Some(filter) = target.filter {
-            let temporary = self.cursor.allocate_layer(LayerAllocationRequest::new(
-                region.texture.rect,
-                layer.kind,
-                region.texture.target.texture_parity.opposite(),
-            ))?;
-            let textures = FilterTextureRegions::new(region.texture, temporary.allocation.region);
-
-            if filter.data.needs_copy_pass() {
-                self.cursor.require_scratch_texture()?;
-            }
-
-            let base_point = ready
-                // We must wait until our reserved space is available in the atlas.
-                .max(SchedulePoint::start(temporary.round_idx))
-                // Wait until we reach the filter stage.
-                .next(RoundStage::filter(region.texture.target.texture_parity));
-
-            let filter_point = rounds.resolve_binding_point(base_point, textures.round_bindings());
-
-            rounds.ensure_exists(filter_point.round);
-            rounds.round_mut(filter_point.round).push_filter_op(
-                region.texture.target.texture_parity,
-                &mut self.storage.buffers,
-                FilterOp {
-                    textures,
-                    filter_data_offset: filter.data_offset,
-                    gpu_filter: filter.data,
-                },
-            );
-
-            let clear_region = temporary.allocation.clear_region();
-            rounds.push_layer_clear(
-                filter_point.round,
-                clear_region.target.texture_parity,
-                clear_region.rect,
-            );
-            self.cursor
-                .release(temporary.allocation, filter_point.round);
-
-            ready = filter_point;
-        }
-
-        let scheduled = ScheduledLayer {
-            sample_region: layer.sample.resolve(region),
-            allocation: target.allocation,
-            ready,
-        };
-
-        Ok(scheduled)
     }
 
     /// Schedule a composition operation for a layer.
